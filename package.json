@@ -26,5 +26,8 @@
   "bugs": {
     "url": "https://github.com/justmoon/xen-ilp/issues"
   },
-  "homepage": "https://github.com/justmoon/xen-ilp#readme"
+  "homepage": "https://github.com/justmoon/xen-ilp#readme",
+  "devDependencies": {
+    "prettier": "^2.6.2"
+  }
 }
