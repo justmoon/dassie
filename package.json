@@ -1,0 +1,30 @@
+{
+  "name": "@xen-ilp/root",
+  "version": "1.0.0",
+  "description": "Root package of the Xen/ILP monorepo",
+  "main": "index.js",
+  "scripts": {
+    "build": "echo \"Not yet defined\"",
+    "start": "echo \"Not yet defined\"",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/justmoon/xen-ilp.git"
+  },
+  "keywords": [
+    "interledger",
+    "ilp",
+    "xen",
+    "network",
+    "monorepo",
+    "p2p",
+    "money"
+  ],
+  "author": "Stefan Thomas <stefan@interledger.org>",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/justmoon/xen-ilp/issues"
+  },
+  "homepage": "https://github.com/justmoon/xen-ilp#readme"
+}
