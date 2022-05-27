@@ -3,3 +3,6 @@ tasks:
       pnpm build
     command: |
       pnpm start
+ports:
+  - port: 3000
+    onOpen: open-preview
