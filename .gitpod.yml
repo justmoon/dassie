@@ -1,0 +1,5 @@
+tasks:
+  - init: |
+      pnpm build
+    command: |
+      pnpm start
