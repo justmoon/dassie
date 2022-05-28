@@ -24,6 +24,12 @@ importers:
       ts-node-dev: 2.0.0_w6gfxie3xfwntbz3mwbbvycbdq
       typescript: 4.7.2
 
+  packages/app-node:
+    specifiers:
+      reduct: ^3.3.1
+    dependencies:
+      reduct: 3.3.1
+
   packages/app-wallet:
     specifiers:
       solid-js: ^1.4.2
@@ -1620,6 +1626,10 @@ packages:
     engines: {node: '>=8.10.0'}
     dependencies:
       picomatch: 2.3.1
+    dev: false
+
+  /reduct/3.3.1:
+    resolution: {integrity: sha512-1OaOZqNczCfns093pnxtvOqe/1fr758JIIHlQkBritMMm3O1aPiDA3Wmj5gDsQjsBqMKB7lYU0BaUHIqLbS5sA==}
     dev: false
 
   /regexpp/3.2.0:

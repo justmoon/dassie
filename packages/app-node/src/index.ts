@@ -1,3 +1,3 @@
-import { launch } from "./modules/app"
+import App from "./modules/app"
 
-launch()
+App.launch()
