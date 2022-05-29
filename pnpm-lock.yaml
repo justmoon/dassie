@@ -5,6 +5,7 @@ importers:
   .:
     specifiers:
       '@tsconfig/recommended': ^1.0.1
+      '@types/debug': ^4.1.7
       '@types/node': ^17.0.36
       '@typescript-eslint/eslint-plugin': ^5.26.0
       '@typescript-eslint/parser': ^5.26.0
@@ -18,6 +19,7 @@ importers:
       vite-plugin-solid: ^2.2.6
     dependencies:
       '@tsconfig/recommended': 1.0.1
+      '@types/debug': 4.1.7
       '@types/node': 17.0.36
       '@typescript-eslint/eslint-plugin': 5.26.0_hzuh7e2up357pvq3mkokjvu2lq
       '@typescript-eslint/parser': 5.26.0_xztl6dhthcahlo6akmb2bmjmle
@@ -32,11 +34,11 @@ importers:
 
   packages/app-node:
     specifiers:
+      debug: ^4.3.4
       env-paths: ^3.0.0
-      reduct: ^3.3.1
     dependencies:
+      debug: 4.3.4
       env-paths: 3.0.0
-      reduct: 3.3.1
 
   packages/app-wallet:
     specifiers:
@@ -471,8 +473,18 @@ packages:
     resolution: {integrity: sha512-2xN+iGTbPBEzGSnVp/Hd64vKJCJWxsi9gfs88x4PPMyEjHJoA3o5BY9r5OLPHIZU2pAQxkSAsJFqn6itClP8mQ==}
     dev: false
 
+  /@types/debug/4.1.7:
+    resolution: {integrity: sha512-9AonUzyTjXXhEOa0DnqpzZi6VHlqKMswga9EXjpXnnqxwLtdvPPtlO8evrI5D9S6asFRCQ6v+wpiUKbw+vKqyg==}
+    dependencies:
+      '@types/ms': 0.7.31
+    dev: false
+
   /@types/json-schema/7.0.11:
     resolution: {integrity: sha512-wOuvG1SN4Us4rez+tylwwwCV1psiNVOkJeM3AUWUNWg/jDQY2+HE/444y5gc+jBmRqASOm2Oeh5c1axHobwRKQ==}
+    dev: false
+
+  /@types/ms/0.7.31:
+    resolution: {integrity: sha512-iiUgKzV9AuaEkZqkOLDIvlQiL6ltuZd9tGcW3gwpnX8JbuiuhFlEGmmFXEXkN50Cvq7Os88IY2v0dkDqXYWVgA==}
     dev: false
 
   /@types/node/17.0.36:
@@ -1665,10 +1677,6 @@ packages:
     engines: {node: '>=8.10.0'}
     dependencies:
       picomatch: 2.3.1
-    dev: false
-
-  /reduct/3.3.1:
-    resolution: {integrity: sha512-1OaOZqNczCfns093pnxtvOqe/1fr758JIIHlQkBritMMm3O1aPiDA3Wmj5gDsQjsBqMKB7lYU0BaUHIqLbS5sA==}
     dev: false
 
   /regexpp/3.2.0:

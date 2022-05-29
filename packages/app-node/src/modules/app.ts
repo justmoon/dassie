@@ -1,13 +1,7 @@
-import reduct from "reduct"
-import type { Injector } from "reduct"
-import Config from "./config"
+import Context from "./context"
 
 class App {
-  private config: Config
-
-  constructor(deps: Injector) {
-    this.config = deps(Config)
-  }
+  constructor(private context: Context) {}
 
   async start() {
     setTimeout(() => {}, 0x7fffffff)
@@ -15,8 +9,9 @@ class App {
   }
 
   static async launch() {
-    const deps = reduct()
-    const app = new App(deps)
+    const context = await Context.fromEnvironment()
+    const app = new App(context)
+    console.log(context.config.data.dataPath)
     return app.start()
   }
 }
