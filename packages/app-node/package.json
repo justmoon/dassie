@@ -5,14 +5,17 @@
   "exports": "./index.js",
   "type": "module",
   "scripts": {
-    "start": "vite-node -w src/index.ts",
+    "dev": "vite-node scripts/start-dev-server.ts",
+    "dev:certs": "vite-node scripts/generate-dev-certs.ts",
     "build": "vite build --ssr src/index.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "dependencies": {
+    "@types/ws": "^8.5.3",
     "debug": "^4.3.4",
-    "env-paths": "^3.0.0"
+    "env-paths": "^3.0.0",
+    "ws": "^8.7.0"
   }
 }
