@@ -1,4 +1,5 @@
-import { createServer, Server } from "node:https"
+import { Server, createServer } from "node:https"
+
 import type { Config } from "../config"
 
 export interface HttpContext {

@@ -1,9 +1,9 @@
 /* @refresh reload */
 import { render } from "solid-js/web"
-import Uplink from "./modules/uplink"
 
-import "./index.css"
 import App from "./App"
+import "./index.css"
+import Uplink from "./modules/uplink"
 
 render(() => <App />, document.getElementById("root") as HTMLElement)
 

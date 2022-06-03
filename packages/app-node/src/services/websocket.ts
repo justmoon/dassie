@@ -1,5 +1,6 @@
 import type { WebSocket } from "ws"
 import { WebSocketServer } from "ws"
+
 import type { Config } from "../config"
 import type HttpService from "./http"
 

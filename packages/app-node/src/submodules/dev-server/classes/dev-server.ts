@@ -1,8 +1,10 @@
+import colors from "picocolors"
 import { createLogger, createServer } from "vite"
 import { ViteNodeServer } from "vite-node/server"
-import { NODES } from "../constants/dev-nodes"
+
 import { posix } from "node:path"
-import colors from "picocolors"
+
+import { NODES } from "../constants/dev-nodes"
 import DevProcess from "./dev-process"
 import DevRpcHost from "./dev-rpc-host"
 

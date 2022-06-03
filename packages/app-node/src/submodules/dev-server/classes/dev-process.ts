@@ -1,11 +1,13 @@
+import colors from "picocolors"
+import { Logger, ViteDevServer, createLogger } from "vite"
+
 import { ChildProcess, fork } from "node:child_process"
-import type { InputConfig } from "../../../config"
 import { Readable, Writable } from "node:stream"
+
+import type { InputConfig } from "../../../config"
 import split from "../../../utils/stream-by-line"
 import prefix from "../../../utils/stream-prefix"
-import colors from "picocolors"
 import type DevRpcHost from "./dev-rpc-host"
-import { createLogger, Logger, ViteDevServer } from "vite"
 
 const entryPoint = new URL("../dev-runner.js", import.meta.url).pathname
 

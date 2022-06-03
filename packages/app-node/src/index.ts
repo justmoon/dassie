@@ -1,6 +1,6 @@
+import { InputConfig, fromEnvironment, fromPartialConfig } from "./config"
 import HttpService from "./services/http"
 import WebSocketService from "./services/websocket"
-import { fromEnvironment, fromPartialConfig, InputConfig } from "./config"
 
 const start = async (inputConfig?: InputConfig) => {
   const config = inputConfig

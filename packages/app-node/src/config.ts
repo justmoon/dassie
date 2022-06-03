@@ -1,7 +1,10 @@
-import envPaths from "env-paths"
-import { APP_NAME } from "./constants/general"
-import { readFile } from "node:fs/promises"
 import Debug from "debug"
+import envPaths from "env-paths"
+
+import { readFile } from "node:fs/promises"
+
+import { APP_NAME } from "./constants/general"
+
 const debug = Debug(`${APP_NAME}:config`)
 
 export interface Config {
