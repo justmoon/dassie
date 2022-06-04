@@ -20,8 +20,8 @@ export default class HttpService {
 
     this.server = createServer(
       {
-        cert: context.config.tlsCert,
-        key: context.config.tlsKey,
+        cert: context.config.tlsWebCert,
+        key: context.config.tlsWebKey,
       },
       this.handleRequest
     )

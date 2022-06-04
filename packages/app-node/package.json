@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite-node scripts/start-development-server.ts",
-    "dev:certs": "vite-node scripts/generate-development-certs.ts",
+    "dev:validate": "vite-node scripts/validate-development-environment.ts",
     "build": "vite build --ssr src/index.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

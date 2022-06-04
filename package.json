@@ -6,8 +6,8 @@
   "scripts": {
     "clearn": "pnpm -r clean",
     "build": "pnpm -r build",
-    "dev": "pnpm -r --stream --parallel run dev",
-    "dev:certs": "pnpm -r --stream run dev:certs",
+    "dev": "pnpm dev:validate && pnpm -r --stream --parallel run dev",
+    "dev:validate": "pnpm -r --stream dev:validate",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
