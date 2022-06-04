@@ -5,10 +5,10 @@ import logo from "./logo.svg"
 const App: Component = () => {
   return (
     <div class="text-center">
-      <header class="flex min-h-screen flex-col items-center justify-center bg-gray-700 text-lg text-white">
+      <header class="flex flex-col min-h-screen bg-gray-700 text-lg text-white items-center justify-center">
         <img
           src={logo}
-          class="animate-[spin_20s_linear_infinite] h-[40vmin] pointer-events-none"
+          class="h-[40vmin] animate-spin animate-duration-8000 animated pointer-events-none"
           alt="logo"
         />
         <p>

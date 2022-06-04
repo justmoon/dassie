@@ -4,15 +4,22 @@ import { ViteNodeServer } from "vite-node/server"
 
 import { posix } from "node:path"
 
-import { NODES } from "../constants/dev-nodes"
-import DevProcess from "./dev-process"
-import DevRpcHost from "./dev-rpc-host"
+import ChildProcessWrapper from "./classes/child-process-wrapper"
 
 export function getShortName(file: string, root: string): string {
   return file.startsWith(root + "/") ? posix.relative(root, file) : file
 }
 
-export const startDevServer = async () => {
+export interface NodeDefinition<T> {
+  id: string
+  config: T
+  url: string
+  entry?: string
+}
+
+export const startDevelopmentServer = async <T>(
+  nodes: Array<NodeDefinition<T>>
+) => {
   const logger = createLogger("info", {
     prefix: "[dev]",
   })
@@ -32,10 +39,8 @@ export const startDevServer = async () => {
   // create vite-node server
   const nodeServer = new ViteNodeServer(server)
 
-  const rpcHost = new DevRpcHost(nodeServer)
-
-  const runners = NODES.map(({ nodeId, config }) => {
-    return new DevProcess(nodeId, config, server, rpcHost)
+  const processes = nodes.map((node) => {
+    return new ChildProcessWrapper(server, nodeServer, node)
   })
 
   logger.info(
@@ -43,8 +48,8 @@ export const startDevServer = async () => {
     { clear: true }
   )
 
-  for (const runner of runners) {
-    await runner.start()
+  for (const proc of processes) {
+    await proc.start()
   }
 
   server.watcher.on("change", async (file) => {
@@ -54,7 +59,7 @@ export const startDevServer = async () => {
     const mods = moduleGraph.getModulesByFile(file)
 
     try {
-      if (mods && mods.size) {
+      if (mods && mods.size > 0) {
         logger.info(
           `${colors.green(`restart nodes`)} ${colors.dim(shortFile)}`,
           {
@@ -62,10 +67,10 @@ export const startDevServer = async () => {
             timestamp: true,
           }
         )
-        await Promise.all(runners.map((runner) => runner.restart()))
+        await Promise.all(processes.map((runner) => runner.restart()))
       }
-    } catch (err) {
-      console.error(err)
+    } catch (error) {
+      console.error(error)
     }
   })
 }

@@ -1,0 +1,35 @@
+{
+  "name": "@xen-ilp/lib-dev-server",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.cjs",
+      "import": "./dist/index.js"
+    },
+    "./runner": {
+      "types": "./dist/runner.d.ts",
+      "require": "./dist/runner.cjs",
+      "import": "./dist/runner.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "clean": "rimraf dist",
+    "build": "rollup -c",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Stefan Thomas <justmoon@members.fsf.org>",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@xen-ilp/lib-itergen-utils": "workspace:*",
+    "@xen-ilp/lib-type-utils": "workspace:*"
+  },
+  "devDependencies": {
+    "@xen-ilp/config-rollup": "workspace:*"
+  }
+}

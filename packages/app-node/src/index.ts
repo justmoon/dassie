@@ -10,6 +10,8 @@ const start = async (inputConfig?: InputConfig) => {
   const http = new HttpService({ config })
 
   const ws = new WebSocketService({ config, http })
+
+  return { config, http, ws }
 }
 
 export default start

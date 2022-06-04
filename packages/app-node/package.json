@@ -5,8 +5,8 @@
   "exports": "./index.js",
   "type": "module",
   "scripts": {
-    "dev": "vite-node scripts/start-dev-server.ts",
-    "dev:certs": "vite-node scripts/generate-dev-certs.ts",
+    "dev": "vite-node scripts/start-development-server.ts",
+    "dev:certs": "vite-node scripts/generate-development-certs.ts",
     "build": "vite build --ssr src/index.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -14,8 +14,12 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@types/ws": "^8.5.3",
+    "@xen-ilp/lib-type-utils": "workspace:^1.0.0",
     "debug": "^4.3.4",
     "env-paths": "^3.0.0",
     "ws": "^8.7.0"
+  },
+  "devDependencies": {
+    "@xen-ilp/lib-dev-server": "workspace:*"
   }
 }

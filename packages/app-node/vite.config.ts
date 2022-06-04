@@ -1,4 +1,3 @@
-import { resolve } from "path"
 import { defineConfig } from "vite"
 
 export default defineConfig({
@@ -6,7 +5,7 @@ export default defineConfig({
     target: "node16",
     polyfillDynamicImport: false,
     lib: {
-      entry: resolve(__dirname, "src/index.ts"),
+      entry: new URL("src/index.ts", import.meta.url).pathname,
       formats: ["es"],
     },
   },

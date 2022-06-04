@@ -1,16 +1,16 @@
 {
-  "extends": "../../tsconfig.common.json",
+  "extends": "@tsconfig/strictest",
   "compilerOptions": {
-    "strict": true,
     "target": "ESNext",
     "module": "ESNext",
-    "moduleResolution": "node",
+    "moduleResolution": "Node",
     "allowSyntheticDefaultImports": true,
-    "esModuleInterop": true,
+    "isolatedModules": true,
     "jsx": "preserve",
     "jsxImportSource": "solid-js",
     "types": ["vite/client"],
     "noEmit": true,
-    "isolatedModules": true
-  }
+    "skipLibCheck": true
+  },
+  "exclude": ["**/dist/**"]
 }
