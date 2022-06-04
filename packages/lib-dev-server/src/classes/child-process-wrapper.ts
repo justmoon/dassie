@@ -32,7 +32,7 @@ export default class ChildProcessWrapper<T> {
     public readonly node: NodeDefinition<T>
   ) {
     this.logger = createLogger("info", {
-      prefix: `${colors.green(`[${this.node.id}]`)} `,
+      prefix: `[${this.node.id}]`,
     })
     this.rpcHost = new RpcHost(
       schema,
@@ -57,21 +57,21 @@ export default class ChildProcessWrapper<T> {
     switch (this.state) {
       case "idle":
         this.logger.error(
-          `${colors.red(`unexpected error from idle child process: `)} ${error}`
+          `${colors.red(
+            `unexpected error from idle child process: `
+          )} ${error}`,
+          { timestamp: true }
         )
         break
       case "running":
-        this.logger.error(
-          `${colors.green(`[${this.node.id}]`)} ${colors.red(
-            `child process error: `
-          )} ${error}`
-        )
+        this.logger.error(`${colors.red(`child process error: `)} ${error}`, {
+          timestamp: true,
+        })
         break
       case "stopping":
         this.logger.error(
-          `${colors.green(`[${this.node.id}]`)} ${colors.red(
-            `child process error while stopping: `
-          )} ${error}`
+          `${colors.red(`child process error while stopping: `)} ${error}`,
+          { timestamp: true }
         )
         break
       default:
@@ -81,15 +81,11 @@ export default class ChildProcessWrapper<T> {
 
   handleChildExit = (code: number | null) => {
     if (code === 0) {
-      this.logger.info(
-        `${colors.green(`[${this.node.id}]`)} ${colors.green(`child exited`)}`
-      )
+      this.logger.info(`${colors.green(`child exited`)}`, { timestamp: true })
     } else {
-      this.logger.error(
-        `${colors.green(`[${this.node.id}]`)} ${colors.red(
-          `child exited with code: `
-        )} ${code}`
-      )
+      this.logger.error(`${colors.red(`child exited with code: `)} ${code}`, {
+        timestamp: true,
+      })
     }
     this.state = "idle"
     this.child = undefined
@@ -125,7 +121,7 @@ export default class ChildProcessWrapper<T> {
     this.state = "running"
 
     return (this.startPromise = (async () => {
-      const child = (this.child = fork(entryPoint, [], {
+      const child = (this.child = fork(entryPoint, ["--enable-source-maps"], {
         silent: true,
       }))
       assertDefined(child.stdout)
@@ -135,16 +131,23 @@ export default class ChildProcessWrapper<T> {
       child.addListener("exit", this.handleChildExit)
       child.addListener("message", this.handleChildMessage)
 
-      const logPrefix = `${colors.cyan(`[${this.node.id}]`)} `
+      const logPrefix = `[${this.node.id}] `
       pipeOutput(child.stdout, process.stdout, logPrefix)
       pipeOutput(child.stderr, process.stderr, logPrefix)
 
-      this.rpcHost.call("start", {
-        root: this.viteServer.config.root,
-        base: this.viteServer.config.base,
-        entry: this.node.entry ?? "src/index.ts",
-        config: this.node.config,
-      })
+      try {
+        await this.rpcHost.call("start", {
+          root: this.viteServer.config.root,
+          base: this.viteServer.config.base,
+          entry: this.node.entry ?? "src/index.ts",
+          config: this.node.config,
+        })
+      } catch (error) {
+        this.logger.error(`${colors.red("child failed to start:")} ${error}`, {
+          timestamp: true,
+        })
+        throw error
+      }
 
       this.startPromise = undefined
     })())
@@ -175,7 +178,7 @@ export default class ChildProcessWrapper<T> {
       })
 
       if (child.connected) {
-        child.send({ id: "exit", method: "exit" })
+        this.rpcHost.callNoReturn("exit", [])
       } else if (this.child.exitCode === null) {
         child.kill()
       }

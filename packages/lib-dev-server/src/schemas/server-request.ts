@@ -2,7 +2,7 @@ import z from "zod"
 
 export const schema = z.discriminatedUnion("method", [
   z.object({
-    id: z.union([z.string(), z.number()]),
+    id: z.optional(z.union([z.string(), z.number()])),
     method: z.literal("start"),
     params: z.object({
       root: z.string(),
@@ -12,7 +12,7 @@ export const schema = z.discriminatedUnion("method", [
     }),
   }),
   z.object({
-    id: z.union([z.string(), z.number()]),
+    id: z.optional(z.union([z.string(), z.number()])),
     method: z.literal("exit"),
     params: z.tuple([]),
   }),

@@ -21,7 +21,7 @@ export const startDevelopmentServer = async <T>(
   nodes: Array<NodeDefinition<T>>
 ) => {
   const logger = createLogger("info", {
-    prefix: "[dev]",
+    prefix: "[dev-server]",
   })
 
   // create vite server
@@ -43,13 +43,17 @@ export const startDevelopmentServer = async <T>(
     return new ChildProcessWrapper(server, nodeServer, node)
   })
 
-  logger.info(
-    `  \n${colors.cyan("xen")} ${colors.green("dev server running")}\n  `,
-    { clear: true }
-  )
+  logger.info(`  \n${colors.green("dev server running")}\n  `, { clear: true })
 
   for (const proc of processes) {
-    await proc.start()
+    try {
+      await proc.start()
+    } catch {
+      logger.error(`${colors.red("skip starting other nodes")}`, {
+        timestamp: true,
+      })
+      break
+    }
   }
 
   server.watcher.on("change", async (file) => {
@@ -67,7 +71,21 @@ export const startDevelopmentServer = async <T>(
             timestamp: true,
           }
         )
-        await Promise.all(processes.map((runner) => runner.restart()))
+
+        // Stop all processes in parallel
+        await Promise.all(processes.map((runner) => runner.stop()))
+
+        // Start each process one at a time unless one fails
+        for (const proc of processes) {
+          try {
+            await proc.start()
+          } catch {
+            logger.error(`${colors.red("skip starting other nodes")}`, {
+              timestamp: true,
+            })
+            break
+          }
+        }
       }
     } catch (error) {
       console.error(error)

@@ -1,9 +1,10 @@
 import { ZodType, z } from "zod"
 
 import type { Serializable } from "node:child_process"
+import { isNativeError } from "node:util/types"
 
 export interface RpcRequest {
-  id: string | number | null | undefined
+  id?: string | number | null | undefined
   method: string
   params: unknown[] | Record<string, unknown>
 }
@@ -23,7 +24,7 @@ export default class RpcHost<T extends RpcRequest> {
   private readonly callbacks: Map<
     string,
     {
-      resolve: (value: Serializable | null) => void
+      resolve: (value?: Serializable) => void
       reject: (error: Error) => void
     }
   > = new Map()
@@ -55,26 +56,46 @@ export default class RpcHost<T extends RpcRequest> {
 
   async call(
     method: string,
-    parameters: unknown[] | Record<string, unknown>
-  ): Promise<Serializable | null> {
-    return new Promise<Serializable | null>((resolve, reject) => {
+    parameters: unknown[] | Record<string, unknown> = []
+  ): Promise<Serializable | undefined> {
+    return new Promise<Serializable | undefined>((resolve, reject) => {
       const id = String(this.unique++)
       this.send({ id, method, params: parameters })
       this.callbacks.set(id, { resolve, reject })
     })
   }
 
+  async callNoReturn(
+    method: string,
+    parameters: unknown[] | Record<string, unknown> = []
+  ) {
+    this.send({ id: undefined, method, params: parameters })
+  }
+
   async handleMessage(rawMessage: unknown) {
-    const message = this.schema.parse(rawMessage)
+    let message
+    try {
+      message = this.schema.parse(rawMessage)
+    } catch (error) {
+      console.error("Was unable to parse packet:", rawMessage)
+      throw error
+    }
 
     if ("result" in message || "error" in message) {
       const callback = this.callbacks.get(String(message.id))
       if (callback) {
         const { resolve, reject } = callback
         if ("error" in message) {
-          reject(new Error(message.error.message))
+          const match = /^([\w$]*Error): (.*)$/s.exec(message.error.message)
+          if (match) {
+            const error = new Error(match[2])
+            error.name = match[1] as string
+            reject(error)
+          } else {
+            reject(new Error(message.error.message))
+          }
         } else {
-          resolve(message.result)
+          resolve(message.result ?? undefined)
         }
         this.callbacks.delete(String(message.id))
       } else {
@@ -86,14 +107,15 @@ export default class RpcHost<T extends RpcRequest> {
         const result = (await this.handler(message)) ?? null
         this.send({
           id: message.id,
-          result: result,
+          result,
         })
       } catch (error) {
+        const errorMessage = isNativeError(error) ? error.stack : String(error)
         this.send({
           id: message.id,
           error: {
             code: 0,
-            message: String(error),
+            message: errorMessage,
           },
         })
       }
