@@ -1,11 +1,16 @@
 root: true
 parser: "@typescript-eslint/parser"
 extends: 
-  -  "eslint:recommended"
-  -  "plugin:@typescript-eslint/recommended"
-  -  "plugin:unicorn/recommended"
-  -  "prettier"
+  - "eslint:recommended"
+  - "plugin:@typescript-eslint/recommended"
+  - "plugin:@typescript-eslint/recommended-requiring-type-checking"
+  - "plugin:@typescript-eslint/strict"
+  - "plugin:unicorn/recommended"
+  - "prettier"
 plugins: 
   - "@typescript-eslint"
 env:
   es2021: true
+rules:
+  unicorn/no-null: 'off'
+  unicorn/no-useless-undefined: 'off'
