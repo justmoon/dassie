@@ -2,13 +2,13 @@
 import type { FetchResult, ViteNodeResolveId } from "vite-node"
 import { ViteNodeRunner } from "vite-node/client"
 
-import { UnreachableCaseError, assertDefined } from "@xen-ilp/lib-type-utils"
-
 import RpcHost from "./classes/rpc-host"
 import { ServerRequest, schema } from "./schemas/server-request"
 
 const sendMessage = (message: unknown) => {
-  assertDefined(process.send)
+  if (!process.send) {
+    throw new Error("process.send is not defined")
+  }
   process.send(message)
 }
 
@@ -45,8 +45,6 @@ const handleRequest = async (request: ServerRequest) => {
     }
     case "exit":
       return process.exit(0)
-    default:
-      throw new UnreachableCaseError(request)
   }
 }
 

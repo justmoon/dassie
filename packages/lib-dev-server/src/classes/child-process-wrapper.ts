@@ -1,24 +1,23 @@
 import colors from "picocolors"
-import { Logger, ViteDevServer, createLogger } from "vite"
+import type { ViteDevServer } from "vite"
 import type { ViteNodeServer } from "vite-node/server"
 
 import { ChildProcess, Serializable, fork } from "node:child_process"
-import { Readable, Writable } from "node:stream"
+import type { Readable } from "node:stream"
 
-import { byLine, prefix } from "@xen-ilp/lib-itergen-utils"
+import { byLine } from "@xen-ilp/lib-itergen-utils"
+import { createLogger } from "@xen-ilp/lib-logger"
+import type { Logger } from "@xen-ilp/lib-logger"
 import { UnreachableCaseError, assertDefined } from "@xen-ilp/lib-type-utils"
 
 import { ClientRequest, schema } from "../schemas/client-request"
 import type { NodeDefinition } from "../server"
 import RpcHost from "./rpc-host"
 
-const entryPoint = new URL("../dist/runner.js", import.meta.url).pathname
-
-function pipeOutput(input: Readable, output: Writable, prefixString = "") {
-  Readable.from(prefix(prefixString)(byLine(input))).pipe(output)
-}
+const RUNNER_MODULE = "@xen-ilp/lib-dev-server/runner"
 
 export default class ChildProcessWrapper<T> {
+  readonly prefix: string
   private state: "idle" | "running" | "stopping" = "idle"
   private child: ChildProcess | undefined
   private startPromise: Promise<void> | undefined
@@ -31,9 +30,8 @@ export default class ChildProcessWrapper<T> {
     private readonly nodeServer: ViteNodeServer,
     public readonly node: NodeDefinition<T>
   ) {
-    this.logger = createLogger("info", {
-      prefix: `[${this.node.id}]`,
-    })
+    this.prefix = `◼ ${this.node.id}`
+    this.logger = createLogger(this.prefix)
     this.rpcHost = new RpcHost(
       schema,
       this.handleChildRequest,
@@ -57,21 +55,15 @@ export default class ChildProcessWrapper<T> {
     switch (this.state) {
       case "idle":
         this.logger.error(
-          `${colors.red(
-            `unexpected error from idle child process: `
-          )} ${error}`,
-          { timestamp: true }
+          `${colors.red(`unexpected error from idle child process: `)} ${error}`
         )
         break
       case "running":
-        this.logger.error(`${colors.red(`child process error: `)} ${error}`, {
-          timestamp: true,
-        })
+        this.logger.error(`${colors.red(`child process error: `)} ${error}`)
         break
       case "stopping":
         this.logger.error(
-          `${colors.red(`child process error while stopping: `)} ${error}`,
-          { timestamp: true }
+          `${colors.red(`child process error while stopping: `)} ${error}`
         )
         break
       default:
@@ -81,11 +73,9 @@ export default class ChildProcessWrapper<T> {
 
   handleChildExit = (code: number | null) => {
     if (code === 0) {
-      this.logger.info(`${colors.green(`child exited`)}`, { timestamp: true })
+      this.logger.info(`${colors.green(`child exited`)}`)
     } else {
-      this.logger.error(`${colors.red(`child exited with code: `)} ${code}`, {
-        timestamp: true,
-      })
+      this.logger.error(`child exited with code: ${code}`)
     }
     this.state = "idle"
     this.child = undefined
@@ -109,6 +99,12 @@ export default class ChildProcessWrapper<T> {
     }
   }
 
+  async pipeOutput(input: Readable) {
+    for await (const line of byLine(input)) {
+      this.logger.info(line)
+    }
+  }
+
   async start() {
     if (this.state === "running") {
       return this.startPromise
@@ -121,9 +117,19 @@ export default class ChildProcessWrapper<T> {
     this.state = "running"
 
     return (this.startPromise = (async () => {
-      const child = (this.child = fork(entryPoint, ["--enable-source-maps"], {
-        silent: true,
-      }))
+      const resolvedEntryPoint = await this.nodeServer.resolveId(RUNNER_MODULE)
+
+      if (!resolvedEntryPoint) {
+        throw new Error(`${RUNNER_MODULE} not resolvable`)
+      }
+
+      const child = (this.child = fork(
+        resolvedEntryPoint.id,
+        ["--enable-source-maps"],
+        {
+          silent: true,
+        }
+      ))
       assertDefined(child.stdout)
       assertDefined(child.stderr)
 
@@ -131,9 +137,8 @@ export default class ChildProcessWrapper<T> {
       child.addListener("exit", this.handleChildExit)
       child.addListener("message", this.handleChildMessage)
 
-      const logPrefix = `[${this.node.id}] `
-      pipeOutput(child.stdout, process.stdout, logPrefix)
-      pipeOutput(child.stderr, process.stderr, logPrefix)
+      this.pipeOutput(child.stdout)
+      this.pipeOutput(child.stderr)
 
       try {
         await this.rpcHost.call("start", {
@@ -143,9 +148,7 @@ export default class ChildProcessWrapper<T> {
           config: this.node.config,
         })
       } catch (error) {
-        this.logger.error(`${colors.red("child failed to start:")} ${error}`, {
-          timestamp: true,
-        })
+        this.logger.error(`${colors.red("child failed to start:")} ${error}`)
         throw error
       }
 
@@ -156,8 +159,10 @@ export default class ChildProcessWrapper<T> {
   async stop() {
     if (this.state === "stopping") {
       return this.stopPromise
+    } else if (this.state === "idle") {
+      return
     } else if (this.state !== "running") {
-      throw new Error("runner must be running to stop")
+      throw new UnreachableCaseError(this.state)
     }
 
     this.state = "stopping"

@@ -6,7 +6,7 @@ async function* splitByLine(
     buffer += chunk
     let index
     while ((index = buffer.indexOf("\n")) > -1) {
-      const line = buffer.slice(0, index + 1)
+      const line = buffer.slice(0, index)
       yield line
       buffer = buffer.slice(index + 1)
     }

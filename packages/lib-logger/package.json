@@ -1,14 +1,11 @@
 {
-  "name": "@xen-ilp/lib-dev-server",
+  "name": "@xen-ilp/lib-logger",
   "type": "module",
   "version": "1.0.0",
-  "description": "",
+  "description": "Logging library for the Xen ILP project",
   "exports": {
     ".": {
       "import": "./src/index.ts"
-    },
-    "./runner": {
-      "import": "./dist/runner.js"
     }
   },
   "publishConfig": {
@@ -17,11 +14,6 @@
         "types": "./dist/index.d.ts",
         "require": "./dist/index.cjs",
         "import": "./dist/index.js"
-      },
-      "./runner": {
-        "types": "./dist/runner.d.ts",
-        "require": "./dist/runner.cjs",
-        "import": "./dist/runner.js"
       }
     }
   },
@@ -33,8 +25,6 @@
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "dependencies": {
-    "@xen-ilp/lib-itergen-utils": "workspace:*",
-    "@xen-ilp/lib-logger": "workspace:^1.0.0",
-    "@xen-ilp/lib-type-utils": "workspace:*"
+    "picocolors": "^1.0.0"
   }
 }

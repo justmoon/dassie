@@ -5,22 +5,23 @@
   "description": "Utility functions for JavaScript sync/async iterators and generators",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "require": "./dist/index.cjs",
-      "import": "./dist/index.js"
+      "import": "./src/index.ts"
     }
   },
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "require": "./dist/index.cjs",
+        "import": "./dist/index.js"
+      }
+    }
+  },
   "scripts": {
     "clean": "rimraf dist",
     "build": "rollup -c",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
-  "license": "Apache-2.0",
-  "devDependencies": {
-    "@xen-ilp/config-rollup": "workspace:*"
-  }
+  "license": "Apache-2.0"
 }

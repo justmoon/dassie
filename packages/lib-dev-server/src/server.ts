@@ -1,10 +1,14 @@
 import colors from "picocolors"
-import { createLogger, createServer } from "vite"
+import { createServer } from "vite"
 import { ViteNodeServer } from "vite-node/server"
 
 import { posix } from "node:path"
 
+import { createLogger } from "@xen-ilp/lib-logger"
+
 import ChildProcessWrapper from "./classes/child-process-wrapper"
+
+const logger = createLogger("xen:dev-server")
 
 export function getShortName(file: string, root: string): string {
   return file.startsWith(root + "/") ? posix.relative(root, file) : file
@@ -20,10 +24,6 @@ export interface NodeDefinition<T> {
 export const startDevelopmentServer = async <T>(
   nodes: Array<NodeDefinition<T>>
 ) => {
-  const logger = createLogger("info", {
-    prefix: "[dev-server]",
-  })
-
   // create vite server
   const server = await createServer({
     server: { hmr: false },
@@ -43,15 +43,17 @@ export const startDevelopmentServer = async <T>(
     return new ChildProcessWrapper(server, nodeServer, node)
   })
 
-  logger.info(`  \n${colors.green("dev server running")}\n  `, { clear: true })
+  logger.info("dev server running")
 
   for (const proc of processes) {
     try {
       await proc.start()
     } catch {
-      logger.error(`${colors.red("skip starting other nodes")}`, {
-        timestamp: true,
-      })
+      logger.error(
+        `${colors.red(
+          `node ${proc.node.id} failed, skip starting other nodes`
+        )}`
+      )
       break
     }
   }
@@ -64,13 +66,8 @@ export const startDevelopmentServer = async <T>(
 
     try {
       if (mods && mods.size > 0) {
-        logger.info(
-          `${colors.green(`restart nodes`)} ${colors.dim(shortFile)}`,
-          {
-            clear: true,
-            timestamp: true,
-          }
-        )
+        logger.clear()
+        logger.info(`${colors.green(`restart nodes`)} ${colors.dim(shortFile)}`)
 
         // Stop all processes in parallel
         await Promise.all(processes.map((runner) => runner.stop()))
@@ -80,9 +77,11 @@ export const startDevelopmentServer = async <T>(
           try {
             await proc.start()
           } catch {
-            logger.error(`${colors.red("skip starting other nodes")}`, {
-              timestamp: true,
-            })
+            logger.error(
+              `${colors.red(
+                `node ${proc.node.id} failed, skip starting other nodes`
+              )}`
+            )
             break
           }
         }
@@ -90,5 +89,10 @@ export const startDevelopmentServer = async <T>(
     } catch (error) {
       console.error(error)
     }
+  })
+
+  process.on("SIGINT", async () => {
+    await Promise.all(processes.map((runner) => runner.stop()))
+    setTimeout(() => process.exit(), 1000)
   })
 }

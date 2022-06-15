@@ -8,9 +8,13 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "jsxImportSource": "solid-js",
-    "types": ["vite/client"],
+    "types": ["vite/client", "node"],
     "noEmit": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@xen-ilp/*": ["packages/*/src"]
+    }
   },
   "exclude": ["**/dist/**"]
 }
