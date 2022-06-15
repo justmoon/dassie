@@ -66,7 +66,7 @@ const generateCertificate = async ({type, certificatePath, keyPath, node}: Certi
     await $`openssl req -new -key ${keyPath} -out ${certificatePath}.csr -days 365 -subj "/CN=${node.id}.localhost"`
     await $`mkcert -csr ${certificatePath}.csr -cert-file ${certificatePath}`
   } else {
-    await $`openssl req -new -x509 -key ${keyPath} -out ${certificatePath} -days 365 -subj "/CN=${node.id}.localhost"`
+    await $`openssl req -new -x509 -key ${keyPath} -out ${certificatePath} -days 365 -subj "/CN=g.xen.${node.id}"`
   }
 }
 
@@ -124,6 +124,7 @@ for (const certificate of neededCertificates) {
 
 if (!anyFilesGenerated && !anyFilesMissing && !anyFilesUnreadable && !anyFilesError) {
   console.log(colors.green("└─ all ok"))
+  console.log()
 } else if (anyFilesError) {
   console.log(output)
   console.error(

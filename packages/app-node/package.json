@@ -15,6 +15,7 @@
   "dependencies": {
     "@types/ws": "^8.5.3",
     "@xen-ilp/lib-type-utils": "workspace:^1.0.0",
+    "axios": "^0.27.2",
     "debug": "^4.3.4",
     "env-paths": "^3.0.0",
     "ws": "^8.7.0"

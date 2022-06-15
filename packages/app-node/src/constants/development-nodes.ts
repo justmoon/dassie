@@ -2,21 +2,41 @@ import type { NodeDefinition } from "@xen-ilp/lib-dev-server"
 
 import type { InputConfig } from "../config"
 
+const ENTRYPOINT_PATH = new URL("../index.ts", import.meta.url).pathname
 const LOCAL_PATH = new URL("../../../../local", import.meta.url).pathname
 
+export const PEERS: Array<[number, number]> = [
+  [1, 0],
+  [2, 0],
+  [2, 1],
+]
+
+export const nodeIndexToId = (index: number) => `n${index + 1}`
+export const nodeIndexToPort = (index: number) => 4000 + index
+
 export const generateNodeConfig = (index: number) => {
-  const id = `node${index + 1}`
+  const id = nodeIndexToId(index)
   return {
     id,
     config: {
+      nodeId: id,
       host: `${id}.localhost`,
-      port: 4000 + index,
+      port: nodeIndexToPort(index),
       tlsXenCertFile: `${LOCAL_PATH}/ssl/${id}.localhost/xen-${id}.localhost.pem`,
       tlsXenKeyFile: `${LOCAL_PATH}/ssl/${id}.localhost/xen-${id}.localhost-key.pem`,
       tlsWebCertFile: `${LOCAL_PATH}/ssl/${id}.localhost/web-${id}.localhost.pem`,
       tlsWebKeyFile: `${LOCAL_PATH}/ssl/${id}.localhost/web-${id}.localhost-key.pem`,
+      initialPeers: PEERS.filter(([peerIndex]) => peerIndex === index)
+        .map(
+          ([, b]) =>
+            `${nodeIndexToId(b)}=https://${nodeIndexToId(
+              b
+            )}.localhost:${nodeIndexToPort(b)}`
+        )
+        .join(";"),
     },
     url: `https://${id}.localhost:${4000 + index}/`,
+    entry: ENTRYPOINT_PATH,
   }
 }
 

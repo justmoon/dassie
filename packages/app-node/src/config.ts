@@ -8,6 +8,7 @@ import { APP_NAME } from "./constants/general"
 const debug = Debug(`${APP_NAME}:config`)
 
 export interface Config {
+  nodeId: string
   host: string
   port: number
   dataPath: string
@@ -15,9 +16,11 @@ export interface Config {
   tlsWebKey: string
   tlsXenCert: string
   tlsXenKey: string
+  initialPeers: Array<{ nodeId: string; url: string }>
 }
 
 export interface InputConfig {
+  nodeId?: string
   host?: string
   port?: string | number
   dataPath?: string
@@ -29,6 +32,7 @@ export interface InputConfig {
   tlsXenCertFile?: string
   tlsXenKey?: string
   tlsXenKeyFile?: string
+  initialPeers?: string
 }
 
 export const processFileOption = async (
@@ -48,10 +52,13 @@ export const processFileOption = async (
   }
 }
 
-export async function fromPartialConfig(partialConfig: InputConfig) {
+export async function fromPartialConfig(
+  partialConfig: InputConfig
+): Promise<Config> {
   const paths = envPaths(APP_NAME, { suffix: "" })
 
   return {
+    nodeId: partialConfig.nodeId || "anonymous",
     host: partialConfig.host ?? "localhost",
     port: partialConfig.port ? Number(partialConfig.port) : 8443,
     dataPath: partialConfig.dataPath ?? paths.data,
@@ -75,6 +82,18 @@ export async function fromPartialConfig(partialConfig: InputConfig) {
       partialConfig.tlsXenKey,
       partialConfig.tlsXenKeyFile
     ),
+    initialPeers: partialConfig.initialPeers
+      ? partialConfig.initialPeers
+          .split(";")
+          .map((peer) => {
+            const [nodeId, url] = peer.split("=")
+            return { nodeId, url }
+          })
+          .filter(
+            (peer): peer is { nodeId: string; url: string } =>
+              peer.nodeId != null && peer.url != null
+          )
+      : [],
   }
 }
 
