@@ -1,25 +1,38 @@
 import axios from "axios"
 
-import type { type as XenMessage } from "../protocols/xen/message"
+import { Logger, createLogger } from "@xen-ilp/lib-logger"
+
+import {
+  XenMessage,
+  XenMessageType,
+  encodeMessage,
+} from "../protocols/xen/message"
 import type { PeerManagerContext } from "./peer-manager"
 
 export default class Peer {
+  readonly logger: Logger
   constructor(
     readonly context: PeerManagerContext,
     readonly nodeId: string,
     readonly url: string
-  ) {}
+  ) {
+    this.logger = createLogger(`xen:node:peer:${nodeId}`)
+  }
 
   async sendHello(peers: Array<Peer>) {
     console.log(`sending hello to peer ${this.nodeId}`)
 
     await this.sendMessage({
-      method: "hello",
-      params: {
+      method: XenMessageType.Hello,
+      signed: {
         nodeId: this.context.config.nodeId,
         sequence: 0,
-        neighbors: peers.map((peer) => ({ nodeId: peer.nodeId, proof: "" })),
+        neighbors: peers.map((peer) => ({
+          nodeId: peer.nodeId,
+          proof: Buffer.alloc(32),
+        })),
       },
+      signature: Buffer.alloc(0),
     })
   }
 
@@ -27,7 +40,13 @@ export default class Peer {
     try {
       const response = await axios(`${this.url}/xen`, {
         method: "POST",
-        data: message,
+        data: encodeMessage(message, (content) =>
+          this.context.signing.sign(content)
+        ),
+        headers: {
+          accept: "application/xen-message",
+          "content-type": "application/xen-message",
+        },
       })
       console.log(response.data)
     } catch (error) {

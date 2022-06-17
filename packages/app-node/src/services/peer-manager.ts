@@ -1,9 +1,15 @@
 import type { Config } from "../config"
-import type { type as XenMessage } from "../protocols/xen/message"
+import {
+  XenMessage,
+  XenMessageType,
+  XenUnknownMessage,
+} from "../protocols/xen/message"
 import Peer from "./peer"
+import type SigningService from "./signing"
 
 export interface PeerManagerContext {
   config: Config
+  signing: SigningService
 }
 
 export default class PeerManager {
@@ -24,10 +30,13 @@ export default class PeerManager {
     }
   }
 
-  handleMessage(message: XenMessage) {
+  handleMessage(message: XenMessage | XenUnknownMessage) {
     switch (message.method) {
-      case "hello":
+      case XenMessageType.Hello:
         console.log("handle hello")
+        break
+      default:
+        console.log("handle unknown message")
     }
   }
 }

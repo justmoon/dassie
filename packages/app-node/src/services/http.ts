@@ -1,12 +1,15 @@
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { Server, createServer } from "node:https"
 
+import { createLogger } from "@xen-ilp/lib-logger"
 import { assertDefined } from "@xen-ilp/lib-type-utils"
 
 import type { Config } from "../config"
 import { MAX_BODY_SIZE } from "../constants/http"
-import { schema as xenMessageSchema } from "../protocols/xen/message"
+import { parseMessage } from "../protocols/xen/message"
 import type PeerManager from "./peer-manager"
+
+const logger = createLogger("xen:node:http")
 
 export interface HttpContext {
   config: Config
@@ -97,15 +100,19 @@ export default class HttpService {
   handlePostXen = (request: IncomingMessage, response: ServerResponse) => {
     if (
       !request.headers["accept"] ||
-      request.headers["accept"].indexOf("application/json") === -1
+      request.headers["accept"].indexOf("application/xen-message") === -1
     ) {
       response.writeHead(400, { "Content-Type": "text/plain" })
-      response.end(`Expected application/json in accept header`)
+
+      logger.debug("invalid accept header", {
+        accept: request.headers["accept"],
+      })
+      response.end(`Expected application/xen-message in accept header`)
       return
     }
-    if (request.headers["content-type"] !== "application/json") {
+    if (request.headers["content-type"] !== "application/xen-message") {
       response.writeHead(400, { "Content-Type": "text/plain" })
-      response.end(`Expected application/json in content-type header`)
+      response.end(`Expected application/xen-message in content-type header`)
       return
     }
 
@@ -125,15 +132,8 @@ export default class HttpService {
 
     request.on("end", () => {
       try {
-        const bodyString = Buffer.concat(body).toString()
-        const bodyJson = JSON.parse(bodyString)
-        const message = xenMessageSchema.safeParse(bodyJson)
-
-        if (message.success) {
-          this.context.peerManager.handleMessage(message.data)
-        } else {
-          console.log("failed to parse message:", message)
-        }
+        const message = parseMessage(Buffer.concat(body))
+        this.context.peerManager.handleMessage(message)
       } catch (error) {
         console.log(`received invalid message: ${error}`)
         response.writeHead(400, { "Content-Type": "application/json" })
