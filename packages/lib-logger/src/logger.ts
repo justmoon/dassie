@@ -1,15 +1,17 @@
-import CliFormatter from "./cli-formatter"
 import createEnableChecker from "./enabled"
-
-export let enableChecker = createEnableChecker(import.meta.env["DEBUG"])
+import type { Formatter, FormatterConstructor } from "./types/formatter"
 
 export class Logger {
   readonly enabled: boolean
-  readonly formatter: CliFormatter
+  readonly formatter: Formatter
 
-  constructor(readonly component: string) {
+  constructor(
+    readonly component: string,
+    Formatter: FormatterConstructor,
+    enableChecker: (component: string) => boolean
+  ) {
     this.enabled = enableChecker(component)
-    this.formatter = new CliFormatter(component)
+    this.formatter = new Formatter(component)
   }
 
   clear() {
@@ -35,6 +37,13 @@ export class Logger {
   }
 }
 
-export default function createLogger(component: string) {
-  return new Logger(component)
+export default function createLoggerFactory(
+  scope: string,
+  Formatter: FormatterConstructor
+) {
+  let enableChecker = createEnableChecker(scope)
+  const createLogger = (component: string) => {
+    return new Logger(component, Formatter, enableChecker)
+  }
+  return createLogger
 }

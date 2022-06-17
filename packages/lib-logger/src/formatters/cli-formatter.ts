@@ -1,5 +1,7 @@
 import colors from "picocolors"
 
+import type { Formatter } from "../types/formatter"
+
 export const COLORS = [
   colors.red,
   colors.green,
@@ -17,7 +19,7 @@ export const generateColoredPrefix = (seed: string) => {
   return (COLORS[hash] ?? colors.black)(seed)
 }
 
-export default class CliFormatter {
+export default class CliFormatter implements Formatter {
   readonly prefix: string
 
   constructor(readonly component: string) {

@@ -128,6 +128,10 @@ export default class ChildProcessWrapper<T> {
         ["--enable-source-maps"],
         {
           silent: true,
+          env: {
+            FORCE_COLOR: "1",
+            ...process.env,
+          },
         }
       ))
       assertDefined(child.stdout)
