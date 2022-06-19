@@ -1,26 +1,23 @@
-import { createPrivateKey, createPublicKey, createSign } from "node:crypto"
-import type { KeyObject } from "node:crypto"
+import { sign } from "@xen-ilp/lib-crypto"
 
 import type { Config } from "../config"
+import { parseEd25519PrivateKey } from "../utils/pem"
 
 export interface SigningContext {
   config: Config
 }
 
 export default class SigningService {
-  private readonly privateKey: KeyObject
-  readonly publicKey: KeyObject
+  private readonly privateKey: Buffer
 
   constructor(readonly context: SigningContext) {
     this.context = context
 
-    this.privateKey = createPrivateKey(context.config.tlsXenKey)
-    this.publicKey = createPublicKey(this.privateKey)
+    this.privateKey = parseEd25519PrivateKey(context.config.tlsXenKey)
   }
 
   sign = (data: string | Buffer) => {
-    const signer = createSign("sha512")
-    signer.update(data)
-    return signer.sign(this.privateKey)
+    const message = Buffer.isBuffer(data) ? data : Buffer.from(data, "utf8")
+    return Buffer.from(sign(this.privateKey, message))
   }
 }

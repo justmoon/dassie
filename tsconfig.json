@@ -10,11 +10,7 @@
     "jsxImportSource": "solid-js",
     "types": ["vite/client", "node"],
     "noEmit": true,
-    "skipLibCheck": true,
-    "baseUrl": ".",
-    "paths": {
-      "@xen-ilp/*": ["packages/*/src"]
-    }
+    "skipLibCheck": true
   },
   "exclude": ["**/dist/**"]
 }

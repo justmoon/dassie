@@ -1,0 +1,19 @@
+{
+  "name": "@xen-ilp/lib-crypto",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Crypto primitives for the Xen/ILP ecosystem using Rust/WASM",
+  "main": "./pkg/lib_crypto.js",
+  "scripts": {
+    "clean": "rimraf pkg",
+    "build": "wasm-pack build --target nodejs",
+    "test": "cargo test"
+  },
+  "author": "Stefan Thomas <justmoon@members.fsf.org>",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@xen-ilp/lib-itergen-utils": "workspace:*",
+    "@xen-ilp/lib-logger": "workspace:^1.0.0",
+    "@xen-ilp/lib-type-utils": "workspace:*"
+  }
+}

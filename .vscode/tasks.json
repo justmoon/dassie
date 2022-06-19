@@ -4,7 +4,7 @@
     {
       "label": "Launch dev server",
       "type": "shell",
-      "command": "pnpm run dev",
+      "command": "DEBUG=xen:* pnpm run dev",
       "group": "none",
       "presentation": {
         "reveal": "always",

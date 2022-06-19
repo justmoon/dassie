@@ -1,4 +1,5 @@
 import { Reader, Writer } from "oer-utils"
+import type { MarkOptional } from "ts-essentials"
 
 const HELLO_NEIGHBOR_PROOF_LENGTH = 32
 
@@ -74,10 +75,37 @@ export const parseMessage = (
   }
 }
 
-export const encodeMessage = (
-  message: XenMessage,
-  sign: (content: Buffer) => Buffer
-): Buffer => {
+export type XenMessageWithOptionalSignature = MarkOptional<
+  XenMessage,
+  "signature"
+>
+
+const writeSignature = (
+  writer: Writer,
+  message: XenMessageWithOptionalSignature,
+  signed: Buffer,
+  sign?: (content: Buffer) => Buffer
+) => {
+  if (message.signature != null) {
+    writer.writeOctetString(message.signature, 64)
+  } else if (sign != null) {
+    writer.writeOctetString(sign(signed), 64)
+  } else {
+    throw new TypeError(
+      "encodeMessage requires that a signing function is provided as the second parameter if message.signature is null"
+    )
+  }
+}
+
+export function encodeMessage(message: XenMessage): Buffer
+export function encodeMessage(
+  message: XenMessageWithOptionalSignature,
+  sign?: (content: Buffer) => Buffer
+): Buffer
+export function encodeMessage(
+  message: XenMessageWithOptionalSignature,
+  sign?: (content: Buffer) => Buffer
+): Buffer {
   const writer = new Writer()
   writer.writeUInt8(message.method)
 
@@ -106,7 +134,7 @@ export const encodeMessage = (
       const signed = signedWriter.getBuffer()
 
       writer.writeVarOctetString(signed)
-      writer.writeOctetString(sign(signed), 64)
+      writeSignature(writer, message, signed, sign)
 
       return writer.getBuffer()
     }

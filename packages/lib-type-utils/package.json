@@ -26,8 +26,5 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
-  "license": "Apache-2.0",
-  "devDependencies": {
-    "@xen-ilp/config-rollup": "workspace:*"
-  }
+  "license": "Apache-2.0"
 }

@@ -3,12 +3,14 @@
   "type": "module",
   "version": "1.0.0",
   "description": "Logging library for the Xen ILP project",
+  "main": "./src/index.ts",
   "exports": {
     ".": {
       "import": "./src/index.ts"
     }
   },
   "publishConfig": {
+    "main": "./dist/index.js",
     "exports": {
       ".": {
         "types": "./dist/index.d.ts",

@@ -3,8 +3,8 @@ import axios from "axios"
 import { Logger, createLogger } from "@xen-ilp/lib-logger"
 
 import {
-  XenMessage,
   XenMessageType,
+  XenMessageWithOptionalSignature,
   encodeMessage,
 } from "../protocols/xen/message"
 import type { PeerManagerContext } from "./peer-manager"
@@ -32,28 +32,26 @@ export default class Peer {
           proof: Buffer.alloc(32),
         })),
       },
-      signature: Buffer.alloc(0),
     })
   }
 
-  async sendMessage(message: XenMessage) {
+  async sendMessage(message: XenMessageWithOptionalSignature) {
     try {
-      const response = await axios(`${this.url}/xen`, {
+      await axios(`${this.url}/xen`, {
         method: "POST",
-        data: encodeMessage(message, (content) =>
-          this.context.signing.sign(content)
-        ),
+        data: encodeMessage(message, this.context.signing.sign),
         headers: {
           accept: "application/xen-message",
           "content-type": "application/xen-message",
         },
       })
-      console.log(response.data)
     } catch (error) {
       if (axios.isAxiosError(error) && error.response) {
         console.error(
           `Error sending message to peer ${this.nodeId}: ${error.response.status} ${error.response.statusText} ${error.response.data}`
         )
+      } else {
+        throw error
       }
     }
   }

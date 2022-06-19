@@ -1,3 +1,5 @@
+import { createLogger } from "@xen-ilp/lib-logger"
+
 import type { Config } from "../config"
 import {
   XenMessage,
@@ -6,6 +8,8 @@ import {
 } from "../protocols/xen/message"
 import Peer from "./peer"
 import type SigningService from "./signing"
+
+const logger = createLogger("xen:node:peer-manager")
 
 export interface PeerManagerContext {
   config: Config
@@ -33,10 +37,10 @@ export default class PeerManager {
   handleMessage(message: XenMessage | XenUnknownMessage) {
     switch (message.method) {
       case XenMessageType.Hello:
-        console.log("handle hello")
+        logger.debug("handle hello", { message })
         break
       default:
-        console.log("handle unknown message")
+        logger.debug("ignoring unknown message", { method: message.method })
     }
   }
 }
