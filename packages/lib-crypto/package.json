@@ -3,10 +3,16 @@
   "type": "module",
   "version": "1.0.0",
   "description": "Crypto primitives for the Xen/ILP ecosystem using Rust/WASM",
-  "main": "./pkg/lib_crypto.js",
+  "main": "./pkg/node/lib_crypto.js",
+  "publishConfig": {
+    "main": "./dist/pkg/node/lib_crypto.js"
+  },
   "scripts": {
     "clean": "rimraf pkg",
-    "build": "wasm-pack build --target nodejs",
+    "dev": "pnpm dev:node",
+    "dev:node": "wasm-pack build --dev --target nodejs --out-dir pkg/node --features development",
+    "build": "pnpm build:node",
+    "build:node": "wasm-pack build --release --target nodejs --out-dir dist/pkg/node",
     "test": "cargo test"
   },
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
