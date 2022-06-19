@@ -1,5 +1,7 @@
 import colors from "picocolors"
 
+import { inspect } from "node:util"
+
 import type { Formatter } from "../types/formatter"
 
 export const COLORS = [
@@ -47,7 +49,7 @@ export default class CliFormatter implements Formatter {
         data
           ? " " +
             Object.entries(data)
-              .map(([key, value]) => `${key}=${value}`)
+              .map(([key, value]) => `${key}=${inspect(value)}`)
               .join(", ")
           : ""
       }`
