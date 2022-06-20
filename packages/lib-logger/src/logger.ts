@@ -1,5 +1,6 @@
 import createEnableChecker from "./enabled"
 import type { Formatter, FormatterConstructor } from "./types/formatter"
+import type LogErrorOptions from "./types/log-error-options"
 
 export class Logger {
   readonly enabled: boolean
@@ -34,6 +35,10 @@ export class Logger {
 
   error(message: string, data?: Record<string, unknown>) {
     this.formatter.log("error", message, data)
+  }
+
+  logError(error: unknown, options: LogErrorOptions = {}) {
+    this.formatter.logError(error, options)
   }
 }
 
