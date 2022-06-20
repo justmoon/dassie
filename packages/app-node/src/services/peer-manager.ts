@@ -1,11 +1,7 @@
 import { createLogger } from "@xen-ilp/lib-logger"
 
 import type { Config } from "../config"
-import {
-  XenMessage,
-  XenMessageType,
-  XenUnknownMessage,
-} from "../protocols/xen/message"
+import { XenMessage, XenMessageType } from "../protocols/xen/message"
 import Peer from "./peer"
 import type SigningService from "./signing"
 
@@ -30,14 +26,21 @@ export default class PeerManager {
     try {
       await Promise.all(this.peers.map((peer) => peer.sendHello(this.peers)))
     } catch (error) {
-      console.error("Error dealing with peers", String(error))
+      logger.logError(error)
     }
   }
 
-  handleMessage(message: XenMessage | XenUnknownMessage) {
+  handleMessage(message: XenMessage) {
     switch (message.method) {
       case XenMessageType.Hello:
-        logger.debug("handle hello", { message })
+        logger.debug("handle hello", {
+          from: message.signed.nodeId,
+          sequence: message.signed.sequence,
+          neighbors: () =>
+            message.signed.neighbors
+              .map((neighbor) => neighbor.nodeId)
+              .join(","),
+        })
         break
       default:
         logger.debug("ignoring unknown message", { method: message.method })

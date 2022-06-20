@@ -20,7 +20,7 @@ export default class Peer {
   }
 
   async sendHello(peers: Array<Peer>) {
-    console.log(`sending hello to peer ${this.nodeId}`)
+    this.logger.debug(`sending hello`)
 
     await this.sendMessage({
       method: XenMessageType.Hello,
@@ -36,23 +36,13 @@ export default class Peer {
   }
 
   async sendMessage(message: XenMessageWithOptionalSignature) {
-    try {
-      await axios(`${this.url}/xen`, {
-        method: "POST",
-        data: encodeMessage(message, this.context.signing.sign),
-        headers: {
-          accept: "application/xen-message",
-          "content-type": "application/xen-message",
-        },
-      })
-    } catch (error) {
-      if (axios.isAxiosError(error) && error.response) {
-        console.error(
-          `Error sending message to peer ${this.nodeId}: ${error.response.status} ${error.response.statusText} ${error.response.data}`
-        )
-      } else {
-        throw error
-      }
-    }
+    await axios(`${this.url}/xen`, {
+      method: "POST",
+      data: encodeMessage(message, this.context.signing.sign),
+      headers: {
+        accept: "application/xen-message",
+        "content-type": "application/xen-message",
+      },
+    })
   }
 }

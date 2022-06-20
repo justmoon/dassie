@@ -16,8 +16,7 @@ export default class SigningService {
     this.privateKey = parseEd25519PrivateKey(context.config.tlsXenKey)
   }
 
-  sign = (data: string | Buffer) => {
-    const message = Buffer.isBuffer(data) ? data : Buffer.from(data, "utf8")
-    return Buffer.from(sign(this.privateKey, message))
+  sign = (data: Buffer) => {
+    return Buffer.from(sign(this.privateKey, data))
   }
 }

@@ -26,13 +26,7 @@ export interface XenHelloNeighbor {
   proof: Buffer
 }
 
-export interface XenUnknownMessage {
-  method: number
-}
-
-export const parseMessage = (
-  message: Buffer
-): XenMessage | XenUnknownMessage => {
+export const parseMessage = (message: Buffer): XenMessage => {
   const reader = Reader.from(message)
   const method = reader.readUInt8Number()
 
@@ -71,7 +65,7 @@ export const parseMessage = (
       }
     }
     default:
-      return { method }
+      throw new Error("Unknown Xen message type")
   }
 }
 

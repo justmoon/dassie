@@ -1,8 +1,12 @@
 import type { WebSocket } from "ws"
 import { WebSocketServer } from "ws"
 
+import { createLogger } from "@xen-ilp/lib-logger"
+
 import type { Config } from "../config"
 import type HttpService from "./http"
+
+const logger = createLogger("xen:node:websocket")
 
 interface WebSocketContext {
   config: Config
@@ -21,8 +25,14 @@ export default class WebSocketService {
   }
 
   handleConnection(socket: WebSocket) {
-    console.log("handle socket")
+    try {
+      logger.debug("handle socket")
 
-    socket.send("hello")
+      socket.send("hello")
+    } catch (error) {
+      logger.logError(error, {
+        skipAfter: "WebSocketService.handleConnection",
+      })
+    }
   }
 }
