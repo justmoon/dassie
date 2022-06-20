@@ -1,5 +1,5 @@
 {
-  "plugins": ["@trivago/prettier-plugin-sort-imports"],
+  "pluginSearchDirs": ["."],
   "importOrder": ["^node:", "^@xen-ilp/", "^[./]"],
   "importOrderSeparation": true,
   "importOrderSortSpecifiers": true,
