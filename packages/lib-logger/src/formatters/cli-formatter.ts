@@ -105,7 +105,10 @@ export default class CliFormatter implements Formatter {
               if (match[2].startsWith("node:")) {
                 return colors.dim(line)
               }
-              if (match[1] === options.skipAfter) {
+              if (
+                options.skipAfter &&
+                match[1].indexOf(options.skipAfter) !== -1
+              ) {
                 ignoreRest = true
               }
               const isNodeModules = match[2].indexOf("node_modules") !== -1

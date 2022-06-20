@@ -119,7 +119,7 @@ export default class HttpService {
       )
     } catch (error) {
       // Log any errors
-      logger.logError(error)
+      logger.logError(error, { skipAfter: "HttpService.handleRequest" })
 
       if (
         isObject(error) &&
