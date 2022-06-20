@@ -14,7 +14,7 @@ import { ClientRequest, schema } from "../schemas/client-request"
 import type { NodeDefinition } from "../server"
 import RpcHost from "./rpc-host"
 
-const RUNNER_MODULE = "@xen-ilp/lib-dev-server/runner"
+const RUNNER_MODULE = new URL("../../dist/runner.js", import.meta.url).pathname
 
 export default class ChildProcessWrapper<T> {
   readonly prefix: string
@@ -151,12 +151,9 @@ export default class ChildProcessWrapper<T> {
           entry: this.node.entry ?? "src/index.ts",
           config: this.node.config,
         })
-      } catch (error) {
-        this.logger.error(`${colors.red("child failed to start:")} ${error}`)
-        throw error
+      } finally {
+        this.startPromise = undefined
       }
-
-      this.startPromise = undefined
     })())
   }
 

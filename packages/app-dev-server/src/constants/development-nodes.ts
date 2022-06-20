@@ -1,8 +1,7 @@
-import type { NodeDefinition } from "@xen-ilp/lib-dev-server"
+import type { InputConfig } from "../../../app-node/src/config"
+import type { NodeDefinition } from "../server"
 
-import type { InputConfig } from "../config"
-
-const ENTRYPOINT_PATH = new URL("../index.ts", import.meta.url).pathname
+const ENTRYPOINT = "@xen-ilp/app-node"
 const LOCAL_PATH = new URL("../../../../local", import.meta.url).pathname
 
 export const PEERS: Array<[number, number]> = [
@@ -36,7 +35,7 @@ export const generateNodeConfig = (index: number) => {
         .join(";"),
     },
     url: `https://${id}.localhost:${4000 + index}/`,
-    entry: ENTRYPOINT_PATH,
+    entry: ENTRYPOINT,
   }
 }
 

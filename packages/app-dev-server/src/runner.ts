@@ -37,9 +37,7 @@ const handleRequest = async (request: ServerRequest) => {
       await runner.executeId("/@vite/env")
 
       // execute the file
-      const { default: startApp } = await runner.executeFile(
-        request.params.entry
-      )
+      const { default: startApp } = await runner.executeId(request.params.entry)
       await startApp(request.params.config)
       return
     }

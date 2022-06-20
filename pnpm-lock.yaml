@@ -70,11 +70,22 @@ importers:
       zod: 3.17.3
       zx: 6.2.5
 
+  packages/app-dev-server:
+    specifiers:
+      '@xen-ilp/app-node': workspace:^1.0.0
+      '@xen-ilp/lib-itergen-utils': workspace:*
+      '@xen-ilp/lib-logger': workspace:^1.0.0
+      '@xen-ilp/lib-type-utils': workspace:*
+    dependencies:
+      '@xen-ilp/app-node': link:../app-node
+      '@xen-ilp/lib-itergen-utils': link:../lib-itergen-utils
+      '@xen-ilp/lib-logger': link:../lib-logger
+      '@xen-ilp/lib-type-utils': link:../lib-type-utils
+
   packages/app-node:
     specifiers:
       '@types/ws': ^8.5.3
       '@xen-ilp/lib-crypto': workspace:^1.0.0
-      '@xen-ilp/lib-dev-server': workspace:*
       '@xen-ilp/lib-logger': workspace:^1.0.0
       '@xen-ilp/lib-type-utils': workspace:^1.0.0
       axios: ^0.27.2
@@ -92,8 +103,6 @@ importers:
       env-paths: 3.0.0
       oer-utils: 5.1.3-alpha.1
       ws: 8.8.0
-    devDependencies:
-      '@xen-ilp/lib-dev-server': link:../lib-dev-server
 
   packages/app-wallet:
     specifiers:

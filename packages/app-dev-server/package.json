@@ -1,8 +1,9 @@
 {
-  "name": "@xen-ilp/lib-dev-server",
+  "name": "@xen-ilp/app-dev-server",
   "type": "module",
   "version": "1.0.0",
-  "description": "",
+  "description": "Runs a small development environment for Xen/ILP including multiple nodes",
+  "private": true,
   "main": "./src/index.ts",
   "exports": {
     ".": {
@@ -12,29 +13,16 @@
       "import": "./dist/runner.js"
     }
   },
-  "publishConfig": {
-    "main": "./dist/index.js",
-    "exports": {
-      ".": {
-        "types": "./dist/index.d.ts",
-        "require": "./dist/index.cjs",
-        "import": "./dist/index.js"
-      },
-      "./runner": {
-        "types": "./dist/runner.d.ts",
-        "require": "./dist/runner.cjs",
-        "import": "./dist/runner.js"
-      }
-    }
-  },
   "scripts": {
     "clean": "rimraf dist",
-    "build": "rollup -c",
+    "dev": "vite-node scripts/start-development-server.ts",
+    "dev:validate": "vite-node scripts/validate-development-environment.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "dependencies": {
+    "@xen-ilp/app-node": "workspace:*",
     "@xen-ilp/lib-itergen-utils": "workspace:*",
     "@xen-ilp/lib-logger": "workspace:^1.0.0",
     "@xen-ilp/lib-type-utils": "workspace:*"

@@ -48,7 +48,8 @@ export const startDevelopmentServer = async <T>(
   for (const proc of processes) {
     try {
       await proc.start()
-    } catch {
+    } catch (error) {
+      logger.logError(error)
       logger.error(
         `${colors.red(
           `node ${proc.node.id} failed, skip starting other nodes`
@@ -87,7 +88,7 @@ export const startDevelopmentServer = async <T>(
         }
       }
     } catch (error) {
-      console.error(error)
+      logger.logError(error)
     }
   })
 

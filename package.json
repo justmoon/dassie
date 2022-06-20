@@ -7,8 +7,8 @@
   "scripts": {
     "clearn": "pnpm -r clean",
     "build": "pnpm -r build",
-    "dev": "pnpm --filter=app-node dev:validate && concurrently -p '{name}' -c 'reset.dim' -n '​' 'npm:dev:*'",
-    "dev:node": "pnpm --filter=app-node dev",
+    "dev": "pnpm --filter=app-dev-server dev:validate && concurrently -p '{name}' -c 'reset.dim' -n '​' 'npm:dev:*'",
+    "dev:node": "pnpm --filter=app-dev-server dev",
     "dev:wallet": "pnpm --filter=app-wallet dev",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

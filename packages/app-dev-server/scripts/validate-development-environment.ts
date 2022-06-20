@@ -8,8 +8,8 @@ import { access, unlink } from "node:fs/promises"
 import { isNativeError } from "node:util/types"
 
 import { NODES } from "../src/constants/development-nodes"
-import type { InputConfig } from "../src/config"
-import type { NodeDefinition } from "@xen-ilp/lib-dev-server"
+import type { InputConfig } from "../../app-node/src/config"
+import type { NodeDefinition } from "../src"
 import { dirname } from "node:path"
 
 interface CertificateInfo {
