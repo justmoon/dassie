@@ -1,4 +1,5 @@
-import type { InputConfig } from "../../../app-node/src/config"
+import type { InputConfig } from "@xen-ilp/app-node"
+
 import type { NodeDefinition } from "../server"
 
 const ENTRYPOINT = "@xen-ilp/app-node"

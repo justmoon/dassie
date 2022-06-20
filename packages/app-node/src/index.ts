@@ -20,4 +20,6 @@ const start = async (inputConfig?: InputConfig) => {
   return { config, http, ws, peerManager }
 }
 
+export type { InputConfig }
+
 export default start
