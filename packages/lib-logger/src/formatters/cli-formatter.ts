@@ -25,6 +25,12 @@ export const generateColoredPrefix = (seed: string) => {
 
 const monorepoRoot = new URL("../../../..", import.meta.url).pathname
 export const formatFilePath = (filePath: string) => {
+  let protocolPrefix = ""
+  if (filePath.startsWith("file://")) {
+    protocolPrefix = "file://"
+    filePath = filePath.slice(7)
+  }
+
   if (filePath.startsWith(monorepoRoot)) {
     const localPath = filePath.slice(monorepoRoot.length)
 
@@ -34,12 +40,12 @@ export const formatFilePath = (filePath: string) => {
       string
     ]
     if (match) {
-      return `${colors.dim(`${monorepoRoot}packages/`)}${colors.cyan(
-        match[1]
-      )}${colors.dim("/")}${match[2]}`
+      return `${colors.dim(
+        `${protocolPrefix}${monorepoRoot}packages/`
+      )}${colors.cyan(match[1])}${colors.dim("/")}${match[2]}`
     }
 
-    return `${colors.dim(monorepoRoot)}${localPath}`
+    return `${colors.dim(`${protocolPrefix}${monorepoRoot}`)}${localPath}`
   }
 
   return filePath
@@ -112,7 +118,9 @@ export default class CliFormatter implements Formatter {
                 ignoreRest = true
               }
               const isNodeModules = match[2].indexOf("node_modules") !== -1
-              const formattedFilePath = formatFilePath(match[2])
+              const formattedFilePath = isNodeModules
+                ? colors.dim(match[2])
+                : formatFilePath(match[2])
 
               return `    ${colors.dim("at")} ${
                 isNodeModules ? colors.dim(match[1]) : match[1]
@@ -138,7 +146,7 @@ export default class CliFormatter implements Formatter {
         .filter(Boolean)
       this.log(
         "error",
-        `${colors.red(colors.bold(`${name}:`))} ${message}${
+        `${colors.red(colors.bold(`${name}:`))} ${colors.red(message)}${
           stack.length ? "\n" : ""
         }${stack.join("\n")}`
       )
