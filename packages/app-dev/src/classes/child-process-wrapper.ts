@@ -10,8 +10,8 @@ import { createLogger } from "@xen-ilp/lib-logger"
 import type { Logger } from "@xen-ilp/lib-logger"
 import { UnreachableCaseError, assertDefined } from "@xen-ilp/lib-type-utils"
 
+import type { NodeDefinition } from "../node-server"
 import { ClientRequest, schema } from "../schemas/client-request"
-import type { NodeDefinition } from "../server"
 import RpcHost from "./rpc-host"
 
 const RUNNER_MODULE = new URL("../../dist/runner.js", import.meta.url).pathname

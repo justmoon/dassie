@@ -8,7 +8,7 @@ import { createLogger } from "@xen-ilp/lib-logger"
 
 import ChildProcessWrapper from "./classes/child-process-wrapper"
 
-const logger = createLogger("xen:dev-server")
+const logger = createLogger("xen:dev:node-server")
 
 export function getShortName(file: string, root: string): string {
   return file.startsWith(root + "/") ? posix.relative(root, file) : file
@@ -21,9 +21,7 @@ export interface NodeDefinition<T> {
   entry?: string
 }
 
-export const startDevelopmentServer = async <T>(
-  nodes: Array<NodeDefinition<T>>
-) => {
+export const startNodeServer = async <T>(nodes: Array<NodeDefinition<T>>) => {
   // create vite server
   const server = await createServer({
     server: { hmr: false },
@@ -43,7 +41,7 @@ export const startDevelopmentServer = async <T>(
     return new ChildProcessWrapper(server, nodeServer, node)
   })
 
-  logger.info("dev server running")
+  logger.debug("starting node processes")
 
   for (const proc of processes) {
     try {

@@ -1,6 +1,6 @@
 import type { InputConfig } from "@xen-ilp/app-node"
 
-import type { NodeDefinition } from "../server"
+import type { NodeDefinition } from "../node-server"
 
 const ENTRYPOINT = "@xen-ilp/app-node"
 const LOCAL_PATH = new URL("../../../../local", import.meta.url).pathname

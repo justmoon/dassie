@@ -7,9 +7,7 @@
   "scripts": {
     "clearn": "pnpm -r clean",
     "build": "pnpm -r build",
-    "dev": "pnpm --filter=app-dev-server dev:validate && concurrently -p '{name}' -c 'reset.dim' -n '​' 'npm:dev:*'",
-    "dev:node": "pnpm --filter=app-dev-server dev",
-    "dev:wallet": "pnpm --filter=app-wallet dev",
+    "dev": "pnpm --filter=app-dev validate && pnpm --filter=app-dev start",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -40,7 +38,6 @@
     "@types/tailwindcss": "^3.0.10",
     "@typescript-eslint/eslint-plugin": "^5.28.0",
     "@typescript-eslint/parser": "^5.28.0",
-    "concurrently": "^7.2.2",
     "esbuild": "^0.14.43",
     "eslint": "^8.17.0",
     "eslint-config-prettier": "^8.5.0",

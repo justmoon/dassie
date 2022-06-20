@@ -74,7 +74,7 @@ export default class HttpService {
 
     this.server.listen(port)
 
-    console.log(
+    logger.info(
       `listening on https://${context.config.host}${
         port === 443 ? "" : `:${port}`
       }/`
