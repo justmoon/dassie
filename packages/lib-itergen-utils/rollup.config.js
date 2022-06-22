@@ -1,3 +1,3 @@
-import { createLibraryConfig } from "../../rollup.common.config.js"
+import { createLibraryConfig } from "../../common/config/rollup.js"
 
 export default createLibraryConfig()
