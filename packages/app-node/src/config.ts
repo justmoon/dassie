@@ -3,6 +3,7 @@ import envPaths from "env-paths"
 import { readFile } from "node:fs/promises"
 
 import { createLogger } from "@xen-ilp/lib-logger"
+import { isErrorWithCode } from "@xen-ilp/lib-type-utils"
 
 import { APP_NAME } from "./constants/general"
 
@@ -100,14 +101,19 @@ export async function fromPartialConfig(
 
 export async function fromEnvironment() {
   const configPath =
-    process.env["XEN_CONFIG_FILE"] ?? envPaths(APP_NAME, { suffix: "" }).config
+    process.env["XEN_CONFIG_FILE"] ??
+    `${envPaths(APP_NAME, { suffix: "" }).config}/config.json`
 
   let fileConfig = {}
   try {
     // TODO: Validate using something like zod
     fileConfig = JSON.parse(await readFile(configPath, "utf8")) as InputConfig
   } catch (error) {
-    logger.debug("failed to read config file", { path: configPath, error })
+    if (isErrorWithCode(error, "ENOENT")) {
+      logger.debug("no config file found", { path: configPath })
+    } else {
+      logger.debug("failed to read config file", { path: configPath, error })
+    }
   }
 
   // TODO: Validate using something like zod
