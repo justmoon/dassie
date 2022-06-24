@@ -7,16 +7,15 @@
  *
  * Please note that more precise patterns should come first. If the scope is "foo*, -foobar", then the function will be true for "foobar" because the first pattern matches and the rest are not evaluated.
  *
- * @param scope String containing comma-delimited patterns
+ * @param scope - String containing comma-delimited patterns
  * @returns Function that will check if a component is part of the scope
+ * @alpha
  */
-export default function createEnableChecker(
-  scope: string
-): (name: string) => boolean {
+export function createEnableChecker(scope: string): (name: string) => boolean {
   if (!scope) return () => false
 
   const patterns = scope.split(/[\s,]+/).map((pattern): [RegExp, boolean] => {
-    const negative = pattern.charAt(0) === "-"
+    const negative = pattern.startsWith("-")
     const regex = new RegExp(
       `^${(negative ? pattern.slice(1) : pattern).replace("*", ".*?")}$`
     )

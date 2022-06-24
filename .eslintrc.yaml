@@ -1,5 +1,7 @@
 root: true
 parser: "@typescript-eslint/parser"
+parserOptions:
+  project: "./tsconfig.json"
 extends: 
   - "eslint:recommended"
   - "plugin:@typescript-eslint/recommended"
@@ -9,8 +11,13 @@ extends:
   - "prettier"
 plugins: 
   - "@typescript-eslint"
+  - "eslint-plugin-tsdoc"
 env:
   es2021: true
 rules:
-  unicorn/no-null: 'off'
-  unicorn/no-useless-undefined: 'off'
+  unicorn/no-null: "off"
+  unicorn/no-useless-undefined: "off"
+  tsdoc/syntax: "warn"
+  # TODO: Clean these up
+  "@typescript-eslint/no-floating-promises": "off"
+  "@typescript-eslint/no-misused-promises": "off"

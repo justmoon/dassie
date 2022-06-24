@@ -1,11 +1,12 @@
-import dts from "rollup-plugin-dts"
 import esbuild from "rollup-plugin-esbuild"
 import hashbang from "rollup-plugin-hashbang"
 
+// eslint-disable-next-line tsdoc/syntax
 /** @type {(input?: Record<string, string> | string) => Array<import('rollup').RollupOptions>} */
 export const createLibraryConfig = (input = "src/index.ts") => {
   const bundle = {
     input,
+    // eslint-disable-next-line tsdoc/syntax
     external: (/** @type {string} */ id) => !/^[./]/.test(id),
   }
 
@@ -27,15 +28,6 @@ export const createLibraryConfig = (input = "src/index.ts") => {
           sourcemap: true,
         },
       ],
-    },
-    {
-      ...bundle,
-      plugins: [dts()],
-      output: {
-        dir: "dist",
-        format: "es",
-        entryFileNames: "[name].d.ts",
-      },
     },
   ]
 }

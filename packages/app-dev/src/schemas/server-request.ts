@@ -8,7 +8,6 @@ export const schema = z.discriminatedUnion("method", [
       root: z.string(),
       base: z.string(),
       entry: z.string(),
-      config: z.any(),
     }),
   }),
   z.object({

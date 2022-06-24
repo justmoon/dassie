@@ -17,7 +17,7 @@ export const COLORS = [
 
 export const generateColoredPrefix = (seed: string) => {
   const hash =
-    [...seed].reduce((hash, char) => hash + (char?.charCodeAt(0) ?? 0), 0) %
+    [...seed].reduce((hash, char) => hash + (char.codePointAt(0) ?? 0), 0) %
     COLORS.length
 
   return (COLORS[hash] ?? colors.black)(seed)
@@ -34,11 +34,9 @@ export const formatFilePath = (filePath: string) => {
   if (filePath.startsWith(monorepoRoot)) {
     const localPath = filePath.slice(monorepoRoot.length)
 
-    const match = localPath.match(/^packages\/([a-z0-9-]+)\/(.*)$/) as [
-      string,
-      string,
-      string
-    ]
+    const match = localPath.match(/^packages\/([\da-z-]+)\/(.*)$/) as
+      | [string, string, string]
+      | null
     if (match) {
       return `${colors.dim(
         `${protocolPrefix}${monorepoRoot}packages/`
@@ -53,7 +51,7 @@ export const formatFilePath = (filePath: string) => {
 
 export const formatValue = (value: unknown) => {
   if (typeof value === "function") {
-    return value()
+    return String(value())
   }
 
   return inspect(value)
@@ -67,7 +65,7 @@ export default class CliFormatter implements Formatter {
   }
 
   clear() {
-    console.log("\x1B[2J")
+    console.log("\u001B[2J")
   }
 
   log(
@@ -95,29 +93,29 @@ export default class CliFormatter implements Formatter {
   }
 
   logError(error: unknown, options: LogErrorOptions = {}) {
+    if (options.ignoreInProduction && process.env["NODE_ENV"] === "production")
+      return
+
     if (isError(error)) {
-      const name = error.name ?? "Error"
-      const message = error.message ?? ""
+      const name = error.name || "Error"
+      const message = error.message
 
       let ignoreRest = false
       const stack = (error.stack?.split("\n").slice(1) ?? [])
         .map((line) => {
           if (ignoreRest) return null
           {
-            const match = line.match(/^    at (.*) \((.*):(\d+):(\d+)\)$/) as
+            const match = line.match(/^ {4}at (.*) \((.*):(\d+):(\d+)\)$/) as
               | [string, string, string, string, string]
               | null
             if (match) {
               if (match[2].startsWith("node:")) {
                 return colors.dim(line)
               }
-              if (
-                options.skipAfter &&
-                match[1].indexOf(options.skipAfter) !== -1
-              ) {
+              if (options.skipAfter && match[1].includes(options.skipAfter)) {
                 ignoreRest = true
               }
-              const isNodeModules = match[2].indexOf("node_modules") !== -1
+              const isNodeModules = match[2].includes("node_modules")
               const formattedFilePath = isNodeModules
                 ? colors.dim(match[2])
                 : formatFilePath(match[2])
@@ -130,7 +128,7 @@ export default class CliFormatter implements Formatter {
             }
           }
           {
-            const match = line.match(/^    at (.*):(\d+):(\d+)$/) as
+            const match = line.match(/^ {4}at (.*):(\d+):(\d+)$/) as
               | [string, string, string, string]
               | null
             if (match) {
@@ -147,7 +145,7 @@ export default class CliFormatter implements Formatter {
       this.log(
         "error",
         `${colors.red(colors.bold(`${name}:`))} ${colors.red(message)}${
-          stack.length ? "\n" : ""
+          stack.length > 0 ? "\n" : ""
         }${stack.join("\n")}`
       )
     }

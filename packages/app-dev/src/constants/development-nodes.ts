@@ -5,7 +5,7 @@ import type { NodeDefinition } from "../node-server"
 const ENTRYPOINT = "@xen-ilp/app-node"
 const LOCAL_PATH = new URL("../../../../local", import.meta.url).pathname
 
-export const PEERS: Array<[number, number]> = [
+export const PEERS: [number, number][] = [
   [1, 0],
   [2, 0],
   [2, 1],
@@ -40,7 +40,7 @@ export const generateNodeConfig = (index: number) => {
   }
 }
 
-export const NODES: Array<NodeDefinition<InputConfig>> = [
+export const NODES: NodeDefinition<InputConfig>[] = [
   generateNodeConfig(0),
   generateNodeConfig(1),
   generateNodeConfig(2),

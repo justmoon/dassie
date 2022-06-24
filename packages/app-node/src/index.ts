@@ -1,4 +1,5 @@
-import { InputConfig, fromEnvironment, fromPartialConfig } from "./config"
+import { fromEnvironment, fromPartialConfig } from "./config"
+import type { InputConfig } from "./config"
 import HttpService from "./services/http"
 import PeerManager from "./services/peer-manager"
 import SigningService from "./services/signing"
@@ -20,6 +21,6 @@ const start = async (inputConfig?: InputConfig) => {
   return { config, http, ws, peerManager }
 }
 
-export type { InputConfig }
+export type { InputConfig } from "./config"
 
 export default start

@@ -19,7 +19,7 @@ export default class Peer {
     this.logger = createLogger(`xen:node:peer:${nodeId}`)
   }
 
-  async sendHello(peers: Array<Peer>) {
+  async sendHello(peers: Peer[]) {
     this.logger.debug(`sending hello`)
 
     await this.sendMessage({

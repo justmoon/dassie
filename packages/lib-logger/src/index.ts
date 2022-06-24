@@ -1,19 +1,20 @@
-import createEnableChecker from "./enabled"
 import CliFormatter from "./formatters/cli-formatter"
-import createLoggerFactory from "./logger"
-import type { Logger } from "./logger"
-import type { Formatter, FormatterConstructor } from "./types/formatter"
+import { _createLoggerFactory } from "./logger"
 
-const createLogger = createLoggerFactory(
+export type { default as LogErrorOptions } from "./types/log-error-options"
+
+export type { Formatter, FormatterConstructor } from "./types/formatter"
+
+export { createEnableChecker } from "./enabled"
+
+export type { Logger } from "./logger"
+
+/**
+ * Factory for Node.js CLI loggers.
+ *
+ * @beta
+ */
+export const createLogger = _createLoggerFactory(
   process.env["DEBUG"] ?? "",
   CliFormatter
 )
-
-export {
-  createLogger,
-  createLoggerFactory,
-  createEnableChecker,
-  Logger,
-  Formatter,
-  FormatterConstructor,
-}

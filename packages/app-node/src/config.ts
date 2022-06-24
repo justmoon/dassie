@@ -1,11 +1,12 @@
-import Debug from "debug"
 import envPaths from "env-paths"
 
 import { readFile } from "node:fs/promises"
 
+import { createLogger } from "@xen-ilp/lib-logger"
+
 import { APP_NAME } from "./constants/general"
 
-const debug = Debug(`${APP_NAME}:config`)
+const logger = createLogger("xen:node:config")
 
 export interface Config {
   nodeId: string
@@ -16,7 +17,7 @@ export interface Config {
   tlsWebKey: string
   tlsXenCert: string
   tlsXenKey: string
-  initialPeers: Array<{ nodeId: string; url: string }>
+  initialPeers: { nodeId: string; url: string }[]
 }
 
 export interface InputConfig {
@@ -58,7 +59,7 @@ export async function fromPartialConfig(
   const paths = envPaths(APP_NAME, { suffix: "" })
 
   return {
-    nodeId: partialConfig.nodeId || "anonymous",
+    nodeId: partialConfig.nodeId ?? "anonymous",
     host: partialConfig.host ?? "localhost",
     port: partialConfig.port ? Number(partialConfig.port) : 8443,
     dataPath: partialConfig.dataPath ?? paths.data,
@@ -98,14 +99,21 @@ export async function fromPartialConfig(
 }
 
 export async function fromEnvironment() {
-  const paths = envPaths(APP_NAME, { suffix: "" })
-  const configPath = paths.config
+  const configPath =
+    process.env["XEN_CONFIG_FILE"] ?? envPaths(APP_NAME, { suffix: "" }).config
+
+  let fileConfig = {}
   try {
-    const config = await readFile(configPath, "utf8")
-    return await fromPartialConfig(JSON.parse(config))
+    // TODO: Validate using something like zod
+    fileConfig = JSON.parse(await readFile(configPath, "utf8")) as InputConfig
   } catch (error) {
-    debug(`failed to read config file path=${configPath} err=${error}`)
+    logger.debug("failed to read config file", { path: configPath, error })
   }
 
-  return await fromPartialConfig({})
+  // TODO: Validate using something like zod
+  const environmentConfig = JSON.parse(
+    process.env["XEN_CONFIG"] ?? "{}"
+  ) as InputConfig
+
+  return await fromPartialConfig({ ...fileConfig, ...environmentConfig })
 }

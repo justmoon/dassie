@@ -3,6 +3,10 @@ import { ZodType, z } from "zod"
 import type { Serializable } from "node:child_process"
 import { isNativeError } from "node:util/types"
 
+import { createLogger } from "@xen-ilp/lib-logger"
+
+const logger = createLogger("xen:dev:rpc-host")
+
 export interface RpcRequest {
   id?: string | number | null | undefined
   method: string
@@ -11,7 +15,7 @@ export interface RpcRequest {
 
 export interface RpcResult {
   id: string | number
-  result: string | number | Record<string, unknown> | Array<unknown> | null
+  result: string | number | Record<string, unknown> | unknown[] | null
 }
 
 export interface RpcError {
@@ -65,7 +69,7 @@ export default class RpcHost<T extends RpcRequest> {
     })
   }
 
-  async callNoReturn(
+  callNoReturn(
     method: string,
     parameters: unknown[] | Record<string, unknown> = []
   ) {
@@ -86,10 +90,12 @@ export default class RpcHost<T extends RpcRequest> {
       if (callback) {
         const { resolve, reject } = callback
         if ("error" in message) {
-          const match = /^([\w$]*Error): (.*)$/s.exec(message.error.message)
+          const match = /^([\w$]*Error): (.*)$/s.exec(message.error.message) as
+            | [string, string, string]
+            | null
           if (match) {
             const error = new Error(match[2])
-            error.name = match[1] as string
+            error.name = match[1]
             reject(error)
           } else {
             reject(new Error(message.error.message))
@@ -99,7 +105,7 @@ export default class RpcHost<T extends RpcRequest> {
         }
         this.callbacks.delete(String(message.id))
       } else {
-        console.error(`Unknown ID in RPC message: ${message}`)
+        logger.warn("unknown ID in RPC message", { message })
       }
     } else {
       try {

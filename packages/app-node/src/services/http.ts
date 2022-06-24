@@ -169,6 +169,7 @@ export default class HttpService {
     try {
       message = parseMessage(body)
     } catch (error) {
+      logger.logError(error, { ignoreInProduction: true })
       throw new BadRequestError(`Bad Request, failed to parse message`)
     }
     this.context.peerManager.handleMessage(message)
@@ -177,10 +178,10 @@ export default class HttpService {
   }
 
   async parseBody(request: IncomingMessage): Promise<Buffer> {
-    const body: Array<Buffer> = []
-    let dataReceived: number = 0
+    const body: Buffer[] = []
+    let dataReceived = 0
 
-    for await (const chunk of request) {
+    for await (const chunk of request as AsyncIterable<Buffer>) {
       dataReceived += chunk.length
 
       if (dataReceived > MAX_BODY_SIZE) {
@@ -196,7 +197,7 @@ export default class HttpService {
   }
 
   assertAcceptHeader(request: IncomingMessage, mediaType: string) {
-    if (request.headers["accept"] !== mediaType) {
+    if (request.headers.accept !== mediaType) {
       throw new NotAcceptableError(`Not Acceptable, expected ${mediaType}`)
     }
   }

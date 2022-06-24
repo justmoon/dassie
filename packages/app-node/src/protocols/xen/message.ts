@@ -18,7 +18,7 @@ export interface XenHelloMessage {
 export interface XenHelloMessageSignedPortion {
   nodeId: string
   sequence: number
-  neighbors: Array<XenHelloNeighbor>
+  neighbors: XenHelloNeighbor[]
 }
 
 export interface XenHelloNeighbor {
@@ -38,9 +38,11 @@ export const parseMessage = (message: Buffer): XenMessage => {
       const nodeId = signedReader.readVarOctetString().toString("ascii")
       const sequence = signedReader.readUInt32Number()
       const neighborCount = signedReader.readUInt16Number()
-      const neighbors = new Array(neighborCount)
+      const neighbors: XenHelloNeighbor[] = Array.from({
+        length: neighborCount,
+      })
 
-      for (let i = 0; i < neighborCount; i++) {
+      for (let index = 0; index < neighborCount; index++) {
         const neighborDefinition = signedReader.readVarOctetString()
         const neighborReader = Reader.from(neighborDefinition)
         const nodeId = neighborReader.readVarOctetString().toString("ascii")
@@ -48,7 +50,7 @@ export const parseMessage = (message: Buffer): XenMessage => {
           HELLO_NEIGHBOR_PROOF_LENGTH
         )
 
-        neighbors[i] = {
+        neighbors[index] = {
           nodeId,
           proof,
         }

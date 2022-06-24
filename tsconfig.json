@@ -9,8 +9,10 @@
     "jsx": "preserve",
     "jsxImportSource": "solid-js",
     "types": ["vite/client", "node"],
-    "noEmit": true,
-    "skipLibCheck": true
+    "declaration": true,
+    "declarationMap": true,
+    "emitDeclarationOnly": true,
+    "outDir": "dist"
   },
-  "exclude": ["**/dist/**"]
+  "exclude": ["**/dist/**", "packages/*/pkg/**"]
 }

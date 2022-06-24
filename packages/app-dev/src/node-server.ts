@@ -21,7 +21,7 @@ export interface NodeDefinition<T> {
   entry?: string
 }
 
-export const startNodeServer = async <T>(nodes: Array<NodeDefinition<T>>) => {
+export const startNodeServer = async <T>(nodes: NodeDefinition<T>[]) => {
   // create vite server
   const server = await createServer({
     server: { hmr: false },

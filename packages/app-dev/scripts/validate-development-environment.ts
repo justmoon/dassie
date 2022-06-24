@@ -23,7 +23,7 @@ interface CertificateInfo {
   node: NodeDefinition<InputConfig>
 }
 
-const neededCertificates: Array<CertificateInfo> = NODES.flatMap((node) => [
+const neededCertificates: CertificateInfo[] = NODES.flatMap((node) => [
   {
     type: "web",
     certificatePath: node.config.tlsWebCertFile,

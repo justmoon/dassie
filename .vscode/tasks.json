@@ -10,9 +10,7 @@
         "reveal": "always",
         "panel": "new"
       },
-      "runOptions": {
-        "runOn": "folderOpen"
-      },
+      "runOptions": {},
       "problemMatcher": []
     }
   ]

@@ -13,7 +13,7 @@ export interface PeerManagerContext {
 }
 
 export default class PeerManager {
-  readonly peers: Array<Peer>
+  readonly peers: Peer[]
 
   constructor(readonly context: PeerManagerContext) {
     this.peers = this.context.config.initialPeers.map(

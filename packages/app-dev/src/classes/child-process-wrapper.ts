@@ -54,17 +54,16 @@ export default class ChildProcessWrapper<T> {
   handleChildError = (error: Error) => {
     switch (this.state) {
       case "idle":
-        this.logger.error(
-          `${colors.red(`unexpected error from idle child process: `)} ${error}`
-        )
+        this.logger.error("unexpected error from idle child process")
+        this.logger.logError(error)
         break
       case "running":
-        this.logger.error(`${colors.red(`child process error: `)} ${error}`)
+        this.logger.error("child process error")
+        this.logger.logError(error)
         break
       case "stopping":
-        this.logger.error(
-          `${colors.red(`child process error while stopping: `)} ${error}`
-        )
+        this.logger.error("child process error while stopping")
+        this.logger.logError(error)
         break
       default:
         throw new UnreachableCaseError(this.state)
@@ -75,7 +74,7 @@ export default class ChildProcessWrapper<T> {
     if (code === 0) {
       this.logger.info(`${colors.green(`child exited`)}`)
     } else {
-      this.logger.error(`child exited with code: ${code}`)
+      this.logger.error(`child exited with code: ${code ?? "unknown"}`)
     }
     this.state = "idle"
     this.child = undefined
@@ -106,12 +105,15 @@ export default class ChildProcessWrapper<T> {
   }
 
   async start() {
-    if (this.state === "running") {
-      return this.startPromise
-    } else if (this.state === "stopping") {
-      return
-    } else if (this.state !== "idle") {
-      throw new UnreachableCaseError(this.state)
+    switch (this.state) {
+      case "running":
+        return this.startPromise
+      case "stopping":
+        return
+      case "idle":
+        break
+      default:
+        throw new UnreachableCaseError(this.state)
     }
 
     this.state = "running"
@@ -131,6 +133,7 @@ export default class ChildProcessWrapper<T> {
           env: {
             FORCE_COLOR: "1",
             ...process.env,
+            XEN_CONFIG: JSON.stringify(this.node.config),
           },
         }
       ))
@@ -149,7 +152,6 @@ export default class ChildProcessWrapper<T> {
           root: this.viteServer.config.root,
           base: this.viteServer.config.base,
           entry: this.node.entry ?? "src/index.ts",
-          config: this.node.config,
         })
       } finally {
         this.startPromise = undefined
@@ -158,12 +160,15 @@ export default class ChildProcessWrapper<T> {
   }
 
   async stop() {
-    if (this.state === "stopping") {
-      return this.stopPromise
-    } else if (this.state === "idle") {
-      return
-    } else if (this.state !== "running") {
-      throw new UnreachableCaseError(this.state)
+    switch (this.state) {
+      case "stopping":
+        return this.stopPromise
+      case "idle":
+        return
+      case "running":
+        break
+      default:
+        throw new UnreachableCaseError(this.state)
     }
 
     this.state = "stopping"
