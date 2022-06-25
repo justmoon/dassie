@@ -1,6 +1,8 @@
+import XenSerializer from "./actors/xen-serializer"
 import { fromEnvironment, fromPartialConfig } from "./config"
 import type { InputConfig } from "./config"
 import HttpService from "./services/http"
+import MessageBroker from "./services/message-broker"
 import PeerTable from "./services/peer-table"
 import SigningService from "./services/signing"
 import State from "./services/state"
@@ -15,13 +17,26 @@ const start = async (inputConfig?: InputConfig) => {
 
   const state = new State()
 
-  const peerTable = new PeerTable({ config, signing, state })
+  const messageBroker = new MessageBroker()
 
-  const http = new HttpService({ config, peerTable: peerTable })
+  const xenSerializer = new XenSerializer({ messageBroker })
+
+  const peerTable = new PeerTable({ config, signing, state, messageBroker })
+
+  const http = new HttpService({ config, messageBroker })
 
   const ws = new WebSocketService({ config, http })
 
-  return { config, http, ws, peerManager: peerTable }
+  return {
+    config,
+    signing,
+    state,
+    messageBroker,
+    xenSerializer,
+    peerTable,
+    http,
+    ws,
+  }
 }
 
 export type { InputConfig } from "./config"

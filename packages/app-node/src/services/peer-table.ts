@@ -3,12 +3,14 @@ import { produce } from "immer"
 
 import { createLogger } from "@xen-ilp/lib-logger"
 
-import type { Config } from "../config"
-import { XenMessage, XenMessageType } from "../protocols/xen/message"
+import { XenMessage, XenMessageType } from "../codecs/xen-message"
 import {
   XenMessageWithOptionalSignature,
   encodeMessage,
-} from "../protocols/xen/message"
+} from "../codecs/xen-message"
+import type { Config } from "../config"
+import { incomingXenMessageTopic } from "../topics/xen-protocol"
+import type MessageBroker from "./message-broker"
 import type SigningService from "./signing"
 import type { Store } from "./state"
 import type State from "./state"
@@ -19,6 +21,7 @@ export interface PeerTableContext {
   config: Config
   signing: SigningService
   state: State
+  messageBroker: MessageBroker
 }
 
 export interface PeerEntry {
@@ -38,6 +41,20 @@ export type Model = Record<string, PeerEntry>
 
 export default class PeerTable {
   readonly store: Store<Model>
+
+  constructor(readonly context: PeerTableContext) {
+    this.store = this.context.state.createStore({})
+
+    for (const peerEntry of this.context.config.initialPeers)
+      this.addPeer(peerEntry)
+
+    this.context.messageBroker.addListener(
+      incomingXenMessageTopic,
+      this.handleMessage
+    )
+
+    this.connect()
+  }
 
   addPeer = (peerEntry: NewPeerEntry) =>
     this.store.set(
@@ -66,15 +83,6 @@ export default class PeerTable {
     )
   }
 
-  constructor(readonly context: PeerTableContext) {
-    this.store = this.context.state.createStore({})
-
-    for (const peerEntry of this.context.config.initialPeers)
-      this.addPeer(peerEntry)
-
-    this.connect()
-  }
-
   get peers() {
     return this.store.get()
   }
@@ -89,7 +97,7 @@ export default class PeerTable {
     }
   }
 
-  handleMessage(message: XenMessage) {
+  handleMessage = (message: XenMessage) => {
     switch (message.method) {
       case XenMessageType.Hello: {
         const { nodeId, sequence, neighbors } = message.signed

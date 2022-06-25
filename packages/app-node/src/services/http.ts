@@ -6,14 +6,14 @@ import { assertDefined, isObject } from "@xen-ilp/lib-type-utils"
 
 import type { Config } from "../config"
 import { MAX_BODY_SIZE } from "../constants/http"
-import { XenMessage, parseMessage } from "../protocols/xen/message"
-import type PeerTable from "./peer-table"
+import { incomingXenMessageBufferTopic } from "../topics/xen-protocol"
+import type MessageBroker from "./message-broker"
 
 const logger = createLogger("xen:node:http")
 
 export interface HttpContext {
   config: Config
-  peerTable: PeerTable
+  messageBroker: MessageBroker
 }
 
 export class BadRequestError extends Error {
@@ -165,14 +165,10 @@ export default class HttpService {
     this.assertContentTypeHeader(request, "application/xen-message")
 
     const body = await this.parseBody(request)
-    let message: XenMessage
-    try {
-      message = parseMessage(body)
-    } catch (error) {
-      logger.logError(error, { ignoreInProduction: true })
-      throw new BadRequestError(`Bad Request, failed to parse message`)
-    }
-    this.context.peerTable.handleMessage(message)
+    await this.context.messageBroker.emitAndWait(
+      incomingXenMessageBufferTopic,
+      body
+    )
 
     this.respondPlainly(response, 200, "OK")
   }
