@@ -1,8 +1,9 @@
 import { fromEnvironment, fromPartialConfig } from "./config"
 import type { InputConfig } from "./config"
 import HttpService from "./services/http"
-import PeerManager from "./services/peer-manager"
+import PeerTable from "./services/peer-table"
 import SigningService from "./services/signing"
+import State from "./services/state"
 import WebSocketService from "./services/websocket"
 
 const start = async (inputConfig?: InputConfig) => {
@@ -12,13 +13,15 @@ const start = async (inputConfig?: InputConfig) => {
 
   const signing = new SigningService({ config })
 
-  const peerManager = new PeerManager({ config, signing })
+  const state = new State()
 
-  const http = new HttpService({ config, peerManager })
+  const peerTable = new PeerTable({ config, signing, state })
+
+  const http = new HttpService({ config, peerTable: peerTable })
 
   const ws = new WebSocketService({ config, http })
 
-  return { config, http, ws, peerManager }
+  return { config, http, ws, peerManager: peerTable }
 }
 
 export type { InputConfig } from "./config"

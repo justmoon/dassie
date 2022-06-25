@@ -7,13 +7,13 @@ import { assertDefined, isObject } from "@xen-ilp/lib-type-utils"
 import type { Config } from "../config"
 import { MAX_BODY_SIZE } from "../constants/http"
 import { XenMessage, parseMessage } from "../protocols/xen/message"
-import type PeerManager from "./peer-manager"
+import type PeerTable from "./peer-table"
 
 const logger = createLogger("xen:node:http")
 
 export interface HttpContext {
   config: Config
-  peerManager: PeerManager
+  peerTable: PeerTable
 }
 
 export class BadRequestError extends Error {
@@ -172,7 +172,7 @@ export default class HttpService {
       logger.logError(error, { ignoreInProduction: true })
       throw new BadRequestError(`Bad Request, failed to parse message`)
     }
-    this.context.peerManager.handleMessage(message)
+    this.context.peerTable.handleMessage(message)
 
     this.respondPlainly(response, 200, "OK")
   }
