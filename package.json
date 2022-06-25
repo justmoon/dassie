@@ -31,6 +31,7 @@
   "homepage": "https://github.com/justmoon/xen-ilp#readme",
   "dependencies": {
     "@microsoft/api-extractor": "^7.26.0",
+    "@microsoft/api-extractor-model": "^7.20.0",
     "@trivago/prettier-plugin-sort-imports": "^3.2.0",
     "@tsconfig/recommended": "^1.0.1",
     "@tsconfig/strictest": "^1.0.1",

@@ -1,5 +1,6 @@
 import { ExtractorConfig } from "@microsoft/api-extractor"
-import type { ExtractorLogLevel, IConfigFile } from "@microsoft/api-extractor"
+import type { ExtractorLogLevel } from "@microsoft/api-extractor"
+import type { EnumMemberOrder } from "@microsoft/api-extractor-model"
 
 /**
  * Config file for API Extractor.  For more info, please visit: https://api-extractor.com
@@ -79,7 +80,7 @@ const createExtractorConfig = (
        */
       bundledPackages: [],
 
-      enumMemberOrder: "preserve" as IConfigFile["enumMemberOrder"],
+      enumMemberOrder: "preserve" as EnumMemberOrder,
 
       /**
        * Determines how the TypeScript compiler engine will be invoked by API Extractor.
