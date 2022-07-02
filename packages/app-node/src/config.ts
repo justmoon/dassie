@@ -100,19 +100,19 @@ export async function fromPartialConfig(
 }
 
 export async function fromEnvironment() {
-  const configPath =
-    process.env["XEN_CONFIG_FILE"] ??
-    `${envPaths(APP_NAME, { suffix: "" }).config}/config.json`
+  const configPath = process.env["XEN_CONFIG_FILE"]
 
   let fileConfig = {}
-  try {
-    // TODO: Validate using something like zod
-    fileConfig = JSON.parse(await readFile(configPath, "utf8")) as InputConfig
-  } catch (error) {
-    if (isErrorWithCode(error, "ENOENT")) {
-      logger.debug("no config file found", { path: configPath })
-    } else {
-      logger.debug("failed to read config file", { path: configPath, error })
+  if (configPath) {
+    try {
+      // TODO: Validate using something like zod
+      fileConfig = JSON.parse(await readFile(configPath, "utf8")) as InputConfig
+    } catch (error) {
+      if (isErrorWithCode(error, "ENOENT")) {
+        logger.debug("config file not found", { path: configPath })
+      } else {
+        logger.debug("failed to read config file", { path: configPath, error })
+      }
     }
   }
 

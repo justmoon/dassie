@@ -13,12 +13,14 @@
   "dependencies": {
     "@types/ws": "^8.5.3",
     "@xen-ilp/lib-crypto": "workspace:^1.0.0",
+    "@xen-ilp/lib-events": "workspace:^1.0.0",
     "@xen-ilp/lib-logger": "workspace:^1.0.0",
+    "@xen-ilp/lib-state": "workspace:^1.0.0",
     "@xen-ilp/lib-type-utils": "workspace:^1.0.0",
     "axios": "^0.27.2",
     "env-paths": "^3.0.0",
     "immer": "^9.0.15",
     "oer-utils": "5.1.3-alpha.1",
-    "ws": "^8.7.0"
+    "ws": "^8.8.0"
   }
 }

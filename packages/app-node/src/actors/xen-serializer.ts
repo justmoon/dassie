@@ -1,8 +1,8 @@
+import type { EventBroker } from "@xen-ilp/lib-events"
 import { createLogger } from "@xen-ilp/lib-logger"
 
 import { XenMessage, parseMessage } from "../codecs/xen-message"
 import { BadRequestError } from "../services/http"
-import type MessageBroker from "../services/message-broker"
 import {
   incomingXenMessageBufferTopic,
   incomingXenMessageTopic,
@@ -11,12 +11,12 @@ import {
 const logger = createLogger("xen:node:xen-serializer")
 
 interface XenSerializerContext {
-  messageBroker: MessageBroker
+  eventBroker: EventBroker
 }
 
 export default class XenSerializer {
   constructor(readonly context: XenSerializerContext) {
-    context.messageBroker.addListener(
+    context.eventBroker.addListener(
       incomingXenMessageBufferTopic,
       this.handleIncomingXenMessageBuffer
     )
@@ -31,9 +31,6 @@ export default class XenSerializer {
       throw new BadRequestError(`Bad Request, failed to parse message`)
     }
 
-    await this.context.messageBroker.emitAndWait(
-      incomingXenMessageTopic,
-      message
-    )
+    await this.context.eventBroker.emitAndWait(incomingXenMessageTopic, message)
   }
 }

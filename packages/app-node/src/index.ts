@@ -1,11 +1,12 @@
+import { EventBroker } from "@xen-ilp/lib-events"
+import { State } from "@xen-ilp/lib-state"
+
 import XenSerializer from "./actors/xen-serializer"
 import { fromEnvironment, fromPartialConfig } from "./config"
 import type { InputConfig } from "./config"
 import HttpService from "./services/http"
-import MessageBroker from "./services/message-broker"
 import PeerTable from "./services/peer-table"
 import SigningService from "./services/signing"
-import State from "./services/state"
 import WebSocketService from "./services/websocket"
 
 const start = async (inputConfig?: InputConfig) => {
@@ -17,13 +18,18 @@ const start = async (inputConfig?: InputConfig) => {
 
   const state = new State()
 
-  const messageBroker = new MessageBroker()
+  const eventBroker = new EventBroker()
 
-  const xenSerializer = new XenSerializer({ messageBroker })
+  const xenSerializer = new XenSerializer({ eventBroker })
 
-  const peerTable = new PeerTable({ config, signing, state, messageBroker })
+  const peerTable = new PeerTable({
+    config,
+    signing,
+    state,
+    eventBroker,
+  })
 
-  const http = new HttpService({ config, messageBroker })
+  const http = new HttpService({ config, eventBroker })
 
   const ws = new WebSocketService({ config, http })
 
@@ -31,7 +37,7 @@ const start = async (inputConfig?: InputConfig) => {
     config,
     signing,
     state,
-    messageBroker,
+    eventBroker,
     xenSerializer,
     peerTable,
     http,

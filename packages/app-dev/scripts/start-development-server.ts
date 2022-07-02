@@ -1,5 +1,3 @@
-import { startNodeServer, startWalletServer } from "../src"
-import { NODES } from "../src/constants/development-nodes"
+import start from "../src"
 
-await startNodeServer(NODES)
-await startWalletServer()
+void start()

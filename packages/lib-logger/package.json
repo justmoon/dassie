@@ -6,7 +6,8 @@
   "main": "./src/index.ts",
   "exports": {
     ".": {
-      "import": "./src/index.ts"
+      "node": "./src/index.ts",
+      "import": "./src/browser.ts"
     }
   },
   "publishConfig": {
@@ -27,6 +28,7 @@
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "dependencies": {
+    "@xen-ilp/lib-type-utils": "workspace:^1.0.0",
     "picocolors": "^1.0.0"
   }
 }

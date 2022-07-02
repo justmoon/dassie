@@ -1,6 +1,7 @@
 import { createEnableChecker } from "./enabled"
-import type { Formatter, FormatterConstructor } from "./types/formatter"
-import type LogErrorOptions from "./types/log-error-options"
+import type { LoggingContext } from "./types/context"
+import type { Formatter } from "./types/formatter"
+import type { LogErrorOptions, LogLineOptions } from "./types/log-options"
 
 /**
  * Loggers are used to log messages related to a specific component.
@@ -10,8 +11,6 @@ import type LogErrorOptions from "./types/log-error-options"
  * @beta
  */
 export class Logger {
-  private readonly formatter: Formatter
-
   /**
    * Build a new logger object. Use {@link createLogger} instead.
    *
@@ -21,20 +20,15 @@ export class Logger {
    * @internal
    */
   constructor(
+    readonly context: LoggingContext,
+
     /**
      * An arbitrary name to uniquely identify the component this logger belongs to.
      *
      * @example "xen:node:http"
      */
-    readonly component: string,
-    Formatter: FormatterConstructor,
-    /**
-     * Whether this logger should log debug messages.
-     */
-    readonly debugEnabled: boolean
-  ) {
-    this.formatter = new Formatter(component)
-  }
+    readonly component: string
+  ) {}
 
   /**
    * Clears the logger's output.
@@ -46,7 +40,7 @@ export class Logger {
    * @alpha
    */
   clear() {
-    this.formatter.clear()
+    this.context.formatter.clear()
   }
 
   /**
@@ -55,9 +49,22 @@ export class Logger {
    * @param message - A freeform message
    * @param data - Additional relevant data to log and make available for debugging
    */
-  debug(message: string, data?: Record<string, unknown>) {
-    if (this.debugEnabled) {
-      this.formatter.log("debug", message, data)
+  debug(
+    message: string,
+    data?: Record<string, unknown>,
+    options?: LogLineOptions
+  ) {
+    if (this.context.enableChecker(this.component)) {
+      this.context.formatter.log(
+        {
+          component: this.component,
+          date: new Date(),
+          level: "debug",
+          message,
+          ...(data ? { data } : {}),
+        },
+        options ?? {}
+      )
     }
   }
 
@@ -67,8 +74,21 @@ export class Logger {
    * @param message - A freeform message
    * @param data - Additional relevant data to log and make available for debugging
    */
-  info(message: string, data?: Record<string, unknown>) {
-    this.formatter.log("info", message, data)
+  info(
+    message: string,
+    data?: Record<string, unknown>,
+    options?: LogLineOptions
+  ) {
+    this.context.formatter.log(
+      {
+        component: this.component,
+        date: new Date(),
+        level: "info",
+        message,
+        ...(data ? { data } : {}),
+      },
+      options ?? {}
+    )
   }
 
   /**
@@ -77,8 +97,22 @@ export class Logger {
    * @param message - A freeform message
    * @param data - Additional relevant data to log and make available for debugging
    */
-  warn(message: string, data?: Record<string, unknown>) {
-    this.formatter.log("warn", message, data)
+  warn(
+    message: string,
+    data?: Record<string, unknown>,
+    options?: LogLineOptions
+  ) {
+    this.context.formatter.log(
+      {
+        component: this.component,
+
+        date: new Date(),
+        level: "warn",
+        message,
+        ...(data ? { data } : {}),
+      },
+      options ?? {}
+    )
   }
 
   /**
@@ -87,8 +121,21 @@ export class Logger {
    * @param message - A freeform message
    * @param data - Additional relevant data to log and make available for debugging
    */
-  error(message: string, data?: Record<string, unknown>) {
-    this.formatter.log("error", message, data)
+  error(
+    message: string,
+    data?: Record<string, unknown>,
+    options?: LogLineOptions
+  ) {
+    this.context.formatter.log(
+      {
+        component: this.component,
+        date: new Date(),
+        level: "error",
+        message,
+        ...(data ? { data } : {}),
+      },
+      options ?? {}
+    )
   }
 
   /**
@@ -98,25 +145,36 @@ export class Logger {
    * @param options - Additional options to control the formatting of the error.
    */
   logError(error: unknown, options: LogErrorOptions = {}) {
-    this.formatter.logError(error, options)
+    this.context.formatter.log(
+      {
+        component: this.component,
+        date: new Date(),
+        level: "error",
+        message: "",
+        error,
+      },
+      options
+    )
   }
 }
 
 /**
- * Create a logger factory which applies a given formatter to all loggers.
+ * Create a logger factory which creates loggers using a given logging context.
  *
- * @param debugScope - A comma-separated list of debug scopes to enable. Usually read from the DEBUG environment variable.
- * @param Formatter - The formatter to use for all loggers.
- * @returns A factory function that creates loggers.
- * @internal
+ * @alpha
  */
-export function _createLoggerFactory(
-  debugScope: string,
-  Formatter: FormatterConstructor
-) {
-  const enableChecker = createEnableChecker(debugScope)
+export function createLoggerFactory(loggingContext: LoggingContext) {
   const createLogger = (component: string) => {
-    return new Logger(component, Formatter, enableChecker(component))
+    return new Logger(loggingContext, component)
   }
+
+  createLogger.setDebugScope = (debugScope: string) => {
+    loggingContext.enableChecker = createEnableChecker(debugScope)
+  }
+
+  createLogger.setFormatter = (formatter: Formatter) => {
+    loggingContext.formatter = formatter
+  }
+
   return createLogger
 }

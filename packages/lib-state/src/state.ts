@@ -8,17 +8,25 @@ export type SetState<T, U = T> = (
 export type SubscribeState<T> = (listener: StateListener<T>) => () => void
 export type DestroyState = () => void
 
-export interface Store<T> {
+export interface Store<T, U = T> {
   get: GetState<T>
-  set: SetState<T>
+  set: SetState<T, U>
   subscribe: SubscribeState<T>
   destroy: DestroyState
 }
 
 export type StateListener<T> = (state: T, previousState: T) => AsyncOrSync<void>
 
+export interface StateOptions {
+  errorHandler?: (error: unknown) => void
+}
+
 export default class State {
-  createStore<T>(value: T): Store<T> {
+  readonly stores = new Map<string, WeakRef<Store<unknown, never>>>()
+
+  constructor(readonly options: StateOptions = {}) {}
+
+  createStore<T>(id: string, value: T): Store<T> {
     const listeners = new Set<StateListener<T>>()
 
     const get = () => value
@@ -27,9 +35,16 @@ export default class State {
       value = update(value)
       for (const sideEffect of typeof sideEffects === "function"
         ? [sideEffects]
-        : sideEffects ?? [])
-        sideEffect(value, previousValue)
-      for (const listener of listeners) listener(value, previousValue)
+        : sideEffects ?? []) {
+        Promise.resolve(sideEffect(value, previousValue)).catch(
+          this.options.errorHandler ?? console.error
+        )
+      }
+      for (const listener of listeners) {
+        Promise.resolve(listener(value, previousValue)).catch(
+          this.options.errorHandler ?? console.error
+        )
+      }
       return value
     }
     const subscribe: SubscribeState<T> = (listener) => {
@@ -39,6 +54,10 @@ export default class State {
     }
     const destroy = () => listeners.clear()
 
-    return { get, set, subscribe, destroy }
+    const store: Store<T> = { get, set, subscribe, destroy }
+
+    this.stores.set(id, new WeakRef(store))
+
+    return store
   }
 }

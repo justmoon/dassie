@@ -1,7 +1,9 @@
 import axios from "axios"
 import { produce } from "immer"
 
+import type { EventBroker } from "@xen-ilp/lib-events"
 import { createLogger } from "@xen-ilp/lib-logger"
+import type { State, Store } from "@xen-ilp/lib-state"
 
 import { XenMessage, XenMessageType } from "../codecs/xen-message"
 import {
@@ -10,10 +12,7 @@ import {
 } from "../codecs/xen-message"
 import type { Config } from "../config"
 import { incomingXenMessageTopic } from "../topics/xen-protocol"
-import type MessageBroker from "./message-broker"
 import type SigningService from "./signing"
-import type { Store } from "./state"
-import type State from "./state"
 
 const logger = createLogger("xen:node:peer-manager")
 
@@ -21,7 +20,7 @@ export interface PeerTableContext {
   config: Config
   signing: SigningService
   state: State
-  messageBroker: MessageBroker
+  eventBroker: EventBroker
 }
 
 export interface PeerEntry {
@@ -43,12 +42,12 @@ export default class PeerTable {
   readonly store: Store<Model>
 
   constructor(readonly context: PeerTableContext) {
-    this.store = this.context.state.createStore({})
+    this.store = this.context.state.createStore("peer-table", {})
 
     for (const peerEntry of this.context.config.initialPeers)
       this.addPeer(peerEntry)
 
-    this.context.messageBroker.addListener(
+    this.context.eventBroker.addListener(
       incomingXenMessageTopic,
       this.handleMessage
     )

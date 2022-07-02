@@ -3,8 +3,10 @@ import colors from "picocolors"
 import { inspect } from "node:util"
 
 import type { Formatter } from "../types/formatter"
-import type LogErrorOptions from "../types/log-error-options"
+import type { LogLine } from "../types/log-line"
+import type { LogErrorOptions } from "../types/log-options"
 import isError from "../utils/is-error"
+import { selectBySeed } from "../utils/select-by-seed"
 
 export const COLORS = [
   colors.red,
@@ -14,14 +16,6 @@ export const COLORS = [
   colors.magenta,
   colors.cyan,
 ] as const
-
-export const generateColoredPrefix = (seed: string) => {
-  const hash =
-    [...seed].reduce((hash, char) => hash + (char.codePointAt(0) ?? 0), 0) %
-    COLORS.length
-
-  return (COLORS[hash] ?? colors.black)(seed)
-}
 
 const monorepoRoot = new URL("../../../..", import.meta.url).pathname
 export const formatFilePath = (filePath: string) => {
@@ -58,33 +52,42 @@ export const formatValue = (value: unknown) => {
 }
 
 export default class CliFormatter implements Formatter {
-  readonly prefix: string
+  readonly prefixCache = new Map<string, string>()
 
-  constructor(readonly component: string) {
-    this.prefix = generateColoredPrefix(component) + " "
+  private getPrefix(component: string) {
+    let prefix = this.prefixCache.get(component)
+    if (!prefix) {
+      prefix = selectBySeed(COLORS, component)(component) + " "
+      this.prefixCache.set(component, prefix)
+    }
+
+    return prefix
   }
 
   clear() {
     console.log("\u001B[2J")
   }
 
-  log(
-    level: "debug" | "info" | "warn" | "error",
-    message: string,
-    data?: Record<string, unknown>
-  ) {
+  log(line: LogLine, options: LogErrorOptions) {
     const levelInsert = {
       debug: "",
       info: "",
       warn: colors.yellow("! "),
       error: colors.red("‼ "),
-    }[level]
+    }[line.level]
+
+    if (options.ignoreInProduction && process.env["NODE_ENV"] === "production")
+      return
+
+    if (line.error) {
+      line.message = this.formatError(line.error, options)
+    }
 
     process.stdout.write(
-      `${this.prefix}${levelInsert}${message}${
-        data
+      `${this.getPrefix(line.component)}${levelInsert}${line.message}${
+        line.data
           ? " " +
-            Object.entries(data)
+            Object.entries(line.data)
               .map(([key, value]) => `${key}=${formatValue(value)}`)
               .join(", ")
           : ""
@@ -92,10 +95,7 @@ export default class CliFormatter implements Formatter {
     )
   }
 
-  logError(error: unknown, options: LogErrorOptions = {}) {
-    if (options.ignoreInProduction && process.env["NODE_ENV"] === "production")
-      return
-
+  formatError(error: unknown, options: LogErrorOptions = {}): string {
     if (isError(error)) {
       const name = error.name || "Error"
       const message = error.message
@@ -142,12 +142,14 @@ export default class CliFormatter implements Formatter {
           return colors.dim(line)
         })
         .filter(Boolean)
-      this.log(
-        "error",
-        `${colors.red(colors.bold(`${name}:`))} ${colors.red(message)}${
-          stack.length > 0 ? "\n" : ""
-        }${stack.join("\n")}`
-      )
+
+      return `${colors.red(colors.bold(`${name}:`))} ${colors.red(message)}${
+        stack.length > 0 ? "\n" : ""
+      }${stack.join("\n")}`
+    } else {
+      return `${colors.red(colors.bold("Thrown:"))} ${colors.red(
+        formatValue(error)
+      )}`
     }
   }
 }

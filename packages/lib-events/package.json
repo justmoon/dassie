@@ -1,0 +1,32 @@
+{
+  "name": "@xen-ilp/lib-events",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Tools for routing and handling events",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts"
+    }
+  },
+  "publishConfig": {
+    "main": "./dist/index.js",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "require": "./dist/index.cjs",
+        "import": "./dist/index.js"
+      }
+    }
+  },
+  "scripts": {
+    "clean": "rimraf dist",
+    "build": "rollup -c",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Stefan Thomas <justmoon@members.fsf.org>",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@xen-ilp/lib-logger": "workspace:^1.0.0"
+  }
+}

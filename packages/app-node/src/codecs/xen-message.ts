@@ -96,7 +96,7 @@ const writeSignature = (
 export function encodeMessage(message: XenMessage): Buffer
 export function encodeMessage(
   message: XenMessageWithOptionalSignature,
-  sign?: (content: Buffer) => Buffer
+  sign: (content: Buffer) => Buffer
 ): Buffer
 export function encodeMessage(
   message: XenMessageWithOptionalSignature,

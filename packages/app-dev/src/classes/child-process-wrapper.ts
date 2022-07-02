@@ -1,3 +1,4 @@
+import CDP from "chrome-remote-interface"
 import colors from "picocolors"
 import type { ViteDevServer } from "vite"
 import type { ViteNodeServer } from "vite-node/server"
@@ -5,16 +6,27 @@ import type { ViteNodeServer } from "vite-node/server"
 import { ChildProcess, Serializable, fork } from "node:child_process"
 import type { Readable } from "node:stream"
 
+import type { EventBroker } from "@xen-ilp/lib-events"
 import { byLine } from "@xen-ilp/lib-itergen-utils"
-import { createLogger } from "@xen-ilp/lib-logger"
+import type { SerializableLogLine } from "@xen-ilp/lib-logger"
 import type { Logger } from "@xen-ilp/lib-logger"
 import { UnreachableCaseError, assertDefined } from "@xen-ilp/lib-type-utils"
 
-import type { NodeDefinition } from "../node-server"
 import { ClientRequest, schema } from "../schemas/client-request"
+import type { NodeDefinition } from "../servers/node-server"
+import { createCliOnlyLogger } from "../services/logger"
+import { logLineTopic } from "../topics/log-message"
 import RpcHost from "./rpc-host"
 
-const RUNNER_MODULE = new URL("../../dist/runner.js", import.meta.url).pathname
+const VITE_NODE_BIN = new URL(
+  "../../node_modules/vite-node/vite-node.mjs",
+  import.meta.url
+).pathname
+const RUNNER_MODULE = new URL("../runner.ts", import.meta.url).pathname
+
+export interface ChildProcessWrapperContext {
+  eventBroker: EventBroker
+}
 
 export default class ChildProcessWrapper<T> {
   readonly prefix: string
@@ -24,14 +36,17 @@ export default class ChildProcessWrapper<T> {
   private stopPromise: Promise<void> | undefined
   private logger: Logger
   private rpcHost: RpcHost<ClientRequest>
+  private cdpClient: CDP.Client | undefined
 
   constructor(
+    readonly context: ChildProcessWrapperContext,
     private readonly viteServer: ViteDevServer,
     private readonly nodeServer: ViteNodeServer,
     public readonly node: NodeDefinition<T>
   ) {
     this.prefix = `◼ ${this.node.id}`
-    this.logger = createLogger(this.prefix)
+    this.logger = createCliOnlyLogger(this.prefix)
+
     this.rpcHost = new RpcHost(
       schema,
       this.handleChildRequest,
@@ -81,7 +96,9 @@ export default class ChildProcessWrapper<T> {
   }
 
   handleChildMessage = (message: unknown) => {
-    this.rpcHost.handleMessage(message)
+    this.rpcHost
+      .handleMessage(message)
+      .catch((error) => this.logger.logError(error))
   }
 
   handleChildRequest = async (request: ClientRequest) => {
@@ -98,9 +115,28 @@ export default class ChildProcessWrapper<T> {
     }
   }
 
-  async pipeOutput(input: Readable) {
+  async processLog(input: Readable) {
     for await (const line of byLine(input)) {
-      this.logger.info(line)
+      try {
+        const logLine = JSON.parse(line) as SerializableLogLine
+        this.context.eventBroker.emit(logLineTopic, {
+          node: this.node.id,
+          ...logLine,
+        })
+        this.logger.info(
+          `${logLine.component} ${logLine.message}`,
+          logLine.data
+        )
+      } catch {
+        this.context.eventBroker.emit(logLineTopic, {
+          node: this.node.id,
+          component: "raw",
+          message: line,
+          date: new Date().toISOString(),
+          level: "info",
+        })
+        this.logger.info(line)
+      }
     }
   }
 
@@ -125,37 +161,46 @@ export default class ChildProcessWrapper<T> {
         throw new Error(`${RUNNER_MODULE} not resolvable`)
       }
 
-      const child = (this.child = fork(
-        resolvedEntryPoint.id,
-        ["--enable-source-maps"],
-        {
-          silent: true,
-          env: {
-            FORCE_COLOR: "1",
-            ...process.env,
-            XEN_CONFIG: JSON.stringify(this.node.config),
-          },
-        }
-      ))
-      assertDefined(child.stdout)
-      assertDefined(child.stderr)
-
+      const child = (this.child = fork(VITE_NODE_BIN, [resolvedEntryPoint.id], {
+        detached: false,
+        silent: true,
+        execArgv: ["--enable-source-maps", `--inspect=${this.node.debugPort}`],
+        env: {
+          FORCE_COLOR: "1",
+          ...process.env,
+          XEN_LOG_FORMATTER: "json",
+          XEN_CONFIG: JSON.stringify(this.node.config),
+          XEN_DEV_ROOT: this.viteServer.config.root,
+          XEN_DEV_BASE: this.viteServer.config.base,
+          XEN_DEV_ENTRY: this.node.entry ?? "src/index.ts",
+        },
+      }))
       child.addListener("error", this.handleChildError)
       child.addListener("exit", this.handleChildExit)
       child.addListener("message", this.handleChildMessage)
 
-      this.pipeOutput(child.stdout)
-      this.pipeOutput(child.stderr)
+      assertDefined(child.stdout)
+      assertDefined(child.stderr)
 
-      try {
-        await this.rpcHost.call("start", {
-          root: this.viteServer.config.root,
-          base: this.viteServer.config.base,
-          entry: this.node.entry ?? "src/index.ts",
-        })
-      } finally {
-        this.startPromise = undefined
-      }
+      this.processLog(child.stdout).catch((error) =>
+        this.logger.logError(error)
+      )
+      this.processLog(child.stderr).catch((error) =>
+        this.logger.logError(error)
+      )
+
+      // Wait for first message from child to indicate it is ready
+      await new Promise((resolve) => child.once("message", resolve))
+
+      this.cdpClient = await CDP({
+        port: this.node.debugPort,
+      })
+
+      this.cdpClient.on("disconnect", () => {
+        this.cdpClient = undefined
+      })
+
+      this.startPromise = undefined
     })())
   }
 
@@ -188,11 +233,25 @@ export default class ChildProcessWrapper<T> {
         child.once("exit", resolve)
       })
 
-      if (child.connected) {
-        this.rpcHost.callNoReturn("exit", [])
-      } else if (this.child.exitCode === null) {
-        child.kill()
-      }
+      child.kill("SIGINT")
+      // if (this.cdpClient) {
+      //   this.logger.info("evaluating")
+      //   console.log(
+      //     await Promise.all([
+      //       this.cdpClient.Runtime.evaluate({
+      //         expression: "require('inspector').close()",
+      //         includeCommandLineAPI: true,
+      //       }),
+      //       this.cdpClient.close(),
+      //     ])
+      //   )
+
+      //   this.logger.info("debugger closed")
+      // } else if (child.connected) {
+      //   this.rpcHost.callNoReturn("exit", [])
+      // } else if (this.child.exitCode === null) {
+      //   child.kill()
+      // }
 
       await childEndPromise
 

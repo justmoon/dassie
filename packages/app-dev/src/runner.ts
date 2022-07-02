@@ -1,9 +1,11 @@
 #!/usr/bin/env node
-import type { FetchResult, ViteNodeResolveId } from "vite-node"
 import { ViteNodeRunner } from "vite-node/client"
 
+import { assertDefined } from "@xen-ilp/lib-type-utils"
+
 import RpcHost from "./classes/rpc-host"
-import { ServerRequest, schema } from "./schemas/server-request"
+import { schema } from "./schemas/server-request"
+import type { FetchResult, ViteNodeResolveId } from "vite-node"
 
 const sendMessage = (message: unknown) => {
   if (!process.send) {
@@ -12,38 +14,29 @@ const sendMessage = (message: unknown) => {
   process.send(message)
 }
 
-const handleRequest = async (request: ServerRequest) => {
-  switch (request.method) {
-    case "start": {
-      // create vite-node runner
-      const runner = new ViteNodeRunner({
-        root: request.params.root,
-        base: request.params.base,
-        // when having the server and runner in a different context,
-        // you will need to handle the communication between them
-        // and pass to this function
-        async fetchModule(id) {
-          return (await rpcClient.call("fetchModule", [id])) as FetchResult
-        },
-        async resolveId(id, importer) {
-          return (await rpcClient.call("resolveId", [
-            id,
-            importer,
-          ])) as ViteNodeResolveId | null
-        },
-      })
-
-      // load vite environment
-      await runner.executeId("/@vite/env")
-
-      // execute the file
-      await runner.executeId(request.params.entry)
-      return
-    }
-    case "exit":
-      return process.exit(0)
-  }
-}
-
-const rpcClient = new RpcHost(schema, handleRequest, sendMessage)
+const rpcClient = new RpcHost(schema, () => Promise.resolve(null), sendMessage)
 process.on("message", rpcClient.handleMessage.bind(rpcClient))
+
+assertDefined(process.env["XEN_DEV_ROOT"])
+assertDefined(process.env["XEN_DEV_BASE"])
+
+const runner = new ViteNodeRunner({
+  root: process.env["XEN_DEV_ROOT"],
+  base: process.env["XEN_DEV_BASE"],
+  async fetchModule(id) {
+  return (await rpcClient.call("fetchModule", [id])) as FetchResult
+},
+async resolveId(id, importer) {
+  return (await rpcClient.call("resolveId", [
+    id,
+    importer,
+  ])) as ViteNodeResolveId | null
+}
+})
+
+// load vite environment
+await runner.executeId("/@vite/env")
+
+// execute the file
+assertDefined(process.env["XEN_DEV_ENTRY"])
+await runner.executeId(process.env["XEN_DEV_ENTRY"])

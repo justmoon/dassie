@@ -1,19 +1,19 @@
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { Server, createServer } from "node:https"
 
+import type { EventBroker } from "@xen-ilp/lib-events"
 import { createLogger } from "@xen-ilp/lib-logger"
 import { assertDefined, isObject } from "@xen-ilp/lib-type-utils"
 
 import type { Config } from "../config"
 import { MAX_BODY_SIZE } from "../constants/http"
 import { incomingXenMessageBufferTopic } from "../topics/xen-protocol"
-import type MessageBroker from "./message-broker"
 
 const logger = createLogger("xen:node:http")
 
 export interface HttpContext {
   config: Config
-  messageBroker: MessageBroker
+  eventBroker: EventBroker
 }
 
 export class BadRequestError extends Error {
@@ -165,7 +165,7 @@ export default class HttpService {
     this.assertContentTypeHeader(request, "application/xen-message")
 
     const body = await this.parseBody(request)
-    await this.context.messageBroker.emitAndWait(
+    await this.context.eventBroker.emitAndWait(
       incomingXenMessageBufferTopic,
       body
     )

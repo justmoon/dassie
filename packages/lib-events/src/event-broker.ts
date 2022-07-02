@@ -2,7 +2,7 @@ import type { AsyncOrSync } from "ts-essentials"
 
 import { createLogger } from "@xen-ilp/lib-logger"
 
-const logger = createLogger("xen:node:message-broker")
+const logger = createLogger("xen:event-broker")
 
 export type Topic<R = unknown, P extends never[] = never[]> = (
   ...parameters: P
@@ -22,7 +22,7 @@ export interface InstanceMap extends Map<Topic, Set<Listener<Topic>>> {
   set<T extends Topic>(key: T, value: Set<Listener<T>>): this
 }
 
-export default class MessageBroker {
+export default class EventBroker {
   readonly listenersMap: InstanceMap = new Map()
 
   getListeners<T extends Topic>(topic: T) {

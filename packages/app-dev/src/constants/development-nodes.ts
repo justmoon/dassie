@@ -1,11 +1,11 @@
 import type { InputConfig } from "@xen-ilp/app-node"
 
-import type { NodeDefinition } from "../node-server"
+import type { NodeDefinition } from "../servers/node-server"
 
-const ENTRYPOINT = "@xen-ilp/app-node"
+const ENTRYPOINT = new URL("../launchers/node", import.meta.url).pathname
 const LOCAL_PATH = new URL("../../../../local", import.meta.url).pathname
 
-export const PEERS: [number, number][] = [
+export const PEERS: [source: number, target: number][] = [
   [1, 0],
   [2, 0],
   [2, 1],
@@ -16,8 +16,13 @@ export const nodeIndexToPort = (index: number) => 4000 + index
 
 export const generateNodeConfig = (index: number) => {
   const id = nodeIndexToId(index)
+  const peers = PEERS.filter(([source]) => source === index)
+
   return {
     id,
+    port: nodeIndexToPort(index),
+    debugPort: nodeIndexToPort(index) + 1000,
+    peers: peers.map(([, index]) => nodeIndexToId(index)),
     config: {
       nodeId: id,
       host: `${id}.localhost`,
@@ -26,12 +31,12 @@ export const generateNodeConfig = (index: number) => {
       tlsXenKeyFile: `${LOCAL_PATH}/ssl/${id}.localhost/xen-${id}.localhost-key.pem`,
       tlsWebCertFile: `${LOCAL_PATH}/ssl/${id}.localhost/web-${id}.localhost.pem`,
       tlsWebKeyFile: `${LOCAL_PATH}/ssl/${id}.localhost/web-${id}.localhost-key.pem`,
-      initialPeers: PEERS.filter(([peerIndex]) => peerIndex === index)
+      initialPeers: peers
         .map(
-          ([, b]) =>
-            `${nodeIndexToId(b)}=https://${nodeIndexToId(
-              b
-            )}.localhost:${nodeIndexToPort(b)}`
+          ([, target]) =>
+            `${nodeIndexToId(target)}=https://${nodeIndexToId(
+              target
+            )}.localhost:${nodeIndexToPort(target)}`
         )
         .join(";"),
     },

@@ -4,46 +4,120 @@
 
 ```ts
 
+// @public (undocumented)
+export class CliFormatter implements Formatter {
+    // (undocumented)
+    clear(): void;
+    // (undocumented)
+    formatError(error: unknown, options?: LogErrorOptions): string;
+    // (undocumented)
+    log(line: LogLine, options: LogErrorOptions): void;
+    // (undocumented)
+    readonly prefixCache: Map<string, string>;
+}
+
 // @alpha
 export function createEnableChecker(scope: string): (name: string) => boolean;
 
 // @beta
-export const createLogger: (component: string) => Logger;
+export const createLogger: {
+    (component: string): Logger;
+    setDebugScope(debugScope: string): void;
+    setFormatter(formatter: Formatter): void;
+};
+
+// @alpha
+export function createLoggerFactory(loggingContext: LoggingContext): {
+    (component: string): Logger;
+    setDebugScope(debugScope: string): void;
+    setFormatter(formatter: Formatter): void;
+};
 
 // @beta
 export interface Formatter {
     // (undocumented)
     clear(): void;
     // (undocumented)
-    log(level: string, message: string, data?: Record<string, unknown>): void;
-    // (undocumented)
-    logError(error: unknown, options: LogErrorOptions): void;
+    log(line: LogLine, options: LogErrorOptions): void;
 }
 
-// @beta (undocumented)
-export type FormatterConstructor = new (component: string) => Formatter;
+// @public (undocumented)
+export class JsonFormatter implements Formatter {
+    constructor(options?: JsonFormatterOptions);
+    // (undocumented)
+    clear(): void;
+    // (undocumented)
+    log({ date, error, ...line }: LogLine, options: LogErrorOptions): void;
+    // (undocumented)
+    readonly options: JsonFormatterOptions;
+}
+
+// @public (undocumented)
+export interface JsonFormatterOptions {
+    // (undocumented)
+    outputFunction: (line: SerializableLogLine) => void;
+}
 
 // @beta
-export interface LogErrorOptions {
-    ignoreInProduction?: boolean;
+export interface LogErrorOptions extends LogLineOptions {
     skipAfter?: string;
 }
 
 // @beta
 export class Logger {
     // @internal
-    constructor(
-    component: string, Formatter: FormatterConstructor,
-    debugEnabled: boolean);
+    constructor(context: LoggingContext,
+    component: string);
     // @alpha
     clear(): void;
     readonly component: string;
-    debug(message: string, data?: Record<string, unknown>): void;
-    readonly debugEnabled: boolean;
-    error(message: string, data?: Record<string, unknown>): void;
-    info(message: string, data?: Record<string, unknown>): void;
+    // (undocumented)
+    readonly context: LoggingContext;
+    debug(message: string, data?: Record<string, unknown>, options?: LogLineOptions): void;
+    error(message: string, data?: Record<string, unknown>, options?: LogLineOptions): void;
+    info(message: string, data?: Record<string, unknown>, options?: LogLineOptions): void;
     logError(error: unknown, options?: LogErrorOptions): void;
-    warn(message: string, data?: Record<string, unknown>): void;
+    warn(message: string, data?: Record<string, unknown>, options?: LogLineOptions): void;
+}
+
+// @public (undocumented)
+export interface LogLine {
+    // (undocumented)
+    component: string;
+    // (undocumented)
+    data?: Record<string, unknown>;
+    // (undocumented)
+    date: Date;
+    // (undocumented)
+    error?: unknown;
+    // (undocumented)
+    level: "debug" | "info" | "warn" | "error";
+    // (undocumented)
+    message: string;
+}
+
+// @beta
+export interface LogLineOptions {
+    ignoreInProduction?: boolean;
+}
+
+// @public (undocumented)
+export const selectBySeed: <T>(colors: readonly [T, ...T[]], seed: string) => T;
+
+// @public (undocumented)
+export interface SerializableLogLine {
+    // (undocumented)
+    component: string;
+    // (undocumented)
+    data?: Record<string, unknown>;
+    // (undocumented)
+    date: string;
+    // (undocumented)
+    error?: string;
+    // (undocumented)
+    level: "debug" | "info" | "warn" | "error";
+    // (undocumented)
+    message: string;
 }
 
 // (No @packageDocumentation comment for this package)
