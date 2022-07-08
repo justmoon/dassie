@@ -1,6 +1,6 @@
-import isObject from "./is-object"
+import { isObject } from "./is-object"
 
-export default function isErrorWithCode<T extends string>(
+export function isErrorWithCode<T extends string>(
   error: unknown,
   code: T
 ): error is NodeJS.ErrnoException {

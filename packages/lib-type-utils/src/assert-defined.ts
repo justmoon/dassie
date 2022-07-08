@@ -1,4 +1,4 @@
-export default function assertDefined<T>(
+export function assertDefined<T>(
   value: T | null | undefined
 ): asserts value is T {
   if (value == undefined) {

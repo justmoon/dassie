@@ -1,8 +1,9 @@
 import envPaths from "env-paths"
 
-import { readFile } from "node:fs/promises"
+import { readFileSync } from "node:fs"
 
 import { createLogger } from "@xen-ilp/lib-logger"
+import { createStore } from "@xen-ilp/lib-reactive"
 import { isErrorWithCode } from "@xen-ilp/lib-type-utils"
 
 import { APP_NAME } from "./constants/general"
@@ -37,16 +38,16 @@ export interface InputConfig {
   initialPeers?: string
 }
 
-export const processFileOption = async (
+export const processFileOption = (
   name: string,
   value?: string,
   filePath?: string,
   defaultValue?: string
-): Promise<string> => {
+): string => {
   if (value) {
     return value
   } else if (filePath) {
-    return await readFile(filePath, "utf8")
+    return readFileSync(filePath, "utf8")
   } else if (defaultValue) {
     return defaultValue
   } else {
@@ -54,9 +55,7 @@ export const processFileOption = async (
   }
 }
 
-export async function fromPartialConfig(
-  partialConfig: InputConfig
-): Promise<Config> {
+export function fromPartialConfig(partialConfig: InputConfig): Config {
   const paths = envPaths(APP_NAME, { suffix: "" })
 
   return {
@@ -64,22 +63,22 @@ export async function fromPartialConfig(
     host: partialConfig.host ?? "localhost",
     port: partialConfig.port ? Number(partialConfig.port) : 8443,
     dataPath: partialConfig.dataPath ?? paths.data,
-    tlsWebCert: await processFileOption(
+    tlsWebCert: processFileOption(
       "TLS_WEB_CERT",
       partialConfig.tlsWebCert,
       partialConfig.tlsWebCertFile
     ),
-    tlsWebKey: await processFileOption(
+    tlsWebKey: processFileOption(
       "TLS_WEB_KEY",
       partialConfig.tlsWebKey,
       partialConfig.tlsWebKeyFile
     ),
-    tlsXenCert: await processFileOption(
+    tlsXenCert: processFileOption(
       "TLS_XEN_CERT",
       partialConfig.tlsXenCert,
       partialConfig.tlsXenCertFile
     ),
-    tlsXenKey: await processFileOption(
+    tlsXenKey: processFileOption(
       "TLS_XEN_KEY",
       partialConfig.tlsXenKey,
       partialConfig.tlsXenKeyFile
@@ -99,14 +98,14 @@ export async function fromPartialConfig(
   }
 }
 
-export async function fromEnvironment() {
+export function fromEnvironment() {
   const configPath = process.env["XEN_CONFIG_FILE"]
 
   let fileConfig = {}
   if (configPath) {
     try {
       // TODO: Validate using something like zod
-      fileConfig = JSON.parse(await readFile(configPath, "utf8")) as InputConfig
+      fileConfig = JSON.parse(readFileSync(configPath, "utf8")) as InputConfig
     } catch (error) {
       if (isErrorWithCode(error, "ENOENT")) {
         logger.debug("config file not found", { path: configPath })
@@ -121,5 +120,7 @@ export async function fromEnvironment() {
     process.env["XEN_CONFIG"] ?? "{}"
   ) as InputConfig
 
-  return await fromPartialConfig({ ...fileConfig, ...environmentConfig })
+  return fromPartialConfig({ ...fileConfig, ...environmentConfig })
 }
+
+export const configStore = createStore<Config>("config", fromEnvironment())

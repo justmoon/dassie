@@ -3,7 +3,7 @@ import { Component, createEffect, onCleanup, onMount } from "solid-js"
 
 import { selectBySeed } from "@xen-ilp/lib-logger"
 
-import { COLORS } from "../../../constants/palette"
+import { COLORS } from "../../constants/palette"
 
 interface NodeGraphProperties {
   graphData: GraphData

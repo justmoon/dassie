@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js"
 
-import type { NodeLogLine } from "../../topics/log-message"
+import type { NodeLogLine } from "../../backend/topics/log-message"
 import client from "../rpc-client"
 
 const [logs, setLogs] = createSignal<NodeLogLine[]>([])

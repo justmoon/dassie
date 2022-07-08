@@ -86,10 +86,9 @@ importers:
       '@types/ws': ^8.5.3
       '@unocss/reset': ^0.41.2
       '@xen-ilp/app-node': workspace:*
-      '@xen-ilp/lib-events': workspace:^1.0.0
       '@xen-ilp/lib-itergen-utils': workspace:*
       '@xen-ilp/lib-logger': workspace:^1.0.0
-      '@xen-ilp/lib-state': workspace:^1.0.0
+      '@xen-ilp/lib-reactive': workspace:^1.0.0
       '@xen-ilp/lib-type-utils': workspace:*
       ansicolor: ^1.1.100
       chrome-devtools-frontend-prebuilt: ^1.0.975442
@@ -112,10 +111,9 @@ importers:
       '@trpc/server': 9.25.3
       '@unocss/reset': 0.41.2
       '@xen-ilp/app-node': link:../app-node
-      '@xen-ilp/lib-events': link:../lib-events
       '@xen-ilp/lib-itergen-utils': link:../lib-itergen-utils
       '@xen-ilp/lib-logger': link:../lib-logger
-      '@xen-ilp/lib-state': link:../lib-state
+      '@xen-ilp/lib-reactive': link:../lib-reactive
       '@xen-ilp/lib-type-utils': link:../lib-type-utils
       ansicolor: 1.1.100
       chrome-devtools-frontend-prebuilt: 1.0.975442
@@ -143,9 +141,8 @@ importers:
     specifiers:
       '@types/ws': ^8.5.3
       '@xen-ilp/lib-crypto': workspace:^1.0.0
-      '@xen-ilp/lib-events': workspace:^1.0.0
       '@xen-ilp/lib-logger': workspace:^1.0.0
-      '@xen-ilp/lib-state': workspace:^1.0.0
+      '@xen-ilp/lib-reactive': workspace:^1.0.0
       '@xen-ilp/lib-type-utils': workspace:^1.0.0
       axios: ^0.27.2
       env-paths: ^3.0.0
@@ -155,9 +152,8 @@ importers:
     dependencies:
       '@types/ws': 8.5.3
       '@xen-ilp/lib-crypto': link:../lib-crypto
-      '@xen-ilp/lib-events': link:../lib-events
       '@xen-ilp/lib-logger': link:../lib-logger
-      '@xen-ilp/lib-state': link:../lib-state
+      '@xen-ilp/lib-reactive': link:../lib-reactive
       '@xen-ilp/lib-type-utils': link:../lib-type-utils
       axios: 0.27.2
       env-paths: 3.0.0
@@ -183,12 +179,6 @@ importers:
       '@xen-ilp/lib-logger': link:../lib-logger
       '@xen-ilp/lib-type-utils': link:../lib-type-utils
 
-  packages/lib-events:
-    specifiers:
-      '@xen-ilp/lib-logger': workspace:^1.0.0
-    dependencies:
-      '@xen-ilp/lib-logger': link:../lib-logger
-
   packages/lib-itergen-utils:
     specifiers: {}
 
@@ -199,6 +189,14 @@ importers:
     dependencies:
       '@xen-ilp/lib-type-utils': link:../lib-type-utils
       picocolors: 1.0.0
+
+  packages/lib-reactive:
+    specifiers:
+      '@xen-ilp/lib-logger': workspace:^1.0.0
+      '@xen-ilp/lib-type-utils': workspace:^1.0.0
+    dependencies:
+      '@xen-ilp/lib-logger': link:../lib-logger
+      '@xen-ilp/lib-type-utils': link:../lib-type-utils
 
   packages/lib-state:
     specifiers: {}

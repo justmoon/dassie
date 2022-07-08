@@ -1,7 +1,7 @@
 import { createTRPCClient } from "@trpc/client"
 import { createWSClient, wsLink } from "@trpc/client/links/wsLink"
 
-import type { UiRpcRouter } from "../servers/ui-rpc-server"
+import type { UiRpcRouter } from "../backend/effects/ui-rpc-server"
 
 export const wsClient = createWSClient({ url: "ws://localhost:10001" })
 

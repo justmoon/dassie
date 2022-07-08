@@ -21,6 +21,4 @@ rules:
   unicorn/no-useless-undefined: "off"
   tsdoc/syntax: "warn"
   # TODO: Clean these up
-  "@typescript-eslint/no-floating-promises": "off"
-  "@typescript-eslint/no-misused-promises": "off"
   'neverthrow/must-use-result': 'error'

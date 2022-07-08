@@ -13,12 +13,6 @@
       "import": "./dist/runner.js"
     }
   },
-  "scripts": {
-    "clean": "rimraf dist",
-    "start": "vite-node scripts/start-development-server.ts",
-    "validate": "vite-node scripts/validate-development-environment.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "dependencies": {
@@ -27,10 +21,9 @@
     "@trpc/server": "^9.25.3",
     "@unocss/reset": "^0.41.2",
     "@xen-ilp/app-node": "workspace:*",
-    "@xen-ilp/lib-events": "workspace:^1.0.0",
     "@xen-ilp/lib-itergen-utils": "workspace:*",
     "@xen-ilp/lib-logger": "workspace:^1.0.0",
-    "@xen-ilp/lib-state": "workspace:^1.0.0",
+    "@xen-ilp/lib-reactive": "workspace:^1.0.0",
     "@xen-ilp/lib-type-utils": "workspace:*",
     "ansicolor": "^1.1.100",
     "chrome-devtools-frontend-prebuilt": "^1.0.975442",

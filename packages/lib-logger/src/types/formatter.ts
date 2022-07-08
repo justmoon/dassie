@@ -6,7 +6,4 @@ import type { LogErrorOptions } from "./log-options"
  *
  * @beta
  */
-export interface Formatter {
-  clear(): void
-  log(line: LogLine, options: LogErrorOptions): void
-}
+export type Formatter = (line: LogLine, options: LogErrorOptions) => void

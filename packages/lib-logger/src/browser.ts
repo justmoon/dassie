@@ -1,12 +1,12 @@
 import { createEnableChecker } from "./enabled"
-import JsonFormatter from "./formatters/json-formatter"
+import { createJsonFormatter } from "./formatters/json-formatter"
 import { createLoggerFactory } from "./logger"
 
 export type { Formatter } from "./types/formatter"
 export type { LogLine, SerializableLogLine } from "./types/log-line"
 export type { LogLineOptions, LogErrorOptions } from "./types/log-options"
 
-export { default as JsonFormatter } from "./formatters/json-formatter"
+export { createJsonFormatter } from "./formatters/json-formatter"
 export type { JsonFormatterOptions } from "./formatters/json-formatter"
 export { createEnableChecker } from "./enabled"
 export { createLoggerFactory } from "./logger"
@@ -21,5 +21,5 @@ export type { Logger } from "./logger"
  */
 export const createLogger = createLoggerFactory({
   enableChecker: createEnableChecker(""),
-  formatter: new JsonFormatter(),
+  formatter: createJsonFormatter(),
 })

@@ -40,7 +40,15 @@ export class Logger {
    * @alpha
    */
   clear() {
-    this.context.formatter.clear()
+    this.context.formatter(
+      {
+        component: this.component,
+        date: new Date(),
+        level: "clear",
+        message: "",
+      },
+      {}
+    )
   }
 
   /**
@@ -55,7 +63,7 @@ export class Logger {
     options?: LogLineOptions
   ) {
     if (this.context.enableChecker(this.component)) {
-      this.context.formatter.log(
+      this.context.formatter(
         {
           component: this.component,
           date: new Date(),
@@ -79,7 +87,7 @@ export class Logger {
     data?: Record<string, unknown>,
     options?: LogLineOptions
   ) {
-    this.context.formatter.log(
+    this.context.formatter(
       {
         component: this.component,
         date: new Date(),
@@ -102,7 +110,7 @@ export class Logger {
     data?: Record<string, unknown>,
     options?: LogLineOptions
   ) {
-    this.context.formatter.log(
+    this.context.formatter(
       {
         component: this.component,
 
@@ -126,7 +134,7 @@ export class Logger {
     data?: Record<string, unknown>,
     options?: LogLineOptions
   ) {
-    this.context.formatter.log(
+    this.context.formatter(
       {
         component: this.component,
         date: new Date(),
@@ -145,7 +153,7 @@ export class Logger {
    * @param options - Additional options to control the formatting of the error.
    */
   logError(error: unknown, options: LogErrorOptions = {}) {
-    this.context.formatter.log(
+    this.context.formatter(
       {
         component: this.component,
         date: new Date(),

@@ -5,8 +5,8 @@ import { For } from "solid-js"
 
 import { selectBySeed } from "@xen-ilp/lib-logger"
 
-import { COLORS } from "../../../constants/palette"
-import type { NodeLogLine } from "../../../topics/log-message"
+import type { NodeLogLine } from "../../../backend/topics/log-message"
+import { COLORS } from "../../constants/palette"
 import { startupTime } from "../../signals/startup-time"
 
 const linkify = new LinkifyIt()
@@ -80,10 +80,6 @@ export const formatLogMessage = (message: string) =>
     </span>
   ))
 
-export const formatError = (stack: string) => {
-  return <pre>{stack}</pre>
-}
-
 const LogLine: Component<NodeLogLine> = (log) => {
   return (
     <div class="flex text-xs py-0.5">
@@ -98,14 +94,11 @@ const LogLine: Component<NodeLogLine> = (log) => {
       >
         {log.node}
       </div>
-      <div
-        class="flex-shrink-0 px-2 w-48"
-        style={{ color: selectBySeed(COLORS, log.component) }}
-      >
-        {log.component}
-      </div>
-      <div class="font-mono break-all">
-        {log.error ? formatError(log.error) : formatLogMessage(log.message)}
+      <pre class="font-mono px-2 break-all">
+        <span style={{ color: selectBySeed(COLORS, log.component) }}>
+          {log.component}
+        </span>{" "}
+        <span>{formatLogMessage(log.error ? log.error : log.message)}</span>
         <For each={Object.entries(log.data ?? {})}>
           {([key, value]) => (
             <span class="bg-dark-100 rounded-1 text-xs ml-1 py-0.5 px-1">
@@ -114,7 +107,7 @@ const LogLine: Component<NodeLogLine> = (log) => {
             </span>
           )}
         </For>
-      </div>
+      </pre>
     </div>
   )
 }
