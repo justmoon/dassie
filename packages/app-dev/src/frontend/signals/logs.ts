@@ -8,7 +8,10 @@ const [logs, setLogs] = createSignal<NodeLogLine[]>([])
 client.subscription("logs", undefined, {
   onNext(logLine) {
     setLogs((logs) => {
-      return logLine.type === "data" ? [...logs, logLine.data] : logs
+      if (logLine.type !== "data") return logs
+      if (logLine.data.level === "clear") return []
+
+      return [...logs, logLine.data]
     })
   },
 })
