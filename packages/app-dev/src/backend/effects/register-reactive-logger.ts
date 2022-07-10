@@ -6,7 +6,7 @@ import {
 } from "@xen-ilp/lib-logger"
 import type { EffectContext } from "@xen-ilp/lib-reactive"
 
-import { logLineTopic } from "../topics/log-message"
+import { logLineTopic } from "../features/logs"
 
 export const registerReactiveLogger = (sig: EffectContext) => {
   let inRecursion = false

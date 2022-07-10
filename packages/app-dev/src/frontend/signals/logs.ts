@@ -1,9 +1,9 @@
 import { createSignal } from "solid-js"
 
-import type { NodeLogLine } from "../../backend/topics/log-message"
+import type { IndexedLogLine } from "../../backend/features/logs"
 import client from "../rpc-client"
 
-const [logs, setLogs] = createSignal<NodeLogLine[]>([])
+const [logs, setLogs] = createSignal<IndexedLogLine[]>([])
 
 client.subscription("logs", undefined, {
   onNext(logLine) {

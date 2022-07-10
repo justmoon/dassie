@@ -5,7 +5,7 @@ import { For } from "solid-js"
 
 import { selectBySeed } from "@xen-ilp/lib-logger"
 
-import type { NodeLogLine } from "../../../backend/topics/log-message"
+import type { IndexedLogLine } from "../../../backend/features/logs"
 import { COLORS } from "../../constants/palette"
 import { startupTime } from "../../signals/startup-time"
 
@@ -80,9 +80,9 @@ export const formatLogMessage = (message: string) =>
     </span>
   ))
 
-const LogLine: Component<NodeLogLine> = (log) => {
+const LogLine: Component<IndexedLogLine> = (log) => {
   return (
-    <div class="flex text-xs py-0.5">
+    <div class="flex text-xs py-0.5" style={{ order: -log.index }}>
       <div class="font-mono flex-shrink-0 text-right px-2 text-gray-400 w-20">
         {((Number(new Date(log.date)) - (startupTime() ?? 0)) / 1000).toFixed(
           3

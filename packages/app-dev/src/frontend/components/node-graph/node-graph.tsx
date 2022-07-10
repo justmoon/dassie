@@ -39,7 +39,7 @@ const NodeGraph: Component<NodeGraphProperties> = (properties) => {
     graph?.graphData(properties.graphData)
   })
 
-  return <div class="h-full" ref={graphReference} />
+  return <div class="h-md" ref={graphReference} />
 }
 
 export default NodeGraph

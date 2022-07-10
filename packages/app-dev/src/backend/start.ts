@@ -9,6 +9,7 @@ import { runNodes } from "./effects/run-nodes"
 import { listenForUiWebSocket } from "./effects/ui-rpc-server"
 import { validateDevelopmentEnvironment } from "./effects/validate-development-environment"
 import { walletServer } from "./effects/wallet-server"
+import { indexLogs } from "./features/logs"
 
 const rootEffect = async (sig: EffectContext) => {
   console.log(bold(`  Xen${green("//dev")}`))
@@ -18,6 +19,7 @@ const rootEffect = async (sig: EffectContext) => {
   }
 
   sig.use(captureLogs)
+  sig.use(indexLogs)
   sig.use(registerReactiveLogger)
   sig.use(listenForUiWebSocket)
   await sig.use(runNodes)

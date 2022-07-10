@@ -1,5 +1,4 @@
-import { createStore } from "@xen-ilp/lib-reactive"
+import type { IndexedLogLine } from "../features/logs"
+import { createImmerStore } from "../utils/immer-store"
 
-import type { NodeLogLine } from "../topics/log-message"
-
-export const logsStore = createStore<NodeLogLine[]>("logs", [])
+export const logsStore = createImmerStore<IndexedLogLine[]>("logs", [])

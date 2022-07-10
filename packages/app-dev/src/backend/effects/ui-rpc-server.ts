@@ -4,8 +4,8 @@ import { WebSocketServer } from "ws"
 
 import type { EffectContext, Reactor } from "@xen-ilp/lib-reactive"
 
+import { IndexedLogLine, indexedLogLineTopic } from "../features/logs"
 import { logsStore } from "../stores/logs"
-import { NodeLogLine, logLineTopic } from "../topics/log-message"
 
 export const startupTime = Date.now()
 
@@ -18,16 +18,14 @@ export const uiRpcRouter = trpc
   })
   .subscription("logs", {
     resolve({ ctx: { read, on } }) {
-      return new trpc.Subscription<NodeLogLine>((sendToClient) => {
-        const handleLogLine = (logLine: NodeLogLine) => {
-          sendToClient.data(logLine)
-        }
-
+      return new trpc.Subscription<IndexedLogLine>((sendToClient) => {
         for (const logLine of read(logsStore)) {
           sendToClient.data(logLine)
         }
 
-        return on(logLineTopic, handleLogLine)
+        return on(indexedLogLineTopic, (logLine) => {
+          sendToClient.data(logLine)
+        })
       })
     },
   })

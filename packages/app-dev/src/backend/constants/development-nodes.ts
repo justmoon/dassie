@@ -2,7 +2,8 @@ import type { InputConfig } from "@xen-ilp/app-node"
 
 import type { NodeDefinition } from "../effects/run-nodes"
 
-const ENTRYPOINT = new URL("../../launchers/node", import.meta.url).pathname
+const ENTRYPOINT = new URL("../../runner/launchers/node", import.meta.url)
+  .pathname
 const LOCAL_PATH = new URL("../../../../../local", import.meta.url).pathname
 
 export const PEERS: [source: number, target: number][] = [

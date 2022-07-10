@@ -16,7 +16,7 @@ import { UnreachableCaseError, assertDefined } from "@xen-ilp/lib-type-utils"
 
 import RpcHost from "../../classes/rpc-host"
 import { ClientRequest, schema } from "../../schemas/client-request"
-import { logLineTopic } from "../topics/log-message"
+import { logLineTopic } from "../features/logs"
 import { createCliOnlyLogger } from "../utils/cli-only-logger"
 import type { NodeDefinition } from "./run-nodes"
 
@@ -26,7 +26,8 @@ const VITE_NODE_BIN = new URL(
   "../../../node_modules/vite-node/vite-node.mjs",
   import.meta.url
 ).pathname
-const RUNNER_MODULE = new URL("../runner.ts", import.meta.url).pathname
+const RUNNER_MODULE = new URL("../../runner/runner.ts", import.meta.url)
+  .pathname
 
 const handleChildError = (error: Error) => {
   logger.error("child process error")
