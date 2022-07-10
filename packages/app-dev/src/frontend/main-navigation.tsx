@@ -3,7 +3,7 @@ import type { Component } from "solid-js"
 
 const MainNavigation: Component = () => {
   return (
-    <div class="flex flex-col bg-gray-800 min-h-0 pt-5 w-64">
+    <div class="flex flex-col bg-gray-800 pt-5 inset-y-0 w-64 fixed">
       <div class="font-black flex-shrink-0 px-4 text-2xl overflow-y-auto">
         Xen<span class="text-lime-500">//dev</span>
       </div>

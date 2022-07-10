@@ -7,13 +7,15 @@ import MainNavigation from "./main-navigation"
 
 const App: Component = () => {
   return (
-    <div class="flex min-h-full items-stretch">
+    <>
       <MainNavigation />
-      <Routes>
-        <Route path="/" component={Dashboard} />
-        <Route path="/logs" component={Logs} />
-      </Routes>
-    </div>
+      <div class="min-h-screen pl-64">
+        <Routes>
+          <Route path="/" component={Dashboard} />
+          <Route path="/logs" component={Logs} />
+        </Routes>
+      </div>
+    </>
   )
 }
 

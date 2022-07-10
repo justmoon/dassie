@@ -18,7 +18,7 @@ const nodesToGraph = (nodes: NodeDefinition<InputConfig>[]): GraphData => {
 }
 const Dashboard: Component = () => {
   return (
-    <div class="flex flex-col flex-1 py-10">
+    <div class="flex flex-col h-screen max-h-screen min-h-0 py-10">
       <header>
         <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <h1 class="font-bold leading-tight text-3xl text-gray-100">
