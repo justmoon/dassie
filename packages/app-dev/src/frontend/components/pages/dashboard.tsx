@@ -5,6 +5,7 @@ import type { InputConfig } from "@xen-ilp/app-node"
 
 import { NODES } from "../../../backend/constants/development-nodes"
 import type { NodeDefinition } from "../../../backend/effects/run-nodes"
+import { logs } from "../../signals/logs"
 import LogViewer from "../log-viewer/log-viewer"
 import NodeGraph from "../node-graph/node-graph"
 
@@ -29,7 +30,7 @@ const Dashboard: Component = () => {
       <main class="flex-1 min-h-0 relative">
         <div class="flex flex-col h-full mx-auto min-h-0 max-w-7xl py-8 px-4 sm:px-6 sm:px-0 lg:px-8">
           <NodeGraph graphData={nodesToGraph(NODES)} />
-          <LogViewer />
+          <LogViewer logs={logs()} />
         </div>
       </main>
     </div>

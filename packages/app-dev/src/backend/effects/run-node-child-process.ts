@@ -140,6 +140,7 @@ export const runNodeChildProcess = async <T>(
       XEN_DEV_ROOT: viteServer.config.root,
       XEN_DEV_BASE: viteServer.config.base,
       XEN_DEV_ENTRY: node.entry ?? "src/index.ts",
+      XEN_DEBUG_RPC_PORT: String(node.debugPort),
     },
   })
   child.addListener("error", handleChildError)

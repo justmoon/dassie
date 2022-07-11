@@ -1,5 +1,6 @@
 import type { Component } from "solid-js"
 
+import { logs } from "../../signals/logs"
 import LogViewer from "../log-viewer/log-viewer"
 
 const Logs: Component = () => {
@@ -11,7 +12,7 @@ const Logs: Component = () => {
         </div>
       </header>
       <main class="flex flex-col mx-auto flex-1 min-h-0 w-full max-w-7xl pt-8 sm:px-6 lg:px-8">
-        <LogViewer />
+        <LogViewer logs={logs()} />
       </main>
     </div>
   )

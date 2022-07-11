@@ -80,6 +80,7 @@ importers:
       '@trpc/client': ^9.25.3
       '@trpc/server': ^9.25.3
       '@types/chrome-remote-interface': ^0.31.4
+      '@types/cors': ^2.8.12
       '@types/express': ^4.17.13
       '@types/linkify-it': ^3.0.2
       '@types/serve-static': ^1.13.10
@@ -93,6 +94,7 @@ importers:
       ansicolor: ^1.1.100
       chrome-devtools-frontend-prebuilt: ^1.0.975442
       chrome-remote-interface: ^0.31.2
+      cors: ^2.8.5
       express: ^4.18.1
       force-graph: ^1.42.9
       immer: ^9.0.15
@@ -100,6 +102,7 @@ importers:
       serve-static: ^1.15.0
       solid-app-router: ^0.4.1
       solid-js: ^1.4.5
+      timeago.js: ^4.0.2
       unocss: ^0.41.2
       vite: ^2.9.13
       vite-node: ^0.12.10
@@ -109,6 +112,7 @@ importers:
       '@iconify-json/mdi': 1.1.24
       '@trpc/client': 9.25.3_@trpc+server@9.25.3
       '@trpc/server': 9.25.3
+      '@types/cors': 2.8.12
       '@unocss/reset': 0.41.2
       '@xen-ilp/app-node': link:../app-node
       '@xen-ilp/lib-itergen-utils': link:../lib-itergen-utils
@@ -118,12 +122,14 @@ importers:
       ansicolor: 1.1.100
       chrome-devtools-frontend-prebuilt: 1.0.975442
       chrome-remote-interface: 0.31.2
+      cors: 2.8.5
       express: 4.18.1
       force-graph: 1.42.9
       immer: 9.0.15
       linkify-it: 4.0.1
       solid-app-router: 0.4.1_solid-js@1.4.5
       solid-js: 1.4.5
+      timeago.js: 4.0.2
       unocss: 0.41.2_vite@2.9.13
       vite: 2.9.13
       vite-plugin-solid: 2.2.6
@@ -897,6 +903,10 @@ packages:
     dependencies:
       '@types/node': 18.0.0
     dev: true
+
+  /@types/cors/2.8.12:
+    resolution: {integrity: sha512-vt+kDhq/M2ayberEtJcIN/hxXy1Pk+59g2FV/ZQceeaTyCtCucjL2Q7FXlFjtWn4n15KCr1NE2lNNFhp0lEThw==}
+    dev: false
 
   /@types/eslint-utils/3.0.1:
     resolution: {integrity: sha512-9S2wI6mnkK3R4Z1XSJBakJuXrlNUQJSFAdebTgfqce2KSdoLb57ZavPcriE7IPiv4cjSBn3xan3jxIPT1fBr2A==}
@@ -1690,6 +1700,14 @@ packages:
   /cookie/0.5.0:
     resolution: {integrity: sha512-YZ3GUyn/o8gfKJlnlX7g7xq4gyO6OSuhGPKaaGssGB2qgDUS0gPgtTvoyZLTt9Ab6dC4hfc9dV5arkvc/OCmrw==}
     engines: {node: '>= 0.6'}
+    dev: false
+
+  /cors/2.8.5:
+    resolution: {integrity: sha512-KIHbLJqu73RGr/hnbrO9uBeixNGuvSQjul/jdFvS/KFSIH1hWVd1ng7zOHx+YrEfInLG7q4n6GHQ9cDtxv/P6g==}
+    engines: {node: '>= 0.10'}
+    dependencies:
+      object-assign: 4.1.1
+      vary: 1.1.2
     dev: false
 
   /create-require/1.1.1:
@@ -3204,6 +3222,11 @@ packages:
       path-key: 3.1.1
     dev: false
 
+  /object-assign/4.1.1:
+    resolution: {integrity: sha512-rJgTQnkUnH1sFw8yT6VSU3zD3sWmu6sZhIseY8VX+GRu3P6F7Fu+JNDoXfklElbLJSnc3FUQHVe4cU5hj+BcUg==}
+    engines: {node: '>=0.10.0'}
+    dev: false
+
   /object-inspect/1.12.2:
     resolution: {integrity: sha512-z+cPxW0QGUp0mcqcsgQyLVRDoXFQbXOwBaqyF7VIgI4TWNQsDHrBpUQslRmIfAoYWdYzs6UlKJtB2XJpTaNSpQ==}
     dev: false
@@ -3855,6 +3878,10 @@ packages:
 
   /through/2.3.8:
     resolution: {integrity: sha512-w89qg7PI8wAdvX60bMDP+bFoD5Dvhm9oLheFp5O4a2QF0cSBGsBX4qZmadPMvVqlLJBBci+WqGGOAPvcDeNSVg==}
+    dev: false
+
+  /timeago.js/4.0.2:
+    resolution: {integrity: sha512-a7wPxPdVlQL7lqvitHGGRsofhdwtkoSXPGATFuSOA2i1ZNQEPLrGnj68vOp2sOJTCFAQVXPeNMX/GctBaO9L2w==}
     dev: false
 
   /timsort/0.3.0:

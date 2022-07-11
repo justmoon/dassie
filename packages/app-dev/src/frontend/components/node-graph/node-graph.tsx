@@ -1,4 +1,5 @@
 import ForceGraph, { ForceGraphInstance, GraphData } from "force-graph"
+import { useNavigate } from "solid-app-router"
 import { Component, createEffect, onCleanup, onMount } from "solid-js"
 
 import { selectBySeed } from "@xen-ilp/lib-logger"
@@ -12,6 +13,7 @@ interface NodeGraphProperties {
 const NodeGraph: Component<NodeGraphProperties> = (properties) => {
   let graphReference!: HTMLDivElement
   let graph: ForceGraphInstance | undefined
+  const navigate = useNavigate()
 
   onMount(() => {
     graph = ForceGraph()(graphReference)
@@ -19,6 +21,7 @@ const NodeGraph: Component<NodeGraphProperties> = (properties) => {
       .linkColor(() => "#ffffff")
       .nodeColor(({ id }) => selectBySeed(COLORS, String(id ?? "")))
       .nodeLabel("id")
+      .onNodeClick(({ id }) => navigate(`/nodes/${String(id)}`))
       .graphData(properties.graphData)
 
     const resizeObserver = new ResizeObserver(([entry]) => {

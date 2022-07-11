@@ -1,5 +1,6 @@
 import ansi, { parse } from "ansicolor"
 import LinkifyIt from "linkify-it"
+import { Link } from "solid-app-router"
 import type { Component } from "solid-js"
 import { For } from "solid-js"
 
@@ -88,12 +89,11 @@ const LogLine: Component<IndexedLogLine> = (log) => {
           3
         )}
       </div>
-      <div
-        class="font-bold flex-shrink-0 text-center w-8"
-        style={{ color: selectBySeed(COLORS, log.node) }}
-      >
-        {log.node}
-      </div>
+      <Link href={`/nodes/${log.node}`}>
+        <span style={{ color: selectBySeed(COLORS, log.node) }}>
+          {log.node}
+        </span>
+      </Link>
       <pre class="font-mono px-2 break-all">
         <span style={{ color: selectBySeed(COLORS, log.component) }}>
           {log.component}
