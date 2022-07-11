@@ -4,7 +4,7 @@ import type { EffectContext } from "@xen-ilp/lib-reactive"
 import { configStore } from "../config"
 import { XenMessageType } from "../xen-protocol/codecs/xen-message"
 import { outgoingUnsignedXenMessageTopic } from "../xen-protocol/topics/xen-protocol"
-import { PeerEntry, peerTableStore, updatePeer } from "./stores/peer-table"
+import { PeerEntry, peerTableStore } from "./stores/peer-table"
 
 const logger = createLogger("xen:node:peer-greeter")
 
@@ -36,19 +36,13 @@ export const peerGreeter = (sig: EffectContext) => {
     compareSetOfKeys
   )
 
-  const nodeId = sig.get(configStore, (config) => config.nodeId)
+  const { nodeId, port } = sig.get(configStore, ({ nodeId, port }) => ({
+    nodeId,
+    port,
+  }))
 
   const sendHello = (peer: PeerEntry) => {
     logger.debug(`sending hello`, { to: peer.nodeId })
-
-    // Increment our greeting sequence number.
-    const ourSequence = peer.ourSequence + 1
-    sig.reactor.emit(
-      peerTableStore,
-      updatePeer(peer.nodeId, {
-        ourSequence,
-      })
-    )
 
     sig.reactor.emit(outgoingUnsignedXenMessageTopic, {
       destination: peer.nodeId,
@@ -56,7 +50,8 @@ export const peerGreeter = (sig: EffectContext) => {
         method: XenMessageType.Hello,
         signed: {
           nodeId,
-          sequence: ourSequence,
+          sequence: Date.now(),
+          url: `https://${nodeId}.localhost:${port}`,
           neighbors: Object.values(peers).map((peer) => ({
             nodeId: peer.nodeId,
             proof: Buffer.alloc(32),

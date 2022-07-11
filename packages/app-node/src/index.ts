@@ -1,2 +1,3 @@
-export type { InputConfig } from "./config"
-export { start } from "./start"
+export type { Config, InputConfig } from "./config"
+export { configStore } from "./config"
+export { start, rootEffect } from "./start"

@@ -6,13 +6,14 @@ export interface PeerEntry {
   nodeId: string
   url: string
   theirSequence: number
-  ourSequence: number
   lastSeen: number
 }
 
 export interface NewPeerEntry {
   nodeId: string
   url: string
+  theirSequence?: number
+  lastSeen?: number
 }
 
 export type Model = Record<string, PeerEntry>
@@ -22,12 +23,12 @@ export const peerTableStore = createStore<Model>("peer-table", {})
 export const addPeer = (peerEntry: NewPeerEntry) =>
   produce<Model>((draft) => {
     draft[peerEntry.nodeId] = {
-      ...peerEntry,
       theirSequence: 0,
-      ourSequence: 0,
       lastSeen: Date.now(),
+      ...peerEntry,
     }
   })
+
 export const updatePeer = (nodeId: string, peerEntry: Partial<PeerEntry>) =>
   produce<Model>((draft) => {
     const previousEntry = draft[nodeId]

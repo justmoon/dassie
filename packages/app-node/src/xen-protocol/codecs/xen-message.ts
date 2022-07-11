@@ -18,6 +18,7 @@ export interface XenHelloMessage {
 export interface XenHelloMessageSignedPortion {
   nodeId: string
   sequence: number
+  url: string
   neighbors: XenHelloNeighbor[]
 }
 
@@ -36,7 +37,8 @@ export const parseMessage = (message: Buffer): XenMessage => {
       const signature = reader.readOctetString(64)
       const signedReader = Reader.from(signed)
       const nodeId = signedReader.readVarOctetString().toString("ascii")
-      const sequence = signedReader.readUInt32Number()
+      const sequence = signedReader.readUInt64Long().toNumber()
+      const url = signedReader.readVarOctetString().toString("ascii")
       const neighborCount = signedReader.readUInt16Number()
       const neighbors: XenHelloNeighbor[] = Array.from({
         length: neighborCount,
@@ -61,6 +63,7 @@ export const parseMessage = (message: Buffer): XenMessage => {
         signed: {
           nodeId,
           sequence,
+          url,
           neighbors,
         },
         signature,
@@ -112,7 +115,8 @@ export function encodeMessage(
       signedWriter.writeVarOctetString(
         Buffer.from(message.signed.nodeId, "ascii")
       )
-      signedWriter.writeUInt32(message.signed.sequence)
+      signedWriter.writeUInt64(message.signed.sequence)
+      signedWriter.writeVarOctetString(Buffer.from(message.signed.url, "ascii"))
       signedWriter.writeUInt16(message.signed.neighbors.length)
 
       for (const neighbor of message.signed.neighbors) {

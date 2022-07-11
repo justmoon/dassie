@@ -6,7 +6,7 @@ import { initialPeerLoader } from "./peering/initial-peer-loader"
 import { peerGreeter } from "./peering/peer-greeter"
 import { xenProtocol } from "./xen-protocol"
 
-const rootEffect = (sig: EffectContext) => {
+export const rootEffect = (sig: EffectContext) => {
   sig.use(xenProtocol)
   sig.use(peerGreeter)
   sig.use(httpServer)

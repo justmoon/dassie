@@ -1,7 +1,11 @@
 import { createLogger } from "@xen-ilp/lib-logger"
 import type { EffectContext } from "@xen-ilp/lib-reactive"
 
-import { peerTableStore, updatePeer } from "../peering/stores/peer-table"
+import {
+  addPeer,
+  peerTableStore,
+  updatePeer,
+} from "../peering/stores/peer-table"
 import { XenMessageType } from "./codecs/xen-message"
 import { incomingXenMessageTopic } from "./topics/xen-protocol"
 
@@ -13,7 +17,7 @@ export const incomingXenMessageHandler = (sig: EffectContext) => {
   sig.on(incomingXenMessageTopic, (message) => {
     switch (message.method) {
       case XenMessageType.Hello: {
-        const { nodeId, sequence, neighbors } = message.signed
+        const { nodeId, sequence, neighbors, url } = message.signed
 
         logger.debug("handle hello", {
           from: nodeId,
@@ -24,7 +28,7 @@ export const incomingXenMessageHandler = (sig: EffectContext) => {
 
         const peer = peers[nodeId]
         if (peer) {
-          if (sequence < peer.theirSequence) {
+          if (sequence <= peer.theirSequence) {
             logger.debug("ignoring stale hello", { from: nodeId })
             return
           }
@@ -32,6 +36,16 @@ export const incomingXenMessageHandler = (sig: EffectContext) => {
           sig.reactor.emit(
             peerTableStore,
             updatePeer(nodeId, {
+              theirSequence: sequence,
+              lastSeen: Date.now(),
+            })
+          )
+        } else {
+          sig.reactor.emit(
+            peerTableStore,
+            addPeer({
+              nodeId,
+              url,
               theirSequence: sequence,
               lastSeen: Date.now(),
             })
