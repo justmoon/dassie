@@ -1,0 +1,17 @@
+// Vitest Snapshot v1
+
+exports[`sequenceOf > schema boolean[] > should serialize a value 1`] = `
+{
+  "success": true,
+  "value": Uint8Array [
+    1,
+    6,
+    255,
+    0,
+    255,
+    255,
+    0,
+    0,
+  ],
+}
+`;

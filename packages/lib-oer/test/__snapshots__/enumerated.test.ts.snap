@@ -1,0 +1,15 @@
+// Vitest Snapshot v1
+
+exports[`enumerated > should fail to parse a value that is not in the set > error 1`] = `
+{
+  "failure": [ParseError: unable to read enumerated value - value 3 not in set red(0),green(1),blue(2)],
+  "success": false,
+}
+`;
+
+exports[`enumerated > should fail to serialize a value that is not in the set > error 1`] = `
+{
+  "failure": [SerializeError: unable to serialize enumerated value - value yellow not in set red(0),green(1),blue(2)],
+  "success": false,
+}
+`;

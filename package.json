@@ -8,7 +8,7 @@
     "clearn": "pnpm -r clean",
     "build": "pnpm -r build",
     "dev": "vite-node packages/app-dev/bin/start-development-server.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest"
   },
   "repository": {
     "type": "git",
@@ -42,7 +42,6 @@
     "esbuild": "^0.14.48",
     "eslint": "^8.19.0",
     "eslint-config-prettier": "^8.5.0",
-    "eslint-plugin-neverthrow": "^1.1.4",
     "eslint-plugin-tsdoc": "^0.2.16",
     "eslint-plugin-unicorn": "^42.0.0",
     "picocolors": "^1.0.0",
@@ -60,9 +59,13 @@
     "vite-node": "^0.12.10",
     "vite-plugin-solid": "^2.2.6",
     "vite-plugin-windicss": "^1.8.6",
+    "vitest": "^0.18.0",
     "wasm-pack": "^0.10.3",
     "windicss": "^3.5.6",
     "zod": "^3.17.3",
     "zx": "^6.2.5"
+  },
+  "devDependencies": {
+    "c8": "^7.11.3"
   }
 }

@@ -20,5 +20,3 @@ rules:
   unicorn/no-null: "off"
   unicorn/no-useless-undefined: "off"
   tsdoc/syntax: "warn"
-  # TODO: Clean these up
-  'neverthrow/must-use-result': 'error'

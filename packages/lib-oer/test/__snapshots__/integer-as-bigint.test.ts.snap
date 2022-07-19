@@ -1,0 +1,26 @@
+// Vitest Snapshot v1
+
+exports[`integerAsBigint > should serialize a very large number 1`] = `
+{
+  "success": true,
+  "value": Uint8Array [
+    16,
+    18,
+    52,
+    86,
+    120,
+    154,
+    188,
+    222,
+    240,
+    18,
+    52,
+    86,
+    120,
+    154,
+    188,
+    222,
+    240,
+  ],
+}
+`;
