@@ -18,7 +18,7 @@ export interface NewPeerEntry {
 
 export type Model = Record<string, PeerEntry>
 
-export const peerTableStore = createStore<Model>("peer-table", {})
+export const peerTableStore = () => createStore<Model>({})
 
 export const addPeer = (peerEntry: NewPeerEntry) =>
   produce<Model>((draft) => {

@@ -1,5 +1,5 @@
-import { Effect, createReactor } from "../create-reactor"
-import { createTopic } from "../create-topic"
+import { Effect, createReactor } from "../reactor"
+import { createTopic } from "../topic"
 
 const rootEffect: Effect = (sig) => {
   sig.use(logger)
@@ -11,10 +11,10 @@ interface ChildProperties {
   toGreet: string
 }
 
-const outputTopic = createTopic<string>("output")
+const outputTopic = () => createTopic<string>()
 
 const greeter: Effect<ChildProperties> = (sig, { toGreet }) => {
-  sig.reactor.emit(outputTopic, `Hello ${toGreet}!`)
+  sig.emit(outputTopic, `Hello ${toGreet}!`)
 }
 
 const logger: Effect = (sig) => {

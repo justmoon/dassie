@@ -123,4 +123,4 @@ export function fromEnvironment() {
   return fromPartialConfig({ ...fileConfig, ...environmentConfig })
 }
 
-export const configStore = createStore<Config>("config", fromEnvironment())
+export const configStore = () => createStore<Config>(fromEnvironment())

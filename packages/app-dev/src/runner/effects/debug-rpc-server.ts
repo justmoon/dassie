@@ -11,7 +11,7 @@ const logger = createLogger("xen:dev:launcher:debug-rpc-server")
 
 export const debugRpcRouter = trpc.router<Reactor>().query("getPeerTable", {
   resolve({ ctx: reactor }) {
-    return reactor.read(peerTableStore)
+    return reactor.fromContext(peerTableStore).state
   },
 })
 

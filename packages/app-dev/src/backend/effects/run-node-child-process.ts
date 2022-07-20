@@ -93,7 +93,7 @@ export const runNodeChildProcess = async <T>(
           continue
 
         const logLine = JSON.parse(line) as SerializableLogLine
-        sig.reactor.emit(logLineTopic, {
+        sig.emit(logLineTopic, {
           node: node.id,
           ...logLine,
           error: logLine.error ? formatStack(logLine.error) : undefined,
@@ -107,7 +107,7 @@ export const runNodeChildProcess = async <T>(
           )
         }
       } catch {
-        sig.reactor.emit(logLineTopic, {
+        sig.emit(logLineTopic, {
           node: node.id,
           component: "raw",
           message: line,

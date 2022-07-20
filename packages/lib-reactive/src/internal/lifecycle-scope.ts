@@ -1,6 +1,6 @@
 import { createLogger } from "@xen-ilp/lib-logger"
 
-import type { AsyncDisposer } from "../create-reactor"
+import type { AsyncDisposer } from "../reactor"
 
 const logger = createLogger("xen:reactive:lifecycle-scope")
 

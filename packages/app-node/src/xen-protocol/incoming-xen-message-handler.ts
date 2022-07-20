@@ -33,7 +33,7 @@ export const incomingXenMessageHandler = (sig: EffectContext) => {
             return
           }
 
-          sig.reactor.emit(
+          sig.emit(
             peerTableStore,
             updatePeer(nodeId, {
               theirSequence: sequence,
@@ -41,7 +41,7 @@ export const incomingXenMessageHandler = (sig: EffectContext) => {
             })
           )
         } else {
-          sig.reactor.emit(
+          sig.emit(
             peerTableStore,
             addPeer({
               nodeId,

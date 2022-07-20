@@ -8,12 +8,10 @@ extends:
   - "plugin:@typescript-eslint/recommended-requiring-type-checking"
   - "plugin:@typescript-eslint/strict"
   - "plugin:unicorn/recommended"
-  - "plugin:neverthrow/recommended"
   - "prettier"
 plugins: 
   - "@typescript-eslint"
   - "eslint-plugin-tsdoc"
-  - "eslint-plugin-neverthrow"
 env:
   es2021: true
 rules:

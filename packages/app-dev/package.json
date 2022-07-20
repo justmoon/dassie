@@ -16,11 +16,11 @@
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "dependencies": {
-    "@iconify-json/mdi": "^1.1.24",
-    "@trpc/client": "^9.25.3",
-    "@trpc/server": "^9.25.3",
+    "@iconify-json/mdi": "^1.1.29",
+    "@trpc/client": "^9.26.2",
+    "@trpc/server": "^9.26.2",
     "@types/cors": "^2.8.12",
-    "@unocss/reset": "^0.41.2",
+    "@unocss/reset": "^0.44.5",
     "@xen-ilp/app-node": "workspace:*",
     "@xen-ilp/lib-itergen-utils": "workspace:*",
     "@xen-ilp/lib-logger": "workspace:^1.0.0",
@@ -28,19 +28,19 @@
     "@xen-ilp/lib-type-utils": "workspace:*",
     "ansicolor": "^1.1.100",
     "chrome-devtools-frontend-prebuilt": "^1.0.975442",
-    "chrome-remote-interface": "^0.31.2",
+    "chrome-remote-interface": "^0.31.3",
     "cors": "^2.8.5",
     "express": "^4.18.1",
-    "force-graph": "^1.42.9",
+    "force-graph": "^1.42.11",
     "immer": "^9.0.15",
     "linkify-it": "^4.0.1",
     "solid-app-router": "^0.4.1",
-    "solid-js": "^1.4.5",
+    "solid-js": "^1.4.7",
     "timeago.js": "^4.0.2",
-    "unocss": "^0.41.2",
-    "vite": "^2.9.13",
-    "vite-plugin-solid": "^2.2.6",
-    "ws": "^8.8.0"
+    "unocss": "^0.44.5",
+    "vite": "^3.0.2",
+    "vite-plugin-solid": "^2.3.0",
+    "ws": "^8.8.1"
   },
   "devDependencies": {
     "@types/chrome-remote-interface": "^0.31.4",
@@ -49,6 +49,6 @@
     "@types/serve-static": "^1.13.10",
     "@types/ws": "^8.5.3",
     "serve-static": "^1.15.0",
-    "vite-node": "^0.12.10"
+    "vite-node": "^0.18.1"
   }
 }

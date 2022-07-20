@@ -1,25 +1,25 @@
-import { createReactor } from "../create-reactor"
-import type { Effect } from "../create-reactor"
-import { createStore } from "../create-store"
-import { createTopic } from "../create-topic"
-import type { EffectContext } from "../use-effect"
+import type { EffectContext } from "../effect"
+import { createReactor } from "../reactor"
+import type { Effect } from "../reactor"
+import { createStore } from "../store"
+import { createTopic } from "../topic"
 
-const topic1 = createTopic<string>("topic1")
+const topic1 = () => createTopic<string>()
 
-const store1 = createStore<{ states: string[] }>("store1", {
-  states: [],
-})
+const store1 = () =>
+  createStore<{ states: string[] }>({
+    states: [],
+  })
 
 const rootEffect = (sig: EffectContext) => {
   console.log("root effect created")
 
-  sig.use((sig) => {
-    const message = sig.get(topic1)
+  sig.on(topic1, (message) => {
     console.log("heard", message)
   })
 
   sig.interval(() => {
-    sig.reactor.emit(topic1, "hello" + String(Math.floor(Math.random() * 10)))
+    sig.emit(topic1, "hello" + String(Math.floor(Math.random() * 10)))
   }, 1000)
 
   sig.onCleanup(() => {
@@ -32,15 +32,16 @@ const rootEffect = (sig: EffectContext) => {
 
 const childEffect: Effect = (sig) => {
   console.log("child effect created")
-  const message = sig.get(topic1)
 
-  console.log("reacting to", message)
+  sig.on(topic1, (message) => {
+    console.log("reacting to", message)
 
-  if (message) {
-    sig.reactor.emit(store1, ({ states }) => ({
-      states: [...new Set<string>([...states, message])],
-    }))
-  }
+    if (message) {
+      sig.emit(store1, ({ states }) => ({
+        states: [...new Set<string>([...states, message])],
+      }))
+    }
+  })
 
   sig.onCleanup(() => {
     console.log("child effect cleaned up")
@@ -55,7 +56,7 @@ const childEffect2: Effect<void> = (sig) => {
 
   if (stateCount > 4) {
     console.log("stopping")
-    void stopApplication()
+    void sig.reactor.dispose()
   }
 
   sig.onCleanup(() => {
@@ -63,4 +64,4 @@ const childEffect2: Effect<void> = (sig) => {
   })
 }
 
-const { dispose: stopApplication } = createReactor(rootEffect)
+createReactor(rootEffect)

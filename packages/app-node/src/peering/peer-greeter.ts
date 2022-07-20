@@ -44,7 +44,7 @@ export const peerGreeter = (sig: EffectContext) => {
   const sendHello = (peer: PeerEntry) => {
     logger.debug(`sending hello`, { to: peer.nodeId })
 
-    sig.reactor.emit(outgoingUnsignedXenMessageTopic, {
+    sig.emit(outgoingUnsignedXenMessageTopic, {
       destination: peer.nodeId,
       message: {
         method: XenMessageType.Hello,

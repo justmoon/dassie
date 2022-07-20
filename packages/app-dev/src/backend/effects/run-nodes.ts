@@ -26,7 +26,7 @@ export interface NodeDefinition<T> {
   entry?: string
 }
 
-const fileChangeTopic = createTopic("file-change")
+const fileChangeTopic = () => createTopic()
 
 export const runNodes = async (sig: EffectContext) => {
   // create vite server
@@ -65,7 +65,7 @@ export const runNodes = async (sig: EffectContext) => {
       logger.clear()
       logger.info(`${colors.green(`restart nodes`)} ${colors.dim(shortFile)}`)
 
-      sig.reactor.emit(fileChangeTopic, undefined)
+      sig.emit(fileChangeTopic, undefined)
     }
   })
 

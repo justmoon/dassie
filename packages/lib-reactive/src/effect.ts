@@ -1,9 +1,10 @@
 import { createLogger } from "@xen-ilp/lib-logger"
 
-import type { AsyncDisposer, Effect, Listener, Reactor } from "./create-reactor"
-import type { Topic } from "./create-topic"
 import { LifecycleScope } from "./internal/lifecycle-scope"
 import { Waker } from "./internal/waker"
+import type { AsyncDisposer, Effect, Reactor } from "./reactor"
+import type { StoreFactory } from "./store"
+import type { Listener, TopicFactory } from "./topic"
 
 const logger = createLogger("xen:reactive")
 
@@ -27,7 +28,7 @@ export class EffectContext {
   ) {}
 
   /**
-   * Read the current value from a topic and automatically re-run the effect if the value changes.
+   * Read the current value from a store and automatically re-run the effect if the value changes.
    *
    * @remarks
    *
@@ -40,23 +41,21 @@ export class EffectContext {
    * @param comparator - By default, the reactor checks for strict equality (`===`) to determine if the value has changed. This can be overridden by passing a custom comparator function.
    * @returns The most recent value from the topic (or the initial value), narrowed by the selector.
    */
-  get<TMessage, TInitial>(
-    topic: Topic<TMessage, never, TInitial>
-  ): TMessage | TInitial
-  get<TMessage, TInitial, TSelection>(
-    topic: Topic<TMessage, never, TInitial>,
-    selector: (state: TMessage | TInitial) => TSelection,
+  get<TState>(topic: StoreFactory<TState>): TState
+  get<TState, TSelection>(
+    topic: StoreFactory<TState>,
+    selector: (state: TState) => TSelection,
     comparator?: (oldValue: TSelection, newValue: TSelection) => boolean
   ): TSelection
-  get<TMessage, TSelection, TInitial>(
-    topic: Topic<TMessage, never, TInitial>,
-    selector: (state: TMessage | TInitial) => TSelection = (a) =>
+  get<TState, TSelection>(
+    topic: StoreFactory<TState>,
+    selector: (state: TState) => TSelection = (a) =>
       // Based on the overloaded function signature, the selector parameter may be omitted iff TMessage equals TSelection.
       // Therefore this cast is safe.
       a as unknown as TSelection,
     comparator: (a: TSelection, b: TSelection) => boolean = (a, b) => a === b
   ) {
-    const handleTopicMessage = (message: TMessage) => {
+    const handleTopicMessage = (message: TState) => {
       const newValue = selector(message)
       if (!comparator(value, newValue)) {
         // Once we have detected a change we can stop listening because once the effect re-runs it will create a new listener anyways.
@@ -66,77 +65,93 @@ export class EffectContext {
     }
 
     const notify = this.waker.notify
-    const value = selector(this.reactor.read(topic))
-    const dispose = this.reactor.on(topic, handleTopicMessage)
+    const value = selector(this.reactor.fromContext(topic).state)
+    const dispose = this.reactor.fromContext(topic).on(handleTopicMessage)
     this.lifecycle.onCleanup(dispose)
     return value
   }
 
   /**
-   * Like {@link get}, but without tracking. That means that calling read will not cause the effect to be re-run if there are new messages on the given topic.
+   * Like {@link get}, but without tracking. That means that calling read will not cause the effect to be re-run if the value of the given store changes.
    *
    * @param topic - Reference to the topic, i.e. the message factory function.
    */
-  read<TMessage, TTrigger, TInitial>(
-    topic: Topic<TMessage, TTrigger, TInitial>
-  ): TMessage | TInitial {
-    return this.reactor.read(topic)
+  read<TState>(store: StoreFactory<TState>): TState {
+    return this.reactor.fromContext(store).state
   }
 
   /**
-   * Like {@link get}, but reruns the effect regardless of whether the value has changed.
+   * Re-run this effect if a message is emitted on the given topic.
    *
-   * @param topic - Reference to the topic, i.e. the message factory function.
+   * @param topic - Reference to the topic, i.e. its factory function.
    */
-  subscribe<TMessage, TTrigger, TInitial>(
-    topic: Topic<TMessage, TTrigger, TInitial>
-  ) {
+  subscribe<TMessage>(topic: TopicFactory<TMessage>) {
     this.once(topic, this.waker.notify)
   }
 
   /**
-   * Like {@link Reactor.on} but will automatically manage disposing the subscription when the current effect is disposed.
+   * Like {@link TopicFactory.on} but will automatically manage disposing the subscription when the current effect is disposed.
    *
    * @param topic - Reference to the topic, i.e. the message factory function.
    * @param listener - A function that will be called every time a message is emitted on the topic.
    */
-  on<TMessage, TTrigger, TInitial>(
-    topic: Topic<TMessage, TTrigger, TInitial>,
-    listener: Listener<TMessage>
-  ) {
-    this.lifecycle.onCleanup(this.reactor.on(topic, listener))
+  on<TMessage>(topic: TopicFactory<TMessage>, listener: Listener<TMessage>) {
+    this.lifecycle.onCleanup(this.reactor.fromContext(topic).on(listener))
   }
 
   /**
-   * Like {@link Reactor.once} but will automatically manage disposing the subscription when the current effect is disposed.
+   * Like {@link TopicFactory.once} but will automatically manage disposing the subscription when the current effect is disposed.
    *
    * @param topic - Reference to the topic, i.e. the message factory function.
    * @param listener - A function that will be called every time a message is emitted on the topic.
    */
-  once<TMessage, TTrigger, TInitial>(
-    topic: Topic<TMessage, TTrigger, TInitial>,
-    listener: Listener<TMessage>
+  once<TMessage>(topic: TopicFactory<TMessage>, listener: Listener<TMessage>) {
+    this.lifecycle.onCleanup(this.reactor.fromContext(topic).once(listener))
+  }
+
+  /**
+   * This is a shorthand for {@link TopicFactory.emit} to quickly send a message to a topic.
+   *
+   * @param topic - Topic that the message should be sent to.
+   * @param trigger - Message to send to the topic.
+   */
+  emit<TTrigger>(topic: TopicFactory<unknown, TTrigger>, trigger: TTrigger) {
+    this.reactor.fromContext(topic).emit(trigger)
+  }
+
+  /**
+   * This is a shorthand for {@link TopicFactory.emitAndWait} to quickly send a message to a topic.
+   *
+   * @param topic - Topic that the message should be sent to.
+   * @param trigger - Message to send to the topic.
+   */
+  emitAndWait<TTrigger>(
+    topic: TopicFactory<unknown, TTrigger>,
+    trigger: TTrigger
   ) {
-    this.lifecycle.onCleanup(this.reactor.once(topic, listener))
+    return this.reactor.fromContext(topic).emitAndWait(trigger)
   }
 
   /**
    * Create a JS interval that will be automatically cancelled when the current effect is disposed.
    */
-  interval(callback: () => void, ms?: number | undefined) {
+  interval(callback: () => void, intervalInMilliseconds?: number | undefined) {
     const interval = setInterval(() => {
       callback()
-    }, ms)
+    }, intervalInMilliseconds)
     this.lifecycle.onCleanup(() => clearInterval(interval))
   }
 
   /**
    * Create a JS timeout that will be automatically cancelled when the current effect is disposed.
    */
-  timeout(callback: () => void, ms?: number | undefined): void {
+  timeout(
+    callback: () => void,
+    delayInMilliseconds?: number | undefined
+  ): void {
     const interval = setInterval(() => {
       callback()
-    }, ms)
+    }, delayInMilliseconds)
     this.lifecycle.onCleanup(() => clearInterval(interval))
   }
 

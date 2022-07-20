@@ -1,12 +1,12 @@
-import { createReactor } from "../create-reactor"
-import { createStore } from "../create-store"
-import type { EffectContext } from "../use-effect"
+import type { EffectContext } from "../effect"
+import { createReactor } from "../reactor"
+import { createStore } from "../store"
 
-const counterStore = createStore("counter", 0)
+const counterStore = () => createStore(0)
 
 const clock = (sig: EffectContext) => {
   sig.interval(() => {
-    sig.reactor.emit(counterStore, (state) => state + 1)
+    sig.emit(counterStore, (state) => state + 1)
   }, 75)
 }
 

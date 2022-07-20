@@ -1,6 +1,6 @@
 import { Patch, enablePatches, produceWithPatches } from "immer"
 
-import type { Topic } from "@xen-ilp/lib-reactive"
+import { Store, createStore } from "@xen-ilp/lib-reactive"
 
 import type { ImmerProducer } from "./immer-store"
 
@@ -13,21 +13,31 @@ type PatchesTuple<TState> = readonly [
 enablePatches()
 
 export const createImmerStoreWithPatches = <TState>(
-  name: string,
   initialValue: TState
-): Topic<PatchesTuple<TState>, ImmerProducer<TState>, PatchesTuple<TState>> => {
-  // We construct a temporary object in order to assign the name to the function
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-  const transformer = {
-    [name]: (
-      reducer: ImmerProducer<TState>,
-      previousValue: PatchesTuple<TState>
-    ) => {
-      return produceWithPatches(previousValue[0], reducer)
-    },
-  }[name]!
+): Store<PatchesTuple<TState>, ImmerProducer<TState>> => {
+  const store = createStore<PatchesTuple<TState>>([
+    initialValue,
+    [],
+    [],
+  ] as const)
 
-  return Object.assign(transformer, {
-    initialValue: [initialValue, [], []] as const,
-  })
+  const reducer =
+    (producer: ImmerProducer<TState>) =>
+    (previousState: PatchesTuple<TState>) => {
+      return produceWithPatches(previousState[0], producer)
+    }
+
+  const emit = (producer: ImmerProducer<TState>) => {
+    store.emit(reducer(producer))
+  }
+
+  const emitAndWait = async (producer: ImmerProducer<TState>) => {
+    return await store.emitAndWait(reducer(producer))
+  }
+
+  return {
+    ...store,
+    emit,
+    emitAndWait,
+  }
 }

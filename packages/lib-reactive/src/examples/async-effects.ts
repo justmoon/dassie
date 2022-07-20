@@ -1,11 +1,11 @@
-import { Effect, createReactor } from "../create-reactor"
-import { createStore } from "../create-store"
+import { Effect, createReactor } from "../reactor"
+import { createStore } from "../store"
 
-const counterStore = createStore("counter", 0)
+const counterStore = () => createStore(0)
 
 const rootEffect: Effect = (sig) => {
   sig.interval(() => {
-    sig.reactor.emit(counterStore, (a) => a + 1)
+    sig.emit(counterStore, (a) => a + 1)
   }, 500)
 
   void sig.use(innerEffect)

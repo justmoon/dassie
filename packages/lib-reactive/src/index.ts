@@ -1,14 +1,8 @@
-export { createTopic } from "./create-topic"
-export { createStore } from "./create-store"
-export { createReactor } from "./create-reactor"
+export { createTopic, isTopic, TopicSymbol } from "./topic"
+export { createStore, isStore, StoreSymbol } from "./store"
+export { createReactor } from "./reactor"
 
-export type { Topic } from "./create-topic"
-export type { Store, Reducer } from "./create-store"
-export type {
-  Reactor,
-  Effect,
-  Listener,
-  Disposer,
-  AsyncDisposer,
-} from "./create-reactor"
-export type { EffectContext } from "./use-effect"
+export type { Topic, TopicFactory, Listener } from "./topic"
+export type { Store, StoreFactory, Reducer } from "./store"
+export type { Reactor, Effect, Disposer, AsyncDisposer } from "./reactor"
+export type { EffectContext } from "./effect"

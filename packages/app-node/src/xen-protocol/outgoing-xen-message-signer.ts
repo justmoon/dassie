@@ -19,7 +19,7 @@ export const outgoingXenMessageSigner = (sig: EffectContext) => {
   }
 
   sig.on(outgoingUnsignedXenMessageTopic, ({ message, destination }) => {
-    sig.reactor.emit(outgoingXenMessageBufferTopic, {
+    sig.emit(outgoingXenMessageBufferTopic, {
       message: encodeMessage(message, signWithXenKey),
       destination,
     })

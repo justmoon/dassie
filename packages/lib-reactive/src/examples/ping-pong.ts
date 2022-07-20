@@ -1,13 +1,15 @@
-import { createReactor } from "../create-reactor"
-import { createTopic } from "../create-topic"
-import type { EffectContext } from "../use-effect"
+import type { EffectContext } from "../effect"
+import { createReactor } from "../reactor"
+import { createTopic } from "../topic"
 
-const pingPongTopic = createTopic<string>("pingPongTopic")
+const pingPongTopic = () => createTopic<string>()
 
 const pinger = (sig: EffectContext) => {
   sig.on(pingPongTopic, (message) => {
     if (message === "pong") {
-      sig.reactor.emit(pingPongTopic, "ping")
+      sig.timeout(() => {
+        sig.emit(pingPongTopic, "ping")
+      }, 75)
     }
   })
 }
@@ -16,7 +18,7 @@ const ponger = (sig: EffectContext) => {
   sig.on(pingPongTopic, (message) => {
     if (message === "ping") {
       sig.timeout(() => {
-        sig.reactor.emit(pingPongTopic, "pong")
+        sig.emit(pingPongTopic, "pong")
       }, 75)
     }
   })
@@ -30,6 +32,6 @@ createReactor((sig: EffectContext) => {
   sig.use(pinger)
   sig.use(ponger)
   sig.use(logger)
-  sig.reactor.emit(pingPongTopic, "ping")
+  sig.emit(pingPongTopic, "ping")
   sig.timeout(() => void sig.reactor.dispose(), 200)
 })

@@ -1,4 +1,4 @@
 import type { IndexedLogLine } from "../features/logs"
 import { createImmerStore } from "../utils/immer-store"
 
-export const logsStore = createImmerStore<IndexedLogLine[]>("logs", [])
+export const logsStore = () => createImmerStore<IndexedLogLine[]>([])

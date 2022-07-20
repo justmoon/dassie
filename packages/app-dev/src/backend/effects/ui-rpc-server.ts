@@ -17,13 +17,13 @@ export const uiRpcRouter = trpc
     },
   })
   .subscription("logs", {
-    resolve({ ctx: { read, on } }) {
+    resolve({ ctx: { fromContext } }) {
       return new trpc.Subscription<IndexedLogLine>((sendToClient) => {
-        for (const logLine of read(logsStore)) {
+        for (const logLine of fromContext(logsStore).state) {
           sendToClient.data(logLine)
         }
 
-        return on(indexedLogLineTopic, (logLine) => {
+        return fromContext(indexedLogLineTopic).on((logLine) => {
           sendToClient.data(logLine)
         })
       })

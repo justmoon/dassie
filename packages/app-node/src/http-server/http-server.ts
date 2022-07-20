@@ -28,10 +28,7 @@ const handlePostIlp = (request: IncomingMessage, response: ServerResponse) => {
   respondPlainly(response, 500, "Internal Server Error, not yet implemented")
 }
 
-export const httpServerStore = createStore<Server | undefined>(
-  "http-server",
-  undefined
-)
+export const httpServerStore = () => createStore<Server | undefined>(undefined)
 
 export const httpServer = (sig: EffectContext) => {
   const { host, port, tlsWebCert, tlsWebKey } = sig.get(
@@ -52,7 +49,7 @@ export const httpServer = (sig: EffectContext) => {
     (...parameters) => void handleRequest(...parameters)
   )
 
-  sig.reactor.emit(httpServerStore, () => server)
+  sig.emit(httpServerStore, () => server)
 
   server.listen(port)
 
@@ -125,7 +122,7 @@ export const httpServer = (sig: EffectContext) => {
     assertContentTypeHeader(request, "application/xen-message")
 
     const body = await parseBody(request)
-    await sig.reactor.emitAndWait(incomingXenMessageBufferTopic, body)
+    await sig.emitAndWait(incomingXenMessageBufferTopic, body)
 
     respondPlainly(response, 200, "OK")
   }

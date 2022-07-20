@@ -20,6 +20,6 @@ export const incomingXenMessageParser = (sig: EffectContext) => {
       throw new BadRequestError(`Bad Request, failed to parse message`)
     }
 
-    await sig.reactor.emitAndWait(incomingXenMessageTopic, message)
+    await sig.emitAndWait(incomingXenMessageTopic, message)
   })
 }

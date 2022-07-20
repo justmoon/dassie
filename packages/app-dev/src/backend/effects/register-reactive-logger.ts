@@ -13,7 +13,7 @@ export const registerReactiveLogger = (sig: EffectContext) => {
   const cliFormatter = createCliFormatter()
   const jsonFormatter = createJsonFormatter({
     outputFunction(line: SerializableLogLine) {
-      sig.reactor.emit(logLineTopic, {
+      sig.emit(logLineTopic, {
         node: "",
         ...line,
       })

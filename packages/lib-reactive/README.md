@@ -4,6 +4,13 @@
 
 It's a reactive state management library designed to work for both front- and back-end and synchronize between them.
 
+## Features
+
+- Lifecycle management: Automatically clean things up when they need to be cleaned up
+- Invalidation: Automatically re-do stuff when dependencies change
+- Context: Get values to where they're needed
+- Debugging: Get an understanding of what's happening in your system
+
 ## Getting Started
 
 ### Creating a reactor
@@ -22,7 +29,7 @@ You can think of the effect as a description of everything that should _happen_ 
 
 > Effects all the way down!
 
-The reactor will pass an `EffectContext` to the effect as the first parameter. This is the main way for the effect to interact with the reactive context. For example, we can use it to instantiate further effects with the method `use`.
+The reactor will pass an `EffectContext` to the effect as the first parameter. This is how the effect interacts with the reactive context. For example, we can use it to instantiate further effects with the method `use`.
 
 ```ts
 createReactor((sig: EffectContext) => {
@@ -120,12 +127,12 @@ import {
   createTopic,
 } from "@xen-ilp/lib-reactive"
 
-const pingPongTopic = createTopic<string>("pingPongTopic")
+const pingPongTopic = () => createTopic<string>()
 
 const pinger = (sig: EffectContext) => {
   sig.on(pingPongTopic, (message) => {
     if (message === "pong") {
-      sig.reactor.emit(pingPongTopic, "ping")
+      sig.emit(pingPongTopic, "ping")
     }
   })
 }
@@ -134,7 +141,7 @@ const ponger = (sig: EffectContext) => {
   sig.on(pingPongTopic, (message) => {
     if (message === "ping") {
       sig.timeout(() => {
-        sig.reactor.emit(pingPongTopic, "pong")
+        sig.emit(pingPongTopic, "pong")
       }, 75)
     }
   })
@@ -148,7 +155,7 @@ createReactor((sig: EffectContext) => {
   sig.use(pinger)
   sig.use(ponger)
   sig.use(logger)
-  sig.reactor.emit(pingPongTopic, "ping")
+  sig.emit(pingPongTopic, "ping")
   sig.timeout(() => sig.reactor.dispose(), 200)
 })
 ```
@@ -170,11 +177,11 @@ import {
   createStore,
 } from "@xen-ilp/lib-reactive"
 
-const counterStore = createStore("counter", 0)
+const counterStore = () => createStore(0)
 
 const clock = (sig: EffectContext) => {
   sig.interval(() => {
-    sig.reactor.emit(counterStore, (state) => state + 1)
+    sig.emit(counterStore, (state) => state + 1)
   }, 75)
 }
 
@@ -204,40 +211,31 @@ import {
   createTopic,
 } from "@xen-ilp/lib-reactive"
 
-const counter = createState<number>("counter", 0)
-const topic1 = createTopic<string>("topic1")
-const topic2 = createTopic<string>("topic2")
-const topic3 = createTopic<string>("topic3")
+const store1 = () => createStore(0)
+const store2 = () => createStore(0)
+const store3 = () => createStore(0)
 
 const rootEffect = (sig: EffectContext) => {
-  // Every second, we increment the counter
-  sig.interval(() => sig.reactor.emit(counter, (a) => a + 1), 1000)
-
-  // Every time the counter increments, we emit an update on the three topics
-  sig.use((sig) => {
-    const counter = sig.get(counter)
-
-    console.log(" ")
-    // Even though we are triggering three state updates, the effect will only re-render once
-    // This is because effects only re-run on the next tick, so updates are batched automatically.
-    sig.reactor.emit(topic1, "hello" + String(count))
-    sig.reactor.emit(topic2, "world" + String(count * 3))
-    sig.reactor.emit(topic3, "!" + String(count * 5))
-    count++
+  sig.interval(() => {
+    // Even though we are triggering three state updates, the effect will only re-run once
+    sig.emit(store1, (a) => a + 1)
+    sig.emit(store2, (a) => a + 3)
+    sig.emit(store3, (a) => a + 5)
   }, 1000)
 
   sig.use((sig) => {
-    const t1 = sig.get(topic1)
-    const t2 = sig.get(topic2)
-    const t3 = sig.get(topic3)
+    const t1 = sig.get(store1)
+    const t2 = sig.get(store2)
+    const t3 = sig.get(store3)
 
-    console.log(t1, t2, t3)
+    console.log(`effect run with ${t1} ${t2} ${t3}`)
   })
+
+  // Stop the application after 10 seconds
+  sig.timeout(sig.reactor.dispose, 10_000)
 }
 
-const { dispose: stopApplication } = createReactor(rootEffect)
-
-setTimeout(() => void stopApplication(), 10_000)
+createReactor(rootEffect)
 ```
 
 It's important to note that `sig.get` should only be called from the main body of the effect.

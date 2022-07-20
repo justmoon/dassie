@@ -7,6 +7,6 @@ export const initialPeerLoader = (sig: EffectContext) => {
   const initialPeers = sig.get(configStore, (config) => config.initialPeers)
 
   for (const peer of initialPeers) {
-    sig.reactor.emit(peerTableStore, addPeer(peer))
+    sig.emit(peerTableStore, addPeer(peer))
   }
 }
