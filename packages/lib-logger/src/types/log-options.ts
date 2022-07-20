@@ -10,14 +10,7 @@ export interface LogLineOptions {
    * This is useful to avoid logging expected operational errors in production which may still be useful to capture in development.
    */
   ignoreInProduction?: boolean
-}
 
-/**
- * Options for the `logError` function.
- *
- * @beta
- */
-export interface LogErrorOptions extends LogLineOptions {
   /**
    * Ignore any stack frames after this function.
    */

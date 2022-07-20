@@ -41,7 +41,6 @@ export const debugUiServer = async (sig: EffectContext) => {
   logger.info(`listening on http://localhost:${port}/`)
 
   sig.onCleanup(async () => {
-    console.log("debug ui stopped")
     await server.close()
   })
 }

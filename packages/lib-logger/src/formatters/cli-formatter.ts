@@ -1,11 +1,10 @@
 import colors from "picocolors"
-
-import { inspect } from "node:util"
+import { format as prettyFormat } from "pretty-format"
 
 import type { Formatter } from "../types/formatter"
 import type { LogLine } from "../types/log-line"
-import type { LogErrorOptions } from "../types/log-options"
-import isError from "../utils/is-error"
+import type { LogLineOptions } from "../types/log-options"
+import { isError } from "../utils/is-error"
 import { selectBySeed } from "../utils/select-by-seed"
 
 export const COLORS = [
@@ -43,13 +42,20 @@ export const formatFilePath = (filePath: string) => {
   return filePath
 }
 
-export const formatValue = (value: unknown) => {
+export const formatValue = (value: unknown, options: LogLineOptions) => {
   if (typeof value === "function") {
-    return String(value())
+    value = value()
   }
 
-  return inspect(value)
+  if (typeof value === "string") {
+    return value
+  } else if (isError(value)) {
+    return formatError(value, options)
+  }
+
+  return prettyFormat(value)
 }
+
 const prefixCache = new Map<string, string>()
 
 const getPrefix = (component: string) => {
@@ -62,25 +68,15 @@ const getPrefix = (component: string) => {
   return prefix
 }
 
-export const formatError = (
-  error: unknown,
-  options: LogErrorOptions
-): string => {
-  if (isError(error)) {
-    return error.stack
-      ? formatStack(error.stack, options)
-      : `${colors.red(colors.bold(`${error.name || "Error"}:`))} ${
-          error.message
-        }`
-  } else {
-    return `${colors.red(colors.bold("Thrown:"))} ${colors.red(
-      formatValue(error)
-    )}`
-  }
+export const formatError = (error: Error, options: LogLineOptions): string => {
+  return error.stack
+    ? formatStack(error.stack, options)
+    : `${colors.red(colors.bold(`${error.name || "Error"}:`))} ${error.message}`
 }
+
 export const formatStack = (
   stack: string,
-  options: LogErrorOptions = {}
+  options: LogLineOptions = {}
 ): string => {
   const lines = stack.split("\n")
 
@@ -139,7 +135,7 @@ export const formatStack = (
   )}`
 }
 
-const log = (line: LogLine, options: LogErrorOptions) => {
+const log = (line: LogLine, options: LogLineOptions) => {
   if (line.level === "clear") {
     console.clear()
     return
@@ -155,16 +151,12 @@ const log = (line: LogLine, options: LogErrorOptions) => {
   if (options.ignoreInProduction && process.env["NODE_ENV"] === "production")
     return
 
-  if (line.error) {
-    line.message = formatError(line.error, options)
-  }
-
   process.stdout.write(
     `${getPrefix(line.component)}${levelInsert}${line.message}${
       line.data
         ? " " +
           Object.entries(line.data)
-            .map(([key, value]) => `${key}=${formatValue(value)}`)
+            .map(([key, value]) => `${key}=${formatValue(value, options)}`)
             .join(", ")
         : ""
     }\n`

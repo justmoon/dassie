@@ -14,9 +14,13 @@ const handleConnection = (socket: WebSocket) => {
 
     socket.send("hello")
   } catch (error) {
-    logger.logError(error, {
-      skipAfter: "WebSocketService.handleConnection",
-    })
+    logger.error(
+      "error handling websocket connection",
+      { error },
+      {
+        skipAfter: "WebSocketService.handleConnection",
+      }
+    )
   }
 }
 

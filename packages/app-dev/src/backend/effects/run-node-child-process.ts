@@ -6,11 +6,7 @@ import { ChildProcess, Serializable, fork } from "node:child_process"
 import type { Readable } from "node:stream"
 
 import { byLine } from "@xen-ilp/lib-itergen-utils"
-import {
-  SerializableLogLine,
-  createLogger,
-  formatStack,
-} from "@xen-ilp/lib-logger"
+import { SerializableLogLine, createLogger } from "@xen-ilp/lib-logger"
 import type { EffectContext } from "@xen-ilp/lib-reactive"
 import { UnreachableCaseError, assertDefined } from "@xen-ilp/lib-type-utils"
 
@@ -30,8 +26,7 @@ const RUNNER_MODULE = new URL("../../runner/runner.ts", import.meta.url)
   .pathname
 
 const handleChildError = (error: Error) => {
-  logger.error("child process error")
-  logger.logError(error)
+  logger.error("child process error", { error })
 }
 
 interface RunNodeChildProcessProperties<T> {
@@ -62,7 +57,11 @@ export const runNodeChildProcess = async <T>(
   }
 
   const handleChildMessage = (message: unknown) => {
-    rpcHost.handleMessage(message).catch((error) => logger.logError(error))
+    rpcHost
+      .handleMessage(message)
+      .catch((error: unknown) =>
+        logger.error("error while handling child message", { error })
+      )
   }
 
   const handleChildRequest = async (request: ClientRequest) => {
@@ -96,15 +95,9 @@ export const runNodeChildProcess = async <T>(
         sig.emit(logLineTopic, {
           node: node.id,
           ...logLine,
-          error: logLine.error ? formatStack(logLine.error) : undefined,
         })
         if (process.env["XEN_LOG_TO_CLI"] === "true") {
-          cliLogger.info(
-            `${logLine.component} ${
-              logLine.error ? formatStack(logLine.error) : logLine.message
-            }`,
-            logLine.data
-          )
+          cliLogger.info(logLine.message, logLine.data)
         }
       } catch {
         sig.emit(logLineTopic, {
@@ -150,8 +143,12 @@ export const runNodeChildProcess = async <T>(
   assertDefined(child.stdout)
   assertDefined(child.stderr)
 
-  processLog(child.stdout).catch((error) => logger.logError(error))
-  processLog(child.stderr).catch((error) => logger.logError(error))
+  processLog(child.stdout).catch((error: unknown) =>
+    logger.error("error processing child stdout", { node: node.id, error })
+  )
+  processLog(child.stderr).catch((error: unknown) =>
+    logger.error("error processing child stdout", { node: node.id, error })
+  )
 
   sig.onCleanup(() => {
     if (child) {

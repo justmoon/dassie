@@ -29,6 +29,7 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@xen-ilp/lib-type-utils": "workspace:^1.0.0",
-    "picocolors": "^1.0.0"
+    "picocolors": "^1.0.0",
+    "pretty-format": "^28.1.3"
   }
 }

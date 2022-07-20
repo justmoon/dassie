@@ -5,7 +5,7 @@ import { createLoggerFactory } from "./logger"
 
 export type { Formatter } from "./types/formatter"
 export type { LogLine, SerializableLogLine } from "./types/log-line"
-export type { LogLineOptions, LogErrorOptions } from "./types/log-options"
+export type { LogLineOptions } from "./types/log-options"
 
 export {
   createCliFormatter,
@@ -19,6 +19,7 @@ export type { JsonFormatterOptions } from "./formatters/json-formatter"
 export { createEnableChecker } from "./enabled"
 export { createLoggerFactory } from "./logger"
 export { selectBySeed } from "./utils/select-by-seed"
+export { isError } from "./utils/is-error"
 
 export type { Logger } from "./logger"
 

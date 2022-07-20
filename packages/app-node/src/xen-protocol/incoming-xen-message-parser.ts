@@ -11,15 +11,15 @@ import {
 const logger = createLogger("xen:node:incoming-xen-message-parser")
 
 export const incomingXenMessageParser = (sig: EffectContext) => {
-  sig.on(incomingXenMessageBufferTopic, async (buffer) => {
+  sig.on(incomingXenMessageBufferTopic, (buffer) => {
     let message
     try {
       message = parseMessage(buffer)
     } catch (error) {
-      logger.logError(error, { ignoreInProduction: true })
+      logger.debug("error while parsing incoming xen message", { error })
       throw new BadRequestError(`Bad Request, failed to parse message`)
     }
 
-    await sig.emitAndWait(incomingXenMessageTopic, message)
+    sig.emit(incomingXenMessageTopic, message)
   })
 }

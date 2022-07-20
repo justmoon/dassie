@@ -1,7 +1,7 @@
 import { createEnableChecker } from "./enabled"
 import type { LoggingContext } from "./types/context"
 import type { Formatter } from "./types/formatter"
-import type { LogErrorOptions, LogLineOptions } from "./types/log-options"
+import type { LogLineOptions } from "./types/log-options"
 
 /**
  * Loggers are used to log messages related to a specific component.
@@ -143,25 +143,6 @@ export class Logger {
         ...(data ? { data } : {}),
       },
       options ?? {}
-    )
-  }
-
-  /**
-   * Logs an error object with appropriate formatting.
-   *
-   * @param error - The error which should usually be a JavaScript Error object. However, other types are handled for convenience.
-   * @param options - Additional options to control the formatting of the error.
-   */
-  logError(error: unknown, options: LogErrorOptions = {}) {
-    this.context.formatter(
-      {
-        component: this.component,
-        date: new Date(),
-        level: "error",
-        message: "",
-        error,
-      },
-      options
     )
   }
 }

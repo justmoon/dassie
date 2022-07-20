@@ -19,7 +19,9 @@ export const uiRpcRouter = trpc
   .subscription("logs", {
     resolve({ ctx: { fromContext } }) {
       return new trpc.Subscription<IndexedLogLine>((sendToClient) => {
-        for (const logLine of fromContext(logsStore).state) {
+        const previousLogs = fromContext(logsStore).read()
+
+        for (const logLine of previousLogs) {
           sendToClient.data(logLine)
         }
 

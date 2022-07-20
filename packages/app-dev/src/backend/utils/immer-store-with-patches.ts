@@ -31,13 +31,8 @@ export const createImmerStoreWithPatches = <TState>(
     store.emit(reducer(producer))
   }
 
-  const emitAndWait = async (producer: ImmerProducer<TState>) => {
-    return await store.emitAndWait(reducer(producer))
-  }
-
   return {
     ...store,
     emit,
-    emitAndWait,
   }
 }

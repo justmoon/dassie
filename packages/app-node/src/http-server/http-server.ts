@@ -92,7 +92,11 @@ export const httpServer = (sig: EffectContext) => {
       )
     } catch (error) {
       // Log any errors
-      logger.logError(error, { skipAfter: "HttpService.handleRequest" })
+      logger.error(
+        "error handling http request",
+        { error },
+        { skipAfter: "HttpService.handleRequest" }
+      )
 
       if (
         isObject(error) &&
@@ -122,7 +126,7 @@ export const httpServer = (sig: EffectContext) => {
     assertContentTypeHeader(request, "application/xen-message")
 
     const body = await parseBody(request)
-    await sig.emitAndWait(incomingXenMessageBufferTopic, body)
+    sig.emit(incomingXenMessageBufferTopic, body)
 
     respondPlainly(response, 200, "OK")
   }

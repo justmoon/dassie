@@ -8,9 +8,7 @@
  * @see https://stackoverflow.com/a/61958148
  * @see https://262.ecma-international.org/5.1/#sec-15.2.4.2
  */
-export default function isError(
-  possibleError: unknown
-): possibleError is Error {
+export function isError(possibleError: unknown): possibleError is Error {
   return (
     possibleError instanceof Error ||
     Object.prototype.toString.call(possibleError) === "[object Error]"

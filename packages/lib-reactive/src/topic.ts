@@ -1,11 +1,9 @@
-import type { Promisable } from "type-fest"
-
 import { createLogger } from "@xen-ilp/lib-logger"
 import { isObject } from "@xen-ilp/lib-type-utils"
 
-import type { Disposer } from "./reactor"
+import { Disposer, FactoryNameSymbol } from "./reactor"
 
-export type Listener<TMessage> = (message: TMessage) => Promisable<void>
+export type Listener<TMessage> = (message: TMessage) => void
 
 export const TopicSymbol = Symbol("xen:reactive:topic")
 
@@ -19,6 +17,13 @@ export interface Topic<TMessage = never, TTrigger = TMessage> {
    * Marks this object as a topic.
    */
   [TopicSymbol]: true
+
+  /**
+   * Name of the factory function that created this topic.
+   *
+   * @see {@link FactoryNameSymbol}
+   */
+  [FactoryNameSymbol]: string
 
   /**
    * Subscribe to a topic.
@@ -45,30 +50,9 @@ export interface Topic<TMessage = never, TTrigger = TMessage> {
   /**
    * Emit a message to all listeners of a topic.
    *
-   * @remarks
-   *
-   * You should use this method when you don't care about any error that might occur during processing.
-   *
-   * If you want to catch errors, use {@link emitAndWait} instead.
-   *
    * @param trigger - Value to pass to the message factory function.
    */
   emit: (trigger: TTrigger) => void
-
-  /**
-   * Emit a message to all listeners of a topic and either resolve after all listeners complete or reject with the first error encountered.
-   *
-   * @remarks
-   *
-   * You should use this method when you want the caller to handle any error that might occur during processing.
-   *
-   * While this method has some benefits, there are also some significant drawbacks. Normally, callers should not care what happens to the messages they send.
-   *
-   * In general, you should use this for short, tightly coupled processing pipelines and use {@link emit} for everything else. For example, we use this to keep track of any errors that happen during the processing of a single HTTP request. While processing a request, we may emit messages that kick off other, longer-running chains of tasks, but for that we would use {@link emit} instead.
-   *
-   * @param parameters - Any parameters to pass to the message factory function.
-   */
-  emitAndWait: (input: TTrigger) => Promise<void>
 }
 
 export const createTopic = <TMessage>(): Topic<TMessage, TMessage> => {
@@ -81,9 +65,12 @@ export const createTopic = <TMessage>(): Topic<TMessage, TMessage> => {
   const emit = (message: TMessage) => {
     if (typeof listeners === "function") {
       try {
-        void listeners(message)
+        listeners(message)
       } catch (error) {
-        logger.error("error in listener", { error })
+        logger.error("error in listener", {
+          topic: topic[FactoryNameSymbol],
+          error,
+        })
       }
       return
     } else if (listeners == undefined) {
@@ -92,33 +79,14 @@ export const createTopic = <TMessage>(): Topic<TMessage, TMessage> => {
 
     for (const listener of listeners) {
       try {
-        void listener(message)
+        listener(message)
       } catch (error) {
-        logger.error("error in listener", { error })
+        logger.error("error in listener", {
+          topic: topic[FactoryNameSymbol],
+          error,
+        })
       }
     }
-  }
-
-  const emitAndWait = async (message: TMessage): Promise<void> => {
-    if (typeof listeners === "function") {
-      try {
-        await listeners(message)
-      } catch (error) {
-        logger.error("error in listener", { error })
-      }
-      return
-    } else if (listeners == undefined) {
-      return
-    }
-
-    // We use a for loop instead of Array.map to create a shorter and more readable call stack
-    const promises = Array.from<PromiseLike<void>>({
-      length: listeners.size,
-    })
-    for (const [index, listener] of [...listeners].entries()) {
-      promises[index] = Promise.resolve(listener(message))
-    }
-    await Promise.all(promises)
   }
 
   const on = (listener: Listener<TMessage>) => {
@@ -148,15 +116,23 @@ export const createTopic = <TMessage>(): Topic<TMessage, TMessage> => {
   }
 
   const once = (listener: Listener<TMessage>) => {
-    const disposer = on(async (message) => {
+    const disposer = on((message) => {
       disposer()
-      return await listener(message)
+      listener(message)
     })
 
     return disposer
   }
 
-  return { [TopicSymbol]: true, on, once, emit, emitAndWait }
+  const topic: Topic<TMessage, TMessage> = {
+    [TopicSymbol]: true,
+    [FactoryNameSymbol]: "anonymous",
+    on,
+    once,
+    emit,
+  }
+
+  return topic
 }
 
 export const isTopic = (object: unknown): object is Topic =>

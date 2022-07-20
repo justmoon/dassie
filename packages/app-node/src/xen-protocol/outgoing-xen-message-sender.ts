@@ -37,5 +37,5 @@ export const outgoingXenMessageSender = (sig: EffectContext) => {
     })
   }
 
-  sig.on(outgoingXenMessageBufferTopic, sendOutgoingXenMessage)
+  sig.onAsync(outgoingXenMessageBufferTopic, sendOutgoingXenMessage)
 }

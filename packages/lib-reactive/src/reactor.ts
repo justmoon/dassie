@@ -1,8 +1,25 @@
 import type { AsyncOrSync } from "ts-essentials"
 
+import { isObject } from "@xen-ilp/lib-type-utils"
+
 import { EffectContext, useRootEffect } from "./effect"
 import { DebugTools, createDebugTools } from "./internal/debug-tools"
 import { LifecycleScope } from "./internal/lifecycle-scope"
+
+/**
+ * The reactor will automatically set this property on each instantiated object.
+ *
+ * @remarks
+ *
+ * This is a bit of a hack, but it allows our users' code to be cleaner. Specifically, they don't have to repeat the name of the topic/store/etc., they can just do this and the name `myTopic` will automatically be captured:
+ *
+ * @example
+ *
+ * ```ts
+ * const myTopic = () => reactor.createTopic<string>()
+ * ```
+ */
+export const FactoryNameSymbol = Symbol("xen:reactive:factory-name")
 
 export type Effect<TProperties = unknown, TReturn = unknown> = (
   sig: EffectContext,
@@ -10,6 +27,12 @@ export type Effect<TProperties = unknown, TReturn = unknown> = (
 ) => TReturn
 export type Disposer = () => void
 export type AsyncDisposer = () => AsyncOrSync<void>
+
+const tagWithFactoryName = (target: unknown, factoryName: string) => {
+  if (isObject(target) && FactoryNameSymbol in target) {
+    target[FactoryNameSymbol] = factoryName
+  }
+}
 
 export interface Reactor {
   /**
@@ -57,6 +80,8 @@ export const createReactor = (rootEffect: Effect): Reactor => {
 
     if (!value) {
       value = factory()
+
+      tagWithFactoryName(value, factory.name)
 
       contextState.set(factory, value)
     }

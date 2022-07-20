@@ -4,7 +4,7 @@ import { createLoggerFactory } from "./logger"
 
 export type { Formatter } from "./types/formatter"
 export type { LogLine, SerializableLogLine } from "./types/log-line"
-export type { LogLineOptions, LogErrorOptions } from "./types/log-options"
+export type { LogLineOptions } from "./types/log-options"
 
 export { createJsonFormatter } from "./formatters/json-formatter"
 export type { JsonFormatterOptions } from "./formatters/json-formatter"

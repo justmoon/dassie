@@ -21,33 +21,27 @@ export type Store<TState, TReducer = Reducer<TState>> = Topic<
   [StoreSymbol]: true
 
   /**
-   * The current state of the store.
+   * Get the current state of the store.
    */
-  state: TState
+  read(): TState
 }
 
 export const createStore = <TState>(initialState: TState): Store<TState> => {
   const topic = createTopic<TState>()
-  let state = initialState
+  let currentState = initialState
 
   const emit = (reducer: Reducer<TState>) => {
-    state = reducer(state)
-    topic.emit(state)
+    currentState = reducer(currentState)
+    topic.emit(currentState)
   }
 
-  const emitAndWait = async (reducer: Reducer<TState>) => {
-    state = reducer(state)
-    await topic.emitAndWait(state)
-  }
+  const read = () => currentState
 
   return {
     ...topic,
     emit,
-    emitAndWait,
     [StoreSymbol]: true,
-    get state() {
-      return state
-    },
+    read,
   }
 }
 

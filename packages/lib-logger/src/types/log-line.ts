@@ -4,7 +4,6 @@ export interface LogLine {
   level: "debug" | "info" | "warn" | "error" | "clear"
   message: string
   data?: Record<string, unknown>
-  error?: unknown
 }
 
 export interface SerializableLogLine {
@@ -12,6 +11,5 @@ export interface SerializableLogLine {
   date: string
   level: "debug" | "info" | "warn" | "error" | "clear"
   message: string
-  data?: Record<string, unknown>
-  error?: string | undefined
+  data?: Record<string, string>
 }

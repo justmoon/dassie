@@ -8,6 +8,8 @@ import type { Listener, TopicFactory } from "./topic"
 
 const logger = createLogger("xen:reactive")
 
+export type AsyncListener<TMessage> = (message: TMessage) => Promise<void>
+
 export class EffectContext {
   constructor(
     /**
@@ -24,7 +26,9 @@ export class EffectContext {
      */
     private readonly lifecycle: LifecycleScope,
 
-    private readonly waker: Waker
+    private readonly waker: Waker,
+
+    private readonly effect: Effect<never>
   ) {}
 
   /**
@@ -65,7 +69,7 @@ export class EffectContext {
     }
 
     const notify = this.waker.notify
-    const value = selector(this.reactor.fromContext(topic).state)
+    const value = selector(this.reactor.fromContext(topic).read())
     const dispose = this.reactor.fromContext(topic).on(handleTopicMessage)
     this.lifecycle.onCleanup(dispose)
     return value
@@ -77,7 +81,7 @@ export class EffectContext {
    * @param topic - Reference to the topic, i.e. the message factory function.
    */
   read<TState>(store: StoreFactory<TState>): TState {
-    return this.reactor.fromContext(store).state
+    return this.reactor.fromContext(store).read()
   }
 
   /**
@@ -110,6 +114,52 @@ export class EffectContext {
   }
 
   /**
+   * Like {@link on} but handles errors in async listeners.
+   *
+   * @param topic - Topic that the message should be sent to.
+   * @param listener - An async function that will be called every time a message is emitted on the topic.
+   */
+  onAsync<TMessage>(
+    topic: TopicFactory<TMessage>,
+    listener: AsyncListener<TMessage>
+  ) {
+    this.lifecycle.onCleanup(
+      this.reactor.fromContext(topic).on((message) => {
+        listener(message).catch((error: unknown) => {
+          logger.error("error in async listener", {
+            topic: topic.name,
+            effect: this.effect.name,
+            error,
+          })
+        })
+      })
+    )
+  }
+
+  /**
+   * Like {@link once} but handles errors in async listeners.
+   *
+   * @param topic - Topic that the message should be sent to.
+   * @param listener - An async function that will be called every time a message is emitted on the topic.
+   */
+  onceAsync<TMessage>(
+    topic: TopicFactory<TMessage>,
+    listener: AsyncListener<TMessage>
+  ) {
+    this.lifecycle.onCleanup(
+      this.reactor.fromContext(topic).once((message) => {
+        listener(message).catch((error: unknown) => {
+          logger.error("error in async listener", {
+            topic: topic.name,
+            effect: this.effect.name,
+            error,
+          })
+        })
+      })
+    )
+  }
+
+  /**
    * This is a shorthand for {@link TopicFactory.emit} to quickly send a message to a topic.
    *
    * @param topic - Topic that the message should be sent to.
@@ -117,19 +167,6 @@ export class EffectContext {
    */
   emit<TTrigger>(topic: TopicFactory<unknown, TTrigger>, trigger: TTrigger) {
     this.reactor.fromContext(topic).emit(trigger)
-  }
-
-  /**
-   * This is a shorthand for {@link TopicFactory.emitAndWait} to quickly send a message to a topic.
-   *
-   * @param topic - Topic that the message should be sent to.
-   * @param trigger - Message to send to the topic.
-   */
-  emitAndWait<TTrigger>(
-    topic: TopicFactory<unknown, TTrigger>,
-    trigger: TTrigger
-  ) {
-    return this.reactor.fromContext(topic).emitAndWait(trigger)
   }
 
   /**
@@ -193,7 +230,12 @@ export class EffectContext {
         waker = new Waker()
         const lifecycle = new LifecycleScope()
 
-        const context = new EffectContext(this.reactor, lifecycle, waker)
+        const context = new EffectContext(
+          this.reactor,
+          lifecycle,
+          waker,
+          effect
+        )
 
         effectResult = effect(context, properties)
 
@@ -215,8 +257,8 @@ export class EffectContext {
       waker.resolve()
     })
 
-    run().catch((error) => {
-      logger.logError(error)
+    run().catch((error: unknown) => {
+      logger.error("error in effect", { effect: effect.name, error })
     })
 
     return effectResult
@@ -231,6 +273,6 @@ export const useRootEffect = (
   // Create a dummy effect context that can be "above" the root effect.
   const waker = new Waker()
   waker.dispose()
-  const context = new EffectContext(reactor, lifecycle, waker)
+  const context = new EffectContext(reactor, lifecycle, waker, effect)
   context.use(effect)
 }

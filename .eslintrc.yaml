@@ -18,3 +18,4 @@ rules:
   unicorn/no-null: "off"
   unicorn/no-useless-undefined: "off"
   tsdoc/syntax: "warn"
+  "@typescript-eslint/no-non-null-assertion": "off"

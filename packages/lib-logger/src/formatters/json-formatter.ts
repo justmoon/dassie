@@ -1,14 +1,31 @@
+import { format as prettyFormat } from "pretty-format"
+
 import type { Formatter } from "../types/formatter"
 import type { LogLine, SerializableLogLine } from "../types/log-line"
-import type { LogErrorOptions } from "../types/log-options"
-import isError from "../utils/is-error"
+import type { LogLineOptions } from "../types/log-options"
+import { isError } from "../utils/is-error"
+import { formatError } from "./cli-formatter"
 
-const serializeError = (error: unknown) => {
-  if (isError(error)) {
-    return error.stack
-  }
+const serializeData = (
+  data: Record<string, unknown>,
+  options: LogLineOptions
+): Record<string, string> => {
+  return Object.fromEntries(
+    Object.entries(data).map(([key, value]) => {
+      if (typeof value === "function") {
+        value = value()
+      }
 
-  return String(error)
+      return [
+        key,
+        isError(value)
+          ? formatError(value, options)
+          : typeof value === "string"
+          ? value
+          : prettyFormat(value),
+      ] as const
+    })
+  )
 }
 
 export interface JsonFormatterOptions {
@@ -18,17 +35,14 @@ export interface JsonFormatterOptions {
 export const createJsonFormatter = ({
   outputFunction = (value) => console.log(JSON.stringify(value)),
 }: JsonFormatterOptions = {}): Formatter => {
-  const log = (
-    { date, error, ...line }: LogLine,
-    options: LogErrorOptions
-  ): void => {
+  const log = ({ date, ...line }: LogLine, options: LogLineOptions): void => {
     if (options.ignoreInProduction && process.env["NODE_ENV"] === "production")
       return
 
     const serializedLine: SerializableLogLine = {
-      date: date.toISOString(),
-      ...(error ? { error: serializeError(error) } : {}),
       ...line,
+      date: date.toISOString(),
+      data: serializeData(line.data ?? {}, options),
     }
     outputFunction(serializedLine)
   }

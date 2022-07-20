@@ -11,9 +11,8 @@ export class LifecycleScope {
   onCleanup(cleanupHandler: AsyncDisposer) {
     if (this.isDisposed) {
       // If the scope has already been disposed, run the cleanup handler immediately.
-      Promise.resolve(cleanupHandler()).catch((error) => {
-        logger.error("error in cleanup handler")
-        logger.logError(error)
+      Promise.resolve(cleanupHandler()).catch((error: unknown) => {
+        logger.error("error in cleanup handler", { error })
       })
     } else {
       this.cleanupQueue.push(cleanupHandler)
