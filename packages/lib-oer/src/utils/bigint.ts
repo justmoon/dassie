@@ -1,6 +1,6 @@
-import type { Brand } from "@xen-ilp/lib-type-utils"
+import type { Opaque } from "type-fest"
 
-type UnsignedBigint = Brand<bigint, "bigint >= 0">
+type UnsignedBigint = Opaque<bigint, "bigint >= 0">
 
 export const isUnsignedBigint = (value: unknown): value is UnsignedBigint =>
   typeof value === "bigint" && value >= 0n

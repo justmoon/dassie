@@ -1,4 +1,4 @@
-import type { Brand } from "@xen-ilp/lib-type-utils"
+import type { Opaque } from "type-fest"
 
 export interface BaseContext {
   readonly uint8Array: Uint8Array
@@ -11,7 +11,7 @@ export interface ParseContext extends BaseContext {
 
 export type SerializeContext = BaseContext
 
-export type SafeUnsignedInteger = Brand<number, "Integer in range [0, 2^53)">
+export type SafeUnsignedInteger = Opaque<number, "Integer in range [0, 2^53)">
 
 export const isSafeUnsignedInteger = (
   value: number
