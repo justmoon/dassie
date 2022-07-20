@@ -98,7 +98,7 @@ const LogLine: Component<IndexedLogLine> = (log) => {
         <span style={{ color: selectBySeed(COLORS, log.component) }}>
           {log.component}
         </span>{" "}
-        <span>{formatLogMessage(log.error ? log.error : log.message)}</span>
+        <span>{formatLogMessage(log.error ?? log.message)}</span>
         <For each={Object.entries(log.data ?? {})}>
           {([key, value]) => (
             <span class="bg-dark-100 rounded-1 text-xs ml-1 py-0.5 px-1">
