@@ -100,7 +100,19 @@ export class EffectContext {
    * @param listener - A function that will be called every time a message is emitted on the topic.
    */
   on<TMessage>(topic: TopicFactory<TMessage>, listener: Listener<TMessage>) {
-    this.lifecycle.onCleanup(this.reactor.fromContext(topic).on(listener))
+    this.lifecycle.onCleanup(
+      this.reactor.fromContext(topic).on((message) => {
+        try {
+          listener(message)
+        } catch (error: unknown) {
+          logger.error("error in listener", {
+            topic: topic.name,
+            effect: this.effect.name,
+            error,
+          })
+        }
+      })
+    )
   }
 
   /**
@@ -110,7 +122,19 @@ export class EffectContext {
    * @param listener - A function that will be called every time a message is emitted on the topic.
    */
   once<TMessage>(topic: TopicFactory<TMessage>, listener: Listener<TMessage>) {
-    this.lifecycle.onCleanup(this.reactor.fromContext(topic).once(listener))
+    this.lifecycle.onCleanup(
+      this.reactor.fromContext(topic).once((message) => {
+        try {
+          listener(message)
+        } catch (error: unknown) {
+          logger.error("error in once listener", {
+            topic: topic.name,
+            effect: this.effect.name,
+            error,
+          })
+        }
+      })
+    )
   }
 
   /**
@@ -149,7 +173,7 @@ export class EffectContext {
     this.lifecycle.onCleanup(
       this.reactor.fromContext(topic).once((message) => {
         listener(message).catch((error: unknown) => {
-          logger.error("error in async listener", {
+          logger.error("error in onceAsync listener", {
             topic: topic.name,
             effect: this.effect.name,
             error,
