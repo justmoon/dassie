@@ -6,9 +6,17 @@
 
 In order to develop a peer-to-peer application, it is very useful to quickly spin up several nodes which can all talk to each other. Xen/ILP uses HTTPS everywhere including during development, so you will need to generate certificates for your nodes.
 
-### Generate certificates
+### Prerequisites
 
-1. Install [mkcert](https://github.com/FiloSottile/mkcert) which is a tool for managing your own private CA.
-2. Run `mkcert -install` to create the private CA and register it in your OS and browser.
-3. Add `export NODE_EXTRA_CA_CERTS="$(mkcert -CAROOT)/rootCA.pem"` to your `.bashrc`, `.zshrc`, or similar.
-4. Run `pnpm run dev:certs` to generate the certificates.
+- Node.js 18
+- [mkcert](https://github.com/FiloSottile/mkcert)
+  1. Run `mkcert -install` to create the private CA and register it in your OS and browser.
+  2. Add `export NODE_EXTRA_CA_CERTS="$(mkcert -CAROOT)/rootCA.pem"` to your `.bashrc`, `.zshrc`, or similar.
+
+### Starting the development environment
+
+Run the development environment with:
+
+```sh
+DEBUG=xen:* pnpm dev
+```
