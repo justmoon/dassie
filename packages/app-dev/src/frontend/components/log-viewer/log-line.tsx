@@ -1,7 +1,7 @@
 import ansi, { parse } from "ansicolor"
 import LinkifyIt from "linkify-it"
 import { Link } from "solid-app-router"
-import type { Component } from "solid-js"
+import { Component, Show } from "solid-js"
 import { For } from "solid-js"
 
 import { selectBySeed } from "@xen-ilp/lib-logger"
@@ -103,13 +103,20 @@ const LogLine: Component<IndexedLogLine> = (log) => {
         </span>{" "}
         <span>{formatConsoleOutput(log.message)}</span>
         <For each={Object.entries(log.data ?? {})}>
-          {([key, value]) => (
-            <span class="bg-dark-100 rounded-1 text-xs ml-1 py-0.5 px-1">
-              <span class="font-sans text-gray-400">{key}=</span>
-              <span>{formatDataValue(value)}</span>
-            </span>
-          )}
+          {([key, value]) =>
+            key === "error" ? null : (
+              <span class="bg-dark-100 rounded-1 text-xs ml-1 py-0.5 px-1">
+                <span class="font-sans text-gray-400">{key}=</span>
+                <span>{formatDataValue(value)}</span>
+              </span>
+            )
+          }
         </For>
+        <Show when={log.data?.["error"]}>
+          <p class="rounded-md bg-dark-300 mt-2 mb-4 p-2">
+            {formatConsoleOutput(log.data?.["error"] ?? "")}
+          </p>
+        </Show>
       </pre>
     </div>
   )
