@@ -2,16 +2,14 @@ import colors from "picocolors"
 import type { ViteDevServer } from "vite"
 import type { ViteNodeServer } from "vite-node/server"
 
-import { ChildProcess, Serializable, fork } from "node:child_process"
+import { ChildProcess, fork } from "node:child_process"
 import type { Readable } from "node:stream"
 
 import { byLine } from "@xen-ilp/lib-itergen-utils"
 import { SerializableLogLine, createLogger } from "@xen-ilp/lib-logger"
 import type { EffectContext } from "@xen-ilp/lib-reactive"
-import { UnreachableCaseError, assertDefined } from "@xen-ilp/lib-type-utils"
+import { assertDefined } from "@xen-ilp/lib-type-utils"
 
-import RpcHost from "../../classes/rpc-host"
-import { ClientRequest, schema } from "../../schemas/client-request"
 import { logLineTopic } from "../features/logs"
 import { createCliOnlyLogger } from "../utils/cli-only-logger"
 import type { NodeDefinition } from "./run-nodes"
@@ -43,10 +41,6 @@ export const runNodeChildProcess = async <T>(
   const prefix = `◼ ${node.id}`
   const cliLogger = createCliOnlyLogger(prefix)
 
-  const sendToChild = (message: Serializable) => {
-    child?.send(message)
-  }
-
   const handleChildExit = (code: number | null) => {
     if (code === 0) {
       logger.info(`${colors.green(`child exited`)}`)
@@ -55,30 +49,6 @@ export const runNodeChildProcess = async <T>(
     }
     child = undefined
   }
-
-  const handleChildMessage = (message: unknown) => {
-    rpcHost
-      .handleMessage(message)
-      .catch((error: unknown) =>
-        logger.error("error while handling child message", { error })
-      )
-  }
-
-  const handleChildRequest = async (request: ClientRequest) => {
-    switch (request.method) {
-      case "fetchModule":
-        return nodeServer.fetchModule(...request.params)
-      case "resolveId":
-        return nodeServer.resolveId(
-          request.params[0],
-          request.params[1] === null ? undefined : request.params[1]
-        )
-      default:
-        throw new UnreachableCaseError(request)
-    }
-  }
-
-  const rpcHost = new RpcHost(schema, handleChildRequest, sendToChild)
 
   const processLog = async (input: Readable) => {
     for await (const line of byLine(input)) {
@@ -133,12 +103,12 @@ export const runNodeChildProcess = async <T>(
       XEN_DEV_ROOT: viteServer.config.root,
       XEN_DEV_BASE: viteServer.config.base,
       XEN_DEV_ENTRY: node.entry ?? "src/index.ts",
+      XEN_DEV_RPC_URL: "ws://localhost:10001",
       XEN_DEBUG_RPC_PORT: String(node.debugPort),
     },
   })
   child.addListener("error", handleChildError)
   child.addListener("exit", handleChildExit)
-  child.addListener("message", handleChildMessage)
 
   assertDefined(child.stdout)
   assertDefined(child.stderr)
@@ -153,7 +123,6 @@ export const runNodeChildProcess = async <T>(
   sig.onCleanup(() => {
     if (child) {
       child.removeListener("exit", handleChildExit)
-      child.removeListener("message", handleChildMessage)
 
       child.kill("SIGINT")
     }

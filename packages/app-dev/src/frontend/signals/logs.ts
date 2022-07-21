@@ -5,7 +5,7 @@ import client from "../rpc-client"
 
 const [logs, setLogs] = createSignal<IndexedLogLine[]>([])
 
-client.subscription("logs", undefined, {
+client.subscription("ui.logs", undefined, {
   onNext(logLine) {
     setLogs((logs) => {
       if (logLine.type !== "data") return logs

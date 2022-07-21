@@ -3,6 +3,7 @@ import type { AsyncOrSync } from "ts-essentials"
 import { isObject } from "@xen-ilp/lib-type-utils"
 
 import { EffectContext, useRootEffect } from "./effect"
+import type { Factory } from "./factory"
 import { DebugTools, createDebugTools } from "./internal/debug-tools"
 import { LifecycleScope } from "./internal/lifecycle-scope"
 
@@ -41,7 +42,7 @@ export interface Reactor {
    * @param factory - A function that will be called to create a value if one does not exist in the context.
    * @returns The value stored in the context.
    */
-  fromContext: <T>(factory: () => T) => T
+  fromContext: <T>(factory: Factory<T>) => T
 
   /**
    * Register a cleanup handler for this reactor.
@@ -52,7 +53,7 @@ export interface Reactor {
    *
    * @param cleanupHandler - A function that will be called when the reactor is disposed.
    */
-  onCleanup: (cleanupHandler: () => void) => void
+  onCleanup: (cleanupHandler: AsyncDisposer) => void
 
   /**
    * Dispose of the entire reactive system.
@@ -66,8 +67,8 @@ export interface Reactor {
 }
 
 export interface ContextState extends Map<() => unknown, unknown> {
-  get<T>(key: () => T): T | undefined
-  set<T>(key: () => T, value: T): this
+  get<T>(key: Factory<T>): T | undefined
+  set<T>(key: Factory<T>, value: T): this
 }
 
 export const createReactor = (rootEffect: Effect): Reactor => {
@@ -75,11 +76,11 @@ export const createReactor = (rootEffect: Effect): Reactor => {
 
   const lifecycle = new LifecycleScope()
 
-  const fromContext = <T>(factory: () => T): T => {
+  const fromContext = <T>(factory: Factory<T>): T => {
     let value = contextState.get(factory)
 
     if (!value) {
-      value = factory()
+      value = factory(reactor)
 
       tagWithFactoryName(value, factory.name)
 

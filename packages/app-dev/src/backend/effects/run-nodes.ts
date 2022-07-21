@@ -1,6 +1,4 @@
 import * as colors from "picocolors"
-import { createServer } from "vite"
-import { ViteNodeServer } from "vite-node/server"
 
 import { posix } from "node:path"
 
@@ -8,6 +6,8 @@ import { createLogger } from "@xen-ilp/lib-logger"
 import { EffectContext, createTopic } from "@xen-ilp/lib-reactive"
 
 import { NODES } from "../constants/development-nodes"
+import { viteNodeServerFactory } from "../services/vite-node-server"
+import { viteServerFactory } from "../services/vite-server"
 import { runNodeChildProcess } from "./run-node-child-process"
 
 const logger = createLogger("xen:dev:node-server")
@@ -29,20 +29,8 @@ export interface NodeDefinition<T> {
 const fileChangeTopic = () => createTopic()
 
 export const runNodes = async (sig: EffectContext) => {
-  // create vite server
-  const viteServer = await createServer({
-    server: { hmr: false },
-    optimizeDeps: {
-      // It's recommended to disable deps optimization
-      disabled: true,
-    },
-  })
-
-  // this is needed to initialize the plugins
-  await viteServer.pluginContainer.buildStart({})
-
-  // create vite-node server
-  const nodeServer = new ViteNodeServer(viteServer)
+  const viteServer = await sig.reactor.fromContext(viteServerFactory)
+  const nodeServer = await sig.reactor.fromContext(viteNodeServerFactory)
 
   logger.debug("starting node processes")
 
@@ -55,7 +43,7 @@ export const runNodes = async (sig: EffectContext) => {
     }
   })
 
-  viteServer.watcher.on("change", (file) => {
+  const handleFileChange = (file: string) => {
     const { config, moduleGraph } = viteServer
     const shortFile = getShortName(file, config.root)
 
@@ -67,9 +55,11 @@ export const runNodes = async (sig: EffectContext) => {
 
       sig.emit(fileChangeTopic, undefined)
     }
-  })
+  }
 
-  sig.onCleanup(async () => {
-    await viteServer.close()
+  viteServer.watcher.on("change", handleFileChange)
+
+  sig.onCleanup(() => {
+    viteServer.watcher.off("change", handleFileChange)
   })
 }

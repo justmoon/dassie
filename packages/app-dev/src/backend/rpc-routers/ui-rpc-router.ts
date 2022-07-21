@@ -1,8 +1,6 @@
 import * as trpc from "@trpc/server"
-import { applyWSSHandler } from "@trpc/server/adapters/ws"
-import { WebSocketServer } from "ws"
 
-import type { EffectContext, Reactor } from "@xen-ilp/lib-reactive"
+import type { Reactor } from "@xen-ilp/lib-reactive"
 
 import { IndexedLogLine, indexedLogLineTopic } from "../features/logs"
 import { logsStore } from "../stores/logs"
@@ -33,15 +31,3 @@ export const uiRpcRouter = trpc
   })
 
 export type UiRpcRouter = typeof uiRpcRouter
-
-export const listenForUiWebSocket = (sig: EffectContext) => {
-  const wss = new WebSocketServer({ port: 10_001 })
-  applyWSSHandler<UiRpcRouter>({
-    wss,
-    router: uiRpcRouter,
-    createContext: () => sig.reactor,
-  })
-  sig.onCleanup(() => {
-    wss.close()
-  })
-}

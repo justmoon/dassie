@@ -5,8 +5,8 @@ import { EffectContext, createReactor } from "@xen-ilp/lib-reactive"
 import { captureLogs } from "./effects/capture-logs"
 import { debugUiServer } from "./effects/debug-ui-server"
 import { registerReactiveLogger } from "./effects/register-reactive-logger"
+import { listenForRpcWebSocket } from "./effects/rpc-server"
 import { runNodes } from "./effects/run-nodes"
-import { listenForUiWebSocket } from "./effects/ui-rpc-server"
 import { validateDevelopmentEnvironment } from "./effects/validate-development-environment"
 import { walletServer } from "./effects/wallet-server"
 import { indexLogs } from "./features/logs"
@@ -21,7 +21,7 @@ const rootEffect = async (sig: EffectContext) => {
   sig.use(captureLogs)
   sig.use(indexLogs)
   sig.use(registerReactiveLogger)
-  sig.use(listenForUiWebSocket)
+  sig.use(listenForRpcWebSocket)
   await sig.use(runNodes)
   await sig.use(walletServer)
   await sig.use(debugUiServer)
