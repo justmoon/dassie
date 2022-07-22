@@ -2,9 +2,9 @@ import type { AsyncOrSync } from "ts-essentials"
 
 import { isObject } from "@xen-ilp/lib-type-utils"
 
+import { DebugTools, createDebugTools } from "./debug/debug-tools"
 import { EffectContext, useRootEffect } from "./effect"
 import type { Factory } from "./factory"
-import { DebugTools, createDebugTools } from "./internal/debug-tools"
 import { LifecycleScope } from "./internal/lifecycle-scope"
 
 /**
@@ -61,9 +61,9 @@ export interface Reactor {
   dispose: AsyncDisposer
 
   /**
-   * Returns a set of debug tools for this reactor. Note that this is only available during development and will throw an error if used in production.
+   * Returns a set of debug tools for this reactor. Note that this is only available during development.
    */
-  debug: () => DebugTools
+  debug: DebugTools | undefined
 }
 
 export interface ContextState extends Map<() => unknown, unknown> {
@@ -82,6 +82,7 @@ export const createReactor = (rootEffect: Effect): Reactor => {
     if (!value) {
       value = factory(reactor)
 
+      debug?.notifyOfInstantiation(factory, value)
       tagWithFactoryName(value, factory.name)
 
       contextState.set(factory, value)
@@ -90,7 +91,7 @@ export const createReactor = (rootEffect: Effect): Reactor => {
     return value
   }
 
-  const debug = () => createDebugTools(contextState)
+  const debug = createDebugTools(fromContext, contextState)
 
   const reactor: Reactor = {
     fromContext,
