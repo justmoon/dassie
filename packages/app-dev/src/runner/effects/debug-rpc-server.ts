@@ -2,6 +2,7 @@ import * as trpc from "@trpc/server"
 import * as trpcExpress from "@trpc/server/adapters/express"
 import cors from "cors"
 import express from "express"
+import superjson from "superjson"
 
 import { peerTableStore } from "@xen-ilp/app-node/src/peering/stores/peer-table"
 import { createLogger } from "@xen-ilp/lib-logger"
@@ -9,11 +10,14 @@ import type { EffectContext, Reactor } from "@xen-ilp/lib-reactive"
 
 const logger = createLogger("xen:dev:launcher:debug-rpc-server")
 
-export const debugRpcRouter = trpc.router<Reactor>().query("getPeerTable", {
-  resolve({ ctx: reactor }) {
-    return reactor.fromContext(peerTableStore).read()
-  },
-})
+export const debugRpcRouter = trpc
+  .router<Reactor>()
+  .transformer(superjson)
+  .query("getPeerTable", {
+    resolve({ ctx: reactor }) {
+      return reactor.fromContext(peerTableStore).read()
+    },
+  })
 
 export type DebugRpcRouter = typeof debugRpcRouter
 

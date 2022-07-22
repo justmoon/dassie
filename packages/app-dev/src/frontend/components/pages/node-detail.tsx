@@ -1,6 +1,7 @@
 import { createTRPCClient } from "@trpc/client"
 import { Link, useParams } from "solid-app-router"
 import { Component, For, createMemo, createResource } from "solid-js"
+import superjson from "superjson"
 import { format } from "timeago.js"
 
 import { selectBySeed } from "@xen-ilp/lib-logger"
@@ -9,6 +10,7 @@ import { assertDefined } from "@xen-ilp/lib-type-utils"
 import { NODES } from "../../../backend/constants/development-nodes"
 import type { DebugRpcRouter } from "../../../runner/effects/debug-rpc-server"
 import { COLORS } from "../../constants/palette"
+import { globalFirehose } from "../../signals/global-firehose"
 import { logs } from "../../signals/logs"
 import LogViewer from "../log-viewer/log-viewer"
 
@@ -19,6 +21,7 @@ const createDebugRPCClient = (nodeId: string) => {
 
   const client = createTRPCClient<DebugRpcRouter>({
     url: `http://localhost:${port}/trpc`,
+    transformer: superjson,
   })
 
   return client
@@ -51,7 +54,7 @@ const NodeHeader: Component<BasicNodeElementProperties> = (properties) => {
   )
 }
 
-const NodeStateViewer: Component<BasicNodeElementProperties> = (properties) => {
+const PeerTable: Component<BasicNodeElementProperties> = (properties) => {
   const [peerTable] = createResource(
     () => properties.nodeId,
     () => {
@@ -101,6 +104,38 @@ const NodeStateViewer: Component<BasicNodeElementProperties> = (properties) => {
   )
 }
 
+const NodeFirehoseTracker: Component<BasicNodeElementProperties> = (
+  properties
+) => {
+  return (
+    <div>
+      <h2 class="font-bold text-xl">Events</h2>
+      <table class="border-separate border-spacing-2 my-4 -ml-2">
+        <thead>
+          <tr>
+            <th class="text-left">Topic</th>
+            <th class="text-left">Message</th>
+          </tr>
+        </thead>
+        <tbody>
+          <For
+            each={globalFirehose().filter(
+              ({ nodeId }) => nodeId === properties.nodeId
+            )}
+          >
+            {({ topic, messageId }) => (
+              <tr>
+                <td class="">{topic}</td>
+                <td class="">{messageId}</td>
+              </tr>
+            )}
+          </For>
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 const NodeLogViewer: Component<BasicNodeElementProperties> = (properties) => {
   const nodeLogs = createMemo(() =>
     logs().filter(({ node }) => node === properties.nodeId)
@@ -115,8 +150,9 @@ const NodeDetail: Component = () => {
   return (
     <div class="flex flex-col h-full max-h-screen min-h-0 py-10">
       <NodeHeader nodeId={parameters["nodeId"]} />
-      <main class="flex flex-col mx-auto flex-1 min-h-0 w-full max-w-7xl pt-8 sm:px-6 lg:px-8">
-        <NodeStateViewer nodeId={parameters["nodeId"]} />
+      <main class="mx-auto flex-1 min-h-0 w-full max-w-7xl grid pt-8 gap-4 grid-cols-2 sm:px-6 lg:px-8">
+        <PeerTable nodeId={parameters["nodeId"]} />
+        <NodeFirehoseTracker nodeId={parameters["nodeId"]} />
         <NodeLogViewer nodeId={parameters["nodeId"]} />
       </main>
     </div>

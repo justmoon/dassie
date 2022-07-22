@@ -105,6 +105,7 @@ importers:
       serve-static: ^1.15.0
       solid-app-router: ^0.4.1
       solid-js: ^1.4.7
+      superjson: ^1.9.1
       timeago.js: ^4.0.2
       unocss: ^0.44.5
       vite: ^3.0.2
@@ -132,6 +133,7 @@ importers:
       linkify-it: 4.0.1
       solid-app-router: 0.4.1_solid-js@1.4.7
       solid-js: 1.4.7
+      superjson: 1.9.1
       timeago.js: 4.0.2
       unocss: 0.44.5_vite@3.0.2
       vite: 3.0.2
@@ -151,6 +153,7 @@ importers:
       '@types/ws': ^8.5.3
       '@xen-ilp/lib-crypto': workspace:^1.0.0
       '@xen-ilp/lib-logger': workspace:^1.0.0
+      '@xen-ilp/lib-oer': workspace:^1.0.0
       '@xen-ilp/lib-reactive': workspace:^1.0.0
       '@xen-ilp/lib-type-utils': workspace:^1.0.0
       axios: ^0.27.2
@@ -162,6 +165,7 @@ importers:
       '@types/ws': 8.5.3
       '@xen-ilp/lib-crypto': link:../lib-crypto
       '@xen-ilp/lib-logger': link:../lib-logger
+      '@xen-ilp/lib-oer': link:../lib-oer
       '@xen-ilp/lib-reactive': link:../lib-reactive
       '@xen-ilp/lib-type-utils': link:../lib-type-utils
       axios: 0.27.2
@@ -1770,6 +1774,13 @@ packages:
   /cookie/0.5.0:
     resolution: {integrity: sha512-YZ3GUyn/o8gfKJlnlX7g7xq4gyO6OSuhGPKaaGssGB2qgDUS0gPgtTvoyZLTt9Ab6dC4hfc9dV5arkvc/OCmrw==}
     engines: {node: '>= 0.6'}
+    dev: false
+
+  /copy-anything/3.0.2:
+    resolution: {integrity: sha512-CzATjGXzUQ0EvuvgOCI6A4BGOo2bcVx8B+eC2nF862iv9fopnPQwlrbACakNCHRIJbCSBj+J/9JeDf60k64MkA==}
+    engines: {node: '>=12.13'}
+    dependencies:
+      is-what: 4.1.7
     dev: false
 
   /cors/2.8.5:
@@ -3964,6 +3975,13 @@ packages:
   /strip-json-comments/3.1.1:
     resolution: {integrity: sha512-6fPc+R4ihwqP6N/aIv2f1gMH8lOVtWQHoqC4yK6oSDVVocumAsfCqjkXnqiYMhmMwS/mEHLp7Vehlt3ql6lEig==}
     engines: {node: '>=8'}
+    dev: false
+
+  /superjson/1.9.1:
+    resolution: {integrity: sha512-oT3HA2nPKlU1+5taFgz/HDy+GEaY+CWEbLzaRJVD4gZ7zMVVC4GDNFdgvAZt6/VuIk6D2R7RtPAiCHwmdzlMmg==}
+    engines: {node: '>=10'}
+    dependencies:
+      copy-anything: 3.0.2
     dev: false
 
   /supports-color/5.5.0:

@@ -4,6 +4,10 @@ import type { Reactor } from "@xen-ilp/lib-reactive"
 
 import { IndexedLogLine, indexedLogLineTopic } from "../features/logs"
 import { logsStore } from "../stores/logs"
+import {
+  GlobalFirehoseMessage,
+  globalFirehoseTopic,
+} from "../topics/global-firehose"
 
 export const startupTime = Date.now()
 
@@ -24,6 +28,15 @@ export const uiRpcRouter = trpc
         }
 
         return fromContext(indexedLogLineTopic).on((logLine) => {
+          sendToClient.data(logLine)
+        })
+      })
+    },
+  })
+  .subscription("globalFirehose", {
+    resolve({ ctx: { fromContext } }) {
+      return new trpc.Subscription<GlobalFirehoseMessage>((sendToClient) => {
+        return fromContext(globalFirehoseTopic).on((logLine) => {
           sendToClient.data(logLine)
         })
       })

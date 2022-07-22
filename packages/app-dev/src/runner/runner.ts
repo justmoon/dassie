@@ -1,26 +1,11 @@
 #!/usr/bin/env node
-import { createTRPCClient } from "@trpc/client"
-import { createWSClient, wsLink } from "@trpc/client/links/wsLink"
 import { ViteNodeRunner } from "vite-node/client"
-import WebSocket from "ws"
 
 import { assertDefined } from "@xen-ilp/lib-type-utils"
 
-import type { AppRouter } from "../backend/rpc-routers/app-router"
+import { trpcClientFactory } from "./services/trpc-client"
 
-const wsClient = createWSClient({
-  url: process.env["XEN_DEV_RPC_URL"]!,
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-explicit-any
-  WebSocket: WebSocket as any,
-})
-
-const trpcClient = createTRPCClient<AppRouter>({
-  links: [
-    wsLink({
-      client: wsClient,
-    }),
-  ],
-})
+const trpcClient = trpcClientFactory()
 
 assertDefined(process.env["XEN_DEV_ROOT"])
 assertDefined(process.env["XEN_DEV_BASE"])
@@ -35,6 +20,10 @@ const runner = new ViteNodeRunner({
     return await trpcClient.query("runner.resolveId", [id, importer])
   },
 })
+
+// We would like to inject the existing trpcClient instance into the rest of the application. If you can figure out a cleaner way to do this, feel free to make a PR.
+// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
+;(global as any).trpcClient = trpcClient
 
 // send message to indicate that we're up and running
 process.send?.({})

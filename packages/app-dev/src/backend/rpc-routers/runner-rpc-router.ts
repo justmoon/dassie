@@ -4,6 +4,7 @@ import { z } from "zod"
 import type { Reactor } from "@xen-ilp/lib-reactive"
 
 import { viteNodeServerFactory } from "../services/vite-node-server"
+import { globalFirehoseTopic } from "../topics/global-firehose"
 
 export const startupTime = Date.now()
 
@@ -21,6 +22,16 @@ export const runnerRpcRouter = trpc
     async resolve({ input, ctx: reactor }) {
       const nodeServer = await reactor.fromContext(viteNodeServerFactory)
       return nodeServer.fetchModule(...input)
+    },
+  })
+  .mutation("notifyTopicMessage", {
+    input: z.tuple([z.string(), z.string(), z.number()]),
+    resolve({ input: [nodeId, topicName, messageId], ctx: reactor }) {
+      reactor.fromContext(globalFirehoseTopic).emit({
+        nodeId,
+        topic: topicName,
+        messageId,
+      })
     },
   })
 

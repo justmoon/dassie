@@ -36,6 +36,7 @@
     "linkify-it": "^4.0.1",
     "solid-app-router": "^0.4.1",
     "solid-js": "^1.4.7",
+    "superjson": "^1.9.1",
     "timeago.js": "^4.0.2",
     "unocss": "^0.44.5",
     "vite": "^3.0.2",
