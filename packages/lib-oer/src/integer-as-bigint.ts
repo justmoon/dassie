@@ -18,7 +18,7 @@ interface IntegerOptions {
   maximumValue?: bigint
 }
 
-interface FixedIntegerOptions extends IntegerOptions {
+export interface FixedIntegerOptions extends IntegerOptions {
   minimumValue: bigint
   maximumValue: bigint
 }

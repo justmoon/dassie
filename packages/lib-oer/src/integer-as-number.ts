@@ -3,7 +3,7 @@ import { ParseError, SerializeError } from "./utils/errors"
 import type { ParseContext, SerializeContext } from "./utils/parse"
 import { Range, parseNumberRange } from "./utils/range"
 
-interface IntegerAsNumberOptions {
+export interface IntegerAsNumberOptions {
   minimumValue: number
   maximumValue: number
 }
