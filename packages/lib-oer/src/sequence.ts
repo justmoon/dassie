@@ -16,7 +16,7 @@ export type InferObjectShape<TShape> = {
     ? K
     : never
 } & {
-  [key in RequiredKeys<TShape>]?: TShape[key] extends OerType<infer K>
+  [key in RequiredKeys<TShape>]: TShape[key] extends OerType<infer K>
     ? K
     : never
 }
