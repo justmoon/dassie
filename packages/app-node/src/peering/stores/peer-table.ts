@@ -5,14 +5,14 @@ import { createStore } from "@xen-ilp/lib-reactive"
 export interface PeerEntry {
   nodeId: string
   url: string
-  theirSequence: number
+  theirSequence: bigint
   lastSeen: number
 }
 
 export interface NewPeerEntry {
   nodeId: string
   url: string
-  theirSequence?: number
+  theirSequence?: bigint
   lastSeen?: number
 }
 
@@ -23,7 +23,7 @@ export const peerTableStore = () => createStore<Model>({})
 export const addPeer = (peerEntry: NewPeerEntry) =>
   produce<Model>((draft) => {
     draft[peerEntry.nodeId] = {
-      theirSequence: 0,
+      theirSequence: 0n,
       lastSeen: Date.now(),
       ...peerEntry,
     }

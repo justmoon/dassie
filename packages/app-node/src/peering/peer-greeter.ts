@@ -50,7 +50,7 @@ export const peerGreeter = (sig: EffectContext) => {
         method: XenMessageType.Hello,
         signed: {
           nodeId,
-          sequence: Date.now(),
+          sequence: BigInt(Date.now()),
           url: `https://${nodeId}.localhost:${port}`,
           neighbors: Object.values(peers).map((peer) => ({
             nodeId: peer.nodeId,

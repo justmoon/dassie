@@ -1,6 +1,14 @@
 import { Reader, Writer } from "oer-utils"
 import type { MarkOptional } from "ts-essentials"
 
+import {
+  ia5String,
+  octetString,
+  sequence,
+  sequenceOf,
+  uint64Bigint,
+} from "@xen-ilp/lib-oer"
+
 const HELLO_NEIGHBOR_PROOF_LENGTH = 32
 
 export type XenMessage = XenHelloMessage
@@ -15,16 +23,27 @@ export interface XenHelloMessage {
   signature: Buffer
 }
 
+const xenHelloMessageSignedPortion = sequence({
+  nodeId: ia5String(),
+  sequence: uint64Bigint(),
+  url: ia5String(),
+  neighbors: sequenceOf(
+    sequence({
+      nodeId: ia5String(),
+      proof: octetString({ fixedLength: HELLO_NEIGHBOR_PROOF_LENGTH }),
+    })
+  ),
+})
 export interface XenHelloMessageSignedPortion {
   nodeId: string
-  sequence: number
+  sequence: bigint
   url: string
   neighbors: XenHelloNeighbor[]
 }
 
 export interface XenHelloNeighbor {
   nodeId: string
-  proof: Buffer
+  proof: Uint8Array
 }
 
 export const parseMessage = (message: Buffer): XenMessage => {
@@ -35,28 +54,16 @@ export const parseMessage = (message: Buffer): XenMessage => {
     case XenMessageType.Hello: {
       const signed = reader.readVarOctetString()
       const signature = reader.readOctetString(64)
-      const signedReader = Reader.from(signed)
-      const nodeId = signedReader.readVarOctetString().toString("ascii")
-      const sequence = signedReader.readUInt64Long().toNumber()
-      const url = signedReader.readVarOctetString().toString("ascii")
-      const neighborCount = signedReader.readUInt16Number()
-      const neighbors: XenHelloNeighbor[] = Array.from({
-        length: neighborCount,
-      })
 
-      for (let index = 0; index < neighborCount; index++) {
-        const neighborDefinition = signedReader.readVarOctetString()
-        const neighborReader = Reader.from(neighborDefinition)
-        const nodeId = neighborReader.readVarOctetString().toString("ascii")
-        const proof = neighborReader.readOctetString(
-          HELLO_NEIGHBOR_PROOF_LENGTH
-        )
+      const signedPortionParseResult =
+        xenHelloMessageSignedPortion.parse(signed)
 
-        neighbors[index] = {
-          nodeId,
-          proof,
-        }
+      if (!signedPortionParseResult.success) {
+        throw new Error("Failed to parse signed portion")
       }
+
+      const { nodeId, sequence, url, neighbors } =
+        signedPortionParseResult.value
 
       return {
         method,
@@ -110,31 +117,14 @@ export function encodeMessage(
 
   switch (message.method) {
     case XenMessageType.Hello: {
-      const signedWriter = new Writer()
+      const signed = xenHelloMessageSignedPortion.serialize(message.signed)
 
-      signedWriter.writeVarOctetString(
-        Buffer.from(message.signed.nodeId, "ascii")
-      )
-      signedWriter.writeUInt64(message.signed.sequence)
-      signedWriter.writeVarOctetString(Buffer.from(message.signed.url, "ascii"))
-      signedWriter.writeUInt16(message.signed.neighbors.length)
-
-      for (const neighbor of message.signed.neighbors) {
-        const neighborWriter = new Writer()
-        neighborWriter.writeVarOctetString(
-          Buffer.from(neighbor.nodeId, "ascii")
-        )
-        neighborWriter.writeOctetString(
-          neighbor.proof,
-          HELLO_NEIGHBOR_PROOF_LENGTH
-        )
-        signedWriter.writeVarOctetString(neighborWriter.getBuffer())
+      if (!signed.success) {
+        throw new Error("Failed to serialize signed portion")
       }
 
-      const signed = signedWriter.getBuffer()
-
-      writer.writeVarOctetString(signed)
-      writeSignature(writer, message, signed, sign)
+      writer.writeVarOctetString(Buffer.from(signed.value))
+      writeSignature(writer, message, Buffer.from(signed.value), sign)
 
       return writer.getBuffer()
     }

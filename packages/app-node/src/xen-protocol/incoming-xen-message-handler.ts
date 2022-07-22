@@ -29,7 +29,11 @@ export const incomingXenMessageHandler = (sig: EffectContext) => {
         const peer = peers[nodeId]
         if (peer) {
           if (sequence <= peer.theirSequence) {
-            logger.debug("ignoring stale hello", { from: nodeId })
+            logger.debug("ignoring stale hello", {
+              from: nodeId,
+              sequence,
+              previousSequence: peer.theirSequence,
+            })
             return
           }
 
