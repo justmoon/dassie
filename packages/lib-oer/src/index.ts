@@ -9,3 +9,5 @@ export * from "./octet-string"
 export * from "./sequence-of"
 export * from "./sequence"
 export * from "./string"
+
+export { uint8ArrayToHex, hexToUint8Array } from "./utils/hex"
