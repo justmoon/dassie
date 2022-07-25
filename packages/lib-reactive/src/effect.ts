@@ -210,10 +210,10 @@ export class EffectContext {
     callback: () => void,
     delayInMilliseconds?: number | undefined
   ): void {
-    const interval = setInterval(() => {
+    const timer = setTimeout(() => {
       callback()
     }, delayInMilliseconds)
-    this.lifecycle.onCleanup(() => clearInterval(interval))
+    this.lifecycle.onCleanup(() => clearTimeout(timer))
   }
 
   /**

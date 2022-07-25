@@ -33,5 +33,5 @@ createReactor((sig: EffectContext) => {
   sig.use(ponger)
   sig.use(logger)
   sig.emit(pingPongTopic, "ping")
-  sig.timeout(() => void sig.reactor.dispose(), 200)
+  sig.timeout(() => void sig.reactor.dispose(), 500)
 })
