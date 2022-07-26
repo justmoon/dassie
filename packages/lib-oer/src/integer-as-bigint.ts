@@ -11,7 +11,7 @@ import {
   serializeLengthPrefix,
 } from "./utils/length-prefix"
 import type { ParseContext, SerializeContext } from "./utils/parse"
-import { Range, parseBigintRange } from "./utils/range"
+import { Range, parseRange } from "./utils/range"
 
 interface IntegerOptions {
   minimumValue?: bigint
@@ -122,8 +122,7 @@ export const OerInt32 = createOerFixedInteger(32, "Int")
 export const OerInt64 = createOerFixedInteger(64, "Int")
 
 export const integerAsBigint = (range?: Range<bigint>) => {
-  const { minimum: minimumValue, maximum: maximumValue } =
-    parseBigintRange(range)
+  const { minimum: minimumValue, maximum: maximumValue } = parseRange(range)
 
   const OerVariableUnsignedInteger = class extends OerType<bigint> {
     parseWithContext(context: ParseContext, offset: number) {
@@ -135,6 +134,14 @@ export const integerAsBigint = (range?: Range<bigint>) => {
       }
 
       const [length, lengthOfLength] = result
+
+      if (length === 0) {
+        return new ParseError(
+          `unable to read variable length integer - length must not be 0`,
+          uint8Array,
+          offset
+        )
+      }
 
       offset += lengthOfLength
 
@@ -199,7 +206,7 @@ export const integerAsBigint = (range?: Range<bigint>) => {
 
   const OerVariableSignedInteger = class extends OerType<bigint> {
     parseWithContext(context: ParseContext, offset: number) {
-      const { dataView, uint8Array } = context
+      const { uint8Array } = context
       const result = parseLengthPrefix(context, offset)
 
       if (result instanceof ParseError) {
@@ -208,19 +215,26 @@ export const integerAsBigint = (range?: Range<bigint>) => {
 
       const [length, lengthOfLength] = result
 
+      if (length === 0) {
+        return new ParseError(
+          `unable to read variable length integer - length must not be 0`,
+          uint8Array,
+          offset
+        )
+      }
+
       offset += lengthOfLength
 
       let value = 0n
       let index = 0
       while (index < length) {
-        if (index + 4 < length) {
-          value = (value << 32n) | BigInt(dataView.getUint32(offset + index))
-          index += 4
-        } else {
-          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-          value = (value << 8n) | BigInt(uint8Array[offset + index]!)
-          index += 1
-        }
+        value = (value << 8n) | BigInt(uint8Array[offset + index]!)
+        index += 1
+      }
+
+      const twosComplement = 2n ** (BigInt(length) * 8n)
+      if (value >= twosComplement >> 1n) {
+        value = -(twosComplement - value)
       }
 
       return [value, lengthOfLength + length] as const
@@ -278,11 +292,11 @@ export const integerAsBigint = (range?: Range<bigint>) => {
       if (maximumValue <= UINT8_MAX) {
         return new OerUint8(fixedOptions)
       } else if (maximumValue <= UINT16_MAX) {
-        return new OerInt16(fixedOptions)
+        return new OerUint16(fixedOptions)
       } else if (maximumValue <= UINT32_MAX) {
-        return new OerInt32(fixedOptions)
+        return new OerUint32(fixedOptions)
       } else if (maximumValue <= UINT64_MAX) {
-        return new OerInt64(fixedOptions)
+        return new OerUint64(fixedOptions)
       }
     } else {
       if (minimumValue <= INT8_MIN && maximumValue <= INT8_MAX) {

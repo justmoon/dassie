@@ -1,7 +1,7 @@
 import { OerType } from "./base-type"
 import { ParseError, SerializeError } from "./utils/errors"
 import type { ParseContext, SerializeContext } from "./utils/parse"
-import { Range, parseNumberRange } from "./utils/range"
+import { Range, parseRange } from "./utils/range"
 
 export interface IntegerAsNumberOptions {
   minimumValue: number
@@ -95,8 +95,7 @@ export const OerInt16Number = createOerFixedIntegerNumber(16, "Int")
 export const OerInt32Number = createOerFixedIntegerNumber(32, "Int")
 
 export const integerAsNumber = (range: Range<number>) => {
-  const { minimum: minimumValue, maximum: maximumValue } =
-    parseNumberRange(range)
+  const { minimum: minimumValue, maximum: maximumValue } = parseRange(range)
 
   if (minimumValue == undefined || maximumValue == undefined) {
     throw new Error(
@@ -114,9 +113,9 @@ export const integerAsNumber = (range: Range<number>) => {
     if (maximumValue <= UINT8_MAX_NUMBER) {
       return new OerUint8Number(fixedOptions)
     } else if (maximumValue <= UINT16_MAX_NUMBER) {
-      return new OerInt16Number(fixedOptions)
+      return new OerUint16Number(fixedOptions)
     } else if (maximumValue <= UINT32_MAX_NUMBER) {
-      return new OerInt32Number(fixedOptions)
+      return new OerUint32Number(fixedOptions)
     }
   } else {
     if (minimumValue <= INT8_MIN_NUMBER && maximumValue <= INT8_MAX_NUMBER) {
