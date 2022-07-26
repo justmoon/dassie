@@ -4,7 +4,7 @@ import { Topic, createTopic } from "./topic"
 
 export type Reducer<TState> = (previousState: TState) => TState
 
-export const StoreSymbol = Symbol("xen:reactive:topic")
+export const StoreSymbol = Symbol("xen:reactive:store")
 
 export type StoreFactory<TState, TReducer = Reducer<TState>> = () => Store<
   TState,

@@ -1,5 +1,4 @@
-import type { Factory } from "../factory"
-import type { ContextState, Reactor } from "../reactor"
+import type { ContextState, Effect, Reactor } from "../reactor"
 import { isStore } from "../store"
 import { TopicFactory, createTopic, isTopic } from "../topic"
 
@@ -12,19 +11,21 @@ export const debugFirehose = () => createTopic<FirehoseEvent>()
 
 export class DebugTools {
   constructor(
-    readonly fromContext: Reactor["fromContext"],
+    readonly fromContext: Reactor["use"],
     readonly contextState: ContextState
   ) {}
 
-  notifyOfInstantiation(factory: Factory<unknown>, value: unknown) {
-    if (factory === debugFirehose) {
+  notifyOfInstantiation(effect: Effect<never>) {
+    if (effect === debugFirehose) {
       return
     }
+
+    const value = this.contextState.get(effect)
 
     if (isTopic(value)) {
       const firehose = this.fromContext(debugFirehose)
       value.on((message) => {
-        firehose.emit({ topic: factory as TopicFactory, message })
+        firehose.emit({ topic: effect as TopicFactory, message })
       })
     }
   }
@@ -42,6 +43,6 @@ export class DebugTools {
 }
 
 export const createDebugTools = import.meta.env.DEV
-  ? (fromContext: Reactor["fromContext"], topicsCache: ContextState) =>
+  ? (fromContext: Reactor["use"], topicsCache: ContextState) =>
       new DebugTools(fromContext, topicsCache)
   : () => undefined

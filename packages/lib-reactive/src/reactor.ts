@@ -1,11 +1,13 @@
 import type { AsyncOrSync } from "ts-essentials"
 
+import { createLogger } from "@xen-ilp/lib-logger"
 import { isObject } from "@xen-ilp/lib-type-utils"
 
 import { DebugTools, createDebugTools } from "./debug/debug-tools"
-import { EffectContext, useRootEffect } from "./effect"
-import type { Factory } from "./factory"
+import { EffectContext, runEffect } from "./effect"
 import { LifecycleScope } from "./internal/lifecycle-scope"
+
+const logger = createLogger("xen:reactive:reactor")
 
 /**
  * The reactor will automatically set this property on each instantiated object.
@@ -29,7 +31,7 @@ export type Effect<TProperties = unknown, TReturn = unknown> = (
 export type Disposer = () => void
 export type AsyncDisposer = () => AsyncOrSync<void>
 
-const tagWithFactoryName = (target: unknown, factoryName: string) => {
+const tagWithEffectName = (target: unknown, factoryName: string) => {
   if (isObject(target) && FactoryNameSymbol in target) {
     target[FactoryNameSymbol] = factoryName
   }
@@ -37,12 +39,32 @@ const tagWithFactoryName = (target: unknown, factoryName: string) => {
 
 export interface Reactor {
   /**
-   * Retrieve a value from the global context of the reactor, indexed by its factory function. If no value is found, one is created via the factory, stored in the context, and returned.
+   * Retrieve a value from the reactor's global context. The key is an effect which returns the value sought. If the value does not exist yet, it will be created by running the effect as a global effect with the same lifetime as the reactor.
    *
-   * @param factory - A function that will be called to create a value if one does not exist in the context.
+   * @param effect - An effect that will be executed to create the value if it does not yet exist in this reactor.
    * @returns The value stored in the context.
    */
-  fromContext: <T>(factory: Factory<T>) => T
+  useContext<TReturn>(effect: Effect<undefined, TReturn>): TReturn
+  useContext<TProperties, TReturn>(
+    effect: Effect<TProperties, TReturn>,
+    properties: TProperties
+  ): TReturn
+  useContext<TProperties, TReturn>(
+    effect: Effect<TProperties | undefined, TReturn>,
+    properties?: TProperties
+  ): TReturn
+
+  /**
+   * Manually set the instance of a given element in the reactor's global context.
+   *
+   * @remarks
+   *
+   * This is not something you are likely to need to use. It is used internally to set values on the context. It could be useful for testing/mocking purposes.
+   *
+   * @param effect - The effect which should be used as the key to store this context element.
+   * @param value - The value to store in the context.
+   */
+  setContext: <TReturn>(effect: Effect<never, TReturn>, value: TReturn) => void
 
   /**
    * Register a cleanup handler for this reactor.
@@ -66,9 +88,9 @@ export interface Reactor {
   debug: DebugTools | undefined
 }
 
-export interface ContextState extends Map<() => unknown, unknown> {
-  get<T>(key: Factory<T>): T | undefined
-  set<T>(key: Factory<T>, value: T): this
+export interface ContextState extends Map<Effect<never>, unknown> {
+  get<TReturn>(key: Effect<never, TReturn>): TReturn | undefined
+  set<TReturn>(key: Effect<never, TReturn>, value: TReturn): this
 }
 
 export const createReactor = (rootEffect: Effect): Reactor => {
@@ -76,31 +98,55 @@ export const createReactor = (rootEffect: Effect): Reactor => {
 
   const lifecycle = new LifecycleScope()
 
-  const fromContext = <T>(factory: Factory<T>): T => {
-    let value = contextState.get(factory)
+  const useContext = <TProperties, TReturn>(
+    effect: Effect<TProperties, TReturn>,
+    properties?: TProperties
+  ): TReturn => {
+    // We use has() to check if the effect is already in the context. Note that the effect's result may be undefined, so it would not be sufficient to check if the return value of get() is undefined.
+    if (!contextState.has(effect)) {
+      let result!: TReturn
 
-    if (!value) {
-      value = factory(reactor)
+      // Based on the overloaded method signature, TypeScript will enforce that the properties argument is only undefined if the effect's TProperties extends undefined.
+      runEffect(
+        reactor,
+        effect,
+        properties!,
+        lifecycle,
+        (_result) => (result = _result)
+      ).catch((error: unknown) => {
+        logger.error("error in global effect", { effect: effect.name, error })
+      })
 
-      debug?.notifyOfInstantiation(factory, value)
-      tagWithFactoryName(value, factory.name)
+      setContext(effect, result)
 
-      contextState.set(factory, value)
+      debug?.notifyOfInstantiation(effect)
     }
+
+    // runEffect must always either set the context value or throw an error. If `value` is still undefined here, it's because the effect returned undefined.
+    const value = contextState.get(effect)!
 
     return value
   }
 
-  const debug = createDebugTools(fromContext, contextState)
+  const setContext = <TReturn>(
+    effect: Effect<never, TReturn>,
+    value: TReturn
+  ) => {
+    tagWithEffectName(value, effect.name)
+    contextState.set(effect, value)
+  }
+
+  const debug = createDebugTools(useContext, contextState)
 
   const reactor: Reactor = {
-    fromContext,
+    useContext,
+    setContext,
     onCleanup: lifecycle.onCleanup.bind(lifecycle),
     dispose: lifecycle.dispose.bind(lifecycle),
     debug,
   }
 
-  useRootEffect(reactor, lifecycle, rootEffect)
+  useContext(rootEffect)
 
   return reactor
 }

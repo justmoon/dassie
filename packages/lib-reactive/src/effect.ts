@@ -69,8 +69,8 @@ export class EffectContext {
     }
 
     const notify = this.waker.notify
-    const value = selector(this.reactor.fromContext(topic).read())
-    const dispose = this.reactor.fromContext(topic).on(handleTopicMessage)
+    const value = selector(this.reactor.useContext(topic).read())
+    const dispose = this.reactor.useContext(topic).on(handleTopicMessage)
     this.lifecycle.onCleanup(dispose)
     return value
   }
@@ -81,7 +81,7 @@ export class EffectContext {
    * @param topic - Reference to the topic, i.e. the message factory function.
    */
   read<TState>(store: StoreFactory<TState>): TState {
-    return this.reactor.fromContext(store).read()
+    return this.reactor.useContext(store).read()
   }
 
   /**
@@ -101,7 +101,7 @@ export class EffectContext {
    */
   on<TMessage>(topic: TopicFactory<TMessage>, listener: Listener<TMessage>) {
     this.lifecycle.onCleanup(
-      this.reactor.fromContext(topic).on((message) => {
+      this.reactor.useContext(topic).on((message) => {
         try {
           listener(message)
         } catch (error: unknown) {
@@ -123,7 +123,7 @@ export class EffectContext {
    */
   once<TMessage>(topic: TopicFactory<TMessage>, listener: Listener<TMessage>) {
     this.lifecycle.onCleanup(
-      this.reactor.fromContext(topic).once((message) => {
+      this.reactor.useContext(topic).once((message) => {
         try {
           listener(message)
         } catch (error: unknown) {
@@ -148,7 +148,7 @@ export class EffectContext {
     listener: AsyncListener<TMessage>
   ) {
     this.lifecycle.onCleanup(
-      this.reactor.fromContext(topic).on((message) => {
+      this.reactor.useContext(topic).on((message) => {
         listener(message).catch((error: unknown) => {
           logger.error("error in async listener", {
             topic: topic.name,
@@ -171,7 +171,7 @@ export class EffectContext {
     listener: AsyncListener<TMessage>
   ) {
     this.lifecycle.onCleanup(
-      this.reactor.fromContext(topic).once((message) => {
+      this.reactor.useContext(topic).once((message) => {
         listener(message).catch((error: unknown) => {
           logger.error("error in onceAsync listener", {
             topic: topic.name,
@@ -190,7 +190,7 @@ export class EffectContext {
    * @param trigger - Message to send to the topic.
    */
   emit<TTrigger>(topic: TopicFactory<unknown, TTrigger>, trigger: TTrigger) {
-    this.reactor.fromContext(topic).emit(trigger)
+    this.reactor.useContext(topic).emit(trigger)
   }
 
   /**
@@ -243,60 +243,66 @@ export class EffectContext {
     effect: Effect<TProperties | undefined, TReturn>,
     properties?: TProperties
   ): TReturn {
-    let isDisposed = false
-    let waker: Waker
-    let effectResult!: TReturn
+    let result!: TReturn
 
-    const run = async () => {
-      for (;;) {
-        if (isDisposed) return
-
-        waker = new Waker()
-        const lifecycle = new LifecycleScope()
-
-        const context = new EffectContext(
-          this.reactor,
-          lifecycle,
-          waker,
-          effect
-        )
-
-        effectResult = effect(context, properties)
-
-        // Wait in case the effect is asynchronous.
-        // eslint-disable-next-line @typescript-eslint/await-thenable
-        await effectResult
-
-        // Mark this waker as used which helps catch some cases of improper use of tracked methods like get()
-        waker.dispose()
-
-        await waker.promise
-
-        await lifecycle.dispose()
-      }
-    }
-
-    this.lifecycle.onCleanup(() => {
-      isDisposed = true
-      waker.resolve()
+    runEffect(
+      this.reactor,
+      effect,
+      properties,
+      this.lifecycle,
+      (_result) => (result = _result)
+    ).catch((error: unknown) => {
+      logger.error("error in child effect", {
+        effect: effect.name,
+        parentEffect: this.effect.name,
+        error,
+      })
     })
 
-    run().catch((error: unknown) => {
-      logger.error("error in effect", { effect: effect.name, error })
-    })
-
-    return effectResult
+    return result
   }
 }
 
-export const useRootEffect = (
+export const runEffect = async <TProperties, TReturn>(
   reactor: Reactor,
-  lifecycle: LifecycleScope,
-  effect: Effect
+  effect: Effect<TProperties, TReturn>,
+  properties: TProperties,
+  parentLifecycle: LifecycleScope,
+  resultCallback: (result: TReturn) => void
 ) => {
-  // Create a dummy effect context that can be "above" the root effect.
-  const waker = new Waker()
-  waker.dispose()
-  const context = new EffectContext(reactor, lifecycle, waker, effect)
-  context.use(effect)
+  let waker = new Waker()
+  let lifecycle = new LifecycleScope()
+  let effectResult: TReturn
+
+  parentLifecycle.onCleanup(async () => {
+    await lifecycle.dispose()
+    waker.resolve()
+  })
+
+  for (;;) {
+    if (lifecycle.isDisposed || parentLifecycle.isDisposed) return
+
+    const context = new EffectContext(reactor, lifecycle, waker, effect)
+
+    effectResult = effect(context, properties)
+
+    // runEffect MUST always call the resultCallback or throw an error
+    resultCallback(effectResult)
+
+    // --- There must be no `await` before calling the resultCallback ---
+
+    // Wait in case the effect is asynchronous.
+    // eslint-disable-next-line @typescript-eslint/await-thenable
+    await effectResult
+
+    // Mark this waker as used which helps catch some cases of improper use of tracked methods like get()
+    waker.dispose()
+
+    await waker.promise
+
+    await lifecycle.dispose()
+
+    waker = new Waker()
+    lifecycle = new LifecycleScope()
+  }
 }
