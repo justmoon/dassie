@@ -9,10 +9,10 @@ export const unsignedBigintByteLength = (sample: UnsignedBigint) => {
   let remainder: bigint = sample
   let length = 0
 
-  while (remainder > 0n) {
+  do {
     remainder >>= 8n
     length++
-  }
+  } while (remainder > 0n)
 
   return length
 }
