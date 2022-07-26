@@ -1,6 +1,52 @@
 // Vitest Snapshot v1
 
-exports[`integerAsBigint > should serialize a very large number 1`] = `
+exports[`integerAsBigint > schema variable-length signed integer > should reject a zero-length zero 1`] = `
+{
+  "failure": [ParseError: unable to read variable length integer - length must not be 0],
+  "success": false,
+}
+`;
+
+exports[`integerAsBigint > schema variable-length signed integer > should serialize a very large number 1`] = `
+{
+  "success": true,
+  "value": Uint8Array [
+    16,
+    18,
+    52,
+    86,
+    120,
+    154,
+    188,
+    222,
+    240,
+    18,
+    52,
+    86,
+    120,
+    154,
+    188,
+    222,
+    240,
+  ],
+}
+`;
+
+exports[`integerAsBigint > schema variable-length unsigned integer > should refuse to serialize a negative bigint 1`] = `
+{
+  "failure": [SerializeError: expected unsigned bigint, got bigint: -18],
+  "success": false,
+}
+`;
+
+exports[`integerAsBigint > schema variable-length unsigned integer > should reject a zero-length zero 1`] = `
+{
+  "failure": [ParseError: unable to read variable length integer - length must not be 0],
+  "success": false,
+}
+`;
+
+exports[`integerAsBigint > schema variable-length unsigned integer > should serialize a very large number 1`] = `
 {
   "success": true,
   "value": Uint8Array [

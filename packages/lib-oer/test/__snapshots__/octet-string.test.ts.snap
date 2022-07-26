@@ -9,14 +9,14 @@ exports[`octetString > with fixed length > should refuse to serialize a value of
 
 exports[`octetString > with variable length > should reject a non-canonical length prefix which could fit one byte when allowNoncanonical is false > error 1`] = `
 {
-  "failure": [ParseError: non-canonical encoding - length prefix is not minimal],
+  "failure": [ParseError: non-canonical encoding - length prefix is not minimal (length <= 0x7f but not encoded as a single byte)],
   "success": false,
 }
 `;
 
 exports[`octetString > with variable length > should reject a non-canonical length prefix which could fit two bytes when allowNoncanonical is false > error 1`] = `
 {
-  "failure": [ParseError: non-canonical encoding - length prefix is not minimal],
+  "failure": [ParseError: non-canonical encoding - length prefix is not minimal (could be encoded in fewer bytes)],
   "success": false,
 }
 `;

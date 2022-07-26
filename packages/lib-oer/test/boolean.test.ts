@@ -35,5 +35,12 @@ describe("bitstring", () => {
       const value = schema.parse(hexToUint8Array("00"))
       expect(value).toEqual(parsedOk(1, false))
     })
+
+    test("should refuse to parse a value with extra bytes at the end", ({
+      expect,
+    }) => {
+      const value = schema.parse(hexToUint8Array("ff00"))
+      expect(value).toMatchSnapshot()
+    })
   })
 })
