@@ -17,7 +17,7 @@ export const parseLengthPrefix = (
   }
 
   if (lengthByte & 0x80) {
-    const lengthOfLength = lengthByte & 0x7f //?
+    const lengthOfLength = lengthByte & 0x7f
 
     if (offset + lengthOfLength + 1 > uint8Array.length) {
       return new ParseError(
@@ -39,7 +39,7 @@ export const parseLengthPrefix = (
     for (let index = 0; index < lengthOfLength; index++) {
       // We have checked the length, so we can assert that this is not undefined
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      length = (length << 8) | uint8Array[offset + index + 1]!
+      length = ((length << 8) | uint8Array[offset + index + 1]!) >>> 0
     }
 
     if (length + offset + lengthOfLength + 1 > uint8Array.length) {
@@ -54,15 +54,15 @@ export const parseLengthPrefix = (
     if (!allowNoncanonical) {
       if (!isEnumerationMode && length <= 0x7f) {
         return new ParseError(
-          "non-canonical encoding - length prefix is not minimal",
+          "non-canonical encoding - length prefix is not minimal (length <= 0x7f but not encoded as a single byte)",
           uint8Array,
           offset
         )
       }
 
-      if (length < 2 ** (lengthOfLength * 8) - 1) {
+      if (length < 2 ** ((lengthOfLength - 1) * 8) - 1) {
         return new ParseError(
-          "non-canonical encoding - length prefix is not minimal",
+          "non-canonical encoding - length prefix is not minimal (could be encoded in fewer bytes)",
           uint8Array,
           offset
         )
@@ -93,7 +93,7 @@ export const serializeLengthPrefix = (
   if (length > 0x7f) {
     if (!isSafeUnsignedInteger(length)) {
       return new SerializeError(
-        "unable to serialize variable length octet string - length is too large"
+        "unable to serialize length prefix - length is too large"
       )
     }
     const lengthOfLength = byteLength(length)
@@ -101,7 +101,7 @@ export const serializeLengthPrefix = (
     // TODO: Could implement support for serializing variable octet strings larger than 4 GB
     if (lengthOfLength > 4) {
       return new SerializeError(
-        "unable to serialize variable length octet string - length is too large"
+        "unable to serialize length prefix - length is too large"
       )
     }
 
@@ -109,7 +109,7 @@ export const serializeLengthPrefix = (
 
     for (let index = 0; index < lengthOfLength; index++) {
       uint8Array[offset + index + 1] =
-        (length >>> (8 * (lengthOfLength - 1 + index))) & 0xff
+        (length >>> (8 * (lengthOfLength - 1 - index))) & 0xff
     }
 
     return 1 + lengthOfLength
