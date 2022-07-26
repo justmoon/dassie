@@ -16,7 +16,7 @@ const logger = (sig: EffectContext) => {
   })
 }
 
-createReactor((sig: EffectContext) => {
+createReactor((sig) => {
   sig.use(clock)
   sig.use(logger)
   sig.timeout(() => void sig.reactor.dispose(), 400)

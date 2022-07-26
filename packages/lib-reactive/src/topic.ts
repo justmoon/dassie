@@ -1,16 +1,17 @@
 import { createLogger } from "@xen-ilp/lib-logger"
 import { isObject } from "@xen-ilp/lib-type-utils"
 
+import type { Effect } from "./effect"
 import { Disposer, FactoryNameSymbol } from "./reactor"
 
 export type Listener<TMessage> = (message: TMessage) => void
 
 export const TopicSymbol = Symbol("xen:reactive:topic")
 
-export type TopicFactory<TMessage = unknown, TTrigger = never> = () => Topic<
-  TMessage,
-  TTrigger
->
+export interface TopicFactory<TMessage = unknown, TTrigger = never>
+  extends Effect<never, Topic<TMessage, TTrigger>> {
+  (): Topic<TMessage, TTrigger>
+}
 
 export interface Topic<TMessage = never, TTrigger = TMessage> {
   /**

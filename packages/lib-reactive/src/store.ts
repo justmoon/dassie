@@ -1,15 +1,16 @@
 import { isObject } from "@xen-ilp/lib-type-utils"
 
+import type { Effect } from "./effect"
 import { Topic, createTopic } from "./topic"
 
 export type Reducer<TState> = (previousState: TState) => TState
 
 export const StoreSymbol = Symbol("xen:reactive:store")
 
-export type StoreFactory<TState, TReducer = Reducer<TState>> = () => Store<
-  TState,
-  TReducer
->
+export interface StoreFactory<TState, TReducer = Reducer<TState>>
+  extends Effect<never, Store<TState, TReducer>> {
+  (): Store<TState, TReducer>
+}
 
 export type Store<TState, TReducer = Reducer<TState>> = Topic<
   TState,

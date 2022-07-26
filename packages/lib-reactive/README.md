@@ -32,7 +32,7 @@ You can think of the effect as a description of everything that should _happen_ 
 The reactor will pass an `EffectContext` to the effect as the first parameter. This is how the effect interacts with the reactive context. For example, we can use it to instantiate further effects with the method `use`.
 
 ```ts
-createReactor((sig: EffectContext) => {
+createReactor((sig) => {
   console.log("Hello from the root effect")
 
   sig.use(() => {
@@ -50,7 +50,7 @@ Overall, effects form a hierarchy which allows you to structure your application
 Effects have a lifecycle - they are created and disposed. The root effect for instance is disposed when we dispose the reactor.
 
 ```ts
-const reactor = createReactor((sig: EffectContext) => {
+const reactor = createReactor((sig) => {
   const interval = setInterval(() => console.log("tick!"), 100)
 
   sig.onCleanup(() => clearInterval(interval))
@@ -66,7 +66,7 @@ It's very common pattern that effects require some cleanup. If the effect is lis
 We can actually simplify the code above by using `sig.interval` which is a built-in helper that automatically disposes the interval for us. When you are using any of the `sig.*` helper methods, the disposal is always handled for you automatically.
 
 ```ts
-const reactor = createReactor((sig: EffectContext) => {
+const reactor = createReactor((sig) => {
   sig.interval(() => console.log("tick!"), 100)
 })
 
@@ -76,7 +76,7 @@ setTimeout(() => reactor.dispose(), 1000)
 Notice that we we're still using `setTimeout` and we're not cleaning up that timeout. That's fine in this case but what if there were multiple ways for our application to finish?
 
 ```ts
-const reactor = createReactor((sig: EffectContext) => {
+const reactor = createReactor((sig) => {
   sig.interval(() => console.log("tick!"), 100)
 })
 
@@ -93,7 +93,7 @@ setTimeout(() => {
 Here, both timeouts will eventually be called and both console.log statements will eventually be executed. This is not what we want. It's a good rule of thumb that your entire application should be contained inside of your reactor. Let's refactor that last example by moving the shutdown timers into the reactor.
 
 ```ts
-createReactor((sig: EffectContext) => {
+createReactor((sig) => {
   sig.interval(() => console.log("tick!"), 100)
 
   sig.timeout(() => {
@@ -114,7 +114,7 @@ Now, when the first shutdown timer is hit, it will dispose of the reactor which 
 
 > This is where it gets interesting.
 
-We've already seen how effects can be triggered by timeouts. Now let's talk about how effects can trigger each other. There is another powerful primitive called a `Topic`.
+So far, we've looked at how we can define the basic structure of our application using effects. However, currently, none of these different components can communicate with each other. We solve this using another primitive called a `Topic`.
 
 For now, just think of a topic as a static symbol that we can reference. Effects can `emit` messages about a topic, and other effects can listen to new messages `on` a topic.
 

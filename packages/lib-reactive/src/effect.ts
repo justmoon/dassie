@@ -2,11 +2,16 @@ import { createLogger } from "@xen-ilp/lib-logger"
 
 import { LifecycleScope } from "./internal/lifecycle-scope"
 import { Waker } from "./internal/waker"
-import type { AsyncDisposer, Effect, Reactor } from "./reactor"
+import type { AsyncDisposer, Reactor } from "./reactor"
 import type { StoreFactory } from "./store"
 import type { Listener, TopicFactory } from "./topic"
 
 const logger = createLogger("xen:reactive")
+
+export type Effect<TProperties = unknown, TReturn = unknown> = (
+  sig: EffectContext,
+  properties: TProperties
+) => TReturn
 
 export type AsyncListener<TMessage> = (message: TMessage) => Promise<void>
 
@@ -226,7 +231,7 @@ export class EffectContext {
   }
 
   /**
-   * Create a subsidiary effect.
+   * Create a child effect.
    *
    * @remarks
    *

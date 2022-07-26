@@ -28,7 +28,7 @@ const logger = (sig: EffectContext) => {
   sig.on(pingPongTopic, console.log)
 }
 
-createReactor((sig: EffectContext) => {
+createReactor((sig) => {
   sig.use(pinger)
   sig.use(ponger)
   sig.use(logger)

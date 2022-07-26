@@ -1,6 +1,5 @@
 import type { EffectContext } from "../effect"
 import { createReactor } from "../reactor"
-import type { Effect } from "../reactor"
 import { createStore } from "../store"
 import { createTopic } from "../topic"
 
@@ -30,7 +29,7 @@ const rootEffect = (sig: EffectContext) => {
   sig.use(childEffect2)
 }
 
-const childEffect: Effect = (sig) => {
+const childEffect = (sig: EffectContext) => {
   console.log("child effect created")
 
   sig.on(topic1, (message) => {
@@ -48,7 +47,7 @@ const childEffect: Effect = (sig) => {
   })
 }
 
-const childEffect2: Effect<void> = (sig) => {
+const childEffect2 = (sig: EffectContext) => {
   console.log("child effect 2 created")
   const stateCount = sig.get(store1, ({ states }) => states.length)
 

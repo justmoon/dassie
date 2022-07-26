@@ -1,9 +1,10 @@
-import { Effect, createReactor } from "../reactor"
+import type { EffectContext } from "../effect"
+import { createReactor } from "../reactor"
 import { createStore } from "../store"
 
 const counterStore = () => createStore(0)
 
-const rootEffect: Effect = (sig) => {
+const rootEffect = (sig: EffectContext) => {
   sig.interval(() => {
     sig.emit(counterStore, (a) => a + 1)
   }, 500)
@@ -11,7 +12,7 @@ const rootEffect: Effect = (sig) => {
   void sig.use(innerEffect)
 }
 
-const innerEffect: Effect = async (sig) => {
+const innerEffect = async (sig: EffectContext) => {
   const counter = sig.get(counterStore)
 
   // This will only print every three seconds or so
