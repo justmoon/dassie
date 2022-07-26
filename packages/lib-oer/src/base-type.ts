@@ -44,7 +44,7 @@ export abstract class OerType<TValue> {
     | { success: false; failure: ParseError } {
     const context: ParseContext = {
       uint8Array: input,
-      dataView: new DataView(input.buffer),
+      dataView: new DataView(input.buffer, input.byteOffset, input.byteLength),
       allowNoncanonical: options.allowNoncanonical ?? false,
     }
     const result = this.parseWithContext(context, offset)
@@ -80,19 +80,23 @@ export abstract class OerType<TValue> {
 
     const [serialize, length] = prediction
 
-    const buffer = new Uint8Array(length)
+    const uint8Array = new Uint8Array(length)
 
     const result = serialize(
       {
-        uint8Array: buffer,
-        dataView: new DataView(buffer.buffer),
+        uint8Array,
+        dataView: new DataView(
+          uint8Array.buffer,
+          uint8Array.byteOffset,
+          uint8Array.byteLength
+        ),
       },
       0
     )
 
     return result instanceof SerializeError
       ? { success: false, failure: result }
-      : { success: true, value: buffer }
+      : { success: true, value: uint8Array }
   }
 
   tag(
