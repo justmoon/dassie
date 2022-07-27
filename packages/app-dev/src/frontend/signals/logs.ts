@@ -1,7 +1,7 @@
 import { createSignal } from "solid-js"
 
 import type { IndexedLogLine } from "../../backend/features/logs"
-import client from "../rpc-client"
+import { client } from "../utils/trpc"
 
 const [logs, setLogs] = createSignal<IndexedLogLine[]>([])
 

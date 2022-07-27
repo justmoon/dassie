@@ -5,7 +5,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "clearn": "pnpm -r clean",
+    "clean": "pnpm -r clean",
     "build": "pnpm -r build",
     "dev": "vite-node packages/app-dev/bin/start-development-server.ts",
     "test": "vitest"
@@ -54,7 +54,7 @@
     "ts-essentials": "^9.2.0",
     "ts-node": "^10.9.1",
     "ts-node-dev": "^2.0.0",
-    "typescript": "^4.7.4",
+    "typescript": "^4.8.0-beta",
     "vite": "^3.0.2",
     "vite-node": "^0.18.1",
     "vite-plugin-solid": "^2.3.0",
@@ -66,6 +66,8 @@
     "zx": "^7.0.7"
   },
   "devDependencies": {
+    "@types/react": "^18.0.15",
+    "@types/react-dom": "^18.0.6",
     "c8": "^7.12.0"
   }
 }

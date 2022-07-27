@@ -3,6 +3,7 @@ import { bold, green } from "picocolors"
 import { EffectContext, createReactor } from "@xen-ilp/lib-reactive"
 
 import { captureLogs } from "./effects/capture-logs"
+import { compileRunner } from "./effects/compile-runner"
 import { debugUiServer } from "./effects/debug-ui-server"
 import { registerReactiveLogger } from "./effects/register-reactive-logger"
 import { listenForRpcWebSocket } from "./effects/rpc-server"
@@ -18,6 +19,7 @@ const rootEffect = async (sig: EffectContext) => {
     return
   }
 
+  await sig.use(compileRunner)
   sig.use(captureLogs)
   sig.use(indexLogs)
   sig.use(registerReactiveLogger)

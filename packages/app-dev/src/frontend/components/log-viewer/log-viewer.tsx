@@ -1,19 +1,23 @@
-import type { Component } from "solid-js"
-import { For } from "solid-js"
+import { useObserver } from "react-solid-state"
 
 import type { IndexedLogLine } from "../../../backend/features/logs"
+import { logs } from "../../signals/logs"
 import LogLine from "./log-line"
 
-interface LogViewerProperties {
-  logs: IndexedLogLine[]
+export interface LogViewerProperties {
+  filter?: (line: IndexedLogLine) => boolean
 }
 
-const LogViewer: Component<LogViewerProperties> = (properties) => {
-  return (
-    <div class="flex flex-col-reverse flex-1 h-0 min-h-0 overflow-y-scroll">
-      <For each={properties.logs}>{(log) => <LogLine {...log} />}</For>
+const LogViewer = ({ filter }: LogViewerProperties) => {
+  return useObserver(() => (
+    <div className="flex flex-col-reverse h-full w-full overflow-y-scroll">
+      {logs()
+        .filter(filter ?? Boolean)
+        .map((line) => (
+          <LogLine key={line.index} {...line} />
+        ))}
     </div>
-  )
+  ))
 }
 
 export default LogViewer

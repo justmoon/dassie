@@ -1,6 +1,6 @@
 import { createResource } from "solid-js"
 
-import client from "../rpc-client"
+import { client } from "../utils/trpc"
 
 export const [startupTime] = createResource(async () => {
   return await client.query("ui.startupTime")

@@ -1,7 +1,7 @@
 import { createSignal } from "solid-js"
 
 import type { GlobalFirehoseMessage } from "../../backend/topics/global-firehose"
-import client from "../rpc-client"
+import { client } from "../utils/trpc"
 
 const [globalFirehose, setGlobalFirehose] = createSignal<
   readonly GlobalFirehoseMessage[]

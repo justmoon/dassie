@@ -1,7 +1,6 @@
 /* @refresh reload */
 import "@unocss/reset/tailwind.css"
-import { Router } from "solid-app-router"
-import { render } from "solid-js/web"
+import { createRoot } from "react-dom/client"
 import "uno.css"
 import "virtual:unocss-devtools"
 
@@ -11,11 +10,5 @@ import App from "./app"
 
 const rootElement = document.querySelector("#root")
 assertDefined(rootElement)
-render(
-  () => (
-    <Router>
-      <App />
-    </Router>
-  ),
-  rootElement
-)
+const root = createRoot(rootElement)
+root.render(<App />)

@@ -5,9 +5,9 @@ import { posix } from "node:path"
 import { createLogger } from "@xen-ilp/lib-logger"
 import { EffectContext, createTopic } from "@xen-ilp/lib-reactive"
 
-import { NODES } from "../constants/development-nodes"
-import { viteNodeServerFactory } from "../services/vite-node-server"
-import { viteServerFactory } from "../services/vite-server"
+import { viteNodeServerValue } from "../services/vite-node-server"
+import { viteServerValue } from "../services/vite-server"
+import { activeTemplate } from "../stores/active-template"
 import { runNodeChildProcess } from "./run-node-child-process"
 
 const logger = createLogger("xen:dev:node-server")
@@ -29,8 +29,10 @@ export interface NodeDefinition<T> {
 const fileChangeTopic = () => createTopic()
 
 export const runNodes = async (sig: EffectContext) => {
-  const viteServer = await sig.reactor.fromContext(viteServerFactory)
-  const nodeServer = await sig.reactor.fromContext(viteNodeServerFactory)
+  const template = sig.get(activeTemplate)
+
+  const viteServer = await sig.get(viteServerValue)
+  const nodeServer = await sig.get(viteNodeServerValue)
 
   logger.debug("starting node processes")
 
@@ -38,7 +40,7 @@ export const runNodes = async (sig: EffectContext) => {
     // Restart child processes when a file changes
     sig.subscribe(fileChangeTopic)
 
-    for (const node of NODES) {
+    for (const node of template) {
       await sig.use(runNodeChildProcess, { viteServer, nodeServer, node })
     }
   })

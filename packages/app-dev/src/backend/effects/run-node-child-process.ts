@@ -8,7 +8,7 @@ import type { Readable } from "node:stream"
 import { byLine } from "@xen-ilp/lib-itergen-utils"
 import { SerializableLogLine, createLogger } from "@xen-ilp/lib-logger"
 import type { EffectContext } from "@xen-ilp/lib-reactive"
-import { assertDefined } from "@xen-ilp/lib-type-utils"
+import { assertDefined, isObject } from "@xen-ilp/lib-type-utils"
 
 import { logLineTopic } from "../features/logs"
 import { createCliOnlyLogger } from "../utils/cli-only-logger"
@@ -16,11 +16,7 @@ import type { NodeDefinition } from "./run-nodes"
 
 const logger = createLogger("xen:dev:run-node-child-process")
 
-const VITE_NODE_BIN = new URL(
-  "../../../node_modules/vite-node/vite-node.mjs",
-  import.meta.url
-).pathname
-const RUNNER_MODULE = new URL("../../runner/runner.ts", import.meta.url)
+const RUNNER_MODULE = new URL("../../../dist/runner.js", import.meta.url)
   .pathname
 
 const handleChildError = (error: Error) => {
@@ -48,6 +44,49 @@ export const runNodeChildProcess = async <T>(
       logger.error(`child exited with code: ${code ?? "unknown"}`)
     }
     child = undefined
+  }
+
+  const handleChildMessage = (message: unknown) => {
+    void (async () => {
+      if (
+        isObject(message) &&
+        "method" in message &&
+        "params" in message &&
+        Array.isArray(message["params"])
+      ) {
+        try {
+          let result: unknown
+          switch (message["method"]) {
+            case "fetchModule":
+              result = await nodeServer.fetchModule(
+                message["params"][0] as string
+              )
+              break
+            case "resolveId":
+              result = await nodeServer.resolveId(
+                message["params"][0] as string,
+                message["params"][1] as string | undefined
+              )
+              break
+          }
+          child?.send({
+            id: message["id"],
+            result,
+          })
+        } catch (error) {
+          logger.error(`child process rpc error`, {
+            method: message["method"],
+            error,
+          })
+          child?.send({
+            id: message["id"],
+            error: String(error),
+          })
+        }
+      } else {
+        logger.error(`malformed RPC call from child`, { message })
+      }
+    })()
   }
 
   const processLog = async (input: Readable) => {
@@ -91,7 +130,7 @@ export const runNodeChildProcess = async <T>(
   }
 
   logger.debug("launching child...", { node: node.id })
-  child = fork(VITE_NODE_BIN, [resolvedEntryPoint.id], {
+  child = fork(resolvedEntryPoint.id, [], {
     detached: false,
     silent: true,
     execArgv: ["--enable-source-maps"],
@@ -110,6 +149,7 @@ export const runNodeChildProcess = async <T>(
   })
   child.addListener("error", handleChildError)
   child.addListener("exit", handleChildExit)
+  child.addListener("message", handleChildMessage)
 
   assertDefined(child.stdout)
   assertDefined(child.stderr)
@@ -124,6 +164,7 @@ export const runNodeChildProcess = async <T>(
   sig.onCleanup(() => {
     if (child) {
       child.removeListener("exit", handleChildExit)
+      child.removeListener("message", handleChildMessage)
 
       child.kill("SIGINT")
     }

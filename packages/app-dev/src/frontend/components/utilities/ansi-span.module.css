@@ -1,0 +1,14 @@
+@keyframes blink {
+  0%,
+  50% {
+    visibility: visible;
+  }
+
+  100% {
+    visibility: hidden;
+  }
+}
+
+.blink {
+  animation: blink 2s linear infinite;
+}

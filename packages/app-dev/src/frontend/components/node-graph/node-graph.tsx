@@ -1,6 +1,8 @@
-import ForceGraph, { ForceGraphInstance, GraphData } from "force-graph"
-import { useNavigate } from "solid-app-router"
-import { Component, createEffect, onCleanup, onMount } from "solid-js"
+import useSize from "@react-hook/size"
+import type { GraphData } from "force-graph"
+import { useRef } from "react"
+import ReactForceGraph2d from "react-force-graph-2d"
+import { useLocation } from "wouter"
 
 import { selectBySeed } from "@xen-ilp/lib-logger"
 
@@ -10,39 +12,28 @@ interface NodeGraphProperties {
   graphData: GraphData
 }
 
-const NodeGraph: Component<NodeGraphProperties> = (properties) => {
-  let graphReference!: HTMLDivElement
-  let graph: ForceGraphInstance | undefined
-  const navigate = useNavigate()
-
-  onMount(() => {
-    graph = ForceGraph()(graphReference)
-      .linkDirectionalParticles(1)
-      .linkColor(() => "#ffffff")
-      .nodeColor(({ id }) => selectBySeed(COLORS, String(id ?? "")))
-      .nodeLabel("id")
-      .onNodeClick(({ id }) => navigate(`/nodes/${String(id)}`))
-      .graphData(properties.graphData)
-
-    const resizeObserver = new ResizeObserver(([entry]) => {
-      if (!graph) return
-      const size = entry?.contentBoxSize[0]
-      if (size) {
-        graph.width(size.inlineSize)
-        graph.height(size.blockSize)
-      }
-    })
-
-    resizeObserver.observe(graphReference)
-
-    onCleanup(() => graph?._destructor())
-  })
-
-  createEffect(() => {
-    graph?.graphData(properties.graphData)
-  })
-
-  return <div class="h-md" ref={graphReference} />
+const NodeGraph = ({ graphData }: NodeGraphProperties) => {
+  const rootReference = useRef<HTMLDivElement>(null)
+  const [width, height] = useSize(rootReference)
+  const [, setLocation] = useLocation()
+  // .linkDirectionalParticles(1)
+  // .linkColor(() => "#ffffff")
+  // .nodeColor(({ id }) => selectBySeed(COLORS, String(id ?? "")))
+  // .nodeLabel("id")
+  // .graphData(properties.graphData)
+  return (
+    <div className="h-full" ref={rootReference}>
+      <ReactForceGraph2d
+        graphData={graphData}
+        width={width}
+        height={height}
+        linkColor={() => "#ffffff"}
+        nodeColor={({ id }) => selectBySeed(COLORS, String(id ?? ""))}
+        nodeLabel={"id"}
+        onNodeClick={({ id }) => setLocation(`/nodes/${String(id)}`)}
+      />
+    </div>
+  )
 }
 
 export default NodeGraph

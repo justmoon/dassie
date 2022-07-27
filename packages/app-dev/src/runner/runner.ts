@@ -1,36 +1,47 @@
-#!/usr/bin/env node
+import type { FetchResult, ViteNodeResolveId } from "vite-node"
 import { ViteNodeRunner } from "vite-node/client"
 
-import { assertDefined } from "@xen-ilp/lib-type-utils"
+// Please note that this file is statically compiled and intentionally minimal. Any additional functionality you're thinking about adding, you should consider adding to the launchers/*.ts instead.
 
-import { trpcClientFactory } from "./services/trpc-client"
-
-const trpcClient = trpcClientFactory()
-
-assertDefined(process.env["XEN_DEV_ROOT"])
-assertDefined(process.env["XEN_DEV_BASE"])
+let unique = 0
+const callRpc = (method: string, parameters: unknown[]) => {
+  const id = unique++
+  return new Promise((resolve, reject) => {
+    process.send!({
+      id,
+      method,
+      params: parameters,
+    })
+    const handleResponse = (message: Record<string, unknown>) => {
+      if ("id" in message && message["id"] === id) {
+        process.removeListener("message", handleResponse)
+        if ("result" in message) {
+          resolve(message["result"])
+        } else {
+          reject(message["error"])
+        }
+      }
+    }
+    process.on("message", handleResponse)
+  })
+}
 
 const runner = new ViteNodeRunner({
-  root: process.env["XEN_DEV_ROOT"],
-  base: process.env["XEN_DEV_BASE"],
+  root: process.env["XEN_DEV_ROOT"]!,
+  base: process.env["XEN_DEV_BASE"]!,
   async fetchModule(id) {
-    return await trpcClient.query("runner.fetchModule", [id])
+    return callRpc("fetchModule", [id]) as Promise<FetchResult>
   },
   async resolveId(id, importer) {
-    return await trpcClient.query("runner.resolveId", [id, importer])
+    return callRpc("resolveId", [
+      id,
+      importer,
+    ]) as Promise<ViteNodeResolveId | null>
   },
 })
-
-// We would like to inject the existing trpcClient instance into the rest of the application. If you can figure out a cleaner way to do this, feel free to make a PR.
-// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
-;(global as any).trpcClient = trpcClient
-
-// send message to indicate that we're up and running
-process.send?.({})
 
 // load vite environment
 await runner.executeId("/@vite/env")
 
 // execute the file
-assertDefined(process.env["XEN_DEV_ENTRY"])
-await runner.executeId(process.env["XEN_DEV_ENTRY"])
+await runner.executeId(process.env["XEN_DEV_ENTRY"]!)
