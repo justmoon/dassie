@@ -2,9 +2,9 @@ import type { WebSocket } from "ws"
 import { WebSocketServer } from "ws"
 
 import { createLogger } from "@xen-ilp/lib-logger"
-import type { EffectContext } from "@xen-ilp/lib-reactive"
+import { createValue } from "@xen-ilp/lib-reactive"
 
-import { httpServerStore } from "./http-server"
+import { httpServerValue } from "./http-server"
 
 const logger = createLogger("xen:node:websocket-server")
 
@@ -24,17 +24,18 @@ const handleConnection = (socket: WebSocket) => {
   }
 }
 
-export const websocketServer = (sig: EffectContext) => {
-  const httpServer = sig.get(httpServerStore)
+export const websocketServerValue = () =>
+  createValue((sig) => {
+    const httpServer = sig.get(httpServerValue)
 
-  if (!httpServer) return
+    const wss = new WebSocketServer({ server: httpServer })
 
-  const wss = new WebSocketServer({ server: httpServer })
+    wss.on("connection", handleConnection)
 
-  wss.on("connection", handleConnection)
+    sig.onCleanup(() => {
+      wss.off("connection", handleConnection)
+      wss.close()
+    })
 
-  sig.onCleanup(() => {
-    wss.off("connection", handleConnection)
-    wss.close()
+    return wss
   })
-}
