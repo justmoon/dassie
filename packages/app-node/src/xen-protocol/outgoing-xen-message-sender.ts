@@ -15,7 +15,7 @@ export const outgoingXenMessageSender = (sig: EffectContext) => {
     message,
     destination,
   }: {
-    message: Buffer
+    message: Uint8Array
     destination: string
   }) => {
     const peer = peers[destination]

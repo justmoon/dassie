@@ -46,8 +46,8 @@ export interface XenHelloNeighbor {
   proof: Uint8Array
 }
 
-export const parseMessage = (message: Buffer): XenMessage => {
-  const reader = Reader.from(message)
+export const parseMessage = (message: Uint8Array): XenMessage => {
+  const reader = Reader.from(Buffer.from(message))
   const method = reader.readUInt8Number()
 
   switch (method) {

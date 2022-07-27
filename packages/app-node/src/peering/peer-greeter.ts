@@ -42,7 +42,9 @@ export const peerGreeter = (sig: EffectContext) => {
   }))
 
   const sendHello = (peer: PeerEntry) => {
-    logger.debug(`sending hello`, { to: peer.nodeId })
+    const sequence = BigInt(Date.now())
+
+    logger.debug(`sending hello`, { to: peer.nodeId, sequence })
 
     sig.emit(outgoingUnsignedXenMessageTopic, {
       destination: peer.nodeId,
@@ -50,7 +52,7 @@ export const peerGreeter = (sig: EffectContext) => {
         method: XenMessageType.Hello,
         signed: {
           nodeId,
-          sequence: BigInt(Date.now()),
+          sequence,
           url: `https://${nodeId}.localhost:${port}`,
           neighbors: Object.values(peers).map((peer) => ({
             nodeId: peer.nodeId,

@@ -31,7 +31,9 @@ export const assertContentTypeHeader = (
   }
 }
 
-export const parseBody = async (request: IncomingMessage): Promise<Buffer> => {
+export const parseBody = async (
+  request: IncomingMessage
+): Promise<Uint8Array> => {
   const body: Buffer[] = []
   let dataReceived = 0
 
@@ -47,7 +49,7 @@ export const parseBody = async (request: IncomingMessage): Promise<Buffer> => {
     body.push(chunk)
   }
 
-  return Buffer.concat(body)
+  return new Uint8Array(Buffer.concat(body))
 }
 
 export const respondPlainly = (

@@ -16,7 +16,10 @@ export const incomingXenMessageParser = (sig: EffectContext) => {
     try {
       message = parseMessage(buffer)
     } catch (error) {
-      logger.debug("error while parsing incoming xen message", { error })
+      logger.debug("error while parsing incoming xen message", {
+        error,
+        buffer,
+      })
       throw new BadRequestError(`Bad Request, failed to parse message`)
     }
 

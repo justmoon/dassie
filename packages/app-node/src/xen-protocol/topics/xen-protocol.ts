@@ -5,7 +5,7 @@ import type {
   XenMessageWithOptionalSignature,
 } from "../codecs/xen-message"
 
-export const incomingXenMessageBufferTopic = () => createTopic<Buffer>()
+export const incomingXenMessageBufferTopic = () => createTopic<Uint8Array>()
 export const incomingXenMessageTopic = () => createTopic<XenMessage>()
 
 export interface MessageWithDestination<T> {
@@ -20,4 +20,4 @@ export const outgoingXenMessageTopic = () =>
   createTopic<MessageWithDestination<XenMessage>>()
 
 export const outgoingXenMessageBufferTopic = () =>
-  createTopic<MessageWithDestination<Buffer>>()
+  createTopic<MessageWithDestination<Uint8Array>>()
