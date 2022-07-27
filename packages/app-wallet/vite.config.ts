@@ -1,9 +1,9 @@
+import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
-import solidPlugin from "vite-plugin-solid"
 import WindiCSS from "vite-plugin-windicss"
 
 export default defineConfig({
-  plugins: [solidPlugin(), WindiCSS()],
+  plugins: [react(), WindiCSS()],
   build: {
     target: "esnext",
   },
