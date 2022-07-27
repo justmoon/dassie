@@ -2,7 +2,7 @@ import { createLogger } from "@xen-ilp/lib-logger"
 import type { EffectContext } from "@xen-ilp/lib-reactive"
 
 import { BadRequestError } from "../constants/http"
-import { parseMessage } from "./codecs/xen-message"
+import { parseEnvelope } from "./codecs/xen-message"
 import {
   incomingXenMessageBufferTopic,
   incomingXenMessageTopic,
@@ -14,7 +14,7 @@ export const incomingXenMessageParser = (sig: EffectContext) => {
   sig.on(incomingXenMessageBufferTopic, (buffer) => {
     let message
     try {
-      message = parseMessage(buffer)
+      message = parseEnvelope(buffer)
     } catch (error) {
       logger.debug("error while parsing incoming xen message", {
         error,

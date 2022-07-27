@@ -2,7 +2,6 @@ import { createLogger } from "@xen-ilp/lib-logger"
 import type { EffectContext } from "@xen-ilp/lib-reactive"
 
 import { configStore } from "../config"
-import { XenMessageType } from "../xen-protocol/codecs/xen-message"
 import { outgoingUnsignedXenMessageTopic } from "../xen-protocol/topics/xen-protocol"
 import { PeerEntry, peerTableStore } from "./stores/peer-table"
 
@@ -48,16 +47,17 @@ export const peerGreeter = (sig: EffectContext) => {
 
     sig.emit(outgoingUnsignedXenMessageTopic, {
       destination: peer.nodeId,
-      message: {
-        method: XenMessageType.Hello,
-        signed: {
-          nodeId,
-          sequence,
-          url: `https://${nodeId}.localhost:${port}`,
-          neighbors: Object.values(peers).map((peer) => ({
-            nodeId: peer.nodeId,
-            proof: Buffer.alloc(32),
-          })),
+      envelope: {
+        nodeId,
+        message: {
+          hello: {
+            sequence,
+            url: `https://${nodeId}.localhost:${port}`,
+            neighbors: Object.values(peers).map((peer) => ({
+              nodeId: peer.nodeId,
+              proof: Buffer.alloc(32),
+            })),
+          },
         },
       },
     })

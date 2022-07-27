@@ -2,133 +2,98 @@ import type { MarkOptional } from "ts-essentials"
 
 import {
   Infer,
+  choice,
   ia5String,
   octetString,
   sequence,
   sequenceOf,
-  uint8Number,
   uint64Bigint,
 } from "@xen-ilp/lib-oer"
 
 const HELLO_NEIGHBOR_PROOF_LENGTH = 32
 
-export type XenMessage = XenHelloMessage
-
-export enum XenMessageType {
-  Hello = 0,
+export interface XenEnvelope
+  extends Omit<Infer<typeof xenEnvelope>, "message"> {
+  message: XenMessage
 }
 
-export interface XenHelloMessage
-  extends Omit<Infer<typeof xenHelloMessage>, "signed"> {
-  signed: XenHelloMessageSignedPortion
-}
+export type XenMessage = Infer<typeof xenMessage>
 
-export type XenHelloMessageSignedPortion = Infer<
-  typeof xenHelloMessageSignedPortion
->
-
-const xenHelloMessage = sequence({
-  method: uint8Number(),
-  signed: octetString(),
+export const xenEnvelope = sequence({
+  nodeId: ia5String(),
+  message: octetString(),
   signature: octetString(64),
 })
 
-const xenHelloMessageSignedPortion = sequence({
-  nodeId: ia5String(),
-  sequence: uint64Bigint(),
-  url: ia5String(),
-  neighbors: sequenceOf(
-    sequence({
-      nodeId: ia5String(),
-      proof: octetString(HELLO_NEIGHBOR_PROOF_LENGTH),
-    })
-  ),
+export const xenMessage = choice({
+  hello: sequence({
+    sequence: uint64Bigint(),
+    url: ia5String(),
+    neighbors: sequenceOf(
+      sequence({
+        nodeId: ia5String(),
+        proof: octetString(HELLO_NEIGHBOR_PROOF_LENGTH),
+      })
+    ),
+  }),
 })
 
-export interface XenHelloNeighbor {
-  nodeId: string
-  proof: Uint8Array
-}
+export const parseEnvelope = (envelope: Uint8Array): XenEnvelope => {
+  const envelopeParseResult = xenEnvelope.parse(envelope)
 
-export const parseMessage = (message: Uint8Array): XenMessage => {
-  const method = message[0]
+  if (!envelopeParseResult.success) {
+    throw new Error("Failed to parse envelope", {
+      cause: envelopeParseResult.failure,
+    })
+  }
 
-  switch (method) {
-    case XenMessageType.Hello: {
-      const helloMessageParseResult = xenHelloMessage.parse(message)
-      if (!helloMessageParseResult.success) {
-        throw new Error("Failed to parse hello message portion", {
-          cause: helloMessageParseResult.failure,
-        })
-      }
+  const messageParseResult = xenMessage.parse(envelopeParseResult.value.message)
 
-      const { signed, signature } = helloMessageParseResult.value
+  if (!messageParseResult.success) {
+    throw new Error("Failed to parse message", {
+      cause: messageParseResult.failure,
+    })
+  }
 
-      const signedPortionParseResult =
-        xenHelloMessageSignedPortion.parse(signed)
-
-      if (!signedPortionParseResult.success) {
-        throw new Error("Failed to parse hello message signed portion", {
-          cause: signedPortionParseResult.failure,
-        })
-      }
-
-      const { nodeId, sequence, url, neighbors } =
-        signedPortionParseResult.value
-
-      return {
-        method,
-        signed: {
-          nodeId,
-          sequence,
-          url,
-          neighbors,
-        },
-        signature,
-      }
-    }
-    default:
-      throw new Error("Unknown Xen message type")
+  return {
+    ...envelopeParseResult.value,
+    message: messageParseResult.value,
   }
 }
 
-export type XenMessageWithOptionalSignature = MarkOptional<
-  XenMessage,
+export type XenEnvelopeWithOptionalSignature = MarkOptional<
+  XenEnvelope,
   "signature"
 >
 
-export function encodeMessage(message: XenMessage): Uint8Array
+export function encodeMessage(message: XenEnvelope): Uint8Array
 export function encodeMessage(
-  message: XenMessageWithOptionalSignature,
+  message: XenEnvelopeWithOptionalSignature,
   sign: (content: Uint8Array) => Uint8Array
 ): Uint8Array
 export function encodeMessage(
-  message: XenMessageWithOptionalSignature,
+  envelope: XenEnvelopeWithOptionalSignature,
   sign?: (content: Uint8Array) => Uint8Array
 ): Uint8Array {
-  switch (message.method) {
-    case XenMessageType.Hello: {
-      const signedMessageSerializeResult =
-        xenHelloMessageSignedPortion.serialize(message.signed)
+  const messageSerializeResult = xenMessage.serialize(envelope.message)
 
-      if (!signedMessageSerializeResult.success) {
-        throw new Error("Failed to serialize signed portion")
-      }
-
-      const messageSerializeResult = xenHelloMessage.serialize({
-        method: 0,
-        signed: signedMessageSerializeResult.value,
-        signature:
-          message.signature ?? sign!(signedMessageSerializeResult.value),
-      })
-
-      if (!messageSerializeResult.success) {
-        throw new Error("Failed to serialize message")
-      }
-
-      return messageSerializeResult.value
-    }
-    default:
-      throw new Error("Unknown Xen message type")
+  if (!messageSerializeResult.success) {
+    throw new Error("Failed to serialize message", {
+      cause: messageSerializeResult.failure,
+    })
   }
+
+  const envelopeSerializeResult = xenEnvelope.serialize({
+    ...envelope,
+    message: messageSerializeResult.value,
+    signature: envelope.signature ?? sign!(messageSerializeResult.value),
+  })
+
+  if (!envelopeSerializeResult.success) {
+    throw new Error("Failed to serialize envelope", {
+      cause: envelopeSerializeResult.failure,
+    })
+  }
+
+  return envelopeSerializeResult.value
 }

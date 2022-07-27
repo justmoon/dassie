@@ -12,10 +12,10 @@ export const outgoingXenMessageSender = (sig: EffectContext) => {
   const peers = sig.get(peerTableStore)
 
   const sendOutgoingXenMessage = async ({
-    message,
+    envelope,
     destination,
   }: {
-    message: Uint8Array
+    envelope: Uint8Array
     destination: string
   }) => {
     const peer = peers[destination]
@@ -29,7 +29,7 @@ export const outgoingXenMessageSender = (sig: EffectContext) => {
 
     await axios(`${peer.url}/xen`, {
       method: "POST",
-      data: message,
+      data: envelope,
       headers: {
         accept: "application/xen-message",
         "content-type": "application/xen-message",

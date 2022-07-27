@@ -18,10 +18,13 @@ export const outgoingXenMessageSigner = (sig: EffectContext) => {
     return sign(xenKey, data)
   }
 
-  sig.on(outgoingUnsignedXenMessageTopic, ({ message, destination }) => {
-    sig.emit(outgoingXenMessageBufferTopic, {
-      message: encodeMessage(message, signWithXenKey),
-      destination,
-    })
-  })
+  sig.on(
+    outgoingUnsignedXenMessageTopic,
+    ({ envelope: message, destination }) => {
+      sig.emit(outgoingXenMessageBufferTopic, {
+        envelope: encodeMessage(message, signWithXenKey),
+        destination,
+      })
+    }
+  )
 }
