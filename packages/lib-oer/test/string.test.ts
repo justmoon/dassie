@@ -11,7 +11,7 @@ describe("string", () => {
     })
 
     describe("with fixed length", () => {
-      const schema = utf8String({ fixedLength: 13 })
+      const schema = utf8String(13)
 
       test("should return an object", ({ expect }) => {
         expect(schema).toBeTypeOf("object")

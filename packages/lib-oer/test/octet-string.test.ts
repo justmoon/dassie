@@ -11,7 +11,7 @@ describe("octetString", () => {
   })
 
   describe("with fixed length", () => {
-    const schema = octetString({ fixedLength: 22 })
+    const schema = octetString(22)
 
     test("should return an object", ({ expect }) => {
       expect(schema).toBeTypeOf("object")

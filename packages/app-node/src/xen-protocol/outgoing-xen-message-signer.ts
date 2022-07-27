@@ -14,8 +14,8 @@ export const outgoingXenMessageSigner = (sig: EffectContext) => {
     sig.get(configStore, (config) => config.tlsXenKey)
   )
 
-  const signWithXenKey = (data: Buffer) => {
-    return Buffer.from(sign(xenKey, data))
+  const signWithXenKey = (data: Uint8Array) => {
+    return sign(xenKey, data)
   }
 
   sig.on(outgoingUnsignedXenMessageTopic, ({ message, destination }) => {

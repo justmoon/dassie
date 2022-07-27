@@ -1,11 +1,12 @@
-import { Reader, Writer } from "oer-utils"
 import type { MarkOptional } from "ts-essentials"
 
 import {
+  Infer,
   ia5String,
   octetString,
   sequence,
   sequenceOf,
+  uint8Number,
   uint64Bigint,
 } from "@xen-ilp/lib-oer"
 
@@ -17,11 +18,20 @@ export enum XenMessageType {
   Hello = 0,
 }
 
-export interface XenHelloMessage {
-  method: XenMessageType.Hello
+export interface XenHelloMessage
+  extends Omit<Infer<typeof xenHelloMessage>, "signed"> {
   signed: XenHelloMessageSignedPortion
-  signature: Buffer
 }
+
+export type XenHelloMessageSignedPortion = Infer<
+  typeof xenHelloMessageSignedPortion
+>
+
+const xenHelloMessage = sequence({
+  method: uint8Number(),
+  signed: octetString(),
+  signature: octetString(64),
+})
 
 const xenHelloMessageSignedPortion = sequence({
   nodeId: ia5String(),
@@ -30,16 +40,10 @@ const xenHelloMessageSignedPortion = sequence({
   neighbors: sequenceOf(
     sequence({
       nodeId: ia5String(),
-      proof: octetString({ fixedLength: HELLO_NEIGHBOR_PROOF_LENGTH }),
+      proof: octetString(HELLO_NEIGHBOR_PROOF_LENGTH),
     })
   ),
 })
-export interface XenHelloMessageSignedPortion {
-  nodeId: string
-  sequence: bigint
-  url: string
-  neighbors: XenHelloNeighbor[]
-}
 
 export interface XenHelloNeighbor {
   nodeId: string
@@ -47,19 +51,26 @@ export interface XenHelloNeighbor {
 }
 
 export const parseMessage = (message: Uint8Array): XenMessage => {
-  const reader = Reader.from(Buffer.from(message))
-  const method = reader.readUInt8Number()
+  const method = message[0]
 
   switch (method) {
     case XenMessageType.Hello: {
-      const signed = reader.readVarOctetString()
-      const signature = reader.readOctetString(64)
+      const helloMessageParseResult = xenHelloMessage.parse(message)
+      if (!helloMessageParseResult.success) {
+        throw new Error("Failed to parse hello message portion", {
+          cause: helloMessageParseResult.failure,
+        })
+      }
+
+      const { signed, signature } = helloMessageParseResult.value
 
       const signedPortionParseResult =
         xenHelloMessageSignedPortion.parse(signed)
 
       if (!signedPortionParseResult.success) {
-        throw new Error("Failed to parse signed portion")
+        throw new Error("Failed to parse hello message signed portion", {
+          cause: signedPortionParseResult.failure,
+        })
       }
 
       const { nodeId, sequence, url, neighbors } =
@@ -86,47 +97,38 @@ export type XenMessageWithOptionalSignature = MarkOptional<
   "signature"
 >
 
-const writeSignature = (
-  writer: Writer,
-  message: XenMessageWithOptionalSignature,
-  signed: Buffer,
-  sign?: (content: Buffer) => Buffer
-) => {
-  if (message.signature != null) {
-    writer.writeOctetString(message.signature, 64)
-  } else if (sign != null) {
-    writer.writeOctetString(sign(signed), 64)
-  } else {
-    throw new TypeError(
-      "encodeMessage requires that a signing function is provided as the second parameter if message.signature is null"
-    )
-  }
-}
-
-export function encodeMessage(message: XenMessage): Buffer
+export function encodeMessage(message: XenMessage): Uint8Array
 export function encodeMessage(
   message: XenMessageWithOptionalSignature,
-  sign: (content: Buffer) => Buffer
-): Buffer
+  sign: (content: Uint8Array) => Uint8Array
+): Uint8Array
 export function encodeMessage(
   message: XenMessageWithOptionalSignature,
-  sign?: (content: Buffer) => Buffer
-): Buffer {
-  const writer = new Writer()
-  writer.writeUInt8(message.method)
-
+  sign?: (content: Uint8Array) => Uint8Array
+): Uint8Array {
   switch (message.method) {
     case XenMessageType.Hello: {
-      const signed = xenHelloMessageSignedPortion.serialize(message.signed)
+      const signedMessageSerializeResult =
+        xenHelloMessageSignedPortion.serialize(message.signed)
 
-      if (!signed.success) {
+      if (!signedMessageSerializeResult.success) {
         throw new Error("Failed to serialize signed portion")
       }
 
-      writer.writeVarOctetString(Buffer.from(signed.value))
-      writeSignature(writer, message, Buffer.from(signed.value), sign)
+      const messageSerializeResult = xenHelloMessage.serialize({
+        method: 0,
+        signed: signedMessageSerializeResult.value,
+        signature:
+          message.signature ?? sign!(signedMessageSerializeResult.value),
+      })
 
-      return writer.getBuffer()
+      if (!messageSerializeResult.success) {
+        throw new Error("Failed to serialize message")
+      }
+
+      return messageSerializeResult.value
     }
+    default:
+      throw new Error("Unknown Xen message type")
   }
 }

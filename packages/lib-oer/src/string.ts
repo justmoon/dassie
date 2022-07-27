@@ -1,7 +1,8 @@
 import { OerType } from "./base-type"
-import { OctetStringOptions, octetString } from "./octet-string"
+import { octetString } from "./octet-string"
 import { ParseError, SerializeError } from "./utils/errors"
 import type { ParseContext, SerializeContext } from "./utils/parse"
+import type { Range } from "./utils/range"
 
 type EncodingType = "utf8" | "ascii"
 
@@ -11,13 +12,13 @@ export const OerString = class extends OerType<string> {
   textEncoder: TextEncoder
 
   constructor(
-    octetStringOptions: OctetStringOptions | undefined,
+    length: Range<number>,
     encoding: EncodingType,
     readonly filterArray?: boolean[]
   ) {
     super()
 
-    this.octetString = octetString(octetStringOptions)
+    this.octetString = octetString(length)
     this.textDecoder = new TextDecoder(encoding)
     this.textEncoder = new TextEncoder()
   }
@@ -69,35 +70,35 @@ export const OerString = class extends OerType<string> {
   }
 }
 
-export const utf8String = (octetStringOptions?: OctetStringOptions) => {
-  return new OerString(octetStringOptions, "utf8")
+export const utf8String = (length?: Range<number>) => {
+  return new OerString(length, "utf8")
 }
 
-export const ia5String = (octetStringOptions?: OctetStringOptions) => {
+export const ia5String = (length?: Range<number>) => {
   const filterArray = Array.from<boolean>({ length: 128 }).fill(true)
-  return new OerString(octetStringOptions, "ascii", filterArray)
+  return new OerString(length, "ascii", filterArray)
 }
 
-export const visibleString = (octetStringOptions?: OctetStringOptions) => {
+export const visibleString = (length?: Range<number>) => {
   const filterArray = Array.from<boolean>({ length: 128 }).fill(
     true,
     0x20,
     0x7e
   )
-  return new OerString(octetStringOptions, "ascii", filterArray)
+  return new OerString(length, "ascii", filterArray)
 }
 
-export const numericString = (octetStringOptions?: OctetStringOptions) => {
+export const numericString = (length?: Range<number>) => {
   const filterArray = Array.from<boolean>({ length: 128 }).fill(
     true,
     0x30,
     0x39
   ) // 0-9
   filterArray[0x20] = true // SPACE
-  return new OerString(octetStringOptions, "ascii", filterArray)
+  return new OerString(length, "ascii", filterArray)
 }
 
-export const printableString = (octetStringOptions?: OctetStringOptions) => {
+export const printableString = (length?: Range<number>) => {
   const filterArray = Array.from<boolean>({ length: 128 })
     .fill(true, 0x41, 0x5a) // A-Z
     .fill(true, 0x61, 0x7a) // a-z
@@ -107,5 +108,5 @@ export const printableString = (octetStringOptions?: OctetStringOptions) => {
     filterArray[character.codePointAt(0)!] = true
   }
 
-  return new OerString(octetStringOptions, "ascii", filterArray)
+  return new OerString(length, "ascii", filterArray)
 }

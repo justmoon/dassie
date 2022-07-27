@@ -11,12 +11,7 @@ import {
   SerializeContext,
   isSafeUnsignedInteger,
 } from "./utils/parse"
-
-export interface OctetStringOptions {
-  minimumLength?: number
-  maximumLength?: number
-  fixedLength?: number
-}
+import { Range, parseRange } from "./utils/range"
 
 export const OerFixedOctetString = class extends OerType<Uint8Array> {
   constructor(readonly length: SafeUnsignedInteger) {
@@ -102,19 +97,13 @@ export const OerVariableOctetString = class extends OerType<Uint8Array> {
   }
 }
 
-export const octetString = ({
-  minimumLength,
-  maximumLength,
-  fixedLength,
-}: OctetStringOptions = {}) => {
+export const octetString = (length?: Range<number>) => {
+  const { minimum: minimumLength, maximum: maximumLength } = parseRange(length)
   if (minimumLength != undefined && !isSafeUnsignedInteger(minimumLength)) {
     throw new TypeError("minimumLength must be a safe unsigned integer")
   }
   if (maximumLength != undefined && !isSafeUnsignedInteger(maximumLength)) {
     throw new TypeError("maximumLength must be a safe unsigned integer")
-  }
-  if (fixedLength != undefined && !isSafeUnsignedInteger(fixedLength)) {
-    throw new TypeError("fixedLength must be a safe unsigned integer")
   }
 
   if (
@@ -123,10 +112,6 @@ export const octetString = ({
     minimumLength === maximumLength
   ) {
     return new OerFixedOctetString(minimumLength)
-  }
-
-  if (fixedLength != undefined) {
-    return new OerFixedOctetString(fixedLength)
   }
 
   if (
