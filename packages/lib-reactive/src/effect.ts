@@ -273,7 +273,7 @@ export const runEffect = async <TProperties, TReturn>(
   effect: Effect<TProperties, TReturn>,
   properties: TProperties,
   parentLifecycle: LifecycleScope,
-  resultCallback: (result: TReturn) => void
+  resultCallback?: (result: TReturn) => void
 ) => {
   let waker = new Waker()
   let lifecycle = new LifecycleScope()
@@ -292,7 +292,7 @@ export const runEffect = async <TProperties, TReturn>(
     effectResult = effect(context, properties)
 
     // runEffect MUST always call the resultCallback or throw an error
-    resultCallback(effectResult)
+    if (resultCallback) resultCallback(effectResult)
 
     // --- There must be no `await` before calling the resultCallback ---
 

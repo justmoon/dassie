@@ -24,6 +24,12 @@ const logger = createLogger("xen:reactive:reactor")
  */
 export const FactoryNameSymbol = Symbol("xen:reactive:factory-name")
 
+/**
+ * Can be used to add a function that will be automatically called after a context value has been instantiated.
+ */
+export const InitSymbol = Symbol("xen:reactive:init")
+
+export type Factory<T> = () => T
 export type Disposer = () => void
 export type AsyncDisposer = () => AsyncOrSync<void>
 
@@ -33,52 +39,41 @@ const tagWithEffectName = (target: unknown, effectName: string) => {
   }
 }
 
-export interface ContextState extends Map<Effect<never>, unknown> {
-  get<TReturn>(key: Effect<never, TReturn>): TReturn | undefined
-  set<TReturn>(key: Effect<never, TReturn>, value: TReturn): this
-}
-
-export interface ContextAccessor {
-  <TReturn>(effect: Effect<undefined, TReturn>): TReturn
-  <TProperties, TReturn>(
-    effect: Effect<TProperties, TReturn>,
-    properties: TProperties
-  ): TReturn
+export interface ContextState extends Map<Factory<unknown>, unknown> {
+  get<T>(key: Factory<T>): T | undefined
+  set<T>(key: Factory<T>, value: T): this
 }
 
 export class Reactor extends LifecycleScope {
   private contextState: ContextState = new Map()
 
   /**
-   * Retrieve a value from the reactor's global context. The key is an effect which returns the value sought. If the value does not exist yet, it will be created by running the effect as a global effect with the same lifetime as the reactor.
+   * Retrieve a value from the reactor's global context. The key is a factory which returns the value sought. If the value does not exist yet, it will be created by running the factory function.
    *
-   * @param effect - An effect that will be executed to create the value if it does not yet exist in this reactor.
+   * @param factory - A function that will be executed to create the value if it does not yet exist in this reactor.
    * @returns The value stored in the context.
    */
-  useContext: ContextAccessor = <TProperties, TReturn>(
-    effect: Effect<TProperties | undefined, TReturn>,
-    properties?: TProperties
-  ): TReturn => {
-    let result!: TReturn
+  useContext = <TReturn>(factory: Factory<TReturn>): TReturn => {
+    let result: TReturn
 
-    // We use has() to check if the effect is already in the context. Note that the effect's result may be undefined, so it would not be sufficient to check if the return value of get() is undefined.
-    if (!this.contextState.has(effect)) {
-      // Based on the overloaded method signature, TypeScript will enforce that the properties argument is only undefined if the effect's TProperties extends undefined.
-      runEffect(
-        this,
-        effect,
-        properties!,
-        this,
-        (_result) => (result = _result)
-      ).catch((error: unknown) => {
-        logger.error("error in global effect", { effect: effect.name, error })
-      })
+    // We use has() to check if the effect is already in the context. Note that the factory's return value may be undefined, so it would not be sufficient to check if the return value of get() is undefined.
+    if (!this.contextState.has(factory)) {
+      result = factory()
 
-      this.setContext(effect, result)
+      // Run intialization function if there is one
+      if (
+        isObject(result) &&
+        InitSymbol in result &&
+        typeof result[InitSymbol] === "function"
+      ) {
+        result[InitSymbol](this)
+      }
 
-      this.debug?.notifyOfInstantiation(effect)
+      this.setContext(factory, result)
+
+      this.debug?.notifyOfInstantiation(factory, result)
     } else {
-      result = this.contextState.get(effect)!
+      result = this.contextState.get(factory)!
     }
 
     return result
@@ -91,12 +86,12 @@ export class Reactor extends LifecycleScope {
    *
    * This is not something you are likely to need to use. It is used internally to set values on the context. It could be useful for testing/mocking purposes.
    *
-   * @param effect - The effect which should be used as the key to store this context element.
+   * @param factory - The factory which should be used as the key to store this context element.
    * @param value - The value to store in the context.
    */
-  setContext = <TReturn>(effect: Effect<never, TReturn>, value: TReturn) => {
-    tagWithEffectName(value, effect.name)
-    this.contextState.set(effect, value)
+  setContext = <T>(factory: Factory<T>, value: T) => {
+    tagWithEffectName(value, factory.name)
+    this.contextState.set(factory, value)
   }
 
   /**
@@ -108,7 +103,9 @@ export class Reactor extends LifecycleScope {
 export const createReactor = (rootEffect: Effect): Reactor => {
   const reactor: Reactor = new Reactor()
 
-  reactor.useContext(rootEffect)
+  runEffect(reactor, rootEffect, undefined, reactor).catch((error: unknown) => {
+    logger.error("error in root effect", { effect: rootEffect.name, error })
+  })
 
   return reactor
 }

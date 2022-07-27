@@ -1,5 +1,4 @@
-import type { Effect } from "../effect"
-import type { ContextState, Reactor } from "../reactor"
+import type { ContextState, Factory, Reactor } from "../reactor"
 import { isStore } from "../store"
 import { TopicFactory, createTopic, isTopic } from "../topic"
 
@@ -16,17 +15,15 @@ export class DebugTools {
     readonly contextState: ContextState
   ) {}
 
-  notifyOfInstantiation(effect: Effect<never>) {
-    if (effect === debugFirehose) {
+  notifyOfInstantiation<T>(factory: Factory<T>, value: T) {
+    if (factory === debugFirehose) {
       return
     }
-
-    const value = this.contextState.get(effect)
 
     if (isTopic(value)) {
       const firehose = this.useContext(debugFirehose)
       value.on((message) => {
-        firehose.emit({ topic: effect as TopicFactory, message })
+        firehose.emit({ topic: factory as TopicFactory, message })
       })
     }
   }
