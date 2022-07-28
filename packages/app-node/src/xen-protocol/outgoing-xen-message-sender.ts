@@ -18,7 +18,7 @@ export const outgoingXenMessageSender = (sig: EffectContext) => {
     envelope: Uint8Array
     destination: string
   }) => {
-    const peer = peers[destination]
+    const peer = peers.get(destination)
 
     if (!peer) {
       logger.warn("peer not found, unable to send message", {

@@ -15,42 +15,52 @@ export const incomingXenMessageHandler = (sig: EffectContext) => {
 
   sig.on(incomingXenMessageTopic, (envelope) => {
     const { nodeId, message } = envelope
-    const { sequence, neighbors, url } = message.hello
+    if (message.hello) {
+      const { sequence, neighbors, url } = message.hello
 
-    logger.debug("handle hello", {
-      from: nodeId,
-      sequence,
-      neighbors: () => neighbors.map((neighbor) => neighbor.nodeId).join(","),
-    })
+      logger.debug("handle hello", {
+        from: nodeId,
+        sequence,
+        neighbors: () => neighbors.map((neighbor) => neighbor.nodeId).join(","),
+      })
 
-    const peer = peers[nodeId]
-    if (peer) {
-      if (sequence <= peer.theirSequence) {
-        logger.debug("ignoring stale hello", {
-          from: nodeId,
-          sequence,
-          previousSequence: peer.theirSequence,
-        })
-        return
+      const peer = peers.get(nodeId)
+      if (peer) {
+        if (sequence <= peer.theirSequence) {
+          logger.debug("ignoring stale hello", {
+            from: nodeId,
+            sequence,
+            previousSequence: peer.theirSequence,
+          })
+          return
+        }
+
+        sig.emit(
+          peerTableStore,
+          updatePeer(nodeId, {
+            theirSequence: sequence,
+            lastSeen: Date.now(),
+          })
+        )
+      } else {
+        sig.emit(
+          peerTableStore,
+          addPeer({
+            nodeId,
+            url,
+            theirSequence: sequence,
+            lastSeen: Date.now(),
+          })
+        )
       }
-
-      sig.emit(
-        peerTableStore,
-        updatePeer(nodeId, {
-          theirSequence: sequence,
-          lastSeen: Date.now(),
-        })
-      )
     } else {
-      sig.emit(
-        peerTableStore,
-        addPeer({
-          nodeId,
-          url,
-          theirSequence: sequence,
-          lastSeen: Date.now(),
-        })
-      )
+      const { sequence, neighbors } = message.linkStateUpdate
+
+      logger.debug("handle link state update", {
+        from: nodeId,
+        sequence,
+        neighbors: () => neighbors.map((neighbor) => neighbor.nodeId).join(","),
+      })
     }
   })
 }

@@ -54,7 +54,7 @@ const PeerTable = ({ nodeId }: BasicNodeElementProperties) => {
           </tr>
         </thead>
         <tbody>
-          {Object.values(peerTable.data).map((peer) => (
+          {[...peerTable.data.values()].map((peer) => (
             <tr key={peer.nodeId}>
               <td className="">
                 <Link

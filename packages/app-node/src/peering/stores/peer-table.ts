@@ -1,6 +1,8 @@
-import produce from "immer"
+import produce, { enableMapSet } from "immer"
 
 import { createStore } from "@xen-ilp/lib-reactive"
+
+enableMapSet()
 
 export interface PeerEntry {
   nodeId: string
@@ -16,27 +18,27 @@ export interface NewPeerEntry {
   lastSeen?: number
 }
 
-export type Model = Record<string, PeerEntry>
+export type Model = Map<string, PeerEntry>
 
-export const peerTableStore = () => createStore<Model>({})
+export const peerTableStore = () => createStore<Model>(new Map())
 
 export const addPeer = (peerEntry: NewPeerEntry) =>
   produce<Model>((draft) => {
-    draft[peerEntry.nodeId] = {
+    draft.set(peerEntry.nodeId, {
       theirSequence: 0n,
       lastSeen: Date.now(),
       ...peerEntry,
-    }
+    })
   })
 
 export const updatePeer = (nodeId: string, peerEntry: Partial<PeerEntry>) =>
   produce<Model>((draft) => {
-    const previousEntry = draft[nodeId]
-    if (previousEntry == null) {
+    const previousEntry = draft.get(nodeId)
+    if (previousEntry == undefined) {
       throw new Error("nodeId not found")
     }
-    draft[nodeId] = {
+    draft.set(nodeId, {
       ...previousEntry,
       ...peerEntry,
-    }
+    })
   })
