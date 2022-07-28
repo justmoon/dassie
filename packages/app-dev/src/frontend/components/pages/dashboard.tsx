@@ -25,7 +25,7 @@ const Dashboard = withSolid(() => () => {
   if (!nodes) return <div />
 
   return (
-    <div className="h-screen grid grid-rows-[min-content_auto] py-10">
+    <div className="h-screen grid grid-rows-[min-content_auto] py-10 gap-4">
       <header>
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <h1 className="font-bold leading-tight text-3xl text-gray-100">
@@ -34,7 +34,7 @@ const Dashboard = withSolid(() => () => {
         </div>
       </header>
       <main className="min-h-0 relative">
-        <div className="h-full mx-auto min-h-0 max-w-7xl grid grid-rows-[min-content_auto] py-8 px-4 gap-4 grid-cols-[300px_auto] sm:px-6 sm:px-0 lg:px-8">
+        <div className="h-full mx-auto min-h-0 max-w-7xl grid grid-rows-[min-content_auto] px-4 gap-4 grid-cols-[300px_auto] sm:px-6 sm:px-0 lg:px-8">
           <div className="rounded-lg bg-gray-800 min-h-0 p-4">
             <h2 className="font-bold text-xl">Nodes</h2>
             <div className="flex flex-col py-2 gap-1">
