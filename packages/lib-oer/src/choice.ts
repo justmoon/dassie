@@ -1,4 +1,4 @@
-import { AnyOerType, Infer, OerType } from "./base-type"
+import { AnyOerType, Infer, InferSerialize, OerType } from "./base-type"
 import { ParseError, SerializeError } from "./utils/errors"
 import type { ParseContext, SerializeContext } from "./utils/parse"
 import {
@@ -20,6 +20,12 @@ type Never<T> = { [P in keyof T]?: never }
  */
 type InferOptionValues<T extends Record<string, AnyOerType>> = {
   [K in keyof T]-?: { [P in K]: Infer<T[P]> } & Never<
+    Pick<T, Exclude<keyof T, K>>
+  >
+}[keyof T]
+
+type InferOptionSerializeValues<T extends Record<string, AnyOerType>> = {
+  [K in keyof T]-?: { [P in K]: InferSerialize<T[P]> } & Never<
     Pick<T, Exclude<keyof T, K>>
   >
 }[keyof T]
@@ -86,7 +92,10 @@ export const choice = <TOptions extends Record<string, AnyOerType>>(
     .map(([key, tag]) => `${key}(${String(tag)})`)
     .join(",")
 
-  const OerChoice = class extends OerType<InferOptionValues<TOptions>> {
+  const OerChoice = class extends OerType<
+    InferOptionValues<TOptions>,
+    InferOptionSerializeValues<TOptions>
+  > {
     parseWithContext(context: ParseContext, offset: number) {
       const tagResult = parseTag(context, offset)
 
@@ -131,7 +140,7 @@ export const choice = <TOptions extends Record<string, AnyOerType>>(
       ] as const
     }
 
-    serializeWithContext(input: InferOptionValues<TOptions>) {
+    serializeWithContext(input: InferOptionSerializeValues<TOptions>) {
       const key = Object.keys(input)[0]
 
       if (key == undefined) {

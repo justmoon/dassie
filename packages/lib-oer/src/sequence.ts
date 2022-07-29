@@ -11,12 +11,22 @@ import type { ParseContext, SerializeContext } from "./utils/parse"
 export type ObjectShape = Record<string, AnyOerType>
 
 // Takes the type
-export type InferObjectShape<TShape> = {
-  [key in OptionalKeys<TShape>]?: TShape[key] extends OerType<infer K>
+export type InferObjectParseShape<TShape> = {
+  [key in OptionalKeys<TShape>]?: TShape[key] extends OerType<infer K, unknown>
     ? K
     : never
 } & {
-  [key in RequiredKeys<TShape>]: TShape[key] extends OerType<infer K>
+  [key in RequiredKeys<TShape>]: TShape[key] extends OerType<infer K, unknown>
+    ? K
+    : never
+}
+
+export type InferObjectSerializeShape<TShape> = {
+  [key in OptionalKeys<TShape>]?: TShape[key] extends OerType<unknown, infer K>
+    ? K
+    : never
+} & {
+  [key in RequiredKeys<TShape>]: TShape[key] extends OerType<unknown, infer K>
     ? K
     : never
 }
@@ -24,7 +34,10 @@ export type InferObjectShape<TShape> = {
 export const sequence = <TShape extends ObjectShape>(sequenceShape: TShape) => {
   const shapeEntries = Object.entries(sequenceShape)
 
-  const OerSequence = class extends OerType<InferObjectShape<TShape>> {
+  const OerSequence = class extends OerType<
+    InferObjectParseShape<TShape>,
+    InferObjectSerializeShape<TShape>
+  > {
     parseWithContext(context: ParseContext, offset: number) {
       const resultObject: Record<string, unknown> = {}
       let totalLength = 0
@@ -37,10 +50,13 @@ export const sequence = <TShape extends ObjectShape>(sequenceShape: TShape) => {
         totalLength += result[1]
       }
 
-      return [resultObject as InferObjectShape<TShape>, totalLength] as const
+      return [
+        resultObject as InferObjectParseShape<TShape>,
+        totalLength,
+      ] as const
     }
 
-    serializeWithContext(input: InferObjectShape<TShape>) {
+    serializeWithContext(input: InferObjectSerializeShape<TShape>) {
       let totalLength = 0
       const serializers: IntermediateSerializationResult[] = Array.from({
         length: shapeEntries.length,

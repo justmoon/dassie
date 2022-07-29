@@ -5,10 +5,14 @@ import { TagClass, TagMarker, tagClassMarkerMap } from "./utils/tag"
 export type AnyOerType = OerType<unknown>
 
 export type Infer<TOerType extends AnyOerType> = TOerType extends OerType<
-  infer T
+  infer T,
+  unknown
 >
   ? T
   : never
+
+export type InferSerialize<TOerType extends AnyOerType> =
+  TOerType extends OerType<unknown, infer T> ? T : never
 
 export interface ParseOptions {
   allowNoncanonical?: boolean
@@ -23,16 +27,16 @@ export type IntermediateSerializationResult = readonly [
   length: number
 ]
 
-export abstract class OerType<TValue> {
+export abstract class OerType<TParseValue, TSerializeValue = TParseValue> {
   _tag: readonly [tagValue: number, tagClass: TagMarker] | undefined
   _optional = false
 
   abstract parseWithContext(
     context: ParseContext,
     offset: number
-  ): readonly [value: TValue, length: number] | ParseError
+  ): readonly [value: TParseValue, length: number] | ParseError
   abstract serializeWithContext(
-    value: TValue
+    value: TSerializeValue
   ): IntermediateSerializationResult | SerializeError
 
   parse(
@@ -40,7 +44,7 @@ export abstract class OerType<TValue> {
     offset = 0,
     options: ParseOptions = {}
   ):
-    | { success: true; value: TValue; length: number }
+    | { success: true; value: TParseValue; length: number }
     | { success: false; failure: ParseError } {
     const context: ParseContext = {
       uint8Array: input,
@@ -68,7 +72,7 @@ export abstract class OerType<TValue> {
   }
 
   serialize(
-    value: TValue
+    value: TSerializeValue
   ):
     | { success: true; value: Uint8Array }
     | { success: false; failure: SerializeError } {

@@ -1,6 +1,7 @@
 import {
   AnyOerType,
   Infer,
+  InferSerialize,
   IntermediateSerializationResult,
   OerType,
 } from "./base-type"
@@ -13,7 +14,10 @@ export const sequenceOf = <TShape extends AnyOerType>(
 ) => {
   const sizeOer = integerAsBigint([0n, undefined])
 
-  const OerSequenceOf = class extends OerType<Infer<TShape>[]> {
+  const OerSequenceOf = class extends OerType<
+    Infer<TShape>[],
+    InferSerialize<TShape>[]
+  > {
     parseWithContext(context: ParseContext, offset: number) {
       const sizeResult = sizeOer.parseWithContext(context, offset)
 
@@ -41,7 +45,7 @@ export const sequenceOf = <TShape extends AnyOerType>(
       return [result, totalLength] as const
     }
 
-    serializeWithContext(input: Infer<TShape>[]) {
+    serializeWithContext(input: InferSerialize<TShape>[]) {
       const sizeResult = sizeOer.serializeWithContext(BigInt(input.length))
 
       if (sizeResult instanceof SerializeError) {
