@@ -1,7 +1,7 @@
 import { createLogger } from "@xen-ilp/lib-logger"
 
 import { LifecycleScope } from "./internal/lifecycle-scope"
-import { Waker } from "./internal/waker"
+import { createWaker } from "./internal/waker"
 import type { AsyncDisposer, Reactor } from "./reactor"
 import type { StoreFactory } from "./store"
 import type { Listener, TopicFactory } from "./topic"
@@ -31,7 +31,7 @@ export class EffectContext {
      */
     private readonly lifecycle: LifecycleScope,
 
-    private readonly waker: Waker,
+    readonly wake: () => void,
 
     private readonly effect: Effect<never>
   ) {}
@@ -73,7 +73,7 @@ export class EffectContext {
       }
     }
 
-    const notify = this.waker.notify
+    const notify = this.wake
     const value = selector(this.reactor.useContext(topic).read())
     const dispose = this.reactor.useContext(topic).on(handleTopicMessage)
     this.lifecycle.onCleanup(dispose)
@@ -95,7 +95,7 @@ export class EffectContext {
    * @param topic - Reference to the topic, i.e. its factory function.
    */
   subscribe<TMessage>(topic: TopicFactory<TMessage>) {
-    this.once(topic, this.waker.notify)
+    this.once(topic, this.wake)
   }
 
   /**
@@ -203,7 +203,14 @@ export class EffectContext {
    */
   interval(callback: () => void, intervalInMilliseconds?: number | undefined) {
     const interval = setInterval(() => {
-      callback()
+      try {
+        callback()
+      } catch (error) {
+        logger.error("error in interval callback", {
+          effect: this.effect.name,
+          error,
+        })
+      }
     }, intervalInMilliseconds)
     this.lifecycle.onCleanup(() => clearInterval(interval))
   }
@@ -216,7 +223,14 @@ export class EffectContext {
     delayInMilliseconds?: number | undefined
   ): void {
     const timer = setTimeout(() => {
-      callback()
+      try {
+        callback()
+      } catch (error) {
+        logger.error("error in timeout callback", {
+          effect: this.effect.name,
+          error,
+        })
+      }
     }, delayInMilliseconds)
     this.lifecycle.onCleanup(() => clearTimeout(timer))
   }
@@ -275,19 +289,19 @@ export const runEffect = async <TProperties, TReturn>(
   parentLifecycle: LifecycleScope,
   resultCallback?: (result: TReturn) => void
 ) => {
-  let waker = new Waker()
+  let [waker, wake] = createWaker()
   let lifecycle = new LifecycleScope()
   let effectResult: TReturn
 
   parentLifecycle.onCleanup(async () => {
     await lifecycle.dispose()
-    waker.resolve()
+    wake()
   })
 
   for (;;) {
     if (lifecycle.isDisposed || parentLifecycle.isDisposed) return
 
-    const context = new EffectContext(reactor, lifecycle, waker, effect)
+    const context = new EffectContext(reactor, lifecycle, wake, effect)
 
     effectResult = effect(context, properties)
 
@@ -300,14 +314,10 @@ export const runEffect = async <TProperties, TReturn>(
     // eslint-disable-next-line @typescript-eslint/await-thenable
     await effectResult
 
-    // Mark this waker as used which helps catch some cases of improper use of tracked methods like get()
-    waker.dispose()
-
-    await waker.promise
+    await waker
 
     await lifecycle.dispose()
-
-    waker = new Waker()
+    ;[waker, wake] = createWaker()
     lifecycle = new LifecycleScope()
   }
 }

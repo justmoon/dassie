@@ -1,4 +1,4 @@
-import type { AsyncOrSync } from "ts-essentials"
+import type { Promisable } from "type-fest"
 
 import { createLogger } from "@xen-ilp/lib-logger"
 import { isObject } from "@xen-ilp/lib-type-utils"
@@ -31,7 +31,7 @@ export const InitSymbol = Symbol("xen:reactive:init")
 
 export type Factory<T> = () => T
 export type Disposer = () => void
-export type AsyncDisposer = () => AsyncOrSync<void>
+export type AsyncDisposer = () => Promisable<void>
 
 const tagWithEffectName = (target: unknown, effectName: string) => {
   if (isObject(target) && FactoryNameSymbol in target) {
