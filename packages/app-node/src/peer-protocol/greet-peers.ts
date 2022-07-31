@@ -5,7 +5,7 @@ import { configStore } from "../config"
 import { peerMessage, peerSignedHello } from "../peer-protocol/peer-schema"
 import { outgoingPeerMessageBufferTopic } from "../peer-protocol/send-peer-messages"
 import { signerValue } from "../signer/signer"
-import { compareSetOfKeys } from "../utils/compare-set-of-keys"
+import { compareSetOfKeys } from "../utils/compare-sets"
 import { PeerEntry, peerTableStore } from "./stores/peer-table"
 
 const logger = createLogger("xen:node:peer-greeter")

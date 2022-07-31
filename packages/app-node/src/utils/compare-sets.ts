@@ -10,3 +10,13 @@ export const compareSetOfKeys = (
 
   return true
 }
+
+export const compareKeysToArray = (a: Map<string, unknown>, b: string[]) => {
+  if (a.size !== b.length) return false
+
+  for (const key of b) {
+    if (!a.has(key)) return false
+  }
+
+  return true
+}

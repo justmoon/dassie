@@ -187,6 +187,7 @@ importers:
       '@xen-ilp/lib-reactive': workspace:^1.0.0
       '@xen-ilp/lib-type-utils': workspace:^1.0.0
       axios: ^0.27.2
+      denque: ^2.1.0
       env-paths: ^3.0.0
       immer: ^9.0.15
       type-fest: ^2.17.0
@@ -199,6 +200,7 @@ importers:
       '@xen-ilp/lib-reactive': link:../lib-reactive
       '@xen-ilp/lib-type-utils': link:../lib-type-utils
       axios: 0.27.2
+      denque: 2.1.0
       env-paths: 3.0.0
       immer: 9.0.15
       ws: 8.8.1
@@ -2359,6 +2361,11 @@ packages:
   /delayed-stream/1.0.0:
     resolution: {integrity: sha512-ZySD7Nf91aLB0RxL4KGrKHBXl7Eds1DAmEdcoVawXnLD7SDhpNgtuII2aAkg7a7QS41jxPSZ17p4VdGnMHk3MQ==}
     engines: {node: '>=0.4.0'}
+    dev: false
+
+  /denque/2.1.0:
+    resolution: {integrity: sha512-HVQE3AAb/pxF8fQAoiqpvg9i3evqug3hoiwakOyZAwJm+6vZehbkYXZ0l4JxS+I3QxM97v5aaRNhj8v5oBhekw==}
+    engines: {node: '>=0.10'}
     dev: false
 
   /depd/2.0.0:

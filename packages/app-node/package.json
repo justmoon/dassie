@@ -18,6 +18,7 @@
     "@xen-ilp/lib-reactive": "workspace:^1.0.0",
     "@xen-ilp/lib-type-utils": "workspace:^1.0.0",
     "axios": "^0.27.2",
+    "denque": "^2.1.0",
     "env-paths": "^3.0.0",
     "immer": "^9.0.15",
     "ws": "^8.8.0"
