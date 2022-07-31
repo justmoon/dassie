@@ -1,5 +1,33 @@
 // Vitest Snapshot v1
 
+exports[`octetString > with constrained variable length > should refuse to parse a buffer with four bytes 1`] = `
+{
+  "failure": [ParseError: Expected octet string of length at least 5, but got 4],
+  "success": false,
+}
+`;
+
+exports[`octetString > with constrained variable length > should refuse to parse a buffer with nine bytes 1`] = `
+{
+  "failure": [ParseError: Expected octet string of length at most 8, but got 9],
+  "success": false,
+}
+`;
+
+exports[`octetString > with constrained variable length > should refuse to serialize a buffer with four bytes 1`] = `
+{
+  "failure": [SerializeError: Expected octet string of length at least 5, but got 4],
+  "success": false,
+}
+`;
+
+exports[`octetString > with constrained variable length > should refuse to serialize a buffer with nine bytes 1`] = `
+{
+  "failure": [SerializeError: Expected octet string of length at most 8, but got 9],
+  "success": false,
+}
+`;
+
 exports[`octetString > with fixed length > should refuse to serialize a value of the wrong length 1`] = `
 {
   "failure": [SerializeError: Expected octet string of length 22, but got 21],

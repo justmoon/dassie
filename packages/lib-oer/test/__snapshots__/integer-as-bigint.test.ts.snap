@@ -1,5 +1,33 @@
 // Vitest Snapshot v1
 
+exports[`integerAsBigint > schema uint8 with range 5..8 > should not parse a number that is too high 1`] = `
+{
+  "failure": [ParseError: unable to read fixed length integer of size 1 bytes - value 9 is greater than maximum value 8],
+  "success": false,
+}
+`;
+
+exports[`integerAsBigint > schema uint8 with range 5..8 > should not parse a number that is too low 1`] = `
+{
+  "failure": [ParseError: unable to read fixed length integer of size 1 bytes - value 1 is less than minimum value 5],
+  "success": false,
+}
+`;
+
+exports[`integerAsBigint > schema uint8 with range 5..8 > should not serialize a number that is too high 1`] = `
+{
+  "failure": [SerializeError: integer must be <= 8],
+  "success": false,
+}
+`;
+
+exports[`integerAsBigint > schema uint8 with range 5..8 > should not serialize a number that is too low 1`] = `
+{
+  "failure": [SerializeError: integer must be >= 5],
+  "success": false,
+}
+`;
+
 exports[`integerAsBigint > schema variable-length signed integer > should reject a zero-length zero 1`] = `
 {
   "failure": [ParseError: unable to read variable length integer - length must not be 0],

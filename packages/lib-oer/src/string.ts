@@ -2,9 +2,20 @@ import { OerType } from "./base-type"
 import { octetString } from "./octet-string"
 import { ParseError, SerializeError } from "./utils/errors"
 import type { ParseContext, SerializeContext } from "./utils/parse"
-import type { Range } from "./utils/range"
+import { NormalizedRange, Range, parseRange } from "./utils/range"
 
-type EncodingType = "utf8" | "ascii"
+export type EncodingType = "utf8" | "ascii"
+
+const convertCharacterRangeToOctetStringRange = (
+  characterRange: NormalizedRange<number>,
+  encoding: EncodingType
+): NormalizedRange<number> =>
+  encoding === "utf8"
+    ? [
+        characterRange[0],
+        characterRange[1] != undefined ? characterRange[1] * 4 : undefined,
+      ]
+    : characterRange
 
 export const OerString = class extends OerType<string> {
   octetString: OerType<Uint8Array>
@@ -12,13 +23,15 @@ export const OerString = class extends OerType<string> {
   textEncoder: TextEncoder
 
   constructor(
-    length: Range<number>,
+    readonly length: NormalizedRange<number>,
     encoding: EncodingType,
     readonly filterArray?: boolean[]
   ) {
     super()
 
-    this.octetString = octetString(length)
+    this.octetString = octetString(
+      convertCharacterRangeToOctetStringRange(length, encoding)
+    )
     this.textDecoder = new TextDecoder(encoding)
     this.textEncoder = new TextEncoder()
   }
@@ -50,7 +63,25 @@ export const OerString = class extends OerType<string> {
       }
     }
 
-    return [this.textDecoder.decode(parseResult[0]), totalLength] as const
+    const decodedString = this.textDecoder.decode(parseResult[0])
+
+    if (this.length[0] != undefined && decodedString.length < this.length[0]) {
+      return new ParseError(
+        `String is too short, expected at least ${this.length[0]} characters, got ${decodedString.length}`,
+        context.uint8Array,
+        offset
+      )
+    }
+
+    if (this.length[1] != undefined && decodedString.length > this.length[1]) {
+      return new ParseError(
+        `String is too long, expected at most ${this.length[1]} characters, got ${decodedString.length}`,
+        context.uint8Array,
+        offset
+      )
+    }
+
+    return [decodedString, totalLength] as const
   }
 
   serializeWithContext(value: string) {
@@ -71,12 +102,12 @@ export const OerString = class extends OerType<string> {
 }
 
 export const utf8String = (length?: Range<number>) => {
-  return new OerString(length, "utf8")
+  return new OerString(parseRange(length), "utf8")
 }
 
 export const ia5String = (length?: Range<number>) => {
   const filterArray = Array.from<boolean>({ length: 128 }).fill(true)
-  return new OerString(length, "ascii", filterArray)
+  return new OerString(parseRange(length), "ascii", filterArray)
 }
 
 export const visibleString = (length?: Range<number>) => {
@@ -85,7 +116,7 @@ export const visibleString = (length?: Range<number>) => {
     0x20,
     0x7e
   )
-  return new OerString(length, "ascii", filterArray)
+  return new OerString(parseRange(length), "ascii", filterArray)
 }
 
 export const numericString = (length?: Range<number>) => {
@@ -95,7 +126,7 @@ export const numericString = (length?: Range<number>) => {
     0x39
   ) // 0-9
   filterArray[0x20] = true // SPACE
-  return new OerString(length, "ascii", filterArray)
+  return new OerString(parseRange(length), "ascii", filterArray)
 }
 
 export const printableString = (length?: Range<number>) => {
@@ -108,5 +139,5 @@ export const printableString = (length?: Range<number>) => {
     filterArray[character.codePointAt(0)!] = true
   }
 
-  return new OerString(length, "ascii", filterArray)
+  return new OerString(parseRange(length), "ascii", filterArray)
 }

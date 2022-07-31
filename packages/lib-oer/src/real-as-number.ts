@@ -71,8 +71,7 @@ export const realAsNumber = ({
   base = 2,
   exponent = [FLOAT64_MIN_EXPONENT_NUMBER, FLOAT64_MAX_EXPONENT_NUMBER],
 }: RealAsNumberOptions = {}) => {
-  const { minimum: minimumMantissa, maximum: maximumMantissa } =
-    parseRange(mantissa)
+  const [minimumMantissa, maximumMantissa] = parseRange(mantissa)
 
   if (
     minimumMantissa == undefined ||
@@ -92,14 +91,13 @@ export const realAsNumber = ({
     )
   }
 
-  const { minimum: minimumBase, maximum: maximumBase } = parseRange(base)
+  const [minimumBase, maximumBase] = parseRange(base)
 
   if (minimumBase !== 2 || maximumBase !== 2) {
     throw new Error(`base must be 2`)
   }
 
-  const { minimum: minimumExponent, maximum: maximumExponent } =
-    parseRange(exponent)
+  const [minimumExponent, maximumExponent] = parseRange(exponent)
 
   if (
     minimumExponent == undefined ||

@@ -13,7 +13,7 @@ import {
   SerializeContext,
   isSafeUnsignedInteger,
 } from "./utils/parse"
-import { Range, parseRange } from "./utils/range"
+import { NormalizedRange, Range, parseRange } from "./utils/range"
 
 export class OerFixedOctetString extends OerType<
   Uint8Array,
@@ -59,10 +59,7 @@ export class OerVariableOctetString extends OerType<
   Uint8Array,
   Uint8Array | IntermediateSerializationResult
 > {
-  constructor(
-    readonly minimumLength?: SafeUnsignedInteger,
-    readonly maximumLength?: SafeUnsignedInteger
-  ) {
+  constructor(readonly sizeRange: NormalizedRange<SafeUnsignedInteger>) {
     super()
   }
 
@@ -76,6 +73,22 @@ export class OerVariableOctetString extends OerType<
 
     const [length, lengthOfLength] = result
 
+    if (this.sizeRange[0] != undefined && length < this.sizeRange[0]) {
+      return new ParseError(
+        `Expected octet string of length at least ${this.sizeRange[0]}, but got ${length}`,
+        uint8Array,
+        offset
+      )
+    }
+
+    if (this.sizeRange[1] != undefined && length > this.sizeRange[1]) {
+      return new ParseError(
+        `Expected octet string of length at most ${this.sizeRange[1]}, but got ${length}`,
+        uint8Array,
+        offset
+      )
+    }
+
     return [
       uint8Array.slice(
         offset + lengthOfLength,
@@ -87,6 +100,19 @@ export class OerVariableOctetString extends OerType<
 
   serializeWithContext(input: Uint8Array | IntermediateSerializationResult) {
     const length = isUint8Array(input) ? input.length : input[1]
+
+    if (this.sizeRange[0] != undefined && length < this.sizeRange[0]) {
+      return new SerializeError(
+        `Expected octet string of length at least ${this.sizeRange[0]}, but got ${length}`
+      )
+    }
+
+    if (this.sizeRange[1] != undefined && length > this.sizeRange[1]) {
+      return new SerializeError(
+        `Expected octet string of length at most ${this.sizeRange[1]}, but got ${length}`
+      )
+    }
+
     const lengthOfLengthPrefix = predictLengthPrefixLength(length)
 
     if (lengthOfLengthPrefix instanceof SerializeError) {
@@ -175,7 +201,7 @@ export const OerOctetStringContaining = class<TSubtype> extends OerType<
 }
 
 export const octetString = (length?: Range<number>) => {
-  const { minimum: minimumLength, maximum: maximumLength } = parseRange(length)
+  const [minimumLength, maximumLength] = parseRange(length)
   if (minimumLength != undefined && !isSafeUnsignedInteger(minimumLength)) {
     throw new TypeError("minimumLength must be a safe unsigned integer")
   }
@@ -201,5 +227,5 @@ export const octetString = (length?: Range<number>) => {
     )
   }
 
-  return new OerVariableOctetString(minimumLength, maximumLength)
+  return new OerVariableOctetString([minimumLength, maximumLength])
 }

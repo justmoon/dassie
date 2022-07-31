@@ -5,6 +5,7 @@ import { octetString } from "../src/octet-string"
 import { hexToUint8Array } from "../src/utils/hex"
 import { parsedOk, serializedOk } from "./utils/result"
 import { sampleBuffer } from "./utils/sample-buffer"
+import { addLengthPrefix } from "./utils/sample-length-prefix"
 
 describe("octetString", () => {
   test("should be a function", ({ expect }) => {
@@ -118,6 +119,58 @@ describe("octetString", () => {
     test("should parse 123456", ({ expect }) => {
       const value = schema.parse(hexToUint8Array("0001e240"))
       expect(value).toEqual(parsedOk(4, 123_456))
+    })
+  })
+
+  describe("with constrained variable length", () => {
+    const schema = octetString([5, 8])
+
+    test("should serialize a buffer with five bytes", ({ expect }) => {
+      const value = schema.serialize(sampleBuffer.slice(0, 5))
+      expect(value).toEqual(
+        serializedOk(addLengthPrefix(sampleBuffer.slice(0, 5)))
+      )
+    })
+
+    test("should parse a buffer with five bytes", ({ expect }) => {
+      const value = schema.parse(addLengthPrefix(sampleBuffer.slice(0, 5)))
+      expect(value).toEqual(parsedOk(6, sampleBuffer.slice(0, 5)))
+    })
+
+    test("should serialize a buffer with eight bytes", ({ expect }) => {
+      const value = schema.serialize(sampleBuffer.slice(0, 8))
+      expect(value).toEqual(
+        serializedOk(addLengthPrefix(sampleBuffer.slice(0, 8)))
+      )
+    })
+
+    test("should parse a buffer with eight bytes", ({ expect }) => {
+      const value = schema.parse(addLengthPrefix(sampleBuffer.slice(0, 8)))
+      expect(value).toEqual(parsedOk(9, sampleBuffer.slice(0, 8)))
+    })
+
+    test("should refuse to serialize a buffer with nine bytes", ({
+      expect,
+    }) => {
+      const value = schema.serialize(sampleBuffer.slice(0, 9))
+      expect(value).toMatchSnapshot()
+    })
+
+    test("should refuse to parse a buffer with nine bytes", ({ expect }) => {
+      const value = schema.parse(addLengthPrefix(sampleBuffer.slice(0, 9)))
+      expect(value).toMatchSnapshot()
+    })
+
+    test("should refuse to serialize a buffer with four bytes", ({
+      expect,
+    }) => {
+      const value = schema.serialize(sampleBuffer.slice(0, 4))
+      expect(value).toMatchSnapshot()
+    })
+
+    test("should refuse to parse a buffer with four bytes", ({ expect }) => {
+      const value = schema.parse(addLengthPrefix(sampleBuffer.slice(0, 4)))
+      expect(value).toMatchSnapshot()
     })
   })
 })

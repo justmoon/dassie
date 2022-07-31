@@ -168,4 +168,38 @@ describe("integerAsBigint", () => {
       })
     })
   })
+
+  describe("schema uint8 with range 5..8", () => {
+    const schema = integerAsBigint([5n, 8n])
+
+    test("should parse a number in the range", ({ expect }) => {
+      const result = schema.parse(hexToUint8Array("05"))
+      expect(result).toEqual(parsedOk(1, 5n))
+    })
+
+    test("should serialize a number in the range", ({ expect }) => {
+      const result = schema.serialize(5n)
+      expect(result).toEqual(serializedOk("05"))
+    })
+
+    test("should not parse a number that is too high", ({ expect }) => {
+      const result = schema.parse(hexToUint8Array("09"))
+      expect(result).toMatchSnapshot()
+    })
+
+    test("should not serialize a number that is too high", ({ expect }) => {
+      const result = schema.serialize(9n)
+      expect(result).toMatchSnapshot()
+    })
+
+    test("should not parse a number that is too low", ({ expect }) => {
+      const result = schema.parse(hexToUint8Array("01"))
+      expect(result).toMatchSnapshot()
+    })
+
+    test("should not serialize a number that is too low", ({ expect }) => {
+      const result = schema.serialize(1n)
+      expect(result).toMatchSnapshot()
+    })
+  })
 })

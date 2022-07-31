@@ -1,11 +1,10 @@
 import { OerType } from "./base-type"
 import { ParseError, SerializeError } from "./utils/errors"
 import type { ParseContext, SerializeContext } from "./utils/parse"
-import { Range, parseRange } from "./utils/range"
+import { FixedRange, Range, parseRange } from "./utils/range"
 
 export interface IntegerAsNumberOptions {
-  minimumValue: number
-  maximumValue: number
+  range: FixedRange<number>
 }
 
 export const UINT_MIN_NUMBER = 0
@@ -42,17 +41,17 @@ export const createOerFixedIntegerNumber = (
 
       const value = dataView[`get${type}${size}`](offset)
 
-      if (value < this.options.minimumValue) {
+      if (value < this.options.range[0]) {
         return new ParseError(
-          `unable to read fixed length integer of size ${byteSize} bytes - value ${value} is less than minimum value ${this.options.minimumValue}`,
+          `unable to read fixed length integer of size ${byteSize} bytes - value ${value} is less than minimum value ${this.options.range[0]}`,
           uint8Array,
           offset
         )
       }
 
-      if (value > this.options.maximumValue) {
+      if (value > this.options.range[1]) {
         return new ParseError(
-          `unable to read fixed length integer of size ${byteSize} bytes - value ${value} is greater than maximum value ${this.options.maximumValue}`,
+          `unable to read fixed length integer of size ${byteSize} bytes - value ${value} is greater than maximum value ${this.options.range[1]}`,
           uint8Array,
           offset
         )
@@ -64,15 +63,15 @@ export const createOerFixedIntegerNumber = (
     serializeWithContext(value: number) {
       return [
         (context: SerializeContext, offset: number) => {
-          if (value < this.options.minimumValue) {
+          if (value < this.options.range[0]) {
             return new SerializeError(
-              `integer must be >= ${this.options.minimumValue}`
+              `integer must be >= ${this.options.range[0]}`
             )
           }
 
-          if (value > this.options.maximumValue) {
+          if (value > this.options.range[1]) {
             return new SerializeError(
-              `integer must be <= ${this.options.maximumValue}`
+              `integer must be <= ${this.options.range[1]}`
             )
           }
 
@@ -95,7 +94,7 @@ export const OerInt16Number = createOerFixedIntegerNumber(16, "Int")
 export const OerInt32Number = createOerFixedIntegerNumber(32, "Int")
 
 export const integerAsNumber = (range: Range<number>) => {
-  const { minimum: minimumValue, maximum: maximumValue } = parseRange(range)
+  const [minimumValue, maximumValue] = parseRange(range)
 
   if (minimumValue == undefined || maximumValue == undefined) {
     throw new Error(
@@ -103,9 +102,8 @@ export const integerAsNumber = (range: Range<number>) => {
     )
   }
 
-  const fixedOptions = {
-    minimumValue,
-    maximumValue,
+  const fixedOptions: IntegerAsNumberOptions = {
+    range: [minimumValue, maximumValue],
   }
 
   // Fixed size integer encodings

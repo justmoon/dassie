@@ -122,7 +122,7 @@ export const OerInt32 = createOerFixedInteger(32, "Int")
 export const OerInt64 = createOerFixedInteger(64, "Int")
 
 export const integerAsBigint = (range?: Range<bigint>) => {
-  const { minimum: minimumValue, maximum: maximumValue } = parseRange(range)
+  const [minimumValue, maximumValue] = parseRange(range)
 
   const OerVariableUnsignedInteger = class extends OerType<bigint> {
     parseWithContext(context: ParseContext, offset: number) {
