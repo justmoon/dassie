@@ -1,4 +1,7 @@
-import type { OptionalKeys, RequiredKeys } from "ts-essentials"
+import type {
+  OptionalKeysOf as OptionalKeys,
+  RequiredKeysOf as RequiredKeys,
+} from "type-fest"
 
 import {
   AnyOerType,
@@ -11,7 +14,7 @@ import type { ParseContext, SerializeContext } from "./utils/parse"
 export type ObjectShape = Record<string, AnyOerType>
 
 // Takes the type
-export type InferObjectParseShape<TShape> = {
+export type InferObjectParseShape<TShape extends ObjectShape> = {
   [key in OptionalKeys<TShape>]?: TShape[key] extends OerType<infer K, unknown>
     ? K
     : never
@@ -21,7 +24,7 @@ export type InferObjectParseShape<TShape> = {
     : never
 }
 
-export type InferObjectSerializeShape<TShape> = {
+export type InferObjectSerializeShape<TShape extends ObjectShape> = {
   [key in OptionalKeys<TShape>]?: TShape[key] extends OerType<unknown, infer K>
     ? K
     : never

@@ -31,7 +31,9 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@xen-ilp/lib-logger": "workspace:^1.0.0",
-    "@xen-ilp/lib-type-utils": "workspace:^1.0.0",
-    "type-fest": "^2.16.0"
+    "@xen-ilp/lib-type-utils": "workspace:^1.0.0"
+  },
+  "devDependencies": {
+    "type-fest": "^2.17.0"
   }
 }

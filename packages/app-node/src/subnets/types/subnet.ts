@@ -1,4 +1,4 @@
-import type { AsyncOrSync } from "ts-essentials"
+import type { Promisable } from "type-fest"
 
 export interface SettlementRequest {
   recipient: string
@@ -52,7 +52,7 @@ export interface SubnetModule {
   /**
    * Returns the node's own address within the underlying settlement mechanism.
    */
-  getAddress(): AsyncOrSync<string>
+  getAddress(): Promisable<string>
 
   /**
    * Send money to the recipient.
@@ -88,4 +88,4 @@ export interface SubnetModule {
 /**
  * Constructs a subnet module.
  */
-export type Subnet = () => AsyncOrSync<SubnetModule>
+export type Subnet = () => Promisable<SubnetModule>

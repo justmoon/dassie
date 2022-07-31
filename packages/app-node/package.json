@@ -21,5 +21,8 @@
     "env-paths": "^3.0.0",
     "immer": "^9.0.15",
     "ws": "^8.8.0"
+  },
+  "devDependencies": {
+    "type-fest": "^2.17.0"
   }
 }
