@@ -1,4 +1,5 @@
 import envPaths from "env-paths"
+import { z } from "zod"
 
 import { readFileSync } from "node:fs"
 
@@ -22,21 +23,23 @@ export interface Config {
   initialPeers: { nodeId: string; url: string }[]
 }
 
-export interface InputConfig {
-  nodeId?: string
-  host?: string
-  port?: string | number
-  dataPath?: string
-  tlsWebCert?: string
-  tlsWebCertFile?: string
-  tlsWebKey?: string
-  tlsWebKeyFile?: string
-  tlsXenCert?: string
-  tlsXenCertFile?: string
-  tlsXenKey?: string
-  tlsXenKeyFile?: string
-  initialPeers?: string
-}
+export type InputConfig = z.infer<typeof inputConfigSchema>
+
+export const inputConfigSchema = z.object({
+  nodeId: z.string().optional(),
+  host: z.string().optional(),
+  port: z.union([z.string(), z.number()]).optional(),
+  dataPath: z.string().optional(),
+  tlsWebCert: z.string().optional(),
+  tlsWebCertFile: z.string().optional(),
+  tlsWebKey: z.string().optional(),
+  tlsWebKeyFile: z.string().optional(),
+  tlsXenCert: z.string().optional(),
+  tlsXenCertFile: z.string().optional(),
+  tlsXenKey: z.string().optional(),
+  tlsXenKeyFile: z.string().optional(),
+  initialPeers: z.string().optional(),
+})
 
 export const processFileOption = (
   name: string,
@@ -51,7 +54,7 @@ export const processFileOption = (
   } else if (defaultValue) {
     return defaultValue
   } else {
-    throw new Error(`Required option ${name}/${name}_FILE is missing`)
+    throw new Error(`Required option ${name}/${name}File is missing`)
   }
 }
 
@@ -64,22 +67,22 @@ export function fromPartialConfig(partialConfig: InputConfig): Config {
     port: partialConfig.port ? Number(partialConfig.port) : 8443,
     dataPath: partialConfig.dataPath ?? paths.data,
     tlsWebCert: processFileOption(
-      "TLS_WEB_CERT",
+      "tlsWebCert",
       partialConfig.tlsWebCert,
       partialConfig.tlsWebCertFile
     ),
     tlsWebKey: processFileOption(
-      "TLS_WEB_KEY",
+      "tlsWebKey",
       partialConfig.tlsWebKey,
       partialConfig.tlsWebKeyFile
     ),
     tlsXenCert: processFileOption(
-      "TLS_XEN_CERT",
+      "tlsXenCert",
       partialConfig.tlsXenCert,
       partialConfig.tlsXenCertFile
     ),
     tlsXenKey: processFileOption(
-      "TLS_XEN_KEY",
+      "tlsXenKey",
       partialConfig.tlsXenKey,
       partialConfig.tlsXenKeyFile
     ),
@@ -115,10 +118,9 @@ export function fromEnvironment() {
     }
   }
 
-  // TODO: Validate using something like zod
-  const environmentConfig = JSON.parse(
-    process.env["XEN_CONFIG"] ?? "{}"
-  ) as InputConfig
+  const environmentConfig = inputConfigSchema.parse(
+    JSON.parse(process.env["XEN_CONFIG"] ?? "{}")
+  )
 
   return fromPartialConfig({ ...fileConfig, ...environmentConfig })
 }

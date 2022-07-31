@@ -1,23 +1,27 @@
 import axios from "axios"
 
 import { createLogger } from "@xen-ilp/lib-logger"
-import type { EffectContext } from "@xen-ilp/lib-reactive"
+import { EffectContext, createTopic } from "@xen-ilp/lib-reactive"
 
 import { peerTableStore } from "../peering/stores/peer-table"
-import { outgoingXenMessageBufferTopic } from "./topics/xen-protocol"
 
 const logger = createLogger("xen:node:outgoing-xen-message-sender")
 
-export const outgoingXenMessageSender = (sig: EffectContext) => {
+export interface MessageWithDestination<T> {
+  message: T
+  destination: string
+}
+
+export const outgoingXenMessageBufferTopic = () =>
+  createTopic<MessageWithDestination<Uint8Array>>()
+
+export const sendXenMessages = (sig: EffectContext) => {
   const peers = sig.get(peerTableStore)
 
   const sendOutgoingXenMessage = async ({
-    envelope,
+    message,
     destination,
-  }: {
-    envelope: Uint8Array
-    destination: string
-  }) => {
+  }: MessageWithDestination<Uint8Array>) => {
     const peer = peers.get(destination)
 
     if (!peer) {
@@ -29,7 +33,7 @@ export const outgoingXenMessageSender = (sig: EffectContext) => {
 
     await axios(`${peer.url}/xen`, {
       method: "POST",
-      data: envelope,
+      data: message,
       headers: {
         accept: "application/xen-message",
         "content-type": "application/xen-message",

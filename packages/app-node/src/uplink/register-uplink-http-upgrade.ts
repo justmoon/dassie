@@ -2,11 +2,24 @@ import type { WebSocket } from "ws"
 import { WebSocketServer } from "ws"
 
 import { createLogger } from "@xen-ilp/lib-logger"
-import { createValue } from "@xen-ilp/lib-reactive"
+import { EffectContext, createValue } from "@xen-ilp/lib-reactive"
 
-import { httpServerValue } from "./http-server"
+import { httpServerValue } from "../http-server/serve-http"
 
 const logger = createLogger("xen:node:websocket-server")
+
+export const registerUplinkHttpUpgrade = (sig: EffectContext) => {
+  const websocketServer = sig.get(websocketServerValue)
+  const httpServer = sig.get(httpServerValue)
+
+  httpServer.on("upgrade", (request, socket, head) => {
+    if (request.url === "/uplink") {
+      websocketServer.handleUpgrade(request, socket, head, (ws) => {
+        websocketServer.emit("connection", ws, request)
+      })
+    }
+  })
+}
 
 const handleConnection = (socket: WebSocket) => {
   try {
@@ -26,9 +39,7 @@ const handleConnection = (socket: WebSocket) => {
 
 export const websocketServerValue = () =>
   createValue((sig) => {
-    const httpServer = sig.get(httpServerValue)
-
-    const wss = new WebSocketServer({ server: httpServer })
+    const wss = new WebSocketServer({ noServer: true })
 
     wss.on("connection", handleConnection)
 
@@ -39,3 +50,7 @@ export const websocketServerValue = () =>
 
     return wss
   })
+
+export const handleUplink = (sig: EffectContext) => {
+  sig.use(websocketServerValue)
+}

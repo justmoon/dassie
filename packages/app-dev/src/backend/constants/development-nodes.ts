@@ -10,6 +10,9 @@ export const PEERS: [source: number, target: number][] = [
   [1, 0],
   [2, 0],
   [2, 1],
+  [3, 2],
+  [4, 1],
+  [5, 4],
 ]
 
 export const nodeIndexToId = (index: number) => `n${index + 1}`
@@ -46,8 +49,6 @@ export const generateNodeConfig = (index: number) => {
   }
 }
 
-export const NODES: NodeDefinition<InputConfig>[] = [
-  generateNodeConfig(0),
-  generateNodeConfig(1),
-  generateNodeConfig(2),
-]
+export const NODES: NodeDefinition<InputConfig>[] = [...new Set(PEERS.flat())]
+  .sort()
+  .map((index) => generateNodeConfig(index))

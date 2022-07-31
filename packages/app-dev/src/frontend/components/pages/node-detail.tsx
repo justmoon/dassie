@@ -7,6 +7,7 @@ import { selectBySeed } from "@xen-ilp/lib-logger"
 
 import { COLORS } from "../../constants/palette"
 import { globalFirehose } from "../../signals/global-firehose"
+import { useRemoteStore } from "../../utils/remote-reactive"
 import { trpc } from "../../utils/trpc"
 import LogViewer from "../log-viewer/log-viewer"
 
@@ -38,7 +39,7 @@ const NodeHeader = ({ nodeId }: BasicNodeElementProperties) => {
 }
 
 const PeerTable = ({ nodeId }: BasicNodeElementProperties) => {
-  const peerTable = trpc.useQuery(["ui.getPeerTable", [nodeId]])
+  const peerTable = useRemoteStore(nodeId, "peerTable")
 
   if (!peerTable.data) return null
 
@@ -72,6 +73,40 @@ const PeerTable = ({ nodeId }: BasicNodeElementProperties) => {
               </td>
               <td className="" title={new Date(peer.lastSeen).toISOString()}>
                 {format(new Date(peer.lastSeen))}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+const NodeTable = ({ nodeId }: BasicNodeElementProperties) => {
+  const nodeTable = useRemoteStore(nodeId, "nodeTable")
+
+  if (!nodeTable.data) return null
+
+  return (
+    <div className="min-h-0">
+      <h2 className="font-bold text-xl">Node Table</h2>
+      <table className="border-separate border-spacing-2 my-4 -ml-2">
+        <thead>
+          <tr>
+            <th className="text-left">Node</th>
+          </tr>
+        </thead>
+        <tbody>
+          {[...nodeTable.data.values()].map((node) => (
+            <tr key={node.nodeId}>
+              <td className="">
+                <Link
+                  href={`/nodes/${node.nodeId}`}
+                  className="font-bold"
+                  style={{ color: selectBySeed(COLORS, node.nodeId) }}
+                >
+                  {node.nodeId}
+                </Link>
               </td>
             </tr>
           ))}
@@ -193,6 +228,7 @@ const NodeDetail = ({ nodeId }: BasicNodeElementProperties) => {
           className="rounded-lg bg-gray-800 min-h-0 p-4"
         >
           <PeerTable nodeId={nodeId} />
+          <NodeTable nodeId={nodeId} />
         </Tabs.Content>
         <Tabs.Content value="events" className="rounded-lg bg-gray-800 min-h-0">
           <NodeFirehoseViewer nodeId={nodeId} />

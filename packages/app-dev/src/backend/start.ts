@@ -4,12 +4,12 @@ import { EffectContext, createReactor } from "@xen-ilp/lib-reactive"
 
 import { captureLogs } from "./effects/capture-logs"
 import { compileRunner } from "./effects/compile-runner"
-import { debugUiServer } from "./effects/debug-ui-server"
 import { registerReactiveLogger } from "./effects/register-reactive-logger"
-import { listenForRpcWebSocket } from "./effects/rpc-server"
 import { runNodes } from "./effects/run-nodes"
+import { debugUiServer } from "./effects/serve-debug-ui"
+import { listenForRpcWebSocket } from "./effects/serve-rpc"
+import { serveWallet } from "./effects/serve-wallet"
 import { validateDevelopmentEnvironment } from "./effects/validate-development-environment"
-import { walletServer } from "./effects/wallet-server"
 import { indexLogs } from "./features/logs"
 
 const rootEffect = async (sig: EffectContext) => {
@@ -25,7 +25,7 @@ const rootEffect = async (sig: EffectContext) => {
   sig.use(registerReactiveLogger)
   sig.use(listenForRpcWebSocket)
   await sig.use(runNodes)
-  await sig.use(walletServer)
+  await sig.use(serveWallet)
   await sig.use(debugUiServer)
 
   process.on("SIGINT", () => void sig.reactor.dispose())

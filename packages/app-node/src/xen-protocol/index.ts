@@ -1,16 +1,14 @@
 import type { EffectContext } from "@xen-ilp/lib-reactive"
 
-import { incomingXenMessageHandler } from "./incoming-xen-message-handler"
-import { incomingXenMessageParser } from "./incoming-xen-message-parser"
-import { outgoingXenMessageSender } from "./outgoing-xen-message-sender"
-import { outgoingXenMessageSigner } from "./outgoing-xen-message-signer"
+import { handleXenMessages } from "./handle-xen-messages"
+import { registerXenHttpHandler } from "./register-xen-http-handler"
+import { sendXenMessages } from "./send-xen-messages"
 
-export const xenProtocol = (sig: EffectContext) => {
-  // Incoming Xen message pipeline
-  sig.use(incomingXenMessageParser)
-  sig.use(incomingXenMessageHandler)
+export const speakXenProtocol = (sig: EffectContext) => {
+  // Handle incoming Xen messages via HTTP
+  sig.use(registerXenHttpHandler)
+  sig.use(handleXenMessages)
 
-  // Outgoing Xen message pipeline
-  sig.use(outgoingXenMessageSigner)
-  sig.use(outgoingXenMessageSender)
+  // Send outgoing Xen messages
+  sig.use(sendXenMessages)
 }

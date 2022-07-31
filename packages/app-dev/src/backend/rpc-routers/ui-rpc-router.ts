@@ -29,9 +29,9 @@ export const uiRpcRouter = trpc
       return reactor.useContext(activeTemplate).read()
     },
   })
-  .query("getPeerTable", {
-    input: z.tuple([z.string()]),
-    async resolve({ input: [nodeId], ctx: reactor }) {
+  .query("getState", {
+    input: z.tuple([z.string(), z.string()]),
+    resolve({ input: [nodeId, storeName], ctx: reactor }) {
       const node = reactor
         .useContext(activeTemplate)
         .read()
@@ -46,7 +46,7 @@ export const uiRpcRouter = trpc
         transformer: superjson,
       })
 
-      return client.query("getPeerTable")
+      return client.query("getState", storeName)
     },
   })
   .query("getMessage", {

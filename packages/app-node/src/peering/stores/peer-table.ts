@@ -7,14 +7,14 @@ enableMapSet()
 export interface PeerEntry {
   nodeId: string
   url: string
-  theirSequence: bigint
+  sequence: bigint
   lastSeen: number
 }
 
 export interface NewPeerEntry {
   nodeId: string
   url: string
-  theirSequence?: bigint
+  sequence?: bigint
   lastSeen?: number
 }
 
@@ -25,7 +25,7 @@ export const peerTableStore = () => createStore<Model>(new Map())
 export const addPeer = (peerEntry: NewPeerEntry) =>
   produce<Model>((draft) => {
     draft.set(peerEntry.nodeId, {
-      theirSequence: 0n,
+      sequence: 0n,
       lastSeen: Date.now(),
       ...peerEntry,
     })

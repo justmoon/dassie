@@ -11,5 +11,5 @@ export interface SerializableLogLine {
   date: string
   level: "debug" | "info" | "warn" | "error" | "clear"
   message: string
-  data?: Record<string, string>
+  data?: Record<string, string> | undefined
 }

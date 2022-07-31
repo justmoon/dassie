@@ -6,7 +6,7 @@ import { ChildProcess, fork } from "node:child_process"
 import type { Readable } from "node:stream"
 
 import { byLine } from "@xen-ilp/lib-itergen-utils"
-import { SerializableLogLine, createLogger } from "@xen-ilp/lib-logger"
+import { createLogger } from "@xen-ilp/lib-logger"
 import type { EffectContext } from "@xen-ilp/lib-reactive"
 import { assertDefined, isObject } from "@xen-ilp/lib-type-utils"
 
@@ -89,36 +89,25 @@ export const runNodeChildProcess = async <T>(
     })()
   }
 
-  const processLog = async (input: Readable) => {
+  const processLog = async (input: Readable, inputName: string) => {
     for await (const line of byLine(input)) {
-      try {
-        // Suppress annoying node debugger spam
-        if (
-          line.startsWith("Debugger listening on ") ||
-          line === "For help, see: https://nodejs.org/en/docs/inspector" ||
-          line === "Debugger attached."
-        )
-          continue
+      // Suppress annoying node debugger spam
+      if (
+        line.startsWith("Debugger listening on ") ||
+        line === "For help, see: https://nodejs.org/en/docs/inspector" ||
+        line === "Debugger attached."
+      )
+        continue
 
-        const logLine = JSON.parse(line) as SerializableLogLine
-        sig.emit(logLineTopic, {
-          node: node.id,
-          ...logLine,
-        })
-        if (process.env["XEN_LOG_TO_CLI"] === "true") {
-          cliLogger.info(logLine.message, logLine.data)
-        }
-      } catch {
-        sig.emit(logLineTopic, {
-          node: node.id,
-          component: "raw",
-          message: line,
-          date: new Date().toISOString(),
-          level: "info",
-        })
-        if (process.env["XEN_LOG_TO_CLI"] === "true") {
-          cliLogger.info(line)
-        }
+      sig.emit(logLineTopic, {
+        node: node.id,
+        component: inputName,
+        message: line,
+        date: new Date().toISOString(),
+        level: "info",
+      })
+      if (process.env["XEN_LOG_TO_CLI"] === "true") {
+        cliLogger.info(line)
       }
     }
   }
@@ -154,10 +143,10 @@ export const runNodeChildProcess = async <T>(
   assertDefined(child.stdout)
   assertDefined(child.stderr)
 
-  processLog(child.stdout).catch((error: unknown) =>
+  processLog(child.stdout, "stdout").catch((error: unknown) =>
     logger.error("error processing child stdout", { node: node.id, error })
   )
-  processLog(child.stderr).catch((error: unknown) =>
+  processLog(child.stderr, "stderr").catch((error: unknown) =>
     logger.error("error processing child stdout", { node: node.id, error })
   )
 

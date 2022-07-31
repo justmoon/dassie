@@ -9,7 +9,7 @@ const logger = createLogger("xen:dev:wallet-server")
 const walletPath = new URL("../../../../app-wallet", import.meta.url).pathname
 const port = 3000
 
-export const walletServer = async (sig: EffectContext) => {
+export const serveWallet = async (sig: EffectContext) => {
   const server = await createServer({
     root: walletPath,
     server: {
