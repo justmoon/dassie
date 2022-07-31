@@ -2,7 +2,7 @@ import { createLogger } from "@xen-ilp/lib-logger"
 import type { EffectContext } from "@xen-ilp/lib-reactive"
 
 import { configStore } from "../config"
-import { signerValue } from "../signer/signer"
+import { signerValue } from "../crypto/signer"
 import { compareKeysToArray, compareSetOfKeys } from "../utils/compare-sets"
 import { peerMessage, peerSignedLinkStateUpdate } from "./peer-schema"
 import { addNode, nodeTableStore, updateNode } from "./stores/node-table"
@@ -10,7 +10,7 @@ import { peerTableStore } from "./stores/peer-table"
 
 const logger = createLogger("xen:node:maintain-own-node-table-entry")
 
-export const maintainOwnNodeTableEntry = (sig: EffectContext) => {
+export const maintainOwnNodeTableEntry = async (sig: EffectContext) => {
   const ownNodeId = sig.get(configStore, ({ nodeId }) => nodeId)
 
   // Get the current peers and re-run the effect iff the IDs of the peers change.
@@ -45,7 +45,7 @@ export const maintainOwnNodeTableEntry = (sig: EffectContext) => {
       return
     }
 
-    const signature = signer.signWithXenKey(signedLinkStateUpdate.value)
+    const signature = await signer.signWithXenKey(signedLinkStateUpdate.value)
     const message = peerMessage.serialize({
       linkStateUpdate: {
         signed: signedLinkStateUpdate.value,

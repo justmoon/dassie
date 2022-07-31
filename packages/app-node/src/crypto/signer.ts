@@ -1,4 +1,5 @@
-import { sign } from "@xen-ilp/lib-crypto"
+import { sign } from "@noble/ed25519"
+
 import { createValue } from "@xen-ilp/lib-reactive"
 
 import { configStore } from "../config"
@@ -12,7 +13,7 @@ export const signerValue = () =>
 
     return {
       signWithXenKey(data: Uint8Array) {
-        return sign(xenKey, data)
+        return sign(data, xenKey)
       },
     }
   })

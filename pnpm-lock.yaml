@@ -180,8 +180,8 @@ importers:
 
   packages/app-node:
     specifiers:
+      '@noble/ed25519': ^1.6.1
       '@types/ws': ^8.5.3
-      '@xen-ilp/lib-crypto': workspace:^1.0.0
       '@xen-ilp/lib-logger': workspace:^1.0.0
       '@xen-ilp/lib-oer': workspace:^1.0.0
       '@xen-ilp/lib-reactive': workspace:^1.0.0
@@ -193,8 +193,8 @@ importers:
       type-fest: ^2.17.0
       ws: ^8.8.0
     dependencies:
+      '@noble/ed25519': 1.6.1
       '@types/ws': 8.5.3
-      '@xen-ilp/lib-crypto': link:../lib-crypto
       '@xen-ilp/lib-logger': link:../lib-logger
       '@xen-ilp/lib-oer': link:../lib-oer
       '@xen-ilp/lib-reactive': link:../lib-reactive
@@ -879,6 +879,10 @@ packages:
 
   /@microsoft/tsdoc/0.14.1:
     resolution: {integrity: sha512-6Wci+Tp3CgPt/B9B0a3J4s3yMgLNSku6w5TV6mN+61C71UqsRBv2FUibBf3tPGlNxebgPHMEUzKpb1ggE8KCKw==}
+    dev: false
+
+  /@noble/ed25519/1.6.1:
+    resolution: {integrity: sha512-Gptpue6qPmg7p1E5LBO5GDtXw5WMc2DVtUmu4EQequOcoCvum1dT9sY6s9M8aSJWq9YopCN4jmTOAvqMdw3q7w==}
     dev: false
 
   /@nodelib/fs.scandir/2.1.5:

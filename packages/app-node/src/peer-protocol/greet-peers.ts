@@ -2,17 +2,17 @@ import { createLogger } from "@xen-ilp/lib-logger"
 import type { EffectContext } from "@xen-ilp/lib-reactive"
 
 import { configStore } from "../config"
+import { signerValue } from "../crypto/signer"
 import { peerMessage, peerSignedHello } from "../peer-protocol/peer-schema"
 import { outgoingPeerMessageBufferTopic } from "../peer-protocol/send-peer-messages"
-import { signerValue } from "../signer/signer"
 import { compareSetOfKeys } from "../utils/compare-sets"
-import { PeerEntry, peerTableStore } from "./stores/peer-table"
+import { peerTableStore } from "./stores/peer-table"
 
 const logger = createLogger("xen:node:peer-greeter")
 
 const MAX_GREETING_INTERVAL = 20_000
 
-export const greetPeers = (sig: EffectContext) => {
+export const greetPeers = async (sig: EffectContext) => {
   // Get the current peers and re-run the effect iff the IDs of the peers change.
   const peers = sig.get(
     peerTableStore,
@@ -27,7 +27,7 @@ export const greetPeers = (sig: EffectContext) => {
 
   const signer = sig.get(signerValue)
 
-  const sendHello = (peer: PeerEntry) => {
+  for (const peer of peers.values()) {
     const sequence = BigInt(Date.now())
 
     logger.debug(`sending hello`, { to: peer.nodeId, sequence })
@@ -49,7 +49,7 @@ export const greetPeers = (sig: EffectContext) => {
       return
     }
 
-    const signature = signer.signWithXenKey(signedHello.value)
+    const signature = await signer.signWithXenKey(signedHello.value)
 
     const messageSerializeResult = peerMessage.serialize({
       hello: {
@@ -71,19 +71,5 @@ export const greetPeers = (sig: EffectContext) => {
     })
   }
 
-  let timer: NodeJS.Timer | undefined = undefined
-  const tick = () => {
-    for (const peer of peers.values()) {
-      sendHello(peer)
-    }
-
-    // Schedule the next tick. Intervals are uniformly distributed between 0 and the maximum greeting interval.
-    timer = setTimeout(tick, Math.random() * MAX_GREETING_INTERVAL)
-  }
-
-  tick()
-
-  sig.onCleanup(() => {
-    if (timer) clearTimeout(timer)
-  })
+  sig.timeout(sig.wake, Math.random() * MAX_GREETING_INTERVAL)
 }
