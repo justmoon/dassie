@@ -1,5 +1,6 @@
 import { describe, test } from "vitest"
 
+import { sequenceOf, uint8Number, uint32Number } from "../src"
 import { octetString } from "../src/octet-string"
 import { hexToUint8Array } from "../src/utils/hex"
 import { parsedOk, serializedOk } from "./utils/result"
@@ -89,6 +90,34 @@ describe("octetString", () => {
       testVector.set(hexToUint8Array("82 00 80"), 0)
       const value = schema.parse(testVector, 0, { allowNoncanonical: true })
       expect(value).toMatchSnapshot()
+    })
+  })
+
+  describe("with variable length containing a sequence of uint8", () => {
+    const schema = octetString().containing(sequenceOf(uint8Number()))
+
+    test("should serialize an array of five numbers", ({ expect }) => {
+      const value = schema.serialize([1, 2, 3, 4, 5])
+      expect(value).toEqual(serializedOk(hexToUint8Array("0701050102030405")))
+    })
+
+    test("should parse an array of five numbers", ({ expect }) => {
+      const value = schema.parse(hexToUint8Array("0701050102030405"))
+      expect(value).toEqual(parsedOk(8, [1, 2, 3, 4, 5]))
+    })
+  })
+
+  describe("with fixed length containing a uint32", () => {
+    const schema = octetString(4).containing(uint32Number())
+
+    test("should serialize 123456", ({ expect }) => {
+      const value = schema.serialize(123_456)
+      expect(value).toEqual(serializedOk("0001e240"))
+    })
+
+    test("should parse 123456", ({ expect }) => {
+      const value = schema.parse(hexToUint8Array("0001e240"))
+      expect(value).toEqual(parsedOk(4, 123_456))
     })
   })
 })

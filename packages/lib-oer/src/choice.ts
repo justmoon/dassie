@@ -103,7 +103,7 @@ export const choice = <TOptions extends Record<string, AnyOerType>>(
         return tagResult
       }
 
-      const [tag, tagClass, tagLength] = tagResult //?
+      const [tag, tagClass, tagLength] = tagResult
 
       if (tag > MAX_SAFE_TAG_VALUE) {
         return new ParseError(

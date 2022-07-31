@@ -64,7 +64,7 @@ export const parseTag = (
       )
     }
 
-    tagValue = (tagValue << 7) | (nextByte & 0b0111_1111) //?
+    tagValue = (tagValue << 7) | (nextByte & 0b0111_1111)
     lengthOfTag++
   } while (nextByte & 0b1000_0000)
 
