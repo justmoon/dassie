@@ -2,10 +2,10 @@ import { createLogger } from "@xen-ilp/lib-logger"
 import type { EffectContext } from "@xen-ilp/lib-reactive"
 
 import { configStore } from "../config"
+import { peerMessage, peerSignedHello } from "../peer-protocol/peer-schema"
+import { outgoingPeerMessageBufferTopic } from "../peer-protocol/send-peer-messages"
 import { signerValue } from "../signer/signer"
 import { compareSetOfKeys } from "../utils/compare-set-of-keys"
-import { outgoingXenMessageBufferTopic } from "../xen-protocol/send-xen-messages"
-import { xenMessage, xenSignedHello } from "../xen-protocol/xen-schema"
 import { PeerEntry, peerTableStore } from "./stores/peer-table"
 
 const logger = createLogger("xen:node:peer-greeter")
@@ -32,7 +32,7 @@ export const greetPeers = (sig: EffectContext) => {
 
     logger.debug(`sending hello`, { to: peer.nodeId, sequence })
 
-    const signedHello = xenSignedHello.serialize({
+    const signedHello = peerSignedHello.serialize({
       nodeId,
       sequence,
       url: `https://${nodeId}.localhost:${port}`,
@@ -51,7 +51,7 @@ export const greetPeers = (sig: EffectContext) => {
 
     const signature = signer.signWithXenKey(signedHello.value)
 
-    const messageSerializeResult = xenMessage.serialize({
+    const messageSerializeResult = peerMessage.serialize({
       hello: {
         signed: signedHello.value,
         signature,
@@ -65,7 +65,7 @@ export const greetPeers = (sig: EffectContext) => {
       return
     }
 
-    sig.emit(outgoingXenMessageBufferTopic, {
+    sig.emit(outgoingPeerMessageBufferTopic, {
       destination: peer.nodeId,
       message: messageSerializeResult.value,
     })

@@ -1,7 +1,7 @@
 import { createLogger } from "@xen-ilp/lib-logger"
 import type { EffectContext } from "@xen-ilp/lib-reactive"
 
-import { outgoingXenMessageBufferTopic } from "../xen-protocol/send-xen-messages"
+import { outgoingPeerMessageBufferTopic } from "../peer-protocol/send-peer-messages"
 import { nodeTableStore, updateNode } from "./stores/node-table"
 import { peerTableStore } from "./stores/peer-table"
 
@@ -35,7 +35,7 @@ export const forwardLinkStateUpdate = (sig: EffectContext) => {
           to: peer.nodeId,
         })
         // Retransmit the link state update
-        sig.emit(outgoingXenMessageBufferTopic, {
+        sig.emit(outgoingPeerMessageBufferTopic, {
           destination: peer.nodeId,
           message: node.lastLinkStateUpdate,
         })

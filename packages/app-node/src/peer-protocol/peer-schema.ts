@@ -10,9 +10,9 @@ import {
 
 const HELLO_NEIGHBOR_PROOF_LENGTH = 32
 
-export type XenMessage = Infer<typeof xenMessage>
+export type PeerMessage = Infer<typeof peerMessage>
 
-export const xenSignedHello = sequence({
+export const peerSignedHello = sequence({
   nodeId: ia5String(),
   sequence: uint64Bigint(),
   url: ia5String(),
@@ -24,7 +24,7 @@ export const xenSignedHello = sequence({
   ),
 })
 
-export const xenSignedLinkStateUpdate = sequence({
+export const peerSignedLinkStateUpdate = sequence({
   nodeId: ia5String(),
   sequence: uint64Bigint(),
   neighbors: sequenceOf(
@@ -34,13 +34,13 @@ export const xenSignedLinkStateUpdate = sequence({
   ),
 })
 
-export const xenMessage = choice({
+export const peerMessage = choice({
   hello: sequence({
-    signed: octetString().containing(xenSignedHello),
+    signed: octetString().containing(peerSignedHello),
     signature: octetString(),
   }).tag(0),
   linkStateUpdate: sequence({
-    signed: octetString().containing(xenSignedLinkStateUpdate),
+    signed: octetString().containing(peerSignedLinkStateUpdate),
     signature: octetString(),
   }).tag(1),
 })

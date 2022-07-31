@@ -9,21 +9,21 @@ import {
   parseBody,
   respondPlainly,
 } from "../utils/http"
-import { incomingXenMessageTopic } from "./handle-xen-messages"
-import { xenMessage } from "./xen-schema"
+import { incomingPeerMessageTopic } from "./handle-peer-messages"
+import { peerMessage } from "./peer-schema"
 
-const logger = createLogger("xen:node:handle-xen-http-request")
+const logger = createLogger("xen:node:handle-peer-http-request")
 
-export const registerXenHttpHandler = (sig: EffectContext) => {
+export const registerPeerHttpHandler = (sig: EffectContext) => {
   const router = sig.get(routerValue)
 
-  router.on("post", "/xen", async (request, response) => {
-    assertAcceptHeader(request, "application/xen-message")
-    assertContentTypeHeader(request, "application/xen-message")
+  router.on("post", "/peer", async (request, response) => {
+    assertAcceptHeader(request, "application/xen-peer-message")
+    assertContentTypeHeader(request, "application/xen-peer-message")
 
     const body = await parseBody(request)
 
-    const parseResult = xenMessage.parse(body)
+    const parseResult = peerMessage.parse(body)
 
     if (!parseResult.success) {
       logger.debug("error while parsing incoming xen message", {
@@ -33,7 +33,7 @@ export const registerXenHttpHandler = (sig: EffectContext) => {
       throw new BadRequestError(`Bad Request, failed to parse message`)
     }
 
-    sig.emit(incomingXenMessageTopic, {
+    sig.emit(incomingPeerMessageTopic, {
       message: parseResult.value,
       asUint8Array: body,
     })

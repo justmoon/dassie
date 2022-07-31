@@ -2,7 +2,7 @@ import { describe, test } from "vitest"
 
 import { hexToUint8Array } from "@xen-ilp/lib-oer"
 
-import { xenMessage } from "./xen-schema"
+import { peerMessage } from "./peer-schema"
 
 describe("xen message codec", () => {
   test("should parse a hello message", ({ expect }) => {
@@ -15,7 +15,7 @@ describe("xen message codec", () => {
        76 84 f4 9e 1e 27 05 f7 06 e5 ae 68 82 c6 48 df 41 3e aa 50 07`
     )
 
-    const message = xenMessage.parse(uint8Array)
+    const message = peerMessage.parse(uint8Array)
 
     expect(message).toMatchSnapshot()
   })

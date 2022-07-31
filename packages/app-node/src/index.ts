@@ -1,3 +1,5 @@
 export type { Config, InputConfig } from "./config"
 export { configStore } from "./config"
+export { peerTableStore } from "./peer-protocol/stores/peer-table"
+export { nodeTableStore } from "./peer-protocol/stores/node-table"
 export { start, rootEffect } from "./start"

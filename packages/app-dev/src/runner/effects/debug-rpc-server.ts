@@ -6,8 +6,7 @@ import prettyFormat from "pretty-format"
 import superjson from "superjson"
 import { z } from "zod"
 
-import { nodeTableStore } from "@xen-ilp/app-node/src/peering/stores/node-table"
-import { peerTableStore } from "@xen-ilp/app-node/src/peering/stores/peer-table"
+import { nodeTableStore, peerTableStore } from "@xen-ilp/app-node"
 import { createLogger } from "@xen-ilp/lib-logger"
 import type {
   EffectContext,

@@ -2,13 +2,13 @@ import { createLogger } from "@xen-ilp/lib-logger"
 import type { EffectContext } from "@xen-ilp/lib-reactive"
 
 import { configStore } from "../config"
+import {
+  peerMessage,
+  peerSignedLinkStateUpdate,
+} from "../peer-protocol/peer-schema"
+import { outgoingPeerMessageBufferTopic } from "../peer-protocol/send-peer-messages"
 import { signerValue } from "../signer/signer"
 import { compareSetOfKeys } from "../utils/compare-set-of-keys"
-import { outgoingXenMessageBufferTopic } from "../xen-protocol/send-xen-messages"
-import {
-  xenMessage,
-  xenSignedLinkStateUpdate,
-} from "../xen-protocol/xen-schema"
 import { PeerEntry, peerTableStore } from "./stores/peer-table"
 
 const logger = createLogger("xen:node:publish-link-state-update")
@@ -32,7 +32,7 @@ export const publishLinkStateUpdate = (sig: EffectContext) => {
 
     logger.debug(`sending link state update`, { to: peer.nodeId, sequence })
 
-    const signedLinkStateUpdate = xenSignedLinkStateUpdate.serialize({
+    const signedLinkStateUpdate = peerSignedLinkStateUpdate.serialize({
       nodeId,
       sequence,
       neighbors: [...peers.values()].map((peer) => ({
@@ -48,7 +48,7 @@ export const publishLinkStateUpdate = (sig: EffectContext) => {
     }
 
     const signature = signer.signWithXenKey(signedLinkStateUpdate.value)
-    const message = xenMessage.serialize({
+    const message = peerMessage.serialize({
       linkStateUpdate: {
         signed: signedLinkStateUpdate.value,
         signature,
@@ -62,7 +62,7 @@ export const publishLinkStateUpdate = (sig: EffectContext) => {
       return
     }
 
-    sig.emit(outgoingXenMessageBufferTopic, {
+    sig.emit(outgoingPeerMessageBufferTopic, {
       destination: peer.nodeId,
       message: message.value,
     })

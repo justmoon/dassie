@@ -1,32 +1,24 @@
 import { createLogger } from "@xen-ilp/lib-logger"
 import { EffectContext, createTopic } from "@xen-ilp/lib-reactive"
 
-import {
-  addNode,
-  nodeTableStore,
-  updateNode,
-} from "../peering/stores/node-table"
-import {
-  addPeer,
-  peerTableStore,
-  updatePeer,
-} from "../peering/stores/peer-table"
-import type { XenMessage } from "./xen-schema"
+import type { PeerMessage } from "./peer-schema"
+import { addNode, nodeTableStore, updateNode } from "./stores/node-table"
+import { addPeer, peerTableStore, updatePeer } from "./stores/peer-table"
 
-const logger = createLogger("xen:node:incoming-xen-message-handler")
+const logger = createLogger("xen:node:incoming-peer-message-handler")
 
 const MAX_LINK_STATE_UPDATE_RETRANSMIT_DELAY = 500
 
-export interface IncomingXenMessageEvent {
-  message: XenMessage
+export interface IncomingPeerMessageEvent {
+  message: PeerMessage
   asUint8Array: Uint8Array
 }
 
-export const incomingXenMessageTopic = () =>
-  createTopic<IncomingXenMessageEvent>()
+export const incomingPeerMessageTopic = () =>
+  createTopic<IncomingPeerMessageEvent>()
 
-export const handleXenMessages = (sig: EffectContext) => {
-  sig.on(incomingXenMessageTopic, ({ message, asUint8Array }) => {
+export const handlePeerMessages = (sig: EffectContext) => {
+  sig.on(incomingPeerMessageTopic, ({ message, asUint8Array }) => {
     if (message.hello) {
       const { nodeId, sequence, neighbors, url } = message.hello.signed
       const peers = sig.read(peerTableStore)
