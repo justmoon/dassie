@@ -1,4 +1,5 @@
 import type {
+  ConditionalExcept,
   OptionalKeysOf as OptionalKeys,
   RequiredKeysOf as RequiredKeys,
 } from "type-fest"
@@ -6,6 +7,7 @@ import type {
 import {
   AnyOerType,
   IntermediateSerializationResult,
+  OerConstant,
   OerType,
 } from "./base-type"
 import { ParseError, SerializeError } from "./utils/errors"
@@ -25,13 +27,15 @@ export type InferObjectParseShape<TShape extends ObjectShape> = {
 }
 
 export type InferObjectSerializeShape<TShape extends ObjectShape> = {
-  [key in OptionalKeys<TShape>]?: TShape[key] extends OerType<unknown, infer K>
-    ? K
-    : never
+  [key in OptionalKeys<
+    // We use ConditionalExcept to remove any constants from the serialize shape
+    ConditionalExcept<TShape, OerConstant<unknown, unknown>>
+  >]?: TShape[key] extends OerType<unknown, infer K> ? K : never
 } & {
-  [key in RequiredKeys<TShape>]: TShape[key] extends OerType<unknown, infer K>
-    ? K
-    : never
+  [key in RequiredKeys<
+    // We use ConditionalExcept to remove any constants from the serialize shape
+    ConditionalExcept<TShape, OerConstant<unknown, unknown>>
+  >]: TShape[key] extends OerType<unknown, infer K> ? K : never
 }
 
 export const sequence = <TShape extends ObjectShape>(sequenceShape: TShape) => {

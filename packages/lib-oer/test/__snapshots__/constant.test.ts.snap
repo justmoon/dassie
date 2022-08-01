@@ -1,0 +1,176 @@
+// Vitest Snapshot v1
+
+exports[`constant > of bitstring > should fail to parse a value extended by one byte 1`] = `
+{
+  "failure": [ParseError: non-canonical encoding - additional bytes present after the expected end of data],
+  "success": false,
+}
+`;
+
+exports[`constant > of bitstring > should fail to parse a value truncated by one byte 1`] = `
+{
+  "failure": [ParseError: unable to read constant value - end of buffer],
+  "success": false,
+}
+`;
+
+exports[`constant > of bitstring > should fail to parse a value with a different encoding than expected 1`] = `
+{
+  "failure": [ParseError: expected constant value did not match data while parsing],
+  "success": false,
+}
+`;
+
+exports[`constant > of boolean > should fail to parse a value extended by one byte 1`] = `
+{
+  "failure": [ParseError: non-canonical encoding - additional bytes present after the expected end of data],
+  "success": false,
+}
+`;
+
+exports[`constant > of boolean > should fail to parse a value truncated by one byte 1`] = `
+{
+  "failure": [ParseError: unable to read constant value - end of buffer],
+  "success": false,
+}
+`;
+
+exports[`constant > of boolean > should fail to parse a value with a different encoding than expected 1`] = `
+{
+  "failure": [ParseError: expected constant value did not match data while parsing],
+  "success": false,
+}
+`;
+
+exports[`constant > of empty fixed size octet string > should fail to parse a value extended by one byte 1`] = `
+{
+  "failure": [ParseError: non-canonical encoding - additional bytes present after the expected end of data],
+  "success": false,
+}
+`;
+
+exports[`constant > of fixed size octet string > should fail to parse a value extended by one byte 1`] = `
+{
+  "failure": [ParseError: non-canonical encoding - additional bytes present after the expected end of data],
+  "success": false,
+}
+`;
+
+exports[`constant > of fixed size octet string > should fail to parse a value truncated by one byte 1`] = `
+{
+  "failure": [ParseError: unable to read constant value - end of buffer],
+  "success": false,
+}
+`;
+
+exports[`constant > of fixed size octet string > should fail to parse a value with a different encoding than expected 1`] = `
+{
+  "failure": [ParseError: expected constant value did not match data while parsing],
+  "success": false,
+}
+`;
+
+exports[`constant > of sequence > should fail to parse a value extended by one byte 1`] = `
+{
+  "failure": [ParseError: non-canonical encoding - additional bytes present after the expected end of data],
+  "success": false,
+}
+`;
+
+exports[`constant > of sequence > should fail to parse a value truncated by one byte 1`] = `
+{
+  "failure": [ParseError: unable to read constant value - end of buffer],
+  "success": false,
+}
+`;
+
+exports[`constant > of sequence > should fail to parse a value with a different encoding than expected 1`] = `
+{
+  "failure": [ParseError: expected constant value did not match data while parsing],
+  "success": false,
+}
+`;
+
+exports[`constant > of sequenceOf > should fail to parse a value extended by one byte 1`] = `
+{
+  "failure": [ParseError: non-canonical encoding - additional bytes present after the expected end of data],
+  "success": false,
+}
+`;
+
+exports[`constant > of sequenceOf > should fail to parse a value truncated by one byte 1`] = `
+{
+  "failure": [ParseError: unable to read constant value - end of buffer],
+  "success": false,
+}
+`;
+
+exports[`constant > of sequenceOf > should fail to parse a value with a different encoding than expected 1`] = `
+{
+  "failure": [ParseError: expected constant value did not match data while parsing],
+  "success": false,
+}
+`;
+
+exports[`constant > of uint8 > should fail to parse a value extended by one byte 1`] = `
+{
+  "failure": [ParseError: non-canonical encoding - additional bytes present after the expected end of data],
+  "success": false,
+}
+`;
+
+exports[`constant > of uint8 > should fail to parse a value truncated by one byte 1`] = `
+{
+  "failure": [ParseError: unable to read constant value - end of buffer],
+  "success": false,
+}
+`;
+
+exports[`constant > of uint8 > should fail to parse a value with a different encoding than expected 1`] = `
+{
+  "failure": [ParseError: expected constant value did not match data while parsing],
+  "success": false,
+}
+`;
+
+exports[`constant > of uint64Bigint > should fail to parse a value extended by one byte 1`] = `
+{
+  "failure": [ParseError: non-canonical encoding - additional bytes present after the expected end of data],
+  "success": false,
+}
+`;
+
+exports[`constant > of uint64Bigint > should fail to parse a value truncated by one byte 1`] = `
+{
+  "failure": [ParseError: unable to read constant value - end of buffer],
+  "success": false,
+}
+`;
+
+exports[`constant > of uint64Bigint > should fail to parse a value with a different encoding than expected 1`] = `
+{
+  "failure": [ParseError: expected constant value did not match data while parsing],
+  "success": false,
+}
+`;
+
+exports[`constant > of variable length octet string > should fail to parse a value extended by one byte 1`] = `
+{
+  "failure": [ParseError: non-canonical encoding - additional bytes present after the expected end of data],
+  "success": false,
+}
+`;
+
+exports[`constant > of variable length octet string > should fail to parse a value truncated by one byte 1`] = `
+{
+  "failure": [ParseError: unable to read constant value - end of buffer],
+  "success": false,
+}
+`;
+
+exports[`constant > of variable length octet string > should fail to parse a value with a different encoding than expected 1`] = `
+{
+  "failure": [ParseError: expected constant value did not match data while parsing],
+  "success": false,
+}
+`;

@@ -115,4 +115,86 @@ export abstract class OerType<TParseValue, TSerializeValue = TParseValue> {
     this._optional = true
     return this
   }
+
+  constant<TParseValue, TSerializeValue>(
+    this: OerType<TParseValue, TSerializeValue>,
+    value: TSerializeValue
+  ): OerConstant<TParseValue, TSerializeValue> {
+    return new OerConstant(this, value)
+  }
+}
+
+export class OerConstant<TParseValue, TSerializeValue> extends OerType<
+  TParseValue,
+  undefined
+> {
+  private readonly serializedValue: Uint8Array
+  private readonly parsedValue: TParseValue
+
+  constructor(
+    readonly subType: OerType<TParseValue, TSerializeValue>,
+    readonly value: TSerializeValue
+  ) {
+    super()
+
+    const subtypeSerializeResult = subType.serialize(value)
+
+    if (!subtypeSerializeResult.success) {
+      throw new TypeError(
+        `Failed to serialize constant OER type with value '${String(value)}'`,
+        { cause: subtypeSerializeResult.failure }
+      )
+    }
+
+    this.serializedValue = subtypeSerializeResult.value
+
+    const subtypeParseResult = subType.parse(this.serializedValue)
+
+    if (!subtypeParseResult.success) {
+      throw new TypeError(
+        `Failed to parse constant OER type with value '${String(value)}'`,
+        { cause: subtypeParseResult.failure }
+      )
+    }
+
+    this.parsedValue = subtypeParseResult.value
+  }
+
+  parseWithContext(
+    context: ParseContext,
+    offset: number
+  ): ParseError | readonly [TParseValue, number] {
+    if (context.uint8Array.length < offset + this.serializedValue.length) {
+      return new ParseError(
+        `unable to read constant value - end of buffer`,
+        context.uint8Array,
+        context.uint8Array.length
+      )
+    }
+
+    for (let index = 0; index < this.serializedValue.length; index++) {
+      if (context.uint8Array[offset + index] !== this.serializedValue[index]) {
+        return new ParseError(
+          `expected constant value did not match data while parsing`,
+          context.uint8Array,
+          offset + index
+        )
+      }
+    }
+
+    return [this.parsedValue, this.serializedValue.length]
+  }
+
+  serializeWithContext(): IntermediateSerializationResult {
+    return [
+      (context: SerializeContext, offset: number) => {
+        context.uint8Array.set(this.serializedValue, offset)
+      },
+      this.serializedValue.length,
+    ]
+  }
+
+  override serialize() {
+    return super.serialize(undefined)
+  }
 }
