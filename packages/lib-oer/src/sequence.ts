@@ -2,6 +2,7 @@ import type {
   ConditionalExcept,
   OptionalKeysOf as OptionalKeys,
   RequiredKeysOf as RequiredKeys,
+  Simplify,
 } from "type-fest"
 
 import {
@@ -17,11 +18,11 @@ export type ObjectShape = Record<string, AnyOerType>
 
 // Takes the type
 export type InferObjectParseShape<TShape extends ObjectShape> = {
-  [key in OptionalKeys<TShape>]?: TShape[key] extends OerType<infer K, unknown>
+  [key in OptionalKeys<TShape>]?: TShape[key] extends OerType<infer K, never>
     ? K
     : never
 } & {
-  [key in RequiredKeys<TShape>]: TShape[key] extends OerType<infer K, unknown>
+  [key in RequiredKeys<TShape>]: TShape[key] extends OerType<infer K, never>
     ? K
     : never
 }
@@ -42,8 +43,8 @@ export const sequence = <TShape extends ObjectShape>(sequenceShape: TShape) => {
   const shapeEntries = Object.entries(sequenceShape)
 
   const OerSequence = class extends OerType<
-    InferObjectParseShape<TShape>,
-    InferObjectSerializeShape<TShape>
+    Simplify<InferObjectParseShape<TShape>>,
+    Simplify<InferObjectSerializeShape<TShape>>
   > {
     parseWithContext(context: ParseContext, offset: number) {
       const resultObject: Record<string, unknown> = {}

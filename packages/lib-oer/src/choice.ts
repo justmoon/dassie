@@ -1,3 +1,5 @@
+import type { Simplify } from "type-fest"
+
 import { AnyOerType, Infer, InferSerialize, OerType } from "./base-type"
 import { ParseError, SerializeError } from "./utils/errors"
 import type { ParseContext, SerializeContext } from "./utils/parse"
@@ -93,8 +95,8 @@ export const choice = <TOptions extends Record<string, AnyOerType>>(
     .join(",")
 
   const OerChoice = class extends OerType<
-    InferOptionValues<TOptions>,
-    InferOptionSerializeValues<TOptions>
+    Simplify<InferOptionValues<TOptions>>,
+    Simplify<InferOptionSerializeValues<TOptions>>
   > {
     parseWithContext(context: ParseContext, offset: number) {
       const tagResult = parseTag(context, offset)
@@ -135,12 +137,14 @@ export const choice = <TOptions extends Record<string, AnyOerType>>(
       }
 
       return [
-        { [key]: result[0] } as InferOptionValues<TOptions>,
+        { [key]: result[0] } as Simplify<InferOptionValues<TOptions>>,
         tagLength + result[1],
       ] as const
     }
 
-    serializeWithContext(input: InferOptionSerializeValues<TOptions>) {
+    serializeWithContext(
+      input: Simplify<InferOptionSerializeValues<TOptions>>
+    ) {
       const key = Object.keys(input)[0]
 
       if (key == undefined) {
