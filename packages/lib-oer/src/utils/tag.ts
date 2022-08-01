@@ -1,3 +1,8 @@
+import {
+  parseBase128,
+  predictBase128Length,
+  serializeBase128,
+} from "./base-128"
 import { ParseError, SerializeError } from "./errors"
 import { ParseContext, isSafeUnsignedInteger } from "./parse"
 
@@ -49,26 +54,20 @@ export const parseTag = (
     return [tagFirstByte, tagClassMarker, 1] as const
   }
 
-  // When tag is 63 or greater, the first byte's lower six bits are set and the remaining bytes encode the tag in their lower seven bits until a byte with its upper bit set marks the end.
-  let lengthOfTag = 1
-  let tagValue = 0
-  let nextByte: number | undefined
-  do {
-    nextByte = uint8Array[offset + lengthOfTag]
+  // When tag is 63 or greater, it is encoded as a base-128 value following the first byte
+  const base128ParseResult = parseBase128(
+    context,
+    offset + 1,
+    Number.POSITIVE_INFINITY
+  )
 
-    if (nextByte == undefined) {
-      return new ParseError(
-        "unable to read tag - end of buffer",
-        uint8Array,
-        uint8Array.byteLength
-      )
-    }
+  if (base128ParseResult instanceof ParseError) {
+    return base128ParseResult
+  }
 
-    tagValue = (tagValue << 7) | (nextByte & 0b0111_1111)
-    lengthOfTag++
-  } while (nextByte & 0b1000_0000)
+  const [tagValue, lengthOfTag] = base128ParseResult
 
-  return [tagValue, tagClassMarker, lengthOfTag] as const
+  return [Number(tagValue), tagClassMarker, lengthOfTag + 1] as const
 }
 
 export const serializeTag = (
@@ -90,16 +89,8 @@ export const serializeTag = (
 
   uint8Array[offset] = (tagClass << 6) | 0b0011_1111
 
-  let length = 0
-  do {
-    length++
-  } while (value >= 1 << (7 * length))
+  serializeBase128(BigInt(value), uint8Array, offset + 1)
 
-  for (let index = length; index > 0; index--) {
-    uint8Array[offset + index] =
-      (value & 0b0111_1111) | (index === length ? 0 : 0b1000_0000)
-    value = value >>> 7
-  }
   return
 }
 
@@ -114,10 +105,11 @@ export const predictTagLength = (value: number) => {
     return 1
   }
 
-  let length = 0
-  do {
-    length++
-  } while (value >= 1 << (7 * length))
+  const lengthPredictionResult = predictBase128Length(BigInt(value))
 
-  return length + 1
+  if (lengthPredictionResult instanceof SerializeError) {
+    return lengthPredictionResult
+  }
+
+  return lengthPredictionResult + 1
 }

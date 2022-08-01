@@ -33,9 +33,6 @@ export const boolean = () => {
         1,
       ] as const
     }
-    predictWithContext() {
-      return 1
-    }
   }
   return new OerBoolean()
 }

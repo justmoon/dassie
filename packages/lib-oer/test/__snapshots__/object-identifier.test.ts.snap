@@ -1,0 +1,36 @@
+// Vitest Snapshot v1
+
+exports[`objectIdentifier > with schema > should refuse to parse an object identifier with a length prefix of 1 that is two bytes long 1`] = `
+{
+  "failure": [ParseError: unable to read base-128 value - value is longer than expected based on context],
+  "success": false,
+}
+`;
+
+exports[`objectIdentifier > with schema > should refuse to parse an object identifier with a length prefix of 3 that is only two bytes long 1`] = `
+{
+  "failure": [ParseError: unable to read length prefix - end of buffer],
+  "success": false,
+}
+`;
+
+exports[`objectIdentifier > with schema > should refuse to serialize an object identifier with a first segment greater than 2 1`] = `
+{
+  "failure": [SerializeError: object identifier first component must be in the range of 0..2],
+  "success": false,
+}
+`;
+
+exports[`objectIdentifier > with schema > should refuse to serialize an object identifier with a second segment greater than 39 when the first segment is 0 1`] = `
+{
+  "failure": [SerializeError: object identifier second component must be in the range of 0..39 when first component is 0 or 1],
+  "success": false,
+}
+`;
+
+exports[`objectIdentifier > with schema > should refuse to serialize an object identifier with a second segment greater than 39 when the first segment is 1 1`] = `
+{
+  "failure": [SerializeError: object identifier second component must be in the range of 0..39 when first component is 0 or 1],
+  "success": false,
+}
+`;
