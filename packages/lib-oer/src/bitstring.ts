@@ -57,114 +57,118 @@ export const serializeBitstring = (
   }
 }
 
+export class OerVariableBitstring<
+  TBitDefinition extends number
+> extends OerType<InferBitstringValue<TBitDefinition>> {
+  constructor(readonly bits: TBitDefinition) {
+    super()
+  }
+
+  parseWithContext(context: ParseContext, offset: number) {
+    const { uint8Array } = context
+    const result = parseLengthPrefix(context, offset)
+
+    if (result instanceof ParseError) {
+      return result
+    }
+
+    const [length, lengthOfLength] = result
+
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const unusedBits = uint8Array[offset + lengthOfLength]!
+
+    if (unusedBits > 7) {
+      return new ParseError(
+        "unable to read bitstring - unused bits greater than 7",
+        uint8Array,
+        offset + 1
+      )
+    }
+
+    const output = parseBitstring(
+      context,
+      offset + lengthOfLength + 1,
+      (length - 1) * 8 - unusedBits
+    )
+
+    return [
+      output as InferBitstringValue<TBitDefinition>,
+      lengthOfLength + length,
+    ] as const
+  }
+
+  serializeWithContext(input: ReadonlyTuple<boolean, TBitDefinition>) {
+    const byteLength = Math.ceil(this.bits / 8)
+    const unusedBits = 8 - (this.bits % 8)
+    const length = byteLength + 1
+    const lengthOfLength = predictLengthPrefixLength(length)
+    if (lengthOfLength instanceof SerializeError) {
+      return lengthOfLength
+    }
+
+    return [
+      (context: SerializeContext, offset: number) => {
+        const { uint8Array } = context
+        const lengthOfLength = serializeLengthPrefix(length, uint8Array, offset)
+
+        if (lengthOfLength instanceof SerializeError) {
+          return lengthOfLength
+        }
+
+        uint8Array[offset + lengthOfLength] = unusedBits
+        serializeBitstring(context, offset + lengthOfLength + 1, input)
+        return
+      },
+      lengthOfLength + length,
+    ] as const
+  }
+}
+
+export class OerFixedBitstring<TBitDefinition extends number> extends OerType<
+  InferBitstringValue<TBitDefinition>
+> {
+  constructor(readonly bits: TBitDefinition) {
+    super()
+  }
+
+  parseWithContext(context: ParseContext, offset: number) {
+    const byteLength = Math.ceil(this.bits / 8)
+
+    if (context.uint8Array.length - offset < byteLength) {
+      return new ParseError(
+        "unable to read bitstring value - end of buffer",
+        context.uint8Array,
+        offset
+      )
+    }
+
+    const output = parseBitstring(context, offset, this.bits)
+
+    return [output as InferBitstringValue<TBitDefinition>, byteLength] as const
+  }
+
+  serializeWithContext(input: InferBitstringValue<TBitDefinition>) {
+    const inputAsArray = input as boolean[]
+    if (inputAsArray.length !== this.bits) {
+      return new SerializeError(
+        `unable to serialize bitstring - expected ${this.bits} bits, got ${inputAsArray.length}`
+      )
+    }
+
+    return [
+      (context: SerializeContext, offset: number) => {
+        serializeBitstring(context, offset, input)
+      },
+      Math.ceil(this.bits / 8),
+    ] as const
+  }
+}
+
 export const bitstring = <TBitDefinition extends number>(
   bits: TBitDefinition,
   { variableLength = false }: BitstringOptions = {}
 ) => {
-  const OerVariableBitstring = class extends OerType<
-    InferBitstringValue<TBitDefinition>
-  > {
-    parseWithContext(context: ParseContext, offset: number) {
-      const { uint8Array } = context
-      const result = parseLengthPrefix(context, offset)
-
-      if (result instanceof ParseError) {
-        return result
-      }
-
-      const [length, lengthOfLength] = result
-
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const unusedBits = uint8Array[offset + lengthOfLength]!
-
-      if (unusedBits > 7) {
-        return new ParseError(
-          "unable to read bitstring - unused bits greater than 7",
-          uint8Array,
-          offset + 1
-        )
-      }
-
-      const output = parseBitstring(
-        context,
-        offset + lengthOfLength + 1,
-        (length - 1) * 8 - unusedBits
-      )
-
-      return [
-        output as InferBitstringValue<TBitDefinition>,
-        lengthOfLength + length,
-      ] as const
-    }
-
-    serializeWithContext(input: ReadonlyTuple<boolean, TBitDefinition>) {
-      const byteLength = Math.ceil(bits / 8)
-      const unusedBits = 8 - (bits % 8)
-      const length = byteLength + 1
-      const lengthOfLength = predictLengthPrefixLength(length)
-      if (lengthOfLength instanceof SerializeError) {
-        return lengthOfLength
-      }
-
-      return [
-        (context: SerializeContext, offset: number) => {
-          const { uint8Array } = context
-          const lengthOfLength = serializeLengthPrefix(
-            length,
-            uint8Array,
-            offset
-          )
-
-          if (lengthOfLength instanceof SerializeError) {
-            return lengthOfLength
-          }
-
-          uint8Array[offset + lengthOfLength] = unusedBits
-          serializeBitstring(context, offset + lengthOfLength + 1, input)
-          return
-        },
-        lengthOfLength + length,
-      ] as const
-    }
-  }
-
-  const OerFixedBitstring = class extends OerType<
-    InferBitstringValue<TBitDefinition>
-  > {
-    parseWithContext(context: ParseContext, offset: number) {
-      const byteLength = Math.ceil(bits / 8)
-
-      if (context.uint8Array.length - offset < byteLength) {
-        return new ParseError(
-          "unable to read bitstring value - end of buffer",
-          context.uint8Array,
-          offset
-        )
-      }
-
-      const output = parseBitstring(context, offset, bits)
-
-      return [
-        output as InferBitstringValue<TBitDefinition>,
-        byteLength,
-      ] as const
-    }
-
-    serializeWithContext(input: InferBitstringValue<TBitDefinition>) {
-      const inputAsArray = input as boolean[]
-      if (inputAsArray.length !== bits) {
-        return new SerializeError(
-          `unable to serialize bitstring - expected ${bits} bits, got ${inputAsArray.length}`
-        )
-      }
-
-      return [
-        (context: SerializeContext, offset: number) => {
-          serializeBitstring(context, offset, input)
-        },
-        Math.ceil(bits / 8),
-      ] as const
-    }
-  }
-  return variableLength ? new OerVariableBitstring() : new OerFixedBitstring()
+  return variableLength
+    ? new OerVariableBitstring<TBitDefinition>(bits)
+    : new OerFixedBitstring<TBitDefinition>(bits)
 }

@@ -1,6 +1,7 @@
 import type { Simplify } from "type-fest"
 
 import { AnyOerType, Infer, InferSerialize, OerType } from "./base-type"
+import type { ObjectShape } from "./sequence"
 import { ParseError, SerializeError } from "./utils/errors"
 import type { ParseContext, SerializeContext } from "./utils/parse"
 import {
@@ -36,180 +37,187 @@ type InferOptionSerializeValues<T extends Record<string, AnyOerType>> = {
 // This should be plenty though since tag values are usually much smaller.
 const MAX_SAFE_TAG_VALUE = Number.MAX_SAFE_INTEGER >>> 2
 
-export const choice = <TOptions extends Record<string, AnyOerType>>(
-  options: TOptions
-) => {
-  // Automatic tagging is enabled if none of the values are explicitly tagged
-  const isAutomaticallyTagged = Object.values(options).every(
-    (oer) => oer._tag == undefined
-  )
-  let index = 0
+export class OerChoice<TOptions extends ObjectShape> extends OerType<
+  Simplify<InferOptionValues<TOptions>>,
+  Simplify<InferOptionSerializeValues<TOptions>>
+> {
   // Tags are encoded here as an integer with the class marker in the lowest two bits and the tag value shifted two bits to the right.
-  const keyToTagMap = new Map<keyof TOptions, number>()
-  const tagToKeyMap = new Map<number, keyof TOptions>()
+  private readonly keyToTagMap = new Map<keyof TOptions, number>()
+  private readonly tagToKeyMap = new Map<number, keyof TOptions>()
 
-  for (const [key, oer] of Object.entries(options)) {
-    const tag = isAutomaticallyTagged
-      ? (index++ << 2) | TAG_MARKER_CONTEXT
-      : oer._tag != undefined
-      ? (oer._tag[0] << 2) | oer._tag[1]
-      : undefined
+  /**
+   * A string containing the names of the choices and their corresponding tags, separated by commas. Used for debug messages.
+   */
+  private readonly setHint: string
 
-    if (tag == undefined) {
-      throw new Error(
-        `OER choice: ${key} is not tagged and automatic tagging is disabled`
-      )
-    }
+  constructor(readonly options: TOptions) {
+    super()
 
-    if (tag > MAX_SAFE_TAG_VALUE) {
-      throw new Error(
-        `OER choice: ${key} has a tag value of ${tag} which is too large`
-      )
-    }
+    // Automatic tagging is enabled if none of the values are explicitly tagged
+    const isAutomaticallyTagged = Object.values(options).every(
+      (oer) => oer._tag == undefined
+    )
+    let index = 0
 
-    if (tagToKeyMap.has(tag)) {
-      throw new Error(
-        `OER choice: ${key} has the same tag value as ${String(
-          tagToKeyMap.get(tag)
-        )}`
-      )
-    }
-
-    keyToTagMap.set(key, tag)
-    tagToKeyMap.set(tag, key)
-  }
-
-  Object.fromEntries(
-    Object.entries(options).map(([key, oer]) => {
-      return [
-        key,
-        isAutomaticallyTagged
-          ? ([index++, TAG_MARKER_CONTEXT] as const)
-          : oer._tag,
-      ]
-    })
-  )
-
-  const setHint = Object.entries(keyToTagMap)
-    .map(([key, tag]) => `${key}(${String(tag)})`)
-    .join(",")
-
-  const OerChoice = class extends OerType<
-    Simplify<InferOptionValues<TOptions>>,
-    Simplify<InferOptionSerializeValues<TOptions>>
-  > {
-    parseWithContext(context: ParseContext, offset: number) {
-      const tagResult = parseTag(context, offset)
-
-      if (tagResult instanceof ParseError) {
-        return tagResult
-      }
-
-      const [tag, tagClass, tagLength] = tagResult
-
-      if (tag > MAX_SAFE_TAG_VALUE) {
-        return new ParseError(
-          `unable to parse choice value - tag value ${tag} is too large`,
-          context.uint8Array,
-          offset
-        )
-      }
-
-      const key = tagToKeyMap.get((tag << 2) | tagClass)
-
-      if (key == undefined) {
-        return new ParseError(
-          `unable to read choice value - tag ${tagMarkerClassMap[
-            tagClass
-          ].toUpperCase()} ${tag} not in set ${setHint}`,
-          context.uint8Array,
-          offset
-        )
-      }
-
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const oer = options[key]!
-
-      const result = oer.parseWithContext(context, offset + tagLength)
-
-      if (result instanceof ParseError) {
-        return result
-      }
-
-      return [
-        { [key]: result[0] } as Simplify<InferOptionValues<TOptions>>,
-        tagLength + result[1],
-      ] as const
-    }
-
-    serializeWithContext(
-      input: Simplify<InferOptionSerializeValues<TOptions>>
-    ) {
-      const key = Object.keys(input)[0]
-
-      if (key == undefined) {
-        return new SerializeError(
-          `unable to serialize choice value - no option selected`
-        )
-      }
-
-      const tag = keyToTagMap.get(key)
+    for (const [key, oer] of Object.entries(options)) {
+      const tag = isAutomaticallyTagged
+        ? (index++ << 2) | TAG_MARKER_CONTEXT
+        : oer._tag != undefined
+        ? (oer._tag[0] << 2) | oer._tag[1]
+        : undefined
 
       if (tag == undefined) {
-        return new SerializeError(
-          `unable to serialize choice value - option ${key} not in set ${setHint}`
+        throw new Error(
+          `OER choice: ${key} is not tagged and automatic tagging is disabled`
         )
       }
 
-      const tagValue = tag >>> 2
-      const tagClass = (tag & 3) as TagMarker
-
-      const oer = options[key]
-
-      if (oer == undefined) {
-        return new SerializeError(
-          `unable to serialize choice value - option ${key} not in set ${setHint}`
+      if (tag > MAX_SAFE_TAG_VALUE) {
+        throw new Error(
+          `OER choice: ${key} has a tag value of ${tag} which is too large`
         )
       }
 
-      const tagLength = predictTagLength(tagValue)
-
-      if (tagLength instanceof SerializeError) {
-        return tagLength
+      if (this.tagToKeyMap.has(tag)) {
+        throw new Error(
+          `OER choice: ${key} has the same tag value as ${String(
+            this.tagToKeyMap.get(tag)
+          )}`
+        )
       }
 
-      const valueResult = oer.serializeWithContext(input[key])
-
-      if (valueResult instanceof SerializeError) {
-        return valueResult
-      }
-
-      return [
-        (context: SerializeContext, offset: number) => {
-          const { uint8Array } = context
-
-          const tagSerializeResult = serializeTag(
-            tagValue,
-            tagClass,
-            uint8Array,
-            offset
-          )
-
-          if (tagSerializeResult instanceof SerializeError) {
-            return tagSerializeResult
-          }
-
-          const serializeResult = valueResult[0](context, offset + tagLength)
-
-          if (serializeResult instanceof SerializeError) {
-            return serializeResult
-          }
-
-          return
-        },
-        tagLength + valueResult[1],
-      ] as const
+      this.keyToTagMap.set(key, tag)
+      this.tagToKeyMap.set(tag, key)
     }
+
+    Object.fromEntries(
+      Object.entries(options).map(([key, oer]) => {
+        return [
+          key,
+          isAutomaticallyTagged
+            ? ([index++, TAG_MARKER_CONTEXT] as const)
+            : oer._tag,
+        ]
+      })
+    )
+
+    this.setHint = Object.entries(this.keyToTagMap)
+      .map(([key, tag]) => `${key}(${String(tag)})`)
+      .join(",")
   }
-  return new OerChoice()
+
+  parseWithContext(context: ParseContext, offset: number) {
+    const tagResult = parseTag(context, offset)
+
+    if (tagResult instanceof ParseError) {
+      return tagResult
+    }
+
+    const [tag, tagClass, tagLength] = tagResult
+
+    if (tag > MAX_SAFE_TAG_VALUE) {
+      return new ParseError(
+        `unable to parse choice value - tag value ${tag} is too large`,
+        context.uint8Array,
+        offset
+      )
+    }
+
+    const key = this.tagToKeyMap.get((tag << 2) | tagClass)
+
+    if (key == undefined) {
+      return new ParseError(
+        `unable to read choice value - tag ${tagMarkerClassMap[
+          tagClass
+        ].toUpperCase()} ${tag} not in set ${this.setHint}`,
+        context.uint8Array,
+        offset
+      )
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const oer = this.options[key]!
+
+    const result = oer.parseWithContext(context, offset + tagLength)
+
+    if (result instanceof ParseError) {
+      return result
+    }
+
+    return [
+      { [key]: result[0] } as Simplify<InferOptionValues<TOptions>>,
+      tagLength + result[1],
+    ] as const
+  }
+
+  serializeWithContext(input: Simplify<InferOptionSerializeValues<TOptions>>) {
+    const key = Object.keys(input)[0]
+
+    if (key == undefined) {
+      return new SerializeError(
+        `unable to serialize choice value - no option selected`
+      )
+    }
+
+    const tag = this.keyToTagMap.get(key)
+
+    if (tag == undefined) {
+      return new SerializeError(
+        `unable to serialize choice value - option ${key} not in set ${this.setHint}`
+      )
+    }
+
+    const tagValue = tag >>> 2
+    const tagClass = (tag & 3) as TagMarker
+
+    const oer = this.options[key]
+
+    if (oer == undefined) {
+      return new SerializeError(
+        `unable to serialize choice value - option ${key} not in set ${this.setHint}`
+      )
+    }
+
+    const tagLength = predictTagLength(tagValue)
+
+    if (tagLength instanceof SerializeError) {
+      return tagLength
+    }
+
+    const valueResult = oer.serializeWithContext(input[key])
+
+    if (valueResult instanceof SerializeError) {
+      return valueResult
+    }
+
+    return [
+      (context: SerializeContext, offset: number) => {
+        const { uint8Array } = context
+
+        const tagSerializeResult = serializeTag(
+          tagValue,
+          tagClass,
+          uint8Array,
+          offset
+        )
+
+        if (tagSerializeResult instanceof SerializeError) {
+          return tagSerializeResult
+        }
+
+        const serializeResult = valueResult[0](context, offset + tagLength)
+
+        if (serializeResult instanceof SerializeError) {
+          return serializeResult
+        }
+
+        return
+      },
+      tagLength + valueResult[1],
+    ] as const
+  }
+}
+
+export const choice = <TOptions extends ObjectShape>(options: TOptions) => {
+  return new OerChoice(options)
 }

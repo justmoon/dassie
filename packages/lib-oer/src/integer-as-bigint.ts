@@ -38,248 +38,278 @@ export const INT32_MAX = 2_147_483_647n
 export const INT64_MIN = -9_223_372_036_854_775_808n
 export const INT64_MAX = 9_223_372_036_854_775_807n
 
-export const createOerFixedInteger = (
-  size: 8 | 16 | 32 | 64,
-  type: "Uint" | "Int"
-) => {
-  const byteSize = size / 8
+export abstract class OerFixedIntegerBigint extends OerType<bigint> {
+  abstract readonly type: "Uint" | "Int"
+  abstract readonly size: 8 | 16 | 32 | 64
 
-  return class extends OerType<bigint> {
-    constructor(readonly options: FixedIntegerOptions) {
-      super()
+  constructor(readonly options: FixedIntegerOptions) {
+    super()
+  }
+
+  parseWithContext({ uint8Array, dataView }: ParseContext, offset: number) {
+    if (offset + this.size / 8 > dataView.byteLength) {
+      return new ParseError(
+        `unable to read fixed length integer of size ${
+          this.size / 8
+        } bytes - end of buffer`,
+        uint8Array,
+        uint8Array.byteLength
+      )
     }
 
-    parseWithContext({ uint8Array, dataView }: ParseContext, offset: number) {
-      if (offset + byteSize > dataView.byteLength) {
-        return new ParseError(
-          `unable to read fixed length integer of size ${byteSize} bytes - end of buffer`,
-          uint8Array,
-          uint8Array.byteLength
-        )
-      }
+    const value =
+      this.size === 64
+        ? dataView[`getBig${this.type}${this.size}`](offset)
+        : BigInt(dataView[`get${this.type}${this.size}`](offset))
 
-      const value =
-        size === 64
-          ? dataView[`getBig${type}${size}`](offset)
-          : BigInt(dataView[`get${type}${size}`](offset))
-
-      if (value < this.options.minimumValue) {
-        return new ParseError(
-          `unable to read fixed length integer of size ${byteSize} bytes - value ${value} is less than minimum value ${this.options.minimumValue}`,
-          uint8Array,
-          offset
-        )
-      }
-
-      if (value > this.options.maximumValue) {
-        return new ParseError(
-          `unable to read fixed length integer of size ${byteSize} bytes - value ${value} is greater than maximum value ${this.options.maximumValue}`,
-          uint8Array,
-          offset
-        )
-      }
-
-      return [value, byteSize] as const
+    if (value < this.options.minimumValue) {
+      return new ParseError(
+        `unable to read fixed length integer of size ${
+          this.size / 8
+        } bytes - value ${value} is less than minimum value ${
+          this.options.minimumValue
+        }`,
+        uint8Array,
+        offset
+      )
     }
 
-    serializeWithContext(value: bigint) {
-      return [
-        (context: SerializeContext, offset: number) => {
-          if (value < this.options.minimumValue) {
-            return new SerializeError(
-              `integer must be >= ${this.options.minimumValue}`
-            )
-          }
-
-          if (value > this.options.maximumValue) {
-            return new SerializeError(
-              `integer must be <= ${this.options.maximumValue}`
-            )
-          }
-
-          if (size === 64) {
-            context.dataView[`setBig${type}${size}`](offset, value)
-          } else {
-            context.dataView[`set${type}${size}`](offset, Number(value))
-          }
-
-          return
-        },
-        byteSize,
-      ] as const
+    if (value > this.options.maximumValue) {
+      return new ParseError(
+        `unable to read fixed length integer of size ${
+          this.size / 8
+        } bytes - value ${value} is greater than maximum value ${
+          this.options.maximumValue
+        }`,
+        uint8Array,
+        offset
+      )
     }
+
+    return [value, this.size / 8] as const
+  }
+
+  serializeWithContext(value: bigint) {
+    return [
+      (context: SerializeContext, offset: number) => {
+        if (value < this.options.minimumValue) {
+          return new SerializeError(
+            `integer must be >= ${this.options.minimumValue}`
+          )
+        }
+
+        if (value > this.options.maximumValue) {
+          return new SerializeError(
+            `integer must be <= ${this.options.maximumValue}`
+          )
+        }
+
+        if (this.size === 64) {
+          context.dataView[`setBig${this.type}${this.size}`](offset, value)
+        } else {
+          context.dataView[`set${this.type}${this.size}`](offset, Number(value))
+        }
+
+        return
+      },
+      this.size / 8,
+    ] as const
   }
 }
 
-export const OerUint8 = createOerFixedInteger(8, "Uint")
-export const OerUint16 = createOerFixedInteger(16, "Uint")
-export const OerUint32 = createOerFixedInteger(32, "Uint")
-export const OerUint64 = createOerFixedInteger(64, "Uint")
+export class OerUint8Bigint extends OerFixedIntegerBigint {
+  readonly type = "Uint"
+  readonly size = 8
+}
+export class OerUint16Bigint extends OerFixedIntegerBigint {
+  readonly type = "Uint"
+  readonly size = 16
+}
+export class OerUint32Bigint extends OerFixedIntegerBigint {
+  readonly type = "Uint"
+  readonly size = 32
+}
+export class OerUint64Bigint extends OerFixedIntegerBigint {
+  readonly type = "Uint"
+  readonly size = 64
+}
 
-export const OerInt8 = createOerFixedInteger(8, "Int")
-export const OerInt16 = createOerFixedInteger(16, "Int")
-export const OerInt32 = createOerFixedInteger(32, "Int")
-export const OerInt64 = createOerFixedInteger(64, "Int")
+export class OerInt8Bigint extends OerFixedIntegerBigint {
+  readonly type = "Int"
+  readonly size = 8
+}
+export class OerInt16Bigint extends OerFixedIntegerBigint {
+  readonly type = "Int"
+  readonly size = 16
+}
+export class OerInt32Bigint extends OerFixedIntegerBigint {
+  readonly type = "Int"
+  readonly size = 32
+}
+export class OerInt64Bigint extends OerFixedIntegerBigint {
+  readonly type = "Int"
+  readonly size = 64
+}
+
+export class OerVariableUnsignedInteger extends OerType<bigint> {
+  parseWithContext(context: ParseContext, offset: number) {
+    const { uint8Array, dataView } = context
+    const result = parseLengthPrefix(context, offset)
+
+    if (result instanceof ParseError) {
+      return result
+    }
+
+    const [length, lengthOfLength] = result
+
+    if (length === 0) {
+      return new ParseError(
+        `unable to read variable length integer - length must not be 0`,
+        uint8Array,
+        offset
+      )
+    }
+
+    offset += lengthOfLength
+
+    let value = 0n
+    let index = 0
+    while (index < length) {
+      if (index + 4 < length) {
+        value = (value << 32n) + BigInt(dataView.getUint32(offset + index))
+        index += 4
+      } else {
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+        value = (value << 8n) + BigInt(uint8Array[offset + index]!)
+        index += 1
+      }
+    }
+
+    return [value, lengthOfLength + length] as const
+  }
+
+  serializeWithContext(input: bigint) {
+    if (!isUnsignedBigint(input)) {
+      return new SerializeError(
+        `expected unsigned bigint, got ${typeof input}: ${input}`
+      )
+    }
+
+    const length = unsignedBigintByteLength(input)
+    const lengthOfLengthPrefix = predictLengthPrefixLength(length)
+
+    if (lengthOfLengthPrefix instanceof SerializeError) {
+      return lengthOfLengthPrefix
+    }
+
+    return [
+      ({ uint8Array }: SerializeContext, offset: number) => {
+        const length = unsignedBigintByteLength(input)
+        const lengthOfLengthPrefix = serializeLengthPrefix(
+          length,
+          uint8Array,
+          offset
+        )
+
+        if (lengthOfLengthPrefix instanceof SerializeError) {
+          return lengthOfLengthPrefix
+        }
+
+        let remainder: bigint = input
+
+        for (let index = 0; index < length; index++) {
+          const byte = remainder & 0xffn
+          uint8Array[offset + lengthOfLengthPrefix + length - index - 1] =
+            Number(byte)
+          remainder >>= 8n
+        }
+
+        return
+      },
+      lengthOfLengthPrefix + length,
+    ] as const
+  }
+}
+
+export class OerVariableSignedInteger extends OerType<bigint> {
+  parseWithContext(context: ParseContext, offset: number) {
+    const { uint8Array } = context
+    const result = parseLengthPrefix(context, offset)
+
+    if (result instanceof ParseError) {
+      return result
+    }
+
+    const [length, lengthOfLength] = result
+
+    if (length === 0) {
+      return new ParseError(
+        `unable to read variable length integer - length must not be 0`,
+        uint8Array,
+        offset
+      )
+    }
+
+    offset += lengthOfLength
+
+    let value = 0n
+    let index = 0
+    while (index < length) {
+      value = (value << 8n) | BigInt(uint8Array[offset + index]!)
+      index += 1
+    }
+
+    const twosComplement = 2n ** (BigInt(length) * 8n)
+    if (value >= twosComplement >> 1n) {
+      value = -(twosComplement - value)
+    }
+
+    return [value, lengthOfLength + length] as const
+  }
+
+  serializeWithContext(input: bigint) {
+    const length = signedBigintByteLength(input)
+    const lengthOfLengthPrefix = predictLengthPrefixLength(length)
+
+    if (lengthOfLengthPrefix instanceof SerializeError) {
+      return lengthOfLengthPrefix
+    }
+
+    return [
+      ({ uint8Array }: SerializeContext, offset: number) => {
+        const lengthPrefixSerializeResult = serializeLengthPrefix(
+          length,
+          uint8Array,
+          offset
+        )
+
+        if (lengthPrefixSerializeResult instanceof SerializeError) {
+          return lengthPrefixSerializeResult
+        }
+
+        // Calculate two's complement if input is negative
+        if (input < 0n) {
+          input += 2n ** BigInt(length * 8)
+        }
+
+        let remainder: bigint = input
+
+        for (let index = 0; index < length; index++) {
+          const byte = remainder & 0xffn
+          uint8Array[offset + lengthOfLengthPrefix + length - index - 1] =
+            Number(byte)
+          remainder >>= 8n
+        }
+
+        return
+      },
+      lengthOfLengthPrefix + length,
+    ] as const
+  }
+}
 
 export const integerAsBigint = (range?: Range<bigint>) => {
   const [minimumValue, maximumValue] = parseRange(range)
-
-  const OerVariableUnsignedInteger = class extends OerType<bigint> {
-    parseWithContext(context: ParseContext, offset: number) {
-      const { uint8Array, dataView } = context
-      const result = parseLengthPrefix(context, offset)
-
-      if (result instanceof ParseError) {
-        return result
-      }
-
-      const [length, lengthOfLength] = result
-
-      if (length === 0) {
-        return new ParseError(
-          `unable to read variable length integer - length must not be 0`,
-          uint8Array,
-          offset
-        )
-      }
-
-      offset += lengthOfLength
-
-      let value = 0n
-      let index = 0
-      while (index < length) {
-        if (index + 4 < length) {
-          value = (value << 32n) + BigInt(dataView.getUint32(offset + index))
-          index += 4
-        } else {
-          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-          value = (value << 8n) + BigInt(uint8Array[offset + index]!)
-          index += 1
-        }
-      }
-
-      return [value, lengthOfLength + length] as const
-    }
-
-    serializeWithContext(input: bigint) {
-      if (!isUnsignedBigint(input)) {
-        return new SerializeError(
-          `expected unsigned bigint, got ${typeof input}: ${input}`
-        )
-      }
-
-      const length = unsignedBigintByteLength(input)
-      const lengthOfLengthPrefix = predictLengthPrefixLength(length)
-
-      if (lengthOfLengthPrefix instanceof SerializeError) {
-        return lengthOfLengthPrefix
-      }
-
-      return [
-        ({ uint8Array }: SerializeContext, offset: number) => {
-          const length = unsignedBigintByteLength(input)
-          const lengthOfLengthPrefix = serializeLengthPrefix(
-            length,
-            uint8Array,
-            offset
-          )
-
-          if (lengthOfLengthPrefix instanceof SerializeError) {
-            return lengthOfLengthPrefix
-          }
-
-          let remainder: bigint = input
-
-          for (let index = 0; index < length; index++) {
-            const byte = remainder & 0xffn
-            uint8Array[offset + lengthOfLengthPrefix + length - index - 1] =
-              Number(byte)
-            remainder >>= 8n
-          }
-
-          return
-        },
-        lengthOfLengthPrefix + length,
-      ] as const
-    }
-  }
-
-  const OerVariableSignedInteger = class extends OerType<bigint> {
-    parseWithContext(context: ParseContext, offset: number) {
-      const { uint8Array } = context
-      const result = parseLengthPrefix(context, offset)
-
-      if (result instanceof ParseError) {
-        return result
-      }
-
-      const [length, lengthOfLength] = result
-
-      if (length === 0) {
-        return new ParseError(
-          `unable to read variable length integer - length must not be 0`,
-          uint8Array,
-          offset
-        )
-      }
-
-      offset += lengthOfLength
-
-      let value = 0n
-      let index = 0
-      while (index < length) {
-        value = (value << 8n) | BigInt(uint8Array[offset + index]!)
-        index += 1
-      }
-
-      const twosComplement = 2n ** (BigInt(length) * 8n)
-      if (value >= twosComplement >> 1n) {
-        value = -(twosComplement - value)
-      }
-
-      return [value, lengthOfLength + length] as const
-    }
-
-    serializeWithContext(input: bigint) {
-      const length = signedBigintByteLength(input)
-      const lengthOfLengthPrefix = predictLengthPrefixLength(length)
-
-      if (lengthOfLengthPrefix instanceof SerializeError) {
-        return lengthOfLengthPrefix
-      }
-
-      return [
-        ({ uint8Array }: SerializeContext, offset: number) => {
-          const lengthPrefixSerializeResult = serializeLengthPrefix(
-            length,
-            uint8Array,
-            offset
-          )
-
-          if (lengthPrefixSerializeResult instanceof SerializeError) {
-            return lengthPrefixSerializeResult
-          }
-
-          // Calculate two's complement if input is negative
-          if (input < 0n) {
-            input += 2n ** BigInt(length * 8)
-          }
-
-          let remainder: bigint = input
-
-          for (let index = 0; index < length; index++) {
-            const byte = remainder & 0xffn
-            uint8Array[offset + lengthOfLengthPrefix + length - index - 1] =
-              Number(byte)
-            remainder >>= 8n
-          }
-
-          return
-        },
-        lengthOfLengthPrefix + length,
-      ] as const
-    }
-  }
 
   if (minimumValue != undefined && maximumValue != undefined) {
     const fixedOptions = {
@@ -290,23 +320,23 @@ export const integerAsBigint = (range?: Range<bigint>) => {
     // Fixed size integer encodings
     if (minimumValue >= UINT_MIN) {
       if (maximumValue <= UINT8_MAX) {
-        return new OerUint8(fixedOptions)
+        return new OerUint8Bigint(fixedOptions)
       } else if (maximumValue <= UINT16_MAX) {
-        return new OerUint16(fixedOptions)
+        return new OerUint16Bigint(fixedOptions)
       } else if (maximumValue <= UINT32_MAX) {
-        return new OerUint32(fixedOptions)
+        return new OerUint32Bigint(fixedOptions)
       } else if (maximumValue <= UINT64_MAX) {
-        return new OerUint64(fixedOptions)
+        return new OerUint64Bigint(fixedOptions)
       }
     } else {
       if (minimumValue <= INT8_MIN && maximumValue <= INT8_MAX) {
-        return new OerInt8(fixedOptions)
+        return new OerInt8Bigint(fixedOptions)
       } else if (minimumValue <= INT16_MIN && maximumValue <= INT16_MAX) {
-        return new OerInt16(fixedOptions)
+        return new OerInt16Bigint(fixedOptions)
       } else if (minimumValue <= INT32_MIN && maximumValue <= INT32_MAX) {
-        return new OerInt32(fixedOptions)
+        return new OerInt32Bigint(fixedOptions)
       } else if (minimumValue <= INT64_MIN && maximumValue <= INT64_MAX) {
-        return new OerInt64(fixedOptions)
+        return new OerInt64Bigint(fixedOptions)
       }
     }
   }

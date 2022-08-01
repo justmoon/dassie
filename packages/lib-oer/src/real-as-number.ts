@@ -28,43 +28,47 @@ export const FLOAT64_MAX_MANTISSA_NUMBER = Number.MAX_SAFE_INTEGER
 export const FLOAT64_MIN_EXPONENT_NUMBER = -1074
 export const FLOAT64_MAX_EXPONENT_NUMBER = 971
 
-export const createOerFixedRealNumber = (size: 32 | 64) => {
-  const byteSize = size / 8
+export abstract class OerFloatNumber extends OerType<number> {
+  abstract readonly size: 32 | 64
 
-  return class extends OerType<number> {
-    constructor(readonly options: FixedRealAsNumberOptions) {
-      super()
+  constructor(readonly options: FixedRealAsNumberOptions) {
+    super()
+  }
+
+  parseWithContext({ uint8Array, dataView }: ParseContext, offset: number) {
+    if (offset + this.size / 8 > dataView.byteLength) {
+      return new ParseError(
+        `unable to read fixed length real of size ${
+          this.size / 8
+        } bytes - end of buffer`,
+        uint8Array,
+        uint8Array.byteLength
+      )
     }
 
-    parseWithContext({ uint8Array, dataView }: ParseContext, offset: number) {
-      if (offset + byteSize > dataView.byteLength) {
-        return new ParseError(
-          `unable to read fixed length real of size ${byteSize} bytes - end of buffer`,
-          uint8Array,
-          uint8Array.byteLength
-        )
-      }
+    const value = dataView[`getFloat${this.size}`](offset)
 
-      const value = dataView[`getFloat${size}`](offset)
+    return [value, this.size / 8] as const
+  }
 
-      return [value, byteSize] as const
-    }
+  serializeWithContext(value: number) {
+    return [
+      (context: SerializeContext, offset: number) => {
+        context.dataView[`setFloat${this.size}`](offset, value)
 
-    serializeWithContext(value: number) {
-      return [
-        (context: SerializeContext, offset: number) => {
-          context.dataView[`setFloat${size}`](offset, value)
-
-          return
-        },
-        byteSize,
-      ] as const
-    }
+        return
+      },
+      this.size / 8,
+    ] as const
   }
 }
 
-const OerFloat32Number = createOerFixedRealNumber(32)
-const OerFloat64Number = createOerFixedRealNumber(64)
+export class OerFloat32Number extends OerFloatNumber {
+  readonly size = 32
+}
+export class OerFloat64Number extends OerFloatNumber {
+  readonly size = 64
+}
 
 export const realAsNumber = ({
   mantissa = [FLOAT64_MIN_MANTISSA_NUMBER, FLOAT64_MAX_MANTISSA_NUMBER],

@@ -19,79 +19,103 @@ export const INT16_MAX_NUMBER = 32_767
 export const INT32_MIN_NUMBER = -2_147_483_648
 export const INT32_MAX_NUMBER = 2_147_483_647
 
-export const createOerFixedIntegerNumber = (
-  size: 8 | 16 | 32,
-  type: "Uint" | "Int"
-) => {
-  const byteSize = size / 8
+export abstract class OerFixedIntegerNumber extends OerType<number> {
+  abstract readonly type: "Uint" | "Int"
+  abstract readonly size: 8 | 16 | 32
 
-  return class extends OerType<number> {
-    constructor(readonly options: IntegerAsNumberOptions) {
-      super()
+  constructor(readonly options: IntegerAsNumberOptions) {
+    super()
+  }
+
+  parseWithContext({ uint8Array, dataView }: ParseContext, offset: number) {
+    if (offset + this.size / 8 > dataView.byteLength) {
+      return new ParseError(
+        `unable to read fixed length integer of size ${
+          this.size / 8
+        } bytes - end of buffer`,
+        uint8Array,
+        uint8Array.byteLength
+      )
     }
 
-    parseWithContext({ uint8Array, dataView }: ParseContext, offset: number) {
-      if (offset + byteSize > dataView.byteLength) {
-        return new ParseError(
-          `unable to read fixed length integer of size ${byteSize} bytes - end of buffer`,
-          uint8Array,
-          uint8Array.byteLength
-        )
-      }
+    const value = dataView[`get${this.type}${this.size}`](offset)
 
-      const value = dataView[`get${type}${size}`](offset)
-
-      if (value < this.options.range[0]) {
-        return new ParseError(
-          `unable to read fixed length integer of size ${byteSize} bytes - value ${value} is less than minimum value ${this.options.range[0]}`,
-          uint8Array,
-          offset
-        )
-      }
-
-      if (value > this.options.range[1]) {
-        return new ParseError(
-          `unable to read fixed length integer of size ${byteSize} bytes - value ${value} is greater than maximum value ${this.options.range[1]}`,
-          uint8Array,
-          offset
-        )
-      }
-
-      return [value, byteSize] as const
+    if (value < this.options.range[0]) {
+      return new ParseError(
+        `unable to read fixed length integer of size ${
+          this.size / 8
+        } bytes - value ${value} is less than minimum value ${
+          this.options.range[0]
+        }`,
+        uint8Array,
+        offset
+      )
     }
 
-    serializeWithContext(value: number) {
-      return [
-        (context: SerializeContext, offset: number) => {
-          if (value < this.options.range[0]) {
-            return new SerializeError(
-              `integer must be >= ${this.options.range[0]}`
-            )
-          }
-
-          if (value > this.options.range[1]) {
-            return new SerializeError(
-              `integer must be <= ${this.options.range[1]}`
-            )
-          }
-
-          context.dataView[`set${type}${size}`](offset, value)
-
-          return
-        },
-        byteSize,
-      ] as const
+    if (value > this.options.range[1]) {
+      return new ParseError(
+        `unable to read fixed length integer of size ${
+          this.size / 8
+        } bytes - value ${value} is greater than maximum value ${
+          this.options.range[1]
+        }`,
+        uint8Array,
+        offset
+      )
     }
+
+    return [value, this.size / 8] as const
+  }
+
+  serializeWithContext(value: number) {
+    return [
+      (context: SerializeContext, offset: number) => {
+        if (value < this.options.range[0]) {
+          return new SerializeError(
+            `integer must be >= ${this.options.range[0]}`
+          )
+        }
+
+        if (value > this.options.range[1]) {
+          return new SerializeError(
+            `integer must be <= ${this.options.range[1]}`
+          )
+        }
+
+        context.dataView[`set${this.type}${this.size}`](offset, value)
+
+        return
+      },
+      this.size / 8,
+    ] as const
   }
 }
 
-export const OerUint8Number = createOerFixedIntegerNumber(8, "Uint")
-export const OerUint16Number = createOerFixedIntegerNumber(16, "Uint")
-export const OerUint32Number = createOerFixedIntegerNumber(32, "Uint")
+export class OerUint8Number extends OerFixedIntegerNumber {
+  readonly size = 8
+  readonly type = "Uint"
+}
+export class OerUint16Number extends OerFixedIntegerNumber {
+  readonly size = 16
+  readonly type = "Uint"
+}
+export class OerUint32Number extends OerFixedIntegerNumber {
+  readonly size = 32
+  readonly type = "Uint"
+}
 
-export const OerInt8Number = createOerFixedIntegerNumber(8, "Int")
-export const OerInt16Number = createOerFixedIntegerNumber(16, "Int")
-export const OerInt32Number = createOerFixedIntegerNumber(32, "Int")
+export class OerInt8Number extends OerFixedIntegerNumber {
+  readonly size = 8
+  readonly type = "Int"
+}
+export class OerInt16Number extends OerFixedIntegerNumber {
+  readonly size = 16
+  readonly type = "Int"
+}
+export class OerInt32Number extends OerFixedIntegerNumber {
+  readonly size = 32
+  readonly type = "Int"
+}
 
 export const integerAsNumber = (range: Range<number>) => {
   const [minimumValue, maximumValue] = parseRange(range)
