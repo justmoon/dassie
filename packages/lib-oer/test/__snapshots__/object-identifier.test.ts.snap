@@ -1,5 +1,12 @@
 // Vitest Snapshot v1
 
+exports[`objectIdentifier > with schema > should refuse to parse an object identifier with a length prefix of 0 1`] = `
+{
+  "failure": [ParseError: object identifier of length zero is invalid],
+  "success": false,
+}
+`;
+
 exports[`objectIdentifier > with schema > should refuse to parse an object identifier with a length prefix of 1 that is two bytes long 1`] = `
 {
   "failure": [ParseError: unable to read base-128 value - value is longer than expected based on context],
@@ -10,6 +17,13 @@ exports[`objectIdentifier > with schema > should refuse to parse an object ident
 exports[`objectIdentifier > with schema > should refuse to parse an object identifier with a length prefix of 3 that is only two bytes long 1`] = `
 {
   "failure": [ParseError: unable to read length prefix - end of buffer],
+  "success": false,
+}
+`;
+
+exports[`objectIdentifier > with schema > should refuse to parse an object identifier with unnecessary extra padding 1`] = `
+{
+  "failure": [ParseError: invalid base-128 value - must not contain unnecessary padding],
   "success": false,
 }
 `;

@@ -31,6 +31,13 @@ describe("objectIdentifier", () => {
       })
     })
 
+    test("should refuse to parse an object identifier with a length prefix of 0", ({
+      expect,
+    }) => {
+      const result = schema.parse(hexToUint8Array("00"))
+      expect(result).toMatchSnapshot()
+    })
+
     test("should refuse to serialize an object identifier with a first segment greater than 2", ({
       expect,
     }) => {
@@ -63,6 +70,13 @@ describe("objectIdentifier", () => {
       expect,
     }) => {
       const result = schema.parse(hexToUint8Array("018837"))
+      expect(result).toMatchSnapshot()
+    })
+
+    test("should refuse to parse an object identifier with unnecessary extra padding", ({
+      expect,
+    }) => {
+      const result = schema.parse(hexToUint8Array("03808837"))
       expect(result).toMatchSnapshot()
     })
   })

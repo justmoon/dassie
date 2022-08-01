@@ -8,6 +8,14 @@ export const parseBase128 = (
 ): ParseError | readonly [value: bigint, lengthOfEncoding: number] => {
   const { uint8Array } = context
 
+  if (uint8Array[offset] == 0x80) {
+    return new ParseError(
+      "invalid base-128 value - must not contain unnecessary padding",
+      uint8Array,
+      offset
+    )
+  }
+
   // In OER base-128 encoding, the lower seven bits contain a value and the upper bit unset marks the end.
   let lengthOfEncoding = 0
   let value = 0n
