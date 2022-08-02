@@ -184,37 +184,36 @@ export class OerChoice<TOptions extends ObjectShape> extends OerType<
       return tagLength
     }
 
-    const valueResult = oer.serializeWithContext(input[key])
+    const valueSerializer = oer.serializeWithContext(input[key])
 
-    if (valueResult instanceof SerializeError) {
-      return valueResult
+    if (valueSerializer instanceof SerializeError) {
+      return valueSerializer
     }
 
-    return [
-      (context: SerializeContext, offset: number) => {
-        const { uint8Array } = context
+    const serializer = (context: SerializeContext, offset: number) => {
+      const { uint8Array } = context
 
-        const tagSerializeResult = serializeTag(
-          tagValue,
-          tagClass,
-          uint8Array,
-          offset
-        )
+      const tagSerializeResult = serializeTag(
+        tagValue,
+        tagClass,
+        uint8Array,
+        offset
+      )
 
-        if (tagSerializeResult instanceof SerializeError) {
-          return tagSerializeResult
-        }
+      if (tagSerializeResult instanceof SerializeError) {
+        return tagSerializeResult
+      }
 
-        const serializeResult = valueResult[0](context, offset + tagLength)
+      const serializeResult = valueSerializer(context, offset + tagLength)
 
-        if (serializeResult instanceof SerializeError) {
-          return serializeResult
-        }
+      if (serializeResult instanceof SerializeError) {
+        return serializeResult
+      }
 
-        return
-      },
-      tagLength + valueResult[1],
-    ] as const
+      return
+    }
+    serializer.size = tagLength + valueSerializer.size
+    return serializer
   }
 }
 

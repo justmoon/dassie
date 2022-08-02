@@ -120,36 +120,35 @@ export class OerObjectIdentifier extends OerType<string> {
       return lengthOfLengthPrefix
     }
 
-    return [
-      ({ uint8Array }: SerializeContext, offset: number) => {
-        const lengthPrefixSerializeResult = serializeLengthPrefix(
-          length,
+    const serializer = ({ uint8Array }: SerializeContext, offset: number) => {
+      const lengthPrefixSerializeResult = serializeLengthPrefix(
+        length,
+        uint8Array,
+        offset
+      )
+
+      if (lengthPrefixSerializeResult instanceof SerializeError) {
+        return lengthPrefixSerializeResult
+      }
+
+      let currentOffset = (offset = lengthOfLengthPrefix)
+      for (const subidentifier of subidentifiers) {
+        const subidentifierSerializeResult = serializeBase128(
+          subidentifier,
           uint8Array,
-          offset
+          currentOffset
         )
 
-        if (lengthPrefixSerializeResult instanceof SerializeError) {
-          return lengthPrefixSerializeResult
+        if (subidentifierSerializeResult instanceof SerializeError) {
+          return subidentifierSerializeResult
         }
 
-        let currentOffset = (offset = lengthOfLengthPrefix)
-        for (const subidentifier of subidentifiers) {
-          const subidentifierSerializeResult = serializeBase128(
-            subidentifier,
-            uint8Array,
-            currentOffset
-          )
-
-          if (subidentifierSerializeResult instanceof SerializeError) {
-            return subidentifierSerializeResult
-          }
-
-          currentOffset += subidentifierSerializeResult
-        }
-        return
-      },
-      lengthOfLengthPrefix + length,
-    ] as const
+        currentOffset += subidentifierSerializeResult
+      }
+      return
+    }
+    serializer.size = lengthOfLengthPrefix + length
+    return serializer
   }
 }
 

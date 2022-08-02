@@ -90,30 +90,29 @@ export abstract class OerFixedIntegerBigint extends OerType<bigint> {
   }
 
   serializeWithContext(value: bigint) {
-    return [
-      (context: SerializeContext, offset: number) => {
-        if (value < this.options.minimumValue) {
-          return new SerializeError(
-            `integer must be >= ${this.options.minimumValue}`
-          )
-        }
+    const serializer = (context: SerializeContext, offset: number) => {
+      if (value < this.options.minimumValue) {
+        return new SerializeError(
+          `integer must be >= ${this.options.minimumValue}`
+        )
+      }
 
-        if (value > this.options.maximumValue) {
-          return new SerializeError(
-            `integer must be <= ${this.options.maximumValue}`
-          )
-        }
+      if (value > this.options.maximumValue) {
+        return new SerializeError(
+          `integer must be <= ${this.options.maximumValue}`
+        )
+      }
 
-        if (this.size === 64) {
-          context.dataView[`setBig${this.type}${this.size}`](offset, value)
-        } else {
-          context.dataView[`set${this.type}${this.size}`](offset, Number(value))
-        }
+      if (this.size === 64) {
+        context.dataView[`setBig${this.type}${this.size}`](offset, value)
+      } else {
+        context.dataView[`set${this.type}${this.size}`](offset, Number(value))
+      }
 
-        return
-      },
-      this.size / 8,
-    ] as const
+      return
+    }
+    serializer.size = this.size / 8
+    return serializer
   }
 }
 
@@ -202,32 +201,31 @@ export class OerVariableUnsignedInteger extends OerType<bigint> {
       return lengthOfLengthPrefix
     }
 
-    return [
-      ({ uint8Array }: SerializeContext, offset: number) => {
-        const length = unsignedBigintByteLength(input)
-        const lengthOfLengthPrefix = serializeLengthPrefix(
-          length,
-          uint8Array,
-          offset
-        )
+    const serializer = ({ uint8Array }: SerializeContext, offset: number) => {
+      const length = unsignedBigintByteLength(input)
+      const lengthOfLengthPrefix = serializeLengthPrefix(
+        length,
+        uint8Array,
+        offset
+      )
 
-        if (lengthOfLengthPrefix instanceof SerializeError) {
-          return lengthOfLengthPrefix
-        }
+      if (lengthOfLengthPrefix instanceof SerializeError) {
+        return lengthOfLengthPrefix
+      }
 
-        let remainder: bigint = input
+      let remainder: bigint = input
 
-        for (let index = 0; index < length; index++) {
-          const byte = remainder & 0xffn
-          uint8Array[offset + lengthOfLengthPrefix + length - index - 1] =
-            Number(byte)
-          remainder >>= 8n
-        }
+      for (let index = 0; index < length; index++) {
+        const byte = remainder & 0xffn
+        uint8Array[offset + lengthOfLengthPrefix + length - index - 1] =
+          Number(byte)
+        remainder >>= 8n
+      }
 
-        return
-      },
-      lengthOfLengthPrefix + length,
-    ] as const
+      return
+    }
+    serializer.size = lengthOfLengthPrefix + length
+    return serializer
   }
 }
 
@@ -275,36 +273,35 @@ export class OerVariableSignedInteger extends OerType<bigint> {
       return lengthOfLengthPrefix
     }
 
-    return [
-      ({ uint8Array }: SerializeContext, offset: number) => {
-        const lengthPrefixSerializeResult = serializeLengthPrefix(
-          length,
-          uint8Array,
-          offset
-        )
+    const serializer = ({ uint8Array }: SerializeContext, offset: number) => {
+      const lengthPrefixSerializeResult = serializeLengthPrefix(
+        length,
+        uint8Array,
+        offset
+      )
 
-        if (lengthPrefixSerializeResult instanceof SerializeError) {
-          return lengthPrefixSerializeResult
-        }
+      if (lengthPrefixSerializeResult instanceof SerializeError) {
+        return lengthPrefixSerializeResult
+      }
 
-        // Calculate two's complement if input is negative
-        if (input < 0n) {
-          input += 2n ** BigInt(length * 8)
-        }
+      // Calculate two's complement if input is negative
+      if (input < 0n) {
+        input += 2n ** BigInt(length * 8)
+      }
 
-        let remainder: bigint = input
+      let remainder: bigint = input
 
-        for (let index = 0; index < length; index++) {
-          const byte = remainder & 0xffn
-          uint8Array[offset + lengthOfLengthPrefix + length - index - 1] =
-            Number(byte)
-          remainder >>= 8n
-        }
+      for (let index = 0; index < length; index++) {
+        const byte = remainder & 0xffn
+        uint8Array[offset + lengthOfLengthPrefix + length - index - 1] =
+          Number(byte)
+        remainder >>= 8n
+      }
 
-        return
-      },
-      lengthOfLengthPrefix + length,
-    ] as const
+      return
+    }
+    serializer.size = lengthOfLengthPrefix + length
+    return serializer
   }
 }
 

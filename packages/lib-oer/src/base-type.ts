@@ -18,14 +18,14 @@ export interface ParseOptions {
   allowNoncanonical?: boolean
 }
 
-export type IntermediateSerializationResult = readonly [
-  serialize: (
+export interface Serializer {
+  (
     context: SerializeContext,
     offset: number
     // eslint-disable-next-line @typescript-eslint/no-invalid-void-type
-  ) => SerializeError | void,
-  length: number
-]
+  ): SerializeError | void
+  size: number
+}
 
 export abstract class OerType<TParseValue, TSerializeValue = TParseValue> {
   _tag: readonly [tagValue: number, tagClass: TagMarker] | undefined
@@ -36,7 +36,7 @@ export abstract class OerType<TParseValue, TSerializeValue = TParseValue> {
   ): readonly [value: TParseValue, length: number] | ParseError
   abstract serializeWithContext(
     value: TSerializeValue
-  ): IntermediateSerializationResult | SerializeError
+  ): Serializer | SerializeError
 
   parse(
     input: Uint8Array,
@@ -75,17 +75,15 @@ export abstract class OerType<TParseValue, TSerializeValue = TParseValue> {
   ):
     | { success: true; value: Uint8Array }
     | { success: false; failure: SerializeError } {
-    const prediction = this.serializeWithContext(value)
+    const serializer = this.serializeWithContext(value)
 
-    if (prediction instanceof SerializeError) {
-      return { success: false, failure: prediction }
+    if (serializer instanceof SerializeError) {
+      return { success: false, failure: serializer }
     }
 
-    const [serialize, length] = prediction
+    const uint8Array = new Uint8Array(serializer.size)
 
-    const uint8Array = new Uint8Array(length)
-
-    const result = serialize(
+    const result = serializer(
       {
         uint8Array,
         dataView: new DataView(
@@ -144,9 +142,7 @@ export class OerOptional<TParseValue, TSerializeValue> extends OerType<
     return this.subType.parseWithContext(context, offset)
   }
 
-  serializeWithContext(
-    value: TSerializeValue
-  ): SerializeError | IntermediateSerializationResult {
+  serializeWithContext(value: TSerializeValue): SerializeError | Serializer {
     return this.subType.serializeWithContext(value)
   }
 }
@@ -212,13 +208,13 @@ export class OerConstant<TParseValue, TSerializeValue> extends OerType<
     return [this.parsedValue, this.serializedValue.length]
   }
 
-  serializeWithContext(): IntermediateSerializationResult {
-    return [
-      (context: SerializeContext, offset: number) => {
-        context.uint8Array.set(this.serializedValue, offset)
-      },
-      this.serializedValue.length,
-    ]
+  serializeWithContext(): Serializer {
+    // eslint-disable-next-line unicorn/consistent-function-scoping
+    const serializer = (context: SerializeContext, offset: number) => {
+      context.uint8Array.set(this.serializedValue, offset)
+    }
+    serializer.size = this.serializedValue.length
+    return serializer
   }
 
   override serialize() {

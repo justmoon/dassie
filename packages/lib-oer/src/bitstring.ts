@@ -106,21 +106,20 @@ export class OerVariableBitstring<
       return lengthOfLength
     }
 
-    return [
-      (context: SerializeContext, offset: number) => {
-        const { uint8Array } = context
-        const lengthOfLength = serializeLengthPrefix(length, uint8Array, offset)
+    const serializer = (context: SerializeContext, offset: number) => {
+      const { uint8Array } = context
+      const lengthOfLength = serializeLengthPrefix(length, uint8Array, offset)
 
-        if (lengthOfLength instanceof SerializeError) {
-          return lengthOfLength
-        }
+      if (lengthOfLength instanceof SerializeError) {
+        return lengthOfLength
+      }
 
-        uint8Array[offset + lengthOfLength] = unusedBits
-        serializeBitstring(context, offset + lengthOfLength + 1, input)
-        return
-      },
-      lengthOfLength + length,
-    ] as const
+      uint8Array[offset + lengthOfLength] = unusedBits
+      serializeBitstring(context, offset + lengthOfLength + 1, input)
+      return
+    }
+    serializer.size = lengthOfLength + length
+    return serializer
   }
 }
 
@@ -155,12 +154,12 @@ export class OerFixedBitstring<TBitDefinition extends number> extends OerType<
       )
     }
 
-    return [
-      (context: SerializeContext, offset: number) => {
-        serializeBitstring(context, offset, input)
-      },
-      Math.ceil(this.bits / 8),
-    ] as const
+    const serializer = (context: SerializeContext, offset: number) => {
+      serializeBitstring(context, offset, input)
+    }
+    serializer.size = Math.ceil(this.bits / 8)
+
+    return serializer
   }
 }
 

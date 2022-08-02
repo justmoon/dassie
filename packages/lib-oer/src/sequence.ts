@@ -4,10 +4,10 @@ import {
   AnyOerType,
   Infer,
   InferSerialize,
-  IntermediateSerializationResult,
   OerConstant,
   OerOptional,
   OerType,
+  Serializer,
 } from "./base-type"
 import { ParseError, SerializeError } from "./utils/errors"
 import {
@@ -297,10 +297,9 @@ export class OerSequence<TShape extends OerSequenceShape> extends OerType<
 
     // --- Root ---
 
-    const serializers: (IntermediateSerializationResult | undefined)[] =
-      Array.from({
-        length: this.rootEntries.size,
-      })
+    const serializers: (Serializer | undefined)[] = Array.from({
+      length: this.rootEntries.size,
+    })
     {
       let index = 0
       for (const [key, oer] of this.rootEntries) {
@@ -308,16 +307,16 @@ export class OerSequence<TShape extends OerSequenceShape> extends OerType<
           continue
         }
 
-        const result = oer.serializeWithContext(
+        const serializer = oer.serializeWithContext(
           (input as Record<string, unknown>)[key]
         )
 
-        if (result instanceof SerializeError) {
-          return result
+        if (serializer instanceof SerializeError) {
+          return serializer
         }
 
-        totalLength += result[1]
-        serializers[index++] = result
+        totalLength += serializer.size
+        serializers[index++] = serializer
       }
     }
 
@@ -349,39 +348,40 @@ export class OerSequence<TShape extends OerSequenceShape> extends OerType<
 
         totalLength += extensionPresenceLengthOfLength + extensionPresenceLength
 
-        serializers.push([
-          (context, offset) => {
-            const { uint8Array } = context
-            const lengthSerializeResult = serializeLengthPrefix(
-              extensionPresenceLength,
-              uint8Array,
-              offset
-            )
+        const serializer = (context: SerializeContext, offset: number) => {
+          const { uint8Array } = context
+          const lengthSerializeResult = serializeLengthPrefix(
+            extensionPresenceLength,
+            uint8Array,
+            offset
+          )
 
-            if (lengthSerializeResult instanceof SerializeError) {
-              return lengthSerializeResult
+          if (lengthSerializeResult instanceof SerializeError) {
+            return lengthSerializeResult
+          }
+
+          // Unused bits
+          uint8Array[offset + extensionPresenceLengthOfLength] =
+            7 - (maxExtensionIndex % 8)
+
+          let index = 0
+          const bitmapOffset = offset + extensionPresenceLengthOfLength + 1
+          for (const key of this.extensions.keys()) {
+            if (index > maxExtensionIndex) break
+
+            if (key in input) {
+              uint8Array[bitmapOffset + Math.floor(index / 8)]! |=
+                1 << (7 - (index % 8))
             }
+            index++
+          }
 
-            // Unused bits
-            uint8Array[offset + extensionPresenceLengthOfLength] =
-              7 - (maxExtensionIndex % 8)
+          return
+        }
+        serializer.size =
+          extensionPresenceLengthOfLength + extensionPresenceLength
 
-            let index = 0
-            const bitmapOffset = offset + extensionPresenceLengthOfLength + 1
-            for (const key of this.extensions.keys()) {
-              if (index > maxExtensionIndex) break
-
-              if (key in input) {
-                uint8Array[bitmapOffset + Math.floor(index / 8)]! |=
-                  1 << (7 - (index % 8))
-              }
-              index++
-            }
-
-            return
-          },
-          extensionPresenceLengthOfLength + extensionPresenceLength,
-        ])
+        serializers.push(serializer)
       }
     }
 
@@ -391,82 +391,77 @@ export class OerSequence<TShape extends OerSequenceShape> extends OerType<
       if (!(key in input)) continue
 
       if (extension instanceof OerType) {
-        const serializeResult = extension.serializeWithContext(input[key])
+        const innerSerializer = extension.serializeWithContext(input[key])
 
-        if (serializeResult instanceof SerializeError) {
-          return serializeResult
+        if (innerSerializer instanceof SerializeError) {
+          return innerSerializer
         }
 
         const extensionLengthOfLength = predictLengthPrefixLength(
-          serializeResult[1]
+          innerSerializer.size
         )
 
         if (extensionLengthOfLength instanceof SerializeError) {
           return extensionLengthOfLength
         }
 
-        serializers.push([
-          (context, offset) => {
-            const lengthSerializeResult = serializeLengthPrefix(
-              serializeResult[1],
-              context.uint8Array,
-              offset
-            )
+        const serializer = (context: SerializeContext, offset: number) => {
+          const lengthSerializeResult = serializeLengthPrefix(
+            innerSerializer.size,
+            context.uint8Array,
+            offset
+          )
 
-            if (lengthSerializeResult instanceof SerializeError) {
-              return lengthSerializeResult
-            }
+          if (lengthSerializeResult instanceof SerializeError) {
+            return lengthSerializeResult
+          }
 
-            serializeResult[0](context, offset + extensionLengthOfLength)
+          innerSerializer(context, offset + extensionLengthOfLength)
 
-            return
-          },
-          extensionLengthOfLength + serializeResult[1],
-        ])
-        totalLength += extensionLengthOfLength + serializeResult[1]
+          return
+        }
+        serializer.size = extensionLengthOfLength + innerSerializer.size
+        serializers.push(serializer)
+        totalLength += extensionLengthOfLength + innerSerializer.size
       }
     }
 
-    console.log(serializers)
+    const serializer = (context: SerializeContext, offset: number) => {
+      const { uint8Array } = context
 
-    return [
-      (context: SerializeContext, offset: number) => {
-        const { uint8Array } = context
+      let cursor = 0
 
-        let cursor = 0
+      // --- Preamble ---
 
-        // --- Preamble ---
-
-        if (preambleBitLength > 0) {
-          if (extensionBit) {
-            uint8Array[offset] |= 0b1000_0000
-          }
-
-          for (const [
-            index,
-            optionalFieldName,
-          ] of this.rootOptionalFields.entries()) {
-            if (optionalFieldName in input) {
-              const bitIndex = (this.isExtensible ? 1 : 0) + index
-              uint8Array[offset + Math.floor(bitIndex / 8)]! |=
-                1 << (7 - (bitIndex % 8))
-            }
-          }
-          cursor += preambleLength
+      if (preambleBitLength > 0) {
+        if (extensionBit) {
+          uint8Array[offset] |= 0b1000_0000
         }
 
-        // --- Everything else ---
-
-        for (const serializer of serializers) {
-          if (!serializer) continue
-
-          console.log(offset + cursor)
-          serializer[0](context, offset + cursor)
-          cursor += serializer[1]
+        for (const [
+          index,
+          optionalFieldName,
+        ] of this.rootOptionalFields.entries()) {
+          if (optionalFieldName in input) {
+            const bitIndex = (this.isExtensible ? 1 : 0) + index
+            uint8Array[offset + Math.floor(bitIndex / 8)]! |=
+              1 << (7 - (bitIndex % 8))
+          }
         }
-      },
-      totalLength,
-    ] as const
+        cursor += preambleLength
+      }
+
+      // --- Everything else ---
+
+      for (const serializer of serializers) {
+        if (!serializer) continue
+
+        serializer(context, offset + cursor)
+        cursor += serializer.size
+      }
+    }
+    serializer.size = totalLength
+    return serializer
   }
 
   extensible() {

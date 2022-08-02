@@ -2,8 +2,8 @@ import {
   AnyOerType,
   Infer,
   InferSerialize,
-  IntermediateSerializationResult,
   OerType,
+  Serializer,
 } from "./base-type"
 import { integerAsBigint } from "./integer-as-bigint"
 import { ParseError, SerializeError } from "./utils/errors"
@@ -49,50 +49,51 @@ export class OerSequenceOf<TShape extends AnyOerType> extends OerType<
   }
 
   serializeWithContext(input: InferSerialize<TShape>[]) {
-    const sizeResult = this.sizeOer.serializeWithContext(BigInt(input.length))
+    const sizeSerializer = this.sizeOer.serializeWithContext(
+      BigInt(input.length)
+    )
 
-    if (sizeResult instanceof SerializeError) {
-      return sizeResult
+    if (sizeSerializer instanceof SerializeError) {
+      return sizeSerializer
     }
 
-    const [sizeSerializer, sizeOfSize] = sizeResult
-
-    let totalLength = sizeOfSize
-    const serializers: IntermediateSerializationResult[] = Array.from({
+    let totalLength = sizeSerializer.size
+    const serializers: Serializer[] = Array.from({
       length: input.length,
     })
     for (const [index, element] of input.entries()) {
-      const elementResult = this.sequenceOfShape.serializeWithContext(element)
+      const elementSerializer =
+        this.sequenceOfShape.serializeWithContext(element)
 
-      if (elementResult instanceof SerializeError) {
-        return elementResult
+      if (elementSerializer instanceof SerializeError) {
+        return elementSerializer
       }
 
-      totalLength += elementResult[1]
-      serializers[index] = elementResult
+      totalLength += elementSerializer.size
+      serializers[index] = elementSerializer
     }
 
-    return [
-      (context: SerializeContext, offset: number) => {
-        const sizeSerializeResult = sizeSerializer(context, offset)
+    const serializer = (context: SerializeContext, offset: number) => {
+      const sizeSerializeResult = sizeSerializer(context, offset)
 
-        if (sizeSerializeResult instanceof SerializeError) {
-          return sizeSerializeResult
+      if (sizeSerializeResult instanceof SerializeError) {
+        return sizeSerializeResult
+      }
+
+      let totalLength = sizeSerializer.size
+      for (const serializer of serializers) {
+        const elementResult = serializer(context, offset + totalLength)
+        if (elementResult instanceof SerializeError) {
+          return elementResult
         }
+        totalLength += serializer.size
+      }
 
-        let totalLength = sizeOfSize
-        for (const [serializer, elementLength] of serializers) {
-          const elementResult = serializer(context, offset + totalLength)
-          if (elementResult instanceof SerializeError) {
-            return elementResult
-          }
-          totalLength += elementLength
-        }
+      return
+    }
 
-        return
-      },
-      totalLength,
-    ] as const
+    serializer.size = totalLength
+    return serializer
   }
 }
 

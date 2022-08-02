@@ -52,14 +52,13 @@ export abstract class OerFloatNumber extends OerType<number> {
   }
 
   serializeWithContext(value: number) {
-    return [
-      (context: SerializeContext, offset: number) => {
-        context.dataView[`setFloat${this.size}`](offset, value)
+    const serializer = (context: SerializeContext, offset: number) => {
+      context.dataView[`setFloat${this.size}`](offset, value)
 
-        return
-      },
-      this.size / 8,
-    ] as const
+      return
+    }
+    serializer.size = this.size / 8
+    return serializer
   }
 }
 

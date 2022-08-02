@@ -68,26 +68,21 @@ export abstract class OerFixedIntegerNumber extends OerType<number> {
   }
 
   serializeWithContext(value: number) {
-    return [
-      (context: SerializeContext, offset: number) => {
-        if (value < this.options.range[0]) {
-          return new SerializeError(
-            `integer must be >= ${this.options.range[0]}`
-          )
-        }
+    const serializer = (context: SerializeContext, offset: number) => {
+      if (value < this.options.range[0]) {
+        return new SerializeError(`integer must be >= ${this.options.range[0]}`)
+      }
 
-        if (value > this.options.range[1]) {
-          return new SerializeError(
-            `integer must be <= ${this.options.range[1]}`
-          )
-        }
+      if (value > this.options.range[1]) {
+        return new SerializeError(`integer must be <= ${this.options.range[1]}`)
+      }
 
-        context.dataView[`set${this.type}${this.size}`](offset, value)
+      context.dataView[`set${this.type}${this.size}`](offset, value)
 
-        return
-      },
-      this.size / 8,
-    ] as const
+      return
+    }
+    serializer.size = this.size / 8
+    return serializer
   }
 }
 

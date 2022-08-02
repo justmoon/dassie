@@ -69,12 +69,11 @@ export class OerEnumerated<
       )
     }
 
-    return [
-      ({ uint8Array }: SerializeContext, offset: number) => {
-        uint8Array[offset] = value
-      },
-      1,
-    ] as const
+    const serializer = ({ uint8Array }: SerializeContext, offset: number) => {
+      uint8Array[offset] = value
+    }
+    serializer.size = 1
+    return serializer
   }
 }
 

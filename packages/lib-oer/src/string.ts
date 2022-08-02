@@ -1,7 +1,7 @@
 import { OerType } from "./base-type"
 import { octetString } from "./octet-string"
-import { ParseError, SerializeError } from "./utils/errors"
-import type { ParseContext, SerializeContext } from "./utils/parse"
+import { ParseError } from "./utils/errors"
+import type { ParseContext } from "./utils/parse"
 import { NormalizedRange, Range, parseRange } from "./utils/range"
 
 export type EncodingType = "utf8" | "ascii"
@@ -86,18 +86,7 @@ export const OerString = class extends OerType<string> {
 
   serializeWithContext(value: string) {
     const encodedValue = this.textEncoder.encode(value)
-    const serializeResult = this.octetString.serializeWithContext(encodedValue)
-
-    if (serializeResult instanceof SerializeError) {
-      return serializeResult
-    }
-
-    return [
-      (context: SerializeContext, offset: number) => {
-        serializeResult[0](context, offset)
-      },
-      serializeResult[1],
-    ] as const
+    return this.octetString.serializeWithContext(encodedValue)
   }
 }
 

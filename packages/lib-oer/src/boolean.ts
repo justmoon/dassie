@@ -25,12 +25,11 @@ export class OerBoolean extends OerType<boolean> {
     return [!!value, 1] as const
   }
   serializeWithContext(input: boolean) {
-    return [
-      ({ uint8Array }: SerializeContext, offset: number) => {
-        uint8Array[offset] = input ? 0xff : 0
-      },
-      1,
-    ] as const
+    const serializer = ({ uint8Array }: SerializeContext, offset: number) => {
+      uint8Array[offset] = input ? 0xff : 0
+    }
+    serializer.size = 1
+    return serializer
   }
 }
 

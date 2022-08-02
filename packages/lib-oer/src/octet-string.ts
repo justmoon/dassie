@@ -1,6 +1,6 @@
 import { isUint8Array } from "node:util/types"
 
-import { IntermediateSerializationResult, OerType } from "./base-type"
+import { OerType, Serializer } from "./base-type"
 import { ParseError, SerializeError } from "./utils/errors"
 import {
   parseLengthPrefix,
@@ -17,7 +17,7 @@ import { NormalizedRange, Range, parseRange } from "./utils/range"
 
 export class OerFixedOctetString extends OerType<
   Uint8Array,
-  Uint8Array | IntermediateSerializationResult
+  Uint8Array | Serializer
 > {
   constructor(readonly length: SafeUnsignedInteger) {
     super()
@@ -30,24 +30,23 @@ export class OerFixedOctetString extends OerType<
     ] as const
   }
 
-  serializeWithContext(value: Uint8Array | IntermediateSerializationResult) {
-    const length = isUint8Array(value) ? value.length : value[1]
+  serializeWithContext(value: Uint8Array | Serializer) {
+    const length = isUint8Array(value) ? value.length : value.size
     if (length !== this.length) {
       return new SerializeError(
         `Expected octet string of length ${this.length}, but got ${length}`
       )
     }
 
-    return [
-      (context: SerializeContext, offset: number) => {
-        if (isUint8Array(value)) {
-          context.uint8Array.set(value, offset)
-        } else {
-          value[0](context, offset)
-        }
-      },
-      this.length,
-    ] as const
+    const serializer = (context: SerializeContext, offset: number) => {
+      if (isUint8Array(value)) {
+        context.uint8Array.set(value, offset)
+      } else {
+        value(context, offset)
+      }
+    }
+    serializer.size = this.length
+    return serializer
   }
 
   containing<T>(subType: OerType<T>) {
@@ -57,7 +56,7 @@ export class OerFixedOctetString extends OerType<
 
 export class OerVariableOctetString extends OerType<
   Uint8Array,
-  Uint8Array | IntermediateSerializationResult
+  Uint8Array | Serializer
 > {
   constructor(readonly sizeRange: NormalizedRange<SafeUnsignedInteger>) {
     super()
@@ -98,8 +97,8 @@ export class OerVariableOctetString extends OerType<
     ] as const
   }
 
-  serializeWithContext(input: Uint8Array | IntermediateSerializationResult) {
-    const length = isUint8Array(input) ? input.length : input[1]
+  serializeWithContext(input: Uint8Array | Serializer) {
+    const length = isUint8Array(input) ? input.length : input.size
 
     if (this.sizeRange[0] != undefined && length < this.sizeRange[0]) {
       return new SerializeError(
@@ -119,27 +118,26 @@ export class OerVariableOctetString extends OerType<
       return lengthOfLengthPrefix
     }
 
-    return [
-      (context: SerializeContext, offset: number) => {
-        const lengthOfLengthPrefix = serializeLengthPrefix(
-          length,
-          context.uint8Array,
-          offset
-        )
+    const serializer = (context: SerializeContext, offset: number) => {
+      const lengthOfLengthPrefix = serializeLengthPrefix(
+        length,
+        context.uint8Array,
+        offset
+      )
 
-        if (lengthOfLengthPrefix instanceof SerializeError) {
-          return lengthOfLengthPrefix
-        }
+      if (lengthOfLengthPrefix instanceof SerializeError) {
+        return lengthOfLengthPrefix
+      }
 
-        if (isUint8Array(input)) {
-          context.uint8Array.set(input, offset + lengthOfLengthPrefix)
-        } else {
-          input[0](context, offset + lengthOfLengthPrefix)
-        }
-        return
-      },
-      lengthOfLengthPrefix + length,
-    ] as const
+      if (isUint8Array(input)) {
+        context.uint8Array.set(input, offset + lengthOfLengthPrefix)
+      } else {
+        input(context, offset + lengthOfLengthPrefix)
+      }
+      return
+    }
+    serializer.size = lengthOfLengthPrefix + length
+    return serializer
   }
 
   containing<T>(subType: OerType<T>) {
