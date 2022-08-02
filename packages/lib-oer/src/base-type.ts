@@ -6,7 +6,7 @@ export type AnyOerType = OerType<unknown>
 
 export type Infer<TOerType extends AnyOerType> = TOerType extends OerType<
   infer T,
-  unknown
+  never
 >
   ? T
   : never
@@ -29,7 +29,6 @@ export type IntermediateSerializationResult = readonly [
 
 export abstract class OerType<TParseValue, TSerializeValue = TParseValue> {
   _tag: readonly [tagValue: number, tagClass: TagMarker] | undefined
-  _optional = false
 
   abstract parseWithContext(
     context: ParseContext,
@@ -111,9 +110,12 @@ export abstract class OerType<TParseValue, TSerializeValue = TParseValue> {
     return this
   }
 
-  optional(): this {
-    this._optional = true
-    return this
+  optional(): OerOptional<TParseValue, TSerializeValue> {
+    return new OerOptional(this, undefined)
+  }
+
+  default(value: TParseValue): OerOptional<TParseValue, TSerializeValue> {
+    return new OerOptional(this, value)
   }
 
   constant<TParseValue, TSerializeValue>(
@@ -121,6 +123,31 @@ export abstract class OerType<TParseValue, TSerializeValue = TParseValue> {
     value: TSerializeValue
   ): OerConstant<TParseValue, TSerializeValue> {
     return new OerConstant(this, value)
+  }
+}
+
+export class OerOptional<TParseValue, TSerializeValue> extends OerType<
+  TParseValue,
+  TSerializeValue
+> {
+  constructor(
+    readonly subType: OerType<TParseValue, TSerializeValue>,
+    readonly defaultValue: TParseValue | undefined
+  ) {
+    super()
+  }
+
+  parseWithContext(
+    context: ParseContext,
+    offset: number
+  ): ParseError | readonly [TParseValue, number] {
+    return this.subType.parseWithContext(context, offset)
+  }
+
+  serializeWithContext(
+    value: TSerializeValue
+  ): SerializeError | IntermediateSerializationResult {
+    return this.subType.serializeWithContext(value)
   }
 }
 
