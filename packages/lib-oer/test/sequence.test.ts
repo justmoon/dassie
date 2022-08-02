@@ -113,4 +113,59 @@ describe("sequence", () => {
       expect(result).toEqual(serializedOk("000c0f"))
     })
   })
+
+  describe("schema which is extensible but contains no extensions", () => {
+    const schema = sequence({
+      first: uint8Number(),
+      second: uint8Number(),
+    }).extensible()
+
+    test("should parse a value", ({ expect }) => {
+      const result = schema.parse(hexToUint8Array("000c0f"))
+      expect(result).toEqual(parsedOk(3, { first: 12, second: 15 }))
+    })
+
+    test("should serialize a value", ({ expect }) => {
+      const result = schema.serialize({ first: 12, second: 15 })
+      expect(result).toEqual(serializedOk("000c0f"))
+    })
+  })
+
+  describe("schema with a uint8 extension", () => {
+    const schema = sequence({
+      first: uint8Number(),
+      second: uint8Number(),
+    }).extend({
+      ext1: uint8Number(),
+    })
+
+    test("should parse a value where the extension is not present", ({
+      expect,
+    }) => {
+      const result = schema.parse(hexToUint8Array("001234"))
+      expect(result).toEqual(parsedOk(3, { first: 18, second: 52 }))
+    })
+
+    test("should serialize a value where the extension is not present", ({
+      expect,
+    }) => {
+      const result = schema.serialize({ first: 18, second: 52 })
+
+      expect(result).toEqual(serializedOk("001234"))
+    })
+
+    test("should parse a value where the extension is present", ({
+      expect,
+    }) => {
+      const result = schema.parse(hexToUint8Array("8012340207800156"))
+      expect(result).toEqual(parsedOk(8, { first: 18, second: 52, ext1: 86 }))
+    })
+
+    test("should serialize a value where the extension is present", ({
+      expect,
+    }) => {
+      const result = schema.serialize({ first: 18, second: 52, ext1: 86 })
+      expect(result).toEqual(serializedOk("8012340207800156"))
+    })
+  })
 })
