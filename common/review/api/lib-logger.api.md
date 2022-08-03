@@ -5,19 +5,13 @@
 ```ts
 
 // @public (undocumented)
-export class CliFormatter implements Formatter {
-    // (undocumented)
-    clear(): void;
-    // (undocumented)
-    formatError(error: unknown, options?: LogErrorOptions): string;
-    // (undocumented)
-    log(line: LogLine, options: LogErrorOptions): void;
-    // (undocumented)
-    readonly prefixCache: Map<string, string>;
-}
+export const createCliFormatter: () => Formatter;
 
 // @alpha
 export function createEnableChecker(scope: string): (name: string) => boolean;
+
+// @public (undocumented)
+export const createJsonFormatter: ({ outputFunction, }?: JsonFormatterOptions) => Formatter;
 
 // @beta
 export const createLogger: {
@@ -33,34 +27,28 @@ export function createLoggerFactory(loggingContext: LoggingContext): {
     setFormatter(formatter: Formatter): void;
 };
 
-// @beta
-export interface Formatter {
-    // (undocumented)
-    clear(): void;
-    // (undocumented)
-    log(line: LogLine, options: LogErrorOptions): void;
-}
+// @public (undocumented)
+export const formatError: (error: Error, options: LogLineOptions) => string;
 
 // @public (undocumented)
-export class JsonFormatter implements Formatter {
-    constructor(options?: JsonFormatterOptions);
-    // (undocumented)
-    clear(): void;
-    // (undocumented)
-    log({ date, error, ...line }: LogLine, options: LogErrorOptions): void;
-    // (undocumented)
-    readonly options: JsonFormatterOptions;
-}
+export const formatFilePath: (filePath: string) => string;
+
+// @public (undocumented)
+export const formatStack: (stack: string, options?: LogLineOptions) => string;
+
+// @beta
+export type Formatter = (line: LogLine, options: LogLineOptions) => void;
+
+// @public (undocumented)
+export const formatValue: (value: unknown, options: LogLineOptions) => string;
+
+// @public
+export function isError(possibleError: unknown): possibleError is Error;
 
 // @public (undocumented)
 export interface JsonFormatterOptions {
     // (undocumented)
-    outputFunction: (line: SerializableLogLine) => void;
-}
-
-// @beta
-export interface LogErrorOptions extends LogLineOptions {
-    skipAfter?: string;
+    outputFunction?: (line: SerializableLogLine) => void;
 }
 
 // @beta
@@ -76,7 +64,6 @@ export class Logger {
     debug(message: string, data?: Record<string, unknown>, options?: LogLineOptions): void;
     error(message: string, data?: Record<string, unknown>, options?: LogLineOptions): void;
     info(message: string, data?: Record<string, unknown>, options?: LogLineOptions): void;
-    logError(error: unknown, options?: LogErrorOptions): void;
     warn(message: string, data?: Record<string, unknown>, options?: LogLineOptions): void;
 }
 
@@ -89,9 +76,7 @@ export interface LogLine {
     // (undocumented)
     date: Date;
     // (undocumented)
-    error?: unknown;
-    // (undocumented)
-    level: "debug" | "info" | "warn" | "error";
+    level: "debug" | "info" | "warn" | "error" | "clear";
     // (undocumented)
     message: string;
 }
@@ -99,6 +84,7 @@ export interface LogLine {
 // @beta
 export interface LogLineOptions {
     ignoreInProduction?: boolean;
+    skipAfter?: string;
 }
 
 // @public (undocumented)
@@ -109,13 +95,11 @@ export interface SerializableLogLine {
     // (undocumented)
     component: string;
     // (undocumented)
-    data?: Record<string, unknown>;
+    data?: Record<string, string> | undefined;
     // (undocumented)
     date: string;
     // (undocumented)
-    error?: string;
-    // (undocumented)
-    level: "debug" | "info" | "warn" | "error";
+    level: "debug" | "info" | "warn" | "error" | "clear";
     // (undocumented)
     message: string;
 }

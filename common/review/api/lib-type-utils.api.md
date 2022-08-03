@@ -13,7 +13,10 @@ export function assertDefined<T>(value: T | null | undefined): asserts value is 
 export function isErrorWithCode<T extends string>(error: unknown, code: T): error is NodeJS.ErrnoException;
 
 // @public (undocumented)
-export const isObject: (o: unknown) => o is Record<string, unknown>;
+export const isObject: (o: unknown) => o is Record<string | number | symbol, unknown>;
+
+// @public (undocumented)
+export const isThenable: (value: unknown) => value is PromiseLike<unknown>;
 
 // @public (undocumented)
 export class UnreachableCaseError extends Error {

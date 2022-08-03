@@ -365,6 +365,9 @@ const createExtractorConfig = (
             // "addToApiReportFile": false
           },
 
+          "ae-missing-release-tag": {
+            logLevel: "none" as ExtractorLogLevel,
+          },
           // "ae-extra-release-tag": {
           //   "logLevel": "warning",
           //   "addToApiReportFile": true

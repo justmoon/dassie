@@ -20,4 +20,5 @@ const extractApi = (module: string) => {
 }
 
 extractApi("lib-logger")
+extractApi("lib-oer")
 extractApi("lib-type-utils")

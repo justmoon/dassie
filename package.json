@@ -8,7 +8,8 @@
     "clean": "pnpm -r clean",
     "build": "pnpm -r build",
     "dev": "vite-node packages/app-dev/bin/start-development-server.ts",
-    "test": "vitest"
+    "test": "vitest",
+    "api": "vite-node scripts/extract-apis.ts"
   },
   "repository": {
     "type": "git",
