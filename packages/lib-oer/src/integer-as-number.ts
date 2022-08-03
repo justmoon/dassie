@@ -19,7 +19,9 @@ export const INT16_MAX_NUMBER = 32_767
 export const INT32_MIN_NUMBER = -2_147_483_648
 export const INT32_MAX_NUMBER = 2_147_483_647
 
-export abstract class OerFixedIntegerNumber extends OerType<number> {
+abstract class OerIntegerNumber extends OerType<number> {}
+
+export abstract class OerFixedIntegerNumber extends OerIntegerNumber {
   abstract readonly type: "Uint" | "Int"
   abstract readonly size: 8 | 16 | 32
 

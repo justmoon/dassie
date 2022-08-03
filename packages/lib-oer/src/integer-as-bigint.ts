@@ -38,7 +38,9 @@ export const INT32_MAX = 2_147_483_647n
 export const INT64_MIN = -9_223_372_036_854_775_808n
 export const INT64_MAX = 9_223_372_036_854_775_807n
 
-export abstract class OerFixedIntegerBigint extends OerType<bigint> {
+export abstract class OerIntegerBigint extends OerType<bigint> {}
+
+export abstract class OerFixedIntegerBigint extends OerIntegerBigint {
   abstract readonly type: "Uint" | "Int"
   abstract readonly size: 8 | 16 | 32 | 64
 
@@ -150,7 +152,7 @@ export class OerInt64Bigint extends OerFixedIntegerBigint {
   readonly size = 64
 }
 
-export class OerVariableUnsignedInteger extends OerType<bigint> {
+export class OerVariableUnsignedInteger extends OerIntegerBigint {
   parseWithContext(context: ParseContext, offset: number) {
     const { uint8Array, dataView } = context
     const result = parseLengthPrefix(context, offset)
