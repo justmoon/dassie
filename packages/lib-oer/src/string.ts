@@ -1,5 +1,6 @@
 import { OerType } from "./base-type"
 import { octetString } from "./octet-string"
+import { Alphabet, alphabetToFilterArray, printable } from "./utils/alphabet"
 import { ParseError } from "./utils/errors"
 import type { ParseContext } from "./utils/parse"
 import { NormalizedRange, Range, parseRange } from "./utils/range"
@@ -17,14 +18,14 @@ const convertCharacterRangeToOctetStringRange = (
       ]
     : characterRange
 
-export const OerString = class extends OerType<string> {
-  octetString: OerType<Uint8Array>
-  textDecoder: TextDecoder
-  textEncoder: TextEncoder
+export class OerString extends OerType<string> {
+  private octetString: OerType<Uint8Array>
+  private textDecoder: TextDecoder
+  private textEncoder: TextEncoder
 
   constructor(
     readonly length: NormalizedRange<number>,
-    encoding: EncodingType,
+    readonly encoding: EncodingType,
     readonly filterArray?: boolean[]
   ) {
     super()
@@ -88,6 +89,14 @@ export const OerString = class extends OerType<string> {
     const encodedValue = this.textEncoder.encode(value)
     return this.octetString.serializeWithContext(encodedValue)
   }
+
+  from(characters: Alphabet) {
+    return new OerString(
+      this.length,
+      this.encoding,
+      alphabetToFilterArray(characters)
+    )
+  }
 }
 
 export const utf8String = (length?: Range<number>) => {
@@ -119,14 +128,9 @@ export const numericString = (length?: Range<number>) => {
 }
 
 export const printableString = (length?: Range<number>) => {
-  const filterArray = Array.from<boolean>({ length: 128 })
-    .fill(true, 0x41, 0x5a) // A-Z
-    .fill(true, 0x61, 0x7a) // a-z
-    .fill(true, 0x30, 0x39) // 0-9
-  for (const character of " '()+,-./:=?") {
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    filterArray[character.codePointAt(0)!] = true
-  }
-
-  return new OerString(parseRange(length), "ascii", filterArray)
+  return new OerString(
+    parseRange(length),
+    "ascii",
+    alphabetToFilterArray(printable)
+  )
 }

@@ -1,4 +1,12 @@
-export type { Infer, OerType, AnyOerType, ParseOptions } from "./base-type"
+export type {
+  OerType,
+  OerOptional,
+  OerConstant,
+  AnyOerType,
+  ParseOptions,
+  Infer,
+} from "./base-type"
+
 export * from "./bitstring"
 export * from "./boolean"
 export * from "./choice"
@@ -10,5 +18,7 @@ export * from "./octet-string"
 export * from "./sequence-of"
 export * from "./sequence"
 export * from "./string"
+
+export * from "./utils/alphabet"
 
 export { uint8ArrayToHex, hexToUint8Array } from "./utils/hex"
