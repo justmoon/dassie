@@ -14,9 +14,8 @@ export class Logger {
   /**
    * Build a new logger object. Use {@link createLogger} instead.
    *
+   * @param context - Object specifying the environment that the logger should interact with, e.g. the formatter
    * @param component - The name of the component or scope.
-   * @param Formatter - A formatter that the logger should use for its output.
-   * @param debugEnabled - Whether this logger should log debug messages.
    * @internal
    */
   constructor(
