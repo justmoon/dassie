@@ -45,19 +45,19 @@ export class EffectContext {
    *
    * To read a value without tracking, use {@link read}.
    *
-   * @param topic - Reference to the topic, i.e. the message factory function.
+   * @param store - Reference to the store's factory function.
    * @param selector - Used to select only part of the message from a given topic. This can be useful to avoid re-running the effect if only an irrelevant portion of the message has changed.
    * @param comparator - By default, the reactor checks for strict equality (`===`) to determine if the value has changed. This can be overridden by passing a custom comparator function.
    * @returns The most recent value from the topic (or the initial value), narrowed by the selector.
    */
-  get<TState>(topic: StoreFactory<TState>): TState
+  get<TState>(store: StoreFactory<TState>): TState
   get<TState, TSelection>(
-    topic: StoreFactory<TState>,
+    store: StoreFactory<TState>,
     selector: (state: TState) => TSelection,
     comparator?: (oldValue: TSelection, newValue: TSelection) => boolean
   ): TSelection
   get<TState, TSelection>(
-    topic: StoreFactory<TState>,
+    store: StoreFactory<TState>,
     selector: (state: TState) => TSelection = (a) =>
       // Based on the overloaded function signature, the selector parameter may be omitted iff TMessage equals TSelection.
       // Therefore this cast is safe.
@@ -74,16 +74,51 @@ export class EffectContext {
     }
 
     const notify = this.wake
-    const value = selector(this.reactor.useContext(topic).read())
-    const dispose = this.reactor.useContext(topic).on(handleTopicMessage)
+    const value = selector(this.reactor.useContext(store).read())
+    const dispose = this.reactor.useContext(store).on(handleTopicMessage)
     this.lifecycle.onCleanup(dispose)
     return value
   }
 
   /**
+   * Convenience method for extracting specific keys from a store.
+   *
+   * @remarks
+   *
+   * This will automatically create the correct selector and comparator for the given keys. The effect will be re-run if any of the values for any of the keys change by strict equality.
+   *
+   * @param store - Reference to the store that should be queried.
+   * @param keys - Tuple of keys that should be extracted from the store.
+   * @returns A filtered version of the store state containing only the requested keys.
+   */
+  getKeys<TState, TKeys extends keyof TState>(
+    store: StoreFactory<TState>,
+    keys: readonly TKeys[]
+  ): Pick<TState, TKeys> {
+    return this.get(
+      store,
+      (state) => {
+        const result = {} as Pick<TState, TKeys>
+        for (const key of keys) {
+          result[key] = state[key]
+        }
+        return result
+      },
+      (a, b) => {
+        for (const key of keys) {
+          if (a[key] !== b[key]) {
+            return false
+          }
+        }
+        return true
+      }
+    )
+  }
+
+  /**
    * Like {@link get}, but without tracking. That means that calling read will not cause the effect to be re-run if the value of the given store changes.
    *
-   * @param topic - Reference to the topic, i.e. the message factory function.
+   * @param store - Reference to the store's factory function.
    */
   read<TState>(store: StoreFactory<TState>): TState {
     return this.reactor.useContext(store).read()
@@ -92,7 +127,11 @@ export class EffectContext {
   /**
    * Re-run this effect if a message is emitted on the given topic.
    *
-   * @param topic - Reference to the topic, i.e. its factory function.
+   * @remarks
+   *
+   * Note that the effect will not necessarily re-run once per event. If multiple events are emitted on the topic before the effect is re-run, it will only re-run once.
+   *
+   * @param topic - Reference to the topic's factory function.
    */
   subscribe<TMessage>(topic: TopicFactory<TMessage>) {
     this.once(topic, this.wake)
