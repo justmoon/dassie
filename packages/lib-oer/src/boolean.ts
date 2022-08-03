@@ -3,6 +3,10 @@ import { ParseError } from "./utils/errors"
 import type { ParseContext, SerializeContext } from "./utils/parse"
 
 export class OerBoolean extends OerType<boolean> {
+  clone() {
+    return new OerBoolean()
+  }
+
   parseWithContext(
     { uint8Array, allowNoncanonical }: ParseContext,
     offset: number

@@ -37,6 +37,10 @@ export class OerString extends OerType<string> {
     this.textEncoder = new TextEncoder()
   }
 
+  clone() {
+    return new OerString(this.length, this.encoding, this.filterArray)
+  }
+
   parseWithContext(context: ParseContext, offset: number) {
     const parseResult = this.octetString.parseWithContext(context, offset)
 

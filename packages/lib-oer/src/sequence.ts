@@ -96,6 +96,10 @@ export class OerSequence<TShape extends OerSequenceShape> extends OerType<
       .map((v) => v[0])
   }
 
+  clone() {
+    return new OerSequence(this.sequenceShape)
+  }
+
   parseWithContext(context: ParseContext, offset: number) {
     const { uint8Array, allowNoncanonical } = context
     let cursor = 0

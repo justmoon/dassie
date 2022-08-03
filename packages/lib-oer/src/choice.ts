@@ -106,6 +106,10 @@ export class OerChoice<TOptions extends ObjectShape> extends OerType<
       .join(",")
   }
 
+  clone() {
+    return new OerChoice(this.options)
+  }
+
   parseWithContext(context: ParseContext, offset: number) {
     const tagResult = parseTag(context, offset)
 

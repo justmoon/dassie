@@ -5,6 +5,8 @@ import { FixedRange, Range, parseRange } from "./utils/range"
 
 export interface IntegerAsNumberOptions {
   range: FixedRange<number>
+  type: "Uint" | "Int"
+  size: 8 | 16 | 32
 }
 
 export const UINT_MIN_NUMBER = 0
@@ -21,97 +23,72 @@ export const INT32_MAX_NUMBER = 2_147_483_647
 
 abstract class OerIntegerNumber extends OerType<number> {}
 
-export abstract class OerFixedIntegerNumber extends OerIntegerNumber {
-  abstract readonly type: "Uint" | "Int"
-  abstract readonly size: 8 | 16 | 32
-
+export class OerFixedIntegerNumber extends OerIntegerNumber {
   constructor(readonly options: IntegerAsNumberOptions) {
     super()
   }
 
+  clone() {
+    return new OerFixedIntegerNumber(this.options)
+  }
+
   parseWithContext({ uint8Array, dataView }: ParseContext, offset: number) {
-    if (offset + this.size / 8 > dataView.byteLength) {
+    const { type, size, range } = this.options
+
+    if (offset + size / 8 > dataView.byteLength) {
       return new ParseError(
         `unable to read fixed length integer of size ${
-          this.size / 8
+          size / 8
         } bytes - end of buffer`,
         uint8Array,
         uint8Array.byteLength
       )
     }
 
-    const value = dataView[`get${this.type}${this.size}`](offset)
+    const value = dataView[`get${type}${size}`](offset)
 
-    if (value < this.options.range[0]) {
+    if (value < range[0]) {
       return new ParseError(
         `unable to read fixed length integer of size ${
-          this.size / 8
-        } bytes - value ${value} is less than minimum value ${
-          this.options.range[0]
-        }`,
+          size / 8
+        } bytes - value ${value} is less than minimum value ${range[0]}`,
         uint8Array,
         offset
       )
     }
 
-    if (value > this.options.range[1]) {
+    if (value > range[1]) {
       return new ParseError(
         `unable to read fixed length integer of size ${
-          this.size / 8
-        } bytes - value ${value} is greater than maximum value ${
-          this.options.range[1]
-        }`,
+          size / 8
+        } bytes - value ${value} is greater than maximum value ${range[1]}`,
         uint8Array,
         offset
       )
     }
 
-    return [value, this.size / 8] as const
+    return [value, size / 8] as const
   }
 
   serializeWithContext(value: number) {
+    const { type, size, range } = this.options
+
     const serializer = (context: SerializeContext, offset: number) => {
-      if (value < this.options.range[0]) {
-        return new SerializeError(`integer must be >= ${this.options.range[0]}`)
+      if (value < range[0]) {
+        return new SerializeError(`integer must be >= ${range[0]}`)
       }
 
-      if (value > this.options.range[1]) {
-        return new SerializeError(`integer must be <= ${this.options.range[1]}`)
+      if (value > range[1]) {
+        return new SerializeError(`integer must be <= ${range[1]}`)
       }
 
-      context.dataView[`set${this.type}${this.size}`](offset, value)
+      context.dataView[`set${type}${size}`](offset, value)
 
       return
     }
-    serializer.size = this.size / 8
+    serializer.size = size / 8
     return serializer
   }
-}
-
-export class OerUint8Number extends OerFixedIntegerNumber {
-  readonly size = 8
-  readonly type = "Uint"
-}
-export class OerUint16Number extends OerFixedIntegerNumber {
-  readonly size = 16
-  readonly type = "Uint"
-}
-export class OerUint32Number extends OerFixedIntegerNumber {
-  readonly size = 32
-  readonly type = "Uint"
-}
-
-export class OerInt8Number extends OerFixedIntegerNumber {
-  readonly size = 8
-  readonly type = "Int"
-}
-export class OerInt16Number extends OerFixedIntegerNumber {
-  readonly size = 16
-  readonly type = "Int"
-}
-export class OerInt32Number extends OerFixedIntegerNumber {
-  readonly size = 32
-  readonly type = "Int"
 }
 
 export const integerAsNumber = (range: Range<number>) => {
@@ -119,36 +96,60 @@ export const integerAsNumber = (range: Range<number>) => {
 
   if (minimumValue == undefined || maximumValue == undefined) {
     throw new Error(
-      "When using JavaScript numbers, a minimum and maximum must be provided. If your range is actually unbounded, use integerAsBigint instead."
+      "When using JavaScript numbers, a minimum and maximum must be provided. If your range is unbounded, use integerAsBigint instead."
     )
   }
 
-  const fixedOptions: IntegerAsNumberOptions = {
+  const fixedOptions = {
     range: [minimumValue, maximumValue],
-  }
+  } as const
 
   // Fixed size integer encodings
   if (minimumValue >= UINT_MIN_NUMBER) {
     if (maximumValue <= UINT8_MAX_NUMBER) {
-      return new OerUint8Number(fixedOptions)
+      return new OerFixedIntegerNumber({
+        ...fixedOptions,
+        type: "Uint",
+        size: 8,
+      })
     } else if (maximumValue <= UINT16_MAX_NUMBER) {
-      return new OerUint16Number(fixedOptions)
+      return new OerFixedIntegerNumber({
+        ...fixedOptions,
+        type: "Uint",
+        size: 16,
+      })
     } else if (maximumValue <= UINT32_MAX_NUMBER) {
-      return new OerUint32Number(fixedOptions)
+      return new OerFixedIntegerNumber({
+        ...fixedOptions,
+        type: "Uint",
+        size: 32,
+      })
     }
   } else {
     if (minimumValue <= INT8_MIN_NUMBER && maximumValue <= INT8_MAX_NUMBER) {
-      return new OerInt8Number(fixedOptions)
+      return new OerFixedIntegerNumber({
+        ...fixedOptions,
+        type: "Int",
+        size: 8,
+      })
     } else if (
       minimumValue <= INT16_MIN_NUMBER &&
       maximumValue <= INT16_MAX_NUMBER
     ) {
-      return new OerInt16Number(fixedOptions)
+      return new OerFixedIntegerNumber({
+        ...fixedOptions,
+        type: "Int",
+        size: 16,
+      })
     } else if (
       minimumValue <= INT32_MIN_NUMBER &&
       maximumValue <= INT32_MAX_NUMBER
     ) {
-      return new OerInt32Number(fixedOptions)
+      return new OerFixedIntegerNumber({
+        ...fixedOptions,
+        type: "Int",
+        size: 32,
+      })
     }
   }
 

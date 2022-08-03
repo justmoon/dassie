@@ -15,6 +15,10 @@ import {
 import type { ParseContext, SerializeContext } from "./utils/parse"
 
 export class OerObjectIdentifier extends OerType<string> {
+  clone() {
+    return new OerObjectIdentifier()
+  }
+
   parseWithContext(context: ParseContext, offset: number) {
     const { uint8Array } = context
     const result = parseLengthPrefix(context, offset)

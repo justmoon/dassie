@@ -21,6 +21,10 @@ export class OerSequenceOf<TShape extends AnyOerType> extends OerType<
     this.sizeOer = integerAsBigint([0n, undefined])
   }
 
+  clone() {
+    return new OerSequenceOf(this.sequenceOfShape)
+  }
+
   parseWithContext(context: ParseContext, offset: number) {
     const sizeResult = this.sizeOer.parseWithContext(context, offset)
 

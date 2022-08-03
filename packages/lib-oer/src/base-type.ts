@@ -30,6 +30,8 @@ export interface Serializer {
 export abstract class OerType<TParseValue, TSerializeValue = TParseValue> {
   _tag: readonly [tagValue: number, tagClass: TagMarker] | undefined
 
+  abstract clone(): OerType<TParseValue, TSerializeValue>
+
   abstract parseWithContext(
     context: ParseContext,
     offset: number
@@ -100,12 +102,10 @@ export abstract class OerType<TParseValue, TSerializeValue = TParseValue> {
       : { success: true, value: uint8Array }
   }
 
-  tag(
-    tagValue: number,
-    tagClass: Exclude<TagClass, "universal"> = "context"
-  ): this {
-    this._tag = [tagValue, tagClassMarkerMap[tagClass]] as const
-    return this
+  tag(tagValue: number, tagClass: Exclude<TagClass, "universal"> = "context") {
+    const copy = this.clone()
+    copy._tag = [tagValue, tagClassMarkerMap[tagClass]] as const
+    return copy
   }
 
   optional(): OerOptional<TParseValue, TSerializeValue> {
@@ -133,6 +133,10 @@ export class OerOptional<TParseValue, TSerializeValue> extends OerType<
     readonly defaultValue: TParseValue | undefined
   ) {
     super()
+  }
+
+  clone() {
+    return new OerOptional(this.subType, this.defaultValue)
   }
 
   parseWithContext(
@@ -181,6 +185,10 @@ export class OerConstant<TParseValue, TSerializeValue> extends OerType<
     }
 
     this.parsedValue = subtypeParseResult.value
+  }
+
+  clone() {
+    return new OerConstant(this.subType, this.value)
   }
 
   parseWithContext(

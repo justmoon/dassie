@@ -24,6 +24,10 @@ export class OerEnumerated<
       .join(",")
   }
 
+  clone() {
+    return new OerEnumerated(this.enumeration)
+  }
+
   parseWithContext(context: ParseContext, offset: number) {
     const { uint8Array } = context
     const firstByte = uint8Array[offset]

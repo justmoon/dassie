@@ -21,6 +21,8 @@ interface IntegerOptions {
 export interface FixedIntegerOptions extends IntegerOptions {
   minimumValue: bigint
   maximumValue: bigint
+  type: "Uint" | "Int"
+  size: 8 | 16 | 32 | 64
 }
 
 export const UINT_MIN = 0n
@@ -40,19 +42,21 @@ export const INT64_MAX = 9_223_372_036_854_775_807n
 
 export abstract class OerIntegerBigint extends OerType<bigint> {}
 
-export abstract class OerFixedIntegerBigint extends OerIntegerBigint {
-  abstract readonly type: "Uint" | "Int"
-  abstract readonly size: 8 | 16 | 32 | 64
-
+export class OerFixedIntegerBigint extends OerIntegerBigint {
   constructor(readonly options: FixedIntegerOptions) {
     super()
   }
 
+  clone() {
+    return new OerFixedIntegerBigint(this.options)
+  }
+
   parseWithContext({ uint8Array, dataView }: ParseContext, offset: number) {
-    if (offset + this.size / 8 > dataView.byteLength) {
+    const { type, size, minimumValue, maximumValue } = this.options
+    if (offset + size / 8 > dataView.byteLength) {
       return new ParseError(
         `unable to read fixed length integer of size ${
-          this.size / 8
+          size / 8
         } bytes - end of buffer`,
         uint8Array,
         uint8Array.byteLength
@@ -60,99 +64,63 @@ export abstract class OerFixedIntegerBigint extends OerIntegerBigint {
     }
 
     const value =
-      this.size === 64
-        ? dataView[`getBig${this.type}${this.size}`](offset)
-        : BigInt(dataView[`get${this.type}${this.size}`](offset))
+      size === 64
+        ? dataView[`getBig${type}${size}`](offset)
+        : BigInt(dataView[`get${type}${size}`](offset))
 
-    if (value < this.options.minimumValue) {
+    if (value < minimumValue) {
       return new ParseError(
         `unable to read fixed length integer of size ${
-          this.size / 8
-        } bytes - value ${value} is less than minimum value ${
-          this.options.minimumValue
-        }`,
+          size / 8
+        } bytes - value ${value} is less than minimum value ${minimumValue}`,
         uint8Array,
         offset
       )
     }
 
-    if (value > this.options.maximumValue) {
+    if (value > maximumValue) {
       return new ParseError(
         `unable to read fixed length integer of size ${
-          this.size / 8
-        } bytes - value ${value} is greater than maximum value ${
-          this.options.maximumValue
-        }`,
+          size / 8
+        } bytes - value ${value} is greater than maximum value ${maximumValue}`,
         uint8Array,
         offset
       )
     }
 
-    return [value, this.size / 8] as const
+    return [value, size / 8] as const
   }
 
   serializeWithContext(value: bigint) {
+    const { type, size, minimumValue, maximumValue } = this.options
+
     const serializer = (context: SerializeContext, offset: number) => {
-      if (value < this.options.minimumValue) {
-        return new SerializeError(
-          `integer must be >= ${this.options.minimumValue}`
-        )
+      if (value < minimumValue) {
+        return new SerializeError(`integer must be >= ${minimumValue}`)
       }
 
-      if (value > this.options.maximumValue) {
-        return new SerializeError(
-          `integer must be <= ${this.options.maximumValue}`
-        )
+      if (value > maximumValue) {
+        return new SerializeError(`integer must be <= ${maximumValue}`)
       }
 
-      if (this.size === 64) {
-        context.dataView[`setBig${this.type}${this.size}`](offset, value)
+      if (size === 64) {
+        context.dataView[`setBig${type}${size}`](offset, value)
       } else {
-        context.dataView[`set${this.type}${this.size}`](offset, Number(value))
+        context.dataView[`set${type}${size}`](offset, Number(value))
       }
 
       return
     }
-    serializer.size = this.size / 8
+    serializer.size = size / 8
     return serializer
   }
 }
 
-export class OerUint8Bigint extends OerFixedIntegerBigint {
-  readonly type = "Uint"
-  readonly size = 8
-}
-export class OerUint16Bigint extends OerFixedIntegerBigint {
-  readonly type = "Uint"
-  readonly size = 16
-}
-export class OerUint32Bigint extends OerFixedIntegerBigint {
-  readonly type = "Uint"
-  readonly size = 32
-}
-export class OerUint64Bigint extends OerFixedIntegerBigint {
-  readonly type = "Uint"
-  readonly size = 64
-}
-
-export class OerInt8Bigint extends OerFixedIntegerBigint {
-  readonly type = "Int"
-  readonly size = 8
-}
-export class OerInt16Bigint extends OerFixedIntegerBigint {
-  readonly type = "Int"
-  readonly size = 16
-}
-export class OerInt32Bigint extends OerFixedIntegerBigint {
-  readonly type = "Int"
-  readonly size = 32
-}
-export class OerInt64Bigint extends OerFixedIntegerBigint {
-  readonly type = "Int"
-  readonly size = 64
-}
-
 export class OerVariableUnsignedInteger extends OerIntegerBigint {
+  clone() {
+    return new OerVariableUnsignedInteger()
+  }
+
   parseWithContext(context: ParseContext, offset: number) {
     const { uint8Array, dataView } = context
     const result = parseLengthPrefix(context, offset)
@@ -232,6 +200,10 @@ export class OerVariableUnsignedInteger extends OerIntegerBigint {
 }
 
 export class OerVariableSignedInteger extends OerType<bigint> {
+  clone() {
+    return new OerVariableSignedInteger()
+  }
+
   parseWithContext(context: ParseContext, offset: number) {
     const { uint8Array } = context
     const result = parseLengthPrefix(context, offset)
@@ -319,23 +291,55 @@ export const integerAsBigint = (range?: Range<bigint>) => {
     // Fixed size integer encodings
     if (minimumValue >= UINT_MIN) {
       if (maximumValue <= UINT8_MAX) {
-        return new OerUint8Bigint(fixedOptions)
+        return new OerFixedIntegerBigint({
+          ...fixedOptions,
+          type: "Uint",
+          size: 8,
+        })
       } else if (maximumValue <= UINT16_MAX) {
-        return new OerUint16Bigint(fixedOptions)
+        return new OerFixedIntegerBigint({
+          ...fixedOptions,
+          type: "Uint",
+          size: 16,
+        })
       } else if (maximumValue <= UINT32_MAX) {
-        return new OerUint32Bigint(fixedOptions)
+        return new OerFixedIntegerBigint({
+          ...fixedOptions,
+          type: "Uint",
+          size: 32,
+        })
       } else if (maximumValue <= UINT64_MAX) {
-        return new OerUint64Bigint(fixedOptions)
+        return new OerFixedIntegerBigint({
+          ...fixedOptions,
+          type: "Uint",
+          size: 64,
+        })
       }
     } else {
       if (minimumValue <= INT8_MIN && maximumValue <= INT8_MAX) {
-        return new OerInt8Bigint(fixedOptions)
+        return new OerFixedIntegerBigint({
+          ...fixedOptions,
+          type: "Int",
+          size: 8,
+        })
       } else if (minimumValue <= INT16_MIN && maximumValue <= INT16_MAX) {
-        return new OerInt16Bigint(fixedOptions)
+        return new OerFixedIntegerBigint({
+          ...fixedOptions,
+          type: "Int",
+          size: 16,
+        })
       } else if (minimumValue <= INT32_MIN && maximumValue <= INT32_MAX) {
-        return new OerInt32Bigint(fixedOptions)
+        return new OerFixedIntegerBigint({
+          ...fixedOptions,
+          type: "Int",
+          size: 32,
+        })
       } else if (minimumValue <= INT64_MIN && maximumValue <= INT64_MAX) {
-        return new OerInt64Bigint(fixedOptions)
+        return new OerFixedIntegerBigint({
+          ...fixedOptions,
+          type: "Int",
+          size: 64,
+        })
       }
     }
   }

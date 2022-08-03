@@ -64,6 +64,10 @@ export class OerVariableBitstring<
     super()
   }
 
+  clone() {
+    return new OerVariableBitstring(this.bits)
+  }
+
   parseWithContext(context: ParseContext, offset: number) {
     const { uint8Array } = context
     const result = parseLengthPrefix(context, offset)
@@ -128,6 +132,10 @@ export class OerFixedBitstring<TBitDefinition extends number> extends OerType<
 > {
   constructor(readonly bits: TBitDefinition) {
     super()
+  }
+
+  clone() {
+    return new OerFixedBitstring(this.bits)
   }
 
   parseWithContext(context: ParseContext, offset: number) {

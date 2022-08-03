@@ -23,6 +23,10 @@ export class OerFixedOctetString extends OerType<
     super()
   }
 
+  clone() {
+    return new OerFixedOctetString(this.length)
+  }
+
   parseWithContext({ uint8Array }: ParseContext, offset: number) {
     return [
       uint8Array.slice(offset, offset + this.length),
@@ -60,6 +64,10 @@ export class OerVariableOctetString extends OerType<
 > {
   constructor(readonly sizeRange: NormalizedRange<SafeUnsignedInteger>) {
     super()
+  }
+
+  clone() {
+    return new OerVariableOctetString(this.sizeRange)
   }
 
   parseWithContext(context: ParseContext, offset: number) {
@@ -145,7 +153,7 @@ export class OerVariableOctetString extends OerType<
   }
 }
 
-export const OerOctetStringContaining = class<TSubtype> extends OerType<
+export class OerOctetStringContaining<TSubtype> extends OerType<
   TSubtype,
   TSubtype | Uint8Array
 > {
@@ -154,6 +162,10 @@ export const OerOctetStringContaining = class<TSubtype> extends OerType<
     readonly subType: OerType<TSubtype>
   ) {
     super()
+  }
+
+  clone() {
+    return new OerOctetStringContaining(this.octetStringType, this.subType)
   }
 
   parseWithContext(context: ParseContext, offset: number) {

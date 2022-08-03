@@ -16,6 +16,7 @@ interface FixedRealAsNumberOptions {
   maximumBase: number
   minimumExponent: number
   maximumExponent: number
+  size: 32 | 64
 }
 
 export const FLOAT32_MIN_MANTISSA_NUMBER = 1 - 2 ** 24
@@ -28,45 +29,45 @@ export const FLOAT64_MAX_MANTISSA_NUMBER = Number.MAX_SAFE_INTEGER
 export const FLOAT64_MIN_EXPONENT_NUMBER = -1074
 export const FLOAT64_MAX_EXPONENT_NUMBER = 971
 
-export abstract class OerFloatNumber extends OerType<number> {
-  abstract readonly size: 32 | 64
-
+export class OerFloatNumber extends OerType<number> {
   constructor(readonly options: FixedRealAsNumberOptions) {
     super()
   }
 
+  clone() {
+    return new OerFloatNumber(this.options)
+  }
+
   parseWithContext({ uint8Array, dataView }: ParseContext, offset: number) {
-    if (offset + this.size / 8 > dataView.byteLength) {
+    const { size } = this.options
+
+    if (offset + size / 8 > dataView.byteLength) {
       return new ParseError(
         `unable to read fixed length real of size ${
-          this.size / 8
+          size / 8
         } bytes - end of buffer`,
         uint8Array,
         uint8Array.byteLength
       )
     }
 
-    const value = dataView[`getFloat${this.size}`](offset)
+    const value = dataView[`getFloat${size}`](offset)
 
-    return [value, this.size / 8] as const
+    return [value, size / 8] as const
   }
 
   serializeWithContext(value: number) {
+    const { size } = this.options
+
     const serializer = (context: SerializeContext, offset: number) => {
-      context.dataView[`setFloat${this.size}`](offset, value)
+      context.dataView[`setFloat${size}`](offset, value)
 
       return
     }
-    serializer.size = this.size / 8
+    serializer.size = size / 8
+
     return serializer
   }
-}
-
-export class OerFloat32Number extends OerFloatNumber {
-  readonly size = 32
-}
-export class OerFloat64Number extends OerFloatNumber {
-  readonly size = 64
 }
 
 export const realAsNumber = ({
@@ -134,8 +135,8 @@ export const realAsNumber = ({
     maximumMantissa <= FLOAT32_MAX_MANTISSA_NUMBER &&
     minimumExponent >= FLOAT32_MIN_EXPONENT_NUMBER &&
     maximumExponent <= FLOAT32_MAX_EXPONENT_NUMBER
-    ? new OerFloat32Number(fixedOptions)
-    : new OerFloat64Number(fixedOptions)
+    ? new OerFloatNumber({ ...fixedOptions, size: 32 })
+    : new OerFloatNumber({ ...fixedOptions, size: 64 })
 }
 
 export const float32Number = () =>
