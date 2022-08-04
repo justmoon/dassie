@@ -2,14 +2,20 @@
 
 exports[`octetString > with constrained variable length > should refuse to parse a buffer with four bytes 1`] = `
 {
-  "failure": [ParseError: Expected octet string of length at least 5, but got 4],
+  "failure": [ParseError: Expected octet string of length at least 5, but got 4
+
+    04 dd 8d 71 71  
+    ^^],
   "success": false,
 }
 `;
 
 exports[`octetString > with constrained variable length > should refuse to parse a buffer with nine bytes 1`] = `
 {
-  "failure": [ParseError: Expected octet string of length at most 8, but got 9],
+  "failure": [ParseError: Expected octet string of length at most 8, but got 9
+
+    09 dd 8d 71 71 bd c6 b1 66 38  
+    ^^],
   "success": false,
 }
 `;
@@ -37,14 +43,20 @@ exports[`octetString > with fixed length > should refuse to serialize a value of
 
 exports[`octetString > with variable length > should reject a non-canonical length prefix which could fit one byte when allowNoncanonical is false > error 1`] = `
 {
-  "failure": [ParseError: non-canonical encoding - length prefix is not minimal (length <= 0x7f but not encoded as a single byte)],
+  "failure": [ParseError: non-canonical encoding - length prefix is not minimal (length <= 0x7f but not encoded as a single byte)
+
+    81 01 12  
+    ^^],
   "success": false,
 }
 `;
 
 exports[`octetString > with variable length > should reject a non-canonical length prefix which could fit two bytes when allowNoncanonical is false > error 1`] = `
 {
-  "failure": [ParseError: non-canonical encoding - length prefix is not minimal (could be encoded in fewer bytes)],
+  "failure": [ParseError: non-canonical encoding - length prefix is not minimal (could be encoded in fewer bytes)
+
+    82 00 80 71 bd c6 b1 66 38 03 f5 3a 2e 1d db 37 00 4b 2f fe …
+    ^^],
   "success": false,
 }
 `;

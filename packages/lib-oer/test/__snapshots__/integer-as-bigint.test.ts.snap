@@ -2,14 +2,20 @@
 
 exports[`integerAsBigint > schema uint8 with range 5..8 > should not parse a number that is too high 1`] = `
 {
-  "failure": [ParseError: unable to read fixed length integer of size 1 bytes - value 9 is greater than maximum value 8],
+  "failure": [ParseError: unable to read fixed length integer of size 1 bytes - value 9 is greater than maximum value 8
+
+    09  
+    ^^],
   "success": false,
 }
 `;
 
 exports[`integerAsBigint > schema uint8 with range 5..8 > should not parse a number that is too low 1`] = `
 {
-  "failure": [ParseError: unable to read fixed length integer of size 1 bytes - value 1 is less than minimum value 5],
+  "failure": [ParseError: unable to read fixed length integer of size 1 bytes - value 1 is less than minimum value 5
+
+    01  
+    ^^],
   "success": false,
 }
 `;
@@ -30,7 +36,10 @@ exports[`integerAsBigint > schema uint8 with range 5..8 > should not serialize a
 
 exports[`integerAsBigint > schema variable-length signed integer > should reject a zero-length zero 1`] = `
 {
-  "failure": [ParseError: unable to read variable length integer - length must not be 0],
+  "failure": [ParseError: unable to read variable length integer - length must not be 0
+
+    00  
+    ^^],
   "success": false,
 }
 `;
@@ -69,7 +78,10 @@ exports[`integerAsBigint > schema variable-length unsigned integer > should refu
 
 exports[`integerAsBigint > schema variable-length unsigned integer > should reject a zero-length zero 1`] = `
 {
-  "failure": [ParseError: unable to read variable length integer - length must not be 0],
+  "failure": [ParseError: unable to read variable length integer - length must not be 0
+
+    00  
+    ^^],
   "success": false,
 }
 `;
