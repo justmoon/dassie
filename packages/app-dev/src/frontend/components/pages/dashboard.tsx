@@ -15,7 +15,10 @@ const nodesToGraph = (nodes: NodeDefinition<InputConfig>[]): GraphData => {
   return {
     nodes: nodes.map((node) => ({ id: node.id })),
     links: nodes.flatMap((node) =>
-      node.peers.map((peer) => ({ source: node.id, target: peer }))
+      node.peers.flatMap((peer) => [
+        { source: node.id, target: peer },
+        { source: peer, target: node.id },
+      ])
     ),
   }
 }

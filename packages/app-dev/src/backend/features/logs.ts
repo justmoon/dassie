@@ -12,7 +12,7 @@ export interface IndexedLogLine extends NodeLogLine {
 }
 
 export const indexedLogLineTopic = () => createTopic<IndexedLogLine>()
-export const currentLogIndexStore = () => createStore<number>(0)
+export const currentLogIndexStore = () => createStore(0)
 
 export const indexLogs = (sig: EffectContext) => {
   sig.on(logLineTopic, (line) => {

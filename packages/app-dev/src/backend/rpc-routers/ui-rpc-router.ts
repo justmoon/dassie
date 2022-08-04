@@ -6,6 +6,7 @@ import { z } from "zod"
 import type { Reactor } from "@xen-ilp/lib-reactive"
 
 import type { DebugRpcRouter } from "../../runner/effects/debug-rpc-server"
+import { config } from "../config"
 import { IndexedLogLine, indexedLogLineTopic } from "../features/logs"
 import { activeTemplate } from "../stores/active-template"
 import { logsStore } from "../stores/logs"
@@ -13,15 +14,14 @@ import {
   GlobalFirehoseMessage,
   globalFirehoseTopic,
 } from "../topics/global-firehose"
-
-export const startupTime = Date.now()
+import { PeerMessageMetadata, peerTrafficTopic } from "../topics/peer-traffic"
 
 export const uiRpcRouter = trpc
   .router<Reactor>()
   .transformer(superjson)
-  .query("startupTime", {
+  .query("config", {
     resolve() {
-      return startupTime
+      return config
     },
   })
   .query("activeTemplate", {
@@ -89,6 +89,15 @@ export const uiRpcRouter = trpc
       return new trpc.Subscription<GlobalFirehoseMessage>((sendToClient) => {
         return fromContext(globalFirehoseTopic).on((logLine) => {
           sendToClient.data(logLine)
+        })
+      })
+    },
+  })
+  .subscription("peerTraffic", {
+    resolve({ ctx: { useContext: fromContext } }) {
+      return new trpc.Subscription<PeerMessageMetadata>((sendToClient) => {
+        return fromContext(peerTrafficTopic).on((message) => {
+          sendToClient.data(message)
         })
       })
     },

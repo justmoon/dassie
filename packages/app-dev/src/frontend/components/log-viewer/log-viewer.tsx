@@ -12,6 +12,7 @@ const LogViewer = ({ filter }: LogViewerProperties) => {
   return useObserver(() => (
     <div className="flex flex-col-reverse h-full w-full overflow-y-scroll">
       {logs()
+        .logs.toArray()
         .filter(filter ?? Boolean)
         .map((line) => (
           <LogLine key={line.index} {...line} />

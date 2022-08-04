@@ -5,6 +5,7 @@ import type { Reactor } from "@xen-ilp/lib-reactive"
 
 import { logLineTopic } from "../features/logs"
 import { globalFirehoseTopic } from "../topics/global-firehose"
+import { peerTrafficTopic } from "../topics/peer-traffic"
 import { createCliOnlyLogger } from "../utils/cli-only-logger"
 
 export const runnerRpcRouter = trpc
@@ -17,6 +18,15 @@ export const runnerRpcRouter = trpc
         topic: topicName,
         messageId,
       })
+    },
+  })
+  .mutation("notifyPeerTraffic", {
+    input: z.object({
+      from: z.string(),
+      to: z.string(),
+    }),
+    resolve({ input: peerMessageMetadata, ctx: reactor }) {
+      reactor.useContext(peerTrafficTopic).emit(peerMessageMetadata)
     },
   })
   .mutation("notifyLogLine", {

@@ -5,7 +5,7 @@ import { selectBySeed } from "@xen-ilp/lib-logger"
 
 import type { IndexedLogLine } from "../../../backend/features/logs"
 import { COLORS } from "../../constants/palette"
-import { startupTime } from "../../signals/startup-time"
+import { config } from "../../signals/config"
 import { AnsiSpan, AnsiSpanProperties } from "../utilities/ansi-span"
 
 const linkify = new LinkifyIt()
@@ -43,20 +43,30 @@ export const linkifyText = (text: string) => {
   return elements
 }
 
+const DATA_PREVIEW_MAX_LENGTH = 30
+
 export const DataValue = ({
   content,
   ...otherProperties
-}: AnsiSpanProperties) => (
-  <AnsiSpan content={content.split(/[\n ]/)[0]!} {...otherProperties} />
-)
+}: AnsiSpanProperties) => {
+  const endOffset = Math.min(
+    ...[DATA_PREVIEW_MAX_LENGTH, content.indexOf("\n")].filter((a) => a !== -1)
+  )
+  let abbreviatedContent = content.slice(0, endOffset)
+  if (abbreviatedContent.length !== content.length) {
+    abbreviatedContent += "…"
+  }
+  return <AnsiSpan content={abbreviatedContent} {...otherProperties} />
+}
 
 const LogLine = (log: IndexedLogLine) => {
   return (
     <div className="flex text-xs py-0.5" style={{ order: -log.index }}>
       <div className="font-mono flex-shrink-0 text-right px-2 text-gray-400 w-20">
-        {((Number(new Date(log.date)) - (startupTime() ?? 0)) / 1000).toFixed(
-          3
-        )}
+        {(
+          (Number(new Date(log.date)) - (config()?.startupTime ?? 0)) /
+          1000
+        ).toFixed(3)}
       </div>
       <div
         className="font-bold flex-shrink-0 text-center w-8"
