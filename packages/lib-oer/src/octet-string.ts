@@ -53,8 +53,10 @@ export class OerFixedOctetString extends OerType<
     return serializer
   }
 
-  containing<T>(subType: OerType<T>) {
-    return new OerOctetStringContaining<T>(this, subType)
+  containing<TParseValue, TSerializeValue>(
+    subType: OerType<TParseValue, TSerializeValue>
+  ) {
+    return new OerOctetStringContaining(this, subType)
   }
 }
 
@@ -148,18 +150,20 @@ export class OerVariableOctetString extends OerType<
     return serializer
   }
 
-  containing<T>(subType: OerType<T>) {
-    return new OerOctetStringContaining<T>(this, subType)
+  containing<TParseValue, TSerializeValue>(
+    subType: OerType<TParseValue, TSerializeValue>
+  ) {
+    return new OerOctetStringContaining(this, subType)
   }
 }
 
-export class OerOctetStringContaining<TSubtype> extends OerType<
-  TSubtype,
-  TSubtype | Uint8Array
-> {
+export class OerOctetStringContaining<
+  TParseValue,
+  TSerializeValue
+> extends OerType<TParseValue, TSerializeValue | Uint8Array> {
   constructor(
     readonly octetStringType: OerFixedOctetString | OerVariableOctetString,
-    readonly subType: OerType<TSubtype>
+    readonly subType: OerType<TParseValue, TSerializeValue>
   ) {
     super()
   }
@@ -195,7 +199,7 @@ export class OerOctetStringContaining<TSubtype> extends OerType<
     return [subTypeValue, octetStringOverallLength] as const
   }
 
-  serializeWithContext(value: TSubtype | Uint8Array) {
+  serializeWithContext(value: TSerializeValue | Uint8Array) {
     if (isUint8Array(value)) {
       return this.octetStringType.serializeWithContext(value)
     }
