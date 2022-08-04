@@ -30,6 +30,6 @@
     "@xen-ilp/lib-type-utils": "workspace:^1.0.0"
   },
   "devDependencies": {
-    "type-fest": "^2.16.0"
+    "type-fest": "^2.18.0"
   }
 }

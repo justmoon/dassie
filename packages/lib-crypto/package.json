@@ -18,8 +18,8 @@
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "dependencies": {
-    "@xen-ilp/lib-itergen-utils": "workspace:*",
+    "@xen-ilp/lib-itergen-utils": "workspace:1.0.0",
     "@xen-ilp/lib-logger": "workspace:^1.0.0",
-    "@xen-ilp/lib-type-utils": "workspace:*"
+    "@xen-ilp/lib-type-utils": "workspace:1.0.0"
   }
 }
