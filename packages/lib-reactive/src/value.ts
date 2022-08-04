@@ -1,11 +1,8 @@
-import { createLogger } from "@xen-ilp/lib-logger"
 import { isObject } from "@xen-ilp/lib-type-utils"
 
 import { Effect, runEffect } from "./effect"
 import { FactoryNameSymbol, InitSymbol, Reactor } from "./reactor"
 import { Store, createStore } from "./store"
-
-const logger = createLogger("xen:reactive:value")
 
 export const ValueSymbol = Symbol("xen:reactive:value")
 
@@ -35,7 +32,7 @@ export const createValue = <T>(effect: Effect<undefined, T>): Value<T> => {
           store.emit(() => newValue)
         }
       }).catch((error: unknown) => {
-        logger.error("error while running effect to calculate value", {
+        console.error("error while running effect to calculate value", {
           value: value[FactoryNameSymbol],
           error,
         })

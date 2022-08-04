@@ -1,4 +1,3 @@
-import { createLogger } from "@xen-ilp/lib-logger"
 import { isObject } from "@xen-ilp/lib-type-utils"
 
 import { Disposer, Factory, FactoryNameSymbol } from "./reactor"
@@ -56,8 +55,6 @@ export interface Topic<TMessage = never, TTrigger = TMessage> {
 }
 
 export const createTopic = <TMessage>(): Topic<TMessage, TMessage> => {
-  const logger = createLogger(`xen:reactive:topic`)
-
   // We construct a temporary object in order to assign the name to the function
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   let listeners: Listener<TMessage> | Set<Listener<TMessage>> | undefined
@@ -67,7 +64,7 @@ export const createTopic = <TMessage>(): Topic<TMessage, TMessage> => {
       try {
         listeners(message)
       } catch (error) {
-        logger.error("error in listener", {
+        console.error("error in listener", {
           topic: topic[FactoryNameSymbol],
           error,
         })
@@ -81,7 +78,7 @@ export const createTopic = <TMessage>(): Topic<TMessage, TMessage> => {
       try {
         listener(message)
       } catch (error) {
-        logger.error("error in listener", {
+        console.error("error in listener", {
           topic: topic[FactoryNameSymbol],
           error,
         })

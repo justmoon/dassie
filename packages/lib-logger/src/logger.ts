@@ -1,3 +1,5 @@
+import { isObject } from "@xen-ilp/lib-type-utils"
+
 import { createEnableChecker } from "./enabled"
 import type { LoggingContext } from "./types/context"
 import type { Formatter } from "./types/formatter"
@@ -143,6 +145,21 @@ export class Logger {
       },
       options ?? {}
     )
+  }
+
+  captureConsole() {
+    const methods = ["debug", "info", "warn", "error"] as const
+
+    for (const method of methods) {
+      console[method] = (message: string, ...parameters: unknown[]) => {
+        this[method](
+          message,
+          parameters.length === 1 && isObject(parameters[0])
+            ? parameters[0] ?? undefined
+            : { parameters }
+        )
+      }
+    }
   }
 }
 

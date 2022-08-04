@@ -1,8 +1,4 @@
-import { createLogger } from "@xen-ilp/lib-logger"
-
 import type { AsyncDisposer } from "../reactor"
-
-const logger = createLogger("xen:reactive:lifecycle-scope")
 
 export class LifecycleScope {
   isDisposed = false
@@ -12,7 +8,7 @@ export class LifecycleScope {
     if (this.isDisposed) {
       // If the scope has already been disposed, run the cleanup handler immediately.
       Promise.resolve(cleanupHandler()).catch((error: unknown) => {
-        logger.error("error in cleanup handler", { error })
+        console.error("error in cleanup handler", { error })
       })
     } else {
       this.cleanupQueue.push(cleanupHandler)

@@ -1,12 +1,8 @@
-import { createLogger } from "@xen-ilp/lib-logger"
-
 import { LifecycleScope } from "./internal/lifecycle-scope"
 import { createWaker } from "./internal/waker"
 import type { AsyncDisposer, Reactor } from "./reactor"
 import type { StoreFactory } from "./store"
 import type { Listener, TopicFactory } from "./topic"
-
-const logger = createLogger("xen:reactive")
 
 export type Effect<TProperties = unknown, TReturn = unknown> = (
   sig: EffectContext,
@@ -149,7 +145,7 @@ export class EffectContext {
         try {
           listener(message)
         } catch (error: unknown) {
-          logger.error("error in listener", {
+          console.error("error in listener", {
             topic: topic.name,
             effect: this.effect.name,
             error,
@@ -171,7 +167,7 @@ export class EffectContext {
         try {
           listener(message)
         } catch (error: unknown) {
-          logger.error("error in once listener", {
+          console.error("error in once listener", {
             topic: topic.name,
             effect: this.effect.name,
             error,
@@ -194,7 +190,7 @@ export class EffectContext {
     this.lifecycle.onCleanup(
       this.reactor.useContext(topic).on((message) => {
         listener(message).catch((error: unknown) => {
-          logger.error("error in async listener", {
+          console.error("error in async listener", {
             topic: topic.name,
             effect: this.effect.name,
             error,
@@ -217,7 +213,7 @@ export class EffectContext {
     this.lifecycle.onCleanup(
       this.reactor.useContext(topic).once((message) => {
         listener(message).catch((error: unknown) => {
-          logger.error("error in onceAsync listener", {
+          console.error("error in onceAsync listener", {
             topic: topic.name,
             effect: this.effect.name,
             error,
@@ -245,7 +241,7 @@ export class EffectContext {
       try {
         callback()
       } catch (error) {
-        logger.error("error in interval callback", {
+        console.error("error in interval callback", {
           effect: this.effect.name,
           error,
         })
@@ -265,7 +261,7 @@ export class EffectContext {
       try {
         callback()
       } catch (error) {
-        logger.error("error in timeout callback", {
+        console.error("error in timeout callback", {
           effect: this.effect.name,
           error,
         })
@@ -310,7 +306,7 @@ export class EffectContext {
       this.lifecycle,
       (_result) => (result = _result)
     ).catch((error: unknown) => {
-      logger.error("error in child effect", {
+      console.error("error in child effect", {
         effect: effect.name,
         parentEffect: this.effect.name,
         error,

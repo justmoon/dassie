@@ -1,13 +1,10 @@
 import type { Promisable } from "type-fest"
 
-import { createLogger } from "@xen-ilp/lib-logger"
 import { isObject } from "@xen-ilp/lib-type-utils"
 
 import { createDebugTools } from "./debug/debug-tools"
 import { Effect, runEffect } from "./effect"
 import { LifecycleScope } from "./internal/lifecycle-scope"
-
-const logger = createLogger("xen:reactive:reactor")
 
 /**
  * The reactor will automatically set this property on each instantiated object.
@@ -104,7 +101,7 @@ export const createReactor = (rootEffect: Effect): Reactor => {
   const reactor: Reactor = new Reactor()
 
   runEffect(reactor, rootEffect, undefined, reactor).catch((error: unknown) => {
-    logger.error("error in root effect", { effect: rootEffect.name, error })
+    console.error("error in root effect", { effect: rootEffect.name, error })
   })
 
   return reactor
