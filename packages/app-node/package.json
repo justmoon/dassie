@@ -21,6 +21,7 @@
     "denque": "^2.1.0",
     "env-paths": "^3.0.0",
     "immer": "^9.0.15",
+    "iterative": "^1.9.2",
     "ws": "^8.8.1"
   },
   "devDependencies": {

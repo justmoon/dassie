@@ -18,32 +18,22 @@ export const incomingPeerMessageTopic = () =>
   createTopic<IncomingPeerMessageEvent>()
 
 export const handlePeerMessages = (sig: EffectContext) => {
-  sig.on(incomingPeerMessageTopic, ({ message, asUint8Array }) => {
+  sig.on(incomingPeerMessageTopic, ({ message }) => {
     if (message.hello) {
-      const { nodeId, sequence, neighbors, url } = message.hello.signed
+      const { nodeInfo } = message.hello.signed
+      const { nodeId, sequence, url } = nodeInfo.signed
       const peers = sig.read(peerTableStore)
 
       logger.debug("handle hello", {
         from: nodeId,
         sequence,
-        neighbors: () => neighbors.map((neighbor) => neighbor.nodeId).join(","),
       })
 
       const peer = peers.get(nodeId)
       if (peer) {
-        if (sequence <= peer.sequence) {
-          logger.debug("ignoring stale hello", {
-            from: nodeId,
-            sequence,
-            previousSequence: peer.sequence,
-          })
-          return
-        }
-
         sig.emit(
           peerTableStore,
           updatePeer(nodeId, {
-            sequence: sequence,
             lastSeen: Date.now(),
           })
         )
@@ -53,19 +43,23 @@ export const handlePeerMessages = (sig: EffectContext) => {
           addPeer({
             nodeId,
             url,
-            sequence: sequence,
             lastSeen: Date.now(),
           })
         )
       }
     } else {
-      const { nodeId, sequence, neighbors } = message.linkStateUpdate.signed
+      const { value: linkState, bytes: linkStateBytes } =
+        message.linkStateUpdate
+      const { nodeId, sequence, entries } = linkState.signed
       const nodes = sig.read(nodeTableStore)
+
+      const neighbors = entries
+        .filter((entry) => "neighbor" in entry)
+        .map((entry) => entry.neighbor.nodeId)
 
       logger.debug("handle link state update", {
         from: nodeId,
         sequence,
-        neighbors: () => neighbors.map((neighbor) => neighbor.nodeId).join(","),
       })
 
       const node = nodes.get(nodeId)
@@ -113,8 +107,8 @@ export const handlePeerMessages = (sig: EffectContext) => {
             scheduledRetransmitTime:
               Date.now() +
               Math.ceil(Math.random() * MAX_LINK_STATE_UPDATE_RETRANSMIT_DELAY),
-            neighbors: neighbors.map((neighbor) => neighbor.nodeId),
-            lastLinkStateUpdate: asUint8Array,
+            neighbors,
+            lastLinkStateUpdate: linkStateBytes,
           })
         )
       }

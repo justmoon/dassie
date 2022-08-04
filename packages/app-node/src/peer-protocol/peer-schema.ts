@@ -1,46 +1,56 @@
 import {
   Infer,
+  captured,
   choice,
+  digits,
   ia5String,
+  lowercaseLetters,
+  objectIdentifier,
   octetString,
   sequence,
   sequenceOf,
   uint64Bigint,
+  visibleString,
 } from "@xen-ilp/lib-oer"
 
-const HELLO_NEIGHBOR_PROOF_LENGTH = 32
+import {
+  xenPeerNodeInfoId,
+  xenPeerSignedHelloId,
+} from "../constants/object-identifiers"
 
 export type PeerMessage = Infer<typeof peerMessage>
 
-export const peerSignedHello = sequence({
-  nodeId: ia5String(),
-  sequence: uint64Bigint(),
-  url: ia5String(),
-  neighbors: sequenceOf(
-    sequence({
-      nodeId: ia5String(),
-      proof: octetString(HELLO_NEIGHBOR_PROOF_LENGTH),
-    })
-  ),
+export const nodeIdSchema = ia5String().from(lowercaseLetters + digits)
+
+export const nodeInfoEntry = choice({
+  neighbor: sequence({
+    nodeId: nodeIdSchema,
+  }).tag(0),
 })
 
-export const peerSignedLinkStateUpdate = sequence({
-  nodeId: ia5String(),
+export const peerNodeInfo = sequence({
+  type: objectIdentifier().constant(xenPeerNodeInfoId),
+  nodeId: nodeIdSchema,
   sequence: uint64Bigint(),
-  neighbors: sequenceOf(
-    sequence({
-      nodeId: ia5String(),
-    })
-  ),
+  url: visibleString(),
+  publicKey: octetString(),
+  entries: sequenceOf(nodeInfoEntry),
+})
+
+export const signedPeerNodeInfo = sequence({
+  signed: octetString().containing(peerNodeInfo),
+  signature: octetString(),
+})
+
+export const peerHello = sequence({
+  type: objectIdentifier().constant(xenPeerSignedHelloId),
+  nodeInfo: octetString().containing(signedPeerNodeInfo),
 })
 
 export const peerMessage = choice({
   hello: sequence({
-    signed: octetString().containing(peerSignedHello),
+    signed: octetString().containing(peerHello),
     signature: octetString(),
   }).tag(0),
-  linkStateUpdate: sequence({
-    signed: octetString().containing(peerSignedLinkStateUpdate),
-    signature: octetString(),
-  }).tag(1),
+  linkStateUpdate: captured(signedPeerNodeInfo).tag(1),
 })

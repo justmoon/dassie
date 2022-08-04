@@ -1,4 +1,4 @@
-import { sign } from "@noble/ed25519"
+import { getPublicKey, sign } from "@noble/ed25519"
 
 import { createValue } from "@xen-ilp/lib-reactive"
 
@@ -12,6 +12,9 @@ export const signerValue = () =>
     )
 
     return {
+      getPublicKey(): Promise<Uint8Array> {
+        return getPublicKey(xenKey)
+      },
       signWithXenKey(data: Uint8Array) {
         return sign(data, xenKey)
       },

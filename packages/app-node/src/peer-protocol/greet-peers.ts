@@ -3,9 +3,10 @@ import type { EffectContext } from "@xen-ilp/lib-reactive"
 
 import { configStore } from "../config"
 import { signerValue } from "../crypto/signer"
-import { peerMessage, peerSignedHello } from "../peer-protocol/peer-schema"
+import { peerHello, peerMessage } from "../peer-protocol/peer-schema"
 import { outgoingPeerMessageBufferTopic } from "../peer-protocol/send-peer-messages"
 import { compareSetOfKeys } from "../utils/compare-sets"
+import { nodeTableStore } from "./stores/node-table"
 import { peerTableStore } from "./stores/peer-table"
 
 const logger = createLogger("xen:node:peer-greeter")
@@ -20,10 +21,13 @@ export const greetPeers = async (sig: EffectContext) => {
     compareSetOfKeys
   )
 
-  const { nodeId, port } = sig.get(configStore, ({ nodeId, port }) => ({
-    nodeId,
-    port,
-  }))
+  const ownNodeTableEntry = sig.get(nodeTableStore, (nodeTable) =>
+    nodeTable.get(sig.read(configStore).nodeId)
+  )
+
+  if (!ownNodeTableEntry) {
+    return
+  }
 
   const signer = sig.get(signerValue)
 
@@ -32,14 +36,8 @@ export const greetPeers = async (sig: EffectContext) => {
 
     logger.debug(`sending hello`, { to: peer.nodeId, sequence })
 
-    const signedHello = peerSignedHello.serialize({
-      nodeId,
-      sequence,
-      url: `https://${nodeId}.localhost:${port}`,
-      neighbors: [...peers.values()].map((peer) => ({
-        nodeId: peer.nodeId,
-        proof: new Uint8Array(32),
-      })),
+    const signedHello = peerHello.serialize({
+      nodeInfo: ownNodeTableEntry.lastLinkStateUpdate,
     })
 
     if (!signedHello.success) {

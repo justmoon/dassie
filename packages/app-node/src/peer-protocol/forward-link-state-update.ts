@@ -2,6 +2,7 @@ import { createLogger } from "@xen-ilp/lib-logger"
 import type { EffectContext } from "@xen-ilp/lib-reactive"
 
 import { outgoingPeerMessageBufferTopic } from "../peer-protocol/send-peer-messages"
+import { peerMessage } from "./peer-schema"
 import { nodeTableStore, updateNode } from "./stores/node-table"
 import { peerTableStore } from "./stores/peer-table"
 
@@ -27,6 +28,18 @@ export const forwardLinkStateUpdate = (sig: EffectContext) => {
         })
       )
 
+      const message = peerMessage.serialize({
+        linkStateUpdate: {
+          bytes: node.lastLinkStateUpdate,
+        },
+      })
+
+      if (!message.success) {
+        throw new Error("Failed to serialize link state update message", {
+          cause: message.failure,
+        })
+      }
+
       for (const peer of peers.values()) {
         if (peer.nodeId === node.nodeId) continue
 
@@ -34,10 +47,11 @@ export const forwardLinkStateUpdate = (sig: EffectContext) => {
           from: node.nodeId,
           to: peer.nodeId,
         })
+
         // Retransmit the link state update
         sig.emit(outgoingPeerMessageBufferTopic, {
           destination: peer.nodeId,
-          message: node.lastLinkStateUpdate,
+          message: message.value,
         })
       }
     }

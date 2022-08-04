@@ -1,4 +1,5 @@
 import produce, { enableMapSet } from "immer"
+import type { MarkOptional } from "ts-essentials"
 
 import { createStore } from "@xen-ilp/lib-reactive"
 
@@ -7,16 +8,10 @@ enableMapSet()
 export interface PeerEntry {
   nodeId: string
   url: string
-  sequence: bigint
   lastSeen: number
 }
 
-export interface NewPeerEntry {
-  nodeId: string
-  url: string
-  sequence?: bigint
-  lastSeen?: number
-}
+export type NewPeerEntry = MarkOptional<PeerEntry, "lastSeen">
 
 export type Model = Map<string, PeerEntry>
 
@@ -25,7 +20,6 @@ export const peerTableStore = () => createStore<Model>(new Map())
 export const addPeer = (peerEntry: NewPeerEntry) =>
   produce<Model>((draft) => {
     draft.set(peerEntry.nodeId, {
-      sequence: 0n,
       lastSeen: Date.now(),
       ...peerEntry,
     })

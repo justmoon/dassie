@@ -8,7 +8,7 @@ import { maintainOwnNodeTableEntry } from "./maintain-own-node-table-entry"
 import { registerPeerHttpHandler } from "./register-peer-http-handler"
 import { sendPeerMessages } from "./send-peer-messages"
 
-export const speakPeerProtocol = (sig: EffectContext) => {
+export const speakPeerProtocol = async (sig: EffectContext) => {
   // Handle incoming Xen messages via HTTP
   sig.use(registerPeerHttpHandler)
   sig.use(handlePeerMessages)
@@ -16,9 +16,9 @@ export const speakPeerProtocol = (sig: EffectContext) => {
   // Send outgoing Xen messages
   sig.use(sendPeerMessages)
 
-  sig.use(greetPeers)
+  await sig.use(greetPeers)
   // sig.use(publishLinkStateUpdate)
-  sig.use(maintainOwnNodeTableEntry)
+  await sig.use(maintainOwnNodeTableEntry)
   sig.use(forwardLinkStateUpdate)
   sig.use(calculateRoutes)
 }

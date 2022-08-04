@@ -1,17 +1,20 @@
+import { map } from "iterative"
+
 import { createLogger } from "@xen-ilp/lib-logger"
 import type { EffectContext } from "@xen-ilp/lib-reactive"
 
 import { configStore } from "../config"
 import { signerValue } from "../crypto/signer"
 import { compareKeysToArray, compareSetOfKeys } from "../utils/compare-sets"
-import { peerMessage, peerSignedLinkStateUpdate } from "./peer-schema"
+import { peerNodeInfo, signedPeerNodeInfo } from "./peer-schema"
 import { addNode, nodeTableStore, updateNode } from "./stores/node-table"
 import { peerTableStore } from "./stores/peer-table"
 
 const logger = createLogger("xen:node:maintain-own-node-table-entry")
 
 export const maintainOwnNodeTableEntry = async (sig: EffectContext) => {
-  const ownNodeId = sig.get(configStore, ({ nodeId }) => nodeId)
+  const { nodeId, port } = sig.getKeys(configStore, ["nodeId", "port"])
+  const signer = sig.get(signerValue)
 
   // Get the current peers and re-run the effect iff the IDs of the peers change.
   const peers = sig.get(
@@ -21,7 +24,7 @@ export const maintainOwnNodeTableEntry = async (sig: EffectContext) => {
   )
 
   const ownNodeTableEntry = sig.get(nodeTableStore, (nodeTable) =>
-    nodeTable.get(ownNodeId)
+    nodeTable.get(nodeId)
   )
 
   if (
@@ -31,26 +34,29 @@ export const maintainOwnNodeTableEntry = async (sig: EffectContext) => {
     const sequence = BigInt(Date.now())
     const peerIds = [...peers.values()].map((peer) => peer.nodeId)
 
-    const signer = sig.get(signerValue)
-    const signedLinkStateUpdate = peerSignedLinkStateUpdate.serialize({
-      nodeId: ownNodeId,
+    const peerNodeInfoResult = peerNodeInfo.serialize({
+      nodeId: nodeId,
+      publicKey: await signer.getPublicKey(),
+      url: `https://${nodeId}.localhost:${port}`,
       sequence,
-      neighbors: [...peers.values()],
+      entries: [
+        ...map(peers.values(), (peer) => ({
+          neighbor: { nodeId: peer.nodeId },
+        })),
+      ],
     })
 
-    if (!signedLinkStateUpdate.success) {
+    if (!peerNodeInfoResult.success) {
       logger.warn("Failed to serialize link state update signed portion", {
-        error: signedLinkStateUpdate.failure,
+        error: peerNodeInfoResult.failure,
       })
       return
     }
 
-    const signature = await signer.signWithXenKey(signedLinkStateUpdate.value)
-    const message = peerMessage.serialize({
-      linkStateUpdate: {
-        signed: signedLinkStateUpdate.value,
-        signature,
-      },
+    const signature = await signer.signWithXenKey(peerNodeInfoResult.value)
+    const message = signedPeerNodeInfo.serialize({
+      signed: peerNodeInfoResult.value,
+      signature,
     })
 
     if (!message.success) {
@@ -64,14 +70,14 @@ export const maintainOwnNodeTableEntry = async (sig: EffectContext) => {
       nodeTableStore,
       ownNodeTableEntry == undefined
         ? addNode({
-            nodeId: ownNodeId,
+            nodeId: nodeId,
             neighbors: peerIds,
             sequence,
             scheduledRetransmitTime: Date.now(),
             updateReceivedCounter: 0,
             lastLinkStateUpdate: message.value,
           })
-        : updateNode(ownNodeId, {
+        : updateNode(nodeId, {
             neighbors: peerIds,
             sequence,
             scheduledRetransmitTime: Date.now(),
