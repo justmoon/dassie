@@ -11,6 +11,9 @@ export interface TopicFactory<TMessage = unknown, TTrigger = never>
   (): Topic<TMessage, TTrigger>
 }
 
+export type InferMessageType<TTopic extends TopicFactory> =
+  TTopic extends TopicFactory<infer TMessage> ? TMessage : never
+
 export interface Topic<TMessage = never, TTrigger = TMessage> {
   /**
    * Marks this object as a topic.
