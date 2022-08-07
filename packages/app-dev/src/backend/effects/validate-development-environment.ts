@@ -8,8 +8,9 @@ import { dirname } from "node:path"
 import { isNativeError } from "node:util/types"
 
 import type { InputConfig } from "@xen-ilp/app-node"
+import type { EffectContext } from "@xen-ilp/lib-reactive"
 
-import { NODES } from "../constants/development-nodes"
+import { activeNodeConfig } from "../values/active-node-config"
 import type { NodeDefinition } from "./run-nodes"
 
 interface CertificateInfo {
@@ -18,21 +19,6 @@ interface CertificateInfo {
   keyPath: string | undefined
   node: NodeDefinition<InputConfig>
 }
-
-const neededCertificates: CertificateInfo[] = NODES.flatMap((node) => [
-  {
-    type: "web",
-    certificatePath: node.config.tlsWebCertFile,
-    keyPath: node.config.tlsWebKeyFile,
-    node,
-  },
-  {
-    type: "xen",
-    certificatePath: node.config.tlsXenCertFile,
-    keyPath: node.config.tlsXenKeyFile,
-    node,
-  },
-])
 
 const checkFileStatus = async (filePath: string) => {
   try {
@@ -81,7 +67,24 @@ const generateCertificate = async ({
   }
 }
 
-export const validateDevelopmentEnvironment = async () => {
+export const validateDevelopmentEnvironment = async (sig: EffectContext) => {
+  const neededCertificates: CertificateInfo[] = sig
+    .get(activeNodeConfig)
+    .flatMap((node) => [
+      {
+        type: "web",
+        certificatePath: node.config.tlsWebCertFile,
+        keyPath: node.config.tlsWebKeyFile,
+        node,
+      },
+      {
+        type: "xen",
+        certificatePath: node.config.tlsXenCertFile,
+        keyPath: node.config.tlsXenKeyFile,
+        node,
+      },
+    ])
+
   console.log(colors.bold("\n  Validating certificates:"))
   let anyFilesGenerated = false
   let anyFilesMissing = false

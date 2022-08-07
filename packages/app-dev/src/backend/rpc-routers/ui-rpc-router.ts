@@ -3,7 +3,11 @@ import * as trpc from "@trpc/server"
 import superjson from "superjson"
 import { z } from "zod"
 
-import type { Reactor } from "@xen-ilp/lib-reactive"
+import type {
+  InferMessageType,
+  Reactor,
+  StoreFactory,
+} from "@xen-ilp/lib-reactive"
 
 import type { DebugRpcRouter } from "../../runner/effects/debug-rpc-server"
 import { config } from "../config"
@@ -15,6 +19,21 @@ import {
   globalFirehoseTopic,
 } from "../topics/global-firehose"
 import { PeerMessageMetadata, peerTrafficTopic } from "../topics/peer-traffic"
+import { activeNodeConfig } from "../values/active-node-config"
+
+export const exposedStores = {
+  activeNodeConfig,
+} as const
+
+export type ExposedStoresMap = typeof exposedStores
+
+const validateStoreName = (storeName: unknown): keyof ExposedStoresMap => {
+  if (typeof storeName === "string" && storeName in exposedStores) {
+    return storeName as keyof ExposedStoresMap
+  }
+
+  throw new Error("Invalid store name")
+}
 
 export const uiRpcRouter = trpc
   .router<Reactor>()
@@ -24,16 +43,21 @@ export const uiRpcRouter = trpc
       return config
     },
   })
-  .query("activeTemplate", {
-    resolve({ ctx: reactor }) {
-      return reactor.useContext(activeTemplate).read()
+  .query("getState", {
+    input: validateStoreName,
+    resolve({ input: storeName, ctx: reactor }) {
+      const store = exposedStores[storeName]
+
+      return {
+        value: reactor.useContext(store as StoreFactory<unknown>).read(),
+      }
     },
   })
-  .query("getState", {
+  .query("getNodeState", {
     input: z.tuple([z.string(), z.string()]),
     resolve({ input: [nodeId, storeName], ctx: reactor }) {
       const node = reactor
-        .useContext(activeTemplate)
+        .useContext(activeNodeConfig)
         .read()
         .find(({ id }) => id === nodeId)
 
@@ -53,7 +77,7 @@ export const uiRpcRouter = trpc
     input: z.tuple([z.string(), z.number()]),
     async resolve({ input: [nodeId, messageId], ctx: reactor }) {
       const node = reactor
-        .useContext(activeTemplate)
+        .useContext(activeNodeConfig)
         .read()
         .find(({ id }) => id === nodeId)
 
@@ -67,6 +91,27 @@ export const uiRpcRouter = trpc
       })
 
       return client.query("getMessage", [messageId])
+    },
+  })
+  .mutation("addRandomNode", {
+    resolve({ ctx: reactor }) {
+      const templateStore = reactor.useContext(activeTemplate)
+
+      const template = templateStore.read()
+
+      const nodeCount = new Set(template.flat()).size
+
+      const newNodeId = nodeCount
+
+      const peers = Array.from({ length: Math.min(nodeCount, 3) })
+        .fill(undefined)
+        .map(() => Math.floor(Math.random() * nodeCount))
+
+      const uniquePeers = [...new Set(peers)]
+
+      const newLinks = uniquePeers.map((peer) => [newNodeId, peer] as const)
+
+      templateStore.emit((links) => [...links, ...newLinks])
     },
   })
   .subscription("logs", {
@@ -100,6 +145,30 @@ export const uiRpcRouter = trpc
           sendToClient.data(message)
         })
       })
+    },
+  })
+  .subscription("getLiveState", {
+    input: validateStoreName,
+    resolve: <T extends keyof ExposedStoresMap>({
+      input: storeName,
+      ctx: reactor,
+    }: {
+      input: T
+      ctx: Reactor
+    }) => {
+      return new trpc.Subscription<InferMessageType<ExposedStoresMap[T]>>(
+        (sendToClient) => {
+          const store = reactor.useContext(exposedStores[storeName])
+
+          sendToClient.data(
+            store.read() as InferMessageType<ExposedStoresMap[T]>
+          )
+
+          return store.on((value) => {
+            sendToClient.data(value as InferMessageType<ExposedStoresMap[T]>)
+          })
+        }
+      )
     },
   })
 

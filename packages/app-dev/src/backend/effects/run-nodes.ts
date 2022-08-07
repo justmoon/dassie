@@ -7,7 +7,7 @@ import { EffectContext, createTopic } from "@xen-ilp/lib-reactive"
 
 import { viteNodeServerValue } from "../services/vite-node-server"
 import { viteServerValue } from "../services/vite-server"
-import { activeTemplate } from "../stores/active-template"
+import { activeNodeConfig } from "../values/active-node-config"
 import { runNodeChildProcess } from "./run-node-child-process"
 
 const logger = createLogger("xen:dev:node-server")
@@ -29,7 +29,7 @@ export interface NodeDefinition<T> {
 const fileChangeTopic = () => createTopic()
 
 export const runNodes = async (sig: EffectContext) => {
-  const template = sig.get(activeTemplate)
+  const template = sig.get(activeNodeConfig)
 
   const viteServer = await sig.get(viteServerValue)
   const nodeServer = await sig.get(viteNodeServerValue)

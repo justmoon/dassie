@@ -7,7 +7,7 @@ import { selectBySeed } from "@xen-ilp/lib-logger"
 
 import { COLORS } from "../../constants/palette"
 import { globalFirehose } from "../../signals/global-firehose"
-import { useRemoteStore } from "../../utils/remote-reactive"
+import { useNodeRemoteStore } from "../../utils/remote-reactive"
 import { trpc } from "../../utils/trpc"
 import LogViewer from "../log-viewer/log-viewer"
 
@@ -39,7 +39,7 @@ const NodeHeader = ({ nodeId }: BasicNodeElementProperties) => {
 }
 
 const PeerTable = ({ nodeId }: BasicNodeElementProperties) => {
-  const peerTable = useRemoteStore(nodeId, "peerTable")
+  const peerTable = useNodeRemoteStore(nodeId, "peerTable")
 
   if (!peerTable.data) return null
 
@@ -83,7 +83,7 @@ const PeerTable = ({ nodeId }: BasicNodeElementProperties) => {
 }
 
 const NodeTable = ({ nodeId }: BasicNodeElementProperties) => {
-  const nodeTable = useRemoteStore(nodeId, "nodeTable")
+  const nodeTable = useNodeRemoteStore(nodeId, "nodeTable")
 
   if (!nodeTable.data) return null
 
