@@ -19,7 +19,7 @@ const NodeGraph = ({ graphData }: NodeGraphProperties) => {
   const [width, height] = useSize(rootReference)
   const [, setLocation] = useLocation()
 
-  trpc.useSubscription(["ui.peerTraffic"], {
+  trpc.useSubscription(["peerTraffic"], {
     onNext: (data) => {
       const link = graphData.links.find(
         ({ source, target }) =>

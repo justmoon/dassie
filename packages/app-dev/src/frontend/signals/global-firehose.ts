@@ -7,7 +7,7 @@ const [globalFirehose, setGlobalFirehose] = createSignal<
   readonly GlobalFirehoseMessage[]
 >([])
 
-client.subscription("ui.globalFirehose", undefined, {
+client.subscription("globalFirehose", undefined, {
   onNext(globalFirehoseMessage) {
     setGlobalFirehose((globalFirehose) => {
       if (globalFirehoseMessage.type !== "data") return globalFirehose

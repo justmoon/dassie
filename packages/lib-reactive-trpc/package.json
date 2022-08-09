@@ -1,0 +1,48 @@
+{
+  "name": "@xen-ilp/lib-reactive-trpc",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Read and subscribe to reactive values remotely via TRPC",
+  "exports": {
+    "./server": {
+      "import": "./server.ts"
+    },
+    "./client": {
+      "import": "./client.ts"
+    }
+  },
+  "publishConfig": {
+    "main": "./dist/server.js",
+    "exports": {
+      "./server": {
+        "types": "./dist/server.d.ts",
+        "require": "./dist/server.cjs",
+        "import": "./dist/server.js"
+      },
+      "./client": {
+        "types": "./dist/client.d.ts",
+        "require": "./dist/client.cjs",
+        "import": "./dist/client.js"
+      }
+    }
+  },
+  "scripts": {
+    "clean": "rimraf dist",
+    "build": "rollup -c",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Stefan Thomas <justmoon@members.fsf.org>",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "react": "^18.2.0",
+    "type-fest": "^2.18.0"
+  },
+  "dependencies": {
+    "@trpc/client": "^9.26.2",
+    "@trpc/server": "^9.26.2",
+    "@xen-ilp/lib-reactive": "workspace:^1.0.0"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0"
+  }
+}

@@ -25,7 +25,7 @@ const nodesToGraph = (nodes: NodeDefinition<InputConfig>[]): GraphData => {
 }
 const Dashboard = withSolid(() => () => {
   const nodes = useLiveRemoteStore("activeNodeConfig")
-  const addRandomNode = trpc.useMutation("ui.addRandomNode")
+  const addRandomNode = trpc.useMutation("addRandomNode")
 
   if (!nodes.data) return <div />
 

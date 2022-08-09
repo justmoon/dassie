@@ -11,7 +11,7 @@ const [logs, setLogs] = createSignal({
 
 const MAX_LOG_LINES = 200
 
-client.subscription("ui.logs", undefined, {
+client.subscription("logs", undefined, {
   onNext(logLine) {
     setLogs((wrapper) => {
       if (logLine.type !== "data") return wrapper

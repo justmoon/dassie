@@ -156,7 +156,7 @@ const NodeFirehoseEventDetail = ({
   nodeId,
   messageId,
 }: NodeFirehoseEventDetailProperties) => {
-  const messageResult = trpc.useQuery(["ui.getMessage", [nodeId, messageId]])
+  const messageResult = trpc.useQuery(["getMessage", [nodeId, messageId]])
 
   if (!messageResult.data) return null
 

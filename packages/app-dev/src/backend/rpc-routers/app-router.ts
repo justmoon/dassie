@@ -9,7 +9,7 @@ import { uiRpcRouter } from "./ui-rpc-router"
 export const appRouter = trpc
   .router<Reactor>()
   .transformer(superjson)
-  .merge("ui.", uiRpcRouter)
+  .merge(uiRpcRouter)
   .merge("runner.", runnerRpcRouter)
 
 export type AppRouter = typeof appRouter

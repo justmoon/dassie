@@ -3,11 +3,8 @@ import * as trpc from "@trpc/server"
 import superjson from "superjson"
 import { z } from "zod"
 
-import type {
-  InferMessageType,
-  Reactor,
-  StoreFactory,
-} from "@xen-ilp/lib-reactive"
+import type { Reactor } from "@xen-ilp/lib-reactive"
+import { createRouter as createRemoteReactiveRouter } from "@xen-ilp/lib-reactive-trpc/server"
 
 import type { DebugRpcRouter } from "../../runner/effects/debug-rpc-server"
 import { config } from "../config"
@@ -26,31 +23,17 @@ export const exposedStores = {
 } as const
 
 export type ExposedStoresMap = typeof exposedStores
+const remoteReactiveRouter = createRemoteReactiveRouter(exposedStores).flat()
 
-const validateStoreName = (storeName: unknown): keyof ExposedStoresMap => {
-  if (typeof storeName === "string" && storeName in exposedStores) {
-    return storeName as keyof ExposedStoresMap
-  }
-
-  throw new Error("Invalid store name")
-}
+export type RemoteReactiveRouter = typeof remoteReactiveRouter
 
 export const uiRpcRouter = trpc
   .router<Reactor>()
   .transformer(superjson)
+  .merge(remoteReactiveRouter)
   .query("config", {
     resolve() {
       return config
-    },
-  })
-  .query("getState", {
-    input: validateStoreName,
-    resolve({ input: storeName, ctx: reactor }) {
-      const store = exposedStores[storeName]
-
-      return {
-        value: reactor.useContext(store as StoreFactory<unknown>).read(),
-      }
     },
   })
   .query("getNodeState", {
@@ -145,30 +128,6 @@ export const uiRpcRouter = trpc
           sendToClient.data(message)
         })
       })
-    },
-  })
-  .subscription("getLiveState", {
-    input: validateStoreName,
-    resolve: <T extends keyof ExposedStoresMap>({
-      input: storeName,
-      ctx: reactor,
-    }: {
-      input: T
-      ctx: Reactor
-    }) => {
-      return new trpc.Subscription<InferMessageType<ExposedStoresMap[T]>>(
-        (sendToClient) => {
-          const store = reactor.useContext(exposedStores[storeName])
-
-          sendToClient.data(
-            store.read() as InferMessageType<ExposedStoresMap[T]>
-          )
-
-          return store.on((value) => {
-            sendToClient.data(value as InferMessageType<ExposedStoresMap[T]>)
-          })
-        }
-      )
     },
   })
 

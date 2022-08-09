@@ -30,6 +30,7 @@
     "@xen-ilp/lib-logger": "workspace:^1.0.0",
     "@xen-ilp/lib-oer": "workspace:^1.0.0",
     "@xen-ilp/lib-reactive": "workspace:^1.0.0",
+    "@xen-ilp/lib-reactive-trpc": "workspace:^1.0.0",
     "@xen-ilp/lib-type-utils": "workspace:1.0.0",
     "anser": "^2.1.1",
     "ansicolor": "^1.1.100",
