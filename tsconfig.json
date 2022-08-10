@@ -14,5 +14,10 @@
     "resolveJsonModule": true,
     "outDir": "dist"
   },
-  "exclude": ["**/dist/**", "packages/*/pkg/**", "coverage/**"]
+  "exclude": [
+    "**/dist/**",
+    "packages/*/pkg/**",
+    "coverage/**",
+    "packages/app-website/**"
+  ]
 }
