@@ -1,7 +1,8 @@
-import { createLogger } from "@dassie/lib-logger"
 import { rollup } from "rollup"
 import type { RollupOptions } from "rollup"
 import esbuild from "rollup-plugin-esbuild"
+
+import { createLogger } from "@dassie/lib-logger"
 
 const logger = createLogger("das:dev:compile-runner")
 
@@ -11,7 +12,7 @@ const rollupConfig: RollupOptions = {
   plugins: [esbuild()],
   output: [
     {
-      dir: "dist",
+      dir: "packages/app-dev/dist",
       format: "esm",
       entryFileNames: "[name].js",
       sourcemap: true,
