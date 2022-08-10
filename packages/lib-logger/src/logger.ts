@@ -1,4 +1,4 @@
-import { isObject } from "@xen-ilp/lib-type-utils"
+import { isObject } from "@dassie/lib-type-utils"
 
 import { createEnableChecker } from "./enabled"
 import type { LoggingContext } from "./types/context"
@@ -26,7 +26,7 @@ export class Logger {
     /**
      * An arbitrary name to uniquely identify the component this logger belongs to.
      *
-     * @example "xen:node:http"
+     * @example "das:node:http"
      */
     readonly component: string
   ) {}

@@ -121,11 +121,7 @@ For now, just think of a topic as a static symbol that we can reference. Effects
 Let's see an example.
 
 ```ts
-import {
-  EffectContext,
-  createReactor,
-  createTopic,
-} from "@xen-ilp/lib-reactive"
+import { EffectContext, createReactor, createTopic } from "@dassie/lib-reactive"
 
 const pingPongTopic = () => createTopic<string>()
 
@@ -171,11 +167,7 @@ Stores are a special type of topic. When you emit a reducer to a store, the stor
 That means that stores are effectively stateful topics. Let's see an example.
 
 ```ts
-import {
-  EffectContext,
-  createReactor,
-  createStore,
-} from "@xen-ilp/lib-reactive"
+import { EffectContext, createReactor, createStore } from "@dassie/lib-reactive"
 
 const counterStore = () => createStore(0)
 
@@ -205,11 +197,7 @@ We've seen how to listen to topics, but so far we have still had to manage these
 There is a special `sig.get` helper which will receive the last value from a topic and automatically dispose and re-run the effect if this value changes. This allows us to build some very concise reactive applications.
 
 ```ts
-import {
-  EffectContext,
-  createReactor,
-  createTopic,
-} from "@xen-ilp/lib-reactive"
+import { EffectContext, createReactor, createTopic } from "@dassie/lib-reactive"
 
 const store1 = () => createStore(0)
 const store2 = () => createStore(0)

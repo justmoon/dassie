@@ -1,3 +1,7 @@
+import { byLine } from "@dassie/lib-itergen-utils"
+import { createLogger } from "@dassie/lib-logger"
+import type { EffectContext } from "@dassie/lib-reactive"
+import { assertDefined, isObject } from "@dassie/lib-type-utils"
 import colors from "picocolors"
 import type { ViteDevServer } from "vite"
 import type { ViteNodeServer } from "vite-node/server"
@@ -5,16 +9,11 @@ import type { ViteNodeServer } from "vite-node/server"
 import { ChildProcess, fork } from "node:child_process"
 import type { Readable } from "node:stream"
 
-import { byLine } from "@xen-ilp/lib-itergen-utils"
-import { createLogger } from "@xen-ilp/lib-logger"
-import type { EffectContext } from "@xen-ilp/lib-reactive"
-import { assertDefined, isObject } from "@xen-ilp/lib-type-utils"
-
 import { logLineTopic } from "../features/logs"
 import { createCliOnlyLogger } from "../utils/cli-only-logger"
 import type { NodeDefinition } from "./run-nodes"
 
-const logger = createLogger("xen:dev:run-node-child-process")
+const logger = createLogger("das:dev:run-node-child-process")
 
 const RUNNER_MODULE = new URL("../../../dist/runner.js", import.meta.url)
   .pathname
@@ -106,7 +105,7 @@ export const runNodeChildProcess = async <T>(
         date: new Date().toISOString(),
         level: "info",
       })
-      if (process.env["XEN_LOG_TO_CLI"] === "true") {
+      if (process.env["DASSIE_LOG_TO_CLI"] === "true") {
         cliLogger.info(line)
       }
     }
@@ -126,14 +125,14 @@ export const runNodeChildProcess = async <T>(
     env: {
       FORCE_COLOR: "1",
       ...process.env,
-      XEN_LOG_FORMATTER: "json",
-      XEN_CONFIG: JSON.stringify(node.config),
-      XEN_DEV_ROOT: viteServer.config.root,
-      XEN_DEV_BASE: viteServer.config.base,
-      XEN_DEV_ENTRY: node.entry ?? "src/index.ts",
-      XEN_DEV_RPC_URL: "ws://localhost:10001",
-      XEN_DEV_NODE_ID: node.id,
-      XEN_DEBUG_RPC_PORT: String(node.debugPort),
+      DASSIE_LOG_FORMATTER: "json",
+      DASSIE_CONFIG: JSON.stringify(node.config),
+      DASSIE_DEV_ROOT: viteServer.config.root,
+      DASSIE_DEV_BASE: viteServer.config.base,
+      DASSIE_DEV_ENTRY: node.entry ?? "src/index.ts",
+      DASSIE_DEV_RPC_URL: "ws://localhost:10001",
+      DASSIE_DEV_NODE_ID: node.id,
+      DASSIE_DEBUG_RPC_PORT: String(node.debugPort),
     },
   })
   child.addListener("error", handleChildError)

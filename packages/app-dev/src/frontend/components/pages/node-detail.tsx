@@ -1,9 +1,8 @@
+import { selectBySeed } from "@dassie/lib-logger"
 import * as Tabs from "@radix-ui/react-tabs"
 import { useMemo, useState } from "react"
 import { format } from "timeago.js"
 import { Link } from "wouter"
-
-import { selectBySeed } from "@xen-ilp/lib-logger"
 
 import { COLORS } from "../../constants/palette"
 import { FirehoseEvent, useNodeFirehose } from "../../hooks/use-node-firehose"

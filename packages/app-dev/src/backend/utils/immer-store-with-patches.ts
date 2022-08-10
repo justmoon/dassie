@@ -1,6 +1,5 @@
+import { Store, createStore } from "@dassie/lib-reactive"
 import { Patch, enablePatches, produceWithPatches } from "immer"
-
-import { Store, createStore } from "@xen-ilp/lib-reactive"
 
 import type { ImmerProducer } from "./immer-store"
 

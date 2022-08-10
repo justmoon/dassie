@@ -1,10 +1,10 @@
-# Xen/ILP
+# Dassie
 
 > A multi-currency, zero-config, peer-to-peer, Interledger-enabled payment network
 
 ## Development Environment
 
-In order to develop a peer-to-peer application, it is very useful to quickly spin up several nodes which can all talk to each other. Xen/ILP uses HTTPS everywhere including during development, so you will need to generate certificates for your nodes.
+In order to develop a peer-to-peer application, it is very useful to quickly spin up several nodes which can all talk to each other. Dassie uses HTTPS everywhere including during development, so you will need to generate certificates for your nodes.
 
 ### Prerequisites
 
@@ -18,5 +18,5 @@ In order to develop a peer-to-peer application, it is very useful to quickly spi
 Run the development environment with:
 
 ```sh
-DEBUG=xen:* pnpm dev
+DEBUG=das:* pnpm dev
 ```

@@ -1,22 +1,22 @@
 import { getPublicKey, sign } from "@noble/ed25519"
 
-import { createValue } from "@xen-ilp/lib-reactive"
+import { createValue } from "@dassie/lib-reactive"
 
 import { configStore } from "../config"
 import { parseEd25519PrivateKey } from "../utils/pem"
 
 export const signerValue = () =>
   createValue((sig) => {
-    const xenKey = parseEd25519PrivateKey(
-      sig.get(configStore, (config) => config.tlsXenKey)
+    const dassieKey = parseEd25519PrivateKey(
+      sig.get(configStore, (config) => config.tlsDassieKey)
     )
 
     return {
       getPublicKey(): Promise<Uint8Array> {
-        return getPublicKey(xenKey)
+        return getPublicKey(dassieKey)
       },
-      signWithXenKey(data: Uint8Array) {
-        return sign(data, xenKey)
+      signWithDassieKey(data: Uint8Array) {
+        return sign(data, dassieKey)
       },
     }
   })

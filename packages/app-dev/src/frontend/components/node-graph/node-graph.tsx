@@ -1,10 +1,9 @@
+import { selectBySeed } from "@dassie/lib-logger"
 import useSize from "@react-hook/size"
 import type { GraphData } from "force-graph"
 import { useRef } from "react"
 import ReactForceGraph2d, { ForceGraphMethods } from "react-force-graph-2d"
 import { useLocation } from "wouter"
-
-import { selectBySeed } from "@xen-ilp/lib-logger"
 
 import { COLORS } from "../../constants/palette"
 import { trpc } from "../../utils/trpc"

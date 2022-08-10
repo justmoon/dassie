@@ -1,7 +1,6 @@
+import type { EffectContext } from "@dassie/lib-reactive"
 import { applyWSSHandler } from "@trpc/server/adapters/ws"
 import { WebSocketServer } from "ws"
-
-import type { EffectContext } from "@xen-ilp/lib-reactive"
 
 import { AppRouter, appRouter } from "../rpc-routers/app-router"
 

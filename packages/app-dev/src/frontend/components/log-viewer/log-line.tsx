@@ -1,7 +1,6 @@
+import { selectBySeed } from "@dassie/lib-logger"
 import LinkifyIt from "linkify-it"
 import { Link } from "wouter"
-
-import { selectBySeed } from "@xen-ilp/lib-logger"
 
 import type { IndexedLogLine } from "../../../backend/features/logs"
 import { COLORS } from "../../constants/palette"

@@ -1,4 +1,4 @@
-import { assertDefined } from "@xen-ilp/lib-type-utils"
+import { assertDefined } from "@dassie/lib-type-utils"
 
 import { OerType } from "./base-type"
 import {

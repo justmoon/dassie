@@ -1,12 +1,11 @@
+import { createLogger } from "@dassie/lib-logger"
+import type { EffectContext } from "@dassie/lib-reactive"
 import { bold, dim } from "picocolors"
 import serveStatic from "serve-static"
 import { createServer } from "vite"
 import type { ViteDevServer } from "vite"
 
-import { createLogger } from "@xen-ilp/lib-logger"
-import type { EffectContext } from "@xen-ilp/lib-reactive"
-
-const logger = createLogger("xen:dev:debug-ui-server")
+const logger = createLogger("das:dev:debug-ui-server")
 
 const debugUiPath = new URL("../../../", import.meta.url).pathname
 const port = 10_000

@@ -1,7 +1,6 @@
+import { createStore } from "@dassie/lib-reactive"
 import produce, { enableMapSet } from "immer"
 import type { MarkOptional } from "ts-essentials"
-
-import { createStore } from "@xen-ilp/lib-reactive"
 
 enableMapSet()
 

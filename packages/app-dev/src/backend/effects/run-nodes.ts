@@ -1,16 +1,15 @@
+import { createLogger } from "@dassie/lib-logger"
+import { EffectContext, createTopic } from "@dassie/lib-reactive"
 import * as colors from "picocolors"
 
 import { posix } from "node:path"
-
-import { createLogger } from "@xen-ilp/lib-logger"
-import { EffectContext, createTopic } from "@xen-ilp/lib-reactive"
 
 import { viteNodeServerValue } from "../services/vite-node-server"
 import { viteServerValue } from "../services/vite-server"
 import { activeNodeConfig } from "../values/active-node-config"
 import { runNodeChildProcess } from "./run-node-child-process"
 
-const logger = createLogger("xen:dev:node-server")
+const logger = createLogger("das:dev:node-server")
 
 export function getShortName(file: string, root: string): string {
   return file.startsWith(root + "/") ? posix.relative(root, file) : file

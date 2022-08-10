@@ -1,4 +1,4 @@
-import type { EffectContext } from "@xen-ilp/lib-reactive"
+import type { EffectContext } from "@dassie/lib-reactive"
 
 import { configStore } from "../config"
 import { addPeer, peerTableStore } from "./stores/peer-table"

@@ -1,8 +1,7 @@
+import type { Reactor } from "@dassie/lib-reactive"
+import { createRemoteReactiveRouter } from "@dassie/lib-reactive-trpc/server"
 import * as trpc from "@trpc/server"
 import superjson from "superjson"
-
-import type { Reactor } from "@xen-ilp/lib-reactive"
-import { createRemoteReactiveRouter } from "@xen-ilp/lib-reactive-trpc/server"
 
 import { config } from "../config"
 import { IndexedLogLine, indexedLogLineTopic } from "../features/logs"

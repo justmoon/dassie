@@ -1,16 +1,15 @@
+import { createLogger } from "@dassie/lib-logger"
+import { EffectContext, createValue } from "@dassie/lib-reactive"
+import { assertDefined, isObject } from "@dassie/lib-type-utils"
 import type { Promisable } from "type-fest"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { createServer } from "node:https"
 
-import { createLogger } from "@xen-ilp/lib-logger"
-import { EffectContext, createValue } from "@xen-ilp/lib-reactive"
-import { assertDefined, isObject } from "@xen-ilp/lib-type-utils"
-
 import { configStore } from "../config"
 import { respondPlainly } from "../utils/http"
 
-const logger = createLogger("xen:node:http-server")
+const logger = createLogger("das:node:http-server")
 
 export interface HttpRequest extends IncomingMessage {
   url: NonNullable<IncomingMessage["url"]>

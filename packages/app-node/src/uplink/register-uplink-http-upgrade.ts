@@ -1,12 +1,11 @@
+import { createLogger } from "@dassie/lib-logger"
+import { EffectContext, createValue } from "@dassie/lib-reactive"
 import type { WebSocket } from "ws"
 import { WebSocketServer } from "ws"
 
-import { createLogger } from "@xen-ilp/lib-logger"
-import { EffectContext, createValue } from "@xen-ilp/lib-reactive"
-
 import { httpServerValue } from "../http-server/serve-http"
 
-const logger = createLogger("xen:node:websocket-server")
+const logger = createLogger("das:node:websocket-server")
 
 export const registerUplinkHttpUpgrade = (sig: EffectContext) => {
   const websocketServer = sig.get(websocketServerValue)

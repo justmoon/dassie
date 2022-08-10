@@ -11,11 +11,11 @@ import {
   sequenceOf,
   uint64Bigint,
   visibleString,
-} from "@xen-ilp/lib-oer"
+} from "@dassie/lib-oer"
 
 import {
-  xenPeerNodeInfoId,
-  xenPeerSignedHelloId,
+  dassiePeerNodeInfoId,
+  dassiePeerSignedHelloId,
 } from "../constants/object-identifiers"
 
 export type PeerMessage = Infer<typeof peerMessage>
@@ -29,7 +29,7 @@ export const nodeInfoEntry = choice({
 })
 
 export const peerNodeInfo = sequence({
-  type: objectIdentifier().constant(xenPeerNodeInfoId),
+  type: objectIdentifier().constant(dassiePeerNodeInfoId),
   nodeId: nodeIdSchema,
   sequence: uint64Bigint(),
   url: visibleString(),
@@ -43,7 +43,7 @@ export const signedPeerNodeInfo = sequence({
 })
 
 export const peerHello = sequence({
-  type: objectIdentifier().constant(xenPeerSignedHelloId),
+  type: objectIdentifier().constant(dassiePeerSignedHelloId),
   nodeInfo: octetString().containing(signedPeerNodeInfo),
 })
 

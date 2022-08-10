@@ -1,5 +1,5 @@
-import { createLogger } from "@xen-ilp/lib-logger"
-import type { EffectContext } from "@xen-ilp/lib-reactive"
+import { createLogger } from "@dassie/lib-logger"
+import type { EffectContext } from "@dassie/lib-reactive"
 
 import { configStore } from "../config"
 import { signerValue } from "../crypto/signer"
@@ -9,7 +9,7 @@ import { compareSetOfKeys } from "../utils/compare-sets"
 import { nodeTableStore } from "./stores/node-table"
 import { peerTableStore } from "./stores/peer-table"
 
-const logger = createLogger("xen:node:peer-greeter")
+const logger = createLogger("das:node:peer-greeter")
 
 const MAX_GREETING_INTERVAL = 20_000
 
@@ -47,7 +47,7 @@ export const greetPeers = async (sig: EffectContext) => {
       return
     }
 
-    const signature = await signer.signWithXenKey(signedHello.value)
+    const signature = await signer.signWithDassieKey(signedHello.value)
 
     const messageSerializeResult = peerMessage.serialize({
       hello: {

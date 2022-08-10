@@ -27,8 +27,8 @@ const callRpc = (method: string, parameters: unknown[]) => {
 }
 
 const runner = new ViteNodeRunner({
-  root: process.env["XEN_DEV_ROOT"]!,
-  base: process.env["XEN_DEV_BASE"]!,
+  root: process.env["DASSIE_DEV_ROOT"]!,
+  base: process.env["DASSIE_DEV_BASE"]!,
   async fetchModule(id) {
     return callRpc("fetchModule", [id]) as Promise<FetchResult>
   },
@@ -44,4 +44,4 @@ const runner = new ViteNodeRunner({
 await runner.executeId("/@vite/env")
 
 // execute the file
-await runner.executeId(process.env["XEN_DEV_ENTRY"]!)
+await runner.executeId(process.env["DASSIE_DEV_ENTRY"]!)

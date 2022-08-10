@@ -1,4 +1,4 @@
-import { createTopic } from "@xen-ilp/lib-reactive"
+import { createTopic } from "@dassie/lib-reactive"
 
 export interface PeerMessageMetadata {
   from: string

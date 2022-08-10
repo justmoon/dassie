@@ -1,10 +1,10 @@
-import { isObject } from "@xen-ilp/lib-type-utils"
+import { isObject } from "@dassie/lib-type-utils"
 
 import { Effect, runEffect } from "./effect"
 import { FactoryNameSymbol, InitSymbol, Reactor } from "./reactor"
 import { Store, createStore } from "./store"
 
-export const ValueSymbol = Symbol("xen:reactive:value")
+export const ValueSymbol = Symbol("das:reactive:value")
 
 export interface ValueFactory<TInstance>
   extends Effect<never, Value<TInstance>> {

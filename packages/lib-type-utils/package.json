@@ -1,5 +1,5 @@
 {
-  "name": "@xen-ilp/lib-type-utils",
+  "name": "@dassie/lib-type-utils",
   "type": "module",
   "version": "1.0.0",
   "description": "Useful tools for working with types",

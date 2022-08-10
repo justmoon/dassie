@@ -1,5 +1,5 @@
 {
-  "name": "@xen-ilp/lib-reactive-trpc",
+  "name": "@dassie/lib-reactive-trpc",
   "type": "module",
   "version": "1.0.0",
   "description": "Read and subscribe to reactive values remotely via TRPC",
@@ -40,7 +40,7 @@
   "dependencies": {
     "@trpc/client": "^9.27.0",
     "@trpc/server": "^9.27.0",
-    "@xen-ilp/lib-reactive": "workspace:^1.0.0"
+    "@dassie/lib-reactive": "workspace:^1.0.0"
   },
   "peerDependencies": {
     "react": ">=18.0.0"

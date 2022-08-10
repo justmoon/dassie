@@ -1,8 +1,8 @@
 {
-  "name": "@xen-ilp/lib-logger",
+  "name": "@dassie/lib-logger",
   "type": "module",
   "version": "1.0.0",
-  "description": "Logging library for the Xen ILP project",
+  "description": "Logging library for the Dassie ILP project",
   "main": "./src/index.ts",
   "exports": {
     ".": {
@@ -28,7 +28,7 @@
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "dependencies": {
-    "@xen-ilp/lib-type-utils": "workspace:^1.0.0",
+    "@dassie/lib-type-utils": "workspace:^1.0.0",
     "picocolors": "^1.0.0",
     "pretty-format": "^28.1.3"
   }

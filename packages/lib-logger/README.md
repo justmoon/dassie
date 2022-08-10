@@ -1,13 +1,13 @@
-# @xen-ilp/lib-logger
+# @dassie/lib-logger
 
-This library provides logging services for Xen/ILP.
+This library provides logging services for Dassie.
 
 ## Basic Usage
 
 ```ts
-import { createLogger } from "@xen-ilp/lib-logger"
+import { createLogger } from "@dassie/lib-logger"
 
-const logger = createLogger("xen:node:http-server")
+const logger = createLogger("das:node:http-server")
 
 logger.debug("This will print depending on the debug scope")
 logger.info("This will always print")

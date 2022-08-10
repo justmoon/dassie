@@ -1,5 +1,5 @@
 {
-  "name": "@xen-ilp/lib-itergen-utils",
+  "name": "@dassie/lib-itergen-utils",
   "type": "module",
   "version": "1.0.0",
   "description": "Utility functions for JavaScript sync/async iterators and generators",

@@ -1,7 +1,6 @@
+import { Store, createStore } from "@dassie/lib-reactive"
 import produce from "immer"
 import type { WritableDraft } from "immer/dist/internal"
-
-import { Store, createStore } from "@xen-ilp/lib-reactive"
 
 export type ImmerProducer<TState> = (
   previousState: WritableDraft<TState>

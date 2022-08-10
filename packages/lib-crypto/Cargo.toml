@@ -1,10 +1,10 @@
 [package]
 name = "lib-crypto"
 version = "0.1.0"
-description = "Crypto primitives for the Xen/ILP project"
+description = "Crypto primitives for the Dassie project"
 authors = ["Stefan Thomas <justmoon@members.fsf.org>"]
 edition = "2018"
-repository = "https://github.com/justmoon/xen-ilp"
+repository = "https://github.com/justmoon/dassie"
 license = "MIT or Apache-2.0"
 
 [lib]

@@ -1,4 +1,4 @@
-import { createRemoteReactiveHooks } from "@xen-ilp/lib-reactive-trpc/client"
+import { createRemoteReactiveHooks } from "@dassie/lib-reactive-trpc/client"
 
 import { client } from "./trpc"
 

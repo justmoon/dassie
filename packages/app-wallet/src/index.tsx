@@ -1,8 +1,7 @@
 /* @refresh reload */
+import { assertDefined } from "@dassie/lib-type-utils"
 import { createRoot } from "react-dom/client"
 import "virtual:windi.css"
-
-import { assertDefined } from "@xen-ilp/lib-type-utils"
 
 import App from "./app"
 import "./index.css"

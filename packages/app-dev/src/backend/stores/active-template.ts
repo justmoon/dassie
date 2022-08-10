@@ -1,4 +1,4 @@
-import { createStore } from "@xen-ilp/lib-reactive"
+import { createStore } from "@dassie/lib-reactive"
 
 import { PEERS } from "../constants/development-nodes"
 

@@ -1,3 +1,8 @@
+import type {
+  InferMessageType,
+  Reactor,
+  TopicFactory,
+} from "@dassie/lib-reactive"
 import type { TRPCClient } from "@trpc/client"
 import type { DefaultErrorShape } from "@trpc/server"
 import type { Procedure } from "@trpc/server/dist/declarations/src/internals/procedure"
@@ -6,12 +11,6 @@ import type {
   Router,
 } from "@trpc/server/dist/declarations/src/router"
 import { useCallback, useSyncExternalStore } from "react"
-
-import type {
-  InferMessageType,
-  Reactor,
-  TopicFactory,
-} from "@xen-ilp/lib-reactive"
 
 export interface RemoteReactiveHooks<
   TExposedTopicsMap extends Record<string, TopicFactory>

@@ -1,11 +1,10 @@
+import { createLogger } from "@dassie/lib-logger"
+import { EffectContext, createTopic } from "@dassie/lib-reactive"
 import axios from "axios"
-
-import { createLogger } from "@xen-ilp/lib-logger"
-import { EffectContext, createTopic } from "@xen-ilp/lib-reactive"
 
 import { peerTableStore } from "./stores/peer-table"
 
-const logger = createLogger("xen:node:outgoing-xen-message-sender")
+const logger = createLogger("das:node:outgoing-dassie-message-sender")
 
 export interface MessageWithDestination<T> {
   message: T
@@ -35,8 +34,8 @@ export const sendPeerMessages = (sig: EffectContext) => {
       method: "POST",
       data: message,
       headers: {
-        accept: "application/xen-peer-message",
-        "content-type": "application/xen-peer-message",
+        accept: "application/dassie-peer-message",
+        "content-type": "application/dassie-peer-message",
       },
     })
   }

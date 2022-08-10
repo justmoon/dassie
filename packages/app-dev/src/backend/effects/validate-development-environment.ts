@@ -7,14 +7,14 @@ import { access, unlink } from "node:fs/promises"
 import { dirname } from "node:path"
 import { isNativeError } from "node:util/types"
 
-import type { InputConfig } from "@xen-ilp/app-node"
-import type { EffectContext } from "@xen-ilp/lib-reactive"
+import type { InputConfig } from "@dassie/app-node"
+import type { EffectContext } from "@dassie/lib-reactive"
 
 import { activeNodeConfig } from "../values/active-node-config"
 import type { NodeDefinition } from "./run-nodes"
 
 interface CertificateInfo {
-  type: "web" | "xen"
+  type: "web" | "dassie"
   certificatePath: string | undefined
   keyPath: string | undefined
   node: NodeDefinition<InputConfig>
@@ -63,7 +63,7 @@ const generateCertificate = async ({
     await $`openssl req -new -key ${keyPath} -out ${certificatePath}.csr -days 365 -subj "/CN=${node.id}.localhost"`
     await $`mkcert -csr ${certificatePath}.csr -cert-file ${certificatePath}`
   } else {
-    await $`openssl req -new -x509 -key ${keyPath} -out ${certificatePath} -days 365 -subj "/CN=g.xen.${node.id}"`
+    await $`openssl req -new -x509 -key ${keyPath} -out ${certificatePath} -days 365 -subj "/CN=g.das.${node.id}"`
   }
 }
 
@@ -78,9 +78,9 @@ export const validateDevelopmentEnvironment = async (sig: EffectContext) => {
         node,
       },
       {
-        type: "xen",
-        certificatePath: node.config.tlsXenCertFile,
-        keyPath: node.config.tlsXenKeyFile,
+        type: "dassie",
+        certificatePath: node.config.tlsDassieCertFile,
+        keyPath: node.config.tlsDassieKeyFile,
         node,
       },
     ])

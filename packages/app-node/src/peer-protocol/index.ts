@@ -1,4 +1,4 @@
-import type { EffectContext } from "@xen-ilp/lib-reactive"
+import type { EffectContext } from "@dassie/lib-reactive"
 
 import { calculateRoutes } from "./calculate-routes"
 import { forwardLinkStateUpdate } from "./forward-link-state-update"
@@ -9,11 +9,11 @@ import { registerPeerHttpHandler } from "./register-peer-http-handler"
 import { sendPeerMessages } from "./send-peer-messages"
 
 export const speakPeerProtocol = async (sig: EffectContext) => {
-  // Handle incoming Xen messages via HTTP
+  // Handle incoming Dassie messages via HTTP
   sig.use(registerPeerHttpHandler)
   sig.use(handlePeerMessages)
 
-  // Send outgoing Xen messages
+  // Send outgoing Dassie messages
   sig.use(sendPeerMessages)
 
   await sig.use(greetPeers)

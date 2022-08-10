@@ -1,4 +1,4 @@
-import { createValue } from "@xen-ilp/lib-reactive"
+import { createValue } from "@dassie/lib-reactive"
 
 import type { Template } from "../constants/development-nodes"
 import { activeTemplate } from "../stores/active-template"
@@ -31,8 +31,8 @@ export const generateNodeConfig = (template: Template, index: number) => {
       nodeId: id,
       host: `${id}.localhost`,
       port: nodeIndexToPort(index),
-      tlsXenCertFile: `${LOCAL_PATH}/ssl/${id}.localhost/xen-${id}.localhost.pem`,
-      tlsXenKeyFile: `${LOCAL_PATH}/ssl/${id}.localhost/xen-${id}.localhost-key.pem`,
+      tlsDassieCertFile: `${LOCAL_PATH}/ssl/${id}.localhost/dassie-${id}.localhost.pem`,
+      tlsDassieKeyFile: `${LOCAL_PATH}/ssl/${id}.localhost/dassie-${id}.localhost-key.pem`,
       tlsWebCertFile: `${LOCAL_PATH}/ssl/${id}.localhost/web-${id}.localhost.pem`,
       tlsWebKeyFile: `${LOCAL_PATH}/ssl/${id}.localhost/web-${id}.localhost-key.pem`,
       initialPeers: peers

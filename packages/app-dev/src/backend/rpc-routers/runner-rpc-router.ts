@@ -1,7 +1,6 @@
+import type { Reactor } from "@dassie/lib-reactive"
 import * as trpc from "@trpc/server"
 import { z } from "zod"
-
-import type { Reactor } from "@xen-ilp/lib-reactive"
 
 import { logLineTopic } from "../features/logs"
 import { peerTrafficTopic } from "../topics/peer-traffic"
@@ -40,7 +39,7 @@ export const runnerRpcRouter = trpc
         node: nodeId,
         ...logLine,
       })
-      if (process.env["XEN_LOG_TO_CLI"] === "true") {
+      if (process.env["DASSIE_LOG_TO_CLI"] === "true") {
         const prefix = `◼ ${nodeId}`
         const cliLogger = createCliOnlyLogger(prefix)
         cliLogger.info(logLine.message, logLine.data)

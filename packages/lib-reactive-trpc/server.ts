@@ -1,6 +1,5 @@
+import { Reactor, TopicFactory, isStore } from "@dassie/lib-reactive"
 import * as trpc from "@trpc/server"
-
-import { Reactor, TopicFactory, isStore } from "@xen-ilp/lib-reactive"
 
 export const createRemoteReactiveRouter = <
   TExposedTopicsMap extends Record<string, TopicFactory>

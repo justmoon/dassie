@@ -1,7 +1,6 @@
+import { EffectContext, createStore } from "@dassie/lib-reactive"
+import { assertDefined } from "@dassie/lib-type-utils"
 import Denque from "denque"
-
-import { EffectContext, createStore } from "@xen-ilp/lib-reactive"
-import { assertDefined } from "@xen-ilp/lib-type-utils"
 
 import { configStore } from "../config"
 import { nodeTableStore } from "./stores/node-table"

@@ -1,6 +1,6 @@
-import type { IncomingMessage, ServerResponse } from "node:http"
+import { createLogger } from "@dassie/lib-logger"
 
-import { createLogger } from "@xen-ilp/lib-logger"
+import type { IncomingMessage, ServerResponse } from "node:http"
 
 import {
   MAX_BODY_SIZE,
@@ -9,7 +9,7 @@ import {
   UnsupportedMediaTypeError,
 } from "../constants/http"
 
-const logger = createLogger("xen:node:http-utils")
+const logger = createLogger("das:node:http-utils")
 
 export const assertAcceptHeader = (
   request: IncomingMessage,

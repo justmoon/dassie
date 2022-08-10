@@ -1,12 +1,12 @@
-import { createLogger } from "@xen-ilp/lib-logger"
-import type { EffectContext } from "@xen-ilp/lib-reactive"
+import { createLogger } from "@dassie/lib-logger"
+import type { EffectContext } from "@dassie/lib-reactive"
 
 import { outgoingPeerMessageBufferTopic } from "../peer-protocol/send-peer-messages"
 import { peerMessage } from "./peer-schema"
 import { nodeTableStore, updateNode } from "./stores/node-table"
 import { peerTableStore } from "./stores/peer-table"
 
-const logger = createLogger("xen:node:forward-link-state-update")
+const logger = createLogger("das:node:forward-link-state-update")
 
 const COUNTER_THRESHOLD = 3
 const MAX_RETRANSMIT_CHECK_INTERVAL = 200

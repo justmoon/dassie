@@ -1,11 +1,11 @@
-import { createLogger } from "@xen-ilp/lib-logger"
-import { EffectContext, createTopic } from "@xen-ilp/lib-reactive"
+import { createLogger } from "@dassie/lib-logger"
+import { EffectContext, createTopic } from "@dassie/lib-reactive"
 
 import type { PeerMessage } from "./peer-schema"
 import { addNode, nodeTableStore, updateNode } from "./stores/node-table"
 import { addPeer, peerTableStore, updatePeer } from "./stores/peer-table"
 
-const logger = createLogger("xen:node:incoming-peer-message-handler")
+const logger = createLogger("das:node:incoming-peer-message-handler")
 
 const MAX_LINK_STATE_UPDATE_RETRANSMIT_DELAY = 500
 

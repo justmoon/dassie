@@ -1,15 +1,14 @@
+import { nodeTableStore, peerTableStore } from "@dassie/app-node"
+import { createLogger } from "@dassie/lib-logger"
+import { EffectContext, Reactor, debugFirehose } from "@dassie/lib-reactive"
+import { createRemoteReactiveRouter } from "@dassie/lib-reactive-trpc/server"
 import * as trpc from "@trpc/server"
 import { applyWSSHandler } from "@trpc/server/adapters/ws"
 import prettyFormat from "pretty-format"
 import superjson from "superjson"
 import { WebSocketServer } from "ws"
 
-import { nodeTableStore, peerTableStore } from "@xen-ilp/app-node"
-import { createLogger } from "@xen-ilp/lib-logger"
-import { EffectContext, Reactor, debugFirehose } from "@xen-ilp/lib-reactive"
-import { createRemoteReactiveRouter } from "@xen-ilp/lib-reactive-trpc/server"
-
-const logger = createLogger("xen:dev:launcher:debug-rpc-server")
+const logger = createLogger("das:dev:launcher:debug-rpc-server")
 
 export const exposedStores = {
   peerTable: peerTableStore,
@@ -40,7 +39,7 @@ export const debugRpcRouter = trpc
 export type DebugRpcRouter = typeof debugRpcRouter
 
 export const runDebugRpcServer = (sig: EffectContext) => {
-  const port = Number(process.env["XEN_DEBUG_RPC_PORT"])
+  const port = Number(process.env["DASSIE_DEBUG_RPC_PORT"])
 
   if (!port) return
 

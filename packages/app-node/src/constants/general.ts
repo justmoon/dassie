@@ -1,1 +1,1 @@
-export const APP_NAME = "xen-node"
+export const APP_NAME = "dassie-node"

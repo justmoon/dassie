@@ -1,4 +1,4 @@
-import { EffectContext, createReactor } from "@xen-ilp/lib-reactive"
+import { EffectContext, createReactor } from "@dassie/lib-reactive"
 
 import { registerRootRoute, serveHttp } from "./http-server/serve-http"
 import { attachLogger } from "./logger"

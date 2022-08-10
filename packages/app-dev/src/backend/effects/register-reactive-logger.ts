@@ -3,8 +3,8 @@ import {
   createCliFormatter,
   createJsonFormatter,
   createLogger,
-} from "@xen-ilp/lib-logger"
-import type { EffectContext } from "@xen-ilp/lib-reactive"
+} from "@dassie/lib-logger"
+import type { EffectContext } from "@dassie/lib-reactive"
 
 import { logLineTopic } from "../features/logs"
 
@@ -21,7 +21,7 @@ export const registerReactiveLogger = (sig: EffectContext) => {
   })
 
   createLogger.setFormatter((...parameters) => {
-    if (process.env["XEN_LOG_TO_CLI"] === "true") {
+    if (process.env["DASSIE_LOG_TO_CLI"] === "true") {
       cliFormatter(...parameters)
     }
     if (inRecursion) return

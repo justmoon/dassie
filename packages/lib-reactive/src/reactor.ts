@@ -1,6 +1,5 @@
+import { isObject } from "@dassie/lib-type-utils"
 import type { Promisable } from "type-fest"
-
-import { isObject } from "@xen-ilp/lib-type-utils"
 
 import { createDebugTools } from "./debug/debug-tools"
 import { Effect, runEffect } from "./effect"
@@ -19,12 +18,12 @@ import { LifecycleScope } from "./internal/lifecycle-scope"
  * const myTopic = () => reactor.createTopic<string>()
  * ```
  */
-export const FactoryNameSymbol = Symbol("xen:reactive:factory-name")
+export const FactoryNameSymbol = Symbol("das:reactive:factory-name")
 
 /**
  * Can be used to add a function that will be automatically called after a context value has been instantiated.
  */
-export const InitSymbol = Symbol("xen:reactive:init")
+export const InitSymbol = Symbol("das:reactive:init")
 
 export type Factory<T> = () => T
 export type Disposer = () => void

@@ -1,6 +1,5 @@
+import { uint8ArrayToHex } from "@dassie/lib-oer"
 import type { Plugin } from "pretty-format"
-
-import { uint8ArrayToHex } from "@xen-ilp/lib-oer"
 
 /**
  * Plugin for `pretty-format` to render Uint8Arrays as hex strings.

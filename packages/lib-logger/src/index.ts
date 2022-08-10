@@ -31,7 +31,7 @@ export type { Logger } from "./logger"
 export const createLogger = createLoggerFactory({
   enableChecker: createEnableChecker(process.env["DEBUG"] ?? ""),
   formatter:
-    process.env["XEN_LOG_FORMATTER"] === "json"
+    process.env["DASSIE_LOG_FORMATTER"] === "json"
       ? createJsonFormatter()
       : createCliFormatter(),
 })

@@ -3,13 +3,13 @@ import { z } from "zod"
 
 import { readFileSync } from "node:fs"
 
-import { createLogger } from "@xen-ilp/lib-logger"
-import { createStore } from "@xen-ilp/lib-reactive"
-import { isErrorWithCode } from "@xen-ilp/lib-type-utils"
+import { createLogger } from "@dassie/lib-logger"
+import { createStore } from "@dassie/lib-reactive"
+import { isErrorWithCode } from "@dassie/lib-type-utils"
 
 import { APP_NAME } from "./constants/general"
 
-const logger = createLogger("xen:node:config")
+const logger = createLogger("das:node:config")
 
 export interface Config {
   nodeId: string
@@ -18,8 +18,8 @@ export interface Config {
   dataPath: string
   tlsWebCert: string
   tlsWebKey: string
-  tlsXenCert: string
-  tlsXenKey: string
+  tlsDassieCert: string
+  tlsDassieKey: string
   initialPeers: { nodeId: string; url: string }[]
 }
 
@@ -34,10 +34,10 @@ export const inputConfigSchema = z.object({
   tlsWebCertFile: z.string().optional(),
   tlsWebKey: z.string().optional(),
   tlsWebKeyFile: z.string().optional(),
-  tlsXenCert: z.string().optional(),
-  tlsXenCertFile: z.string().optional(),
-  tlsXenKey: z.string().optional(),
-  tlsXenKeyFile: z.string().optional(),
+  tlsDassieCert: z.string().optional(),
+  tlsDassieCertFile: z.string().optional(),
+  tlsDassieKey: z.string().optional(),
+  tlsDassieKeyFile: z.string().optional(),
   initialPeers: z.string().optional(),
 })
 
@@ -76,15 +76,15 @@ export function fromPartialConfig(partialConfig: InputConfig): Config {
       partialConfig.tlsWebKey,
       partialConfig.tlsWebKeyFile
     ),
-    tlsXenCert: processFileOption(
-      "tlsXenCert",
-      partialConfig.tlsXenCert,
-      partialConfig.tlsXenCertFile
+    tlsDassieCert: processFileOption(
+      "tlsDassieCert",
+      partialConfig.tlsDassieCert,
+      partialConfig.tlsDassieCertFile
     ),
-    tlsXenKey: processFileOption(
-      "tlsXenKey",
-      partialConfig.tlsXenKey,
-      partialConfig.tlsXenKeyFile
+    tlsDassieKey: processFileOption(
+      "tlsDassieKey",
+      partialConfig.tlsDassieKey,
+      partialConfig.tlsDassieKeyFile
     ),
     initialPeers: partialConfig.initialPeers
       ? partialConfig.initialPeers
@@ -102,7 +102,7 @@ export function fromPartialConfig(partialConfig: InputConfig): Config {
 }
 
 export function fromEnvironment() {
-  const configPath = process.env["XEN_CONFIG_FILE"]
+  const configPath = process.env["DASSIE_CONFIG_FILE"]
 
   let fileConfig = {}
   if (configPath) {
@@ -119,7 +119,7 @@ export function fromEnvironment() {
   }
 
   const environmentConfig = inputConfigSchema.parse(
-    JSON.parse(process.env["XEN_CONFIG"] ?? "{}")
+    JSON.parse(process.env["DASSIE_CONFIG"] ?? "{}")
   )
 
   return fromPartialConfig({ ...fileConfig, ...environmentConfig })

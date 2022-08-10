@@ -1,10 +1,9 @@
+import { createLogger } from "@dassie/lib-logger"
+import type { EffectContext } from "@dassie/lib-reactive"
 import { bold } from "picocolors"
 import { createServer } from "vite"
 
-import { createLogger } from "@xen-ilp/lib-logger"
-import type { EffectContext } from "@xen-ilp/lib-reactive"
-
-const logger = createLogger("xen:dev:wallet-server")
+const logger = createLogger("das:dev:wallet-server")
 
 const walletPath = new URL("../../../../app-wallet", import.meta.url).pathname
 const port = 3000

@@ -7,7 +7,7 @@ A serialization/deserialization library for [Octet Encoding Rules](https://www.i
 ## Example
 
 ```typescript
-import { Infer, sequence, uint8Number, utf8String } from "@xen-ilp/lib-oer"
+import { Infer, sequence, uint8Number, utf8String } from "@dassie/lib-oer"
 
 const personSchema = sequence({
   name: utf8String(),

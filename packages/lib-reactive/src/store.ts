@@ -1,11 +1,11 @@
-import { isObject } from "@xen-ilp/lib-type-utils"
+import { isObject } from "@dassie/lib-type-utils"
 
 import type { Factory } from "./reactor"
 import { Topic, createTopic } from "./topic"
 
 export type Reducer<TState> = (previousState: TState) => TState
 
-export const StoreSymbol = Symbol("xen:reactive:store")
+export const StoreSymbol = Symbol("das:reactive:store")
 
 export interface StoreFactory<TState, TReducer = Reducer<TState>>
   extends Factory<Store<TState, TReducer>> {

@@ -1,8 +1,8 @@
 {
-  "name": "@xen-ilp/lib-crypto",
+  "name": "@dassie/lib-crypto",
   "type": "module",
   "version": "1.0.0",
-  "description": "Crypto primitives for the Xen/ILP ecosystem using Rust/WASM",
+  "description": "Crypto primitives for the Dassie ecosystem using Rust/WASM",
   "main": "./pkg/node/lib_crypto.js",
   "publishConfig": {
     "main": "./dist/pkg/node/lib_crypto.js"
@@ -18,7 +18,7 @@
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "dependencies": {
-    "@xen-ilp/lib-itergen-utils": "workspace:1.0.0",
-    "@xen-ilp/lib-type-utils": "workspace:1.0.0"
+    "@dassie/lib-itergen-utils": "workspace:1.0.0",
+    "@dassie/lib-type-utils": "workspace:1.0.0"
   }
 }

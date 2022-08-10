@@ -1,7 +1,6 @@
+import type { Reactor } from "@dassie/lib-reactive"
 import * as trpc from "@trpc/server"
 import superjson from "superjson"
-
-import type { Reactor } from "@xen-ilp/lib-reactive"
 
 import { runnerRpcRouter } from "./runner-rpc-router"
 import { uiRpcRouter } from "./ui-rpc-router"

@@ -1,6 +1,6 @@
 import { bold, green } from "picocolors"
 
-import { EffectContext, createReactor } from "@xen-ilp/lib-reactive"
+import { EffectContext, createReactor } from "@dassie/lib-reactive"
 
 import { captureLogs } from "./effects/capture-logs"
 import { compileRunner } from "./effects/compile-runner"
@@ -13,7 +13,7 @@ import { validateDevelopmentEnvironment } from "./effects/validate-development-e
 import { indexLogs } from "./features/logs"
 
 const rootEffect = async (sig: EffectContext) => {
-  console.log(bold(`  Xen${green("//dev")}`))
+  console.log(bold(`  Dassie${green("//dev")}`))
   const isEnvironmentValid = await sig.use(validateDevelopmentEnvironment)
   if (!isEnvironmentValid) {
     return

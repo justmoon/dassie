@@ -1,4 +1,4 @@
-import type { EffectContext } from "@xen-ilp/lib-reactive"
+import type { EffectContext } from "@dassie/lib-reactive"
 
 import { indexedLogLineTopic } from "../features/logs"
 import { logsStore } from "../stores/logs"

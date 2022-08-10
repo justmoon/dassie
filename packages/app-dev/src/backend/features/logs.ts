@@ -1,5 +1,5 @@
-import type { SerializableLogLine } from "@xen-ilp/lib-logger"
-import { EffectContext, createStore, createTopic } from "@xen-ilp/lib-reactive"
+import type { SerializableLogLine } from "@dassie/lib-logger"
+import { EffectContext, createStore, createTopic } from "@dassie/lib-reactive"
 
 export interface NodeLogLine extends SerializableLogLine {
   node: string

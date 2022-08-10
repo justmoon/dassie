@@ -1,5 +1,5 @@
 {
-  "name": "@xen-ilp/lib-oer",
+  "name": "@dassie/lib-oer",
   "type": "module",
   "version": "1.0.0",
   "description": "Simple reactive programming tools",
@@ -27,7 +27,7 @@
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "dependencies": {
-    "@xen-ilp/lib-type-utils": "workspace:^1.0.0"
+    "@dassie/lib-type-utils": "workspace:^1.0.0"
   },
   "devDependencies": {
     "type-fest": "^2.18.0"

@@ -2,8 +2,8 @@ import {
   SerializableLogLine,
   createJsonFormatter,
   createLogger,
-} from "@xen-ilp/lib-logger"
-import type { EffectContext } from "@xen-ilp/lib-reactive"
+} from "@dassie/lib-logger"
+import type { EffectContext } from "@dassie/lib-reactive"
 
 import { trpcClientFactory } from "../services/trpc-client"
 
@@ -14,7 +14,7 @@ export const forwardLogs = (sig: EffectContext) => {
   const jsonFormatter = createJsonFormatter({
     outputFunction(line: SerializableLogLine) {
       void trpcClient.mutation("runner.notifyLogLine", [
-        process.env["XEN_DEV_NODE_ID"] ?? "unknown",
+        process.env["DASSIE_DEV_NODE_ID"] ?? "unknown",
         line,
       ])
     },

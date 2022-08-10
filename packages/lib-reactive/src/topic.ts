@@ -1,10 +1,10 @@
-import { isObject } from "@xen-ilp/lib-type-utils"
+import { isObject } from "@dassie/lib-type-utils"
 
 import { Disposer, Factory, FactoryNameSymbol } from "./reactor"
 
 export type Listener<TMessage> = (message: TMessage) => void
 
-export const TopicSymbol = Symbol("xen:reactive:topic")
+export const TopicSymbol = Symbol("das:reactive:topic")
 
 export interface TopicFactory<TMessage = unknown, TTrigger = never>
   extends Factory<Topic<TMessage, TTrigger>> {

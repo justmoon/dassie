@@ -1,7 +1,6 @@
+import type { InferMessageType } from "@dassie/lib-reactive"
 import { useEffect } from "react"
 import { useQuery, useQueryClient } from "react-query"
-
-import type { InferMessageType } from "@xen-ilp/lib-reactive"
 
 import type { ExposedStoresMap as NodeExposedStoresMap } from "../../runner/effects/debug-rpc-server"
 import { nodeClients } from "../shared-effects/node-rpc-clients"

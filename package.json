@@ -1,7 +1,7 @@
 {
-  "name": "@xen-ilp/root",
+  "name": "@dassie/root",
   "version": "1.0.0",
-  "description": "Root package of the Xen/ILP monorepo",
+  "description": "Root package of the Dassie monorepo",
   "main": "index.js",
   "type": "module",
   "scripts": {
@@ -13,12 +13,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/justmoon/xen-ilp.git"
+    "url": "git+https://github.com/justmoon/dassie.git"
   },
   "keywords": [
     "interledger",
     "ilp",
-    "xen",
+    "dassie",
     "network",
     "monorepo",
     "p2p",
@@ -27,9 +27,9 @@
   "author": "Stefan Thomas <stefan@interledger.org>",
   "license": "Apache-2.0",
   "bugs": {
-    "url": "https://github.com/justmoon/xen-ilp/issues"
+    "url": "https://github.com/justmoon/dassie/issues"
   },
-  "homepage": "https://github.com/justmoon/xen-ilp#readme",
+  "homepage": "https://github.com/justmoon/dassie#readme",
   "dependencies": {
     "@microsoft/api-extractor": "^7.29.0",
     "@microsoft/api-extractor-model": "^7.23.0",

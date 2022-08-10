@@ -1,6 +1,5 @@
+import { createValue } from "@dassie/lib-reactive"
 import { createServer } from "vite"
-
-import { createValue } from "@xen-ilp/lib-reactive"
 
 export const viteServerValue = () =>
   createValue(async (sig) => {

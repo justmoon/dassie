@@ -1,10 +1,9 @@
+import type { InputConfig } from "@dassie/app-node"
+import { selectBySeed } from "@dassie/lib-logger"
 import type { GraphData } from "force-graph"
 import { FaPlus } from "react-icons/fa"
 import { withSolid } from "react-solid-state"
 import { Link } from "wouter"
-
-import type { InputConfig } from "@xen-ilp/app-node"
-import { selectBySeed } from "@xen-ilp/lib-logger"
 
 import type { NodeDefinition } from "../../../backend/effects/run-nodes"
 import { COLORS } from "../../constants/palette"

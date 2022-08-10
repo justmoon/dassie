@@ -11,7 +11,7 @@ export const trpcClientFactory = () => {
     return (global as any).trpcClient as TRPCClient<AppRouter>
 
   const wsClient = createWSClient({
-    url: process.env["XEN_DEV_RPC_URL"]!,
+    url: process.env["DASSIE_DEV_RPC_URL"]!,
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-explicit-any
     WebSocket: WebSocket as any,
   })
