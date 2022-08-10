@@ -1,3 +1,4 @@
+import { FaHome, FaList } from "react-icons/fa"
 import { Link } from "wouter"
 
 const MainNavigation = () => {
@@ -14,14 +15,14 @@ const MainNavigation = () => {
           href="/"
           className="rounded-md flex font-medium bg-gray-900 text-white text-sm py-2 px-2 group items-center"
         >
-          <div className="flex-shrink-0 mr-2 text-2xl i-mdi-home" />
+          <FaHome className="flex-shrink-0 mr-2 text-xl" />
           <span className="flex-1 text-base">Dashboard</span>
         </Link>
         <Link
           href="/logs"
           className="rounded-md flex font-medium bg-gray-900 text-white text-sm py-2 px-2 group items-center"
         >
-          <div className="flex-shrink-0 mr-2 text-2xl i-mdi-view-list" />
+          <FaList className="flex-shrink-0 mr-2 text-xl" />
           <span className="flex-1 text-base">Logs</span>
         </Link>
       </nav>

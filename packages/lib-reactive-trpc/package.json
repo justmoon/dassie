@@ -38,8 +38,8 @@
     "type-fest": "^2.18.0"
   },
   "dependencies": {
-    "@trpc/client": "^9.26.2",
-    "@trpc/server": "^9.26.2",
+    "@trpc/client": "^9.27.0",
+    "@trpc/server": "^9.27.0",
     "@xen-ilp/lib-reactive": "workspace:^1.0.0"
   },
   "peerDependencies": {

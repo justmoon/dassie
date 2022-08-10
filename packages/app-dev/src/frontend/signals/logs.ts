@@ -3,7 +3,6 @@ import { createSignal } from "solid-js"
 
 import type { IndexedLogLine } from "../../backend/features/logs"
 import { client } from "../utils/trpc"
-import { setGlobalFirehose } from "./global-firehose"
 
 const [logs, setLogs] = createSignal({
   logs: new Denque<IndexedLogLine>(),
@@ -29,9 +28,6 @@ client.subscription("logs", undefined, {
 
       return { logs }
     })
-    if (logLine.type === "data" && logLine.data.level === "clear") {
-      setGlobalFirehose(() => [])
-    }
   },
 })
 

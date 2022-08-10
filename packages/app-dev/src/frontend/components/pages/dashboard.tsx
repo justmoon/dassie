@@ -1,4 +1,5 @@
 import type { GraphData } from "force-graph"
+import { FaPlus } from "react-icons/fa"
 import { withSolid } from "react-solid-state"
 import { Link } from "wouter"
 
@@ -65,7 +66,7 @@ const Dashboard = withSolid(() => () => {
                   addRandomNode.mutate()
                 }}
               >
-                <div className="flex-shrink-0 text-2xl i-mdi-plus" />
+                <FaPlus className="flex-shrink-0 text-lg" />
                 <span className="sr-only">Add node</span>
               </button>
             </div>

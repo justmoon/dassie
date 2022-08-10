@@ -4,22 +4,11 @@ import { z } from "zod"
 import type { Reactor } from "@xen-ilp/lib-reactive"
 
 import { logLineTopic } from "../features/logs"
-import { globalFirehoseTopic } from "../topics/global-firehose"
 import { peerTrafficTopic } from "../topics/peer-traffic"
 import { createCliOnlyLogger } from "../utils/cli-only-logger"
 
 export const runnerRpcRouter = trpc
   .router<Reactor>()
-  .mutation("notifyTopicMessage", {
-    input: z.tuple([z.string(), z.string(), z.number()]),
-    resolve({ input: [nodeId, topicName, messageId], ctx: reactor }) {
-      reactor.useContext(globalFirehoseTopic).emit({
-        nodeId,
-        topic: topicName,
-        messageId,
-      })
-    },
-  })
   .mutation("notifyPeerTraffic", {
     input: z.object({
       from: z.string(),

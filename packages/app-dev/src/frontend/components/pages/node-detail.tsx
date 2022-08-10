@@ -6,9 +6,8 @@ import { Link } from "wouter"
 import { selectBySeed } from "@xen-ilp/lib-logger"
 
 import { COLORS } from "../../constants/palette"
-import { globalFirehose } from "../../signals/global-firehose"
-import { useNodeRemoteStore } from "../../utils/remote-reactive"
-import { trpc } from "../../utils/trpc"
+import { FirehoseEvent, useNodeFirehose } from "../../hooks/use-node-firehose"
+import { useNodeRemoteStore } from "../../hooks/use-node-state"
 import LogViewer from "../log-viewer/log-viewer"
 
 interface BasicNodeElementProperties {
@@ -117,12 +116,15 @@ const NodeTable = ({ nodeId }: BasicNodeElementProperties) => {
 }
 
 interface NodeFirehoseEventListProperties {
-  nodeId: string
   messageId: number | undefined
+  events: FirehoseEvent[]
   onClick: (messageId: number) => void
 }
 
-const NodeFirehoseEventList = (properties: NodeFirehoseEventListProperties) => {
+const NodeFirehoseEventList = ({
+  events,
+  onClick,
+}: NodeFirehoseEventListProperties) => {
   return (
     <div className="h-full overflow-y-auto">
       <table className="border-separate border-spacing-2 -m-2">
@@ -133,14 +135,11 @@ const NodeFirehoseEventList = (properties: NodeFirehoseEventListProperties) => {
           </tr>
         </thead>
         <tbody>
-          {globalFirehose()
-            .filter(({ nodeId }) => nodeId === properties.nodeId)
-            .map(({ topic, messageId }) => (
-              <tr key={messageId} onClick={() => properties.onClick(messageId)}>
-                <td className="">{topic}</td>
-                <td className="">{messageId}</td>
-              </tr>
-            ))}
+          {events.map(({ topic }, index) => (
+            <tr key={index} onClick={() => onClick(index)}>
+              <td className="">{topic}</td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
@@ -148,37 +147,37 @@ const NodeFirehoseEventList = (properties: NodeFirehoseEventListProperties) => {
 }
 
 interface NodeFirehoseEventDetailProperties {
-  nodeId: string
   messageId: number
+  events: FirehoseEvent[]
 }
 
 const NodeFirehoseEventDetail = ({
-  nodeId,
   messageId,
+  events,
 }: NodeFirehoseEventDetailProperties) => {
-  const messageResult = trpc.useQuery(["getMessage", [nodeId, messageId]])
-
-  if (!messageResult.data) return null
-
   return (
     <div className="p-4 overflow-auto">
-      <pre>{messageResult.data.message}</pre>
+      <pre>{events[messageId]?.message}</pre>
     </div>
   )
 }
 
-const NodeFirehoseViewer = ({ nodeId }: BasicNodeElementProperties) => {
+interface NodeFirehoseViewerProperties extends BasicNodeElementProperties {
+  events: FirehoseEvent[]
+}
+
+const NodeFirehoseViewer = ({ events }: NodeFirehoseViewerProperties) => {
   const [messageId, setMessageId] = useState<number | undefined>(undefined)
   return (
     <div className="h-full grid p-4 gap-4 grid-cols-[400px_auto]">
       <NodeFirehoseEventList
-        nodeId={nodeId}
         messageId={messageId}
+        events={events}
         onClick={(messageId) => setMessageId(messageId)}
       />
       <div>
         {messageId != undefined ? (
-          <NodeFirehoseEventDetail nodeId={nodeId} messageId={messageId} />
+          <NodeFirehoseEventDetail messageId={messageId} events={events} />
         ) : null}
       </div>
     </div>
@@ -190,6 +189,9 @@ const NodeLogViewer = ({ nodeId }: BasicNodeElementProperties) => {
 }
 
 const NodeDetail = ({ nodeId }: BasicNodeElementProperties) => {
+  // We are tracking events from this component so that events continue to be captured as the user browses different tabs.
+  const events = useNodeFirehose(nodeId)
+
   return (
     <div className="h-screen grid grid-rows-[min-content_auto] py-10">
       <NodeHeader nodeId={nodeId} />
@@ -231,7 +233,7 @@ const NodeDetail = ({ nodeId }: BasicNodeElementProperties) => {
           <NodeTable nodeId={nodeId} />
         </Tabs.Content>
         <Tabs.Content value="events" className="rounded-lg bg-gray-800 min-h-0">
-          <NodeFirehoseViewer nodeId={nodeId} />
+          <NodeFirehoseViewer nodeId={nodeId} events={events} />
         </Tabs.Content>
       </Tabs.Root>
     </div>

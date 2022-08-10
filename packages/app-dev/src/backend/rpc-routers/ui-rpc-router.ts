@@ -1,20 +1,13 @@
-import { createTRPCClient } from "@trpc/client"
 import * as trpc from "@trpc/server"
 import superjson from "superjson"
-import { z } from "zod"
 
 import type { Reactor } from "@xen-ilp/lib-reactive"
-import { createRouter as createRemoteReactiveRouter } from "@xen-ilp/lib-reactive-trpc/server"
+import { createRemoteReactiveRouter } from "@xen-ilp/lib-reactive-trpc/server"
 
-import type { DebugRpcRouter } from "../../runner/effects/debug-rpc-server"
 import { config } from "../config"
 import { IndexedLogLine, indexedLogLineTopic } from "../features/logs"
 import { activeTemplate } from "../stores/active-template"
 import { logsStore } from "../stores/logs"
-import {
-  GlobalFirehoseMessage,
-  globalFirehoseTopic,
-} from "../topics/global-firehose"
 import { PeerMessageMetadata, peerTrafficTopic } from "../topics/peer-traffic"
 import { activeNodeConfig } from "../values/active-node-config"
 
@@ -23,7 +16,7 @@ export const exposedStores = {
 } as const
 
 export type ExposedStoresMap = typeof exposedStores
-const remoteReactiveRouter = createRemoteReactiveRouter(exposedStores).flat()
+const remoteReactiveRouter = createRemoteReactiveRouter(exposedStores)
 
 export type RemoteReactiveRouter = typeof remoteReactiveRouter
 
@@ -34,46 +27,6 @@ export const uiRpcRouter = trpc
   .query("config", {
     resolve() {
       return config
-    },
-  })
-  .query("getNodeState", {
-    input: z.tuple([z.string(), z.string()]),
-    resolve({ input: [nodeId, storeName], ctx: reactor }) {
-      const node = reactor
-        .useContext(activeNodeConfig)
-        .read()
-        .find(({ id }) => id === nodeId)
-
-      if (!node) {
-        throw new Error(`Unknown node ID ${nodeId}`)
-      }
-
-      const client = createTRPCClient<DebugRpcRouter>({
-        url: `http://localhost:${node.debugPort}/trpc`,
-        transformer: superjson,
-      })
-
-      return client.query("getState", storeName)
-    },
-  })
-  .query("getMessage", {
-    input: z.tuple([z.string(), z.number()]),
-    async resolve({ input: [nodeId, messageId], ctx: reactor }) {
-      const node = reactor
-        .useContext(activeNodeConfig)
-        .read()
-        .find(({ id }) => id === nodeId)
-
-      if (!node) {
-        throw new Error(`Unknown node ID ${nodeId}`)
-      }
-
-      const client = createTRPCClient<DebugRpcRouter>({
-        url: `http://localhost:${node.debugPort}/trpc`,
-        transformer: superjson,
-      })
-
-      return client.query("getMessage", [messageId])
     },
   })
   .mutation("addRandomNode", {
@@ -107,15 +60,6 @@ export const uiRpcRouter = trpc
         }
 
         return fromContext(indexedLogLineTopic).on((logLine) => {
-          sendToClient.data(logLine)
-        })
-      })
-    },
-  })
-  .subscription("globalFirehose", {
-    resolve({ ctx: { useContext: fromContext } }) {
-      return new trpc.Subscription<GlobalFirehoseMessage>((sendToClient) => {
-        return fromContext(globalFirehoseTopic).on((logLine) => {
           sendToClient.data(logLine)
         })
       })
