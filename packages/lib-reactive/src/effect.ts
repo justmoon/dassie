@@ -1,4 +1,7 @@
-import { createArrayEffect } from "./internal/array-effect"
+import {
+  createArrayEffect,
+  createIndexedArrayEffect,
+} from "./internal/array-effect"
 import { LifecycleScope } from "./internal/lifecycle-scope"
 import { createWaker } from "./internal/waker"
 import type { AsyncDisposer, Reactor } from "./reactor"
@@ -47,14 +50,14 @@ export class EffectContext {
    * @param comparator - By default, the reactor checks for strict equality (`===`) to determine if the value has changed. This can be overridden by passing a custom comparator function.
    * @returns The most recent value from the topic (or the initial value), narrowed by the selector.
    */
-  get<TState>(store: StoreFactory<TState>): TState
+  get<TState>(store: StoreFactory<TState, never>): TState
   get<TState, TSelection>(
-    store: StoreFactory<TState>,
+    store: StoreFactory<TState, never>,
     selector: (state: TState) => TSelection,
     comparator?: (oldValue: TSelection, newValue: TSelection) => boolean
   ): TSelection
   get<TState, TSelection>(
-    store: StoreFactory<TState>,
+    store: StoreFactory<TState, never>,
     selector: (state: TState) => TSelection = (a) =>
       // Based on the overloaded function signature, the selector parameter may be omitted iff TMessage equals TSelection.
       // Therefore this cast is safe.
@@ -89,7 +92,7 @@ export class EffectContext {
    * @returns A filtered version of the store state containing only the requested keys.
    */
   getKeys<TState, TKeys extends keyof TState>(
-    store: StoreFactory<TState>,
+    store: StoreFactory<TState, never>,
     keys: readonly TKeys[]
   ): Pick<TState, TKeys> {
     return this.get(
@@ -117,7 +120,7 @@ export class EffectContext {
    *
    * @param store - Reference to the store's factory function.
    */
-  read<TState>(store: StoreFactory<TState>): TState {
+  read<TState>(store: StoreFactory<TState, never>): TState {
     return this.reactor.useContext(store).read()
   }
 
@@ -321,10 +324,22 @@ export class EffectContext {
    * Run an effect for each element of an array topic. When the array value changes, only the effects corresponding to changed elements will be re-run.
    */
   for<TElement, TReturn>(
-    arrayTopicFactory: StoreFactory<TElement[]>,
+    arrayTopicFactory: StoreFactory<readonly TElement[], never>,
     effect: Effect<TElement, TReturn>
   ) {
     return this.use(createArrayEffect(arrayTopicFactory, effect, this.effect))
+  }
+
+  /**
+   * Like {@link for} but compares elements based on their index in the array. Also passes the index to the effect.
+   */
+  forIndex<TElement, TReturn>(
+    arrayTopicFactory: StoreFactory<readonly TElement[], never>,
+    effect: Effect<readonly [element: TElement, index: number], TReturn>
+  ) {
+    return this.use(
+      createIndexedArrayEffect(arrayTopicFactory, effect, this.effect)
+    )
   }
 }
 
