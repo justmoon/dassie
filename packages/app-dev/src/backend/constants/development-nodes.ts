@@ -1,10 +1,8 @@
-export type Template = readonly (readonly [source: number, target: number])[]
+import type { ReadonlyDeep } from "type-fest"
 
-export const PEERS: Template = [
-  [1, 0],
-  [2, 0],
-  [2, 1],
-  [3, 2],
-  [4, 1],
-  [5, 4],
-] as const
+/**
+ * Defines a network topology. Each array represents a node in the network and specifies the indices of the nodes that it will try to peer with.
+ */
+export type Template = ReadonlyDeep<number[][]>
+
+export const PEERS: Template = [[], [0], [0, 1], [2], [1], [4]] as const

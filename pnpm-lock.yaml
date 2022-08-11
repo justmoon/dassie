@@ -83,6 +83,13 @@ importers:
 
   packages/app-dev:
     specifiers:
+      '@dassie/app-node': workspace:1.0.0
+      '@dassie/lib-itergen-utils': workspace:1.0.0
+      '@dassie/lib-logger': workspace:^1.0.0
+      '@dassie/lib-oer': workspace:^1.0.0
+      '@dassie/lib-reactive': workspace:^1.0.0
+      '@dassie/lib-reactive-trpc': workspace:^1.0.0
+      '@dassie/lib-type-utils': workspace:1.0.0
       '@iconify-json/mdi': ^1.1.29
       '@radix-ui/react-tabs': ^1.0.0
       '@react-hook/size': ^2.1.2
@@ -99,13 +106,6 @@ importers:
       '@types/ws': ^8.5.3
       '@unocss/reset': ^0.45.5
       '@vitejs/plugin-react': ^2.0.0
-      '@dassie/app-node': workspace:1.0.0
-      '@dassie/lib-itergen-utils': workspace:1.0.0
-      '@dassie/lib-logger': workspace:^1.0.0
-      '@dassie/lib-oer': workspace:^1.0.0
-      '@dassie/lib-reactive': workspace:^1.0.0
-      '@dassie/lib-reactive-trpc': workspace:^1.0.0
-      '@dassie/lib-type-utils': workspace:1.0.0
       anser: ^2.1.1
       ansicolor: ^1.1.100
       chrome-devtools-frontend-prebuilt: ^1.0.975442
@@ -128,12 +128,20 @@ importers:
       solid-js: ^1.4.8
       superjson: ^1.9.1
       timeago.js: ^4.0.2
+      type-fest: ^2.18.0
       unocss: ^0.45.5
       vite: ^3.0.5
       vite-node: ^0.21.1
       wouter: 2.8.0-alpha.2
       ws: ^8.8.1
     dependencies:
+      '@dassie/app-node': link:../app-node
+      '@dassie/lib-itergen-utils': link:../lib-itergen-utils
+      '@dassie/lib-logger': link:../lib-logger
+      '@dassie/lib-oer': link:../lib-oer
+      '@dassie/lib-reactive': link:../lib-reactive
+      '@dassie/lib-reactive-trpc': link:../lib-reactive-trpc
+      '@dassie/lib-type-utils': link:../lib-type-utils
       '@iconify-json/mdi': 1.1.29
       '@radix-ui/react-tabs': 1.0.0_biqbaboplfbrettd7655fr4n2y
       '@react-hook/size': 2.1.2_react@18.2.0
@@ -143,13 +151,6 @@ importers:
       '@types/cors': 2.8.12
       '@unocss/reset': 0.45.5
       '@vitejs/plugin-react': 2.0.0_vite@3.0.5
-      '@dassie/app-node': link:../app-node
-      '@dassie/lib-itergen-utils': link:../lib-itergen-utils
-      '@dassie/lib-logger': link:../lib-logger
-      '@dassie/lib-oer': link:../lib-oer
-      '@dassie/lib-reactive': link:../lib-reactive
-      '@dassie/lib-reactive-trpc': link:../lib-reactive-trpc
-      '@dassie/lib-type-utils': link:../lib-type-utils
       anser: 2.1.1
       ansicolor: 1.1.100
       chrome-devtools-frontend-prebuilt: 1.0.975442
@@ -184,16 +185,17 @@ importers:
       '@types/serve-static': 1.15.0
       '@types/ws': 8.5.3
       serve-static: 1.15.0
+      type-fest: 2.18.0
       vite-node: 0.21.1
 
   packages/app-node:
     specifiers:
-      '@noble/ed25519': ^1.6.1
-      '@types/ws': ^8.5.3
       '@dassie/lib-logger': workspace:^1.0.0
       '@dassie/lib-oer': workspace:^1.0.0
       '@dassie/lib-reactive': workspace:^1.0.0
       '@dassie/lib-type-utils': workspace:^1.0.0
+      '@noble/ed25519': ^1.6.1
+      '@types/ws': ^8.5.3
       axios: ^0.27.2
       denque: ^2.1.0
       env-paths: ^3.0.0
@@ -202,12 +204,12 @@ importers:
       type-fest: ^2.18.0
       ws: ^8.8.1
     dependencies:
-      '@noble/ed25519': 1.6.1
-      '@types/ws': 8.5.3
       '@dassie/lib-logger': link:../lib-logger
       '@dassie/lib-oer': link:../lib-oer
       '@dassie/lib-reactive': link:../lib-reactive
       '@dassie/lib-type-utils': link:../lib-type-utils
+      '@noble/ed25519': 1.6.1
+      '@types/ws': 8.5.3
       axios: 0.27.2
       denque: 2.1.0
       env-paths: 3.0.0
@@ -219,14 +221,14 @@ importers:
 
   packages/app-wallet:
     specifiers:
-      '@vitejs/plugin-react': ^1.3.2
       '@dassie/lib-type-utils': workspace:^1.0.0
+      '@vitejs/plugin-react': ^1.3.2
       react: ^18.2.0
       react-dom: ^18.2.0
       solid-js: ^1.4.8
     dependencies:
-      '@vitejs/plugin-react': 1.3.2
       '@dassie/lib-type-utils': link:../lib-type-utils
+      '@vitejs/plugin-react': 1.3.2
       react: 18.2.0
       react-dom: 18.2.0_react@18.2.0
       solid-js: 1.4.8
@@ -316,15 +318,15 @@ importers:
 
   packages/lib-reactive-trpc:
     specifiers:
+      '@dassie/lib-reactive': workspace:^1.0.0
       '@trpc/client': ^9.27.0
       '@trpc/server': ^9.27.0
-      '@dassie/lib-reactive': workspace:^1.0.0
       react: ^18.2.0
       type-fest: ^2.18.0
     dependencies:
+      '@dassie/lib-reactive': link:../lib-reactive
       '@trpc/client': 9.27.0_@trpc+server@9.27.0
       '@trpc/server': 9.27.0
-      '@dassie/lib-reactive': link:../lib-reactive
     devDependencies:
       react: 18.2.0
       type-fest: 2.18.0

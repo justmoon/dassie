@@ -10,7 +10,8 @@ import { isNativeError } from "node:util/types"
 import type { InputConfig } from "@dassie/app-node"
 import type { EffectContext } from "@dassie/lib-reactive"
 
-import { activeNodeConfig } from "../values/active-node-config"
+import { activeTemplate } from "../stores/active-template"
+import { generateNodeConfig } from "../utils/generate-node-config"
 import type { NodeDefinition } from "./run-nodes"
 
 interface CertificateInfo {
@@ -68,22 +69,24 @@ const generateCertificate = async ({
 }
 
 export const validateDevelopmentEnvironment = async (sig: EffectContext) => {
-  const neededCertificates: CertificateInfo[] = sig
-    .get(activeNodeConfig)
-    .flatMap((node) => [
-      {
-        type: "web",
-        certificatePath: node.config.tlsWebCertFile,
-        keyPath: node.config.tlsWebKeyFile,
-        node,
-      },
-      {
-        type: "dassie",
-        certificatePath: node.config.tlsDassieCertFile,
-        keyPath: node.config.tlsDassieKeyFile,
-        node,
-      },
-    ])
+  const nodeConfig = sig
+    .get(activeTemplate)
+    .map((peers, index) => generateNodeConfig(index, peers))
+
+  const neededCertificates: CertificateInfo[] = nodeConfig.flatMap((node) => [
+    {
+      type: "web",
+      certificatePath: node.config.tlsWebCertFile,
+      keyPath: node.config.tlsWebKeyFile,
+      node,
+    },
+    {
+      type: "dassie",
+      certificatePath: node.config.tlsDassieCertFile,
+      keyPath: node.config.tlsDassieKeyFile,
+      node,
+    },
+  ])
 
   console.log(colors.bold("\n  Validating certificates:"))
   let anyFilesGenerated = false

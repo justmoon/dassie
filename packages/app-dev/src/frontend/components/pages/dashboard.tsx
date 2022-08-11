@@ -1,11 +1,13 @@
-import type { InputConfig } from "@dassie/app-node"
-import { selectBySeed } from "@dassie/lib-logger"
 import type { GraphData } from "force-graph"
 import { FaPlus } from "react-icons/fa"
 import { withSolid } from "react-solid-state"
 import { Link } from "wouter"
 
+import type { InputConfig } from "@dassie/app-node"
+import { selectBySeed } from "@dassie/lib-logger"
+
 import type { NodeDefinition } from "../../../backend/effects/run-nodes"
+import { generateNodeConfig } from "../../../backend/utils/generate-node-config"
 import { COLORS } from "../../constants/palette"
 import { useLiveRemoteStore } from "../../utils/remote-reactive"
 import { trpc } from "../../utils/trpc"
@@ -24,10 +26,14 @@ const nodesToGraph = (nodes: NodeDefinition<InputConfig>[]): GraphData => {
   }
 }
 const Dashboard = withSolid(() => () => {
-  const nodes = useLiveRemoteStore("activeNodeConfig")
+  const template = useLiveRemoteStore("activeTemplate")
   const addRandomNode = trpc.useMutation("addRandomNode")
 
-  if (!nodes.data) return <div />
+  if (!template.data) return <div />
+
+  const nodes = template.data.map((peers, index) =>
+    generateNodeConfig(index, peers)
+  )
 
   return (
     <div className="h-screen grid grid-rows-[min-content_auto] py-10 gap-4">
@@ -43,7 +49,7 @@ const Dashboard = withSolid(() => () => {
           <div className="rounded-lg flex flex-col bg-gray-800 min-h-0 p-4">
             <h2 className="font-bold text-xl">Nodes</h2>
             <div className="flex flex-col flex-1 py-2 gap-1">
-              {nodes.data.map((node) => (
+              {nodes.map((node) => (
                 <Link
                   key={node.id}
                   href={`/nodes/${node.id}`}
@@ -71,7 +77,7 @@ const Dashboard = withSolid(() => () => {
             </div>
           </div>
           <div className="h-lg">
-            <NodeGraph graphData={nodesToGraph(nodes.data)} />
+            <NodeGraph graphData={nodesToGraph(nodes)} />
           </div>
           <div className="rounded-lg bg-gray-800 min-h-0 p-4 col-span-2">
             <LogViewer />

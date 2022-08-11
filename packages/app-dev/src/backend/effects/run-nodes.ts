@@ -1,12 +1,14 @@
-import { createLogger } from "@dassie/lib-logger"
-import { EffectContext, createTopic } from "@dassie/lib-reactive"
 import * as colors from "picocolors"
 
 import { posix } from "node:path"
 
+import { createLogger } from "@dassie/lib-logger"
+import { EffectContext, createTopic } from "@dassie/lib-reactive"
+
 import { viteNodeServerValue } from "../services/vite-node-server"
 import { viteServerValue } from "../services/vite-server"
-import { activeNodeConfig } from "../values/active-node-config"
+import { activeTemplate } from "../stores/active-template"
+import { generateNodeConfig } from "../utils/generate-node-config"
 import { runNodeChildProcess } from "./run-node-child-process"
 
 const logger = createLogger("das:dev:node-server")
@@ -28,21 +30,23 @@ export interface NodeDefinition<T> {
 const fileChangeTopic = () => createTopic()
 
 export const runNodes = async (sig: EffectContext) => {
-  const template = sig.get(activeNodeConfig)
-
   const viteServer = await sig.get(viteServerValue)
   const nodeServer = await sig.get(viteNodeServerValue)
 
   logger.debug("starting node processes")
 
-  await sig.use(async (sig) => {
-    // Restart child processes when a file changes
-    sig.subscribe(fileChangeTopic)
+  await Promise.all(
+    sig.forIndex(activeTemplate, async (sig, [node, index]) => {
+      // Restart child processes when a file changes
+      sig.subscribe(fileChangeTopic)
 
-    for (const node of template) {
-      await sig.use(runNodeChildProcess, { viteServer, nodeServer, node })
-    }
-  })
+      await sig.use(runNodeChildProcess, {
+        viteServer,
+        nodeServer,
+        node: generateNodeConfig(index, node),
+      })
+    })
+  )
 
   const handleFileChange = (file: string) => {
     const { config, moduleGraph } = viteServer
