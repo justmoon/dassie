@@ -1,3 +1,4 @@
+import { createArrayEffect } from "./internal/array-effect"
 import { LifecycleScope } from "./internal/lifecycle-scope"
 import { createWaker } from "./internal/waker"
 import type { AsyncDisposer, Reactor } from "./reactor"
@@ -314,6 +315,16 @@ export class EffectContext {
     })
 
     return result
+  }
+
+  /**
+   * Run an effect for each element of an array topic. When the array value changes, only the effects corresponding to changed elements will be re-run.
+   */
+  for<TElement, TReturn>(
+    arrayTopicFactory: StoreFactory<TElement[]>,
+    effect: Effect<TElement, TReturn>
+  ) {
+    return this.use(createArrayEffect(arrayTopicFactory, effect, this.effect))
   }
 }
 
