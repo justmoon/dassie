@@ -10,6 +10,7 @@ import { viteServerValue } from "../services/vite-server"
 import { activeTemplate } from "../stores/active-template"
 import { generateNodeConfig } from "../utils/generate-node-config"
 import { runNodeChildProcess } from "./run-node-child-process"
+import { validateCertificates } from "./validate-certificates"
 
 const logger = createLogger("das:dev:node-server")
 
@@ -39,6 +40,8 @@ export const runNodes = async (sig: EffectContext) => {
     sig.forIndex(activeTemplate, async (sig, [node, index]) => {
       // Restart child processes when a file changes
       sig.subscribe(fileChangeTopic)
+
+      await sig.use(validateCertificates, { nodeIndex: index, nodePeers: node })
 
       await sig.use(runNodeChildProcess, {
         viteServer,
