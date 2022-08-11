@@ -1,12 +1,14 @@
+import * as trpc from "@trpc/server"
+import { applyWSSHandler } from "@trpc/server/adapters/ws"
+import superjson from "superjson"
+import { WebSocketServer } from "ws"
+
 import { nodeTableStore, peerTableStore } from "@dassie/app-node"
 import { createLogger } from "@dassie/lib-logger"
 import { EffectContext, Reactor, debugFirehose } from "@dassie/lib-reactive"
 import { createRemoteReactiveRouter } from "@dassie/lib-reactive-trpc/server"
-import * as trpc from "@trpc/server"
-import { applyWSSHandler } from "@trpc/server/adapters/ws"
-import prettyFormat from "pretty-format"
-import superjson from "superjson"
-import { WebSocketServer } from "ws"
+
+import { prettyFormat } from "../../common/utils/pretty-format"
 
 const logger = createLogger("das:dev:launcher:debug-rpc-server")
 
