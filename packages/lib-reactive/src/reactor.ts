@@ -1,5 +1,6 @@
-import { isObject } from "@dassie/lib-type-utils"
 import type { Promisable } from "type-fest"
+
+import { isObject } from "@dassie/lib-type-utils"
 
 import { createDebugTools } from "./debug/debug-tools"
 import { Effect, runEffect } from "./effect"
@@ -25,6 +26,11 @@ export const FactoryNameSymbol = Symbol("das:reactive:factory-name")
  */
 export const InitSymbol = Symbol("das:reactive:init")
 
+/**
+ * Can be used to add a function that will be automatically called after a context value has been disposed.
+ */
+export const DisposeSymbol = Symbol("das:reactive:dispose")
+
 export type Factory<T> = () => T
 export type Disposer = () => void
 export type AsyncDisposer = () => Promisable<void>
@@ -42,6 +48,7 @@ export interface ContextState extends Map<Factory<unknown>, unknown> {
 
 export class Reactor extends LifecycleScope {
   private contextState: ContextState = new Map()
+  private contextReferenceCount = new Map<Factory<unknown>, number>()
 
   /**
    * Retrieve a value from the reactor's global context. The key is a factory which returns the value sought. If the value does not exist yet, it will be created by running the factory function.
@@ -70,9 +77,51 @@ export class Reactor extends LifecycleScope {
       this.debug?.notifyOfInstantiation(factory, result)
     } else {
       result = this.contextState.get(factory)!
+
+      // As an optimization, we only track reference counts of two or higher.
+      // When the object exists in the context map, but not in the reference count map, it means that the reference count is 1.
+      const referenceCount = this.contextReferenceCount.get(factory) ?? 1
+      this.contextReferenceCount.set(factory, referenceCount + 1)
     }
 
     return result
+  }
+
+  /**
+   * Access an element in the context but without creating it if it does not yet exist. This also does not increase the reference count.
+   *
+   * @param factory - Key to the element in the context.
+   * @returns The value stored in the context if any.
+   */
+  peekContext = <TReturn>(factory: Factory<TReturn>): TReturn | undefined => {
+    return this.contextState.get(factory)
+  }
+
+  disposeContext = (factory: Factory<unknown>) => {
+    if (!this.contextState.has(factory)) return
+
+    const referenceCount = this.contextReferenceCount.get(factory) ?? 1
+
+    if (referenceCount > 2) {
+      this.contextReferenceCount.set(factory, referenceCount - 1)
+      return
+    } else if (referenceCount === 2) {
+      this.contextReferenceCount.delete(factory)
+      return
+    }
+
+    const result = this.contextState.get(factory)
+
+    // Call the value's dispose function if there is one
+    if (
+      isObject(result) &&
+      DisposeSymbol in result &&
+      typeof result[DisposeSymbol] === "function"
+    ) {
+      result[DisposeSymbol](this)
+    }
+
+    this.contextState.delete(factory)
   }
 
   /**

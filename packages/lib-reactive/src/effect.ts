@@ -4,7 +4,7 @@ import {
 } from "./internal/array-effect"
 import { LifecycleScope } from "./internal/lifecycle-scope"
 import { createWaker } from "./internal/waker"
-import type { AsyncDisposer, Reactor } from "./reactor"
+import type { AsyncDisposer, Factory, Reactor } from "./reactor"
 import type { StoreFactory } from "./store"
 import type { Listener, TopicFactory } from "./topic"
 
@@ -45,25 +45,27 @@ export class EffectContext {
    *
    * To read a value without tracking, use {@link read}.
    *
-   * @param store - Reference to the store's factory function.
+   * @param storeFactory - Reference to the store's factory function.
    * @param selector - Used to select only part of the message from a given topic. This can be useful to avoid re-running the effect if only an irrelevant portion of the message has changed.
    * @param comparator - By default, the reactor checks for strict equality (`===`) to determine if the value has changed. This can be overridden by passing a custom comparator function.
    * @returns The most recent value from the topic (or the initial value), narrowed by the selector.
    */
-  get<TState>(store: StoreFactory<TState, never>): TState
+  get<TState>(storeFactory: StoreFactory<TState, never>): TState
   get<TState, TSelection>(
-    store: StoreFactory<TState, never>,
+    storeFactory: StoreFactory<TState, never>,
     selector: (state: TState) => TSelection,
     comparator?: (oldValue: TSelection, newValue: TSelection) => boolean
   ): TSelection
   get<TState, TSelection>(
-    store: StoreFactory<TState, never>,
+    storeFactory: StoreFactory<TState, never>,
     selector: (state: TState) => TSelection = (a) =>
       // Based on the overloaded function signature, the selector parameter may be omitted iff TMessage equals TSelection.
       // Therefore this cast is safe.
       a as unknown as TSelection,
     comparator: (a: TSelection, b: TSelection) => boolean = (a, b) => a === b
   ) {
+    const notify = this.wake
+
     const handleTopicMessage = (message: TState) => {
       const newValue = selector(message)
       if (!comparator(value, newValue)) {
@@ -73,10 +75,12 @@ export class EffectContext {
       }
     }
 
-    const notify = this.wake
-    const value = selector(this.reactor.useContext(store).read())
-    const dispose = this.reactor.useContext(store).on(handleTopicMessage)
+    const store = this.use_(storeFactory)
+    const value = selector(store.read())
+    const dispose = store.on(handleTopicMessage)
+
     this.lifecycle.onCleanup(dispose)
+
     return value
   }
 
@@ -121,7 +125,7 @@ export class EffectContext {
    * @param store - Reference to the store's factory function.
    */
   read<TState>(store: StoreFactory<TState, never>): TState {
-    return this.reactor.useContext(store).read()
+    return this.use_(store).read()
   }
 
   /**
@@ -145,7 +149,7 @@ export class EffectContext {
    */
   on<TMessage>(topic: TopicFactory<TMessage>, listener: Listener<TMessage>) {
     this.lifecycle.onCleanup(
-      this.reactor.useContext(topic).on((message) => {
+      this.use_(topic).on((message) => {
         try {
           listener(message)
         } catch (error: unknown) {
@@ -167,7 +171,7 @@ export class EffectContext {
    */
   once<TMessage>(topic: TopicFactory<TMessage>, listener: Listener<TMessage>) {
     this.lifecycle.onCleanup(
-      this.reactor.useContext(topic).once((message) => {
+      this.use_(topic).once((message) => {
         try {
           listener(message)
         } catch (error: unknown) {
@@ -192,7 +196,7 @@ export class EffectContext {
     listener: AsyncListener<TMessage>
   ) {
     this.lifecycle.onCleanup(
-      this.reactor.useContext(topic).on((message) => {
+      this.use_(topic).on((message) => {
         listener(message).catch((error: unknown) => {
           console.error("error in async listener", {
             topic: topic.name,
@@ -215,7 +219,7 @@ export class EffectContext {
     listener: AsyncListener<TMessage>
   ) {
     this.lifecycle.onCleanup(
-      this.reactor.useContext(topic).once((message) => {
+      this.use_(topic).once((message) => {
         listener(message).catch((error: unknown) => {
           console.error("error in onceAsync listener", {
             topic: topic.name,
@@ -234,7 +238,7 @@ export class EffectContext {
    * @param trigger - Message to send to the topic.
    */
   emit<TTrigger>(topic: TopicFactory<unknown, TTrigger>, trigger: TTrigger) {
-    this.reactor.useContext(topic).emit(trigger)
+    this.use_(topic).emit(trigger)
   }
 
   /**
@@ -281,6 +285,12 @@ export class EffectContext {
    */
   onCleanup(cleanupHandler: AsyncDisposer) {
     this.lifecycle.onCleanup(cleanupHandler)
+  }
+
+  use_<T>(factory: Factory<T>): T {
+    const value = this.reactor.useContext(factory)
+    this.lifecycle.onCleanup(() => this.reactor.disposeContext(factory))
+    return value
   }
 
   /**
