@@ -2,8 +2,8 @@ import { createSynchronizableStore } from "@dassie/lib-reactive"
 
 import type { IndexedLogLine } from "../../backend/features/logs"
 
-export const LOGS_SOFT_LIMIT = 1000
-export const LOGS_HARD_LIMIT = 1100
+export const LOGS_SOFT_LIMIT = 10_000
+export const LOGS_HARD_LIMIT = 10_100
 
 export const logsStore = () =>
   createSynchronizableStore(

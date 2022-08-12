@@ -27,6 +27,7 @@
     "@iconify-json/mdi": "^1.1.29",
     "@radix-ui/react-tabs": "^1.0.0",
     "@react-hook/size": "^2.1.2",
+    "@tanstack/react-virtual": "3.0.0-beta.18",
     "@trpc/client": "^9.27.0",
     "@trpc/react": "^9.27.0",
     "@trpc/server": "^9.27.0",

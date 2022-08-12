@@ -94,6 +94,7 @@ importers:
       '@iconify-json/mdi': ^1.1.29
       '@radix-ui/react-tabs': ^1.0.0
       '@react-hook/size': ^2.1.2
+      '@tanstack/react-virtual': 3.0.0-beta.18
       '@trpc/client': ^9.27.0
       '@trpc/react': ^9.27.0
       '@trpc/server': ^9.27.0
@@ -145,6 +146,7 @@ importers:
       '@iconify-json/mdi': 1.1.29
       '@radix-ui/react-tabs': 1.0.0_biqbaboplfbrettd7655fr4n2y
       '@react-hook/size': 2.1.2_react@18.2.0
+      '@tanstack/react-virtual': 3.0.0-beta.18_react@18.2.0
       '@trpc/client': 9.27.0_@trpc+server@9.27.0
       '@trpc/react': 9.27.0_6kynlixhwtdnconxwynxyvz5km
       '@trpc/server': 9.27.0
@@ -2277,6 +2279,21 @@ packages:
 
   /@sinclair/typebox/0.24.27:
     resolution: {integrity: sha512-K7C7IlQ3zLePEZleUN21ceBA2aLcMnLHTLph8QWk1JK37L90obdpY+QGY8bXMKxf1ht1Z0MNewvXxWv0oGDYFg==}
+    dev: false
+
+  /@tanstack/react-virtual/3.0.0-beta.18_react@18.2.0:
+    resolution: {integrity: sha512-mnyCZT6htcRNw1jVb+WyfMUMbd1UmXX/JWPuMf6Bmj92DB/V7Ogk5n5rby5Y5aste7c7mlsBeMF8HtpwERRvEQ==}
+    engines: {node: '>=12'}
+    peerDependencies:
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0
+    dependencies:
+      '@tanstack/virtual-core': 3.0.0-beta.18
+      react: 18.2.0
+    dev: false
+
+  /@tanstack/virtual-core/3.0.0-beta.18:
+    resolution: {integrity: sha512-tcXutY05NpN9lp3+AXI9Sn85RxSPV0EJC0XMim9oeQj/E7bjXoL0qZ4Er4wwnvIbv/hZjC91EmbIQGjgdr6nZg==}
+    engines: {node: '>=12'}
     dev: false
 
   /@trivago/prettier-plugin-sort-imports/3.3.0_prettier@2.7.1:

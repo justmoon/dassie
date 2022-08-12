@@ -58,7 +58,11 @@ export const DataValue = ({
   return <AnsiSpan content={abbreviatedContent} {...otherProperties} />
 }
 
-const LogLine = (log: IndexedLogLine) => {
+interface LogLineProperties {
+  log: IndexedLogLine
+}
+
+const LogLine = ({ log }: LogLineProperties) => {
   return (
     <div className="flex text-xs py-0.5" style={{ order: -log.index }}>
       <div className="font-mono flex-shrink-0 text-right px-2 text-gray-400 w-20">
