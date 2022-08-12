@@ -1,9 +1,8 @@
-
 import { isObject } from "@dassie/lib-type-utils"
 
-import { Factory, InitSymbol, Reactor } from "./reactor"
+import type { Factory, Reactor } from "./reactor"
 import { Reducer, Store, createStore } from "./store"
-import { TopicFactory, createTopic } from "./topic"
+import { Topic, createTopic } from "./topic"
 
 export const SynchronizableStoreSymbol = Symbol(
   "das:reactive:synchronizable-store"
@@ -11,7 +10,10 @@ export const SynchronizableStoreSymbol = Symbol(
 
 export interface SynchronizableStoreFactory<
   TState = unknown,
-  TActions extends Record<string, Action<TState>> = Record<string, Action<TState>>
+  TActions extends Record<string, Action<TState>> = Record<
+    string,
+    Action<TState>
+  >
 > extends Factory<SynchronizableStore<TState, TActions>> {
   (reactor: Reactor): SynchronizableStore<TState, TActions>
 }
@@ -38,8 +40,7 @@ export type BoundAction<TState, TParameters extends unknown[]> = (
 const bindActions = <TState, TActions extends Record<string, Action<TState>>>(
   actions: TActions,
   store: Store<TState>,
-  changesTopic: TopicFactory<Change, Change>,
-  reactor: Reactor
+  changesTopic: Topic<Change, Change>
 ): InferBoundActions<TActions> => {
   const boundActions = {} as InferBoundActions<TActions>
 
@@ -49,7 +50,7 @@ const bindActions = <TState, TActions extends Record<string, Action<TState>>>(
         const reducer = actions[key]!(...parameters)
 
         store.emit(reducer)
-        reactor.useContext(changesTopic).emit([key, parameters])
+        changesTopic.emit([key, parameters])
 
         return store.read()
       }) as typeof boundActions[typeof key]
@@ -68,9 +69,7 @@ export type SynchronizableStore<
    */
   [SynchronizableStoreSymbol]: true
 
-  [InitSymbol]: (reactor: Reactor) => void
-
-  changes: TopicFactory<Change>
+  changes: Topic<Change>
 } & InferBoundActions<TActions>
 
 /**
@@ -87,19 +86,15 @@ export const createSynchronizableStore = <
   initialState: TState,
   actions: TActions
 ): SynchronizableStore<TState, TActions> => {
-  let reactor!: Reactor
   const store = createStore<TState>(initialState)
   // eslint-disable-next-line unicorn/consistent-function-scoping
-  const changes = () => createTopic<Change>()
+  const changes = createTopic<Change>()
 
-  const boundActions = bindActions(actions, store, changes, reactor)
+  const boundActions = bindActions(actions, store, changes)
 
   return {
     ...store,
     [SynchronizableStoreSymbol]: true,
-    [InitSymbol]: (_reactor: Reactor) => {
-      reactor = _reactor
-    },
     changes,
     ...boundActions,
   }
@@ -107,5 +102,5 @@ export const createSynchronizableStore = <
 
 export const isSynchronizableStore = (
   object: unknown
-): object is SynchronizableStore<never, never> =>
+): object is SynchronizableStore<unknown, Record<string, Action>> =>
   isObject(object) && object[SynchronizableStoreSymbol] === true
