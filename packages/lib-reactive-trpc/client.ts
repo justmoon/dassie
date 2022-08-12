@@ -1,179 +1,117 @@
-import type {
-  InferMessageType,
-  Reactor,
-  TopicFactory,
-} from "@dassie/lib-reactive"
 import type { TRPCClient } from "@trpc/client"
-import type { DefaultErrorShape } from "@trpc/server"
-import type { Procedure } from "@trpc/server/dist/declarations/src/internals/procedure"
-import type {
-  ProcedureRecord,
-  Router,
-} from "@trpc/server/dist/declarations/src/router"
-import { useCallback, useSyncExternalStore } from "react"
 
-export interface RemoteReactiveHooks<
+import {
+  BoundAction,
+  EffectContext,
+  InferMessageType,
+  TopicFactory,
+  Value,
+  ValueFactory,
+  createValue,
+  isSynchronizableStore,
+} from "@dassie/lib-reactive"
+
+import type { RemoteReactiveRouter } from "./server"
+
+export interface ReactiveTrpcConnection<
   TExposedTopicsMap extends Record<string, TopicFactory>
 > {
-  useLiveRemoteStore: <TStoreName extends string & keyof TExposedTopicsMap>(
-    storeName: TStoreName
-  ) => { data: InferMessageType<TExposedTopicsMap[TStoreName]> | undefined }
+  client: ReactiveTrpcClient<TExposedTopicsMap>
 }
 
-export const createRemoteReactiveHooks = <
+export type ReactiveTrpcClient<
   TExposedTopicsMap extends Record<string, TopicFactory>
+> = TRPCClient<RemoteReactiveRouter<TExposedTopicsMap>>
+
+export const createTrpcConnectionValue = <
+  TClient extends TRPCClient<RemoteReactiveRouter<Record<string, TopicFactory>>>
 >(
-  client: TRPCClient<
-    Router<
-      Reactor,
-      Reactor,
-      Record<string, unknown>,
-      {
-        exposedTopics: Procedure<
-          Reactor,
-          Reactor,
-          unknown,
-          undefined,
-          undefined,
-          TExposedTopicsMap,
-          unknown,
-          TExposedTopicsMap
-        >
-        getStoreState: Procedure<
-          Reactor,
-          Reactor,
-          unknown,
-          string,
-          string,
-          unknown,
-          unknown
-        >
-      } & ProcedureRecord,
-      ProcedureRecord,
-      ProcedureRecord,
-      DefaultErrorShape
-    >
-  >
-): RemoteReactiveHooks<TExposedTopicsMap> => {
-  interface ActiveSubscription<TStoreName extends keyof TExposedTopicsMap> {
-    listeners: Set<() => void>
-    state: {
-      data: InferMessageType<TExposedTopicsMap[TStoreName]> | undefined
-    }
-    dispose?: () => void
-  }
+  connect: (sig: EffectContext) => TClient
+) => {
+  return createValue((sig) => {
+    const trpcClient = sig.use(connect)
 
-  interface ActiveSubscriptionMap
-    extends Map<
-      keyof TExposedTopicsMap,
-      ActiveSubscription<keyof TExposedTopicsMap>
-    > {
-    get<T extends keyof TExposedTopicsMap>(
-      key: T
-    ): ActiveSubscription<T> | undefined
-    set<T extends keyof TExposedTopicsMap>(
-      key: T,
-      value: ActiveSubscription<T>
-    ): this
-  }
+    return { client: trpcClient } as const
+  })
+}
 
-  const activeSubscriptions: ActiveSubscriptionMap = new Map()
+export const createRemoteStore = <
+  TExposedTopicsMap extends Record<string, TopicFactory>,
+  TStoreName extends string & keyof TExposedTopicsMap,
+  TInitialValue
+>(
+  connectionFactory: ValueFactory<ReactiveTrpcConnection<TExposedTopicsMap>>,
+  storeName: TStoreName,
+  initialValue: TInitialValue
+): Value<InferMessageType<TExposedTopicsMap[TStoreName]> | TInitialValue> => {
+  return createValue((sig, value) => {
+    const { client } = sig.get(connectionFactory)
 
-  const getActiveSubscriptionInfo = <
-    TTopicName extends keyof TExposedTopicsMap
-  >(
-    storeName: TTopicName
-  ): ActiveSubscription<TTopicName> => {
-    let subscription = activeSubscriptions.get(storeName)
+    sig.onCleanup(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      client.subscription("listenToTopic", storeName as any, {
+        onNext: (event) => {
+          if (event.type !== "data") return
 
-    if (!subscription) {
-      subscription = {
-        listeners: new Set(),
-        state: { data: undefined },
-      }
+          value.emit(
+            () => event.data as InferMessageType<TExposedTopicsMap[TStoreName]>
+          )
+        },
+      })
+    )
 
-      activeSubscriptions.set(storeName, subscription)
+    return initialValue
+  })
+}
+
+export const createRemoteSynchronizedStore = <
+  TExposedTopicsMap extends Record<string, TopicFactory>,
+  TStoreName extends string & keyof TExposedTopicsMap
+>(
+  connectionFactory: ValueFactory<ReactiveTrpcConnection<TExposedTopicsMap>>,
+  storeName: TStoreName,
+  storeImplementation: TExposedTopicsMap[TStoreName]
+): Value<InferMessageType<TExposedTopicsMap[TStoreName]>> => {
+  return createValue((sig, value) => {
+    const { client } = sig.get(connectionFactory)
+
+    const localStore = sig.use(storeImplementation)
+
+    if (!isSynchronizableStore(localStore)) {
+      throw new Error("Store is not synchronizable")
     }
 
-    return subscription
-  }
+    sig.onCleanup(
+      localStore.on((newValue) => {
+        value.emit(
+          () => newValue as InferMessageType<TExposedTopicsMap[TStoreName]>
+        )
+      })
+    )
 
-  const subscribe = <TStoreName extends string & keyof TExposedTopicsMap>(
-    storeName: TStoreName,
-    callback: () => void
-  ) => {
-    const subscription = getActiveSubscriptionInfo(storeName)
+    sig.onCleanup(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      client.subscription("listenToChanges", storeName as any, {
+        onNext: (event) => {
+          if (event.type !== "data") return
+          if (event.data.type === "initial") {
+            localStore.emit(() => event.data.data)
+          } else {
+            const action = localStore[event.data.data[0]] as
+              | BoundAction<unknown, unknown[]>
+              | undefined
 
-    if (!subscription.dispose) {
-      client
-        .query(`getStoreState`, storeName)
-        .then((result: unknown) => {
-          const subscription = activeSubscriptions.get(storeName)
-
-          if (!subscription) return
-
-          subscription.state = {
-            data: (
-              result as {
-                value: InferMessageType<TExposedTopicsMap[TStoreName]>
-              }
-            ).value,
-          }
-
-          for (const listener of subscription.listeners) listener()
-        })
-        .catch((error) => {
-          console.error(error)
-        })
-      const dispose = client.subscription(`listenToTopic`, storeName, {
-        onNext: (value) => {
-          if (value.type !== "data") return
-
-          const subscription = activeSubscriptions.get(storeName)
-
-          if (!subscription) return
-
-          subscription.state = {
-            data: value.data as InferMessageType<TExposedTopicsMap[TStoreName]>,
-          }
-
-          for (const listener of subscription.listeners) {
-            listener()
+            if (!action) {
+              throw new Error(
+                `Tried to synchronize action ${event.data.data[0]} which does not exist in the local implmentation`
+              )
+            }
+            action(...event.data.data[1])
           }
         },
       })
-
-      subscription.dispose = dispose
-    }
-
-    subscription.listeners.add(callback)
-
-    return () => {
-      const subscription = getActiveSubscriptionInfo(storeName)
-
-      subscription.listeners.delete(callback)
-
-      if (subscription.listeners.size === 0) {
-        subscription.dispose?.()
-        delete subscription.dispose
-      }
-    }
-  }
-
-  const useLiveRemoteStore = <
-    TStoreName extends string & keyof TExposedTopicsMap
-  >(
-    storeName: TStoreName
-  ) => {
-    return useSyncExternalStore(
-      useCallback((listener) => subscribe(storeName, listener), [storeName]),
-      () => {
-        return getActiveSubscriptionInfo(storeName).state
-      }
     )
-  }
 
-  return {
-    useLiveRemoteStore,
-  }
+    return localStore.read() as InferMessageType<TExposedTopicsMap[TStoreName]>
+  })
 }
