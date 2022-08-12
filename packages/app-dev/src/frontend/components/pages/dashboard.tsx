@@ -1,15 +1,15 @@
 import type { GraphData } from "force-graph"
 import { FaPlus } from "react-icons/fa"
-import { withSolid } from "react-solid-state"
 import { Link } from "wouter"
 
 import type { InputConfig } from "@dassie/app-node"
 import { selectBySeed } from "@dassie/lib-logger"
+import { useStore } from "@dassie/lib-reactive-react"
 
 import type { NodeDefinition } from "../../../backend/effects/run-nodes"
 import { generateNodeConfig } from "../../../backend/utils/generate-node-config"
 import { COLORS } from "../../constants/palette"
-import { useLiveRemoteStore } from "../../utils/remote-reactive"
+import { activeTemplate } from "../../remote-stores/active-template"
 import { trpc } from "../../utils/trpc"
 import LogViewer from "../log-viewer/log-viewer"
 import NodeGraph from "../node-graph/node-graph"
@@ -25,15 +25,13 @@ const nodesToGraph = (nodes: NodeDefinition<InputConfig>[]): GraphData => {
     ),
   }
 }
-const Dashboard = withSolid(() => () => {
-  const template = useLiveRemoteStore("activeTemplate")
+const Dashboard = () => {
+  const template = useStore(activeTemplate)
   const addRandomNode = trpc.useMutation("addRandomNode")
 
-  if (!template.data) return <div />
+  if (!template) return <div />
 
-  const nodes = template.data.map((peers, index) =>
-    generateNodeConfig(index, peers)
-  )
+  const nodes = template.map((peers, index) => generateNodeConfig(index, peers))
 
   return (
     <div className="h-screen grid grid-rows-[min-content_auto] py-10 gap-4">
@@ -86,6 +84,6 @@ const Dashboard = withSolid(() => () => {
       </main>
     </div>
   )
-})
+}
 
 export default Dashboard

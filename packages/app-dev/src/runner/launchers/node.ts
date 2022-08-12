@@ -9,11 +9,11 @@ import { handleSigterm } from "../effects/handle-sigterm"
 
 export const logger = createLogger("das:dev:launcher:node")
 
-const rootEffect = (sig: EffectContext) => {
+const rootEffect = async (sig: EffectContext) => {
   sig.use(handleSigterm)
   sig.use(forwardLogs)
   sig.use(forwardPeerTraffic)
-  sig.use(nodeRootEffect)
+  await sig.use(nodeRootEffect)
   sig.use(runDebugRpcServer)
 }
 

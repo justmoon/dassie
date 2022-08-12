@@ -9,7 +9,6 @@ import { runNodes } from "./effects/run-nodes"
 import { debugUiServer } from "./effects/serve-debug-ui"
 import { listenForRpcWebSocket } from "./effects/serve-rpc"
 import { serveWallet } from "./effects/serve-wallet"
-import { validateCertificates } from "./effects/validate-certificates"
 import { indexLogs } from "./features/logs"
 
 const rootEffect = async (sig: EffectContext) => {

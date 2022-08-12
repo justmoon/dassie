@@ -1,9 +1,7 @@
-import { withSolid } from "react-solid-state"
-
 import LogViewer from "../log-viewer/log-viewer"
 
-const Logs = withSolid(() => {
-  return () => (
+const Logs = () => {
+  return (
     <div className="flex flex-col h-full max-h-screen min-h-0 py-10">
       <header>
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -17,6 +15,6 @@ const Logs = withSolid(() => {
       </main>
     </div>
   )
-})
+}
 
 export default Logs

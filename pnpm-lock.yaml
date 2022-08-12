@@ -88,6 +88,7 @@ importers:
       '@dassie/lib-logger': workspace:^1.0.0
       '@dassie/lib-oer': workspace:^1.0.0
       '@dassie/lib-reactive': workspace:^1.0.0
+      '@dassie/lib-reactive-react': workspace:^1.0.0
       '@dassie/lib-reactive-trpc': workspace:^1.0.0
       '@dassie/lib-type-utils': workspace:1.0.0
       '@iconify-json/mdi': ^1.1.29
@@ -122,10 +123,8 @@ importers:
       react-force-graph-2d: ^1.23.10
       react-icons: ^4.4.0
       react-query: ^3.39.2
-      react-solid-state: ^0.27.3
       reffx: ^1.1.0
       serve-static: ^1.15.0
-      solid-js: ^1.4.8
       superjson: ^1.9.1
       timeago.js: ^4.0.2
       type-fest: ^2.18.0
@@ -140,6 +139,7 @@ importers:
       '@dassie/lib-logger': link:../lib-logger
       '@dassie/lib-oer': link:../lib-oer
       '@dassie/lib-reactive': link:../lib-reactive
+      '@dassie/lib-reactive-react': link:../lib-reactive-react
       '@dassie/lib-reactive-trpc': link:../lib-reactive-trpc
       '@dassie/lib-type-utils': link:../lib-type-utils
       '@iconify-json/mdi': 1.1.29
@@ -167,9 +167,7 @@ importers:
       react-force-graph-2d: 1.23.10_react@18.2.0
       react-icons: 4.4.0_react@18.2.0
       react-query: 3.39.2_biqbaboplfbrettd7655fr4n2y
-      react-solid-state: 0.27.3_biqbaboplfbrettd7655fr4n2y
       reffx: 1.1.0
-      solid-js: 1.4.8
       superjson: 1.9.1
       timeago.js: 4.0.2
       unocss: 0.45.5_vite@3.0.5
@@ -314,6 +312,17 @@ importers:
     dependencies:
       '@dassie/lib-type-utils': link:../lib-type-utils
     devDependencies:
+      type-fest: 2.18.0
+
+  packages/lib-reactive-react:
+    specifiers:
+      '@dassie/lib-type-utils': workspace:^1.0.0
+      react: ^18.2.0
+      type-fest: ^2.18.0
+    dependencies:
+      '@dassie/lib-type-utils': link:../lib-type-utils
+    devDependencies:
+      react: 18.2.0
       type-fest: 2.18.0
 
   packages/lib-reactive-trpc:
@@ -6670,17 +6679,6 @@ packages:
   /react-refresh/0.14.0:
     resolution: {integrity: sha512-wViHqhAd8OHeLS/IRMJjTSDHF3U9eWi62F/MledQGPdJGDhodXJ9PBLNGr6WWL7qlH12Mt3TyTpbS+hGXMjCzQ==}
     engines: {node: '>=0.10.0'}
-    dev: false
-
-  /react-solid-state/0.27.3_biqbaboplfbrettd7655fr4n2y:
-    resolution: {integrity: sha512-L+aF+MUqjeiaX+hFGXGtPHsV2TFWof/QTmPrMQ7CwdpoDQ1BHc3iluWgCncgg1H+zeq7TeIKRhH6ukBygUbrOQ==}
-    peerDependencies:
-      react: '*'
-      react-dom: '*'
-    dependencies:
-      react: 18.2.0
-      react-dom: 18.2.0_react@18.2.0
-      solid-js: 1.4.8
     dev: false
 
   /react-syntax-highlighter/15.5.0_react@18.2.0:

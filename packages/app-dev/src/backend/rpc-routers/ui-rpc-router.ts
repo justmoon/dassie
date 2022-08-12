@@ -4,14 +4,13 @@ import superjson from "superjson"
 import type { Reactor } from "@dassie/lib-reactive"
 import { createRemoteReactiveRouter } from "@dassie/lib-reactive-trpc/server"
 
-import { config } from "../config"
-import { IndexedLogLine, indexedLogLineTopic } from "../features/logs"
+import { logsStore } from "../../common/stores/logs"
 import { activeTemplate } from "../stores/active-template"
-import { logsStore } from "../stores/logs"
 import { PeerMessageMetadata, peerTrafficTopic } from "../topics/peer-traffic"
 
 export const exposedStores = {
   activeTemplate,
+  logs: logsStore,
 } as const
 
 export type ExposedStoresMap = typeof exposedStores
@@ -23,11 +22,6 @@ export const uiRpcRouter = trpc
   .router<Reactor>()
   .transformer(superjson)
   .merge(remoteReactiveRouter)
-  .query("config", {
-    resolve() {
-      return config
-    },
-  })
   .mutation("addRandomNode", {
     resolve({ ctx: reactor }) {
       const templateStore = reactor.useContext(activeTemplate)
@@ -43,21 +37,6 @@ export const uiRpcRouter = trpc
       const uniquePeers = [...new Set(peers)]
 
       templateStore.emit((nodes) => [...nodes, uniquePeers])
-    },
-  })
-  .subscription("logs", {
-    resolve({ ctx: { useContext: fromContext } }) {
-      return new trpc.Subscription<IndexedLogLine>((sendToClient) => {
-        const previousLogs = fromContext(logsStore).read()
-
-        for (const logLine of previousLogs) {
-          sendToClient.data(logLine)
-        }
-
-        return fromContext(indexedLogLineTopic).on((logLine) => {
-          sendToClient.data(logLine)
-        })
-      })
     },
   })
   .subscription("peerTraffic", {

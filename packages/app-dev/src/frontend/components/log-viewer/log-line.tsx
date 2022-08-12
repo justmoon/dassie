@@ -1,10 +1,10 @@
-import { selectBySeed } from "@dassie/lib-logger"
 import LinkifyIt from "linkify-it"
 import { Link } from "wouter"
 
+import { selectBySeed } from "@dassie/lib-logger"
+
 import type { IndexedLogLine } from "../../../backend/features/logs"
 import { COLORS } from "../../constants/palette"
-import { config } from "../../signals/config"
 import { AnsiSpan, AnsiSpanProperties } from "../utilities/ansi-span"
 
 const linkify = new LinkifyIt()
@@ -62,10 +62,7 @@ const LogLine = (log: IndexedLogLine) => {
   return (
     <div className="flex text-xs py-0.5" style={{ order: -log.index }}>
       <div className="font-mono flex-shrink-0 text-right px-2 text-gray-400 w-20">
-        {(
-          (Number(new Date(log.date)) - (config()?.startupTime ?? 0)) /
-          1000
-        ).toFixed(3)}
+        {(log.relativeTime / 1000).toFixed(3)}
       </div>
       <div
         className="font-bold flex-shrink-0 text-center w-8"
