@@ -6,11 +6,12 @@ import { createRemoteReactiveRouter } from "@dassie/lib-reactive-trpc/server"
 
 import { logsStore } from "../../common/stores/logs"
 import { activeTemplate } from "../stores/active-template"
-import { PeerMessageMetadata, peerTrafficTopic } from "../topics/peer-traffic"
+import { peerTrafficTopic } from "../topics/peer-traffic"
 
 export const exposedStores = {
   activeTemplate,
   logs: logsStore,
+  peerTraffic: peerTrafficTopic,
 } as const
 
 export type ExposedStoresMap = typeof exposedStores
@@ -37,15 +38,6 @@ export const uiRpcRouter = trpc
       const uniquePeers = [...new Set(peers)]
 
       templateStore.emit((nodes) => [...nodes, uniquePeers])
-    },
-  })
-  .subscription("peerTraffic", {
-    resolve({ ctx: { useContext: fromContext } }) {
-      return new trpc.Subscription<PeerMessageMetadata>((sendToClient) => {
-        return fromContext(peerTrafficTopic).on((message) => {
-          sendToClient.data(message)
-        })
-      })
     },
   })
 

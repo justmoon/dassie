@@ -1,12 +1,15 @@
-import { selectBySeed } from "@dassie/lib-logger"
 import useSize from "@react-hook/size"
 import type { GraphData } from "force-graph"
-import { useRef } from "react"
+import { useCallback, useRef } from "react"
 import ReactForceGraph2d, { ForceGraphMethods } from "react-force-graph-2d"
 import { useLocation } from "wouter"
 
+import { selectBySeed } from "@dassie/lib-logger"
+import { useTopic } from "@dassie/lib-reactive-react"
+
+import type { PeerMessageMetadata } from "../../../backend/topics/peer-traffic"
 import { COLORS } from "../../constants/palette"
-import { trpc } from "../../utils/trpc"
+import { peerTrafficTopic } from "../../remote-topics/peer-traffic"
 
 interface NodeGraphProperties {
   graphData: GraphData
@@ -18,24 +21,25 @@ const NodeGraph = ({ graphData }: NodeGraphProperties) => {
   const [width, height] = useSize(rootReference)
   const [, setLocation] = useLocation()
 
-  trpc.useSubscription(["peerTraffic"], {
-    onNext: (data) => {
-      const link = graphData.links.find(
-        ({ source, target }) =>
-          typeof source === "object" &&
-          data.from === source.id &&
-          typeof target === "object" &&
-          data.to === target.id
-      )
-      if (link) forceGraphReference.current?.emitParticle(link)
-    },
-  })
+  useTopic(
+    peerTrafficTopic,
+    useCallback(
+      (data: PeerMessageMetadata | undefined) => {
+        if (!data) return
 
-  // .linkDirectionalParticles(1)
-  // .linkColor(() => "#ffffff")
-  // .nodeColor(({ id }) => selectBySeed(COLORS, String(id ?? "")))
-  // .nodeLabel("id")
-  // .graphData(properties.graphData)
+        const link = graphData.links.find(
+          ({ source, target }) =>
+            typeof source === "object" &&
+            data.from === source.id &&
+            typeof target === "object" &&
+            data.to === target.id
+        )
+        if (link) forceGraphReference.current?.emitParticle(link)
+      },
+      [forceGraphReference, graphData]
+    )
+  )
+
   return (
     <div className="h-full" ref={rootReference}>
       <ReactForceGraph2d
