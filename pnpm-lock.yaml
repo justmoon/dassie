@@ -91,7 +91,6 @@ importers:
       '@dassie/lib-reactive-react': workspace:^1.0.0
       '@dassie/lib-reactive-trpc': workspace:^1.0.0
       '@dassie/lib-type-utils': workspace:1.0.0
-      '@iconify-json/mdi': ^1.1.29
       '@radix-ui/react-tabs': ^1.0.0
       '@react-hook/size': ^2.1.2
       '@tanstack/react-virtual': 3.0.0-beta.18
@@ -143,7 +142,6 @@ importers:
       '@dassie/lib-reactive-react': link:../lib-reactive-react
       '@dassie/lib-reactive-trpc': link:../lib-reactive-trpc
       '@dassie/lib-type-utils': link:../lib-type-utils
-      '@iconify-json/mdi': 1.1.29
       '@radix-ui/react-tabs': 1.0.0_biqbaboplfbrettd7655fr4n2y
       '@react-hook/size': 2.1.2_react@18.2.0
       '@tanstack/react-virtual': 3.0.0-beta.18_react@18.2.0
@@ -1784,12 +1782,6 @@ packages:
 
   /@humanwhocodes/object-schema/1.2.1:
     resolution: {integrity: sha512-ZnQMnLV4e7hDlUvw8H+U8ASL02SS2Gn6+9Ac3wGGLIe7+je2AeAOxPY+izIPJDfFDb7eDjev0Us8MO1iFRN8hA==}
-    dev: false
-
-  /@iconify-json/mdi/1.1.29:
-    resolution: {integrity: sha512-klGuStNuyOHJIaCK36XWiXuUnnxKaZfGXGh+RVf4hbB2Pyvp//PgNvluz8uK32remmQDydzPr+ipvqbenxzQ2g==}
-    dependencies:
-      '@iconify/types': 1.1.0
     dev: false
 
   /@iconify/types/1.1.0:

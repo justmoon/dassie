@@ -24,7 +24,6 @@
     "@dassie/lib-reactive-react": "workspace:^1.0.0",
     "@dassie/lib-reactive-trpc": "workspace:^1.0.0",
     "@dassie/lib-type-utils": "workspace:1.0.0",
-    "@iconify-json/mdi": "^1.1.29",
     "@radix-ui/react-tabs": "^1.0.0",
     "@react-hook/size": "^2.1.2",
     "@tanstack/react-virtual": "3.0.0-beta.18",
