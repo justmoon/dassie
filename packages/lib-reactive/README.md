@@ -35,7 +35,7 @@ The reactor will pass an `EffectContext` to the effect as the first parameter. T
 createReactor((sig) => {
   console.log("Hello from the root effect")
 
-  sig.use(() => {
+  sig.run(() => {
     console.log("Hello from the child effect")
   })
 })
@@ -148,9 +148,9 @@ const logger = (sig: EffectContext) => {
 }
 
 createReactor((sig: EffectContext) => {
-  sig.use(pinger)
-  sig.use(ponger)
-  sig.use(logger)
+  sig.run(pinger)
+  sig.run(ponger)
+  sig.run(logger)
   sig.emit(pingPongTopic, "ping")
   sig.timeout(() => sig.reactor.dispose(), 200)
 })
@@ -184,8 +184,8 @@ const logger = (sig: EffectContext) => {
 }
 
 createReactor((sig: EffectContext) => {
-  sig.use(clock)
-  sig.use(logger)
+  sig.run(clock)
+  sig.run(logger)
   sig.timeout(() => void sig.reactor.dispose(), 400)
 })
 ```
@@ -211,7 +211,7 @@ const rootEffect = (sig: EffectContext) => {
     sig.emit(store3, (a) => a + 5)
   }, 1000)
 
-  sig.use((sig) => {
+  sig.run((sig) => {
     const t1 = sig.get(store1)
     const t2 = sig.get(store2)
     const t3 = sig.get(store3)

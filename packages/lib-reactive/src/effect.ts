@@ -75,7 +75,7 @@ export class EffectContext {
       }
     }
 
-    const store = this.use_(storeFactory)
+    const store = this.use(storeFactory)
     const value = selector(store.read())
     const dispose = store.on(handleTopicMessage)
 
@@ -125,7 +125,7 @@ export class EffectContext {
    * @param store - Reference to the store's factory function.
    */
   read<TState>(store: StoreFactory<TState, never>): TState {
-    return this.use_(store).read()
+    return this.use(store).read()
   }
 
   /**
@@ -149,7 +149,7 @@ export class EffectContext {
    */
   on<TMessage>(topic: TopicFactory<TMessage>, listener: Listener<TMessage>) {
     this.lifecycle.onCleanup(
-      this.use_(topic).on((message) => {
+      this.use(topic).on((message) => {
         try {
           listener(message)
         } catch (error: unknown) {
@@ -171,7 +171,7 @@ export class EffectContext {
    */
   once<TMessage>(topic: TopicFactory<TMessage>, listener: Listener<TMessage>) {
     this.lifecycle.onCleanup(
-      this.use_(topic).once((message) => {
+      this.use(topic).once((message) => {
         try {
           listener(message)
         } catch (error: unknown) {
@@ -196,7 +196,7 @@ export class EffectContext {
     listener: AsyncListener<TMessage>
   ) {
     this.lifecycle.onCleanup(
-      this.use_(topic).on((message) => {
+      this.use(topic).on((message) => {
         listener(message).catch((error: unknown) => {
           console.error("error in async listener", {
             topic: topic.name,
@@ -219,7 +219,7 @@ export class EffectContext {
     listener: AsyncListener<TMessage>
   ) {
     this.lifecycle.onCleanup(
-      this.use_(topic).once((message) => {
+      this.use(topic).once((message) => {
         listener(message).catch((error: unknown) => {
           console.error("error in onceAsync listener", {
             topic: topic.name,
@@ -238,7 +238,7 @@ export class EffectContext {
    * @param trigger - Message to send to the topic.
    */
   emit<TTrigger>(topic: TopicFactory<unknown, TTrigger>, trigger: TTrigger) {
-    this.use_(topic).emit(trigger)
+    this.use(topic).emit(trigger)
   }
 
   /**
@@ -287,7 +287,17 @@ export class EffectContext {
     this.lifecycle.onCleanup(cleanupHandler)
   }
 
-  use_<T>(factory: Factory<T>): T {
+  /**
+   * Get a reference to a value in the context.
+   *
+   * If the value is not found, it will be instantiated.
+   *
+   * When the current effect lifecycle is disposed, the reference will be disposed as well.
+   *
+   * @param factory - Factory function identifying the context value that should be fetched.
+   * @returns - The requested context value.
+   */
+  use<T>(factory: Factory<T>): T {
     const value = this.reactor.useContext(factory)
     this.lifecycle.onCleanup(() => this.reactor.disposeContext(factory))
     return value
@@ -302,12 +312,12 @@ export class EffectContext {
    *
    * The return value is the result of the first invocation of the effect.
    */
-  use<TReturn>(effect: Effect<undefined, TReturn>): TReturn
-  use<TProperties, TReturn>(
+  run<TReturn>(effect: Effect<undefined, TReturn>): TReturn
+  run<TProperties, TReturn>(
     effect: Effect<TProperties, TReturn>,
     properties: TProperties
   ): TReturn
-  use<TProperties, TReturn>(
+  run<TProperties, TReturn>(
     effect: Effect<TProperties | undefined, TReturn>,
     properties?: TProperties
   ): TReturn {
@@ -337,7 +347,7 @@ export class EffectContext {
     arrayTopicFactory: StoreFactory<readonly TElement[], never>,
     effect: Effect<TElement, TReturn>
   ) {
-    return this.use(createArrayEffect(arrayTopicFactory, effect, this.effect))
+    return this.run(createArrayEffect(arrayTopicFactory, effect, this.effect))
   }
 
   /**
@@ -347,7 +357,7 @@ export class EffectContext {
     arrayTopicFactory: StoreFactory<readonly TElement[], never>,
     effect: Effect<readonly [element: TElement, index: number], TReturn>
   ) {
-    return this.use(
+    return this.run(
       createIndexedArrayEffect(arrayTopicFactory, effect, this.effect)
     )
   }

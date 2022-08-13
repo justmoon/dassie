@@ -10,11 +10,11 @@ import { handleSigterm } from "../effects/handle-sigterm"
 export const logger = createLogger("das:dev:launcher:node")
 
 const rootEffect = async (sig: EffectContext) => {
-  sig.use(handleSigterm)
-  sig.use(forwardLogs)
-  sig.use(forwardPeerTraffic)
-  await sig.use(nodeRootEffect)
-  sig.use(runDebugRpcServer)
+  sig.run(handleSigterm)
+  sig.run(forwardLogs)
+  sig.run(forwardPeerTraffic)
+  await sig.run(nodeRootEffect)
+  sig.run(runDebugRpcServer)
 }
 
 createReactor(rootEffect)

@@ -29,9 +29,9 @@ const logger = (sig: EffectContext) => {
 }
 
 createReactor((sig) => {
-  sig.use(pinger)
-  sig.use(ponger)
-  sig.use(logger)
+  sig.run(pinger)
+  sig.run(ponger)
+  sig.run(logger)
   sig.emit(pingPongTopic, "ping")
   sig.timeout(() => void sig.reactor.dispose(), 500)
 })

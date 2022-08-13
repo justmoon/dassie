@@ -1,7 +1,8 @@
-import { createLogger } from "@dassie/lib-logger"
-import { EffectContext, createValue } from "@dassie/lib-reactive"
 import type { WebSocket } from "ws"
 import { WebSocketServer } from "ws"
+
+import { createLogger } from "@dassie/lib-logger"
+import { EffectContext, createValue } from "@dassie/lib-reactive"
 
 import { httpServerValue } from "../http-server/serve-http"
 
@@ -51,5 +52,5 @@ export const websocketServerValue = () =>
   })
 
 export const handleUplink = (sig: EffectContext) => {
-  sig.use(websocketServerValue)
+  sig.run(websocketServerValue)
 }

@@ -14,7 +14,7 @@ const rootEffect = (sig: EffectContext) => {
     sig.emit(topic3, (a) => a + 5)
   }, 1000)
 
-  sig.use((sig) => {
+  sig.run((sig) => {
     const t1 = sig.get(topic1)
     const t2 = sig.get(topic2)
     const t3 = sig.get(topic3)

@@ -9,7 +9,7 @@ const rootEffect = (sig: EffectContext) => {
     sig.emit(counterStore, (a) => a + 1)
   }, 500)
 
-  void sig.use(innerEffect)
+  void sig.run(innerEffect)
 }
 
 const innerEffect = async (sig: EffectContext) => {

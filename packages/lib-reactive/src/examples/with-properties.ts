@@ -3,9 +3,9 @@ import { createReactor } from "../reactor"
 import { createTopic } from "../topic"
 
 const rootEffect = (sig: EffectContext) => {
-  sig.use(logger)
-  sig.use(greeter, { toGreet: "world" })
-  sig.use(greeter, { toGreet: "moms" })
+  sig.run(logger)
+  sig.run(greeter, { toGreet: "world" })
+  sig.run(greeter, { toGreet: "moms" })
 }
 
 interface ChildProperties {

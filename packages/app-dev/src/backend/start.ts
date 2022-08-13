@@ -14,14 +14,14 @@ import { indexLogs } from "./features/logs"
 const rootEffect = async (sig: EffectContext) => {
   console.log(bold(`  Dassie${green("//dev")}`))
 
-  await sig.use(compileRunner)
-  sig.use(captureLogs)
-  sig.use(indexLogs)
-  sig.use(registerReactiveLogger)
-  sig.use(listenForRpcWebSocket)
-  await sig.use(runNodes)
-  await sig.use(serveWallet)
-  await sig.use(debugUiServer)
+  await sig.run(compileRunner)
+  sig.run(captureLogs)
+  sig.run(indexLogs)
+  sig.run(registerReactiveLogger)
+  sig.run(listenForRpcWebSocket)
+  await sig.run(runNodes)
+  await sig.run(serveWallet)
+  await sig.run(debugUiServer)
 
   process.on("SIGINT", () => void sig.reactor.dispose())
 

@@ -41,9 +41,9 @@ export const runNodes = async (sig: EffectContext) => {
       // Restart child processes when a file changes
       sig.subscribe(fileChangeTopic)
 
-      await sig.use(validateCertificates, { nodeIndex: index, nodePeers: node })
+      await sig.run(validateCertificates, { nodeIndex: index, nodePeers: node })
 
-      await sig.use(runNodeChildProcess, {
+      await sig.run(runNodeChildProcess, {
         viteServer,
         nodeServer,
         node: generateNodeConfig(index, node),

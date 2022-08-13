@@ -25,7 +25,7 @@ export const createArrayEffect = <TElement, TReturn>(
       await Promise.all(disposerPromises)
     })
 
-    return sig.use(function handleArrayChanges(sig: EffectContext) {
+    return sig.run(function handleArrayChanges(sig: EffectContext) {
       const arrayValue = sig.get(arrayTopicFactory)
 
       const asSet = new Set(arrayValue)
@@ -113,7 +113,7 @@ export const createIndexedArrayEffect = <TElement, TReturn>(
       await Promise.all(disposerPromises)
     })
 
-    return sig.use(function handleArrayChanges(sig: EffectContext) {
+    return sig.run(function handleArrayChanges(sig: EffectContext) {
       const arrayValue = sig.get(arrayTopicFactory)
 
       const maxIndex = Math.max(runningEffects.length, arrayValue.length) - 1

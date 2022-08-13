@@ -29,7 +29,7 @@ export const createTrpcConnectionValue = <
   connect: (sig: EffectContext) => TClient
 ) => {
   return createValue((sig) => {
-    const trpcClient = sig.use(connect)
+    const trpcClient = sig.run(connect)
 
     return { client: trpcClient } as const
   })
@@ -102,7 +102,7 @@ export const createRemoteSynchronizedStore = <
   return createValue((sig, value) => {
     const { client } = sig.get(connectionFactory)
 
-    const localStore = sig.use(storeImplementation)
+    const localStore = sig.run(storeImplementation)
 
     if (!isSynchronizableStore(localStore)) {
       throw new Error("Store is not synchronizable")

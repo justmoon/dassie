@@ -10,15 +10,15 @@ import { sendPeerMessages } from "./send-peer-messages"
 
 export const speakPeerProtocol = async (sig: EffectContext) => {
   // Handle incoming Dassie messages via HTTP
-  sig.use(registerPeerHttpHandler)
-  sig.use(handlePeerMessages)
+  sig.run(registerPeerHttpHandler)
+  sig.run(handlePeerMessages)
 
   // Send outgoing Dassie messages
-  sig.use(sendPeerMessages)
+  sig.run(sendPeerMessages)
 
-  await sig.use(greetPeers)
-  // sig.use(publishLinkStateUpdate)
-  await sig.use(maintainOwnNodeTableEntry)
-  sig.use(forwardLinkStateUpdate)
-  sig.use(calculateRoutes)
+  await sig.run(greetPeers)
+  // sig.run(publishLinkStateUpdate)
+  await sig.run(maintainOwnNodeTableEntry)
+  sig.run(forwardLinkStateUpdate)
+  sig.run(calculateRoutes)
 }

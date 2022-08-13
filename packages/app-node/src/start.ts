@@ -7,13 +7,13 @@ import { loadInitialPeers } from "./peer-protocol/load-initial-peers"
 import { registerUplinkHttpUpgrade } from "./uplink/register-uplink-http-upgrade"
 
 export const rootEffect = async (sig: EffectContext) => {
-  sig.use(attachLogger)
-  sig.use(serveHttp)
-  sig.use(registerRootRoute)
-  sig.use(registerUplinkHttpUpgrade)
+  sig.run(attachLogger)
+  sig.run(serveHttp)
+  sig.run(registerRootRoute)
+  sig.run(registerUplinkHttpUpgrade)
 
-  await sig.use(speakPeerProtocol)
-  sig.use(loadInitialPeers)
+  await sig.run(speakPeerProtocol)
+  sig.run(loadInitialPeers)
 }
 
 export const start = () => createReactor(rootEffect)

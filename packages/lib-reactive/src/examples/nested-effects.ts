@@ -25,8 +25,8 @@ const rootEffect = (sig: EffectContext) => {
     console.log("root effect cleaned up")
   })
 
-  sig.use(childEffect)
-  sig.use(childEffect2)
+  sig.run(childEffect)
+  sig.run(childEffect2)
 }
 
 const childEffect = (sig: EffectContext) => {
