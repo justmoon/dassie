@@ -25,6 +25,7 @@ const LogViewer = ({ filter }: LogViewerProperties) => {
     count: filteredLogs.length,
     getScrollElement: () => outerReference.current,
     estimateSize: () => 21,
+    getItemKey: (index) => filteredLogs[index]!.index,
   })
 
   useEffect(() => {
