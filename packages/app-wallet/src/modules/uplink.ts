@@ -2,7 +2,7 @@ class Uplink {
   ws: WebSocket
 
   constructor() {
-    this.ws = new WebSocket("wss://n1.localhost:4000")
+    this.ws = new WebSocket("wss://n1.localhost:4000/uplink")
     console.log(this.ws)
     this.ws.addEventListener("message", (event) => {
       console.log("ws message", event)
