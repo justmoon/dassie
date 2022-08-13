@@ -8,7 +8,7 @@ import type { EffectContext } from "@dassie/lib-reactive"
 import { trpcClientFactory } from "../services/trpc-client"
 
 export const forwardLogs = (sig: EffectContext) => {
-  const trpcClient = sig.reactor.useContext(trpcClientFactory)
+  const trpcClient = sig.use(trpcClientFactory)
 
   let inRecursion = false
   const jsonFormatter = createJsonFormatter({

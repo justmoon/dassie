@@ -12,7 +12,7 @@ import { serveWallet } from "./effects/serve-wallet"
 import { indexLogs } from "./features/logs"
 
 const rootEffect = async (sig: EffectContext) => {
-  console.log(bold(`  Dassie${green("//dev")}`))
+  console.log(bold(`  Dassie${green("//dev")}\n`))
 
   await sig.run(compileRunner)
   sig.run(captureLogs)

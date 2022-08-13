@@ -5,7 +5,7 @@ import { trpcClientFactory } from "../services/trpc-client"
 
 export const forwardPeerTraffic = (sig: EffectContext) => {
   sig.onAsync(outgoingPeerMessageBufferTopic, async ({ destination }) => {
-    const trpcClient = sig.reactor.useContext(trpcClientFactory)
+    const trpcClient = sig.use(trpcClientFactory)
     await trpcClient.mutation("runner.notifyPeerTraffic", {
       from: process.env["DASSIE_DEV_NODE_ID"] ?? "unknown",
       to: destination,
