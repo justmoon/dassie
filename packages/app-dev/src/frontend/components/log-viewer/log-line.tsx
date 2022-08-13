@@ -74,7 +74,7 @@ const LogLine = ({ log }: LogLineProperties) => {
       >
         <Link href={`/nodes/${log.node}`}>{log.node}</Link>
       </div>
-      <pre className="font-mono px-2 break-all">
+      <pre className="font-mono px-2 whitespace-pre-wrap">
         <span style={{ color: selectBySeed(COLORS, log.component) }}>
           {log.component}
         </span>{" "}
@@ -83,15 +83,15 @@ const LogLine = ({ log }: LogLineProperties) => {
         </span>
         {Object.entries(log.data ?? {}).map(([key, value]) =>
           key !== "error" ? (
-            <span
+            <div
               key={key}
-              className="bg-dark-100 rounded-1 text-xs ml-1 py-0.5 px-1"
+              className="bg-dark-100 rounded-1 text-xs ml-1 px-1 inline-block"
             >
               <span className="font-sans text-gray-400">{key}=</span>
               <span>
                 <DataValue content={value} />
               </span>
-            </span>
+            </div>
           ) : null
         )}
         {log.data?.["error"] ? (
