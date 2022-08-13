@@ -35,6 +35,33 @@ export const createTrpcConnectionValue = <
   })
 }
 
+export const createRemoteTopic = <
+  TExposedTopicsMap extends Record<string, TopicFactory>,
+  TTopicName extends string & keyof TExposedTopicsMap
+>(
+  connectionFactory: ValueFactory<ReactiveTrpcConnection<TExposedTopicsMap>>,
+  topicName: TTopicName
+): Value<InferMessageType<TExposedTopicsMap[TTopicName]> | undefined> => {
+  return createValue((sig, value) => {
+    const { client } = sig.get(connectionFactory)
+
+    sig.onCleanup(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      client.subscription("listenToTopic", topicName as any, {
+        onNext: (event) => {
+          if (event.type !== "data") return
+
+          value.emit(
+            () => event.data as InferMessageType<TExposedTopicsMap[TTopicName]>
+          )
+        },
+      })
+    )
+
+    return undefined
+  })
+}
+
 export const createRemoteStore = <
   TExposedTopicsMap extends Record<string, TopicFactory>,
   TStoreName extends string & keyof TExposedTopicsMap,
