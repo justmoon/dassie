@@ -13,6 +13,8 @@ const logger = createLogger("das:node:config")
 
 export interface Config {
   nodeId: string
+  subnetId: string
+  ilpAddress: string
   host: string
   port: number
   dataPath: string
@@ -27,6 +29,7 @@ export type InputConfig = z.infer<typeof inputConfigSchema>
 
 export const inputConfigSchema = z.object({
   nodeId: z.string().optional(),
+  subnetId: z.string().optional(),
   host: z.string().optional(),
   port: z.union([z.string(), z.number()]).optional(),
   dataPath: z.string().optional(),
@@ -61,8 +64,12 @@ export const processFileOption = (
 export function fromPartialConfig(partialConfig: InputConfig): Config {
   const paths = envPaths(APP_NAME, { suffix: "" })
 
+  const nodeId = partialConfig.nodeId ?? "anonymous"
+  const subnetId = partialConfig.subnetId ?? "none"
   return {
-    nodeId: partialConfig.nodeId ?? "anonymous",
+    nodeId,
+    subnetId,
+    ilpAddress: `g.das.${subnetId}.${nodeId}`,
     host: partialConfig.host ?? "localhost",
     port: partialConfig.port ? Number(partialConfig.port) : 8443,
     dataPath: partialConfig.dataPath ?? paths.data,

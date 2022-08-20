@@ -15,6 +15,7 @@ export const generateNodeConfig = (index: number, peers: readonly number[]) => {
     peers: peers.map((index) => nodeIndexToId(index)),
     config: {
       nodeId: id,
+      subnetId: "xrp",
       host: `${id}.localhost`,
       port: nodeIndexToPort(index),
       tlsDassieCertFile: `${LOCAL_PATH}/ssl/${id}.localhost/dassie-${id}.localhost.pem`,
