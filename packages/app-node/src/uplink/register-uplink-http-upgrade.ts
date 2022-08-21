@@ -50,7 +50,3 @@ export const websocketServerValue = () =>
 
     return wss
   })
-
-export const handleUplink = (sig: EffectContext) => {
-  sig.run(websocketServerValue)
-}
