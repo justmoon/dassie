@@ -8,6 +8,9 @@ extends:
   - "plugin:@typescript-eslint/recommended-requiring-type-checking"
   - "plugin:@typescript-eslint/strict"
   - "plugin:unicorn/recommended"
+  - "plugin:react/recommended"
+  - "plugin:react/jsx-runtime"
+  - "plugin:react-hooks/recommended"
   - "prettier"
 plugins: 
   - "@typescript-eslint"
@@ -19,3 +22,12 @@ rules:
   unicorn/no-useless-undefined: "off"
   tsdoc/syntax: "warn"
   "@typescript-eslint/no-non-null-assertion": "off"
+overrides:
+  - files:
+      - "*.{,c,m}js{,x}"
+    rules:
+      tsdoc/syntax: "off"
+  - files:
+      - "tailwind.config.cjs"
+    env:
+      node: true
