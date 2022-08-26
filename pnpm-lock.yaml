@@ -220,6 +220,7 @@ importers:
     specifiers:
       '@dassie/lib-type-utils': workspace:^1.0.0
       '@noble/hashes': ^1.1.2
+      '@radix-ui/react-tabs': ^1.0.0
       '@scure/bip39': ^1.1.0
       '@unocss/reset': ^0.45.12
       '@vitejs/plugin-react': ^2.0.1
@@ -234,6 +235,7 @@ importers:
     dependencies:
       '@dassie/lib-type-utils': link:../lib-type-utils
       '@noble/hashes': 1.1.2
+      '@radix-ui/react-tabs': 1.0.0_biqbaboplfbrettd7655fr4n2y
       '@scure/bip39': 1.1.0
       '@unocss/reset': 0.45.12
       classnames: 2.3.1
