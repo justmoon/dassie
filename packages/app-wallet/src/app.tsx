@@ -1,5 +1,6 @@
 import { useWallet } from "./hooks/use-wallet"
-import { FirstSubnet } from "./pages/first-subnet/first-subnet"
+import { Account } from "./pages/account/account"
+import { CreateFirstAccount } from "./pages/create-first-account/create-first-account"
 import { Open } from "./pages/open/open"
 
 const App = () => {
@@ -9,11 +10,11 @@ const App = () => {
     return <Open />
   }
 
-  if (wallet.subnets.length === 0) {
-    return <FirstSubnet />
+  if (wallet.accounts.length === 0) {
+    return <CreateFirstAccount />
   }
 
-  return <div>Your wallet is set up!</div>
+  return <Account />
 }
 
 export default App

@@ -1,25 +1,25 @@
 import create from "zustand"
 import { persist } from "zustand/middleware"
 
-import type { SubnetConfiguration } from "../types/subnet-configuration"
+import type { AccountConfiguration } from "../types/account-configuration"
 
 interface WalletStore {
   seed: string | undefined
-  subnets: SubnetConfiguration[]
+  accounts: AccountConfiguration[]
 
   setSeed: (key: string) => void
-  addSubnet: (subnet: SubnetConfiguration) => void
+  addSubnet: (subnet: AccountConfiguration) => void
 }
 
 export const useWallet = create<WalletStore>()(
   persist(
     (set) => ({
       seed: undefined,
-      subnets: [],
+      accounts: [],
 
       setSeed: (seed: string) => set({ seed }),
-      addSubnet: (subnet: SubnetConfiguration) => {
-        set((state) => ({ subnets: [...state.subnets, subnet] }))
+      addSubnet: (subnet: AccountConfiguration) => {
+        set((state) => ({ accounts: [...state.accounts, subnet] }))
       },
     }),
     {

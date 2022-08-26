@@ -6,7 +6,7 @@ import Dialog from "../../components/dialog/dialog"
 import Tabs from "../../components/tabs/tabs"
 import { useWallet } from "../../hooks/use-wallet"
 
-export const FirstSubnet = () => {
+export const CreateFirstAccount = () => {
   const addSubnet = useWallet((wallet) => wallet.addSubnet)
 
   const onSelectNullSubnet = useCallback(() => {
