@@ -1,84 +1,23 @@
 import cx from "classnames"
-import type {
-  ButtonHTMLAttributes,
-  DetailedHTMLProps,
-  ForwardedRef,
-  HTMLAttributes,
-} from "react"
+import type { ComponentPropsWithoutRef, ForwardedRef } from "react"
 import { forwardRef } from "react"
 
-const DialogRoot = (
-  {
-    children,
-    className,
-    ...other
-  }: DetailedHTMLProps<HTMLAttributes<HTMLDivElement>, HTMLDivElement>,
-  reference: ForwardedRef<HTMLDivElement>
-) => {
-  return (
-    <div
-      ref={reference}
-      className={cx(
-        "bg-white rounded-xl flex flex-col h-full max-w-2xl p-4 gap-4 items-start justify-start md:h-auto md:shadow-md md:px-16 md:py-8 md:gap-6 ",
-        className
-      )}
-      {...other}
-    >
-      {children}
-    </div>
-  )
-}
+import classed from "../../utils/classed"
 
-const DialogTitlebar = (
-  {
-    children,
-    className,
-    ...other
-  }: DetailedHTMLProps<HTMLAttributes<HTMLDivElement>, HTMLDivElement>,
-  reference: ForwardedRef<HTMLDivElement>
-) => {
-  return (
-    <div
-      ref={reference}
-      className={cx("w-full flex items-center", className)}
-      {...other}
-    >
-      {children}
-    </div>
-  )
-}
+const DialogRoot = classed(
+  "div",
+  "bg-white rounded-xl flex flex-col h-full max-w-2xl p-4 gap-4 items-start justify-start md:h-auto md:shadow-md md:px-16 md:py-8 md:gap-6"
+)
 
-const DialogTitle = (
-  {
-    children,
-    className,
-    ...other
-  }: DetailedHTMLProps<HTMLAttributes<HTMLHeadingElement>, HTMLHeadingElement>,
-  reference: ForwardedRef<HTMLHeadingElement>
-) => {
-  return (
-    <h1
-      ref={reference}
-      className={cx(
-        "flex-grow flex-shrink-0 basis-auto font-bold text-lg md:text-xl",
-        className
-      )}
-      {...other}
-    >
-      {children}
-    </h1>
-  )
-}
+const DialogTitlebar = classed("div", "w-full flex items-center")
+
+const DialogTitle = classed(
+  "h1",
+  "flex-grow flex-shrink-0 basis-auto font-bold text-lg md:text-xl"
+)
 
 const DialogTitleActionButton = (
-  {
-    children,
-    className,
-    ...other
-  }: DetailedHTMLProps<
-    ButtonHTMLAttributes<HTMLButtonElement>,
-    HTMLButtonElement
-  >,
+  { children, className, ...other }: ComponentPropsWithoutRef<"button">,
   reference: ForwardedRef<HTMLButtonElement>
 ) => {
   return (
