@@ -7,6 +7,7 @@ import {
 } from "react"
 
 import {
+  Effect,
   Reactor,
   StoreFactory,
   TopicFactory,
@@ -17,6 +18,22 @@ export const createReactiveHooks = () => {
   const ReactorContext = createContext<Reactor>(createReactor(() => undefined))
 
   const useReactor = () => useContext(ReactorContext)
+
+  const useSigEffect = <TResult>(effect: Effect<undefined, TResult>) => {
+    const reactor = useReactor()
+    useEffect(() => {
+      const { dispose } = reactor.run(effect)
+
+      return () => {
+        dispose().catch((error: unknown) => {
+          console.error("error while cleaning up reactor effect", {
+            effect: effect.name,
+            error,
+          })
+        })
+      }
+    }, [reactor, effect])
+  }
 
   const useTopic = <TMessage>(
     topicFactory: TopicFactory<TMessage>,
@@ -58,12 +75,14 @@ export const createReactiveHooks = () => {
 
   return {
     Provider: ReactorContext.Provider,
+    useSigEffect,
     useReactor,
     useTopic,
     useStore,
   }
 }
 
-const { Provider, useReactor, useTopic, useStore } = createReactiveHooks()
+const { Provider, useSigEffect, useReactor, useTopic, useStore } =
+  createReactiveHooks()
 
-export { Provider, useReactor, useTopic, useStore }
+export { Provider, useSigEffect, useReactor, useTopic, useStore }
