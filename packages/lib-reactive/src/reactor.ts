@@ -140,6 +140,32 @@ export class Reactor extends LifecycleScope {
   }
 
   /**
+   * Run an effect in the context of the reactor.
+   *
+   * @param effect - The effect to run.
+   * @returns
+   */
+  run = <TResult>(effect: Effect<undefined, TResult>) => {
+    const lifecycle = this.deriveChildLifecycle()
+
+    let result!: TResult
+    runEffect(
+      this,
+      effect,
+      undefined,
+      lifecycle,
+      (_result) => (result = _result)
+    ).catch((error: unknown) => {
+      console.error("error in reactor effect", { effect: effect.name, error })
+    })
+
+    return {
+      dispose: lifecycle.dispose,
+      result,
+    }
+  }
+
+  /**
    * Returns a set of debug tools for this reactor. Note that this is only available during development.
    */
   debug = createDebugTools(this.useContext, this.contextState)

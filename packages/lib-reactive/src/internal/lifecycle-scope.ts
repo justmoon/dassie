@@ -15,7 +15,7 @@ export class LifecycleScope {
     }
   }
 
-  async dispose() {
+  dispose = async () => {
     if (this.isDisposed) return
 
     this.isDisposed = true
@@ -25,5 +25,11 @@ export class LifecycleScope {
     while ((cleanupHandler = this.cleanupQueue.pop())) {
       await cleanupHandler()
     }
+  }
+
+  deriveChildLifecycle(): LifecycleScope {
+    const child = new LifecycleScope()
+    this.onCleanup(child.dispose)
+    return child
   }
 }
