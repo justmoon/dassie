@@ -1,0 +1,31 @@
+{
+  "name": "@dassie/app-beacon",
+  "version": "1.0.0",
+  "description": "",
+  "main": "./src/index.ts",
+  "type": "module",
+  "scripts": {
+    "build": "vite build --ssr src/index.ts",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Stefan Thomas <justmoon@members.fsf.org>",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@dassie/lib-http-server": "workspace:^1.0.0",
+    "@dassie/lib-logger": "workspace:^1.0.0",
+    "@dassie/lib-oer": "workspace:^1.0.0",
+    "@dassie/lib-reactive": "workspace:^1.0.0",
+    "@dassie/lib-type-utils": "workspace:^1.0.0",
+    "@noble/ed25519": "^1.6.1",
+    "@types/ws": "^8.5.3",
+    "axios": "^0.27.2",
+    "denque": "^2.1.0",
+    "env-paths": "^3.0.0",
+    "immer": "^9.0.15",
+    "iterative": "^1.9.2",
+    "ws": "^8.8.1"
+  },
+  "devDependencies": {
+    "type-fest": "^2.18.0"
+  }
+}

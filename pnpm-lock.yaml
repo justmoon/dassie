@@ -77,6 +77,39 @@ importers:
       eslint-plugin-react: 7.30.1_eslint@8.22.0
       eslint-plugin-react-hooks: 4.6.0_eslint@8.22.0
 
+  packages/app-beacon:
+    specifiers:
+      '@dassie/lib-http-server': workspace:^1.0.0
+      '@dassie/lib-logger': workspace:^1.0.0
+      '@dassie/lib-oer': workspace:^1.0.0
+      '@dassie/lib-reactive': workspace:^1.0.0
+      '@dassie/lib-type-utils': workspace:^1.0.0
+      '@noble/ed25519': ^1.6.1
+      '@types/ws': ^8.5.3
+      axios: ^0.27.2
+      denque: ^2.1.0
+      env-paths: ^3.0.0
+      immer: ^9.0.15
+      iterative: ^1.9.2
+      type-fest: ^2.18.0
+      ws: ^8.8.1
+    dependencies:
+      '@dassie/lib-http-server': link:../lib-http-server
+      '@dassie/lib-logger': link:../lib-logger
+      '@dassie/lib-oer': link:../lib-oer
+      '@dassie/lib-reactive': link:../lib-reactive
+      '@dassie/lib-type-utils': link:../lib-type-utils
+      '@noble/ed25519': 1.6.1
+      '@types/ws': 8.5.3
+      axios: 0.27.2
+      denque: 2.1.0
+      env-paths: 3.0.0
+      immer: 9.0.15
+      iterative: 1.9.2
+      ws: 8.8.1
+    devDependencies:
+      type-fest: 2.18.0
+
   packages/app-cli:
     specifiers: {}
 
@@ -2505,10 +2538,10 @@ packages:
 
   /@types/node/18.6.3:
     resolution: {integrity: sha512-6qKpDtoaYLM+5+AFChLhHermMQxc3TOEFIDzrZLPRGHPrLEwqFkkT5Kx3ju05g6X7uDPazz3jHbKPX0KzCjntg==}
+    dev: true
 
   /@types/node/18.7.9:
     resolution: {integrity: sha512-0N5Y1XAdcl865nDdjbO0m3T6FdmQ4ijE89/urOHLREyTXbpMWbSafx9y7XIsgWGtwUP2iYTinLyyW3FatAxBLQ==}
-    dev: false
 
   /@types/normalize-package-data/2.4.1:
     resolution: {integrity: sha512-Gj7cI7z+98M282Tqmp2K5EIsoouUEzbBJhQQzDE3jSIRk6r9gsz0oUokqIUR4u1R3dMHo0pDHM7sNOHyhulypw==}
@@ -2580,7 +2613,7 @@ packages:
   /@types/ws/8.5.3:
     resolution: {integrity: sha512-6YOoWjruKj1uLf3INHH7D3qTXwFfEsg1kf3c0uDdSBJwfa/llkwIjrAGV7j7mVgGNbzTQ3HiHKKDXl6bJPD97w==}
     dependencies:
-      '@types/node': 18.6.3
+      '@types/node': 18.7.9
 
   /@typescript-eslint/eslint-plugin/5.34.0_yjl2jhge55h5xf2tv6jxkut4ba:
     resolution: {integrity: sha512-eRfPPcasO39iwjlUAMtjeueRGuIrW3TQ9WseIDl7i5UWuFbf83yYaU7YPs4j8+4CxUMIsj1k+4kV+E+G+6ypDQ==}
