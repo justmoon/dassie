@@ -62,7 +62,7 @@ export const processFileOption = (
 }
 
 export function fromPartialConfig(partialConfig: InputConfig): Config {
-  const paths = envPaths(APP_NAME, { suffix: "" })
+  const paths = envPaths(APP_NAME)
 
   const nodeId = partialConfig.nodeId ?? "anonymous"
   const subnetId = partialConfig.subnetId ?? "none"
