@@ -25,13 +25,13 @@ export const runNodes = async (sig: EffectContext) => {
   const viteServer = await sig.get(viteServerValue)
   const nodeServer = await sig.get(viteNodeServerValue)
 
+  // Restart child processes when a file changes
+  sig.subscribe(fileChangeTopic)
+
   logger.debug("starting node processes")
 
   await Promise.all(
     sig.forIndex(activeTemplate, async (sig, [peers, index]) => {
-      // Restart child processes when a file changes
-      sig.subscribe(fileChangeTopic)
-
       const node = generateNodeConfig(index, peers)
 
       const neededCertificates: CertificateInfo[] = [
