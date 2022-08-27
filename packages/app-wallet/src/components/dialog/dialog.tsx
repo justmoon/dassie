@@ -36,9 +36,9 @@ const DialogTitleActionButton = (
 }
 
 const Dialog = {
-  Root: forwardRef(DialogRoot),
-  Titlebar: forwardRef(DialogTitlebar),
-  Title: forwardRef(DialogTitle),
+  Root: DialogRoot,
+  Titlebar: DialogTitlebar,
+  Title: DialogTitle,
   TitleActionButton: forwardRef(DialogTitleActionButton),
 }
 
