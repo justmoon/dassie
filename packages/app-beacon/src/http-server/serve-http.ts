@@ -1,4 +1,4 @@
-import type { Promisable } from "type-fest"
+import createRouter from "find-my-way"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { createServer } from "node:https"
@@ -12,15 +12,10 @@ import { configStore } from "../config"
 
 const logger = createLogger("das:beacon:http-server")
 
-export interface HttpRequest extends IncomingMessage {
-  url: NonNullable<IncomingMessage["url"]>
-  method: NonNullable<IncomingMessage["method"]>
-}
-
 export type Handler = (
-  request: HttpRequest,
+  request: IncomingMessage,
   response: ServerResponse
-) => Promisable<void>
+) => void
 
 const handleGetRoot: Handler = (_request, response) => {
   response.writeHead(200, { "Content-Type": "text/html" })
@@ -33,23 +28,9 @@ const handleNotFound: Handler = (_request, response) => {
 
 export const routerValue = () =>
   createValue(() => {
-    const routes: Record<string, Map<string, Handler>> = {}
-
-    return {
-      on(method: keyof typeof routes, path: string, handler: Handler) {
-        if (!routes[method]) {
-          routes[method] = new Map()
-        }
-        routes[method]!.set(path, handler)
-      },
-      async handle(request: HttpRequest, response: ServerResponse) {
-        // Call route handler or 404 if no matching route exists
-        await (
-          routes[request.method.toLowerCase()]?.get(request.url) ??
-          handleNotFound
-        )(request, response)
-      },
-    }
+    return createRouter({
+      defaultRoute: handleNotFound,
+    })
   })
 
 export const httpServerValue = () =>
@@ -89,7 +70,7 @@ export const httpServerValue = () =>
         assertDefined(request.url)
         assertDefined(request.method)
 
-        await router.handle(request as HttpRequest, response)
+        await router.lookup(request, response)
       } catch (error) {
         // Log any errors
         logger.error(
@@ -132,5 +113,5 @@ export const serveHttp = (sig: EffectContext) => {
 
 export const registerRootRoute = (sig: EffectContext) => {
   const router = sig.get(routerValue)
-  router.on("get", "/", handleGetRoot)
+  router.get("/", handleGetRoot)
 }

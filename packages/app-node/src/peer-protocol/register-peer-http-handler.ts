@@ -17,7 +17,7 @@ const logger = createLogger("das:node:handle-peer-http-request")
 export const registerPeerHttpHandler = (sig: EffectContext) => {
   const router = sig.get(routerValue)
 
-  router.on("post", "/peer", async (request, response) => {
+  router.post("/peer", async (request, response) => {
     assertAcceptHeader(request, "application/dassie-peer-message")
     assertContentTypeHeader(request, "application/dassie-peer-message")
 
