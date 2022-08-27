@@ -3,9 +3,9 @@ import type { IncomingMessage } from "node:http"
 import { DEFAULT_MAX_BODY_SIZE } from "./constants"
 import { PayloadTooLargeError } from "./errors"
 
-export const parseBody = async (
+export const parseBodyBuffer = async (
   request: IncomingMessage
-): Promise<Uint8Array> => {
+): Promise<Buffer> => {
   const body: Buffer[] = []
   let dataReceived = 0
 
@@ -20,5 +20,21 @@ export const parseBody = async (
     body.push(chunk)
   }
 
-  return new Uint8Array(Buffer.concat(body))
+  return Buffer.concat(body)
+}
+
+export const parseBody = async (
+  request: IncomingMessage
+): Promise<Uint8Array> => {
+  const buffer = await parseBodyBuffer(request)
+
+  return new Uint8Array(buffer)
+}
+
+export const parseBodyUtf8 = async (
+  request: IncomingMessage
+): Promise<string> => {
+  const buffer = await parseBodyBuffer(request)
+
+  return buffer.toString("utf8")
 }
