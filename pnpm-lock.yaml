@@ -187,6 +187,7 @@ importers:
 
   packages/app-node:
     specifiers:
+      '@dassie/lib-http-server': workspace:^1.0.0
       '@dassie/lib-logger': workspace:^1.0.0
       '@dassie/lib-oer': workspace:^1.0.0
       '@dassie/lib-reactive': workspace:^1.0.0
@@ -201,6 +202,7 @@ importers:
       type-fest: ^2.18.0
       ws: ^8.8.1
     dependencies:
+      '@dassie/lib-http-server': link:../lib-http-server
       '@dassie/lib-logger': link:../lib-logger
       '@dassie/lib-oer': link:../lib-oer
       '@dassie/lib-reactive': link:../lib-reactive
@@ -300,6 +302,17 @@ importers:
     dependencies:
       '@dassie/lib-itergen-utils': link:../lib-itergen-utils
       '@dassie/lib-type-utils': link:../lib-type-utils
+
+  packages/lib-http-server:
+    specifiers:
+      '@dassie/lib-type-utils': workspace:^1.0.0
+      react: ^18.2.0
+      type-fest: ^2.18.0
+    dependencies:
+      '@dassie/lib-type-utils': link:../lib-type-utils
+    devDependencies:
+      react: 18.2.0
+      type-fest: 2.18.0
 
   packages/lib-itergen-utils:
     specifiers: {}

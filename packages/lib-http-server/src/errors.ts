@@ -1,5 +1,3 @@
-export const MAX_BODY_SIZE = 1024 * 1024 * 2 // 2 MB
-
 export class BadRequestError extends Error {
   readonly statusCode = 400
   readonly isOperational = true

@@ -1,13 +1,14 @@
-import { createLogger } from "@dassie/lib-logger"
-import { EffectContext, createValue } from "@dassie/lib-reactive"
-import { assertDefined, isObject } from "@dassie/lib-type-utils"
 import type { Promisable } from "type-fest"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { createServer } from "node:https"
 
+import { respondPlainly } from "@dassie/lib-http-server"
+import { createLogger } from "@dassie/lib-logger"
+import { EffectContext, createValue } from "@dassie/lib-reactive"
+import { assertDefined, isObject } from "@dassie/lib-type-utils"
+
 import { configStore } from "../config"
-import { respondPlainly } from "../utils/http"
 
 const logger = createLogger("das:node:http-server")
 

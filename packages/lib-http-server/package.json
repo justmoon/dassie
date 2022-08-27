@@ -1,0 +1,36 @@
+{
+  "name": "@dassie/lib-http-server",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Utilities for Node HTTP servers",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts"
+    }
+  },
+  "publishConfig": {
+    "main": "./dist/index.js",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "require": "./dist/index.cjs",
+        "import": "./dist/index.js"
+      }
+    }
+  },
+  "scripts": {
+    "clean": "rimraf dist",
+    "build": "rollup -c",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Stefan Thomas <justmoon@members.fsf.org>",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@dassie/lib-type-utils": "workspace:^1.0.0"
+  },
+  "devDependencies": {
+    "react": "^18.2.0",
+    "type-fest": "^2.18.0"
+  }
+}

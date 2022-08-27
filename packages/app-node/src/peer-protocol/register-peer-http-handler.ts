@@ -1,14 +1,14 @@
-import { createLogger } from "@dassie/lib-logger"
-import type { EffectContext } from "@dassie/lib-reactive"
-
-import { BadRequestError } from "../constants/http"
-import { routerValue } from "../http-server/serve-http"
 import {
+  BadRequestError,
   assertAcceptHeader,
   assertContentTypeHeader,
   parseBody,
   respondPlainly,
-} from "../utils/http"
+} from "@dassie/lib-http-server"
+import { createLogger } from "@dassie/lib-logger"
+import type { EffectContext } from "@dassie/lib-reactive"
+
+import { routerValue } from "../http-server/serve-http"
 import { incomingPeerMessageTopic } from "./handle-peer-messages"
 import { peerMessage } from "./peer-schema"
 
