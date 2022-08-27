@@ -1,22 +1,15 @@
-import * as colors from "picocolors"
-
-import { posix } from "node:path"
-
 import { createLogger } from "@dassie/lib-logger"
-import { EffectContext, createTopic } from "@dassie/lib-reactive"
+import type { EffectContext } from "@dassie/lib-reactive"
 
 import { viteNodeServerValue } from "../services/vite-node-server"
 import { viteServerValue } from "../services/vite-server"
 import { activeTemplate } from "../stores/active-template"
 import { generateNodeConfig } from "../utils/generate-node-config"
+import { fileChangeTopic } from "./handle-file-change"
 import { runNodeChildProcess } from "./run-node-child-process"
-import { validateCertificates } from "./validate-certificates"
+import { CertificateInfo, validateCertificates } from "./validate-certificates"
 
-const logger = createLogger("das:dev:node-server")
-
-export function getShortName(file: string, root: string): string {
-  return file.startsWith(root + "/") ? posix.relative(root, file) : file
-}
+const logger = createLogger("das:dev:run-nodes")
 
 export interface NodeDefinition<T> {
   id: string
@@ -28,8 +21,6 @@ export interface NodeDefinition<T> {
   entry?: string
 }
 
-const fileChangeTopic = () => createTopic()
-
 export const runNodes = async (sig: EffectContext) => {
   const viteServer = await sig.get(viteServerValue)
   const nodeServer = await sig.get(viteNodeServerValue)
@@ -37,37 +28,34 @@ export const runNodes = async (sig: EffectContext) => {
   logger.debug("starting node processes")
 
   await Promise.all(
-    sig.forIndex(activeTemplate, async (sig, [node, index]) => {
+    sig.forIndex(activeTemplate, async (sig, [peers, index]) => {
       // Restart child processes when a file changes
       sig.subscribe(fileChangeTopic)
 
-      await sig.run(validateCertificates, { nodeIndex: index, nodePeers: node })
+      const node = generateNodeConfig(index, peers)
+
+      const neededCertificates: CertificateInfo[] = [
+        {
+          type: "web",
+          certificatePath: node.config.tlsWebCertFile,
+          keyPath: node.config.tlsWebKeyFile,
+        },
+        {
+          type: "dassie",
+          certificatePath: node.config.tlsDassieCertFile,
+          keyPath: node.config.tlsDassieKeyFile,
+        },
+      ]
+      await sig.run(validateCertificates, {
+        id: node.id,
+        certificates: neededCertificates,
+      })
 
       await sig.run(runNodeChildProcess, {
         viteServer,
         nodeServer,
-        node: generateNodeConfig(index, node),
+        node,
       })
     })
   )
-
-  const handleFileChange = (file: string) => {
-    const { config, moduleGraph } = viteServer
-    const shortFile = getShortName(file, config.root)
-
-    const mods = moduleGraph.getModulesByFile(file)
-
-    if (mods && mods.size > 0) {
-      logger.clear()
-      logger.info(`${colors.green(`restart nodes`)} ${colors.dim(shortFile)}`)
-
-      sig.emit(fileChangeTopic, undefined)
-    }
-  }
-
-  viteServer.watcher.on("change", handleFileChange)
-
-  sig.onCleanup(() => {
-    viteServer.watcher.off("change", handleFileChange)
-  })
 }

@@ -16,6 +16,7 @@
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "dependencies": {
+    "@dassie/app-beacon": "workspace:^1.0.0",
     "@dassie/app-node": "workspace:1.0.0",
     "@dassie/lib-itergen-utils": "workspace:1.0.0",
     "@dassie/lib-logger": "workspace:^1.0.0",

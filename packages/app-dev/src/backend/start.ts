@@ -2,9 +2,12 @@ import { bold, green } from "picocolors"
 
 import { EffectContext, createReactor } from "@dassie/lib-reactive"
 
+import { handleShutdownSignals } from "../common/effects/handle-shutdown-signals"
 import { captureLogs } from "./effects/capture-logs"
 import { compileRunner } from "./effects/compile-runner"
+import { handleFileChange } from "./effects/handle-file-change"
 import { registerReactiveLogger } from "./effects/register-reactive-logger"
+import { runBeacons } from "./effects/run-beacons"
 import { runNodes } from "./effects/run-nodes"
 import { debugUiServer } from "./effects/serve-debug-ui"
 import { listenForRpcWebSocket } from "./effects/serve-rpc"
@@ -19,15 +22,13 @@ const rootEffect = async (sig: EffectContext) => {
   sig.run(indexLogs)
   sig.run(registerReactiveLogger)
   sig.run(listenForRpcWebSocket)
+  await sig.run(handleFileChange)
+  await sig.run(runBeacons)
   await sig.run(runNodes)
   await sig.run(serveWallet)
   await sig.run(debugUiServer)
 
-  process.on("SIGINT", () => void sig.reactor.dispose())
-
-  sig.onCleanup(() => {
-    process.off("SIGINT", () => void sig.reactor.dispose())
-  })
+  sig.run(handleShutdownSignals)
 }
 
 const start = () => createReactor(rootEffect)

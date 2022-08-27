@@ -6,20 +6,15 @@ import { access, unlink } from "node:fs/promises"
 import { dirname } from "node:path"
 import { isNativeError } from "node:util/types"
 
-import type { InputConfig } from "@dassie/app-node"
 import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
 
-import { generateNodeConfig } from "../utils/generate-node-config"
-import type { NodeDefinition } from "./run-nodes"
-
 const logger = createLogger("das:dev:validate-certificates")
 
-interface CertificateInfo {
+export interface CertificateInfo {
   type: "web" | "dassie"
   certificatePath: string | undefined
   keyPath: string | undefined
-  node: NodeDefinition<InputConfig>
 }
 
 const checkFileStatus = async (filePath: string) => {
@@ -47,47 +42,28 @@ const generateKey = async ({ type, keyPath }: CertificateInfo) => {
   } -out ${keyPath}`
 }
 
-const generateCertificate = async ({
-  type,
-  certificatePath,
-  keyPath,
-  node,
-}: CertificateInfo) => {
+const generateCertificate = async (
+  id: string,
+  { type, certificatePath, keyPath }: CertificateInfo
+) => {
   if (type === "web") {
-    await $`openssl req -new -key ${keyPath} -out ${certificatePath}.csr -days 365 -subj "/CN=${node.id}.localhost"`
+    await $`openssl req -new -key ${keyPath} -out ${certificatePath}.csr -days 365 -subj "/CN=${id}.localhost"`
     await $`mkcert -csr ${certificatePath}.csr -cert-file ${certificatePath}`
   } else {
-    await $`openssl req -new -x509 -key ${keyPath} -out ${certificatePath} -days 365 -subj "/CN=g.das.${node.id}"`
+    await $`openssl req -new -x509 -key ${keyPath} -out ${certificatePath} -days 365 -subj "/CN=g.das.${id}"`
   }
 }
 
 interface ValidateCertificatesProperties {
-  nodeIndex: number
-  nodePeers: readonly number[]
+  id: string
+  certificates: CertificateInfo[]
 }
 
 export const validateCertificates = async (
   _sig: EffectContext,
-  properties: ValidateCertificatesProperties
+  { id, certificates }: ValidateCertificatesProperties
 ) => {
-  const node = generateNodeConfig(properties.nodeIndex, properties.nodePeers)
-
-  const neededCertificates: CertificateInfo[] = [
-    {
-      type: "web",
-      certificatePath: node.config.tlsWebCertFile,
-      keyPath: node.config.tlsWebKeyFile,
-      node,
-    },
-    {
-      type: "dassie",
-      certificatePath: node.config.tlsDassieCertFile,
-      keyPath: node.config.tlsDassieKeyFile,
-      node,
-    },
-  ]
-
-  for (const certificate of neededCertificates) {
+  for (const certificate of certificates) {
     assert(certificate.certificatePath)
     assert(certificate.keyPath)
     const certificateStatus = await checkFileStatus(certificate.certificatePath)
@@ -95,7 +71,7 @@ export const validateCertificates = async (
 
     if (keyStatus === "unreadable") {
       logger.error("key is unreadable", {
-        node: node.id,
+        node: id,
         type: certificate.type,
       })
       return
@@ -103,7 +79,7 @@ export const validateCertificates = async (
 
     if (certificateStatus === "unreadable") {
       logger.error("certificate is unreadable", {
-        node: node.id,
+        node: id,
         type: certificate.type,
       })
       return
@@ -111,29 +87,29 @@ export const validateCertificates = async (
 
     if (keyStatus === "missing" || certificateStatus === "missing") {
       logger.info("certificate path not found, creating directory", {
-        node: node.id,
+        node: id,
       })
       await $`mkdir -p ${dirname(certificate.certificatePath)}`
     }
 
     if (keyStatus === "missing" && certificateStatus === "ok") {
       // If the key is missing, but the certificate is ok, we need to delete the certificate
-      logger.warn("key missing, deleting certificate", { node: node.id })
+      logger.warn("key missing, deleting certificate", { node: id })
 
       await unlink(certificate.certificatePath)
     }
 
     if (keyStatus === "missing") {
-      logger.info("generating key", { node: node.id, type: certificate.type })
+      logger.info("generating key", { node: id, type: certificate.type })
       await generateKey(certificate)
     }
 
     if (certificateStatus === "missing") {
       logger.info("generating certificate", {
-        node: node.id,
+        node: id,
         type: certificate.type,
       })
-      await generateCertificate(certificate)
+      await generateCertificate(id, certificate)
     }
   }
 }

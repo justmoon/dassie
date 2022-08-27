@@ -115,6 +115,7 @@ importers:
 
   packages/app-dev:
     specifiers:
+      '@dassie/app-beacon': workspace:^1.0.0
       '@dassie/app-node': workspace:1.0.0
       '@dassie/lib-itergen-utils': workspace:1.0.0
       '@dassie/lib-logger': workspace:^1.0.0
@@ -166,6 +167,7 @@ importers:
       wouter: 2.8.0-alpha.2
       ws: ^8.8.1
     dependencies:
+      '@dassie/app-beacon': link:../app-beacon
       '@dassie/app-node': link:../app-node
       '@dassie/lib-itergen-utils': link:../lib-itergen-utils
       '@dassie/lib-logger': link:../lib-logger

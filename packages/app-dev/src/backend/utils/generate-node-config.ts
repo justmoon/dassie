@@ -7,11 +7,12 @@ export const nodeIndexToPort = (index: number) => 4000 + index
 
 export const generateNodeConfig = (index: number, peers: readonly number[]) => {
   const id = nodeIndexToId(index)
+  const port = nodeIndexToPort(index)
 
   return {
     id,
-    port: nodeIndexToPort(index),
-    debugPort: nodeIndexToPort(index) + 1000,
+    port,
+    debugPort: port + 1000,
     peers: peers.map((index) => nodeIndexToId(index)),
     config: {
       nodeId: id,
@@ -31,7 +32,7 @@ export const generateNodeConfig = (index: number, peers: readonly number[]) => {
         )
         .join(";"),
     },
-    url: `https://${id}.localhost:${4000 + index}/`,
+    url: `https://${id}.localhost:${port}/`,
     entry: ENTRYPOINT,
   }
 }
