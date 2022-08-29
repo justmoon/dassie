@@ -8,14 +8,14 @@ import {
 import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
 
-import { routerValue } from "../http-server/serve-http"
+import { routerService } from "../http-server/serve-http"
 import { incomingPeerMessageTopic } from "./handle-peer-messages"
 import { peerMessage } from "./peer-schema"
 
 const logger = createLogger("das:node:handle-peer-http-request")
 
 export const registerPeerHttpHandler = (sig: EffectContext) => {
-  const router = sig.get(routerValue)
+  const router = sig.get(routerService)
 
   router.post("/peer", async (request, response) => {
     assertAcceptHeader(request, "application/dassie-peer-message")

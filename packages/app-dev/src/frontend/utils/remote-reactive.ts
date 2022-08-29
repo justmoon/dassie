@@ -1,5 +1,5 @@
-import { createTrpcConnectionValue } from "@dassie/lib-reactive-trpc/client"
+import { createTrpcConnection } from "@dassie/lib-reactive-trpc/client"
 
 import { client } from "./trpc"
 
-export const trpcConnectionValue = () => createTrpcConnectionValue(() => client)
+export const trpcConnectionValue = () => createTrpcConnection(() => client)

@@ -1,8 +1,8 @@
 import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
 
-import { viteNodeServerValue } from "../services/vite-node-server"
-import { viteServerValue } from "../services/vite-server"
+import { viteNodeService } from "../services/vite-node-server"
+import { viteService } from "../services/vite-server"
 import { activeTemplate } from "../stores/active-template"
 import { generateNodeConfig } from "../utils/generate-node-config"
 import { fileChangeTopic } from "./handle-file-change"
@@ -22,8 +22,8 @@ export interface NodeDefinition<T> {
 }
 
 export const runNodes = async (sig: EffectContext) => {
-  const viteServer = await sig.get(viteServerValue)
-  const nodeServer = await sig.get(viteNodeServerValue)
+  const viteServer = await sig.get(viteService)
+  const nodeServer = await sig.get(viteNodeService)
 
   // Restart child processes when a file changes
   sig.subscribe(fileChangeTopic)

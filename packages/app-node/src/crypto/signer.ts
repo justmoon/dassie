@@ -1,12 +1,12 @@
 import { getPublicKey, sign } from "@noble/ed25519"
 
-import { createValue } from "@dassie/lib-reactive"
+import { createService } from "@dassie/lib-reactive"
 
 import { configStore } from "../config"
 import { parseEd25519PrivateKey } from "../utils/pem"
 
-export const signerValue = () =>
-  createValue((sig) => {
+export const signerService = () =>
+  createService((sig) => {
     const dassieKey = parseEd25519PrivateKey(
       sig.get(configStore, (config) => config.tlsDassieKey)
     )

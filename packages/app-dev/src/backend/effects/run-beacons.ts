@@ -2,8 +2,8 @@ import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
 
 import { BEACON_COUNT } from "../constants/development-beacons"
-import { viteNodeServerValue } from "../services/vite-node-server"
-import { viteServerValue } from "../services/vite-server"
+import { viteNodeService } from "../services/vite-node-server"
+import { viteService } from "../services/vite-server"
 import { generateBeaconConfig } from "../utils/generate-beacon-config"
 import { fileChangeTopic } from "./handle-file-change"
 import { runBeaconChildProcess } from "./run-beacon-child-process"
@@ -20,8 +20,8 @@ export interface BeaconDefinition<T> {
 }
 
 export const runBeacons = async (sig: EffectContext) => {
-  const viteServer = await sig.get(viteServerValue)
-  const nodeServer = await sig.get(viteNodeServerValue)
+  const viteServer = await sig.get(viteService)
+  const nodeServer = await sig.get(viteNodeService)
 
   logger.debug("starting beacon processes")
 

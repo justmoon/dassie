@@ -4,7 +4,7 @@ import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
 
 import { configStore } from "../config"
-import { signerValue } from "../crypto/signer"
+import { signerService } from "../crypto/signer"
 import { compareKeysToArray, compareSetOfKeys } from "../utils/compare-sets"
 import { peerNodeInfo, signedPeerNodeInfo } from "./peer-schema"
 import { addNode, nodeTableStore, updateNode } from "./stores/node-table"
@@ -14,7 +14,7 @@ const logger = createLogger("das:node:maintain-own-node-table-entry")
 
 export const maintainOwnNodeTableEntry = async (sig: EffectContext) => {
   const { nodeId, port } = sig.getKeys(configStore, ["nodeId", "port"])
-  const signer = sig.get(signerValue)
+  const signer = sig.get(signerService)
 
   // Get the current peers and re-run the effect iff the IDs of the peers change.
   const peers = sig.get(

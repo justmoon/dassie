@@ -11,18 +11,18 @@ import {
 } from "./reactor"
 import { Store, createStore } from "./store"
 
-export const ValueSymbol = Symbol("das:reactive:value")
+export const ServiceSymbol = Symbol("das:reactive:service")
 
-export interface ValueFactory<TInstance>
-  extends Effect<never, Value<TInstance>> {
-  (): Value<TInstance>
+export interface ServiceFactory<TInstance>
+  extends Effect<never, Service<TInstance>> {
+  (): Service<TInstance>
 }
 
-export type Value<TInstance> = Store<TInstance> & {
+export type Service<TInstance> = Store<TInstance> & {
   /**
    * Marks this object as a value.
    */
-  [ValueSymbol]: true
+  [ServiceSymbol]: true
 
   [InitSymbol]: (reactor: Reactor) => void
   [DisposeSymbol]: AsyncDisposer
@@ -37,17 +37,17 @@ export type Value<TInstance> = Store<TInstance> & {
  */
 const UninitializedSymbol = Symbol("das:reactive:uninitialized")
 
-export const createValue = <T>(effect: Effect<Value<T>, T>): Value<T> => {
+export const createService = <T>(effect: Effect<Service<T>, T>): Service<T> => {
   const store = createStore<T>(UninitializedSymbol as unknown as T)
   const lifecycle = new LifecycleScope()
-  const value: Value<T> = {
+  const value: Service<T> = {
     ...store,
     read: () => {
       throw new Error(
         "Value has not been initialized. This indicates that you tried to read this value during the execution of its own initializer, i.e. a circular dependency."
       )
     },
-    [ValueSymbol]: true,
+    [ServiceSymbol]: true,
     [InitSymbol]: (reactor: Reactor) => {
       reactor.onCleanup(async () => {
         await lifecycle.dispose()
@@ -75,5 +75,5 @@ export const createValue = <T>(effect: Effect<Value<T>, T>): Value<T> => {
   return value
 }
 
-export const isValue = (object: unknown): object is Value<unknown> =>
-  isObject(object) && object[ValueSymbol] === true
+export const isService = (object: unknown): object is Service<unknown> =>
+  isObject(object) && object[ServiceSymbol] === true

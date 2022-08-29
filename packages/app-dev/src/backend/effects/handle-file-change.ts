@@ -5,7 +5,7 @@ import { posix } from "node:path"
 import { createLogger } from "@dassie/lib-logger"
 import { EffectContext, createTopic } from "@dassie/lib-reactive"
 
-import { viteServerValue } from "../services/vite-server"
+import { viteService } from "../services/vite-server"
 
 const logger = createLogger("das:dev:handle-file-change")
 
@@ -16,7 +16,7 @@ export function getShortName(file: string, root: string): string {
 export const fileChangeTopic = () => createTopic()
 
 export const handleFileChange = async (sig: EffectContext) => {
-  const viteServer = await sig.get(viteServerValue)
+  const viteServer = await sig.get(viteService)
 
   const onFileChange = (file: string) => {
     const { config, moduleGraph } = viteServer

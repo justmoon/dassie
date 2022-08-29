@@ -5,7 +5,7 @@ import { createServer } from "node:https"
 
 import { respondPlainly } from "@dassie/lib-http-server"
 import { createLogger } from "@dassie/lib-logger"
-import { EffectContext, createValue } from "@dassie/lib-reactive"
+import { EffectContext, createService } from "@dassie/lib-reactive"
 import { assertDefined, isObject } from "@dassie/lib-type-utils"
 
 import { configStore } from "../config"
@@ -26,16 +26,16 @@ const handleNotFound: Handler = (_request, response) => {
   respondPlainly(response, 404, "Not Found")
 }
 
-export const routerValue = () =>
-  createValue(() => {
+export const routerService = () =>
+  createService(() => {
     return createRouter({
       defaultRoute: handleNotFound,
     })
   })
 
-export const httpServerValue = () =>
-  createValue((sig) => {
-    const router = sig.get(routerValue)
+export const httpService = () =>
+  createService((sig) => {
+    const router = sig.get(routerService)
 
     const { host, port, tlsWebCert, tlsWebKey } = sig.get(
       configStore,
@@ -108,10 +108,10 @@ export const httpServerValue = () =>
 
 export const serveHttp = (sig: EffectContext) => {
   // Reading the HTTP server value will force it to be instantiated
-  sig.read(httpServerValue)
+  sig.read(httpService)
 }
 
 export const registerRootRoute = (sig: EffectContext) => {
-  const router = sig.get(routerValue)
+  const router = sig.get(routerService)
   router.get("/", handleGetRoot)
 }

@@ -1,13 +1,13 @@
 import { createServer } from "node:http"
 
 import { createReactor } from "../reactor"
+import { createService } from "../service"
 import { createStore } from "../store"
-import { createValue } from "../value"
 
 const config = () => createStore({ port: 3000 })
 
-const httpServerFactory = () =>
-  createValue((sig) => {
+const httpService = () =>
+  createService((sig) => {
     const port = sig.get(config, ({ port }) => port)
 
     const server = createServer()
@@ -23,7 +23,7 @@ const httpServerFactory = () =>
   })
 
 createReactor((sig) => {
-  sig.read(httpServerFactory)
+  sig.read(httpService)
 
   sig.timeout(
     () => sig.emit(config, (config) => ({ ...config, port: 3100 })),

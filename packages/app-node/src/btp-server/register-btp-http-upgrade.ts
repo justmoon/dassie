@@ -2,10 +2,10 @@ import type { WebSocket } from "ws"
 import { WebSocketServer } from "ws"
 
 import { createLogger } from "@dassie/lib-logger"
-import { EffectContext, createValue } from "@dassie/lib-reactive"
+import { EffectContext, createService } from "@dassie/lib-reactive"
 
 import { configStore } from "../config"
-import { httpServerValue } from "../http-server/serve-http"
+import { httpService } from "../http-server/serve-http"
 import { incomingIlpPacketBuffer } from "../ilp-connector/topics/incoming-ilp-packet"
 import {
   BtpType,
@@ -17,8 +17,8 @@ import {
 const logger = createLogger("das:node:websocket-server")
 
 export const registerBtpHttpUpgrade = (sig: EffectContext) => {
-  const websocketServer = sig.get(websocketServerValue)
-  const httpServer = sig.get(httpServerValue)
+  const websocketServer = sig.get(websocketService)
+  const httpServer = sig.get(httpService)
 
   httpServer.on("upgrade", (request, socket, head) => {
     if (request.url === "/btp") {
@@ -33,8 +33,8 @@ let unique = 0
 
 export const connectionMap = new Map<string, WebSocket>()
 
-export const websocketServerValue = () =>
-  createValue((sig) => {
+export const websocketService = () =>
+  createService((sig) => {
     const ilpAddress = sig.get(configStore, (config) => config.ilpAddress)
 
     const wss = new WebSocketServer({ noServer: true })

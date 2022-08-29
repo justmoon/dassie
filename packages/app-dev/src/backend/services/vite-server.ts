@@ -1,9 +1,9 @@
 import { createServer } from "vite"
 
-import { createValue } from "@dassie/lib-reactive"
+import { createService } from "@dassie/lib-reactive"
 
-export const viteServerValue = () =>
-  createValue(async (sig) => {
+export const viteService = () =>
+  createService(async (sig) => {
     // create vite server
     const viteServer = await createServer({
       server: { hmr: false },

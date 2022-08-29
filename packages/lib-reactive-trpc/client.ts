@@ -4,10 +4,10 @@ import {
   BoundAction,
   EffectContext,
   InferMessageType,
+  Service,
+  ServiceFactory,
   TopicFactory,
-  Value,
-  ValueFactory,
-  createValue,
+  createService,
   isSynchronizableStore,
 } from "@dassie/lib-reactive"
 
@@ -23,12 +23,12 @@ export type ReactiveTrpcClient<
   TExposedTopicsMap extends Record<string, TopicFactory>
 > = TRPCClient<RemoteReactiveRouter<TExposedTopicsMap>>
 
-export const createTrpcConnectionValue = <
+export const createTrpcConnection = <
   TClient extends TRPCClient<RemoteReactiveRouter<Record<string, TopicFactory>>>
 >(
   connect: (sig: EffectContext) => TClient
 ) => {
-  return createValue((sig) => {
+  return createService((sig) => {
     const trpcClient = sig.run(connect)
 
     return { client: trpcClient } as const
@@ -39,10 +39,10 @@ export const createRemoteTopic = <
   TExposedTopicsMap extends Record<string, TopicFactory>,
   TTopicName extends string & keyof TExposedTopicsMap
 >(
-  connectionFactory: ValueFactory<ReactiveTrpcConnection<TExposedTopicsMap>>,
+  connectionFactory: ServiceFactory<ReactiveTrpcConnection<TExposedTopicsMap>>,
   topicName: TTopicName
-): Value<InferMessageType<TExposedTopicsMap[TTopicName]> | undefined> => {
-  return createValue((sig, value) => {
+): Service<InferMessageType<TExposedTopicsMap[TTopicName]> | undefined> => {
+  return createService((sig, value) => {
     const { client } = sig.get(connectionFactory)
 
     sig.onCleanup(
@@ -67,11 +67,11 @@ export const createRemoteStore = <
   TStoreName extends string & keyof TExposedTopicsMap,
   TInitialValue
 >(
-  connectionFactory: ValueFactory<ReactiveTrpcConnection<TExposedTopicsMap>>,
+  connectionFactory: ServiceFactory<ReactiveTrpcConnection<TExposedTopicsMap>>,
   storeName: TStoreName,
   initialValue: TInitialValue
-): Value<InferMessageType<TExposedTopicsMap[TStoreName]> | TInitialValue> => {
-  return createValue((sig, value) => {
+): Service<InferMessageType<TExposedTopicsMap[TStoreName]> | TInitialValue> => {
+  return createService((sig, value) => {
     const { client } = sig.get(connectionFactory)
 
     sig.onCleanup(
@@ -95,11 +95,11 @@ export const createRemoteSynchronizedStore = <
   TExposedTopicsMap extends Record<string, TopicFactory>,
   TStoreName extends string & keyof TExposedTopicsMap
 >(
-  connectionFactory: ValueFactory<ReactiveTrpcConnection<TExposedTopicsMap>>,
+  connectionFactory: ServiceFactory<ReactiveTrpcConnection<TExposedTopicsMap>>,
   storeName: TStoreName,
   storeImplementation: TExposedTopicsMap[TStoreName]
-): Value<InferMessageType<TExposedTopicsMap[TStoreName]>> => {
-  return createValue((sig, value) => {
+): Service<InferMessageType<TExposedTopicsMap[TStoreName]>> => {
+  return createService((sig, value) => {
     const { client } = sig.get(connectionFactory)
 
     const localStore = sig.run(storeImplementation)

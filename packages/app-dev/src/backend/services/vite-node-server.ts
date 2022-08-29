@@ -1,12 +1,12 @@
 import { ViteNodeServer } from "vite-node/server"
 
-import { createValue } from "@dassie/lib-reactive"
+import { createService } from "@dassie/lib-reactive"
 
-import { viteServerValue } from "./vite-server"
+import { viteService } from "./vite-server"
 
-export const viteNodeServerValue = () =>
-  createValue(async (sig) => {
-    const viteServer = await sig.get(viteServerValue)
+export const viteNodeService = () =>
+  createService(async (sig) => {
+    const viteServer = await sig.get(viteService)
 
     // create vite-node server
     const nodeServer = new ViteNodeServer(viteServer)
