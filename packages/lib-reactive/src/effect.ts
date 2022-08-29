@@ -2,7 +2,7 @@ import {
   createArrayEffect,
   createIndexedArrayEffect,
 } from "./internal/array-effect"
-import { LifecycleScope } from "./internal/lifecycle-scope"
+import type { LifecycleScope } from "./internal/lifecycle-scope"
 import { createWaker } from "./internal/waker"
 import type { AsyncDisposer, Factory, Reactor } from "./reactor"
 import type { StoreFactory } from "./store"
@@ -370,35 +370,35 @@ export const runEffect = async <TProperties, TReturn>(
   parentLifecycle: LifecycleScope,
   resultCallback?: (result: TReturn) => void
 ) => {
-  let [waker, wake] = createWaker()
-  let lifecycle = new LifecycleScope()
-  let effectResult: TReturn
+  let waker: Promise<void> | undefined, wake: (() => void) | undefined
 
-  parentLifecycle.onCleanup(async () => {
-    await lifecycle.dispose()
-    wake()
+  parentLifecycle.onCleanup(() => {
+    if (wake) wake()
   })
 
   for (;;) {
-    if (lifecycle.isDisposed || parentLifecycle.isDisposed) return
+    if (parentLifecycle.isDisposed) return
+
+    const lifecycle = parentLifecycle.deriveChildLifecycle()
+    ;[waker, wake] = createWaker()
 
     const context = new EffectContext(reactor, lifecycle, wake, effect)
 
-    effectResult = effect(context, properties)
+    try {
+      const effectResult = effect(context, properties)
 
-    // runEffect MUST always call the resultCallback or throw an error
-    if (resultCallback) resultCallback(effectResult)
+      // runEffect MUST always call the resultCallback or throw an error
+      if (resultCallback) resultCallback(effectResult)
 
-    // --- There must be no `await` before calling the resultCallback ---
+      // --- There must be no `await` before calling the resultCallback ---
 
-    // Wait in case the effect is asynchronous.
-    // eslint-disable-next-line @typescript-eslint/await-thenable
-    await effectResult
+      // Wait in case the effect is asynchronous.
+      // eslint-disable-next-line @typescript-eslint/await-thenable
+      await effectResult
 
-    await waker
-
-    await lifecycle.dispose()
-    ;[waker, wake] = createWaker()
-    lifecycle = new LifecycleScope()
+      await waker
+    } finally {
+      await lifecycle.dispose()
+    }
   }
 }
