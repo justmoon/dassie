@@ -3,7 +3,7 @@ import {
   createIndexedArrayEffect,
 } from "./internal/array-effect"
 import type { LifecycleScope } from "./internal/lifecycle-scope"
-import { createWaker } from "./internal/waker"
+import { makePromise } from "./internal/promise"
 import { AsyncDisposer, DisposeSymbol, Factory, Reactor } from "./reactor"
 import type { StoreFactory } from "./store"
 import type { Listener, TopicFactory } from "./topic"
@@ -48,7 +48,7 @@ export class EffectContext {
    * @param storeFactory - Reference to the store's factory function.
    * @param selector - Used to select only part of the message from a given topic. This can be useful to avoid re-running the effect if only an irrelevant portion of the message has changed.
    * @param comparator - By default, the reactor checks for strict equality (`===`) to determine if the value has changed. This can be overridden by passing a custom comparator function.
-   * @returns The most recent value from the topic (or the initial value), narrowed by the selector.
+   * @returns The current value of the store, narrowed by the selector.
    */
   get<TState>(storeFactory: StoreFactory<TState, never>): TState
   get<TState, TSelection>(
@@ -378,19 +378,13 @@ export const runEffect = async <TProperties, TReturn>(
   parentLifecycle: LifecycleScope,
   resultCallback?: (result: TReturn) => void
 ) => {
-  let waker: Promise<void> | undefined, wake: (() => void) | undefined
-
-  parentLifecycle.onCleanup(() => {
-    if (wake) wake()
-  })
-
   for (;;) {
     if (parentLifecycle.isDisposed) return
 
     const lifecycle = parentLifecycle.deriveChildLifecycle()
-    ;[waker, wake] = createWaker()
+    const waker = makePromise()
 
-    const context = new EffectContext(reactor, lifecycle, wake, effect)
+    const context = new EffectContext(reactor, lifecycle, waker.resolve, effect)
 
     try {
       const effectResult = effect(context, properties)
