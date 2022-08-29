@@ -56,14 +56,6 @@ export const runDebugRpcServer = (sig: EffectContext) => {
     createContext: () => sig.reactor,
   })
 
-  wss.on("connection", (ws) => {
-    logger.info(`➕➕ Connection (${wss.clients.size})`)
-    ws.once("close", () => {
-      logger.info(`➖➖ Connection (${wss.clients.size})`)
-    })
-  })
-  logger.info("✅ WebSocket Server listening on ws://localhost:3001")
-
   sig.onCleanup(() => {
     handler.broadcastReconnectNotification()
     wss.close()
