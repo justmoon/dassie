@@ -19,11 +19,7 @@ export interface ParseOptions {
 }
 
 export interface Serializer {
-  (
-    context: SerializeContext,
-    offset: number
-    // eslint-disable-next-line @typescript-eslint/no-invalid-void-type
-  ): SerializeError | void
+  (context: SerializeContext, offset: number): SerializeError | void
   size: number
 }
 
