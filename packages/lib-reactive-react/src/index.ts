@@ -47,7 +47,7 @@ export const createReactiveHooks = () => {
         disposeSubscription()
         reactor.disposeContext(topicFactory)
       }
-    }, [topicFactory, callback])
+    }, [reactor, topicFactory, callback])
   }
 
   const useStore = <TState>(
@@ -65,7 +65,7 @@ export const createReactiveHooks = () => {
             reactor.disposeContext(storeFactory)
           }
         },
-        [storeFactory]
+        [reactor, storeFactory]
       ),
       () => {
         return reactor.peekContext(storeFactory)?.read()
