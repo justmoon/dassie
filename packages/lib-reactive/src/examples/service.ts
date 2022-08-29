@@ -29,4 +29,6 @@ createReactor((sig) => {
     () => sig.emit(config, (config) => ({ ...config, port: 3100 })),
     1000
   )
+
+  sig.timeout(() => void sig.reactor.dispose(), 2000)
 })

@@ -4,7 +4,7 @@ import {
 } from "./internal/array-effect"
 import type { LifecycleScope } from "./internal/lifecycle-scope"
 import { createWaker } from "./internal/waker"
-import type { AsyncDisposer, Factory, Reactor } from "./reactor"
+import { AsyncDisposer, DisposeSymbol, Factory, Reactor } from "./reactor"
 import type { StoreFactory } from "./store"
 import type { Listener, TopicFactory } from "./topic"
 
@@ -299,7 +299,15 @@ export class EffectContext {
    */
   use<T>(factory: Factory<T>): T {
     const value = this.reactor.useContext(factory)
-    this.lifecycle.onCleanup(() => this.reactor.disposeContext(factory))
+
+    const valueAsObject = value as Record<keyof never, unknown>
+    if (
+      DisposeSymbol in value &&
+      typeof valueAsObject[DisposeSymbol] === "function"
+    ) {
+      this.lifecycle.onCleanup(valueAsObject[DisposeSymbol] as AsyncDisposer)
+    }
+
     return value
   }
 

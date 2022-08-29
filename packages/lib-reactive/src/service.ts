@@ -8,6 +8,7 @@ import {
   FactoryNameSymbol,
   InitSymbol,
   Reactor,
+  UseSymbol,
 } from "./reactor"
 import { Store, createStore } from "./store"
 
@@ -25,7 +26,14 @@ export type Service<TInstance> = Store<TInstance> & {
   [ServiceSymbol]: true
 
   [InitSymbol]: (reactor: Reactor) => void
+  [UseSymbol]: () => void
   [DisposeSymbol]: AsyncDisposer
+}
+
+const readUninitialized = () => {
+  throw new Error(
+    "Value has not been initialized. This indicates that you tried to read this value during the execution of its own initializer or destructor, i.e. a circular dependency."
+  )
 }
 
 /**
@@ -39,19 +47,27 @@ const UninitializedSymbol = Symbol("das:reactive:uninitialized")
 
 export const createService = <T>(effect: Effect<Service<T>, T>): Service<T> => {
   const store = createStore<T>(UninitializedSymbol as unknown as T)
-  const lifecycle = new LifecycleScope()
+  let lifecycle: LifecycleScope
+  let reactor!: Reactor
+  let referenceCount = 0
   const value: Service<T> = {
     ...store,
-    read: () => {
-      throw new Error(
-        "Value has not been initialized. This indicates that you tried to read this value during the execution of its own initializer, i.e. a circular dependency."
-      )
-    },
+    read: readUninitialized,
     [ServiceSymbol]: true,
-    [InitSymbol]: (reactor: Reactor) => {
+    [InitSymbol]: (_reactor: Reactor) => {
+      reactor = _reactor
+    },
+    [UseSymbol]: () => {
+      referenceCount++
+
+      if (referenceCount > 1) return
+
+      lifecycle = new LifecycleScope()
+
       reactor.onCleanup(async () => {
         await lifecycle.dispose()
       })
+
       runEffect(reactor, effect, value, lifecycle, (newValue) => {
         // We had temporarily overridden the read method to catch circular dependencies. Restore it now.
         // eslint-disable-next-line @typescript-eslint/unbound-method
@@ -68,7 +84,15 @@ export const createService = <T>(effect: Effect<Service<T>, T>): Service<T> => {
       })
     },
     [DisposeSymbol]: () => {
-      return lifecycle.dispose()
+      referenceCount--
+
+      if (referenceCount === 0) {
+        store.emit(() => UninitializedSymbol as unknown as T)
+        value.read = readUninitialized
+        return lifecycle.dispose()
+      }
+
+      return
     },
   }
 

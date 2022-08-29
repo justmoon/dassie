@@ -27,7 +27,12 @@ export const FactoryNameSymbol = Symbol("das:reactive:factory-name")
 export const InitSymbol = Symbol("das:reactive:init")
 
 /**
- * Can be used to add a function that will be automatically called after a context value has been disposed.
+ * Can be used to add a function that will be automatically called each time a new reference to a context value is created.
+ */
+export const UseSymbol = Symbol("das:reactive:use")
+
+/**
+ * Can be used to add a function that will be automatically called each time a reference to a context value is destroyed.
  */
 export const DisposeSymbol = Symbol("das:reactive:dispose")
 
@@ -41,14 +46,13 @@ const tagWithEffectName = (target: unknown, effectName: string) => {
   }
 }
 
-export interface ContextState extends Map<Factory<unknown>, unknown> {
+export interface ContextState extends WeakMap<Factory<unknown>, unknown> {
   get<T>(key: Factory<T>): T | undefined
   set<T>(key: Factory<T>, value: T): this
 }
 
 export class Reactor extends LifecycleScope {
-  private contextState: ContextState = new Map()
-  private contextReferenceCount = new Map<Factory<unknown>, number>()
+  private contextState = new WeakMap() as ContextState
 
   /**
    * Retrieve a value from the reactor's global context. The key is a factory which returns the value sought. If the value does not exist yet, it will be created by running the factory function.
@@ -77,11 +81,14 @@ export class Reactor extends LifecycleScope {
       this.debug?.notifyOfInstantiation(factory, result)
     } else {
       result = this.contextState.get(factory)!
+    }
 
-      // As an optimization, we only track reference counts of two or higher.
-      // When the object exists in the context map, but not in the reference count map, it means that the reference count is 1.
-      const referenceCount = this.contextReferenceCount.get(factory) ?? 1
-      this.contextReferenceCount.set(factory, referenceCount + 1)
+    if (
+      isObject(result) &&
+      UseSymbol in result &&
+      typeof result[UseSymbol] === "function"
+    ) {
+      result[UseSymbol](this)
     }
 
     return result
@@ -100,16 +107,6 @@ export class Reactor extends LifecycleScope {
   disposeContext = (factory: Factory<unknown>) => {
     if (!this.contextState.has(factory)) return
 
-    const referenceCount = this.contextReferenceCount.get(factory) ?? 1
-
-    if (referenceCount > 2) {
-      this.contextReferenceCount.set(factory, referenceCount - 1)
-      return
-    } else if (referenceCount === 2) {
-      this.contextReferenceCount.delete(factory)
-      return
-    }
-
     const result = this.contextState.get(factory)
 
     // Call the value's dispose function if there is one
@@ -120,8 +117,6 @@ export class Reactor extends LifecycleScope {
     ) {
       result[DisposeSymbol](this)
     }
-
-    this.contextState.delete(factory)
   }
 
   /**
