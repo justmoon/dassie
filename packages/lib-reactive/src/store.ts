@@ -27,9 +27,11 @@ export type Store<TState, TReducer = Reducer<TState>> = Topic<
   read(): TState
 }
 
-export const createStore = <TState>(initialState: TState): Store<TState> => {
+export function createStore<TState>(): Store<TState | undefined>
+export function createStore<TState>(initialState: TState): Store<TState>
+export function createStore<TState>(initialState?: TState): Store<TState> {
   const topic = createTopic<TState>()
-  let currentState = initialState
+  let currentState = initialState as TState
 
   const emit = (reducer: Reducer<TState>) => {
     currentState = reducer(currentState)
