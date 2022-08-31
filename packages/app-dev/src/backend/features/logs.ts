@@ -19,9 +19,9 @@ const startupTime = Date.now()
 
 export const indexLogs = (sig: EffectContext) => {
   sig.on(logLineTopic, (line) => {
-    const currentLogIndex = sig.read(currentLogIndexStore)
+    const currentLogIndex = sig.use(currentLogIndexStore).read()
     sig.use(currentLogIndexStore).update((a) => a + 1)
-    sig.emit(indexedLogLineTopic, {
+    sig.use(indexedLogLineTopic).emit({
       ...line,
       index: currentLogIndex,
       relativeTime: Number(new Date(line.date)) - startupTime,

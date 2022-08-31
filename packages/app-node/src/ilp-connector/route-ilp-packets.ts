@@ -96,7 +96,7 @@ export const routeIlpPackets = (sig: EffectContext) => {
             destination: source,
           })
 
-          sig.emit(outgoingIlpPacketBuffer, {
+          sig.use(outgoingIlpPacketBuffer).emit({
             destination: source,
             packet: envelopeSerializationResult.value,
             amount: 0n,
@@ -125,7 +125,7 @@ export const routeIlpPackets = (sig: EffectContext) => {
             destination: prepareParseResult.value.destination,
           })
 
-          sig.emit(outgoingIlpPacketBuffer, {
+          sig.use(outgoingIlpPacketBuffer).emit({
             destination: localDestination,
             packet,
             amount: prepareParseResult.value.amount,
@@ -156,7 +156,7 @@ export const routeIlpPackets = (sig: EffectContext) => {
           logger.debug("sending ILP fulfill to source", {
             destination: mappedRequest.sourceAddress,
           })
-          sig.emit(outgoingIlpPacketBuffer, {
+          sig.use(outgoingIlpPacketBuffer).emit({
             destination: mappedRequest.sourceAddress,
             packet,
             amount: 0n,
@@ -190,7 +190,7 @@ export const routeIlpPackets = (sig: EffectContext) => {
           logger.debug("sending ILP reject to source", {
             destination: mappedRequest.sourceAddress,
           })
-          sig.emit(outgoingIlpPacketBuffer, {
+          sig.use(outgoingIlpPacketBuffer).emit({
             destination: mappedRequest.sourceAddress,
             packet,
             amount: 0n,

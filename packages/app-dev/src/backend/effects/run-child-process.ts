@@ -98,7 +98,7 @@ export const runChildProcess = async (
       )
         continue
 
-      sig.emit(logLineTopic, {
+      sig.use(logLineTopic).emit({
         node: id,
         component: inputName,
         message: line,

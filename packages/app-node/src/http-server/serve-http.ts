@@ -107,8 +107,7 @@ export const httpService = () =>
   })
 
 export const serveHttp = (sig: EffectContext) => {
-  // Reading the HTTP server value will force it to be instantiated
-  sig.read(httpService)
+  sig.use(httpService)
 }
 
 export const registerRootRoute = (sig: EffectContext) => {

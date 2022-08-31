@@ -22,7 +22,7 @@ export const greetPeers = async (sig: EffectContext) => {
   )
 
   const ownNodeTableEntry = sig.get(nodeTableStore, (nodeTable) =>
-    nodeTable.get(sig.read(configStore).nodeId)
+    nodeTable.get(sig.use(configStore).read().nodeId)
   )
 
   if (!ownNodeTableEntry) {
@@ -63,7 +63,7 @@ export const greetPeers = async (sig: EffectContext) => {
       return
     }
 
-    sig.emit(outgoingPeerMessageBufferTopic, {
+    sig.use(outgoingPeerMessageBufferTopic).emit({
       destination: peer.nodeId,
       message: messageSerializeResult.value,
     })

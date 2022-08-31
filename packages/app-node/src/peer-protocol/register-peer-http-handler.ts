@@ -33,7 +33,7 @@ export const registerPeerHttpHandler = (sig: EffectContext) => {
       throw new BadRequestError(`Bad Request, failed to parse message`)
     }
 
-    sig.emit(incomingPeerMessageTopic, {
+    sig.use(incomingPeerMessageTopic).emit({
       message: parseResult.value,
       asUint8Array: body,
     })

@@ -120,15 +120,6 @@ export class EffectContext {
   }
 
   /**
-   * Like {@link get}, but without tracking. That means that calling read will not cause the effect to be re-run if the value of the given store changes.
-   *
-   * @param store - Reference to the store's factory function.
-   */
-  read<TState>(store: StoreFactory<TState, never>): TState {
-    return this.use(store).read()
-  }
-
-  /**
    * Re-run this effect if a message is emitted on the given topic.
    *
    * @remarks
@@ -229,16 +220,6 @@ export class EffectContext {
         })
       })
     )
-  }
-
-  /**
-   * This is a shorthand for {@link TopicFactory.emit} to quickly send a message to a topic.
-   *
-   * @param topic - Topic that the message should be sent to.
-   * @param trigger - Message to send to the topic.
-   */
-  emit<TTrigger>(topic: TopicFactory<unknown, TTrigger>, trigger: TTrigger) {
-    this.use(topic).emit(trigger)
   }
 
   /**

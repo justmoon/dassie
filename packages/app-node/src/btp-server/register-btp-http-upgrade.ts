@@ -108,7 +108,7 @@ export const websocketService = () =>
                   .protocolData) {
                   if (protocolData.protocolName === "ilp") {
                     logger.debug("received ILP packet via BTP message")
-                    sig.emit(incomingIlpPacketBuffer, {
+                    sig.use(incomingIlpPacketBuffer).emit({
                       source: clientIlpAddress,
                       packet: protocolData.data,
                       requestId: message.requestId,
@@ -136,7 +136,7 @@ export const websocketService = () =>
                   .protocolData) {
                   if (protocolData.protocolName === "ilp") {
                     logger.debug("received ILP packet via BTP transfer")
-                    sig.emit(incomingIlpPacketBuffer, {
+                    sig.use(incomingIlpPacketBuffer).emit({
                       source: clientIlpAddress,
                       packet: protocolData.data,
                       requestId: message.requestId,
@@ -163,7 +163,7 @@ export const websocketService = () =>
                   .protocolData) {
                   if (protocolData.protocolName === "ilp") {
                     logger.debug("received ILP packet via BTP response")
-                    sig.emit(incomingIlpPacketBuffer, {
+                    sig.use(incomingIlpPacketBuffer).emit({
                       source: clientIlpAddress,
                       packet: protocolData.data,
                       requestId: message.requestId,

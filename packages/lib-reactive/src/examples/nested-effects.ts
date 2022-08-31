@@ -18,7 +18,7 @@ const rootEffect = (sig: EffectContext) => {
   })
 
   sig.interval(() => {
-    sig.emit(topic1, "hello" + String(Math.floor(Math.random() * 10)))
+    sig.use(topic1).emit("hello" + String(Math.floor(Math.random() * 10)))
   }, 1000)
 
   sig.onCleanup(() => {

@@ -22,7 +22,7 @@ export const handlePeerMessages = (sig: EffectContext) => {
     if (message.hello) {
       const { nodeInfo } = message.hello.signed
       const { nodeId, sequence, url } = nodeInfo.signed
-      const peers = sig.read(peerTableStore)
+      const peers = sig.use(peerTableStore).read()
 
       logger.debug("handle hello", {
         from: nodeId,
@@ -49,7 +49,7 @@ export const handlePeerMessages = (sig: EffectContext) => {
       const { value: linkState, bytes: linkStateBytes } =
         message.linkStateUpdate
       const { nodeId, sequence, entries } = linkState.signed
-      const nodes = sig.read(nodeTableStore)
+      const nodes = sig.use(nodeTableStore).read()
 
       const neighbors = entries
         .filter((entry) => "neighbor" in entry)

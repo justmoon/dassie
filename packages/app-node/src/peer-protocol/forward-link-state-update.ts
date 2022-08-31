@@ -48,7 +48,7 @@ export const forwardLinkStateUpdate = (sig: EffectContext) => {
         })
 
         // Retransmit the link state update
-        sig.emit(outgoingPeerMessageBufferTopic, {
+        sig.use(outgoingPeerMessageBufferTopic).emit({
           destination: peer.nodeId,
           message: message.value,
         })

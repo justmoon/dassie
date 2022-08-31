@@ -15,7 +15,7 @@ interface ChildProperties {
 const outputTopic = () => createTopic<string>()
 
 const greeter = (sig: EffectContext, { toGreet }: ChildProperties) => {
-  sig.emit(outputTopic, `Hello ${toGreet}!`)
+  sig.use(outputTopic).emit(`Hello ${toGreet}!`)
 }
 
 const logger = (sig: EffectContext) => {

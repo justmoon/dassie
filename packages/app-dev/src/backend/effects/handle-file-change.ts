@@ -28,7 +28,7 @@ export const handleFileChange = async (sig: EffectContext) => {
       logger.clear()
       logger.info(`${colors.green(`change`)} ${colors.dim(shortFile)}`)
 
-      sig.emit(fileChangeTopic, undefined)
+      sig.use(fileChangeTopic).emit(undefined)
     }
   }
 
