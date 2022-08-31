@@ -16,7 +16,7 @@
     "@dassie/lib-oer": "workspace:^1.0.0",
     "@dassie/lib-reactive": "workspace:^1.0.0",
     "@dassie/lib-type-utils": "workspace:^1.0.0",
-    "@noble/ed25519": "^1.6.1",
+    "@noble/ed25519": "^1.7.0",
     "@types/ws": "^8.5.3",
     "axios": "^0.27.2",
     "denque": "^2.1.0",
@@ -27,6 +27,6 @@
     "ws": "^8.8.1"
   },
   "devDependencies": {
-    "type-fest": "^2.18.0"
+    "type-fest": "^2.19.0"
   }
 }

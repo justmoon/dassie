@@ -16,7 +16,7 @@
     "@noble/hashes": "^1.1.2",
     "@radix-ui/react-tabs": "^1.0.0",
     "@scure/bip39": "^1.1.0",
-    "@unocss/reset": "^0.45.12",
+    "@unocss/reset": "^0.45.13",
     "axios": "^0.27.2",
     "classnames": "^2.3.1",
     "phosphor-react": "^1.4.1",
@@ -27,7 +27,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^2.0.1",
-    "unocss": "^0.45.12",
+    "unocss": "^0.45.13",
     "vite": "^3.0.9"
   }
 }
