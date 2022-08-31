@@ -4,7 +4,7 @@ import { Link } from "wouter"
 
 import type { InputConfig } from "@dassie/app-node"
 import { selectBySeed } from "@dassie/lib-logger"
-import { useStore } from "@dassie/lib-reactive-react"
+import { useSig } from "@dassie/lib-reactive-react"
 
 import type { NodeDefinition } from "../../../backend/effects/run-nodes"
 import { generateNodeConfig } from "../../../backend/utils/generate-node-config"
@@ -26,7 +26,8 @@ const nodesToGraph = (nodes: NodeDefinition<InputConfig>[]): GraphData => {
   }
 }
 const Dashboard = () => {
-  const template = useStore(activeTemplate)
+  const sig = useSig()
+  const template = sig.get(activeTemplate)
   const addRandomNode = trpc.useMutation("addRandomNode")
 
   if (!template) return <div />

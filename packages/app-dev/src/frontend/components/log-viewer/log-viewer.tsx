@@ -1,7 +1,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 
-import { useStore } from "@dassie/lib-reactive-react"
+import { useSig } from "@dassie/lib-reactive-react"
 
 import type { IndexedLogLine } from "../../../backend/features/logs"
 import { remoteLogsStore } from "../../remote-stores/logs"
@@ -15,9 +15,10 @@ const LogViewer = ({ filter }: LogViewerProperties) => {
   const outerReference = useRef<HTMLDivElement>(null)
   const [shouldStick, setShouldStick] = useState(true)
   const scrollPositionReference = useRef<number | undefined>(undefined)
-  const logs = useStore(remoteLogsStore)?.logs
+  const sig = useSig()
+  const logs = sig.get(remoteLogsStore).logs
   const filteredLogs = useMemo(
-    () => (logs ? (filter ? logs.filter((item) => filter(item)) : logs) : []),
+    () => (filter ? logs.filter((item) => filter(item)) : logs),
     [filter, logs]
   )
 

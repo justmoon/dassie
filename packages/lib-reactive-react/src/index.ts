@@ -3,90 +3,100 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useSyncExternalStore,
 } from "react"
 
-import {
-  Effect,
-  Reactor,
-  StoreFactory,
-  TopicFactory,
-  createReactor,
-} from "@dassie/lib-reactive"
+import { EffectContext, Reactor, createReactor } from "@dassie/lib-reactive"
+import type { LifecycleScope } from "@dassie/lib-reactive/src/internal/lifecycle-scope"
+
+interface ReactEffectContext {
+  lifecycle: LifecycleScope
+  context: EffectContext
+  wake: () => void
+}
+
+const noop = () => {
+  // empty
+}
 
 export const createReactiveHooks = () => {
   const ReactorContext = createContext<Reactor>(createReactor(() => undefined))
 
   const useReactor = () => useContext(ReactorContext)
 
-  const useSigEffect = <TResult>(effect: Effect<undefined, TResult>) => {
-    const reactor = useReactor()
-    useEffect(() => {
-      const { dispose } = reactor.run(effect)
+  const createReactEffectContext = (reactor: Reactor) => {
+    const lifecycle = reactor.deriveChildLifecycle()
+    const reactEffectContext: ReactEffectContext = {
+      lifecycle,
+      context: new EffectContext(
+        reactor,
+        lifecycle,
+        () => {
+          reactEffectContext.wake()
+        },
+        "react"
+      ),
+      wake: noop,
+    }
 
+    return reactEffectContext
+  }
+
+  const useSig = () => {
+    const reactor = useReactor()
+
+    const effectContext = useRef<ReactEffectContext | undefined>()
+
+    if (effectContext.current === undefined) {
+      effectContext.current = createReactEffectContext(reactor)
+    }
+
+    useEffect(() => {
       return () => {
-        dispose().catch((error: unknown) => {
-          console.error("error while cleaning up reactor effect", {
-            effect: effect.name,
-            error,
-          })
+        effectContext.current!.lifecycle.dispose().catch((error: unknown) => {
+          console.error("error while disposing react effect context", { error })
         })
       }
-    }, [reactor, effect])
-  }
-
-  const useTopic = <TMessage>(
-    topicFactory: TopicFactory<TMessage>,
-    callback: (message: TMessage) => void
-  ) => {
-    const reactor = useContext(ReactorContext)
-
-    useEffect(() => {
-      const disposeSubscription = reactor.useContext(topicFactory).on(callback)
-      return () => {
-        disposeSubscription()
-        reactor.disposeContext(topicFactory)
-      }
-    }, [reactor, topicFactory, callback])
-  }
-
-  const useStore = <TState>(storeFactory: StoreFactory<TState>): TState => {
-    const reactor = useContext(ReactorContext)
-
-    const store = useMemo(
-      () => reactor.useContext(storeFactory),
-      [reactor, storeFactory]
-    )
-    useEffect(() => {
-      return () => {
-        reactor.disposeContext(storeFactory)
-      }
-    }, [reactor, storeFactory])
+    }, [reactor])
 
     return useSyncExternalStore(
       useCallback(
         (listener) => {
-          const disposeSubscription = store.on(listener)
+          const handleWake = () => {
+            effectContext
+              .current!.lifecycle.dispose()
+              .catch((error: unknown) => {
+                console.error("error while disposing react effect context", {
+                  error,
+                })
+              })
+              .finally(() => {
+                effectContext.current = createReactEffectContext(reactor)
+                effectContext.current.wake = handleWake
+                listener()
+              })
+          }
+
+          effectContext.current!.wake = handleWake
+
           return () => {
-            disposeSubscription()
+            effectContext.current!.wake = noop
           }
         },
-        [store]
+        [reactor]
       ),
-      () => store.read()
+      () => effectContext.current!.context
     )
   }
 
   return {
     Provider: ReactorContext.Provider,
-    useSigEffect,
     useReactor,
-    useTopic,
-    useStore,
+    useSig,
   }
 }
 
-const { Provider, useSigEffect, useReactor, useTopic, useStore } =
-  createReactiveHooks()
+const { Provider, useReactor, useSig } = createReactiveHooks()
 
-export { Provider, useSigEffect, useReactor, useTopic, useStore }
+export { Provider, useReactor, useSig }
