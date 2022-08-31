@@ -15,9 +15,9 @@ const LogViewer = ({ filter }: LogViewerProperties) => {
   const outerReference = useRef<HTMLDivElement>(null)
   const [shouldStick, setShouldStick] = useState(true)
   const scrollPositionReference = useRef<number | undefined>(undefined)
-  const logs = useStore(remoteLogsStore)?.logs ?? []
+  const logs = useStore(remoteLogsStore)?.logs
   const filteredLogs = useMemo(
-    () => (filter ? logs.filter((item) => filter(item)) : logs),
+    () => (logs ? (filter ? logs.filter((item) => filter(item)) : logs) : []),
     [filter, logs]
   )
 
