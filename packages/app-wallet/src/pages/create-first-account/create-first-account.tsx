@@ -1,17 +1,19 @@
 import { ArrowRight, ProhibitInset } from "phosphor-react"
 import { useCallback } from "react"
 
+import { useSig } from "@dassie/lib-reactive-react"
+
 import Button from "../../components/button/button"
 import Dialog from "../../components/dialog/dialog"
 import Tabs from "../../components/tabs/tabs"
-import { useWallet } from "../../hooks/use-wallet"
+import { walletStore } from "../../stores/wallet"
 
 export const CreateFirstAccount = () => {
-  const addSubnet = useWallet((wallet) => wallet.addSubnet)
+  const sig = useSig()
 
   const onSelectNullSubnet = useCallback(() => {
-    addSubnet({ type: "null" })
-  }, [addSubnet])
+    sig.use(walletStore).addAccount({ type: "null", uplinks: [] })
+  }, [sig])
 
   return (
     <div className="flex h-full items-center justify-center">

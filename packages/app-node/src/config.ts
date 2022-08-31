@@ -23,6 +23,7 @@ export interface Config {
   tlsDassieCert: string
   tlsDassieKey: string
   initialPeers: { nodeId: string; url: string }[]
+  beacons: { url: string }[]
 }
 
 export type InputConfig = z.infer<typeof inputConfigSchema>
@@ -42,6 +43,7 @@ export const inputConfigSchema = z.object({
   tlsDassieKey: z.string().optional(),
   tlsDassieKeyFile: z.string().optional(),
   initialPeers: z.string().optional(),
+  beacons: z.string().optional(),
 })
 
 export const processFileOption = (
@@ -105,6 +107,10 @@ export function fromPartialConfig(partialConfig: InputConfig): Config {
               peer.nodeId != null && peer.url != null
           )
       : [],
+    beacons: (partialConfig.beacons ?? "")
+      .split(";")
+      .map((url) => ({ url }))
+      .filter(Boolean),
   }
 }
 

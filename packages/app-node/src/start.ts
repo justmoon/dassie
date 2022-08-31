@@ -1,5 +1,6 @@
 import { EffectContext, createReactor } from "@dassie/lib-reactive"
 
+import { pingBeacons } from "./beacon/ping-beacons"
 import { registerBtpHttpUpgrade } from "./btp-server/register-btp-http-upgrade"
 import { registerBtpIlpSender } from "./btp-server/register-btp-ilp-sender"
 import { registerRootRoute, serveHttp } from "./http-server/serve-http"
@@ -20,6 +21,8 @@ export const rootEffect = async (sig: EffectContext) => {
 
   await sig.run(speakPeerProtocol)
   sig.run(loadInitialPeers)
+
+  sig.run(pingBeacons)
 }
 
 export const start = () => createReactor(rootEffect)

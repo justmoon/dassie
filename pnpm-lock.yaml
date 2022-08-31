@@ -259,12 +259,15 @@ importers:
 
   packages/app-wallet:
     specifiers:
+      '@dassie/lib-reactive': workspace:^1.0.0
+      '@dassie/lib-reactive-react': workspace:^1.0.0
       '@dassie/lib-type-utils': workspace:^1.0.0
       '@noble/hashes': ^1.1.2
       '@radix-ui/react-tabs': ^1.0.0
       '@scure/bip39': ^1.1.0
       '@unocss/reset': ^0.45.12
       '@vitejs/plugin-react': ^2.0.1
+      axios: ^0.27.2
       classnames: ^2.3.1
       phosphor-react: ^1.4.1
       react: ^18.2.0
@@ -274,11 +277,14 @@ importers:
       wouter: 2.8.0-alpha.2
       zustand: ^4.1.1
     dependencies:
+      '@dassie/lib-reactive': link:../lib-reactive
+      '@dassie/lib-reactive-react': link:../lib-reactive-react
       '@dassie/lib-type-utils': link:../lib-type-utils
       '@noble/hashes': 1.1.2
       '@radix-ui/react-tabs': 1.0.0_biqbaboplfbrettd7655fr4n2y
       '@scure/bip39': 1.1.0
       '@unocss/reset': 0.45.12
+      axios: 0.27.2
       classnames: 2.3.1
       phosphor-react: 1.4.1_react@18.2.0
       react: 18.2.0

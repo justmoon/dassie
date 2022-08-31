@@ -4,8 +4,10 @@ import { wordlist } from "@scure/bip39/wordlists/english"
 import { ArrowLeft } from "phosphor-react"
 import { useCallback, useState } from "react"
 
+import { useSig } from "@dassie/lib-reactive-react"
+
 import Dialog from "../../components/dialog/dialog"
-import { useWallet } from "../../hooks/use-wallet"
+import { walletStore } from "../../stores/wallet"
 import { SubpageGenerate } from "./subpage-generate/subpage-generate"
 import { SubpageIntro } from "./subpage-intro/subpage-intro"
 import { SubpageRecover } from "./subpage-recover/subpage-recover"
@@ -52,7 +54,8 @@ const SUBPAGE_TITLES: Record<SubpageState["subpage"], string> = {
 
 export const Open = () => {
   const [subpage, setSubpage] = useState<SubpageState>({ subpage: "intro" })
-  const wallet = useWallet()
+  const sig = useSig()
+  const wallet = sig.get(walletStore)
 
   const onBack = useCallback(() => {
     switch (subpage.subpage) {
@@ -92,7 +95,9 @@ export const Open = () => {
 
       void bip39
         .mnemonicToSeed(mnemonic)
-        .then((binarySeed) => wallet.setSeed(bytesToHex(binarySeed)))
+        .then((binarySeed) =>
+          sig.use(walletStore).setSeed(bytesToHex(binarySeed))
+        )
     },
     [setSubpage, wallet]
   )
