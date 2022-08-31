@@ -162,7 +162,7 @@ There are three effects, `pinger`, `ponger`, and `logger`. Pinger will watch the
 
 > I'll never forget this!
 
-Stores are a special type of topic. When you emit a reducer to a store, the store will apply the reducer to its last emitted value (or its `initialValue` if this is the first event) and emit the result.
+Stores are stateful topics. They provide methods `read` and `write` which allows you access and modify their internal state. You can also call `update` and pass a reducer which accepts the previous state and returns a new state. Whenever the state changes, the store will emit the new state so you can listen to it. When creating a new store, you can pass an `initialValue`.
 
 That means that stores are effectively stateful topics. Let's see an example.
 
@@ -173,7 +173,7 @@ const counterStore = () => createStore(0)
 
 const clock = (sig: EffectContext) => {
   sig.interval(() => {
-    sig.emit(counterStore, (state) => state + 1)
+    sig.use(counterStore).update((state) => state + 1)
   }, 75)
 }
 
@@ -206,9 +206,9 @@ const store3 = () => createStore(0)
 const rootEffect = (sig: EffectContext) => {
   sig.interval(() => {
     // Even though we are triggering three state updates, the effect will only re-run once
-    sig.emit(store1, (a) => a + 1)
-    sig.emit(store2, (a) => a + 3)
-    sig.emit(store3, (a) => a + 5)
+    sig.use(store1).update((a) => a + 1)
+    sig.use(store2).update((a) => a + 3)
+    sig.use(store3).update((a) => a + 5)
   }, 1000)
 
   sig.run((sig) => {

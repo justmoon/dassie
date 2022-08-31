@@ -66,8 +66,7 @@ export const maintainOwnNodeTableEntry = async (sig: EffectContext) => {
       return
     }
 
-    sig.emit(
-      nodeTableStore,
+    sig.use(nodeTableStore).update(
       ownNodeTableEntry == undefined
         ? addNode({
             nodeId: nodeId,

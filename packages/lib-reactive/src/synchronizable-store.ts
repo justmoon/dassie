@@ -49,7 +49,7 @@ const bindActions = <TState, TActions extends Record<string, Action<TState>>>(
       boundActions[key] = ((...parameters) => {
         const reducer = actions[key]!(...parameters)
 
-        store.emit(reducer)
+        store.update(reducer)
         changesTopic.emit([key, parameters])
 
         return store.read()
@@ -87,7 +87,6 @@ export const createSynchronizableStore = <
   actions: TActions
 ): SynchronizableStore<TState, TActions> => {
   const store = createStore<TState>(initialState)
-  // eslint-disable-next-line unicorn/consistent-function-scoping
   const changes = createTopic<Change>()
 
   const boundActions = bindActions(actions, store, changes)

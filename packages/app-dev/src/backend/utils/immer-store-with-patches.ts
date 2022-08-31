@@ -1,5 +1,6 @@
-import { Store, createStore } from "@dassie/lib-reactive"
 import { Patch, enablePatches, produceWithPatches } from "immer"
+
+import { Store, createStore } from "@dassie/lib-reactive"
 
 import type { ImmerProducer } from "./immer-store"
 
@@ -26,12 +27,12 @@ export const createImmerStoreWithPatches = <TState>(
       return produceWithPatches(previousState[0], producer)
     }
 
-  const emit = (producer: ImmerProducer<TState>) => {
-    store.emit(reducer(producer))
+  const update = (producer: ImmerProducer<TState>) => {
+    return store.update(reducer(producer))
   }
 
   return {
     ...store,
-    emit,
+    update,
   }
 }

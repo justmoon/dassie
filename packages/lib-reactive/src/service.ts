@@ -32,7 +32,7 @@ export type Service<TInstance> = Store<TInstance> & {
 
 const readUninitialized = () => {
   throw new Error(
-    "Value has not been initialized. This indicates that you tried to read this value during the execution of its own initializer or destructor, i.e. a circular dependency."
+    "Service has not been initialized. This indicates that you tried to read this value during the execution of its own initializer or destructor, i.e. a circular dependency."
   )
 }
 
@@ -74,7 +74,7 @@ export const createService = <T>(effect: Effect<Service<T>, T>): Service<T> => {
         if (value.read !== store.read) value.read = store.read
 
         if (store.read() !== newValue) {
-          store.emit(() => newValue)
+          store.write(newValue)
         }
       }).catch((error: unknown) => {
         console.error("error while running effect to calculate value", {
@@ -87,7 +87,7 @@ export const createService = <T>(effect: Effect<Service<T>, T>): Service<T> => {
       referenceCount--
 
       if (referenceCount === 0) {
-        store.emit(() => UninitializedSymbol as unknown as T)
+        store.write(UninitializedSymbol as unknown as T)
         value.read = readUninitialized
         return lifecycle.dispose()
       }

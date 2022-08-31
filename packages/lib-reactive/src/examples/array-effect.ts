@@ -2,7 +2,7 @@ import type { EffectContext } from "../effect"
 import { createReactor } from "../reactor"
 import { createStore } from "../store"
 
-const listStore = () => createStore<string[]>([])
+const listStore = () => createStore<readonly string[]>([])
 
 const rootEffect = (sig: EffectContext) => {
   sig.for(listStore, (sig, entry) => {
@@ -15,22 +15,22 @@ const rootEffect = (sig: EffectContext) => {
 
   sig.timeout(() => {
     console.log("Adding 'Hello'")
-    sig.emit(listStore, (list) => [...list, "Hello"])
+    sig.use(listStore).update((list) => [...list, "Hello"])
   }, 100)
 
   sig.timeout(() => {
     console.log("Adding 'world!'")
-    sig.emit(listStore, (list) => [...list, "world!"])
+    sig.use(listStore).update((list) => [...list, "world!"])
   }, 200)
 
   sig.timeout(() => {
     console.log("Adding 'reactive'")
-    sig.emit(listStore, (list) => [list[0]!, "reactive", list[1]!])
+    sig.use(listStore).update((list) => [list[0]!, "reactive", list[1]!])
   }, 300)
 
   sig.timeout(() => {
     console.log("Replacing 'reactive' and 'world!' with 'and' and 'goodbye!'")
-    sig.emit(listStore, (list) => [list[0]!, "and", "goodbye!"])
+    sig.use(listStore).update((list) => [list[0]!, "and", "goodbye!"])
   }, 400)
 
   sig.timeout(() => {

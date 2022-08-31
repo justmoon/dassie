@@ -21,8 +21,7 @@ export const forwardLinkStateUpdate = (sig: EffectContext) => {
       node.scheduledRetransmitTime < Date.now()
     ) {
       // Set scheduled retransmit time to be infinitely far in the future so we don't retransmit the same update again.
-      sig.emit(
-        nodeTableStore,
+      sig.use(nodeTableStore).update(
         updateNode(node.nodeId, {
           scheduledRetransmitTime: Number.POSITIVE_INFINITY,
         })

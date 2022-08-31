@@ -6,7 +6,7 @@ const counterStore = () => createStore(0)
 
 const rootEffect = (sig: EffectContext) => {
   sig.interval(() => {
-    sig.emit(counterStore, (a) => a + 1)
+    sig.use(counterStore).update((a) => a + 1)
   }, 500)
 
   void sig.run(innerEffect)

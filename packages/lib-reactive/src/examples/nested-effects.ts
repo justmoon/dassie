@@ -36,7 +36,7 @@ const childEffect = (sig: EffectContext) => {
     console.log("reacting to", message)
 
     if (message) {
-      sig.emit(store1, ({ states }) => ({
+      sig.use(store1).update(({ states }) => ({
         states: [...new Set<string>([...states, message])],
       }))
     }

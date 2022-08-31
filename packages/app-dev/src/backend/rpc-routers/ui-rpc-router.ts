@@ -37,7 +37,7 @@ export const uiRpcRouter = trpc
 
       const uniquePeers = [...new Set(peers)]
 
-      templateStore.emit((nodes) => [...nodes, uniquePeers])
+      templateStore.update((nodes) => [...nodes, uniquePeers])
     },
   })
 

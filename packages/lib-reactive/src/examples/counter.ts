@@ -6,7 +6,7 @@ const counterStore = () => createStore(0)
 
 const clock = (sig: EffectContext) => {
   sig.interval(() => {
-    sig.emit(counterStore, (state) => state + 1)
+    sig.use(counterStore).update((state) => state + 1)
   }, 75)
 }
 

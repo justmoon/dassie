@@ -31,15 +31,13 @@ export const handlePeerMessages = (sig: EffectContext) => {
 
       const peer = peers.get(nodeId)
       if (peer) {
-        sig.emit(
-          peerTableStore,
+        sig.use(peerTableStore).update(
           updatePeer(nodeId, {
             lastSeen: Date.now(),
           })
         )
       } else {
-        sig.emit(
-          peerTableStore,
+        sig.use(peerTableStore).update(
           addPeer({
             nodeId,
             url,
@@ -79,16 +77,14 @@ export const handlePeerMessages = (sig: EffectContext) => {
             counter: node.updateReceivedCounter + 1,
           })
 
-          sig.emit(
-            nodeTableStore,
+          sig.use(nodeTableStore).update(
             updateNode(nodeId, {
               updateReceivedCounter: node.updateReceivedCounter + 1,
             })
           )
           return
         }
-        sig.emit(
-          nodeTableStore,
+        sig.use(nodeTableStore).update(
           updateNode(nodeId, {
             sequence: sequence,
             updateReceivedCounter: 1,
@@ -98,8 +94,7 @@ export const handlePeerMessages = (sig: EffectContext) => {
           })
         )
       } else {
-        sig.emit(
-          nodeTableStore,
+        sig.use(nodeTableStore).update(
           addNode({
             nodeId,
             sequence,

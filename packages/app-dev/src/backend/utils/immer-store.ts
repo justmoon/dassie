@@ -1,6 +1,7 @@
-import { Store, createStore } from "@dassie/lib-reactive"
 import produce from "immer"
 import type { WritableDraft } from "immer/dist/internal"
+
+import { Store, createStore } from "@dassie/lib-reactive"
 
 export type ImmerProducer<TState> = (
   previousState: WritableDraft<TState>
@@ -17,12 +18,12 @@ export const createImmerStore = <TState>(
       return produce(previousState, producer)
     }
 
-  const emit = (producer: ImmerProducer<TState>) => {
-    store.emit(reducer(producer))
+  const update = (producer: ImmerProducer<TState>) => {
+    return store.update(reducer(producer))
   }
 
   return {
     ...store,
-    emit,
+    update,
   }
 }

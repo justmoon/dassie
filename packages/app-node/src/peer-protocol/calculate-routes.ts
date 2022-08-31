@@ -1,6 +1,7 @@
+import Denque from "denque"
+
 import { EffectContext, createStore } from "@dassie/lib-reactive"
 import { assertDefined } from "@dassie/lib-type-utils"
-import Denque from "denque"
 
 import { configStore } from "../config"
 import { nodeTableStore } from "./stores/node-table"
@@ -91,5 +92,5 @@ export const calculateRoutes = (sig: EffectContext) => {
     })
   }
 
-  sig.emit(routingTableStore, () => routes)
+  sig.use(routingTableStore).write(routes)
 }

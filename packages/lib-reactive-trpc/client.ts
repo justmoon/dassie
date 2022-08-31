@@ -51,8 +51,8 @@ export const createRemoteTopic = <
         onNext: (event) => {
           if (event.type !== "data") return
 
-          value.emit(
-            () => event.data as InferMessageType<TExposedTopicsMap[TTopicName]>
+          value.write(
+            event.data as InferMessageType<TExposedTopicsMap[TTopicName]>
           )
         },
       })
@@ -80,8 +80,8 @@ export const createRemoteStore = <
         onNext: (event) => {
           if (event.type !== "data") return
 
-          value.emit(
-            () => event.data as InferMessageType<TExposedTopicsMap[TStoreName]>
+          value.write(
+            event.data as InferMessageType<TExposedTopicsMap[TStoreName]>
           )
         },
       })
@@ -110,9 +110,7 @@ export const createRemoteSynchronizedStore = <
 
     sig.onCleanup(
       localStore.on((newValue) => {
-        value.emit(
-          () => newValue as InferMessageType<TExposedTopicsMap[TStoreName]>
-        )
+        value.write(newValue as InferMessageType<TExposedTopicsMap[TStoreName]>)
       })
     )
 
@@ -122,7 +120,7 @@ export const createRemoteSynchronizedStore = <
         onNext: (event) => {
           if (event.type !== "data") return
           if (event.data.type === "initial") {
-            localStore.emit(() => event.data.data)
+            localStore.write(event.data.data)
           } else {
             const action = localStore[event.data.data[0]] as
               | BoundAction<unknown, unknown[]>
