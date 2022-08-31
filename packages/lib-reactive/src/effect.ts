@@ -33,7 +33,7 @@ export class EffectContext {
 
     readonly wake: () => void,
 
-    private readonly effect: Effect<never>
+    private readonly effectName: string
   ) {}
 
   /**
@@ -146,7 +146,7 @@ export class EffectContext {
         } catch (error: unknown) {
           console.error("error in listener", {
             topic: topic.name,
-            effect: this.effect.name,
+            effect: this.effectName,
             error,
           })
         }
@@ -168,7 +168,7 @@ export class EffectContext {
         } catch (error: unknown) {
           console.error("error in once listener", {
             topic: topic.name,
-            effect: this.effect.name,
+            effect: this.effectName,
             error,
           })
         }
@@ -191,7 +191,7 @@ export class EffectContext {
         listener(message).catch((error: unknown) => {
           console.error("error in async listener", {
             topic: topic.name,
-            effect: this.effect.name,
+            effect: this.effectName,
             error,
           })
         })
@@ -214,7 +214,7 @@ export class EffectContext {
         listener(message).catch((error: unknown) => {
           console.error("error in onceAsync listener", {
             topic: topic.name,
-            effect: this.effect.name,
+            effect: this.effectName,
             error,
           })
         })
@@ -231,7 +231,7 @@ export class EffectContext {
         callback()
       } catch (error) {
         console.error("error in interval callback", {
-          effect: this.effect.name,
+          effect: this.effectName,
           error,
         })
       }
@@ -251,7 +251,7 @@ export class EffectContext {
         callback()
       } catch (error) {
         console.error("error in timeout callback", {
-          effect: this.effect.name,
+          effect: this.effectName,
           error,
         })
       }
@@ -321,7 +321,7 @@ export class EffectContext {
     ).catch((error: unknown) => {
       console.error("error in child effect", {
         effect: effect.name,
-        parentEffect: this.effect.name,
+        parentEffect: this.effectName,
         error,
       })
     })
@@ -336,7 +336,9 @@ export class EffectContext {
     arrayTopicFactory: StoreFactory<readonly TElement[], never>,
     effect: Effect<TElement, TReturn>
   ) {
-    return this.run(createArrayEffect(arrayTopicFactory, effect, this.effect))
+    return this.run(
+      createArrayEffect(arrayTopicFactory, effect, this.effectName)
+    )
   }
 
   /**
@@ -347,7 +349,7 @@ export class EffectContext {
     effect: Effect<readonly [element: TElement, index: number], TReturn>
   ) {
     return this.run(
-      createIndexedArrayEffect(arrayTopicFactory, effect, this.effect)
+      createIndexedArrayEffect(arrayTopicFactory, effect, this.effectName)
     )
   }
 }
@@ -365,7 +367,12 @@ export const runEffect = async <TProperties, TReturn>(
     const lifecycle = parentLifecycle.deriveChildLifecycle()
     const waker = makePromise()
 
-    const context = new EffectContext(reactor, lifecycle, waker.resolve, effect)
+    const context = new EffectContext(
+      reactor,
+      lifecycle,
+      waker.resolve,
+      effect.name
+    )
 
     try {
       const effectResult = effect(context, properties)

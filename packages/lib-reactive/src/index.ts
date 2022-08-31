@@ -7,6 +7,7 @@ export {
   SynchronizableStoreSymbol,
 } from "./synchronizable-store"
 export { createReactor, FactoryNameSymbol } from "./reactor"
+export { EffectContext } from "./effect"
 export { debugFirehose } from "./debug/debug-tools"
 
 export type { Topic, TopicFactory, Listener, InferMessageType } from "./topic"
@@ -22,4 +23,4 @@ export type {
   InferBoundActions,
 } from "./synchronizable-store"
 export type { Reactor, Factory, Disposer, AsyncDisposer } from "./reactor"
-export type { Effect, EffectContext, AsyncListener } from "./effect"
+export type { Effect, AsyncListener } from "./effect"

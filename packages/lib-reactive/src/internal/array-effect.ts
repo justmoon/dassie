@@ -10,7 +10,7 @@ interface EffectCache<TReturn> {
 export const createArrayEffect = <TElement, TReturn>(
   arrayTopicFactory: StoreFactory<readonly TElement[], never>,
   effect: Effect<TElement, TReturn>,
-  parentEffect: Effect<never>
+  parentEffectName: string
 ) => {
   return function keepArrayEffectsCache(sig: EffectContext) {
     const runningEffects = new Map<TElement, EffectCache<TReturn>>()
@@ -70,7 +70,7 @@ export const createArrayEffect = <TElement, TReturn>(
               effect: effect.name,
               topic: arrayTopicFactory.name,
               index,
-              parentEffect: parentEffect.name,
+              parentEffect: parentEffectName,
               error,
             })
           })
@@ -98,7 +98,7 @@ interface IndexedEffectCache<TElement, TReturn> extends EffectCache<TReturn> {
 export const createIndexedArrayEffect = <TElement, TReturn>(
   arrayTopicFactory: StoreFactory<readonly TElement[], never>,
   effect: Effect<readonly [element: TElement, index: number], TReturn>,
-  parentEffect: Effect<never>
+  parentEffectName: string
 ) => {
   return function keepArrayEffectsCache(sig: EffectContext) {
     let runningEffects: IndexedEffectCache<TElement, TReturn>[] = []
@@ -153,7 +153,7 @@ export const createIndexedArrayEffect = <TElement, TReturn>(
               effect: effect.name,
               topic: arrayTopicFactory.name,
               index,
-              parentEffect: parentEffect.name,
+              parentEffect: parentEffectName,
               error,
             })
           })
