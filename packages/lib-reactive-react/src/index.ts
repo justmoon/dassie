@@ -50,26 +50,30 @@ export const createReactiveHooks = () => {
     }, [reactor, topicFactory, callback])
   }
 
-  const useStore = <TState>(
-    storeFactory: StoreFactory<TState>
-  ): TState | undefined => {
+  const useStore = <TState>(storeFactory: StoreFactory<TState>): TState => {
     const reactor = useContext(ReactorContext)
+
+    const store = useMemo(
+      () => reactor.useContext(storeFactory),
+      [reactor, storeFactory]
+    )
+    useEffect(() => {
+      return () => {
+        reactor.disposeContext(storeFactory)
+      }
+    }, [reactor, storeFactory])
 
     return useSyncExternalStore(
       useCallback(
         (listener) => {
-          const store = reactor.useContext(storeFactory)
           const disposeSubscription = store.on(listener)
           return () => {
             disposeSubscription()
-            reactor.disposeContext(storeFactory)
           }
         },
-        [reactor, storeFactory]
+        [store]
       ),
-      () => {
-        return reactor.peekContext(storeFactory)?.read()
-      }
+      () => store.read()
     )
   }
 
