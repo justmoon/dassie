@@ -55,7 +55,6 @@ const SUBPAGE_TITLES: Record<SubpageState["subpage"], string> = {
 export const Open = () => {
   const [subpage, setSubpage] = useState<SubpageState>({ subpage: "intro" })
   const sig = useSig()
-  const wallet = sig.get(walletStore)
 
   const onBack = useCallback(() => {
     switch (subpage.subpage) {
@@ -99,7 +98,7 @@ export const Open = () => {
           sig.use(walletStore).setSeed(bytesToHex(binarySeed))
         )
     },
-    [setSubpage, wallet]
+    [setSubpage, sig]
   )
 
   const subpageElement = (() => {
