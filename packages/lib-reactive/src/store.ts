@@ -1,7 +1,7 @@
 import { isObject } from "@dassie/lib-type-utils"
 
 import type { Factory, Reactor } from "./reactor"
-import { Reducer, Signal, createSignal } from "./signal"
+import { Signal, createSignal } from "./signal"
 import { Topic, createTopic } from "./topic"
 
 export const StoreSymbol = Symbol(
@@ -63,7 +63,7 @@ const bindActions = <TState, TActions extends Record<string, Action<TState>>>(
 export type Store<
   TState,
   TActions extends Record<string, Action<TState>>
-> = Signal<TState, Reducer<TState>> & {
+> = Signal<TState> & {
   /**
    * Marks this object as a store.
    */

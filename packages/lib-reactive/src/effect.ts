@@ -50,14 +50,14 @@ export class EffectContext {
    * @param comparator - By default, the reactor checks for strict equality (`===`) to determine if the value has changed. This can be overridden by passing a custom comparator function.
    * @returns The current value of the signal, narrowed by the selector.
    */
-  get<TState>(signalFactory: SignalFactory<TState, never>): TState
+  get<TState>(signalFactory: SignalFactory<TState>): TState
   get<TState, TSelection>(
-    signalFactory: SignalFactory<TState, never>,
+    signalFactory: SignalFactory<TState>,
     selector: (state: TState) => TSelection,
     comparator?: (oldValue: TSelection, newValue: TSelection) => boolean
   ): TSelection
   get<TState, TSelection>(
-    signalFactory: SignalFactory<TState, never>,
+    signalFactory: SignalFactory<TState>,
     selector: (state: TState) => TSelection = (a) =>
       // Based on the overloaded function signature, the selector parameter may be omitted iff TMessage equals TSelection.
       // Therefore this cast is safe.
@@ -96,7 +96,7 @@ export class EffectContext {
    * @returns A filtered version of the signal state containing only the requested keys.
    */
   getKeys<TState, TKeys extends keyof TState>(
-    signal: SignalFactory<TState, never>,
+    signal: SignalFactory<TState>,
     keys: readonly TKeys[]
   ): Pick<TState, TKeys> {
     return this.get(
@@ -333,7 +333,7 @@ export class EffectContext {
    * Run an effect for each element of an array topic. When the array value changes, only the effects corresponding to changed elements will be re-run.
    */
   for<TElement, TReturn>(
-    arrayTopicFactory: SignalFactory<readonly TElement[], never>,
+    arrayTopicFactory: SignalFactory<readonly TElement[]>,
     effect: Effect<TElement, TReturn>
   ) {
     return this.run(
@@ -345,7 +345,7 @@ export class EffectContext {
    * Like {@link for} but compares elements based on their index in the array. Also passes the index to the effect.
    */
   forIndex<TElement, TReturn>(
-    arrayTopicFactory: SignalFactory<readonly TElement[], never>,
+    arrayTopicFactory: SignalFactory<readonly TElement[]>,
     effect: Effect<readonly [element: TElement, index: number], TReturn>
   ) {
     return this.run(

@@ -7,15 +7,11 @@ export type Reducer<TState> = (previousState: TState) => TState
 
 export const SignalSymbol = Symbol("das:reactive:signal")
 
-export interface SignalFactory<TState, TReducer = Reducer<TState>>
-  extends Factory<Signal<TState, TReducer>> {
-  (): Signal<TState, TReducer>
+export interface SignalFactory<TState> extends Factory<Signal<TState>> {
+  (): Signal<TState>
 }
 
-export type Signal<TState, TReducer = Reducer<TState>> = Topic<
-  TState,
-  Readonly<TState>
-> & {
+export type Signal<TState> = Topic<TState, Readonly<TState>> & {
   /**
    * Marks this object as a signal.
    */
@@ -39,7 +35,7 @@ export type Signal<TState, TReducer = Reducer<TState>> = Topic<
    * @param reducer - The reducer to apply to the state.
    * @returns The new state of the signal.
    */
-  update(reducer: TReducer): TState
+  update(reducer: Reducer<TState>): TState
 }
 
 export function createSignal<TState>(): Signal<TState | undefined>

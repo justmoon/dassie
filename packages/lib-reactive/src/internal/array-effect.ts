@@ -8,7 +8,7 @@ interface EffectCache<TReturn> {
 }
 
 export const createArrayEffect = <TElement, TReturn>(
-  arrayTopicFactory: SignalFactory<readonly TElement[], never>,
+  arrayTopicFactory: SignalFactory<readonly TElement[]>,
   effect: Effect<TElement, TReturn>,
   parentEffectName: string
 ) => {
@@ -96,7 +96,7 @@ interface IndexedEffectCache<TElement, TReturn> extends EffectCache<TReturn> {
 }
 
 export const createIndexedArrayEffect = <TElement, TReturn>(
-  arrayTopicFactory: SignalFactory<readonly TElement[], never>,
+  arrayTopicFactory: SignalFactory<readonly TElement[]>,
   effect: Effect<readonly [element: TElement, index: number], TReturn>,
   parentEffectName: string
 ) => {
