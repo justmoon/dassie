@@ -1,7 +1,7 @@
 import produce, { enableMapSet } from "immer"
 import type { MarkOptional } from "ts-essentials"
 
-import { createSignal } from "@dassie/lib-reactive"
+import { createStore } from "@dassie/lib-reactive"
 
 enableMapSet()
 
@@ -13,26 +13,24 @@ export interface PeerEntry {
 
 export type NewPeerEntry = MarkOptional<PeerEntry, "lastSeen">
 
-export type Model = Map<string, PeerEntry>
-
-export const peerTableStore = () => createSignal<Model>(new Map())
-
-export const addPeer = (peerEntry: NewPeerEntry) =>
-  produce<Model>((draft) => {
-    draft.set(peerEntry.nodeId, {
-      lastSeen: Date.now(),
-      ...peerEntry,
-    })
-  })
-
-export const updatePeer = (nodeId: string, peerEntry: Partial<PeerEntry>) =>
-  produce<Model>((draft) => {
-    const previousEntry = draft.get(nodeId)
-    if (previousEntry == undefined) {
-      throw new Error("nodeId not found")
-    }
-    draft.set(nodeId, {
-      ...previousEntry,
-      ...peerEntry,
-    })
+export const peerTableStore = () =>
+  createStore(new Map<string, PeerEntry>(), {
+    addPeer: (peerEntry: NewPeerEntry) =>
+      produce((draft) => {
+        draft.set(peerEntry.nodeId, {
+          lastSeen: Date.now(),
+          ...peerEntry,
+        })
+      }),
+    updatePeer: (nodeId: string, peerEntry: Partial<PeerEntry>) =>
+      produce((draft) => {
+        const previousEntry = draft.get(nodeId)
+        if (previousEntry == undefined) {
+          throw new Error("nodeId not found")
+        }
+        draft.set(nodeId, {
+          ...previousEntry,
+          ...peerEntry,
+        })
+      }),
   })

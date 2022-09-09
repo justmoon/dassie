@@ -7,7 +7,7 @@ import { configSignal } from "../config"
 import { signerService } from "../crypto/signer"
 import { compareKeysToArray, compareSetOfKeys } from "../utils/compare-sets"
 import { peerNodeInfo, signedPeerNodeInfo } from "./peer-schema"
-import { addNode, nodeTableStore, updateNode } from "./stores/node-table"
+import { nodeTableStore } from "./stores/node-table"
 import { peerTableStore } from "./stores/peer-table"
 
 const logger = createLogger("das:node:maintain-own-node-table-entry")
@@ -68,23 +68,23 @@ export const maintainOwnNodeTableEntry = async (sig: EffectContext) => {
       return
     }
 
-    sig.use(nodeTableStore).update(
-      ownNodeTableEntry == undefined
-        ? addNode({
-            nodeId: nodeId,
-            neighbors: peerIds,
-            sequence,
-            scheduledRetransmitTime: Date.now(),
-            updateReceivedCounter: 0,
-            lastLinkStateUpdate: message.value,
-          })
-        : updateNode(nodeId, {
-            neighbors: peerIds,
-            sequence,
-            scheduledRetransmitTime: Date.now(),
-            updateReceivedCounter: 0,
-            lastLinkStateUpdate: message.value,
-          })
-    )
+    if (ownNodeTableEntry === undefined) {
+      sig.use(nodeTableStore).addNode({
+        nodeId: nodeId,
+        neighbors: peerIds,
+        sequence,
+        scheduledRetransmitTime: Date.now(),
+        updateReceivedCounter: 0,
+        lastLinkStateUpdate: message.value,
+      })
+    } else {
+      sig.use(nodeTableStore).updateNode(nodeId, {
+        neighbors: peerIds,
+        sequence,
+        scheduledRetransmitTime: Date.now(),
+        updateReceivedCounter: 0,
+        lastLinkStateUpdate: message.value,
+      })
+    }
   }
 }

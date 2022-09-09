@@ -3,7 +3,7 @@ import type { EffectContext } from "@dassie/lib-reactive"
 
 import { outgoingPeerMessageBufferTopic } from "../peer-protocol/send-peer-messages"
 import { peerMessage } from "./peer-schema"
-import { nodeTableStore, updateNode } from "./stores/node-table"
+import { nodeTableStore } from "./stores/node-table"
 import { peerTableStore } from "./stores/peer-table"
 
 const logger = createLogger("das:node:forward-link-state-update")
@@ -21,11 +21,9 @@ export const forwardLinkStateUpdate = (sig: EffectContext) => {
       node.scheduledRetransmitTime < Date.now()
     ) {
       // Set scheduled retransmit time to be infinitely far in the future so we don't retransmit the same update again.
-      sig.use(nodeTableStore).update(
-        updateNode(node.nodeId, {
-          scheduledRetransmitTime: Number.POSITIVE_INFINITY,
-        })
-      )
+      sig.use(nodeTableStore).updateNode(node.nodeId, {
+        scheduledRetransmitTime: Number.POSITIVE_INFINITY,
+      })
 
       const message = peerMessage.serialize({
         linkStateUpdate: {

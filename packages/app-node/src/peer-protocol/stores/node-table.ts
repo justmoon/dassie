@@ -1,6 +1,6 @@
 import produce, { enableMapSet } from "immer"
 
-import { createSignal } from "@dassie/lib-reactive"
+import { createStore } from "@dassie/lib-reactive"
 
 enableMapSet()
 
@@ -33,28 +33,23 @@ export interface NodeTableEntry {
   lastLinkStateUpdate: Uint8Array
 }
 
-export type Model = Map<string, NodeTableEntry>
-
-export const nodeTableStore = () => createSignal<Model>(new Map())
-
-export const addNode = (nodeEntry: NodeTableEntry) =>
-  produce<Model>((draft) => {
-    draft.set(nodeEntry.nodeId, {
-      ...nodeEntry,
-    })
-  })
-
-export const updateNode = (
-  nodeId: string,
-  nodeEntry: Partial<NodeTableEntry>
-) =>
-  produce<Model>((draft) => {
-    const previousEntry = draft.get(nodeId)
-    if (previousEntry == undefined) {
-      throw new Error("nodeId not found")
-    }
-    draft.set(nodeId, {
-      ...previousEntry,
-      ...nodeEntry,
-    })
+export const nodeTableStore = () =>
+  createStore(new Map<string, NodeTableEntry>(), {
+    addNode: (entry: NodeTableEntry) =>
+      produce((draft) => {
+        draft.set(entry.nodeId, {
+          ...entry,
+        })
+      }),
+    updateNode: (nodeId: string, nodeEntry: Partial<NodeTableEntry>) =>
+      produce((draft) => {
+        const previousEntry = draft.get(nodeId)
+        if (previousEntry == undefined) {
+          throw new Error("nodeId not found")
+        }
+        draft.set(nodeId, {
+          ...previousEntry,
+          ...nodeEntry,
+        })
+      }),
   })
