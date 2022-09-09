@@ -5,7 +5,7 @@ import {
   Reactor,
   TopicFactory,
   isSignal,
-  isSynchronizableStore,
+  isStore,
 } from "@dassie/lib-reactive"
 
 export const createRemoteReactiveRouter = <
@@ -98,8 +98,8 @@ export const createRemoteReactiveRouter = <
 
           const store = reactor.useContext(topicFactory)
 
-          if (!isSynchronizableStore(store)) {
-            throw new Error("Target topic is not a synchronizable store")
+          if (!isStore(store)) {
+            throw new Error("Target is not a store")
           }
 
           sendToClient.data({

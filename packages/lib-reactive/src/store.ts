@@ -4,18 +4,18 @@ import type { Factory, Reactor } from "./reactor"
 import { Reducer, Signal, createSignal } from "./signal"
 import { Topic, createTopic } from "./topic"
 
-export const SynchronizableStoreSymbol = Symbol(
-  "das:reactive:synchronizable-store"
+export const StoreSymbol = Symbol(
+  "das:reactive:store"
 )
 
-export interface SynchronizableStoreFactory<
+export interface StoreFactory<
   TState = unknown,
   TActions extends Record<string, Action<TState>> = Record<
     string,
     Action<TState>
   >
-> extends Factory<SynchronizableStore<TState, TActions>> {
-  (reactor: Reactor): SynchronizableStore<TState, TActions>
+> extends Factory<Store<TState, TActions>> {
+  (reactor: Reactor): Store<TState, TActions>
 }
 
 export type Action<
@@ -39,7 +39,7 @@ export type BoundAction<TState, TParameters extends unknown[]> = (
 
 const bindActions = <TState, TActions extends Record<string, Action<TState>>>(
   actions: TActions,
-  store: Signal<TState>,
+  signal: Signal<TState>,
   changesTopic: Topic<Change, Change>
 ): InferBoundActions<TActions> => {
   const boundActions = {} as InferBoundActions<TActions>
@@ -49,10 +49,10 @@ const bindActions = <TState, TActions extends Record<string, Action<TState>>>(
       boundActions[key] = ((...parameters) => {
         const reducer = actions[key]!(...parameters)
 
-        store.update(reducer)
+        signal.update(reducer)
         changesTopic.emit([key, parameters])
 
-        return store.read()
+        return signal.read()
       }) as typeof boundActions[typeof key]
     }
   }
@@ -60,32 +60,32 @@ const bindActions = <TState, TActions extends Record<string, Action<TState>>>(
   return boundActions
 }
 
-export type SynchronizableStore<
+export type Store<
   TState,
   TActions extends Record<string, Action<TState>>
 > = Signal<TState, Reducer<TState>> & {
   /**
    * Marks this object as a store.
    */
-  [SynchronizableStoreSymbol]: true
+  [StoreSymbol]: true
 
   changes: Topic<Change>
 } & InferBoundActions<TActions>
 
 /**
- * A synchronizable store is a store which has a predefined set of serializable actions. This can be used to replicate the state of the store across multiple processes/hosts.
+ * A store is a signal which has a predefined set of serializable actions. This can be used to replicate the state of the store across multiple processes/hosts.
  *
  * @param initialState - The starting state of the store.
  * @param actions - A record of different actions that can be performed to mutate the state of the store. The parameters must be JSON serializable.
  * @returns
  */
-export const createSynchronizableStore = <
+export const createStore = <
   TState,
   TActions extends Record<string, Action<TState>>
 >(
   initialState: TState,
   actions: TActions
-): SynchronizableStore<TState, TActions> => {
+): Store<TState, TActions> => {
   const signal = createSignal<TState>(initialState)
   const changes = createTopic<Change>()
 
@@ -93,13 +93,13 @@ export const createSynchronizableStore = <
 
   return {
     ...signal,
-    [SynchronizableStoreSymbol]: true,
+    [StoreSymbol]: true,
     changes,
     ...boundActions,
   }
 }
 
-export const isSynchronizableStore = (
+export const isStore = (
   object: unknown
-): object is SynchronizableStore<unknown, Record<string, Action>> =>
-  isObject(object) && object[SynchronizableStoreSymbol] === true
+): object is Store<unknown, Record<string, Action>> =>
+  isObject(object) && object[StoreSymbol] === true

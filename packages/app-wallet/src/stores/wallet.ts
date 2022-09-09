@@ -1,4 +1,4 @@
-import { createSynchronizableStore } from "@dassie/lib-reactive"
+import { createStore } from "@dassie/lib-reactive"
 
 import type { AccountConfiguration } from "../types/account-configuration"
 
@@ -29,7 +29,7 @@ const loadWallet = (): WalletModel => {
 }
 
 export const walletStore = () =>
-  createSynchronizableStore(loadWallet(), {
+  createStore(loadWallet(), {
     setSeed: (seed: string) => (state) => ({ ...state, seed }),
     addAccount: (subnet: AccountConfiguration) => (state) => ({
       ...state,

@@ -8,7 +8,7 @@ import {
   ServiceFactory,
   TopicFactory,
   createService,
-  isSynchronizableStore,
+  isStore,
 } from "@dassie/lib-reactive"
 
 import type { RemoteReactiveRouter } from "./server"
@@ -100,7 +100,7 @@ export const createRemoteSynchronizedStore = <
 
     const localStore = sig.run(storeImplementation)
 
-    if (!isSynchronizableStore(localStore)) {
+    if (!isStore(localStore)) {
       throw new Error("Store is not synchronizable")
     }
 
