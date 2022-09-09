@@ -13,9 +13,14 @@ import { debugUiServer } from "./effects/serve-debug-ui"
 import { listenForRpcWebSocket } from "./effects/serve-rpc"
 import { serveWallet } from "./effects/serve-wallet"
 import { indexLogs } from "./features/logs"
+import { viteNodeService } from "./services/vite-node-server"
+import { viteService } from "./services/vite-server"
 
 const rootEffect = async (sig: EffectContext) => {
   console.log(bold(`  Dassie${green("//dev")}\n`))
+
+  sig.run(sig.use(viteService).effect)
+  sig.run(sig.use(viteNodeService).effect)
 
   await sig.run(compileRunner)
   sig.run(captureLogs)

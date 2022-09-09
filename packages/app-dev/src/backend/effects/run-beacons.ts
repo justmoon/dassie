@@ -23,6 +23,8 @@ export const runBeacons = async (sig: EffectContext) => {
   const viteServer = await sig.get(viteService)
   const nodeServer = await sig.get(viteNodeService)
 
+  if (!viteServer || !nodeServer) return
+
   logger.debug("starting beacon processes")
 
   await Promise.all(

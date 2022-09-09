@@ -25,6 +25,8 @@ export const runNodes = async (sig: EffectContext) => {
   const viteServer = await sig.get(viteService)
   const nodeServer = await sig.get(viteNodeService)
 
+  if (!viteServer || !nodeServer) return
+
   // Restart child processes when a file changes
   sig.subscribe(fileChangeTopic)
 

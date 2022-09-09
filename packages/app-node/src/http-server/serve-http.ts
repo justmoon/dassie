@@ -37,6 +37,8 @@ export const httpService = () =>
   createService((sig) => {
     const router = sig.get(routerService)
 
+    if (!router) return
+
     const { host, port, tlsWebCert, tlsWebKey } = sig.get(
       configStore,
       ({ host, port, tlsWebCert, tlsWebKey }) => ({
@@ -70,7 +72,7 @@ export const httpService = () =>
         assertDefined(request.url)
         assertDefined(request.method)
 
-        await router.lookup(request, response)
+        await router!.lookup(request, response)
       } catch (error) {
         // Log any errors
         logger.error(
@@ -107,10 +109,14 @@ export const httpService = () =>
   })
 
 export const serveHttp = (sig: EffectContext) => {
-  sig.use(httpService)
+  sig.run(sig.use(routerService).effect)
+  sig.run(sig.use(httpService).effect)
 }
 
 export const registerRootRoute = (sig: EffectContext) => {
   const router = sig.get(routerService)
+
+  if (!router) return
+
   router.get("/", handleGetRoot)
 }

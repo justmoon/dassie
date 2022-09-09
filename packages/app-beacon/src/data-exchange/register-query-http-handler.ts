@@ -11,6 +11,8 @@ export interface QueryResponseData {
 export const registerQueryHttpHandler = (sig: EffectContext) => {
   const router = sig.get(routerService)
 
+  if (!router) return
+
   router.get("/query", (request, response) => {
     response.setHeader("Access-Control-Allow-Origin", "*")
     const query = new URLSearchParams(

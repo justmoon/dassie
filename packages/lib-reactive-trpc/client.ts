@@ -13,12 +13,6 @@ import {
 
 import type { RemoteReactiveRouter } from "./server"
 
-export interface ReactiveTrpcConnection<
-  TExposedTopicsMap extends Record<string, TopicFactory>
-> {
-  client: ReactiveTrpcClient<TExposedTopicsMap>
-}
-
 export type ReactiveTrpcClient<
   TExposedTopicsMap extends Record<string, TopicFactory>
 > = TRPCClient<RemoteReactiveRouter<TExposedTopicsMap>>
@@ -28,22 +22,20 @@ export const createTrpcConnection = <
 >(
   connect: (sig: EffectContext) => TClient
 ) => {
-  return createService((sig) => {
-    const trpcClient = sig.run(connect)
-
-    return { client: trpcClient } as const
-  })
+  return createService(connect)
 }
 
 export const createRemoteTopic = <
   TExposedTopicsMap extends Record<string, TopicFactory>,
   TTopicName extends string & keyof TExposedTopicsMap
 >(
-  connectionFactory: ServiceFactory<ReactiveTrpcConnection<TExposedTopicsMap>>,
+  connectionFactory: ServiceFactory<ReactiveTrpcClient<TExposedTopicsMap>>,
   topicName: TTopicName
 ): Service<InferMessageType<TExposedTopicsMap[TTopicName]> | undefined> => {
   return createService((sig, value) => {
-    const { client } = sig.get(connectionFactory)
+    const client = sig.get(connectionFactory)
+
+    if (!client) return
 
     sig.onCleanup(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -67,12 +59,14 @@ export const createRemoteStore = <
   TStoreName extends string & keyof TExposedTopicsMap,
   TInitialValue
 >(
-  connectionFactory: ServiceFactory<ReactiveTrpcConnection<TExposedTopicsMap>>,
+  connectionFactory: ServiceFactory<ReactiveTrpcClient<TExposedTopicsMap>>,
   storeName: TStoreName,
   initialValue: TInitialValue
 ): Service<InferMessageType<TExposedTopicsMap[TStoreName]> | TInitialValue> => {
   return createService((sig, value) => {
-    const { client } = sig.get(connectionFactory)
+    const client = sig.get(connectionFactory)
+
+    if (!client) return initialValue
 
     sig.onCleanup(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -95,18 +89,23 @@ export const createRemoteSynchronizedStore = <
   TExposedTopicsMap extends Record<string, TopicFactory>,
   TStoreName extends string & keyof TExposedTopicsMap
 >(
-  connectionFactory: ServiceFactory<ReactiveTrpcConnection<TExposedTopicsMap>>,
+  connectionFactory: ServiceFactory<ReactiveTrpcClient<TExposedTopicsMap>>,
   storeName: TStoreName,
   storeImplementation: TExposedTopicsMap[TStoreName]
 ): Service<InferMessageType<TExposedTopicsMap[TStoreName]>> => {
   return createService((sig, value) => {
-    const { client } = sig.get(connectionFactory)
+    const client = sig.get(connectionFactory)
 
     const localStore = sig.run(storeImplementation)
 
     if (!isSynchronizableStore(localStore)) {
       throw new Error("Store is not synchronizable")
     }
+
+    if (!client)
+      return localStore.read() as InferMessageType<
+        TExposedTopicsMap[TStoreName]
+      >
 
     sig.onCleanup(
       localStore.on((newValue) => {

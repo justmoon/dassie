@@ -23,7 +23,7 @@ const httpService = () =>
   })
 
 createReactor((sig) => {
-  sig.use(httpService)
+  sig.run(sig.use(httpService).effect)
 
   sig.timeout(
     () => sig.use(config).update((config) => ({ ...config, port: 3100 })),

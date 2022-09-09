@@ -16,6 +16,8 @@ export const maintainOwnNodeTableEntry = async (sig: EffectContext) => {
   const { nodeId, port } = sig.getKeys(configStore, ["nodeId", "port"])
   const signer = sig.get(signerService)
 
+  if (!signer) return
+
   // Get the current peers and re-run the effect iff the IDs of the peers change.
   const peers = sig.get(
     peerTableStore,

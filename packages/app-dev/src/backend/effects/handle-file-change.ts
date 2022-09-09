@@ -18,6 +18,8 @@ export const fileChangeTopic = () => createTopic()
 export const handleFileChange = async (sig: EffectContext) => {
   const viteServer = await sig.get(viteService)
 
+  if (!viteServer) return
+
   const onFileChange = (file: string) => {
     const { config, moduleGraph } = viteServer
     const shortFile = getShortName(file, config.root)

@@ -14,6 +14,10 @@ const logger = createLogger("das:node:peer-greeter")
 const MAX_GREETING_INTERVAL = 20_000
 
 export const greetPeers = async (sig: EffectContext) => {
+  const signer = sig.get(signerService)
+
+  if (!signer) return
+
   // Get the current peers and re-run the effect iff the IDs of the peers change.
   const peers = sig.get(
     peerTableStore,
@@ -28,8 +32,6 @@ export const greetPeers = async (sig: EffectContext) => {
   if (!ownNodeTableEntry) {
     return
   }
-
-  const signer = sig.get(signerService)
 
   for (const peer of peers.values()) {
     const sequence = BigInt(Date.now())

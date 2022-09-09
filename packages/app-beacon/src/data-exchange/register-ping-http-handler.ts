@@ -26,6 +26,8 @@ const pingSchema = sequence({
 export const registerPingHttpHandler = (sig: EffectContext) => {
   const router = sig.get(routerService)
 
+  if (!router) return
+
   router.post("/ping", async (request, response) => {
     assertContentTypeHeader(request, "application/dassie-beacon-ping")
 
