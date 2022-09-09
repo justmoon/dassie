@@ -188,10 +188,8 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
   })
 
   httpServer.on("upgrade", (request, socket, head) => {
-    if (request.url === "/btp") {
-      websocketServer.handleUpgrade(request, socket, head, (ws) => {
-        websocketServer.emit("connection", ws, request)
-      })
-    }
+    websocketServer.handleUpgrade(request, socket, head, (ws) => {
+      websocketServer.emit("connection", ws, request)
+    })
   })
 }

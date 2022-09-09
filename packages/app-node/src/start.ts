@@ -9,14 +9,12 @@ import { routeIlpPackets } from "./ilp-connector/route-ilp-packets"
 import { attachLogger } from "./logger"
 import { speakPeerProtocol } from "./peer-protocol"
 import { loadInitialPeers } from "./peer-protocol/load-initial-peers"
-import { registerUplinkHttpUpgrade } from "./uplink/register-uplink-http-upgrade"
 
 export const rootEffect = async (sig: EffectContext) => {
   sig.run(sig.use(signerService).effect)
   sig.run(attachLogger)
   sig.run(serveHttp)
   sig.run(registerRootRoute)
-  sig.run(registerUplinkHttpUpgrade)
   sig.run(registerBtpHttpUpgrade)
   sig.run(registerBtpIlpSender)
   sig.run(routeIlpPackets)
