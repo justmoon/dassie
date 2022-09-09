@@ -5,11 +5,11 @@ import type { Reactor } from "@dassie/lib-reactive"
 import { createRemoteReactiveRouter } from "@dassie/lib-reactive-trpc/server"
 
 import { logsStore } from "../../common/stores/logs"
-import { activeTemplate } from "../stores/active-template"
+import { activeTemplateSignal } from "../signals/active-template"
 import { peerTrafficTopic } from "../topics/peer-traffic"
 
 export const exposedStores = {
-  activeTemplate,
+  activeTemplate: activeTemplateSignal,
   logs: logsStore,
   peerTraffic: peerTrafficTopic,
 } as const
@@ -25,9 +25,9 @@ export const uiRpcRouter = trpc
   .merge(remoteReactiveRouter)
   .mutation("addRandomNode", {
     resolve({ ctx: reactor }) {
-      const templateStore = reactor.useContext(activeTemplate)
+      const templateSignal = reactor.useContext(activeTemplateSignal)
 
-      const template = templateStore.read()
+      const template = templateSignal.read()
 
       const nodeCount = new Set(template.flat()).size
 
@@ -37,7 +37,7 @@ export const uiRpcRouter = trpc
 
       const uniquePeers = [...new Set(peers)]
 
-      templateStore.update((nodes) => [...nodes, uniquePeers])
+      templateSignal.update((nodes) => [...nodes, uniquePeers])
     },
   })
 

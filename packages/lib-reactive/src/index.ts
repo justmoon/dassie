@@ -1,5 +1,5 @@
 export { createTopic, isTopic, TopicSymbol } from "./topic"
-export { createStore, isStore, StoreSymbol } from "./store"
+export { createSignal, isSignal, SignalSymbol } from "./signal"
 export { createService, isService, ServiceSymbol } from "./service"
 export {
   createSynchronizableStore,
@@ -11,7 +11,7 @@ export { EffectContext } from "./effect"
 export { debugFirehose } from "./debug/debug-tools"
 
 export type { Topic, TopicFactory, Listener, InferMessageType } from "./topic"
-export type { Store, StoreFactory, Reducer } from "./store"
+export type { Signal, SignalFactory, Reducer } from "./signal"
 export type { Service, ServiceFactory } from "./service"
 export type {
   SynchronizableStore,

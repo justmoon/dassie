@@ -8,7 +8,7 @@ import { createLogger } from "@dassie/lib-logger"
 import { EffectContext, createService } from "@dassie/lib-reactive"
 import { assertDefined, isObject } from "@dassie/lib-type-utils"
 
-import { configStore } from "../config"
+import { configSignal } from "../config"
 
 const logger = createLogger("das:beacon:http-server")
 
@@ -40,7 +40,7 @@ export const httpService = () =>
     if (!router) return
 
     const { host, port, tlsWebCert, tlsWebKey } = sig.get(
-      configStore,
+      configSignal,
       ({ host, port, tlsWebCert, tlsWebKey }) => ({
         host,
         port,

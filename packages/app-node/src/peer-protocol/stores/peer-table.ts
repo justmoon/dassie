@@ -1,6 +1,7 @@
-import { createStore } from "@dassie/lib-reactive"
 import produce, { enableMapSet } from "immer"
 import type { MarkOptional } from "ts-essentials"
+
+import { createSignal } from "@dassie/lib-reactive"
 
 enableMapSet()
 
@@ -14,7 +15,7 @@ export type NewPeerEntry = MarkOptional<PeerEntry, "lastSeen">
 
 export type Model = Map<string, PeerEntry>
 
-export const peerTableStore = () => createStore<Model>(new Map())
+export const peerTableStore = () => createSignal<Model>(new Map())
 
 export const addPeer = (peerEntry: NewPeerEntry) =>
   produce<Model>((draft) => {

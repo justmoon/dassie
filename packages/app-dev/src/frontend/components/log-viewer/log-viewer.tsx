@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useSig } from "@dassie/lib-reactive-react"
 
 import type { IndexedLogLine } from "../../../backend/features/logs"
-import { remoteLogsStore } from "../../remote-stores/logs"
+import { remoteLogsStore } from "../../remote-signals/logs"
 import LogLine from "./log-line"
 
 export interface LogViewerProperties {

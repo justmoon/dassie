@@ -4,7 +4,7 @@ import { createLogger } from "@dassie/lib-logger"
 import { ia5String, sequence, sequenceOf } from "@dassie/lib-oer"
 import type { EffectContext } from "@dassie/lib-reactive"
 
-import { configStore } from "../config"
+import { configSignal } from "../config"
 
 const logger = createLogger("das:node:ping-beacons")
 
@@ -29,9 +29,9 @@ const sendPingToBeacon = async (beaconUrl: string, message: Uint8Array) => {
 }
 
 export const pingBeacons = (sig: EffectContext) => {
-  const beacons = sig.get(configStore, (config) => config.beacons)
-  const nodeId = sig.get(configStore, (config) => config.nodeId)
-  const port = sig.get(configStore, (config) => config.port)
+  const beacons = sig.get(configSignal, (config) => config.beacons)
+  const nodeId = sig.get(configSignal, (config) => config.nodeId)
+  const port = sig.get(configSignal, (config) => config.port)
 
   const url = `https://${nodeId}.localhost:${port}`
 

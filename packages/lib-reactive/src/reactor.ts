@@ -11,7 +11,7 @@ import { LifecycleScope } from "./internal/lifecycle-scope"
  *
  * @remarks
  *
- * This is a bit of a hack, but it allows our users' code to be cleaner. Specifically, they don't have to repeat the name of the topic/store/etc., they can just do this and the name `myTopic` will automatically be captured:
+ * This is a bit of a hack, but it allows our users' code to be cleaner. Specifically, they don't have to repeat the name of the topic, they can just do this and the name `myTopic` will automatically be captured:
  *
  * @example
  *

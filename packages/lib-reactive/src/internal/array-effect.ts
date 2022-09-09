@@ -1,5 +1,5 @@
 import { Effect, EffectContext, runEffect } from "../effect"
-import type { StoreFactory } from "../store"
+import type { SignalFactory } from "../signal"
 import { LifecycleScope } from "./lifecycle-scope"
 
 interface EffectCache<TReturn> {
@@ -8,7 +8,7 @@ interface EffectCache<TReturn> {
 }
 
 export const createArrayEffect = <TElement, TReturn>(
-  arrayTopicFactory: StoreFactory<readonly TElement[], never>,
+  arrayTopicFactory: SignalFactory<readonly TElement[], never>,
   effect: Effect<TElement, TReturn>,
   parentEffectName: string
 ) => {
@@ -96,7 +96,7 @@ interface IndexedEffectCache<TElement, TReturn> extends EffectCache<TReturn> {
 }
 
 export const createIndexedArrayEffect = <TElement, TReturn>(
-  arrayTopicFactory: StoreFactory<readonly TElement[], never>,
+  arrayTopicFactory: SignalFactory<readonly TElement[], never>,
   effect: Effect<readonly [element: TElement, index: number], TReturn>,
   parentEffectName: string
 ) => {

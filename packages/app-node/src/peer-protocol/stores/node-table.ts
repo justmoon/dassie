@@ -1,5 +1,6 @@
-import { createStore } from "@dassie/lib-reactive"
 import produce, { enableMapSet } from "immer"
+
+import { createSignal } from "@dassie/lib-reactive"
 
 enableMapSet()
 
@@ -34,7 +35,7 @@ export interface NodeTableEntry {
 
 export type Model = Map<string, NodeTableEntry>
 
-export const nodeTableStore = () => createStore<Model>(new Map())
+export const nodeTableStore = () => createSignal<Model>(new Map())
 
 export const addNode = (nodeEntry: NodeTableEntry) =>
   produce<Model>((draft) => {

@@ -3,7 +3,7 @@ import { map } from "iterative"
 import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
 
-import { configStore } from "../config"
+import { configSignal } from "../config"
 import { signerService } from "../crypto/signer"
 import { compareKeysToArray, compareSetOfKeys } from "../utils/compare-sets"
 import { peerNodeInfo, signedPeerNodeInfo } from "./peer-schema"
@@ -13,7 +13,7 @@ import { peerTableStore } from "./stores/peer-table"
 const logger = createLogger("das:node:maintain-own-node-table-entry")
 
 export const maintainOwnNodeTableEntry = async (sig: EffectContext) => {
-  const { nodeId, port } = sig.getKeys(configStore, ["nodeId", "port"])
+  const { nodeId, port } = sig.getKeys(configSignal, ["nodeId", "port"])
   const signer = sig.get(signerService)
 
   if (!signer) return

@@ -1,6 +1,6 @@
 import { Patch, enablePatches, produceWithPatches } from "immer"
 
-import { Store, createStore } from "@dassie/lib-reactive"
+import { Signal, createSignal } from "@dassie/lib-reactive"
 
 import type { ImmerProducer } from "./immer-store"
 
@@ -14,8 +14,8 @@ enablePatches()
 
 export const createImmerStoreWithPatches = <TState>(
   initialValue: TState
-): Store<PatchesTuple<TState>, ImmerProducer<TState>> => {
-  const store = createStore<PatchesTuple<TState>>([
+): Signal<PatchesTuple<TState>, ImmerProducer<TState>> => {
+  const signal = createSignal<PatchesTuple<TState>>([
     initialValue,
     [],
     [],
@@ -28,11 +28,11 @@ export const createImmerStoreWithPatches = <TState>(
     }
 
   const update = (producer: ImmerProducer<TState>) => {
-    return store.update(reducer(producer))
+    return signal.update(reducer(producer))
   }
 
   return {
-    ...store,
+    ...signal,
     update,
   }
 }

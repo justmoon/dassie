@@ -1,17 +1,17 @@
 import type { EffectContext } from "../effect"
 import { createReactor } from "../reactor"
-import { createStore } from "../store"
+import { createSignal } from "../signal"
 
-const counterStore = () => createStore(0)
+const counterSignal = () => createSignal(0)
 
 const clock = (sig: EffectContext) => {
   sig.interval(() => {
-    sig.use(counterStore).update((state) => state + 1)
+    sig.use(counterSignal).update((state) => state + 1)
   }, 75)
 }
 
 const logger = (sig: EffectContext) => {
-  sig.on(counterStore, (state) => {
+  sig.on(counterSignal, (state) => {
     console.log(`the counter is: ${state}`)
   })
 }

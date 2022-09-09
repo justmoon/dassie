@@ -9,7 +9,7 @@ import { useSig } from "@dassie/lib-reactive-react"
 import type { NodeDefinition } from "../../../backend/effects/run-nodes"
 import { generateNodeConfig } from "../../../backend/utils/generate-node-config"
 import { COLORS } from "../../constants/palette"
-import { activeTemplate } from "../../remote-stores/active-template"
+import { activeTemplateSignal } from "../../remote-signals/active-template"
 import { trpc } from "../../utils/trpc"
 import LogViewer from "../log-viewer/log-viewer"
 import NodeGraph from "../node-graph/node-graph"
@@ -27,7 +27,7 @@ const nodesToGraph = (nodes: NodeDefinition<InputConfig>[]): GraphData => {
 }
 const Dashboard = () => {
   const sig = useSig()
-  const template = sig.get(activeTemplate)
+  const template = sig.get(activeTemplateSignal)
   const addRandomNode = trpc.useMutation("addRandomNode")
 
   if (!template) return <div />

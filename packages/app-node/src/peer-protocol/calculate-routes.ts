@@ -1,9 +1,9 @@
 import Denque from "denque"
 
-import { EffectContext, createStore } from "@dassie/lib-reactive"
+import { EffectContext, createSignal } from "@dassie/lib-reactive"
 import { assertDefined } from "@dassie/lib-type-utils"
 
-import { configStore } from "../config"
+import { configSignal } from "../config"
 import { nodeTableStore } from "./stores/node-table"
 
 interface NodeInfoEntry {
@@ -17,13 +17,13 @@ interface RoutingTableEntry {
 }
 
 export const routingTableStore = () =>
-  createStore(new Map<string, RoutingTableEntry>())
+  createSignal(new Map<string, RoutingTableEntry>())
 
 /**
  * This effect generates an Even-Shiloach tree which is then condensed into a routing table. The routing table contains all possible first hops which are on one of the shortest paths to the target node.
  */
 export const calculateRoutes = (sig: EffectContext) => {
-  const ownNodeId = sig.get(configStore, ({ nodeId }) => nodeId)
+  const ownNodeId = sig.get(configSignal, ({ nodeId }) => nodeId)
   const nodeTable = sig.get(nodeTableStore)
 
   const queue = new Denque([ownNodeId])

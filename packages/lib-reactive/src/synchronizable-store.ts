@@ -1,7 +1,7 @@
 import { isObject } from "@dassie/lib-type-utils"
 
 import type { Factory, Reactor } from "./reactor"
-import { Reducer, Store, createStore } from "./store"
+import { Reducer, Signal, createSignal } from "./signal"
 import { Topic, createTopic } from "./topic"
 
 export const SynchronizableStoreSymbol = Symbol(
@@ -39,7 +39,7 @@ export type BoundAction<TState, TParameters extends unknown[]> = (
 
 const bindActions = <TState, TActions extends Record<string, Action<TState>>>(
   actions: TActions,
-  store: Store<TState>,
+  store: Signal<TState>,
   changesTopic: Topic<Change, Change>
 ): InferBoundActions<TActions> => {
   const boundActions = {} as InferBoundActions<TActions>
@@ -63,7 +63,7 @@ const bindActions = <TState, TActions extends Record<string, Action<TState>>>(
 export type SynchronizableStore<
   TState,
   TActions extends Record<string, Action<TState>>
-> = Store<TState, Reducer<TState>> & {
+> = Signal<TState, Reducer<TState>> & {
   /**
    * Marks this object as a store.
    */
@@ -86,13 +86,13 @@ export const createSynchronizableStore = <
   initialState: TState,
   actions: TActions
 ): SynchronizableStore<TState, TActions> => {
-  const store = createStore<TState>(initialState)
+  const signal = createSignal<TState>(initialState)
   const changes = createTopic<Change>()
 
-  const boundActions = bindActions(actions, store, changes)
+  const boundActions = bindActions(actions, signal, changes)
 
   return {
-    ...store,
+    ...signal,
     [SynchronizableStoreSymbol]: true,
     changes,
     ...boundActions,

@@ -1,7 +1,7 @@
 import { isObject } from "@dassie/lib-type-utils"
 
 import type { ContextState, Factory, Reactor } from "../reactor"
-import { isStore } from "../store"
+import { isSignal } from "../signal"
 import { TopicFactory, createTopic, isTopic } from "../topic"
 
 export interface FirehoseEvent {
@@ -51,12 +51,12 @@ export class DebugTools {
   /**
    * Retrieve the state of the reactor.
    *
-   * @returns All currently instantiated stores in the reactor.
+   * @returns All currently instantiated signals in the reactor.
    */
   getState() {
     return [...this.context]
       .map((weakReference) => weakReference.deref())
-      .filter((possibleStore) => isStore(possibleStore))
+      .filter((possibleSignal) => isSignal(possibleSignal))
   }
 }
 

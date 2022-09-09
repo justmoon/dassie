@@ -1,7 +1,7 @@
 import { isObject } from "@dassie/lib-type-utils"
 
 import type { Effect } from "./effect"
-import { Store, createStore } from "./store"
+import { Signal, createSignal } from "./signal"
 
 export const ServiceSymbol = Symbol("das:reactive:service")
 
@@ -10,7 +10,7 @@ export interface ServiceFactory<TInstance>
   (): Service<TInstance>
 }
 
-export type Service<TInstance> = Store<TInstance | undefined> & {
+export type Service<TInstance> = Signal<TInstance | undefined> & {
   /**
    * Marks this object as a value.
    */
@@ -20,20 +20,20 @@ export type Service<TInstance> = Store<TInstance | undefined> & {
 }
 
 export const createService = <T>(effect: Effect<Service<T>, T>): Service<T> => {
-  const store = createStore<T>()
-  const value: Service<T> = {
-    ...store,
+  const signal = createSignal<T>()
+  const service: Service<T> = {
+    ...signal,
     [ServiceSymbol]: true,
     effect: (sig) => {
-      value.write(sig.run(effect, value))
+      service.write(sig.run(effect, service))
 
-      sig.onCleanup(() => value.write(undefined))
+      sig.onCleanup(() => service.write(undefined))
 
-      return value
+      return service
     },
   }
 
-  return value
+  return service
 }
 
 export const isService = (object: unknown): object is Service<unknown> =>

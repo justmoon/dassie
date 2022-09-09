@@ -158,27 +158,31 @@ createReactor((sig: EffectContext) => {
 
 There are three effects, `pinger`, `ponger`, and `logger`. Pinger will watch the `pingPongTopic` and if it sees a `"pong"` message emit a `"ping"` message. Ponger will emit a `"pong"` message 75 milliseconds after it sees a `"ping"` message. Logger will simply log these messages to the console.
 
-### Stores
+### Signals
 
 > I'll never forget this!
 
-Stores are stateful topics. They provide methods `read` and `write` which allows you access and modify their internal state. You can also call `update` and pass a reducer which accepts the previous state and returns a new state. Whenever the state changes, the store will emit the new state so you can listen to it. When creating a new store, you can pass an `initialValue`.
+Signals are stateful topics. They provide methods `read` and `write` which allows you access and modify their internal state. You can also call `update` and pass a reducer which accepts the previous state and returns a new state. Whenever the state changes, the signal will emit the new state so you can listen to it. When creating a new signal, you can pass an `initialValue`.
 
-That means that stores are effectively stateful topics. Let's see an example.
+That means that signals are effectively stateful topics. Let's see an example.
 
 ```ts
-import { EffectContext, createReactor, createStore } from "@dassie/lib-reactive"
+import {
+  EffectContext,
+  createReactor,
+  createSignal,
+} from "@dassie/lib-reactive"
 
-const counterStore = () => createStore(0)
+const counterSignal = () => createSignal(0)
 
 const clock = (sig: EffectContext) => {
   sig.interval(() => {
-    sig.use(counterStore).update((state) => state + 1)
+    sig.use(counterSignal).update((state) => state + 1)
   }, 75)
 }
 
 const logger = (sig: EffectContext) => {
-  sig.on(counterStore, (state) => {
+  sig.on(counterSignal, (state) => {
     console.log(`the counter is: ${state}`)
   })
 }
@@ -199,22 +203,22 @@ There is a special `sig.get` helper which will receive the last value from a top
 ```ts
 import { EffectContext, createReactor, createTopic } from "@dassie/lib-reactive"
 
-const store1 = () => createStore(0)
-const store2 = () => createStore(0)
-const store3 = () => createStore(0)
+const signal1 = () => createSignal(0)
+const signal2 = () => createSignal(0)
+const signal3 = () => createSignal(0)
 
 const rootEffect = (sig: EffectContext) => {
   sig.interval(() => {
     // Even though we are triggering three state updates, the effect will only re-run once
-    sig.use(store1).update((a) => a + 1)
-    sig.use(store2).update((a) => a + 3)
-    sig.use(store3).update((a) => a + 5)
+    sig.use(signal1).update((a) => a + 1)
+    sig.use(signal2).update((a) => a + 3)
+    sig.use(signal3).update((a) => a + 5)
   }, 1000)
 
   sig.run((sig) => {
-    const t1 = sig.get(store1)
-    const t2 = sig.get(store2)
-    const t3 = sig.get(store3)
+    const t1 = sig.get(signal1)
+    const t2 = sig.get(signal2)
+    const t3 = sig.get(signal3)
 
     console.log(`effect run with ${t1} ${t2} ${t3}`)
   })

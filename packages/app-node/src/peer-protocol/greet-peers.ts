@@ -1,7 +1,7 @@
 import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
 
-import { configStore } from "../config"
+import { configSignal } from "../config"
 import { signerService } from "../crypto/signer"
 import { peerHello, peerMessage } from "../peer-protocol/peer-schema"
 import { outgoingPeerMessageBufferTopic } from "../peer-protocol/send-peer-messages"
@@ -26,7 +26,7 @@ export const greetPeers = async (sig: EffectContext) => {
   )
 
   const ownNodeTableEntry = sig.get(nodeTableStore, (nodeTable) =>
-    nodeTable.get(sig.use(configStore).read().nodeId)
+    nodeTable.get(sig.use(configSignal).read().nodeId)
   )
 
   if (!ownNodeTableEntry) {

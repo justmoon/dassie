@@ -4,7 +4,7 @@ import {
   Change,
   Reactor,
   TopicFactory,
-  isStore,
+  isSignal,
   isSynchronizableStore,
 } from "@dassie/lib-reactive"
 
@@ -13,9 +13,9 @@ export const createRemoteReactiveRouter = <
 >(
   exposedTopics: TExposedTopicsMap
 ) => {
-  const validateStoreName = (storeName: unknown): keyof TExposedTopicsMap => {
-    if (typeof storeName === "string" && storeName in exposedTopics) {
-      return storeName as keyof TExposedTopicsMap
+  const validateTopicName = (topicName: unknown): keyof TExposedTopicsMap => {
+    if (typeof topicName === "string" && topicName in exposedTopics) {
+      return topicName as keyof TExposedTopicsMap
     }
 
     throw new Error("Invalid store name")
@@ -26,28 +26,28 @@ export const createRemoteReactiveRouter = <
     .query("exposedTopics", {
       resolve: () => null as unknown as TExposedTopicsMap,
     })
-    .query("getStoreState", {
-      input: validateStoreName,
-      resolve({ input: storeName, ctx: reactor }) {
-        const topicFactory = exposedTopics[storeName]
+    .query("getSignalState", {
+      input: validateTopicName,
+      resolve({ input: signalName, ctx: reactor }) {
+        const topicFactory = exposedTopics[signalName]
 
         if (!topicFactory) {
           throw new Error("Invalid store name")
         }
 
-        const store = reactor.useContext(topicFactory)
+        const signal = reactor.useContext(topicFactory)
 
-        if (!isStore(store)) {
+        if (!isSignal(signal)) {
           throw new Error(`Topic is not a store`)
         }
 
         return {
-          value: store.read(),
+          value: signal.read(),
         }
       },
     })
     .subscription("listenToTopic", {
-      input: validateStoreName,
+      input: validateTopicName,
       resolve: <T extends keyof TExposedTopicsMap>({
         input: topicName,
         ctx: reactor,
@@ -62,7 +62,7 @@ export const createRemoteReactiveRouter = <
           }
           const store = reactor.useContext(topicFactory)
 
-          if (isStore(store)) {
+          if (isSignal(store)) {
             sendToClient.data(store.read())
           }
 
@@ -73,7 +73,7 @@ export const createRemoteReactiveRouter = <
       },
     })
     .subscription("listenToChanges", {
-      input: validateStoreName,
+      input: validateTopicName,
       resolve: <T extends keyof TExposedTopicsMap>({
         input: storeName,
         ctx: reactor,

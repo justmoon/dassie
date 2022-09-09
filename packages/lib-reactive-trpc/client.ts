@@ -54,15 +54,17 @@ export const createRemoteTopic = <
   })
 }
 
-export const createRemoteStore = <
+export const createRemoteSignal = <
   TExposedTopicsMap extends Record<string, TopicFactory>,
-  TStoreName extends string & keyof TExposedTopicsMap,
+  TSignalName extends string & keyof TExposedTopicsMap,
   TInitialValue
 >(
   connectionFactory: ServiceFactory<ReactiveTrpcClient<TExposedTopicsMap>>,
-  storeName: TStoreName,
+  storeName: TSignalName,
   initialValue: TInitialValue
-): Service<InferMessageType<TExposedTopicsMap[TStoreName]> | TInitialValue> => {
+): Service<
+  InferMessageType<TExposedTopicsMap[TSignalName]> | TInitialValue
+> => {
   return createService((sig, value) => {
     const client = sig.get(connectionFactory)
 
@@ -75,7 +77,7 @@ export const createRemoteStore = <
           if (event.type !== "data") return
 
           value.write(
-            event.data as InferMessageType<TExposedTopicsMap[TStoreName]>
+            event.data as InferMessageType<TExposedTopicsMap[TSignalName]>
           )
         },
       })

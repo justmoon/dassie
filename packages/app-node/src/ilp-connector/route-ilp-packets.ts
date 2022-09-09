@@ -1,7 +1,7 @@
 import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
 
-import { configStore } from "../config"
+import { configSignal } from "../config"
 import { ildcpResponseSchema } from "./ildcp-packet-codec"
 import {
   IlpType,
@@ -23,7 +23,7 @@ interface RequestIdMapEntry {
 const requestIdMap = new Map<number, RequestIdMapEntry>()
 
 export const routeIlpPackets = (sig: EffectContext) => {
-  const ilpAddress = sig.get(configStore, (config) => config.ilpAddress)
+  const ilpAddress = sig.get(configSignal, (config) => config.ilpAddress)
 
   sig.on(incomingIlpPacketBuffer, ({ source, packet, requestId }) => {
     const envelopeParseResult = ilpEnvelopeSchema.parse(packet)

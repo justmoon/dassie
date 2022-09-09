@@ -1,5 +1,5 @@
 import type { SerializableLogLine } from "@dassie/lib-logger"
-import { EffectContext, createStore, createTopic } from "@dassie/lib-reactive"
+import { EffectContext, createSignal, createTopic } from "@dassie/lib-reactive"
 
 export interface NodeLogLine extends SerializableLogLine {
   node: string
@@ -13,14 +13,14 @@ export interface IndexedLogLine extends NodeLogLine {
 }
 
 export const indexedLogLineTopic = () => createTopic<IndexedLogLine>()
-export const currentLogIndexStore = () => createStore(0)
+export const currentLogIndexSignal = () => createSignal(0)
 
 const startupTime = Date.now()
 
 export const indexLogs = (sig: EffectContext) => {
   sig.on(logLineTopic, (line) => {
-    const currentLogIndex = sig.use(currentLogIndexStore).read()
-    sig.use(currentLogIndexStore).update((a) => a + 1)
+    const currentLogIndex = sig.use(currentLogIndexSignal).read()
+    sig.use(currentLogIndexSignal).update((a) => a + 1)
     sig.use(indexedLogLineTopic).emit({
       ...line,
       index: currentLogIndex,

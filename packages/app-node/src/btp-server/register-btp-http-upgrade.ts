@@ -4,7 +4,7 @@ import { WebSocketServer } from "ws"
 import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
 
-import { configStore } from "../config"
+import { configSignal } from "../config"
 import { httpService } from "../http-server/serve-http"
 import { incomingIlpPacketBuffer } from "../ilp-connector/topics/incoming-ilp-packet"
 import {
@@ -25,7 +25,7 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
 
   if (!httpServer) return
 
-  const ilpAddress = sig.get(configStore, (config) => config.ilpAddress)
+  const ilpAddress = sig.get(configSignal, (config) => config.ilpAddress)
 
   const websocketServer = new WebSocketServer({ noServer: true })
 

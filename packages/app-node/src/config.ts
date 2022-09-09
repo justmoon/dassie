@@ -4,7 +4,7 @@ import { z } from "zod"
 import { readFileSync } from "node:fs"
 
 import { createLogger } from "@dassie/lib-logger"
-import { createStore } from "@dassie/lib-reactive"
+import { createSignal } from "@dassie/lib-reactive"
 import { isErrorWithCode } from "@dassie/lib-type-utils"
 
 import { APP_NAME } from "./constants/general"
@@ -138,4 +138,4 @@ export function fromEnvironment() {
   return fromPartialConfig({ ...fileConfig, ...environmentConfig })
 }
 
-export const configStore = () => createStore<Config>(fromEnvironment())
+export const configSignal = () => createSignal<Config>(fromEnvironment())

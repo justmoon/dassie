@@ -5,7 +5,7 @@ import {
 import type { LifecycleScope } from "./internal/lifecycle-scope"
 import { makePromise } from "./internal/promise"
 import { AsyncDisposer, DisposeSymbol, Factory, Reactor } from "./reactor"
-import type { StoreFactory } from "./store"
+import type { SignalFactory } from "./signal"
 import type { Listener, TopicFactory } from "./topic"
 
 export type Effect<TProperties = unknown, TReturn = unknown> = (
@@ -37,7 +37,7 @@ export class EffectContext {
   ) {}
 
   /**
-   * Read the current value from a store and automatically re-run the effect if the value changes.
+   * Read the current value from a signal and automatically re-run the effect if the value changes.
    *
    * @remarks
    *
@@ -45,19 +45,19 @@ export class EffectContext {
    *
    * To read a value without tracking, use {@link read}.
    *
-   * @param storeFactory - Reference to the store's factory function.
+   * @param signalFactory - Reference to the signal's factory function.
    * @param selector - Used to select only part of the message from a given topic. This can be useful to avoid re-running the effect if only an irrelevant portion of the message has changed.
    * @param comparator - By default, the reactor checks for strict equality (`===`) to determine if the value has changed. This can be overridden by passing a custom comparator function.
-   * @returns The current value of the store, narrowed by the selector.
+   * @returns The current value of the signal, narrowed by the selector.
    */
-  get<TState>(storeFactory: StoreFactory<TState, never>): TState
+  get<TState>(signalFactory: SignalFactory<TState, never>): TState
   get<TState, TSelection>(
-    storeFactory: StoreFactory<TState, never>,
+    signalFactory: SignalFactory<TState, never>,
     selector: (state: TState) => TSelection,
     comparator?: (oldValue: TSelection, newValue: TSelection) => boolean
   ): TSelection
   get<TState, TSelection>(
-    storeFactory: StoreFactory<TState, never>,
+    signalFactory: SignalFactory<TState, never>,
     selector: (state: TState) => TSelection = (a) =>
       // Based on the overloaded function signature, the selector parameter may be omitted iff TMessage equals TSelection.
       // Therefore this cast is safe.
@@ -75,9 +75,9 @@ export class EffectContext {
       }
     }
 
-    const store = this.use(storeFactory)
-    const value = selector(store.read())
-    const dispose = store.on(handleTopicMessage)
+    const signal = this.use(signalFactory)
+    const value = selector(signal.read())
+    const dispose = signal.on(handleTopicMessage)
 
     this.lifecycle.onCleanup(dispose)
 
@@ -85,22 +85,22 @@ export class EffectContext {
   }
 
   /**
-   * Convenience method for extracting specific keys from a store.
+   * Convenience method for extracting specific keys from a signal.
    *
    * @remarks
    *
    * This will automatically create the correct selector and comparator for the given keys. The effect will be re-run if any of the values for any of the keys change by strict equality.
    *
-   * @param store - Reference to the store that should be queried.
-   * @param keys - Tuple of keys that should be extracted from the store.
-   * @returns A filtered version of the store state containing only the requested keys.
+   * @param signal - Reference to the signal that should be queried.
+   * @param keys - Tuple of keys that should be extracted from the signal.
+   * @returns A filtered version of the signal state containing only the requested keys.
    */
   getKeys<TState, TKeys extends keyof TState>(
-    store: StoreFactory<TState, never>,
+    signal: SignalFactory<TState, never>,
     keys: readonly TKeys[]
   ): Pick<TState, TKeys> {
     return this.get(
-      store,
+      signal,
       (state) => {
         const result = {} as Pick<TState, TKeys>
         for (const key of keys) {
@@ -333,7 +333,7 @@ export class EffectContext {
    * Run an effect for each element of an array topic. When the array value changes, only the effects corresponding to changed elements will be re-run.
    */
   for<TElement, TReturn>(
-    arrayTopicFactory: StoreFactory<readonly TElement[], never>,
+    arrayTopicFactory: SignalFactory<readonly TElement[], never>,
     effect: Effect<TElement, TReturn>
   ) {
     return this.run(
@@ -345,7 +345,7 @@ export class EffectContext {
    * Like {@link for} but compares elements based on their index in the array. Also passes the index to the effect.
    */
   forIndex<TElement, TReturn>(
-    arrayTopicFactory: StoreFactory<readonly TElement[], never>,
+    arrayTopicFactory: SignalFactory<readonly TElement[], never>,
     effect: Effect<readonly [element: TElement, index: number], TReturn>
   ) {
     return this.run(

@@ -5,31 +5,31 @@ import { Topic, createTopic } from "./topic"
 
 export type Reducer<TState> = (previousState: TState) => TState
 
-export const StoreSymbol = Symbol("das:reactive:store")
+export const SignalSymbol = Symbol("das:reactive:signal")
 
-export interface StoreFactory<TState, TReducer = Reducer<TState>>
-  extends Factory<Store<TState, TReducer>> {
-  (): Store<TState, TReducer>
+export interface SignalFactory<TState, TReducer = Reducer<TState>>
+  extends Factory<Signal<TState, TReducer>> {
+  (): Signal<TState, TReducer>
 }
 
-export type Store<TState, TReducer = Reducer<TState>> = Topic<
+export type Signal<TState, TReducer = Reducer<TState>> = Topic<
   TState,
   Readonly<TState>
 > & {
   /**
-   * Marks this object as a store.
+   * Marks this object as a signal.
    */
-  [StoreSymbol]: true
+  [SignalSymbol]: true
 
   /**
-   * Get the current state of the store.
+   * Get the current state of the signal.
    */
   read(): TState
 
   /**
-   * Overwrite the current state of the store with a new value.
+   * Overwrite the current state of the signal with a new value.
    *
-   * @param newState - The new state of the store.
+   * @param newState - The new state of the signal.
    */
   write(newState: TState): void
 
@@ -37,14 +37,14 @@ export type Store<TState, TReducer = Reducer<TState>> = Topic<
    * Apply a reducer which will accept the current state and return a new state.
    *
    * @param reducer - The reducer to apply to the state.
-   * @returns The new state of the store.
+   * @returns The new state of the signal.
    */
   update(reducer: TReducer): TState
 }
 
-export function createStore<TState>(): Store<TState | undefined>
-export function createStore<TState>(initialState: TState): Store<TState>
-export function createStore<TState>(initialState?: TState): Store<TState> {
+export function createSignal<TState>(): Signal<TState | undefined>
+export function createSignal<TState>(initialState: TState): Signal<TState>
+export function createSignal<TState>(initialState?: TState): Signal<TState> {
   const topic = createTopic<TState>()
   let currentState = initialState as TState
 
@@ -63,12 +63,12 @@ export function createStore<TState>(initialState?: TState): Store<TState> {
 
   return {
     ...topic,
-    [StoreSymbol]: true,
+    [SignalSymbol]: true,
     read,
     write,
     update,
   }
 }
 
-export const isStore = (object: unknown): object is Store<unknown> =>
-  isObject(object) && object[StoreSymbol] === true
+export const isSignal = (object: unknown): object is Signal<unknown> =>
+  isObject(object) && object[SignalSymbol] === true

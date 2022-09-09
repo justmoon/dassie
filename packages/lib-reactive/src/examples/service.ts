@@ -2,9 +2,9 @@ import { createServer } from "node:http"
 
 import { createReactor } from "../reactor"
 import { createService } from "../service"
-import { createStore } from "../store"
+import { createSignal } from "../signal"
 
-const config = () => createStore({ port: 3000 })
+const config = () => createSignal({ port: 3000 })
 
 const httpService = () =>
   createService((sig) => {

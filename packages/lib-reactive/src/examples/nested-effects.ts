@@ -1,12 +1,12 @@
 import type { EffectContext } from "../effect"
 import { createReactor } from "../reactor"
-import { createStore } from "../store"
+import { createSignal } from "../signal"
 import { createTopic } from "../topic"
 
 const topic1 = () => createTopic<string>()
 
-const store1 = () =>
-  createStore<{ states: string[] }>({
+const signal1 = () =>
+  createSignal<{ states: string[] }>({
     states: [],
   })
 
@@ -36,7 +36,7 @@ const childEffect = (sig: EffectContext) => {
     console.log("reacting to", message)
 
     if (message) {
-      sig.use(store1).update(({ states }) => ({
+      sig.use(signal1).update(({ states }) => ({
         states: [...new Set<string>([...states, message])],
       }))
     }
@@ -49,7 +49,7 @@ const childEffect = (sig: EffectContext) => {
 
 const childEffect2 = (sig: EffectContext) => {
   console.log("child effect 2 created")
-  const stateCount = sig.get(store1, ({ states }) => states.length)
+  const stateCount = sig.get(signal1, ({ states }) => states.length)
 
   console.log(stateCount)
 

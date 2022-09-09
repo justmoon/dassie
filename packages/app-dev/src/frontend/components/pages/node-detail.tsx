@@ -1,12 +1,13 @@
-import { selectBySeed } from "@dassie/lib-logger"
 import * as Tabs from "@radix-ui/react-tabs"
 import { useMemo, useState } from "react"
 import { format } from "timeago.js"
 import { Link } from "wouter"
 
+import { selectBySeed } from "@dassie/lib-logger"
+
 import { COLORS } from "../../constants/palette"
 import { FirehoseEvent, useNodeFirehose } from "../../hooks/use-node-firehose"
-import { useNodeRemoteStore } from "../../hooks/use-node-state"
+import { useNodeRemoteSignal } from "../../hooks/use-node-state"
 import LogViewer from "../log-viewer/log-viewer"
 
 interface BasicNodeElementProperties {
@@ -37,7 +38,7 @@ const NodeHeader = ({ nodeId }: BasicNodeElementProperties) => {
 }
 
 const PeerTable = ({ nodeId }: BasicNodeElementProperties) => {
-  const peerTable = useNodeRemoteStore(nodeId, "peerTable")
+  const peerTable = useNodeRemoteSignal(nodeId, "peerTable")
 
   if (!peerTable.data) return null
 
@@ -81,7 +82,7 @@ const PeerTable = ({ nodeId }: BasicNodeElementProperties) => {
 }
 
 const NodeTable = ({ nodeId }: BasicNodeElementProperties) => {
-  const nodeTable = useNodeRemoteStore(nodeId, "nodeTable")
+  const nodeTable = useNodeRemoteSignal(nodeId, "nodeTable")
 
   if (!nodeTable.data) return null
 

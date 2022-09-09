@@ -1,6 +1,7 @@
-import type { InferMessageType } from "@dassie/lib-reactive"
 import { useEffect } from "react"
 import { useQuery, useQueryClient } from "react-query"
+
+import type { InferMessageType } from "@dassie/lib-reactive"
 
 import type { ExposedStoresMap as NodeExposedStoresMap } from "../../runner/effects/debug-rpc-server"
 import { nodeClients } from "../shared-effects/node-rpc-clients"
@@ -13,14 +14,14 @@ const fetchNodeRemoteStore = async <
 ) => {
   const [client, dispose] = nodeClients(nodeId)
 
-  const result = await client.query("getStoreState", storeName)
+  const result = await client.query("getSignalState", storeName)
 
   dispose()
 
   return result.value as InferMessageType<NodeExposedStoresMap[TStoreName]>
 }
 
-export const useNodeRemoteStore = <
+export const useNodeRemoteSignal = <
   TStoreName extends keyof NodeExposedStoresMap
 >(
   nodeId: string,

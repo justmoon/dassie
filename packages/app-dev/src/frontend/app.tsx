@@ -8,15 +8,15 @@ import Dashboard from "./components/pages/dashboard"
 import Logs from "./components/pages/logs"
 import NodeDetail from "./components/pages/node-detail"
 import MainNavigation from "./main-navigation"
-import { activeTemplate } from "./remote-stores/active-template"
-import { remoteLogsStore } from "./remote-stores/logs"
+import { activeTemplateSignal } from "./remote-signals/active-template"
+import { remoteLogsStore } from "./remote-signals/logs"
 import { trpcConnectionService } from "./utils/remote-reactive"
 import { trpc, client as trpcClient } from "./utils/trpc"
 
 const App = () => {
   const sig = useSig()
   sig.run(sig.use(trpcConnectionService).effect)
-  sig.run(sig.use(activeTemplate).effect)
+  sig.run(sig.use(activeTemplateSignal).effect)
   sig.run(sig.use(remoteLogsStore).effect)
 
   const [queryClient] = useState(() => new QueryClient())
