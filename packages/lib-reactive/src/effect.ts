@@ -29,7 +29,7 @@ export class EffectContext {
     /**
      * An object corresponding to this context's lifetime.
      */
-    private readonly lifecycle: LifecycleScope,
+    readonly lifecycle: LifecycleScope,
 
     readonly wake: () => void,
 

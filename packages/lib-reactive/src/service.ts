@@ -1,6 +1,7 @@
 import { isObject } from "@dassie/lib-type-utils"
 
-import type { Effect } from "./effect"
+import { Effect, runEffect } from "./effect"
+import { FactoryNameSymbol } from "./reactor"
 import { Signal, createSignal } from "./signal"
 
 export const ServiceSymbol = Symbol("das:reactive:service")
@@ -25,7 +26,15 @@ export const createService = <T>(effect: Effect<Service<T>, T>): Service<T> => {
     ...signal,
     [ServiceSymbol]: true,
     effect: (sig) => {
-      service.write(sig.run(effect, service))
+      runEffect(sig.reactor, effect, service, sig.lifecycle, (_result) =>
+        service.write(_result)
+      ).catch((error: unknown) => {
+        console.error("error in service effect", {
+          effect: effect.name,
+          service: service[FactoryNameSymbol],
+          error,
+        })
+      })
 
       sig.onCleanup(() => service.write(undefined))
 
