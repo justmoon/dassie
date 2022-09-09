@@ -1,33 +1,41 @@
 import { isObject } from "@dassie/lib-type-utils"
 
 import { Effect, runEffect } from "./effect"
-import { FactoryNameSymbol } from "./reactor"
+import { Factory, FactoryNameSymbol } from "./reactor"
 import { Signal, createSignal } from "./signal"
 
 export const ServiceSymbol = Symbol("das:reactive:service")
 
-export interface ServiceFactory<TInstance>
-  extends Effect<never, Service<TInstance>> {
-  (): Service<TInstance>
-}
+export type ServiceFactory<TInstance, TProperties> = Factory<
+  Service<TInstance, TProperties>
+>
 
-export type Service<TInstance> = Signal<TInstance | undefined> & {
+export type Service<TInstance, TProperties> = Signal<TInstance | undefined> & {
   /**
    * Marks this object as a value.
    */
   [ServiceSymbol]: true
 
-  effect: Effect<unknown, Service<TInstance>>
+  effect: Effect<TProperties, Service<TInstance, TProperties>>
 }
 
-export const createService = <T>(effect: Effect<Service<T>, T>): Service<T> => {
-  const signal = createSignal<T>()
-  const service: Service<T> = {
+export const createService = <TInstance, TProperties>(
+  effect: Effect<
+    { properties: TProperties; service: Service<TInstance, TProperties> },
+    TInstance
+  >
+): Service<TInstance, TProperties> => {
+  const signal = createSignal<TInstance>()
+  const service: Service<TInstance, TProperties> = {
     ...signal,
     [ServiceSymbol]: true,
-    effect: (sig) => {
-      runEffect(sig.reactor, effect, service, sig.lifecycle, (_result) =>
-        service.write(_result)
+    effect: (sig, properties) => {
+      runEffect(
+        sig.reactor,
+        effect,
+        { service, properties },
+        sig.lifecycle,
+        (_result) => service.write(_result)
       ).catch((error: unknown) => {
         console.error("error in service effect", {
           effect: effect.name,
@@ -45,5 +53,7 @@ export const createService = <T>(effect: Effect<Service<T>, T>): Service<T> => {
   return service
 }
 
-export const isService = (object: unknown): object is Service<unknown> =>
+export const isService = (
+  object: unknown
+): object is Service<unknown, unknown> =>
   isObject(object) && object[ServiceSymbol] === true
