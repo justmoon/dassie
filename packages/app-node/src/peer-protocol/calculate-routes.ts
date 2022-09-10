@@ -1,23 +1,16 @@
 import Denque from "denque"
 
-import { EffectContext, createSignal } from "@dassie/lib-reactive"
+import type { EffectContext } from "@dassie/lib-reactive"
 import { assertDefined } from "@dassie/lib-type-utils"
 
 import { configSignal } from "../config"
 import { nodeTableStore } from "./stores/node-table"
+import { RoutingTableEntry, routingTableStore } from "./stores/routing-table"
 
 interface NodeInfoEntry {
   level: number
   parents: string[]
 }
-
-interface RoutingTableEntry {
-  distance: number
-  firstHopOptions: string[]
-}
-
-export const routingTableStore = () =>
-  createSignal(new Map<string, RoutingTableEntry>())
 
 /**
  * This effect generates an Even-Shiloach tree which is then condensed into a routing table. The routing table contains all possible first hops which are on one of the shortest paths to the target node.

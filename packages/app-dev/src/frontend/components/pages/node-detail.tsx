@@ -83,8 +83,9 @@ const PeerTable = ({ nodeId }: BasicNodeElementProperties) => {
 
 const NodeTable = ({ nodeId }: BasicNodeElementProperties) => {
   const nodeTable = useNodeRemoteSignal(nodeId, "nodeTable")
+  const routingTable = useNodeRemoteSignal(nodeId, "routingTable")
 
-  if (!nodeTable.data) return null
+  if (!nodeTable.data || !routingTable.data) return null
 
   return (
     <div className="min-h-0">
@@ -93,22 +94,41 @@ const NodeTable = ({ nodeId }: BasicNodeElementProperties) => {
         <thead>
           <tr>
             <th className="text-left">Node</th>
+            <th>Distance</th>
+            <th>Next Hop Options</th>
           </tr>
         </thead>
         <tbody>
-          {[...nodeTable.data.values()].map((node) => (
-            <tr key={node.nodeId}>
-              <td className="">
-                <Link
-                  href={`/nodes/${node.nodeId}`}
-                  className="font-bold"
-                  style={{ color: selectBySeed(COLORS, node.nodeId) }}
-                >
-                  {node.nodeId}
-                </Link>
-              </td>
-            </tr>
-          ))}
+          {[...nodeTable.data.values()].map((node) => {
+            const routingTableEntry = routingTable.data.get(node.nodeId)
+            const nextHopNodes = routingTableEntry?.firstHopOptions
+            return (
+              <tr key={node.nodeId}>
+                <td className="">
+                  <Link
+                    href={`/nodes/${node.nodeId}`}
+                    className="font-bold"
+                    style={{ color: selectBySeed(COLORS, node.nodeId) }}
+                  >
+                    {node.nodeId}
+                  </Link>
+                </td>
+                <td>{routingTableEntry?.distance}</td>
+                <td>
+                  {nextHopNodes?.map((nodeId) => (
+                    <Link
+                      key={nodeId}
+                      href={`/nodes/${nodeId}`}
+                      className="font-bold"
+                      style={{ color: selectBySeed(COLORS, nodeId) }}
+                    >
+                      {nodeId}
+                    </Link>
+                  ))}
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>

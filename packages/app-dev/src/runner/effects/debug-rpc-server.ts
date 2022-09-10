@@ -4,6 +4,7 @@ import superjson from "superjson"
 import { WebSocketServer } from "ws"
 
 import { nodeTableStore, peerTableStore } from "@dassie/app-node"
+import { routingTableStore } from "@dassie/app-node/src/peer-protocol/stores/routing-table"
 import { createLogger } from "@dassie/lib-logger"
 import { EffectContext, Reactor, debugFirehose } from "@dassie/lib-reactive"
 import { createRemoteReactiveRouter } from "@dassie/lib-reactive-trpc/server"
@@ -15,6 +16,7 @@ const logger = createLogger("das:dev:launcher:debug-rpc-server")
 export const exposedStores = {
   peerTable: peerTableStore,
   nodeTable: nodeTableStore,
+  routingTable: routingTableStore,
 } as const
 
 export type ExposedStoresMap = typeof exposedStores
