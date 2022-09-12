@@ -6,6 +6,7 @@ import { viteService } from "../services/vite-server"
 import { activeTemplateSignal } from "../signals/active-template"
 import { generateNodeConfig } from "../utils/generate-node-config"
 import { fileChangeTopic } from "./handle-file-change"
+import { prepareDataDirectory } from "./prepare-data-directory"
 import { runNodeChildProcess } from "./run-node-child-process"
 import { CertificateInfo, validateCertificates } from "./validate-certificates"
 
@@ -27,7 +28,7 @@ export const runNodes = async (sig: EffectContext) => {
 
   if (!viteServer || !nodeServer) return
 
-  // Restart child processes when a file changes
+  // Restart all nodes when a source code file changes
   sig.subscribe(fileChangeTopic)
 
   logger.debug("starting node processes")
@@ -36,22 +37,33 @@ export const runNodes = async (sig: EffectContext) => {
     sig.forIndex(activeTemplateSignal, async (sig, [peers, index]) => {
       const node = generateNodeConfig(index, peers)
 
-      const neededCertificates: CertificateInfo[] = [
-        {
-          type: "web",
-          certificatePath: node.config.tlsWebCertFile,
-          keyPath: node.config.tlsWebKeyFile,
-        },
-        {
-          type: "dassie",
-          certificatePath: node.config.tlsDassieCertFile,
-          keyPath: node.config.tlsDassieKeyFile,
-        },
-      ]
-      await sig.run(validateCertificates, {
-        id: node.id,
-        certificates: neededCertificates,
-      })
+      // Generate TLS certificates
+      {
+        const neededCertificates: CertificateInfo[] = [
+          {
+            type: "web",
+            certificatePath: node.config.tlsWebCertFile,
+            keyPath: node.config.tlsWebKeyFile,
+          },
+          {
+            type: "dassie",
+            certificatePath: node.config.tlsDassieCertFile,
+            keyPath: node.config.tlsDassieKeyFile,
+          },
+        ]
+
+        await sig.run(validateCertificates, {
+          id: node.id,
+          certificates: neededCertificates,
+        })
+      }
+
+      // Prepare data directory
+      {
+        const { dataPath } = node.config
+
+        await sig.run(prepareDataDirectory, dataPath)
+      }
 
       await sig.run(runNodeChildProcess, {
         viteServer,
