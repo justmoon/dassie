@@ -11,6 +11,7 @@
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "dependencies": {
+    "@blackglory/better-sqlite3-migrations": "^0.1.15",
     "@dassie/lib-http-server": "workspace:^1.0.0",
     "@dassie/lib-logger": "workspace:^1.0.0",
     "@dassie/lib-oer": "workspace:^1.0.0",
@@ -19,6 +20,7 @@
     "@noble/ed25519": "^1.7.0",
     "@types/ws": "^8.5.3",
     "axios": "^0.27.2",
+    "better-sqlite3": "^7.6.2",
     "denque": "^2.1.0",
     "env-paths": "^3.0.0",
     "find-my-way": "^7.0.1",
@@ -27,6 +29,7 @@
     "ws": "^8.8.1"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
     "type-fest": "^2.19.0"
   }
 }
