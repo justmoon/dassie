@@ -1,11 +1,9 @@
 import type { EffectContext } from "@dassie/lib-reactive"
 
-import { automaticallyCreateFirstUplinks } from "./automatically-create-first-uplinks"
-import { maintainUplinks } from "./maintain-uplinks"
 import { saveWalletToLocalStorage } from "./save-wallet-to-localstorage"
+import { maintainUplink } from "./uplink/maintain-uplink"
 
 export const rootEffect = (sig: EffectContext) => {
   sig.run(saveWalletToLocalStorage)
-  void sig.run(automaticallyCreateFirstUplinks)
-  sig.run(maintainUplinks)
+  sig.run(maintainUplink)
 }

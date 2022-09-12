@@ -1,1 +1,1 @@
-declare const __DASSIE_BEACONS__: string[]
+declare const __DASSIE_NODE_URL__: string
