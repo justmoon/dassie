@@ -1,13 +1,13 @@
 import { $ } from "zx"
 
 import assert from "node:assert"
-import { constants } from "node:fs"
-import { access, unlink } from "node:fs/promises"
+import { unlink } from "node:fs/promises"
 import { dirname } from "node:path"
-import { isNativeError } from "node:util/types"
 
 import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
+
+import { checkFileStatus } from "../utils/check-file-status"
 
 const logger = createLogger("das:dev:validate-certificates")
 
@@ -15,25 +15,6 @@ export interface CertificateInfo {
   type: "web" | "dassie"
   certificatePath: string | undefined
   keyPath: string | undefined
-}
-
-const checkFileStatus = async (filePath: string) => {
-  try {
-    await access(filePath, constants.R_OK)
-    return "ok"
-  } catch (error) {
-    const code = isNativeError(error)
-      ? (error as NodeJS.ErrnoException).code
-      : undefined
-    switch (code) {
-      case "ENOENT":
-        return "missing"
-      case "EACCES":
-        return "unreadable"
-      default:
-        return "error"
-    }
-  }
 }
 
 const generateKey = async ({ type, keyPath }: CertificateInfo) => {
