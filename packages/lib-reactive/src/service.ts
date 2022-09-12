@@ -19,8 +19,8 @@ export type Service<TInstance, TProperties> = Signal<TInstance | undefined> & {
   effect: Effect<TProperties, Service<TInstance, TProperties>>
 }
 
-export const createService = <TInstance, TProperties>(
-  effect: Effect<TProperties, TInstance>
+export const createService = <TInstance, TProperties = undefined>(
+  effect: Effect<TProperties, TInstance | undefined>
 ): Service<TInstance, TProperties> => {
   const signal = createSignal<TInstance>()
   const service: Service<TInstance, TProperties> = {
