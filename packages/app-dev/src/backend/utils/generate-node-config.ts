@@ -19,10 +19,11 @@ export const generateNodeConfig = (index: number, peers: readonly number[]) => {
       subnetId: "null",
       host: `${id}.localhost`,
       port: nodeIndexToPort(index),
-      tlsDassieCertFile: `${LOCAL_PATH}/ssl/${id}.localhost/dassie-${id}.localhost.pem`,
-      tlsDassieKeyFile: `${LOCAL_PATH}/ssl/${id}.localhost/dassie-${id}.localhost-key.pem`,
-      tlsWebCertFile: `${LOCAL_PATH}/ssl/${id}.localhost/web-${id}.localhost.pem`,
-      tlsWebKeyFile: `${LOCAL_PATH}/ssl/${id}.localhost/web-${id}.localhost-key.pem`,
+      dataPath: `${LOCAL_PATH}/data/${id}.localhost`,
+      tlsDassieCertFile: `${LOCAL_PATH}/tls/${id}.localhost/dassie-${id}.localhost.pem`,
+      tlsDassieKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/dassie-${id}.localhost-key.pem`,
+      tlsWebCertFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost.pem`,
+      tlsWebKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost-key.pem`,
       initialPeers: peers
         .map(
           (target) =>

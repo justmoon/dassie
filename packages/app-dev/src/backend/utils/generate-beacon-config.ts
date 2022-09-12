@@ -15,8 +15,8 @@ export const generateBeaconConfig = (index: number) => {
     config: {
       host: `${id}.localhost`,
       port: beaconIndexToPort(index),
-      tlsWebCertFile: `${LOCAL_PATH}/ssl/${id}.localhost/web-${id}.localhost.pem`,
-      tlsWebKeyFile: `${LOCAL_PATH}/ssl/${id}.localhost/web-${id}.localhost-key.pem`,
+      tlsWebCertFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost.pem`,
+      tlsWebKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost-key.pem`,
     },
     url: `https://${id}.localhost:${port}/`,
     entry: ENTRYPOINT,
