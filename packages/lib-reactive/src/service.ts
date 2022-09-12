@@ -20,22 +20,15 @@ export type Service<TInstance, TProperties> = Signal<TInstance | undefined> & {
 }
 
 export const createService = <TInstance, TProperties>(
-  effect: Effect<
-    { properties: TProperties; service: Service<TInstance, TProperties> },
-    TInstance
-  >
+  effect: Effect<TProperties, TInstance>
 ): Service<TInstance, TProperties> => {
   const signal = createSignal<TInstance>()
   const service: Service<TInstance, TProperties> = {
     ...signal,
     [ServiceSymbol]: true,
     effect: (sig, properties) => {
-      runEffect(
-        sig.reactor,
-        effect,
-        { service, properties },
-        sig.lifecycle,
-        (_result) => service.write(_result)
+      runEffect(sig.reactor, effect, properties, sig.lifecycle, (_result) =>
+        service.write(_result)
       ).catch((error: unknown) => {
         console.error("error in service effect", {
           effect: effect.name,

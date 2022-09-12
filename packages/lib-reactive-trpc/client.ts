@@ -38,7 +38,10 @@ export const createRemoteTopic = <
   InferMessageType<TExposedTopicsMap[TTopicName]> | undefined,
   unknown
 > => {
-  return createService((sig, { service }) => {
+  const service = createService<
+    InferMessageType<TExposedTopicsMap[TTopicName]> | undefined,
+    unknown
+  >((sig) => {
     const client = sig.get(connectionFactory)
 
     if (!client) return
@@ -58,6 +61,8 @@ export const createRemoteTopic = <
 
     return undefined
   })
+
+  return service
 }
 
 export const createRemoteSignal = <
@@ -75,7 +80,10 @@ export const createRemoteSignal = <
   InferMessageType<TExposedTopicsMap[TSignalName]> | TInitialValue,
   unknown
 > => {
-  return createService((sig, { service }) => {
+  const service = createService<
+    InferMessageType<TExposedTopicsMap[TSignalName]> | TInitialValue,
+    unknown
+  >((sig) => {
     const client = sig.get(connectionFactory)
 
     if (!client) return initialValue
@@ -95,6 +103,8 @@ export const createRemoteSignal = <
 
     return initialValue
   })
+
+  return service
 }
 
 export const createRemoteSynchronizedStore = <
@@ -108,7 +118,10 @@ export const createRemoteSynchronizedStore = <
   storeName: TStoreName,
   storeImplementation: TExposedTopicsMap[TStoreName]
 ): Service<InferMessageType<TExposedTopicsMap[TStoreName]>, unknown> => {
-  return createService((sig, { service }) => {
+  const service = createService<
+    InferMessageType<TExposedTopicsMap[TStoreName]>,
+    unknown
+  >((sig) => {
     const client = sig.get(connectionFactory)
 
     const localStore = sig.run(storeImplementation)
@@ -155,4 +168,6 @@ export const createRemoteSynchronizedStore = <
 
     return localStore.read() as InferMessageType<TExposedTopicsMap[TStoreName]>
   })
+
+  return service
 }
