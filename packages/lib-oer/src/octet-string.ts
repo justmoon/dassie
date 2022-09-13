@@ -1,7 +1,6 @@
-import { isUint8Array } from "node:util/types"
-
 import { OerType, Serializer } from "./base-type"
 import { ParseError, SerializeError } from "./utils/errors"
+import { isUint8Array } from "./utils/is-uint8array"
 import {
   parseLengthPrefix,
   predictLengthPrefixLength,
