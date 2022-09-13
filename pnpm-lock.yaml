@@ -228,6 +228,7 @@ importers:
       '@dassie/lib-http-server': workspace:^1.0.0
       '@dassie/lib-logger': workspace:^1.0.0
       '@dassie/lib-oer': workspace:^1.0.0
+      '@dassie/lib-protocol-utils': workspace:^1.0.0
       '@dassie/lib-reactive': workspace:^1.0.0
       '@dassie/lib-type-utils': workspace:^1.0.0
       '@noble/ed25519': ^1.7.0
@@ -247,6 +248,7 @@ importers:
       '@dassie/lib-http-server': link:../lib-http-server
       '@dassie/lib-logger': link:../lib-logger
       '@dassie/lib-oer': link:../lib-oer
+      '@dassie/lib-protocol-utils': link:../lib-protocol-utils
       '@dassie/lib-reactive': link:../lib-reactive
       '@dassie/lib-type-utils': link:../lib-type-utils
       '@noble/ed25519': 1.7.0
@@ -265,6 +267,7 @@ importers:
 
   packages/app-wallet:
     specifiers:
+      '@dassie/lib-protocol-utils': workspace:^1.0.0
       '@dassie/lib-reactive': workspace:^1.0.0
       '@dassie/lib-reactive-react': workspace:^1.0.0
       '@dassie/lib-type-utils': workspace:^1.0.0
@@ -283,6 +286,7 @@ importers:
       wouter: 2.8.0-alpha.2
       zustand: ^4.1.1
     dependencies:
+      '@dassie/lib-protocol-utils': link:../lib-protocol-utils
       '@dassie/lib-reactive': link:../lib-reactive
       '@dassie/lib-reactive-react': link:../lib-reactive-react
       '@dassie/lib-type-utils': link:../lib-type-utils
@@ -386,6 +390,12 @@ importers:
       '@dassie/lib-type-utils': link:../lib-type-utils
     devDependencies:
       type-fest: 2.19.0
+
+  packages/lib-protocol-utils:
+    specifiers:
+      '@dassie/lib-oer': workspace:^1.0.0
+    dependencies:
+      '@dassie/lib-oer': link:../lib-oer
 
   packages/lib-reactive:
     specifiers:

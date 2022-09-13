@@ -2,17 +2,17 @@ import type { WebSocket } from "ws"
 import { WebSocketServer } from "ws"
 
 import { createLogger } from "@dassie/lib-logger"
-import type { EffectContext } from "@dassie/lib-reactive"
-
-import { configSignal } from "../config"
-import { httpService } from "../http-server/serve-http"
-import { incomingIlpPacketBuffer } from "../ilp-connector/topics/incoming-ilp-packet"
 import {
   BtpType,
   btpEnvelopeSchema,
   btpMessageSchema,
   btpTransferSchema,
-} from "./btp-codec"
+} from "@dassie/lib-protocol-utils"
+import type { EffectContext } from "@dassie/lib-reactive"
+
+import { configSignal } from "../config"
+import { httpService } from "../http-server/serve-http"
+import { incomingIlpPacketBuffer } from "../ilp-connector/topics/incoming-ilp-packet"
 
 const logger = createLogger("das:node:websocket-server")
 

@@ -1,0 +1,32 @@
+{
+  "name": "@dassie/lib-protocol-utils",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Serialization and deserialization for various protocols",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts"
+    }
+  },
+  "publishConfig": {
+    "main": "./dist/index.js",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "require": "./dist/index.cjs",
+        "import": "./dist/index.js"
+      }
+    }
+  },
+  "scripts": {
+    "clean": "rimraf dist",
+    "build": "rollup -c",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Stefan Thomas <justmoon@members.fsf.org>",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@dassie/lib-oer": "workspace:^1.0.0"
+  }
+}

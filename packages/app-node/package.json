@@ -15,6 +15,7 @@
     "@dassie/lib-http-server": "workspace:^1.0.0",
     "@dassie/lib-logger": "workspace:^1.0.0",
     "@dassie/lib-oer": "workspace:^1.0.0",
+    "@dassie/lib-protocol-utils": "workspace:^1.0.0",
     "@dassie/lib-reactive": "workspace:^1.0.0",
     "@dassie/lib-type-utils": "workspace:^1.0.0",
     "@noble/ed25519": "^1.7.0",

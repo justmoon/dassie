@@ -1,8 +1,8 @@
 import { createLogger } from "@dassie/lib-logger"
+import { btpEnvelopeSchema, btpMessageSchema } from "@dassie/lib-protocol-utils"
 import type { EffectContext } from "@dassie/lib-reactive"
 
 import { outgoingIlpPacketBuffer } from "../ilp-connector/topics/outgoing-ilp-packet"
-import { btpEnvelopeSchema, btpMessageSchema } from "./btp-codec"
 import { connectionMap } from "./register-btp-http-upgrade"
 
 const logger = createLogger("das:node:btp-ilp-sender")
