@@ -6,11 +6,13 @@ import { Signal, createSignal } from "./signal"
 
 export const ServiceSymbol = Symbol("das:reactive:service")
 
-export type ServiceFactory<TInstance, TProperties> = Factory<
+export type ServiceFactory<TInstance, TProperties = undefined> = Factory<
   Service<TInstance, TProperties>
 >
 
-export type Service<TInstance, TProperties> = Signal<TInstance | undefined> & {
+export type Service<TInstance, TProperties = undefined> = Signal<
+  TInstance | undefined
+> & {
   /**
    * Marks this object as a value.
    */

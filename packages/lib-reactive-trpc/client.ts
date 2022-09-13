@@ -29,18 +29,11 @@ export const createRemoteTopic = <
   TExposedTopicsMap extends Record<string, TopicFactory>,
   TTopicName extends string & keyof TExposedTopicsMap
 >(
-  connectionFactory: ServiceFactory<
-    ReactiveTrpcClient<TExposedTopicsMap>,
-    unknown
-  >,
+  connectionFactory: ServiceFactory<ReactiveTrpcClient<TExposedTopicsMap>>,
   topicName: TTopicName
-): Service<
-  InferMessageType<TExposedTopicsMap[TTopicName]> | undefined,
-  unknown
-> => {
+): Service<InferMessageType<TExposedTopicsMap[TTopicName]> | undefined> => {
   const service = createService<
-    InferMessageType<TExposedTopicsMap[TTopicName]> | undefined,
-    unknown
+    InferMessageType<TExposedTopicsMap[TTopicName]> | undefined
   >((sig) => {
     const client = sig.get(connectionFactory)
 
@@ -70,19 +63,14 @@ export const createRemoteSignal = <
   TSignalName extends string & keyof TExposedTopicsMap,
   TInitialValue
 >(
-  connectionFactory: ServiceFactory<
-    ReactiveTrpcClient<TExposedTopicsMap>,
-    unknown
-  >,
+  connectionFactory: ServiceFactory<ReactiveTrpcClient<TExposedTopicsMap>>,
   storeName: TSignalName,
   initialValue: TInitialValue
 ): Service<
-  InferMessageType<TExposedTopicsMap[TSignalName]> | TInitialValue,
-  unknown
+  InferMessageType<TExposedTopicsMap[TSignalName]> | TInitialValue
 > => {
   const service = createService<
-    InferMessageType<TExposedTopicsMap[TSignalName]> | TInitialValue,
-    unknown
+    InferMessageType<TExposedTopicsMap[TSignalName]> | TInitialValue
   >((sig) => {
     const client = sig.get(connectionFactory)
 
@@ -111,16 +99,12 @@ export const createRemoteSynchronizedStore = <
   TExposedTopicsMap extends Record<string, TopicFactory>,
   TStoreName extends string & keyof TExposedTopicsMap
 >(
-  connectionFactory: ServiceFactory<
-    ReactiveTrpcClient<TExposedTopicsMap>,
-    unknown
-  >,
+  connectionFactory: ServiceFactory<ReactiveTrpcClient<TExposedTopicsMap>>,
   storeName: TStoreName,
   storeImplementation: TExposedTopicsMap[TStoreName]
-): Service<InferMessageType<TExposedTopicsMap[TStoreName]>, unknown> => {
+): Service<InferMessageType<TExposedTopicsMap[TStoreName]>> => {
   const service = createService<
-    InferMessageType<TExposedTopicsMap[TStoreName]>,
-    unknown
+    InferMessageType<TExposedTopicsMap[TStoreName]>
   >((sig) => {
     const client = sig.get(connectionFactory)
 
