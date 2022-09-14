@@ -6,6 +6,7 @@ import { handleShutdownSignals } from "../../common/effects/handle-shutdown-sign
 import { runDebugRpcServer } from "../effects/debug-rpc-server"
 import { forwardLogs } from "../effects/forward-logs"
 import { forwardPeerTraffic } from "../effects/forward-peer-traffic"
+import { serveWallet } from "../effects/serve-wallet"
 
 export const logger = createLogger("das:dev:launcher:node")
 
@@ -13,6 +14,7 @@ const rootEffect = async (sig: EffectContext) => {
   sig.run(handleShutdownSignals)
   sig.run(forwardLogs)
   sig.run(forwardPeerTraffic)
+  await sig.run(serveWallet)
   await sig.run(nodeRootEffect)
   sig.run(runDebugRpcServer)
 }

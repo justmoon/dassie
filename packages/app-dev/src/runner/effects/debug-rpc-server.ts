@@ -11,7 +11,7 @@ import { createRemoteReactiveRouter } from "@dassie/lib-reactive-trpc/server"
 
 import { prettyFormat } from "../../common/utils/pretty-format"
 
-const logger = createLogger("das:dev:launcher:debug-rpc-server")
+const logger = createLogger("das:dev:runner:debug-rpc-server")
 
 export const exposedStores = {
   peerTable: peerTableStore,

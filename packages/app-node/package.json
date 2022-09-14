@@ -22,6 +22,7 @@
     "@types/ws": "^8.5.3",
     "axios": "^0.27.2",
     "better-sqlite3": "^7.6.2",
+    "connect": "^3.7.0",
     "denque": "^2.1.0",
     "env-paths": "^3.0.0",
     "find-my-way": "^7.0.1",
@@ -31,6 +32,7 @@
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",
+    "@types/connect": "^3.4.35",
     "type-fest": "^2.19.0"
   }
 }

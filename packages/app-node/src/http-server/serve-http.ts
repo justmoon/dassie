@@ -1,3 +1,4 @@
+import connect, { NextHandleFunction } from "connect"
 import createRouter from "find-my-way"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
@@ -5,7 +6,11 @@ import { createServer } from "node:https"
 
 import { respondPlainly } from "@dassie/lib-http-server"
 import { createLogger } from "@dassie/lib-logger"
-import { EffectContext, createService } from "@dassie/lib-reactive"
+import {
+  EffectContext,
+  createService,
+  createSignal,
+} from "@dassie/lib-reactive"
 import { assertDefined, isObject } from "@dassie/lib-type-utils"
 
 import { configSignal } from "../config"
@@ -26,6 +31,9 @@ const handleNotFound: Handler = (_request, response) => {
   respondPlainly(response, 404, "Not Found")
 }
 
+export const additionalMiddlewaresSignal = () =>
+  createSignal<NextHandleFunction[]>([])
+
 export const routerService = () =>
   createService(() => {
     return createRouter({
@@ -36,17 +44,26 @@ export const routerService = () =>
 export const httpService = () =>
   createService((sig) => {
     const router = sig.get(routerService)
+    const additionalMiddlewares = sig.get(additionalMiddlewaresSignal)
 
     if (!router) return
 
-    const { host, port, tlsWebCert, tlsWebKey } = sig.get(
-      configSignal,
-      ({ host, port, tlsWebCert, tlsWebKey }) => ({
-        host,
-        port,
-        tlsWebCert,
-        tlsWebKey,
-      })
+    const { host, port, tlsWebCert, tlsWebKey } = sig.getKeys(configSignal, [
+      "host",
+      "port",
+      "tlsWebCert",
+      "tlsWebKey",
+    ])
+
+    const app = connect()
+
+    for (const middleware of additionalMiddlewares) {
+      app.use(middleware)
+    }
+
+    app.use(
+      (request, response, next) =>
+        void handleRequest(request, response).then(next)
     )
 
     const server = createServer(
@@ -56,7 +73,7 @@ export const httpService = () =>
         requestCert: true,
         rejectUnauthorized: false,
       },
-      (...parameters) => void handleRequest(...parameters)
+      app
     )
 
     server.listen(port)

@@ -60,6 +60,7 @@
   },
   "devDependencies": {
     "@types/chrome-remote-interface": "^0.31.4",
+    "@types/connect": "^3.4.35",
     "@types/express": "^4.17.13",
     "@types/linkify-it": "^3.0.2",
     "@types/react": "^18.0.18",
