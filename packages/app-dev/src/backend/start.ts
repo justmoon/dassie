@@ -11,7 +11,6 @@ import { runBeacons } from "./effects/run-beacons"
 import { runNodes } from "./effects/run-nodes"
 import { debugUiServer } from "./effects/serve-debug-ui"
 import { listenForRpcWebSocket } from "./effects/serve-rpc"
-import { serveWallet } from "./effects/serve-wallet"
 import { indexLogs } from "./features/logs"
 import { viteNodeService } from "./services/vite-node-server"
 import { viteService } from "./services/vite-server"
@@ -30,7 +29,6 @@ const rootEffect = async (sig: EffectContext) => {
   await sig.run(handleFileChange)
   await sig.run(runBeacons)
   await sig.run(runNodes)
-  await sig.run(serveWallet)
   await sig.run(debugUiServer)
 
   sig.run(handleShutdownSignals)
