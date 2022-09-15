@@ -22,11 +22,6 @@ export type Handler = (
   response: ServerResponse
 ) => void
 
-const handleGetRoot: Handler = (_request, response) => {
-  response.writeHead(200, { "Content-Type": "text/html" })
-  response.end(`Hello World!`)
-}
-
 const handleNotFound: Handler = (_request, response) => {
   respondPlainly(response, 404, "Not Found")
 }
@@ -128,12 +123,4 @@ export const httpService = () =>
 export const serveHttp = (sig: EffectContext) => {
   sig.run(sig.use(routerService).effect)
   sig.run(sig.use(httpService).effect)
-}
-
-export const registerRootRoute = (sig: EffectContext) => {
-  const router = sig.get(routerService)
-
-  if (!router) return
-
-  router.get("/", handleGetRoot)
 }

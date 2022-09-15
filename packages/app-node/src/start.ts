@@ -5,7 +5,7 @@ import { registerBtpHttpUpgrade } from "./btp-server/register-btp-http-upgrade"
 import { registerBtpIlpSender } from "./btp-server/register-btp-ilp-sender"
 import { signerService } from "./crypto/signer"
 import { openDatabase } from "./database/open-database"
-import { registerRootRoute, serveHttp } from "./http-server/serve-http"
+import { serveHttp } from "./http-server/serve-http"
 import { routeIlpPackets } from "./ilp-connector/route-ilp-packets"
 import { attachLogger } from "./logger"
 import { speakPeerProtocol } from "./peer-protocol"
@@ -16,7 +16,6 @@ export const rootEffect = async (sig: EffectContext) => {
   sig.run(openDatabase)
   sig.run(attachLogger)
   sig.run(serveHttp)
-  sig.run(registerRootRoute)
   sig.run(registerBtpHttpUpgrade)
   sig.run(registerBtpIlpSender)
   sig.run(routeIlpPackets)
