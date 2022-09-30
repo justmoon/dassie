@@ -1,6 +1,7 @@
-import type { Reactor } from "@dassie/lib-reactive"
 import * as trpc from "@trpc/server"
 import { z } from "zod"
+
+import type { Reactor } from "@dassie/lib-reactive"
 
 import { logLineTopic } from "../features/logs"
 import { peerTrafficTopic } from "../topics/peer-traffic"

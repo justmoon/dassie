@@ -1,3 +1,4 @@
+import { BtpContentType, generateBtpMessage } from "@dassie/lib-protocol-utils"
 import { EffectContext, createService } from "@dassie/lib-reactive"
 
 import { walletStore } from "../../stores/wallet"
@@ -16,18 +17,43 @@ export interface NodeUplink {
 
 export const uplinkService = () =>
   createService<NodeUplink>((sig) => {
-    const websocket = new WebSocket(__DASSIE_NODE_URL__.replace(/^http/, "ws"))
+    const websocket = new WebSocket(
+      `${__DASSIE_NODE_URL__.replace(/^http/, "ws")}btp`
+    )
 
-    websocket.addEventListener("message", (event) => {
+    // eslint-disable-next-line unicorn/consistent-function-scoping
+    const handleMessage = (event: MessageEvent) => {
       console.log("ws message", event)
-    })
+    }
 
-    websocket.addEventListener("open", () => {
+    const handleOpen = () => {
       console.log("ws open")
-      websocket.send("hello")
-    })
+
+      const authMessage = generateBtpMessage({
+        requestId: 0,
+        protocolData: [
+          {
+            protocolName: "auth",
+            contentType: BtpContentType.ApplicationOctetStream,
+            data: new Uint8Array(32),
+          },
+        ],
+      })
+      websocket.send(authMessage)
+    }
+
+    const handleError = (error: unknown) => {
+      console.error("uplink error", error)
+    }
+
+    websocket.addEventListener("message", handleMessage)
+    websocket.addEventListener("open", handleOpen)
+    websocket.addEventListener("error", handleError)
 
     sig.onCleanup(() => {
+      websocket.removeEventListener("message", handleMessage)
+      websocket.removeEventListener("open", handleOpen)
+      websocket.removeEventListener("error", handleError)
       websocket.close()
     })
 

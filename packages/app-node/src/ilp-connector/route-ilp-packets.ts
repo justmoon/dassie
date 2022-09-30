@@ -49,7 +49,8 @@ export const routeIlpPackets = (sig: EffectContext) => {
         }
 
         logger.debug("received ILP prepare", {
-          destination: prepareParseResult.value.destination,
+          from: source,
+          to: prepareParseResult.value.destination,
           amount: prepareParseResult.value.amount,
         })
 
@@ -105,7 +106,7 @@ export const routeIlpPackets = (sig: EffectContext) => {
           })
           return
         } else if (
-          prepareParseResult.value.destination.startsWith(`${ilpAddress}.c`)
+          prepareParseResult.value.destination.startsWith(`${ilpAddress}.`)
         ) {
           const localDestination = prepareParseResult.value.destination
             .split(".")

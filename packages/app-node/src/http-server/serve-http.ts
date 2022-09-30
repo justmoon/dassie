@@ -1,17 +1,16 @@
-import connect, { NextHandleFunction } from "connect"
-import createRouter from "find-my-way"
+import type { NextHandleFunction } from "connect"
+import express, { Router } from "express"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { createServer } from "node:https"
+import type { Duplex } from "node:stream"
 
-import { respondPlainly } from "@dassie/lib-http-server"
 import { createLogger } from "@dassie/lib-logger"
 import {
   EffectContext,
   createService,
   createSignal,
 } from "@dassie/lib-reactive"
-import { assertDefined, isObject } from "@dassie/lib-type-utils"
 
 import { configSignal } from "../config"
 
@@ -22,19 +21,22 @@ export type Handler = (
   response: ServerResponse
 ) => void
 
-const handleNotFound: Handler = (_request, response) => {
-  respondPlainly(response, 404, "Not Found")
-}
-
 export const additionalMiddlewaresSignal = () =>
   createSignal<NextHandleFunction[]>([])
 
 export const routerService = () =>
-  createService(() => {
-    return createRouter({
-      defaultRoute: handleNotFound,
-    })
+  createService<Router>(() => {
+    return Router()
   })
+
+export type WebsocketHandler = (
+  request: IncomingMessage,
+  socket: Duplex,
+  head: Buffer
+) => void
+
+export const websocketRoutesSignal = () =>
+  createSignal(new Map<string, WebsocketHandler>())
 
 export const httpService = () =>
   createService((sig) => {
@@ -50,16 +52,13 @@ export const httpService = () =>
       "tlsWebKey",
     ])
 
-    const app = connect()
+    const app = express()
+
+    app.use(router)
 
     for (const middleware of additionalMiddlewares) {
       app.use(middleware)
     }
-
-    app.use(
-      (request, response, next) =>
-        void handleRequest(request, response).then(next)
-    )
 
     const server = createServer(
       {
@@ -76,44 +75,34 @@ export const httpService = () =>
     logger.info(
       `listening on https://${host}${port === 443 ? "" : `:${port}`}/`
     )
-    async function handleRequest(
+
+    function handleUpgrade(
       request: IncomingMessage,
-      response: ServerResponse
+      socket: Duplex,
+      head: Buffer
     ) {
-      try {
-        assertDefined(request.url)
-        assertDefined(request.method)
+      const { pathname } = new URL(request.url!, "http://localhost")
 
-        await router!.lookup(request, response)
-      } catch (error) {
-        // Log any errors
-        logger.error(
-          "error handling http request",
-          { error },
-          { skipAfter: "HttpService.handleRequest" }
-        )
+      const handler = sig.use(websocketRoutesSignal).read().get(pathname)
 
-        if (
-          isObject(error) &&
-          "statusCode" in error &&
-          typeof error["statusCode"] === "number"
-        ) {
-          logger.debug(`responding with error`, {
-            statusCode: error["statusCode"],
-            message: error["message"],
-          })
-          respondPlainly(
-            response,
-            error["statusCode"],
-            typeof error["message"] === "string" ? error["message"] : "Error"
-          )
-        } else {
-          respondPlainly(response, 500, "Internal Server Error")
-        }
+      if (!handler) {
+        socket.destroy()
+        return
       }
+
+      handler(request, socket, head)
     }
 
+    function handleError(error: unknown) {
+      logger.error("http server error", { error })
+    }
+
+    server.addListener("upgrade", handleUpgrade)
+    server.addListener("error", handleError)
+
     sig.onCleanup(() => {
+      server.removeListener("upgrade", handleUpgrade)
+      server.removeListener("error", handleError)
       server.close()
     })
 

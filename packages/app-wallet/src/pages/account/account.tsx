@@ -1,3 +1,4 @@
+import { LinkButton } from "../../components/button/button"
 import { useAccount } from "../../hooks/use-account"
 
 export const Account = () => {
@@ -18,7 +19,7 @@ export const Account = () => {
   )
 
   return (
-    <div className="flex justify-center">
+    <div className="flex flex-col items-center">
       <div className="flex bg-slate-200 rounded-xl m-4 p-4  text-dark text-center max-w-md w-full justify-center items-baseline">
         <div className="mr-1 text-4xl md:text-5xl">
           {account.currency.symbol}
@@ -32,6 +33,7 @@ export const Account = () => {
           {deemphasizedPart.slice(0, 2)}
         </div>
       </div>
+      <LinkButton href="/send">Send</LinkButton>
     </div>
   )
 }

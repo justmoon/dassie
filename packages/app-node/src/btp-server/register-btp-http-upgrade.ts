@@ -11,19 +11,19 @@ import {
 import type { EffectContext } from "@dassie/lib-reactive"
 
 import { configSignal } from "../config"
-import { httpService } from "../http-server/serve-http"
+import { websocketRoutesSignal } from "../http-server/serve-http"
+import {
+  generateNewClientId,
+  ilpClientMapStore,
+} from "../ilp-connector/stores/ilp-client-map"
 import { incomingIlpPacketBuffer } from "../ilp-connector/topics/incoming-ilp-packet"
 
 const logger = createLogger("das:node:websocket-server")
 
 let unique = 0
 
-export const connectionMap = new Map<string, WebSocket>()
-
 export const registerBtpHttpUpgrade = (sig: EffectContext) => {
-  const httpServer = sig.get(httpService)
-
-  if (!httpServer) return
+  const websocketRoutes = sig.get(websocketRoutesSignal)
 
   const ilpAddress = sig.get(configSignal, (config) => config.ilpAddress)
 
@@ -34,8 +34,6 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
       const connectionId = unique++
 
       const clientIlpAddress = `${ilpAddress}.c${connectionId}`
-
-      connectionMap.set(clientIlpAddress, socket)
 
       logger.debug("handle BTP websocket connection", { connectionId })
 
@@ -169,6 +167,106 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
           })
         }
       })
+
+      const ilpClientMap = sig.use(ilpClientMapStore)
+      const newClientId = generateNewClientId(ilpClientMap.read())
+      ilpClientMap.addIlpClient({
+        id: newClientId,
+        type: "btp",
+        sendPacket: ({ packet, amount, requestId, isResponse }) => {
+          if (amount === 0n) {
+            const btpMessageSerializeResult = btpMessageSchema.serialize({
+              protocolData: [
+                {
+                  protocolName: "ilp",
+                  contentType: 0,
+                  data: packet,
+                },
+              ],
+            })
+
+            if (!btpMessageSerializeResult.success) {
+              logger.error("could not serialize BTP message", {
+                error: btpMessageSerializeResult.failure,
+              })
+              return
+            }
+
+            const btpEnvelopeSerializeResult = btpEnvelopeSchema.serialize({
+              messageType: isResponse ? 1 : 6, // Response or Message
+              requestId,
+              message: btpMessageSerializeResult.value,
+            })
+
+            if (!btpEnvelopeSerializeResult.success) {
+              logger.error("could not serialize BTP envelope", {
+                error: btpEnvelopeSerializeResult.failure,
+              })
+              return
+            }
+
+            socket.send(btpEnvelopeSerializeResult.value)
+
+            return
+          } else {
+            const btpMessageSerializeResult = btpMessageSchema.serialize({
+              protocolData: [
+                {
+                  protocolName: "ilp",
+                  contentType: 0,
+                  data: packet,
+                },
+              ],
+            })
+
+            if (!btpMessageSerializeResult.success) {
+              logger.error("could not serialize BTP message", {
+                error: btpMessageSerializeResult.failure,
+              })
+              return
+            }
+
+            // const btpTransferSerializeResult = btpTransferSchema.serialize({
+            //   amount,
+            //   protocolData: [
+            //     {
+            //       protocolName: "ilp",
+            //       contentType: 0,
+            //       data: packet,
+            //     },
+            //   ],
+            // })
+
+            // if (!btpTransferSerializeResult.success) {
+            //   logger.error("could not serialize BTP transfer", {
+            //     error: btpTransferSerializeResult.failure,
+            //   })
+            //   return
+            // }
+
+            const btpEnvelopeSerializeResult = btpEnvelopeSchema.serialize({
+              messageType: 6, // Message
+              requestId,
+              message: btpMessageSerializeResult.value,
+            })
+
+            if (!btpEnvelopeSerializeResult.success) {
+              logger.error("could not serialize BTP envelope", {
+                error: btpEnvelopeSerializeResult.failure,
+              })
+              return
+            }
+
+            socket.send(btpEnvelopeSerializeResult.value)
+
+            return
+          }
+        },
+      })
+
+      socket.on("close", () => {
+        sig.use(ilpClientMapStore).removeIlpClient(newClientId)
+      })
     } catch (error) {
       logger.error(
         "error handling websocket connection",
@@ -182,14 +280,15 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
 
   websocketServer.on("connection", handleConnection)
 
-  sig.onCleanup(() => {
-    websocketServer.off("connection", handleConnection)
-    websocketServer.close()
-  })
-
-  httpServer.on("upgrade", (request, socket, head) => {
+  websocketRoutes.set("/btp", (request, socket, head) => {
     websocketServer.handleUpgrade(request, socket, head, (ws) => {
       websocketServer.emit("connection", ws, request)
     })
+  })
+
+  sig.onCleanup(() => {
+    websocketRoutes.delete("/btp")
+    websocketServer.off("connection", handleConnection)
+    websocketServer.close()
   })
 }

@@ -1,6 +1,6 @@
 import { createTopic } from "@dassie/lib-reactive"
 
-interface OutgoingIlpPacket {
+export interface OutgoingIlpPacket {
   destination: string
   packet: Uint8Array
   amount: bigint
