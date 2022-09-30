@@ -42,11 +42,13 @@ export const runNodes = async (sig: EffectContext) => {
         const neededCertificates: CertificateInfo[] = [
           {
             type: "web",
+            commonName: `${node.id}.localhost`,
             certificatePath: node.config.tlsWebCertFile,
             keyPath: node.config.tlsWebKeyFile,
           },
           {
             type: "dassie",
+            commonName: `g.das.null.${node.id}`,
             certificatePath: node.config.tlsDassieCertFile,
             keyPath: node.config.tlsDassieKeyFile,
           },

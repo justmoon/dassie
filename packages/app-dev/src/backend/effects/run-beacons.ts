@@ -40,6 +40,7 @@ export const runBeacons = async (sig: EffectContext) => {
           const neededCertificates: CertificateInfo[] = [
             {
               type: "web",
+              commonName: `${beacon.id}.localhost`,
               certificatePath: beacon.config.tlsWebCertFile,
               keyPath: beacon.config.tlsWebKeyFile,
             },

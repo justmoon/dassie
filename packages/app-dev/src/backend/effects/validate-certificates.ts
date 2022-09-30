@@ -13,8 +13,9 @@ const logger = createLogger("das:dev:validate-certificates")
 
 export interface CertificateInfo {
   type: "web" | "dassie"
-  certificatePath: string | undefined
-  keyPath: string | undefined
+  commonName: string
+  certificatePath: string
+  keyPath: string
 }
 
 const generateKey = async ({ type, keyPath }: CertificateInfo) => {
@@ -25,13 +26,13 @@ const generateKey = async ({ type, keyPath }: CertificateInfo) => {
 
 const generateCertificate = async (
   id: string,
-  { type, certificatePath, keyPath }: CertificateInfo
+  { type, commonName, certificatePath, keyPath }: CertificateInfo
 ) => {
   if (type === "web") {
-    await $`openssl req -new -key ${keyPath} -out ${certificatePath}.csr -days 365 -subj "/CN=${id}.localhost"`
+    await $`openssl req -new -key ${keyPath} -out ${certificatePath}.csr -days 365 -subj "/CN=${commonName}"`
     await $`mkcert -csr ${certificatePath}.csr -cert-file ${certificatePath}`
   } else {
-    await $`openssl req -new -x509 -key ${keyPath} -out ${certificatePath} -days 365 -subj "/CN=g.das.${id}"`
+    await $`openssl req -new -x509 -key ${keyPath} -out ${certificatePath} -days 365 -subj "/CN=${commonName}"`
   }
 }
 

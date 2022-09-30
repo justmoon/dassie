@@ -1,9 +1,11 @@
+import { NODES_DEBUG_START_PORT, NODES_START_PORT } from "../constants/ports"
+
 const ENTRYPOINT = new URL("../../runner/launchers/node", import.meta.url)
   .pathname
 const LOCAL_PATH = new URL("../../../../../local", import.meta.url).pathname
 
 export const nodeIndexToId = (index: number) => `n${index + 1}`
-export const nodeIndexToPort = (index: number) => 4000 + index
+export const nodeIndexToPort = (index: number) => NODES_START_PORT + index
 
 export const generateNodeConfig = (index: number, peers: readonly number[]) => {
   const id = nodeIndexToId(index)
@@ -12,7 +14,7 @@ export const generateNodeConfig = (index: number, peers: readonly number[]) => {
   return {
     id,
     port,
-    debugPort: port + 1000,
+    debugPort: NODES_DEBUG_START_PORT + index,
     peers: peers.map((index) => nodeIndexToId(index)),
     config: {
       nodeId: id,
