@@ -1,5 +1,6 @@
 import * as Tabs from "@radix-ui/react-tabs"
 import { useMemo, useState } from "react"
+import { FaLink } from "react-icons/fa"
 import { format } from "timeago.js"
 import { Link } from "wouter"
 
@@ -31,6 +32,17 @@ const NodeHeader = ({ nodeId }: BasicNodeElementProperties) => {
           >
             {nodeId}
           </span>
+          <a
+            href={`https://${nodeId}.localhost:${
+              4000 + (Number(nodeId.slice(1)) - 1)
+            }`}
+            target="_blank"
+            className="ml-8 text-gray text-lg"
+            rel="noreferrer"
+          >
+            Wallet
+            <FaLink className="inline-block ml-2" />
+          </a>
         </h1>
       </div>
     </header>
