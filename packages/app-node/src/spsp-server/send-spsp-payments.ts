@@ -40,7 +40,12 @@ export const sendSpspPayments = async (sig: EffectContext) => {
       shared_secret: sharedSecret,
     } = await resolvePaymentPointer(destination)
 
-    const plugin = sig.run(createPlugin)
+    logger.debug("resolved payment pointer", {
+      id,
+      destinationAccount,
+    })
+
+    const { plugin } = sig.run(createPlugin)
 
     const connection = await createConnection({
       plugin,
@@ -48,13 +53,15 @@ export const sendSpspPayments = async (sig: EffectContext) => {
       sharedSecret: Buffer.from(sharedSecret, "base64"),
     })
 
+    logger.debug("created STREAM connection", { id })
+
     const stream = connection.createStream()
 
     stream.setSendMax(String(totalAmount - sentAmount))
 
     stream.on("outgoing_money", (amountString: string) => {
       const amount = BigInt(amountString)
-      logger.debug("sent money", { amount })
+      logger.debug("sent money", { id, amount })
 
       if (sentAmount + amount >= totalAmount) {
         logger.debug("payment complete", { id })

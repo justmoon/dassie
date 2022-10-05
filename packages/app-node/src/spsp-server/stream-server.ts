@@ -13,9 +13,9 @@ const logger = createLogger("das:node:stream-server")
 
 export const streamServerService = () =>
   createService(async (sig) => {
-    const plugin = sig.run(createPlugin)
+    const { ilpAddress, plugin } = sig.run(createPlugin)
 
-    logger.debug("starting stream server", { address: plugin.ilpAddress })
+    logger.debug("starting stream server", { address: ilpAddress })
 
     const server = await createServer({
       plugin,

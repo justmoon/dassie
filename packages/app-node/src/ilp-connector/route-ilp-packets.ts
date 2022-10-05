@@ -1,7 +1,6 @@
 import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
 
-import { configSignal } from "../config"
 import { ildcpResponseSchema } from "./ildcp-packet-codec"
 import {
   IlpType,
@@ -23,8 +22,6 @@ interface RequestIdMapEntry {
 const requestIdMap = new Map<number, RequestIdMapEntry>()
 
 export const routeIlpPackets = (sig: EffectContext) => {
-  const ilpAddress = sig.get(configSignal, (config) => config.ilpAddress)
-
   sig.on(incomingIlpPacketBuffer, ({ source, packet, requestId }) => {
     const envelopeParseResult = ilpEnvelopeSchema.parse(packet)
 
@@ -105,14 +102,7 @@ export const routeIlpPackets = (sig: EffectContext) => {
             isResponse: true,
           })
           return
-        } else if (
-          prepareParseResult.value.destination.startsWith(`${ilpAddress}.`)
-        ) {
-          const localDestination = prepareParseResult.value.destination
-            .split(".")
-            .slice(0, 5)
-            .join(".")
-
+        } else {
           const outgoingRequestId = Math.trunc(Math.random() * 0xff_ff_ff_ff)
 
           requestIdMap.set(outgoingRequestId, {
@@ -122,12 +112,12 @@ export const routeIlpPackets = (sig: EffectContext) => {
 
           logger.debug("forwarding ILP prepare", {
             source,
-            localDestination,
             destination: prepareParseResult.value.destination,
+            requestId: outgoingRequestId,
           })
 
           sig.use(outgoingIlpPacketBuffer).emit({
-            destination: localDestination,
+            destination: prepareParseResult.value.destination,
             packet,
             amount: prepareParseResult.value.amount,
             requestId: outgoingRequestId,
@@ -135,7 +125,6 @@ export const routeIlpPackets = (sig: EffectContext) => {
           })
           return
         }
-        return
       }
       case IlpType.Fulfill: {
         const fulfillParseResult = ilpFulfillSchema.parse(
@@ -149,7 +138,9 @@ export const routeIlpPackets = (sig: EffectContext) => {
           return
         }
 
-        logger.debug("received ILP fulfill")
+        logger.debug("received ILP fulfill", {
+          requestId,
+        })
 
         const mappedRequest = requestIdMap.get(requestId)
 
@@ -183,6 +174,7 @@ export const routeIlpPackets = (sig: EffectContext) => {
         logger.debug("received ILP reject", {
           triggeredBy: rejectParseResult.value.triggeredBy,
           message: rejectParseResult.value.message,
+          requestId,
         })
 
         const mappedRequest = requestIdMap.get(requestId)

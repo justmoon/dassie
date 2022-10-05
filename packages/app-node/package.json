@@ -20,6 +20,7 @@
     "@noble/ed25519": "^1.7.0",
     "@trpc/client": "10.0.0-proxy-beta.0",
     "@trpc/server": "10.0.0-proxy-beta.0",
+    "@types/connect": "^3.4.35",
     "@types/ws": "^8.5.3",
     "axios": "^0.27.2",
     "better-sqlite3": "^7.6.2",
@@ -30,6 +31,7 @@
     "ilp-protocol-stream": "2.7.2-alpha.2",
     "immer": "^9.0.15",
     "iterative": "^1.9.2",
+    "nanoid": "^4.0.0",
     "ws": "^8.8.1",
     "zod": "^3.18.0"
   },

@@ -81,6 +81,8 @@ export const httpService = () =>
       socket: Duplex,
       head: Buffer
     ) {
+      logger.debug("websocket upgrade request", { url: request.url })
+
       const { pathname } = new URL(request.url!, "http://localhost")
 
       const handler = sig.use(websocketRoutesSignal).read().get(pathname)

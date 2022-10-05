@@ -1,11 +1,17 @@
 import Denque from "denque"
 
+import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
 import { assertDefined } from "@dassie/lib-type-utils"
 
 import { configSignal } from "../config"
+import { ilpRoutingTableSignal } from "../ilp-connector/signals/ilp-routing-table"
+import { peerMessage } from "./peer-schema"
+import { outgoingPeerMessageBufferTopic } from "./send-peer-messages"
 import { nodeTableStore } from "./stores/node-table"
 import { RoutingTableEntry, routingTableStore } from "./stores/routing-table"
+
+const logger = createLogger("das:node:calculate-routes")
 
 interface NodeInfoEntry {
   level: number
@@ -16,6 +22,7 @@ interface NodeInfoEntry {
  * This effect generates an Even-Shiloach tree which is then condensed into a routing table. The routing table contains all possible first hops which are on one of the shortest paths to the target node.
  */
 export const calculateRoutes = (sig: EffectContext) => {
+  const subnetId = sig.get(configSignal, (config) => config.subnetId)
   const ownNodeId = sig.get(configSignal, ({ nodeId }) => nodeId)
   const nodeTable = sig.get(nodeTableStore)
 
@@ -67,6 +74,7 @@ export const calculateRoutes = (sig: EffectContext) => {
   }
 
   const routes = new Map<string, RoutingTableEntry>()
+  const ilpRoutingTable = sig.get(ilpRoutingTableSignal)
   for (const [nodeId, nodeInfo] of nodeInfoMap.entries()) {
     let level = nodeInfo.level
     let parents = new Set(nodeInfo.parents)
@@ -83,7 +91,43 @@ export const calculateRoutes = (sig: EffectContext) => {
       distance: nodeInfo.level,
       firstHopOptions: [...parents],
     })
+
+    const ilpAddress = `g.das.${subnetId}.${nodeId}`
+    ilpRoutingTable.set(ilpAddress, {
+      prefix: ilpAddress,
+      type: "peer",
+      sendPacket: (packet) => {
+        const peerMessageSerializationResult = peerMessage.serialize({
+          interledgerPacket: {
+            signed: {
+              source: `g.das.${subnetId}.${ownNodeId}`,
+              requestId: packet.requestId,
+              packet: packet.packet,
+            },
+          },
+        })
+
+        if (!peerMessageSerializationResult.success) {
+          logger.error("Unable to serialize peer message", {
+            error: peerMessageSerializationResult.failure,
+          })
+          return
+        }
+
+        sig.use(outgoingPeerMessageBufferTopic).emit({
+          destination: nodeId,
+          message: peerMessageSerializationResult.value,
+        })
+      },
+    })
   }
+
+  sig.onCleanup(() => {
+    for (const nodeId of nodeInfoMap.keys()) {
+      const ilpAddress = `g.das.${subnetId}.${nodeId}`
+      ilpRoutingTable.delete(ilpAddress)
+    }
+  })
 
   sig.use(routingTableStore).write(routes)
 }

@@ -1,3 +1,4 @@
+import { nanoid } from "nanoid"
 import type { WebSocket } from "ws"
 import { WebSocketServer } from "ws"
 
@@ -12,10 +13,7 @@ import type { EffectContext } from "@dassie/lib-reactive"
 
 import { configSignal } from "../config"
 import { websocketRoutesSignal } from "../http-server/serve-http"
-import {
-  generateNewClientId,
-  ilpClientMapStore,
-} from "../ilp-connector/stores/ilp-client-map"
+import { ilpRoutingTableSignal } from "../ilp-connector/signals/ilp-routing-table"
 import { incomingIlpPacketBuffer } from "../ilp-connector/topics/incoming-ilp-packet"
 
 const logger = createLogger("das:node:websocket-server")
@@ -23,17 +21,19 @@ const logger = createLogger("das:node:websocket-server")
 let unique = 0
 
 export const registerBtpHttpUpgrade = (sig: EffectContext) => {
+  const nodeIlpAddress = sig.get(configSignal, (config) => config.ilpAddress)
   const websocketRoutes = sig.get(websocketRoutesSignal)
-
-  const ilpAddress = sig.get(configSignal, (config) => config.ilpAddress)
 
   const websocketServer = new WebSocketServer({ noServer: true })
 
   const handleConnection = (socket: WebSocket) => {
     try {
       const connectionId = unique++
-
-      const clientIlpAddress = `${ilpAddress}.c${connectionId}`
+      const ilpClientMap = sig.use(ilpRoutingTableSignal)
+      let ilpAddress: string
+      do {
+        ilpAddress = `${nodeIlpAddress}.${nanoid(6)}`
+      } while (ilpClientMap.read().get(ilpAddress))
 
       logger.debug("handle BTP websocket connection", { connectionId })
 
@@ -95,7 +95,7 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
                 if (protocolData.protocolName === "ilp") {
                   logger.debug("received ILP packet via BTP message")
                   sig.use(incomingIlpPacketBuffer).emit({
-                    source: clientIlpAddress,
+                    source: ilpAddress,
                     packet: protocolData.data,
                     requestId: message.requestId,
                   })
@@ -123,7 +123,7 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
                 if (protocolData.protocolName === "ilp") {
                   logger.debug("received ILP packet via BTP transfer")
                   sig.use(incomingIlpPacketBuffer).emit({
-                    source: clientIlpAddress,
+                    source: ilpAddress,
                     packet: protocolData.data,
                     requestId: message.requestId,
                   })
@@ -150,7 +150,7 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
                 if (protocolData.protocolName === "ilp") {
                   logger.debug("received ILP packet via BTP response")
                   sig.use(incomingIlpPacketBuffer).emit({
-                    source: clientIlpAddress,
+                    source: ilpAddress,
                     packet: protocolData.data,
                     requestId: message.requestId,
                   })
@@ -168,10 +168,8 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
         }
       })
 
-      const ilpClientMap = sig.use(ilpClientMapStore)
-      const newClientId = generateNewClientId(ilpClientMap.read())
-      ilpClientMap.addIlpClient({
-        id: newClientId,
+      ilpClientMap.read().set(ilpAddress, {
+        prefix: ilpAddress,
         type: "btp",
         sendPacket: ({ packet, amount, requestId, isResponse }) => {
           if (amount === 0n) {
@@ -265,7 +263,7 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
       })
 
       socket.on("close", () => {
-        sig.use(ilpClientMapStore).removeIlpClient(newClientId)
+        sig.use(ilpRoutingTableSignal).read().delete(ilpAddress)
       })
     } catch (error) {
       logger.error(

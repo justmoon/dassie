@@ -9,6 +9,7 @@ import {
   octetString,
   sequence,
   sequenceOf,
+  uint32Number,
   uint64Bigint,
   visibleString,
 } from "@dassie/lib-oer"
@@ -47,10 +48,19 @@ export const peerHello = sequence({
   nodeInfo: octetString().containing(signedPeerNodeInfo),
 })
 
+export const peerInterledgerPacket = sequence({
+  source: ia5String(),
+  requestId: uint32Number(),
+  packet: octetString(),
+})
+
 export const peerMessage = choice({
   hello: sequence({
     signed: octetString().containing(peerHello),
     signature: octetString(),
   }).tag(0),
   linkStateUpdate: captured(signedPeerNodeInfo).tag(1),
+  interledgerPacket: sequence({
+    signed: octetString().containing(peerInterledgerPacket),
+  }).tag(2),
 })

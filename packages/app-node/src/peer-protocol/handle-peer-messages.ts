@@ -1,6 +1,7 @@
 import { createLogger } from "@dassie/lib-logger"
 import { EffectContext, createTopic } from "@dassie/lib-reactive"
 
+import { incomingIlpPacketBuffer } from "../ilp-connector/topics/incoming-ilp-packet"
 import type { PeerMessage } from "./peer-schema"
 import { nodeTableStore } from "./stores/node-table"
 import { peerTableStore } from "./stores/peer-table"
@@ -41,7 +42,7 @@ export const handlePeerMessages = (sig: EffectContext) => {
           lastSeen: Date.now(),
         })
       }
-    } else {
+    } else if (message.linkStateUpdate) {
       const { value: linkState, bytes: linkStateBytes } =
         message.linkStateUpdate
       const { nodeId, sequence, entries } = linkState.signed
@@ -97,6 +98,14 @@ export const handlePeerMessages = (sig: EffectContext) => {
           lastLinkStateUpdate: linkStateBytes,
         })
       }
+    } else {
+      logger.debug("handle interledger packet")
+
+      sig.use(incomingIlpPacketBuffer).emit({
+        source: message.interledgerPacket.signed.source,
+        packet: message.interledgerPacket.signed.packet,
+        requestId: message.interledgerPacket.signed.requestId,
+      })
     }
   })
 }
