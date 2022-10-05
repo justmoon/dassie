@@ -62,7 +62,7 @@ export const serveWallet = async (sig: EffectContext) => {
       },
     },
     define: {
-      __DASSIE_NODE_URL__: `'https://${host}:${port}/'`,
+      __DASSIE_NODE_URL__: `'https://${host}/'`,
     },
   })
 

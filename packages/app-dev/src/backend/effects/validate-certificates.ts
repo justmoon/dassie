@@ -24,10 +24,12 @@ const generateKey = async ({ type, keyPath }: CertificateInfo) => {
   } -out ${keyPath}`
 }
 
-const generateCertificate = async (
-  id: string,
-  { type, commonName, certificatePath, keyPath }: CertificateInfo
-) => {
+const generateCertificate = async ({
+  type,
+  commonName,
+  certificatePath,
+  keyPath,
+}: CertificateInfo) => {
   if (type === "web") {
     await $`openssl req -new -key ${keyPath} -out ${certificatePath}.csr -days 365 -subj "/CN=${commonName}"`
     await $`mkcert -csr ${certificatePath}.csr -cert-file ${certificatePath}`
@@ -53,7 +55,8 @@ export const validateCertificates = async (
 
     if (keyStatus === "unreadable") {
       logger.error("key is unreadable", {
-        node: id,
+        id,
+        name: certificate.commonName,
         type: certificate.type,
       })
       return
@@ -61,7 +64,8 @@ export const validateCertificates = async (
 
     if (certificateStatus === "unreadable") {
       logger.error("certificate is unreadable", {
-        node: id,
+        id,
+        name: certificate.commonName,
         type: certificate.type,
       })
       return
@@ -69,29 +73,39 @@ export const validateCertificates = async (
 
     if (keyStatus === "missing" || certificateStatus === "missing") {
       logger.info("certificate path not found, creating directory", {
-        node: id,
+        id,
+        name: certificate.commonName,
       })
       await $`mkdir -p ${dirname(certificate.certificatePath)}`
     }
 
     if (keyStatus === "missing" && certificateStatus === "ok") {
       // If the key is missing, but the certificate is ok, we need to delete the certificate
-      logger.warn("key missing, deleting certificate", { node: id })
+      logger.warn("key missing, deleting certificate", {
+        id,
+        name: certificate.commonName,
+      })
 
       await unlink(certificate.certificatePath)
     }
 
     if (keyStatus === "missing") {
-      logger.info("generating key", { node: id, type: certificate.type })
+      logger.info("generating key", {
+        id,
+        name: certificate.commonName,
+        type: certificate.type,
+      })
+
       await generateKey(certificate)
     }
 
     if (certificateStatus === "missing") {
       logger.info("generating certificate", {
-        node: id,
+        id,
+        name: certificate.commonName,
         type: certificate.type,
       })
-      await generateCertificate(id, certificate)
+      await generateCertificate(certificate)
     }
   }
 }

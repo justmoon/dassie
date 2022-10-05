@@ -27,7 +27,7 @@ export const runBeaconChildProcess = async <T>(
       DASSIE_DEV_ROOT: viteServer.config.root,
       DASSIE_DEV_BASE: viteServer.config.base,
       DASSIE_DEV_ENTRY: beacon.entry ?? "src/index.ts",
-      DASSIE_DEV_RPC_URL: "ws://localhost:10001",
+      DASSIE_DEV_RPC_URL: "wss://dev-rpc.localhost:10001",
       DASSIE_DEV_NODE_ID: beacon.id,
     },
   })

@@ -26,7 +26,7 @@ const rootEffect = async (sig: EffectContext) => {
   sig.run(captureLogs)
   sig.run(indexLogs)
   sig.run(registerReactiveLogger)
-  sig.run(listenForRpcWebSocket)
+  await sig.run(listenForRpcWebSocket)
   await sig.run(handleFileChange)
   await sig.run(runBeacons)
   await sig.run(runNodes)

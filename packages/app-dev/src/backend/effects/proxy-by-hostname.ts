@@ -1,7 +1,6 @@
 import { bold, dim } from "picocolors"
 
 import { Socket, connect, createServer } from "node:net"
-import { isNativeError } from "node:util/types"
 
 import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
@@ -9,6 +8,7 @@ import { isErrorWithCode } from "@dassie/lib-type-utils"
 
 import {
   BEACONS_START_PORT,
+  DEBUG_RPC_PORT,
   DEBUG_UI_PORT,
   NODES_START_PORT,
   SNI_PROXY_PORT,
@@ -125,6 +125,8 @@ const parseServerNameIdentification = (buffer: Buffer): string | undefined => {
       return buffer.toString("utf8", index, index + nameLength)
     }
   }
+
+  return undefined
 }
 
 const createProxy = async (port: number) => {
@@ -141,7 +143,31 @@ const createProxy = async (port: number) => {
 
 const HOST_REGEX = /^([bn])(\d+).localhost$/
 
+const getPortByHostname = (host: string | undefined) => {
+  if (typeof host === "string") {
+    if (host === "dev-rpc.localhost") {
+      return DEBUG_RPC_PORT
+    }
+
+    const match = HOST_REGEX.exec(host)
+    if (match) {
+      switch (match[1]) {
+        case "b":
+          return BEACONS_START_PORT + (Number(match[2]!) - 1)
+        case "n":
+          return NODES_START_PORT + (Number(match[2]!) - 1)
+      }
+    }
+  }
+
+  return DEBUG_UI_PORT
+}
+
 const handleIncomingConnection = async (socket: Socket) => {
+  socket.on("error", (error: unknown) => {
+    logger.error("error on incoming socket", { error })
+  })
+
   const firstPacket = await new Promise<Buffer>((resolve, reject) => {
     socket.once("data", (data) => {
       socket.off("error", reject)
@@ -150,24 +176,14 @@ const handleIncomingConnection = async (socket: Socket) => {
     socket.on("error", reject)
   })
 
-  let port = DEBUG_UI_PORT
   const host = parseServerNameIdentification(firstPacket)
 
-  if (host) {
-    const match = HOST_REGEX.exec(host)
-    if (match) {
-      switch (match[1]) {
-        case "b":
-          port = BEACONS_START_PORT + (Number(match[2]!) - 1)
-          break
-        case "n":
-          port = NODES_START_PORT + (Number(match[2]!) - 1)
-          break
-      }
-    }
-  }
+  const port = getPortByHostname(host)
 
   const proxy = await createProxy(port)
+  proxy.on("error", (error: unknown) => {
+    logger.error("error on proxy socket", { error })
+  })
   proxy.write(firstPacket)
   socket.pipe(proxy).pipe(socket)
 }
@@ -195,4 +211,8 @@ export const proxyByHostname = (sig: EffectContext) => {
   console.log(
     `  ${bold("Debug UI:")} https://localhost/ ${dim("<-- Start here")}\n`
   )
+
+  sig.onCleanup(() => {
+    server.close()
+  })
 }
