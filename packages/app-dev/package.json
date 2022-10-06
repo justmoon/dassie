@@ -32,6 +32,7 @@
     "@trpc/react": "^9.27.2",
     "@trpc/server": "^9.27.2",
     "@types/cors": "^2.8.12",
+    "@types/wtfnode": "^0.7.0",
     "@unocss/reset": "^0.45.13",
     "@vitejs/plugin-react": "^2.0.1",
     "anser": "^2.1.1",
@@ -57,7 +58,8 @@
     "unocss": "^0.45.13",
     "vite": "^3.0.9",
     "wouter": "2.8.0-alpha.2",
-    "ws": "^8.8.1"
+    "ws": "^8.8.1",
+    "wtfnode": "^0.9.1"
   },
   "devDependencies": {
     "@types/chrome-remote-interface": "^0.31.4",

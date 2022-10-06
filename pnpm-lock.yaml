@@ -142,6 +142,7 @@ importers:
       '@types/react-dom': ^18.0.6
       '@types/serve-static': ^1.15.0
       '@types/ws': ^8.5.3
+      '@types/wtfnode': ^0.7.0
       '@unocss/reset': ^0.45.13
       '@vitejs/plugin-react': ^2.0.1
       anser: ^2.1.1
@@ -171,6 +172,7 @@ importers:
       vite-node: ^0.22.1
       wouter: 2.8.0-alpha.2
       ws: ^8.8.1
+      wtfnode: ^0.9.1
     dependencies:
       '@dassie/app-beacon': link:../app-beacon
       '@dassie/app-node': link:../app-node
@@ -188,6 +190,7 @@ importers:
       '@trpc/react': 9.27.2_e7pohnznr4qdgpqc5x4q3pmfcu
       '@trpc/server': 9.27.2
       '@types/cors': 2.8.12
+      '@types/wtfnode': 0.7.0
       '@unocss/reset': 0.45.13
       '@vitejs/plugin-react': 2.0.1_vite@3.0.9
       anser: 2.1.1
@@ -214,6 +217,7 @@ importers:
       vite: 3.0.9
       wouter: 2.8.0-alpha.2_react@18.2.0
       ws: 8.8.1
+      wtfnode: 0.9.1
     devDependencies:
       '@types/chrome-remote-interface': 0.31.4
       '@types/connect': 3.4.35
@@ -314,57 +318,6 @@ importers:
       '@types/express': 4.17.13
       '@vitejs/plugin-react': 2.0.1_vite@3.0.9
       type-fest: 2.19.0
-      unocss: 0.45.13_vite@3.0.9
-      vite: 3.0.9
-
-  packages/app-wallet:
-    specifiers:
-      '@dassie/lib-protocol-utils': workspace:^1.0.0
-      '@dassie/lib-reactive': workspace:^1.0.0
-      '@dassie/lib-reactive-react': workspace:^1.0.0
-      '@dassie/lib-type-utils': workspace:^1.0.0
-      '@noble/hashes': ^1.1.2
-      '@radix-ui/react-tabs': ^1.0.0
-      '@scure/bip39': ^1.1.0
-      '@tanstack/react-query': ^4.3.9
-      '@trpc/client': 10.0.0-proxy-beta.0
-      '@trpc/react': 10.0.0-proxy-beta.0
-      '@trpc/server': 10.0.0-proxy-beta.0
-      '@unocss/reset': ^0.45.13
-      '@vitejs/plugin-react': ^2.0.1
-      axios: ^0.27.2
-      classnames: ^2.3.1
-      nanoid: ^4.0.0
-      phosphor-react: ^1.4.1
-      react: ^18.2.0
-      react-dom: ^18.2.0
-      unocss: ^0.45.13
-      vite: ^3.0.9
-      wouter: 2.8.0-alpha.2
-      zustand: ^4.1.1
-    dependencies:
-      '@dassie/lib-protocol-utils': link:../lib-protocol-utils
-      '@dassie/lib-reactive': link:../lib-reactive
-      '@dassie/lib-reactive-react': link:../lib-reactive-react
-      '@dassie/lib-type-utils': link:../lib-type-utils
-      '@noble/hashes': 1.1.2
-      '@radix-ui/react-tabs': 1.0.0_biqbaboplfbrettd7655fr4n2y
-      '@scure/bip39': 1.1.0
-      '@tanstack/react-query': 4.3.9_biqbaboplfbrettd7655fr4n2y
-      '@trpc/client': 10.0.0-proxy-beta.0_pb4q3dpmg4qimgj5eamij2eeei
-      '@trpc/react': 10.0.0-proxy-beta.0_hzsqh3uk7flklt5dhnhkb3peey
-      '@trpc/server': 10.0.0-proxy-beta.0
-      '@unocss/reset': 0.45.13
-      axios: 0.27.2
-      classnames: 2.3.1
-      nanoid: 4.0.0
-      phosphor-react: 1.4.1_react@18.2.0
-      react: 18.2.0
-      react-dom: 18.2.0_react@18.2.0
-      wouter: 2.8.0-alpha.2_react@18.2.0
-      zustand: 4.1.1_react@18.2.0
-    devDependencies:
-      '@vitejs/plugin-react': 2.0.1_vite@3.0.9
       unocss: 0.45.13_vite@3.0.9
       vite: 3.0.9
 
@@ -2451,14 +2404,6 @@ packages:
       - supports-color
     dev: false
 
-  /@trpc/client/10.0.0-proxy-beta.0_pb4q3dpmg4qimgj5eamij2eeei:
-    resolution: {integrity: sha512-f2sS8DJtNCvcMRGsnGjM8TEo8x3Z2/YQaD04xJf6flgitscRh0pCv4kKl9cseL4FHnO2k+z54spqFG49l/UQSQ==}
-    peerDependencies:
-      '@trpc/server': 10.0.0-proxy-beta.0
-    dependencies:
-      '@trpc/server': 10.0.0-proxy-beta.0
-    dev: false
-
   /@trpc/client/10.0.0-proxy-beta.15_rqa5bz7tlpjbmvdealcfbmvude:
     resolution: {integrity: sha512-qS3FzGA5jLjALBdG6+fo0dO+qrPvAJ4yzEU5NdyerFDireRvz0DxpX5nyCf3Y5qsFI2derEAcNtGbq/XZr9+ig==}
     peerDependencies:
@@ -2474,22 +2419,6 @@ packages:
     dependencies:
       '@babel/runtime': 7.18.9
       '@trpc/server': 9.27.2
-    dev: false
-
-  /@trpc/react/10.0.0-proxy-beta.0_hzsqh3uk7flklt5dhnhkb3peey:
-    resolution: {integrity: sha512-TA0RE3aB5Lg9jkJ9Irjrv10Bg2dS9Il2Id9WVCSOIBe1FvbukgkAvwBos+fzH+R4SCdn+HXd5SrmVy67jtjneA==}
-    peerDependencies:
-      '@tanstack/react-query': ^4.0.10
-      '@trpc/client': 10.0.0-proxy-beta.0
-      '@trpc/server': 10.0.0-proxy-beta.0
-      react: '>=16.8.0'
-      react-dom: '>=16.8.0'
-    dependencies:
-      '@tanstack/react-query': 4.3.9_biqbaboplfbrettd7655fr4n2y
-      '@trpc/client': 10.0.0-proxy-beta.0_pb4q3dpmg4qimgj5eamij2eeei
-      '@trpc/server': 10.0.0-proxy-beta.0
-      react: 18.2.0
-      react-dom: 18.2.0_react@18.2.0
     dev: false
 
   /@trpc/react/10.0.0-proxy-beta.15_jcgzajcfxul56ftebpmp6jvhku:
@@ -2523,10 +2452,6 @@ packages:
       react: 18.2.0
       react-dom: 18.2.0_react@18.2.0
       react-query: 3.39.2_biqbaboplfbrettd7655fr4n2y
-    dev: false
-
-  /@trpc/server/10.0.0-proxy-beta.0:
-    resolution: {integrity: sha512-dYGUEYMhJM0aEVUL4YxZ/s2tAXYDIRRRNSlERyG8UXxUDZ7flQ3uyvtmFHSMs8TBrEYUCAA/khgJCvLUdF59aw==}
     dev: false
 
   /@trpc/server/10.0.0-proxy-beta.15:
@@ -2776,6 +2701,10 @@ packages:
     resolution: {integrity: sha512-6YOoWjruKj1uLf3INHH7D3qTXwFfEsg1kf3c0uDdSBJwfa/llkwIjrAGV7j7mVgGNbzTQ3HiHKKDXl6bJPD97w==}
     dependencies:
       '@types/node': 18.7.14
+
+  /@types/wtfnode/0.7.0:
+    resolution: {integrity: sha512-kdBHgE9+M1Os7UqWZtiLhKye5reFl8cPBYyCsP2fatwZRz7F7GdIxIHZ20Kkc0hYBfbXE+lzPOTUU1I0qgjtHA==}
+    dev: false
 
   /@typescript-eslint/eslint-plugin/5.36.1_lbwfnm54o3pmr3ypeqp3btnera:
     resolution: {integrity: sha512-iC40UK8q1tMepSDwiLbTbMXKDxzNy+4TfPWgIL661Ym0sD42vRcQU93IsZIrmi+x292DBr60UI/gSwfdVYexCA==}
@@ -8718,6 +8647,11 @@ packages:
         optional: true
     dev: false
 
+  /wtfnode/0.9.1:
+    resolution: {integrity: sha512-Ip6C2KeQPl/F3aP1EfOnPoQk14Udd9lffpoqWDNH3Xt78svxPbv53ngtmtfI0q2Te3oTq79XKTnRNXVIn/GsPA==}
+    hasBin: true
+    dev: false
+
   /xdg-default-browser/2.1.0:
     resolution: {integrity: sha512-HY4G725+IDQr16N8XOjAms5qJGArdJaWIuC7Q7A8UXIwj2mifqnPXephazyL7sIkQPvmEoPX3E0v2yFv6hQUNg==}
     engines: {node: '>=4'}
@@ -8810,22 +8744,6 @@ packages:
         optional: true
     dependencies:
       immer: 9.0.15
-      react: 18.2.0
-      use-sync-external-store: 1.2.0_react@18.2.0
-    dev: false
-
-  /zustand/4.1.1_react@18.2.0:
-    resolution: {integrity: sha512-h4F3WMqsZgvvaE0n3lThx4MM81Ls9xebjvrABNzf5+jb3/03YjNTSgZXeyrvXDArMeV9untvWXRw1tY+ntPYbA==}
-    engines: {node: '>=12.7.0'}
-    peerDependencies:
-      immer: '>=9.0'
-      react: '>=16.8'
-    peerDependenciesMeta:
-      immer:
-        optional: true
-      react:
-        optional: true
-    dependencies:
       react: 18.2.0
       use-sync-external-store: 1.2.0_react@18.2.0
     dev: false
