@@ -91,6 +91,18 @@ const PeerTable = ({ nodeId }: BasicNodeElementProperties) => {
   )
 }
 
+const NodeLink = ({ nodeId }: BasicNodeElementProperties) => {
+  return (
+    <Link
+      href={`/nodes/${nodeId}`}
+      className="font-bold"
+      style={{ color: selectBySeed(COLORS, nodeId) }}
+    >
+      {nodeId}
+    </Link>
+  )
+}
+
 const NodeTable = ({ nodeId }: BasicNodeElementProperties) => {
   const nodeTable = useNodeRemoteSignal(nodeId, "nodeTable")
   const routingTable = useNodeRemoteSignal(nodeId, "routingTable")
@@ -106,6 +118,7 @@ const NodeTable = ({ nodeId }: BasicNodeElementProperties) => {
             <th className="text-left">Node</th>
             <th>Distance</th>
             <th>Next Hop Options</th>
+            <th>Neighbors</th>
           </tr>
         </thead>
         <tbody>
@@ -115,25 +128,17 @@ const NodeTable = ({ nodeId }: BasicNodeElementProperties) => {
             return (
               <tr key={node.nodeId}>
                 <td className="">
-                  <Link
-                    href={`/nodes/${node.nodeId}`}
-                    className="font-bold"
-                    style={{ color: selectBySeed(COLORS, node.nodeId) }}
-                  >
-                    {node.nodeId}
-                  </Link>
+                  <NodeLink nodeId={node.nodeId} />
                 </td>
                 <td>{routingTableEntry?.distance}</td>
                 <td>
                   {nextHopNodes?.map((nodeId) => (
-                    <Link
-                      key={nodeId}
-                      href={`/nodes/${nodeId}`}
-                      className="font-bold"
-                      style={{ color: selectBySeed(COLORS, nodeId) }}
-                    >
-                      {nodeId}
-                    </Link>
+                    <NodeLink key={nodeId} nodeId={nodeId} />
+                  ))}
+                </td>
+                <td className="flex gap-2">
+                  {node.neighbors.map((nodeId) => (
+                    <NodeLink key={nodeId} nodeId={nodeId} />
                   ))}
                 </td>
               </tr>
