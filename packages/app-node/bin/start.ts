@@ -1,4 +1,4 @@
 #!/usr/bin/env node
-import { start } from "../src/start"
+import { start } from "../src/backend/start"
 
 start()

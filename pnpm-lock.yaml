@@ -235,16 +235,25 @@ importers:
       '@dassie/lib-oer': workspace:^1.0.0
       '@dassie/lib-protocol-utils': workspace:^1.0.0
       '@dassie/lib-reactive': workspace:^1.0.0
+      '@dassie/lib-reactive-react': workspace:^1.0.0
       '@dassie/lib-type-utils': workspace:^1.0.0
       '@noble/ed25519': ^1.7.0
-      '@trpc/client': 10.0.0-proxy-beta.0
-      '@trpc/server': 10.0.0-proxy-beta.0
+      '@noble/hashes': ^1.1.2
+      '@radix-ui/react-tabs': ^1.0.0
+      '@scure/bip39': ^1.1.0
+      '@tanstack/react-query': ^4.3.9
+      '@trpc/client': 10.0.0-proxy-beta.15
+      '@trpc/react': 10.0.0-proxy-beta.15
+      '@trpc/server': 10.0.0-proxy-beta.15
       '@types/better-sqlite3': ^7.6.0
       '@types/connect': ^3.4.35
       '@types/express': ^4.17.13
       '@types/ws': ^8.5.3
+      '@unocss/reset': ^0.45.13
+      '@vitejs/plugin-react': ^2.0.1
       axios: ^0.27.2
       better-sqlite3: ^7.6.2
+      classnames: ^2.3.1
       denque: ^2.1.0
       env-paths: ^3.0.0
       express: ^4.18.1
@@ -253,23 +262,38 @@ importers:
       immer: ^9.0.15
       iterative: ^1.9.2
       nanoid: ^4.0.0
+      phosphor-react: ^1.4.1
+      react: ^18.2.0
+      react-dom: ^18.2.0
       type-fest: ^2.19.0
+      unocss: ^0.45.13
+      vite: ^3.0.9
+      wouter: 2.8.0-alpha.2
       ws: ^8.8.1
       zod: ^3.18.0
+      zustand: ^4.1.1
     dependencies:
       '@dassie/lib-http-server': link:../lib-http-server
       '@dassie/lib-logger': link:../lib-logger
       '@dassie/lib-oer': link:../lib-oer
       '@dassie/lib-protocol-utils': link:../lib-protocol-utils
       '@dassie/lib-reactive': link:../lib-reactive
+      '@dassie/lib-reactive-react': link:../lib-reactive-react
       '@dassie/lib-type-utils': link:../lib-type-utils
       '@noble/ed25519': 1.7.0
-      '@trpc/client': 10.0.0-proxy-beta.0_pb4q3dpmg4qimgj5eamij2eeei
-      '@trpc/server': 10.0.0-proxy-beta.0
+      '@noble/hashes': 1.1.2
+      '@radix-ui/react-tabs': 1.0.0_biqbaboplfbrettd7655fr4n2y
+      '@scure/bip39': 1.1.0
+      '@tanstack/react-query': 4.3.9_biqbaboplfbrettd7655fr4n2y
+      '@trpc/client': 10.0.0-proxy-beta.15_rqa5bz7tlpjbmvdealcfbmvude
+      '@trpc/react': 10.0.0-proxy-beta.15_jcgzajcfxul56ftebpmp6jvhku
+      '@trpc/server': 10.0.0-proxy-beta.15
       '@types/connect': 3.4.35
       '@types/ws': 8.5.3
+      '@unocss/reset': 0.45.13
       axios: 0.27.2
       better-sqlite3: 7.6.2
+      classnames: 2.3.1
       denque: 2.1.0
       env-paths: 3.0.0
       express: 4.18.1
@@ -278,12 +302,20 @@ importers:
       immer: 9.0.15
       iterative: 1.9.2
       nanoid: 4.0.0
+      phosphor-react: 1.4.1_react@18.2.0
+      react: 18.2.0
+      react-dom: 18.2.0_react@18.2.0
+      wouter: 2.8.0-alpha.2_react@18.2.0
       ws: 8.8.1
       zod: 3.18.0
+      zustand: 4.1.1_immer@9.0.15+react@18.2.0
     devDependencies:
       '@types/better-sqlite3': 7.6.0
       '@types/express': 4.17.13
+      '@vitejs/plugin-react': 2.0.1_vite@3.0.9
       type-fest: 2.19.0
+      unocss: 0.45.13_vite@3.0.9
+      vite: 3.0.9
 
   packages/app-wallet:
     specifiers:
@@ -2427,6 +2459,14 @@ packages:
       '@trpc/server': 10.0.0-proxy-beta.0
     dev: false
 
+  /@trpc/client/10.0.0-proxy-beta.15_rqa5bz7tlpjbmvdealcfbmvude:
+    resolution: {integrity: sha512-qS3FzGA5jLjALBdG6+fo0dO+qrPvAJ4yzEU5NdyerFDireRvz0DxpX5nyCf3Y5qsFI2derEAcNtGbq/XZr9+ig==}
+    peerDependencies:
+      '@trpc/server': 10.0.0-proxy-beta.15
+    dependencies:
+      '@trpc/server': 10.0.0-proxy-beta.15
+    dev: false
+
   /@trpc/client/9.27.2_@trpc+server@9.27.2:
     resolution: {integrity: sha512-rpsgJJMalOtki5VjcyheL0zdft23mDnoBHn5cJMZLf3ssymCZq2crbvCiUmCRU289lYHrqffaaZ+9PqCSsVKfg==}
     peerDependencies:
@@ -2452,6 +2492,22 @@ packages:
       react-dom: 18.2.0_react@18.2.0
     dev: false
 
+  /@trpc/react/10.0.0-proxy-beta.15_jcgzajcfxul56ftebpmp6jvhku:
+    resolution: {integrity: sha512-oSe8/1O3AeKryiYf5a/SOwjxZMLdCLmkJEX3tl97BQt/xbWht/xYVuuoYHbJjZLC8E4mkrj5fTF1JFTDg9t4oA==}
+    peerDependencies:
+      '@tanstack/react-query': ^4.3.8
+      '@trpc/client': 10.0.0-proxy-beta.15
+      '@trpc/server': 10.0.0-proxy-beta.15
+      react: '>=16.8.0'
+      react-dom: '>=16.8.0'
+    dependencies:
+      '@tanstack/react-query': 4.3.9_biqbaboplfbrettd7655fr4n2y
+      '@trpc/client': 10.0.0-proxy-beta.15_rqa5bz7tlpjbmvdealcfbmvude
+      '@trpc/server': 10.0.0-proxy-beta.15
+      react: 18.2.0
+      react-dom: 18.2.0_react@18.2.0
+    dev: false
+
   /@trpc/react/9.27.2_e7pohnznr4qdgpqc5x4q3pmfcu:
     resolution: {integrity: sha512-d2Nu3gYD7W9B5J5GylLw41jElQexb9zzwOLmCUR54azhvkIjk2w5dZLLqG3ou7L4ZsnlLOHgyO/LMwrgR4U9ZA==}
     peerDependencies:
@@ -2471,6 +2527,10 @@ packages:
 
   /@trpc/server/10.0.0-proxy-beta.0:
     resolution: {integrity: sha512-dYGUEYMhJM0aEVUL4YxZ/s2tAXYDIRRRNSlERyG8UXxUDZ7flQ3uyvtmFHSMs8TBrEYUCAA/khgJCvLUdF59aw==}
+    dev: false
+
+  /@trpc/server/10.0.0-proxy-beta.15:
+    resolution: {integrity: sha512-qG1qPT3PH9ylL6Bi82YIRVfD9J49mejCVt5E/Hw/ayoj635RI3GkRrTt2Q6MEE8n1yzlSB0KIUJ49F2s5SZ7Zg==}
     dev: false
 
   /@trpc/server/9.27.2:
@@ -8735,6 +8795,23 @@ packages:
 
   /zod/3.18.0:
     resolution: {integrity: sha512-gwTm8RfUCe8l9rDwN5r2A17DkAa8Ez4Yl4yXqc5VqeGaXaJahzYYXbTwvhroZi0SNBqTwh/bKm2N0mpCzuw4bA==}
+    dev: false
+
+  /zustand/4.1.1_immer@9.0.15+react@18.2.0:
+    resolution: {integrity: sha512-h4F3WMqsZgvvaE0n3lThx4MM81Ls9xebjvrABNzf5+jb3/03YjNTSgZXeyrvXDArMeV9untvWXRw1tY+ntPYbA==}
+    engines: {node: '>=12.7.0'}
+    peerDependencies:
+      immer: '>=9.0'
+      react: '>=16.8'
+    peerDependenciesMeta:
+      immer:
+        optional: true
+      react:
+        optional: true
+    dependencies:
+      immer: 9.0.15
+      react: 18.2.0
+      use-sync-external-store: 1.2.0_react@18.2.0
     dev: false
 
   /zustand/4.1.1_react@18.2.0:

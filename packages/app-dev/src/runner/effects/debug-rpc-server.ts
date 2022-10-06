@@ -4,7 +4,7 @@ import superjson from "superjson"
 import { WebSocketServer } from "ws"
 
 import { nodeTableStore, peerTableStore } from "@dassie/app-node"
-import { routingTableStore } from "@dassie/app-node/src/peer-protocol/stores/routing-table"
+import { routingTableStore } from "@dassie/app-node/src/backend/peer-protocol/stores/routing-table"
 import { createLogger } from "@dassie/lib-logger"
 import { EffectContext, Reactor, debugFirehose } from "@dassie/lib-reactive"
 import { createRemoteReactiveRouter } from "@dassie/lib-reactive-trpc/server"

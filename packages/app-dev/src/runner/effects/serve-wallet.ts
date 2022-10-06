@@ -6,13 +6,14 @@ import { existsSync, readFileSync } from "node:fs"
 import { join, normalize } from "node:path"
 
 import { configSignal } from "@dassie/app-node"
-import { additionalMiddlewaresSignal } from "@dassie/app-node/src/http-server/serve-http"
+import { additionalMiddlewaresSignal } from "@dassie/app-node/src/backend/http-server/serve-http"
 import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
 
 const logger = createLogger("das:dev:runner:wallet-server")
 
-const walletPath = new URL("../../../../app-wallet", import.meta.url).pathname
+const walletPath = new URL("../../../../app-node/src/frontend", import.meta.url)
+  .pathname
 
 const FS_PREFIX = `/@fs/`
 const VOLUME_RE = /^[a-z]:/i
