@@ -2,7 +2,9 @@ import type { EffectContext } from "@dassie/lib-reactive"
 
 export const handleShutdownSignals = (sig: EffectContext) => {
   const onShutdown = () => {
-    void sig.reactor.dispose()
+    sig.reactor.dispose().catch((error: unknown) => {
+      console.error("failed to dispose reactor", { error })
+    })
   }
 
   process.on("SIGTERM", onShutdown)

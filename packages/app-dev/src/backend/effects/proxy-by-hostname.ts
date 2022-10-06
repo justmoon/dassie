@@ -212,7 +212,12 @@ export const proxyByHostname = (sig: EffectContext) => {
     `  ${bold("Debug UI:")} https://localhost/ ${dim("<-- Start here")}\n`
   )
 
-  sig.onCleanup(() => {
-    server.close()
+  sig.onCleanup(async () => {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error: unknown) => {
+        if (error) reject(error)
+        else resolve()
+      })
+    )
   })
 }

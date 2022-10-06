@@ -5,10 +5,11 @@ import {
 } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
 
-import { trpcClientFactory } from "../services/trpc-client"
+import { trpcClientService } from "../services/trpc-client"
 
 export const forwardLogs = (sig: EffectContext) => {
-  const trpcClient = sig.use(trpcClientFactory)
+  const trpcClient = sig.get(trpcClientService)
+  if (!trpcClient) return
 
   let inRecursion = false
   const jsonFormatter = createJsonFormatter({

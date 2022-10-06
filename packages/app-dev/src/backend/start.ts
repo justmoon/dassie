@@ -19,14 +19,15 @@ import { viteService } from "./services/vite-server"
 const rootEffect = async (sig: EffectContext) => {
   console.log(bold(`  Dassie${green("//dev")}\n`))
 
+  sig.run(registerReactiveLogger)
+  sig.run(captureLogs)
+  sig.run(indexLogs)
+  await sig.run(listenForRpcWebSocket)
+
   sig.run(sig.use(viteService).effect)
   sig.run(sig.use(viteNodeService).effect)
 
   await sig.run(compileRunner)
-  sig.run(captureLogs)
-  sig.run(indexLogs)
-  sig.run(registerReactiveLogger)
-  await sig.run(listenForRpcWebSocket)
   await sig.run(handleFileChange)
   await sig.run(runBeacons)
   await sig.run(runNodes)

@@ -1,4 +1,5 @@
 import colors from "picocolors"
+import type { Promisable } from "type-fest"
 import type { ViteNodeServer } from "vite-node/server"
 
 import { ChildProcess, fork } from "node:child_process"
@@ -16,6 +17,7 @@ const logger = createLogger("das:dev:run-child-process")
 
 const RUNNER_MODULE = new URL("../../../dist/runner.js", import.meta.url)
   .pathname
+const CHILD_SHUTDOWN_GRACE_PERIOD = 1000
 
 const handleChildError = (error: Error) => {
   logger.error("child process error", { error })
@@ -138,12 +140,26 @@ export const runChildProcess = async (
     logger.error("error processing child stdout", { node: id, error })
   )
 
-  sig.onCleanup(() => {
+  sig.onCleanup((): Promisable<void> => {
     if (child) {
       child.removeListener("exit", handleChildExit)
       child.removeListener("message", handleChildMessage)
 
-      child.kill("SIGINT")
+      child.disconnect()
+
+      const childReference = child
+      return new Promise((resolve) => {
+        const handleExit = () => {
+          clearTimeout(timer)
+          resolve()
+        }
+        childReference.once("exit", handleExit)
+        const timer = setTimeout(() => {
+          childReference.off("exit", handleExit)
+          childReference.kill("SIGKILL")
+          resolve()
+        }, CHILD_SHUTDOWN_GRACE_PERIOD)
+      })
     }
   })
 
