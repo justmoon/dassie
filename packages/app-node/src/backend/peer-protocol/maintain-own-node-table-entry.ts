@@ -1,4 +1,3 @@
-
 import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
 
@@ -66,6 +65,10 @@ export const maintainOwnNodeTableEntry = async (sig: EffectContext) => {
     }
 
     if (ownNodeTableEntry === undefined) {
+      logger.debug("creating own node table entry", {
+        sequence,
+        neighbors: peerIds.join(","),
+      })
       sig.use(nodeTableStore).addNode({
         nodeId: nodeId,
         neighbors: peerIds,
@@ -75,6 +78,10 @@ export const maintainOwnNodeTableEntry = async (sig: EffectContext) => {
         lastLinkStateUpdate: message.value,
       })
     } else {
+      logger.debug("updating own node table entry", {
+        sequence,
+        neighbors: peerIds.join(","),
+      })
       sig.use(nodeTableStore).updateNode(nodeId, {
         neighbors: peerIds,
         sequence,

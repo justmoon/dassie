@@ -43,6 +43,7 @@ export const forwardLinkStateUpdate = (sig: EffectContext) => {
         logger.debug("retransmit link state update", {
           from: node.nodeId,
           to: peer.nodeId,
+          sequence: node.sequence,
         })
 
         // Retransmit the link state update
