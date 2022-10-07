@@ -11,15 +11,43 @@ export interface LogViewerProperties {
   filter?: (line: IndexedLogLine) => boolean
 }
 
-const LogViewer = ({ filter }: LogViewerProperties) => {
+const LogViewer = ({ filter: externalFilter }: LogViewerProperties) => {
   const outerReference = useRef<HTMLDivElement>(null)
   const [shouldStick, setShouldStick] = useState(true)
   const scrollPositionReference = useRef<number | undefined>(undefined)
+  const [keywordFilter, setKeywordFilter] = useState("")
   const sig = useSig()
   const logs = sig.get(remoteLogsStore)?.logs
   const filteredLogs = useMemo(
-    () => (filter ? logs?.filter((item) => filter(item)) : logs) ?? [],
-    [filter, logs]
+    () =>
+      (externalFilter
+        ? logs?.filter((item) => {
+            if (!externalFilter(item)) return false
+
+            if (keywordFilter) {
+              const data = !item.data
+                ? ""
+                : Object.entries(item.data)
+                    .map(([key, value]) => `${key}=${value}`)
+                    .join(" ")
+
+              for (const keyword of keywordFilter.split(/\s+/)) {
+                if (
+                  !(
+                    item.message.includes(keyword) ||
+                    item.component.includes(keyword) ||
+                    data.includes(keyword)
+                  )
+                ) {
+                  return false
+                }
+              }
+            }
+
+            return true
+          })
+        : logs) ?? [],
+    [keywordFilter, externalFilter, logs]
   )
 
   const virtualizer = useVirtualizer({
@@ -63,25 +91,36 @@ const LogViewer = ({ filter }: LogViewerProperties) => {
   })
 
   return (
-    <div ref={outerReference} className="h-full w-full overflow-y-scroll">
-      <div
-        className="w-full relative"
-        style={{ height: virtualizer.getTotalSize() }}
-      >
-        {virtualizer.getVirtualItems().map((virtualItem) => {
-          const logLine = filteredLogs[virtualItem.index]
-          if (!logLine) return null
-          return (
-            <div
-              key={virtualItem.key}
-              ref={virtualItem.measureElement}
-              className="w-full top-0 left-0 absolute"
-              style={{ transform: `translateY(${virtualItem.start}px)` }}
-            >
-              <LogLine log={logLine} />
-            </div>
-          )
-        })}
+    <div className="h-full w-full flex flex-col gap-4">
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          value={keywordFilter}
+          placeholder="Filter"
+          onChange={(event) => setKeywordFilter(event.currentTarget.value)}
+          className="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg placeholder-gray-400 focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+        />
+      </div>
+      <div ref={outerReference} className="flex-1 overflow-y-scroll">
+        <div
+          className="w-full relative"
+          style={{ height: virtualizer.getTotalSize() }}
+        >
+          {virtualizer.getVirtualItems().map((virtualItem) => {
+            const logLine = filteredLogs[virtualItem.index]
+            if (!logLine) return null
+            return (
+              <div
+                key={virtualItem.key}
+                ref={virtualItem.measureElement}
+                className="w-full top-0 left-0 absolute"
+                style={{ transform: `translateY(${virtualItem.start}px)` }}
+              >
+                <LogLine log={logLine} />
+              </div>
+            )
+          })}
+        </div>
       </div>
     </div>
   )
