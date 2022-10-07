@@ -1,4 +1,3 @@
-import { map } from "iterative"
 
 import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
@@ -41,11 +40,9 @@ export const maintainOwnNodeTableEntry = async (sig: EffectContext) => {
       publicKey: await signer.getPublicKey(),
       url: `https://${nodeId}.localhost:${port}`,
       sequence,
-      entries: [
-        ...map(peers.values(), (peer) => ({
-          neighbor: { nodeId: peer.nodeId },
-        })),
-      ],
+      entries: peerIds.map((peerId) => ({
+        neighbor: { nodeId: peerId },
+      })),
     })
 
     if (!peerNodeInfoResult.success) {
