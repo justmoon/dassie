@@ -55,6 +55,7 @@ export const handlePeerMessages = (sig: EffectContext) => {
       logger.debug("handle link state update", {
         from: nodeId,
         sequence,
+        neighbors: neighbors.join(","),
       })
 
       const node = nodes.get(nodeId)
@@ -81,6 +82,7 @@ export const handlePeerMessages = (sig: EffectContext) => {
         }
         sig.use(nodeTableStore).updateNode(nodeId, {
           sequence: sequence,
+          neighbors,
           updateReceivedCounter: 1,
           scheduledRetransmitTime:
             Date.now() +
