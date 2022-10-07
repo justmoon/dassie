@@ -1,13 +1,17 @@
-import * as trpc from "@trpc/server"
+import { initTRPC } from "@trpc/server"
 import { applyWSSHandler } from "@trpc/server/adapters/ws"
+import { observable } from "@trpc/server/observable"
 import superjson from "superjson"
 import { WebSocketServer } from "ws"
 
 import { nodeTableStore, peerTableStore } from "@dassie/app-node"
 import { routingTableStore } from "@dassie/app-node/src/backend/peer-protocol/stores/routing-table"
 import { createLogger } from "@dassie/lib-logger"
-import { EffectContext, Reactor, debugFirehose } from "@dassie/lib-reactive"
-import { createRemoteReactiveRouter } from "@dassie/lib-reactive-trpc/server"
+import { EffectContext, debugFirehose } from "@dassie/lib-reactive"
+import {
+  ReactiveContext,
+  createRemoteReactiveRouter,
+} from "@dassie/lib-reactive-trpc/server"
 
 import { prettyFormat } from "../../common/utils/pretty-format"
 
@@ -21,24 +25,24 @@ export const exposedStores = {
 
 export type ExposedStoresMap = typeof exposedStores
 
-export const debugRpcRouter = trpc
-  .router<Reactor>()
-  .transformer(superjson)
-  .merge(createRemoteReactiveRouter(exposedStores))
-  .subscription("listenToFirehose", {
-    resolve({ ctx: { useContext: fromContext } }) {
-      return new trpc.Subscription<{ topic: string; message: string }>(
-        (sendToClient) => {
-          return fromContext(debugFirehose).on((event) => {
-            sendToClient.data({
-              topic: event.topic.name,
-              message: prettyFormat(event.message),
-            })
+export const trpc = initTRPC.context<ReactiveContext>().create({
+  transformer: superjson,
+})
+export const debugRpcRouter = trpc.mergeRouters(
+  trpc.router({
+    listenToFirehose: trpc.procedure.subscription(({ ctx }) => {
+      return observable<{ topic: string; message: string }>((emit) => {
+        return ctx.reactor.useContext(debugFirehose).on((event) => {
+          emit.next({
+            topic: event.topic.name,
+            message: prettyFormat(event.message),
           })
-        }
-      )
-    },
-  })
+        })
+      })
+    }),
+  }),
+  createRemoteReactiveRouter(exposedStores)
+)
 
 export type DebugRpcRouter = typeof debugRpcRouter
 
@@ -55,7 +59,9 @@ export const runDebugRpcServer = (sig: EffectContext) => {
   const handler = applyWSSHandler({
     wss,
     router: debugRpcRouter,
-    createContext: () => sig.reactor,
+    createContext: () => ({
+      reactor: sig.reactor,
+    }),
   })
 
   sig.onCleanup(() => {

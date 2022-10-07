@@ -28,7 +28,7 @@ const nodesToGraph = (nodes: NodeDefinition<InputConfig>[]): GraphData => {
 const Dashboard = () => {
   const sig = useSig()
   const template = sig.get(activeTemplateSignal)
-  const addRandomNode = trpc.useMutation("addRandomNode")
+  const addRandomNode = trpc.addRandomNode.useMutation()
 
   if (!template) return <div />
 

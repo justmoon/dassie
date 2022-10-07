@@ -14,7 +14,7 @@ export const forwardLogs = (sig: EffectContext) => {
   let inRecursion = false
   const jsonFormatter = createJsonFormatter({
     outputFunction(line: SerializableLogLine) {
-      void trpcClient.mutation("runner.notifyLogLine", [
+      void trpcClient.runner.notifyLogLine.mutate([
         process.env["DASSIE_DEV_NODE_ID"] ?? "unknown",
         line,
       ])

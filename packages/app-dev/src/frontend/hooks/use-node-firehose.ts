@@ -13,10 +13,9 @@ export const useNodeFirehose = (nodeId: string): FirehoseEvent[] => {
   useEffect(() => {
     const [client, dispose] = nodeClients(nodeId)
 
-    const cancelSubscription = client.subscription("listenToFirehose", null, {
-      onNext(event) {
-        if (event.type !== "data") return
-        setEvents((events) => [...events, event.data])
+    const subscription = client.listenToFirehose.subscribe(undefined, {
+      onData(event) {
+        setEvents((events) => [...events, event])
       },
       onError(error) {
         console.error(error)
@@ -24,7 +23,7 @@ export const useNodeFirehose = (nodeId: string): FirehoseEvent[] => {
     })
 
     return () => {
-      cancelSubscription()
+      subscription.unsubscribe()
       dispose()
     }
   }, [nodeId])

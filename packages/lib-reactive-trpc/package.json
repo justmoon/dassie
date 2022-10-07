@@ -39,8 +39,8 @@
   },
   "dependencies": {
     "@dassie/lib-reactive": "workspace:^1.0.0",
-    "@trpc/client": "^9.27.2",
-    "@trpc/server": "^9.27.2"
+    "@trpc/client": "10.0.0-proxy-beta.15",
+    "@trpc/server": "10.0.0-proxy-beta.15"
   },
   "peerDependencies": {
     "react": ">=18.0.0"

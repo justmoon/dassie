@@ -128,10 +128,11 @@ importers:
       '@dassie/lib-type-utils': workspace:1.0.0
       '@radix-ui/react-tabs': ^1.0.0
       '@react-hook/size': ^2.1.2
+      '@tanstack/react-query': ^4.3.9
       '@tanstack/react-virtual': 3.0.0-beta.18
-      '@trpc/client': ^9.27.2
-      '@trpc/react': ^9.27.2
-      '@trpc/server': ^9.27.2
+      '@trpc/client': 10.0.0-proxy-beta.15
+      '@trpc/react': 10.0.0-proxy-beta.15
+      '@trpc/server': 10.0.0-proxy-beta.15
       '@types/chrome-remote-interface': ^0.31.4
       '@types/connect': ^3.4.35
       '@types/connect-history-api-fallback': ^1.3.5
@@ -161,7 +162,6 @@ importers:
       react-dom: ^18.2.0
       react-force-graph-2d: ^1.23.11
       react-icons: ^4.4.0
-      react-query: ^3.39.2
       reffx: ^1.1.0
       serve-static: ^1.15.0
       superjson: ^1.9.1
@@ -185,10 +185,11 @@ importers:
       '@dassie/lib-type-utils': link:../lib-type-utils
       '@radix-ui/react-tabs': 1.0.0_biqbaboplfbrettd7655fr4n2y
       '@react-hook/size': 2.1.2_react@18.2.0
+      '@tanstack/react-query': 4.3.9_biqbaboplfbrettd7655fr4n2y
       '@tanstack/react-virtual': 3.0.0-beta.18_react@18.2.0
-      '@trpc/client': 9.27.2_@trpc+server@9.27.2
-      '@trpc/react': 9.27.2_e7pohnznr4qdgpqc5x4q3pmfcu
-      '@trpc/server': 9.27.2
+      '@trpc/client': 10.0.0-proxy-beta.15_rqa5bz7tlpjbmvdealcfbmvude
+      '@trpc/react': 10.0.0-proxy-beta.15_jcgzajcfxul56ftebpmp6jvhku
+      '@trpc/server': 10.0.0-proxy-beta.15
       '@types/cors': 2.8.12
       '@types/wtfnode': 0.7.0
       '@unocss/reset': 0.45.13
@@ -209,7 +210,6 @@ importers:
       react-dom: 18.2.0_react@18.2.0
       react-force-graph-2d: 1.23.11_react@18.2.0
       react-icons: 4.4.0_react@18.2.0
-      react-query: 3.39.2_biqbaboplfbrettd7655fr4n2y
       reffx: 1.1.0
       superjson: 1.9.1
       timeago.js: 4.0.2
@@ -435,14 +435,14 @@ importers:
   packages/lib-reactive-trpc:
     specifiers:
       '@dassie/lib-reactive': workspace:^1.0.0
-      '@trpc/client': ^9.27.2
-      '@trpc/server': ^9.27.2
+      '@trpc/client': 10.0.0-proxy-beta.15
+      '@trpc/server': 10.0.0-proxy-beta.15
       react: ^18.2.0
       type-fest: ^2.19.0
     dependencies:
       '@dassie/lib-reactive': link:../lib-reactive
-      '@trpc/client': 9.27.2_@trpc+server@9.27.2
-      '@trpc/server': 9.27.2
+      '@trpc/client': 10.0.0-proxy-beta.15_rqa5bz7tlpjbmvdealcfbmvude
+      '@trpc/server': 10.0.0-proxy-beta.15
     devDependencies:
       react: 18.2.0
       type-fest: 2.19.0
@@ -2412,15 +2412,6 @@ packages:
       '@trpc/server': 10.0.0-proxy-beta.15
     dev: false
 
-  /@trpc/client/9.27.2_@trpc+server@9.27.2:
-    resolution: {integrity: sha512-rpsgJJMalOtki5VjcyheL0zdft23mDnoBHn5cJMZLf3ssymCZq2crbvCiUmCRU289lYHrqffaaZ+9PqCSsVKfg==}
-    peerDependencies:
-      '@trpc/server': 9.27.2
-    dependencies:
-      '@babel/runtime': 7.18.9
-      '@trpc/server': 9.27.2
-    dev: false
-
   /@trpc/react/10.0.0-proxy-beta.15_jcgzajcfxul56ftebpmp6jvhku:
     resolution: {integrity: sha512-oSe8/1O3AeKryiYf5a/SOwjxZMLdCLmkJEX3tl97BQt/xbWht/xYVuuoYHbJjZLC8E4mkrj5fTF1JFTDg9t4oA==}
     peerDependencies:
@@ -2437,29 +2428,8 @@ packages:
       react-dom: 18.2.0_react@18.2.0
     dev: false
 
-  /@trpc/react/9.27.2_e7pohnznr4qdgpqc5x4q3pmfcu:
-    resolution: {integrity: sha512-d2Nu3gYD7W9B5J5GylLw41jElQexb9zzwOLmCUR54azhvkIjk2w5dZLLqG3ou7L4ZsnlLOHgyO/LMwrgR4U9ZA==}
-    peerDependencies:
-      '@trpc/client': 9.27.2
-      '@trpc/server': 9.27.2
-      react: '>=16.8.0'
-      react-dom: '>=16.8.0'
-      react-query: ^3.37.0
-    dependencies:
-      '@babel/runtime': 7.18.9
-      '@trpc/client': 9.27.2_@trpc+server@9.27.2
-      '@trpc/server': 9.27.2
-      react: 18.2.0
-      react-dom: 18.2.0_react@18.2.0
-      react-query: 3.39.2_biqbaboplfbrettd7655fr4n2y
-    dev: false
-
   /@trpc/server/10.0.0-proxy-beta.15:
     resolution: {integrity: sha512-qG1qPT3PH9ylL6Bi82YIRVfD9J49mejCVt5E/Hw/ayoj635RI3GkRrTt2Q6MEE8n1yzlSB0KIUJ49F2s5SZ7Zg==}
-    dev: false
-
-  /@trpc/server/9.27.2:
-    resolution: {integrity: sha512-LcXCC004SYWVdHqjSZVpoKkcM0tJNwWtvmjmE2Jir36F0siY1CCbr7g2vz6LcOtA/q7Jj5G2/x1qMWzlPq/Bwg==}
     dev: false
 
   /@tsconfig/node10/1.0.9:
@@ -3299,19 +3269,6 @@ packages:
     dependencies:
       fill-range: 7.0.1
 
-  /broadcast-channel/3.7.0:
-    resolution: {integrity: sha512-cIAKJXAxGJceNZGTZSBzMxzyOn72cVgPnKx4dc6LRjQgbaJUQqhy5rzL3zbMxkMWsGKkv2hSFkPRMEXfoMZ2Mg==}
-    dependencies:
-      '@babel/runtime': 7.18.9
-      detect-node: 2.1.0
-      js-sha3: 0.8.0
-      microseconds: 0.2.0
-      nano-time: 1.0.0
-      oblivious-set: 1.0.0
-      rimraf: 3.0.2
-      unload: 2.2.0
-    dev: false
-
   /browserslist/4.21.3:
     resolution: {integrity: sha512-898rgRXLAyRkM1GryrrBHGkqA5hlpkV5MhtZwg9QXeiyLUYs2k00Un05aX5l2/yJIOObYKOpS2JNo8nJDE7fWQ==}
     engines: {node: ^6 || ^7 || ^8 || ^9 || ^10 || ^11 || ^12 || >=13.7}
@@ -3998,10 +3955,6 @@ packages:
   /detect-libc/2.0.1:
     resolution: {integrity: sha512-463v3ZeIrcWtdgIg6vI6XUncguvr2TnGl4SzDXinkt9mSLpBJKXT3mW6xT3VQdDN11+WVs29pgvivTc4Lp8v+w==}
     engines: {node: '>=8'}
-    dev: false
-
-  /detect-node/2.1.0:
-    resolution: {integrity: sha512-T0NIuQpnTvFDATNuHN5roPwSBG83rFsuO+MXXH9/3N1eFbn4wcPjttvjMLEPWJ0RGUYgQE7cGgS3tNxbqCGM7g==}
     dev: false
 
   /devtools-protocol/0.0.927104:
@@ -5779,10 +5732,6 @@ packages:
     engines: {node: '>=10'}
     dev: false
 
-  /js-sha3/0.8.0:
-    resolution: {integrity: sha512-gF1cRrHhIzNfToc802P800N8PpXS+evLLXfsVpowqmAFR9uwbi89WvXg2QspOmXL8QL86J4T1EpFu+yUkwJY3Q==}
-    dev: false
-
   /js-tokens/4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
 
@@ -5997,13 +5946,6 @@ packages:
   /markdown-extensions/1.1.1:
     resolution: {integrity: sha512-WWC0ZuMzCyDHYCasEGs4IPvLyTGftYwh6wIEOULOF0HXcqZlhwRzrK0w2VUlxWA98xnvb/jszw4ZSkJ6ADpM6Q==}
     engines: {node: '>=0.10.0'}
-    dev: false
-
-  /match-sorter/6.3.1:
-    resolution: {integrity: sha512-mxybbo3pPNuA+ZuCUhm5bwNkXrJTbsk5VWbR5wiwz/GC6LIiegBGn2w3O08UG/jdbYLinw51fSQ5xNU1U3MgBw==}
-    dependencies:
-      '@babel/runtime': 7.18.9
-      remove-accents: 0.4.2
     dev: false
 
   /mdast-util-definitions/5.1.1:
@@ -6408,10 +6350,6 @@ packages:
       braces: 3.0.2
       picomatch: 2.3.1
 
-  /microseconds/0.2.0:
-    resolution: {integrity: sha512-n7DHHMjR1avBbSpsTBj6fmMGh2AGrifVV4e+WYc3Q9lO+xnSZ3NyhcBND3vzzatt05LFhoKFRxrIyklmLlUtyA==}
-    dev: false
-
   /mime-db/1.52.0:
     resolution: {integrity: sha512-sPU4uV7dYlvtWJxwwxHD0PuihVNiE7TyAbQ5SWxDCB9mUYvOgroQOwYQQOKPJ8CIbE+1ETVlOoK1UC2nU3gYvg==}
     engines: {node: '>= 0.6'}
@@ -6502,12 +6440,6 @@ packages:
 
   /ms/2.1.3:
     resolution: {integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==}
-
-  /nano-time/1.0.0:
-    resolution: {integrity: sha512-flnngywOoQ0lLQOTRNexn2gGSNuM9bKj9RZAWSzhQ+UJYaAFG9bac4DW9VHjUAzrOaIcajHybCTHe/bkvozQqA==}
-    dependencies:
-      big-integer: 1.6.51
-    dev: false
 
   /nanoid/3.3.4:
     resolution: {integrity: sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw==}
@@ -6645,10 +6577,6 @@ packages:
       define-properties: 1.1.4
       es-abstract: 1.20.1
     dev: true
-
-  /oblivious-set/1.0.0:
-    resolution: {integrity: sha512-z+pI07qxo4c2CulUHCDf9lcqDlMSo72N/4rLUpRXf6fu+q8vjt8y0xS+Tlf8NTJDdTXHbdeO1n3MlbctwEoXZw==}
-    dev: false
 
   /oer-utils/5.1.3-alpha.2:
     resolution: {integrity: sha512-BX/8xcb+TXGTRtu97a/ZvcrWSyMd8wt8GSQMD7MvKxPEFqN4lX9w+Pk/Wm4HxwfHQQO9EhTYryR5hosTgWxP+A==}
@@ -7158,25 +7086,6 @@ packages:
       react: 18.2.0
     dev: false
 
-  /react-query/3.39.2_biqbaboplfbrettd7655fr4n2y:
-    resolution: {integrity: sha512-F6hYDKyNgDQfQOuR1Rsp3VRzJnWHx6aRnnIZHMNGGgbL3SBgpZTDg8MQwmxOgpCAoqZJA+JSNCydF1xGJqKOCA==}
-    peerDependencies:
-      react: ^16.8.0 || ^17.0.0 || ^18.0.0
-      react-dom: '*'
-      react-native: '*'
-    peerDependenciesMeta:
-      react-dom:
-        optional: true
-      react-native:
-        optional: true
-    dependencies:
-      '@babel/runtime': 7.18.9
-      broadcast-channel: 3.7.0
-      match-sorter: 6.3.1
-      react: 18.2.0
-      react-dom: 18.2.0_react@18.2.0
-    dev: false
-
   /react-refresh/0.14.0:
     resolution: {integrity: sha512-wViHqhAd8OHeLS/IRMJjTSDHF3U9eWi62F/MledQGPdJGDhodXJ9PBLNGr6WWL7qlH12Mt3TyTpbS+hGXMjCzQ==}
     engines: {node: '>=0.10.0'}
@@ -7355,10 +7264,6 @@ packages:
       '@types/mdast': 3.0.10
       mdast-util-to-hast: 12.2.1
       unified: 10.1.2
-    dev: false
-
-  /remove-accents/0.4.2:
-    resolution: {integrity: sha512-7pXIJqJOq5tFgG1A2Zxti3Ht8jJF337m4sowbuHsW30ZnkQFnDzy9qBNhgzX8ZLW4+UBcXiiR7SwR6pokHsxiA==}
     dev: false
 
   /require-directory/2.1.1:
@@ -8285,13 +8190,6 @@ packages:
   /universalify/2.0.0:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
-    dev: false
-
-  /unload/2.2.0:
-    resolution: {integrity: sha512-B60uB5TNBLtN6/LsgAf3udH9saB5p7gqJwcFfbOEZ8BcBHnGwCf6G/TGiEqkRAxX7zAFIUtzdrXQSdL3Q/wqNA==}
-    dependencies:
-      '@babel/runtime': 7.18.9
-      detect-node: 2.1.0
     dev: false
 
   /unocss/0.45.13_vite@3.0.9:

@@ -1,15 +1,21 @@
-import * as trpc from "@trpc/server"
+import { initTRPC } from '@trpc/server';
 
 import {
-  Change,
   Reactor,
   TopicFactory,
   isSignal,
+  Change,
   isStore,
 } from "@dassie/lib-reactive"
+import { observable } from '@trpc/server/observable';
+
+// eslint-disable-next-line @typescript-eslint/consistent-type-definitions
+export type ReactiveContext = {reactor: Reactor}
+
+const trpc = initTRPC.context<ReactiveContext>().create()
 
 export const createRemoteReactiveRouter = <
-  TExposedTopicsMap extends Record<string, TopicFactory>
+  TExposedTopicsMap extends Record<string, TopicFactory>,
 >(
   exposedTopics: TExposedTopicsMap
 ) => {
@@ -22,13 +28,9 @@ export const createRemoteReactiveRouter = <
   }
 
   const router = trpc
-    .router<Reactor>()
-    .query("exposedTopics", {
-      resolve: () => null as unknown as TExposedTopicsMap,
-    })
-    .query("getSignalState", {
-      input: validateTopicName,
-      resolve({ input: signalName, ctx: reactor }) {
+    .router({
+      exposedTopics: trpc.procedure.query(() => (null as unknown as TExposedTopicsMap)),
+      getSignalState: trpc.procedure.input(validateTopicName).query(({ input: signalName, ctx: { reactor }}) => {
         const topicFactory = exposedTopics[signalName]
 
         if (!topicFactory) {
@@ -42,20 +44,11 @@ export const createRemoteReactiveRouter = <
         }
 
         return {
-          value: signal.read(),
+          value: signal.read()
         }
-      },
-    })
-    .subscription("listenToTopic", {
-      input: validateTopicName,
-      resolve: <T extends keyof TExposedTopicsMap>({
-        input: topicName,
-        ctx: reactor,
-      }: {
-        input: T
-        ctx: Reactor
-      }) => {
-        return new trpc.Subscription<unknown>((sendToClient) => {
+      }),
+      listenToTopic: trpc.procedure.input(validateTopicName).subscription(({ input: topicName, ctx: { reactor } }) => {
+        return observable<unknown>((emit) => {
           const topicFactory = exposedTopics[topicName]
           if (!topicFactory) {
             throw new Error("Invalid topic name")
@@ -63,25 +56,16 @@ export const createRemoteReactiveRouter = <
           const store = reactor.useContext(topicFactory)
 
           if (isSignal(store)) {
-            sendToClient.data(store.read())
+            emit.next(store.read())
           }
 
           return store.on((value) => {
-            sendToClient.data(value)
+            emit.next(value)
           })
         })
-      },
-    })
-    .subscription("listenToChanges", {
-      input: validateTopicName,
-      resolve: <T extends keyof TExposedTopicsMap>({
-        input: storeName,
-        ctx: reactor,
-      }: {
-        input: T
-        ctx: Reactor
-      }) => {
-        return new trpc.Subscription<
+      }),
+      listenToChanges: trpc.procedure.input(validateTopicName).subscription(({ input: storeName, ctx: { reactor } }) => {
+        return observable<
           | {
               type: "initial"
               data: unknown
@@ -90,7 +74,7 @@ export const createRemoteReactiveRouter = <
               type: "change"
               data: Change
             }
-        >((sendToClient) => {
+        >((emit) => {
           const topicFactory = exposedTopics[storeName]
           if (!topicFactory) {
             throw new Error("Invalid topic name")
@@ -102,13 +86,13 @@ export const createRemoteReactiveRouter = <
             throw new Error("Target is not a store")
           }
 
-          sendToClient.data({
+          emit.next({
             type: "initial",
             data: store.read(),
           })
 
           const disposeSubscription = store.changes.on((change) => {
-            sendToClient.data({
+            emit.next({
               type: "change",
               data: change,
             })
@@ -119,9 +103,8 @@ export const createRemoteReactiveRouter = <
             reactor.disposeContext(topicFactory)
           }
         })
-      },
+      })
     })
-    .flat()
 
   return router
 }

@@ -1,7 +1,8 @@
-import type { TRPCClient } from "@trpc/client"
+import type { inferRouterProxyClient } from "@trpc/client"
 
 import {
   BoundAction,
+  Change,
   EffectContext,
   InferMessageType,
   Service,
@@ -15,12 +16,12 @@ import type { RemoteReactiveRouter } from "./server"
 
 export type ReactiveTrpcClient<
   TExposedTopicsMap extends Record<string, TopicFactory>
-> = TRPCClient<RemoteReactiveRouter<TExposedTopicsMap>>
+> = inferRouterProxyClient<RemoteReactiveRouter<TExposedTopicsMap>>
 
 export const createTrpcConnection = <
-  TClient extends TRPCClient<RemoteReactiveRouter<Record<string, TopicFactory>>>
+  TExposedTopicsMap extends Record<string, TopicFactory>
 >(
-  connect: (sig: EffectContext) => TClient
+  connect: (sig: EffectContext) => ReactiveTrpcClient<TExposedTopicsMap>
 ) => {
   return createService(connect)
 }
@@ -38,19 +39,14 @@ export const createRemoteTopic = <
     const client = sig.get(connectionFactory)
 
     if (!client) return
-
-    sig.onCleanup(
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+    const subscription = client.listenToTopic.subscribe(topicName, {
+      onData: (event: unknown) => {
+        service.write(event as InferMessageType<TExposedTopicsMap[TTopicName]>)
+      },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      client.subscription("listenToTopic", topicName as any, {
-        onNext: (event) => {
-          if (event.type !== "data") return
-
-          service.write(
-            event.data as InferMessageType<TExposedTopicsMap[TTopicName]>
-          )
-        },
-      })
-    )
+    } as any)
+    sig.onCleanup(() => subscription.unsubscribe())
 
     return undefined
   })
@@ -76,18 +72,14 @@ export const createRemoteSignal = <
 
     if (!client) return initialValue
 
-    sig.onCleanup(
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+    const subscription = client.listenToTopic.subscribe(storeName, {
+      onData: (event: unknown) => {
+        service.write(event as InferMessageType<TExposedTopicsMap[TSignalName]>)
+      },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      client.subscription("listenToTopic", storeName as any, {
-        onNext: (event) => {
-          if (event.type !== "data") return
-
-          service.write(
-            event.data as InferMessageType<TExposedTopicsMap[TSignalName]>
-          )
-        },
-      })
-    )
+    } as any)
+    sig.onCleanup(() => subscription.unsubscribe())
 
     return initialValue
   })
@@ -127,28 +119,31 @@ export const createRemoteSynchronizedStore = <
       })
     )
 
-    sig.onCleanup(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      client.subscription("listenToChanges", storeName as any, {
-        onNext: (event) => {
-          if (event.type !== "data") return
-          if (event.data.type === "initial") {
-            localStore.write(event.data.data)
-          } else {
-            const action = localStore[event.data.data[0]] as
-              | BoundAction<unknown, unknown[]>
-              | undefined
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+    const subscription = client.listenToChanges.subscribe(storeName, {
+      onData: (
+        event:
+          | { type: "initial"; data: unknown }
+          | { type: "change"; data: Change }
+      ) => {
+        if (event.type === "initial") {
+          localStore.write(event.data)
+        } else {
+          const action = localStore[event.data[0]] as
+            | BoundAction<unknown, unknown[]>
+            | undefined
 
-            if (!action) {
-              throw new Error(
-                `Tried to synchronize action ${event.data.data[0]} which does not exist in the local implmentation`
-              )
-            }
-            action(...event.data.data[1])
+          if (!action) {
+            throw new Error(
+              `Tried to synchronize action ${event.data[0]} which does not exist in the local implementation`
+            )
           }
-        },
-      })
-    )
+          action(...event.data[1])
+        }
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any)
+    sig.onCleanup(() => subscription.unsubscribe())
 
     return localStore.read() as InferMessageType<TExposedTopicsMap[TStoreName]>
   })

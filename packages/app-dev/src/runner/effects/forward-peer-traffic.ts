@@ -8,7 +8,7 @@ export const forwardPeerTraffic = (sig: EffectContext) => {
     const trpcClient = sig.get(trpcClientService)
     if (!trpcClient) return
 
-    await trpcClient.mutation("runner.notifyPeerTraffic", {
+    await trpcClient.runner.notifyPeerTraffic.mutate({
       from: process.env["DASSIE_DEV_NODE_ID"] ?? "unknown",
       to: destination,
     })

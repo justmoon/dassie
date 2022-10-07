@@ -1,4 +1,4 @@
-import { createTRPCClient } from "@trpc/client"
+import { createTRPCProxyClient } from "@trpc/client"
 import { createWSClient, wsLink } from "@trpc/client/links/wsLink"
 import { keyedObjectReffx } from "reffx/lib"
 import superjson from "superjson"
@@ -11,7 +11,7 @@ export const nodeClients = keyedObjectReffx((nodeId: string) => {
     url: nodeIdToDebugUrl(nodeId),
   })
 
-  const client = createTRPCClient<DebugRpcRouter>({
+  const client = createTRPCProxyClient<DebugRpcRouter>({
     transformer: superjson,
     links: [
       wsLink({

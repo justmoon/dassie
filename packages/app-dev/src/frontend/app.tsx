@@ -1,5 +1,5 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { useState } from "react"
-import { QueryClient, QueryClientProvider } from "react-query"
 import { Route } from "wouter"
 
 import { useSig } from "@dassie/lib-reactive-react"
@@ -12,7 +12,7 @@ import { activeTemplateSignal } from "./remote-signals/active-template"
 import { remoteLogsStore } from "./remote-signals/logs"
 import { peerTrafficTopic } from "./remote-topics/peer-traffic"
 import { trpcConnectionService } from "./utils/remote-reactive"
-import { trpc, client as trpcClient } from "./utils/trpc"
+import { trpc, wsLink } from "./utils/trpc"
 
 const App = () => {
   const sig = useSig()
@@ -22,6 +22,11 @@ const App = () => {
   sig.run(sig.use(peerTrafficTopic).effect)
 
   const [queryClient] = useState(() => new QueryClient())
+  const [trpcClient] = useState(() => {
+    return trpc.createClient({
+      links: [wsLink],
+    })
+  })
 
   return (
     <trpc.Provider client={trpcClient} queryClient={queryClient}>

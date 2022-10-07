@@ -1,5 +1,5 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect } from "react"
-import { useQuery, useQueryClient } from "react-query"
 
 import type { InferMessageType } from "@dassie/lib-reactive"
 
@@ -14,7 +14,7 @@ const fetchNodeRemoteStore = async <
 ) => {
   const [client, dispose] = nodeClients(nodeId)
 
-  const result = await client.query("getSignalState", storeName)
+  const result = await client.getSignalState.query(storeName)
 
   dispose()
 
@@ -30,22 +30,18 @@ export const useNodeRemoteSignal = <
   const queryClient = useQueryClient()
   useEffect(() => {
     const [client, disposeClient] = nodeClients(nodeId)
-    const disposeSubscription = client.subscription(
-      "listenToTopic",
-      storeName,
-      {
-        onNext() {
-          void queryClient.invalidateQueries([
-            "getNodeRemoteStore",
-            nodeId,
-            storeName,
-          ])
-        },
-      }
-    )
+    const subscription = client.listenToTopic.subscribe(storeName, {
+      onData() {
+        void queryClient.invalidateQueries([
+          "getNodeRemoteStore",
+          nodeId,
+          storeName,
+        ])
+      },
+    })
 
     return () => {
-      disposeSubscription()
+      subscription.unsubscribe()
       disposeClient()
     }
   }, [queryClient, nodeId, storeName])
