@@ -81,8 +81,9 @@ export const handlePeerMessages = (sig: EffectContext) => {
           return
         }
         sig.use(nodeTableStore).updateNode(nodeId, {
-          sequence: sequence,
+          sequence,
           neighbors,
+          lastLinkStateUpdate: linkStateBytes,
           updateReceivedCounter: 1,
           scheduledRetransmitTime:
             Date.now() +
