@@ -5,4 +5,4 @@ import type { ReadonlyDeep } from "type-fest"
  */
 export type Template = ReadonlyDeep<number[][]>
 
-export const PEERS: Template = [[], [0], [0, 1], [0, 1, 2], [1], [4]] as const
+export const PEERS: Template = [[], [], [0, 1], [0, 1, 2], [1], [4]] as const
