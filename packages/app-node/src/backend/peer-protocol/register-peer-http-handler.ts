@@ -2,7 +2,7 @@ import {
   BadRequestError,
   assertAcceptHeader,
   assertContentTypeHeader,
-  asyncHandler, // asyncHandler,
+  asyncHandler,
   parseBody,
   respondPlainly,
 } from "@dassie/lib-http-server"
@@ -11,7 +11,9 @@ import type { EffectContext } from "@dassie/lib-reactive"
 
 import { routerService } from "../http-server/serve-http"
 import { incomingPeerMessageTopic } from "./handle-peer-messages"
-import { peerMessage } from "./peer-schema"
+import { peerMessage as peerMessageSchema } from "./peer-schema"
+import { nodeTableStore } from "./stores/node-table"
+import { authenticatePeerMessage } from "./utils/authenticate-peer-message"
 
 const logger = createLogger("das:node:handle-peer-http-request")
 
@@ -28,7 +30,7 @@ export const registerPeerHttpHandler = (sig: EffectContext) => {
 
       const body = await parseBody(request)
 
-      const parseResult = peerMessage.parse(body)
+      const parseResult = peerMessageSchema.parse(body)
 
       if (!parseResult.success) {
         logger.debug("error while parsing incoming dassie message", {
@@ -38,8 +40,26 @@ export const registerPeerHttpHandler = (sig: EffectContext) => {
         throw new BadRequestError(`Bad Request, failed to parse message`)
       }
 
+      if (parseResult.value.version !== 0) {
+        logger.debug("incoming dassie message has unknown version", {
+          version: parseResult.value.version,
+          body,
+        })
+        throw new BadRequestError(`Bad Request, unsupported version`)
+      }
+
+      const senderId = parseResult.value.sender
+      const senderPublicKey = sig
+        .use(nodeTableStore)
+        .read()
+        .get(senderId)?.nodeKey
+      const isAuthenticated =
+        !!senderPublicKey &&
+        authenticatePeerMessage(senderPublicKey, parseResult.value)
+
       sig.use(incomingPeerMessageTopic).emit({
         message: parseResult.value,
+        authenticatedAs: isAuthenticated ? senderId : undefined,
         asUint8Array: body,
       })
 

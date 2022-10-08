@@ -6,7 +6,7 @@ import { assertDefined } from "@dassie/lib-type-utils"
 
 import { configSignal } from "../config"
 import { ilpRoutingTableSignal } from "../ilp-connector/signals/ilp-routing-table"
-import { peerMessage } from "./peer-schema"
+import { peerMessageContent } from "./peer-schema"
 import { outgoingPeerMessageBufferTopic } from "./send-peer-messages"
 import { nodeTableStore } from "./stores/node-table"
 import { RoutingTableEntry, routingTableStore } from "./stores/routing-table"
@@ -97,7 +97,7 @@ export const calculateRoutes = (sig: EffectContext) => {
       prefix: ilpAddress,
       type: "peer",
       sendPacket: (packet) => {
-        const peerMessageSerializationResult = peerMessage.serialize({
+        const peerMessageSerializationResult = peerMessageContent.serialize({
           interledgerPacket: {
             signed: {
               source: `g.das.${subnetId}.${ownNodeId}`,

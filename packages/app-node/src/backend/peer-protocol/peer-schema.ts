@@ -9,6 +9,7 @@ import {
   octetString,
   sequence,
   sequenceOf,
+  uint8Number,
   uint32Number,
   uint64Bigint,
   visibleString,
@@ -21,7 +22,7 @@ import {
 
 export type PeerMessage = Infer<typeof peerMessage>
 
-export const nodeIdSchema = ia5String().from(lowercaseLetters + digits)
+export const nodeIdSchema = ia5String([2, 12]).from(lowercaseLetters + digits)
 
 export const nodeInfoEntry = choice({
   neighbor: sequence({
@@ -34,7 +35,7 @@ export const peerNodeInfo = sequence({
   nodeId: nodeIdSchema,
   sequence: uint64Bigint(),
   url: visibleString(),
-  publicKey: octetString(),
+  nodeKey: octetString(),
   entries: sequenceOf(nodeInfoEntry),
 })
 
@@ -54,7 +55,7 @@ export const peerInterledgerPacket = sequence({
   packet: octetString(),
 })
 
-export const peerMessage = choice({
+export const peerMessageContent = choice({
   hello: sequence({
     signed: octetString().containing(peerHello),
     signature: octetString(),
@@ -63,4 +64,16 @@ export const peerMessage = choice({
   interledgerPacket: sequence({
     signed: octetString().containing(peerInterledgerPacket),
   }).tag(2),
+})
+
+export const peerMessage = sequence({
+  version: uint8Number(),
+  sender: nodeIdSchema,
+  authentication: choice({
+    ["NONE"]: sequence({}).tag(0),
+    ["ED25519_X25519_HMAC-SHA256"]: sequence({
+      sessionPublicKey: octetString(32),
+    }).tag(1),
+  }),
+  content: captured(peerMessageContent),
 })

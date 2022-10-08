@@ -1,7 +1,10 @@
-import { createLogger } from "@dassie/lib-logger"
-import { EffectContext, createTopic } from "@dassie/lib-reactive"
 import axios from "axios"
 
+import { createLogger } from "@dassie/lib-logger"
+import { EffectContext, createTopic } from "@dassie/lib-reactive"
+
+import { configSignal } from "../config"
+import { peerMessage } from "./peer-schema"
 import { peerTableStore } from "./stores/peer-table"
 
 const logger = createLogger("das:node:outgoing-dassie-message-sender")
@@ -16,6 +19,7 @@ export const outgoingPeerMessageBufferTopic = () =>
 
 export const sendPeerMessages = (sig: EffectContext) => {
   const peers = sig.get(peerTableStore)
+  const nodeId = sig.get(configSignal, (config) => config.nodeId)
 
   const sendOutgoingPeerMessage = async ({
     message,
@@ -30,9 +34,25 @@ export const sendPeerMessages = (sig: EffectContext) => {
       return
     }
 
+    const envelopeSerializationResult = peerMessage.serialize({
+      version: 0,
+      sender: nodeId,
+      authentication: {
+        NONE: {},
+      },
+      content: { bytes: message },
+    })
+
+    if (!envelopeSerializationResult.success) {
+      logger.warn("failed to serialize message", {
+        error: envelopeSerializationResult.failure,
+      })
+      return
+    }
+
     await axios(`${peer.url}/peer`, {
       method: "POST",
-      data: message,
+      data: envelopeSerializationResult.value,
       headers: {
         accept: "application/dassie-peer-message",
         "content-type": "application/dassie-peer-message",

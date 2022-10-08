@@ -11,6 +11,11 @@ export interface NodeTableEntry {
   nodeId: string
 
   /**
+   * Node's public key.
+   */
+  nodeKey: Uint8Array
+
+  /**
    * Sequence number of the most recent link state update.
    */
   sequence: bigint

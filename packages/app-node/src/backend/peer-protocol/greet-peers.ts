@@ -3,7 +3,7 @@ import type { EffectContext } from "@dassie/lib-reactive"
 
 import { configSignal } from "../config"
 import { signerService } from "../crypto/signer"
-import { peerHello, peerMessage } from "../peer-protocol/peer-schema"
+import { peerHello, peerMessageContent } from "../peer-protocol/peer-schema"
 import { outgoingPeerMessageBufferTopic } from "../peer-protocol/send-peer-messages"
 import { compareSetOfKeys } from "../utils/compare-sets"
 import { nodeTableStore } from "./stores/node-table"
@@ -51,7 +51,7 @@ export const greetPeers = async (sig: EffectContext) => {
 
     const signature = await signer.signWithDassieKey(signedHello.value)
 
-    const messageSerializeResult = peerMessage.serialize({
+    const messageSerializeResult = peerMessageContent.serialize({
       hello: {
         signed: signedHello.value,
         signature,

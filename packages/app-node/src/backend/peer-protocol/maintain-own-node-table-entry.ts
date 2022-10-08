@@ -33,10 +33,11 @@ export const maintainOwnNodeTableEntry = async (sig: EffectContext) => {
   ) {
     const sequence = BigInt(Date.now())
     const peerIds = [...peers.values()].map((peer) => peer.nodeId)
+    const publicKey = await signer.getPublicKey()
 
     const peerNodeInfoResult = peerNodeInfo.serialize({
       nodeId: nodeId,
-      publicKey: await signer.getPublicKey(),
+      nodeKey: publicKey,
       url: `https://${nodeId}.localhost:${port}`,
       sequence,
       entries: peerIds.map((peerId) => ({
@@ -72,6 +73,7 @@ export const maintainOwnNodeTableEntry = async (sig: EffectContext) => {
       sig.use(nodeTableStore).addNode({
         nodeId: nodeId,
         neighbors: peerIds,
+        nodeKey: publicKey,
         sequence,
         scheduledRetransmitTime: Date.now(),
         updateReceivedCounter: 0,

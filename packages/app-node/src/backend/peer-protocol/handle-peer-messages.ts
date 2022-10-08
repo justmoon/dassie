@@ -12,6 +12,7 @@ const MAX_LINK_STATE_UPDATE_RETRANSMIT_DELAY = 500
 
 export interface IncomingPeerMessageEvent {
   message: PeerMessage
+  authenticatedAs: string | undefined
   asUint8Array: Uint8Array
 }
 
@@ -20,8 +21,10 @@ export const incomingPeerMessageTopic = () =>
 
 export const handlePeerMessages = (sig: EffectContext) => {
   sig.on(incomingPeerMessageTopic, ({ message }) => {
-    if (message.hello) {
-      const { nodeInfo } = message.hello.signed
+    const content = message.content.value
+
+    if (content.hello) {
+      const { nodeInfo } = content.hello.signed
       const { nodeId, sequence, url } = nodeInfo.signed
       const peers = sig.use(peerTableStore).read()
 
@@ -42,10 +45,10 @@ export const handlePeerMessages = (sig: EffectContext) => {
           lastSeen: Date.now(),
         })
       }
-    } else if (message.linkStateUpdate) {
+    } else if (content.linkStateUpdate) {
       const { value: linkState, bytes: linkStateBytes } =
-        message.linkStateUpdate
-      const { nodeId, sequence, entries } = linkState.signed
+        content.linkStateUpdate
+      const { nodeId, sequence, entries, nodeKey } = linkState.signed
       const nodes = sig.use(nodeTableStore).read()
 
       const neighbors = entries
@@ -92,6 +95,7 @@ export const handlePeerMessages = (sig: EffectContext) => {
       } else {
         sig.use(nodeTableStore).addNode({
           nodeId,
+          nodeKey,
           sequence,
           updateReceivedCounter: 1,
           scheduledRetransmitTime:
@@ -105,9 +109,9 @@ export const handlePeerMessages = (sig: EffectContext) => {
       logger.debug("handle interledger packet")
 
       sig.use(incomingIlpPacketBuffer).emit({
-        source: message.interledgerPacket.signed.source,
-        packet: message.interledgerPacket.signed.packet,
-        requestId: message.interledgerPacket.signed.requestId,
+        source: content.interledgerPacket.signed.source,
+        packet: content.interledgerPacket.signed.packet,
+        requestId: content.interledgerPacket.signed.requestId,
       })
     }
   })
