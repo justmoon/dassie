@@ -87,39 +87,46 @@ export const calculateRoutes = (sig: EffectContext) => {
       )
     }
 
+    const firstHopOptions = nodeInfo.level === 1 ? [nodeId] : [...parents]
+
     routes.set(nodeId, {
       distance: nodeInfo.level,
-      firstHopOptions: [...parents],
+      firstHopOptions,
     })
 
-    const ilpAddress = `g.das.${subnetId}.${nodeId}`
-    ilpRoutingTable.set(ilpAddress, {
-      prefix: ilpAddress,
-      type: "peer",
-      sendPacket: (packet) => {
-        const peerMessageSerializationResult = peerMessageContent.serialize({
-          interledgerPacket: {
-            signed: {
-              source: `g.das.${subnetId}.${ownNodeId}`,
-              requestId: packet.requestId,
-              packet: packet.packet,
+    if (nodeInfo.level > 0) {
+      const ilpAddress = `g.das.${subnetId}.${nodeId}`
+      ilpRoutingTable.set(ilpAddress, {
+        prefix: ilpAddress,
+        type: "peer",
+        sendPacket: (packet) => {
+          const nextHop = firstHopOptions[0]!
+
+          logger.debug("sending ilp packet", { nextHop })
+
+          const peerMessageSerializationResult = peerMessageContent.serialize({
+            interledgerPacket: {
+              signed: {
+                requestId: packet.requestId,
+                packet: packet.packet,
+              },
             },
-          },
-        })
-
-        if (!peerMessageSerializationResult.success) {
-          logger.error("Unable to serialize peer message", {
-            error: peerMessageSerializationResult.failure,
           })
-          return
-        }
 
-        sig.use(outgoingPeerMessageBufferTopic).emit({
-          destination: nodeId,
-          message: peerMessageSerializationResult.value,
-        })
-      },
-    })
+          if (!peerMessageSerializationResult.success) {
+            logger.error("Unable to serialize peer message", {
+              error: peerMessageSerializationResult.failure,
+            })
+            return
+          }
+
+          sig.use(outgoingPeerMessageBufferTopic).emit({
+            destination: nextHop,
+            message: peerMessageSerializationResult.value,
+          })
+        },
+      })
+    }
   }
 
   sig.onCleanup(() => {
