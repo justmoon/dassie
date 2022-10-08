@@ -20,6 +20,7 @@ export const handleShutdownSignals = (sig: EffectContext) => {
 
   process.on("SIGTERM", onShutdown)
   process.on("SIGINT", onShutdown)
+  if (process.report) process.report.reportOnSignal = true
 
   sig.onCleanup(() => {
     process.off("SIGTERM", onShutdown)
