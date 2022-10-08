@@ -1,6 +1,7 @@
 import { createLogger } from "@dassie/lib-logger"
 import { EffectContext, createTopic } from "@dassie/lib-reactive"
 
+import { configSignal } from "../config"
 import { incomingIlpPacketBuffer } from "../ilp-connector/topics/incoming-ilp-packet"
 import type { PeerMessage } from "./peer-schema"
 import { nodeTableStore } from "./stores/node-table"
@@ -20,7 +21,7 @@ export const incomingPeerMessageTopic = () =>
   createTopic<IncomingPeerMessageEvent>()
 
 export const handlePeerMessages = (sig: EffectContext) => {
-  sig.on(incomingPeerMessageTopic, ({ message }) => {
+  sig.on(incomingPeerMessageTopic, ({ message, authenticatedAs }) => {
     const content = message.content.value
 
     if (content.hello) {
@@ -106,10 +107,17 @@ export const handlePeerMessages = (sig: EffectContext) => {
         })
       }
     } else {
+      if (!authenticatedAs) {
+        logger.warn("received unauthenticated interledger packet")
+        return
+      }
+
       logger.debug("handle interledger packet")
 
+      const subnetId = sig.use(configSignal).read().subnetId
+
       sig.use(incomingIlpPacketBuffer).emit({
-        source: content.interledgerPacket.signed.source,
+        source: `g.das.${subnetId}.${authenticatedAs}`,
         packet: content.interledgerPacket.signed.packet,
         requestId: content.interledgerPacket.signed.requestId,
       })

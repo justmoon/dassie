@@ -38,7 +38,9 @@ export const sendPeerMessages = (sig: EffectContext) => {
       version: 0,
       sender: nodeId,
       authentication: {
-        NONE: {},
+        "ED25519_X25519_HMAC-SHA256": {
+          sessionPublicKey: Uint8Array.from(Buffer.alloc(32)),
+        },
       },
       content: { bytes: message },
     })

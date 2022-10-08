@@ -50,7 +50,6 @@ export const peerHello = sequence({
 })
 
 export const peerInterledgerPacket = sequence({
-  source: ia5String(),
   requestId: uint32Number(),
   packet: octetString(),
 })
