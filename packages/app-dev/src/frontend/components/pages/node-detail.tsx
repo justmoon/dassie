@@ -132,14 +132,18 @@ const NodeTable = ({ nodeId }: BasicNodeElementProperties) => {
                 </td>
                 <td>{routingTableEntry?.distance}</td>
                 <td>
-                  {nextHopNodes?.map((nodeId) => (
-                    <NodeLink key={nodeId} nodeId={nodeId} />
-                  ))}
+                  <div className="flex gap-2">
+                    {nextHopNodes?.map((nodeId) => (
+                      <NodeLink key={nodeId} nodeId={nodeId} />
+                    ))}
+                  </div>
                 </td>
-                <td className="flex gap-2">
-                  {node.neighbors.map((nodeId) => (
-                    <NodeLink key={nodeId} nodeId={nodeId} />
-                  ))}
+                <td>
+                  <div className="flex gap-2">
+                    {node.neighbors.map((nodeId) => (
+                      <NodeLink key={nodeId} nodeId={nodeId} />
+                    ))}
+                  </div>
                 </td>
               </tr>
             )
