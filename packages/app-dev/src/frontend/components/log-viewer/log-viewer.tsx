@@ -1,5 +1,12 @@
 import { useVirtualizer } from "@tanstack/react-virtual"
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import {
+  startTransition,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 
 import { useSig } from "@dassie/lib-reactive-react"
 
@@ -20,33 +27,32 @@ const LogViewer = ({ filter: externalFilter }: LogViewerProperties) => {
   const logs = sig.get(remoteLogsStore)?.logs
   const filteredLogs = useMemo(
     () =>
-      (externalFilter
-        ? logs?.filter((item) => {
-            if (!externalFilter(item)) return false
+      logs?.filter((item) => {
+        if (externalFilter && !externalFilter(item)) return false
 
-            if (keywordFilter) {
-              const data = !item.data
-                ? ""
-                : Object.entries(item.data)
-                    .map(([key, value]) => `${key}=${value}`)
-                    .join(" ")
+        if (keywordFilter) {
+          const data = !item.data
+            ? ""
+            : Object.entries(item.data)
+                .map(([key, value]) => `${key}=${value}`)
+                .join(" ")
 
-              for (const keyword of keywordFilter.split(/\s+/)) {
-                if (
-                  !(
-                    item.message.includes(keyword) ||
-                    item.component.includes(keyword) ||
-                    data.includes(keyword)
-                  )
-                ) {
-                  return false
-                }
-              }
+          for (const filterElement of keywordFilter.split(/\s+/)) {
+            const isNegative = filterElement.startsWith("-")
+            const keyword = isNegative ? filterElement.slice(1) : filterElement
+            const isMatching =
+              item.message.includes(keyword) ||
+              item.component.includes(keyword) ||
+              data.includes(keyword)
+
+            if (isNegative == isMatching) {
+              return false
             }
+          }
+        }
 
-            return true
-          })
-        : logs) ?? [],
+        return true
+      }) ?? [],
     [keywordFilter, externalFilter, logs]
   )
 
@@ -97,7 +103,11 @@ const LogViewer = ({ filter: externalFilter }: LogViewerProperties) => {
           type="text"
           value={keywordFilter}
           placeholder="Filter"
-          onChange={(event) => setKeywordFilter(event.currentTarget.value)}
+          onChange={(event) => {
+            startTransition(() => {
+              setKeywordFilter(event.currentTarget.value)
+            })
+          }}
           className="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg placeholder-gray-400 focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
         />
       </div>
