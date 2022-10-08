@@ -2,6 +2,7 @@ import {
   BadRequestError,
   assertAcceptHeader,
   assertContentTypeHeader,
+  asyncHandler, // asyncHandler,
   parseBody,
   respondPlainly,
 } from "@dassie/lib-http-server"
@@ -19,27 +20,30 @@ export const registerPeerHttpHandler = (sig: EffectContext) => {
 
   if (!router) return
 
-  router.post("/peer", async (request, response) => {
-    assertAcceptHeader(request, "application/dassie-peer-message")
-    assertContentTypeHeader(request, "application/dassie-peer-message")
+  router.post(
+    "/peer",
+    asyncHandler(async (request, response) => {
+      assertAcceptHeader(request, "application/dassie-peer-message")
+      assertContentTypeHeader(request, "application/dassie-peer-message")
 
-    const body = await parseBody(request)
+      const body = await parseBody(request)
 
-    const parseResult = peerMessage.parse(body)
+      const parseResult = peerMessage.parse(body)
 
-    if (!parseResult.success) {
-      logger.debug("error while parsing incoming dassie message", {
-        error: parseResult.failure,
-        body,
+      if (!parseResult.success) {
+        logger.debug("error while parsing incoming dassie message", {
+          error: parseResult.failure,
+          body,
+        })
+        throw new BadRequestError(`Bad Request, failed to parse message`)
+      }
+
+      sig.use(incomingPeerMessageTopic).emit({
+        message: parseResult.value,
+        asUint8Array: body,
       })
-      throw new BadRequestError(`Bad Request, failed to parse message`)
-    }
 
-    sig.use(incomingPeerMessageTopic).emit({
-      message: parseResult.value,
-      asUint8Array: body,
+      respondPlainly(response, 200, "OK")
     })
-
-    respondPlainly(response, 200, "OK")
-  })
+  )
 }
