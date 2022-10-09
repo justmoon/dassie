@@ -47,7 +47,7 @@ export const maintainOwnNodeTableEntry = async (sig: EffectContext) => {
 
     if (!peerNodeInfoResult.success) {
       logger.warn("Failed to serialize link state update signed portion", {
-        error: peerNodeInfoResult.failure,
+        error: peerNodeInfoResult.error,
       })
       return
     }
@@ -60,7 +60,7 @@ export const maintainOwnNodeTableEntry = async (sig: EffectContext) => {
 
     if (!message.success) {
       logger.warn("Failed to serialize link state update message", {
-        error: message.failure,
+        error: message.error,
       })
       return
     }

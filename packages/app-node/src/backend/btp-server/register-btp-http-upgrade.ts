@@ -53,7 +53,7 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
 
               if (!messageParseResult.success) {
                 logger.debug("failed to parse BTP message payload", {
-                  error: messageParseResult.failure,
+                  error: messageParseResult.error,
                 })
                 return
               }
@@ -69,7 +69,7 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
                 })
                 if (!responseSerializationResult.success) {
                   logger.error("error serializing BTP response message", {
-                    error: responseSerializationResult.failure,
+                    error: responseSerializationResult.error,
                   })
                   return
                 }
@@ -82,7 +82,7 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
                 )
                 if (!envelopeSerializationResult.success) {
                   logger.error("error serializing BTP response", {
-                    error: envelopeSerializationResult.failure,
+                    error: envelopeSerializationResult.error,
                   })
                   return
                 }
@@ -113,7 +113,7 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
 
               if (!transferParseResult.success) {
                 logger.debug("failed to parse BTP transfer payload", {
-                  error: transferParseResult.failure,
+                  error: transferParseResult.error,
                 })
                 return
               }
@@ -140,7 +140,7 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
 
               if (!responseParseResult.success) {
                 logger.debug("failed to parse BTP response payload", {
-                  error: responseParseResult.failure,
+                  error: responseParseResult.error,
                 })
                 return
               }
@@ -163,7 +163,7 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
           logger.debug("failed to parse BTP message envelope", {
             // eslint-disable-next-line @typescript-eslint/no-base-to-string
             message: messageBuffer.toString("hex"),
-            error: messageResult.failure,
+            error: messageResult.error,
           })
         }
       })
@@ -185,7 +185,7 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
 
             if (!btpMessageSerializeResult.success) {
               logger.error("could not serialize BTP message", {
-                error: btpMessageSerializeResult.failure,
+                error: btpMessageSerializeResult.error,
               })
               return
             }
@@ -198,7 +198,7 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
 
             if (!btpEnvelopeSerializeResult.success) {
               logger.error("could not serialize BTP envelope", {
-                error: btpEnvelopeSerializeResult.failure,
+                error: btpEnvelopeSerializeResult.error,
               })
               return
             }
@@ -219,7 +219,7 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
 
             if (!btpMessageSerializeResult.success) {
               logger.error("could not serialize BTP message", {
-                error: btpMessageSerializeResult.failure,
+                error: btpMessageSerializeResult.error,
               })
               return
             }
@@ -250,7 +250,7 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
 
             if (!btpEnvelopeSerializeResult.success) {
               logger.error("could not serialize BTP envelope", {
-                error: btpEnvelopeSerializeResult.failure,
+                error: btpEnvelopeSerializeResult.error,
               })
               return
             }

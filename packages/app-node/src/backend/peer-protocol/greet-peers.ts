@@ -44,7 +44,7 @@ export const greetPeers = async (sig: EffectContext) => {
 
     if (!signedHello.success) {
       logger.warn("Failed to serialize hello message", {
-        error: signedHello.failure,
+        error: signedHello.error,
       })
       return
     }
@@ -60,7 +60,7 @@ export const greetPeers = async (sig: EffectContext) => {
 
     if (!messageSerializeResult.success) {
       logger.warn("Failed to serialize hello message", {
-        error: messageSerializeResult.failure,
+        error: messageSerializeResult.error,
       })
       return
     }

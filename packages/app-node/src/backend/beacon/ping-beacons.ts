@@ -43,7 +43,7 @@ export const pingBeacons = (sig: EffectContext) => {
 
   if (!pingSerializeResult.success) {
     logger.error("failed to serialize beacon ping", {
-      error: pingSerializeResult.failure,
+      error: pingSerializeResult.error,
     })
     return
   }

@@ -2,7 +2,7 @@
 
 exports[`integerAsNumber > schema uint8 with range 5..8 > should not parse a number that is too high 1`] = `
 {
-  "failure": [ParseError: unable to read fixed length integer of size 1 bytes - value 9 is greater than maximum value 8
+  "error": [ParseError: unable to read fixed length integer of size 1 bytes - value 9 is greater than maximum value 8
 
     09  
     ^^],
@@ -12,7 +12,7 @@ exports[`integerAsNumber > schema uint8 with range 5..8 > should not parse a num
 
 exports[`integerAsNumber > schema uint8 with range 5..8 > should not parse a number that is too low 1`] = `
 {
-  "failure": [ParseError: unable to read fixed length integer of size 1 bytes - value 1 is less than minimum value 5
+  "error": [ParseError: unable to read fixed length integer of size 1 bytes - value 1 is less than minimum value 5
 
     01  
     ^^],
@@ -22,14 +22,14 @@ exports[`integerAsNumber > schema uint8 with range 5..8 > should not parse a num
 
 exports[`integerAsNumber > schema uint8 with range 5..8 > should not serialize a number that is too high 1`] = `
 {
-  "failure": [SerializeError: integer must be <= 8],
+  "error": [SerializeError: integer must be <= 8],
   "success": false,
 }
 `;
 
 exports[`integerAsNumber > schema uint8 with range 5..8 > should not serialize a number that is too low 1`] = `
 {
-  "failure": [SerializeError: integer must be >= 5],
+  "error": [SerializeError: integer must be >= 5],
   "success": false,
 }
 `;

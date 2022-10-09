@@ -27,7 +27,7 @@ export const routeIlpPackets = (sig: EffectContext) => {
 
     if (!envelopeParseResult.success) {
       logger.debug("failed to parse ILP envelope", {
-        error: envelopeParseResult.failure,
+        error: envelopeParseResult.error,
       })
       return
     }
@@ -40,7 +40,7 @@ export const routeIlpPackets = (sig: EffectContext) => {
 
         if (!prepareParseResult.success) {
           logger.debug("failed to parse ILP prepare", {
-            error: prepareParseResult.failure,
+            error: prepareParseResult.error,
           })
           return
         }
@@ -61,7 +61,7 @@ export const routeIlpPackets = (sig: EffectContext) => {
 
           if (!ildcpSerializationResult.success) {
             logger.debug("failed to serialize IL-DCP response", {
-              error: ildcpSerializationResult.failure,
+              error: ildcpSerializationResult.error,
             })
             return
           }
@@ -73,7 +73,7 @@ export const routeIlpPackets = (sig: EffectContext) => {
 
           if (!fulfillSerializationResult.success) {
             logger.debug("failed to serialize ILP fulfill", {
-              error: fulfillSerializationResult.failure,
+              error: fulfillSerializationResult.error,
             })
             return
           }
@@ -85,7 +85,7 @@ export const routeIlpPackets = (sig: EffectContext) => {
 
           if (!envelopeSerializationResult.success) {
             logger.debug("failed to serialize ILP envelope", {
-              error: envelopeSerializationResult.failure,
+              error: envelopeSerializationResult.error,
             })
             return
           }
@@ -133,7 +133,7 @@ export const routeIlpPackets = (sig: EffectContext) => {
 
         if (!fulfillParseResult.success) {
           logger.debug("failed to parse ILP fulfill", {
-            error: fulfillParseResult.failure,
+            error: fulfillParseResult.error,
           })
           return
         }
@@ -166,7 +166,7 @@ export const routeIlpPackets = (sig: EffectContext) => {
 
         if (!rejectParseResult.success) {
           logger.debug("failed to parse ILP reject", {
-            error: rejectParseResult.failure,
+            error: rejectParseResult.error,
           })
           return
         }

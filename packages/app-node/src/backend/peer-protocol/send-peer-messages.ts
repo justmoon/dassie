@@ -47,7 +47,7 @@ export const sendPeerMessages = (sig: EffectContext) => {
 
     if (!envelopeSerializationResult.success) {
       logger.warn("failed to serialize message", {
-        error: envelopeSerializationResult.failure,
+        error: envelopeSerializationResult.error,
       })
       return
     }

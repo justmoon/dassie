@@ -33,7 +33,7 @@ export const forwardLinkStateUpdate = (sig: EffectContext) => {
 
       if (!message.success) {
         throw new Error("Failed to serialize link state update message", {
-          cause: message.failure,
+          cause: message.error,
         })
       }
 

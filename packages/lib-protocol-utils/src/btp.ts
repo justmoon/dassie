@@ -70,7 +70,7 @@ export const generateBtpMessage = ({
   })
 
   if (!serializationResult.success) {
-    throw serializationResult.failure
+    throw serializationResult.error
   }
 
   const envelopeSerializationResult = btpEnvelopeSchema.serialize({
@@ -80,7 +80,7 @@ export const generateBtpMessage = ({
   })
 
   if (!envelopeSerializationResult.success) {
-    throw envelopeSerializationResult.failure
+    throw envelopeSerializationResult.error
   }
 
   return envelopeSerializationResult.value
@@ -101,7 +101,7 @@ export const generateBtpTransfer = ({
   })
 
   if (!serializationResult.success) {
-    throw serializationResult.failure
+    throw serializationResult.error
   }
 
   const envelopeSerializationResult = btpEnvelopeSchema.serialize({
@@ -111,7 +111,7 @@ export const generateBtpTransfer = ({
   })
 
   if (!envelopeSerializationResult.success) {
-    throw envelopeSerializationResult.failure
+    throw envelopeSerializationResult.error
   }
 
   return envelopeSerializationResult.value
@@ -129,7 +129,7 @@ export const generateBtpResponse = ({
   })
 
   if (!serializationResult.success) {
-    throw serializationResult.failure
+    throw serializationResult.error
   }
 
   const envelopeSerializationResult = btpEnvelopeSchema.serialize({
@@ -139,7 +139,7 @@ export const generateBtpResponse = ({
   })
 
   if (!envelopeSerializationResult.success) {
-    throw envelopeSerializationResult.failure
+    throw envelopeSerializationResult.error
   }
 
   return envelopeSerializationResult.value
@@ -169,7 +169,7 @@ export const generateBtpError = ({
   })
 
   if (!serializationResult.success) {
-    throw serializationResult.failure
+    throw serializationResult.error
   }
 
   const envelopeSerializationResult = btpEnvelopeSchema.serialize({
@@ -179,7 +179,7 @@ export const generateBtpError = ({
   })
 
   if (!envelopeSerializationResult.success) {
-    throw envelopeSerializationResult.failure
+    throw envelopeSerializationResult.error
   }
 
   return envelopeSerializationResult.value

@@ -34,7 +34,7 @@ export const registerPeerHttpHandler = (sig: EffectContext) => {
 
       if (!parseResult.success) {
         logger.debug("error while parsing incoming dassie message", {
-          error: parseResult.failure,
+          error: parseResult.error,
           body,
         })
         throw new BadRequestError(`Bad Request, failed to parse message`)

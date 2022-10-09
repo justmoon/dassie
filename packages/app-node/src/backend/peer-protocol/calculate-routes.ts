@@ -115,7 +115,7 @@ export const calculateRoutes = (sig: EffectContext) => {
 
           if (!peerMessageSerializationResult.success) {
             logger.error("Unable to serialize peer message", {
-              error: peerMessageSerializationResult.failure,
+              error: peerMessageSerializationResult.error,
             })
             return
           }

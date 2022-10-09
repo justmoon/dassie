@@ -37,7 +37,7 @@ export const registerPingHttpHandler = (sig: EffectContext) => {
 
     if (!parseResult.success) {
       logger.debug("error while parsing incoming ping message", {
-        error: parseResult.failure,
+        error: parseResult.error,
         body,
       })
       throw new BadRequestError(`Bad Request, failed to parse message`)

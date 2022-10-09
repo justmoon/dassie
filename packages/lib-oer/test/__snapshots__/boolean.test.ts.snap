@@ -2,7 +2,7 @@
 
 exports[`bitstring > schema > should refuse to parse a value with extra bytes at the end 1`] = `
 {
-  "failure": [ParseError: non-canonical encoding - additional bytes present after the expected end of data
+  "error": [ParseError: non-canonical encoding - additional bytes present after the expected end of data
 
     ff 00  
        ^^],
