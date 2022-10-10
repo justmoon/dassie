@@ -11,7 +11,7 @@ const migration: MigrationDefinition = {
             id INTEGER PRIMARY KEY CHECK (id = 0),
 
             -- Node cryptographic seed
-            seed BLOB NOT NULL,
+            seed BLOB NOT NULL
           )
         `
       )
