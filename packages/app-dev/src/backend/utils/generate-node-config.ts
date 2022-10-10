@@ -18,7 +18,7 @@ export const generateNodeConfig = (index: number, peers: readonly number[]) => {
     peers: peers.map((index) => nodeIndexToId(index)),
     config: {
       nodeId: id,
-      realm: "test",
+      realm: "test" as const,
       subnetId: "null",
       host: `${id}.localhost`,
       port: nodeIndexToPort(index),
