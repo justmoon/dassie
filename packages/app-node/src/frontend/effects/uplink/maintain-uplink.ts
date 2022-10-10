@@ -15,6 +15,10 @@ export interface NodeUplink {
   websocket: WebSocket
 }
 
+const handleError = (error: unknown) => {
+  console.error("uplink error", error)
+}
+
 export const uplinkService = () =>
   createService<NodeUplink>((sig) => {
     const websocket = new WebSocket(
@@ -40,10 +44,6 @@ export const uplinkService = () =>
         ],
       })
       websocket.send(authMessage)
-    }
-
-    const handleError = (error: unknown) => {
-      console.error("uplink error", error)
     }
 
     websocket.addEventListener("message", handleMessage)
