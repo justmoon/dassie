@@ -1,6 +1,6 @@
 import { isObject } from "@dassie/lib-type-utils"
 
-import { Effect, runEffect } from "./effect"
+import type { Effect } from "./effect"
 import { Factory, FactoryNameSymbol } from "./reactor"
 import { Signal, createSignal } from "./signal"
 
@@ -29,14 +29,13 @@ export const createService = <TInstance, TProperties = undefined>(
     ...signal,
     [ServiceSymbol]: true,
     effect: (sig, properties) => {
-      runEffect(sig.reactor, effect, properties, sig.lifecycle, (_result) =>
-        service.write(_result)
-      ).catch((error: unknown) => {
-        console.error("error in service effect", {
-          effect: effect.name,
+      sig.run(effect, properties, {
+        additionalDebugData: {
           service: service[FactoryNameSymbol],
-          error,
-        })
+        },
+        onResult: (result) => {
+          service.write(result)
+        },
       })
 
       sig.onCleanup(() => service.write(undefined))

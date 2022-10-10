@@ -3,8 +3,9 @@ import type { Promisable } from "type-fest"
 import { isObject } from "@dassie/lib-type-utils"
 
 import { createDebugTools } from "./debug/debug-tools"
-import { Effect, runEffect } from "./effect"
+import { Effect, EffectContext } from "./effect"
 import { LifecycleScope } from "./internal/lifecycle-scope"
+import { noop } from "./internal/no-op"
 
 /**
  * The reactor will automatically set this property on each instantiated object.
@@ -53,6 +54,8 @@ export interface ContextState extends WeakMap<Factory<unknown>, unknown> {
 
 export class Reactor extends LifecycleScope {
   private contextState = new WeakMap() as ContextState
+
+  private rootEffectContext = new EffectContext(this, this, noop, "root")
 
   /**
    * Retrieve a value from the reactor's global context. The key is a factory which returns the value sought. If the value does not exist yet, it will be created by running the factory function.
@@ -140,25 +143,7 @@ export class Reactor extends LifecycleScope {
    * @param effect - The effect to run.
    * @returns
    */
-  run = <TResult>(effect: Effect<undefined, TResult>) => {
-    const lifecycle = this.deriveChildLifecycle()
-
-    let result!: TResult
-    runEffect(
-      this,
-      effect,
-      undefined,
-      lifecycle,
-      (_result) => (result = _result)
-    ).catch((error: unknown) => {
-      console.error("error in reactor effect", { effect: effect.name, error })
-    })
-
-    return {
-      dispose: lifecycle.dispose,
-      result,
-    }
-  }
+  run = this.rootEffectContext.run.bind(this.rootEffectContext)
 
   /**
    * Returns a set of debug tools for this reactor. Note that this is only available during development.
@@ -166,12 +151,12 @@ export class Reactor extends LifecycleScope {
   debug = createDebugTools(this.useContext, this.contextState)
 }
 
-export const createReactor = (rootEffect: Effect): Reactor => {
+export const createReactor = (rootEffect?: Effect | undefined): Reactor => {
   const reactor: Reactor = new Reactor()
 
-  runEffect(reactor, rootEffect, undefined, reactor).catch((error: unknown) => {
-    console.error("error in root effect", { effect: rootEffect.name, error })
-  })
+  if (rootEffect) {
+    reactor.run(rootEffect)
+  }
 
   return reactor
 }

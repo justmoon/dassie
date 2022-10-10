@@ -15,6 +15,25 @@ export type Effect<TProperties = unknown, TReturn = unknown> = (
 
 export type AsyncListener<TMessage> = (message: TMessage) => Promise<void>
 
+export interface RunOptions<TReturn> {
+  /**
+   * A callback which will be called with the effect's return value each time it executes.
+   */
+  onResult?: (result: TReturn) => void
+
+  /**
+   * Object with additional debug information that will be merged into the debug log data related to the effect.
+   */
+  additionalDebugData?: Record<string, unknown>
+
+  /**
+   * Custom lifecycle scope to use for this effect.
+   *
+   * @internal
+   */
+  parentLifecycleScope?: LifecycleScope
+}
+
 export class EffectContext {
   constructor(
     /**
@@ -28,6 +47,8 @@ export class EffectContext {
 
     /**
      * An object corresponding to this context's lifetime.
+     *
+     * @internal
      */
     readonly lifecycle: LifecycleScope,
 
@@ -304,25 +325,33 @@ export class EffectContext {
   run<TReturn>(effect: Effect<undefined, TReturn>): TReturn
   run<TProperties, TReturn>(
     effect: Effect<TProperties, TReturn>,
-    properties: TProperties
+    properties: TProperties,
+    options?: RunOptions<TReturn> | undefined
   ): TReturn
   run<TProperties, TReturn>(
     effect: Effect<TProperties | undefined, TReturn>,
-    properties?: TProperties
-  ): TReturn {
+    properties?: TProperties,
+    options?: RunOptions<TReturn> | undefined
+  ) {
     let result!: TReturn
 
-    runEffect(
+    loopEffect(
       this.reactor,
       effect,
       properties,
-      this.lifecycle,
-      (_result) => (result = _result)
+      options?.parentLifecycleScope ?? this.lifecycle,
+      (_result) => {
+        result = _result
+        if (options?.onResult) {
+          options.onResult(result)
+        }
+      }
     ).catch((error: unknown) => {
-      console.error("error in child effect", {
+      console.error("error in effect", {
         effect: effect.name,
         parentEffect: this.effectName,
         error,
+        ...options?.additionalDebugData,
       })
     })
 
@@ -354,12 +383,12 @@ export class EffectContext {
   }
 }
 
-export const runEffect = async <TProperties, TReturn>(
+const loopEffect = async <TProperties, TReturn>(
   reactor: Reactor,
   effect: Effect<TProperties, TReturn>,
   properties: TProperties,
   parentLifecycle: LifecycleScope,
-  resultCallback?: (result: TReturn) => void
+  resultCallback: (result: TReturn) => void
 ) => {
   for (;;) {
     if (parentLifecycle.isDisposed) return
@@ -378,7 +407,7 @@ export const runEffect = async <TProperties, TReturn>(
       const effectResult = effect(context, properties)
 
       // runEffect MUST always call the resultCallback or throw an error
-      if (resultCallback) resultCallback(effectResult)
+      resultCallback(effectResult)
 
       // --- There must be no `await` before calling the resultCallback ---
 

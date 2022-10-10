@@ -1,4 +1,4 @@
-import { Effect, EffectContext, runEffect } from "../effect"
+import type { Effect, EffectContext } from "../effect"
 import type { SignalFactory } from "../signal"
 import { LifecycleScope } from "./lifecycle-scope"
 
@@ -57,25 +57,14 @@ export const createArrayEffect = <TElement, TReturn>(
         const lifecycleScope = new LifecycleScope()
 
         const returnPromise = disposalPromise.then(() => {
-          let returnValue!: TReturn
-
-          runEffect(
-            sig.reactor,
-            effect,
-            element,
-            lifecycleScope,
-            (result) => (returnValue = result)
-          ).catch((error: unknown) => {
-            console.error("error in array effect", {
-              effect: effect.name,
+          return sig.run(effect, element, {
+            parentLifecycleScope: lifecycleScope,
+            additionalDebugData: {
               topic: arrayTopicFactory.name,
               index,
               parentEffect: parentEffectName,
-              error,
-            })
+            },
           })
-
-          return returnValue
         })
 
         runningEffects.set(element, {
@@ -140,25 +129,14 @@ export const createIndexedArrayEffect = <TElement, TReturn>(
         const lifecycleScope = new LifecycleScope()
 
         const returnPromise = disposalPromise.then(() => {
-          let returnValue!: TReturn
-
-          runEffect(
-            sig.reactor,
-            effect,
-            [element, index] as const,
-            lifecycleScope,
-            (result) => (returnValue = result)
-          ).catch((error: unknown) => {
-            console.error("error in array effect", {
-              effect: effect.name,
+          return sig.run(effect, [element, index] as const, {
+            parentLifecycleScope: lifecycleScope,
+            additionalDebugData: {
               topic: arrayTopicFactory.name,
               index,
               parentEffect: parentEffectName,
-              error,
-            })
+            },
           })
-
-          return returnValue
         })
 
         runningEffects[index] = {
