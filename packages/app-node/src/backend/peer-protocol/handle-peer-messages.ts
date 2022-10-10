@@ -114,10 +114,10 @@ export const handlePeerMessages = (sig: EffectContext) => {
 
       logger.debug("handle interledger packet")
 
-      const subnetId = sig.use(configSignal).read().subnetId
+      const { ilpAllocationScheme, subnetId } = sig.use(configSignal).read()
 
       sig.use(incomingIlpPacketBuffer).emit({
-        source: `g.das.${subnetId}.${authenticatedAs}`,
+        source: `${ilpAllocationScheme}.das.${subnetId}.${authenticatedAs}`,
         packet: content.interledgerPacket.signed.packet,
         requestId: content.interledgerPacket.signed.requestId,
       })

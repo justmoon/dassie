@@ -48,7 +48,7 @@ export const runNodes = async (sig: EffectContext) => {
           },
           {
             type: "dassie",
-            commonName: `g.das.null.${node.id}`,
+            commonName: `test.das.null.${node.id}`,
             certificatePath: node.config.tlsDassieCertFile,
             keyPath: node.config.tlsDassieKeyFile,
           },

@@ -13,7 +13,9 @@ const logger = createLogger("das:node:config")
 
 export interface Config {
   nodeId: string
+  realm: "test" | "live"
   subnetId: string
+  ilpAllocationScheme: "test" | "g"
   ilpAddress: string
   host: string
   port: number
@@ -30,6 +32,7 @@ export type InputConfig = z.infer<typeof inputConfigSchema>
 
 export const inputConfigSchema = z.object({
   nodeId: z.string().optional(),
+  realm: z.union([z.literal("test"), z.literal("live")]).optional(),
   subnetId: z.string().optional(),
   host: z.string().optional(),
   port: z.union([z.string(), z.number()]).optional(),
@@ -67,11 +70,15 @@ export function fromPartialConfig(partialConfig: InputConfig): Config {
   const paths = envPaths(APP_NAME)
 
   const nodeId = partialConfig.nodeId ?? "anonymous"
+  const realm = partialConfig.realm ?? (import.meta.env.DEV ? "test" : "live")
+  const ilpAllocationScheme = realm === "test" ? "test" : "g"
   const subnetId = partialConfig.subnetId ?? "none"
   return {
     nodeId,
+    realm,
     subnetId,
-    ilpAddress: `g.das.${subnetId}.${nodeId}`,
+    ilpAllocationScheme,
+    ilpAddress: `${ilpAllocationScheme}.das.${subnetId}.${nodeId}`,
     host: partialConfig.host ?? "localhost",
     port: partialConfig.port ? Number(partialConfig.port) : 8443,
     dataPath: partialConfig.dataPath ?? paths.data,

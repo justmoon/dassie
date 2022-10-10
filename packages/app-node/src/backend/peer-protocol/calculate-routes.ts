@@ -22,7 +22,10 @@ interface NodeInfoEntry {
  * This effect generates an Even-Shiloach tree which is then condensed into a routing table. The routing table contains all possible first hops which are on one of the shortest paths to the target node.
  */
 export const calculateRoutes = (sig: EffectContext) => {
-  const subnetId = sig.get(configSignal, (config) => config.subnetId)
+  const { ilpAllocationScheme, subnetId } = sig.getKeys(configSignal, [
+    "ilpAllocationScheme",
+    "subnetId",
+  ])
   const ownNodeId = sig.get(configSignal, ({ nodeId }) => nodeId)
   const nodeTable = sig.get(nodeTableStore)
 
@@ -95,7 +98,7 @@ export const calculateRoutes = (sig: EffectContext) => {
     })
 
     if (nodeInfo.level > 0) {
-      const ilpAddress = `g.das.${subnetId}.${nodeId}`
+      const ilpAddress = `${ilpAllocationScheme}.das.${subnetId}.${nodeId}`
       ilpRoutingTable.set(ilpAddress, {
         prefix: ilpAddress,
         type: "peer",
@@ -131,7 +134,7 @@ export const calculateRoutes = (sig: EffectContext) => {
 
   sig.onCleanup(() => {
     for (const nodeId of nodeInfoMap.keys()) {
-      const ilpAddress = `g.das.${subnetId}.${nodeId}`
+      const ilpAddress = `${ilpAllocationScheme}.das.${subnetId}.${nodeId}`
       ilpRoutingTable.delete(ilpAddress)
     }
   })
