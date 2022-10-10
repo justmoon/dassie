@@ -2,7 +2,13 @@ export { createTopic, isTopic, TopicSymbol } from "./topic"
 export { createSignal, isSignal, SignalSymbol } from "./signal"
 export { createService, isService, ServiceSymbol } from "./service"
 export { createStore, isStore, StoreSymbol } from "./store"
-export { createReactor, FactoryNameSymbol } from "./reactor"
+export {
+  createReactor,
+  FactoryNameSymbol,
+  InitSymbol,
+  UseSymbol,
+  DisposeSymbol,
+} from "./reactor"
 export { EffectContext } from "./effect"
 export { debugFirehose } from "./debug/debug-tools"
 
