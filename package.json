@@ -7,7 +7,7 @@
   "scripts": {
     "clean": "pnpm -r clean",
     "build": "pnpm -r build",
-    "dev": "vite-node packages/app-dev/bin/start-development-server.ts",
+    "start": "vite-node packages/app-dev/bin/start-development-server.ts",
     "test": "vitest",
     "api": "vite-node scripts/extract-apis.ts"
   },

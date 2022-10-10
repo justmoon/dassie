@@ -13,10 +13,18 @@ In order to develop a peer-to-peer application, it is very useful to quickly spi
   1. Run `mkcert -install` to create the private CA and register it in your OS and browser.
   2. Add `export NODE_EXTRA_CA_CERTS="$(mkcert -CAROOT)/rootCA.pem"` to your `.bashrc`, `.zshrc`, or similar.
 
-### Starting the development environment
+### Setting up the development environment
 
-Run the development environment with:
+Install package dependencies.
 
 ```sh
-DEBUG=das:* pnpm dev
+pnpm i
+```
+
+### Starting the development environment
+
+Run the development environment.
+
+```sh
+DEBUG=das:* pnpm start
 ```
