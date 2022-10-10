@@ -25,7 +25,7 @@ export const databaseService = () =>
   createService((sig) => {
     const dataPath = sig.get(configSignal, (config) => config.dataPath)
 
-    const database = new Database(`${dataPath}/dassie.sqlite`)
+    const database = new Database(`${dataPath}/dassie.sqlite3`)
 
     // SQLite INTEGERs are 64-bit signed integers, so we would like to get them as bigints from the database.
     database.defaultSafeIntegers(true)
