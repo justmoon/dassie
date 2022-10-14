@@ -100,7 +100,7 @@ export const createRemoteSynchronizedStore = <
   >((sig) => {
     const client = sig.get(connectionFactory)
 
-    const localStore = sig.run(storeImplementation)
+    const localStore = sig.use(storeImplementation)
 
     if (!isStore(localStore)) {
       throw new Error("Store is not synchronizable")
