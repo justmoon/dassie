@@ -1,6 +1,6 @@
 import { isObject } from "@dassie/lib-type-utils"
 
-import type { Factory, Reactor } from "./reactor"
+import type { Factory } from "./reactor"
 import { Signal, createSignal } from "./signal"
 import { Topic, createTopic } from "./topic"
 
@@ -8,15 +8,13 @@ export const StoreSymbol = Symbol(
   "das:reactive:store"
 )
 
-export interface StoreFactory<
+export type StoreFactory<
   TState = unknown,
   TActions extends Record<string, Action<TState>> = Record<
     string,
     Action<TState>
   >
-> extends Factory<Store<TState, TActions>> {
-  (reactor: Reactor): Store<TState, TActions>
-}
+> = Factory<Store<TState, TActions>> 
 
 export type Action<
   TState = unknown,

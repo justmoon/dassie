@@ -7,9 +7,7 @@ export type Reducer<TState> = (previousState: TState) => TState
 
 export const SignalSymbol = Symbol("das:reactive:signal")
 
-export interface SignalFactory<TState> extends Factory<Signal<TState>> {
-  (): Signal<TState>
-}
+export type SignalFactory<TState> = Factory<Signal<TState>>
 
 export type Signal<TState> = Topic<TState, Readonly<TState>> & {
   /**

@@ -12,7 +12,8 @@ export interface FirehoseEvent {
 // eslint-disable-next-line unicorn/prevent-abbreviations
 type ContextWeakRef = WeakRef<Record<keyof never, unknown>>
 
-export const debugFirehose = () => createTopic<FirehoseEvent>()
+export const debugFirehose: TopicFactory<FirehoseEvent, FirehoseEvent> = () =>
+  createTopic()
 
 export class DebugTools {
   private context = new Set<ContextWeakRef>()

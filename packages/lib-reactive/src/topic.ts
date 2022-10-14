@@ -6,10 +6,9 @@ export type Listener<TMessage> = (message: TMessage) => void
 
 export const TopicSymbol = Symbol("das:reactive:topic")
 
-export interface TopicFactory<TMessage = unknown, TTrigger = never>
-  extends Factory<Topic<TMessage, TTrigger>> {
-  (): Topic<TMessage, TTrigger>
-}
+export type TopicFactory<TMessage = unknown, TTrigger = never> = Factory<
+  Topic<TMessage, TTrigger>
+>
 
 export type InferMessageType<TTopic extends TopicFactory> =
   TTopic extends TopicFactory<infer TMessage> ? TMessage : never

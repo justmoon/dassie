@@ -37,7 +37,7 @@ export const UseSymbol = Symbol("das:reactive:use")
  */
 export const DisposeSymbol = Symbol("das:reactive:dispose")
 
-export type Factory<T> = () => T
+export type Factory<T> = (reactor: Reactor) => T
 export type Disposer = () => void
 export type AsyncDisposer = () => Promisable<void>
 
@@ -68,7 +68,7 @@ export class Reactor extends LifecycleScope {
 
     // We use has() to check if the effect is already in the context. Note that the factory's return value may be undefined, so it would not be sufficient to check if the return value of get() is undefined.
     if (!this.contextState.has(factory)) {
-      result = factory()
+      result = factory(this)
 
       // Run intialization function if there is one
       if (
