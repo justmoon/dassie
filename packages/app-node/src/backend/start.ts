@@ -7,6 +7,7 @@ import { openDatabase } from "./database/open-database"
 import { startHttpServer } from "./http-server"
 import { startIlpConnector } from "./ilp-connector"
 import { attachLogger } from "./logger"
+import { startOpenPaymentsServer } from "./open-payments"
 import { speakPeerProtocol } from "./peer-protocol"
 import { startSpspServer } from "./spsp-server"
 import { startTrpcServer } from "./trpc-server"
@@ -20,6 +21,7 @@ export const rootEffect = async (sig: EffectContext) => {
   sig.run(startTrpcServer)
   sig.run(startIlpConnector)
   await sig.run(startSpspServer)
+  await sig.run(startOpenPaymentsServer)
 
   await sig.run(speakPeerProtocol)
 
