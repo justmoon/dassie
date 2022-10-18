@@ -61,6 +61,7 @@ export const serveWallet = async (sig: EffectContext) => {
         cert: tlsWebCert,
         key: tlsWebKey,
       },
+      cors: false,
     },
     define: {
       __DASSIE_NODE_URL__: `'https://${host}/'`,
