@@ -19,6 +19,7 @@ export interface Config {
   ilpAddress: string
   host: string
   port: number
+  url: string
   dataPath: string
   tlsWebCert: string
   tlsWebKey: string
@@ -36,6 +37,7 @@ export const inputConfigSchema = z.object({
   subnetId: z.string().optional(),
   host: z.string().optional(),
   port: z.union([z.string(), z.number()]).optional(),
+  url: z.string().optional(),
   dataPath: z.string().optional(),
   tlsWebCert: z.string().optional(),
   tlsWebCertFile: z.string().optional(),
@@ -71,16 +73,21 @@ export function fromPartialConfig(partialConfig: InputConfig): Config {
 
   const nodeId = partialConfig.nodeId ?? "anonymous"
   const realm = partialConfig.realm ?? (import.meta.env.DEV ? "test" : "live")
-  const ilpAllocationScheme = realm === "test" ? "test" : "g"
   const subnetId = partialConfig.subnetId ?? "none"
+  const ilpAllocationScheme = realm === "test" ? "test" : "g"
+  const host = partialConfig.host ?? "localhost"
+  const port = partialConfig.port ? Number(partialConfig.port) : 8443
+
   return {
     nodeId,
     realm,
     subnetId,
     ilpAllocationScheme,
     ilpAddress: `${ilpAllocationScheme}.das.${subnetId}.${nodeId}`,
-    host: partialConfig.host ?? "localhost",
-    port: partialConfig.port ? Number(partialConfig.port) : 8443,
+    host,
+    port,
+    url:
+      partialConfig.url ?? `https://${host}${port === 443 ? "" : `:${port}`}`,
     dataPath: partialConfig.dataPath ?? paths.data,
     tlsWebCert: processFileOption(
       "tlsWebCert",

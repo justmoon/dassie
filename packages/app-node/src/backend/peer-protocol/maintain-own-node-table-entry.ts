@@ -11,7 +11,7 @@ import { peerTableStore } from "./stores/peer-table"
 const logger = createLogger("das:node:maintain-own-node-table-entry")
 
 export const maintainOwnNodeTableEntry = async (sig: EffectContext) => {
-  const { nodeId, port } = sig.getKeys(configSignal, ["nodeId", "port"])
+  const { nodeId, url } = sig.getKeys(configSignal, ["nodeId", "url"])
   const signer = sig.get(signerService)
 
   if (!signer) return
@@ -38,7 +38,7 @@ export const maintainOwnNodeTableEntry = async (sig: EffectContext) => {
     const peerNodeInfoResult = peerNodeInfo.serialize({
       nodeId: nodeId,
       nodeKey: publicKey,
-      url: `https://${nodeId}.localhost:${port}`,
+      url,
       sequence,
       entries: peerIds.map((peerId) => ({
         neighbor: { nodeId: peerId },
