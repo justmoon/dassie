@@ -49,5 +49,5 @@ export const databaseService = () =>
 
     migrate(database, migrations)
 
-    return {}
+    return database
   })
