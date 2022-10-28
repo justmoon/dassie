@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 module "better-sqlite3" {
-  export type VariableArgumentFunction = (...parameters: unknown[]) => unknown
+  export type VariableArgumentFunction = (...parameters: never[]) => unknown
   export type ArgumentTypes<F extends VariableArgumentFunction> = F extends (
     ...parameters: infer A
   ) => unknown

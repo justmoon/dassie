@@ -5,18 +5,24 @@ import { respondJson } from "@dassie/lib-http-server"
 import type { EffectContext } from "@dassie/lib-reactive"
 
 import { configSignal } from "../config"
-import { IncomingPayment } from "../database/models/incoming-payment"
+import { databaseSignal } from "../database/open-database"
 import { restApiService } from "../http-server/serve-rest-api"
 import { streamServerService } from "../spsp-server/stream-server"
-
-export const PAYMENT_POINTER_ROOT = "/.well-known/pay"
+import { PAYMENT_POINTER_ROOT } from "./constants/payment-pointer"
+import { createIncomingPaymentFormatter } from "./utils/format-incoming-payment"
 
 export const handleIncomingPayments = async (sig: EffectContext) => {
   const api = sig.get(restApiService)
+  const database = sig.get(databaseSignal)
   const streamServer = await sig.get(streamServerService)
   const { url } = sig.getKeys(configSignal, ["url"])
 
   if (!api || !streamServer) return
+
+  const formatIncomingPayment = createIncomingPaymentFormatter({
+    url,
+    streamServer,
+  })
 
   // List incoming payments
   {
@@ -24,13 +30,10 @@ export const handleIncomingPayments = async (sig: EffectContext) => {
       .get(`${PAYMENT_POINTER_ROOT}/incoming-payments`)
       .cors()
       .handler((_request, response) => {
-        const payments = IncomingPayment.getAll(sig)
-        console.log(payments)
+        const payments = database.tables.incomingPayment.select()
 
         respondJson(response, 200, {
-          result: payments.map((payment) => ({
-            id: `${url}${PAYMENT_POINTER_ROOT}/incoming-payments/${payment.data.id}`,
-          })),
+          result: payments.map((payment) => formatIncomingPayment(payment)),
         })
       })
     sig.onCleanup(dispose)
@@ -56,43 +59,17 @@ export const handleIncomingPayments = async (sig: EffectContext) => {
       .handler((request, response) => {
         const { incomingAmount, externalRef } = request.body
         const id = nanoid()
-        const createdAt = new Date().toISOString()
-
-        const paymentRowId = IncomingPayment.create(sig, {
+        const payment = {
           id,
+          subnet: "null",
           total_amount: BigInt(incomingAmount.value),
+          received_amount: 0n,
           external_reference: externalRef ?? "",
-        })
-
-        const payment = IncomingPayment.get(sig, paymentRowId)
-
-        if (!payment) {
-          throw new Error("Payment not found in database after creation")
         }
 
-        const { destinationAccount, sharedSecret } =
-          streamServer.generateAddressAndSecret({
-            connectionTag: paymentRowId.toString(),
-          })
+        database.tables.incomingPayment.insert(payment)
 
-        respondJson(response, 200, {
-          id: `${url}${PAYMENT_POINTER_ROOT}/incoming-payments/${id}`,
-          incomingAmount,
-          receivedAmount: {
-            value: payment.data.received_amount.toString(),
-            assetCode: incomingAmount.assetCode,
-            assetScale: incomingAmount.assetScale,
-          },
-          ilpStreamConnection: {
-            id: `${url}${PAYMENT_POINTER_ROOT}/connections/${id}`,
-            ilpAddress: destinationAccount,
-            sharedSecret: sharedSecret.toString("base64url"),
-            assetCode: incomingAmount.assetCode,
-            assetScale: incomingAmount.assetScale,
-          },
-          createdAt,
-          updatedAt: createdAt,
-        })
+        respondJson(response, 200, formatIncomingPayment(payment))
       })
     sig.onCleanup(dispose)
   }

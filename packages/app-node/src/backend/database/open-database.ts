@@ -3,6 +3,7 @@ import { createDatabase } from "@dassie/lib-sqlite"
 
 import { configSignal } from "../config"
 import migrations from "./migrations"
+import { incomingPaymentTable } from "./tables/incoming-payment"
 
 /**
  * Unique application ID for identifying the SQLite database as belonging to Dassie.
@@ -19,6 +20,9 @@ export const databaseSignal = (reactor: Reactor) => {
     path: `${dataPath}/dassie.sqlite3`,
     applicationId: DASSIE_SQLITE_APPLICATION_ID,
     migrations,
+    tables: {
+      incomingPayment: incomingPaymentTable,
+    },
   })
 
   return createSignal(database)
