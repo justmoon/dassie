@@ -1,0 +1,39 @@
+{
+  "name": "@dassie/lib-sqlite",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Framework for using SQLite synchronously with strong typing",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts"
+    }
+  },
+  "publishConfig": {
+    "main": "./dist/index.js",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "require": "./dist/index.cjs",
+        "import": "./dist/index.js"
+      }
+    }
+  },
+  "scripts": {
+    "clean": "rimraf dist",
+    "build": "rollup -c",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Stefan Thomas <justmoon@members.fsf.org>",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "better-sqlite3": "^7.6.2"
+  },
+  "devDependencies": {
+    "@dassie/lib-logger": "workspace:^1.0.0",
+    "type-fest": "^2.19.0"
+  },
+  "peerDependencies": {
+    "@dassie/lib-logger": "workspace:^1.0.0"
+  }
+}

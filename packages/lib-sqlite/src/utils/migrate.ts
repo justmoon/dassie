@@ -4,7 +4,7 @@ import { createLogger } from "@dassie/lib-logger"
 
 import type { MigrationDefinition } from "../types/migration"
 
-const logger = createLogger("das:node:database:migrate")
+const logger = createLogger("das:sqlite:migrate")
 
 export interface MigrationOptions {
   dangerouslyRedoLastMigration?: boolean | undefined

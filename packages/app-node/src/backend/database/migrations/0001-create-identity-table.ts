@@ -1,4 +1,4 @@
-import type { MigrationDefinition } from "../types/migration"
+import type { MigrationDefinition } from "@dassie/lib-sqlite"
 
 const migration: MigrationDefinition = {
   version: 1,

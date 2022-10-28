@@ -17,6 +17,7 @@
     "@dassie/lib-protocol-utils": "workspace:^1.0.0",
     "@dassie/lib-reactive": "workspace:^1.0.0",
     "@dassie/lib-reactive-react": "workspace:^1.0.0",
+    "@dassie/lib-sqlite": "workspace:^1.0.0",
     "@dassie/lib-type-utils": "workspace:^1.0.0",
     "@noble/ed25519": "^1.7.0",
     "@noble/hashes": "^1.1.2",
