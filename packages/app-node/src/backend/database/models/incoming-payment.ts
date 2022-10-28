@@ -2,7 +2,7 @@ import type { SetOptional } from "type-fest"
 
 import type { EffectContext } from "@dassie/lib-reactive"
 
-import { databaseService } from "../open-database"
+import { databaseSignal } from "../open-database"
 
 export interface IncomingPaymentRow {
   id: string
@@ -19,9 +19,7 @@ export type NewIncomingPayment = SetOptional<
 
 export class IncomingPayment {
   static create(sig: EffectContext, incomingPayment: NewIncomingPayment) {
-    const database = sig.get(databaseService)
-
-    if (!database) throw new Error("Database not available")
+    const database = sig.get(databaseSignal)
 
     const result = database
       .prepare(
@@ -36,9 +34,7 @@ export class IncomingPayment {
   }
 
   static get(sig: EffectContext, rowId: bigint) {
-    const database = sig.get(databaseService)
-
-    if (!database) throw new Error("Database not available")
+    const database = sig.get(databaseSignal)
 
     const result = database
       .prepare(`SELECT * FROM incoming_payment WHERE rowid = ?`)
@@ -50,9 +46,7 @@ export class IncomingPayment {
   }
 
   static getAll(sig: EffectContext) {
-    const database = sig.get(databaseService)
-
-    if (!database) throw new Error("Database not available")
+    const database = sig.get(databaseSignal)
 
     const result = database.prepare(`SELECT * FROM incoming_payment`).all()
 
