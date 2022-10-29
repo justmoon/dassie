@@ -23,6 +23,7 @@ export const databaseSignal = (reactor: Reactor) => {
     tables: {
       incomingPayment: incomingPaymentTable,
     },
+    scalars: {},
   })
 
   return createSignal(database)

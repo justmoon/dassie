@@ -1,5 +1,10 @@
 import type { Simplify } from "type-fest"
 
+import type {
+  SqliteDataType,
+  SqliteToTypescriptTypeMap,
+} from "../../types/sqlite-datatypes"
+
 export type InferColumnType<T extends ColumnDescription> =
   SqliteToTypescriptTypeMap[T["type"]]
 
@@ -8,14 +13,5 @@ export type InferRowFromColumns<
 > = Simplify<{ [K in keyof TColumns]: InferColumnType<TColumns[K]> }>
 
 export interface ColumnDescription {
-  type: "TEXT" | "INTEGER" | "REAL" | "BOOLEAN" | "BLOB" | "ANY"
-}
-
-export interface SqliteToTypescriptTypeMap {
-  TEXT: string
-  INTEGER: bigint
-  REAL: number
-  BOOLEAN: boolean
-  BLOB: Buffer
-  ANY: unknown
+  type: SqliteDataType
 }

@@ -4,6 +4,12 @@ import { createLogger } from "@dassie/lib-logger"
 
 import type { TableDescription } from "./define-table"
 import { ConnectedTable, connectTable } from "./internal/connect-table"
+import {
+  ScalarDescription,
+  ScalarStore,
+  createScalarStore,
+  scalarTable,
+} from "./internal/scalar-store"
 import type { MigrationDefinition } from "./types/migration"
 import { migrate } from "./utils/migrate"
 
@@ -31,10 +37,16 @@ export interface DatabaseOptions {
    * A set of table definitions which provide a type-safe interface to the database.
    */
   tables?: Record<string, TableDescription> | undefined
+
+  /**
+   * A set of scalar definitions which effectively provide a type-safe key-value store.
+   */
+  scalars?: Record<string, ScalarDescription> | undefined
 }
 
 export interface InferDatabaseInstance<TOptions extends DatabaseOptions> {
   tables: InferTableAccessors<TOptions>
+  scalars: InferScalarAccessors<TOptions>
   raw: Database.Database
 }
 
@@ -43,6 +55,11 @@ export type InferTableAccessors<TOptions extends DatabaseOptions> =
     ? {
         [K in keyof TOptions["tables"]]: ConnectedTable<TOptions["tables"][K]>
       }
+    : undefined
+
+export type InferScalarAccessors<TOptions extends DatabaseOptions> =
+  TOptions["scalars"] extends Record<string, ScalarDescription>
+    ? ScalarStore<TOptions["scalars"]>
     : undefined
 
 export const createDatabase = <TOptions extends DatabaseOptions>(
@@ -81,6 +98,12 @@ export const createDatabase = <TOptions extends DatabaseOptions>(
           ])
         )
       : undefined) as InferTableAccessors<TOptions>,
+    scalars: (databaseOptions.scalars
+      ? createScalarStore(
+          databaseOptions.scalars,
+          connectTable(scalarTable, database)
+        )
+      : undefined) as InferScalarAccessors<TOptions>,
     raw: database,
   }
 }
