@@ -67,8 +67,10 @@ export const createScalarStore = <
         throw new Error(`Unknown scalar: ${key}`)
       }
 
-      // TODO: Implement upsert
-      connectedScalarTable.insert().one({ key, value })
+      connectedScalarTable
+        .insert()
+        .upsert(["key"], ["value"])
+        .one({ key, value })
     },
   }
 }

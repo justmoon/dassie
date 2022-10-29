@@ -1,8 +1,40 @@
 import type { Database, RunResult, Statement } from "better-sqlite3"
 
-import type { InferRowType, TableDescription } from "../../define-table"
+import type {
+  InferColumnNames,
+  InferRowType,
+  TableDescription,
+} from "../../define-table"
 
 export interface InsertQueryBuilder<TState extends InsertQueryBuilderState> {
+  /**
+   * Ignore any errors that occur due to duplicate unique keys.
+   *
+   * @remarks
+   *
+   * Will throw an error if `ignoreConflicts` or `upsert` has been called previously.
+   *
+   * @param indexedColumns - The "conflict target" columns. These are columns with UNIQUE or PRIMARY KEY constraints that should be ignored when inserting.
+   */
+  ignoreConflicts(
+    indexedColumns: readonly InferColumnNames<TState["table"]>[]
+  ): InsertQueryBuilder<TState>
+
+  /**
+   * Update the row if it already exists.
+   *
+   * @remarks
+   *
+   * Will throw an error if `ignoreConflicts` or `upsert` has been called previously.
+   *
+   * @param indexedColumns - The "conflict target" columns. These are columns with UNIQUE or PRIMARY KEY constraints that will trigger an update if they conflict.
+   * @param updateColumns - The columns that should be updated if a conflict occurs.
+   */
+  upsert(
+    indexedColumns: readonly InferColumnNames<TState["table"]>[],
+    updateColumns: readonly InferColumnNames<TState["table"]>[]
+  ): InsertQueryBuilder<TState>
+
   /**
    * Generate the SQL for this query.
    */
@@ -48,14 +80,58 @@ export const createInsertQueryBuilder = <TTable extends TableDescription>(
   database: Database
 ): NewInsertQueryBuilder<TTable> => {
   let cachedStatement: Statement<unknown[]> | undefined
+  let indexedColumns: readonly (keyof TTable["columns"] & string)[] | undefined
+  let updateColumns: readonly (keyof TTable["columns"] & string)[] | undefined
 
   const builder: NewInsertQueryBuilder<TTable> = {
+    ignoreConflicts(newIndexedColumns) {
+      cachedStatement = undefined
+
+      if (indexedColumns !== undefined) {
+        throw new Error(
+          "Cannot call ignoreConflicts() or upsert() multiple times."
+        )
+      }
+
+      indexedColumns = newIndexedColumns
+
+      return builder
+    },
+
+    upsert(newIndexedColumns, newUpdateColumns) {
+      cachedStatement = undefined
+
+      if (indexedColumns !== undefined) {
+        throw new Error(
+          "Cannot call ignoreConflicts() or upsert() multiple times."
+        )
+      }
+
+      indexedColumns = newIndexedColumns
+      updateColumns = newUpdateColumns
+
+      return builder
+    },
+
     sql() {
+      const conflictClause = indexedColumns
+        ? updateColumns
+          ? "ON CONFLICT (" +
+            indexedColumns.map((column) => `"${column}"`).join(", ") +
+            ") DO UPDATE SET " +
+            updateColumns
+              .map((column) => `"${column}" = excluded."${column}"`)
+              .join(", ")
+          : "ON CONFLICT (" +
+            indexedColumns.map((column) => `"${column}"`).join(", ") +
+            ") DO NOTHING"
+        : ""
+
       return `INSERT INTO ${tableDescription.name} (${Object.keys(
         tableDescription.columns
       ).join(", ")}) VALUES (${Object.keys(tableDescription.columns)
         .map((columnName) => `@${columnName}`)
-        .join(", ")})`
+        .join(", ")})${conflictClause}`
     },
 
     prepare() {

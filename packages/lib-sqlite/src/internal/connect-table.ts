@@ -1,6 +1,10 @@
 import type { Database } from "better-sqlite3"
 
-import type { InferRowType, TableDescription } from "../define-table"
+import type {
+  InferColumnNames,
+  InferRowType,
+  TableDescription,
+} from "../define-table"
 import type { InferColumnType } from "./query-builder/columns"
 import {
   MultipleInsertResult,
@@ -43,7 +47,7 @@ export interface ConnectedTable<TTable extends TableDescription> {
    *
    * Equivalent to `table.select().where({ column: value }).first()`.
    */
-  selectUnique: <TColumn extends keyof TTable["columns"] & string>(
+  selectUnique: <TColumn extends InferColumnNames<TTable>>(
     column: TColumn,
     value: InferColumnType<TTable["columns"][TColumn]>
   ) => InferRowType<TTable> | undefined
