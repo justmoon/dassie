@@ -85,9 +85,13 @@ export const createSelectQueryBuilder = <TTable extends TableDescription>(
 
     sql() {
       const whereClause =
-        whereClauses.length > 0 ? ` WHERE ${whereClauses.join(" AND ")}` : ""
+        whereClauses.length > 0
+          ? `${whereClauses.map((clause) => `(${clause})`).join(" AND ")}`
+          : // Always including the WHERE clause prevents ambiguity when using ON CONFLICT.
+            // See: https://www.sqlite.org/lang_upsert.html#parsing_ambiguity (2.2 Parsing Ambiguity)
+            "true"
       const limitClause = limit ? ` LIMIT ${limit} OFFSET ${offset}` : ""
-      return `SELECT ${columns} FROM ${tableDescription.name}${whereClause}${limitClause}`
+      return `SELECT ${columns} FROM ${tableDescription.name} WHERE ${whereClause}${limitClause}`
     },
 
     prepare() {

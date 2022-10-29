@@ -25,15 +25,15 @@ export const generateWhereClause = (
   }
 
   if ("and" in condition) {
-    const clauses = condition.and.map((condition) =>
-      generateWhereClause(condition, mutablePlaceholders)
+    const clauses = condition.and.map(
+      (condition) => `(${generateWhereClause(condition, mutablePlaceholders)})`
     )
     return clauses.join(" AND ")
   }
 
   if ("or" in condition) {
-    const clauses = condition.or.map((condition) =>
-      generateWhereClause(condition, mutablePlaceholders)
+    const clauses = condition.or.map(
+      (condition) => `(${generateWhereClause(condition, mutablePlaceholders)})`
     )
     return clauses.join(" OR ")
   }
