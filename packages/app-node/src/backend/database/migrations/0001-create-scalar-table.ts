@@ -1,7 +1,7 @@
 import type { MigrationDefinition } from "@dassie/lib-sqlite"
 
 const migration: MigrationDefinition = {
-  version: 4,
+  version: 1,
   up: (database) => {
     database
       .prepare(
