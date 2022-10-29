@@ -12,7 +12,7 @@ const migration: MigrationDefinition = {
 
             -- Node cryptographic seed
             seed BLOB NOT NULL
-          )
+          ) STRICT
         `
       )
       .run()

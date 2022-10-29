@@ -4,19 +4,19 @@ export const incomingPaymentTable = defineTable({
   name: "incoming_payment",
   columns: {
     id: {
-      type: "string",
+      type: "TEXT",
     },
     subnet: {
-      type: "string",
+      type: "TEXT",
     },
     total_amount: {
-      type: "integer",
+      type: "INTEGER",
     },
     received_amount: {
-      type: "integer",
+      type: "INTEGER",
     },
     external_reference: {
-      type: "string",
+      type: "TEXT",
     },
   },
 })

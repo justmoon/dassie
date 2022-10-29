@@ -18,7 +18,7 @@ const migration: MigrationDefinition = {
 
             -- Amount sent so far in fundamental units of the given subnet
             sent_amount INTEGER NOT NULL
-          )
+          ) STRICT
         `
       )
       .run()

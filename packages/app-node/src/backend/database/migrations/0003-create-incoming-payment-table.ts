@@ -20,8 +20,8 @@ const migration: MigrationDefinition = {
             received_amount INTEGER NOT NULL,
 
             -- External payment ID or similar identifying information
-            external_reference STRING NOT NULL
-          )
+            external_reference TEXT NOT NULL
+          ) STRICT
         `
       )
       .run()

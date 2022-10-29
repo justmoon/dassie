@@ -8,13 +8,14 @@ export type InferRowFromColumns<
 > = Simplify<{ [K in keyof TColumns]: InferColumnType<TColumns[K]> }>
 
 export interface ColumnDescription {
-  type: "string" | "integer" | "boolean" | "float" | "blob"
+  type: "TEXT" | "INTEGER" | "REAL" | "BOOLEAN" | "BLOB" | "ANY"
 }
 
 export interface SqliteToTypescriptTypeMap {
-  string: string
-  integer: bigint
-  boolean: boolean
-  float: number
-  blob: Buffer
+  TEXT: string
+  INTEGER: bigint
+  REAL: number
+  BOOLEAN: boolean
+  BLOB: Buffer
+  ANY: unknown
 }
