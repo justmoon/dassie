@@ -30,7 +30,7 @@ export const handleIncomingPayments = async (sig: EffectContext) => {
       .get(`${PAYMENT_POINTER_ROOT}/incoming-payments`)
       .cors()
       .handler((_request, response) => {
-        const payments = database.tables.incomingPayment.select()
+        const payments = database.tables.incomingPayment.selectAll()
 
         respondJson(response, 200, {
           result: payments.map((payment) => formatIncomingPayment(payment)),
@@ -67,7 +67,7 @@ export const handleIncomingPayments = async (sig: EffectContext) => {
           external_reference: externalRef ?? "",
         }
 
-        database.tables.incomingPayment.insert(payment)
+        database.tables.incomingPayment.insertOne(payment)
 
         respondJson(response, 200, formatIncomingPayment(payment))
       })

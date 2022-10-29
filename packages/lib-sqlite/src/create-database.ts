@@ -2,7 +2,8 @@ import Database from "better-sqlite3"
 
 import { createLogger } from "@dassie/lib-logger"
 
-import { ConnectedTable, TableDescription, connectTable } from "./define-table"
+import type { TableDescription } from "./define-table"
+import { ConnectedTable, connectTable } from "./internal/connect-table"
 import type { MigrationDefinition } from "./types/migration"
 import { migrate } from "./utils/migrate"
 
