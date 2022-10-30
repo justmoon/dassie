@@ -19,7 +19,7 @@ export type RemoteReactiveRouter = typeof remoteReactiveRouter
 export const uiRpcRouter = trpc.mergeRouters(
   trpc.router({
     addRandomNode: trpc.procedure.mutation(({ ctx: { reactor } }) => {
-      const templateSignal = reactor.useContext(activeTemplateSignal)
+      const templateSignal = reactor.use(activeTemplateSignal)
 
       const template = templateSignal.read()
 

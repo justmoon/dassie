@@ -1,4 +1,4 @@
-import { Reactor, createSignal } from "@dassie/lib-reactive"
+import { EffectContext, createSignal } from "@dassie/lib-reactive"
 import { createDatabase } from "@dassie/lib-sqlite"
 
 import { configSignal } from "../config"
@@ -13,8 +13,8 @@ import { incomingPaymentTable } from "./tables/incoming-payment"
  */
 const DASSIE_SQLITE_APPLICATION_ID = 0x1d_a5_3b_81
 
-export const databaseSignal = (reactor: Reactor) => {
-  const { dataPath } = reactor.useContext(configSignal).read()
+export const databaseSignal = (sig: EffectContext) => {
+  const { dataPath } = sig.use(configSignal).read()
 
   const database = createDatabase({
     path: `${dataPath}/dassie.sqlite3`,

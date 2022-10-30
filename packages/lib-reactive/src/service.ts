@@ -1,12 +1,13 @@
 import { isObject } from "@dassie/lib-type-utils"
 
 import type { Effect } from "./effect"
-import { Factory, FactoryNameSymbol } from "./reactor"
+import { FactoryNameSymbol } from "./reactor"
 import { Signal, createSignal } from "./signal"
 
 export const ServiceSymbol = Symbol("das:reactive:service")
 
-export type ServiceFactory<TInstance, TProperties = undefined> = Factory<
+export type ServiceFactory<TInstance, TProperties = undefined> = Effect<
+  undefined,
   Service<TInstance, TProperties>
 >
 

@@ -5,7 +5,7 @@ import { isObject } from "@dassie/lib-type-utils"
 import { createDebugTools } from "./debug/debug-tools"
 import { Effect, EffectContext } from "./effect"
 import { LifecycleScope } from "./internal/lifecycle-scope"
-import { noop } from "./internal/no-op"
+import { makePromise } from "./internal/promise"
 
 /**
  * The reactor will automatically set this property on each instantiated object.
@@ -37,7 +37,6 @@ export const UseSymbol = Symbol("das:reactive:use")
  */
 export const DisposeSymbol = Symbol("das:reactive:dispose")
 
-export type Factory<T> = (reactor: Reactor) => T
 export type Disposer = () => void
 export type AsyncDisposer = () => Promisable<void>
 
@@ -47,15 +46,51 @@ const tagWithEffectName = (target: unknown, effectName: string) => {
   }
 }
 
-export interface ContextState extends WeakMap<Factory<unknown>, unknown> {
-  get<T>(key: Factory<T>): T | undefined
-  set<T>(key: Factory<T>, value: T): this
+export interface UseOptions<TReturn> {
+  /**
+   * A callback which will be called with the effect's return value each time it executes.
+   */
+  onResult?: ((result: TReturn) => void) | undefined
+
+  /**
+   * Object with additional debug information that will be merged into the debug log data related to the effect.
+   */
+  additionalDebugData?: Record<string, unknown> | undefined
+
+  /**
+   * Custom lifecycle scope to use for this effect.
+   *
+   * @internal
+   */
+  parentLifecycleScope?: LifecycleScope | undefined
+
+  /**
+   * A string that will be used to prefix the debug log messages related to this effect.
+   */
+  pathPrefix?: string | undefined
+
+  /**
+   * If true, the factory or effect will be instantiated fresh every time and will not be stored in the context.
+   */
+  stateless?: boolean | undefined
+}
+
+export interface ContextState extends WeakMap<Effect<never>, unknown> {
+  get<T>(key: Effect<never, T>): T | undefined
+  set<T>(key: Effect<never, T>, value: T): this
+}
+
+interface UseSignature {
+  <TReturn>(factory: Effect<undefined, TReturn>): TReturn
+  <TProperties, TReturn>(
+    factory: Effect<TProperties, TReturn>,
+    properties: TProperties,
+    options?: UseOptions<TReturn> | undefined
+  ): TReturn
 }
 
 export class Reactor extends LifecycleScope {
   private contextState = new WeakMap() as ContextState
-
-  private rootEffectContext = new EffectContext(this, this, noop, "root")
 
   /**
    * Retrieve a value from the reactor's global context. The key is a factory which returns the value sought. If the value does not exist yet, it will be created by running the factory function.
@@ -63,12 +98,56 @@ export class Reactor extends LifecycleScope {
    * @param factory - A function that will be executed to create the value if it does not yet exist in this reactor.
    * @returns The value stored in the context.
    */
-  useContext = <TReturn>(factory: Factory<TReturn>): TReturn => {
-    let result: TReturn
+  use: UseSignature = <TProperties, TReturn>(
+    factory: Effect<TProperties | undefined, TReturn>,
+    properties?: TProperties,
+    options?: UseOptions<TReturn> | undefined
+  ) => {
+    let result!: TReturn
 
     // We use has() to check if the effect is already in the context. Note that the factory's return value may be undefined, so it would not be sufficient to check if the return value of get() is undefined.
-    if (!this.contextState.has(factory)) {
-      result = factory(this)
+    if (options?.stateless || !this.contextState.has(factory)) {
+      const factoryPath = options?.pathPrefix
+        ? `${options.pathPrefix}${factory.name}`
+        : factory.name
+
+      if (factory.length === 0) {
+        result = (factory as () => TReturn)()
+        if (options?.onResult) {
+          options.onResult(result)
+        }
+        if (options?.parentLifecycleScope) {
+          options.parentLifecycleScope.onCleanup(() => {
+            this.delete(factory)
+          })
+        }
+      } else {
+        loopEffect(
+          this,
+          factory,
+          factoryPath,
+          properties,
+          options?.parentLifecycleScope ?? this,
+          (_result) => {
+            result = _result
+            if (options?.onResult) {
+              options.onResult(result)
+            }
+          },
+          () => {
+            this.delete(factory)
+          }
+        ).catch((error: unknown) => {
+          console.error("error in effect", {
+            effect: factory.name,
+            path: factoryPath,
+            error,
+            ...options?.additionalDebugData,
+          })
+        })
+      }
+
+      tagWithEffectName(result, factoryPath)
 
       // Run intialization function if there is one
       if (
@@ -79,7 +158,9 @@ export class Reactor extends LifecycleScope {
         result[InitSymbol](this)
       }
 
-      this.setContext(factory, result)
+      if (!options?.stateless) {
+        this.contextState.set(factory, result)
+      }
 
       this.debug?.notifyOfInstantiation(factory, result)
     } else {
@@ -103,11 +184,11 @@ export class Reactor extends LifecycleScope {
    * @param factory - Key to the element in the context.
    * @returns The value stored in the context if any.
    */
-  peekContext = <TReturn>(factory: Factory<TReturn>): TReturn | undefined => {
+  peek = <TReturn>(factory: Effect<never, TReturn>): TReturn | undefined => {
     return this.contextState.get(factory)
   }
 
-  disposeContext = (factory: Factory<unknown>) => {
+  delete = (factory: Effect<never>) => {
     if (!this.contextState.has(factory)) return
 
     const result = this.contextState.get(factory)
@@ -120,6 +201,8 @@ export class Reactor extends LifecycleScope {
     ) {
       result[DisposeSymbol](this)
     }
+
+    this.contextState.delete(factory)
   }
 
   /**
@@ -132,31 +215,65 @@ export class Reactor extends LifecycleScope {
    * @param factory - The factory which should be used as the key to store this context element.
    * @param value - The value to store in the context.
    */
-  setContext = <T>(factory: Factory<T>, value: T) => {
-    tagWithEffectName(value, factory.name)
+  set = <T>(factory: Effect<never, T>, value: T) => {
     this.contextState.set(factory, value)
   }
 
   /**
-   * Run an effect in the context of the reactor.
-   *
-   * @param effect - The effect to run.
-   * @returns
-   */
-  run = this.rootEffectContext.run.bind(this.rootEffectContext)
-
-  /**
    * Returns a set of debug tools for this reactor. Note that this is only available during development.
    */
-  debug = createDebugTools(this.useContext, this.contextState)
+  debug = createDebugTools(this.use, this.contextState)
 }
 
 export const createReactor = (rootEffect?: Effect | undefined): Reactor => {
   const reactor: Reactor = new Reactor()
 
   if (rootEffect) {
-    reactor.run(rootEffect)
+    reactor.use(rootEffect)
   }
 
   return reactor
+}
+
+const loopEffect = async <TProperties, TReturn>(
+  reactor: Reactor,
+  effect: Effect<TProperties, TReturn>,
+  effectPath: string,
+  properties: TProperties,
+  parentLifecycle: LifecycleScope,
+  resultCallback: (result: TReturn) => void,
+  disposeCallback: () => void
+) => {
+  for (;;) {
+    if (parentLifecycle.isDisposed) return
+
+    const lifecycle = parentLifecycle.deriveChildLifecycle()
+    const waker = makePromise()
+
+    const context = new EffectContext(
+      reactor,
+      lifecycle,
+      waker.resolve,
+      effect.name,
+      effectPath
+    )
+
+    try {
+      const effectResult = effect(context, properties)
+
+      // runEffect MUST always call the resultCallback or throw an error
+      resultCallback(effectResult)
+
+      // --- There must be no `await` before calling the resultCallback ---
+
+      // Wait in case the effect is asynchronous.
+      // eslint-disable-next-line @typescript-eslint/await-thenable
+      await effectResult
+
+      await waker
+    } finally {
+      await lifecycle.dispose()
+      disposeCallback()
+    }
+  }
 }

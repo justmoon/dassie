@@ -1,6 +1,6 @@
 import { isObject } from "@dassie/lib-type-utils"
+import type { Effect } from "./effect"
 
-import type { Factory } from "./reactor"
 import { Signal, createSignal } from "./signal"
 import { Topic, createTopic } from "./topic"
 
@@ -14,7 +14,7 @@ export type StoreFactory<
     string,
     Action<TState>
   >
-> = Factory<Store<TState, TActions>> 
+> = Effect<undefined, Store<TState, TActions>> 
 
 export type Action<
   TState = unknown,

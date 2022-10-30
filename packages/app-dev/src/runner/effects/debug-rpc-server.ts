@@ -32,7 +32,7 @@ export const debugRpcRouter = trpc.mergeRouters(
   trpc.router({
     listenToFirehose: trpc.procedure.subscription(({ ctx }) => {
       return observable<{ topic: string; message: string }>((emit) => {
-        return ctx.reactor.useContext(debugFirehose).on((event) => {
+        return ctx.reactor.use(debugFirehose).on((event) => {
           emit.next({
             topic: event.topic.name,
             message: prettyFormat(event.message),

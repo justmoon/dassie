@@ -14,7 +14,7 @@ export const runnerRpcRouter = trpc.router({
       })
     )
     .mutation(({ input: peerMessageMetadata, ctx: { reactor } }) => {
-      reactor.useContext(peerTrafficTopic).emit(peerMessageMetadata)
+      reactor.use(peerTrafficTopic).emit(peerMessageMetadata)
     }),
   notifyLogLine: trpc.procedure
     .input(
@@ -36,7 +36,7 @@ export const runnerRpcRouter = trpc.router({
       ])
     )
     .mutation(({ input: [nodeId, logLine], ctx: { reactor } }) => {
-      reactor.useContext(logLineTopic).emit({
+      reactor.use(logLineTopic).emit({
         node: nodeId,
         ...logLine,
       })

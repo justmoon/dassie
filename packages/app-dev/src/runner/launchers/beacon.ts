@@ -9,7 +9,7 @@ import { trpcClientService } from "../services/trpc-client"
 
 export const logger = createLogger("das:dev:launcher:node")
 
-const rootEffect = (sig: EffectContext) => {
+const debugRunner = (sig: EffectContext) => {
   sig.run(sig.use(trpcClientService).effect)
   sig.run(handleShutdownSignals)
   sig.run(handleDisconnect)
@@ -17,4 +17,4 @@ const rootEffect = (sig: EffectContext) => {
   sig.run(beaconRootEffect)
 }
 
-createReactor(rootEffect)
+createReactor(debugRunner)

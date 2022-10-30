@@ -1,6 +1,7 @@
 import { isObject } from "@dassie/lib-type-utils"
 
-import type { ContextState, Factory, Reactor } from "../reactor"
+import type { Effect } from "../effect"
+import type { ContextState, Reactor } from "../reactor"
 import { isSignal } from "../signal"
 import { TopicFactory, createTopic, isTopic } from "../topic"
 
@@ -24,12 +25,12 @@ export class DebugTools {
   )
 
   constructor(
-    readonly useContext: Reactor["useContext"],
+    readonly useContext: Reactor["use"],
     readonly contextState: ContextState
   ) {}
 
-  notifyOfInstantiation<T>(factory: Factory<T>, value: T) {
-    if (factory === debugFirehose) {
+  notifyOfInstantiation<T>(factory: Effect<never, T>, value: T) {
+    if (factory === (debugFirehose as Effect<never>)) {
       return
     }
 
@@ -44,7 +45,7 @@ export class DebugTools {
     if (isTopic(value)) {
       const firehose = this.useContext(debugFirehose)
       value.on((message) => {
-        firehose.emit({ topic: factory as TopicFactory, message })
+        firehose.emit({ topic: factory as unknown as TopicFactory, message })
       })
     }
   }
@@ -62,6 +63,6 @@ export class DebugTools {
 }
 
 export const createDebugTools = import.meta.env.DEV
-  ? (fromContext: Reactor["useContext"], topicsCache: ContextState) =>
+  ? (fromContext: Reactor["use"], topicsCache: ContextState) =>
       new DebugTools(fromContext, topicsCache)
   : () => undefined

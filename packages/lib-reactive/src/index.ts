@@ -24,5 +24,5 @@ export type {
   InferBoundAction,
   InferBoundActions,
 } from "./store"
-export type { Reactor, Factory, Disposer, AsyncDisposer } from "./reactor"
+export type { Reactor, Disposer, AsyncDisposer } from "./reactor"
 export type { Effect, AsyncListener } from "./effect"

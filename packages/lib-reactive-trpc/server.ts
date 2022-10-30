@@ -37,7 +37,7 @@ export const createRemoteReactiveRouter = <
           throw new Error("Invalid store name")
         }
 
-        const signal = reactor.useContext(topicFactory)
+        const signal = reactor.use(topicFactory)
 
         if (!isSignal(signal)) {
           throw new Error(`Topic is not a store`)
@@ -53,7 +53,7 @@ export const createRemoteReactiveRouter = <
           if (!topicFactory) {
             throw new Error("Invalid topic name")
           }
-          const store = reactor.useContext(topicFactory)
+          const store = reactor.use(topicFactory)
 
           if (isSignal(store)) {
             emit.next(store.read())
@@ -80,7 +80,7 @@ export const createRemoteReactiveRouter = <
             throw new Error("Invalid topic name")
           }
 
-          const store = reactor.useContext(topicFactory)
+          const store = reactor.use(topicFactory)
 
           if (!isStore(store)) {
             throw new Error("Target is not a store")
@@ -100,7 +100,7 @@ export const createRemoteReactiveRouter = <
 
           return () => {
             disposeSubscription()
-            reactor.disposeContext(topicFactory)
+            reactor.delete(topicFactory)
           }
         })
       })
