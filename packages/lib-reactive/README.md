@@ -29,7 +29,7 @@ You can think of the effect as a description of everything that should _happen_ 
 
 > Effects all the way down!
 
-The reactor will pass an `EffectContext` to the effect as the first parameter. This is how the effect interacts with the reactive context. For example, we can use it to instantiate further effects with the method `use`.
+The reactor will pass an `EffectContext` to the effect as the first parameter. This is how the effect interacts with the reactive context. For example, we can use it to instantiate further effects with the method `run`.
 
 ```ts
 createReactor((sig) => {
@@ -63,7 +63,7 @@ Calling `sig.onCleanup` registers a callback that we want to execute when the cu
 
 It's very common pattern that effects require some cleanup. If the effect is listening to an event, you'll want to unregister that event handler when the effect is disposed. If the effect is starting a server, you may want to shut that server down, etc.
 
-We can actually simplify the code above by using `sig.interval` which is a built-in helper that automatically disposes the interval for us. When you are using any of the `sig.*` helper methods, the disposal is always handled for you automatically.
+We can actually simplify the code above by using `sig.interval` which is a built-in helper that automatically disposes the interval for us. When we are using any of the `sig.*` helper methods, the disposal is always handled for us automatically.
 
 ```ts
 const reactor = createReactor((sig) => {
@@ -116,9 +116,51 @@ Now, when the first shutdown timer is hit, it will dispose of the reactor which 
 
 So far, we've looked at how we can define the basic structure of our application using effects. However, currently, none of these different components can communicate with each other. We solve this using another primitive called a `Topic`.
 
-For now, just think of a topic as a static symbol that we can reference. Effects can `emit` messages about a topic, and other effects can listen to new messages `on` a topic.
+To define a new Topic, we need to make a factory function that calls `createTopic`.
 
-Let's see an example.
+```ts
+const pingPongTopic = () => createTopic<string>()
+```
+
+Why do we create a factory function instead of just storing the return value of `createTopic`? There are several benefits to this approach:
+
+- The main benefit of this approach is that it allows to have everything we do scoped to a specific `Reactor`. In other words, when we publish a message on a given topic in one reactor, no message will appear in any other reactor. This allows us to run multiple instances of our application in the same JavaScript context such as a Node.js process or browser tab. This helps with testing and with simulating distributed applications efficiently.
+
+- It also means that everything is initialized lazily, i.e. the topic is only instantiated if it is actually being used.
+
+- Another side benefit is that functions are unique in JavaScript in that they capture their own name automatically. In the example above, `pingPongTopic.name` will be set to `"pingPongTopic"`. This library uses that feature to provide great debuggability with zero boilerplate.
+
+In order to `emit` a message on a topic, we first need to get an instance of the topic. In order to do that, we can call `sig.use` from inside of an effect:
+
+```ts
+createReactor((sig: EffectContext) => {
+  sig.use(pingPongTopic).emit("ping")
+})
+```
+
+Obviously, emitting events is not very useful when nobody is listening. So let's listen using `on`.
+
+```ts
+createReactor((sig: EffectContext) => {
+  const dispose = sig.use(pingPongTopic).on((message) => {
+    console.log(message)
+  })
+
+  sig.onCleanup(dispose)
+})
+```
+
+When we create listeners manually via `sig.use().on()` we also have to remember to dispose of them using `sig.onCleanup`. That could get tedious quickly. Instead, we can use the `sig.on` shorthand which will handle the cleanup for us automatically.
+
+```ts
+createReactor((sig: EffectContext) => {
+  sig.on(pingPongTopic, (message) => {
+    console.log(message)
+  })
+})
+```
+
+Ok, now let's put all of these pieces together and look at a complete example:
 
 ```ts
 import { EffectContext, createReactor, createTopic } from "@dassie/lib-reactive"
@@ -137,7 +179,7 @@ const ponger = (sig: EffectContext) => {
   sig.on(pingPongTopic, (message) => {
     if (message === "ping") {
       sig.timeout(() => {
-        sig.emit(pingPongTopic, "pong")
+        sig.use(pingPongTopic).emit("pong")
       }, 75)
     }
   })
@@ -164,7 +206,7 @@ There are three effects, `pinger`, `ponger`, and `logger`. Pinger will watch the
 
 Signals are stateful topics. They provide methods `read` and `write` which allows you access and modify their internal state. You can also call `update` and pass a reducer which accepts the previous state and returns a new state. Whenever the state changes, the signal will emit the new state so you can listen to it. When creating a new signal, you can pass an `initialValue`.
 
-That means that signals are effectively stateful topics. Let's see an example.
+Let's see an example.
 
 ```ts
 import {
@@ -198,7 +240,7 @@ createReactor((sig: EffectContext) => {
 
 We've seen how to listen to topics, but so far we have still had to manage these listeners manually.
 
-There is a special `sig.get` helper which will receive the last value from a topic and automatically dispose and re-run the effect if this value changes. This allows us to build some very concise reactive applications.
+There is a special `sig.get` helper which will retrieve the current state of a signal but also listen for changes and automatically re-run the effect with the new value. This allows us to build some very concise reactive applications.
 
 ```ts
 import { EffectContext, createReactor, createTopic } from "@dassie/lib-reactive"
@@ -206,6 +248,14 @@ import { EffectContext, createReactor, createTopic } from "@dassie/lib-reactive"
 const signal1 = () => createSignal(0)
 const signal2 = () => createSignal(0)
 const signal3 = () => createSignal(0)
+
+const logger = (sig: EffectContext) => {
+  const t1 = sig.get(signal1)
+  const t2 = sig.get(signal2)
+  const t3 = sig.get(signal3)
+
+  console.log(`effect run with ${t1} ${t2} ${t3}`)
+}
 
 const rootEffect = (sig: EffectContext) => {
   sig.interval(() => {
@@ -215,13 +265,7 @@ const rootEffect = (sig: EffectContext) => {
     sig.use(signal3).update((a) => a + 5)
   }, 1000)
 
-  sig.run((sig) => {
-    const t1 = sig.get(signal1)
-    const t2 = sig.get(signal2)
-    const t3 = sig.get(signal3)
-
-    console.log(`effect run with ${t1} ${t2} ${t3}`)
-  })
+  sig.run(logger)
 
   // Stop the application after 10 seconds
   sig.timeout(sig.reactor.dispose, 10_000)
@@ -229,5 +273,3 @@ const rootEffect = (sig: EffectContext) => {
 
 createReactor(rootEffect)
 ```
-
-It's important to note that `sig.get` should only be called from the main body of the effect.
