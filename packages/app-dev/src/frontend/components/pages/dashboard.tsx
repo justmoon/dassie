@@ -7,9 +7,8 @@ import { selectBySeed } from "@dassie/lib-logger"
 import { useSig } from "@dassie/lib-reactive-react"
 
 import type { NodeDefinition } from "../../../backend/effects/run-nodes"
-import { generateNodeConfig } from "../../../backend/utils/generate-node-config"
 import { COLORS } from "../../constants/palette"
-import { activeTemplateSignal } from "../../remote-signals/active-template"
+import { activeNodesStore } from "../../remote-signals/active-nodes"
 import { trpc } from "../../utils/trpc"
 import LogViewer from "../log-viewer/log-viewer"
 import NodeGraph from "../node-graph/node-graph"
@@ -27,12 +26,10 @@ const nodesToGraph = (nodes: NodeDefinition<InputConfig>[]): GraphData => {
 }
 const Dashboard = () => {
   const sig = useSig()
-  const template = sig.get(activeTemplateSignal)
+  const nodes = sig.get(activeNodesStore)
   const addRandomNode = trpc.ui.addRandomNode.useMutation()
 
-  if (!template) return <div />
-
-  const nodes = template.map((peers, index) => generateNodeConfig(index, peers))
+  if (!nodes) return <div />
 
   return (
     <div className="h-screen grid grid-rows-[min-content_auto] py-10 gap-4">

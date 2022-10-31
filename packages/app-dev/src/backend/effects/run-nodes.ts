@@ -3,8 +3,7 @@ import type { EffectContext } from "@dassie/lib-reactive"
 
 import { viteNodeService } from "../services/vite-node-server"
 import { viteService } from "../services/vite-server"
-import { activeTemplateSignal } from "../signals/active-template"
-import { generateNodeConfig } from "../utils/generate-node-config"
+import { activeNodesStore } from "../stores/active-nodes"
 import { fileChangeTopic } from "./handle-file-change"
 import { prepareDataDirectory } from "./prepare-data-directory"
 import { runNodeChildProcess } from "./run-node-child-process"
@@ -34,9 +33,7 @@ export const runNodes = async (sig: EffectContext) => {
   logger.debug("starting node processes")
 
   await Promise.all(
-    sig.forIndex(activeTemplateSignal, async (sig, [peers, index]) => {
-      const node = generateNodeConfig(index, peers)
-
+    sig.for(activeNodesStore, async (sig, node) => {
       // Generate TLS certificates
       {
         const neededCertificates: CertificateInfo[] = [

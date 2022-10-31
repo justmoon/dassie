@@ -1,11 +1,11 @@
 import { createRemoteReactiveRouter } from "@dassie/lib-reactive-trpc/server"
 
 import { logsStore } from "../../common/stores/logs"
-import { activeTemplateSignal } from "../signals/active-template"
+import { activeNodesStore } from "../stores/active-nodes"
 import { peerTrafficTopic } from "../topics/peer-traffic"
 
 export const exposedStores = {
-  activeTemplate: activeTemplateSignal,
+  activeNodes: activeNodesStore,
   logs: logsStore,
   peerTraffic: peerTrafficTopic,
 } as const
