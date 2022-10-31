@@ -3,7 +3,7 @@ import {
   createWSClient,
   wsLink as createWSLink,
 } from "@trpc/client/links/wsLink"
-import { createTRPCReact } from "@trpc/react"
+import { createTRPCReact } from "@trpc/react-query"
 import superjson from "superjson"
 
 import type { AppRouter } from "../../backend/rpc-routers/app-router"

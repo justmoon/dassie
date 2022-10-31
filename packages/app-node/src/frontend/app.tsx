@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { createWSClient, wsLink } from "@trpc/react"
+import { createWSClient, wsLink } from "@trpc/react-query"
 import { useState } from "react"
 import { Route, Switch } from "wouter"
 
