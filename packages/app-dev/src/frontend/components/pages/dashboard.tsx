@@ -28,7 +28,7 @@ const nodesToGraph = (nodes: NodeDefinition<InputConfig>[]): GraphData => {
 const Dashboard = () => {
   const sig = useSig()
   const template = sig.get(activeTemplateSignal)
-  const addRandomNode = trpc.addRandomNode.useMutation()
+  const addRandomNode = trpc.ui.addRandomNode.useMutation()
 
   if (!template) return <div />
 
@@ -67,7 +67,7 @@ const Dashboard = () => {
                 type="button"
                 className="rounded-lg font-medium bg-blue-700 text-white text-sm text-center mr-2 p-2.5 inline-flex items-center dark:bg-blue-600 hover:bg-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-300 dark:hover:bg-blue-700 dark:focus:ring-blue-800"
                 onClick={() => {
-                  addRandomNode.mutate()
+                  addRandomNode.mutate({})
                 }}
               >
                 <FaPlus className="flex-shrink-0 text-lg" />
