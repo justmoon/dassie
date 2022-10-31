@@ -35,6 +35,7 @@ export const createReactiveHooks = () => {
         () => {
           reactEffectContext.wake()
         },
+        "react",
         "react"
       ),
       wake: noop,
