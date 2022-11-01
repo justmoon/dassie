@@ -41,7 +41,7 @@ export const debugRpcRouter = trpc.mergeRouters(
       })
     }),
   }),
-  createRemoteReactiveRouter(exposedStores)
+  createRemoteReactiveRouter(trpc, exposedStores)
 )
 
 export type DebugRpcRouter = typeof debugRpcRouter
