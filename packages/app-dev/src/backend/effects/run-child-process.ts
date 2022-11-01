@@ -58,17 +58,19 @@ export const runChildProcess = async (
         try {
           let result: unknown
           switch (message["method"]) {
-            case "fetchModule":
+            case "fetchModule": {
               result = await nodeServer.fetchModule(
                 message["params"][0] as string
               )
               break
-            case "resolveId":
+            }
+            case "resolveId": {
               result = await nodeServer.resolveId(
                 message["params"][0] as string,
                 message["params"][1] as string | undefined
               )
               break
+            }
           }
           child?.send({
             id: message["id"],

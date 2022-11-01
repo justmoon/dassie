@@ -32,3 +32,10 @@ overrides:
       - "tailwind.config.cjs"
     env:
       node: true
+  - files:
+      - "packages/app-cli/index.js"
+    env:
+      node: true
+settings:
+  react:
+    version: 18.0.0

@@ -10,12 +10,15 @@ export const checkFileStatus = async (filePath: string) => {
       ? (error as NodeJS.ErrnoException).code
       : undefined
     switch (code) {
-      case "ENOENT":
+      case "ENOENT": {
         return "missing"
-      case "EACCES":
+      }
+      case "EACCES": {
         return "unreadable"
-      default:
+      }
+      default: {
         return "error"
+      }
     }
   }
 }

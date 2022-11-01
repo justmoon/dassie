@@ -101,16 +101,18 @@ export const Send = () => {
 
   const subpageElement = (() => {
     switch (subpage.subpage) {
-      case "enterPaymentPointer":
+      case "enterPaymentPointer": {
         return <SubpageEnterPaymentPointer onSubmit={onSubmitPaymentPointer} />
-      case "enterAmount":
+      }
+      case "enterAmount": {
         return (
           <SubpageEnterAmount
             paymentPointer={subpage.paymentPointer}
             onSubmit={onSubmitAmount}
           />
         )
-      case "review":
+      }
+      case "review": {
         return (
           <SubpageReview
             paymentPointer={subpage.paymentPointer}
@@ -118,6 +120,7 @@ export const Send = () => {
             onSubmit={onConfirmSend}
           />
         )
+      }
     }
   })()
 

@@ -152,10 +152,12 @@ const getPortByHostname = (host: string | undefined) => {
     const match = HOST_REGEX.exec(host)
     if (match) {
       switch (match[1]) {
-        case "b":
+        case "b": {
           return BEACONS_START_PORT + (Number(match[2]!) - 1)
-        case "n":
+        }
+        case "n": {
           return NODES_START_PORT + (Number(match[2]!) - 1)
+        }
       }
     }
   }

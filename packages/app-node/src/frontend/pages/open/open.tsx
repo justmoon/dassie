@@ -103,28 +103,33 @@ export const Open = () => {
 
   const subpageElement = (() => {
     switch (subpage.subpage) {
-      case "intro":
+      case "intro": {
         return (
           <SubpageIntro
             onGenerateClick={onGotoGenerate}
             onRecoverClick={onGotoRecover}
           />
         )
-      case "generate":
+      }
+      case "generate": {
         return (
           <SubpageGenerate
             mnemonic={subpage.mnemonic}
             onConfirm={onGenerateConfirm}
           />
         )
-      case "verify":
+      }
+      case "verify": {
         return (
           <SubpageVerify mnemonic={subpage.mnemonic} onConfirm={onMnemonic} />
         )
-      case "recover":
+      }
+      case "recover": {
         return <SubpageRecover onConfirm={onMnemonic} />
-      case "opening":
+      }
+      case "opening": {
         return null
+      }
     }
   })()
 
