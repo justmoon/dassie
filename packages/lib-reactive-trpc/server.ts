@@ -117,7 +117,6 @@ export const createRemoteReactiveRouter = <
 
           return () => {
             disposeSubscription()
-            reactor.delete(topicFactory)
           }
         })
       }),
