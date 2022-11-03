@@ -4,7 +4,7 @@
     {
       "label": "Launch dev server",
       "type": "shell",
-      "command": "DEBUG=das:* pnpm run dev",
+      "command": "pnpm start",
       "group": "none",
       "presentation": {
         "reveal": "always",

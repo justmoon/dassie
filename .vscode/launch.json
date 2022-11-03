@@ -5,6 +5,17 @@
     {
       "type": "node",
       "request": "launch",
+      "name": "Debug Dev Server",
+      "autoAttachChildProcesses": true,
+      "skipFiles": ["<node_internals>/**", "**/node_modules/**"],
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["start"],
+      "smartStep": true,
+      "console": "integratedTerminal"
+    },
+    {
+      "type": "node",
+      "request": "launch",
       "name": "Debug Current Test File",
       "autoAttachChildProcesses": true,
       "skipFiles": ["<node_internals>/**", "**/node_modules/**"],
