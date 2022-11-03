@@ -3,6 +3,7 @@ import type { ViteNodeServer } from "vite-node/server"
 
 import type { EffectContext } from "@dassie/lib-reactive"
 
+import { debugScopesSignal } from "../signals/debug-scopes"
 import { runChildProcess } from "./run-child-process"
 import type { NodeDefinition } from "./run-nodes"
 
@@ -16,12 +17,14 @@ export const runNodeChildProcess = async <T>(
   sig: EffectContext,
   { viteServer, nodeServer, node }: RunNodeChildProcessProperties<T>
 ) => {
+  const debugScopes = sig.get(debugScopesSignal)
   await sig.run(runChildProcess, {
     nodeServer,
     id: node.id,
     environment: {
       FORCE_COLOR: "1",
       ...process.env,
+      DEBUG: debugScopes,
       DASSIE_LOG_FORMATTER: "json",
       DASSIE_CONFIG: JSON.stringify(node.config),
       DASSIE_DEV_ROOT: viteServer.config.root,
