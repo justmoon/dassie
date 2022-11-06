@@ -1,5 +1,5 @@
 import type { GraphData } from "force-graph"
-import { FaPlus } from "react-icons/fa"
+import { FaPlus, FaWallet } from "react-icons/fa"
 import { Link } from "wouter"
 
 import type { InputConfig } from "@dassie/app-node"
@@ -44,19 +44,31 @@ const Dashboard = () => {
         <div className="h-full mx-auto min-h-0 max-w-7xl grid grid-rows-[min-content_auto] px-4 gap-4 grid-cols-[300px_auto] sm:px-6 sm:px-0 lg:px-8">
           <div className="rounded-lg flex flex-col bg-gray-800 min-h-0 p-4">
             <h2 className="font-bold text-xl">Nodes</h2>
-            <div className="flex flex-col flex-1 py-2 gap-1">
+            <div className="grid grid-cols-2 py-4 gap-x-2 gap-y-3">
               {nodes.map((node) => (
-                <Link
+                <div
                   key={node.id}
-                  href={`/nodes/${node.id}`}
-                  className="block"
+                  className="flex gap-2 items-center bg-slate-700 rounded-full"
                 >
-                  <i
-                    className="rounded-full h-2 mr-2 w-2 inline-block"
-                    style={{ background: selectBySeed(COLORS, node.id) }}
-                  ></i>
-                  {node.id}
-                </Link>
+                  <Link
+                    href={`/nodes/${node.id}`}
+                    className="flex items-center flex-1 pl-3 py-1 hover:bg-slate-600 rounded-full"
+                  >
+                    <i
+                      className="rounded-full h-2 mr-2 w-2 inline-block"
+                      style={{ background: selectBySeed(COLORS, node.id) }}
+                    ></i>
+                    {node.id}
+                  </Link>
+                  <a
+                    href={`https://${node.id}.localhost`}
+                    className="flex text-gray-400 hover:text-white h-full px-2 items-center rounded-full"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <FaWallet />
+                  </a>
+                </div>
               ))}
             </div>
             <div>
