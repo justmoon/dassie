@@ -1,4 +1,4 @@
-import type { Subnet } from "./types/subnet"
+import type { Subnet } from "../types/subnet-module"
 
 /**
  * The stub subnet pretends to settle but does not actually do anything.

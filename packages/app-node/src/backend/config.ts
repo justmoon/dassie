@@ -1,5 +1,5 @@
 import envPaths from "env-paths"
-import { z } from "zod"
+import { ZodTypeAny, z } from "zod"
 
 import { readFileSync } from "node:fs"
 
@@ -8,6 +8,10 @@ import { createSignal } from "@dassie/lib-reactive"
 import { isErrorWithCode } from "@dassie/lib-type-utils"
 
 import { APP_NAME } from "./constants/general"
+import {
+  SubnetConfig,
+  subnetConfigSchema,
+} from "./subnets/schemas/subnet-config"
 
 const logger = createLogger("das:node:config")
 
@@ -27,6 +31,7 @@ export interface Config {
   tlsDassieKey: string
   initialPeers: { nodeId: string; url: string }[]
   beacons: { url: string }[]
+  initialSubnets: SubnetConfig
 }
 
 export type InputConfig = z.infer<typeof inputConfigSchema>
@@ -48,6 +53,7 @@ export const inputConfigSchema = z.object({
   tlsDassieKey: z.string().optional(),
   tlsDassieKeyFile: z.string().optional(),
   initialPeers: z.string().optional(),
+  initialSubnets: z.string().optional(),
   beacons: z.string().optional(),
 })
 
@@ -65,6 +71,19 @@ export const processFileOption = (
     return defaultValue
   } else {
     throw new Error(`Required option ${name}/${name}File is missing`)
+  }
+}
+
+const parseJsonConfig = <T extends ZodTypeAny>(
+  schema: T,
+  value: string | undefined
+): z.infer<T> | undefined => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+    return value ? (schema.parse(JSON.parse(value)) as z.infer<T>) : undefined
+  } catch (error: unknown) {
+    logger.warn("failed to parse JSON config", { error })
+    return undefined
   }
 }
 
@@ -120,6 +139,9 @@ export function fromPartialConfig(partialConfig: InputConfig): Config {
             (peer): peer is { nodeId: string; url: string } =>
               peer.nodeId != null && peer.url != null
           )
+      : [],
+    initialSubnets: partialConfig.initialSubnets
+      ? parseJsonConfig(subnetConfigSchema, partialConfig.initialSubnets) ?? []
       : [],
     beacons: (partialConfig.beacons ?? "")
       .split(";")

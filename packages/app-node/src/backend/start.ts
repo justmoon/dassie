@@ -9,6 +9,7 @@ import { attachLogger } from "./logger"
 import { startOpenPaymentsServer } from "./open-payments"
 import { speakPeerProtocol } from "./peer-protocol"
 import { startSpspServer } from "./spsp-server"
+import { startSubnets } from "./subnets"
 import { startTrpcServer } from "./trpc-server"
 
 export const rootEffect = async (sig: EffectContext) => {
@@ -18,6 +19,7 @@ export const rootEffect = async (sig: EffectContext) => {
   sig.run(startBtpServer)
   sig.run(startTrpcServer)
   sig.run(startIlpConnector)
+  await sig.run(startSubnets)
   await sig.run(startSpspServer)
   await sig.run(startOpenPaymentsServer)
 

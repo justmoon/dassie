@@ -35,6 +35,12 @@ export const generateNodeConfig = (index: number, peers: readonly number[]) => {
             )}.localhost:${nodeIndexToPort(target)}`
         )
         .join(";"),
+      initialSubnets: JSON.stringify([
+        {
+          id: "stub",
+          config: {},
+        },
+      ]),
       // TODO: Make this dynamic
       beacons: "https://b1.localhost:13000;https://b2.localhost:13001",
     },
