@@ -30,6 +30,7 @@
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "dependencies": {
+    "@dassie/lib-reactive": "workspace:^1.0.0",
     "@dassie/lib-type-utils": "workspace:^1.0.0"
   },
   "devDependencies": {

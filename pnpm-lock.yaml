@@ -427,10 +427,12 @@ importers:
 
   packages/lib-reactive-react:
     specifiers:
+      '@dassie/lib-reactive': workspace:^1.0.0
       '@dassie/lib-type-utils': workspace:^1.0.0
       react: ^18.2.0
       type-fest: ^3.1.0
     dependencies:
+      '@dassie/lib-reactive': link:../lib-reactive
       '@dassie/lib-type-utils': link:../lib-type-utils
     devDependencies:
       react: 18.2.0
