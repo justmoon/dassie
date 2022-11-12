@@ -26,5 +26,5 @@ pnpm i
 Run the development environment.
 
 ```sh
-DEBUG=das:* pnpm start
+pnpm start
 ```
