@@ -1,5 +1,7 @@
 import type { Promisable } from "type-fest"
 
+import type { VALID_REALMS } from "../../constants/general"
+
 export interface SettlementRequest {
   recipient: string
   amount: bigint
@@ -47,7 +49,7 @@ export interface SubnetModule {
    *
    * This field is used to prevent a node from accidentially using both real-money settlement and virtual settlement simultaneously because doing so could enable an attacker to steal funds. Either all subnets must use real-money settlement or all subnets must use virtual settlement.
    */
-  readonly realm: "real" | "virtual"
+  readonly realm: typeof VALID_REALMS[number]
 
   /**
    * Returns the node's own address within the underlying settlement mechanism.

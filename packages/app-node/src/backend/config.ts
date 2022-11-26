@@ -7,7 +7,7 @@ import { createLogger } from "@dassie/lib-logger"
 import { createSignal } from "@dassie/lib-reactive"
 import { isErrorWithCode } from "@dassie/lib-type-utils"
 
-import { APP_NAME } from "./constants/general"
+import { APP_NAME, VALID_REALMS } from "./constants/general"
 import {
   SubnetConfig,
   subnetConfigSchema,
@@ -15,9 +15,11 @@ import {
 
 const logger = createLogger("das:node:config")
 
+export type RealmType = typeof VALID_REALMS[number]
+
 export interface Config {
   nodeId: string
-  realm: "test" | "live"
+  realm: RealmType
   subnetId: string
   ilpAllocationScheme: "test" | "g"
   ilpAddress: string
@@ -35,10 +37,9 @@ export interface Config {
 }
 
 export type InputConfig = z.infer<typeof inputConfigSchema>
-
 export const inputConfigSchema = z.object({
   nodeId: z.string().optional(),
-  realm: z.union([z.literal("test"), z.literal("live")]).optional(),
+  realm: z.enum(VALID_REALMS).optional(),
   subnetId: z.string().optional(),
   host: z.string().optional(),
   port: z.union([z.string(), z.number()]).optional(),
