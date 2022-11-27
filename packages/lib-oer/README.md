@@ -27,9 +27,9 @@ if (result.success) {
 
 ## Limitations
 
-[ ] Does not support enforcing custom limits on mantissa or exponent for REAL values
-[ ] Does not support REAL values that exceed float64 limits
-[ ] Does not support REAL values with a base other than 2
-[ ] No support for optional fields and defaults in sequences
-[ ] No support for extensions
-[ ] Bitstring values are only boolean[] rather than Record<string, boolean>
+* [ ] Does not support enforcing custom limits on mantissa or exponent for REAL values
+* [ ] Does not support REAL values that exceed float64 limits
+* [ ] Does not support REAL values with a base other than 2
+* [ ] No support for optional fields and defaults in sequences
+* [ ] No support for extensions
+* [ ] Bitstring values are only boolean[] rather than Record<string, boolean>
