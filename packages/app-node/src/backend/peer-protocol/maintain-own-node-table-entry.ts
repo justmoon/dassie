@@ -3,6 +3,7 @@ import type { EffectContext } from "@dassie/lib-reactive"
 
 import { configSignal } from "../config"
 import { signerService } from "../crypto/signer"
+import { activeSubnetsSignal } from "../subnets/signals/active-subnets"
 import { compareKeysToArray, compareSetOfKeys } from "../utils/compare-sets"
 import { peerNodeInfo, signedPeerNodeInfo } from "./peer-schema"
 import { nodeTableStore } from "./stores/node-table"
@@ -11,7 +12,17 @@ import { peerTableStore } from "./stores/peer-table"
 const logger = createLogger("das:node:maintain-own-node-table-entry")
 
 export const maintainOwnNodeTableEntry = async (sig: EffectContext) => {
-  const { nodeId, url } = sig.getKeys(configSignal, ["nodeId", "url"])
+  const activeSubnets = sig.get(activeSubnetsSignal)
+
+  for (const subnetId of activeSubnets) {
+    await sig.run(maintainOwnNodeTableEntryForSubnet, subnetId)
+  }
+}
+
+const maintainOwnNodeTableEntryForSubnet = async (
+  sig: EffectContext,
+  subnetId: string
+) => {
   const signer = sig.get(signerService)
 
   if (!signer) return
@@ -23,9 +34,11 @@ export const maintainOwnNodeTableEntry = async (sig: EffectContext) => {
     compareSetOfKeys
   )
 
-  const ownNodeTableEntry = sig.get(nodeTableStore, (nodeTable) =>
-    nodeTable.get(nodeId)
-  )
+  const { nodeId, url } = sig.getKeys(configSignal, ["nodeId", "url"])
+  const ownNodeTableEntry = sig
+    .use(nodeTableStore)
+    .read()
+    .get(`${subnetId}.${nodeId}`)
 
   if (
     ownNodeTableEntry == null ||
@@ -36,8 +49,9 @@ export const maintainOwnNodeTableEntry = async (sig: EffectContext) => {
     const publicKey = await signer.getPublicKey()
 
     const peerNodeInfoResult = peerNodeInfo.serialize({
-      nodeId: nodeId,
-      nodeKey: publicKey,
+      subnetId,
+      nodeId,
+      nodePublicKey: publicKey,
       url,
       sequence,
       entries: peerIds.map((peerId) => ({
@@ -71,9 +85,10 @@ export const maintainOwnNodeTableEntry = async (sig: EffectContext) => {
         neighbors: peerIds.join(","),
       })
       sig.use(nodeTableStore).addNode({
-        nodeId: nodeId,
+        subnetId,
+        nodeId,
         neighbors: peerIds,
-        nodeKey: publicKey,
+        nodePublicKey: publicKey,
         sequence,
         scheduledRetransmitTime: Date.now(),
         updateReceivedCounter: 0,
@@ -84,7 +99,7 @@ export const maintainOwnNodeTableEntry = async (sig: EffectContext) => {
         sequence,
         neighbors: peerIds.join(","),
       })
-      sig.use(nodeTableStore).updateNode(nodeId, {
+      sig.use(nodeTableStore).updateNode(`${subnetId}.${nodeId}`, {
         neighbors: peerIds,
         sequence,
         scheduledRetransmitTime: Date.now(),

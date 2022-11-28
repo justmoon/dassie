@@ -1,6 +1,10 @@
 import { createSignal } from "@dassie/lib-reactive"
 
-import type { SubnetModule } from "../types/subnet-module"
+export interface SubnetState {
+  subnetId: string
+  config: unknown
+  initialPeers: { nodeId: string; url: string }[]
+}
 
 export const subnetMapSignal = () =>
-  createSignal<Map<string, SubnetModule>>(new Map())
+  createSignal<Map<string, SubnetState>>(new Map())

@@ -6,6 +6,11 @@ enableMapSet()
 
 export interface NodeTableEntry {
   /**
+   * Subnet that the node is a part of.
+   */
+  subnetId: string
+
+  /**
    * ID of the node - unique in our subnet.
    */
   nodeId: string
@@ -13,7 +18,7 @@ export interface NodeTableEntry {
   /**
    * Node's public key.
    */
-  nodeKey: Uint8Array
+  nodePublicKey: Uint8Array
 
   /**
    * Sequence number of the most recent link state update.
@@ -38,21 +43,23 @@ export interface NodeTableEntry {
   lastLinkStateUpdate: Uint8Array
 }
 
+export type NodeTableKey = `${string}.${string}`
+
 export const nodeTableStore = () =>
-  createStore(new Map<string, NodeTableEntry>(), {
+  createStore(new Map<NodeTableKey, NodeTableEntry>(), {
     addNode: (entry: NodeTableEntry) =>
       produce((draft) => {
-        draft.set(entry.nodeId, {
+        draft.set(`${entry.subnetId}.${entry.nodeId}`, {
           ...entry,
         })
       }),
-    updateNode: (nodeId: string, nodeEntry: Partial<NodeTableEntry>) =>
+    updateNode: (key: NodeTableKey, nodeEntry: Partial<NodeTableEntry>) =>
       produce((draft) => {
-        const previousEntry = draft.get(nodeId)
+        const previousEntry = draft.get(key)
         if (previousEntry == undefined) {
-          throw new Error("nodeId not found")
+          throw new Error("Node not found")
         }
-        draft.set(nodeId, {
+        draft.set(key, {
           ...previousEntry,
           ...nodeEntry,
         })

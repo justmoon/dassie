@@ -4,8 +4,8 @@ import { EffectContext, createTopic } from "@dassie/lib-reactive"
 import { configSignal } from "../config"
 import { incomingIlpPacketBuffer } from "../ilp-connector/topics/incoming-ilp-packet"
 import type { PeerMessage } from "./peer-schema"
-import { nodeTableStore } from "./stores/node-table"
-import { peerTableStore } from "./stores/peer-table"
+import { NodeTableKey, nodeTableStore } from "./stores/node-table"
+import { PeerTableKey, peerTableStore } from "./stores/peer-table"
 
 const logger = createLogger("das:node:incoming-peer-message-handler")
 
@@ -13,7 +13,7 @@ const MAX_LINK_STATE_UPDATE_RETRANSMIT_DELAY = 500
 
 export interface IncomingPeerMessageEvent {
   message: PeerMessage
-  authenticatedAs: string | undefined
+  authenticated: boolean
   asUint8Array: Uint8Array
 }
 
@@ -21,7 +21,8 @@ export const incomingPeerMessageTopic = () =>
   createTopic<IncomingPeerMessageEvent>()
 
 export const handlePeerMessages = (sig: EffectContext) => {
-  sig.on(incomingPeerMessageTopic, ({ message, authenticatedAs }) => {
+  sig.on(incomingPeerMessageTopic, ({ message, authenticated }) => {
+    const { subnetId, sender } = message
     const content = message.content.value
 
     if (content.hello) {
@@ -30,17 +31,20 @@ export const handlePeerMessages = (sig: EffectContext) => {
       const peers = sig.use(peerTableStore).read()
 
       logger.debug("handle hello", {
+        subnet: subnetId,
         from: nodeId,
         sequence,
       })
 
-      const peer = peers.get(nodeId)
+      const peerKey: PeerTableKey = `${subnetId}.${nodeId}`
+      const peer = peers.get(peerKey)
       if (peer) {
-        sig.use(peerTableStore).updatePeer(nodeId, {
+        sig.use(peerTableStore).updatePeer(peerKey, {
           lastSeen: Date.now(),
         })
       } else {
         sig.use(peerTableStore).addPeer({
+          subnetId,
           nodeId,
           url,
           lastSeen: Date.now(),
@@ -49,7 +53,7 @@ export const handlePeerMessages = (sig: EffectContext) => {
     } else if (content.linkStateUpdate) {
       const { value: linkState, bytes: linkStateBytes } =
         content.linkStateUpdate
-      const { nodeId, sequence, entries, nodeKey } = linkState.signed
+      const { nodeId, sequence, entries, nodePublicKey } = linkState.signed
       const nodes = sig.use(nodeTableStore).read()
 
       const neighbors = entries
@@ -57,12 +61,14 @@ export const handlePeerMessages = (sig: EffectContext) => {
         .map((entry) => entry.neighbor.nodeId)
 
       logger.debug("handle link state update", {
+        subnet: subnetId,
         from: nodeId,
         sequence,
         neighbors: neighbors.join(","),
       })
 
-      const node = nodes.get(nodeId)
+      const nodeKey: NodeTableKey = `${subnetId}.${nodeId}`
+      const node = nodes.get(nodeKey)
       if (node) {
         if (sequence < node.sequence) {
           logger.debug("received a stale link state update", {
@@ -79,12 +85,12 @@ export const handlePeerMessages = (sig: EffectContext) => {
             counter: node.updateReceivedCounter + 1,
           })
 
-          sig.use(nodeTableStore).updateNode(nodeId, {
+          sig.use(nodeTableStore).updateNode(nodeKey, {
             updateReceivedCounter: node.updateReceivedCounter + 1,
           })
           return
         }
-        sig.use(nodeTableStore).updateNode(nodeId, {
+        sig.use(nodeTableStore).updateNode(nodeKey, {
           sequence,
           neighbors,
           lastLinkStateUpdate: linkStateBytes,
@@ -95,8 +101,9 @@ export const handlePeerMessages = (sig: EffectContext) => {
         })
       } else {
         sig.use(nodeTableStore).addNode({
+          subnetId,
           nodeId,
-          nodeKey,
+          nodePublicKey,
           sequence,
           updateReceivedCounter: 1,
           scheduledRetransmitTime:
@@ -107,17 +114,20 @@ export const handlePeerMessages = (sig: EffectContext) => {
         })
       }
     } else {
-      if (!authenticatedAs) {
-        logger.warn("received unauthenticated interledger packet")
+      if (!authenticated) {
+        logger.warn("received unauthenticated interledger packet, discarding")
         return
       }
 
-      logger.debug("handle interledger packet")
+      logger.debug("handle interledger packet", {
+        subnet: subnetId,
+        from: sender,
+      })
 
-      const { ilpAllocationScheme, subnetId } = sig.use(configSignal).read()
+      const { ilpAllocationScheme } = sig.use(configSignal).read()
 
       sig.use(incomingIlpPacketBuffer).emit({
-        source: `${ilpAllocationScheme}.das.${subnetId}.${authenticatedAs}`,
+        source: `${ilpAllocationScheme}.das.${subnetId}.${sender}`,
         packet: content.interledgerPacket.signed.packet,
         requestId: content.interledgerPacket.signed.requestId,
       })

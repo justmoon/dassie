@@ -11,6 +11,7 @@ const logger = createLogger("das:node:outgoing-dassie-message-sender")
 
 export interface MessageWithDestination<T> {
   message: T
+  subnet: string
   destination: string
 }
 
@@ -23,9 +24,10 @@ export const sendPeerMessages = (sig: EffectContext) => {
 
   const sendOutgoingPeerMessage = async ({
     message,
+    subnet,
     destination,
   }: MessageWithDestination<Uint8Array>) => {
-    const peer = peers.get(destination)
+    const peer = peers.get(`${subnet}.${destination}`)
 
     if (!peer) {
       logger.warn("peer not found, unable to send message", {
@@ -36,6 +38,7 @@ export const sendPeerMessages = (sig: EffectContext) => {
 
     const envelopeSerializationResult = peerMessage.serialize({
       version: 0,
+      subnetId: subnet,
       sender: nodeId,
       authentication: {
         "ED25519_X25519_HMAC-SHA256": {

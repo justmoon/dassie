@@ -20,9 +20,7 @@ export type RealmType = typeof VALID_REALMS[number]
 export interface Config {
   nodeId: string
   realm: RealmType
-  subnetId: string
   ilpAllocationScheme: "test" | "g"
-  ilpAddress: string
   host: string
   port: number
   url: string
@@ -31,7 +29,6 @@ export interface Config {
   tlsWebKey: string
   tlsDassieCert: string
   tlsDassieKey: string
-  initialPeers: { nodeId: string; url: string }[]
   beacons: { url: string }[]
   initialSubnets: SubnetConfig
 }
@@ -40,7 +37,6 @@ export type InputConfig = z.infer<typeof inputConfigSchema>
 export const inputConfigSchema = z.object({
   nodeId: z.string().optional(),
   realm: z.enum(VALID_REALMS).optional(),
-  subnetId: z.string().optional(),
   host: z.string().optional(),
   port: z.union([z.string(), z.number()]).optional(),
   url: z.string().optional(),
@@ -53,7 +49,6 @@ export const inputConfigSchema = z.object({
   tlsDassieCertFile: z.string().optional(),
   tlsDassieKey: z.string().optional(),
   tlsDassieKeyFile: z.string().optional(),
-  initialPeers: z.string().optional(),
   initialSubnets: z.string().optional(),
   beacons: z.string().optional(),
 })
@@ -93,7 +88,6 @@ export function fromPartialConfig(partialConfig: InputConfig): Config {
 
   const nodeId = partialConfig.nodeId ?? "anonymous"
   const realm = partialConfig.realm ?? (import.meta.env.DEV ? "test" : "live")
-  const subnetId = partialConfig.subnetId ?? "none"
   const ilpAllocationScheme = realm === "test" ? "test" : "g"
   const host = partialConfig.host ?? "localhost"
   const port = partialConfig.port ? Number(partialConfig.port) : 8443
@@ -101,9 +95,7 @@ export function fromPartialConfig(partialConfig: InputConfig): Config {
   return {
     nodeId,
     realm,
-    subnetId,
     ilpAllocationScheme,
-    ilpAddress: `${ilpAllocationScheme}.das.${subnetId}.${nodeId}`,
     host,
     port,
     url:
@@ -129,18 +121,6 @@ export function fromPartialConfig(partialConfig: InputConfig): Config {
       partialConfig.tlsDassieKey,
       partialConfig.tlsDassieKeyFile
     ),
-    initialPeers: partialConfig.initialPeers
-      ? partialConfig.initialPeers
-          .split(";")
-          .map((peer) => {
-            const [nodeId, url] = peer.split("=")
-            return { nodeId, url }
-          })
-          .filter(
-            (peer): peer is { nodeId: string; url: string } =>
-              peer.nodeId != null && peer.url != null
-          )
-      : [],
     initialSubnets: partialConfig.initialSubnets
       ? parseJsonConfig(subnetConfigSchema, partialConfig.initialSubnets) ?? []
       : [],

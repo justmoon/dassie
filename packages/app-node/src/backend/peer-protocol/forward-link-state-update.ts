@@ -21,7 +21,7 @@ export const forwardLinkStateUpdate = (sig: EffectContext) => {
       node.scheduledRetransmitTime < Date.now()
     ) {
       // Set scheduled retransmit time to be infinitely far in the future so we don't retransmit the same update again.
-      sig.use(nodeTableStore).updateNode(node.nodeId, {
+      sig.use(nodeTableStore).updateNode(`${node.subnetId}.${node.nodeId}`, {
         scheduledRetransmitTime: Number.POSITIVE_INFINITY,
       })
 
@@ -48,6 +48,7 @@ export const forwardLinkStateUpdate = (sig: EffectContext) => {
 
         // Retransmit the link state update
         sig.use(outgoingPeerMessageBufferTopic).emit({
+          subnet: peer.subnetId,
           destination: peer.nodeId,
           message: message.value,
         })

@@ -48,18 +48,19 @@ export const registerPeerHttpHandler = (sig: EffectContext) => {
         throw new BadRequestError(`Bad Request, unsupported version`)
       }
 
+      const subnetId = parseResult.value.subnetId
       const senderId = parseResult.value.sender
       const senderPublicKey = sig
         .use(nodeTableStore)
         .read()
-        .get(senderId)?.nodeKey
+        .get(`${subnetId}.${senderId}`)?.nodePublicKey
       const isAuthenticated =
         !!senderPublicKey &&
         authenticatePeerMessage(senderPublicKey, parseResult.value)
 
       sig.use(incomingPeerMessageTopic).emit({
         message: parseResult.value,
-        authenticatedAs: isAuthenticated ? senderId : undefined,
+        authenticated: isAuthenticated,
         asUint8Array: body,
       })
 

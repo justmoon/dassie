@@ -11,9 +11,9 @@ import {
 } from "@dassie/lib-protocol-utils"
 import type { EffectContext } from "@dassie/lib-reactive"
 
-import { configSignal } from "../config"
 import { websocketRoutesSignal } from "../http-server/serve-http"
 import { ilpRoutingTableSignal } from "../ilp-connector/signals/ilp-routing-table"
+import { primaryIlpAddressSignal } from "../ilp-connector/signals/primary-ilp-address"
 import { incomingIlpPacketBuffer } from "../ilp-connector/topics/incoming-ilp-packet"
 
 const logger = createLogger("das:node:websocket-server")
@@ -21,7 +21,9 @@ const logger = createLogger("das:node:websocket-server")
 let unique = 0
 
 export const registerBtpHttpUpgrade = (sig: EffectContext) => {
-  const nodeIlpAddress = sig.get(configSignal, (config) => config.ilpAddress)
+  const nodeIlpAddress = sig.get(primaryIlpAddressSignal)
+  if (!nodeIlpAddress) return
+
   const websocketRoutes = sig.get(websocketRoutesSignal)
 
   const websocketServer = new WebSocketServer({ noServer: true })

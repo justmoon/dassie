@@ -15,7 +15,7 @@ const createSubnet: Subnet = () => {
   return {
     name: "stub",
     supportedVersions: [1],
-    realm: "virtual",
+    realm: "test",
 
     getAddress() {
       return "stub"

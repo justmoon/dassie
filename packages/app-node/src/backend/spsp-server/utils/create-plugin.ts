@@ -2,7 +2,6 @@ import { nanoid } from "nanoid"
 
 import type { EffectContext } from "@dassie/lib-reactive"
 
-import { configSignal } from "../../config"
 import { ilpRoutingTableSignal } from "../../ilp-connector/signals/ilp-routing-table"
 import { incomingIlpPacketBuffer } from "../../ilp-connector/topics/incoming-ilp-packet"
 
@@ -10,8 +9,7 @@ let nextRequestId = 1
 
 const outstandingRequests = new Map<number, (data: Buffer) => void>()
 
-export const createPlugin = (sig: EffectContext) => {
-  const nodeIlpAddress = sig.get(configSignal, (config) => config.ilpAddress)
+export const createPlugin = (sig: EffectContext, nodeIlpAddress: string) => {
   const ilpClientMap = sig.use(ilpRoutingTableSignal)
 
   let ilpAddress: string

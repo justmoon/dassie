@@ -6,6 +6,7 @@ import { assertDefined } from "@dassie/lib-type-utils"
 
 import { configSignal } from "../config"
 import { ilpRoutingTableSignal } from "../ilp-connector/signals/ilp-routing-table"
+import { activeSubnetsSignal } from "../subnets/signals/active-subnets"
 import { peerMessageContent } from "./peer-schema"
 import { outgoingPeerMessageBufferTopic } from "./send-peer-messages"
 import { nodeTableStore } from "./stores/node-table"
@@ -22,9 +23,16 @@ interface NodeInfoEntry {
  * This effect generates an Even-Shiloach tree which is then condensed into a routing table. The routing table contains all possible first hops which are on one of the shortest paths to the target node.
  */
 export const calculateRoutes = (sig: EffectContext) => {
-  const { ilpAllocationScheme, subnetId } = sig.getKeys(configSignal, [
+  const activeSubnets = sig.get(activeSubnetsSignal)
+
+  for (const subnetId of activeSubnets) {
+    sig.run(calculateRoutesInSubnet, subnetId)
+  }
+}
+
+const calculateRoutesInSubnet = (sig: EffectContext, subnetId: string) => {
+  const { ilpAllocationScheme } = sig.getKeys(configSignal, [
     "ilpAllocationScheme",
-    "subnetId",
   ])
   const ownNodeId = sig.get(configSignal, ({ nodeId }) => nodeId)
   const nodeTable = sig.get(nodeTableStore)
@@ -39,7 +47,7 @@ export const calculateRoutes = (sig: EffectContext) => {
   while ((currentNodeId = queue.shift()) != undefined) {
     queueSet.delete(currentNodeId)
 
-    const currentNode = nodeTable.get(currentNodeId)
+    const currentNode = nodeTable.get(`${subnetId}.${currentNodeId}`)
     if (currentNode == undefined) {
       // We only route to nodes in our node table, so we will ignore this destination for now
       continue
@@ -124,6 +132,7 @@ export const calculateRoutes = (sig: EffectContext) => {
           }
 
           sig.use(outgoingPeerMessageBufferTopic).emit({
+            subnet: subnetId,
             destination: nextHop,
             message: peerMessageSerializationResult.value,
           })

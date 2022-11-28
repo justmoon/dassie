@@ -25,18 +25,24 @@ export const greetPeers = async (sig: EffectContext) => {
     compareSetOfKeys
   )
 
-  const ownNodeTableEntry = sig.get(nodeTableStore, (nodeTable) =>
-    nodeTable.get(sig.use(configSignal).read().nodeId)
-  )
-
-  if (!ownNodeTableEntry) {
-    return
-  }
+  const ownNodeId = sig.use(configSignal).read().nodeId
 
   for (const peer of peers.values()) {
     const sequence = BigInt(Date.now())
 
-    logger.debug(`sending hello`, { to: peer.nodeId, sequence })
+    const ownNodeTableEntry = sig.get(nodeTableStore, (nodeTable) =>
+      nodeTable.get(`${peer.subnetId}.${ownNodeId}`)
+    )
+
+    if (!ownNodeTableEntry) {
+      return
+    }
+
+    logger.debug(`sending hello`, {
+      subnet: peer.subnetId,
+      to: peer.nodeId,
+      sequence,
+    })
 
     const signedHello = peerHello.serialize({
       nodeInfo: ownNodeTableEntry.lastLinkStateUpdate,
@@ -66,6 +72,7 @@ export const greetPeers = async (sig: EffectContext) => {
     }
 
     sig.use(outgoingPeerMessageBufferTopic).emit({
+      subnet: peer.subnetId,
       destination: peer.nodeId,
       message: messageSerializeResult.value,
     })

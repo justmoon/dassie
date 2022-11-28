@@ -6,6 +6,7 @@ import { createStore } from "@dassie/lib-reactive"
 enableMapSet()
 
 export interface PeerEntry {
+  subnetId: string
   nodeId: string
   url: string
   lastSeen: number
@@ -13,22 +14,24 @@ export interface PeerEntry {
 
 export type NewPeerEntry = MarkOptional<PeerEntry, "lastSeen">
 
+export type PeerTableKey = `${string}.${string}`
+
 export const peerTableStore = () =>
-  createStore(new Map<string, PeerEntry>(), {
+  createStore(new Map<PeerTableKey, PeerEntry>(), {
     addPeer: (peerEntry: NewPeerEntry) =>
       produce((draft) => {
-        draft.set(peerEntry.nodeId, {
+        draft.set(`${peerEntry.subnetId}.${peerEntry.nodeId}`, {
           lastSeen: Date.now(),
           ...peerEntry,
         })
       }),
-    updatePeer: (nodeId: string, peerEntry: Partial<PeerEntry>) =>
+    updatePeer: (key: PeerTableKey, peerEntry: Partial<PeerEntry>) =>
       produce((draft) => {
-        const previousEntry = draft.get(nodeId)
+        const previousEntry = draft.get(key)
         if (previousEntry == undefined) {
           throw new Error("nodeId not found")
         }
-        draft.set(nodeId, {
+        draft.set(key, {
           ...previousEntry,
           ...peerEntry,
         })

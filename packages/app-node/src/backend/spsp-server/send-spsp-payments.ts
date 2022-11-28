@@ -3,6 +3,7 @@ import { createConnection } from "ilp-protocol-stream"
 import { createLogger } from "@dassie/lib-logger"
 import { EffectContext, createStore } from "@dassie/lib-reactive"
 
+import { primaryIlpAddressSignal } from "../ilp-connector/signals/primary-ilp-address"
 import { resolvePaymentPointer } from "../utils/resolve-payment-pointer"
 import { createPlugin } from "./utils/create-plugin"
 
@@ -24,6 +25,9 @@ export const spspPaymentQueueStore = () =>
   })
 
 export const sendSpspPayments = async (sig: EffectContext) => {
+  const nodeIlpAddress = sig.get(primaryIlpAddressSignal)
+  if (!nodeIlpAddress) return
+
   const nextPayment = sig.get(spspPaymentQueueStore, (queue) => queue[0])
 
   if (nextPayment) {
@@ -45,7 +49,7 @@ export const sendSpspPayments = async (sig: EffectContext) => {
       destinationAccount,
     })
 
-    const { plugin } = sig.run(createPlugin)
+    const { plugin } = sig.run(createPlugin, nodeIlpAddress)
 
     const connection = await createConnection({
       plugin,

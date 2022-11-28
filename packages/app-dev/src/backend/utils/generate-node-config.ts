@@ -19,7 +19,6 @@ export const generateNodeConfig = (index: number, peers: readonly number[]) => {
     config: {
       nodeId: id,
       realm: "test" as const,
-      subnetId: "null",
       host: `${id}.localhost`,
       port: nodeIndexToPort(index),
       dataPath: `${LOCAL_PATH}/data/${id}.localhost`,
@@ -27,18 +26,16 @@ export const generateNodeConfig = (index: number, peers: readonly number[]) => {
       tlsDassieKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/dassie-${id}.localhost-key.pem`,
       tlsWebCertFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost.pem`,
       tlsWebKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost-key.pem`,
-      initialPeers: peers
-        .map(
-          (target) =>
-            `${nodeIndexToId(target)}=https://${nodeIndexToId(
-              target
-            )}.localhost:${nodeIndexToPort(target)}`
-        )
-        .join(";"),
       initialSubnets: JSON.stringify([
         {
           id: "stub",
           config: {},
+          initialPeers: peers.map((target) => ({
+            nodeId: nodeIndexToId(target),
+            url: `https://${nodeIndexToId(target)}.localhost:${nodeIndexToPort(
+              target
+            )}`,
+          })),
         },
       ]),
       // TODO: Make this dynamic

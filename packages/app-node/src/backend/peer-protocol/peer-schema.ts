@@ -22,6 +22,10 @@ import {
 
 export type PeerMessage = Infer<typeof peerMessage>
 
+export const subnetIdSchema = ia5String([2, 128]).from(
+  lowercaseLetters + digits + "-"
+)
+
 export const nodeIdSchema = ia5String([2, 12]).from(lowercaseLetters + digits)
 
 export const nodeInfoEntry = choice({
@@ -32,10 +36,11 @@ export const nodeInfoEntry = choice({
 
 export const peerNodeInfo = sequence({
   type: objectIdentifier().constant(dassiePeerNodeInfoId),
+  subnetId: subnetIdSchema,
   nodeId: nodeIdSchema,
   sequence: uint64Bigint(),
   url: visibleString(),
-  nodeKey: octetString(),
+  nodePublicKey: octetString(),
   entries: sequenceOf(nodeInfoEntry),
 })
 
@@ -67,6 +72,7 @@ export const peerMessageContent = choice({
 
 export const peerMessage = sequence({
   version: uint8Number(),
+  subnetId: subnetIdSchema,
   sender: nodeIdSchema,
   authentication: choice({
     ["NONE"]: sequence({}).tag(0),
