@@ -105,3 +105,6 @@ dist
 
 # Local resources (e.g. SSL certificates)
 local/
+
+# Intellij IDE files
+.idea
