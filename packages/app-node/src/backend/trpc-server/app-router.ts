@@ -1,8 +1,10 @@
 import { initTRPC } from "@trpc/server"
+import { observable } from "@trpc/server/observable"
 import { z } from "zod"
 
 import { createLogger } from "@dassie/lib-logger"
 
+import { overallBalanceSignal } from "../balances/signals/overall-balance-signal"
 import { spspPaymentQueueStore } from "../spsp-server/send-spsp-payments"
 import { resolvePaymentPointer } from "../utils/resolve-payment-pointer"
 import type { TrpcContext } from "./trpc-context"
@@ -43,6 +45,15 @@ export const appRouter = trpc.router({
         })
       }
     ),
+  subscribeBalance: trpc.procedure.subscription(({ ctx: { sig } }) => {
+    return observable<string>((emit) => {
+      const overallBalance = sig.use(overallBalanceSignal)
+      emit.next(overallBalance.read().toString())
+      return overallBalance.on((balance) => {
+        emit.next(balance.toString())
+      })
+    })
+  }),
 })
 
 export type AppRouter = typeof appRouter

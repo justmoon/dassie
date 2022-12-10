@@ -1,3 +1,5 @@
+import { createSignal } from "@dassie/lib-reactive"
+
 import type { Subnet } from "../types/subnet-module"
 
 /**
@@ -12,24 +14,41 @@ const createSubnet: Subnet = () => {
     throw new Error('The "stub" subnet cannot be used in production')
   }
 
+  const balance = createSignal(0n)
+
   return {
     name: "stub",
     supportedVersions: [1],
     realm: "test",
 
-    getAddress() {
-      return "stub"
+    balance,
+
+    prepareIncomingPacket() {
+      // no-op
     },
 
-    sendMoney(settlementRequest) {
-      return Promise.resolve({
-        ...settlementRequest,
-        canonicalTransactionId: "stub",
-      })
+    fulfillIncomingPacket({ amount }) {
+      balance.update((balance) => balance + amount)
     },
 
-    verifyIncomingTransaction() {
-      return Promise.resolve(true)
+    rejectIncomingPacket() {
+      // no-op
+    },
+
+    prepareOutgoingPacket() {
+      // no-op
+    },
+
+    fulfillOutgoingPacket({ amount }) {
+      balance.update((balance) => balance - amount)
+    },
+
+    rejectOutgoingPacket() {
+      // no-op
+    },
+
+    dispose() {
+      // no-op
     },
   }
 }

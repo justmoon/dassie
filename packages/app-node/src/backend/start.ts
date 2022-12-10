@@ -1,5 +1,6 @@
 import { EffectContext, createReactor } from "@dassie/lib-reactive"
 
+import { startBalances } from "./balances"
 import { startBeaconClient } from "./beacon-client"
 import { startBtpServer } from "./btp-server"
 import { signerService } from "./crypto/signer"
@@ -19,6 +20,7 @@ export const rootEffect = async (sig: EffectContext) => {
   sig.run(startBtpServer)
   sig.run(startTrpcServer)
   sig.run(startIlpConnector)
+  sig.run(startBalances)
   await sig.run(startSubnets)
   await sig.run(startSpspServer)
   await sig.run(startOpenPaymentsServer)

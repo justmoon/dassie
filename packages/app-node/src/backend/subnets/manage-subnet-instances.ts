@@ -1,5 +1,6 @@
 import type { EffectContext } from "@dassie/lib-reactive"
 
+import { subnetBalanceMapStore } from "../balances/stores/subnet-balance-map"
 import { configSignal } from "../config"
 import { peerTableStore } from "../peer-protocol/stores/peer-table"
 import * as modules from "./modules"
@@ -14,6 +15,7 @@ export const manageSubnetInstances = async (sig: EffectContext) => {
 const runSubnetModule = async (sig: EffectContext, subnetId: string) => {
   const realm = sig.get(configSignal, (state) => state.realm)
   const subnetMap = sig.get(subnetMapSignal)
+  const subnetBalanceMap = sig.use(subnetBalanceMapStore)
 
   const subnetState = subnetMap.get(subnetId)
 
@@ -33,4 +35,16 @@ const runSubnetModule = async (sig: EffectContext, subnetId: string) => {
       sig.use(peerTableStore).addPeer({ subnetId, ...peer })
     }
   }
+
+  // Keep track of balance
+  subnetBalanceMap.setBalance(subnetId, instance.balance.read())
+  const disposeBalanceListener = instance.balance.on((balance) => {
+    subnetBalanceMap.setBalance(subnetId, balance)
+  })
+
+  sig.onCleanup(() => {
+    disposeBalanceListener()
+    subnetBalanceMap.clearBalance(subnetId)
+    return instance.dispose()
+  })
 }

@@ -1,24 +1,11 @@
 import type { Promisable } from "type-fest"
 
+import type { Signal } from "@dassie/lib-reactive"
+
 import type { VALID_REALMS } from "../../constants/general"
 
-export interface SettlementRequest {
-  recipient: string
+export interface PacketInformation {
   amount: bigint
-
-  /**
-   * Node identifier
-   */
-  nodeId: string
-
-  /**
-   * Unique sequence number for this settlement request.
-   */
-  sequence: number
-}
-
-export interface SettlementInfo extends SettlementRequest {
-  canonicalTransactionId: string
 }
 
 export interface SubnetModule {
@@ -52,39 +39,23 @@ export interface SubnetModule {
   readonly realm: typeof VALID_REALMS[number]
 
   /**
-   * Returns the node's own address within the underlying settlement mechanism.
+   * The current balance of the node on this subnet.
    */
-  getAddress(): Promisable<string>
+  readonly balance: Signal<bigint>
 
-  /**
-   * Send money to the recipient.
-   *
-   * @returns A unique and canonical transaction ID.
-   */
-  sendMoney(settlementRequest: SettlementRequest): Promise<SettlementInfo>
+  prepareIncomingPacket(packetInformation: PacketInformation): Promisable<void>
 
-  /**
-   * Verify that a given settlement was indeed received.
-   *
-   * @remarks
-   *
-   * **WARNING** It's very easy to implement this function incorrectly which will lead to **loss of funds** as it may allow attackers to submit fake transactions, lie about the amount delivered, claim credit for the same settlement transaction multiple times, etc.
-   *
-   * This method must verify that:
-   *
-   *  1. The settlement transaction is valid.
-   *  2. The settlement transaction was correctly signed by the sender.
-   *  3. The settlement was executed successfully.
-   *  4. The settlement transaction has been added to the ledger irrevesibly.
-   *  5. The funds were delivered to the correct recipient.
-   *  6. The claimed amount was actually delivered.
-   *  7. The settlement transaction took place on a live network with real funds.
-   *  8. The sender's nodeId was included as data in the signed portion of the transaction.
-   *  9. The sequence number was included as data in the signed portion of the transaction.
-   *
-   * @param settlement - A unique transaction ID.
-   */
-  verifyIncomingTransaction(settlement: SettlementInfo): Promise<boolean>
+  fulfillIncomingPacket(packetInformation: PacketInformation): Promisable<void>
+
+  rejectIncomingPacket(packetInformation: PacketInformation): Promisable<void>
+
+  prepareOutgoingPacket(packetInformation: PacketInformation): Promisable<void>
+
+  fulfillOutgoingPacket(packetInformation: PacketInformation): Promisable<void>
+
+  rejectOutgoingPacket(packetInformation: PacketInformation): Promisable<void>
+
+  dispose(): Promisable<void>
 }
 
 /**
