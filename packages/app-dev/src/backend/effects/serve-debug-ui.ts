@@ -9,6 +9,7 @@ import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
 
 import { LOCAL_FOLDER } from "../constants/paths"
+import { DEBUG_UI_PORT } from "../constants/ports"
 import { validateCertificates } from "./validate-certificates"
 
 const logger = createLogger("das:dev:debug-ui-server")
@@ -16,7 +17,6 @@ const logger = createLogger("das:dev:debug-ui-server")
 const debugUiPath = new URL("../../../", import.meta.url).pathname
 const certificatePath = join(LOCAL_FOLDER, "tls/localhost/web-localhost.pem")
 const keyPath = join(LOCAL_FOLDER, "tls/localhost/web-localhost-key.pem")
-const port = 10_000
 
 const devtoolsServer = () => ({
   name: "html-ext-fallback",
@@ -46,7 +46,7 @@ export const debugUiServer = async (sig: EffectContext) => {
   const server = await createServer({
     root: debugUiPath,
     server: {
-      port,
+      port: DEBUG_UI_PORT,
       https: {
         cert: readFileSync(certificatePath),
         key: readFileSync(keyPath),
@@ -54,9 +54,9 @@ export const debugUiServer = async (sig: EffectContext) => {
     },
     plugins: [devtoolsServer()],
   })
-  await server.listen(port)
+  await server.listen(DEBUG_UI_PORT)
 
-  logger.info(`listening on https://localhost:${port}/`)
+  logger.info(`listening on https://localhost:${DEBUG_UI_PORT}/`)
 
   sig.onCleanup(async () => {
     await server.close()
