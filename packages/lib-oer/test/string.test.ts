@@ -69,7 +69,27 @@ describe("string", () => {
         expect,
       }) => {
         const value = schema.serialize("12345678901κ")
-        expect(value).toMatchSnapshot()
+        expect(value).toMatchInlineSnapshot(`
+          {
+            "success": true,
+            "value": Uint8Array [
+              13,
+              49,
+              50,
+              51,
+              52,
+              53,
+              54,
+              55,
+              56,
+              57,
+              48,
+              49,
+              206,
+              186,
+            ],
+          }
+        `)
       })
 
       test("should refuse to parse a value of length 14", ({ expect }) => {
