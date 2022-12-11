@@ -31,6 +31,8 @@ export interface Config {
   tlsDassieKey: string
   beacons: { url: string }[]
   initialSubnets: SubnetConfig
+  exchangeRateUrl: string
+  internalAmountPrecision: number
 }
 
 export type InputConfig = z.infer<typeof inputConfigSchema>
@@ -51,6 +53,8 @@ export const inputConfigSchema = z.object({
   tlsDassieKeyFile: z.string().optional(),
   initialSubnets: z.string().optional(),
   beacons: z.string().optional(),
+  exchangeRateUrl: z.string().optional(),
+  internalAmountPrecision: z.number().optional(),
 })
 
 export const processFileOption = (
@@ -128,6 +132,10 @@ export function fromPartialConfig(partialConfig: InputConfig): Config {
       .split(";")
       .map((url) => ({ url }))
       .filter(Boolean),
+    exchangeRateUrl:
+      partialConfig.exchangeRateUrl ??
+      "https://api.coinbase.com/v2/exchange-rates",
+    internalAmountPrecision: partialConfig.internalAmountPrecision ?? 12,
   }
 }
 

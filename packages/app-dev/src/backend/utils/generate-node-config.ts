@@ -1,4 +1,8 @@
-import { NODES_DEBUG_START_PORT, NODES_START_PORT } from "../constants/ports"
+import {
+  DEBUG_UI_PORT,
+  NODES_DEBUG_START_PORT,
+  NODES_START_PORT,
+} from "../constants/ports"
 
 const ENTRYPOINT = new URL("../../runner/launchers/node", import.meta.url)
   .pathname
@@ -40,6 +44,7 @@ export const generateNodeConfig = (index: number, peers: readonly number[]) => {
       ]),
       // TODO: Make this dynamic
       beacons: "https://b1.localhost:13000;https://b2.localhost:13001",
+      exchangeRateUrl: `https://localhost:${DEBUG_UI_PORT}/rates.json`,
     },
     url: `https://${id}.localhost:${port}/`,
     entry: ENTRYPOINT,
