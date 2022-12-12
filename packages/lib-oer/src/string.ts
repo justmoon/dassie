@@ -1,7 +1,7 @@
 import { OerType } from "./base-type"
 import { octetString } from "./octet-string"
 import { Alphabet, alphabetToFilterArray, printable } from "./utils/alphabet"
-import { ParseError } from "./utils/errors"
+import { ParseError, SerializeError } from './utils/errors'
 import type { ParseContext } from "./utils/parse"
 import { NormalizedRange, Range, parseRange } from "./utils/range"
 
@@ -90,7 +90,18 @@ export class OerString extends OerType<string> {
   }
 
   serializeWithContext(value: string) {
-    const encodedValue = this.textEncoder.encode(value)
+    if (this.length[0] != undefined && value.length < this.length[0]) {
+      return new SerializeError(
+          `String is too short, expected at least ${this.length[0]} characters, got ${value.length}`,
+      )
+    }
+
+    if (this.length[1] != undefined && value.length > this.length[1]) {
+      return new SerializeError(
+          `String is too long, expected at most ${this.length[1]} characters, got ${value.length}`,
+      )
+      }
+    const encodedValue: Uint8Array = this.textEncoder.encode(value)
     return this.octetString.serializeWithContext(encodedValue)
   }
 
