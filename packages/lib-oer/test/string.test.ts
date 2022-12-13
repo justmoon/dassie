@@ -116,26 +116,11 @@ describe("string", () => {
       })
 
       test("should refuse to serialize a value of length 14", ({ expect }) => {
-        const value = schema.serialize("1234567890123")
+        const value = schema.serialize("12345678901234")
         expect(value).toMatchInlineSnapshot(`
           {
-            "success": true,
-            "value": Uint8Array [
-              13,
-              49,
-              50,
-              51,
-              52,
-              53,
-              54,
-              55,
-              56,
-              57,
-              48,
-              49,
-              50,
-              51,
-            ],
+            "error": [SerializeError: String is too long, expected at most 13 characters, got 14],
+            "success": false,
           }
         `)
       })
