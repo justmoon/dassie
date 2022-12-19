@@ -1,6 +1,6 @@
 import { createSignal } from "@dassie/lib-reactive"
 
-import type { Subnet } from "../types/subnet-module"
+import type { SubnetModule } from "../types/subnet-module"
 
 /**
  * The stub subnet pretends to settle but does not actually do anything.
@@ -9,7 +9,7 @@ import type { Subnet } from "../types/subnet-module"
  *
  * **WARNING** This module is intended for testing and development. You **must not** use this module in a real node otherwise anyone will be able to take your funds.
  */
-const createSubnet: Subnet = () => {
+const createSubnet: SubnetModule = () => {
   if (process.env["NODE_ENV"] === "production") {
     throw new Error('The "stub" subnet cannot be used in production')
   }

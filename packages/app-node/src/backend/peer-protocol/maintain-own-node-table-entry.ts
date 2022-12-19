@@ -3,26 +3,19 @@ import type { EffectContext } from "@dassie/lib-reactive"
 
 import { configSignal } from "../config"
 import { signerService } from "../crypto/signer"
-import { activeSubnetsSignal } from "../subnets/signals/active-subnets"
 import { compareKeysToArray, compareSetOfKeys } from "../utils/compare-sets"
 import { peerNodeInfo, signedPeerNodeInfo } from "./peer-schema"
+import type { PerSubnetParameters } from "./run-per-subnet-effects"
 import { nodeTableStore } from "./stores/node-table"
 import { peerTableStore } from "./stores/peer-table"
 
 const logger = createLogger("das:node:maintain-own-node-table-entry")
 
-export const maintainOwnNodeTableEntry = async (sig: EffectContext) => {
-  const activeSubnets = sig.get(activeSubnetsSignal)
-
-  for (const subnetId of activeSubnets) {
-    await sig.run(maintainOwnNodeTableEntryForSubnet, subnetId)
-  }
-}
-
-const maintainOwnNodeTableEntryForSubnet = async (
+export const maintainOwnNodeTableEntry = async (
   sig: EffectContext,
-  subnetId: string
+  parameters: PerSubnetParameters
 ) => {
+  const { subnetId } = parameters
   const signer = sig.get(signerService)
 
   if (!signer) return

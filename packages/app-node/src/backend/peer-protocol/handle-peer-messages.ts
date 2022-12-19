@@ -4,6 +4,7 @@ import { EffectContext, createTopic } from "@dassie/lib-reactive"
 import { configSignal } from "../config"
 import { incomingIlpPacketBuffer } from "../ilp-connector/topics/incoming-ilp-packet"
 import type { PeerMessage } from "./peer-schema"
+import type { PerSubnetParameters } from "./run-per-subnet-effects"
 import { NodeTableKey, nodeTableStore } from "./stores/node-table"
 import { PeerTableKey, peerTableStore } from "./stores/peer-table"
 
@@ -20,9 +21,17 @@ export interface IncomingPeerMessageEvent {
 export const incomingPeerMessageTopic = () =>
   createTopic<IncomingPeerMessageEvent>()
 
-export const handlePeerMessages = (sig: EffectContext) => {
+export const handlePeerMessages = (
+  sig: EffectContext,
+  parameters: PerSubnetParameters
+) => {
   sig.on(incomingPeerMessageTopic, ({ message, authenticated }) => {
     const { subnetId, sender } = message
+
+    if (subnetId !== parameters.subnetId) {
+      return
+    }
+
     const content = message.content.value
 
     if (content.hello) {

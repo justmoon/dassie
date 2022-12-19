@@ -8,7 +8,7 @@ export interface PacketInformation {
   amount: bigint
 }
 
-export interface SubnetModule {
+export interface SubnetModuleInstance {
   /**
    * The unique subnet identifier.
    *
@@ -61,4 +61,4 @@ export interface SubnetModule {
 /**
  * Constructs a subnet module.
  */
-export type Subnet = () => Promisable<SubnetModule>
+export type SubnetModule = () => Promisable<SubnetModuleInstance>

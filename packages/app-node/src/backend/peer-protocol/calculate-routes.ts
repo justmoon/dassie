@@ -6,8 +6,8 @@ import { assertDefined } from "@dassie/lib-type-utils"
 
 import { configSignal } from "../config"
 import { ilpRoutingTableSignal } from "../ilp-connector/signals/ilp-routing-table"
-import { activeSubnetsSignal } from "../subnets/signals/active-subnets"
 import { peerMessageContent } from "./peer-schema"
+import type { PerSubnetParameters } from "./run-per-subnet-effects"
 import { outgoingPeerMessageBufferTopic } from "./send-peer-messages"
 import { nodeTableStore } from "./stores/node-table"
 import { RoutingTableEntry, routingTableStore } from "./stores/routing-table"
@@ -22,15 +22,12 @@ interface NodeInfoEntry {
 /**
  * This effect generates an Even-Shiloach tree which is then condensed into a routing table. The routing table contains all possible first hops which are on one of the shortest paths to the target node.
  */
-export const calculateRoutes = (sig: EffectContext) => {
-  const activeSubnets = sig.get(activeSubnetsSignal)
+export const calculateRoutes = (
+  sig: EffectContext,
+  parameters: PerSubnetParameters
+) => {
+  const { subnetId } = parameters
 
-  for (const subnetId of activeSubnets) {
-    sig.run(calculateRoutesInSubnet, subnetId)
-  }
-}
-
-const calculateRoutesInSubnet = (sig: EffectContext, subnetId: string) => {
   const { ilpAllocationScheme } = sig.getKeys(configSignal, [
     "ilpAllocationScheme",
   ])
