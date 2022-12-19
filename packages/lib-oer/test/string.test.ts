@@ -48,40 +48,81 @@ describe("string", () => {
         const value = schema.parse(
           hexToUint8Array("0c313233343536373839303132")
         )
-        expect(value).toMatchSnapshot()
+        expect(value).toMatchInlineSnapshot(`
+          {
+            "error": [ParseError: Expected octet string of length at least 13, but got 12
+
+              0c 31 32 33 34 35 36 37 38 39 30 31 32  
+              ^^],
+            "success": false,
+          }
+        `)
       })
 
       test("should refuse to serialize a value of length 12", ({ expect }) => {
         const value = schema.serialize("123456789012")
-        expect(value).toMatchSnapshot()
+        expect(value).toMatchInlineSnapshot(`
+          {
+            "error": [SerializeError: String is too short, expected at least 13 characters, got 12],
+            "success": false,
+          }
+        `)
       })
 
       test("should refuse to parse a value of character length 12 but byte length of 13", ({
         expect,
       }) => {
         const value = schema.parse(
-          hexToUint8Array("0d3132333435363738393031ceba")
+          hexToUint8Array(
+              "0d" +
+              "3132333435363738393031ceba")
         )
-        expect(value).toMatchSnapshot()
+        expect(value).toMatchInlineSnapshot(`
+          {
+            "error": [ParseError: String is too short, expected at least 13 characters, got 12
+
+              0d 31 32 33 34 35 36 37 38 39 30 31 ce ba  
+              ^^],
+            "success": false,
+          }
+        `)
       })
 
       test("should refuse to serialize a value of character length 12 but byte length of 13", ({
         expect,
       }) => {
         const value = schema.serialize("12345678901κ")
-        expect(value).toMatchSnapshot()
+        expect(value).toMatchInlineSnapshot(`
+          {
+            "error": [SerializeError: String is too short, expected at least 13 characters, got 12],
+            "success": false,
+          }
+        `)
       })
 
       test("should refuse to parse a value of length 14", ({ expect }) => {
         const value = schema.parse(
           hexToUint8Array("0e3132333435363738393031323334")
         )
-        expect(value).toMatchSnapshot()
+        expect(value).toMatchInlineSnapshot(`
+          {
+            "error": [ParseError: String is too long, expected at most 13 characters, got 14
+
+              0e 31 32 33 34 35 36 37 38 39 30 31 32 33 34  
+              ^^],
+            "success": false,
+          }
+        `)
       })
 
       test("should refuse to serialize a value of length 14", ({ expect }) => {
-        const value = schema.serialize("1234567890123")
-        expect(value).toMatchSnapshot()
+        const value = schema.serialize("12345678901234")
+        expect(value).toMatchInlineSnapshot(`
+          {
+            "error": [SerializeError: String is too long, expected at most 13 characters, got 14],
+            "success": false,
+          }
+        `)
       })
     })
 
