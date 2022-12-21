@@ -12,9 +12,10 @@ import {
 import type { EffectContext } from "@dassie/lib-reactive"
 
 import { websocketRoutesSignal } from "../http-server/serve-http"
+import { IlpType, parseIlpPacket } from "../ilp-connector/ilp-packet-codec"
 import { ilpRoutingTableSignal } from "../ilp-connector/signals/ilp-routing-table"
 import { primaryIlpAddressSignal } from "../ilp-connector/signals/primary-ilp-address"
-import { incomingIlpPacketBuffer } from "../ilp-connector/topics/incoming-ilp-packet"
+import { incomingIlpPacketTopic } from "../ilp-connector/topics/incoming-ilp-packet"
 
 const logger = createLogger("das:node:websocket-server")
 
@@ -96,9 +97,11 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
                 .protocolData) {
                 if (protocolData.protocolName === "ilp") {
                   logger.debug("received ILP packet via BTP message")
-                  sig.use(incomingIlpPacketBuffer).emit({
+                  const parsedPacket = parseIlpPacket(protocolData.data)
+                  sig.use(incomingIlpPacketTopic).emit({
                     source: ilpAddress,
-                    packet: protocolData.data,
+                    packet: parsedPacket,
+                    asUint8Array: protocolData.data,
                     requestId: message.requestId,
                   })
                   return
@@ -124,9 +127,11 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
                 .protocolData) {
                 if (protocolData.protocolName === "ilp") {
                   logger.debug("received ILP packet via BTP transfer")
-                  sig.use(incomingIlpPacketBuffer).emit({
+                  const parsedPacket = parseIlpPacket(protocolData.data)
+                  sig.use(incomingIlpPacketTopic).emit({
                     source: ilpAddress,
-                    packet: protocolData.data,
+                    packet: parsedPacket,
+                    asUint8Array: protocolData.data,
                     requestId: message.requestId,
                   })
                   return
@@ -151,9 +156,11 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
                 .protocolData) {
                 if (protocolData.protocolName === "ilp") {
                   logger.debug("received ILP packet via BTP response")
-                  sig.use(incomingIlpPacketBuffer).emit({
+                  const parsedPacket = parseIlpPacket(protocolData.data)
+                  sig.use(incomingIlpPacketTopic).emit({
                     source: ilpAddress,
-                    packet: protocolData.data,
+                    packet: parsedPacket,
+                    asUint8Array: protocolData.data,
                     requestId: message.requestId,
                   })
                   return
@@ -173,14 +180,14 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
       ilpClientMap.read().set(ilpAddress, {
         prefix: ilpAddress,
         type: "btp",
-        sendPacket: ({ packet, amount, requestId, isResponse }) => {
-          if (amount === 0n) {
+        sendPacket: ({ packet, asUint8Array, requestId }) => {
+          if (packet.type !== IlpType.Prepare || packet.amount === 0n) {
             const btpMessageSerializeResult = btpMessageSchema.serialize({
               protocolData: [
                 {
                   protocolName: "ilp",
                   contentType: 0,
-                  data: packet,
+                  data: asUint8Array,
                 },
               ],
             })
@@ -193,7 +200,7 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
             }
 
             const btpEnvelopeSerializeResult = btpEnvelopeSchema.serialize({
-              messageType: isResponse ? 1 : 6, // Response or Message
+              messageType: packet.type !== IlpType.Prepare ? 1 : 6, // Response or Message
               requestId,
               message: btpMessageSerializeResult.value,
             })
@@ -214,7 +221,7 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
                 {
                   protocolName: "ilp",
                   contentType: 0,
-                  data: packet,
+                  data: asUint8Array,
                 },
               ],
             })

@@ -116,7 +116,7 @@ export const calculateRoutes = (
             interledgerPacket: {
               signed: {
                 requestId: packet.requestId,
-                packet: packet.packet,
+                packet: packet.asUint8Array,
               },
             },
           })

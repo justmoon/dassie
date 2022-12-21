@@ -2,8 +2,9 @@ import { nanoid } from "nanoid"
 
 import type { EffectContext } from "@dassie/lib-reactive"
 
+import { parseIlpPacket } from "../../ilp-connector/ilp-packet-codec"
 import { ilpRoutingTableSignal } from "../../ilp-connector/signals/ilp-routing-table"
-import { incomingIlpPacketBuffer } from "../../ilp-connector/topics/incoming-ilp-packet"
+import { incomingIlpPacketTopic } from "../../ilp-connector/topics/incoming-ilp-packet"
 
 let nextRequestId = 1
 
@@ -32,10 +33,10 @@ export const createPlugin = (sig: EffectContext, nodeIlpAddress: string) => {
           .set(ilpAddress, {
             prefix: ilpAddress,
             type: "spsp",
-            sendPacket: async ({ packet, requestId }) => {
+            sendPacket: async ({ asUint8Array, requestId }) => {
               const existingRequest = outstandingRequests.get(requestId)
               if (existingRequest) {
-                existingRequest(Buffer.from(packet))
+                existingRequest(Buffer.from(asUint8Array))
                 outstandingRequests.delete(requestId)
                 return
               }
@@ -44,10 +45,13 @@ export const createPlugin = (sig: EffectContext, nodeIlpAddress: string) => {
                 throw new Error("No handler registered")
               }
 
-              const response = await currentHandler(Buffer.from(packet))
+              const response = await currentHandler(Buffer.from(asUint8Array))
 
-              sig.use(incomingIlpPacketBuffer).emit({
-                packet: response,
+              const parsedPacket = parseIlpPacket(response)
+
+              sig.use(incomingIlpPacketTopic).emit({
+                packet: parsedPacket,
+                asUint8Array: response,
                 source: ilpAddress,
                 requestId,
               })
@@ -74,8 +78,10 @@ export const createPlugin = (sig: EffectContext, nodeIlpAddress: string) => {
         const resultPromise = new Promise<Buffer>((resolve) => {
           const requestId = nextRequestId++
           outstandingRequests.set(requestId, resolve)
-          sig.use(incomingIlpPacketBuffer).emit({
-            packet: data,
+          const parsedPacket = parseIlpPacket(data)
+          sig.use(incomingIlpPacketTopic).emit({
+            packet: parsedPacket,
+            asUint8Array: data,
             source: ilpAddress,
             requestId,
           })

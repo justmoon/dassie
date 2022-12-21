@@ -1,11 +1,12 @@
 import { createTopic } from "@dassie/lib-reactive"
 
+import type { IlpPacket } from "../ilp-packet-codec"
+
 export interface OutgoingIlpPacket {
   destination: string
-  packet: Uint8Array
-  amount: bigint
+  packet: IlpPacket
+  asUint8Array: Uint8Array
   requestId: number
-  isResponse: boolean
 }
 
 export const outgoingIlpPacketBuffer = () => createTopic<OutgoingIlpPacket>()
