@@ -3,9 +3,10 @@ import type { Promisable } from "type-fest"
 import type { Signal } from "@dassie/lib-reactive"
 
 import type { VALID_REALMS } from "../../constants/general"
+import type { IlpPacketWithAttachedPrepare } from "../../ilp-connector/topics/incoming-ilp-packet"
 
 export interface PacketInformation {
-  amount: bigint
+  packet: IlpPacketWithAttachedPrepare
 }
 
 export interface SubnetModuleInstance {
@@ -43,17 +44,9 @@ export interface SubnetModuleInstance {
    */
   readonly balance: Signal<bigint>
 
-  prepareIncomingPacket(packetInformation: PacketInformation): Promisable<void>
+  processIncomingPacket(packetInformation: PacketInformation): Promisable<void>
 
-  fulfillIncomingPacket(packetInformation: PacketInformation): Promisable<void>
-
-  rejectIncomingPacket(packetInformation: PacketInformation): Promisable<void>
-
-  prepareOutgoingPacket(packetInformation: PacketInformation): Promisable<void>
-
-  fulfillOutgoingPacket(packetInformation: PacketInformation): Promisable<void>
-
-  rejectOutgoingPacket(packetInformation: PacketInformation): Promisable<void>
+  processOutgoingPacket(packetInformation: PacketInformation): Promisable<void>
 
   dispose(): Promisable<void>
 }

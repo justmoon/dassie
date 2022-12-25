@@ -25,7 +25,7 @@ export const handlePeerMessages = (
   sig: EffectContext,
   parameters: PerSubnetParameters
 ) => {
-  sig.on(incomingPeerMessageTopic, ({ message, authenticated }) => {
+  sig.onAsync(incomingPeerMessageTopic, async ({ message, authenticated }) => {
     const { subnetId, sender } = message
 
     if (subnetId !== parameters.subnetId) {
@@ -136,11 +136,14 @@ export const handlePeerMessages = (
       const incomingIlpPacketTopicValue = sig.use(incomingIlpPacketTopic)
 
       const { ilpAllocationScheme } = sig.use(configSignal).read()
-
       const incomingPacketEvent = incomingIlpPacketTopicValue.prepareEvent({
         source: `${ilpAllocationScheme}.das.${subnetId}.${sender}`,
         packet: content.interledgerPacket.signed.packet,
         requestId: content.interledgerPacket.signed.requestId,
+      })
+
+      await parameters.subnetModule.processIncomingPacket({
+        packet: incomingPacketEvent.packet,
       })
 
       incomingIlpPacketTopicValue.emit(incomingPacketEvent)

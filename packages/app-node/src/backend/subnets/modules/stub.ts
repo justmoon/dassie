@@ -1,5 +1,6 @@
 import { createSignal } from "@dassie/lib-reactive"
 
+import { IlpType } from "../../ilp-connector/ilp-packet-codec"
 import type { SubnetModule } from "../types/subnet-module"
 
 /**
@@ -23,28 +24,16 @@ const createSubnet: SubnetModule = () => {
 
     balance,
 
-    prepareIncomingPacket() {
-      // no-op
+    processIncomingPacket({ packet }) {
+      if (packet.type === IlpType.Fulfill) {
+        balance.update((balance) => balance - packet.prepare.amount)
+      }
     },
 
-    fulfillIncomingPacket({ amount }) {
-      balance.update((balance) => balance + amount)
-    },
-
-    rejectIncomingPacket() {
-      // no-op
-    },
-
-    prepareOutgoingPacket() {
-      // no-op
-    },
-
-    fulfillOutgoingPacket({ amount }) {
-      balance.update((balance) => balance - amount)
-    },
-
-    rejectOutgoingPacket() {
-      // no-op
+    processOutgoingPacket({ packet }) {
+      if (packet.type === IlpType.Fulfill) {
+        balance.update((balance) => balance + packet.prepare.amount)
+      }
     },
 
     dispose() {

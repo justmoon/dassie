@@ -26,7 +26,7 @@ export const calculateRoutes = (
   sig: EffectContext,
   parameters: PerSubnetParameters
 ) => {
-  const { subnetId } = parameters
+  const { subnetId, subnetModule } = parameters
 
   const { ilpAllocationScheme } = sig.getKeys(configSignal, [
     "ilpAllocationScheme",
@@ -107,16 +107,18 @@ export const calculateRoutes = (
       ilpRoutingTable.set(ilpAddress, {
         prefix: ilpAddress,
         type: "peer",
-        sendPacket: (packet) => {
+        sendPacket: async ({ packet, asUint8Array, requestId }) => {
           const nextHop = firstHopOptions[0]!
+
+          await subnetModule.processOutgoingPacket({ packet })
 
           logger.debug("sending ilp packet", { nextHop })
 
           const peerMessageSerializationResult = peerMessageContent.serialize({
             interledgerPacket: {
               signed: {
-                requestId: packet.requestId,
-                packet: packet.asUint8Array,
+                requestId: requestId,
+                packet: asUint8Array,
               },
             },
           })
