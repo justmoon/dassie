@@ -1,5 +1,6 @@
 import { useState } from "react"
 
+import { USD_SPECIFICATION } from "../constants/currency"
 import { trpc } from "../utils/trpc"
 
 export const useAccount = () => {
@@ -12,12 +13,7 @@ export const useAccount = () => {
   })
 
   return {
-    currency: {
-      symbol: "$",
-      code: "USD",
-      precision: 2,
-      totalPrecision: 9,
-    },
+    currency: USD_SPECIFICATION,
     balance,
   }
 }

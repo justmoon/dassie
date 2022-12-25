@@ -269,6 +269,7 @@ importers:
       phosphor-react: ^1.4.1
       react: ^18.2.0
       react-dom: ^18.2.0
+      react-number-format: ^5.1.2
       type-fest: ^3.1.0
       unocss: ^0.46.1
       vite: ^3.2.2
@@ -310,6 +311,7 @@ importers:
       phosphor-react: 1.4.1_react@18.2.0
       react: 18.2.0
       react-dom: 18.2.0_react@18.2.0
+      react-number-format: 5.1.2_biqbaboplfbrettd7655fr4n2y
       wouter: 2.8.0-alpha.2_react@18.2.0
       ws: 8.10.0
       zod: 3.19.1
@@ -7112,6 +7114,17 @@ packages:
       fromentries: 1.3.2
       jerrypick: 1.0.5
       react: 18.2.0
+    dev: false
+
+  /react-number-format/5.1.2_biqbaboplfbrettd7655fr4n2y:
+    resolution: {integrity: sha512-NXm/MvZVjmPqrFbjAut/prCyBZ+pA+O+C12rDkWZrwS3JXz1J42RC1kpclkdnkx2KDjRCNFLb21FlwGcNBZddw==}
+    peerDependencies:
+      react: ^0.14 || ^15.0.0 || ^16.0.0 || ^17.0.0 || ^18.0.0 || ^18.0.0
+      react-dom: ^0.14 || ^15.0.0 || ^16.0.0 || ^17.0.0 || ^18.0.0 || ^18.0.0
+    dependencies:
+      prop-types: 15.8.1
+      react: 18.2.0
+      react-dom: 18.2.0_react@18.2.0
     dev: false
 
   /react-refresh/0.14.0:

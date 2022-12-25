@@ -1,4 +1,6 @@
+import { Amount } from "../../../components/amount/amount"
 import Button from "../../../components/button/button"
+import { USD_SPECIFICATION } from "../../../constants/currency"
 
 interface SubpageReviewProperties {
   paymentPointer: string
@@ -13,7 +15,9 @@ export const SubpageReview = ({
   return (
     <div>
       <div>Payment Pointer: {paymentPointer}</div>
-      <div>Amount: {String(amount)}</div>
+      <div>
+        Amount: <Amount balance={amount} currency={USD_SPECIFICATION} />
+      </div>
       <Button onClick={onSubmit}>Confirm</Button>
     </div>
   )
