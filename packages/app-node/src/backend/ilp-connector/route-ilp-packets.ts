@@ -1,8 +1,7 @@
 import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
 
-import { ildcpResponseSchema } from "./ildcp-packet-codec"
-import { IlpType, serializeIlpPacket } from "./ilp-packet-codec"
+import { IlpType } from "./ilp-packet-codec"
 import { incomingIlpPacketTopic } from "./topics/incoming-ilp-packet"
 import { outgoingIlpPacketBuffer } from "./topics/outgoing-ilp-packet"
 
@@ -27,62 +26,27 @@ export const routeIlpPackets = (sig: EffectContext) => {
             amount: packet.amount,
           })
 
-          if (packet.destination === "peer.config") {
-            // IL-DCP
-            const ildcpSerializationResult = ildcpResponseSchema.serialize({
-              address: source,
-              assetScale: 9,
-              assetCode: "XRP",
-            })
+          const outgoingRequestId = Math.trunc(Math.random() * 0xff_ff_ff_ff)
 
-            if (!ildcpSerializationResult.success) {
-              logger.debug("failed to serialize IL-DCP response", {
-                error: ildcpSerializationResult.error,
-              })
-              return
-            }
+          requestIdMap.set(outgoingRequestId, {
+            sourceAddress: source,
+            sourceRequestId: requestId,
+            preparePacket: packet,
+          })
 
-            const responsePacket = {
-              type: IlpType.Fulfill,
-              fulfillment: new Uint8Array(32),
-              data: ildcpSerializationResult.value,
-            }
+          logger.debug("forwarding ILP prepare", {
+            source,
+            destination: packet.destination,
+            requestId: outgoingRequestId,
+          })
 
-            const serializedResponsePacket = serializeIlpPacket(responsePacket)
-
-            logger.debug("sending IL-DCP response", {
-              destination: source,
-            })
-
-            sig.use(outgoingIlpPacketBuffer).emit({
-              destination: source,
-              packet: responsePacket,
-              asUint8Array: serializedResponsePacket,
-              requestId,
-            })
-            return
-          } else {
-            const outgoingRequestId = Math.trunc(Math.random() * 0xff_ff_ff_ff)
-
-            requestIdMap.set(outgoingRequestId, {
-              sourceAddress: source,
-              sourceRequestId: requestId,
-            })
-
-            logger.debug("forwarding ILP prepare", {
-              source,
-              destination: packet.destination,
-              requestId: outgoingRequestId,
-            })
-
-            sig.use(outgoingIlpPacketBuffer).emit({
-              destination: packet.destination,
-              packet,
-              asUint8Array,
-              requestId: outgoingRequestId,
-            })
-            return
-          }
+          sig.use(outgoingIlpPacketBuffer).emit({
+            destination: packet.destination,
+            packet,
+            asUint8Array,
+            requestId: outgoingRequestId,
+          })
+          return
         }
         case IlpType.Fulfill: {
           logger.debug("received ILP fulfill", {
