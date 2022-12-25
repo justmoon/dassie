@@ -1,7 +1,7 @@
 import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
 
-import { IlpType, serializeIlpPacket } from "../ilp-connector/ilp-packet-codec"
+import { IlpType } from "../ilp-connector/ilp-packet-codec"
 import { ilpRoutingTableSignal } from "../ilp-connector/signals/ilp-routing-table"
 import { outgoingIlpPacketBuffer } from "../ilp-connector/topics/outgoing-ilp-packet"
 import { ildcpResponseSchema } from "./ildcp-packet-codec"
@@ -37,17 +37,15 @@ export const handleIldcpRequests = (sig: EffectContext) => {
         data: ildcpSerializationResult.value,
       }
 
-      const serializedResponsePacket = serializeIlpPacket(responsePacket)
-
       logger.debug("sending IL-DCP response", {
         destination: source,
       })
 
-      sig.use(outgoingIlpPacketBuffer).emit({
-        destination: source,
+      sig.use(outgoingIlpPacketBuffer).emitEvent({
+        source: ILDCP_ADDRESS,
         packet: responsePacket,
-        asUint8Array: serializedResponsePacket,
-        requestId,
+        incomingRequestId: requestId,
+        outgoingRequestId: requestId,
       })
     },
   })

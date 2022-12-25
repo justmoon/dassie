@@ -2,7 +2,6 @@ import { nanoid } from "nanoid"
 
 import type { EffectContext } from "@dassie/lib-reactive"
 
-import { parseIlpPacket } from "../../ilp-connector/ilp-packet-codec"
 import { ilpRoutingTableSignal } from "../../ilp-connector/signals/ilp-routing-table"
 import { incomingIlpPacketTopic } from "../../ilp-connector/topics/incoming-ilp-packet"
 
@@ -47,11 +46,8 @@ export const createPlugin = (sig: EffectContext, nodeIlpAddress: string) => {
 
               const response = await currentHandler(Buffer.from(asUint8Array))
 
-              const parsedPacket = parseIlpPacket(response)
-
-              sig.use(incomingIlpPacketTopic).emit({
-                packet: parsedPacket,
-                asUint8Array: response,
+              sig.use(incomingIlpPacketTopic).emitPacket({
+                packet: response,
                 source: ilpAddress,
                 requestId,
               })
@@ -78,10 +74,8 @@ export const createPlugin = (sig: EffectContext, nodeIlpAddress: string) => {
         const resultPromise = new Promise<Buffer>((resolve) => {
           const requestId = nextRequestId++
           outstandingRequests.set(requestId, resolve)
-          const parsedPacket = parseIlpPacket(data)
-          sig.use(incomingIlpPacketTopic).emit({
-            packet: parsedPacket,
-            asUint8Array: data,
+          sig.use(incomingIlpPacketTopic).emitPacket({
+            packet: data,
             source: ilpAddress,
             requestId,
           })

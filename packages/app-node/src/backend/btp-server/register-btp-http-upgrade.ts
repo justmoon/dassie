@@ -12,7 +12,7 @@ import {
 import type { EffectContext } from "@dassie/lib-reactive"
 
 import { websocketRoutesSignal } from "../http-server/serve-http"
-import { IlpType, parseIlpPacket } from "../ilp-connector/ilp-packet-codec"
+import { IlpType } from "../ilp-connector/ilp-packet-codec"
 import { ilpRoutingTableSignal } from "../ilp-connector/signals/ilp-routing-table"
 import { primaryIlpAddressSignal } from "../ilp-connector/signals/primary-ilp-address"
 import { incomingIlpPacketTopic } from "../ilp-connector/topics/incoming-ilp-packet"
@@ -97,11 +97,9 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
                 .protocolData) {
                 if (protocolData.protocolName === "ilp") {
                   logger.debug("received ILP packet via BTP message")
-                  const parsedPacket = parseIlpPacket(protocolData.data)
-                  sig.use(incomingIlpPacketTopic).emit({
+                  sig.use(incomingIlpPacketTopic).emitPacket({
                     source: ilpAddress,
-                    packet: parsedPacket,
-                    asUint8Array: protocolData.data,
+                    packet: protocolData.data,
                     requestId: message.requestId,
                   })
                   return
@@ -127,11 +125,9 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
                 .protocolData) {
                 if (protocolData.protocolName === "ilp") {
                   logger.debug("received ILP packet via BTP transfer")
-                  const parsedPacket = parseIlpPacket(protocolData.data)
-                  sig.use(incomingIlpPacketTopic).emit({
+                  sig.use(incomingIlpPacketTopic).emitPacket({
                     source: ilpAddress,
-                    packet: parsedPacket,
-                    asUint8Array: protocolData.data,
+                    packet: protocolData.data,
                     requestId: message.requestId,
                   })
                   return
@@ -156,11 +152,9 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
                 .protocolData) {
                 if (protocolData.protocolName === "ilp") {
                   logger.debug("received ILP packet via BTP response")
-                  const parsedPacket = parseIlpPacket(protocolData.data)
-                  sig.use(incomingIlpPacketTopic).emit({
+                  sig.use(incomingIlpPacketTopic).emitPacket({
                     source: ilpAddress,
-                    packet: parsedPacket,
-                    asUint8Array: protocolData.data,
+                    packet: protocolData.data,
                     requestId: message.requestId,
                   })
                   return

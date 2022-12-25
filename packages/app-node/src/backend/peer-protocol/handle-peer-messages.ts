@@ -2,7 +2,6 @@ import { createLogger } from "@dassie/lib-logger"
 import { EffectContext, createTopic } from "@dassie/lib-reactive"
 
 import { configSignal } from "../config"
-import { parseIlpPacket } from "../ilp-connector/ilp-packet-codec"
 import { incomingIlpPacketTopic } from "../ilp-connector/topics/incoming-ilp-packet"
 import type { PeerMessage } from "./peer-schema"
 import type { PerSubnetParameters } from "./run-per-subnet-effects"
@@ -134,18 +133,17 @@ export const handlePeerMessages = (
         from: sender,
       })
 
-      const parsedPacket = parseIlpPacket(
-        content.interledgerPacket.signed.packet
-      )
+      const incomingIlpPacketTopicValue = sig.use(incomingIlpPacketTopic)
 
       const { ilpAllocationScheme } = sig.use(configSignal).read()
 
-      sig.use(incomingIlpPacketTopic).emit({
+      const incomingPacketEvent = incomingIlpPacketTopicValue.prepareEvent({
         source: `${ilpAllocationScheme}.das.${subnetId}.${sender}`,
-        packet: parsedPacket,
-        asUint8Array: content.interledgerPacket.signed.packet,
+        packet: content.interledgerPacket.signed.packet,
         requestId: content.interledgerPacket.signed.requestId,
       })
+
+      incomingIlpPacketTopicValue.emit(incomingPacketEvent)
     }
   })
 }
