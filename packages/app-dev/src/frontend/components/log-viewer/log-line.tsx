@@ -1,4 +1,3 @@
-import LinkifyIt from "linkify-it"
 import { Link } from "wouter"
 
 import { selectBySeed } from "@dassie/lib-logger"
@@ -6,41 +5,6 @@ import { selectBySeed } from "@dassie/lib-logger"
 import type { IndexedLogLine } from "../../../common/stores/logs"
 import { COLORS } from "../../constants/palette"
 import { AnsiSpan, AnsiSpanProperties } from "../utilities/ansi-span"
-
-const linkify = new LinkifyIt()
-
-export const linkifyText = (text: string) => {
-  const matches = linkify.match(text) ?? []
-
-  const elements = []
-  let lastIndex = 0
-
-  for (const match of matches) {
-    if (match.index > lastIndex) {
-      elements.push(text.slice(lastIndex, match.index))
-    }
-
-    const link = (
-      <a
-        key={match.index}
-        href={match.url}
-        target="blank"
-        className="underline-gray-400 hover:underline"
-      >
-        {match.text}
-      </a>
-    )
-    elements.push(link)
-
-    lastIndex = match.lastIndex
-  }
-
-  if (text.length > lastIndex) {
-    elements.push(text.slice(lastIndex))
-  }
-
-  return elements
-}
 
 const DATA_PREVIEW_MAX_LENGTH = 30
 
