@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { logLineTopic } from "../features/logs"
+import { logsStore } from "../../common/stores/logs"
 import { peerTrafficTopic } from "../topics/peer-traffic"
 import { createCliOnlyLogger } from "../utils/cli-only-logger"
 import { trpc } from "./trpc"
@@ -36,10 +36,12 @@ export const runnerRpcRouter = trpc.router({
       ])
     )
     .mutation(({ input: [nodeId, logLine], ctx: { reactor } }) => {
-      reactor.use(logLineTopic).emit({
+      const logs = reactor.use(logsStore)
+      logs.addLogLine({
         node: nodeId,
         ...logLine,
       })
+
       if (process.env["DASSIE_LOG_TO_CLI"] === "true") {
         const prefix = `◼ ${nodeId}`
         const cliLogger = createCliOnlyLogger(prefix)

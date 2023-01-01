@@ -10,7 +10,7 @@ import {
 
 import { useSig } from "@dassie/lib-reactive-react"
 
-import type { IndexedLogLine } from "../../../backend/features/logs"
+import type { IndexedLogLine } from "../../../common/stores/logs"
 import { remoteLogsStore } from "../../remote-signals/logs"
 import LogLine from "./log-line"
 

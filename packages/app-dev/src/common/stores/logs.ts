@@ -1,9 +1,21 @@
-import { createStore } from "@dassie/lib-reactive"
+import type { SetOptional } from "type-fest"
 
-import type { IndexedLogLine } from "../../backend/features/logs"
+import type { SerializableLogLine } from "@dassie/lib-logger"
+import { createStore } from "@dassie/lib-reactive"
 
 export const LOGS_SOFT_LIMIT = 10_000
 export const LOGS_HARD_LIMIT = 10_100
+
+export interface NodeLogLine extends SerializableLogLine {
+  node: string
+}
+
+export interface IndexedLogLine extends NodeLogLine {
+  index: number
+  relativeTime: number
+}
+
+type NewLogLine = SetOptional<IndexedLogLine, "index" | "relativeTime">
 
 export const logsStore = () =>
   createStore(
@@ -14,9 +26,16 @@ export const logsStore = () =>
         logs: [],
       }),
       addLogLine:
-        (logLine: IndexedLogLine) =>
+        (logLine: NewLogLine) =>
         ({ logs }) => {
-          logs.push(logLine)
+          const lastIndex = logs[logs.length - 1]?.index ?? -1
+          const startTime = new Date(logs[0]?.date ?? new Date().toISOString())
+
+          logs.push({
+            index: lastIndex + 1,
+            relativeTime: Date.now() - Number(startTime),
+            ...logLine,
+          })
 
           if (logs.length > LOGS_HARD_LIMIT) {
             logs = logs.slice(logs.length - LOGS_SOFT_LIMIT)

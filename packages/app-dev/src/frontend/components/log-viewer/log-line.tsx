@@ -3,7 +3,7 @@ import { Link } from "wouter"
 
 import { selectBySeed } from "@dassie/lib-logger"
 
-import type { IndexedLogLine } from "../../../backend/features/logs"
+import type { IndexedLogLine } from "../../../common/stores/logs"
 import { COLORS } from "../../constants/palette"
 import { AnsiSpan, AnsiSpanProperties } from "../utilities/ansi-span"
 

@@ -10,7 +10,7 @@ import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
 import { assertDefined, isObject } from "@dassie/lib-type-utils"
 
-import { logLineTopic } from "../features/logs"
+import { logsStore } from "../../common/stores/logs"
 import { createCliOnlyLogger } from "../utils/cli-only-logger"
 
 const logger = createLogger("das:dev:run-child-process")
@@ -102,7 +102,7 @@ export const runChildProcess = async (
       )
         continue
 
-      sig.use(logLineTopic).emit({
+      sig.use(logsStore).addLogLine({
         node: id,
         component: inputName,
         message: line,

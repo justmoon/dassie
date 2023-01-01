@@ -6,14 +6,14 @@ import {
 } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
 
-import { logLineTopic } from "../features/logs"
+import { logsStore } from "../../common/stores/logs"
 
 export const registerReactiveLogger = (sig: EffectContext) => {
   let inRecursion = false
   const cliFormatter = createCliFormatter()
   const jsonFormatter = createJsonFormatter({
     outputFunction(line: SerializableLogLine) {
-      sig.use(logLineTopic).emit({
+      sig.use(logsStore).addLogLine({
         node: "",
         ...line,
       })

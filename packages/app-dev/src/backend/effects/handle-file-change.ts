@@ -5,6 +5,7 @@ import { posix } from "node:path"
 import { createLogger } from "@dassie/lib-logger"
 import { EffectContext, createTopic } from "@dassie/lib-reactive"
 
+import { logsStore } from "../../common/stores/logs"
 import { viteService } from "../services/vite-server"
 
 const logger = createLogger("das:dev:handle-file-change")
@@ -27,7 +28,7 @@ export const handleFileChange = async (sig: EffectContext) => {
     const mods = moduleGraph.getModulesByFile(file)
 
     if (mods && mods.size > 0) {
-      logger.clear()
+      sig.use(logsStore).clear()
       logger.info(`${colors.green(`change`)} ${colors.dim(shortFile)}`)
 
       sig.use(fileChangeTopic).emit(undefined)
