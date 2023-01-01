@@ -82,7 +82,7 @@ const LogLine = ({ log }: LogLineProperties) => {
           <AnsiSpan content={log.message}></AnsiSpan>
         </span>
         {Object.entries(log.data ?? {}).map(([key, value]) =>
-          key !== "error" ? (
+          key === "error" ? null : (
             <div
               key={key}
               className="bg-dark-100 rounded-1 text-xs ml-1 px-1 inline-block"
@@ -92,7 +92,7 @@ const LogLine = ({ log }: LogLineProperties) => {
                 <DataValue content={value} />
               </span>
             </div>
-          ) : null
+          )
         )}
         {log.data?.["error"] ? (
           <p className="rounded-md bg-dark-300 mt-2 mb-4 p-2">

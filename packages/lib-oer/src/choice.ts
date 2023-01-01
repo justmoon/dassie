@@ -62,9 +62,9 @@ export class OerChoice<TOptions extends ObjectShape> extends OerType<
     for (const [key, oer] of Object.entries(options)) {
       const tag = isAutomaticallyTagged
         ? (index++ << 2) | TAG_MARKER_CONTEXT
-        : oer._tag != undefined
-        ? (oer._tag[0] << 2) | oer._tag[1]
-        : undefined
+        : oer._tag == undefined
+        ? undefined
+        : (oer._tag[0] << 2) | oer._tag[1]
 
       if (tag == undefined) {
         throw new Error(

@@ -8,7 +8,7 @@ export const parseLengthPrefix = (
 ): readonly [length: number, lengthOfLength: number] | ParseError => {
   const lengthByte = uint8Array[offset]
 
-  if (typeof lengthByte === "undefined") {
+  if (lengthByte === undefined) {
     return new ParseError(
       "unable to read length prefix - end of buffer",
       uint8Array,

@@ -31,7 +31,7 @@ export class OerEnumerated<
   parseWithContext(context: ParseContext, offset: number) {
     const { uint8Array } = context
     const firstByte = uint8Array[offset]
-    if (typeof firstByte === "undefined") {
+    if (firstByte === undefined) {
       return new ParseError(
         "unable to read enumerated value - end of buffer",
         uint8Array,

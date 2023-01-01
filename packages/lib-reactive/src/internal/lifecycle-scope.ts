@@ -14,9 +14,10 @@ export class LifecycleScope {
       Promise.resolve(cleanupHandler()).catch((error: unknown) => {
         console.error("error in cleanup handler", { error })
       })
-    } else {
-      this.cleanupQueue.push(cleanupHandler)
+      return
     }
+
+    this.cleanupQueue.push(cleanupHandler)
   }
 
   offCleanup(cleanupHandler: AsyncDisposer) {

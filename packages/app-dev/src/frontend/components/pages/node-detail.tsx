@@ -215,9 +215,9 @@ const NodeFirehoseViewer = ({ events }: NodeFirehoseViewerProperties) => {
         onClick={(messageId) => setMessageId(messageId)}
       />
       <div>
-        {messageId != undefined ? (
+        {messageId == undefined ? null : (
           <NodeFirehoseEventDetail messageId={messageId} events={events} />
-        ) : null}
+        )}
       </div>
     </div>
   )

@@ -12,7 +12,7 @@ export class OerBoolean extends OerType<boolean> {
     offset: number
   ) {
     const value = uint8Array[offset]
-    if (typeof value === "undefined") {
+    if (value === undefined) {
       return new ParseError(
         "unable to read boolean value - end of buffer",
         uint8Array,

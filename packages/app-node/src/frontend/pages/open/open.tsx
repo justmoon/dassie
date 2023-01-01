@@ -137,12 +137,12 @@ export const Open = () => {
     <div className="flex h-full items-center justify-center">
       <Dialog.Root>
         <Dialog.Titlebar>
-          {subpage.subpage !== "intro" ? (
+          {subpage.subpage === "intro" ? null : (
             <Dialog.TitleActionButton onClick={onBack}>
               <ArrowLeft />
               <span className="sr-only">Go back</span>
             </Dialog.TitleActionButton>
-          ) : null}
+          )}
           <h1 className="flex-grow flex-shrink-0 basis-auto font-bold text-lg md:text-xl">
             {SUBPAGE_TITLES[subpage.subpage]}
           </h1>

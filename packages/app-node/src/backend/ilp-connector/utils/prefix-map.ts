@@ -33,7 +33,7 @@ export default class PrefixMap<T> extends Map<string, T> {
   lookup(key: string) {
     const prefix = this.lookupKey(key)
 
-    return typeof prefix !== "undefined" ? this.get(prefix) : undefined
+    return prefix === undefined ? undefined : this.get(prefix)
   }
 
   /**

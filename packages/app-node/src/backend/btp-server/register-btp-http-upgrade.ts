@@ -194,7 +194,10 @@ export const registerBtpHttpUpgrade = (sig: EffectContext) => {
             }
 
             const btpEnvelopeSerializeResult = btpEnvelopeSchema.serialize({
-              messageType: packet.type !== IlpType.Prepare ? 1 : 6, // Response or Message
+              messageType:
+                packet.type === IlpType.Prepare
+                  ? BtpType.Message
+                  : BtpType.Response,
               requestId,
               message: btpMessageSerializeResult.value,
             })

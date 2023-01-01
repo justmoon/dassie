@@ -40,7 +40,7 @@ const runSubnetModule = async (sig: EffectContext, subnetId: string) => {
   /**
    * Instantiate aspects of the peer protocol that are specific to this subnet.
    */
-  sig.run(runPerSubnetEffects, {
+  await sig.run(runPerSubnetEffects, {
     subnetId,
     subnetModule: instance,
   })
