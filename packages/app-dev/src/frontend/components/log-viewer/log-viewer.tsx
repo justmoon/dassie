@@ -96,7 +96,7 @@ const LogViewer = ({ filter: externalFilter }: LogViewerProperties) => {
   })
 
   return (
-    <div className="h-full w-full flex flex-col gap-4">
+    <div className="h-full w-full flex flex-col gap-4 min-h-0">
       <div className="flex items-center gap-2">
         <input
           type="text"
