@@ -25,6 +25,7 @@ const LogViewer = ({ filter: externalFilter }: LogViewerProperties) => {
   const [keywordFilter, setKeywordFilter] = useState("")
   const sig = useSig()
   const logs = sig.get(remoteLogsStore)?.logs
+  const latestLogLine = logs?.[logs.length - 1]
   const filteredLogs = useMemo(
     () =>
       logs?.filter((item) => {
@@ -52,7 +53,8 @@ const LogViewer = ({ filter: externalFilter }: LogViewerProperties) => {
 
         return true
       }) ?? [],
-    [keywordFilter, externalFilter, logs]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [keywordFilter, externalFilter, logs, latestLogLine]
   )
 
   const virtualizer = useVirtualizer({
