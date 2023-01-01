@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { useState } from "react"
+import superjson from "superjson"
 import { Route } from "wouter"
 
 import { useSig } from "@dassie/lib-reactive-react"
@@ -25,6 +26,7 @@ const App = () => {
   const [trpcClient] = useState(() => {
     return trpc.createClient({
       links: [wsLink],
+      transformer: superjson,
     })
   })
 

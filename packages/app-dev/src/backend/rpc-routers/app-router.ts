@@ -4,11 +4,11 @@ import { trpc } from "./trpc"
 import { uiRpcRouter } from "./ui-rpc-router"
 
 export const appRouter = trpc.mergeRouters(
-  remoteReactiveRouter,
   trpc.router({
     ui: uiRpcRouter,
     runner: runnerRpcRouter,
-  })
+  }),
+  remoteReactiveRouter
 )
 
 export type AppRouter = typeof appRouter

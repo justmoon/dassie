@@ -122,7 +122,8 @@ const LogViewer = ({ filter: externalFilter }: LogViewerProperties) => {
             return (
               <div
                 key={virtualItem.key}
-                ref={virtualItem.measureElement}
+                data-index={virtualItem.index}
+                ref={virtualizer.measureElement}
                 className="w-full top-0 left-0 absolute"
                 style={{ transform: `translateY(${virtualItem.start}px)` }}
               >

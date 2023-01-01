@@ -13,7 +13,10 @@ import {
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 export type ReactiveContext = { reactor: Reactor }
 
-const _trpc = initTRPC.context<ReactiveContext>().create()
+const _trpc = initTRPC
+  .context<ReactiveContext>()
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-explicit-any
+  .create({ transformer: {} as any })
 
 type AnyRootConfigTypes = AnyRootConfig extends RootConfig<infer T> ? T : never
 
