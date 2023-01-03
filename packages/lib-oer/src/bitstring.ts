@@ -23,7 +23,6 @@ export const parseBitstring = (
   const byteLength = Math.ceil(size / 8)
   const output = Array.from({ length: size })
   for (let byteIndex = 0; byteIndex < byteLength; byteIndex++) {
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const byte = context.uint8Array[offset + byteIndex]!
 
     for (let bitIndex = 0; bitIndex < 8; bitIndex++) {
@@ -78,7 +77,6 @@ export class OerVariableBitstring<
 
     const [length, lengthOfLength] = result
 
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const unusedBits = uint8Array[offset + lengthOfLength]!
 
     if (unusedBits > 7) {

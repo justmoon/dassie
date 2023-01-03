@@ -148,7 +148,6 @@ export class OerVariableUnsignedInteger extends OerIntegerBigint {
         value = (value << 32n) + BigInt(dataView.getUint32(offset + index))
         index += 4
       } else {
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         value = (value << 8n) + BigInt(uint8Array[offset + index]!)
         index += 1
       }

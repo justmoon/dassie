@@ -38,7 +38,6 @@ export const parseLengthPrefix = (
     let length = 0
     for (let index = 0; index < lengthOfLength; index++) {
       // We have checked the length, so we can assert that this is not undefined
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       length = ((length << 8) | uint8Array[offset + index + 1]!) >>> 0
     }
 

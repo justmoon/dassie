@@ -55,3 +55,6 @@ jobs:
 
       - name: Run tests
         run: pnpm test
+
+      - name: Run Lint
+        run: pnpm eslint "packages/*/src/**/*.ts"
