@@ -52,10 +52,8 @@ export class OerString extends OerType<string> {
 
     if (this.filterArray) {
       for (let index = 0; index < octetStringValue.length; index++) {
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         if (!this.filterArray[octetStringValue[index]!]) {
           return new ParseError(
-            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
             `Invalid character 0x${octetStringValue[index]!.toString(
               16
             ).padStart(2, "0")} in string`,

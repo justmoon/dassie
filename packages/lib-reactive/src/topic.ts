@@ -60,7 +60,6 @@ export interface Topic<TMessage = never, TTrigger = TMessage> {
 
 export const createTopic = <TMessage>(): Topic<TMessage, TMessage> => {
   // We construct a temporary object in order to assign the name to the function
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   let listeners: Listener<TMessage> | Set<Listener<TMessage>> | undefined
 
   const emit = (message: TMessage) => {

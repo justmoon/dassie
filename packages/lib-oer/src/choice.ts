@@ -139,7 +139,6 @@ export class OerChoice<TOptions extends ObjectShape> extends OerType<
       )
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const oer = this.options[key]!
 
     const result = oer.parseWithContext(context, offset + tagLength)
