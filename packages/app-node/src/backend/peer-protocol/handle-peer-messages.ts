@@ -6,7 +6,7 @@ import { incomingIlpPacketTopic } from "../ilp-connector/topics/incoming-ilp-pac
 import type { PeerMessage } from "./peer-schema"
 import type { PerSubnetParameters } from "./run-per-subnet-effects"
 import { NodeTableKey, nodeTableStore } from "./stores/node-table"
-import { PeerTableKey, peerTableStore } from "./stores/peer-table"
+import { peerTableStore } from "./stores/peer-table"
 
 const logger = createLogger("das:node:incoming-peer-message-handler")
 
@@ -34,71 +34,71 @@ export const handlePeerMessages = (
 
     const content = message.content.value
 
-    if (content.hello) {
-      const { nodeInfo } = content.hello.signed
-      const { nodeId, sequence, url } = nodeInfo.signed
-      const peers = sig.use(peerTableStore).read()
-
-      logger.debug("handle hello", {
-        subnet: subnetId,
-        from: nodeId,
-        sequence,
+    if (content.peeringRequest) {
+      const { nodeInfo } = content.peeringRequest
+      const { subnetId, nodeId, url } = nodeInfo.signed
+      sig.use(peerTableStore).addPeer({
+        subnetId,
+        nodeId,
+        state: { id: "peered" },
+        url,
+        lastSeen: Date.now(),
       })
-
-      const peerKey: PeerTableKey = `${subnetId}.${nodeId}`
-      const peer = peers.get(peerKey)
-      if (peer) {
-        sig.use(peerTableStore).updatePeer(peerKey, {
-          lastSeen: Date.now(),
-        })
-      } else {
-        sig.use(peerTableStore).addPeer({
-          subnetId,
-          nodeId,
-          url,
-          lastSeen: Date.now(),
-        })
-      }
     } else if (content.linkStateUpdate) {
       const { value: linkState, bytes: linkStateBytes } =
         content.linkStateUpdate
       const { nodeId, sequence, entries, nodePublicKey } = linkState.signed
       const nodes = sig.use(nodeTableStore).read()
+      const peers = sig.use(peerTableStore).read()
 
       const neighbors = entries
         .filter((entry) => "neighbor" in entry)
         .map((entry) => entry.neighbor.nodeId)
 
-      logger.debug("handle link state update", {
-        subnet: subnetId,
-        from: nodeId,
-        sequence,
-        neighbors: neighbors.join(","),
-      })
-
       const nodeKey: NodeTableKey = `${subnetId}.${nodeId}`
       const node = nodes.get(nodeKey)
+      const peer = peers.get(nodeKey)
+
       if (node) {
         if (sequence < node.sequence) {
           logger.debug("received a stale link state update", {
+            subnet: subnetId,
             from: nodeId,
             sequence,
+            neighbors: neighbors.join(","),
             previousSequence: node.sequence,
           })
           return
         }
+
         if (sequence === node.sequence) {
-          logger.debug("received another copy of a link state update", {
-            from: nodeId,
-            sequence,
-            counter: node.updateReceivedCounter + 1,
-          })
+          if (peer) {
+            logger.debug("received heartbeat from peer", {
+              subnet: subnetId,
+              from: nodeId,
+              sequence,
+            })
+          } else {
+            logger.debug("received another copy of a link state update", {
+              subnet: subnetId,
+              from: nodeId,
+              sequence,
+              counter: node.updateReceivedCounter + 1,
+            })
+          }
 
           sig.use(nodeTableStore).updateNode(nodeKey, {
             updateReceivedCounter: node.updateReceivedCounter + 1,
           })
           return
         }
+
+        logger.debug("process new link state update", {
+          subnet: subnetId,
+          from: nodeId,
+          sequence,
+          neighbors: neighbors.join(","),
+        })
         sig.use(nodeTableStore).updateNode(nodeKey, {
           sequence,
           neighbors,
@@ -120,6 +120,19 @@ export const handlePeerMessages = (
             Math.ceil(Math.random() * MAX_LINK_STATE_UPDATE_RETRANSMIT_DELAY),
           neighbors,
           lastLinkStateUpdate: linkStateBytes,
+        })
+      }
+
+      if (peer) {
+        // If this peer has started sending us node updates, we can infer that we are successfully peered
+        if (peer.state.id === "request-peering") {
+          sig.use(peerTableStore).updatePeer(nodeKey, {
+            state: { id: "peered" },
+          })
+        }
+
+        sig.use(peerTableStore).updatePeer(nodeKey, {
+          lastSeen: Date.now(),
         })
       }
     } else {

@@ -29,7 +29,7 @@ export const rootEffect = async (sig: EffectContext) => {
   await sig.run(startSpspServer)
   await sig.run(startOpenPaymentsServer)
 
-  await sig.run(speakPeerProtocol)
+  sig.run(speakPeerProtocol)
 
   sig.run(startBeaconClient)
 }

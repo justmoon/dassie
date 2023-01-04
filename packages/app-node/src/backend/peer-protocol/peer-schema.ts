@@ -15,10 +15,7 @@ import {
   visibleString,
 } from "@dassie/lib-oer"
 
-import {
-  dassiePeerNodeInfoId,
-  dassiePeerSignedHelloId,
-} from "../constants/object-identifiers"
+import { dassiePeerNodeInfoId } from "../constants/object-identifiers"
 
 export type PeerMessage = Infer<typeof peerMessage>
 
@@ -49,20 +46,14 @@ export const signedPeerNodeInfo = sequence({
   signature: octetString(),
 })
 
-export const peerHello = sequence({
-  type: objectIdentifier().constant(dassiePeerSignedHelloId),
-  nodeInfo: octetString().containing(signedPeerNodeInfo),
-})
-
 export const peerInterledgerPacket = sequence({
   requestId: uint32Number(),
   packet: octetString(),
 })
 
 export const peerMessageContent = choice({
-  hello: sequence({
-    signed: octetString().containing(peerHello),
-    signature: octetString(),
+  peeringRequest: sequence({
+    nodeInfo: octetString().containing(signedPeerNodeInfo),
   }).tag(0),
   linkStateUpdate: captured(signedPeerNodeInfo).tag(1),
   interledgerPacket: sequence({

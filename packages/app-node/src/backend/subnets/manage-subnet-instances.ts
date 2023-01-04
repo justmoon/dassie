@@ -33,7 +33,9 @@ const runSubnetModule = async (sig: EffectContext, subnetId: string) => {
 
   if (subnetState?.initialPeers) {
     for (const peer of subnetState.initialPeers) {
-      sig.use(peerTableStore).addPeer({ subnetId, ...peer })
+      sig
+        .use(peerTableStore)
+        .addPeer({ subnetId, ...peer, state: { id: "request-peering" } })
     }
   }
 
