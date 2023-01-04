@@ -1,3 +1,5 @@
+import type { InputConfig } from "@dassie/app-node"
+
 import {
   DEBUG_UI_PORT,
   NODES_DEBUG_START_PORT,
@@ -11,7 +13,20 @@ const LOCAL_PATH = new URL("../../../../../local", import.meta.url).pathname
 export const nodeIndexToId = (index: number) => `n${index + 1}`
 export const nodeIndexToPort = (index: number) => NODES_START_PORT + index
 
-export const generateNodeConfig = (index: number, peers: readonly number[]) => {
+interface NodeConfig {
+  id: string
+  port: number
+  debugPort: number
+  peers: string[]
+  config: InputConfig
+  url: string
+  entry: string
+}
+
+export const generateNodeConfig = (
+  index: number,
+  peers: readonly number[]
+): NodeConfig => {
   const id = nodeIndexToId(index)
   const port = nodeIndexToPort(index)
 
@@ -30,7 +45,7 @@ export const generateNodeConfig = (index: number, peers: readonly number[]) => {
       tlsDassieKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/dassie-${id}.localhost-key.pem`,
       tlsWebCertFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost.pem`,
       tlsWebKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost-key.pem`,
-      initialSubnets: JSON.stringify([
+      initialSubnets: [
         {
           id: "stub",
           config: {},
@@ -41,7 +56,7 @@ export const generateNodeConfig = (index: number, peers: readonly number[]) => {
             )}`,
           })),
         },
-      ]),
+      ],
       // TODO: Make this dynamic
       beacons: "https://b1.localhost:13000;https://b2.localhost:13001",
       exchangeRateUrl: `https://localhost:${DEBUG_UI_PORT}/rates.json`,

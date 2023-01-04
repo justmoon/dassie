@@ -1,5 +1,5 @@
 import envPaths from "env-paths"
-import { ZodTypeAny, z } from "zod"
+import { z } from "zod"
 
 import { readFileSync } from "node:fs"
 
@@ -51,7 +51,7 @@ export const inputConfigSchema = z.object({
   tlsDassieCertFile: z.string().optional(),
   tlsDassieKey: z.string().optional(),
   tlsDassieKeyFile: z.string().optional(),
-  initialSubnets: z.string().optional(),
+  initialSubnets: subnetConfigSchema.optional(),
   beacons: z.string().optional(),
   exchangeRateUrl: z.string().optional(),
   internalAmountPrecision: z.number().optional(),
@@ -71,19 +71,6 @@ export const processFileOption = (
     return defaultValue
   } else {
     throw new Error(`Required option ${name}/${name}File is missing`)
-  }
-}
-
-const parseJsonConfig = <T extends ZodTypeAny>(
-  schema: T,
-  value: string | undefined
-): z.infer<T> | undefined => {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-    return value ? (schema.parse(JSON.parse(value)) as z.infer<T>) : undefined
-  } catch (error: unknown) {
-    logger.warn("failed to parse JSON config", { error })
-    return undefined
   }
 }
 
@@ -125,9 +112,7 @@ export function fromPartialConfig(partialConfig: InputConfig): Config {
       partialConfig.tlsDassieKey,
       partialConfig.tlsDassieKeyFile
     ),
-    initialSubnets: partialConfig.initialSubnets
-      ? parseJsonConfig(subnetConfigSchema, partialConfig.initialSubnets) ?? []
-      : [],
+    initialSubnets: partialConfig.initialSubnets ?? [],
     beacons: (partialConfig.beacons ?? "")
       .split(";")
       .map((url) => ({ url }))
