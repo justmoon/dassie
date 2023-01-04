@@ -12,7 +12,7 @@ import type { EffectContext } from "@dassie/lib-reactive"
 import { routerService } from "../http-server/serve-http"
 import { incomingPeerMessageTopic } from "./handle-peer-messages"
 import { peerMessage as peerMessageSchema } from "./peer-schema"
-import { nodeTableStore } from "./stores/node-table"
+import { peerTableStore } from "./stores/peer-table"
 import { authenticatePeerMessage } from "./utils/authenticate-peer-message"
 
 const logger = createLogger("das:node:handle-peer-http-request")
@@ -51,12 +51,21 @@ export const registerPeerHttpHandler = (sig: EffectContext) => {
       const subnetId = parseResult.value.subnetId
       const senderId = parseResult.value.sender
       const senderPublicKey = sig
-        .use(nodeTableStore)
+        .use(peerTableStore)
         .read()
         .get(`${subnetId}.${senderId}`)?.nodePublicKey
       const isAuthenticated =
         !!senderPublicKey &&
         authenticatePeerMessage(senderPublicKey, parseResult.value)
+
+      // Peering requests are the only messages that don't require valid authentication
+      if (!isAuthenticated && !parseResult.value.content.value.peeringRequest) {
+        logger.debug("incoming dassie message is not authenticated, ignoring", {
+          message: parseResult.value,
+          body,
+        })
+        return
+      }
 
       sig.use(incomingPeerMessageTopic).emit({
         message: parseResult.value,
