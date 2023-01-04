@@ -36,12 +36,13 @@ export const handlePeerMessages = (
 
     if (content.peeringRequest) {
       const { nodeInfo } = content.peeringRequest
-      const { subnetId, nodeId, url } = nodeInfo.signed
+      const { subnetId, nodeId, url, nodePublicKey } = nodeInfo.signed
       sig.use(peerTableStore).addPeer({
         subnetId,
         nodeId,
         state: { id: "peered" },
         url,
+        nodePublicKey,
         lastSeen: Date.now(),
       })
     } else if (content.linkStateUpdate) {

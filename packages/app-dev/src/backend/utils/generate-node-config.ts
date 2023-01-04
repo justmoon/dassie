@@ -54,6 +54,7 @@ export const generateNodeConfig = (
             url: `https://${nodeIndexToId(target)}.localhost:${nodeIndexToPort(
               target
             )}`,
+            nodePublicKey: "BEEF",
           })),
         },
       ],

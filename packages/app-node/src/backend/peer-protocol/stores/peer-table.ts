@@ -20,6 +20,7 @@ export interface PeerEntry {
   nodeId: string
   state: PeerState
   url: string
+  nodePublicKey: Uint8Array
   lastSeen: number
 }
 
