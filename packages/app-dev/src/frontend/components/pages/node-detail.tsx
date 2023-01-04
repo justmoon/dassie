@@ -58,6 +58,7 @@ const PeerTable = ({ nodeId }: BasicNodeElementProperties) => {
       <table className="border-separate border-spacing-2 my-4 -ml-2">
         <thead>
           <tr>
+            <th className="text-left">Subnet</th>
             <th className="text-left">Peer</th>
             <th className="text-left">URL</th>
             <th className="text-left">Last Seen</th>
@@ -66,6 +67,7 @@ const PeerTable = ({ nodeId }: BasicNodeElementProperties) => {
         <tbody>
           {[...peerTable.data.values()].map((peer) => (
             <tr key={peer.nodeId}>
+              <td className="text-slate-400">{peer.subnetId}</td>
               <td className="">
                 <Link
                   href={`/nodes/${peer.nodeId}`}
@@ -115,6 +117,7 @@ const NodeTable = ({ nodeId }: BasicNodeElementProperties) => {
       <table className="border-separate border-spacing-2 my-4 -ml-2">
         <thead>
           <tr>
+            <th className="text-left">Subnet</th>
             <th className="text-left">Node</th>
             <th>Distance</th>
             <th>Next Hop Options</th>
@@ -127,6 +130,7 @@ const NodeTable = ({ nodeId }: BasicNodeElementProperties) => {
             const nextHopNodes = routingTableEntry?.firstHopOptions
             return (
               <tr key={node.nodeId}>
+                <td className="text-slate-400">{node.subnetId}</td>
                 <td className="">
                   <NodeLink nodeId={node.nodeId} />
                 </td>
