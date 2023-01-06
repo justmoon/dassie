@@ -17,16 +17,16 @@
     "@dassie/lib-reactive": "workspace:^1.0.0",
     "@dassie/lib-type-utils": "workspace:^1.0.0",
     "@noble/ed25519": "^1.7.1",
-    "@types/ws": "^8.5.3",
-    "axios": "^1.2.1",
+    "@types/ws": "^8.5.4",
+    "axios": "^1.2.2",
     "denque": "^2.1.0",
     "env-paths": "^3.0.0",
-    "find-my-way": "^7.3.1",
-    "immer": "^9.0.16",
+    "find-my-way": "^7.4.0",
+    "immer": "^9.0.17",
     "iterative": "^1.9.2",
     "ws": "^8.11.0"
   },
   "devDependencies": {
-    "type-fest": "^3.5.0"
+    "type-fest": "^3.5.1"
   }
 }
