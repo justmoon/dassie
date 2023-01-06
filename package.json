@@ -9,6 +9,8 @@
     "build": "pnpm -r build",
     "start": "vite-node packages/app-dev/bin/start-development-server.ts",
     "test": "vitest",
+    "lint": "eslint \"packages/*/src/**/*.ts\"",
+    "typecheck": "tsc --noEmit",
     "api": "vite-node scripts/extract-apis.ts"
   },
   "repository": {

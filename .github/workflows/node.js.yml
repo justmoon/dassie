@@ -53,8 +53,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Run typecheck
+        run: pnpm typecheck
+
       - name: Run tests
         run: pnpm test
 
-      - name: Run Lint
-        run: pnpm eslint "packages/*/src/**/*.ts"
+      - name: Run linter
+        run: pnpm lint
