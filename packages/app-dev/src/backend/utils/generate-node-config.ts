@@ -23,10 +23,10 @@ interface NodeConfig {
   entry: string
 }
 
-export const generateNodeConfig = (
-  index: number,
-  peers: readonly number[]
-): NodeConfig => {
+export const generateNodeConfig = ((
+  index,
+  peers
+) => {
   const id = nodeIndexToId(index)
   const port = nodeIndexToPort(index)
 
@@ -65,4 +65,4 @@ export const generateNodeConfig = (
     url: `https://${id}.localhost:${port}/`,
     entry: ENTRYPOINT,
   }
-}
+}) satisfies (index: number, peers: readonly number[]) => NodeConfig
