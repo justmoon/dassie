@@ -1,7 +1,6 @@
 import type { Simplify } from "type-fest"
 
 import { AnyOerType, Infer, InferSerialize, OerType } from "./base-type"
-import type { ObjectShape } from "./sequence"
 import { ParseError, SerializeError } from "./utils/errors"
 import type { ParseContext, SerializeContext } from "./utils/parse"
 import {
@@ -12,6 +11,8 @@ import {
   serializeTag,
   tagMarkerClassMap,
 } from "./utils/tag"
+
+export type OptionsShape = Record<string, AnyOerType>
 
 /**
  * Change all properties of an interface to type never
@@ -37,7 +38,7 @@ type InferOptionSerializeValues<T extends Record<string, AnyOerType>> = {
 // This should be plenty though since tag values are usually much smaller.
 const MAX_SAFE_TAG_VALUE = Number.MAX_SAFE_INTEGER >>> 2
 
-export class OerChoice<TOptions extends ObjectShape> extends OerType<
+export class OerChoice<TOptions extends OptionsShape> extends OerType<
   Simplify<InferOptionValues<TOptions>>,
   Simplify<InferOptionSerializeValues<TOptions>>
 > {
@@ -220,6 +221,6 @@ export class OerChoice<TOptions extends ObjectShape> extends OerType<
   }
 }
 
-export const choice = <TOptions extends ObjectShape>(options: TOptions) => {
+export const choice = <TOptions extends OptionsShape>(options: TOptions) => {
   return new OerChoice(options)
 }

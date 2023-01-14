@@ -14,6 +14,9 @@ export * from "./sequence-of"
 export * from "./sequence"
 export * from "./string"
 
+export * from "./information-object/class"
+export * from "./information-object/object-set"
+
 export * from "./utils/alphabet"
 
 export { uint8ArrayToHex, hexToUint8Array } from "./utils/hex"

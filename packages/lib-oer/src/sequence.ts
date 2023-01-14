@@ -1,4 +1,4 @@
-import type { ConditionalExcept, ConditionalPick, Simplify } from "type-fest"
+import type { ConditionalExcept, ConditionalPick } from "type-fest"
 
 import {
   AnyOerType,
@@ -9,6 +9,14 @@ import {
   OerType,
   Serializer,
 } from "./base-type"
+import type {
+  AnyObjectSetField,
+  InformationObjectSetStateMap,
+} from "./information-object/object-set"
+import type {
+  InferInformationObjectParseShape,
+  InferInformationObjectSerializeShape,
+} from "./information-object/sequence"
 import { ParseError, SerializeError } from "./utils/errors"
 import {
   parseLengthPrefix,
@@ -19,63 +27,79 @@ import type { ParseContext, SerializeContext } from "./utils/parse"
 
 export type ObjectShape = Record<string, AnyOerType>
 
+export type SequenceShape = Record<string, AnyOerType | AnyObjectSetField>
+
 // Takes the type
-export type InferObjectParseShape<TShape extends ObjectShape> = {
-  [key in keyof TShape]: Infer<TShape[key]>
+export type InferObjectParseShape<TShape extends SequenceShape> = {
+  [key in keyof ConditionalPick<
+    TShape,
+    AnyOerType
+  >]: TShape[key] extends AnyOerType ? Infer<TShape[key]> : never
 }
 
-export type InferObjectSerializeShape<TShape extends ObjectShape> = {
+export type InferObjectSerializeShape<TShape extends SequenceShape> = {
   [key in keyof ConditionalExcept<
     // We use ConditionalExcept to remove any constants from the serialize shape
-    TShape,
+    ConditionalPick<TShape, AnyOerType>,
     OerConstant<unknown, unknown> | OerOptional<unknown, unknown>
-  >]: InferSerialize<TShape[key]>
+  >]: TShape[key] extends AnyOerType ? InferSerialize<TShape[key]> : never
 } & {
   [key in keyof ConditionalPick<
     TShape,
     OerOptional<unknown, unknown>
-  >]?: InferSerialize<TShape[key]>
+  >]?: TShape[key] extends AnyOerType ? InferSerialize<TShape[key]> : never
 }
 
-type InferOerSequenceParseShape<TConfig extends OerSequenceShape> = Simplify<
-  InferObjectParseShape<TConfig["root"]> &
-    Partial<{
-      [key in keyof TConfig["extensions"]]: TConfig["extensions"] extends OerType<
-        infer K,
-        never
-      >
-        ? K
-        : InferObjectParseShape<TConfig["extensions"][key]>
-    }>
->
+export type InferExtendedSequenceParseShape<
+  TConfig extends ExtendedSequenceShape
+> = InferObjectParseShape<TConfig["root"]> &
+  InferInformationObjectParseShape<TConfig["root"]> &
+  Partial<{
+    [key in keyof TConfig["extensions"]]: TConfig["extensions"] extends OerType<
+      infer K,
+      never
+    >
+      ? K
+      : InferObjectParseShape<TConfig["extensions"][key]>
+  }>
 
-type InferOerSequenceSerializeShape<TConfig extends OerSequenceShape> =
-  Simplify<
-    InferObjectSerializeShape<TConfig["root"]> & {
-      [key in keyof TConfig["extensions"]]?: TConfig["extensions"][key] extends OerType<
-        unknown,
-        infer K
-      >
-        ? K
-        : InferObjectSerializeShape<TConfig["extensions"][key]>
-    }
-  >
+export type InferExtendedSequenceSerializeShape<
+  TConfig extends ExtendedSequenceShape
+> = InferObjectSerializeShape<TConfig["root"]> &
+  InferInformationObjectSerializeShape<TConfig["root"]> & {
+    [key in keyof TConfig["extensions"]]?: TConfig["extensions"][key] extends OerType<
+      unknown,
+      infer K
+    >
+      ? K
+      : InferObjectSerializeShape<TConfig["extensions"][key]>
+  }
 
-export interface OerSequenceShape {
-  root: ObjectShape
+export interface ExtendedSequenceShape {
+  root: SequenceShape
   isExtensible: boolean
   extensions: Record<string, ObjectShape>
 }
 
-export class OerSequence<TShape extends OerSequenceShape> extends OerType<
-  InferOerSequenceParseShape<TShape>,
-  InferOerSequenceSerializeShape<TShape>
+export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
+  InferExtendedSequenceParseShape<TShape>,
+  InferExtendedSequenceSerializeShape<TShape>
 > {
-  private rootEntries: Map<string, AnyOerType>
+  private rootEntries: Map<string, AnyOerType | AnyObjectSetField>
   private isExtensible: boolean
   private extensions: Map<string, AnyOerType | Map<string, AnyOerType>>
 
   private rootOptionalFields: string[]
+
+  /**
+   * This map tracks which object of an information object set has been selected during parsing.
+   *
+   * When a discriminant field (something like a type or ID) is parsed, this map is updated to
+   * reflect the index of the object in the corresponding object set that was selected.
+   *
+   * Later, when an open type is parsed, this information is used to select the correct inner type.
+   */
+  private informationObjectSetState: InformationObjectSetStateMap = new Map()
 
   constructor(readonly sequenceShape: TShape) {
     super()
@@ -103,6 +127,7 @@ export class OerSequence<TShape extends OerSequenceShape> extends OerType<
   parseWithContext(context: ParseContext, offset: number) {
     const { uint8Array, allowNoncanonical } = context
     let cursor = 0
+    this.informationObjectSetState.clear()
 
     // --- Preamble ---
 
@@ -170,7 +195,11 @@ export class OerSequence<TShape extends OerSequenceShape> extends OerType<
         continue
       }
 
-      const result = oer.parseWithContext(context, offset + cursor)
+      const result = oer.parseWithContext(
+        context,
+        offset + cursor,
+        this.informationObjectSetState
+      )
       if (result instanceof ParseError) {
         return result
       }
@@ -287,11 +316,15 @@ export class OerSequence<TShape extends OerSequenceShape> extends OerType<
       cursor += extensionLength
     }
 
-    return [resultObject as InferOerSequenceParseShape<TShape>, cursor] as const
+    return [
+      resultObject as InferExtendedSequenceParseShape<TShape>,
+      cursor,
+    ] as const
   }
 
-  serializeWithContext(input: InferOerSequenceSerializeShape<TShape>) {
+  serializeWithContext(input: InferExtendedSequenceSerializeShape<TShape>) {
     let totalLength = 0
+    this.informationObjectSetState.clear()
 
     // --- Preamble ---
     const preambleBitLength =
@@ -312,7 +345,8 @@ export class OerSequence<TShape extends OerSequenceShape> extends OerType<
         }
 
         const serializer = oer.serializeWithContext(
-          (input as Record<string, unknown>)[key]
+          (input as Record<string, unknown>)[key],
+          this.informationObjectSetState
         )
 
         if (serializer instanceof SerializeError) {
@@ -475,20 +509,26 @@ export class OerSequence<TShape extends OerSequenceShape> extends OerType<
 
   extend<
     TExtensions extends Record<string, AnyOerType | Record<string, AnyOerType>>
-  >(extensions: TExtensions) {
+  >(
+    extensions: TExtensions
+  ): OerSequence<{
+    root: TShape["root"]
+    isExtensible: true
+    extensions: TShape["extensions"] & TExtensions
+  }> {
     const newSequence = new OerSequence({
       root: this.sequenceShape.root,
       isExtensible: true,
       extensions: {
         ...this.sequenceShape.extensions,
         ...extensions,
-      } as Simplify<TShape["extensions"] & TExtensions>,
+      } as TShape["extensions"] & TExtensions,
     })
     return newSequence
   }
 }
 
-export const sequence = <TRootShape extends ObjectShape>(
+export const sequence = <TRootShape extends SequenceShape>(
   sequenceShape: TRootShape
 ) => {
   return new OerSequence({

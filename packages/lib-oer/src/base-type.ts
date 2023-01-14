@@ -25,6 +25,7 @@ export interface Serializer {
 
 export abstract class OerType<TParseValue, TSerializeValue = TParseValue> {
   _tag: readonly [tagValue: number, tagClass: TagMarker] | undefined
+  _unique = false
 
   abstract clone(): OerType<TParseValue, TSerializeValue>
 
@@ -118,6 +119,17 @@ export abstract class OerType<TParseValue, TSerializeValue = TParseValue> {
   ): OerConstant<TParseValue, TSerializeValue> {
     return new OerConstant(this, value)
   }
+
+  /**
+   * Marks this type as UNIQUE, which means it will be treated as an identifier field in the context of information objects.
+   *
+   * @returns A copy of this type with the unique flag set
+   */
+  unique() {
+    const copy = this.clone()
+    copy._unique = true
+    return copy
+  }
 }
 
 export class OerOptional<TParseValue, TSerializeValue> extends OerType<
@@ -131,7 +143,7 @@ export class OerOptional<TParseValue, TSerializeValue> extends OerType<
     super()
   }
 
-  clone() {
+  clone(): OerOptional<TParseValue, TSerializeValue> {
     return new OerOptional(this.subType, this.defaultValue)
   }
 
