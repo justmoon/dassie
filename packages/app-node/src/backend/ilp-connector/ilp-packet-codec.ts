@@ -1,12 +1,18 @@
+import type { Simplify } from "type-fest"
+
 import {
   Infer,
+  defineClass,
+  defineObjectSet,
   ia5String,
   octetString,
+  openType,
   sequence,
   uint8Number,
   uint64Bigint,
   utf8String,
 } from "@dassie/lib-oer"
+import type { InferSerialize } from "@dassie/lib-oer/src/base-type"
 
 export const IlpType = {
   Prepare: 12,
@@ -15,11 +21,6 @@ export const IlpType = {
 } as const
 
 export type IlpType = typeof IlpType[keyof typeof IlpType]
-
-export const ilpEnvelopeSchema = sequence({
-  packetType: uint8Number(),
-  data: octetString(),
-})
 
 export const ilpPrepareSchema = sequence({
   amount: uint64Bigint(),
@@ -41,9 +42,34 @@ export const ilpRejectSchema = sequence({
   data: octetString([0, 32_767]),
 })
 
-export type IlpPreparePacket = Infer<typeof ilpPrepareSchema>
-export type IlpFulfillPacket = Infer<typeof ilpFulfillSchema>
-export type IlpRejectPacket = Infer<typeof ilpRejectSchema>
+const ilpPacketClass = defineClass({
+  packetType: uint8Number(),
+  data: openType,
+})
+
+const ilpPacketSet = defineObjectSet(ilpPacketClass, [
+  {
+    packetType: IlpType.Prepare,
+    data: ilpPrepareSchema,
+  },
+  {
+    packetType: IlpType.Fulfill,
+    data: ilpFulfillSchema,
+  },
+  {
+    packetType: IlpType.Reject,
+    data: ilpRejectSchema,
+  },
+] as const)
+
+export const ilpPacketSchema = sequence({
+  type: ilpPacketSet.packetType,
+  data: ilpPacketSet.data,
+})
+
+export type IlpPreparePacket = Simplify<Infer<typeof ilpPrepareSchema>>
+export type IlpFulfillPacket = Simplify<Infer<typeof ilpFulfillSchema>>
+export type IlpRejectPacket = Simplify<Infer<typeof ilpRejectSchema>>
 
 export type IlpPacket =
   | ({ type: typeof IlpType.Prepare } & IlpPreparePacket)
@@ -51,110 +77,47 @@ export type IlpPacket =
   | ({ type: typeof IlpType.Reject } & IlpRejectPacket)
 
 export const parseIlpPacket = (packet: Uint8Array): IlpPacket => {
-  const envelopeParseResult = ilpEnvelopeSchema.parse(packet)
+  const parseResult = ilpPacketSchema.parse(packet)
 
-  if (!envelopeParseResult.success) {
-    throw new Error("Failed to parse ILP envelope", {
-      cause: envelopeParseResult.error,
+  if (!parseResult.success) {
+    throw new Error("Failed to parse ILP packet", {
+      cause: parseResult.error,
     })
   }
 
-  switch (envelopeParseResult.value.packetType) {
+  const { type, data } = parseResult.value
+
+  switch (type) {
     case IlpType.Prepare: {
-      const prepareParseResult = ilpPrepareSchema.parse(
-        envelopeParseResult.value.data
-      )
-
-      if (!prepareParseResult.success) {
-        throw new Error("Failed to parse ILP prepare", {
-          cause: prepareParseResult.error,
-        })
-      }
-
-      return {
-        type: IlpType.Prepare,
-        ...prepareParseResult.value,
-      }
+      return { type, ...data }
     }
-
     case IlpType.Fulfill: {
-      const fulfillParseResult = ilpFulfillSchema.parse(
-        envelopeParseResult.value.data
-      )
-
-      if (!fulfillParseResult.success) {
-        throw new Error("Failed to parse ILP fulfill", {
-          cause: fulfillParseResult.error,
-        })
-      }
-
-      return {
-        type: IlpType.Fulfill,
-        ...fulfillParseResult.value,
-      }
+      return { type, ...data }
     }
-
     case IlpType.Reject: {
-      const rejectParseResult = ilpRejectSchema.parse(
-        envelopeParseResult.value.data
-      )
-
-      if (!rejectParseResult.success) {
-        throw new Error("Failed to parse ILP reject", {
-          cause: rejectParseResult.error,
-        })
-      }
-
-      return {
-        type: IlpType.Reject,
-        ...rejectParseResult.value,
-      }
+      return { type, ...data }
     }
+
     default: {
       throw new Error("Unknown ILP packet type")
     }
   }
 }
 
-export const serializeIlpPacket = (packet: IlpPacket): Uint8Array => {
-  let packetSerializationResult: ReturnType<typeof ilpPrepareSchema.serialize>
-  switch (packet.type) {
-    case IlpType.Prepare: {
-      packetSerializationResult = ilpPrepareSchema.serialize(packet)
-      break
-    }
+export const serializeIlpPacket = ({
+  type,
+  ...data
+}: IlpPacket): Uint8Array => {
+  const serializationResult = ilpPacketSchema.serialize({
+    type,
+    data,
+  } as InferSerialize<typeof ilpPacketSchema>)
 
-    case IlpType.Fulfill: {
-      packetSerializationResult = ilpFulfillSchema.serialize(packet)
-      break
-    }
-
-    case IlpType.Reject: {
-      packetSerializationResult = ilpRejectSchema.serialize(packet)
-      break
-    }
-
-    default: {
-      throw new Error("Unknown ILP packet type")
-    }
-  }
-
-  if (!packetSerializationResult.success) {
+  if (!serializationResult.success) {
     throw new Error("Failed to serialize ILP packet", {
-      cause: packetSerializationResult.error,
+      cause: serializationResult.error,
     })
   }
 
-  const envelope = ilpEnvelopeSchema.serialize({
-    packetType: packet.type,
-    data: packetSerializationResult.value,
-  })
-
-  if (!envelope.success) {
-    throw new Error("Failed to serialize ILP envelope", {
-      cause: envelope.error,
-    })
-  }
-
-  return envelope.value
+  return serializationResult.value
 }
