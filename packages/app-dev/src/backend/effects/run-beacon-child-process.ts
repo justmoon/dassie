@@ -3,6 +3,7 @@ import type { ViteNodeServer } from "vite-node/server"
 
 import type { EffectContext } from "@dassie/lib-reactive"
 
+import { DEBUG_RPC_PORT } from "../constants/ports"
 import type { BeaconDefinition } from "./run-beacons"
 import { runChildProcess } from "./run-child-process"
 
@@ -27,7 +28,7 @@ export const runBeaconChildProcess = async <T>(
       DASSIE_DEV_ROOT: viteServer.config.root,
       DASSIE_DEV_BASE: viteServer.config.base,
       DASSIE_DEV_ENTRY: beacon.entry ?? "src/index.ts",
-      DASSIE_DEV_RPC_URL: "wss://dev-rpc.localhost:10001",
+      DASSIE_DEV_RPC_URL: `wss://dev-rpc.localhost:${DEBUG_RPC_PORT}`,
       DASSIE_DEV_NODE_ID: beacon.id,
     },
   })
