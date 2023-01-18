@@ -32,7 +32,15 @@ describe("integerAsBigint", () => {
 
     test("should reject a zero-length zero", ({ expect }) => {
       const value = schema.parse(hexToUint8Array("00"))
-      expect(value).toMatchSnapshot()
+      expect(value).toMatchInlineSnapshot(`
+        {
+          "error": [ParseError: unable to read variable length integer - length must not be 0
+
+            00  
+            ^^],
+          "success": false,
+        }
+      `)
     })
 
     test("should parse a zero", ({ expect }) => {
@@ -64,7 +72,30 @@ describe("integerAsBigint", () => {
       const testValue = 0x12_34_56_78_9a_bc_de_f0_12_34_56_78_9a_bc_de_f0n
 
       const value = schema.serialize(testValue)
-      expect(value).toMatchSnapshot()
+      expect(value).toMatchInlineSnapshot(`
+        {
+          "success": true,
+          "value": Uint8Array [
+            16,
+            18,
+            52,
+            86,
+            120,
+            154,
+            188,
+            222,
+            240,
+            18,
+            52,
+            86,
+            120,
+            154,
+            188,
+            222,
+            240,
+          ],
+        }
+      `)
     })
 
     describe.each(getVariableLengthSamples(true))(
@@ -92,7 +123,15 @@ describe("integerAsBigint", () => {
 
     test("should reject a zero-length zero", ({ expect }) => {
       const value = schema.parse(hexToUint8Array("00"))
-      expect(value).toMatchSnapshot()
+      expect(value).toMatchInlineSnapshot(`
+        {
+          "error": [ParseError: unable to read variable length integer - length must not be 0
+
+            00  
+            ^^],
+          "success": false,
+        }
+      `)
     })
 
     test("should parse a zero", ({ expect }) => {
@@ -117,14 +156,42 @@ describe("integerAsBigint", () => {
 
     test("should refuse to serialize a negative bigint", ({ expect }) => {
       const value = schema.serialize(-0x12n)
-      expect(value).toMatchSnapshot()
+      expect(value).toMatchInlineSnapshot(`
+        {
+          "error": [SerializeError: expected unsigned bigint, got bigint: -18],
+          "success": false,
+        }
+      `)
     })
 
     test("should serialize a very large number", ({ expect }) => {
       const testValue = 0x12_34_56_78_9a_bc_de_f0_12_34_56_78_9a_bc_de_f0n
 
       const value = schema.serialize(testValue)
-      expect(value).toMatchSnapshot()
+      expect(value).toMatchInlineSnapshot(`
+        {
+          "success": true,
+          "value": Uint8Array [
+            16,
+            18,
+            52,
+            86,
+            120,
+            154,
+            188,
+            222,
+            240,
+            18,
+            52,
+            86,
+            120,
+            154,
+            188,
+            222,
+            240,
+          ],
+        }
+      `)
     })
 
     describe.each(getVariableLengthSamples(false))(
@@ -184,22 +251,48 @@ describe("integerAsBigint", () => {
 
     test("should not parse a number that is too high", ({ expect }) => {
       const result = schema.parse(hexToUint8Array("09"))
-      expect(result).toMatchSnapshot()
+      expect(result).toMatchInlineSnapshot(`
+        {
+          "error": [ParseError: unable to read fixed length integer of size 1 bytes - value 9 is greater than maximum value 8
+
+            09  
+            ^^],
+          "success": false,
+        }
+      `)
     })
 
     test("should not serialize a number that is too high", ({ expect }) => {
       const result = schema.serialize(9n)
-      expect(result).toMatchSnapshot()
+      expect(result).toMatchInlineSnapshot(`
+        {
+          "error": [SerializeError: integer must be <= 8],
+          "success": false,
+        }
+      `)
     })
 
     test("should not parse a number that is too low", ({ expect }) => {
       const result = schema.parse(hexToUint8Array("01"))
-      expect(result).toMatchSnapshot()
+      expect(result).toMatchInlineSnapshot(`
+        {
+          "error": [ParseError: unable to read fixed length integer of size 1 bytes - value 1 is less than minimum value 5
+
+            01  
+            ^^],
+          "success": false,
+        }
+      `)
     })
 
     test("should not serialize a number that is too low", ({ expect }) => {
       const result = schema.serialize(1n)
-      expect(result).toMatchSnapshot()
+      expect(result).toMatchInlineSnapshot(`
+        {
+          "error": [SerializeError: integer must be >= 5],
+          "success": false,
+        }
+      `)
     })
   })
 })

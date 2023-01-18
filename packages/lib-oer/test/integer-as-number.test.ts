@@ -93,22 +93,48 @@ describe("integerAsNumber", () => {
 
     test("should not parse a number that is too high", ({ expect }) => {
       const result = schema.parse(hexToUint8Array("09"))
-      expect(result).toMatchSnapshot()
+      expect(result).toMatchInlineSnapshot(`
+        {
+          "error": [ParseError: unable to read fixed length integer of size 1 bytes - value 9 is greater than maximum value 8
+
+            09  
+            ^^],
+          "success": false,
+        }
+      `)
     })
 
     test("should not serialize a number that is too high", ({ expect }) => {
       const result = schema.serialize(9)
-      expect(result).toMatchSnapshot()
+      expect(result).toMatchInlineSnapshot(`
+        {
+          "error": [SerializeError: integer must be <= 8],
+          "success": false,
+        }
+      `)
     })
 
     test("should not parse a number that is too low", ({ expect }) => {
       const result = schema.parse(hexToUint8Array("01"))
-      expect(result).toMatchSnapshot()
+      expect(result).toMatchInlineSnapshot(`
+        {
+          "error": [ParseError: unable to read fixed length integer of size 1 bytes - value 1 is less than minimum value 5
+
+            01  
+            ^^],
+          "success": false,
+        }
+      `)
     })
 
     test("should not serialize a number that is too low", ({ expect }) => {
       const result = schema.serialize(1)
-      expect(result).toMatchSnapshot()
+      expect(result).toMatchInlineSnapshot(`
+        {
+          "error": [SerializeError: integer must be >= 5],
+          "success": false,
+        }
+      `)
     })
   })
 })

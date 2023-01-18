@@ -19,7 +19,21 @@ describe("sequenceOf", () => {
 
     test("should serialize a value", ({ expect }) => {
       const value = schema.serialize([true, false, true, true, false, false])
-      expect(value).toMatchSnapshot()
+      expect(value).toMatchInlineSnapshot(`
+        {
+          "success": true,
+          "value": Uint8Array [
+            1,
+            6,
+            255,
+            0,
+            255,
+            255,
+            0,
+            0,
+          ],
+        }
+      `)
     })
 
     test("should parse a value", ({ expect }) => {

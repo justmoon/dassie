@@ -33,7 +33,12 @@ describe("octetString", () => {
       expect,
     }) => {
       const value = schema.serialize(sampleBuffer.slice(0, 21))
-      expect(value).toMatchSnapshot()
+      expect(value).toMatchInlineSnapshot(`
+        {
+          "error": [SerializeError: Expected octet string of length 22, but got 21],
+          "success": false,
+        }
+      `)
     })
   })
 
@@ -56,14 +61,158 @@ describe("octetString", () => {
 
     test("should serialize a buffer with 128 bytes", ({ expect }) => {
       const value = schema.serialize(sampleBuffer.slice(0, 128))
-      expect(value).toMatchSnapshot()
+      expect(value).toMatchInlineSnapshot(`
+        {
+          "success": true,
+          "value": Uint8Array [
+            129,
+            128,
+            221,
+            141,
+            113,
+            113,
+            189,
+            198,
+            177,
+            102,
+            56,
+            3,
+            245,
+            58,
+            46,
+            29,
+            219,
+            55,
+            0,
+            75,
+            47,
+            254,
+            176,
+            89,
+            191,
+            152,
+            111,
+            13,
+            5,
+            113,
+            126,
+            140,
+            15,
+            215,
+            210,
+            250,
+            176,
+            8,
+            175,
+            109,
+            10,
+            170,
+            29,
+            202,
+            162,
+            247,
+            125,
+            8,
+            48,
+            216,
+            209,
+            143,
+            109,
+            138,
+            161,
+            102,
+            164,
+            152,
+            32,
+            38,
+            171,
+            175,
+            50,
+            167,
+            149,
+            137,
+            158,
+            66,
+            60,
+            237,
+            138,
+            9,
+            47,
+            51,
+            129,
+            11,
+            79,
+            22,
+            118,
+            75,
+            114,
+            31,
+            125,
+            205,
+            83,
+            33,
+            184,
+            237,
+            231,
+            141,
+            0,
+            230,
+            28,
+            210,
+            90,
+            132,
+            31,
+            74,
+            64,
+            76,
+            117,
+            117,
+            156,
+            73,
+            144,
+            177,
+            162,
+            43,
+            143,
+            243,
+            83,
+            39,
+            125,
+            17,
+            219,
+            156,
+            161,
+            173,
+            128,
+            68,
+            6,
+            89,
+            240,
+            138,
+            1,
+            219,
+            167,
+            146,
+            201,
+            9,
+          ],
+        }
+      `)
     })
 
     test("should reject a non-canonical length prefix which could fit one byte when allowNoncanonical is false", ({
       expect,
     }) => {
       const value = schema.parse(hexToUint8Array("81 01 12"))
-      expect(value).toMatchSnapshot("error")
+      expect(value).toMatchInlineSnapshot(`
+        {
+          "error": [ParseError: non-canonical encoding - length prefix is not minimal (length <= 0x7f but not encoded as a single byte)
+
+            81 01 12  
+            ^^],
+          "success": false,
+        }
+      `, 'error')
     })
 
     test("should accept a non-canonical length prefix which could fit one byte when allowNoncanonical is true", ({
@@ -81,7 +230,15 @@ describe("octetString", () => {
       const testVector = sampleBuffer.slice(0, 131)
       testVector.set(hexToUint8Array("82 00 80"), 0)
       const value = schema.parse(testVector)
-      expect(value).toMatchSnapshot("error")
+      expect(value).toMatchInlineSnapshot(`
+        {
+          "error": [ParseError: non-canonical encoding - length prefix is not minimal (could be encoded in fewer bytes)
+
+            82 00 80 71 bd c6 b1 66 38 03 f5 3a 2e 1d db 37 00 4b 2f fe …
+            ^^],
+          "success": false,
+        }
+      `, 'error')
     })
 
     test("should reject a non-canonical length prefix which could fit two bytes when allowNoncanonical is true", ({
@@ -90,7 +247,142 @@ describe("octetString", () => {
       const testVector = sampleBuffer.slice(0, 131)
       testVector.set(hexToUint8Array("82 00 80"), 0)
       const value = schema.parse(testVector, 0, { allowNoncanonical: true })
-      expect(value).toMatchSnapshot()
+      expect(value).toMatchInlineSnapshot(`
+        {
+          "length": 131,
+          "success": true,
+          "value": Uint8Array [
+            113,
+            189,
+            198,
+            177,
+            102,
+            56,
+            3,
+            245,
+            58,
+            46,
+            29,
+            219,
+            55,
+            0,
+            75,
+            47,
+            254,
+            176,
+            89,
+            191,
+            152,
+            111,
+            13,
+            5,
+            113,
+            126,
+            140,
+            15,
+            215,
+            210,
+            250,
+            176,
+            8,
+            175,
+            109,
+            10,
+            170,
+            29,
+            202,
+            162,
+            247,
+            125,
+            8,
+            48,
+            216,
+            209,
+            143,
+            109,
+            138,
+            161,
+            102,
+            164,
+            152,
+            32,
+            38,
+            171,
+            175,
+            50,
+            167,
+            149,
+            137,
+            158,
+            66,
+            60,
+            237,
+            138,
+            9,
+            47,
+            51,
+            129,
+            11,
+            79,
+            22,
+            118,
+            75,
+            114,
+            31,
+            125,
+            205,
+            83,
+            33,
+            184,
+            237,
+            231,
+            141,
+            0,
+            230,
+            28,
+            210,
+            90,
+            132,
+            31,
+            74,
+            64,
+            76,
+            117,
+            117,
+            156,
+            73,
+            144,
+            177,
+            162,
+            43,
+            143,
+            243,
+            83,
+            39,
+            125,
+            17,
+            219,
+            156,
+            161,
+            173,
+            128,
+            68,
+            6,
+            89,
+            240,
+            138,
+            1,
+            219,
+            167,
+            146,
+            201,
+            9,
+            0,
+            0,
+            0,
+          ],
+        }
+      `)
     })
   })
 
@@ -153,24 +445,50 @@ describe("octetString", () => {
       expect,
     }) => {
       const value = schema.serialize(sampleBuffer.slice(0, 9))
-      expect(value).toMatchSnapshot()
+      expect(value).toMatchInlineSnapshot(`
+        {
+          "error": [SerializeError: Expected octet string of length at most 8, but got 9],
+          "success": false,
+        }
+      `)
     })
 
     test("should refuse to parse a buffer with nine bytes", ({ expect }) => {
       const value = schema.parse(addLengthPrefix(sampleBuffer.slice(0, 9)))
-      expect(value).toMatchSnapshot()
+      expect(value).toMatchInlineSnapshot(`
+        {
+          "error": [ParseError: Expected octet string of length at most 8, but got 9
+
+            09 dd 8d 71 71 bd c6 b1 66 38  
+            ^^],
+          "success": false,
+        }
+      `)
     })
 
     test("should refuse to serialize a buffer with four bytes", ({
       expect,
     }) => {
       const value = schema.serialize(sampleBuffer.slice(0, 4))
-      expect(value).toMatchSnapshot()
+      expect(value).toMatchInlineSnapshot(`
+        {
+          "error": [SerializeError: Expected octet string of length at least 5, but got 4],
+          "success": false,
+        }
+      `)
     })
 
     test("should refuse to parse a buffer with four bytes", ({ expect }) => {
       const value = schema.parse(addLengthPrefix(sampleBuffer.slice(0, 4)))
-      expect(value).toMatchSnapshot()
+      expect(value).toMatchInlineSnapshot(`
+        {
+          "error": [ParseError: Expected octet string of length at least 5, but got 4
+
+            04 dd 8d 71 71  
+            ^^],
+          "success": false,
+        }
+      `)
     })
   })
 })
