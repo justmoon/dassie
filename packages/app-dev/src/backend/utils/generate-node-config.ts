@@ -1,10 +1,6 @@
 import type { InputConfig } from "@dassie/app-node"
 
-import {
-  DEBUG_UI_PORT,
-  NODES_DEBUG_START_PORT,
-  NODES_START_PORT,
-} from "../constants/ports"
+import { DEBUG_UI_PORT, NODES_DEBUG_START_PORT, NODES_START_PORT } from "../constants/ports"
 
 const ENTRYPOINT = new URL("../../runner/launchers/node", import.meta.url)
   .pathname
@@ -23,14 +19,22 @@ interface NodeConfig {
   entry: string
 }
 
+// TODO: this is temporary hack while the prettier plugin doesn't support
+// the satisfies operation introduced in TS 4.9
+// See: https://github.com/trivago/prettier-plugin-sort-imports/issues/204
+const satisfiesNodeConfig = <T extends NodeConfig>(result: T): T => {
+  // satisfies (index: number, peers: readonly number[]) => NodeConfig
+  return result
+}
+
 export const generateNodeConfig = (
   index: number,
   peers: readonly number[]
-): NodeConfig => {
+) => {
   const id = nodeIndexToId(index)
   const port = nodeIndexToPort(index)
 
-  return {
+  return satisfiesNodeConfig({
     id,
     port,
     debugPort: NODES_DEBUG_START_PORT + index,
@@ -64,8 +68,5 @@ export const generateNodeConfig = (
     },
     url: `https://${id}.localhost:${port}/`,
     entry: ENTRYPOINT,
-  }
+  })
 }
-
-// https://github.com/trivago/prettier-plugin-sort-imports/issues/204
-// satisfies (index: number, peers: readonly number[]) => NodeConfig
