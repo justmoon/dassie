@@ -16,7 +16,7 @@
   "exclude": [
     "**/dist/**",
     "packages/*/pkg/**",
-    "coverage/**",
+    "packages/*/coverage/**",
     "packages/app-website/**"
   ]
 }

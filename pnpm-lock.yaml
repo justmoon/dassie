@@ -23,7 +23,7 @@ importers:
       eslint-plugin-tsdoc: ^0.2.17
       eslint-plugin-unicorn: ^45.0.2
       picocolors: ^1.0.0
-      prettier: ^2.8.1
+      prettier: ^2.8.3
       rimraf: ^3.0.2
       rollup: ^3.9.1
       rollup-plugin-dts: ^5.1.0
@@ -42,7 +42,7 @@ importers:
     dependencies:
       '@microsoft/api-extractor': 7.33.7
       '@microsoft/api-extractor-model': 7.25.3
-      '@trivago/prettier-plugin-sort-imports': 4.0.0_prettier@2.8.1
+      '@trivago/prettier-plugin-sort-imports': 4.0.0_prettier@2.8.3
       '@tsconfig/recommended': 1.0.1
       '@tsconfig/strictest': 1.0.2
       '@types/node': 18.11.18
@@ -54,7 +54,7 @@ importers:
       eslint-plugin-tsdoc: 0.2.17
       eslint-plugin-unicorn: 45.0.2_eslint@8.31.0
       picocolors: 1.0.0
-      prettier: 2.8.1
+      prettier: 2.8.3
       rimraf: 3.0.2
       rollup: 3.9.1
       rollup-plugin-dts: 5.1.0_esmavzhadgk2idmxtiodxm33ma
@@ -2618,11 +2618,14 @@ packages:
     resolution: {integrity: sha512-fewNoKiJeG5v0T4jg7UO99G+hUYDHig6AkiIeqvC1O2zEw96MlzR6DXw91aqxcsIPSVp83IPsgNa7su8yZWldw==}
     dev: false
 
-  /@trivago/prettier-plugin-sort-imports/4.0.0_prettier@2.8.1:
+  /@trivago/prettier-plugin-sort-imports/4.0.0_prettier@2.8.3:
     resolution: {integrity: sha512-Tyuk5ZY4a0e2MNFLdluQO9F6d1awFQYXVVujEPFfvKPPXz8DADNHzz73NMhwCSXGSuGGZcA/rKOyZBrxVNMxaA==}
     peerDependencies:
       '@vue/compiler-sfc': 3.x
       prettier: 2.x
+    peerDependenciesMeta:
+      '@vue/compiler-sfc':
+        optional: true
     dependencies:
       '@babel/core': 7.17.8
       '@babel/generator': 7.17.7
@@ -2631,7 +2634,7 @@ packages:
       '@babel/types': 7.17.0
       javascript-natural-sort: 0.7.1
       lodash: 4.17.21
-      prettier: 2.8.1
+      prettier: 2.8.3
     transitivePeerDependencies:
       - supports-color
     dev: false
@@ -7113,8 +7116,8 @@ packages:
     resolution: {integrity: sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g==}
     engines: {node: '>= 0.8.0'}
 
-  /prettier/2.8.1:
-    resolution: {integrity: sha512-lqGoSJBQNJidqCHE80vqZJHWHRFoNYsSpP9AjFhlhi9ODCJA541svILes/+/1GM3VaL/abZi7cpFzOpdR9UPKg==}
+  /prettier/2.8.3:
+    resolution: {integrity: sha512-tJ/oJ4amDihPoufT5sM0Z1SKEuKay8LfVAMlbbhnnkvt6BUserZylqo2PN+p9KeljLr0OHa2rXHU1T8reeoTrw==}
     engines: {node: '>=10.13.0'}
     hasBin: true
     dev: false

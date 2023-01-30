@@ -1,6 +1,15 @@
 {
-  "pluginSearchDirs": ["."],
-  "importOrder": ["^node:", "^@dassie/", "^[./]"],
+  "pluginSearchDirs": [
+    "."
+  ],
+  "plugins": [
+    "@trivago/prettier-plugin-sort-imports"
+  ],
+  "importOrder": [
+    "^node:",
+    "^@dassie/",
+    "^[./]"
+  ],
   "importOrderSeparation": true,
   "importOrderSortSpecifiers": true,
   "semi": false

@@ -204,7 +204,8 @@ describe("octetString", () => {
       expect,
     }) => {
       const value = schema.parse(hexToUint8Array("81 01 12"))
-      expect(value).toMatchInlineSnapshot(`
+      expect(value).toMatchInlineSnapshot(
+        `
         {
           "error": [ParseError: non-canonical encoding - length prefix is not minimal (length <= 0x7f but not encoded as a single byte)
 
@@ -212,7 +213,9 @@ describe("octetString", () => {
             ^^],
           "success": false,
         }
-      `, 'error')
+      `,
+        "error"
+      )
     })
 
     test("should accept a non-canonical length prefix which could fit one byte when allowNoncanonical is true", ({
@@ -230,7 +233,8 @@ describe("octetString", () => {
       const testVector = sampleBuffer.slice(0, 131)
       testVector.set(hexToUint8Array("82 00 80"), 0)
       const value = schema.parse(testVector)
-      expect(value).toMatchInlineSnapshot(`
+      expect(value).toMatchInlineSnapshot(
+        `
         {
           "error": [ParseError: non-canonical encoding - length prefix is not minimal (could be encoded in fewer bytes)
 
@@ -238,7 +242,9 @@ describe("octetString", () => {
             ^^],
           "success": false,
         }
-      `, 'error')
+      `,
+        "error"
+      )
     })
 
     test("should reject a non-canonical length prefix which could fit two bytes when allowNoncanonical is true", ({

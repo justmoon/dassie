@@ -29,7 +29,8 @@ describe("enumerated", () => {
     const value = enumerated({ red: 0, green: 1, blue: 2 }).parse(
       hexToUint8Array("03")
     )
-    expect(value).toMatchInlineSnapshot(`
+    expect(value).toMatchInlineSnapshot(
+      `
       {
         "error": [ParseError: unable to read enumerated value - value 3 not in set red(0),green(1),blue(2)
 
@@ -37,7 +38,9 @@ describe("enumerated", () => {
           ^^],
         "success": false,
       }
-    `, 'error')
+    `,
+      "error"
+    )
   })
 
   test("should fail to serialize a value that is not in the set", ({
@@ -46,11 +49,14 @@ describe("enumerated", () => {
     const value = enumerated({ red: 0, green: 1, blue: 2 })
       // @ts-expect-error Intentionally passing a wrong value
       .serialize("yellow")
-    expect(value).toMatchInlineSnapshot(`
+    expect(value).toMatchInlineSnapshot(
+      `
       {
         "error": [SerializeError: unable to serialize enumerated value - value yellow not in set red(0),green(1),blue(2)],
         "success": false,
       }
-    `, 'error')
+    `,
+      "error"
+    )
   })
 })
