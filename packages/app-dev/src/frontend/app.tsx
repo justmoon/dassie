@@ -42,7 +42,7 @@ const App = () => {
             <Logs />
           </Route>
           <Route path="/nodes/:nodeId">
-            {({ nodeId }) => <NodeDetail nodeId={nodeId} />}
+            {({ nodeId }) => (nodeId ? <NodeDetail nodeId={nodeId} /> : null)}
           </Route>
         </div>
       </QueryClientProvider>

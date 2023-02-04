@@ -47,7 +47,8 @@ export const createRemoteReactiveRouter = <
     getSignalState: castTrpc.procedure
       .input(validateTopicName)
       .query(({ input: signalName, ctx: { reactor } }) => {
-        const topicFactory = exposedTopics[signalName]
+        const topicFactory =
+          exposedTopics[signalName as keyof TExposedTopicsMap]
 
         if (!topicFactory) {
           throw new Error("Invalid store name")
@@ -67,7 +68,8 @@ export const createRemoteReactiveRouter = <
       .input(validateTopicName)
       .subscription(({ input: topicName, ctx: { reactor } }) => {
         return observable<unknown>((emit) => {
-          const topicFactory = exposedTopics[topicName]
+          const topicFactory =
+            exposedTopics[topicName as keyof TExposedTopicsMap]
           if (!topicFactory) {
             throw new Error("Invalid topic name")
           }
@@ -95,7 +97,8 @@ export const createRemoteReactiveRouter = <
               data: Change
             }
         >((emit) => {
-          const topicFactory = exposedTopics[storeName]
+          const topicFactory =
+            exposedTopics[storeName as keyof TExposedTopicsMap]
           if (!topicFactory) {
             throw new Error("Invalid topic name")
           }
