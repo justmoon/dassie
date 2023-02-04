@@ -1,6 +1,7 @@
 {
-  "name": "tropical",
+  "name": "@dassie/app-website",
   "version": "10.2.0",
+  "description": "Dassieland website providing information about Dassie",
   "dependencies": {
     "@ladle/react": "^2.4.5",
     "@mdx-js/mdx": "^2.2.1",
@@ -39,6 +40,6 @@
     "component": "tropical-scaffold --type=component"
   },
   "tropical": {
-    "siteHost": "https://www.example.org"
+    "siteHost": "https://dassie.land"
   }
 }
