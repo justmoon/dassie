@@ -3,7 +3,7 @@ import { useState } from "react"
 import superjson from "superjson"
 import { Route } from "wouter"
 
-import { useSig } from "@dassie/lib-reactive-react"
+import { useSig } from "@dassie/lib-reactive-trpc/client"
 
 import Dashboard from "./components/pages/dashboard"
 import Logs from "./components/pages/logs"

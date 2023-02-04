@@ -1,7 +1,7 @@
 import { ArrowRight, ProhibitInset } from "phosphor-react"
 import { useCallback } from "react"
 
-import { useSig } from "@dassie/lib-reactive-react"
+import { useSig } from "@dassie/lib-reactive-trpc/client"
 
 import Button from "../../components/button/button"
 import Dialog from "../../components/dialog/dialog"

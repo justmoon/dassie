@@ -3,7 +3,7 @@ import { createWSClient, wsLink } from "@trpc/react-query"
 import { useState } from "react"
 import { Route, Switch } from "wouter"
 
-import { useSig } from "@dassie/lib-reactive-react"
+import { useSig } from "@dassie/lib-reactive-trpc/client"
 
 import { rootEffect } from "./effects/root"
 import { Account } from "./pages/account/account"

@@ -4,7 +4,7 @@ import { wordlist } from "@scure/bip39/wordlists/english"
 import { ArrowLeft } from "phosphor-react"
 import { useCallback, useState } from "react"
 
-import { useSig } from "@dassie/lib-reactive-react"
+import { useSig } from "@dassie/lib-reactive-trpc/client"
 
 import Dialog from "../../components/dialog/dialog"
 import { walletStore } from "../../stores/wallet"

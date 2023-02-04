@@ -4,7 +4,7 @@ import { Link } from "wouter"
 
 import type { InputConfig } from "@dassie/app-node"
 import { selectBySeed } from "@dassie/lib-logger"
-import { useSig } from "@dassie/lib-reactive-react"
+import { useSig } from "@dassie/lib-reactive-trpc/client"
 
 import type { NodeDefinition } from "../../../backend/effects/run-nodes"
 import { COLORS } from "../../constants/palette"
