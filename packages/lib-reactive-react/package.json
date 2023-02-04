@@ -35,6 +35,6 @@
   },
   "devDependencies": {
     "react": "^18.2.0",
-    "type-fest": "^3.5.1"
+    "type-fest": "^3.5.5"
   }
 }

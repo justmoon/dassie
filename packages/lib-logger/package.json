@@ -30,6 +30,6 @@
   "dependencies": {
     "@dassie/lib-type-utils": "workspace:^1.0.0",
     "picocolors": "^1.0.0",
-    "pretty-format": "^29.3.1"
+    "pretty-format": "^29.4.1"
   }
 }

@@ -3,11 +3,11 @@
   "version": "10.2.0",
   "description": "Dassieland website providing information about Dassie",
   "dependencies": {
-    "@ladle/react": "^2.4.5",
+    "@ladle/react": "^2.5.2",
     "@mdx-js/mdx": "^2.2.1",
     "@mdx-js/react": "^2.2.1",
     "@mdx-js/rollup": "^2.2.1",
-    "@vitejs/plugin-react": "^3.0.1",
+    "@vitejs/plugin-react": "^3.1.0",
     "dayjs": "^1.11.7",
     "express": "^4.18.2",
     "fela": "^12.2.1",
@@ -19,10 +19,10 @@
     "react-head": "^3.4.2",
     "react-syntax-highlighter": "^15.5.0",
     "rehype-slug": "^5.1.0",
-    "rollup": "^3.9.1",
+    "rollup": "^3.13.0",
     "tropical-islands": "^2.0.0",
     "tropical-scaffold": "^2.0.0",
-    "vite": "^4.0.4"
+    "vite": "^4.1.1"
   },
   "engines": {
     "node": ">=16"

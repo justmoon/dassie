@@ -31,7 +31,7 @@
   },
   "devDependencies": {
     "@dassie/lib-logger": "workspace:^1.0.0",
-    "type-fest": "^3.5.1"
+    "type-fest": "^3.5.5"
   },
   "peerDependencies": {
     "@dassie/lib-logger": "workspace:^1.0.0"
