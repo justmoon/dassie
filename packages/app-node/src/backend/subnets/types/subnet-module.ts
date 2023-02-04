@@ -37,7 +37,7 @@ export interface SubnetModuleInstance {
    *
    * This field is used to prevent a node from accidentially using both real-money settlement and virtual settlement simultaneously because doing so could enable an attacker to steal funds. Either all subnets must use real-money settlement or all subnets must use virtual settlement.
    */
-  readonly realm: typeof VALID_REALMS[number]
+  readonly realm: (typeof VALID_REALMS)[number]
 
   /**
    * The current balance of the node on this subnet.

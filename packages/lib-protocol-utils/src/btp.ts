@@ -22,7 +22,7 @@ export const BtpContentType = {
   ApplicationJson: 2,
 } as const
 
-export type BtpType = typeof BtpType[keyof typeof BtpType]
+export type BtpType = (typeof BtpType)[keyof typeof BtpType]
 
 export const protocolDataSchema = sequenceOf(
   sequence({

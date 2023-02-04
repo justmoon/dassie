@@ -40,7 +40,15 @@ describe("bitstring", () => {
       expect,
     }) => {
       const value = schema.parse(hexToUint8Array("ff00"))
-      expect(value).toMatchSnapshot()
+      expect(value).toMatchInlineSnapshot(`
+        {
+          "error": [ParseError: non-canonical encoding - additional bytes present after the expected end of data
+
+            ff 00  
+               ^^],
+          "success": false,
+        }
+      `)
     })
   })
 })

@@ -1,12 +1,10 @@
 import { isObject } from "@dassie/lib-type-utils"
-import type { Effect } from "./effect"
 
+import type { Effect } from "./effect"
 import { Signal, createSignal } from "./signal"
 import { Topic, createTopic } from "./topic"
 
-export const StoreSymbol = Symbol(
-  "das:reactive:store"
-)
+export const StoreSymbol = Symbol("das:reactive:store")
 
 export type StoreFactory<
   TState = unknown,
@@ -14,7 +12,7 @@ export type StoreFactory<
     string,
     Action<TState>
   >
-> = Effect<undefined, Store<TState, TActions>> 
+> = Effect<undefined, Store<TState, TActions>>
 
 export type Action<
   TState = unknown,
@@ -23,7 +21,10 @@ export type Action<
 
 export type Change = [string, unknown[]]
 
-export type InferBoundAction<TAction> = TAction extends Action<infer S, infer P extends unknown[]>
+export type InferBoundAction<TAction> = TAction extends Action<
+  infer S,
+  infer P extends unknown[]
+>
   ? BoundAction<S, P>
   : never
 
@@ -51,7 +52,7 @@ const bindActions = <TState, TActions extends Record<string, Action<TState>>>(
         changesTopic.emit([key, parameters])
 
         return signal.read()
-      }) as typeof boundActions[typeof key]
+      }) as (typeof boundActions)[typeof key]
     }
   }
 

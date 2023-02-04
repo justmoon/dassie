@@ -73,9 +73,7 @@ describe("string", () => {
         expect,
       }) => {
         const value = schema.parse(
-          hexToUint8Array(
-              "0d" +
-              "3132333435363738393031ceba")
+          hexToUint8Array("0d" + "3132333435363738393031ceba")
         )
         expect(value).toMatchInlineSnapshot(`
           {

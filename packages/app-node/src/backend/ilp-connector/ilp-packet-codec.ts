@@ -20,7 +20,7 @@ export const IlpType = {
   Reject: 14,
 } as const
 
-export type IlpType = typeof IlpType[keyof typeof IlpType]
+export type IlpType = (typeof IlpType)[keyof typeof IlpType]
 
 export const ilpPrepareSchema = sequence({
   amount: uint64Bigint(),

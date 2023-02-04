@@ -26,7 +26,7 @@ export const tagMarkerClassMap = [
 ] as const
 
 export type TagClass = keyof typeof tagClassMarkerMap
-export type TagMarker = typeof tagClassMarkerMap[TagClass]
+export type TagMarker = (typeof tagClassMarkerMap)[TagClass]
 
 export const parseTag = (
   context: ParseContext,

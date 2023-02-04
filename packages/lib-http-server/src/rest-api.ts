@@ -13,7 +13,7 @@ export const HTTP_METHODS = [
   "options",
 ] as const
 
-export type HttpMethod = typeof HTTP_METHODS[number]
+export type HttpMethod = (typeof HTTP_METHODS)[number]
 
 export type RestApiBuilder = {
   [method in HttpMethod]: (path: string) => ApiRouteBuilder<ApiRouteParameters>

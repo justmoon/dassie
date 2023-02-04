@@ -15,7 +15,7 @@ import {
 
 const logger = createLogger("das:node:config")
 
-export type RealmType = typeof VALID_REALMS[number]
+export type RealmType = (typeof VALID_REALMS)[number]
 
 export interface Config {
   nodeId: string
