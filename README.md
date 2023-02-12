@@ -2,6 +2,10 @@
 
 > A multi-currency, zero-config, peer-to-peer, Interledger-enabled payment network
 
+## Dassie Talk 
+
+[![dassie-talk](http://img.youtube.com/vi/Whp4RfW3K_U/0.jpg)](http://www.youtube.com/watch?v=Whp4RfW3K_U&t=8371 "Dassie Talk")
+
 ## Development Environment
 
 In order to develop a peer-to-peer application, it is very useful to quickly spin up several nodes which can all talk to each other. Dassie uses HTTPS everywhere including during development, so you will need to generate certificates for your nodes.
