@@ -8,7 +8,7 @@
       "import": "./server.ts"
     },
     "./client": {
-      "import": "./client.ts"
+      "import": "./client.tsx"
     }
   },
   "publishConfig": {

@@ -1,12 +1,11 @@
 import { ArrowRight, ProhibitInset } from "phosphor-react"
 import { useCallback } from "react"
 
-import { useSig } from "@dassie/lib-reactive-trpc/client"
-
 import Button from "../../components/button/button"
 import Dialog from "../../components/dialog/dialog"
 import Tabs from "../../components/tabs/tabs"
 import { walletStore } from "../../stores/wallet"
+import { useSig } from "../../utils/remote-reactive"
 
 export const CreateFirstAccount = () => {
   const sig = useSig()

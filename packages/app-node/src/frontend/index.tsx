@@ -5,10 +5,10 @@ import "uno.css"
 
 import { assertDefined } from "@dassie/lib-type-utils"
 
-import App from "./app"
 import "./index.css"
+import Root from "./root"
 
 const rootElement = document.querySelector("#root")
 assertDefined(rootElement)
 const root = createRoot(rootElement)
-root.render(<App />)
+root.render(<Root />)

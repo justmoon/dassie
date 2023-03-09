@@ -4,11 +4,11 @@ import { Link } from "wouter"
 
 import type { InputConfig } from "@dassie/app-node"
 import { selectBySeed } from "@dassie/lib-logger"
-import { useSig } from "@dassie/lib-reactive-trpc/client"
 
 import type { NodeDefinition } from "../../../backend/effects/run-nodes"
 import { COLORS } from "../../constants/palette"
 import { activeNodesStore } from "../../remote-signals/active-nodes"
+import { useSig } from "../../utils/remote-reactive"
 import { trpc } from "../../utils/trpc"
 import LogViewer from "../log-viewer/log-viewer"
 import NodeGraph from "../node-graph/node-graph"

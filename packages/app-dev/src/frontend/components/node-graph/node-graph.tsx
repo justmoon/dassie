@@ -5,11 +5,11 @@ import ReactForceGraph2d, { ForceGraphMethods } from "react-force-graph-2d"
 import { useLocation } from "wouter"
 
 import { selectBySeed } from "@dassie/lib-logger"
-import { useSig } from "@dassie/lib-reactive-trpc/client"
 
 import type { PeerMessageMetadata } from "../../../backend/topics/peer-traffic"
 import { COLORS } from "../../constants/palette"
 import { peerTrafficTopic } from "../../remote-topics/peer-traffic"
+import { useSig } from "../../utils/remote-reactive"
 
 interface NodeGraphProperties {
   graphData: GraphData

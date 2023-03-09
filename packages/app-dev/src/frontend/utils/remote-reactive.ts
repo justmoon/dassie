@@ -1,5 +1,13 @@
-import { createTrpcConnection } from "@dassie/lib-reactive-trpc/client"
+import { createReactiveHooks } from "@dassie/lib-reactive-trpc/client"
 
-import { client } from "./trpc"
+import type { exposedStores } from "../../backend/rpc-routers/remote-reactive-router"
 
-export const trpcConnectionService = () => createTrpcConnection(() => client)
+const hooks = createReactiveHooks<typeof exposedStores>()
+
+export const {
+  Provider,
+  useSig,
+  createRemoteTopic,
+  createRemoteSignal,
+  createRemoteStore,
+} = hooks

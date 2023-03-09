@@ -4,10 +4,9 @@ import { wordlist } from "@scure/bip39/wordlists/english"
 import { ArrowLeft } from "phosphor-react"
 import { useCallback, useState } from "react"
 
-import { useSig } from "@dassie/lib-reactive-trpc/client"
-
 import Dialog from "../../components/dialog/dialog"
 import { walletStore } from "../../stores/wallet"
+import { useSig } from "../../utils/remote-reactive"
 import { SubpageGenerate } from "./subpage-generate/subpage-generate"
 import { SubpageIntro } from "./subpage-intro/subpage-intro"
 import { SubpageRecover } from "./subpage-recover/subpage-recover"

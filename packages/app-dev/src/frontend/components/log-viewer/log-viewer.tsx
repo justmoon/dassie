@@ -8,10 +8,9 @@ import {
   useState,
 } from "react"
 
-import { useSig } from "@dassie/lib-reactive-trpc/client"
-
 import type { IndexedLogLine } from "../../../common/stores/logs"
 import { remoteLogsStore } from "../../remote-signals/logs"
+import { useSig } from "../../utils/remote-reactive"
 import LogLine from "./log-line"
 
 export interface LogViewerProperties {
