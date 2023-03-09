@@ -35,12 +35,12 @@
   "license": "Apache-2.0",
   "devDependencies": {
     "react": "^18.2.0",
-    "type-fest": "^3.5.5"
+    "type-fest": "^3.6.1"
   },
   "dependencies": {
     "@dassie/lib-reactive": "workspace:^1.0.0",
-    "@trpc/client": "10.10.0",
-    "@trpc/server": "10.10.0"
+    "@trpc/client": "10.14.1",
+    "@trpc/server": "10.14.1"
   },
   "peerDependencies": {
     "react": ">=18.0.0"
