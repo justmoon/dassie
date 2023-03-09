@@ -1,6 +1,7 @@
 import { z } from "zod"
 
 import { logsStore } from "../../common/stores/logs"
+import { peeringStateStore } from "../stores/peering-state"
 import { peerTrafficTopic } from "../topics/peer-traffic"
 import { createCliOnlyLogger } from "../utils/cli-only-logger"
 import { trpc } from "./trpc"
@@ -47,6 +48,17 @@ export const runnerRpcRouter = trpc.router({
         const cliLogger = createCliOnlyLogger(prefix)
         cliLogger.info(logLine.message, logLine.data)
       }
+    }),
+  notifyPeerState: trpc.procedure
+    .input(
+      z.object({
+        nodeId: z.string(),
+        peers: z.array(z.string()),
+      })
+    )
+    .mutation(({ input: { nodeId, peers }, ctx: { reactor } }) => {
+      const peeringState = reactor.use(peeringStateStore)
+      peeringState.updateNodePeers(nodeId, peers)
     }),
 })
 

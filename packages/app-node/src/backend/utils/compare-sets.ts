@@ -20,3 +20,13 @@ export const compareKeysToArray = (a: Map<string, unknown>, b: string[]) => {
 
   return true
 }
+
+export const compareArrays = (a: string[], b: string[]) => {
+  if (a.length !== b.length) return false
+
+  for (const key of b) {
+    if (!a.includes(key)) return false
+  }
+
+  return true
+}

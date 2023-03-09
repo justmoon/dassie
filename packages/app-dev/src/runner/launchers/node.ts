@@ -7,6 +7,7 @@ import { runDebugRpcServer } from "../effects/debug-rpc-server"
 import { forwardLogs } from "../effects/forward-logs"
 import { forwardPeerTraffic } from "../effects/forward-peer-traffic"
 import { handleDisconnect } from "../effects/handle-disconnect"
+import { reportPeeringState } from "../effects/report-peering-state"
 import { serveWallet } from "../effects/serve-wallet"
 import { trpcClientService } from "../services/trpc-client"
 
@@ -18,6 +19,7 @@ const debugRunner = async (sig: EffectContext) => {
   sig.run(handleDisconnect)
   sig.run(forwardLogs)
   sig.run(forwardPeerTraffic)
+  await sig.run(reportPeeringState)
   await sig.run(serveWallet)
   await sig.run(nodeRootEffect)
   sig.run(runDebugRpcServer)

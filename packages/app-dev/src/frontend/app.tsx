@@ -1,11 +1,12 @@
 import { Route } from "wouter"
 
-import Dashboard from "./components/pages/dashboard"
+import Dashboard from "./components/pages/dashboard/dashboard"
 import Logs from "./components/pages/logs"
 import NodeDetail from "./components/pages/node-detail"
 import MainNavigation from "./main-navigation"
 import { activeNodesStore } from "./remote-signals/active-nodes"
 import { remoteLogsStore } from "./remote-signals/logs"
+import { peeringStateStore } from "./remote-signals/peering-state"
 import { peerTrafficTopic } from "./remote-topics/peer-traffic"
 import { useSig } from "./utils/remote-reactive"
 
@@ -14,6 +15,7 @@ const App = () => {
   sig.run(sig.use(activeNodesStore).effect)
   sig.run(sig.use(remoteLogsStore).effect)
   sig.run(sig.use(peerTrafficTopic).effect)
+  sig.run(sig.use(peeringStateStore).effect)
 
   return (
     <>
