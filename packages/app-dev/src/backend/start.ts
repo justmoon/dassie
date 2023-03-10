@@ -6,6 +6,7 @@ import { handleShutdownSignals } from "../common/effects/handle-shutdown-signals
 import { compileRunner } from "./effects/compile-runner"
 import { handleFileChange } from "./effects/handle-file-change"
 import { proxyByHostname } from "./effects/proxy-by-hostname"
+import { regenerateNodeConfig } from "./effects/regenerate-node-config"
 import { registerReactiveLogger } from "./effects/register-reactive-logger"
 import { runBeacons } from "./effects/run-beacons"
 import { runNodes } from "./effects/run-nodes"
@@ -29,6 +30,8 @@ const rootEffect = async (sig: EffectContext) => {
   await sig.run(runNodes)
   await sig.run(debugUiServer)
   sig.run(proxyByHostname)
+
+  sig.run(regenerateNodeConfig)
 
   sig.run(handleShutdownSignals)
 }

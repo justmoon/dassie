@@ -7,6 +7,7 @@ import { COLORS } from "../../../constants/palette"
 import { activeNodesStore } from "../../../remote-signals/active-nodes"
 import { useSig } from "../../../utils/remote-reactive"
 import { trpc } from "../../../utils/trpc"
+import PeeringModeToggle from "./peering-mode-toggle"
 
 const NodesList = () => {
   const sig = useSig()
@@ -17,6 +18,7 @@ const NodesList = () => {
 
   return (
     <div className="rounded-lg flex flex-col bg-gray-800 min-h-0 p-4">
+      <PeeringModeToggle />
       <h2 className="font-bold text-xl">Nodes</h2>
       <div className="grid grid-cols-2 py-4 gap-x-2 gap-y-3">
         {nodes.map((node) => (

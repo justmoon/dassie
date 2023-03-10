@@ -5,6 +5,7 @@ import Logs from "./components/pages/logs"
 import NodeDetail from "./components/pages/node-detail"
 import MainNavigation from "./main-navigation"
 import { activeNodesStore } from "./remote-signals/active-nodes"
+import { environmentSettingsStore } from "./remote-signals/environment-settings"
 import { remoteLogsStore } from "./remote-signals/logs"
 import { peeringStateStore } from "./remote-signals/peering-state"
 import { peerTrafficTopic } from "./remote-topics/peer-traffic"
@@ -16,6 +17,7 @@ const App = () => {
   sig.run(sig.use(remoteLogsStore).effect)
   sig.run(sig.use(peerTrafficTopic).effect)
   sig.run(sig.use(peeringStateStore).effect)
+  sig.run(sig.use(environmentSettingsStore).effect)
 
   return (
     <>

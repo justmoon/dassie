@@ -1,6 +1,11 @@
 import type { InputConfig } from "@dassie/app-node"
 
-import { DEBUG_UI_PORT, NODES_DEBUG_START_PORT, NODES_START_PORT } from "../constants/ports"
+import {
+  DEBUG_UI_PORT,
+  NODES_DEBUG_START_PORT,
+  NODES_START_PORT,
+} from "../constants/ports"
+import type { EnvironmentSettings } from "../stores/environment-settings"
 
 const ENTRYPOINT = new URL("../../runner/launchers/node", import.meta.url)
   .pathname
@@ -29,7 +34,8 @@ const satisfiesNodeConfig = <T extends NodeConfig>(result: T): T => {
 
 export const generateNodeConfig = (
   index: number,
-  peers: readonly number[]
+  peers: readonly number[],
+  environmentSettings: EnvironmentSettings
 ) => {
   const id = nodeIndexToId(index)
   const port = nodeIndexToPort(index)
@@ -39,6 +45,7 @@ export const generateNodeConfig = (
     port,
     debugPort: NODES_DEBUG_START_PORT + index,
     peers: peers.map((index) => nodeIndexToId(index)),
+    peerIndices: peers,
     config: {
       nodeId: id,
       realm: "test" as const,
