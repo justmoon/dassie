@@ -1,6 +1,6 @@
 import useSize from "@react-hook/size"
 import type { GraphData } from "force-graph"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useReducer, useRef } from "react"
 import ReactForceGraph2d, {
   ForceGraphMethods,
   NodeObject,
@@ -80,35 +80,47 @@ const NodeGraph = () => {
   const sig = useSig()
   const nodes = sig.get(activeNodesStore)
   const peeringState = sig.get(peeringStateStore)
-  const [graphData, setGraphData] = useState<GraphData>({
-    nodes: [],
-    links: [],
-  })
+  const [graphData, dispatchGraphData] = useReducer(
+    (
+      previousGraphData: GraphData,
+      action: { nodes: typeof nodes; peeringState: typeof peeringState }
+    ) => {
+      const links = Object.entries(action.peeringState ?? {}).flatMap(
+        ([nodeId, peers]) =>
+          peers.flatMap((peer) => {
+            // Strip subnet identifier
+            const peerId = peer.split(".")[1]
+            return peerId &&
+              peerId > nodeId &&
+              action.peeringState?.[peerId]?.find((peerId) =>
+                peerId.endsWith(`.${nodeId}`)
+              )
+              ? [
+                  { source: nodeId, target: peerId },
+                  { source: peerId, target: nodeId },
+                ]
+              : []
+          })
+      )
+
+      return {
+        nodes: (action.nodes ?? []).map(
+          (node) =>
+            previousGraphData.nodes.find(({ id }) => id === node.id) ?? {
+              id: node.id,
+            }
+        ),
+        links,
+      }
+    },
+    {
+      nodes: [],
+      links: [],
+    }
+  )
 
   useEffect(() => {
-    const links = Object.entries(peeringState ?? {}).flatMap(
-      ([nodeId, peers]) =>
-        peers.flatMap((peer) => {
-          // Strip subnet identifier
-          const peerId = peer.split(".")[1]
-          return peerId &&
-            peerId > nodeId &&
-            peeringState?.[peerId]?.includes(`stub.${nodeId}`)
-            ? [
-                { source: nodeId, target: peerId },
-                { source: peerId, target: nodeId },
-              ]
-            : []
-        })
-    )
-
-    setGraphData({
-      nodes: (nodes || []).map(
-        (node) =>
-          graphData.nodes.find(({ id }) => id === node.id) ?? { id: node.id }
-      ),
-      links,
-    })
+    dispatchGraphData({ nodes, peeringState })
   }, [nodes, peeringState])
 
   // return <NodeGraphView graphData={graphData} />
