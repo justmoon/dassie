@@ -24,23 +24,11 @@ interface NodeConfig {
   entry: string
 }
 
-// TODO: this is temporary hack while the prettier plugin doesn't support
-// the satisfies operation introduced in TS 4.9
-// See: https://github.com/trivago/prettier-plugin-sort-imports/issues/204
-const satisfiesNodeConfig = <T extends NodeConfig>(result: T): T => {
-  // satisfies (index: number, peers: readonly number[]) => NodeConfig
-  return result
-}
-
-export const generateNodeConfig = (
-  index: number,
-  peers: readonly number[],
-  environmentSettings: EnvironmentSettings
-) => {
+export const generateNodeConfig = ((index, peers, environmentSettings) => {
   const id = nodeIndexToId(index)
   const port = nodeIndexToPort(index)
 
-  return satisfiesNodeConfig({
+  return {
     id,
     port,
     debugPort: NODES_DEBUG_START_PORT + index,
@@ -75,5 +63,9 @@ export const generateNodeConfig = (
     },
     url: `https://${id}.localhost:${port}/`,
     entry: ENTRYPOINT,
-  })
-}
+  }
+}) satisfies (
+  index: number,
+  peers: readonly number[],
+  environmentSettings: EnvironmentSettings
+) => NodeConfig
