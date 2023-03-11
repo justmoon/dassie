@@ -10,6 +10,11 @@ export const subnetBalanceMapStore = () =>
       produce((draft) => {
         draft.set(subnetId, balance)
       }),
+    adjustBalance: (subnetId: string, adjustment: bigint) =>
+      produce((draft) => {
+        const currentBalance = draft.get(subnetId) ?? 0n
+        draft.set(subnetId, currentBalance + adjustment)
+      }),
     clearBalance: (subnetId: string) =>
       produce((draft) => {
         draft.delete(subnetId)

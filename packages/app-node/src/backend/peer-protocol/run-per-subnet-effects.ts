@@ -1,13 +1,11 @@
 import type { EffectContext } from "@dassie/lib-reactive"
 
-import type { SubnetModuleInstance } from "../subnets/types/subnet-module"
 import { calculateRoutes } from "./calculate-routes"
 import { handlePeerMessages } from "./handle-peer-messages"
 import { maintainOwnNodeTableEntry } from "./maintain-own-node-table-entry"
 
 export interface PerSubnetParameters {
   subnetId: string
-  subnetModule: SubnetModuleInstance
 }
 
 /**

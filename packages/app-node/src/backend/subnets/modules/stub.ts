@@ -1,5 +1,3 @@
-import { createSignal } from "@dassie/lib-reactive"
-
 import { IlpType } from "../../ilp-connector/ilp-packet-codec"
 import type { SubnetModule } from "../types/subnet-module"
 
@@ -10,36 +8,28 @@ import type { SubnetModule } from "../types/subnet-module"
  *
  * **WARNING** This module is intended for testing and development. You **must not** use this module in a real node otherwise anyone will be able to take your funds.
  */
-const createSubnet: SubnetModule = () => {
-  if (process.env["NODE_ENV"] === "production") {
-    throw new Error('The "stub" subnet cannot be used in production')
-  }
+const stub = {
+  name: "stub",
+  supportedVersions: [1],
+  realm: "test",
 
-  const balance = createSignal(0n)
+  effect() {
+    if (process.env["NODE_ENV"] === "production") {
+      throw new Error('The "stub" subnet cannot be used in production')
+    }
+  },
 
-  return {
-    name: "stub",
-    supportedVersions: [1],
-    realm: "test",
+  processIncomingPacket({ packet, subnetId, balanceMap }) {
+    if (packet.type === IlpType.Fulfill) {
+      balanceMap.adjustBalance(subnetId, -packet.prepare.amount)
+    }
+  },
 
-    balance,
+  processOutgoingPacket({ packet, subnetId, balanceMap }) {
+    if (packet.type === IlpType.Fulfill) {
+      balanceMap.adjustBalance(subnetId, packet.prepare.amount)
+    }
+  },
+} satisfies SubnetModule
 
-    processIncomingPacket({ packet }) {
-      if (packet.type === IlpType.Fulfill) {
-        balance.update((balance) => balance - packet.prepare.amount)
-      }
-    },
-
-    processOutgoingPacket({ packet }) {
-      if (packet.type === IlpType.Fulfill) {
-        balance.update((balance) => balance + packet.prepare.amount)
-      }
-    },
-
-    dispose() {
-      // no-op
-    },
-  }
-}
-
-export default createSubnet
+export default stub

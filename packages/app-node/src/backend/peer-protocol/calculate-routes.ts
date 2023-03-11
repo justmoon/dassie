@@ -4,8 +4,10 @@ import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
 import { assertDefined } from "@dassie/lib-type-utils"
 
+import { subnetBalanceMapStore } from "../balances/stores/subnet-balance-map"
 import { configSignal } from "../config"
 import { ilpRoutingTableSignal } from "../ilp-connector/signals/ilp-routing-table"
+import subnetModules from "../subnets/modules"
 import { peerMessageContent } from "./peer-schema"
 import type { PerSubnetParameters } from "./run-per-subnet-effects"
 import { outgoingPeerMessageBufferTopic } from "./send-peer-messages"
@@ -26,7 +28,7 @@ export const calculateRoutes = (
   sig: EffectContext,
   parameters: PerSubnetParameters
 ) => {
-  const { subnetId, subnetModule } = parameters
+  const { subnetId } = parameters
 
   const { ilpAllocationScheme } = sig.getKeys(configSignal, [
     "ilpAllocationScheme",
@@ -110,7 +112,17 @@ export const calculateRoutes = (
         sendPacket: async ({ packet, asUint8Array, requestId }) => {
           const nextHop = firstHopOptions[0]!
 
-          await subnetModule.processOutgoingPacket({ packet })
+          const subnetModule = subnetModules[subnetId]
+
+          if (!subnetModule) {
+            throw new Error(`No subnet module found for subnet ${subnetId}`)
+          }
+
+          await subnetModule.processOutgoingPacket({
+            subnetId,
+            balanceMap: sig.use(subnetBalanceMapStore),
+            packet,
+          })
 
           logger.debug("sending ilp packet", { nextHop })
 

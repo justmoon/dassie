@@ -1,8 +1,10 @@
 import { createLogger } from "@dassie/lib-logger"
 import { EffectContext, createTopic } from "@dassie/lib-reactive"
 
+import { subnetBalanceMapStore } from "../balances/stores/subnet-balance-map"
 import { configSignal } from "../config"
 import { incomingIlpPacketTopic } from "../ilp-connector/topics/incoming-ilp-packet"
+import subnetModules from "../subnets/modules"
 import type { PeerMessage } from "./peer-schema"
 import type { PerSubnetParameters } from "./run-per-subnet-effects"
 import { NodeTableKey, nodeTableStore } from "./stores/node-table"
@@ -156,7 +158,15 @@ export const handlePeerMessages = (
         requestId: content.interledgerPacket.signed.requestId,
       })
 
-      await parameters.subnetModule.processIncomingPacket({
+      const subnetModule = subnetModules[subnetId]
+
+      if (!subnetModule) {
+        throw new Error(`unknown subnet: ${subnetId}`)
+      }
+
+      await subnetModule.processIncomingPacket({
+        subnetId,
+        balanceMap: sig.use(subnetBalanceMapStore),
         packet: incomingPacketEvent.packet,
       })
 

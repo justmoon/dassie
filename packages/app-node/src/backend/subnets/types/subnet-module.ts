@@ -1,15 +1,25 @@
 import type { Promisable } from "type-fest"
 
-import type { Signal } from "@dassie/lib-reactive"
+import type { EffectContext } from "@dassie/lib-reactive"
 
 import type { VALID_REALMS } from "../../constants/general"
 import type { IlpPacketWithAttachedPrepare } from "../../ilp-connector/topics/incoming-ilp-packet"
 
+export interface BalanceMap {
+  adjustBalance: (subnetId: string, adjustment: bigint) => void
+}
+
 export interface PacketInformation {
+  subnetId: string
+  balanceMap: BalanceMap
   packet: IlpPacketWithAttachedPrepare
 }
 
-export interface SubnetModuleInstance {
+export interface SubnetProperties {
+  readonly subnetId: string
+}
+
+export interface SubnetModule {
   /**
    * The unique subnet identifier.
    *
@@ -39,19 +49,13 @@ export interface SubnetModuleInstance {
    */
   readonly realm: (typeof VALID_REALMS)[number]
 
-  /**
-   * The current balance of the node on this subnet.
-   */
-  readonly balance: Signal<bigint>
+  effect(
+    this: void,
+    sig: EffectContext,
+    properties: SubnetProperties
+  ): Promisable<void>
 
   processIncomingPacket(packetInformation: PacketInformation): Promisable<void>
 
   processOutgoingPacket(packetInformation: PacketInformation): Promisable<void>
-
-  dispose(): Promisable<void>
 }
-
-/**
- * Constructs a subnet module.
- */
-export type SubnetModule = () => Promisable<SubnetModuleInstance>

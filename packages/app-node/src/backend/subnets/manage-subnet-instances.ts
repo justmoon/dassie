@@ -4,10 +4,9 @@ import { subnetBalanceMapStore } from "../balances/stores/subnet-balance-map"
 import { configSignal } from "../config"
 import { runPerSubnetEffects } from "../peer-protocol/run-per-subnet-effects"
 import { peerTableStore } from "../peer-protocol/stores/peer-table"
-import * as modules from "./modules"
+import modules from "./modules"
 import { activeSubnetsSignal } from "./signals/active-subnets"
 import { subnetMapSignal } from "./signals/subnet-map"
-import type { SubnetModule } from "./types/subnet-module"
 
 export const manageSubnetInstances = async (sig: EffectContext) => {
   await Promise.all(sig.for(activeSubnetsSignal, runSubnetModule))
@@ -20,14 +19,12 @@ const runSubnetModule = async (sig: EffectContext, subnetId: string) => {
 
   const subnetState = subnetMap.get(subnetId)
 
-  const createModule = (modules as Record<string, SubnetModule>)[subnetId]
-  if (!createModule) {
+  const module = modules[subnetId]
+  if (!module) {
     throw new Error(`Unknown subnet module '${subnetId}'`)
   }
 
-  const instance = await createModule()
-
-  if (realm !== instance.realm) {
+  if (realm !== module.realm) {
     throw new Error("Subnet module is not compatible with realm")
   }
 
@@ -42,23 +39,21 @@ const runSubnetModule = async (sig: EffectContext, subnetId: string) => {
     }
   }
 
+  subnetBalanceMap.setBalance(subnetId, 0n)
+
+  /**
+   * Instantiate subnet specific effects.
+   */
+  await sig.run(module.effect, { subnetId })
+
   /**
    * Instantiate aspects of the peer protocol that are specific to this subnet.
    */
   await sig.run(runPerSubnetEffects, {
     subnetId,
-    subnetModule: instance,
-  })
-
-  // Keep track of balance
-  subnetBalanceMap.setBalance(subnetId, instance.balance.read())
-  const disposeBalanceListener = instance.balance.on((balance) => {
-    subnetBalanceMap.setBalance(subnetId, balance)
   })
 
   sig.onCleanup(() => {
-    disposeBalanceListener()
     subnetBalanceMap.clearBalance(subnetId)
-    return instance.dispose()
   })
 }
