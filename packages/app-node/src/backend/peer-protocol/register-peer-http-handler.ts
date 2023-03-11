@@ -10,6 +10,7 @@ import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
 
 import { routerService } from "../http-server/serve-http"
+import { ALLOW_ANONYMOUS_USAGE } from "./constants/anonymous-messages"
 import { incomingPeerMessageTopic } from "./handle-peer-messages"
 import { peerMessage as peerMessageSchema } from "./peer-schema"
 import { peerTableStore } from "./stores/peer-table"
@@ -58,8 +59,13 @@ export const registerPeerHttpHandler = (sig: EffectContext) => {
         !!senderPublicKey &&
         authenticatePeerMessage(senderPublicKey, parseResult.value)
 
-      // Peering requests are the only messages that don't require valid authentication
-      if (!isAuthenticated && !parseResult.value.content.value.peeringRequest) {
+      // Only certain messages are allowed to be sent anonymously
+      if (
+        !isAuthenticated &&
+        !ALLOW_ANONYMOUS_USAGE.includes(
+          String(Object.keys(parseResult.value.content.value)[0])
+        )
+      ) {
         logger.debug("incoming dassie message is not authenticated, ignoring", {
           message: parseResult.value,
           body,
