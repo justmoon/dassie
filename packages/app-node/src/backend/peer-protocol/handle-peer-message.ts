@@ -20,12 +20,14 @@ export type PeerMessageContent<
   T extends keyof PeerMessage["content"]["value"]
 > = NonNullable<PeerMessage["content"]["value"][T]>
 
+const EMPTY_BUFFER = Buffer.alloc(0)
+
 export const incomingPeerMessageTopic = () =>
   createTopic<IncomingPeerMessageEvent>()
 
 export const handlePeerMessage = (
   parameters: IncomingPeerMessageHandlerParameters
-) => {
+): Buffer => {
   const content = parameters.message.content.value
 
   if (content.peeringRequest) {
@@ -35,4 +37,6 @@ export const handlePeerMessage = (
   } else if (content.interledgerPacket) {
     handleInterledgerPacket(content.interledgerPacket, parameters)
   }
+
+  return EMPTY_BUFFER
 }

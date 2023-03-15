@@ -4,7 +4,7 @@ import {
   assertContentTypeHeader,
   asyncHandler,
   parseBody,
-  respondPlainly,
+  respondBinary,
 } from "@dassie/lib-http-server"
 import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
@@ -82,14 +82,19 @@ export const registerPeerHttpHandler = (sig: EffectContext) => {
         asUint8Array: body,
       })
 
-      handlePeerMessage({
+      const responseMessage = handlePeerMessage({
         reactor: sig.reactor,
         message: parseResult.value,
         authenticated: isAuthenticated,
         asUint8Array: body,
       })
 
-      respondPlainly(response, 200, "OK")
+      respondBinary(
+        response,
+        200,
+        responseMessage,
+        "application/dassie-peer-response"
+      )
     })
   )
 }

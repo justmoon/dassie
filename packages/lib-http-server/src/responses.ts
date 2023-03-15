@@ -17,3 +17,13 @@ export const respondJson = (
   response.writeHead(statusCode, { "Content-Type": "application/json" })
   response.end(JSON.stringify(data))
 }
+
+export const respondBinary = (
+  response: ServerResponse,
+  statusCode: number,
+  data: Buffer,
+  contentType = "application/octet-stream"
+) => {
+  response.writeHead(statusCode, { "Content-Type": contentType })
+  response.end(data)
+}
