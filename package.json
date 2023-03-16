@@ -7,7 +7,7 @@
   "scripts": {
     "clean": "pnpm -r clean",
     "build": "pnpm -r build",
-    "start": "vite-node packages/app-dev/bin/start-development-server.ts",
+    "start": "vite-node --watch --config packages/app-dev/vite.backend.config.js packages/app-dev/bin/start-development-server.ts",
     "test": "vitest",
     "prettier": "prettier --config .prettierrc.json --write \"packages/*/{src,test}/**/*.ts\"",
     "lint": "eslint \"packages/*/{src,test}/**/*.ts\"",
