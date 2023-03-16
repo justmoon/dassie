@@ -191,9 +191,17 @@ const handleIncomingConnection = async (socket: Socket) => {
 }
 
 export const proxyByHostname = (sig: EffectContext) => {
+  const connections = new Set<Socket>()
+
   const server = createServer((socket) => {
+    connections.add(socket)
+
     handleIncomingConnection(socket).catch((error: unknown) => {
       logger.error("failed to proxy incoming connection", { error })
+    })
+
+    socket.on("close", () => {
+      connections.delete(socket)
     })
   })
 
@@ -215,11 +223,15 @@ export const proxyByHostname = (sig: EffectContext) => {
   )
 
   sig.onCleanup(async () => {
-    await new Promise<void>((resolve, reject) =>
+    await new Promise<void>((resolve, reject) => {
+      for (const connection of connections) {
+        connection.destroy()
+      }
+
       server.close((error: unknown) => {
         if (error) reject(error)
         else resolve()
       })
-    )
+    })
   })
 }

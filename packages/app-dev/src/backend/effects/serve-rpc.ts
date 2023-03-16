@@ -21,6 +21,8 @@ const keyPath = join(
   "tls/dev-rpc.localhost/web-dev-rpc.localhost-key.pem"
 )
 
+const CONNECTION_CLOSE_TIMEOUT = 250
+
 export const listenForRpcWebSocket = async (sig: EffectContext) => {
   await sig.run(validateCertificates, {
     id: "dev",
@@ -48,9 +50,38 @@ export const listenForRpcWebSocket = async (sig: EffectContext) => {
 
   httpsServer.listen(DEBUG_RPC_PORT)
 
-  sig.onCleanup(() => {
+  sig.onCleanup(async () => {
     broadcastReconnectNotification()
-    httpsServer.close()
+
+    await Promise.all(
+      [...wss.clients].map((client) => {
+        return new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            client.terminate()
+          }, CONNECTION_CLOSE_TIMEOUT)
+
+          client.on("close", () => {
+            clearTimeout(timer)
+            resolve()
+          })
+
+          client.on("error", (error) => {
+            clearTimeout(timer)
+            reject(error)
+          })
+
+          client.close()
+        })
+      })
+    )
+
     wss.close()
+
+    await new Promise<void>((resolve, reject) => {
+      httpsServer.close((error: unknown) => {
+        if (error) reject(error)
+        else resolve()
+      })
+    })
   })
 }
