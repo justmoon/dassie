@@ -82,6 +82,7 @@ export const maintainOwnNodeTableEntry = async (
         nodeId,
         neighbors: peerIds,
         nodePublicKey: publicKey,
+        url,
         sequence,
         scheduledRetransmitTime: Date.now(),
         updateReceivedCounter: 0,

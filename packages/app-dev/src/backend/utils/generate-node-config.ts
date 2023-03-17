@@ -11,6 +11,8 @@ const ENTRYPOINT = new URL("../../runner/launchers/node", import.meta.url)
   .pathname
 const LOCAL_PATH = new URL("../../../../../local", import.meta.url).pathname
 
+const BOOTSTRAP_NODES = [0, 1]
+
 export const nodeIndexToId = (index: number) => `n${index + 1}`
 export const nodeIndexToPort = (index: number) => NODES_START_PORT + index
 
@@ -24,9 +26,19 @@ interface NodeConfig {
   entry: string
 }
 
+const generatePeerInfo = (peerIndex: number) => ({
+  nodeId: nodeIndexToId(peerIndex),
+  url: `https://${nodeIndexToId(peerIndex)}.localhost:${nodeIndexToPort(
+    peerIndex
+  )}`,
+  nodePublicKey: "BEEF",
+})
+
 export const generateNodeConfig = ((index, peers, environmentSettings) => {
   const id = nodeIndexToId(index)
   const port = nodeIndexToPort(index)
+
+  const peersInfo = peers.map((peerIndex) => generatePeerInfo(peerIndex))
 
   return {
     id,
@@ -48,13 +60,11 @@ export const generateNodeConfig = ((index, peers, environmentSettings) => {
         {
           id: "stub",
           config: {},
-          initialPeers: peers.map((target) => ({
-            nodeId: nodeIndexToId(target),
-            url: `https://${nodeIndexToId(target)}.localhost:${nodeIndexToPort(
-              target
-            )}`,
-            nodePublicKey: "BEEF",
-          })),
+          bootstrapNodes: BOOTSTRAP_NODES.map((peerIndex) =>
+            generatePeerInfo(peerIndex)
+          ),
+          initialPeers:
+            environmentSettings.peeringMode === "fixed" ? peersInfo : undefined,
         },
       ],
       // TODO: Make this dynamic

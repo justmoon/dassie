@@ -31,7 +31,7 @@ export const sendHeartbeats = (sig: EffectContext) => {
       nodeTable.get(`${peer.subnetId}.${ownNodeId}`)
     )
 
-    if (!ownNodeTableEntry) {
+    if (!ownNodeTableEntry?.lastLinkStateUpdate) {
       return
     }
 
@@ -70,15 +70,23 @@ const sendPeeringRequest = (
     to: peer.nodeId,
   })
 
-  sig.use(sendPeerMessage)({
-    subnet: peer.subnetId,
-    destination: peer.nodeId,
-    message: {
-      peeringRequest: {
-        nodeInfo: lastLinkStateUpdate,
+  sig
+    .use(sendPeerMessage)({
+      subnet: peer.subnetId,
+      destination: peer.nodeId,
+      message: {
+        peeringRequest: {
+          nodeInfo: lastLinkStateUpdate,
+        },
       },
-    },
-  })
+    })
+    .catch((error: unknown) => {
+      logger.warn(`failed to send peering request`, {
+        subnet: peer.subnetId,
+        to: peer.nodeId,
+        error,
+      })
+    })
 }
 
 const sendHeartbeat = (
@@ -90,13 +98,21 @@ const sendHeartbeat = (
     to: peer.nodeId,
   })
 
-  sig.use(sendPeerMessage)({
-    subnet: peer.subnetId,
-    destination: peer.nodeId,
-    message: {
-      linkStateUpdate: {
-        bytes: lastLinkStateUpdate,
+  sig
+    .use(sendPeerMessage)({
+      subnet: peer.subnetId,
+      destination: peer.nodeId,
+      message: {
+        linkStateUpdate: {
+          bytes: lastLinkStateUpdate,
+        },
       },
-    },
-  })
+    })
+    .catch((error: unknown) => {
+      logger.warn(`failed to send heartbeat`, {
+        subnet: peer.subnetId,
+        to: peer.nodeId,
+        error,
+      })
+    })
 }

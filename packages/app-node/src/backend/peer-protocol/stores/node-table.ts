@@ -21,6 +21,11 @@ export interface NodeTableEntry {
   nodePublicKey: Uint8Array
 
   /**
+   * Node's publicly reachable URL.
+   */
+  url: string
+
+  /**
    * Sequence number of the most recent link state update.
    */
   sequence: bigint
@@ -40,7 +45,7 @@ export interface NodeTableEntry {
    */
   neighbors: string[]
 
-  lastLinkStateUpdate: Uint8Array
+  lastLinkStateUpdate: Uint8Array | undefined
 }
 
 export type NodeTableKey = `${string}.${string}`

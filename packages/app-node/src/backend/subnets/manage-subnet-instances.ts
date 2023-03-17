@@ -1,8 +1,11 @@
+import { hexToBytes } from "@noble/hashes/utils"
+
 import type { EffectContext } from "@dassie/lib-reactive"
 
 import { subnetBalanceMapStore } from "../balances/stores/subnet-balance-map"
 import { configSignal } from "../config"
 import { runPerSubnetEffects } from "../peer-protocol/run-per-subnet-effects"
+import { nodeTableStore } from "../peer-protocol/stores/node-table"
 import { peerTableStore } from "../peer-protocol/stores/peer-table"
 import modules from "./modules"
 import { activeSubnetsSignal } from "./signals/active-subnets"
@@ -30,11 +33,22 @@ const runSubnetModule = async (sig: EffectContext, subnetId: string) => {
 
   if (subnetState?.initialPeers) {
     for (const peer of subnetState.initialPeers) {
+      const nodePublicKey = hexToBytes(peer.nodePublicKey)
       sig.use(peerTableStore).addPeer({
         subnetId,
         ...peer,
-        nodePublicKey: Buffer.from(peer.nodePublicKey, "hex"),
+        nodePublicKey,
         state: { id: "request-peering" },
+      })
+      sig.use(nodeTableStore).addNode({
+        ...peer,
+        nodePublicKey,
+        subnetId,
+        sequence: 0n,
+        updateReceivedCounter: 0,
+        scheduledRetransmitTime: 0,
+        neighbors: [],
+        lastLinkStateUpdate: undefined,
       })
     }
   }

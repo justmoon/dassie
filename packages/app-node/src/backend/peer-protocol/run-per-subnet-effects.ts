@@ -2,6 +2,7 @@ import type { EffectContext } from "@dassie/lib-reactive"
 
 import { calculateRoutes } from "./calculate-routes"
 import { maintainOwnNodeTableEntry } from "./maintain-own-node-table-entry"
+import { maintainPeeringRelationships } from "./maintain-peering-relationships"
 
 export interface PerSubnetParameters {
   subnetId: string
@@ -16,4 +17,5 @@ export const runPerSubnetEffects = async (
 ) => {
   sig.run(calculateRoutes, parameters)
   await sig.run(maintainOwnNodeTableEntry, parameters)
+  sig.run(maintainPeeringRelationships, parameters)
 }

@@ -17,6 +17,7 @@ export const forwardLinkStateUpdate = (sig: EffectContext) => {
 
   for (const node of nodes.values()) {
     if (
+      node.lastLinkStateUpdate &&
       node.updateReceivedCounter < COUNTER_THRESHOLD &&
       node.scheduledRetransmitTime < Date.now()
     ) {
@@ -47,16 +48,25 @@ export const forwardLinkStateUpdate = (sig: EffectContext) => {
         })
 
         // Retransmit the link state update
-        sig.use(sendPeerMessage)({
-          subnet: peer.subnetId,
-          destination: peer.nodeId,
-          message: {
-            linkStateUpdate: {
-              bytes: node.lastLinkStateUpdate,
+        sig
+          .use(sendPeerMessage)({
+            subnet: peer.subnetId,
+            destination: peer.nodeId,
+            message: {
+              linkStateUpdate: {
+                bytes: node.lastLinkStateUpdate,
+              },
             },
-          },
-          asUint8Array: message.value,
-        })
+            asUint8Array: message.value,
+          })
+          .catch((error: unknown) => {
+            logger.error("failed to retransmit link state update", {
+              from: node.nodeId,
+              to: peer.nodeId,
+              sequence: node.sequence,
+              error,
+            })
+          })
       }
     }
   }

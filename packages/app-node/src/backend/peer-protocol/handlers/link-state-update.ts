@@ -16,7 +16,7 @@ export const handleLinkStateUpdate = (
   { message: { subnetId }, reactor }: IncomingPeerMessageHandlerParameters
 ) => {
   const { value: linkState, bytes: linkStateBytes } = content
-  const { nodeId, sequence, entries, nodePublicKey } = linkState.signed
+  const { nodeId, url, sequence, entries, nodePublicKey } = linkState.signed
   const nodes = reactor.use(nodeTableStore).read()
   const peers = reactor.use(peerTableStore).read()
 
@@ -81,6 +81,7 @@ export const handleLinkStateUpdate = (
     reactor.use(nodeTableStore).addNode({
       subnetId,
       nodeId,
+      url,
       nodePublicKey,
       sequence,
       updateReceivedCounter: 1,

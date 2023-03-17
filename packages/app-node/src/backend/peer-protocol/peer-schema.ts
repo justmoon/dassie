@@ -59,6 +59,10 @@ export const peerMessageContent = choice({
   interledgerPacket: sequence({
     signed: octetString().containing(peerInterledgerPacket),
   }).tag(2),
+  linkStateRequest: sequence({
+    subnetId: subnetIdSchema,
+    nodeId: nodeIdSchema,
+  }).tag(3),
 })
 
 export const peerMessage = sequence({

@@ -45,7 +45,7 @@ export const sendPeerMessage = (sig: EffectContext) => {
   const peers = sig.get(nodeTableStore)
   const { nodeId } = sig.getKeys(configSignal, ["nodeId"])
 
-  return (parameters: MessageWithDestination) => {
+  return async (parameters: MessageWithDestination) => {
     const { message, subnet, destination, asUint8Array } = parameters
 
     const serializedMessage = asUint8Array ?? serializePeerMessage(message)
@@ -83,17 +83,16 @@ export const sendPeerMessage = (sig: EffectContext) => {
       return
     }
 
-    axios(`${peer.url}/peer`, {
+    const result = await axios<Uint8Array>(`${peer.url}/peer`, {
       method: "POST",
       data: envelopeSerializationResult.value,
       headers: {
         accept: "application/dassie-peer-message",
         "content-type": "application/dassie-peer-message",
       },
-    }).catch((error: unknown) => {
-      logger.warn("failed to send message", {
-        error,
-      })
+      responseType: "arraybuffer",
     })
+
+    return result.data
   }
 }
