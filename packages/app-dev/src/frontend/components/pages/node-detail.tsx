@@ -61,6 +61,7 @@ const PeerTable = ({ nodeId }: BasicNodeElementProperties) => {
             <th className="text-left">Subnet</th>
             <th className="text-left">Peer</th>
             <th className="text-left">URL</th>
+            <th className="text-left">State</th>
             <th className="text-left">Last Seen</th>
           </tr>
         </thead>
@@ -82,6 +83,7 @@ const PeerTable = ({ nodeId }: BasicNodeElementProperties) => {
                   {peer.url}
                 </a>
               </td>
+              <td>{peer.state.id}</td>
               <td className="" title={new Date(peer.lastSeen).toISOString()}>
                 {format(new Date(peer.lastSeen))}
               </td>
