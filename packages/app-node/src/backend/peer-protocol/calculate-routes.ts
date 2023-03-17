@@ -10,7 +10,7 @@ import { ilpRoutingTableSignal } from "../ilp-connector/signals/ilp-routing-tabl
 import subnetModules from "../subnets/modules"
 import { peerMessageContent } from "./peer-schema"
 import type { PerSubnetParameters } from "./run-per-subnet-effects"
-import { outgoingPeerMessageBufferTopic } from "./send-peer-messages"
+import { sendPeerMessage } from "./send-peer-messages"
 import { nodeTableStore } from "./stores/node-table"
 import { RoutingTableEntry, routingTableStore } from "./stores/routing-table"
 
@@ -142,7 +142,7 @@ export const calculateRoutes = (
             return
           }
 
-          sig.use(outgoingPeerMessageBufferTopic).emit({
+          sig.use(sendPeerMessage)({
             subnet: subnetId,
             destination: nextHop,
             message: peerMessageSerializationResult.value,

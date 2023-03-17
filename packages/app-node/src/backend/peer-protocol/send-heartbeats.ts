@@ -5,7 +5,7 @@ import { configSignal } from "../config"
 import { signerService } from "../crypto/signer"
 import { compareSetOfKeys } from "../utils/compare-sets"
 import { peerMessageContent } from "./peer-schema"
-import { outgoingPeerMessageBufferTopic } from "./send-peer-messages"
+import { sendPeerMessage } from "./send-peer-messages"
 import { nodeTableStore } from "./stores/node-table"
 import { PeerEntry, peerTableStore } from "./stores/peer-table"
 
@@ -84,7 +84,7 @@ const sendPeeringRequest = (
     return
   }
 
-  sig.use(outgoingPeerMessageBufferTopic).emit({
+  sig.use(sendPeerMessage)({
     subnet: peer.subnetId,
     destination: peer.nodeId,
     message: messageSerializeResult.value,
@@ -113,7 +113,7 @@ const sendHeartbeat = (
     return
   }
 
-  sig.use(outgoingPeerMessageBufferTopic).emit({
+  sig.use(sendPeerMessage)({
     subnet: peer.subnetId,
     destination: peer.nodeId,
     message: messageSerializeResult.value,

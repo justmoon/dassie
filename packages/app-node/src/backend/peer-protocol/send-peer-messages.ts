@@ -9,24 +9,24 @@ import { peerTableStore } from "./stores/peer-table"
 
 const logger = createLogger("das:node:outgoing-dassie-message-sender")
 
-export interface MessageWithDestination<T> {
-  message: T
+export interface MessageWithDestination {
+  message: Uint8Array
   subnet: string
   destination: string
 }
 
 export const outgoingPeerMessageBufferTopic = () =>
-  createTopic<MessageWithDestination<Uint8Array>>()
+  createTopic<MessageWithDestination>()
 
-export const sendPeerMessages = (sig: EffectContext) => {
+export const sendPeerMessage = (sig: EffectContext) => {
+  const { reactor } = sig
   const peers = sig.get(peerTableStore)
-  const nodeId = sig.get(configSignal, (config) => config.nodeId)
+  const { nodeId } = sig.getKeys(configSignal, ["nodeId"])
 
-  const sendOutgoingPeerMessage = async ({
-    message,
-    subnet,
-    destination,
-  }: MessageWithDestination<Uint8Array>) => {
+  return (parameters: MessageWithDestination) => {
+    const { message, subnet, destination } = parameters
+    reactor.use(outgoingPeerMessageBufferTopic).emit(parameters)
+
     const peer = peers.get(`${subnet}.${destination}`)
 
     if (!peer) {
@@ -55,15 +55,17 @@ export const sendPeerMessages = (sig: EffectContext) => {
       return
     }
 
-    await axios(`${peer.url}/peer`, {
+    axios(`${peer.url}/peer`, {
       method: "POST",
       data: envelopeSerializationResult.value,
       headers: {
         accept: "application/dassie-peer-message",
         "content-type": "application/dassie-peer-message",
       },
+    }).catch((error: unknown) => {
+      logger.warn("failed to send message", {
+        error,
+      })
     })
   }
-
-  sig.onAsync(outgoingPeerMessageBufferTopic, sendOutgoingPeerMessage)
 }
