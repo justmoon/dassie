@@ -1,6 +1,6 @@
 import { describe, test } from "vitest"
 
-import { sequenceOf, uint8Number, uint32Number } from "../src"
+import { sequence, sequenceOf, uint8Number, uint32Number } from "../src"
 import { octetString } from "../src/octet-string"
 import { hexToUint8Array } from "../src/utils/hex"
 import { parsedOk, serializedOk } from "./utils/result"
@@ -407,9 +407,56 @@ describe("octetString", () => {
       expect(value).toEqual(serializedOk(hexToUint8Array("0701050102030405")))
     })
 
+    test("should serialize a pre-serialized array of five numbers, provided as a uint8array", ({
+      expect,
+    }) => {
+      const value = schema.serialize(hexToUint8Array("01050102030405"))
+      expect(value).toEqual(serializedOk(hexToUint8Array("0701050102030405")))
+    })
+
+    test("should serialize a pre-serialized array of five numbers, provided as a buffer", ({
+      expect,
+    }) => {
+      const value = schema.serialize(Buffer.from("01050102030405", "hex"))
+      expect(value).toEqual(serializedOk(hexToUint8Array("0701050102030405")))
+    })
+
     test("should parse an array of five numbers", ({ expect }) => {
       const value = schema.parse(hexToUint8Array("0701050102030405"))
       expect(value).toEqual(parsedOk(8, [1, 2, 3, 4, 5]))
+    })
+  })
+
+  describe("with variable length containing a sequence", () => {
+    const schema = octetString().containing(
+      sequence({
+        a: uint8Number(),
+        b: uint8Number(),
+      })
+    )
+
+    test("should serialize a sequence", ({ expect }) => {
+      const value = schema.serialize({ a: 1, b: 2 })
+      expect(value).toEqual(serializedOk(hexToUint8Array("020102")))
+    })
+
+    test("should parse a sequence", ({ expect }) => {
+      const value = schema.parse(hexToUint8Array("020102"))
+      expect(value).toEqual(parsedOk(3, { a: 1, b: 2 }))
+    })
+
+    test("should serialize a pre-serialized value, provided as a uint8array", ({
+      expect,
+    }) => {
+      const value = schema.serialize(hexToUint8Array("0102"))
+      expect(value).toEqual(serializedOk(hexToUint8Array("020102")))
+    })
+
+    test("should serialize a pre-serialized value, provided as a buffer", ({
+      expect,
+    }) => {
+      const value = schema.serialize(Buffer.from(hexToUint8Array("0102")))
+      expect(value).toEqual(serializedOk(hexToUint8Array("020102")))
     })
   })
 
@@ -419,6 +466,32 @@ describe("octetString", () => {
     test("should serialize 123456", ({ expect }) => {
       const value = schema.serialize(123_456)
       expect(value).toEqual(serializedOk("0001e240"))
+    })
+
+    test("should serialize a pre-serialized value provided as a uint8array", ({
+      expect,
+    }) => {
+      const value = schema.serialize(hexToUint8Array("0001e240"))
+      expect(value).toEqual(serializedOk("0001e240"))
+    })
+
+    test("should serialize a pre-serialized value provided as a buffer", ({
+      expect,
+    }) => {
+      const value = schema.serialize(Buffer.from(hexToUint8Array("0001e240")))
+      expect(value).toEqual(serializedOk("0001e240"))
+    })
+
+    test("should fail to serialize a pre-serialized value that is the wrong length", ({
+      expect,
+    }) => {
+      const value = schema.serialize(hexToUint8Array("0001e24000"))
+      expect(value).toMatchInlineSnapshot(`
+        {
+          "error": [SerializeError: Expected octet string of length 4, but got 5],
+          "success": false,
+        }
+      `)
     })
 
     test("should parse 123456", ({ expect }) => {
