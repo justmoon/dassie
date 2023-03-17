@@ -1,3 +1,4 @@
+import { ensureUint8Array } from "./utils/ensure-uint8array"
 import { ParseError, SerializeError } from "./utils/errors"
 import type { ParseContext, SerializeContext } from "./utils/parse"
 import { TagClass, TagMarker, tagClassMarkerMap } from "./utils/tag"
@@ -45,8 +46,8 @@ export abstract class OerType<TParseValue, TSerializeValue = TParseValue> {
     | { success: true; value: TParseValue; length: number }
     | { success: false; error: ParseError } {
     const context: ParseContext = {
-      uint8Array: input,
       dataView: new DataView(input.buffer, input.byteOffset, input.byteLength),
+      uint8Array: ensureUint8Array(input),
       allowNoncanonical: options.allowNoncanonical ?? false,
     }
     const result = this.parseWithContext(context, offset)

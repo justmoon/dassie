@@ -40,6 +40,13 @@ describe("octetString", () => {
         }
       `)
     })
+
+    test("should return a plain Uint8Array even when parsing an input Buffer", ({
+      expect,
+    }) => {
+      const value = schema.parse(Buffer.from(sampleBuffer.slice(0, 22)))
+      expect(value).toEqual(parsedOk(22, sampleBuffer.slice(0, 22)))
+    })
   })
 
   describe("with variable length", () => {
