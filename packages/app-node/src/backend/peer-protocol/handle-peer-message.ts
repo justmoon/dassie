@@ -20,14 +20,14 @@ export type PeerMessageContent<
   T extends keyof PeerMessage["content"]["value"]
 > = NonNullable<PeerMessage["content"]["value"][T]>
 
-const EMPTY_BUFFER = Buffer.alloc(0)
+const EMPTY_BUFFER = new Uint8Array(0)
 
 export const incomingPeerMessageTopic = () =>
   createTopic<IncomingPeerMessageEvent>()
 
 export const handlePeerMessage = (
   parameters: IncomingPeerMessageHandlerParameters
-): Buffer => {
+): Uint8Array => {
   const content = parameters.message.content.value
 
   if (content.peeringRequest) {

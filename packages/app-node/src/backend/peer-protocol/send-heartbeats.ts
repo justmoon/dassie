@@ -4,7 +4,6 @@ import type { EffectContext } from "@dassie/lib-reactive"
 import { configSignal } from "../config"
 import { signerService } from "../crypto/signer"
 import { compareSetOfKeys } from "../utils/compare-sets"
-import { peerMessageContent } from "./peer-schema"
 import { sendPeerMessage } from "./send-peer-messages"
 import { nodeTableStore } from "./stores/node-table"
 import { PeerEntry, peerTableStore } from "./stores/peer-table"
@@ -71,23 +70,14 @@ const sendPeeringRequest = (
     to: peer.nodeId,
   })
 
-  const messageSerializeResult = peerMessageContent.serialize({
-    peeringRequest: {
-      nodeInfo: lastLinkStateUpdate,
-    },
-  })
-
-  if (!messageSerializeResult.success) {
-    logger.warn("Failed to serialize peering request message", {
-      error: messageSerializeResult.error,
-    })
-    return
-  }
-
   sig.use(sendPeerMessage)({
     subnet: peer.subnetId,
     destination: peer.nodeId,
-    message: messageSerializeResult.value,
+    message: {
+      peeringRequest: {
+        nodeInfo: lastLinkStateUpdate,
+      },
+    },
   })
 }
 
@@ -100,22 +90,13 @@ const sendHeartbeat = (
     to: peer.nodeId,
   })
 
-  const messageSerializeResult = peerMessageContent.serialize({
-    linkStateUpdate: {
-      bytes: lastLinkStateUpdate,
-    },
-  })
-
-  if (!messageSerializeResult.success) {
-    logger.warn("Failed to serialize heartbeat message", {
-      error: messageSerializeResult.error,
-    })
-    return
-  }
-
   sig.use(sendPeerMessage)({
     subnet: peer.subnetId,
     destination: peer.nodeId,
-    message: messageSerializeResult.value,
+    message: {
+      linkStateUpdate: {
+        bytes: lastLinkStateUpdate,
+      },
+    },
   })
 }

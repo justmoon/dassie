@@ -50,7 +50,12 @@ export const forwardLinkStateUpdate = (sig: EffectContext) => {
         sig.use(sendPeerMessage)({
           subnet: peer.subnetId,
           destination: peer.nodeId,
-          message: message.value,
+          message: {
+            linkStateUpdate: {
+              bytes: node.lastLinkStateUpdate,
+            },
+          },
+          asUint8Array: message.value,
         })
       }
     }

@@ -1,10 +1,10 @@
-import { outgoingPeerMessageBufferTopic } from "@dassie/app-node/src/backend/peer-protocol/send-peer-messages"
+import { outgoingPeerMessageTopic } from "@dassie/app-node/src/backend/peer-protocol/send-peer-messages"
 import type { EffectContext } from "@dassie/lib-reactive"
 
 import { trpcClientService } from "../services/trpc-client"
 
 export const forwardPeerTraffic = (sig: EffectContext) => {
-  sig.onAsync(outgoingPeerMessageBufferTopic, async ({ destination }) => {
+  sig.onAsync(outgoingPeerMessageTopic, async ({ destination }) => {
     const trpcClient = sig.get(trpcClientService)
     if (!trpcClient) return
 

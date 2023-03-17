@@ -1,31 +1,59 @@
 import axios from "axios"
+import type { SetOptional } from "type-fest"
 
 import { createLogger } from "@dassie/lib-logger"
+import type { InferSerialize } from "@dassie/lib-oer"
 import { EffectContext, createTopic } from "@dassie/lib-reactive"
 
 import { configSignal } from "../config"
-import { peerMessage } from "./peer-schema"
-import { peerTableStore } from "./stores/peer-table"
+import { peerMessage, peerMessageContent } from "./peer-schema"
+import { nodeTableStore } from "./stores/node-table"
 
 const logger = createLogger("das:node:outgoing-dassie-message-sender")
 
-export interface MessageWithDestination {
-  message: Uint8Array
+export type MessageWithDestination = SetOptional<
+  OutgoingPeerMessageEvent,
+  "asUint8Array"
+>
+
+export interface OutgoingPeerMessageEvent {
+  message: InferSerialize<typeof peerMessageContent>
   subnet: string
   destination: string
+  asUint8Array: Uint8Array
 }
 
-export const outgoingPeerMessageBufferTopic = () =>
-  createTopic<MessageWithDestination>()
+export const outgoingPeerMessageTopic = () =>
+  createTopic<OutgoingPeerMessageEvent>()
+
+const serializePeerMessage = (
+  message: InferSerialize<typeof peerMessageContent>
+) => {
+  const messageSerializeResult = peerMessageContent.serialize(message)
+
+  if (!messageSerializeResult.success) {
+    throw new Error("Failed to serialize peer message", {
+      cause: messageSerializeResult.error,
+    })
+  }
+
+  return messageSerializeResult.value
+}
 
 export const sendPeerMessage = (sig: EffectContext) => {
   const { reactor } = sig
-  const peers = sig.get(peerTableStore)
+  const peers = sig.get(nodeTableStore)
   const { nodeId } = sig.getKeys(configSignal, ["nodeId"])
 
   return (parameters: MessageWithDestination) => {
-    const { message, subnet, destination } = parameters
-    reactor.use(outgoingPeerMessageBufferTopic).emit(parameters)
+    const { message, subnet, destination, asUint8Array } = parameters
+
+    const serializedMessage = asUint8Array ?? serializePeerMessage(message)
+
+    reactor.use(outgoingPeerMessageTopic).emit({
+      ...parameters,
+      asUint8Array: serializedMessage,
+    })
 
     const peer = peers.get(`${subnet}.${destination}`)
 
@@ -45,7 +73,7 @@ export const sendPeerMessage = (sig: EffectContext) => {
           sessionPublicKey: Uint8Array.from(Buffer.alloc(32)),
         },
       },
-      content: { bytes: message },
+      content: { bytes: serializedMessage },
     })
 
     if (!envelopeSerializationResult.success) {

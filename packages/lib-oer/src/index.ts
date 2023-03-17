@@ -1,5 +1,10 @@
 export { OerType, OerOptional, OerConstant } from "./base-type"
-export type { AnyOerType, ParseOptions, Infer } from "./base-type"
+export type {
+  AnyOerType,
+  ParseOptions,
+  Infer,
+  InferSerialize,
+} from "./base-type"
 
 export * from "./bitstring"
 export * from "./boolean"

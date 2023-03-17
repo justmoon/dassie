@@ -21,7 +21,7 @@ export const respondJson = (
 export const respondBinary = (
   response: ServerResponse,
   statusCode: number,
-  data: Buffer,
+  data: Uint8Array,
   contentType = "application/octet-stream"
 ) => {
   response.writeHead(statusCode, { "Content-Type": contentType })

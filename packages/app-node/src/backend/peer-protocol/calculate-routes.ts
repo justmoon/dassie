@@ -8,7 +8,6 @@ import { subnetBalanceMapStore } from "../balances/stores/subnet-balance-map"
 import { configSignal } from "../config"
 import { ilpRoutingTableSignal } from "../ilp-connector/signals/ilp-routing-table"
 import subnetModules from "../subnets/modules"
-import { peerMessageContent } from "./peer-schema"
 import type { PerSubnetParameters } from "./run-per-subnet-effects"
 import { sendPeerMessage } from "./send-peer-messages"
 import { nodeTableStore } from "./stores/node-table"
@@ -126,26 +125,17 @@ export const calculateRoutes = (
 
           logger.debug("sending ilp packet", { nextHop })
 
-          const peerMessageSerializationResult = peerMessageContent.serialize({
-            interledgerPacket: {
-              signed: {
-                requestId: requestId,
-                packet: asUint8Array,
-              },
-            },
-          })
-
-          if (!peerMessageSerializationResult.success) {
-            logger.error("Unable to serialize peer message", {
-              error: peerMessageSerializationResult.error,
-            })
-            return
-          }
-
           sig.use(sendPeerMessage)({
             subnet: subnetId,
             destination: nextHop,
-            message: peerMessageSerializationResult.value,
+            message: {
+              interledgerPacket: {
+                signed: {
+                  requestId: requestId,
+                  packet: asUint8Array,
+                },
+              },
+            },
           })
         },
       })
