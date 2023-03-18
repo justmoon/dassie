@@ -1,4 +1,4 @@
-import { outgoingPeerMessageTopic } from "@dassie/app-node/src/backend/peer-protocol/send-peer-messages"
+import { outgoingPeerMessageTopic } from "@dassie/app-node/src/backend/peer-protocol/actions/send-peer-message"
 import type { EffectContext } from "@dassie/lib-reactive"
 
 import { trpcClientService } from "../services/trpc-client"

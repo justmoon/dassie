@@ -5,9 +5,9 @@ import { createLogger } from "@dassie/lib-logger"
 import type { InferSerialize } from "@dassie/lib-oer"
 import { EffectContext, createTopic } from "@dassie/lib-reactive"
 
-import { configSignal } from "../config"
-import { peerMessage, peerMessageContent } from "./peer-schema"
-import { nodeTableStore } from "./stores/node-table"
+import { configSignal } from "../../config"
+import { peerMessage, peerMessageContent } from "../peer-schema"
+import { nodeTableStore } from "../stores/node-table"
 
 const logger = createLogger("das:node:outgoing-dassie-message-sender")
 

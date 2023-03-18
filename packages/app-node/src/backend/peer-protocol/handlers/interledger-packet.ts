@@ -1,65 +1,69 @@
 import { createLogger } from "@dassie/lib-logger"
+import type { EffectContext } from "@dassie/lib-reactive"
 
 import { subnetBalanceMapStore } from "../../balances/stores/subnet-balance-map"
 import { configSignal } from "../../config"
 import { incomingIlpPacketTopic } from "../../ilp-connector/topics/incoming-ilp-packet"
 import subnetModules from "../../subnets/modules"
 import type {
-  IncomingPeerMessageHandlerParameters,
+  IncomingPeerMessageEvent,
   PeerMessageContent,
-} from "../handle-peer-message"
+} from "../actions/handle-peer-message"
 
 const logger = createLogger("das:node:handle-interledger-packet")
 
-export const handleInterledgerPacket = (
-  content: PeerMessageContent<"interledgerPacket">,
-  parameters: IncomingPeerMessageHandlerParameters
-) => {
-  handleInterledgerPacketAsync(content, parameters).catch((error: unknown) => {
-    logger.error("error while handling interledger packet", {
-      error,
+export const handleInterledgerPacket = (sig: EffectContext) => {
+  const incomingIlpPacketTopicValue = sig.use(incomingIlpPacketTopic)
+  const { ilpAllocationScheme } = sig.getKeys(configSignal, [
+    "ilpAllocationScheme",
+  ])
+  const balanceMap = sig.use(subnetBalanceMapStore)
+
+  const handleInterledgerPacketAsync = async (
+    content: PeerMessageContent<"interledgerPacket">,
+    { message: { sender, subnetId }, authenticated }: IncomingPeerMessageEvent
+  ) => {
+    if (!authenticated) {
+      logger.warn("received unauthenticated interledger packet, discarding")
+      return
+    }
+
+    logger.debug("handle interledger packet", {
+      subnet: subnetId,
+      from: sender,
     })
-  })
-}
 
-const handleInterledgerPacketAsync = async (
-  content: PeerMessageContent<"interledgerPacket">,
-  {
-    message: { sender, subnetId },
-    reactor,
-    authenticated,
-  }: IncomingPeerMessageHandlerParameters
-) => {
-  if (!authenticated) {
-    logger.warn("received unauthenticated interledger packet, discarding")
-    return
+    const incomingPacketEvent = incomingIlpPacketTopicValue.prepareEvent({
+      source: `${ilpAllocationScheme}.das.${subnetId}.${sender}`,
+      packet: content.signed.packet,
+      requestId: content.signed.requestId,
+    })
+
+    const subnetModule = subnetModules[subnetId]
+
+    if (!subnetModule) {
+      throw new Error(`unknown subnet: ${subnetId}`)
+    }
+
+    await subnetModule.processIncomingPacket({
+      subnetId,
+      balanceMap,
+      packet: incomingPacketEvent.packet,
+    })
+
+    incomingIlpPacketTopicValue.emit(incomingPacketEvent)
   }
 
-  logger.debug("handle interledger packet", {
-    subnet: subnetId,
-    from: sender,
-  })
-
-  const incomingIlpPacketTopicValue = reactor.use(incomingIlpPacketTopic)
-
-  const { ilpAllocationScheme } = reactor.use(configSignal).read()
-  const incomingPacketEvent = incomingIlpPacketTopicValue.prepareEvent({
-    source: `${ilpAllocationScheme}.das.${subnetId}.${sender}`,
-    packet: content.signed.packet,
-    requestId: content.signed.requestId,
-  })
-
-  const subnetModule = subnetModules[subnetId]
-
-  if (!subnetModule) {
-    throw new Error(`unknown subnet: ${subnetId}`)
+  return (
+    content: PeerMessageContent<"interledgerPacket">,
+    parameters: IncomingPeerMessageEvent
+  ) => {
+    handleInterledgerPacketAsync(content, parameters).catch(
+      (error: unknown) => {
+        logger.error("error while handling interledger packet", {
+          error,
+        })
+      }
+    )
   }
-
-  await subnetModule.processIncomingPacket({
-    subnetId,
-    balanceMap: reactor.use(subnetBalanceMapStore),
-    packet: incomingPacketEvent.packet,
-  })
-
-  incomingIlpPacketTopicValue.emit(incomingPacketEvent)
 }

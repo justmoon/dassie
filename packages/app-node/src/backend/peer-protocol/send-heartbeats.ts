@@ -4,7 +4,7 @@ import type { EffectContext } from "@dassie/lib-reactive"
 import { configSignal } from "../config"
 import { signerService } from "../crypto/signer"
 import { compareSetOfKeys } from "../utils/compare-sets"
-import { sendPeerMessage } from "./send-peer-messages"
+import { sendPeerMessage } from "./actions/send-peer-message"
 import { nodeTableStore } from "./stores/node-table"
 import { PeerEntry, peerTableStore } from "./stores/peer-table"
 

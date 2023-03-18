@@ -1,7 +1,7 @@
 import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
 
-import { sendPeerMessage } from "../peer-protocol/send-peer-messages"
+import { sendPeerMessage } from "./actions/send-peer-message"
 import { peerMessageContent } from "./peer-schema"
 import { nodeTableStore } from "./stores/node-table"
 import { peerTableStore } from "./stores/peer-table"

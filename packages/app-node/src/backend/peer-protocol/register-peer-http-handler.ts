@@ -10,11 +10,11 @@ import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
 
 import { routerService } from "../http-server/serve-http"
-import { ALLOW_ANONYMOUS_USAGE } from "./constants/anonymous-messages"
 import {
   handlePeerMessage,
   incomingPeerMessageTopic,
-} from "./handle-peer-message"
+} from "./actions/handle-peer-message"
+import { ALLOW_ANONYMOUS_USAGE } from "./constants/anonymous-messages"
 import { peerMessage as peerMessageSchema } from "./peer-schema"
 import { peerTableStore } from "./stores/peer-table"
 import { authenticatePeerMessage } from "./utils/authenticate-peer-message"
@@ -82,8 +82,7 @@ export const registerPeerHttpHandler = (sig: EffectContext) => {
         asUint8Array: body,
       })
 
-      const responseMessage = handlePeerMessage({
-        reactor: sig.reactor,
+      const responseMessage = sig.use(handlePeerMessage)({
         message: parseResult.value,
         authenticated: isAuthenticated,
         asUint8Array: body,

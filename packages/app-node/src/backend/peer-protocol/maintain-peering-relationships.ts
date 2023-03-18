@@ -4,7 +4,7 @@ import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
 
 import { configSignal } from "../config"
-import { sendPeerMessage } from "../peer-protocol/send-peer-messages"
+import { sendPeerMessage } from "./actions/send-peer-message"
 import { signedPeerNodeInfo } from "./peer-schema"
 import type { PerSubnetParameters } from "./run-per-subnet-effects"
 import { nodeTableStore } from "./stores/node-table"
