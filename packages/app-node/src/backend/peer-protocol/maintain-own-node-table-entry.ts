@@ -48,7 +48,8 @@ export const maintainOwnNodeTableEntry = async (
       url,
       sequence,
       entries: peerIds.map((peerId) => ({
-        neighbor: { nodeId: peerId },
+        type: "neighbor",
+        value: { nodeId: peerId },
       })),
     })
 

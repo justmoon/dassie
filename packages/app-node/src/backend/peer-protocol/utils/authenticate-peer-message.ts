@@ -4,7 +4,7 @@ export const authenticatePeerMessage = (
   _peerNodeKey: Uint8Array,
   peerMessage: PeerMessage
 ): boolean => {
-  if (peerMessage.authentication.NONE) {
+  if (peerMessage.authentication.type === "NONE") {
     return false
   }
 

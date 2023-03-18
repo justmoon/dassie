@@ -15,24 +15,15 @@ import {
 export type OptionsShape = Record<string, AnyOerType>
 
 /**
- * Change all properties of an interface to type never
- */
-type Never<T> = { [P in keyof T]?: never }
-
-/**
- * Returns a union of interfaces where each member is an object containing a single property which is of such type as inferred from the corresponding member of the input interface.
+ * Returns a discriminated union of interfaces where each member is an object containing a type property which is of such type as inferred from the corresponding member of the input interface.
  */
 type InferOptionValues<T extends Record<string, AnyOerType>> = {
-  [K in keyof T]-?: { [P in K]: Infer<T[P]> } & Never<
-    Pick<T, Exclude<keyof T, K>>
-  >
-}[keyof T]
+  [K in keyof T & string]: { type: K; value: Infer<T[K]> }
+}[keyof T & string]
 
 type InferOptionSerializeValues<T extends Record<string, AnyOerType>> = {
-  [K in keyof T]-?: { [P in K]: InferSerialize<T[P]> } & Never<
-    Pick<T, Exclude<keyof T, K>>
-  >
-}[keyof T]
+  [K in keyof T & string]: { type: K; value: InferSerialize<T[K]> }
+}[keyof T & string]
 
 // Because JavaScript's bitwise operators are 32 bits and we are using two bits for the tag class, we only have 30 bits available to encode the tag value
 // This should be plenty though since tag values are usually much smaller.
@@ -128,9 +119,9 @@ export class OerChoice<TOptions extends OptionsShape> extends OerType<
       )
     }
 
-    const key = this.tagToKeyMap.get((tag << 2) | tagClass)
+    const type = this.tagToKeyMap.get((tag << 2) | tagClass)
 
-    if (key == undefined) {
+    if (type == undefined) {
       return new ParseError(
         `unable to read choice value - tag ${tagMarkerClassMap[
           tagClass
@@ -140,7 +131,7 @@ export class OerChoice<TOptions extends OptionsShape> extends OerType<
       )
     }
 
-    const oer = this.options[key]!
+    const oer = this.options[type]!
 
     const result = oer.parseWithContext(context, offset + tagLength)
 
@@ -149,36 +140,30 @@ export class OerChoice<TOptions extends OptionsShape> extends OerType<
     }
 
     return [
-      { [key]: result[0] } as Simplify<InferOptionValues<TOptions>>,
+      { type, value: result[0] } as Simplify<InferOptionValues<TOptions>>,
       tagLength + result[1],
     ] as const
   }
 
   serializeWithContext(input: Simplify<InferOptionSerializeValues<TOptions>>) {
-    const key = Object.keys(input)[0]
+    const type = input.type
 
-    if (key == undefined) {
-      return new SerializeError(
-        `unable to serialize choice value - no option selected`
-      )
-    }
-
-    const tag = this.keyToTagMap.get(key)
+    const tag = this.keyToTagMap.get(type)
 
     if (tag == undefined) {
       return new SerializeError(
-        `unable to serialize choice value - option ${key} not in set ${this.setHint}`
+        `unable to serialize choice value - option ${type} not in set ${this.setHint}`
       )
     }
 
     const tagValue = tag >>> 2
     const tagClass = (tag & 3) as TagMarker
 
-    const oer = this.options[key]
+    const oer = this.options[type]
 
     if (oer == undefined) {
       return new SerializeError(
-        `unable to serialize choice value - option ${key} not in set ${this.setHint}`
+        `unable to serialize choice value - option ${type} not in set ${this.setHint}`
       )
     }
 
@@ -188,7 +173,7 @@ export class OerChoice<TOptions extends OptionsShape> extends OerType<
       return tagLength
     }
 
-    const valueSerializer = oer.serializeWithContext(input[key])
+    const valueSerializer = oer.serializeWithContext(input.value)
 
     if (valueSerializer instanceof SerializeError) {
       return valueSerializer

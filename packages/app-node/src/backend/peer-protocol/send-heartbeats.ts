@@ -75,7 +75,8 @@ const sendPeeringRequest = (
       subnet: peer.subnetId,
       destination: peer.nodeId,
       message: {
-        peeringRequest: {
+        type: "peeringRequest",
+        value: {
           nodeInfo: lastLinkStateUpdate,
         },
       },
@@ -103,7 +104,8 @@ const sendHeartbeat = (
       subnet: peer.subnetId,
       destination: peer.nodeId,
       message: {
-        linkStateUpdate: {
+        type: "linkStateUpdate",
+        value: {
           bytes: lastLinkStateUpdate,
         },
       },

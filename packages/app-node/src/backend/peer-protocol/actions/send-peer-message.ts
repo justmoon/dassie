@@ -69,7 +69,8 @@ export const sendPeerMessage = (sig: EffectContext) => {
       subnetId: subnet,
       sender: nodeId,
       authentication: {
-        "ED25519_X25519_HMAC-SHA256": {
+        type: "ED25519_X25519_HMAC-SHA256",
+        value: {
           sessionPublicKey: Uint8Array.from(Buffer.alloc(32)),
         },
       },

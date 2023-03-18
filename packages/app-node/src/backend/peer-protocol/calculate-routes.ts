@@ -130,7 +130,8 @@ export const calculateRoutes = (
               subnet: subnetId,
               destination: nextHop,
               message: {
-                interledgerPacket: {
+                type: "interledgerPacket",
+                value: {
                   signed: {
                     requestId: requestId,
                     packet: asUint8Array,

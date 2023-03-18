@@ -1,6 +1,7 @@
 import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
 
+import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import type {
   IncomingPeerMessageEvent,
   PeerMessageContent,
@@ -26,8 +27,9 @@ export const handleLinkStateUpdate = (sig: EffectContext) => {
     const peers = peerTable.read()
 
     const neighbors = entries
-      .filter((entry) => "neighbor" in entry)
-      .map((entry) => entry.neighbor.nodeId)
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      .filter(({ type }) => type === "neighbor")
+      .map((entry) => entry.value.nodeId)
 
     const nodeKey: NodeTableKey = `${subnetId}.${nodeId}`
     const node = nodes.get(nodeKey)
@@ -42,7 +44,7 @@ export const handleLinkStateUpdate = (sig: EffectContext) => {
           neighbors: neighbors.join(","),
           previousSequence: node.sequence,
         })
-        return
+        return EMPTY_UINT8ARRAY
       }
 
       if (sequence === node.sequence) {
@@ -64,7 +66,7 @@ export const handleLinkStateUpdate = (sig: EffectContext) => {
         nodeTable.updateNode(nodeKey, {
           updateReceivedCounter: node.updateReceivedCounter + 1,
         })
-        return
+        return EMPTY_UINT8ARRAY
       }
 
       logger.debug("process new link state update", {
@@ -110,5 +112,7 @@ export const handleLinkStateUpdate = (sig: EffectContext) => {
         lastSeen: Date.now(),
       })
     }
+
+    return EMPTY_UINT8ARRAY
   }
 }

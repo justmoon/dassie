@@ -65,9 +65,7 @@ export const registerPeerHttpHandler = (sig: EffectContext) => {
       // Only certain messages are allowed to be sent anonymously
       if (
         !isAuthenticated &&
-        !ALLOW_ANONYMOUS_USAGE.includes(
-          String(Object.keys(parseResult.value.content.value)[0])
-        )
+        !ALLOW_ANONYMOUS_USAGE.includes(parseResult.value.content.value.type)
       ) {
         logger.debug("incoming dassie message is not authenticated, ignoring", {
           message: parseResult.value,

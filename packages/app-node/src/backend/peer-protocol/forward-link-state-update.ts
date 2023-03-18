@@ -27,7 +27,8 @@ export const forwardLinkStateUpdate = (sig: EffectContext) => {
       })
 
       const message = peerMessageContent.serialize({
-        linkStateUpdate: {
+        type: "linkStateUpdate",
+        value: {
           bytes: node.lastLinkStateUpdate,
         },
       })
@@ -53,7 +54,8 @@ export const forwardLinkStateUpdate = (sig: EffectContext) => {
             subnet: peer.subnetId,
             destination: peer.nodeId,
             message: {
-              linkStateUpdate: {
+              type: "linkStateUpdate",
+              value: {
                 bytes: node.lastLinkStateUpdate,
               },
             },

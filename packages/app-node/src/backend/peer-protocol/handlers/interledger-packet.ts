@@ -1,6 +1,7 @@
 import { createLogger } from "@dassie/lib-logger"
 import type { EffectContext } from "@dassie/lib-reactive"
 
+import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import { subnetBalanceMapStore } from "../../balances/stores/subnet-balance-map"
 import { configSignal } from "../../config"
 import { incomingIlpPacketTopic } from "../../ilp-connector/topics/incoming-ilp-packet"
@@ -65,5 +66,7 @@ export const handleInterledgerPacket = (sig: EffectContext) => {
         })
       }
     )
+
+    return EMPTY_UINT8ARRAY
   }
 }

@@ -25,26 +25,26 @@ describe("choice", () => {
 
     const testVectors = [
       {
-        value: { first: true },
+        value: { type: "first", value: true },
         encoding: "80 ff",
       },
       {
-        value: { second: false },
+        value: { type: "second", value: false },
         encoding: "81 00",
       },
       {
-        value: { third: true },
+        value: { type: "third", value: true },
         encoding: "bf 88 00 ff",
       },
       {
-        value: { fourth: true },
+        value: { type: "fourth", value: true },
         encoding: "bf ff 7f ff",
       },
       {
-        value: { fifth: false },
+        value: { type: "fifth", value: false },
         encoding: "bf e0 2f 00",
       },
-    ]
+    ] as const
 
     test.each(testVectors)(
       "should serialize $encoding",
@@ -76,26 +76,26 @@ describe("choice", () => {
 
     const testVectors = [
       {
-        value: { first: true },
+        value: { type: "first", value: true },
         encoding: "80 ff",
       },
       {
-        value: { second: false },
+        value: { type: "second", value: false },
         encoding: "81 00",
       },
       {
-        value: { third: true },
+        value: { type: "third", value: true },
         encoding: "82 ff",
       },
       {
-        value: { fourth: true },
+        value: { type: "fourth", value: true },
         encoding: "83 ff",
       },
       {
-        value: { fifth: false },
+        value: { type: "fifth", value: false },
         encoding: "84 00",
       },
-    ]
+    ] as const
 
     test.each(testVectors)(
       "should serialize $encoding",

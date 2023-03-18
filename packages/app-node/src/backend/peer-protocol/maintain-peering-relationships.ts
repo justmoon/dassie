@@ -92,7 +92,9 @@ export const maintainPeeringRelationships = (
       [
         ...candidates.map(({ nodeId }) => nodeId),
         ...linkState.entries
-          .map(({ neighbor }) => neighbor.nodeId)
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+          .filter(({ type }) => type === "neighbor")
+          .map(({ value }) => value.nodeId)
           .filter((nodeId) => nodeId !== ownNodeId),
       ].filter((nodeId) => !peerTable.has(`${subnetId}.${nodeId}`))
     )
@@ -131,7 +133,8 @@ export const maintainPeeringRelationships = (
       subnet: subnetId,
       destination: oracleNodeId,
       message: {
-        linkStateRequest: {
+        type: "linkStateRequest",
+        value: {
           subnetId,
           nodeId: subjectNodeId,
         },
