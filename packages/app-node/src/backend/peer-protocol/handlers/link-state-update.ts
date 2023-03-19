@@ -1,5 +1,5 @@
 import { createLogger } from "@dassie/lib-logger"
-import type { EffectContext } from "@dassie/lib-reactive"
+import type { Reactor } from "@dassie/lib-reactive"
 
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import type {
@@ -13,9 +13,9 @@ const logger = createLogger("das:node:handle-link-state-update")
 
 export const MAX_LINK_STATE_UPDATE_RETRANSMIT_DELAY = 500
 
-export const handleLinkStateUpdate = (sig: EffectContext) => {
-  const nodeTable = sig.use(nodeTableStore)
-  const peerTable = sig.use(peerTableStore)
+export const handleLinkStateUpdate = (reactor: Reactor) => {
+  const nodeTable = reactor.use(nodeTableStore)
+  const peerTable = reactor.use(peerTableStore)
 
   return (
     content: PeerMessageContent<"linkStateUpdate">,

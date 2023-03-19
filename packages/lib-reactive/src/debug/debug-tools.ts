@@ -1,7 +1,6 @@
 import { isObject } from "@dassie/lib-type-utils"
 
-import type { Effect } from "../effect"
-import type { ContextState, Reactor } from "../reactor"
+import type { ContextState, Factory, Reactor } from "../reactor"
 import { isSignal } from "../signal"
 import { TopicFactory, createTopic, isTopic } from "../topic"
 
@@ -29,8 +28,8 @@ export class DebugTools {
     readonly contextState: ContextState
   ) {}
 
-  notifyOfInstantiation<T>(factory: Effect<never, T>, value: T) {
-    if (factory === (debugFirehose as Effect<never>)) {
+  notifyOfContextInstantiation<T>(factory: Factory<T>, value: T) {
+    if (factory === (debugFirehose as Factory<unknown>)) {
       return
     }
 

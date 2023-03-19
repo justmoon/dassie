@@ -46,7 +46,26 @@ const tagWithEffectName = (target: unknown, effectName: string) => {
   }
 }
 
-export interface UseOptions<TReturn> {
+export interface UseOptions {
+  /**
+   * Custom lifecycle scope to use for this state.
+   *
+   * @internal
+   */
+  parentLifecycleScope?: LifecycleScope | undefined
+
+  /**
+   * A string that will be used to prefix the debug log messages related to this effect.
+   */
+  pathPrefix?: string | undefined
+
+  /**
+   * If true, the factory or effect will be instantiated fresh every time and will not be stored in the context.
+   */
+  stateless?: boolean | undefined
+}
+
+export interface RunOptions<TReturn> {
   /**
    * A callback which will be called with the effect's return value each time it executes.
    */
@@ -75,17 +94,20 @@ export interface UseOptions<TReturn> {
   stateless?: boolean | undefined
 }
 
-export interface ContextState extends WeakMap<Effect<never>, unknown> {
-  get<T>(key: Effect<never, T>): T | undefined
-  set<T>(key: Effect<never, T>, value: T): this
+export type Factory<TInstance> = (reactor: Reactor) => TInstance
+
+export interface ContextState
+  extends WeakMap<Factory<unknown> | Effect<never>, unknown> {
+  get<T>(key: Factory<T> | Effect<never, T>): T | undefined
+  set<T>(key: Factory<T> | Effect<never, T>, value: T): this
 }
 
-interface UseSignature {
+interface RunSignature {
   <TReturn>(factory: Effect<undefined, TReturn>): TReturn
   <TProperties, TReturn>(
     factory: Effect<TProperties, TReturn>,
     properties: TProperties,
-    options?: UseOptions<TReturn> | undefined
+    options?: RunOptions<TReturn> | undefined
   ): TReturn
 }
 
@@ -98,52 +120,22 @@ export class Reactor extends LifecycleScope {
    * @param factory - A function that will be executed to create the value if it does not yet exist in this reactor.
    * @returns The value stored in the context.
    */
-  use: UseSignature = <TProperties, TReturn>(
-    factory: Effect<TProperties | undefined, TReturn>,
-    properties?: TProperties,
-    options?: UseOptions<TReturn> | undefined
+  use = <TReturn>(
+    factory: (reactor: Reactor) => TReturn,
+    { parentLifecycleScope, pathPrefix, stateless }: UseOptions = {}
   ) => {
     let result!: TReturn
 
     // We use has() to check if the effect is already in the context. Note that the factory's return value may be undefined, so it would not be sufficient to check if the return value of get() is undefined.
-    if (options?.stateless || !this.contextState.has(factory)) {
-      const factoryPath = options?.pathPrefix
-        ? `${options.pathPrefix}${factory.name}`
+    if (stateless || !this.contextState.has(factory)) {
+      const factoryPath = pathPrefix
+        ? `${pathPrefix}${factory.name}`
         : factory.name
 
-      if (factory.length === 0) {
-        result = (factory as () => TReturn)()
-        if (options?.onResult) {
-          options.onResult(result)
-        }
-        if (options?.parentLifecycleScope) {
-          options.parentLifecycleScope.onCleanup(() => {
-            this.delete(factory)
-          })
-        }
-      } else {
-        loopEffect(
-          this,
-          factory,
-          factoryPath,
-          properties,
-          options?.parentLifecycleScope ?? this,
-          (_result) => {
-            result = _result
-            if (options?.onResult) {
-              options.onResult(result)
-            }
-          },
-          () => {
-            this.delete(factory)
-          }
-        ).catch((error: unknown) => {
-          console.error("error in effect", {
-            effect: factory.name,
-            path: factoryPath,
-            error,
-            ...options?.additionalDebugData,
-          })
+      result = factory(this)
+      if (parentLifecycleScope) {
+        parentLifecycleScope.onCleanup(() => {
+          this.delete(factory)
         })
       }
 
@@ -158,11 +150,11 @@ export class Reactor extends LifecycleScope {
         result[InitSymbol](this)
       }
 
-      if (!options?.stateless) {
+      if (!stateless) {
         this.contextState.set(factory, result)
       }
 
-      this.debug?.notifyOfInstantiation(factory, result)
+      this.debug?.notifyOfContextInstantiation(factory, result)
     } else {
       result = this.contextState.get(factory)!
     }
@@ -179,16 +171,74 @@ export class Reactor extends LifecycleScope {
   }
 
   /**
+   * Instantiate an actor in the reactor's global context. The key is a factory which returns the value sought. If the value does not exist yet, it will be created by running the factory function.
+   *
+   * @param effect - A function that will be executed to create the value if it does not yet exist in this reactor.
+   * @returns The value stored in the context.
+   */
+  run: RunSignature = <TProperties, TReturn>(
+    effect: Effect<TProperties | undefined, TReturn>,
+    properties?: TProperties,
+    {
+      onResult,
+      additionalDebugData,
+      parentLifecycleScope,
+      pathPrefix,
+      stateless,
+    }: RunOptions<TReturn> = {}
+  ) => {
+    let result!: TReturn
+
+    // We use has() to check if the actor is already in the context. Note that the actor's return value may be undefined, so it would not be sufficient to check if the return value of get() is undefined.
+    if (!stateless && this.contextState.has(effect)) {
+      throw new Error("Duplicate actor")
+    }
+
+    const effectPath = pathPrefix ? `${pathPrefix}${effect.name}` : effect.name
+
+    loopEffect(
+      this,
+      effect,
+      effectPath,
+      properties,
+      parentLifecycleScope ?? this,
+      (_result) => {
+        result = _result
+        if (!stateless) {
+          this.contextState.set(effect, _result)
+        }
+        if (onResult) {
+          onResult(_result)
+        }
+      },
+      () => {
+        this.contextState.delete(effect)
+      }
+    ).catch((error: unknown) => {
+      console.error("error in effect", {
+        effect: effect.name,
+        path: effectPath,
+        error,
+        ...additionalDebugData,
+      })
+    })
+
+    return result
+  }
+
+  /**
    * Access an element in the context but without creating it if it does not yet exist. This also does not increase the reference count.
    *
    * @param factory - Key to the element in the context.
    * @returns The value stored in the context if any.
    */
-  peek = <TReturn>(factory: Effect<never, TReturn>): TReturn | undefined => {
+  peek = <TReturn>(
+    factory: Factory<TReturn> | Effect<never, TReturn>
+  ): TReturn | undefined => {
     return this.contextState.get(factory)
   }
 
-  delete = (factory: Effect<never>) => {
+  delete = (factory: Factory<unknown> | Effect<never>) => {
     if (!this.contextState.has(factory)) return
 
     const result = this.contextState.get(factory)
@@ -215,7 +265,7 @@ export class Reactor extends LifecycleScope {
    * @param factory - The factory which should be used as the key to store this context element.
    * @param value - The value to store in the context.
    */
-  set = <T>(factory: Effect<never, T>, value: T) => {
+  set = <T>(factory: Factory<T> | Effect<never, T>, value: T) => {
     this.contextState.set(factory, value)
   }
 
@@ -229,7 +279,7 @@ export const createReactor = (rootEffect?: Effect | undefined): Reactor => {
   const reactor: Reactor = new Reactor()
 
   if (rootEffect) {
-    reactor.use(rootEffect)
+    reactor.run(rootEffect)
   }
 
   return reactor

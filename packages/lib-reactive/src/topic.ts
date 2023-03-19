@@ -1,14 +1,12 @@
 import { isObject } from "@dassie/lib-type-utils"
 
-import type { Effect } from "./effect"
-import { Disposer, FactoryNameSymbol } from "./reactor"
+import { Disposer, Factory, FactoryNameSymbol } from "./reactor"
 
 export type Listener<TMessage> = (message: TMessage) => void
 
 export const TopicSymbol = Symbol("das:reactive:topic")
 
-export type TopicFactory<TMessage = unknown, TTrigger = never> = Effect<
-  undefined,
+export type TopicFactory<TMessage = unknown, TTrigger = never> = Factory<
   Topic<TMessage, TTrigger>
 >
 

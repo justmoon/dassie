@@ -3,7 +3,13 @@ import {
   createIndexedArrayEffect,
 } from "./internal/array-effect"
 import type { LifecycleScope } from "./internal/lifecycle-scope"
-import type { AsyncDisposer, Reactor, UseOptions } from "./reactor"
+import type {
+  AsyncDisposer,
+  Factory,
+  Reactor,
+  RunOptions,
+  UseOptions,
+} from "./reactor"
 import type { SignalFactory } from "./signal"
 import type { Listener, TopicFactory } from "./topic"
 
@@ -303,47 +309,8 @@ export class EffectContext {
    * @param factory - Factory function or effect.
    * @returns - Return value of the factory function or first invocation of the effect.
    */
-  use<TReturn>(factory: Effect<undefined, TReturn>): TReturn
-  use<TProperties, TReturn>(
-    factory: Effect<TProperties, TReturn>,
-    properties: TProperties,
-    options?: UseOptions<TReturn> | undefined
-  ): TReturn
-  use<TProperties, TReturn>(
-    factory: Effect<TProperties | undefined, TReturn>,
-    properties?: TProperties,
-    options?: UseOptions<TReturn> | undefined
-  ) {
-    return this.reactor.use(factory, properties, options)
-  }
-
-  /**
-   * Fetch a local context value.
-   *
-   * If the value is not found, it will be instantiated by calling the factory function.
-   *
-   * @remarks
-   *
-   * Factory functions which take a context as an argument are called "effects" and have a managed lifecycle. When created using `use`, the effect will inherit the current effect's lifecycle, i.e. it will be disposed when the current effect is disposed.
-   *
-   * @param factory - Factory function or effect.
-   * @returns - Return value of the factory function or first invocation of the effect.
-   */
-  useLocal<TReturn>(factory: Effect<undefined, TReturn>): TReturn
-  useLocal<TProperties, TReturn>(
-    factory: Effect<TProperties, TReturn>,
-    properties: TProperties,
-    options?: UseOptions<TReturn> | undefined
-  ): TReturn
-  useLocal<TProperties, TReturn>(
-    factory: Effect<TProperties | undefined, TReturn>,
-    properties?: TProperties,
-    options?: UseOptions<TReturn> | undefined
-  ) {
-    return this.reactor.use(factory, properties, {
-      parentLifecycleScope: options?.parentLifecycleScope ?? this.lifecycle,
-      ...options,
-    })
+  use<TReturn>(factory: Factory<TReturn>, options?: UseOptions | undefined) {
+    return this.reactor.use(factory, options)
   }
 
   /**
@@ -360,14 +327,14 @@ export class EffectContext {
   run<TProperties, TReturn>(
     factory: Effect<TProperties, TReturn>,
     properties: TProperties,
-    options?: UseOptions<TReturn> | undefined
+    options?: RunOptions<TReturn> | undefined
   ): TReturn
   run<TProperties, TReturn>(
     factory: Effect<TProperties | undefined, TReturn>,
     properties?: TProperties,
-    options?: UseOptions<TReturn> | undefined
+    options?: RunOptions<TReturn> | undefined
   ) {
-    return this.reactor.use(factory, properties, {
+    return this.reactor.run(factory, properties, {
       parentLifecycleScope: options?.parentLifecycleScope ?? this.lifecycle,
       stateless: true,
       pathPrefix: `${this.path}.`,
@@ -382,7 +349,13 @@ export class EffectContext {
     arrayTopicFactory: SignalFactory<readonly TElement[]>,
     effect: Effect<TElement, TReturn>
   ) {
-    return this.run(createArrayEffect(arrayTopicFactory, effect, this.name))
+    return this.run(
+      createArrayEffect(arrayTopicFactory, effect, this.name),
+      undefined,
+      {
+        stateless: true,
+      }
+    )
   }
 
   /**
@@ -393,7 +366,11 @@ export class EffectContext {
     effect: Effect<readonly [element: TElement, index: number], TReturn>
   ) {
     return this.run(
-      createIndexedArrayEffect(arrayTopicFactory, effect, this.name)
+      createIndexedArrayEffect(arrayTopicFactory, effect, this.name),
+      undefined,
+      {
+        stateless: true,
+      }
     )
   }
 }

@@ -1,5 +1,5 @@
 import { createLogger } from "@dassie/lib-logger"
-import type { EffectContext } from "@dassie/lib-reactive"
+import type { Reactor } from "@dassie/lib-reactive"
 
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import { subnetBalanceMapStore } from "../../balances/stores/subnet-balance-map"
@@ -13,12 +13,10 @@ import type {
 
 const logger = createLogger("das:node:handle-interledger-packet")
 
-export const handleInterledgerPacket = (sig: EffectContext) => {
-  const incomingIlpPacketTopicValue = sig.use(incomingIlpPacketTopic)
-  const { ilpAllocationScheme } = sig.getKeys(configSignal, [
-    "ilpAllocationScheme",
-  ])
-  const balanceMap = sig.use(subnetBalanceMapStore)
+export const handleInterledgerPacket = (reactor: Reactor) => {
+  const incomingIlpPacketTopicValue = reactor.use(incomingIlpPacketTopic)
+  const { ilpAllocationScheme } = reactor.use(configSignal).read()
+  const balanceMap = reactor.use(subnetBalanceMapStore)
 
   const handleInterledgerPacketAsync = async (
     content: PeerMessageContent<"interledgerPacket">,

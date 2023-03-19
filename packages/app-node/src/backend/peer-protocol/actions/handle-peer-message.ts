@@ -1,4 +1,4 @@
-import { EffectContext, createTopic } from "@dassie/lib-reactive"
+import { Reactor, createTopic } from "@dassie/lib-reactive"
 
 import { handleInterledgerPacket } from "../handlers/interledger-packet"
 import { handleLinkStateRequest } from "../handlers/link-state-request"
@@ -29,12 +29,12 @@ type AllPeerMessageHandlers = {
   ) => Uint8Array
 }
 
-export const handlePeerMessage = (sig: EffectContext) => {
+export const handlePeerMessage = (reactor: Reactor) => {
   const handlers: AllPeerMessageHandlers = {
-    peeringRequest: sig.use(handlePeeringRequest),
-    linkStateUpdate: sig.use(handleLinkStateUpdate),
-    interledgerPacket: sig.use(handleInterledgerPacket),
-    linkStateRequest: sig.use(handleLinkStateRequest),
+    peeringRequest: reactor.use(handlePeeringRequest),
+    linkStateUpdate: reactor.use(handleLinkStateUpdate),
+    interledgerPacket: reactor.use(handleInterledgerPacket),
+    linkStateRequest: reactor.use(handleLinkStateRequest),
   }
 
   const runHandler = <T extends PeerMessage["content"]["value"]["type"]>(

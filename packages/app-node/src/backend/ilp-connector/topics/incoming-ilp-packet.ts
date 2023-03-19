@@ -1,4 +1,4 @@
-import { EffectContext, createTopic } from "@dassie/lib-reactive"
+import { Reactor, createTopic } from "@dassie/lib-reactive"
 
 import {
   IlpFulfillPacket,
@@ -31,9 +31,9 @@ interface IncomingPacketParameters {
   requestId: number
 }
 
-export const incomingIlpPacketTopic = (sig: EffectContext) => {
+export const incomingIlpPacketTopic = (reactor: Reactor) => {
   const topic = createTopic<IncomingIlpPacket>()
-  const requestIdMap = sig.use(requestIdMapSignal).read()
+  const requestIdMap = reactor.use(requestIdMapSignal).read()
 
   const parseAndLookupPacket = (
     incomingPacketParameters: IncomingPacketParameters

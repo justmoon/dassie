@@ -3,7 +3,7 @@ import type { SetOptional } from "type-fest"
 
 import { createLogger } from "@dassie/lib-logger"
 import type { InferSerialize } from "@dassie/lib-oer"
-import { EffectContext, createTopic } from "@dassie/lib-reactive"
+import { Reactor, createTopic } from "@dassie/lib-reactive"
 
 import { configSignal } from "../../config"
 import { peerMessage, peerMessageContent } from "../peer-schema"
@@ -40,12 +40,10 @@ const serializePeerMessage = (
   return messageSerializeResult.value
 }
 
-export const sendPeerMessage = (sig: EffectContext) => {
-  const { reactor } = sig
-  const peers = sig.get(nodeTableStore)
-  const { nodeId } = sig.getKeys(configSignal, ["nodeId"])
-
+export const sendPeerMessage = (reactor: Reactor) => {
   return async (parameters: MessageWithDestination) => {
+    const peers = reactor.use(nodeTableStore).read()
+    const { nodeId } = reactor.use(configSignal).read()
     const { message, subnet, destination, asUint8Array } = parameters
 
     const serializedMessage = asUint8Array ?? serializePeerMessage(message)

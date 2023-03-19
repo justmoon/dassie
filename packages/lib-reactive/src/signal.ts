@@ -1,13 +1,13 @@
 import { isObject } from "@dassie/lib-type-utils"
 
-import type { Effect } from "./effect"
+import type { Factory } from "./reactor"
 import { Topic, createTopic } from "./topic"
 
 export type Reducer<TState> = (previousState: TState) => TState
 
 export const SignalSymbol = Symbol("das:reactive:signal")
 
-export type SignalFactory<TState> = Effect<undefined, Signal<TState>>
+export type SignalFactory<TState> = Factory<Signal<TState>>
 
 export type Signal<TState> = Topic<TState, Readonly<TState>> & {
   /**
