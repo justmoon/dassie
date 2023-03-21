@@ -3,7 +3,7 @@ import { bold, dim } from "picocolors"
 import { Socket, connect, createServer } from "node:net"
 
 import { createLogger } from "@dassie/lib-logger"
-import type { EffectContext } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 import { isErrorWithCode } from "@dassie/lib-type-utils"
 
 import {
@@ -190,48 +190,49 @@ const handleIncomingConnection = async (socket: Socket) => {
   socket.pipe(proxy).pipe(socket)
 }
 
-export const proxyByHostname = (sig: EffectContext) => {
-  const connections = new Set<Socket>()
+export const proxyByHostname = () =>
+  createActor((sig) => {
+    const connections = new Set<Socket>()
 
-  const server = createServer((socket) => {
-    connections.add(socket)
+    const server = createServer((socket) => {
+      connections.add(socket)
 
-    handleIncomingConnection(socket).catch((error: unknown) => {
-      logger.error("failed to proxy incoming connection", { error })
+      handleIncomingConnection(socket).catch((error: unknown) => {
+        logger.error("failed to proxy incoming connection", { error })
+      })
+
+      socket.on("close", () => {
+        connections.delete(socket)
+      })
     })
 
-    socket.on("close", () => {
-      connections.delete(socket)
-    })
-  })
-
-  server.on("error", (error: unknown) => {
-    if (isErrorWithCode(error, "EACCES")) {
-      console.log(
-        "Unable to bind to port 443. Try running `sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0`."
-      )
-      return
-    }
-
-    logger.error("sni proxy error", { error })
-  })
-
-  server.listen(SNI_PROXY_PORT)
-
-  console.log(
-    `  ${bold("Debug UI:")} https://localhost/ ${dim("<-- Start here")}\n`
-  )
-
-  sig.onCleanup(async () => {
-    await new Promise<void>((resolve, reject) => {
-      for (const connection of connections) {
-        connection.destroy()
+    server.on("error", (error: unknown) => {
+      if (isErrorWithCode(error, "EACCES")) {
+        console.log(
+          "Unable to bind to port 443. Try running `sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0`."
+        )
+        return
       }
 
-      server.close((error: unknown) => {
-        if (error) reject(error)
-        else resolve()
+      logger.error("sni proxy error", { error })
+    })
+
+    server.listen(SNI_PROXY_PORT)
+
+    console.log(
+      `  ${bold("Debug UI:")} https://localhost/ ${dim("<-- Start here")}\n`
+    )
+
+    sig.onCleanup(async () => {
+      await new Promise<void>((resolve, reject) => {
+        for (const connection of connections) {
+          connection.destroy()
+        }
+
+        server.close((error: unknown) => {
+          if (error) reject(error)
+          else resolve()
+        })
       })
     })
   })
-}

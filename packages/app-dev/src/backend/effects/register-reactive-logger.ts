@@ -4,30 +4,31 @@ import {
   createJsonFormatter,
   createLogger,
 } from "@dassie/lib-logger"
-import type { EffectContext } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 
 import { logsStore } from "../../common/stores/logs"
 
-export const registerReactiveLogger = (sig: EffectContext) => {
-  let inRecursion = false
-  const cliFormatter = createCliFormatter()
-  const jsonFormatter = createJsonFormatter({
-    outputFunction(line: SerializableLogLine) {
-      sig.use(logsStore).addLogLine({
-        node: "",
-        ...line,
-      })
-    },
-  })
+export const registerReactiveLogger = () =>
+  createActor((sig) => {
+    let inRecursion = false
+    const cliFormatter = createCliFormatter()
+    const jsonFormatter = createJsonFormatter({
+      outputFunction(line: SerializableLogLine) {
+        sig.use(logsStore).addLogLine({
+          node: "",
+          ...line,
+        })
+      },
+    })
 
-  createLogger.setFormatter((...parameters) => {
-    if (process.env["DASSIE_LOG_TO_CLI"] === "true") {
-      cliFormatter(...parameters)
-    }
-    if (inRecursion) return
+    createLogger.setFormatter((...parameters) => {
+      if (process.env["DASSIE_LOG_TO_CLI"] === "true") {
+        cliFormatter(...parameters)
+      }
+      if (inRecursion) return
 
-    inRecursion = true
-    jsonFormatter(...parameters)
-    inRecursion = false
+      inRecursion = true
+      jsonFormatter(...parameters)
+      inRecursion = false
+    })
   })
-}

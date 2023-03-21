@@ -1,3 +1,5 @@
+import { createActor } from "@dassie/lib-reactive"
+
 import { IlpType } from "../../ilp-connector/ilp-packet-codec"
 import type { SubnetModule } from "../types/subnet-module"
 
@@ -13,11 +15,12 @@ const stub = {
   supportedVersions: [1],
   realm: "test",
 
-  effect() {
-    if (process.env["NODE_ENV"] === "production") {
-      throw new Error('The "stub" subnet cannot be used in production')
-    }
-  },
+  actor: () =>
+    createActor(() => {
+      if (process.env["NODE_ENV"] === "production") {
+        throw new Error('The "stub" subnet cannot be used in production')
+      }
+    }),
 
   processIncomingPacket({ packet, subnetId, balanceMap }) {
     if (packet.type === IlpType.Fulfill) {

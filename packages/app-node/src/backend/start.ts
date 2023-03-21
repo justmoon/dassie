@@ -1,4 +1,4 @@
-import { EffectContext, createReactor } from "@dassie/lib-reactive"
+import { createActor, createReactor } from "@dassie/lib-reactive"
 
 import { startBalances } from "./balances"
 import { startBeaconClient } from "./beacon-client"
@@ -16,24 +16,25 @@ import { startStatisticsServer } from "./statistics"
 import { startSubnets } from "./subnets"
 import { startTrpcServer } from "./trpc-server"
 
-export const rootEffect = async (sig: EffectContext) => {
-  sig.run(sig.use(signerService).effect)
-  sig.run(attachLogger)
-  sig.run(startHttpServer)
-  sig.run(startBtpServer)
-  sig.run(startTrpcServer)
-  sig.run(startIlpConnector)
-  sig.run(startIldcpServer)
-  sig.run(startBalances)
-  sig.run(startExchangeRates)
-  await sig.run(startSubnets)
-  await sig.run(startSpspServer)
-  await sig.run(startOpenPaymentsServer)
-  sig.run(startStatisticsServer)
+export const rootActor = () =>
+  createActor(async (sig) => {
+    sig.run(sig.use(signerService).effect)
+    sig.run(attachLogger)
+    sig.run(startHttpServer)
+    sig.run(startBtpServer)
+    sig.run(startTrpcServer)
+    sig.run(startIlpConnector)
+    sig.run(startIldcpServer)
+    sig.run(startBalances)
+    sig.run(startExchangeRates)
+    await sig.run(startSubnets)
+    await sig.run(startSpspServer)
+    await sig.run(startOpenPaymentsServer)
+    sig.run(startStatisticsServer)
 
-  sig.run(speakPeerProtocol)
+    sig.run(speakPeerProtocol)
 
-  sig.run(startBeaconClient)
-}
+    sig.run(startBeaconClient)
+  })
 
-export const start = () => createReactor(rootEffect)
+export const start = () => createReactor(rootActor)

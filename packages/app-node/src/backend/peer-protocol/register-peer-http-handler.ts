@@ -7,7 +7,7 @@ import {
   respondBinary,
 } from "@dassie/lib-http-server"
 import { createLogger } from "@dassie/lib-logger"
-import type { EffectContext } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 
 import { routerService } from "../http-server/serve-http"
 import {
@@ -21,77 +21,81 @@ import { authenticatePeerMessage } from "./utils/authenticate-peer-message"
 
 const logger = createLogger("das:node:handle-peer-http-request")
 
-export const registerPeerHttpHandler = (sig: EffectContext) => {
-  const router = sig.get(routerService)
+export const registerPeerHttpHandler = () =>
+  createActor((sig) => {
+    const router = sig.get(routerService)
 
-  if (!router) return
+    if (!router) return
 
-  router.post(
-    "/peer",
-    asyncHandler(async (request, response) => {
-      assertAcceptHeader(request, "application/dassie-peer-message")
-      assertContentTypeHeader(request, "application/dassie-peer-message")
+    router.post(
+      "/peer",
+      asyncHandler(async (request, response) => {
+        assertAcceptHeader(request, "application/dassie-peer-message")
+        assertContentTypeHeader(request, "application/dassie-peer-message")
 
-      const body = await parseBody(request)
+        const body = await parseBody(request)
 
-      const parseResult = peerMessageSchema.parse(body)
+        const parseResult = peerMessageSchema.parse(body)
 
-      if (!parseResult.success) {
-        logger.debug("error while parsing incoming dassie message", {
-          error: parseResult.error,
-          body,
-        })
-        throw new BadRequestError(`Bad Request, failed to parse message`)
-      }
+        if (!parseResult.success) {
+          logger.debug("error while parsing incoming dassie message", {
+            error: parseResult.error,
+            body,
+          })
+          throw new BadRequestError(`Bad Request, failed to parse message`)
+        }
 
-      if (parseResult.value.version !== 0) {
-        logger.debug("incoming dassie message has unknown version", {
-          version: parseResult.value.version,
-          body,
-        })
-        throw new BadRequestError(`Bad Request, unsupported version`)
-      }
+        if (parseResult.value.version !== 0) {
+          logger.debug("incoming dassie message has unknown version", {
+            version: parseResult.value.version,
+            body,
+          })
+          throw new BadRequestError(`Bad Request, unsupported version`)
+        }
 
-      const subnetId = parseResult.value.subnetId
-      const senderId = parseResult.value.sender
-      const senderPublicKey = sig
-        .use(peerTableStore)
-        .read()
-        .get(`${subnetId}.${senderId}`)?.nodePublicKey
-      const isAuthenticated =
-        !!senderPublicKey &&
-        authenticatePeerMessage(senderPublicKey, parseResult.value)
+        const subnetId = parseResult.value.subnetId
+        const senderId = parseResult.value.sender
+        const senderPublicKey = sig
+          .use(peerTableStore)
+          .read()
+          .get(`${subnetId}.${senderId}`)?.nodePublicKey
+        const isAuthenticated =
+          !!senderPublicKey &&
+          authenticatePeerMessage(senderPublicKey, parseResult.value)
 
-      // Only certain messages are allowed to be sent anonymously
-      if (
-        !isAuthenticated &&
-        !ALLOW_ANONYMOUS_USAGE.includes(parseResult.value.content.value.type)
-      ) {
-        logger.debug("incoming dassie message is not authenticated, ignoring", {
+        // Only certain messages are allowed to be sent anonymously
+        if (
+          !isAuthenticated &&
+          !ALLOW_ANONYMOUS_USAGE.includes(parseResult.value.content.value.type)
+        ) {
+          logger.debug(
+            "incoming dassie message is not authenticated, ignoring",
+            {
+              message: parseResult.value,
+              body,
+            }
+          )
+          return
+        }
+
+        sig.use(incomingPeerMessageTopic).emit({
           message: parseResult.value,
-          body,
+          authenticated: isAuthenticated,
+          asUint8Array: body,
         })
-        return
-      }
 
-      sig.use(incomingPeerMessageTopic).emit({
-        message: parseResult.value,
-        authenticated: isAuthenticated,
-        asUint8Array: body,
+        const responseMessage = sig.use(handlePeerMessage)({
+          message: parseResult.value,
+          authenticated: isAuthenticated,
+          asUint8Array: body,
+        })
+
+        respondBinary(
+          response,
+          200,
+          responseMessage,
+          "application/dassie-peer-response"
+        )
       })
-
-      const responseMessage = sig.use(handlePeerMessage)({
-        message: parseResult.value,
-        authenticated: isAuthenticated,
-        asUint8Array: body,
-      })
-
-      respondBinary(
-        response,
-        200,
-        responseMessage,
-        "application/dassie-peer-response"
-      )
-    })
-  )
-}
+    )
+  })

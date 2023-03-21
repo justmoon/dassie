@@ -1,4 +1,4 @@
-import type { EffectContext } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 
 import { calculateRoutes } from "./calculate-routes"
 import { maintainOwnNodeTableEntry } from "./maintain-own-node-table-entry"
@@ -11,11 +11,9 @@ export interface PerSubnetParameters {
 /**
  * Some effects are specific to each subnet so we export this helper which is called from the subnet instantiation code.
  */
-export const runPerSubnetEffects = async (
-  sig: EffectContext,
-  parameters: PerSubnetParameters
-) => {
-  sig.run(calculateRoutes, parameters)
-  await sig.run(maintainOwnNodeTableEntry, parameters)
-  sig.run(maintainPeeringRelationships, parameters)
-}
+export const runPerSubnetEffects = () =>
+  createActor(async (sig, parameters: PerSubnetParameters) => {
+    sig.run(calculateRoutes, parameters)
+    await sig.run(maintainOwnNodeTableEntry, parameters)
+    sig.run(maintainPeeringRelationships, parameters)
+  })

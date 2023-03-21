@@ -1,7 +1,7 @@
 import { createConnection } from "ilp-protocol-stream"
 
 import { createLogger } from "@dassie/lib-logger"
-import { EffectContext, createStore } from "@dassie/lib-reactive"
+import { createActor, createStore } from "@dassie/lib-reactive"
 
 import { primaryIlpAddressSignal } from "../ilp-connector/signals/primary-ilp-address"
 import { resolvePaymentPointer } from "../utils/resolve-payment-pointer"
@@ -24,58 +24,59 @@ export const spspPaymentQueueStore = () =>
     shift: () => (state) => state.slice(1),
   })
 
-export const sendSpspPayments = async (sig: EffectContext) => {
-  const nodeIlpAddress = sig.get(primaryIlpAddressSignal)
-  if (!nodeIlpAddress) return
+export const sendSpspPayments = () =>
+  createActor(async (sig) => {
+    const nodeIlpAddress = sig.get(primaryIlpAddressSignal)
+    if (!nodeIlpAddress) return
 
-  const nextPayment = sig.get(spspPaymentQueueStore, (queue) => queue[0])
+    const nextPayment = sig.get(spspPaymentQueueStore, (queue) => queue[0])
 
-  if (nextPayment) {
-    const { id, destination, totalAmount, sentAmount } = nextPayment
+    if (nextPayment) {
+      const { id, destination, totalAmount, sentAmount } = nextPayment
 
-    logger.debug("initiating payment", {
-      id,
-      to: destination,
-      amount: totalAmount,
-    })
+      logger.debug("initiating payment", {
+        id,
+        to: destination,
+        amount: totalAmount,
+      })
 
-    const {
-      destination_account: destinationAccount,
-      shared_secret: sharedSecret,
-    } = await resolvePaymentPointer(destination)
+      const {
+        destination_account: destinationAccount,
+        shared_secret: sharedSecret,
+      } = await resolvePaymentPointer(destination)
 
-    logger.debug("resolved payment pointer", {
-      id,
-      destinationAccount,
-    })
+      logger.debug("resolved payment pointer", {
+        id,
+        destinationAccount,
+      })
 
-    const { plugin } = sig.run(createPlugin, nodeIlpAddress)
+      const { plugin } = sig.run(createPlugin, nodeIlpAddress)
 
-    const connection = await createConnection({
-      plugin,
-      destinationAccount,
-      sharedSecret: Buffer.from(sharedSecret, "base64"),
-    })
+      const connection = await createConnection({
+        plugin,
+        destinationAccount,
+        sharedSecret: Buffer.from(sharedSecret, "base64"),
+      })
 
-    logger.debug("created STREAM connection", { id })
+      logger.debug("created STREAM connection", { id })
 
-    const stream = connection.createStream()
+      const stream = connection.createStream()
 
-    stream.setSendMax(String(totalAmount - sentAmount))
+      stream.setSendMax(String(totalAmount - sentAmount))
 
-    stream.on("outgoing_money", (amountString: string) => {
-      const amount = BigInt(amountString)
-      logger.debug("sent money", { id, amount })
+      stream.on("outgoing_money", (amountString: string) => {
+        const amount = BigInt(amountString)
+        logger.debug("sent money", { id, amount })
 
-      if (sentAmount + amount >= totalAmount) {
-        logger.debug("payment complete", { id })
-        connection.end().catch((error: unknown) => {
-          logger.error("error ending connection", { id, error })
-        })
-        sig.use(spspPaymentQueueStore).shift()
-      }
+        if (sentAmount + amount >= totalAmount) {
+          logger.debug("payment complete", { id })
+          connection.end().catch((error: unknown) => {
+            logger.error("error ending connection", { id, error })
+          })
+          sig.use(spspPaymentQueueStore).shift()
+        }
 
-      // TODO: should record/update sent amount
-    })
-  }
-}
+        // TODO: should record/update sent amount
+      })
+    }
+  })

@@ -1,9 +1,10 @@
-import type { EffectContext } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 
 import { serveHttp } from "./serve-http"
 import { serveRestApi } from "./serve-rest-api"
 
-export const startHttpServer = (sig: EffectContext) => {
-  sig.run(serveHttp)
-  sig.run(serveRestApi)
-}
+export const startHttpServer = () =>
+  createActor((sig) => {
+    sig.run(serveHttp)
+    sig.run(serveRestApi)
+  })

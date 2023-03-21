@@ -2,6 +2,7 @@ import type { Promisable } from "type-fest"
 
 import { isObject } from "@dassie/lib-type-utils"
 
+import type { ActorFactory } from "./actor"
 import { createDebugTools } from "./debug/debug-tools"
 import { Effect, EffectContext } from "./effect"
 import { LifecycleScope } from "./internal/lifecycle-scope"
@@ -91,7 +92,7 @@ export interface RunOptions<TReturn> {
   /**
    * If true, the factory or effect will be instantiated fresh every time and will not be stored in the context.
    */
-  stateless?: boolean | undefined
+  register?: boolean | undefined
 }
 
 export type Factory<TInstance> = (reactor: Reactor) => TInstance
@@ -103,9 +104,9 @@ export interface ContextState
 }
 
 interface RunSignature {
-  <TReturn>(factory: Effect<undefined, TReturn>): TReturn
+  <TReturn>(factory: ActorFactory<TReturn>): TReturn
   <TProperties, TReturn>(
-    factory: Effect<TProperties, TReturn>,
+    factory: ActorFactory<TReturn, TProperties>,
     properties: TProperties,
     options?: RunOptions<TReturn> | undefined
   ): TReturn
@@ -177,46 +178,56 @@ export class Reactor extends LifecycleScope {
    * @returns The value stored in the context.
    */
   run: RunSignature = <TProperties, TReturn>(
-    effect: Effect<TProperties | undefined, TReturn>,
+    factory: ActorFactory<TReturn, TProperties | undefined>,
     properties?: TProperties,
     {
       onResult,
       additionalDebugData,
       parentLifecycleScope,
       pathPrefix,
-      stateless,
+      register,
     }: RunOptions<TReturn> = {}
   ) => {
-    let result!: TReturn
+    let result: TReturn | undefined
 
-    // We use has() to check if the actor is already in the context. Note that the actor's return value may be undefined, so it would not be sufficient to check if the return value of get() is undefined.
-    if (!stateless && this.contextState.has(effect)) {
+    if (register && this.contextState.has(factory)) {
       throw new Error("Duplicate actor")
     }
 
-    const effectPath = pathPrefix ? `${pathPrefix}${effect.name}` : effect.name
+    const actor = factory(this)
+    if (register) {
+      this.contextState.set(factory, actor)
+    }
+
+    const effectPath = pathPrefix
+      ? `${pathPrefix}${factory.name}`
+      : factory.name
 
     loopEffect(
       this,
-      effect,
+      actor.effect,
       effectPath,
       properties,
       parentLifecycleScope ?? this,
       (_result) => {
         result = _result
-        if (!stateless) {
-          this.contextState.set(effect, _result)
+        if (register) {
+          void Promise.resolve(_result).then((resolvedResult) => {
+            actor.write(resolvedResult)
+          })
         }
-        if (onResult) {
+        if (onResult && _result !== undefined) {
           onResult(_result)
         }
       },
       () => {
-        this.contextState.delete(effect)
+        if (register) {
+          actor.write(undefined)
+        }
       }
     ).catch((error: unknown) => {
-      console.error("error in effect", {
-        effect: effect.name,
+      console.error("error in actor", {
+        effect: factory.name,
         path: effectPath,
         error,
         ...additionalDebugData,
@@ -275,11 +286,19 @@ export class Reactor extends LifecycleScope {
   debug = createDebugTools(this.use, this.contextState)
 }
 
-export const createReactor = (rootEffect?: Effect | undefined): Reactor => {
+export const createReactor = (
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  rootEffect?: ActorFactory<Promisable<void>> | undefined
+): Reactor => {
   const reactor: Reactor = new Reactor()
 
   if (rootEffect) {
-    reactor.run(rootEffect)
+    Promise.resolve(reactor.run(rootEffect)).catch((error: unknown) => {
+      console.error("error running root actor", {
+        effect: rootEffect.name,
+        error,
+      })
+    })
   }
 
   return reactor

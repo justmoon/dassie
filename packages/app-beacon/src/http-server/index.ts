@@ -1,8 +1,9 @@
-import type { EffectContext } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 
 import { registerRootRoute, serveHttp } from "./serve-http"
 
-export const startHttpServer = (sig: EffectContext) => {
-  sig.run(serveHttp)
-  sig.run(registerRootRoute)
-}
+export const startHttpServer = () =>
+  createActor((sig) => {
+    sig.run(serveHttp)
+    sig.run(registerRootRoute)
+  })

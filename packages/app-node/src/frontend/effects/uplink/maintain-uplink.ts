@@ -1,15 +1,16 @@
 import { BtpContentType, generateBtpMessage } from "@dassie/lib-protocol-utils"
-import { EffectContext, createService } from "@dassie/lib-reactive"
+import { createActor, createService } from "@dassie/lib-reactive"
 
 import { walletStore } from "../../stores/wallet"
 
-export const maintainUplink = (sig: EffectContext) => {
-  const isSeedInitialized = sig.get(walletStore, (state) => !!state.seed)
+export const maintainUplink = () =>
+  createActor((sig) => {
+    const isSeedInitialized = sig.get(walletStore, (state) => !!state.seed)
 
-  if (isSeedInitialized) {
-    sig.run(sig.use(uplinkService).effect)
-  }
-}
+    if (isSeedInitialized) {
+      sig.run(sig.use(uplinkService).effect)
+    }
+  })
 
 export interface NodeUplink {
   websocket: WebSocket

@@ -1,7 +1,8 @@
-import type { EffectContext } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 
 import { registerBtpHttpUpgrade } from "./register-btp-http-upgrade"
 
-export const startBtpServer = (sig: EffectContext) => {
-  sig.run(registerBtpHttpUpgrade)
-}
+export const startBtpServer = () =>
+  createActor((sig) => {
+    sig.run(registerBtpHttpUpgrade)
+  })

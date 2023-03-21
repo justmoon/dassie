@@ -1,3 +1,4 @@
+import type { ActorFactory } from "./actor"
 import {
   createArrayEffect,
   createIndexedArrayEffect,
@@ -323,20 +324,19 @@ export class EffectContext {
    * @param factory - Factory function or effect.
    * @returns - Return value of the factory function or first invocation of the effect.
    */
-  run<TReturn>(factory: Effect<undefined, TReturn>): TReturn
+  run<TReturn>(factory: ActorFactory<TReturn>): TReturn
   run<TProperties, TReturn>(
-    factory: Effect<TProperties, TReturn>,
+    factory: ActorFactory<TReturn, TProperties>,
     properties: TProperties,
     options?: RunOptions<TReturn> | undefined
   ): TReturn
   run<TProperties, TReturn>(
-    factory: Effect<TProperties | undefined, TReturn>,
+    factory: ActorFactory<TReturn, TProperties | undefined>,
     properties?: TProperties,
     options?: RunOptions<TReturn> | undefined
   ) {
     return this.reactor.run(factory, properties, {
       parentLifecycleScope: options?.parentLifecycleScope ?? this.lifecycle,
-      stateless: true,
       pathPrefix: `${this.path}.`,
       ...options,
     })
@@ -346,15 +346,12 @@ export class EffectContext {
    * Run an effect for each element of an array topic. When the array value changes, only the effects corresponding to changed elements will be re-run.
    */
   for<TElement, TReturn>(
-    arrayTopicFactory: SignalFactory<readonly TElement[]>,
-    effect: Effect<TElement, TReturn>
+    arraySignalFactory: SignalFactory<readonly TElement[]>,
+    actorFactory: ActorFactory<TReturn, TElement>
   ) {
     return this.run(
-      createArrayEffect(arrayTopicFactory, effect, this.name),
-      undefined,
-      {
-        stateless: true,
-      }
+      createArrayEffect(arraySignalFactory, actorFactory, this.name),
+      undefined
     )
   }
 
@@ -362,15 +359,15 @@ export class EffectContext {
    * Like {@link for} but compares elements based on their index in the array. Also passes the index to the effect.
    */
   forIndex<TElement, TReturn>(
-    arrayTopicFactory: SignalFactory<readonly TElement[]>,
-    effect: Effect<readonly [element: TElement, index: number], TReturn>
+    arraySignalFactory: SignalFactory<readonly TElement[]>,
+    actorFactory: ActorFactory<
+      TReturn,
+      readonly [element: TElement, index: number]
+    >
   ) {
     return this.run(
-      createIndexedArrayEffect(arrayTopicFactory, effect, this.name),
-      undefined,
-      {
-        stateless: true,
-      }
+      createIndexedArrayEffect(arraySignalFactory, actorFactory, this.name),
+      undefined
     )
   }
 }

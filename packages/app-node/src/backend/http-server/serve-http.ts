@@ -6,11 +6,7 @@ import { createServer } from "node:https"
 import type { Duplex } from "node:stream"
 
 import { createLogger } from "@dassie/lib-logger"
-import {
-  EffectContext,
-  createService,
-  createSignal,
-} from "@dassie/lib-reactive"
+import { createActor, createService, createSignal } from "@dassie/lib-reactive"
 
 import { configSignal } from "../config"
 
@@ -111,7 +107,8 @@ export const httpService = () =>
     return server
   })
 
-export const serveHttp = (sig: EffectContext) => {
-  sig.run(sig.use(routerService).effect)
-  sig.run(sig.use(httpService).effect)
-}
+export const serveHttp = () =>
+  createActor((sig) => {
+    sig.run(sig.use(routerService).effect)
+    sig.run(sig.use(httpService).effect)
+  })

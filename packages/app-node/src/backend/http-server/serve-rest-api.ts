@@ -1,5 +1,5 @@
 import { createRestApi } from "@dassie/lib-http-server"
-import { EffectContext, createService } from "@dassie/lib-reactive"
+import { createActor, createService } from "@dassie/lib-reactive"
 
 import { routerService } from "./serve-http"
 
@@ -12,6 +12,7 @@ export const restApiService = () =>
     return createRestApi(router)
   })
 
-export const serveRestApi = (sig: EffectContext) => {
-  sig.run(sig.use(restApiService).effect)
-}
+export const serveRestApi = () =>
+  createActor((sig) => {
+    sig.run(sig.use(restApiService).effect)
+  })

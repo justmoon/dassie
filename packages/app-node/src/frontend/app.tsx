@@ -1,6 +1,6 @@
 import { Route, Switch } from "wouter"
 
-import { rootEffect } from "./effects/root"
+import { rootActor } from "./effects/root"
 import { Account } from "./pages/account/account"
 import { CreateFirstAccount } from "./pages/create-first-account/create-first-account"
 import { Open } from "./pages/open/open"
@@ -11,7 +11,7 @@ import { useSig } from "./utils/remote-reactive"
 
 const App = () => {
   const sig = useSig()
-  sig.run(rootEffect)
+  sig.run(rootActor)
 
   const wallet = sig.get(walletStore)
 

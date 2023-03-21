@@ -1,7 +1,8 @@
-import type { EffectContext } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 
 import { registerTrpcHttpUpgrade } from "./trpc-server"
 
-export const startTrpcServer = (sig: EffectContext) => {
-  sig.run(registerTrpcHttpUpgrade)
-}
+export const startTrpcServer = () =>
+  createActor((sig) => {
+    sig.run(registerTrpcHttpUpgrade)
+  })

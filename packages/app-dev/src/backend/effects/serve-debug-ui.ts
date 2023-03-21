@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs"
 import { join } from "node:path"
 
 import { createLogger } from "@dassie/lib-logger"
-import type { EffectContext } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 
 import { LOCAL_FOLDER } from "../constants/paths"
 import { DEBUG_UI_PORT } from "../constants/ports"
@@ -30,35 +30,36 @@ const devtoolsServer = () => ({
   },
 })
 
-export const debugUiServer = async (sig: EffectContext) => {
-  await sig.run(validateCertificates, {
-    id: "dev",
-    certificates: [
-      {
-        type: "web",
-        commonName: "localhost",
-        certificatePath,
-        keyPath,
+export const debugUiServer = () =>
+  createActor(async (sig) => {
+    await sig.run(validateCertificates, {
+      id: "dev",
+      certificates: [
+        {
+          type: "web",
+          commonName: "localhost",
+          certificatePath,
+          keyPath,
+        },
+      ],
+    })
+
+    const server = await createServer({
+      root: debugUiPath,
+      server: {
+        port: DEBUG_UI_PORT,
+        https: {
+          cert: readFileSync(certificatePath),
+          key: readFileSync(keyPath),
+        },
       },
-    ],
-  })
+      plugins: [devtoolsServer()],
+    })
+    await server.listen(DEBUG_UI_PORT)
 
-  const server = await createServer({
-    root: debugUiPath,
-    server: {
-      port: DEBUG_UI_PORT,
-      https: {
-        cert: readFileSync(certificatePath),
-        key: readFileSync(keyPath),
-      },
-    },
-    plugins: [devtoolsServer()],
-  })
-  await server.listen(DEBUG_UI_PORT)
+    logger.info(`listening on https://localhost:${DEBUG_UI_PORT}/`)
 
-  logger.info(`listening on https://localhost:${DEBUG_UI_PORT}/`)
-
-  sig.onCleanup(async () => {
-    await server.close()
+    sig.onCleanup(async () => {
+      await server.close()
+    })
   })
-}

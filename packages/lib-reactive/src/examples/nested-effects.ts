@@ -1,4 +1,4 @@
-import type { EffectContext } from "../effect"
+import { createActor } from "../actor"
 import { createReactor } from "../reactor"
 import { createSignal } from "../signal"
 import { createTopic } from "../topic"
@@ -10,57 +10,60 @@ const signal1 = () =>
     states: [],
   })
 
-const rootEffect = (sig: EffectContext) => {
-  console.log("root effect created")
+const rootActor = () =>
+  createActor((sig) => {
+    console.log("root effect created")
 
-  sig.on(topic1, (message) => {
-    console.log("heard", message)
+    sig.on(topic1, (message) => {
+      console.log("heard", message)
+    })
+
+    sig.interval(() => {
+      sig.use(topic1).emit("hello" + String(Math.floor(Math.random() * 10)))
+    }, 1000)
+
+    sig.onCleanup(() => {
+      console.log("root effect cleaned up")
+    })
+
+    sig.run(subActor)
+    sig.run(subActor2)
   })
 
-  sig.interval(() => {
-    sig.use(topic1).emit("hello" + String(Math.floor(Math.random() * 10)))
-  }, 1000)
+const subActor = () =>
+  createActor((sig) => {
+    console.log("child effect created")
 
-  sig.onCleanup(() => {
-    console.log("root effect cleaned up")
+    sig.on(topic1, (message) => {
+      console.log("reacting to", message)
+
+      if (message) {
+        sig.use(signal1).update(({ states }) => ({
+          states: [...new Set<string>([...states, message])],
+        }))
+      }
+    })
+
+    sig.onCleanup(() => {
+      console.log("child effect cleaned up")
+    })
   })
 
-  sig.run(childEffect)
-  sig.run(childEffect2)
-}
+const subActor2 = () =>
+  createActor((sig) => {
+    console.log("child effect 2 created")
+    const stateCount = sig.get(signal1, ({ states }) => states.length)
 
-const childEffect = (sig: EffectContext) => {
-  console.log("child effect created")
+    console.log(stateCount)
 
-  sig.on(topic1, (message) => {
-    console.log("reacting to", message)
-
-    if (message) {
-      sig.use(signal1).update(({ states }) => ({
-        states: [...new Set<string>([...states, message])],
-      }))
+    if (stateCount > 4) {
+      console.log("stopping")
+      void sig.reactor.dispose()
     }
+
+    sig.onCleanup(() => {
+      console.log("child effect 2 cleaned up")
+    })
   })
 
-  sig.onCleanup(() => {
-    console.log("child effect cleaned up")
-  })
-}
-
-const childEffect2 = (sig: EffectContext) => {
-  console.log("child effect 2 created")
-  const stateCount = sig.get(signal1, ({ states }) => states.length)
-
-  console.log(stateCount)
-
-  if (stateCount > 4) {
-    console.log("stopping")
-    void sig.reactor.dispose()
-  }
-
-  sig.onCleanup(() => {
-    console.log("child effect 2 cleaned up")
-  })
-}
-
-createReactor(rootEffect)
+createReactor(rootActor)

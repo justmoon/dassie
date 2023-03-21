@@ -8,7 +8,7 @@ import { join, normalize } from "node:path"
 import { configSignal } from "@dassie/app-node"
 import { additionalMiddlewaresSignal } from "@dassie/app-node/src/backend/http-server/serve-http"
 import { createLogger } from "@dassie/lib-logger"
-import type { EffectContext } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 
 const logger = createLogger("das:dev:runner:wallet-server")
 
@@ -39,104 +39,109 @@ function getHtmlFilename(url: string, server: ViteDevServer) {
     : decodeURIComponent(normalize(join(server.config.root, url.slice(1))))
 }
 
-export const serveWallet = async (sig: EffectContext) => {
-  const additionalMiddlewares = sig.use(additionalMiddlewaresSignal)
-  const { host, port, tlsWebCert, tlsWebKey } = sig.getKeys(configSignal, [
-    "host",
-    "port",
-    "tlsWebCert",
-    "tlsWebKey",
-  ])
+export const serveWallet = () =>
+  createActor(async (sig) => {
+    const additionalMiddlewares = sig.use(additionalMiddlewaresSignal)
+    const { host, port, tlsWebCert, tlsWebKey } = sig.getKeys(configSignal, [
+      "host",
+      "port",
+      "tlsWebCert",
+      "tlsWebKey",
+    ])
 
-  const server = await createServer({
-    root: walletPath,
-    mode: "development",
-    appType: "custom",
-    server: {
-      middlewareMode: true,
-      hmr: {
-        port: port + 4400,
-      },
-      https: {
-        cert: tlsWebCert,
-        key: tlsWebKey,
-      },
-      cors: false,
-    },
-    define: {
-      __DASSIE_NODE_URL__: `'https://${host}/'`,
-    },
-  })
-
-  const historySpaFallbackMiddleware = history({
-    // support /dir/ without explicit index.html
-    rewrites: [
-      {
-        from: /\/$/,
-        to({ parsedUrl }) {
-          const rewritten =
-            decodeURIComponent(parsedUrl.pathname!) + "index.html"
-
-          return existsSync(join(walletPath, rewritten))
-            ? rewritten
-            : `/index.html`
+    const server = await createServer({
+      root: walletPath,
+      mode: "development",
+      appType: "custom",
+      server: {
+        middlewareMode: true,
+        hmr: {
+          port: port + 4400,
         },
+        https: {
+          cert: tlsWebCert,
+          key: tlsWebKey,
+        },
+        cors: false,
       },
-    ],
-  }) as NextHandleFunction
+      define: {
+        __DASSIE_NODE_URL__: `'https://${host}/'`,
+      },
+    })
 
-  // eslint-disable-next-line @typescript-eslint/no-misused-promises
-  const serveIndexHtml: NextHandleFunction = async (
-    request,
-    response,
-    next
-  ) => {
-    if (response.writableEnded) {
-      return next()
-    }
+    const historySpaFallbackMiddleware = history({
+      // support /dir/ without explicit index.html
+      rewrites: [
+        {
+          from: /\/$/,
+          to({ parsedUrl }) {
+            const rewritten =
+              decodeURIComponent(parsedUrl.pathname!) + "index.html"
 
-    const url = request.url && cleanUrl(request.url)
-    // spa-fallback always redirects to /index.html
-    if (
-      url?.endsWith(".html") &&
-      request.headers["sec-fetch-dest"] !== "script"
-    ) {
-      const filename = getHtmlFilename(url, server)
-      if (existsSync(filename)) {
-        try {
-          let html = readFileSync(filename, "utf8")
-          html = await server.transformIndexHtml(url, html, request.originalUrl)
-          response.writeHead(200, { "Content-Type": "text/html" })
-          response.end(html)
-        } catch (error: unknown) {
-          return next(error)
+            return existsSync(join(walletPath, rewritten))
+              ? rewritten
+              : `/index.html`
+          },
+        },
+      ],
+    }) as NextHandleFunction
+
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises
+    const serveIndexHtml: NextHandleFunction = async (
+      request,
+      response,
+      next
+    ) => {
+      if (response.writableEnded) {
+        return next()
+      }
+
+      const url = request.url && cleanUrl(request.url)
+      // spa-fallback always redirects to /index.html
+      if (
+        url?.endsWith(".html") &&
+        request.headers["sec-fetch-dest"] !== "script"
+      ) {
+        const filename = getHtmlFilename(url, server)
+        if (existsSync(filename)) {
+          try {
+            let html = readFileSync(filename, "utf8")
+            html = await server.transformIndexHtml(
+              url,
+              html,
+              request.originalUrl
+            )
+            response.writeHead(200, { "Content-Type": "text/html" })
+            response.end(html)
+          } catch (error: unknown) {
+            return next(error)
+          }
         }
       }
+      next()
     }
-    next()
-  }
 
-  additionalMiddlewares.update((state) => [
-    ...state,
-    server.middlewares,
-    historySpaFallbackMiddleware,
-    serveIndexHtml,
-  ])
+    additionalMiddlewares.update((state) => [
+      ...state,
+      server.middlewares,
+      historySpaFallbackMiddleware,
+      serveIndexHtml,
+    ])
 
-  sig.onCleanup(async () => {
-    additionalMiddlewares.update((state) =>
-      state.filter(
-        (middleware) =>
-          ![
-            server.middlewares,
-            historySpaFallbackMiddleware,
-            serveIndexHtml,
-          ].includes(middleware)
+    sig.onCleanup(async () => {
+      additionalMiddlewares.update((state) =>
+        state.filter(
+          (middleware) =>
+            ![
+              server.middlewares,
+              historySpaFallbackMiddleware,
+              serveIndexHtml,
+            ].includes(middleware)
+        )
       )
-    )
 
-    await server.close()
+      await server.close()
+    })
+
+    logger.info(`serving wallet ui`)
   })
-
-  logger.info(`serving wallet ui`)
-}

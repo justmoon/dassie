@@ -1,13 +1,13 @@
 import { isObject } from "@dassie/lib-type-utils"
 
+import { ActorFactory, createActor } from "./actor"
 import type { Effect } from "./effect"
-import { FactoryNameSymbol } from "./reactor"
+import { Factory, FactoryNameSymbol } from "./reactor"
 import { Signal, createSignal } from "./signal"
 
 export const ServiceSymbol = Symbol("das:reactive:service")
 
-export type ServiceFactory<TInstance, TProperties = undefined> = Effect<
-  undefined,
+export type ServiceFactory<TInstance, TProperties = undefined> = Factory<
   Service<TInstance, TProperties>
 >
 
@@ -19,30 +19,33 @@ export type Service<TInstance, TProperties = undefined> = Signal<
    */
   [ServiceSymbol]: true
 
-  effect: Effect<TProperties, Service<TInstance, TProperties>>
+  effect: ActorFactory<Service<TInstance, TProperties>, TProperties>
 }
 
 export const createService = <TInstance, TProperties = undefined>(
   effect: Effect<TProperties, TInstance | undefined>
 ): Service<TInstance, TProperties> => {
   const signal = createSignal<TInstance>()
+  const subActor = () => createActor(effect)
+
   const service: Service<TInstance, TProperties> = {
     ...signal,
     [ServiceSymbol]: true,
-    effect: (sig, properties) => {
-      sig.run(effect, properties, {
-        additionalDebugData: {
-          service: service[FactoryNameSymbol],
-        },
-        onResult: (result) => {
-          service.write(result)
-        },
-      })
+    effect: () =>
+      createActor((sig, properties) => {
+        sig.run(subActor, properties, {
+          additionalDebugData: {
+            service: service[FactoryNameSymbol],
+          },
+          onResult: (result) => {
+            service.write(result)
+          },
+        })
 
-      sig.onCleanup(() => service.write(undefined))
+        sig.onCleanup(() => service.write(undefined))
 
-      return service
-    },
+        return service
+      }),
   }
 
   return service

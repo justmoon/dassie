@@ -6,7 +6,7 @@ import {
 } from "@dassie/lib-http-server"
 import { createLogger } from "@dassie/lib-logger"
 import { ia5String, sequence, sequenceOf } from "@dassie/lib-oer"
-import type { EffectContext } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 
 import { routerService } from "../http-server/serve-http"
 import { incomingPingTopic } from "./incoming-ping-topic"
@@ -23,28 +23,29 @@ const pingSchema = sequence({
   ),
 })
 
-export const registerPingHttpHandler = (sig: EffectContext) => {
-  const router = sig.get(routerService)
+export const registerPingHttpHandler = () =>
+  createActor((sig) => {
+    const router = sig.get(routerService)
 
-  if (!router) return
+    if (!router) return
 
-  router.post("/ping", async (request, response) => {
-    assertContentTypeHeader(request, "application/dassie-beacon-ping")
+    router.post("/ping", async (request, response) => {
+      assertContentTypeHeader(request, "application/dassie-beacon-ping")
 
-    const body = await parseBody(request)
+      const body = await parseBody(request)
 
-    const parseResult = pingSchema.parse(body)
+      const parseResult = pingSchema.parse(body)
 
-    if (!parseResult.success) {
-      logger.debug("error while parsing incoming ping message", {
-        error: parseResult.error,
-        body,
-      })
-      throw new BadRequestError(`Bad Request, failed to parse message`)
-    }
+      if (!parseResult.success) {
+        logger.debug("error while parsing incoming ping message", {
+          error: parseResult.error,
+          body,
+        })
+        throw new BadRequestError(`Bad Request, failed to parse message`)
+      }
 
-    sig.use(incomingPingTopic).emit(parseResult.value)
+      sig.use(incomingPingTopic).emit(parseResult.value)
 
-    respondPlainly(response, 200, "OK")
+      respondPlainly(response, 200, "OK")
+    })
   })
-}

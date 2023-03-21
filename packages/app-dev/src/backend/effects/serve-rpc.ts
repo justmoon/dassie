@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs"
 import { createServer } from "node:https"
 import { join } from "node:path"
 
-import type { EffectContext } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 
 import { LOCAL_FOLDER } from "../constants/paths"
 import { DEBUG_RPC_PORT } from "../constants/ports"
@@ -23,65 +23,66 @@ const keyPath = join(
 
 const CONNECTION_CLOSE_TIMEOUT = 250
 
-export const listenForRpcWebSocket = async (sig: EffectContext) => {
-  await sig.run(validateCertificates, {
-    id: "dev",
-    certificates: [
-      {
-        type: "web",
-        commonName: "dev-rpc.localhost",
-        certificatePath,
-        keyPath,
-      },
-    ],
-  })
+export const listenForRpcWebSocket = () =>
+  createActor(async (sig) => {
+    await sig.run(validateCertificates, {
+      id: "dev",
+      certificates: [
+        {
+          type: "web",
+          commonName: "dev-rpc.localhost",
+          certificatePath,
+          keyPath,
+        },
+      ],
+    })
 
-  const httpsServer = createServer({
-    cert: readFileSync(certificatePath),
-    key: readFileSync(keyPath),
-  })
+    const httpsServer = createServer({
+      cert: readFileSync(certificatePath),
+      key: readFileSync(keyPath),
+    })
 
-  const wss = new WebSocketServer({ server: httpsServer })
-  const { broadcastReconnectNotification } = applyWSSHandler<AppRouter>({
-    wss,
-    router: appRouter,
-    createContext: () => ({ reactor: sig.reactor }),
-  })
+    const wss = new WebSocketServer({ server: httpsServer })
+    const { broadcastReconnectNotification } = applyWSSHandler<AppRouter>({
+      wss,
+      router: appRouter,
+      createContext: () => ({ reactor: sig.reactor }),
+    })
 
-  httpsServer.listen(DEBUG_RPC_PORT)
+    httpsServer.listen(DEBUG_RPC_PORT)
 
-  sig.onCleanup(async () => {
-    broadcastReconnectNotification()
+    sig.onCleanup(async () => {
+      broadcastReconnectNotification()
 
-    await Promise.all(
-      [...wss.clients].map((client) => {
-        return new Promise<void>((resolve, reject) => {
-          const timer = setTimeout(() => {
-            client.terminate()
-          }, CONNECTION_CLOSE_TIMEOUT)
+      await Promise.all(
+        [...wss.clients].map((client) => {
+          return new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(() => {
+              client.terminate()
+            }, CONNECTION_CLOSE_TIMEOUT)
 
-          client.on("close", () => {
-            clearTimeout(timer)
-            resolve()
+            client.on("close", () => {
+              clearTimeout(timer)
+              resolve()
+            })
+
+            client.on("error", (error) => {
+              clearTimeout(timer)
+              reject(error)
+            })
+
+            client.close()
           })
-
-          client.on("error", (error) => {
-            clearTimeout(timer)
-            reject(error)
-          })
-
-          client.close()
         })
-      })
-    )
+      )
 
-    wss.close()
+      wss.close()
 
-    await new Promise<void>((resolve, reject) => {
-      httpsServer.close((error: unknown) => {
-        if (error) reject(error)
-        else resolve()
+      await new Promise<void>((resolve, reject) => {
+        httpsServer.close((error: unknown) => {
+          if (error) reject(error)
+          else resolve()
+        })
       })
     })
   })
-}

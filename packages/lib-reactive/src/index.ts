@@ -1,6 +1,7 @@
 export { createTopic, isTopic, TopicSymbol } from "./topic"
 export { createSignal, isSignal, SignalSymbol } from "./signal"
 export { createService, isService, ServiceSymbol } from "./service"
+export { createActor, isActor, ActorSymbol } from "./actor"
 export { createStore, isStore, StoreSymbol } from "./store"
 export {
   createReactor,
@@ -15,6 +16,7 @@ export { debugFirehose } from "./debug/debug-tools"
 export type { Topic, TopicFactory, Listener, InferMessageType } from "./topic"
 export type { Signal, SignalFactory, Reducer } from "./signal"
 export type { Service, ServiceFactory } from "./service"
+export type { Actor, ActorFactory } from "./actor"
 export type {
   Store,
   StoreFactory,

@@ -1,4 +1,4 @@
-import type { EffectContext } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 
 import { activeNodesStore } from "../stores/active-nodes"
 import {
@@ -6,10 +6,11 @@ import {
   environmentSettingsStore,
 } from "../stores/environment-settings"
 
-export const regenerateNodeConfig = (sig: EffectContext) => {
-  const environmentSettings = sig.get(environmentSettingsStore)
+export const regenerateNodeConfig = () =>
+  createActor((sig) => {
+    const environmentSettings = sig.get(environmentSettingsStore)
 
-  if (environmentSettings === DEFAULT_ENVIRONMENT_SETTINGS) return
+    if (environmentSettings === DEFAULT_ENVIRONMENT_SETTINGS) return
 
-  sig.use(activeNodesStore).regenerateConfig(environmentSettings)
-}
+    sig.use(activeNodesStore).regenerateConfig(environmentSettings)
+  })

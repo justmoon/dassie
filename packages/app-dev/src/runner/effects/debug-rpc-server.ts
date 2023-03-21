@@ -7,7 +7,7 @@ import { WebSocketServer } from "ws"
 import { nodeTableStore, peerTableStore } from "@dassie/app-node"
 import { routingTableStore } from "@dassie/app-node/src/backend/peer-protocol/stores/routing-table"
 import { createLogger } from "@dassie/lib-logger"
-import { EffectContext, debugFirehose } from "@dassie/lib-reactive"
+import { createActor, debugFirehose } from "@dassie/lib-reactive"
 import {
   ReactiveContext,
   createRemoteReactiveRouter,
@@ -46,26 +46,27 @@ export const debugRpcRouter = trpc.mergeRouters(
 
 export type DebugRpcRouter = typeof debugRpcRouter
 
-export const runDebugRpcServer = (sig: EffectContext) => {
-  const port = Number(process.env["DASSIE_DEBUG_RPC_PORT"])
+export const runDebugRpcServer = () =>
+  createActor((sig) => {
+    const port = Number(process.env["DASSIE_DEBUG_RPC_PORT"])
 
-  if (!port) return
+    if (!port) return
 
-  logger.debug("starting debug rpc server", { port })
+    logger.debug("starting debug rpc server", { port })
 
-  const wss = new WebSocketServer({
-    port,
+    const wss = new WebSocketServer({
+      port,
+    })
+    const handler = applyWSSHandler({
+      wss,
+      router: debugRpcRouter,
+      createContext: () => ({
+        reactor: sig.reactor,
+      }),
+    })
+
+    sig.onCleanup(() => {
+      handler.broadcastReconnectNotification()
+      wss.close()
+    })
   })
-  const handler = applyWSSHandler({
-    wss,
-    router: debugRpcRouter,
-    createContext: () => ({
-      reactor: sig.reactor,
-    }),
-  })
-
-  sig.onCleanup(() => {
-    handler.broadcastReconnectNotification()
-    wss.close()
-  })
-}

@@ -1,6 +1,6 @@
 import type { Promisable } from "type-fest"
 
-import type { EffectContext } from "@dassie/lib-reactive"
+import type { ActorFactory } from "@dassie/lib-reactive"
 
 import type { VALID_REALMS } from "../../constants/general"
 import type { IlpPacketWithAttachedPrepare } from "../../ilp-connector/topics/incoming-ilp-packet"
@@ -49,11 +49,7 @@ export interface SubnetModule {
    */
   readonly realm: (typeof VALID_REALMS)[number]
 
-  effect(
-    this: void,
-    sig: EffectContext,
-    properties: SubnetProperties
-  ): Promisable<void>
+  actor: ActorFactory<Promisable<void>, SubnetProperties>
 
   processIncomingPacket(packetInformation: PacketInformation): Promisable<void>
 
