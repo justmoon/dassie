@@ -1,8 +1,13 @@
 import { isObject } from "@dassie/lib-type-utils"
 
-import type { Effect } from "./effect"
+import type { ActorContext } from "./context"
 import type { Factory } from "./reactor"
 import { Signal, createSignal } from "./signal"
+
+export type Behavior<TReturn = unknown, TProperties = unknown> = (
+  sig: ActorContext,
+  properties: TProperties
+) => TReturn
 
 export const ActorSymbol = Symbol("das:reactive:actor")
 
@@ -18,17 +23,17 @@ export type Actor<TInstance, TProperties = undefined> = Signal<
    */
   [ActorSymbol]: true
 
-  effect: Effect<TProperties, TInstance | undefined>
+  behavior: Behavior<TInstance, TProperties>
 }
 
 export const createActor = <TInstance, TProperties = undefined>(
-  effect: Effect<TProperties, TInstance | undefined>
+  behavior: Behavior<TInstance, TProperties>
 ): Actor<TInstance, TProperties> => {
   const signal = createSignal<Awaited<TInstance>>()
   const actor: Actor<TInstance, TProperties> = {
     ...signal,
     [ActorSymbol]: true,
-    effect,
+    behavior,
   }
 
   return actor

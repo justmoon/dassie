@@ -10,13 +10,13 @@ export {
   UseSymbol,
   DisposeSymbol,
 } from "./reactor"
-export { EffectContext } from "./effect"
+export { ActorContext as EffectContext } from "./context"
 export { debugFirehose } from "./debug/debug-tools"
 
 export type { Topic, TopicFactory, Listener, InferMessageType } from "./topic"
 export type { Signal, SignalFactory, Reducer } from "./signal"
 export type { Service, ServiceFactory } from "./service"
-export type { Actor, ActorFactory } from "./actor"
+export type { Actor, ActorFactory, Behavior } from "./actor"
 export type {
   Store,
   StoreFactory,
@@ -27,4 +27,4 @@ export type {
   InferBoundActions,
 } from "./store"
 export type { Reactor, Disposer, AsyncDisposer } from "./reactor"
-export type { Effect, AsyncListener } from "./effect"
+export type { AsyncListener } from "./context"

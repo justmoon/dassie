@@ -2,9 +2,9 @@ import type { Promisable } from "type-fest"
 
 import { isObject } from "@dassie/lib-type-utils"
 
-import type { ActorFactory } from "./actor"
+import type { ActorFactory, Behavior } from "./actor"
+import { ActorContext } from "./context"
 import { createDebugTools } from "./debug/debug-tools"
-import { Effect, EffectContext } from "./effect"
 import { LifecycleScope } from "./internal/lifecycle-scope"
 import { makePromise } from "./internal/promise"
 
@@ -98,9 +98,9 @@ export interface RunOptions<TReturn> {
 export type Factory<TInstance> = (reactor: Reactor) => TInstance
 
 export interface ContextState
-  extends WeakMap<Factory<unknown> | Effect<never>, unknown> {
-  get<T>(key: Factory<T> | Effect<never, T>): T | undefined
-  set<T>(key: Factory<T> | Effect<never, T>, value: T): this
+  extends WeakMap<Factory<unknown> | Behavior, unknown> {
+  get<T>(key: Factory<T> | Behavior<T>): T | undefined
+  set<T>(key: Factory<T> | Behavior<T>, value: T): this
 }
 
 interface RunSignature {
@@ -199,14 +199,12 @@ export class Reactor extends LifecycleScope {
       this.contextState.set(factory, actor)
     }
 
-    const effectPath = pathPrefix
-      ? `${pathPrefix}${factory.name}`
-      : factory.name
+    const actorPath = pathPrefix ? `${pathPrefix}${factory.name}` : factory.name
 
     loopEffect(
       this,
-      actor.effect,
-      effectPath,
+      actor.behavior,
+      actorPath,
       properties,
       parentLifecycleScope ?? this,
       (_result) => {
@@ -228,7 +226,7 @@ export class Reactor extends LifecycleScope {
     ).catch((error: unknown) => {
       console.error("error in actor", {
         effect: factory.name,
-        path: effectPath,
+        path: actorPath,
         error,
         ...additionalDebugData,
       })
@@ -244,12 +242,12 @@ export class Reactor extends LifecycleScope {
    * @returns The value stored in the context if any.
    */
   peek = <TReturn>(
-    factory: Factory<TReturn> | Effect<never, TReturn>
+    factory: Factory<TReturn> | Behavior<TReturn>
   ): TReturn | undefined => {
     return this.contextState.get(factory)
   }
 
-  delete = (factory: Factory<unknown> | Effect<never>) => {
+  delete = (factory: Factory<unknown> | Behavior) => {
     if (!this.contextState.has(factory)) return
 
     const result = this.contextState.get(factory)
@@ -276,7 +274,7 @@ export class Reactor extends LifecycleScope {
    * @param factory - The factory which should be used as the key to store this context element.
    * @param value - The value to store in the context.
    */
-  set = <T>(factory: Factory<T> | Effect<never, T>, value: T) => {
+  set = <T>(factory: Factory<T> | Behavior<T>, value: T) => {
     this.contextState.set(factory, value)
   }
 
@@ -306,7 +304,7 @@ export const createReactor = (
 
 const loopEffect = async <TProperties, TReturn>(
   reactor: Reactor,
-  effect: Effect<TProperties, TReturn>,
+  effect: Behavior<TReturn, TProperties>,
   effectPath: string,
   properties: TProperties,
   parentLifecycle: LifecycleScope,
@@ -319,7 +317,7 @@ const loopEffect = async <TProperties, TReturn>(
     const lifecycle = parentLifecycle.deriveChildLifecycle()
     const waker = makePromise()
 
-    const context = new EffectContext(
+    const context = new ActorContext(
       reactor,
       lifecycle,
       waker.resolve,
@@ -341,8 +339,8 @@ const loopEffect = async <TProperties, TReturn>(
 
       await waker
     } finally {
-      await lifecycle.dispose()
       disposeCallback()
+      await lifecycle.dispose()
     }
   }
 }

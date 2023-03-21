@@ -1,7 +1,6 @@
 import { isObject } from "@dassie/lib-type-utils"
 
-import { ActorFactory, createActor } from "./actor"
-import type { Effect } from "./effect"
+import { ActorFactory, Behavior, createActor } from "./actor"
 import { Factory, FactoryNameSymbol } from "./reactor"
 import { Signal, createSignal } from "./signal"
 
@@ -23,7 +22,7 @@ export type Service<TInstance, TProperties = undefined> = Signal<
 }
 
 export const createService = <TInstance, TProperties = undefined>(
-  effect: Effect<TProperties, TInstance | undefined>
+  effect: Behavior<TInstance | undefined, TProperties>
 ): Service<TInstance, TProperties> => {
   const signal = createSignal<TInstance>()
   const subActor = () => createActor(effect)

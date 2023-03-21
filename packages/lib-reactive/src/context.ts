@@ -14,14 +14,9 @@ import type {
 import type { SignalFactory } from "./signal"
 import type { Listener, TopicFactory } from "./topic"
 
-export type Effect<TProperties = unknown, TReturn = unknown> = (
-  sig: EffectContext,
-  properties: TProperties
-) => TReturn
-
 export type AsyncListener<TMessage> = (message: TMessage) => Promise<void>
 
-export class EffectContext {
+export class ActorContext {
   constructor(
     /**
      * A reference to the current reactor.
@@ -350,8 +345,7 @@ export class EffectContext {
     actorFactory: ActorFactory<TReturn, TElement>
   ) {
     return this.run(
-      createArrayEffect(arraySignalFactory, actorFactory, this.name),
-      undefined
+      createArrayEffect(arraySignalFactory, actorFactory, this.name)
     )
   }
 
