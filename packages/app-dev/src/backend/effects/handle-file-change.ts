@@ -18,9 +18,9 @@ export function getShortName(file: string, root: string): string {
 export const fileChangeTopic = () => createTopic()
 
 export const handleFileChange = () =>
-  createActor(async (sig) => {
-    const viteServer = await sig.get(viteService)
-    const viteNodeServer = await sig.get(viteNodeService)
+  createActor((sig) => {
+    const viteServer = sig.get(viteService)
+    const viteNodeServer = sig.get(viteNodeService)
 
     if (!viteServer) return
 

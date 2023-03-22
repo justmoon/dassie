@@ -7,8 +7,8 @@ import { attachLogger } from "./logger"
 export const rootActor = () =>
   createActor((sig) => {
     sig.run(attachLogger)
-    sig.run(startDataExchange)
     sig.run(startHttpServer)
+    sig.run(startDataExchange)
   })
 
 export const start = () => createReactor(rootActor)

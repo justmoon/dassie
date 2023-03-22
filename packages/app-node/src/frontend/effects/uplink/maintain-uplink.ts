@@ -1,5 +1,5 @@
 import { BtpContentType, generateBtpMessage } from "@dassie/lib-protocol-utils"
-import { createActor, createService } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 
 import { walletStore } from "../../stores/wallet"
 
@@ -8,7 +8,7 @@ export const maintainUplink = () =>
     const isSeedInitialized = sig.get(walletStore, (state) => !!state.seed)
 
     if (isSeedInitialized) {
-      sig.run(sig.use(uplinkService).effect)
+      sig.run(uplinkService, undefined, { register: true })
     }
   })
 
@@ -21,7 +21,7 @@ const handleError = (error: unknown) => {
 }
 
 export const uplinkService = () =>
-  createService<NodeUplink>((sig) => {
+  createActor<NodeUplink>((sig) => {
     const websocket = new WebSocket(
       `${__DASSIE_NODE_URL__.replace(/^http/, "ws")}btp`
     )
@@ -58,5 +58,5 @@ export const uplinkService = () =>
       websocket.close()
     })
 
-    return undefined
+    return { websocket }
   })

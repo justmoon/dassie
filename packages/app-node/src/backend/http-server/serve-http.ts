@@ -6,7 +6,7 @@ import { createServer } from "node:https"
 import type { Duplex } from "node:stream"
 
 import { createLogger } from "@dassie/lib-logger"
-import { createActor, createService, createSignal } from "@dassie/lib-reactive"
+import { createActor, createSignal } from "@dassie/lib-reactive"
 
 import { configSignal } from "../config"
 
@@ -21,7 +21,7 @@ export const additionalMiddlewaresSignal = () =>
   createSignal<NextHandleFunction[]>([])
 
 export const routerService = () =>
-  createService<Router>(() => {
+  createActor<Router>(() => {
     return Router()
   })
 
@@ -35,7 +35,7 @@ export const websocketRoutesSignal = () =>
   createSignal(new Map<string, WebsocketHandler>())
 
 export const httpService = () =>
-  createService((sig) => {
+  createActor((sig) => {
     const router = sig.get(routerService)
     const additionalMiddlewares = sig.get(additionalMiddlewaresSignal)
 
@@ -109,6 +109,6 @@ export const httpService = () =>
 
 export const serveHttp = () =>
   createActor((sig) => {
-    sig.run(sig.use(routerService).effect)
-    sig.run(sig.use(httpService).effect)
+    sig.run(routerService, undefined, { register: true })
+    sig.run(httpService, undefined, { register: true })
   })

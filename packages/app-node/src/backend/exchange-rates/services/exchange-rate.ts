@@ -2,7 +2,7 @@ import axios from "axios"
 import { z } from "zod"
 
 import { createLogger } from "@dassie/lib-logger"
-import { createService } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 
 import { configSignal } from "../../config"
 
@@ -21,7 +21,7 @@ export interface CurrencyDescription {
 }
 
 export const exchangeRateService = () =>
-  createService(async (sig) => {
+  createActor(async (sig) => {
     const { exchangeRateUrl, internalAmountPrecision } = sig.getKeys(
       configSignal,
       ["exchangeRateUrl", "internalAmountPrecision"]

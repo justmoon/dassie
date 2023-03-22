@@ -13,11 +13,11 @@ import { useSig } from "./utils/remote-reactive"
 
 const App = () => {
   const sig = useSig()
-  sig.run(sig.use(activeNodesStore).effect)
-  sig.run(sig.use(remoteLogsStore).effect)
-  sig.run(sig.use(peerTrafficTopic).effect)
-  sig.run(sig.use(peeringStateStore).effect)
-  sig.run(sig.use(environmentSettingsStore).effect)
+  sig.run(activeNodesStore, undefined, { register: true })
+  sig.run(remoteLogsStore, undefined, { register: true })
+  sig.run(peerTrafficTopic, undefined, { register: true })
+  sig.run(peeringStateStore, undefined, { register: true })
+  sig.run(environmentSettingsStore, undefined, { register: true })
 
   return (
     <>

@@ -4,9 +4,9 @@ import { routerService } from "../http-server/serve-http"
 import { streamServerService } from "./stream-server"
 
 export const handleSpspRequests = () =>
-  createActor(async (sig) => {
+  createActor((sig) => {
     const router = sig.get(routerService)
-    const streamServer = await sig.get(streamServerService)
+    const streamServer = sig.get(streamServerService)
 
     if (!router || !streamServer) {
       return

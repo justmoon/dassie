@@ -2,12 +2,12 @@ import { hmac } from "@noble/hashes/hmac"
 import { sha256 } from "@noble/hashes/sha256"
 import { hexToBytes } from "@noble/hashes/utils"
 
-import { createService } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 
 import { walletStore } from "../stores/wallet"
 
 export const signerService = () =>
-  createService((sig) => {
+  createActor((sig) => {
     const seed = sig.get(walletStore, (state) => state.seed)
 
     if (!seed) {

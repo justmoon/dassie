@@ -11,13 +11,13 @@ import {
 } from "react"
 
 import {
+  Actor,
   BoundAction,
   Change,
   EffectContext,
   InferMessageType,
-  Service,
   TopicFactory,
-  createService,
+  createActor,
   isStore,
 } from "@dassie/lib-reactive"
 import { Reactor, createReactor } from "@dassie/lib-reactive"
@@ -161,8 +161,8 @@ const createReactiveHooks = <
     TTopicName extends string & keyof TExposedTopicsMap
   >(
     topicName: TTopicName
-  ): Service<InferMessageType<TExposedTopicsMap[TTopicName]> | undefined> => {
-    const service = createService<
+  ): Actor<InferMessageType<TExposedTopicsMap[TTopicName]> | undefined> => {
+    const service = createActor<
       InferMessageType<TExposedTopicsMap[TTopicName]> | undefined
     >((sig) => {
       const client = sig.use(TrpcClient)
@@ -171,7 +171,7 @@ const createReactiveHooks = <
       const subscription = client.listenToTopic.subscribe(topicName, {
         onData: (event: unknown) => {
           service.write(
-            event as InferMessageType<TExposedTopicsMap[TTopicName]>
+            event as Awaited<InferMessageType<TExposedTopicsMap[TTopicName]>>
           )
         },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -190,10 +190,10 @@ const createReactiveHooks = <
   >(
     storeName: TSignalName,
     initialValue: TInitialValue
-  ): Service<
+  ): Actor<
     InferMessageType<TExposedTopicsMap[TSignalName]> | TInitialValue
   > => {
-    const service = createService<
+    const service = createActor<
       InferMessageType<TExposedTopicsMap[TSignalName]> | TInitialValue
     >((sig) => {
       const trpcClient = sig.use(TrpcClient)
@@ -202,7 +202,7 @@ const createReactiveHooks = <
       const subscription = trpcClient.listenToTopic.subscribe(storeName, {
         onData: (event: unknown) => {
           service.write(
-            event as InferMessageType<TExposedTopicsMap[TSignalName]>
+            event as Awaited<InferMessageType<TExposedTopicsMap[TSignalName]>>
           )
         },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -220,8 +220,8 @@ const createReactiveHooks = <
   >(
     storeName: TStoreName,
     storeImplementation: TExposedTopicsMap[TStoreName]
-  ): Service<InferMessageType<TExposedTopicsMap[TStoreName]>> => {
-    const service = createService<
+  ): Actor<InferMessageType<TExposedTopicsMap[TStoreName]>> => {
+    const service = createActor<
       InferMessageType<TExposedTopicsMap[TStoreName]>
     >((sig) => {
       const client = sig.use(TrpcClient)
@@ -235,7 +235,7 @@ const createReactiveHooks = <
       sig.onCleanup(
         localStore.on((newValue) => {
           service.write(
-            newValue as InferMessageType<TExposedTopicsMap[TStoreName]>
+            newValue as Awaited<InferMessageType<TExposedTopicsMap[TStoreName]>>
           )
         })
       )

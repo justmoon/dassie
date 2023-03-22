@@ -2,13 +2,12 @@ import { createServer } from "node:http"
 
 import { createActor } from "../actor"
 import { createReactor } from "../reactor"
-import { createService } from "../service"
 import { createSignal } from "../signal"
 
 const config = () => createSignal({ port: 3000 })
 
 const httpService = () =>
-  createService((sig) => {
+  createActor((sig) => {
     const port = sig.get(config, ({ port }) => port)
 
     const server = createServer()
@@ -25,7 +24,7 @@ const httpService = () =>
 
 const rootActor = () =>
   createActor((sig) => {
-    sig.run(sig.use(httpService).effect)
+    sig.run(httpService, undefined, { register: true })
 
     sig.timeout(
       () => sig.use(config).update((config) => ({ ...config, port: 3100 })),

@@ -1,10 +1,10 @@
 import { createRestApi } from "@dassie/lib-http-server"
-import { createActor, createService } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 
 import { routerService } from "./serve-http"
 
 export const restApiService = () =>
-  createService((sig) => {
+  createActor((sig) => {
     const router = sig.get(routerService)
 
     if (!router) return
@@ -14,5 +14,5 @@ export const restApiService = () =>
 
 export const serveRestApi = () =>
   createActor((sig) => {
-    sig.run(sig.use(restApiService).effect)
+    sig.run(restApiService, undefined, { register: true })
   })

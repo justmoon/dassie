@@ -21,8 +21,8 @@ export interface BeaconDefinition<T> {
 
 export const runBeacons = () =>
   createActor(async (sig) => {
-    const viteServer = await sig.get(viteService)
-    const nodeServer = await sig.get(viteNodeService)
+    const viteServer = sig.get(viteService)
+    const nodeServer = sig.get(viteNodeService)
 
     if (!viteServer || !nodeServer) return
 

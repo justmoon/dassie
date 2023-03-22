@@ -23,11 +23,11 @@ const rootActor = () =>
     sig.run(proxyByHostname)
     await sig.run(listenForRpcWebSocket)
 
-    sig.run(sig.use(viteService).effect)
-    sig.run(sig.use(viteNodeService).effect)
+    await sig.run(viteService, undefined, { register: true })
+    sig.run(viteNodeService, undefined, { register: true })
 
     await sig.run(compileRunner)
-    await sig.run(handleFileChange)
+    sig.run(handleFileChange)
     await sig.run(runBeacons)
     await sig.run(runNodes)
     await sig.run(debugUiServer)

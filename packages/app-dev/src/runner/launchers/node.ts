@@ -15,7 +15,7 @@ export const logger = createLogger("das:dev:launcher:node")
 
 const debugRunner = () =>
   createActor(async (sig) => {
-    sig.run(sig.use(trpcClientService).effect)
+    sig.run(trpcClientService, undefined, { register: true })
     sig.run(handleShutdownSignals)
     sig.run(handleDisconnect)
     sig.run(forwardLogs)

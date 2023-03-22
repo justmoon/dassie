@@ -6,7 +6,7 @@ import { streamServerService } from "./stream-server"
 
 export const startSpspServer = () =>
   createActor(async (sig) => {
-    sig.run(sig.use(streamServerService).effect)
-    await sig.run(handleSpspRequests)
+    await sig.run(streamServerService, undefined, { register: true })
+    sig.run(handleSpspRequests)
     await sig.run(sendSpspPayments)
   })

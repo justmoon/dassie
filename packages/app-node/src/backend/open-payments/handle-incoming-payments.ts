@@ -12,10 +12,10 @@ import { PAYMENT_POINTER_ROOT } from "./constants/payment-pointer"
 import { createIncomingPaymentFormatter } from "./utils/format-incoming-payment"
 
 export const handleIncomingPayments = () =>
-  createActor(async (sig) => {
+  createActor((sig) => {
     const api = sig.get(restApiService)
     const database = sig.get(databaseSignal)
-    const streamServer = await sig.get(streamServerService)
+    const streamServer = sig.get(streamServerService)
     const { url } = sig.getKeys(configSignal, ["url"])
 
     if (!api || !streamServer) return

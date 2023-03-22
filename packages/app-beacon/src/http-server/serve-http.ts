@@ -5,7 +5,7 @@ import { createServer } from "node:https"
 
 import { respondPlainly } from "@dassie/lib-http-server"
 import { createLogger } from "@dassie/lib-logger"
-import { createActor, createService } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 import { assertDefined, isObject } from "@dassie/lib-type-utils"
 
 import { configSignal } from "../config"
@@ -27,14 +27,14 @@ const handleNotFound: Handler = (_request, response) => {
 }
 
 export const routerService = () =>
-  createService(() => {
+  createActor(() => {
     return createRouter({
       defaultRoute: handleNotFound,
     })
   })
 
 export const httpService = () =>
-  createService((sig) => {
+  createActor((sig) => {
     const router = sig.get(routerService)
 
     if (!router) return
@@ -110,15 +110,8 @@ export const httpService = () =>
 
 export const serveHttp = () =>
   createActor((sig) => {
-    sig.run(sig.use(routerService).effect)
-    sig.run(sig.use(httpService).effect)
-  })
-
-export const registerRootRoute = () =>
-  createActor((sig) => {
-    const router = sig.get(routerService)
-
-    if (!router) return
+    const router = sig.run(routerService, undefined, { register: true })
+    sig.run(httpService, undefined, { register: true })
 
     router.get("/", handleGetRoot)
   })
