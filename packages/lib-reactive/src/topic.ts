@@ -107,7 +107,7 @@ export const createTopic = <TMessage>(): Topic<TMessage, TMessage> => {
         if (listeners.size === 1) {
           // Generally it's better to use an iterator to get the first element from a set because it's more performant for large sets. But in this case the size of the set is always one so it's actually faster to use the array syntax.
           // See: https://tinyurl.com/perf-set-get-sole-element
-          listeners = [...listeners.values()][0]
+          listeners = [...listeners][0]
         }
       }
     }
