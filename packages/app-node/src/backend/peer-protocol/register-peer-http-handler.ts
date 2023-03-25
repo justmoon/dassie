@@ -84,7 +84,7 @@ export const registerPeerHttpHandler = () =>
           asUint8Array: body,
         })
 
-        const responseMessage = sig.use(handlePeerMessage)({
+        const responseMessage = await sig.use(handlePeerMessage).ask({
           message: parseResult.value,
           authenticated: isAuthenticated,
           asUint8Array: body,

@@ -1,4 +1,9 @@
-import { Reactor, createTopic } from "@dassie/lib-reactive"
+import {
+  Actor,
+  ActorFactory,
+  createActor,
+  createTopic,
+} from "@dassie/lib-reactive"
 
 import { handleInterledgerPacket } from "../handlers/interledger-packet"
 import { handleLinkStateRequest } from "../handlers/link-state-request"
@@ -6,8 +11,12 @@ import { handleLinkStateUpdate } from "../handlers/link-state-update"
 import { handlePeeringRequest } from "../handlers/peering-request"
 import type { PeerMessage } from "../peer-schema"
 
-export interface IncomingPeerMessageEvent {
-  message: PeerMessage
+export interface IncomingPeerMessageEvent<
+  TType extends PeerMessageType = PeerMessageType
+> {
+  message: PeerMessage & {
+    content: { value: { type: TType; value: PeerMessageContent<TType> } }
+  }
   authenticated: boolean
   asUint8Array: Uint8Array
 }
@@ -22,33 +31,44 @@ export type PeerMessageContent<T extends PeerMessageType> = Extract<
 export const incomingPeerMessageTopic = () =>
   createTopic<IncomingPeerMessageEvent>()
 
+type AllPeerMessageHandlerFactories = {
+  [K in PeerMessageType]: ActorFactory<
+    (parameters: IncomingPeerMessageEvent<K>) => Uint8Array
+  >
+}
+
 type AllPeerMessageHandlers = {
-  [K in PeerMessageType]: (
-    content: PeerMessageContent<K>,
-    parameters: IncomingPeerMessageEvent
-  ) => Uint8Array
+  [K in PeerMessageType]: Actor<
+    (parameters: IncomingPeerMessageEvent<K>) => Uint8Array
+  >
 }
 
-export const handlePeerMessage = (reactor: Reactor) => {
-  const handlers: AllPeerMessageHandlers = {
-    peeringRequest: reactor.use(handlePeeringRequest),
-    linkStateUpdate: reactor.use(handleLinkStateUpdate),
-    interledgerPacket: reactor.use(handleInterledgerPacket),
-    linkStateRequest: reactor.use(handleLinkStateRequest),
-  }
-
-  const runHandler = <T extends PeerMessage["content"]["value"]["type"]>(
-    type: T,
-    content: PeerMessageContent<T>,
-    parameters: IncomingPeerMessageEvent
-  ) => {
-    const handler = handlers[type]
-    return handler(content, parameters)
-  }
-
-  return (parameters: IncomingPeerMessageEvent): Uint8Array => {
-    const content = parameters.message.content.value
-
-    return runHandler(content.type, content.value, parameters)
-  }
+const HANDLERS: AllPeerMessageHandlerFactories = {
+  peeringRequest: handlePeeringRequest,
+  linkStateUpdate: handleLinkStateUpdate,
+  interledgerPacket: handleInterledgerPacket,
+  linkStateRequest: handleLinkStateRequest,
 }
+
+export const handlePeerMessage = () =>
+  createActor((sig) => {
+    for (const handler of Object.values(
+      HANDLERS as Record<string, ActorFactory<unknown>>
+    )) {
+      sig.run(handler, undefined, { register: true })
+    }
+
+    const handlers = Object.fromEntries(
+      Object.entries(HANDLERS as Record<string, ActorFactory<unknown>>).map(
+        ([key, value]) => [key, sig.use(value)]
+      )
+    ) as unknown as AllPeerMessageHandlers
+
+    return async <TType extends PeerMessageType>(
+      parameters: IncomingPeerMessageEvent<TType>
+    ) => {
+      const type: TType = parameters.message.content.value.type
+
+      return await handlers[type].ask(parameters)
+    }
+  })
