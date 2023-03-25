@@ -1,7 +1,6 @@
 import { createActor, createReactor } from "@dassie/lib-reactive"
 
 import { startBalances } from "./balances"
-import { startBeaconClient } from "./beacon-client"
 import { startBtpServer } from "./btp-server"
 import { signerService } from "./crypto/signer"
 import { startExchangeRates } from "./exchange-rates"
@@ -33,8 +32,6 @@ export const rootActor = () =>
     sig.run(startStatisticsServer)
 
     sig.run(speakPeerProtocol)
-
-    sig.run(startBeaconClient)
   })
 
 export const start = () => createReactor(rootActor)

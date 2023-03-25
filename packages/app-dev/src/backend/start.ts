@@ -8,7 +8,6 @@ import { handleFileChange } from "./effects/handle-file-change"
 import { proxyByHostname } from "./effects/proxy-by-hostname"
 import { regenerateNodeConfig } from "./effects/regenerate-node-config"
 import { registerReactiveLogger } from "./effects/register-reactive-logger"
-import { runBeacons } from "./effects/run-beacons"
 import { runNodes } from "./effects/run-nodes"
 import { debugUiServer } from "./effects/serve-debug-ui"
 import { listenForRpcWebSocket } from "./effects/serve-rpc"
@@ -28,7 +27,6 @@ const rootActor = () =>
 
     await sig.run(compileRunner)
     sig.run(handleFileChange)
-    await sig.run(runBeacons)
     await sig.run(runNodes)
     await sig.run(debugUiServer)
 
