@@ -190,14 +190,7 @@ export class Reactor extends LifecycleScope {
   ) => {
     let result: TReturn | undefined
 
-    if (register && this.contextState.has(factory)) {
-      throw new Error("Duplicate actor")
-    }
-
-    const actor = factory(this)
-    if (register) {
-      this.contextState.set(factory, actor)
-    }
+    const actor = register ? this.use(factory) : factory(this)
 
     const actorPath = pathPrefix ? `${pathPrefix}${factory.name}` : factory.name
 
