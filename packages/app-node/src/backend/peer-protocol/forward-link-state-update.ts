@@ -50,26 +50,17 @@ export const forwardLinkStateUpdate = () =>
           })
 
           // Retransmit the link state update
-          sig
-            .use(sendPeerMessage)({
-              subnet: peer.subnetId,
-              destination: peer.nodeId,
-              message: {
-                type: "linkStateUpdate",
-                value: {
-                  bytes: node.lastLinkStateUpdate,
-                },
+          sig.use(sendPeerMessage).tell({
+            subnet: peer.subnetId,
+            destination: peer.nodeId,
+            message: {
+              type: "linkStateUpdate",
+              value: {
+                bytes: node.lastLinkStateUpdate,
               },
-              asUint8Array: message.value,
-            })
-            .catch((error: unknown) => {
-              logger.error("failed to retransmit link state update", {
-                from: node.nodeId,
-                to: peer.nodeId,
-                sequence: node.sequence,
-                error,
-              })
-            })
+            },
+            asUint8Array: message.value,
+          })
         }
       }
     }

@@ -123,23 +123,19 @@ export const calculateRoutes = () =>
 
             logger.debug("sending ilp packet", { nextHop })
 
-            sig
-              .use(sendPeerMessage)({
-                subnet: subnetId,
-                destination: nextHop,
-                message: {
-                  type: "interledgerPacket",
-                  value: {
-                    signed: {
-                      requestId: requestId,
-                      packet: asUint8Array,
-                    },
+            sig.use(sendPeerMessage).tell({
+              subnet: subnetId,
+              destination: nextHop,
+              message: {
+                type: "interledgerPacket",
+                value: {
+                  signed: {
+                    requestId: requestId,
+                    packet: asUint8Array,
                   },
                 },
-              })
-              .catch((error: unknown) => {
-                logger.error("error sending ilp packet", { error })
-              })
+              },
+            })
           },
         })
       }

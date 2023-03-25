@@ -71,24 +71,16 @@ const sendPeeringRequest = (
     to: peer.nodeId,
   })
 
-  sig
-    .use(sendPeerMessage)({
-      subnet: peer.subnetId,
-      destination: peer.nodeId,
-      message: {
-        type: "peeringRequest",
-        value: {
-          nodeInfo: lastLinkStateUpdate,
-        },
+  sig.use(sendPeerMessage).tell({
+    subnet: peer.subnetId,
+    destination: peer.nodeId,
+    message: {
+      type: "peeringRequest",
+      value: {
+        nodeInfo: lastLinkStateUpdate,
       },
-    })
-    .catch((error: unknown) => {
-      logger.warn(`failed to send peering request`, {
-        subnet: peer.subnetId,
-        to: peer.nodeId,
-        error,
-      })
-    })
+    },
+  })
 }
 
 const sendHeartbeat = (
@@ -100,22 +92,14 @@ const sendHeartbeat = (
     to: peer.nodeId,
   })
 
-  sig
-    .use(sendPeerMessage)({
-      subnet: peer.subnetId,
-      destination: peer.nodeId,
-      message: {
-        type: "linkStateUpdate",
-        value: {
-          bytes: lastLinkStateUpdate,
-        },
+  sig.use(sendPeerMessage).tell({
+    subnet: peer.subnetId,
+    destination: peer.nodeId,
+    message: {
+      type: "linkStateUpdate",
+      value: {
+        bytes: lastLinkStateUpdate,
       },
-    })
-    .catch((error: unknown) => {
-      logger.warn(`failed to send heartbeat`, {
-        subnet: peer.subnetId,
-        to: peer.nodeId,
-        error,
-      })
-    })
+    },
+  })
 }

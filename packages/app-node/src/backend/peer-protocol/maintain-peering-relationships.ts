@@ -127,7 +127,7 @@ export const maintainPeeringRelationships = () =>
       oracleNodeId: string,
       subjectNodeId: string
     ) => {
-      const response = await reactor.use(sendPeerMessage)({
+      const response = await reactor.use(sendPeerMessage).ask({
         subnet: subnetId,
         destination: oracleNodeId,
         message: {
