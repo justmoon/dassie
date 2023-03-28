@@ -32,6 +32,13 @@ export type InferBoundActions<TActions> = {
   [key in keyof TActions]: InferBoundAction<TActions[key]>
 }
 
+export type InferChanges<TActions> = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key in keyof TActions]: TActions[key] extends Action<any, any[]>
+    ? [key, Parameters<TActions[key]>]
+    : never
+}[keyof TActions]
+
 export type BoundAction<TState, TParameters extends unknown[]> = (
   ...parameters: TParameters
 ) => TState
@@ -39,7 +46,7 @@ export type BoundAction<TState, TParameters extends unknown[]> = (
 const bindActions = <TState, TActions extends Record<string, Action<TState>>>(
   actions: TActions,
   signal: Signal<TState>,
-  changesTopic: Topic<Change, Change>
+  changesTopic: Topic<InferChanges<TActions>>
 ): InferBoundActions<TActions> => {
   const boundActions = {} as InferBoundActions<TActions>
 
@@ -49,7 +56,10 @@ const bindActions = <TState, TActions extends Record<string, Action<TState>>>(
         const reducer = actions[key]!(...parameters)
 
         signal.update(reducer)
-        changesTopic.emit([key, parameters])
+        changesTopic.emit([
+          key,
+          parameters,
+        ] as unknown as InferChanges<TActions>)
 
         return signal.read()
       }) as (typeof boundActions)[typeof key]
@@ -68,7 +78,7 @@ export type Store<
    */
   [StoreSymbol]: true
 
-  changes: Topic<Change>
+  changes: Topic<InferChanges<TActions>>
 } & InferBoundActions<TActions>
 
 /**
@@ -86,7 +96,7 @@ export const createStore = <
   actions: TActions
 ): Store<TState, TActions> => {
   const signal = createSignal<TState>(initialState)
-  const changes = createTopic<Change>()
+  const changes = createTopic<InferChanges<TActions>>()
 
   const boundActions = bindActions(actions, signal, changes)
 

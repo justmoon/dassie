@@ -23,6 +23,7 @@ export type {
   BoundAction,
   InferBoundAction,
   InferBoundActions,
+  InferChanges,
 } from "./store"
 export type { Reactor, Disposer, AsyncDisposer } from "./reactor"
 export type { AsyncListener } from "./context"
