@@ -19,7 +19,7 @@ export type Action<
   TParameters extends unknown[] = never[]
 > = (...parameters: TParameters) => (previousState: TState) => TState
 
-export type Change = [string, unknown[]]
+export type Change = [actionId: string, parameters: unknown[]]
 
 export type InferBoundAction<TAction> = TAction extends Action<
   infer S,
