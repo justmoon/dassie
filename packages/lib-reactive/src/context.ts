@@ -319,14 +319,16 @@ export class ActorContext {
    * @param factory - Factory function or effect.
    * @returns - Return value of the factory function or first invocation of the effect.
    */
-  run<TReturn>(factory: ActorFactory<TReturn>): TReturn
-  run<TProperties, TReturn>(
-    factory: ActorFactory<TReturn, TProperties>,
+  run<TReturn, TInitialState>(
+    factory: ActorFactory<TReturn, undefined, TInitialState>
+  ): TReturn
+  run<TProperties, TReturn, TInitialState>(
+    factory: ActorFactory<TReturn, TProperties, TInitialState>,
     properties: TProperties,
     options?: RunOptions<TReturn> | undefined
   ): TReturn
-  run<TProperties, TReturn>(
-    factory: ActorFactory<TReturn, TProperties | undefined>,
+  run<TProperties, TReturn, TInitialState>(
+    factory: ActorFactory<TReturn, TProperties | undefined, TInitialState>,
     properties?: TProperties,
     options?: RunOptions<TReturn> | undefined
   ) {

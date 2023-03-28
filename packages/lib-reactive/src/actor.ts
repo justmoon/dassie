@@ -11,9 +11,11 @@ export type Behavior<TReturn = unknown, TProperties = unknown> = (
 
 export const ActorSymbol = Symbol("das:reactive:actor")
 
-export type ActorFactory<TInstance, TProperties = undefined> = Factory<
-  Actor<TInstance, TProperties>
->
+export type ActorFactory<
+  TInstance,
+  TProperties = undefined,
+  TInitialState = undefined
+> = Factory<Actor<TInstance, TProperties, TInitialState>>
 
 export type InferActorMessageType<TInstance> = TInstance extends (
   message: infer TMessage
@@ -27,13 +29,20 @@ export type InferActorReturnType<TInstance> = TInstance extends (
   ? TReturn
   : never
 
-export type Actor<TInstance, TProperties = undefined> = Signal<
-  Awaited<TInstance> | undefined
-> & {
+export type Actor<
+  TInstance,
+  TProperties = undefined,
+  TInitialState = undefined
+> = Signal<Awaited<TInstance> | TInitialState> & {
   /**
    * Marks this object as a value.
    */
   [ActorSymbol]: true
+
+  /**
+   * A copy of the actor's initial state prior to instantiation.
+   */
+  initialState: TInitialState
 
   /**
    * The function that initializes the actor. Used internally. You should call reactor.run() or sig.run() if you want to start the actor.
@@ -58,13 +67,29 @@ export type Actor<TInstance, TProperties = undefined> = Signal<
   ) => Promise<InferActorReturnType<TInstance>>
 }
 
-export const createActor = <TInstance, TProperties = undefined>(
-  behavior: Behavior<TInstance, TProperties>
-): Actor<TInstance, TProperties> => {
-  const signal = createSignal<Awaited<TInstance>>()
-  const actor: Actor<TInstance, TProperties> = {
+interface CreateActorSignature {
+  <TInstance, TProperties = undefined>(
+    behavior: Behavior<TInstance, TProperties>
+  ): Actor<TInstance, TProperties>
+  <TInstance, TProperties = undefined, TInitialState = undefined>(
+    behavior: Behavior<TInstance, TProperties>,
+    initialState: TInitialState
+  ): Actor<TInstance, TProperties, TInitialState>
+}
+
+export const createActor: CreateActorSignature = <
+  TInstance,
+  TProperties = undefined,
+  TInitialState = undefined
+>(
+  behavior: Behavior<TInstance, TProperties>,
+  initialState?: TInitialState
+): Actor<TInstance, TProperties, TInitialState> => {
+  const signal = createSignal<Awaited<TInstance> | TInitialState>(initialState!)
+  const actor: Actor<TInstance, TProperties, TInitialState> = {
     ...signal,
     [ActorSymbol]: true,
+    initialState: initialState!,
     behavior,
     tell: (message) => {
       const handler = signal.read()
