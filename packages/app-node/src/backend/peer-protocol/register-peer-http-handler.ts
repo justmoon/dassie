@@ -16,7 +16,7 @@ import {
 } from "./actions/handle-peer-message"
 import { ALLOW_ANONYMOUS_USAGE } from "./constants/anonymous-messages"
 import { peerMessage as peerMessageSchema } from "./peer-schema"
-import { peerTableStore } from "./stores/peer-table"
+import { nodeTableStore } from "./stores/node-table"
 import { authenticatePeerMessage } from "./utils/authenticate-peer-message"
 
 const logger = createLogger("das:node:handle-peer-http-request")
@@ -55,13 +55,16 @@ export const registerPeerHttpHandler = () =>
 
         const subnetId = parseResult.value.subnetId
         const senderId = parseResult.value.sender
-        const senderPublicKey = sig
-          .use(peerTableStore)
+        const senderNode = sig
+          .use(nodeTableStore)
           .read()
-          .get(`${subnetId}.${senderId}`)?.nodePublicKey
+          .get(`${subnetId}.${senderId}`)
+
         const isAuthenticated =
-          !!senderPublicKey &&
-          authenticatePeerMessage(senderPublicKey, parseResult.value)
+          !!senderNode &&
+          (senderNode.peerState.id === "peered" ||
+            senderNode.peerState.id === "request-peering") &&
+          authenticatePeerMessage(senderNode.nodePublicKey, parseResult.value)
 
         // Only certain messages are allowed to be sent anonymously
         if (

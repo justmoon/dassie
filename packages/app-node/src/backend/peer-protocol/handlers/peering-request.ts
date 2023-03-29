@@ -2,11 +2,11 @@ import { createActor } from "@dassie/lib-reactive"
 
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import type { IncomingPeerMessageEvent } from "../actions/handle-peer-message"
-import { peerTableStore } from "../stores/peer-table"
+import { NodeTableKey, nodeTableStore } from "../stores/node-table"
 
 export const handlePeeringRequest = () =>
   createActor((sig) => {
-    const peerTable = sig.use(peerTableStore)
+    const nodeTable = sig.use(nodeTableStore)
     return ({
       message: {
         content: {
@@ -17,14 +17,28 @@ export const handlePeeringRequest = () =>
       const { nodeInfo } = content
 
       const { subnetId, nodeId, url, nodePublicKey } = nodeInfo.signed
-      peerTable.addPeer({
-        subnetId,
-        nodeId,
-        state: { id: "peered" },
-        url,
-        nodePublicKey,
-        lastSeen: Date.now(),
-      })
+
+      const nodeKey: NodeTableKey = `${subnetId}.${nodeId}`
+      const existingEntry = nodeTable.read().get(nodeKey)
+
+      if (existingEntry) {
+        nodeTable.updateNode(nodeKey, {
+          peerState: { id: "peered", lastSeen: Date.now() },
+        })
+      } else {
+        nodeTable.addNode({
+          subnetId,
+          nodeId,
+          peerState: { id: "peered", lastSeen: Date.now() },
+          url,
+          nodePublicKey,
+          lastLinkStateUpdate: undefined,
+          neighbors: [],
+          scheduledRetransmitTime: 0,
+          sequence: 0n,
+          updateReceivedCounter: 0,
+        })
+      }
 
       return EMPTY_UINT8ARRAY
     }

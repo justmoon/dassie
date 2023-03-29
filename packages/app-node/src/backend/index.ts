@@ -1,5 +1,4 @@
 export type { Config, InputConfig } from "./config"
 export { configSignal } from "./config"
-export { peerTableStore } from "./peer-protocol/stores/peer-table"
 export { nodeTableStore } from "./peer-protocol/stores/node-table"
 export { start, rootActor } from "./start"

@@ -3,10 +3,14 @@ import { EffectContext, createActor } from "@dassie/lib-reactive"
 
 import { configSignal } from "../config"
 import { signerService } from "../crypto/signer"
-import { compareSetOfKeys } from "../utils/compare-sets"
+import { compareSets } from "../utils/compare-sets"
 import { sendPeerMessage } from "./actions/send-peer-message"
-import { nodeTableStore } from "./stores/node-table"
-import { PeerEntry, peerTableStore } from "./stores/peer-table"
+import { peersComputation } from "./computed/peers"
+import {
+  NodeTableEntry,
+  nodeTableStore,
+  parseNodeKey,
+} from "./stores/node-table"
 
 const logger = createLogger("das:node:peer-greeter")
 
@@ -20,33 +24,36 @@ export const sendHeartbeats = () =>
 
     // Get the current peers and re-run the effect iff the IDs of the peers change.
     const peers = sig.get(
-      peerTableStore,
+      peersComputation,
       (peerTable) => peerTable,
-      compareSetOfKeys
+      compareSets
     )
 
     const ownNodeId = sig.use(configSignal).read().nodeId
 
-    for (const peer of peers.values()) {
+    for (const peer of peers) {
+      const [peerSubnetId] = parseNodeKey(peer)
       const ownNodeTableEntry = sig.get(nodeTableStore, (nodeTable) =>
-        nodeTable.get(`${peer.subnetId}.${ownNodeId}`)
+        nodeTable.get(`${peerSubnetId}.${ownNodeId}`)
       )
 
       if (!ownNodeTableEntry?.lastLinkStateUpdate) {
         return
       }
 
-      switch (peer.state.id) {
+      const peerEntry = sig.use(nodeTableStore).read().get(peer)
+
+      switch (peerEntry?.peerState.id) {
         case "request-peering": {
           sendPeeringRequest(sig, {
-            peer,
+            peer: peerEntry,
             lastLinkStateUpdate: ownNodeTableEntry.lastLinkStateUpdate,
           })
           break
         }
         case "peered": {
           sendHeartbeat(sig, {
-            peer,
+            peer: peerEntry,
             lastLinkStateUpdate: ownNodeTableEntry.lastLinkStateUpdate,
           })
           break
@@ -58,7 +65,7 @@ export const sendHeartbeats = () =>
   })
 
 interface HeartbeatParameters {
-  peer: PeerEntry
+  peer: NodeTableEntry
   lastLinkStateUpdate: Uint8Array
 }
 

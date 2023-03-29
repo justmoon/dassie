@@ -6,7 +6,6 @@ import { subnetBalanceMapStore } from "../balances/stores/subnet-balance-map"
 import { configSignal } from "../config"
 import { runPerSubnetEffects } from "../peer-protocol/run-per-subnet-effects"
 import { nodeTableStore } from "../peer-protocol/stores/node-table"
-import { peerTableStore } from "../peer-protocol/stores/peer-table"
 import modules from "./modules"
 import { activeSubnetsSignal } from "./signals/active-subnets"
 import { subnetMapSignal } from "./signals/subnet-map"
@@ -36,12 +35,6 @@ const runSubnetModule = () =>
     if (subnetState?.initialPeers) {
       for (const peer of subnetState.initialPeers) {
         const nodePublicKey = hexToBytes(peer.nodePublicKey)
-        sig.use(peerTableStore).addPeer({
-          subnetId,
-          ...peer,
-          nodePublicKey,
-          state: { id: "request-peering" },
-        })
         sig.use(nodeTableStore).addNode({
           ...peer,
           nodePublicKey,
@@ -51,6 +44,7 @@ const runSubnetModule = () =>
           scheduledRetransmitTime: 0,
           neighbors: [],
           lastLinkStateUpdate: undefined,
+          peerState: { id: "request-peering", lastSeen: 0 },
         })
       }
     }

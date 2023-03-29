@@ -4,7 +4,7 @@ import { observable } from "@trpc/server/observable"
 import superjson from "superjson"
 import { WebSocketServer } from "ws"
 
-import { nodeTableStore, peerTableStore } from "@dassie/app-node"
+import { nodeTableStore } from "@dassie/app-node"
 import { routingTableStore } from "@dassie/app-node/src/backend/peer-protocol/stores/routing-table"
 import { createLogger } from "@dassie/lib-logger"
 import { createActor, debugFirehose } from "@dassie/lib-reactive"
@@ -18,7 +18,6 @@ import { prettyFormat } from "../../common/utils/pretty-format"
 const logger = createLogger("das:dev:runner:debug-rpc-server")
 
 export const exposedStores = {
-  peerTable: peerTableStore,
   nodeTable: nodeTableStore,
   routingTable: routingTableStore,
 } as const

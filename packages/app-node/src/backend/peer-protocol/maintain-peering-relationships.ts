@@ -5,10 +5,10 @@ import { createActor } from "@dassie/lib-reactive"
 
 import { configSignal } from "../config"
 import { sendPeerMessage } from "./actions/send-peer-message"
+import { peersComputation } from "./computed/peers"
 import { signedPeerNodeInfo } from "./peer-schema"
 import type { PerSubnetParameters } from "./run-per-subnet-effects"
 import { nodeTableStore } from "./stores/node-table"
-import { peerTableStore } from "./stores/peer-table"
 
 const PEERING_CHECK_INTERVAL = 1000
 
@@ -49,6 +49,7 @@ export const maintainPeeringRelationships = () =>
           updateReceivedCounter: 0,
           scheduledRetransmitTime: 0,
           neighbors: [],
+          peerState: { id: "none" },
         })
       }
     }
@@ -56,8 +57,8 @@ export const maintainPeeringRelationships = () =>
     const { reactor } = sig
     const checkPeers = async () => {
       try {
-        const peerTable = sig.use(peerTableStore).read()
-        if (peerTable.size >= MINIMUM_PEERS) {
+        const peersSet = sig.use(peersComputation).read()
+        if (peersSet.size >= MINIMUM_PEERS) {
           return
         }
 
@@ -84,7 +85,7 @@ export const maintainPeeringRelationships = () =>
         randomCandidate.nodeId
       )
 
-      const peerTable = sig.use(peerTableStore).read()
+      const peersSet = sig.use(peersComputation).read()
 
       const candidateNodeIds = new Set(
         [
@@ -94,7 +95,7 @@ export const maintainPeeringRelationships = () =>
             .filter(({ type }) => type === "neighbor")
             .map(({ value }) => value.nodeId)
             .filter((nodeId) => nodeId !== ownNodeId),
-        ].filter((nodeId) => !peerTable.has(`${subnetId}.${nodeId}`))
+        ].filter((nodeId) => !peersSet.has(`${subnetId}.${nodeId}`))
       )
 
       if (candidateNodeIds.size === 0) {
@@ -114,13 +115,11 @@ export const maintainPeeringRelationships = () =>
         randomCandidateNodeId
       )
 
-      reactor.use(peerTableStore).addPeer({
-        subnetId,
-        nodeId: candidateLinkState.nodeId,
-        url: candidateLinkState.url,
-        nodePublicKey: candidateLinkState.nodePublicKey,
-        state: { id: "request-peering" },
-      })
+      reactor
+        .use(nodeTableStore)
+        .updateNode(`${subnetId}.${candidateLinkState.nodeId}`, {
+          peerState: { id: "request-peering", lastSeen: Date.now() },
+        })
     }
 
     const queryLinkState = async (

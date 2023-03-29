@@ -47,54 +47,6 @@ const NodeHeader = ({ nodeId }: BasicNodeElementProperties) => {
   )
 }
 
-const PeerTable = ({ nodeId }: BasicNodeElementProperties) => {
-  const peerTable = useNodeRemoteSignal(nodeId, "peerTable")
-
-  if (!peerTable.data) return null
-
-  return (
-    <div className="min-h-0">
-      <h2 className="font-bold text-xl">Peer Table</h2>
-      <table className="border-separate border-spacing-2 my-4 -ml-2">
-        <thead>
-          <tr>
-            <th className="text-left">Subnet</th>
-            <th className="text-left">Peer</th>
-            <th className="text-left">URL</th>
-            <th className="text-left">State</th>
-            <th className="text-left">Last Seen</th>
-          </tr>
-        </thead>
-        <tbody>
-          {[...peerTable.data.values()].map((peer) => (
-            <tr key={peer.nodeId}>
-              <td className="text-slate-400">{peer.subnetId}</td>
-              <td className="">
-                <Link
-                  href={`/nodes/${peer.nodeId}`}
-                  className="font-bold"
-                  style={{ color: selectBySeed(COLORS, peer.nodeId) }}
-                >
-                  {peer.nodeId}
-                </Link>
-              </td>
-              <td className="">
-                <a href={peer.url} rel="external">
-                  {peer.url}
-                </a>
-              </td>
-              <td>{peer.state.id}</td>
-              <td className="" title={new Date(peer.lastSeen).toISOString()}>
-                {format(new Date(peer.lastSeen))}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
 const NodeLink = ({ nodeId }: BasicNodeElementProperties) => {
   return (
     <Link
@@ -122,8 +74,10 @@ const NodeTable = ({ nodeId }: BasicNodeElementProperties) => {
             <th className="text-left">Subnet</th>
             <th className="text-left">Node</th>
             <th>Distance</th>
+            <th className="text-left">Peering</th>
             <th>Next Hop Options</th>
             <th>Neighbors</th>
+            <th className="text-left">Last Seen</th>
           </tr>
         </thead>
         <tbody>
@@ -137,6 +91,7 @@ const NodeTable = ({ nodeId }: BasicNodeElementProperties) => {
                   <NodeLink nodeId={node.nodeId} />
                 </td>
                 <td>{routingTableEntry?.distance}</td>
+                <td>{node.peerState.id}</td>
                 <td>
                   <div className="flex gap-2">
                     {nextHopNodes?.map((nodeId) => (
@@ -151,6 +106,16 @@ const NodeTable = ({ nodeId }: BasicNodeElementProperties) => {
                     ))}
                   </div>
                 </td>
+                {node.peerState.id === "none" ? (
+                  <td></td>
+                ) : (
+                  <td
+                    className=""
+                    title={new Date(node.peerState.lastSeen).toISOString()}
+                  >
+                    {format(new Date(node.peerState.lastSeen))}
+                  </td>
+                )}
               </tr>
             )
           })}
@@ -274,7 +239,6 @@ const NodeDetail = ({ nodeId }: BasicNodeElementProperties) => {
           value="state"
           className="rounded-lg bg-gray-800 min-h-0 p-4"
         >
-          <PeerTable nodeId={nodeId} />
           <NodeTable nodeId={nodeId} />
         </Tabs.Content>
         <Tabs.Content value="events" className="rounded-lg bg-gray-800 min-h-0">

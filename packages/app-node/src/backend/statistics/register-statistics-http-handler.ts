@@ -2,7 +2,8 @@ import { respondJson } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
 import { routerService } from "../http-server/serve-http"
-import { peerTableStore } from "../peer-protocol/stores/peer-table"
+import { peersComputation } from "../peer-protocol/computed/peers"
+import { nodeTableStore } from "../peer-protocol/stores/node-table"
 
 export const registerStatisticsHttpHandler = () =>
   createActor((sig) => {
@@ -13,14 +14,22 @@ export const registerStatisticsHttpHandler = () =>
     const { reactor } = sig
 
     router.get("/stats", (_, response) => {
-      const peers = [...reactor.use(peerTableStore).read().values()].map(
-        ({ nodeId, subnetId, url, nodePublicKey }) => ({
-          subnetId,
-          nodeId,
-          url,
-          nodePublicKey: Buffer.from(nodePublicKey).toString("base64url"),
+      const nodeTable = reactor.use(nodeTableStore).read()
+      const peers = [...reactor.use(peersComputation).read()]
+        .map((nodeKey) => {
+          const node = nodeTable.get(nodeKey)
+
+          if (!node || node.peerState.id !== "peered") return false
+
+          const { nodeId, subnetId, url, nodePublicKey } = node
+          return {
+            subnetId,
+            nodeId,
+            url,
+            nodePublicKey: Buffer.from(nodePublicKey).toString("base64url"),
+          }
         })
-      )
+        .filter(Boolean)
 
       respondJson(response, 200, { peers })
     })

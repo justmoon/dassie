@@ -3,11 +3,11 @@ import { createActor } from "@dassie/lib-reactive"
 
 import { configSignal } from "../config"
 import { signerService } from "../crypto/signer"
-import { compareKeysToArray, compareSetOfKeys } from "../utils/compare-sets"
+import { compareSetToArray, compareSets } from "../utils/compare-sets"
+import { peersComputation } from "./computed/peers"
 import { peerNodeInfo, signedPeerNodeInfo } from "./peer-schema"
 import type { PerSubnetParameters } from "./run-per-subnet-effects"
-import { nodeTableStore } from "./stores/node-table"
-import { peerTableStore } from "./stores/peer-table"
+import { nodeTableStore, parseNodeKey } from "./stores/node-table"
 
 const logger = createLogger("das:node:maintain-own-node-table-entry")
 
@@ -19,11 +19,7 @@ export const maintainOwnNodeTableEntry = () =>
     if (!signer) return
 
     // Get the current peers and re-run the effect iff the IDs of the peers change.
-    const peers = sig.get(
-      peerTableStore,
-      (peerTable) => peerTable,
-      compareSetOfKeys
-    )
+    const peers = sig.get(peersComputation, (peersSet) => peersSet, compareSets)
 
     const { nodeId, url } = sig.getKeys(configSignal, ["nodeId", "url"])
     const ownNodeTableEntry = sig
@@ -33,10 +29,10 @@ export const maintainOwnNodeTableEntry = () =>
 
     if (
       ownNodeTableEntry == null ||
-      !compareKeysToArray(peers, ownNodeTableEntry.neighbors)
+      !compareSetToArray(peers, ownNodeTableEntry.neighbors)
     ) {
       const sequence = BigInt(Date.now())
-      const peerIds = [...peers.values()].map((peer) => peer.nodeId)
+      const peerIds = [...peers].map((peer) => parseNodeKey(peer)[1])
       const publicKey = await signer.getPublicKey()
 
       const peerNodeInfoResult = peerNodeInfo.serialize({
@@ -86,6 +82,7 @@ export const maintainOwnNodeTableEntry = () =>
           scheduledRetransmitTime: Date.now(),
           updateReceivedCounter: 0,
           lastLinkStateUpdate: message.value,
+          peerState: { id: "none" },
         })
       } else {
         logger.debug("updating own node table entry", {

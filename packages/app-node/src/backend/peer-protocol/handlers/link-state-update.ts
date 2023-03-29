@@ -4,7 +4,6 @@ import { createActor } from "@dassie/lib-reactive"
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import type { IncomingPeerMessageEvent } from "../actions/handle-peer-message"
 import { NodeTableKey, nodeTableStore } from "../stores/node-table"
-import { peerTableStore } from "../stores/peer-table"
 
 const logger = createLogger("das:node:handle-link-state-update")
 
@@ -13,7 +12,6 @@ export const MAX_LINK_STATE_UPDATE_RETRANSMIT_DELAY = 500
 export const handleLinkStateUpdate = () =>
   createActor((sig) => {
     const nodeTable = sig.use(nodeTableStore)
-    const peerTable = sig.use(peerTableStore)
 
     return ({
       message: {
@@ -26,7 +24,6 @@ export const handleLinkStateUpdate = () =>
       const { value: linkState, bytes: linkStateBytes } = content
       const { nodeId, url, sequence, entries, nodePublicKey } = linkState.signed
       const nodes = nodeTable.read()
-      const peers = peerTable.read()
 
       const neighbors = entries
         // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
@@ -35,7 +32,7 @@ export const handleLinkStateUpdate = () =>
 
       const nodeKey: NodeTableKey = `${subnetId}.${nodeId}`
       const node = nodes.get(nodeKey)
-      const peer = peers.get(nodeKey)
+      const isPeer = node?.peerState.id !== "none"
 
       if (node) {
         if (sequence < node.sequence) {
@@ -50,7 +47,7 @@ export const handleLinkStateUpdate = () =>
         }
 
         if (sequence === node.sequence) {
-          if (peer) {
+          if (isPeer) {
             logger.debug("received heartbeat from peer", {
               subnet: subnetId,
               from: nodeId,
@@ -85,6 +82,11 @@ export const handleLinkStateUpdate = () =>
           scheduledRetransmitTime:
             Date.now() +
             Math.ceil(Math.random() * MAX_LINK_STATE_UPDATE_RETRANSMIT_DELAY),
+          peerState:
+            node.peerState.id === "request-peering" ||
+            node.peerState.id === "peered"
+              ? { id: "peered", lastSeen: Date.now() }
+              : node.peerState,
         })
       } else {
         nodeTable.addNode({
@@ -99,19 +101,7 @@ export const handleLinkStateUpdate = () =>
             Math.ceil(Math.random() * MAX_LINK_STATE_UPDATE_RETRANSMIT_DELAY),
           neighbors,
           lastLinkStateUpdate: linkStateBytes,
-        })
-      }
-
-      if (peer) {
-        // If this peer has started sending us node updates, we can infer that we are successfully peered
-        if (peer.state.id === "request-peering") {
-          peerTable.updatePeer(nodeKey, {
-            state: { id: "peered" },
-          })
-        }
-
-        peerTable.updatePeer(nodeKey, {
-          lastSeen: Date.now(),
+          peerState: { id: "none" },
         })
       }
 

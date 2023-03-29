@@ -46,7 +46,20 @@ export interface NodeTableEntry {
   neighbors: string[]
 
   lastLinkStateUpdate: Uint8Array | undefined
+
+  peerState: PeerState
 }
+
+export type PeerState =
+  | { id: "none" }
+  | {
+      id: "request-peering"
+      lastSeen: number
+    }
+  | {
+      id: "peered"
+      lastSeen: number
+    }
 
 export type NodeTableKey = `${string}.${string}`
 
@@ -70,3 +83,11 @@ export const nodeTableStore = () =>
         })
       }),
   })
+
+export const parseNodeKey = (
+  key: NodeTableKey
+): [subnetId: string, nodeId: string] => {
+  const subnetId = key.slice(0, key.indexOf("."))
+  const nodeId = key.slice(key.indexOf(".") + 1)
+  return [subnetId, nodeId]
+}
