@@ -21,8 +21,8 @@ export const handleLinkStateRequest = () =>
     }: IncomingPeerMessageEvent<"linkStateRequest">) => {
       const ownNodeTableEntry = nodeTable.read().get(`${subnetId}.${nodeId}`)
 
-      if (!ownNodeTableEntry?.lastLinkStateUpdate) return EMPTY_UINT8ARRAY
+      if (!ownNodeTableEntry?.linkState.lastUpdate) return EMPTY_UINT8ARRAY
 
-      return ownNodeTableEntry.lastLinkStateUpdate
+      return ownNodeTableEntry.linkState.lastUpdate
     }
   })

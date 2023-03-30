@@ -18,19 +18,22 @@ export const forwardLinkStateUpdate = () =>
 
     for (const node of nodes.values()) {
       if (
-        node.lastLinkStateUpdate &&
-        node.updateReceivedCounter < COUNTER_THRESHOLD &&
-        node.scheduledRetransmitTime < Date.now()
+        node.linkState.lastUpdate &&
+        node.linkState.updateReceivedCounter < COUNTER_THRESHOLD &&
+        node.linkState.scheduledRetransmitTime < Date.now()
       ) {
         // Set scheduled retransmit time to be infinitely far in the future so we don't retransmit the same update again.
         sig.use(nodeTableStore).updateNode(`${node.subnetId}.${node.nodeId}`, {
-          scheduledRetransmitTime: Number.POSITIVE_INFINITY,
+          linkState: {
+            ...node.linkState,
+            scheduledRetransmitTime: Number.POSITIVE_INFINITY,
+          },
         })
 
         const message = peerMessageContent.serialize({
           type: "linkStateUpdate",
           value: {
-            bytes: node.lastLinkStateUpdate,
+            bytes: node.linkState.lastUpdate,
           },
         })
 
@@ -48,7 +51,7 @@ export const forwardLinkStateUpdate = () =>
           logger.debug("retransmit link state update", {
             from: node.nodeId,
             to: peerNodeId,
-            sequence: node.sequence,
+            sequence: node.linkState.sequence,
           })
 
           // Retransmit the link state update
@@ -58,7 +61,7 @@ export const forwardLinkStateUpdate = () =>
             message: {
               type: "linkStateUpdate",
               value: {
-                bytes: node.lastLinkStateUpdate,
+                bytes: node.linkState.lastUpdate,
               },
             },
             asUint8Array: message.value,

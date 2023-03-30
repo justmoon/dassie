@@ -44,11 +44,13 @@ export const maintainPeeringRelationships = () =>
           subnetId,
           url: candidate.url,
           nodePublicKey: hexToBytes(candidate.nodePublicKey),
-          sequence: 0n,
-          lastLinkStateUpdate: undefined,
-          updateReceivedCounter: 0,
-          scheduledRetransmitTime: 0,
-          neighbors: [],
+          linkState: {
+            sequence: 0n,
+            lastUpdate: undefined,
+            updateReceivedCounter: 0,
+            scheduledRetransmitTime: 0,
+            neighbors: [],
+          },
           peerState: { id: "none" },
         })
       }

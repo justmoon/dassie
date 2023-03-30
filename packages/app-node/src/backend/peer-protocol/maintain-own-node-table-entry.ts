@@ -29,7 +29,7 @@ export const maintainOwnNodeTableEntry = () =>
 
     if (
       ownNodeTableEntry == null ||
-      !compareSetToArray(peers, ownNodeTableEntry.neighbors)
+      !compareSetToArray(peers, ownNodeTableEntry.linkState.neighbors)
     ) {
       const sequence = BigInt(Date.now())
       const peerIds = [...peers].map((peer) => parseNodeKey(peer)[1])
@@ -75,13 +75,15 @@ export const maintainOwnNodeTableEntry = () =>
         sig.use(nodeTableStore).addNode({
           subnetId,
           nodeId,
-          neighbors: peerIds,
           nodePublicKey: publicKey,
           url,
-          sequence,
-          scheduledRetransmitTime: Date.now(),
-          updateReceivedCounter: 0,
-          lastLinkStateUpdate: message.value,
+          linkState: {
+            neighbors: peerIds,
+            sequence,
+            scheduledRetransmitTime: Date.now(),
+            updateReceivedCounter: 0,
+            lastUpdate: message.value,
+          },
           peerState: { id: "none" },
         })
       } else {
@@ -90,11 +92,13 @@ export const maintainOwnNodeTableEntry = () =>
           neighbors: peerIds.join(","),
         })
         sig.use(nodeTableStore).updateNode(`${subnetId}.${nodeId}`, {
-          neighbors: peerIds,
-          sequence,
-          scheduledRetransmitTime: Date.now(),
-          updateReceivedCounter: 0,
-          lastLinkStateUpdate: message.value,
+          linkState: {
+            neighbors: peerIds,
+            sequence,
+            scheduledRetransmitTime: Date.now(),
+            updateReceivedCounter: 0,
+            lastUpdate: message.value,
+          },
         })
       }
     }

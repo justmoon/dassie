@@ -39,11 +39,13 @@ const runSubnetModule = () =>
           ...peer,
           nodePublicKey,
           subnetId,
-          sequence: 0n,
-          updateReceivedCounter: 0,
-          scheduledRetransmitTime: 0,
-          neighbors: [],
-          lastLinkStateUpdate: undefined,
+          linkState: {
+            sequence: 0n,
+            updateReceivedCounter: 0,
+            scheduledRetransmitTime: 0,
+            neighbors: [],
+            lastUpdate: undefined,
+          },
           peerState: { id: "request-peering", lastSeen: 0 },
         })
       }

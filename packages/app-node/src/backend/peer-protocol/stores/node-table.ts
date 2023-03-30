@@ -26,27 +26,13 @@ export interface NodeTableEntry {
   url: string
 
   /**
-   * Sequence number of the most recent link state update.
+   * Latest known state of the node's links.
    */
-  sequence: bigint
+  linkState: LinkState
 
   /**
-   * How many times has the most recent link state update been received?
+   * Current peering state between us and this node.
    */
-  updateReceivedCounter: number
-
-  /**
-   * Time when we will retransmit the most recent link state update unless the update received counter exceeds the threshold.
-   */
-  scheduledRetransmitTime: number
-
-  /**
-   * List of the node's peers.
-   */
-  neighbors: string[]
-
-  lastLinkStateUpdate: Uint8Array | undefined
-
   peerState: PeerState
 }
 
@@ -60,6 +46,33 @@ export type PeerState =
       id: "peered"
       lastSeen: number
     }
+
+export interface LinkState {
+  /**
+   * Binary copy of the most recent link state update.
+   */
+  lastUpdate: Uint8Array | undefined
+
+  /**
+   * List of the node's peers.
+   */
+  neighbors: string[]
+
+  /**
+   * Sequence number of the most recent link state update.
+   */
+  sequence: bigint
+
+  /**
+   * How many times has the most recent link state update been received?
+   */
+  updateReceivedCounter: number
+
+  /**
+   * Time when we will retransmit the most recent link state update unless the update received counter exceeds the threshold.
+   */
+  scheduledRetransmitTime: number
+}
 
 export type NodeTableKey = `${string}.${string}`
 

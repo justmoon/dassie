@@ -52,7 +52,7 @@ export const calculateRoutes = () =>
       const currentNodeInfo = nodeInfoMap.get(currentNodeId)
       assertDefined(currentNodeInfo)
 
-      for (const neighborId of currentNode.neighbors) {
+      for (const neighborId of currentNode.linkState.neighbors) {
         const neighborInfo = nodeInfoMap.get(neighborId)
 
         if (neighborInfo) {

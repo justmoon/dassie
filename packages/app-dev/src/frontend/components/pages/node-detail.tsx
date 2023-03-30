@@ -101,7 +101,7 @@ const NodeTable = ({ nodeId }: BasicNodeElementProperties) => {
                 </td>
                 <td>
                   <div className="flex gap-2">
-                    {node.neighbors.map((nodeId) => (
+                    {node.linkState?.neighbors.map((nodeId) => (
                       <NodeLink key={nodeId} nodeId={nodeId} />
                     ))}
                   </div>

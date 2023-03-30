@@ -32,11 +32,13 @@ export const handlePeeringRequest = () =>
           peerState: { id: "peered", lastSeen: Date.now() },
           url,
           nodePublicKey,
-          lastLinkStateUpdate: undefined,
-          neighbors: [],
-          scheduledRetransmitTime: 0,
-          sequence: 0n,
-          updateReceivedCounter: 0,
+          linkState: {
+            lastUpdate: undefined,
+            neighbors: [],
+            scheduledRetransmitTime: 0,
+            sequence: 0n,
+            updateReceivedCounter: 0,
+          },
         })
       }
 

@@ -35,18 +35,18 @@ export const handleLinkStateUpdate = () =>
       const isPeer = node?.peerState.id !== "none"
 
       if (node) {
-        if (sequence < node.sequence) {
+        if (sequence < node.linkState.sequence) {
           logger.debug("received a stale link state update", {
             subnet: subnetId,
             from: nodeId,
             sequence,
             neighbors: neighbors.join(","),
-            previousSequence: node.sequence,
+            previousSequence: node.linkState.sequence,
           })
           return EMPTY_UINT8ARRAY
         }
 
-        if (sequence === node.sequence) {
+        if (sequence === node.linkState.sequence) {
           if (isPeer) {
             logger.debug("received heartbeat from peer", {
               subnet: subnetId,
@@ -58,12 +58,15 @@ export const handleLinkStateUpdate = () =>
               subnet: subnetId,
               from: nodeId,
               sequence,
-              counter: node.updateReceivedCounter + 1,
+              counter: node.linkState.updateReceivedCounter + 1,
             })
           }
 
           nodeTable.updateNode(nodeKey, {
-            updateReceivedCounter: node.updateReceivedCounter + 1,
+            linkState: {
+              ...node.linkState,
+              updateReceivedCounter: node.linkState.updateReceivedCounter + 1,
+            },
           })
           return EMPTY_UINT8ARRAY
         }
@@ -75,13 +78,15 @@ export const handleLinkStateUpdate = () =>
           neighbors: neighbors.join(","),
         })
         nodeTable.updateNode(nodeKey, {
-          sequence,
-          neighbors,
-          lastLinkStateUpdate: linkStateBytes,
-          updateReceivedCounter: 1,
-          scheduledRetransmitTime:
-            Date.now() +
-            Math.ceil(Math.random() * MAX_LINK_STATE_UPDATE_RETRANSMIT_DELAY),
+          linkState: {
+            sequence,
+            neighbors,
+            lastUpdate: linkStateBytes,
+            updateReceivedCounter: 1,
+            scheduledRetransmitTime:
+              Date.now() +
+              Math.ceil(Math.random() * MAX_LINK_STATE_UPDATE_RETRANSMIT_DELAY),
+          },
           peerState:
             node.peerState.id === "request-peering" ||
             node.peerState.id === "peered"
@@ -94,13 +99,15 @@ export const handleLinkStateUpdate = () =>
           nodeId,
           url,
           nodePublicKey,
-          sequence,
-          updateReceivedCounter: 1,
-          scheduledRetransmitTime:
-            Date.now() +
-            Math.ceil(Math.random() * MAX_LINK_STATE_UPDATE_RETRANSMIT_DELAY),
-          neighbors,
-          lastLinkStateUpdate: linkStateBytes,
+          linkState: {
+            sequence,
+            updateReceivedCounter: 1,
+            scheduledRetransmitTime:
+              Date.now() +
+              Math.ceil(Math.random() * MAX_LINK_STATE_UPDATE_RETRANSMIT_DELAY),
+            neighbors,
+            lastUpdate: linkStateBytes,
+          },
           peerState: { id: "none" },
         })
       }

@@ -37,7 +37,7 @@ export const sendHeartbeats = () =>
         nodeTable.get(`${peerSubnetId}.${ownNodeId}`)
       )
 
-      if (!ownNodeTableEntry?.lastLinkStateUpdate) {
+      if (!ownNodeTableEntry?.linkState.lastUpdate) {
         return
       }
 
@@ -47,14 +47,14 @@ export const sendHeartbeats = () =>
         case "request-peering": {
           sendPeeringRequest(sig, {
             peer: peerEntry,
-            lastLinkStateUpdate: ownNodeTableEntry.lastLinkStateUpdate,
+            lastLinkStateUpdate: ownNodeTableEntry.linkState.lastUpdate,
           })
           break
         }
         case "peered": {
           sendHeartbeat(sig, {
             peer: peerEntry,
-            lastLinkStateUpdate: ownNodeTableEntry.lastLinkStateUpdate,
+            lastLinkStateUpdate: ownNodeTableEntry.linkState.lastUpdate,
           })
           break
         }
