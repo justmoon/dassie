@@ -196,6 +196,12 @@ export class Reactor extends LifecycleScope {
 
     const actorPath = pathPrefix ? `${pathPrefix}${factory.name}` : factory.name
 
+    if (actor.isRunning) {
+      throw new Error(`actor is already running: ${actorPath}`)
+    }
+
+    actor.isRunning = true
+
     loopEffect(
       this,
       actor.behavior,
@@ -204,19 +210,18 @@ export class Reactor extends LifecycleScope {
       parentLifecycleScope ?? this,
       (_result) => {
         result = _result
-        if (register) {
-          void Promise.resolve(_result).then((resolvedResult) => {
-            actor.write(resolvedResult)
-          })
-        }
+
+        void Promise.resolve(_result).then((resolvedResult) => {
+          actor.write(resolvedResult)
+        })
+
         if (onResult && _result !== undefined) {
           onResult(_result)
         }
       },
       () => {
-        if (register) {
-          actor.write(actor.initialState)
-        }
+        actor.isRunning = false
+        actor.write(actor.initialState)
       }
     ).catch((error: unknown) => {
       console.error("error in actor", {

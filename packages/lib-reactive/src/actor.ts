@@ -45,6 +45,11 @@ export type Actor<
   initialState: TInitialState
 
   /**
+   * Whether the actor is currently instantiated inside of a reactor.
+   */
+  isRunning: boolean
+
+  /**
    * The function that initializes the actor. Used internally. You should call reactor.run() or sig.run() if you want to start the actor.
    */
   behavior: Behavior<TInstance, TProperties>
@@ -90,6 +95,7 @@ export const createActor: CreateActorSignature = <
     ...signal,
     [ActorSymbol]: true,
     initialState: initialState!,
+    isRunning: false,
     behavior,
     tell: (message) => {
       const handler = signal.read()
