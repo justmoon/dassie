@@ -1,12 +1,11 @@
 import { peersComputation } from "@dassie/app-node/src/backend/peer-protocol/computed/peers"
-import { compareSets } from "@dassie/app-node/src/backend/utils/compare-sets"
 import { createActor } from "@dassie/lib-reactive"
 
 import { trpcClientService } from "../services/trpc-client"
 
 export const reportPeeringState = () =>
   createActor(async (sig) => {
-    const peers = sig.get(peersComputation, (peersSet) => peersSet, compareSets)
+    const peers = sig.get(peersComputation)
 
     const trpcClient = sig.get(trpcClientService)
     if (!trpcClient) return

@@ -3,7 +3,7 @@ import { createActor } from "@dassie/lib-reactive"
 
 import { configSignal } from "../config"
 import { signerService } from "../crypto/signer"
-import { compareSetToArray, compareSets } from "../utils/compare-sets"
+import { compareSetToArray } from "../utils/compare-sets"
 import { peersComputation } from "./computed/peers"
 import { peerNodeInfo, signedPeerNodeInfo } from "./peer-schema"
 import type { PerSubnetParameters } from "./run-per-subnet-effects"
@@ -18,8 +18,8 @@ export const maintainOwnNodeTableEntry = () =>
 
     if (!signer) return
 
-    // Get the current peers and re-run the effect iff the IDs of the peers change.
-    const peers = sig.get(peersComputation, (peersSet) => peersSet, compareSets)
+    // Get the current peers and re-run the actor if they change
+    const peers = sig.get(peersComputation)
 
     const { nodeId, url } = sig.getKeys(configSignal, ["nodeId", "url"])
     const ownNodeTableEntry = sig

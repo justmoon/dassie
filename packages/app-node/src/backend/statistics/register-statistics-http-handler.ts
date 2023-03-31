@@ -19,7 +19,7 @@ export const registerStatisticsHttpHandler = () =>
         .map((nodeKey) => {
           const node = nodeTable.get(nodeKey)
 
-          if (!node || node.peerState.id !== "peered") return false
+          if (!node) return false
 
           const { nodeId, subnetId, url, nodePublicKey } = node
           return {

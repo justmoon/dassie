@@ -7,7 +7,7 @@ import { NodeTableKey, nodeTableStore } from "../stores/node-table"
 
 enableMapSet()
 
-export const peersComputation = () => {
+export const requestedPeersComputation = () => {
   const emptySet = new Set<NodeTableKey>()
   const actor = createActor((sig) => {
     const nodeTable = sig.use(nodeTableStore)
@@ -15,7 +15,7 @@ export const peersComputation = () => {
     const initialSet = new Set<NodeTableKey>()
 
     for (const node of nodeTable.read().values()) {
-      if (node.peerState.id === "peered") {
+      if (node.peerState.id === "request-peering") {
         initialSet.add(`${node.subnetId}.${node.nodeId}`)
       }
     }
@@ -28,7 +28,7 @@ export const peersComputation = () => {
         switch (actionId) {
           case "addNode": {
             const { peerState, subnetId, nodeId } = parameters[0]
-            if (peerState.id === "peered") {
+            if (peerState.id === "request-peering") {
               draft.add(`${subnetId}.${nodeId}`)
             }
             break
@@ -36,7 +36,7 @@ export const peersComputation = () => {
           case "updateNode": {
             const nodeKey = parameters[0]
             const { peerState } = parameters[1]
-            if (peerState?.id === "peered") {
+            if (peerState?.id === "request-peering") {
               draft.add(nodeKey)
             } else if (peerState) {
               draft.delete(nodeKey)
