@@ -6,7 +6,7 @@ const config: DocsThemeConfig = {
     link: "https://github.com/justmoon/dassie",
   },
   chat: {
-    link: "https://discord.com",
+    link: "https://discord.gg/HqdGNfs9kq",
   },
   docsRepositoryBase:
     "https://github.com/justmoon/dassie/tree/main/packages/app-website",
