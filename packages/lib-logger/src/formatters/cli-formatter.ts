@@ -148,7 +148,7 @@ const log = (line: LogLine, options: LogLineOptions) => {
     error: colors.red("‼ "),
   }[line.level]
 
-  if (options.ignoreInProduction && process.env["NODE_ENV"] === "production")
+  if (options.ignoreInProduction && process.env.NODE_ENV === "production")
     return
 
   process.stdout.write(

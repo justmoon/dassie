@@ -12,7 +12,8 @@
     "prettier": "prettier --config .prettierrc.json --write \"packages/*/{src,test}/**/*.ts\"",
     "lint": "eslint \"packages/*/{src,test}/**/*.ts\"",
     "typecheck": "tsc --noEmit",
-    "api": "vite-node scripts/extract-apis.ts"
+    "api": "vite-node scripts/extract-apis.ts",
+    "web": "pnpm --filter=app-website dev"
   },
   "repository": {
     "type": "git",

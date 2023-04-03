@@ -17,6 +17,6 @@
     "**/dist/**",
     "packages/*/pkg/**",
     "packages/*/coverage/**",
-    "packages/app-website/**"
+    "packages/app-website/next.config.js"
   ]
 }

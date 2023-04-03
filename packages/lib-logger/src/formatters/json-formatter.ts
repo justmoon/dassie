@@ -36,7 +36,7 @@ export const createJsonFormatter = ({
   outputFunction = (value) => console.log(JSON.stringify(value)),
 }: JsonFormatterOptions = {}): Formatter => {
   const log = ({ date, ...line }: LogLine, options: LogLineOptions): void => {
-    if (options.ignoreInProduction && process.env["NODE_ENV"] === "production")
+    if (options.ignoreInProduction && process.env.NODE_ENV === "production")
       return
 
     const serializedLine: SerializableLogLine = {

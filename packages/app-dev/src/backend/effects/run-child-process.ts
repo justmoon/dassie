@@ -26,7 +26,7 @@ const handleChildError = (error: Error) => {
 interface RunNodeChildProcessProperties {
   nodeServer: ViteNodeServer
   id: string
-  environment: Record<string, string>
+  environment: Record<string, string> & NodeJS.ProcessEnv
 }
 
 export const runChildProcess = () =>

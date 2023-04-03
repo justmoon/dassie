@@ -1,27 +1,13 @@
-# [Tropical](https://tropical.js.org/) 🏝
+# Dassie.land
 
-This is a [template repo](https://docs.github.com/en/github/creating-cloning-and-archiving-repositories/creating-a-repository-on-github/creating-a-repository-from-a-template). Click the green "Use this template" button 👆 to get started, or [read the docs](https://tropical.js.org/) to find out more about building static sites with Tropical.
+This is the code that powers [Dassieland](https://dassie.land).
 
-[![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/bensmithett/tropical)
+## Local Development
 
----
+First, run `pnpm i` to install the dependencies.
 
-Welcome to your new [Tropical](https://tropical.js.org/) site!
+Then, run `pnpm web` to start the development server and visit localhost:3000.
 
-Install dependencies with `yarn`, then...
+## License
 
-- **`yarn dev`** starts a dev server at [localhost:3000](http://localhost:3000/)
-- **`yarn build`** builds the static site into `dist/static`
-- **`yarn stories`** starts [Ladle](https://ladle.dev/)
-- **`yarn page my-new-page`** scaffolds a file for a new page
-- **`yarn component MyNewComponent`** scaffolds files for a new component
-
-(`npm` equivalients to `yarn` commands should work too)
-
-Check out [the docs](https://tropical.js.org) or dive in and explore the `src` directory.
-
----
-
-🐞 [**Issues**](https://github.com/bensmithett/tropical/issues) for bugs, ✨ [**discussions**](https://github.com/bensmithett/tropical/discussions) for questions, feature requests, or just to show off what you've built — I'd love to see it!
-
-
+This project is licensed under the Apache 2.0 license.

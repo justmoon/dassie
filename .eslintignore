@@ -1,4 +1,4 @@
 dist/
 pkg/
 coverage/
-packages/app-website/
+packages/app-website/next.config.js
