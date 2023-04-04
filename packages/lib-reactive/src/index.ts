@@ -12,12 +12,11 @@ export {
 export { ActorContext as EffectContext } from "./context"
 export { debugFirehose } from "./debug/debug-tools"
 
-export type { Topic, TopicFactory, Listener, InferMessageType } from "./topic"
-export type { Signal, SignalFactory, Reducer } from "./signal"
-export type { Actor, ActorFactory, Behavior } from "./actor"
+export type { Topic, ReadonlyTopic, Listener, InferMessageType } from "./topic"
+export type { Signal, ReadonlySignal, Reducer } from "./signal"
+export type { Actor, Behavior } from "./actor"
 export type {
   Store,
-  StoreFactory,
   Action,
   Change,
   BoundAction,
@@ -25,5 +24,5 @@ export type {
   InferBoundActions,
   InferChanges,
 } from "./store"
-export type { Reactor, Disposer, AsyncDisposer } from "./reactor"
+export type { Reactor, Factory, Disposer, AsyncDisposer } from "./reactor"
 export type { AsyncListener } from "./context"

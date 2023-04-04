@@ -1,9 +1,4 @@
-import {
-  Actor,
-  ActorFactory,
-  createActor,
-  createTopic,
-} from "@dassie/lib-reactive"
+import { Actor, Factory, createActor, createTopic } from "@dassie/lib-reactive"
 
 import { handleInterledgerPacket } from "../handlers/interledger-packet"
 import { handleLinkStateRequest } from "../handlers/link-state-request"
@@ -31,16 +26,14 @@ export type PeerMessageContent<T extends PeerMessageType> = Extract<
 export const incomingPeerMessageTopic = () =>
   createTopic<IncomingPeerMessageEvent>()
 
-type AllPeerMessageHandlerFactories = {
-  [K in PeerMessageType]: ActorFactory<
-    (parameters: IncomingPeerMessageEvent<K>) => Uint8Array
-  >
-}
-
 type AllPeerMessageHandlers = {
   [K in PeerMessageType]: Actor<
     (parameters: IncomingPeerMessageEvent<K>) => Uint8Array
   >
+}
+
+type AllPeerMessageHandlerFactories = {
+  [K in keyof AllPeerMessageHandlers]: Factory<AllPeerMessageHandlers[K]>
 }
 
 const HANDLERS: AllPeerMessageHandlerFactories = {
@@ -53,13 +46,15 @@ const HANDLERS: AllPeerMessageHandlerFactories = {
 export const handlePeerMessage = () =>
   createActor((sig) => {
     for (const handler of Object.values(
-      HANDLERS as Record<string, ActorFactory<unknown>>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      HANDLERS as Record<string, Factory<Actor<any>>>
     )) {
       sig.run(handler, undefined, { register: true })
     }
 
     const handlers = Object.fromEntries(
-      Object.entries(HANDLERS as Record<string, ActorFactory<unknown>>).map(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      Object.entries(HANDLERS as Record<string, Factory<Actor<any>>>).map(
         ([key, value]) => [key, sig.use(value)]
       )
     ) as unknown as AllPeerMessageHandlers

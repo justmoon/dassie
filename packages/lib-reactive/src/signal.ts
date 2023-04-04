@@ -1,15 +1,12 @@
 import { isObject } from "@dassie/lib-type-utils"
 
-import type { Factory } from "./reactor"
-import { Topic, createTopic } from "./topic"
+import { ReadonlyTopic, createTopic } from "./topic"
 
 export type Reducer<TState> = (previousState: TState) => TState
 
 export const SignalSymbol = Symbol("das:reactive:signal")
 
-export type SignalFactory<TState> = Factory<Signal<TState>>
-
-export type Signal<TState> = Topic<TState, Readonly<TState>> & {
+export type ReadonlySignal<TState> = ReadonlyTopic<TState> & {
   /**
    * Marks this object as a signal.
    */
@@ -19,7 +16,9 @@ export type Signal<TState> = Topic<TState, Readonly<TState>> & {
    * Get the current state of the signal.
    */
   read(): TState
+}
 
+export type Signal<TState> = ReadonlySignal<TState> & {
   /**
    * Overwrite the current state of the signal with a new value.
    *

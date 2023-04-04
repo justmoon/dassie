@@ -1,5 +1,6 @@
-import { ActorFactory, createActor } from "../actor"
-import type { SignalFactory } from "../signal"
+import { Actor, createActor } from "../actor"
+import type { Factory } from "../reactor"
+import type { ReadonlySignal } from "../signal"
 import { LifecycleScope } from "./lifecycle-scope"
 
 interface EffectCache<TReturn> {
@@ -8,8 +9,8 @@ interface EffectCache<TReturn> {
 }
 
 export const createArrayEffect = <TElement, TReturn>(
-  arrayTopicFactory: SignalFactory<readonly TElement[]>,
-  actorFactory: ActorFactory<TReturn, TElement>,
+  arrayTopicFactory: Factory<ReadonlySignal<readonly TElement[]>>,
+  actorFactory: Factory<Actor<TReturn, TElement>>,
   parentEffectName: string
 ) => {
   const cacheActorFactory = () =>
@@ -93,10 +94,9 @@ interface IndexedEffectCache<TElement, TReturn> extends EffectCache<TReturn> {
 }
 
 export const createIndexedArrayEffect = <TElement, TReturn>(
-  arrayTopicFactory: SignalFactory<readonly TElement[]>,
-  actorFactory: ActorFactory<
-    TReturn,
-    readonly [element: TElement, index: number]
+  arrayTopicFactory: Factory<ReadonlySignal<readonly TElement[]>>,
+  actorFactory: Factory<
+    Actor<TReturn, readonly [element: TElement, index: number]>
   >,
   parentEffectName: string
 ) => {

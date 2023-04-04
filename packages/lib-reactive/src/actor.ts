@@ -1,7 +1,7 @@
 import { isObject } from "@dassie/lib-type-utils"
 
 import type { ActorContext } from "./context"
-import { Factory, FactoryNameSymbol } from "./reactor"
+import { FactoryNameSymbol } from "./reactor"
 import { Signal, createSignal } from "./signal"
 
 export type Behavior<TReturn = unknown, TProperties = unknown> = (
@@ -10,12 +10,6 @@ export type Behavior<TReturn = unknown, TProperties = unknown> = (
 ) => TReturn
 
 export const ActorSymbol = Symbol("das:reactive:actor")
-
-export type ActorFactory<
-  TInstance,
-  TProperties = undefined,
-  TInitialState = undefined
-> = Factory<Actor<TInstance, TProperties, TInitialState>>
 
 export type InferActorMessageType<TInstance> = TInstance extends (
   message: infer TMessage

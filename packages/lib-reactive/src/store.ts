@@ -1,18 +1,9 @@
 import { isObject } from "@dassie/lib-type-utils"
 
-import type { Factory } from "./reactor"
 import { Signal, createSignal } from "./signal"
-import { Topic, createTopic } from "./topic"
+import { ReadonlyTopic, Topic, createTopic } from "./topic"
 
 export const StoreSymbol = Symbol("das:reactive:store")
-
-export type StoreFactory<
-  TState = unknown,
-  TActions extends Record<string, Action<TState>> = Record<
-    string,
-    Action<TState>
-  >
-> = Factory<Store<TState, TActions>>
 
 export type Action<
   TState = unknown,
@@ -78,7 +69,7 @@ export type Store<
    */
   [StoreSymbol]: true
 
-  changes: Topic<InferChanges<TActions>>
+  changes: ReadonlyTopic<InferChanges<TActions>>
 } & InferBoundActions<TActions>
 
 /**

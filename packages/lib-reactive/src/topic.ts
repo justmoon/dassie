@@ -6,14 +6,10 @@ export type Listener<TMessage> = (message: TMessage) => void
 
 export const TopicSymbol = Symbol("das:reactive:topic")
 
-export type TopicFactory<TMessage = unknown, TTrigger = never> = Factory<
-  Topic<TMessage, TTrigger>
->
+export type InferMessageType<TTopic extends Factory<ReadonlyTopic<unknown>>> =
+  TTopic extends Factory<ReadonlyTopic<infer TMessage>> ? TMessage : never
 
-export type InferMessageType<TTopic extends TopicFactory> =
-  TTopic extends TopicFactory<infer TMessage> ? TMessage : never
-
-export interface Topic<TMessage = never, TTrigger = TMessage> {
+export interface ReadonlyTopic<TMessage = never> {
   /**
    * Marks this object as a topic.
    */
@@ -47,7 +43,12 @@ export interface Topic<TMessage = never, TTrigger = TMessage> {
    * @returns A function which if called will unsubscribe the listener from the topic.
    */
   once: (listener: Listener<TMessage>) => Disposer
+}
 
+export type Topic<
+  TMessage = never,
+  TTrigger = TMessage
+> = ReadonlyTopic<TMessage> & {
   /**
    * Emit a message to all listeners of a topic.
    *

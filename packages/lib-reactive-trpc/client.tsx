@@ -16,14 +16,13 @@ import {
   Change,
   EffectContext,
   InferMessageType,
-  TopicFactory,
   createActor,
   isStore,
 } from "@dassie/lib-reactive"
 import { Reactor, createReactor } from "@dassie/lib-reactive"
 import type { LifecycleScope } from "@dassie/lib-reactive/src/internal/lifecycle-scope"
 
-import type { RemoteReactiveRouter } from "./server"
+import type { ExposedTopicsMap, RemoteReactiveRouter } from "./server"
 
 interface ReactEffectContext {
   lifecycle: LifecycleScope
@@ -31,9 +30,8 @@ interface ReactEffectContext {
   wake: () => void
 }
 
-export type ReactiveTrpcClient<
-  TExposedTopicsMap extends Record<string, TopicFactory>
-> = inferRouterProxyClient<RemoteReactiveRouter<TExposedTopicsMap>>
+export type ReactiveTrpcClient<TExposedTopicsMap extends ExposedTopicsMap> =
+  inferRouterProxyClient<RemoteReactiveRouter<TExposedTopicsMap>>
 
 interface ProviderProperties {
   reactor?: Reactor | undefined
@@ -64,9 +62,7 @@ const createReactEffectContext = (reactor: Reactor) => {
   return reactEffectContext
 }
 
-const createReactiveHooks = <
-  TExposedTopicsMap extends Record<string, TopicFactory>
->() => {
+const createReactiveHooks = <TExposedTopicsMap extends ExposedTopicsMap>() => {
   const ReactorContext = createContext<Reactor | undefined>(undefined)
 
   const TrpcClient = (): ReactiveTrpcClient<TExposedTopicsMap> => {

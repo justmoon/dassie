@@ -4,8 +4,9 @@ import { observable } from "@trpc/server/observable"
 
 import {
   Change,
+  Factory,
   Reactor,
-  TopicFactory,
+  ReadonlyTopic,
   isSignal,
   isStore,
 } from "@dassie/lib-reactive"
@@ -24,8 +25,10 @@ export interface ReactiveCapableTrpc {
   _config: RootConfig<AnyRootConfigTypes & { ctx: ReactiveContext }>
 }
 
+export type ExposedTopicsMap = Record<string, Factory<ReadonlyTopic<unknown>>>
+
 export const createRemoteReactiveRouter = <
-  TExposedTopicsMap extends Record<string, TopicFactory>
+  TExposedTopicsMap extends ExposedTopicsMap
 >(
   trpc: ReactiveCapableTrpc,
   exposedTopics: TExposedTopicsMap
@@ -131,6 +134,5 @@ export const createRemoteReactiveRouter = <
   return router
 }
 
-export type RemoteReactiveRouter<
-  TExposedTopicsMap extends Record<string, TopicFactory>
-> = ReturnType<typeof createRemoteReactiveRouter<TExposedTopicsMap>>
+export type RemoteReactiveRouter<TExposedTopicsMap extends ExposedTopicsMap> =
+  ReturnType<typeof createRemoteReactiveRouter<TExposedTopicsMap>>

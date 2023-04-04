@@ -2,7 +2,7 @@ import type { Promisable } from "type-fest"
 
 import { isObject } from "@dassie/lib-type-utils"
 
-import type { ActorFactory, Behavior } from "./actor"
+import type { Actor, Behavior } from "./actor"
 import { ActorContext } from "./context"
 import { createDebugTools } from "./debug/debug-tools"
 import { LifecycleScope } from "./internal/lifecycle-scope"
@@ -105,10 +105,10 @@ export interface ContextState
 
 interface RunSignature {
   <TReturn, TInitialState>(
-    factory: ActorFactory<TReturn, undefined, TInitialState>
+    factory: Factory<Actor<TReturn, undefined, TInitialState>>
   ): TReturn
   <TProperties, TReturn, TInitialState>(
-    factory: ActorFactory<TReturn, TProperties, TInitialState>,
+    factory: Factory<Actor<TReturn, TProperties, TInitialState>>,
     properties: TProperties,
     options?: RunOptions<TReturn> | undefined
   ): TReturn
@@ -180,7 +180,7 @@ export class Reactor extends LifecycleScope {
    * @returns The value stored in the context.
    */
   run: RunSignature = <TProperties, TReturn, TInitialState>(
-    factory: ActorFactory<TReturn, TProperties | undefined, TInitialState>,
+    factory: Factory<Actor<TReturn, TProperties | undefined, TInitialState>>,
     properties?: TProperties,
     {
       onResult,
@@ -286,7 +286,7 @@ export class Reactor extends LifecycleScope {
 
 export const createReactor = (
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  rootEffect?: ActorFactory<Promisable<void>> | undefined
+  rootEffect?: Factory<Actor<Promisable<void>>> | undefined
 ): Reactor => {
   const reactor: Reactor = new Reactor()
 

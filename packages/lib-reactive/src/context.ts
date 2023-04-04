@@ -1,4 +1,4 @@
-import type { ActorFactory } from "./actor"
+import type { Actor } from "./actor"
 import {
   createArrayEffect,
   createIndexedArrayEffect,
@@ -11,8 +11,8 @@ import type {
   RunOptions,
   UseOptions,
 } from "./reactor"
-import type { SignalFactory } from "./signal"
-import type { Listener, TopicFactory } from "./topic"
+import type { ReadonlySignal } from "./signal"
+import type { Listener, ReadonlyTopic } from "./topic"
 
 export type AsyncListener<TMessage> = (message: TMessage) => Promise<void>
 
@@ -72,14 +72,14 @@ export class ActorContext {
    * @param comparator - By default, the reactor checks for strict equality (`===`) to determine if the value has changed. This can be overridden by passing a custom comparator function.
    * @returns The current value of the signal, narrowed by the selector.
    */
-  get<TState>(signalFactory: SignalFactory<TState>): TState
+  get<TState>(signalFactory: Factory<ReadonlySignal<TState>>): TState
   get<TState, TSelection>(
-    signalFactory: SignalFactory<TState>,
+    signalFactory: Factory<ReadonlySignal<TState>>,
     selector: (state: TState) => TSelection,
     comparator?: (oldValue: TSelection, newValue: TSelection) => boolean
   ): TSelection
   get<TState, TSelection>(
-    signalFactory: SignalFactory<TState>,
+    signalFactory: Factory<ReadonlySignal<TState>>,
     selector: (state: TState) => TSelection = (a) =>
       // Based on the overloaded function signature, the selector parameter may be omitted iff TMessage equals TSelection.
       // Therefore this cast is safe.
@@ -118,7 +118,7 @@ export class ActorContext {
    * @returns A filtered version of the signal state containing only the requested keys.
    */
   getKeys<TState, TKeys extends keyof TState>(
-    signal: SignalFactory<TState>,
+    signal: Factory<ReadonlySignal<TState>>,
     keys: readonly TKeys[]
   ): Pick<TState, TKeys> {
     return this.get(
@@ -150,7 +150,7 @@ export class ActorContext {
    *
    * @param topic - Reference to the topic's factory function.
    */
-  subscribe<TMessage>(topic: TopicFactory<TMessage>) {
+  subscribe<TMessage>(topic: Factory<ReadonlyTopic<TMessage>>) {
     this.once(topic, this.wake)
   }
 
@@ -160,7 +160,10 @@ export class ActorContext {
    * @param topic - Reference to the topic, i.e. the message factory function.
    * @param listener - A function that will be called every time a message is emitted on the topic.
    */
-  on<TMessage>(topic: TopicFactory<TMessage>, listener: Listener<TMessage>) {
+  on<TMessage>(
+    topic: Factory<ReadonlyTopic<TMessage>>,
+    listener: Listener<TMessage>
+  ) {
     this.lifecycle.onCleanup(
       this.use(topic).on((message) => {
         try {
@@ -183,7 +186,10 @@ export class ActorContext {
    * @param topic - Reference to the topic, i.e. the message factory function.
    * @param listener - A function that will be called every time a message is emitted on the topic.
    */
-  once<TMessage>(topic: TopicFactory<TMessage>, listener: Listener<TMessage>) {
+  once<TMessage>(
+    topic: Factory<ReadonlyTopic<TMessage>>,
+    listener: Listener<TMessage>
+  ) {
     this.lifecycle.onCleanup(
       this.use(topic).once((message) => {
         try {
@@ -207,7 +213,7 @@ export class ActorContext {
    * @param listener - An async function that will be called every time a message is emitted on the topic.
    */
   onAsync<TMessage>(
-    topic: TopicFactory<TMessage>,
+    topic: Factory<ReadonlyTopic<TMessage>>,
     listener: AsyncListener<TMessage>
   ) {
     this.lifecycle.onCleanup(
@@ -231,7 +237,7 @@ export class ActorContext {
    * @param listener - An async function that will be called every time a message is emitted on the topic.
    */
   onceAsync<TMessage>(
-    topic: TopicFactory<TMessage>,
+    topic: Factory<ReadonlyTopic<TMessage>>,
     listener: AsyncListener<TMessage>
   ) {
     this.lifecycle.onCleanup(
@@ -322,15 +328,15 @@ export class ActorContext {
    * @returns - Return value of the first invocation of the actor.
    */
   run<TReturn, TInitialState>(
-    factory: ActorFactory<TReturn, undefined, TInitialState>
+    factory: Factory<Actor<TReturn, undefined, TInitialState>>
   ): TReturn
   run<TProperties, TReturn, TInitialState>(
-    factory: ActorFactory<TReturn, TProperties, TInitialState>,
+    factory: Factory<Actor<TReturn, TProperties, TInitialState>>,
     properties: TProperties,
     options?: RunOptions<TReturn> | undefined
   ): TReturn
   run<TProperties, TReturn, TInitialState>(
-    factory: ActorFactory<TReturn, TProperties | undefined, TInitialState>,
+    factory: Factory<Actor<TReturn, TProperties | undefined, TInitialState>>,
     properties?: TProperties,
     options?: RunOptions<TReturn> | undefined
   ) {
@@ -345,8 +351,8 @@ export class ActorContext {
    * Run an actor for each element of an array signal. When the array value changes, only the actors corresponding to changed elements will be re-run.
    */
   for<TElement, TReturn>(
-    arraySignalFactory: SignalFactory<readonly TElement[]>,
-    actorFactory: ActorFactory<TReturn, TElement>
+    arraySignalFactory: Factory<ReadonlySignal<readonly TElement[]>>,
+    actorFactory: Factory<Actor<TReturn, TElement>>
   ) {
     return this.run(
       createArrayEffect(arraySignalFactory, actorFactory, this.name)
@@ -357,10 +363,9 @@ export class ActorContext {
    * Like {@link for} but compares elements based on their index in the array. Also passes the index to the actor.
    */
   forIndex<TElement, TReturn>(
-    arraySignalFactory: SignalFactory<readonly TElement[]>,
-    actorFactory: ActorFactory<
-      TReturn,
-      readonly [element: TElement, index: number]
+    arraySignalFactory: Factory<ReadonlySignal<readonly TElement[]>>,
+    actorFactory: Factory<
+      Actor<TReturn, readonly [element: TElement, index: number]>
     >
   ) {
     return this.run(

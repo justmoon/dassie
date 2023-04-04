@@ -2,18 +2,17 @@ import { isObject } from "@dassie/lib-type-utils"
 
 import type { ContextState, Factory, Reactor } from "../reactor"
 import { isSignal } from "../signal"
-import { TopicFactory, createTopic, isTopic } from "../topic"
+import { ReadonlyTopic, createTopic, isTopic } from "../topic"
 
 export interface FirehoseEvent {
-  topic: TopicFactory
+  topic: Factory<ReadonlyTopic>
   message: unknown
 }
 
 // eslint-disable-next-line unicorn/prevent-abbreviations
 type ContextWeakRef = WeakRef<Record<keyof never, unknown>>
 
-export const debugFirehose: TopicFactory<FirehoseEvent, FirehoseEvent> = () =>
-  createTopic()
+export const debugFirehose = () => createTopic<FirehoseEvent>()
 
 export class DebugTools {
   private context = new Set<ContextWeakRef>()
@@ -44,7 +43,10 @@ export class DebugTools {
     if (isTopic(value)) {
       const firehose = this.useContext(debugFirehose)
       value.on((message) => {
-        firehose.emit({ topic: factory as unknown as TopicFactory, message })
+        firehose.emit({
+          topic: factory as unknown as Factory<ReadonlyTopic>,
+          message,
+        })
       })
     }
   }
