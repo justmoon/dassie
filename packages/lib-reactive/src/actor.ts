@@ -53,7 +53,7 @@ export type Actor<
    *
    * @param message - The message to send to the actor.
    */
-  tell: (message: InferActorMessageType<TInstance>) => void
+  tell: (this: void, message: InferActorMessageType<TInstance>) => void
 
   /**
    * Asynchronously message the actor and receive a response as a promise.
@@ -62,6 +62,7 @@ export type Actor<
    * @returns A promise that will resolve with the response from the actor.
    */
   ask: (
+    this: void,
     message: InferActorMessageType<TInstance>
   ) => Promise<InferActorReturnType<TInstance>>
 }

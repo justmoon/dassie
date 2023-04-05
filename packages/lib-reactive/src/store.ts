@@ -31,6 +31,7 @@ export type InferChanges<TActions> = {
 }[keyof TActions]
 
 export type BoundAction<TState, TParameters extends unknown[]> = (
+  this: void,
   ...parameters: TParameters
 ) => TState
 

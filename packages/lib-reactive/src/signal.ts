@@ -24,7 +24,7 @@ export type Signal<TState> = ReadonlySignal<TState> & {
    *
    * @param newState - The new state of the signal.
    */
-  write(newState: TState): void
+  write(this: void, newState: TState): void
 
   /**
    * Apply a reducer which will accept the current state and return a new state.
@@ -32,7 +32,7 @@ export type Signal<TState> = ReadonlySignal<TState> & {
    * @param reducer - The reducer to apply to the state.
    * @returns The new state of the signal.
    */
-  update(reducer: Reducer<TState>): TState
+  update(this: void, reducer: Reducer<TState>): TState
 }
 
 export function createSignal<TState>(): Signal<TState | undefined>

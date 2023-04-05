@@ -34,7 +34,7 @@ export interface ReadonlyTopic<TMessage = never> {
    * @param listener - A function that will be called every time a message is emitted on the topic.
    * @returns A function which if called will unsubscribe the listener from the topic.
    */
-  on: (listener: Listener<TMessage>) => Disposer
+  on: (this: void, listener: Listener<TMessage>) => Disposer
 
   /**
    * Subscribe to receive a single message from a topic. Similar to {@link on} but will only call the listener once.
@@ -42,7 +42,7 @@ export interface ReadonlyTopic<TMessage = never> {
    * @param listener - A function that will be called once the next time a message is emitted on the topic.
    * @returns A function which if called will unsubscribe the listener from the topic.
    */
-  once: (listener: Listener<TMessage>) => Disposer
+  once: (this: void, listener: Listener<TMessage>) => Disposer
 }
 
 export type Topic<
@@ -54,7 +54,7 @@ export type Topic<
    *
    * @param trigger - Value to pass to the message factory function.
    */
-  emit: (trigger: TTrigger) => void
+  emit: (this: void, trigger: TTrigger) => void
 }
 
 export const createTopic = <TMessage>(): Topic<TMessage, TMessage> => {
