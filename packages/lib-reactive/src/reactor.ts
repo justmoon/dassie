@@ -115,6 +115,8 @@ interface RunSignature {
 }
 
 export class Reactor extends LifecycleScope {
+  static current: Reactor | undefined
+
   private contextState = new WeakMap() as ContextState
 
   /**
@@ -135,7 +137,10 @@ export class Reactor extends LifecycleScope {
         ? `${pathPrefix}${factory.name}`
         : factory.name
 
+      Reactor.current = this
       result = factory(this)
+      Reactor.current = undefined
+
       if (parentLifecycleScope) {
         parentLifecycleScope.onCleanup(() => {
           this.delete(factory)
