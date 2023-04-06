@@ -258,6 +258,8 @@ export class ActorContext {
    * Create a JS interval that will be automatically cancelled when the current actor is disposed.
    */
   interval(callback: () => void, intervalInMilliseconds?: number | undefined) {
+    if (this.lifecycle.isDisposed) return
+
     const interval = setInterval(() => {
       try {
         callback()
@@ -279,6 +281,8 @@ export class ActorContext {
     callback: () => void,
     delayInMilliseconds?: number | undefined
   ): void {
+    if (this.lifecycle.isDisposed) return
+
     const timer = setTimeout(() => {
       try {
         callback()
