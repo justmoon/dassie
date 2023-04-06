@@ -2,7 +2,9 @@ import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
 import { configSignal } from "../config"
+import { nodePublicKeySignal } from "../crypto/computed/node-public-key"
 import { signerService } from "../crypto/signer"
+import { nodeIdSignal } from "../ilp-connector/computed/node-id"
 import { compareSetToArray } from "../utils/compare-sets"
 import { peersComputation } from "./computed/peers"
 import { peerNodeInfo, signedPeerNodeInfo } from "./peer-schema"
@@ -21,7 +23,9 @@ export const maintainOwnNodeTableEntry = () =>
     // Get the current peers and re-run the actor if they change
     const peers = sig.get(peersComputation)
 
-    const { nodeId, url } = sig.getKeys(configSignal, ["nodeId", "url"])
+    const nodeId = sig.get(nodeIdSignal)
+    const nodePublicKey = sig.get(nodePublicKeySignal)
+    const { url } = sig.getKeys(configSignal, ["url"])
     const ownNodeTableEntry = sig
       .use(nodeTableStore)
       .read()
@@ -33,12 +37,11 @@ export const maintainOwnNodeTableEntry = () =>
     ) {
       const sequence = BigInt(Date.now())
       const peerIds = [...peers].map((peer) => parseNodeKey(peer)[1])
-      const publicKey = await signer.getPublicKey()
 
       const peerNodeInfoResult = peerNodeInfo.serialize({
         subnetId,
         nodeId,
-        nodePublicKey: publicKey,
+        nodePublicKey,
         url,
         sequence,
         entries: peerIds.map((peerId) => ({
@@ -75,7 +78,7 @@ export const maintainOwnNodeTableEntry = () =>
         sig.use(nodeTableStore).addNode({
           subnetId,
           nodeId,
-          nodePublicKey: publicKey,
+          nodePublicKey,
           url,
           linkState: {
             neighbors: peerIds,

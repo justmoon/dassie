@@ -6,6 +6,7 @@ import { Link } from "wouter"
 
 import { selectBySeed } from "@dassie/lib-logger"
 
+import { convertVanityNodeIdToFriendly } from "../../../common/utils/vanity-node-id-to-friendly"
 import { COLORS } from "../../constants/palette"
 import { FirehoseEvent, useNodeFirehose } from "../../hooks/use-node-firehose"
 import { useNodeRemoteSignal } from "../../hooks/use-node-state"
@@ -48,13 +49,14 @@ const NodeHeader = ({ nodeId }: BasicNodeElementProperties) => {
 }
 
 const NodeLink = ({ nodeId }: BasicNodeElementProperties) => {
+  const friendlyId = convertVanityNodeIdToFriendly(nodeId)
   return (
     <Link
-      href={`/nodes/${nodeId}`}
+      href={`/nodes/${friendlyId}`}
       className="font-bold"
-      style={{ color: selectBySeed(COLORS, nodeId) }}
+      style={{ color: selectBySeed(COLORS, friendlyId) }}
     >
-      {nodeId}
+      {friendlyId}
     </Link>
   )
 }
@@ -101,7 +103,7 @@ const NodeTable = ({ nodeId }: BasicNodeElementProperties) => {
                 </td>
                 <td>
                   <div className="flex gap-2">
-                    {node.linkState?.neighbors.map((nodeId) => (
+                    {node.linkState.neighbors.map((nodeId) => (
                       <NodeLink key={nodeId} nodeId={nodeId} />
                     ))}
                   </div>

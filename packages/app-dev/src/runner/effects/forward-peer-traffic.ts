@@ -1,6 +1,7 @@
 import { outgoingPeerMessageTopic } from "@dassie/app-node/src/backend/peer-protocol/actions/send-peer-message"
 import { createActor } from "@dassie/lib-reactive"
 
+import { convertVanityNodeIdToFriendly } from "../../common/utils/vanity-node-id-to-friendly"
 import { trpcClientService } from "../services/trpc-client"
 
 export const forwardPeerTraffic = () =>
@@ -11,7 +12,7 @@ export const forwardPeerTraffic = () =>
 
       await trpcClient.runner.notifyPeerTraffic.mutate({
         from: process.env["DASSIE_DEV_NODE_ID"] ?? "unknown",
-        to: destination,
+        to: convertVanityNodeIdToFriendly(destination),
       })
     })
   })

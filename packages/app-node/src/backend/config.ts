@@ -18,12 +18,12 @@ const logger = createLogger("das:node:config")
 export type RealmType = (typeof VALID_REALMS)[number]
 
 export interface Config {
-  nodeId: string
   realm: RealmType
   ilpAllocationScheme: "test" | "g"
   host: string
   port: number
   url: string
+  alias: string
   dataPath: string
   tlsWebCert: string
   tlsWebKey: string
@@ -37,11 +37,11 @@ export interface Config {
 
 export type InputConfig = z.infer<typeof inputConfigSchema>
 export const inputConfigSchema = z.object({
-  nodeId: z.string().optional(),
   realm: z.enum(VALID_REALMS).optional(),
   host: z.string().optional(),
   port: z.union([z.string(), z.number()]).optional(),
   url: z.string().optional(),
+  alias: z.string().optional(),
   dataPath: z.string().optional(),
   tlsWebCert: z.string().optional(),
   tlsWebCertFile: z.string().optional(),
@@ -77,18 +77,17 @@ export const processFileOption = (
 export function fromPartialConfig(partialConfig: InputConfig): Config {
   const paths = envPaths(APP_NAME)
 
-  const nodeId = partialConfig.nodeId ?? "anonymous"
   const realm = partialConfig.realm ?? (import.meta.env.DEV ? "test" : "live")
   const ilpAllocationScheme = realm === "test" ? "test" : "g"
   const host = partialConfig.host ?? "localhost"
   const port = partialConfig.port ? Number(partialConfig.port) : 8443
 
   return {
-    nodeId,
     realm,
     ilpAllocationScheme,
     host,
     port,
+    alias: partialConfig.alias ?? "anonymous",
     url:
       partialConfig.url ?? `https://${host}${port === 443 ? "" : `:${port}`}`,
     dataPath: partialConfig.dataPath ?? paths.data,

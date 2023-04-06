@@ -4,6 +4,7 @@ import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
 import { configSignal } from "../config"
+import { nodeIdSignal } from "../ilp-connector/computed/node-id"
 import { sendPeerMessage } from "./actions/send-peer-message"
 import { peersComputation } from "./computed/peers"
 import { signedPeerNodeInfo } from "./peer-schema"
@@ -23,7 +24,7 @@ export const maintainPeeringRelationships = () =>
     const subnetConfig = sig.get(configSignal, (state) =>
       state.initialSubnets.find(({ id }) => id === subnetId)
     )
-    const { nodeId: ownNodeId } = sig.getKeys(configSignal, ["nodeId"])
+    const ownNodeId = sig.get(nodeIdSignal)
 
     if (!subnetConfig) {
       throw new Error(`Subnet '${subnetId}' is not configured`)

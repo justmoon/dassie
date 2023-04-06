@@ -2,13 +2,14 @@ import { createActor } from "@dassie/lib-reactive"
 
 import { configSignal } from "../config"
 import { primarySubnetSignal } from "../subnets/signals/primary-subnet"
+import { nodeIdSignal } from "./computed/node-id"
 import { primaryIlpAddressSignal } from "./signals/primary-ilp-address"
 
 export const managePrimaryIlpAddress = () =>
   createActor((sig) => {
-    const { ilpAllocationScheme, nodeId } = sig.getKeys(configSignal, [
+    const nodeId = sig.get(nodeIdSignal)
+    const { ilpAllocationScheme } = sig.getKeys(configSignal, [
       "ilpAllocationScheme",
-      "nodeId",
     ])
     const defaultSubnet = sig.get(primarySubnetSignal)
 

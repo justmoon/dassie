@@ -12,6 +12,7 @@ import {
   uint8Number,
   uint32Number,
   uint64Bigint,
+  uppercaseLetters,
   visibleString,
 } from "@dassie/lib-oer"
 
@@ -23,7 +24,9 @@ export const subnetIdSchema = ia5String([2, 128]).from(
   lowercaseLetters + digits + "-"
 )
 
-export const nodeIdSchema = ia5String([2, 12]).from(lowercaseLetters + digits)
+export const nodeIdSchema = ia5String([2, 45]).from(
+  lowercaseLetters + uppercaseLetters + digits + "-_"
+)
 
 export const nodeInfoEntry = choice({
   neighbor: sequence({

@@ -1,7 +1,7 @@
 import { createLogger } from "@dassie/lib-logger"
 import { EffectContext, createActor } from "@dassie/lib-reactive"
 
-import { configSignal } from "../config"
+import { nodeIdSignal } from "../ilp-connector/computed/node-id"
 import { sendPeerMessage } from "./actions/send-peer-message"
 import { peersComputation } from "./computed/peers"
 import { requestedPeersComputation } from "./computed/requested-peers"
@@ -13,7 +13,7 @@ const MAX_HEARTBEAT_INTERVAL = 20_000
 
 export const sendHeartbeats = () =>
   createActor((sig) => {
-    const ownNodeId = sig.use(configSignal).read().nodeId
+    const ownNodeId = sig.use(nodeIdSignal).read()
 
     // Get the current peers and re-run the actor if they change
     const peers = sig.get(peersComputation)

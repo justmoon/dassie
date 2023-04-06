@@ -6,6 +6,7 @@ import { assertDefined } from "@dassie/lib-type-utils"
 
 import { subnetBalanceMapStore } from "../balances/stores/subnet-balance-map"
 import { configSignal } from "../config"
+import { nodeIdSignal } from "../ilp-connector/computed/node-id"
 import { ilpRoutingTableSignal } from "../ilp-connector/signals/ilp-routing-table"
 import subnetModules from "../subnets/modules"
 import { sendPeerMessage } from "./actions/send-peer-message"
@@ -30,7 +31,7 @@ export const calculateRoutes = () =>
     const { ilpAllocationScheme } = sig.getKeys(configSignal, [
       "ilpAllocationScheme",
     ])
-    const ownNodeId = sig.get(configSignal, ({ nodeId }) => nodeId)
+    const ownNodeId = sig.get(nodeIdSignal)
     const nodeTable = sig.get(nodeTableStore)
 
     const queue = new Denque([ownNodeId])

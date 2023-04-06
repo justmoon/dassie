@@ -1,5 +1,8 @@
 import type { InputConfig } from "@dassie/app-node"
+import { getPublicKey } from "@dassie/app-node/src/backend/crypto/ed25519"
+import { calculateNodeId } from "@dassie/app-node/src/backend/ilp-connector/utils/calculate-node-id"
 
+import { TEST_NODE_VANITY_KEYS } from "../constants/node-keys"
 import {
   DEBUG_UI_PORT,
   NODES_DEBUG_START_PORT,
@@ -13,9 +16,23 @@ const LOCAL_PATH = new URL("../../../../../local", import.meta.url).pathname
 
 const BOOTSTRAP_NODES = [0, 1]
 
-export const nodeIndexToId = (index: number) => `n${index + 1}`
+export const nodeIndexToFriendlyId = (index: number) => `n${index + 1}`
 export const nodeIndexToPort = (index: number) => NODES_START_PORT + index
+export const nodeIndexToPublicKey = (index: number) => {
+  const nodePrivateKey = TEST_NODE_VANITY_KEYS[index]
 
+  if (!nodePrivateKey) {
+    throw new Error(`No private key for node ${index}`)
+  }
+
+  return getPublicKey(nodePrivateKey)
+}
+export const nodeIndexToId = (index: number) => {
+  const nodePublicKey = nodeIndexToPublicKey(index)
+  const nodeId = calculateNodeId(nodePublicKey)
+
+  return nodeId
+}
 interface NodeConfig {
   id: string
   port: number
@@ -28,14 +45,14 @@ interface NodeConfig {
 
 const generatePeerInfo = (peerIndex: number) => ({
   nodeId: nodeIndexToId(peerIndex),
-  url: `https://${nodeIndexToId(peerIndex)}.localhost:${nodeIndexToPort(
+  url: `https://${nodeIndexToFriendlyId(peerIndex)}.localhost:${nodeIndexToPort(
     peerIndex
   )}`,
-  nodePublicKey: "BEEF",
+  nodePublicKey: Buffer.from(nodeIndexToPublicKey(peerIndex)).toString("hex"),
 })
 
 export const generateNodeConfig = ((index, peers, environmentSettings) => {
-  const id = nodeIndexToId(index)
+  const id = nodeIndexToFriendlyId(index)
   const port = nodeIndexToPort(index)
 
   const peersInfo = peers.map((peerIndex) => generatePeerInfo(peerIndex))
@@ -44,13 +61,13 @@ export const generateNodeConfig = ((index, peers, environmentSettings) => {
     id,
     port,
     debugPort: NODES_DEBUG_START_PORT + index,
-    peers: peers.map((index) => nodeIndexToId(index)),
+    peers: peers.map((index) => nodeIndexToFriendlyId(index)),
     peerIndices: peers,
     config: {
-      nodeId: id,
       realm: "test" as const,
       host: `${id}.localhost`,
       port: nodeIndexToPort(index),
+      alias: id,
       dataPath: `${LOCAL_PATH}/data/${id}.localhost`,
       tlsDassieCertFile: `${LOCAL_PATH}/tls/${id}.localhost/dassie-${id}.localhost.pem`,
       tlsDassieKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/dassie-${id}.localhost-key.pem`,

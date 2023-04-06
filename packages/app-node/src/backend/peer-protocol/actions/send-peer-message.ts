@@ -5,7 +5,7 @@ import { createLogger } from "@dassie/lib-logger"
 import type { InferSerialize } from "@dassie/lib-oer"
 import { createActor, createTopic } from "@dassie/lib-reactive"
 
-import { configSignal } from "../../config"
+import { nodeIdSignal } from "../../ilp-connector/computed/node-id"
 import { peerMessage, peerMessageContent } from "../peer-schema"
 import { nodeTableStore } from "../stores/node-table"
 
@@ -42,7 +42,7 @@ const serializePeerMessage = (
 
 export const sendPeerMessage = () =>
   createActor((sig) => {
-    const { nodeId } = sig.getKeys(configSignal, ["nodeId"])
+    const nodeId = sig.get(nodeIdSignal)
     const peers = sig.use(nodeTableStore)
 
     return async (parameters: MessageWithDestination) => {
