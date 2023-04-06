@@ -1,5 +1,6 @@
 export const privateKeyLabelRegex =
   /-{5}BEGIN PRIVATE KEY-{5}\n([\d\n+/A-Za-z]+?)\n-{5}END PRIVATE KEY-{5}/
+
 export const derPreamble = Buffer.from(
   "302E020100300506032B657004220420",
   "hex"
@@ -31,9 +32,9 @@ export function parseEd25519PrivateKey(source: string): Buffer {
     throw new Error("Invalid length for DER-encoded ed25519 private key")
   }
 
-  if (!derPreamble.equals(derEncoding.slice(0, derPreamble.length))) {
+  if (!derPreamble.equals(derEncoding.subarray(0, derPreamble.length))) {
     throw new Error("Unexpected data in DER-encoded ed25519 private key")
   }
 
-  return derEncoding.slice(16)
+  return derEncoding.subarray(derPreamble.length)
 }
