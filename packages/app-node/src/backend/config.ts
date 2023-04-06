@@ -29,7 +29,6 @@ export interface Config {
   tlsWebKey: string
   tlsDassieCert: string
   tlsDassieKey: string
-  beacons: { url: string }[]
   initialSubnets: SubnetConfig
   exchangeRateUrl: string
   internalAmountPrecision: number
@@ -52,7 +51,6 @@ export const inputConfigSchema = z.object({
   tlsDassieKey: z.string().optional(),
   tlsDassieKeyFile: z.string().optional(),
   initialSubnets: subnetConfigSchema.optional(),
-  beacons: z.string().optional(),
   exchangeRateUrl: z.string().optional(),
   internalAmountPrecision: z.number().optional(),
 })
@@ -112,10 +110,6 @@ export function fromPartialConfig(partialConfig: InputConfig): Config {
       partialConfig.tlsDassieKeyFile
     ),
     initialSubnets: partialConfig.initialSubnets ?? [],
-    beacons: (partialConfig.beacons ?? "")
-      .split(";")
-      .map((url) => ({ url }))
-      .filter(Boolean),
     exchangeRateUrl:
       partialConfig.exchangeRateUrl ??
       "https://api.coinbase.com/v2/exchange-rates",

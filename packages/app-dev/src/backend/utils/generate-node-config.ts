@@ -84,8 +84,6 @@ export const generateNodeConfig = ((index, peers, environmentSettings) => {
             environmentSettings.peeringMode === "fixed" ? peersInfo : undefined,
         },
       ],
-      // TODO: Make this dynamic
-      beacons: "https://b1.localhost:13001;https://b2.localhost:13002",
       exchangeRateUrl: `https://localhost:${DEBUG_UI_PORT}/rates.json`,
     },
     url: `https://${id}.localhost:${port}/`,
