@@ -70,6 +70,20 @@ export abstract class OerType<TParseValue, TSerializeValue = TParseValue> {
     return { success: true, value: result[0], length: result[1] }
   }
 
+  parseOrThrow(
+    input: Uint8Array,
+    offset = 0,
+    options: ParseOptions = {}
+  ): TParseValue {
+    const result = this.parse(input, offset, options)
+
+    if (result.success) {
+      return result.value
+    }
+
+    throw result.error
+  }
+
   serialize(
     value: TSerializeValue
   ):
@@ -98,6 +112,16 @@ export abstract class OerType<TParseValue, TSerializeValue = TParseValue> {
     return result instanceof SerializeError
       ? { success: false, error: result }
       : { success: true, value: uint8Array }
+  }
+
+  serializeOrThrow(value: TSerializeValue): Uint8Array {
+    const result = this.serialize(value)
+
+    if (result.success) {
+      return result.value
+    }
+
+    throw result.error
   }
 
   tag(tagValue: number, tagClass: Exclude<TagClass, "universal"> = "context") {
