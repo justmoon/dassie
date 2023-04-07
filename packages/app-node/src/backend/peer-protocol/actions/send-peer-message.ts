@@ -84,7 +84,7 @@ export const sendPeerMessage = () =>
         return
       }
 
-      const result = await axios<Uint8Array>(`${peer.url}/peer`, {
+      const result = await axios<Buffer>(`${peer.url}/peer`, {
         method: "POST",
         data: envelopeSerializationResult.value,
         headers: {
@@ -94,6 +94,6 @@ export const sendPeerMessage = () =>
         responseType: "arraybuffer",
       })
 
-      return result.data
+      return new Uint8Array(result.data.buffer)
     }
   })
