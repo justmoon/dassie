@@ -3,6 +3,7 @@ import { createActor } from "@dassie/lib-reactive"
 import { calculateRoutes } from "./calculate-routes"
 import { maintainOwnNodeTableEntry } from "./maintain-own-node-table-entry"
 import { maintainPeeringRelationships } from "./maintain-peering-relationships"
+import { queueBootstrapNodes } from "./queue-bootstrap-node"
 
 export interface PerSubnetParameters {
   subnetId: string
@@ -16,4 +17,5 @@ export const runPerSubnetEffects = () =>
     sig.run(calculateRoutes, parameters)
     await sig.run(maintainOwnNodeTableEntry, parameters)
     sig.run(maintainPeeringRelationships, parameters)
+    sig.run(queueBootstrapNodes, parameters)
   })
