@@ -11,6 +11,7 @@ import { ilpRoutingTableSignal } from "../ilp-connector/signals/ilp-routing-tabl
 import subnetModules from "../subnets/modules"
 import { sendPeerMessage } from "./actions/send-peer-message"
 import type { PerSubnetParameters } from "./run-per-subnet-effects"
+import { nodeDiscoveryQueueStore } from "./stores/node-discovery-queue"
 import { nodeTableStore } from "./stores/node-table"
 import { RoutingTableEntry, routingTableStore } from "./stores/routing-table"
 
@@ -34,23 +35,19 @@ export const calculateRoutes = () =>
     const ownNodeId = sig.get(nodeIdSignal)
     const nodeTable = sig.get(nodeTableStore)
 
-    const queue = new Denque([ownNodeId])
+    const ownNodeTableEntry = nodeTable.get(`${subnetId}.${ownNodeId}`)
+
+    const queue = new Denque([ownNodeTableEntry])
     const queueSet = new Set([ownNodeId])
 
     const nodeInfoMap = new Map<string, NodeInfoEntry>()
     nodeInfoMap.set(ownNodeId, { level: 0, parents: [] })
 
-    let currentNodeId
-    while ((currentNodeId = queue.shift()) != undefined) {
-      queueSet.delete(currentNodeId)
+    let currentNode
+    while ((currentNode = queue.shift()) != undefined) {
+      queueSet.delete(currentNode.nodeId)
 
-      const currentNode = nodeTable.get(`${subnetId}.${currentNodeId}`)
-      if (currentNode == undefined) {
-        // We only route to nodes in our node table, so we will ignore this destination for now
-        continue
-      }
-
-      const currentNodeInfo = nodeInfoMap.get(currentNodeId)
+      const currentNodeInfo = nodeInfoMap.get(currentNode.nodeId)
       assertDefined(currentNodeInfo)
 
       for (const neighborId of currentNode.linkState.neighbors) {
@@ -60,10 +57,10 @@ export const calculateRoutes = () =>
           if (neighborInfo.level > currentNodeInfo.level + 1) {
             // this is a new shortest path to this node
             neighborInfo.level = currentNodeInfo.level + 1
-            neighborInfo.parents = [currentNodeId]
+            neighborInfo.parents = [currentNode.nodeId]
           } else if (neighborInfo.level === currentNodeInfo.level + 1) {
             // this is an alternative path of equal length
-            neighborInfo.parents.push(currentNodeId)
+            neighborInfo.parents.push(currentNode.nodeId)
           } else {
             // this is a longer path than the one(s) we already have, ignore
           }
@@ -71,12 +68,21 @@ export const calculateRoutes = () =>
           // this is a node we haven't reached before
           const newNeighborInfo = {
             level: currentNodeInfo.level + 1,
-            parents: [currentNodeId],
+            parents: [currentNode.nodeId],
           }
           nodeInfoMap.set(neighborId, newNeighborInfo)
 
-          queue.push(neighborId)
-          queueSet.add(neighborId)
+          const neighbor = nodeTable.get(`${subnetId}.${neighborId}`)
+
+          if (neighbor) {
+            queue.push(neighbor)
+            queueSet.add(neighborId)
+          } else {
+            // We came across a node in the graph that we don't know. Let's ask someone about it.
+            sig
+              .use(nodeDiscoveryQueueStore)
+              .addNode(`${subnetId}.${neighborId}`, currentNode.nodeId)
+          }
         }
       }
     }
