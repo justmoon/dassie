@@ -55,7 +55,15 @@ export type Topic<TMessage = never> = ReadonlyTopic<TMessage> & {
 }
 
 export const createTopic = <TMessage>(): Topic<TMessage> => {
-  // We construct a temporary object in order to assign the name to the function
+  /**
+   * The listeners for this topic.
+   *
+   * @remarks
+   *
+   * For performance reasons, this can be either undefined (no listeners), a function (one listener), or a set (multiple listeners).
+   *
+   * This avoids allocating a new set for every topic even though the topic may only have zero or one listeners.
+   */
   let listeners: Listener<TMessage> | Set<Listener<TMessage>> | undefined
 
   const emit = (message: TMessage) => {
