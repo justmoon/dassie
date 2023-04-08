@@ -67,6 +67,25 @@ const NodeTable = ({ nodeId }: BasicNodeElementProperties) => {
 
   if (!nodeTable.data || !routingTable.data) return null
 
+  const sortedNodeTable = [...nodeTable.data.values()]
+    .map((node) => {
+      const routingTableEntry = routingTable.data.get(node.nodeId)
+
+      return {
+        ...node,
+        distance: routingTableEntry?.distance ?? Number.POSITIVE_INFINITY,
+        nextHopNodes: routingTable.data.get(node.nodeId)?.firstHopOptions ?? [],
+      }
+    })
+    // Sort first by distance, then by nodeId
+    .sort((a, b) => {
+      if (a.distance === b.distance) {
+        return a.nodeId.localeCompare(b.nodeId)
+      }
+
+      return a.distance - b.distance
+    })
+
   return (
     <div className="min-h-0">
       <h2 className="font-bold text-xl">Node Table</h2>
@@ -83,20 +102,18 @@ const NodeTable = ({ nodeId }: BasicNodeElementProperties) => {
           </tr>
         </thead>
         <tbody>
-          {[...nodeTable.data.values()].map((node) => {
-            const routingTableEntry = routingTable.data.get(node.nodeId)
-            const nextHopNodes = routingTableEntry?.firstHopOptions
+          {sortedNodeTable.map((node) => {
             return (
               <tr key={node.nodeId}>
                 <td className="text-slate-400">{node.subnetId}</td>
                 <td className="">
                   <NodeLink nodeId={node.nodeId} />
                 </td>
-                <td>{routingTableEntry?.distance}</td>
+                <td>{node.distance}</td>
                 <td>{node.peerState.id}</td>
                 <td>
                   <div className="flex gap-2">
-                    {nextHopNodes?.map((nodeId) => (
+                    {node.nextHopNodes.map((nodeId) => (
                       <NodeLink key={nodeId} nodeId={nodeId} />
                     ))}
                   </div>
