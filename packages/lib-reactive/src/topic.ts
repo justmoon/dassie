@@ -45,19 +45,16 @@ export interface ReadonlyTopic<TMessage = never> {
   once: (this: void, listener: Listener<TMessage>) => Disposer
 }
 
-export type Topic<
-  TMessage = never,
-  TTrigger = TMessage
-> = ReadonlyTopic<TMessage> & {
+export type Topic<TMessage = never> = ReadonlyTopic<TMessage> & {
   /**
    * Emit a message to all listeners of a topic.
    *
    * @param trigger - Value to pass to the message factory function.
    */
-  emit: (this: void, trigger: TTrigger) => void
+  emit: (this: void, trigger: TMessage) => void
 }
 
-export const createTopic = <TMessage>(): Topic<TMessage, TMessage> => {
+export const createTopic = <TMessage>(): Topic<TMessage> => {
   // We construct a temporary object in order to assign the name to the function
   let listeners: Listener<TMessage> | Set<Listener<TMessage>> | undefined
 
@@ -123,7 +120,7 @@ export const createTopic = <TMessage>(): Topic<TMessage, TMessage> => {
     return disposer
   }
 
-  const topic: Topic<TMessage, TMessage> = {
+  const topic: Topic<TMessage> = {
     [TopicSymbol]: true,
     [FactoryNameSymbol]: "anonymous",
     on,
