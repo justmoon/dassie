@@ -10,6 +10,7 @@ import { useLocation } from "wouter"
 import { selectBySeed } from "@dassie/lib-logger"
 
 import type { PeerMessageMetadata } from "../../../backend/topics/peer-traffic"
+import type { NodeConfig } from "../../../backend/utils/generate-node-config"
 import { COLORS } from "../../constants/palette"
 import { activeNodesStore } from "../../remote-signals/active-nodes"
 import { peeringStateStore } from "../../remote-signals/peering-state"
@@ -18,6 +19,30 @@ import { useSig } from "../../utils/remote-reactive"
 
 interface NodeGraphViewProperties {
   graphData: GraphData
+}
+
+const SHOW_IN_PHYSICAL_LOCATION = false as boolean
+
+const normalizedMercatorProjection = (latitude: number, longitude: number) => {
+  const pi = Math.PI
+
+  // Calculate normalized x and y coordinates using Mercator projection
+  const x = longitude / (2 * pi) + 0.5
+  const y = (Math.log(Math.tan(pi / 4 + latitude / 2)) / pi) * -0.5 + 0.5
+
+  return { x: x, y: y }
+}
+
+const generateNode = (node: NodeConfig) => {
+  const { x, y } = normalizedMercatorProjection(node.latitude, node.longitude)
+
+  return SHOW_IN_PHYSICAL_LOCATION
+    ? {
+        id: node.id,
+        fx: x * 500 - 250,
+        fy: y * 250 - 125,
+      }
+    : { id: node.id }
 }
 
 const NodeGraphView = ({ graphData }: NodeGraphViewProperties) => {
@@ -106,9 +131,8 @@ const NodeGraph = () => {
       return {
         nodes: (action.nodes ?? []).map(
           (node) =>
-            previousGraphData.nodes.find(({ id }) => id === node.id) ?? {
-              id: node.id,
-            }
+            previousGraphData.nodes.find(({ id }) => id === node.id) ??
+            generateNode(node)
         ),
         links,
       }

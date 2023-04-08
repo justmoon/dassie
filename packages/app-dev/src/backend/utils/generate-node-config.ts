@@ -9,6 +9,7 @@ import {
   NODES_START_PORT,
 } from "../constants/ports"
 import type { EnvironmentSettings } from "../stores/environment-settings"
+import { calculateHaltonLocation } from "./calculate-halton-location"
 
 const ENTRYPOINT = new URL("../../runner/launchers/node", import.meta.url)
   .pathname
@@ -33,11 +34,17 @@ export const nodeIndexToId = (index: number) => {
 
   return nodeId
 }
-interface NodeConfig {
+export const nodeIndexToCoordinates = (index: number) =>
+  calculateHaltonLocation(index + 1)
+
+export interface NodeConfig {
   id: string
   port: number
   debugPort: number
   peers: string[]
+  peerIndices: readonly number[]
+  latitude: number
+  longitude: number
   config: InputConfig
   url: string
   entry: string
@@ -54,6 +61,7 @@ const generatePeerInfo = (peerIndex: number) => ({
 export const generateNodeConfig = ((index, peers, environmentSettings) => {
   const id = nodeIndexToFriendlyId(index)
   const port = nodeIndexToPort(index)
+  const { latitude, longitude } = nodeIndexToCoordinates(index)
 
   const peersInfo = peers.map((peerIndex) => generatePeerInfo(peerIndex))
 
@@ -63,6 +71,8 @@ export const generateNodeConfig = ((index, peers, environmentSettings) => {
     debugPort: NODES_DEBUG_START_PORT + index,
     peers: peers.map((index) => nodeIndexToFriendlyId(index)),
     peerIndices: peers,
+    latitude,
+    longitude,
     config: {
       realm: "test" as const,
       host: `${id}.localhost`,
