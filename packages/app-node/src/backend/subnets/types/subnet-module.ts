@@ -49,9 +49,12 @@ export interface SubnetModule {
    */
   readonly realm: (typeof VALID_REALMS)[number]
 
+  /**
+   * Actor which will be instantiated while the node is connected to this subnet.
+   *
+   * @remarks
+   *
+   * Use this to do things like maintaining a connection to the ledger in question.
+   */
   actor: Factory<Actor<Promisable<void>, SubnetProperties>>
-
-  processIncomingPacket(packetInformation: PacketInformation): Promisable<void>
-
-  processOutgoingPacket(packetInformation: PacketInformation): Promisable<void>
 }

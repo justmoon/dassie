@@ -7,6 +7,7 @@ import { assertDefined } from "@dassie/lib-type-utils"
 import { subnetBalanceMapStore } from "../balances/stores/subnet-balance-map"
 import { configSignal } from "../config"
 import { nodeIdSignal } from "../ilp-connector/computed/node-id"
+import { IlpType } from "../ilp-connector/ilp-packet-codec"
 import { ilpRoutingTableSignal } from "../ilp-connector/signals/ilp-routing-table"
 import subnetModules from "../subnets/modules"
 import { sendPeerMessage } from "./actions/send-peer-message"
@@ -113,7 +114,7 @@ export const calculateRoutes = () =>
         ilpRoutingTable.set(ilpAddress, {
           prefix: ilpAddress,
           type: "peer",
-          sendPacket: async ({ packet, asUint8Array, requestId }) => {
+          sendPacket: ({ packet, asUint8Array, requestId }) => {
             const nextHop = firstHopOptions[0]!
 
             const subnetModule = subnetModules[subnetId]
@@ -122,11 +123,11 @@ export const calculateRoutes = () =>
               throw new Error(`No subnet module found for subnet ${subnetId}`)
             }
 
-            await subnetModule.processOutgoingPacket({
-              subnetId,
-              balanceMap: sig.use(subnetBalanceMapStore),
-              packet,
-            })
+            const balanceMap = sig.use(subnetBalanceMapStore)
+
+            if (packet.type === IlpType.Fulfill) {
+              balanceMap.adjustBalance(subnetId, packet.prepare.amount)
+            }
 
             logger.debug("sending ilp packet", { nextHop })
 

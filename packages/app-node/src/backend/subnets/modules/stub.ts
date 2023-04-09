@@ -1,6 +1,5 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { IlpType } from "../../ilp-connector/ilp-packet-codec"
 import type { SubnetModule } from "../types/subnet-module"
 
 /**
@@ -21,18 +20,6 @@ const stub = {
         throw new Error('The "stub" subnet cannot be used in production')
       }
     }),
-
-  processIncomingPacket({ packet, subnetId, balanceMap }) {
-    if (packet.type === IlpType.Fulfill) {
-      balanceMap.adjustBalance(subnetId, -packet.prepare.amount)
-    }
-  },
-
-  processOutgoingPacket({ packet, subnetId, balanceMap }) {
-    if (packet.type === IlpType.Fulfill) {
-      balanceMap.adjustBalance(subnetId, packet.prepare.amount)
-    }
-  },
 } satisfies SubnetModule
 
 export default stub

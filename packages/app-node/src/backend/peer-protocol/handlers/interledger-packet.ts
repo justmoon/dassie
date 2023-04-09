@@ -4,6 +4,7 @@ import { createActor } from "@dassie/lib-reactive"
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import { subnetBalanceMapStore } from "../../balances/stores/subnet-balance-map"
 import { configSignal } from "../../config"
+import { IlpType } from "../../ilp-connector/ilp-packet-codec"
 import { incomingIlpPacketTopic } from "../../ilp-connector/topics/incoming-ilp-packet"
 import subnetModules from "../../subnets/modules"
 import type { IncomingPeerMessageEvent } from "../actions/handle-peer-message"
@@ -18,7 +19,7 @@ export const handleInterledgerPacket = () =>
     ])
     const balanceMap = sig.use(subnetBalanceMapStore)
 
-    const handleInterledgerPacketAsync = async ({
+    return ({
       message: {
         sender,
         subnetId,
@@ -30,7 +31,7 @@ export const handleInterledgerPacket = () =>
     }: IncomingPeerMessageEvent<"interledgerPacket">) => {
       if (!authenticated) {
         logger.warn("received unauthenticated interledger packet, discarding")
-        return
+        return EMPTY_UINT8ARRAY
       }
 
       logger.debug("handle interledger packet", {
@@ -50,21 +51,13 @@ export const handleInterledgerPacket = () =>
         throw new Error(`unknown subnet: ${subnetId}`)
       }
 
-      await subnetModule.processIncomingPacket({
-        subnetId,
-        balanceMap,
-        packet: incomingPacketEvent.packet,
-      })
+      const { packet } = incomingPacketEvent
+
+      if (packet.type === IlpType.Fulfill) {
+        balanceMap.adjustBalance(subnetId, -packet.prepare.amount)
+      }
 
       incomingIlpPacketTopicValue.emit(incomingPacketEvent)
-    }
-
-    return (parameters: IncomingPeerMessageEvent<"interledgerPacket">) => {
-      handleInterledgerPacketAsync(parameters).catch((error: unknown) => {
-        logger.error("error while handling interledger packet", {
-          error,
-        })
-      })
 
       return EMPTY_UINT8ARRAY
     }
