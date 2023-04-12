@@ -1,6 +1,6 @@
 import produce, { enableMapSet } from "immer"
 
-import { createActor } from "@dassie/lib-reactive"
+import { createActor, createComputed } from "@dassie/lib-reactive"
 import { UnreachableCaseError } from "@dassie/lib-type-utils"
 
 import { NodeTableKey, nodeTableStore } from "../stores/node-table"
@@ -59,3 +59,6 @@ export const peersComputation = () => {
 
   return actor
 }
+
+export const peersArrayComputation = () =>
+  createComputed((sig) => [...sig.get(peersComputation)])

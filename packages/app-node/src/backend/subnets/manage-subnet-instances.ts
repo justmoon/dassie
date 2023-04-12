@@ -2,7 +2,6 @@ import { hexToBytes } from "@noble/hashes/utils"
 
 import { createActor } from "@dassie/lib-reactive"
 
-import { subnetBalanceMapStore } from "../balances/stores/subnet-balance-map"
 import { configSignal } from "../config"
 import { runPerSubnetEffects } from "../peer-protocol/run-per-subnet-effects"
 import { nodeTableStore } from "../peer-protocol/stores/node-table"
@@ -19,7 +18,6 @@ const runSubnetModule = () =>
   createActor(async (sig, subnetId: string) => {
     const realm = sig.get(configSignal, (state) => state.realm)
     const subnetMap = sig.get(subnetMapSignal)
-    const subnetBalanceMap = sig.use(subnetBalanceMapStore)
 
     const subnetState = subnetMap.get(subnetId)
 
@@ -51,10 +49,8 @@ const runSubnetModule = () =>
       }
     }
 
-    subnetBalanceMap.setBalance(subnetId, 0n)
-
     /**
-     * Instantiate subnet specific effects.
+     * Instantiate subnet module actor.
      */
     await sig.run(module.actor, { subnetId })
 
@@ -63,9 +59,5 @@ const runSubnetModule = () =>
      */
     await sig.run(runPerSubnetEffects, {
       subnetId,
-    })
-
-    sig.onCleanup(() => {
-      subnetBalanceMap.clearBalance(subnetId)
     })
   })

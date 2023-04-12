@@ -4,7 +4,7 @@ import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 import { assertDefined } from "@dassie/lib-type-utils"
 
-import { subnetBalanceMapStore } from "../balances/stores/subnet-balance-map"
+import { peerBalanceMapStore } from "../balances/stores/peer-balance-map"
 import { configSignal } from "../config"
 import { nodeIdSignal } from "../ilp-connector/computed/node-id"
 import { IlpType } from "../ilp-connector/ilp-packet-codec"
@@ -13,7 +13,7 @@ import subnetModules from "../subnets/modules"
 import { sendPeerMessage } from "./actions/send-peer-message"
 import type { PerSubnetParameters } from "./run-per-subnet-effects"
 import { nodeDiscoveryQueueStore } from "./stores/node-discovery-queue"
-import { nodeTableStore } from "./stores/node-table"
+import { NodeTableKey, nodeTableStore } from "./stores/node-table"
 import { RoutingTableEntry, routingTableStore } from "./stores/routing-table"
 
 const logger = createLogger("das:node:calculate-routes")
@@ -123,10 +123,28 @@ export const calculateRoutes = () =>
               throw new Error(`No subnet module found for subnet ${subnetId}`)
             }
 
-            const balanceMap = sig.use(subnetBalanceMapStore)
+            const balanceMap = sig.use(peerBalanceMapStore)
 
-            if (packet.type === IlpType.Fulfill) {
-              balanceMap.adjustBalance(subnetId, packet.prepare.amount)
+            const peerKey: NodeTableKey = `${subnetId}.${nextHop}`
+            switch (packet.type) {
+              case IlpType.Prepare: {
+                balanceMap.handleOutgoingPrepared(peerKey, packet.amount)
+                break
+              }
+              case IlpType.Fulfill: {
+                balanceMap.handleIncomingFulfilled(
+                  peerKey,
+                  packet.prepare.amount
+                )
+                break
+              }
+              case IlpType.Reject: {
+                balanceMap.handleIncomingRejected(
+                  peerKey,
+                  packet.prepare.amount
+                )
+                break
+              }
             }
 
             logger.debug("sending ilp packet", { nextHop })

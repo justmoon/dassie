@@ -2,12 +2,13 @@ import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
-import { subnetBalanceMapStore } from "../../balances/stores/subnet-balance-map"
+import { peerBalanceMapStore } from "../../balances/stores/peer-balance-map"
 import { configSignal } from "../../config"
 import { IlpType } from "../../ilp-connector/ilp-packet-codec"
 import { incomingIlpPacketTopic } from "../../ilp-connector/topics/incoming-ilp-packet"
 import subnetModules from "../../subnets/modules"
 import type { IncomingPeerMessageEvent } from "../actions/handle-peer-message"
+import type { NodeTableKey } from "../stores/node-table"
 
 const logger = createLogger("das:node:handle-interledger-packet")
 
@@ -17,7 +18,7 @@ export const handleInterledgerPacket = () =>
     const { ilpAllocationScheme } = sig.getKeys(configSignal, [
       "ilpAllocationScheme",
     ])
-    const balanceMap = sig.use(subnetBalanceMapStore)
+    const balanceMap = sig.use(peerBalanceMapStore)
 
     return ({
       message: {
@@ -53,8 +54,20 @@ export const handleInterledgerPacket = () =>
 
       const { packet } = incomingPacketEvent
 
-      if (packet.type === IlpType.Fulfill) {
-        balanceMap.adjustBalance(subnetId, -packet.prepare.amount)
+      const peerKey: NodeTableKey = `${subnetId}.${sender}`
+      switch (packet.type) {
+        case IlpType.Prepare: {
+          balanceMap.handleIncomingPrepared(peerKey, packet.amount)
+          break
+        }
+        case IlpType.Fulfill: {
+          balanceMap.handleOutgoingFulfilled(peerKey, packet.prepare.amount)
+          break
+        }
+        case IlpType.Reject: {
+          balanceMap.handleOutgoingRejected(peerKey, packet.prepare.amount)
+          break
+        }
       }
 
       incomingIlpPacketTopicValue.emit(incomingPacketEvent)

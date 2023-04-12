@@ -2,11 +2,12 @@ import { createActor } from "@dassie/lib-reactive"
 
 import { handlePeerMessage } from "./actions/handle-peer-message"
 import { sendPeerMessage } from "./actions/send-peer-message"
-import { peersComputation } from "./computed/peers"
+import { peersArrayComputation, peersComputation } from "./computed/peers"
 import { requestedPeersComputation } from "./computed/requested-peers"
 import { discoverNodes } from "./discover-nodes"
 import { forwardLinkStateUpdate } from "./forward-link-state-update"
 import { registerPeerHttpHandler } from "./register-peer-http-handler"
+import { runPerPeerEffects } from "./run-per-peer-effects"
 import { sendHeartbeats } from "./send-heartbeats"
 
 export const speakPeerProtocol = () =>
@@ -22,4 +23,6 @@ export const speakPeerProtocol = () =>
     sig.run(sendHeartbeats)
     sig.run(forwardLinkStateUpdate)
     sig.run(discoverNodes)
+
+    sig.for(peersArrayComputation, runPerPeerEffects)
   })

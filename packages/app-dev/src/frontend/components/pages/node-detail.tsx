@@ -4,6 +4,7 @@ import { FaLink } from "react-icons/fa"
 import { format } from "timeago.js"
 import { Link } from "wouter"
 
+import type { NodeTableKey } from "@dassie/app-node/src/backend/peer-protocol/stores/node-table"
 import { selectBySeed } from "@dassie/lib-logger"
 
 import { convertVanityNodeIdToFriendly } from "../../../common/utils/vanity-node-id-to-friendly"
@@ -64,17 +65,20 @@ const NodeLink = ({ nodeId }: BasicNodeElementProperties) => {
 const NodeTable = ({ nodeId }: BasicNodeElementProperties) => {
   const nodeTable = useNodeRemoteSignal(nodeId, "nodeTable")
   const routingTable = useNodeRemoteSignal(nodeId, "routingTable")
+  const balanceTable = useNodeRemoteSignal(nodeId, "balanceTable")
 
-  if (!nodeTable.data || !routingTable.data) return null
+  if (!nodeTable.data || !routingTable.data || !balanceTable.data) return null
 
   const sortedNodeTable = [...nodeTable.data.values()]
     .map((node) => {
+      const nodeKey: NodeTableKey = `${node.subnetId}.${node.nodeId}`
       const routingTableEntry = routingTable.data.get(node.nodeId)
 
       return {
         ...node,
         distance: routingTableEntry?.distance ?? Number.POSITIVE_INFINITY,
         nextHopNodes: routingTable.data.get(node.nodeId)?.firstHopOptions ?? [],
+        balance: balanceTable.data.get(nodeKey),
       }
     })
     // Sort first by distance, then by nodeId
@@ -98,6 +102,7 @@ const NodeTable = ({ nodeId }: BasicNodeElementProperties) => {
             <th className="text-left">Peering</th>
             <th>Next Hop Options</th>
             <th>Neighbors</th>
+            <th>Balance</th>
             <th className="text-left">Last Seen</th>
           </tr>
         </thead>
@@ -125,6 +130,7 @@ const NodeTable = ({ nodeId }: BasicNodeElementProperties) => {
                     ))}
                   </div>
                 </td>
+                <td>{node.balance?.balance.toString() ?? ""}</td>
                 {node.peerState.id === "none" ? (
                   <td></td>
                 ) : (
