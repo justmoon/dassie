@@ -10,7 +10,11 @@ const logger = createLogger("das:dev:compile-runner")
 const rollupConfig: RollupOptions = {
   input: new URL("../../runner/runner.ts", import.meta.url).pathname,
   external: (id: string) => !/^[./]/.test(id),
-  plugins: [esbuild()],
+  plugins: [
+    esbuild({
+      target: "esnext",
+    }),
+  ],
   output: [
     {
       dir: "packages/app-dev/dist",
