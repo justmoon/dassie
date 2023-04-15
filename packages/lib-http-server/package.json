@@ -37,6 +37,6 @@
     "@dassie/eslint-config": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
     "react": "^18.2.0",
-    "type-fest": "^3.6.1"
+    "type-fest": "^3.8.0"
   }
 }
