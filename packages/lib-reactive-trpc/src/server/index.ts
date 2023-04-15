@@ -1,12 +1,11 @@
-import { RootConfig, initTRPC } from "@trpc/server"
-import type { AnyRootConfig } from "@trpc/server/dist/core/internals/config"
+import { type AnyRootConfig, type RootConfig, initTRPC } from "@trpc/server"
 import { observable } from "@trpc/server/observable"
 
 import {
-  Change,
-  Factory,
-  Reactor,
-  ReadonlyTopic,
+  type Change,
+  type Factory,
+  type Reactor,
+  type ReadonlyTopic,
   isSignal,
   isStore,
 } from "@dassie/lib-reactive"

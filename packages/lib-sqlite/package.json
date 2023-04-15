@@ -22,7 +22,9 @@
   "scripts": {
     "clean": "rimraf dist",
     "build": "rollup -c",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "eslint .",
+    "typecheck": "tsc"
   },
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
@@ -30,7 +32,9 @@
     "better-sqlite3": "^8.2.0"
   },
   "devDependencies": {
+    "@dassie/eslint-config": "workspace:^",
     "@dassie/lib-logger": "workspace:^1.0.0",
+    "@dassie/meta-tsconfig": "workspace:^",
     "type-fest": "^3.6.1"
   },
   "peerDependencies": {

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig.json",
+  "display": "Vite + React",
+  "extends": "./base.json",
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "jsx": "react-jsx",
+    "types": ["vite/client"]
+  }
+}

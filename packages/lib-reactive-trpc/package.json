@@ -5,10 +5,10 @@
   "description": "Read and subscribe to reactive values remotely via TRPC",
   "exports": {
     "./server": {
-      "import": "./server.ts"
+      "import": "./src/server/index.ts"
     },
     "./client": {
-      "import": "./client.tsx"
+      "import": "./src/client/index.tsx"
     }
   },
   "publishConfig": {
@@ -29,18 +29,22 @@
   "scripts": {
     "clean": "rimraf dist",
     "build": "rollup -c",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "eslint .",
+    "typecheck": "tsc"
   },
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "devDependencies": {
+    "@dassie/eslint-config": "workspace:^",
+    "@dassie/meta-tsconfig": "workspace:^",
     "react": "^18.2.0",
     "type-fest": "^3.6.1"
   },
   "dependencies": {
     "@dassie/lib-reactive": "workspace:^1.0.0",
-    "@trpc/client": "10.14.1",
-    "@trpc/server": "10.14.1"
+    "@trpc/client": "10.20.0",
+    "@trpc/server": "10.20.0"
   },
   "peerDependencies": {
     "react": ">=18.0.0"

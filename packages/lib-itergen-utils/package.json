@@ -22,8 +22,14 @@
   "scripts": {
     "clean": "rimraf dist",
     "build": "rollup -c",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "eslint .",
+    "typecheck": "tsc"
   },
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@dassie/eslint-config": "workspace:^",
+    "@dassie/meta-tsconfig": "workspace:^"
+  }
 }

@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "next dev",
     "start": "next start",
-    "build": "next build"
+    "build": "next build",
+    "lint": "eslint .",
+    "typecheck": "tsc"
   },
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
@@ -23,5 +25,10 @@
     "nextra-theme-docs": "latest",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@dassie/eslint-config": "workspace:^",
+    "@dassie/meta-tsconfig": "workspace:^",
+    "eslint-config-next": "^13.3.0"
   }
 }

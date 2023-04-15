@@ -1,7 +1,7 @@
 import type { inferRouterProxyClient } from "@trpc/client"
 import type { AnyRouter } from "@trpc/server"
 import {
-  ReactNode,
+  type ReactNode,
   createContext,
   useCallback,
   useContext,
@@ -11,18 +11,18 @@ import {
 } from "react"
 
 import {
-  Actor,
-  BoundAction,
-  Change,
+  type Actor,
+  type BoundAction,
+  type Change,
   EffectContext,
-  InferMessageType,
+  type InferMessageType,
+  type LifecycleScope,
   createActor,
   isStore,
 } from "@dassie/lib-reactive"
-import { Reactor, createReactor } from "@dassie/lib-reactive"
-import type { LifecycleScope } from "@dassie/lib-reactive/src/internal/lifecycle-scope"
+import { type Reactor, createReactor } from "@dassie/lib-reactive"
 
-import type { ExposedTopicsMap, RemoteReactiveRouter } from "./server"
+import type { ExposedTopicsMap, RemoteReactiveRouter } from "../server"
 
 interface ReactEffectContext {
   lifecycle: LifecycleScope

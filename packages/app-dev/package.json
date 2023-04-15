@@ -5,6 +5,10 @@
   "description": "Runs a small development environment for Dassie including multiple nodes",
   "private": true,
   "main": "./src/index.ts",
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc"
+  },
   "exports": {
     ".": {
       "import": "./src/index.ts"
@@ -27,9 +31,9 @@
     "@react-hook/size": "^2.1.2",
     "@tanstack/react-query": "^4.26.1",
     "@tanstack/react-virtual": "3.0.0-beta.54",
-    "@trpc/client": "10.14.1",
-    "@trpc/react-query": "10.14.1",
-    "@trpc/server": "10.14.1",
+    "@trpc/client": "10.20.0",
+    "@trpc/react-query": "10.20.0",
+    "@trpc/server": "10.20.0",
     "@types/cors": "^2.8.13",
     "@types/wtfnode": "^0.7.0",
     "@unocss/reset": "^0.50.4",
@@ -43,12 +47,12 @@
     "cors": "^2.8.5",
     "denque": "^2.1.0",
     "express": "^4.18.2",
-    "force-graph": "^1.43.0",
+    "force-graph": "^1.43.1",
     "immer": "^9.0.19",
     "pretty-format": "^29.5.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-force-graph-2d": "^1.24.0",
+    "react-force-graph-2d": "^1.24.2",
     "react-icons": "^4.8.0",
     "reffx": "^1.1.0",
     "superjson": "^1.12.2",
@@ -60,6 +64,8 @@
     "wtfnode": "^0.9.1"
   },
   "devDependencies": {
+    "@dassie/eslint-config": "workspace:^",
+    "@dassie/meta-tsconfig": "workspace:^",
     "@types/chrome-remote-interface": "^0.31.9",
     "@types/connect": "^3.4.35",
     "@types/connect-history-api-fallback": "^1.3.5",

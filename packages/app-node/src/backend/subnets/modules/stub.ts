@@ -16,7 +16,7 @@ const stub = {
 
   actor: () =>
     createActor(() => {
-      if (process.env.NODE_ENV === "production") {
+      if (process.env["NODE_ENV"] === "production") {
         throw new Error('The "stub" subnet cannot be used in production')
       }
     }),

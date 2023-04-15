@@ -1,0 +1,12 @@
+{
+  "name": "@dassie/meta-tsconfig",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Dassie TypeScript configuration templates",
+  "author": "Stefan Thomas <justmoon@members.fsf.org>",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@dassie/eslint-config": "workspace:^",
+    "@tsconfig/strictest": "^2.0.0"
+  }
+}
