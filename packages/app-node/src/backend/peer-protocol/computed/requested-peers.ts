@@ -3,7 +3,7 @@ import produce, { enableMapSet } from "immer"
 import { createActor } from "@dassie/lib-reactive"
 import { UnreachableCaseError } from "@dassie/lib-type-utils"
 
-import { NodeTableKey, nodeTableStore } from "../stores/node-table"
+import { type NodeTableKey, nodeTableStore } from "../stores/node-table"
 
 enableMapSet()
 

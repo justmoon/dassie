@@ -13,8 +13,11 @@ import subnetModules from "../subnets/modules"
 import { sendPeerMessage } from "./actions/send-peer-message"
 import type { PerSubnetParameters } from "./run-per-subnet-effects"
 import { nodeDiscoveryQueueStore } from "./stores/node-discovery-queue"
-import { NodeTableKey, nodeTableStore } from "./stores/node-table"
-import { RoutingTableEntry, routingTableStore } from "./stores/routing-table"
+import { type NodeTableKey, nodeTableStore } from "./stores/node-table"
+import {
+  type RoutingTableEntry,
+  routingTableStore,
+} from "./stores/routing-table"
 
 const logger = createLogger("das:node:calculate-routes")
 

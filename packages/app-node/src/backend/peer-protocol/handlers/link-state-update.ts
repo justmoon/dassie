@@ -3,7 +3,7 @@ import { createActor } from "@dassie/lib-reactive"
 
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import type { IncomingPeerMessageEvent } from "../actions/handle-peer-message"
-import { NodeTableKey, nodeTableStore } from "../stores/node-table"
+import { type NodeTableKey, nodeTableStore } from "../stores/node-table"
 
 const logger = createLogger("das:node:handle-link-state-update")
 

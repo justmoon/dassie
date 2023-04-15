@@ -1,6 +1,6 @@
 import { isObject } from "@dassie/lib-type-utils"
 
-import { ReadonlyTopic, createTopic } from "./topic"
+import { type ReadonlyTopic, createTopic } from "./topic"
 
 export type Reducer<TState> = (previousState: TState) => TState
 

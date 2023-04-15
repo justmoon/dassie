@@ -1,6 +1,10 @@
-import { Reactor, createTopic } from "@dassie/lib-reactive"
+import { type Reactor, createTopic } from "@dassie/lib-reactive"
 
-import { IlpPacket, IlpType, serializeIlpPacket } from "../ilp-packet-codec"
+import {
+  type IlpPacket,
+  IlpType,
+  serializeIlpPacket,
+} from "../ilp-packet-codec"
 import { requestIdMapSignal } from "../route-ilp-packets"
 import type { IlpPacketWithAttachedPrepare } from "./incoming-ilp-packet"
 

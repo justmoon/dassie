@@ -1,5 +1,5 @@
 import {
-  SerializableLogLine,
+  type SerializableLogLine,
   createJsonFormatter,
   createLogger,
 } from "@dassie/lib-logger"

@@ -9,7 +9,10 @@ import { selectBySeed } from "@dassie/lib-logger"
 
 import { convertVanityNodeIdToFriendly } from "../../../common/utils/vanity-node-id-to-friendly"
 import { COLORS } from "../../constants/palette"
-import { FirehoseEvent, useNodeFirehose } from "../../hooks/use-node-firehose"
+import {
+  type FirehoseEvent,
+  useNodeFirehose,
+} from "../../hooks/use-node-firehose"
 import { useNodeRemoteSignal } from "../../hooks/use-node-state"
 import LogViewer from "../log-viewer/log-viewer"
 

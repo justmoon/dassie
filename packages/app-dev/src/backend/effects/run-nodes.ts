@@ -8,7 +8,10 @@ import type { generateNodeConfig } from "../utils/generate-node-config"
 import { fileChangeTopic } from "./handle-file-change"
 import { prepareDataDirectory } from "./prepare-data-directory"
 import { runNodeChildProcess } from "./run-node-child-process"
-import { CertificateInfo, validateCertificates } from "./validate-certificates"
+import {
+  type CertificateInfo,
+  validateCertificates,
+} from "./validate-certificates"
 
 const logger = createLogger("das:dev:run-nodes")
 

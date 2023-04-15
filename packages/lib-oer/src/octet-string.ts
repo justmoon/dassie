@@ -1,4 +1,4 @@
-import { OerType, Serializer } from "./base-type"
+import { OerType, type Serializer } from "./base-type"
 import { ParseError, SerializeError } from "./utils/errors"
 import { isSerializer } from "./utils/is-serializer"
 import { isUint8Array } from "./utils/is-uint8array"
@@ -8,12 +8,12 @@ import {
   serializeLengthPrefix,
 } from "./utils/length-prefix"
 import {
-  ParseContext,
-  SafeUnsignedInteger,
-  SerializeContext,
+  type ParseContext,
+  type SafeUnsignedInteger,
+  type SerializeContext,
   isSafeUnsignedInteger,
 } from "./utils/parse"
-import { NormalizedRange, Range, parseRange } from "./utils/range"
+import { type NormalizedRange, type Range, parseRange } from "./utils/range"
 
 export class OerFixedOctetString extends OerType<
   Uint8Array,

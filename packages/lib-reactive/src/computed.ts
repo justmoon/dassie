@@ -1,7 +1,7 @@
 import { isObject } from "@dassie/lib-type-utils"
 
-import { Factory, Reactor, UseOptions } from "./reactor"
-import { ReadonlySignal, createSignal } from "./signal"
+import { type Factory, Reactor, type UseOptions } from "./reactor"
+import { type ReadonlySignal, createSignal } from "./signal"
 
 export const ComputedSymbol = Symbol("das:reactive:computed")
 

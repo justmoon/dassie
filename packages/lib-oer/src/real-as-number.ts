@@ -1,7 +1,7 @@
 import { OerType } from "./base-type"
 import { ParseError } from "./utils/errors"
 import type { ParseContext, SerializeContext } from "./utils/parse"
-import { Range, parseRange } from "./utils/range"
+import { type Range, parseRange } from "./utils/range"
 
 interface RealAsNumberOptions {
   mantissa?: Range<number>

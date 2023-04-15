@@ -3,10 +3,10 @@ import Database from "better-sqlite3"
 import { createLogger } from "@dassie/lib-logger"
 
 import type { TableDescription } from "./define-table"
-import { ConnectedTable, connectTable } from "./internal/connect-table"
+import { type ConnectedTable, connectTable } from "./internal/connect-table"
 import {
-  ScalarDescription,
-  ScalarStore,
+  type ScalarDescription,
+  type ScalarStore,
   createScalarStore,
   scalarTable,
 } from "./internal/scalar-store"

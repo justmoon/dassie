@@ -4,7 +4,7 @@ import { PEERS } from "../constants/development-nodes"
 import { generateNodeConfig } from "../utils/generate-node-config"
 import {
   DEFAULT_ENVIRONMENT_SETTINGS,
-  EnvironmentSettings,
+  type EnvironmentSettings,
 } from "./environment-settings"
 
 export const activeNodesStore = () =>

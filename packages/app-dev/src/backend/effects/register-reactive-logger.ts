@@ -1,5 +1,5 @@
 import {
-  SerializableLogLine,
+  type SerializableLogLine,
   createCliFormatter,
   createJsonFormatter,
   createLogger,

@@ -2,7 +2,11 @@ import type { AnyOerType, Infer, Serializer } from "../base-type"
 import { octetString } from "../octet-string"
 import { ParseError, SerializeError } from "../utils/errors"
 import type { ParseContext } from "../utils/parse"
-import { ClassDefinitionShape, InformationObjectClass, openType } from "./class"
+import {
+  type ClassDefinitionShape,
+  type InformationObjectClass,
+  openType,
+} from "./class"
 
 export type InformationObjectShape<
   TClassDefinition extends ClassDefinitionShape

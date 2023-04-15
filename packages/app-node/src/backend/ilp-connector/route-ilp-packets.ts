@@ -1,7 +1,7 @@
 import { createLogger } from "@dassie/lib-logger"
 import { createActor, createSignal } from "@dassie/lib-reactive"
 
-import { IlpPreparePacket, IlpType } from "./ilp-packet-codec"
+import { type IlpPreparePacket, IlpType } from "./ilp-packet-codec"
 import { incomingIlpPacketTopic } from "./topics/incoming-ilp-packet"
 import { outgoingIlpPacketBuffer } from "./topics/outgoing-ilp-packet"
 

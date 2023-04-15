@@ -1,9 +1,13 @@
 import { OerType } from "./base-type"
 import { octetString } from "./octet-string"
-import { Alphabet, alphabetToFilterArray, printable } from "./utils/alphabet"
+import {
+  type Alphabet,
+  alphabetToFilterArray,
+  printable,
+} from "./utils/alphabet"
 import { ParseError, SerializeError } from "./utils/errors"
 import type { ParseContext } from "./utils/parse"
-import { NormalizedRange, Range, parseRange } from "./utils/range"
+import { type NormalizedRange, type Range, parseRange } from "./utils/range"
 
 export type EncodingType = "utf8" | "ascii"
 

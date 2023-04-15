@@ -1,11 +1,16 @@
 import type { Simplify } from "type-fest"
 
-import { AnyOerType, Infer, InferSerialize, OerType } from "./base-type"
+import {
+  type AnyOerType,
+  type Infer,
+  type InferSerialize,
+  OerType,
+} from "./base-type"
 import { ParseError, SerializeError } from "./utils/errors"
 import type { ParseContext, SerializeContext } from "./utils/parse"
 import {
   TAG_MARKER_CONTEXT,
-  TagMarker,
+  type TagMarker,
   parseTag,
   predictTagLength,
   serializeTag,

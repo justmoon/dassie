@@ -1,5 +1,5 @@
 import { ParseError, SerializeError } from "./errors"
-import { ParseContext, byteLength, isSafeUnsignedInteger } from "./parse"
+import { type ParseContext, byteLength, isSafeUnsignedInteger } from "./parse"
 
 export const parseLengthPrefix = (
   { uint8Array, allowNoncanonical }: ParseContext,

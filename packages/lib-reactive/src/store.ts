@@ -1,7 +1,7 @@
 import { isObject } from "@dassie/lib-type-utils"
 
-import { Signal, createSignal } from "./signal"
-import { ReadonlyTopic, Topic, createTopic } from "./topic"
+import { type Signal, createSignal } from "./signal"
+import { type ReadonlyTopic, type Topic, createTopic } from "./topic"
 
 export const StoreSymbol = Symbol("das:reactive:store")
 

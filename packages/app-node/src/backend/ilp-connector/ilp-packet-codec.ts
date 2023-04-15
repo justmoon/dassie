@@ -1,7 +1,8 @@
 import type { Simplify } from "type-fest"
 
 import {
-  Infer,
+  type Infer,
+  type InferSerialize,
   defineClass,
   defineObjectSet,
   ia5String,
@@ -12,7 +13,6 @@ import {
   uint64Bigint,
   utf8String,
 } from "@dassie/lib-oer"
-import type { InferSerialize } from "@dassie/lib-oer/src/base-type"
 
 export const IlpType = {
   Prepare: 12,

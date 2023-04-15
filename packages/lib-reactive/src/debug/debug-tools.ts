@@ -2,7 +2,7 @@ import { isObject } from "@dassie/lib-type-utils"
 
 import type { ContextState, Factory, Reactor } from "../reactor"
 import { isSignal } from "../signal"
-import { ReadonlyTopic, createTopic, isTopic } from "../topic"
+import { type ReadonlyTopic, createTopic, isTopic } from "../topic"
 
 export interface FirehoseEvent {
   topic: Factory<ReadonlyTopic>

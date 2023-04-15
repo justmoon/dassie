@@ -1,4 +1,4 @@
-import { Actor, createActor } from "../actor"
+import { type Actor, createActor } from "../actor"
 import type { Factory } from "../reactor"
 import type { ReadonlySignal } from "../signal"
 import { LifecycleScope } from "./lifecycle-scope"

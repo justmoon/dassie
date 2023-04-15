@@ -28,3 +28,4 @@ export type {
 export type { Computed, ComputationContext } from "./computed"
 export type { Reactor, Factory, Disposer, AsyncDisposer } from "./reactor"
 export type { AsyncListener } from "./context"
+export type { LifecycleScope } from "./internal/lifecycle-scope"

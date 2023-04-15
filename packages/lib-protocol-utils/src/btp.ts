@@ -1,5 +1,5 @@
 import {
-  Infer,
+  type Infer,
   ia5String,
   octetString,
   sequence,

@@ -9,7 +9,7 @@ import { isErrorWithCode } from "@dassie/lib-type-utils"
 
 import { APP_NAME, VALID_REALMS } from "./constants/general"
 import {
-  SubnetConfig,
+  type SubnetConfig,
   subnetConfigSchema,
 } from "./subnets/schemas/subnet-config"
 

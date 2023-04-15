@@ -1,10 +1,10 @@
-import { Reactor, createTopic } from "@dassie/lib-reactive"
+import { type Reactor, createTopic } from "@dassie/lib-reactive"
 
 import {
-  IlpFulfillPacket,
-  IlpPacket,
-  IlpPreparePacket,
-  IlpRejectPacket,
+  type IlpFulfillPacket,
+  type IlpPacket,
+  type IlpPreparePacket,
+  type IlpRejectPacket,
   IlpType,
   parseIlpPacket,
 } from "../ilp-packet-codec"

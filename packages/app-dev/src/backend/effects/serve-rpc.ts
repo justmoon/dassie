@@ -9,7 +9,7 @@ import { createActor } from "@dassie/lib-reactive"
 
 import { LOCAL_FOLDER } from "../constants/paths"
 import { DEBUG_RPC_PORT } from "../constants/ports"
-import { AppRouter, appRouter } from "../rpc-routers/app-router"
+import { type AppRouter, appRouter } from "../rpc-routers/app-router"
 import { validateCertificates } from "./validate-certificates"
 
 const certificatePath = join(

@@ -11,7 +11,7 @@ import {
   serializeLengthPrefix,
 } from "./utils/length-prefix"
 import type { ParseContext, SerializeContext } from "./utils/parse"
-import { Range, parseRange } from "./utils/range"
+import { type Range, parseRange } from "./utils/range"
 
 interface IntegerOptions {
   minimumValue?: bigint

@@ -4,7 +4,7 @@ import {
   serializeBase128,
 } from "./base-128"
 import { ParseError, SerializeError } from "./errors"
-import { ParseContext, isSafeUnsignedInteger } from "./parse"
+import { type ParseContext, isSafeUnsignedInteger } from "./parse"
 
 export const TAG_MARKER_UNIVERSAL = 0b00
 export const TAG_MARKER_APPLICATION = 0b01

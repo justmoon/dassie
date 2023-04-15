@@ -1,9 +1,9 @@
 import {
-  AnyOerType,
-  Infer,
-  InferSerialize,
+  type AnyOerType,
+  type Infer,
+  type InferSerialize,
   OerType,
-  Serializer,
+  type Serializer,
 } from "./base-type"
 import { integerAsBigint } from "./integer-as-bigint"
 import { ParseError, SerializeError } from "./utils/errors"

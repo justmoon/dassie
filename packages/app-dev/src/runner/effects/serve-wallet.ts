@@ -1,6 +1,6 @@
 import type { NextHandleFunction } from "connect"
 import history from "connect-history-api-fallback"
-import { ViteDevServer, createServer } from "vite"
+import { type ViteDevServer, createServer } from "vite"
 
 import { existsSync, readFileSync } from "node:fs"
 import { join, normalize } from "node:path"

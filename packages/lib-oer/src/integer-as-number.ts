@@ -1,7 +1,7 @@
 import { OerType } from "./base-type"
 import { ParseError, SerializeError } from "./utils/errors"
 import type { ParseContext, SerializeContext } from "./utils/parse"
-import { FixedRange, Range, parseRange } from "./utils/range"
+import { type FixedRange, type Range, parseRange } from "./utils/range"
 
 export interface IntegerAsNumberOptions {
   range: FixedRange<number>

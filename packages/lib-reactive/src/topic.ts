@@ -1,6 +1,6 @@
 import { isObject } from "@dassie/lib-type-utils"
 
-import { Disposer, Factory, FactoryNameSymbol } from "./reactor"
+import { type Disposer, type Factory, FactoryNameSymbol } from "./reactor"
 
 export type Listener<TMessage> = (message: TMessage) => void
 

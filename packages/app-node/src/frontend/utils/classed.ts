@@ -1,12 +1,12 @@
 // Based on Ido Shamun
 // https://daily.dev/blog/my-tailwind-css-utility-function-for-creating-reusable-react-components-typescript-support
-import cx, { Argument } from "classnames"
+import cx, { type Argument } from "classnames"
 import {
-  Attributes,
-  ClassAttributes,
-  ElementType,
-  FunctionComponentElement,
-  ReactElement,
+  type Attributes,
+  type ClassAttributes,
+  type ElementType,
+  type FunctionComponentElement,
+  type ReactElement,
   createElement,
 } from "react"
 

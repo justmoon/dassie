@@ -3,7 +3,7 @@ import type { Database, Statement } from "better-sqlite3"
 import type { InferRowType, TableDescription } from "../../define-table"
 import type { ColumnDescription, InferRowFromColumns } from "./columns"
 import { createPlaceholderStore } from "./placeholders"
-import { Condition, generateWhereClause } from "./where"
+import { type Condition, generateWhereClause } from "./where"
 
 export interface SelectQueryBuilder<TState extends SelectQueryBuilderState> {
   /**

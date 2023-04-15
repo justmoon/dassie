@@ -1,4 +1,4 @@
-import prettyFormatUpstream, { PrettyFormatOptions } from "pretty-format"
+import prettyFormatUpstream, { type PrettyFormatOptions } from "pretty-format"
 
 import { Uint8ArrayFormatPlugin } from "./uint8array-format-plugin"
 

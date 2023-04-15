@@ -4,7 +4,7 @@ import { selectBySeed } from "@dassie/lib-logger"
 
 import type { IndexedLogLine } from "../../../common/stores/logs"
 import { COLORS } from "../../constants/palette"
-import { AnsiSpan, AnsiSpanProperties } from "../utilities/ansi-span"
+import { AnsiSpan, type AnsiSpanProperties } from "../utilities/ansi-span"
 
 const DATA_PREVIEW_MAX_LENGTH = 30
 

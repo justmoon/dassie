@@ -6,7 +6,7 @@ import { configSignal } from "../config"
 import { nodeIdSignal } from "../ilp-connector/computed/node-id"
 import type { PerSubnetParameters } from "./run-per-subnet-effects"
 import { nodeDiscoveryQueueStore } from "./stores/node-discovery-queue"
-import { NodeTableKey, nodeTableStore } from "./stores/node-table"
+import { type NodeTableKey, nodeTableStore } from "./stores/node-table"
 
 export const queueBootstrapNodes = () =>
   createActor((sig, { subnetId }: PerSubnetParameters) => {

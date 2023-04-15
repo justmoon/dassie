@@ -1,4 +1,4 @@
-import { Reactor, createSignal } from "@dassie/lib-reactive"
+import { type Reactor, createSignal } from "@dassie/lib-reactive"
 import { createDatabase } from "@dassie/lib-sqlite"
 
 import { configSignal } from "../config"

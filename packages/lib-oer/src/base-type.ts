@@ -1,7 +1,7 @@
 import { ensureUint8Array } from "./utils/ensure-uint8array"
 import { ParseError, SerializeError } from "./utils/errors"
 import type { ParseContext, SerializeContext } from "./utils/parse"
-import { TagClass, TagMarker, tagClassMarkerMap } from "./utils/tag"
+import { type TagClass, type TagMarker, tagClassMarkerMap } from "./utils/tag"
 
 export type AnyOerType = OerType<unknown>
 

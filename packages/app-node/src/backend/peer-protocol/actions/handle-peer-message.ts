@@ -1,4 +1,9 @@
-import { Actor, Factory, createActor, createTopic } from "@dassie/lib-reactive"
+import {
+  type Actor,
+  type Factory,
+  createActor,
+  createTopic,
+} from "@dassie/lib-reactive"
 
 import { handleInterledgerPacket } from "../handlers/interledger-packet"
 import { handleLinkStateRequest } from "../handlers/link-state-request"

@@ -10,7 +10,7 @@ import { routingTableStore } from "@dassie/app-node/src/backend/peer-protocol/st
 import { createLogger } from "@dassie/lib-logger"
 import { createActor, debugFirehose } from "@dassie/lib-reactive"
 import {
-  ReactiveContext,
+  type ReactiveContext,
   createRemoteReactiveRouter,
 } from "@dassie/lib-reactive-trpc/server"
 

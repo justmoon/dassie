@@ -1,13 +1,13 @@
 import type { ConditionalExcept, ConditionalPick } from "type-fest"
 
 import {
-  AnyOerType,
-  Infer,
-  InferSerialize,
+  type AnyOerType,
+  type Infer,
+  type InferSerialize,
   OerConstant,
   OerOptional,
   OerType,
-  Serializer,
+  type Serializer,
 } from "./base-type"
 import type {
   AnyObjectSetField,

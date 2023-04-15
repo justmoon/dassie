@@ -7,13 +7,13 @@ import type {
 } from "../define-table"
 import type { InferColumnType } from "./query-builder/columns"
 import {
-  MultipleInsertResult,
-  NewInsertQueryBuilder,
-  SingleInsertResult,
+  type MultipleInsertResult,
+  type NewInsertQueryBuilder,
+  type SingleInsertResult,
   createInsertQueryBuilder,
 } from "./query-builder/insert"
 import {
-  NewSelectQueryBuilder,
+  type NewSelectQueryBuilder,
   createSelectQueryBuilder,
 } from "./query-builder/select"
 

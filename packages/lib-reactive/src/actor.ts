@@ -2,7 +2,7 @@ import { isObject } from "@dassie/lib-type-utils"
 
 import type { ActorContext } from "./context"
 import { FactoryNameSymbol } from "./reactor"
-import { Signal, createSignal } from "./signal"
+import { type Signal, createSignal } from "./signal"
 
 export type Behavior<TReturn = unknown, TProperties = unknown> = (
   sig: ActorContext,

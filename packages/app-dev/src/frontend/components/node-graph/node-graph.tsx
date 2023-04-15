@@ -1,9 +1,9 @@
 import useSize from "@react-hook/size"
-import type { GraphData } from "force-graph"
 import { useCallback, useEffect, useReducer, useRef } from "react"
 import ReactForceGraph2d, {
-  ForceGraphMethods,
-  NodeObject,
+  type ForceGraphMethods,
+  type GraphData,
+  type NodeObject,
 } from "react-force-graph-2d"
 import { useLocation } from "wouter"
 
