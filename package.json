@@ -10,8 +10,8 @@
     "start": "vite-node --watch --config packages/app-dev/vite.backend.config.js packages/app-dev/bin/start-development-server.ts",
     "test": "vitest",
     "prettier": "prettier --config .prettierrc.json --write \"packages/*/{src,test}/**/*.ts\"",
-    "lint": "pnpm -r lint",
-    "typecheck": "pnpm -r typecheck",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
     "api": "vite-node scripts/extract-apis.ts",
     "web": "pnpm --filter=app-website dev"
   },
@@ -62,7 +62,8 @@
     "@types/react": "^18.0.35",
     "@types/react-dom": "^18.0.11",
     "c8": "^7.13.0",
-    "eslint": "^8.38.0"
+    "eslint": "^8.38.0",
+    "turbo": "^1.9.1"
   },
   "pnpm": {
     "peerDependencyRules": {
