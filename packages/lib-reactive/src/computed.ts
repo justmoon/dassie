@@ -1,13 +1,13 @@
 import { isObject } from "@dassie/lib-type-utils"
 
 import { type Factory, Reactor, type UseOptions } from "./reactor"
-import { type ReadonlySignal, createSignal } from "./signal"
+import { type ReadonlySignal, type Signal, createSignal } from "./signal"
 
 export const ComputedSymbol = Symbol("das:reactive:computed")
 
 export type ComputedFactory<TState> = Factory<Computed<TState>>
 
-export type Computed<TState> = ReadonlySignal<TState> & {
+export type Computed<TState> = Signal<TState> & {
   /**
    * Marks this object as a signal.
    */
@@ -95,7 +95,7 @@ export function createComputed<TState>(
       dirty = true
       queueMicrotask(() => {
         dirty = false
-        write(run())
+        signal.write(run())
       })
     }
   }
@@ -123,7 +123,7 @@ export function createComputed<TState>(
     return result
   }
 
-  const { write, ...signal } = createSignal<TState>(run())
+  const signal = createSignal<TState>(run())
 
   return {
     ...signal,

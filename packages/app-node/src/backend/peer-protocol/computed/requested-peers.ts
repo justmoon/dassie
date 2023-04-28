@@ -1,15 +1,14 @@
 import produce, { enableMapSet } from "immer"
 
-import { createActor } from "@dassie/lib-reactive"
+import { createComputed } from "@dassie/lib-reactive"
 import { UnreachableCaseError } from "@dassie/lib-type-utils"
 
 import { type NodeTableKey, nodeTableStore } from "../stores/node-table"
 
 enableMapSet()
 
-export const requestedPeersComputation = () => {
-  const emptySet = new Set<NodeTableKey>()
-  const actor = createActor((sig) => {
+export const requestedPeersComputation = () =>
+  createComputed((sig) => {
     const nodeTable = sig.use(nodeTableStore)
 
     const initialSet = new Set<NodeTableKey>()
@@ -20,9 +19,11 @@ export const requestedPeersComputation = () => {
       }
     }
 
+    // TODO: This needs to be property disposed
     nodeTable.changes.on(([actionId, parameters]) => {
-      const peersSet = actor.read()
-      const priorSize = actor.read().size
+      const requestedPeersComputationValue = sig.use(requestedPeersComputation)
+      const peersSet = requestedPeersComputationValue.read()
+      const priorSize = peersSet.size
 
       const newSet = produce(peersSet, (draft) => {
         switch (actionId) {
@@ -50,12 +51,12 @@ export const requestedPeersComputation = () => {
       })
 
       if (newSet.size !== priorSize) {
-        actor.write(newSet)
+        requestedPeersComputationValue.write(newSet)
       }
     })
 
     return initialSet
-  }, emptySet)
+  })
 
-  return actor
-}
+export const requestedPeersArrayComputation = () =>
+  createComputed((sig) => [...sig.get(requestedPeersComputation)])
