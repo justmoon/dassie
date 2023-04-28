@@ -8,7 +8,7 @@ export class LifecycleScope {
    */
   private cleanupQueue: AsyncDisposer[] | undefined = []
 
-  onCleanup(cleanupHandler: AsyncDisposer) {
+  onCleanup = (cleanupHandler: AsyncDisposer) => {
     if (!this.cleanupQueue) {
       // If the scope has already been disposed, run the cleanup handler immediately.
       Promise.resolve(cleanupHandler()).catch((error: unknown) => {
@@ -20,7 +20,7 @@ export class LifecycleScope {
     this.cleanupQueue.push(cleanupHandler)
   }
 
-  offCleanup(cleanupHandler: AsyncDisposer) {
+  offCleanup = (cleanupHandler: AsyncDisposer) => {
     // TODO: This could be slow if there are a lot of cleanup handlers. Benchmark and optimize for 0, 1, small, and large numbers of handlers.
     const index = this.cleanupQueue?.indexOf(cleanupHandler) ?? -1
     if (index !== -1) {

@@ -1,5 +1,6 @@
 import { isObject } from "@dassie/lib-type-utils"
 
+import type { LifecycleScope } from "./internal/lifecycle-scope"
 import { type Factory, Reactor, type UseOptions } from "./reactor"
 import { type ReadonlySignal, type Signal, createSignal } from "./signal"
 
@@ -58,6 +59,15 @@ export interface ComputationContext {
     factory: Factory<TReturn>,
     options?: UseOptions | undefined
   ): TReturn
+
+  /**
+   * Register a clean-up handler.
+   *
+   * @remarks
+   *
+   * Computed values are only cleaned up when the reactor is cleaned up, so the handler won't be called until then.
+   */
+  onCleanup: LifecycleScope["onCleanup"]
 }
 
 export function createComputed<TState>(
@@ -87,6 +97,8 @@ export function createComputed<TState>(
     use<TReturn>(factory: Factory<TReturn>, options?: UseOptions | undefined) {
       return reactor.use(factory, options)
     },
+
+    onCleanup: reactor.onCleanup,
   }
 
   let dirty = false

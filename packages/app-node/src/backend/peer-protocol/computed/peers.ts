@@ -19,41 +19,43 @@ export const peersComputation = () =>
       }
     }
 
-    // TODO: This needs to be property disposed
-    nodeTable.changes.on(([actionId, parameters]) => {
-      const peersComputationValue = sig.use(peersComputation)
-      const peersSet = peersComputationValue.read()
-      const priorSize = peersSet.size
+    const disposeSubscription = nodeTable.changes.on(
+      ([actionId, parameters]) => {
+        const peersComputationValue = sig.use(peersComputation)
+        const peersSet = peersComputationValue.read()
+        const priorSize = peersSet.size
 
-      const newSet = produce(peersSet, (draft) => {
-        switch (actionId) {
-          case "addNode": {
-            const { peerState, subnetId, nodeId } = parameters[0]
-            if (peerState.id === "peered") {
-              draft.add(`${subnetId}.${nodeId}`)
+        const newSet = produce(peersSet, (draft) => {
+          switch (actionId) {
+            case "addNode": {
+              const { peerState, subnetId, nodeId } = parameters[0]
+              if (peerState.id === "peered") {
+                draft.add(`${subnetId}.${nodeId}`)
+              }
+              break
             }
-            break
-          }
-          case "updateNode": {
-            const nodeKey = parameters[0]
-            const { peerState } = parameters[1]
-            if (peerState?.id === "peered") {
-              draft.add(nodeKey)
-            } else if (peerState) {
-              draft.delete(nodeKey)
+            case "updateNode": {
+              const nodeKey = parameters[0]
+              const { peerState } = parameters[1]
+              if (peerState?.id === "peered") {
+                draft.add(nodeKey)
+              } else if (peerState) {
+                draft.delete(nodeKey)
+              }
+              break
             }
-            break
+            default: {
+              throw new UnreachableCaseError(actionId)
+            }
           }
-          default: {
-            throw new UnreachableCaseError(actionId)
-          }
+        })
+
+        if (newSet.size !== priorSize) {
+          peersComputationValue.write(newSet)
         }
-      })
-
-      if (newSet.size !== priorSize) {
-        peersComputationValue.write(newSet)
       }
-    })
+    )
+    sig.onCleanup(disposeSubscription)
 
     return initialSet
   })
