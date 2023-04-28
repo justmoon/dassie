@@ -152,7 +152,7 @@ export const calculateRoutes = () =>
 
             logger.debug("sending ilp packet", { nextHop })
 
-            sig.use(sendPeerMessage).tell({
+            sig.use(sendPeerMessage).tell("send", {
               subnet: subnetId,
               destination: nextHop,
               message: {

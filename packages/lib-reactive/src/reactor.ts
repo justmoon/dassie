@@ -104,11 +104,9 @@ export interface ContextState
 }
 
 interface RunSignature {
-  <TReturn, TInitialState>(
-    factory: Factory<Actor<TReturn, undefined, TInitialState>>
-  ): TReturn
-  <TProperties, TReturn, TInitialState>(
-    factory: Factory<Actor<TReturn, TProperties, TInitialState>>,
+  <TReturn>(factory: Factory<Actor<TReturn>>): TReturn
+  <TProperties, TReturn>(
+    factory: Factory<Actor<TReturn, TProperties>>,
     properties: TProperties,
     options?: RunOptions<TReturn> | undefined
   ): TReturn
@@ -184,8 +182,8 @@ export class Reactor extends LifecycleScope {
    * @param effect - A function that will be executed to create the value if it does not yet exist in this reactor.
    * @returns The value stored in the context.
    */
-  run: RunSignature = <TProperties, TReturn, TInitialState>(
-    factory: Factory<Actor<TReturn, TProperties | undefined, TInitialState>>,
+  run: RunSignature = <TProperties, TReturn>(
+    factory: Factory<Actor<TReturn, TProperties | undefined>>,
     properties?: TProperties,
     {
       onResult,
@@ -226,7 +224,7 @@ export class Reactor extends LifecycleScope {
       },
       () => {
         actor.isRunning = false
-        actor.write(actor.initialState)
+        actor.write(undefined)
       }
     ).catch((error: unknown) => {
       console.error("error in actor", {

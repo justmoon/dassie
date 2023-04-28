@@ -86,7 +86,7 @@ export const discoverNodes = () =>
       oracleNodeId: string,
       subjectNodeId: string
     ) => {
-      const response = await reactor.use(sendPeerMessage).ask({
+      const response = await reactor.use(sendPeerMessage).ask("send", {
         subnet: subnetId,
         destination: oracleNodeId,
         message: {

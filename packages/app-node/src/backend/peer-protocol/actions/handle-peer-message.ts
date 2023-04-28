@@ -32,9 +32,9 @@ export const incomingPeerMessageTopic = () =>
   createTopic<IncomingPeerMessageEvent>()
 
 type AllPeerMessageHandlers = {
-  [K in PeerMessageType]: Actor<
-    (parameters: IncomingPeerMessageEvent<K>) => Uint8Array
-  >
+  [K in PeerMessageType]: Actor<{
+    handle: (parameters: IncomingPeerMessageEvent<K>) => Uint8Array
+  }>
 }
 
 type AllPeerMessageHandlerFactories = {
@@ -64,11 +64,13 @@ export const handlePeerMessage = () =>
       )
     ) as unknown as AllPeerMessageHandlers
 
-    return async <TType extends PeerMessageType>(
-      parameters: IncomingPeerMessageEvent<TType>
-    ) => {
-      const type: TType = parameters.message.content.value.type
+    return {
+      handle: async <TType extends PeerMessageType>(
+        parameters: IncomingPeerMessageEvent<TType>
+      ) => {
+        const type: TType = parameters.message.content.value.type
 
-      return await handlers[type].ask(parameters)
+        return await handlers[type].ask("handle", parameters)
+      },
     }
   })

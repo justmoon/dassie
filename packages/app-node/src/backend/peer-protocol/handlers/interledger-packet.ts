@@ -20,58 +20,60 @@ export const handleInterledgerPacket = () =>
     ])
     const balanceMap = sig.use(peerBalanceMapStore)
 
-    return ({
-      message: {
-        sender,
-        subnetId,
-        content: {
-          value: { value: content },
+    return {
+      handle: ({
+        message: {
+          sender,
+          subnetId,
+          content: {
+            value: { value: content },
+          },
         },
-      },
-      authenticated,
-    }: IncomingPeerMessageEvent<"interledgerPacket">) => {
-      if (!authenticated) {
-        logger.warn("received unauthenticated interledger packet, discarding")
+        authenticated,
+      }: IncomingPeerMessageEvent<"interledgerPacket">) => {
+        if (!authenticated) {
+          logger.warn("received unauthenticated interledger packet, discarding")
+          return EMPTY_UINT8ARRAY
+        }
+
+        logger.debug("handle interledger packet", {
+          subnet: subnetId,
+          from: sender,
+        })
+
+        const incomingPacketEvent = incomingIlpPacketTopicValue.prepareEvent({
+          source: `${ilpAllocationScheme}.das.${subnetId}.${sender}`,
+          packet: content.signed.packet,
+          requestId: content.signed.requestId,
+        })
+
+        const subnetModule = subnetModules[subnetId]
+
+        if (!subnetModule) {
+          throw new Error(`unknown subnet: ${subnetId}`)
+        }
+
+        const { packet } = incomingPacketEvent
+
+        const peerKey: NodeTableKey = `${subnetId}.${sender}`
+        switch (packet.type) {
+          case IlpType.Prepare: {
+            balanceMap.handleIncomingPrepared(peerKey, packet.amount)
+            break
+          }
+          case IlpType.Fulfill: {
+            balanceMap.handleOutgoingFulfilled(peerKey, packet.prepare.amount)
+            break
+          }
+          case IlpType.Reject: {
+            balanceMap.handleOutgoingRejected(peerKey, packet.prepare.amount)
+            break
+          }
+        }
+
+        incomingIlpPacketTopicValue.emit(incomingPacketEvent)
+
         return EMPTY_UINT8ARRAY
-      }
-
-      logger.debug("handle interledger packet", {
-        subnet: subnetId,
-        from: sender,
-      })
-
-      const incomingPacketEvent = incomingIlpPacketTopicValue.prepareEvent({
-        source: `${ilpAllocationScheme}.das.${subnetId}.${sender}`,
-        packet: content.signed.packet,
-        requestId: content.signed.requestId,
-      })
-
-      const subnetModule = subnetModules[subnetId]
-
-      if (!subnetModule) {
-        throw new Error(`unknown subnet: ${subnetId}`)
-      }
-
-      const { packet } = incomingPacketEvent
-
-      const peerKey: NodeTableKey = `${subnetId}.${sender}`
-      switch (packet.type) {
-        case IlpType.Prepare: {
-          balanceMap.handleIncomingPrepared(peerKey, packet.amount)
-          break
-        }
-        case IlpType.Fulfill: {
-          balanceMap.handleOutgoingFulfilled(peerKey, packet.prepare.amount)
-          break
-        }
-        case IlpType.Reject: {
-          balanceMap.handleOutgoingRejected(peerKey, packet.prepare.amount)
-          break
-        }
-      }
-
-      incomingIlpPacketTopicValue.emit(incomingPacketEvent)
-
-      return EMPTY_UINT8ARRAY
+      },
     }
   })

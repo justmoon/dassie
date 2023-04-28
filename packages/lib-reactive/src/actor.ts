@@ -11,32 +11,35 @@ export type Behavior<TReturn = unknown, TProperties = unknown> = (
 
 export const ActorSymbol = Symbol("das:reactive:actor")
 
-export type InferActorMessageType<TInstance> = TInstance extends (
-  message: infer TMessage
-) => unknown
-  ? TMessage
-  : never
+export type MessageHandler = (message: never) => unknown
 
-export type InferActorReturnType<TInstance> = TInstance extends (
-  ...parameters: never[]
-) => infer TReturn
-  ? TReturn
-  : never
+export type MessageHandlerRecord = Record<string, MessageHandler>
 
-export type Actor<
+export type InferActorMessageType<
   TInstance,
-  TProperties = undefined,
-  TInitialState = undefined
-> = Signal<Awaited<TInstance> | TInitialState> & {
+  TMethod extends string & keyof TInstance
+> = TInstance extends MessageHandlerRecord
+  ? TInstance[TMethod] extends (message: infer TMessage) => unknown
+    ? TMessage
+    : "foo"
+  : "foo2"
+
+export type InferActorReturnType<
+  TInstance,
+  TMethod extends string & keyof TInstance
+> = TInstance extends MessageHandlerRecord
+  ? TInstance[TMethod] extends (...parameters: never[]) => infer TReturn
+    ? TReturn
+    : never
+  : never
+
+export type Actor<TInstance, TProperties = undefined> = Signal<
+  Awaited<TInstance> | undefined
+> & {
   /**
    * Marks this object as a value.
    */
   [ActorSymbol]: true
-
-  /**
-   * A copy of the actor's initial state prior to instantiation.
-   */
-  initialState: TInitialState
 
   /**
    * Whether the actor is currently instantiated inside of a reactor.
@@ -53,7 +56,11 @@ export type Actor<
    *
    * @param message - The message to send to the actor.
    */
-  tell: (this: void, message: InferActorMessageType<TInstance>) => void
+  tell: <TMethod extends string & keyof TInstance>(
+    this: void,
+    method: TMethod,
+    message: InferActorMessageType<TInstance, TMethod>
+  ) => void
 
   /**
    * Asynchronously message the actor and receive a response as a promise.
@@ -61,39 +68,31 @@ export type Actor<
    * @param message - The message to send to the actor.
    * @returns A promise that will resolve with the response from the actor.
    */
-  ask: (
+  ask: <TMethod extends string & keyof TInstance>(
     this: void,
-    message: InferActorMessageType<TInstance>
-  ) => Promise<InferActorReturnType<TInstance>>
+    method: TMethod,
+    message: InferActorMessageType<TInstance, TMethod>
+  ) => Promise<InferActorReturnType<TInstance, TMethod>>
 }
 
-interface CreateActorSignature {
-  <TInstance, TProperties = undefined>(
-    behavior: Behavior<TInstance, TProperties>
-  ): Actor<TInstance, TProperties>
-  <TInstance, TProperties = undefined, TInitialState = undefined>(
-    behavior: Behavior<TInstance, TProperties>,
-    initialState: TInitialState
-  ): Actor<TInstance, TProperties, TInitialState>
-}
+type CreateActorSignature = <TInstance, TProperties = undefined>(
+  behavior: Behavior<TInstance, TProperties>
+) => Actor<TInstance, TProperties>
 
 export const createActor: CreateActorSignature = <
   TInstance,
-  TProperties = undefined,
-  TInitialState = undefined
+  TProperties = undefined
 >(
-  behavior: Behavior<TInstance, TProperties>,
-  initialState?: TInitialState
-): Actor<TInstance, TProperties, TInitialState> => {
-  const signal = createSignal<Awaited<TInstance> | TInitialState>(initialState!)
-  const actor: Actor<TInstance, TProperties, TInitialState> = {
+  behavior: Behavior<TInstance, TProperties>
+): Actor<TInstance, TProperties> => {
+  const signal = createSignal<Awaited<TInstance> | undefined>(undefined)
+  const actor: Actor<TInstance, TProperties> = {
     ...signal,
     [ActorSymbol]: true,
-    initialState: initialState!,
     isRunning: false,
     behavior,
-    tell: (message) => {
-      const handler = signal.read()
+    tell: (method, message) => {
+      const handler = signal.read()?.[method]
 
       if (handler) {
         try {
@@ -123,7 +122,8 @@ export const createActor: CreateActorSignature = <
         return
       }
 
-      const removeListener = signal.on((handler) => {
+      const removeListener = signal.on((handlerRecord) => {
+        const handler = handlerRecord?.[method]
         if (handler) {
           try {
             const result = (handler as (parameter: typeof message) => unknown)(
@@ -157,16 +157,16 @@ export const createActor: CreateActorSignature = <
         }
       })
     },
-    ask: (message) => {
-      const handler = signal.read()
+    ask: (method, message) => {
+      const handler = signal.read()?.[method]
 
       return new Promise((resolve, reject) => {
         if (handler) {
           resolve(
             (
               handler as (
-                parameter: InferActorMessageType<TInstance>
-              ) => InferActorReturnType<TInstance>
+                parameter: InferActorMessageType<TInstance, typeof method>
+              ) => InferActorReturnType<TInstance, typeof method>
             )(message)
           )
           return
@@ -178,8 +178,8 @@ export const createActor: CreateActorSignature = <
               resolve(
                 (
                   handler as (
-                    parameter: InferActorMessageType<TInstance>
-                  ) => InferActorReturnType<TInstance>
+                    parameter: InferActorMessageType<TInstance, typeof method>
+                  ) => InferActorReturnType<TInstance, typeof method>
                 )(message)
               )
             } catch (error) {
@@ -196,5 +196,7 @@ export const createActor: CreateActorSignature = <
   return actor
 }
 
-export const isActor = (object: unknown): object is Actor<unknown, unknown> =>
+export const isActor = (
+  object: unknown
+): object is Actor<MessageHandlerRecord, unknown> =>
   isObject(object) && object[ActorSymbol] === true

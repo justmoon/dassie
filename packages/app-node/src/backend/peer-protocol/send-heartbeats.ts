@@ -91,7 +91,7 @@ const sendPeeringRequest = (
     to: peerNodeId,
   })
 
-  sig.use(sendPeerMessage).tell({
+  sig.use(sendPeerMessage).tell("send", {
     subnet: peerSubnetId,
     destination: peerNodeId,
     message: {
@@ -112,7 +112,7 @@ const sendHeartbeat = (
     to: peerNodeId,
   })
 
-  sig.use(sendPeerMessage).tell({
+  sig.use(sendPeerMessage).tell("send", {
     subnet: peerSubnetId,
     destination: peerNodeId,
     message: {

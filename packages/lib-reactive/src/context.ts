@@ -331,20 +331,18 @@ export class ActorContext {
    * @param properties - Properties to be passed to the actor behavior function as the second parameter.
    * @returns - Return value of the first invocation of the actor.
    */
-  run<TReturn, TInitialState>(
-    factory: Factory<Actor<TReturn, undefined, TInitialState>>
-  ): TReturn
-  run<TProperties, TReturn, TInitialState>(
-    factory: Factory<Actor<TReturn, TProperties, TInitialState>>,
+  run<TReturn>(factory: Factory<Actor<TReturn>>): TReturn
+  run<TProperties, TReturn>(
+    factory: Factory<Actor<TReturn, TProperties>>,
     properties: TProperties,
     options?: RunOptions<TReturn> | undefined
   ): TReturn
-  run<TProperties, TReturn, TInitialState>(
-    factory: Factory<Actor<TReturn, TProperties | undefined, TInitialState>>,
-    properties?: TProperties,
+  run<TProperties, TReturn>(
+    factory: Factory<Actor<TReturn, TProperties>>,
+    properties?: TProperties | undefined,
     options?: RunOptions<TReturn> | undefined
   ) {
-    return this.reactor.run(factory, properties, {
+    return this.reactor.run(factory, properties!, {
       parentLifecycleScope: options?.parentLifecycleScope ?? this.lifecycle,
       pathPrefix: `${this.path}.`,
       ...options,

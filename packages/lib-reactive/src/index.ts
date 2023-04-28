@@ -15,7 +15,14 @@ export { debugFirehose } from "./debug/debug-tools"
 
 export type { Topic, ReadonlyTopic, Listener, InferMessageType } from "./topic"
 export type { Signal, ReadonlySignal, Reducer } from "./signal"
-export type { Actor, Behavior } from "./actor"
+export type {
+  Actor,
+  Behavior,
+  MessageHandler,
+  MessageHandlerRecord,
+  InferActorMessageType,
+  InferActorReturnType,
+} from "./actor"
 export type {
   Store,
   Action,

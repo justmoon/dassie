@@ -55,7 +55,7 @@ export const forwardLinkStateUpdate = () =>
           })
 
           // Retransmit the link state update
-          sig.use(sendPeerMessage).tell({
+          sig.use(sendPeerMessage).tell("send", {
             subnet: peerSubnetId,
             destination: peerNodeId,
             message: {

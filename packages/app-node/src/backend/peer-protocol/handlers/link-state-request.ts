@@ -10,19 +10,21 @@ export const handleLinkStateRequest = () =>
     const nodeTable = sig.use(nodeTableStore)
     const nodeId = sig.get(nodeIdSignal)
 
-    return ({
-      message: {
-        content: {
-          value: {
-            value: { subnetId },
+    return {
+      handle: ({
+        message: {
+          content: {
+            value: {
+              value: { subnetId },
+            },
           },
         },
+      }: IncomingPeerMessageEvent<"linkStateRequest">) => {
+        const ownNodeTableEntry = nodeTable.read().get(`${subnetId}.${nodeId}`)
+
+        if (!ownNodeTableEntry?.linkState.lastUpdate) return EMPTY_UINT8ARRAY
+
+        return ownNodeTableEntry.linkState.lastUpdate
       },
-    }: IncomingPeerMessageEvent<"linkStateRequest">) => {
-      const ownNodeTableEntry = nodeTable.read().get(`${subnetId}.${nodeId}`)
-
-      if (!ownNodeTableEntry?.linkState.lastUpdate) return EMPTY_UINT8ARRAY
-
-      return ownNodeTableEntry.linkState.lastUpdate
     }
   })

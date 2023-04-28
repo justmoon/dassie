@@ -45,55 +45,57 @@ export const sendPeerMessage = () =>
     const nodeId = sig.get(nodeIdSignal)
     const peers = sig.use(nodeTableStore)
 
-    return async (parameters: MessageWithDestination) => {
-      const { message, subnet, destination, asUint8Array } = parameters
+    return {
+      send: async (parameters: MessageWithDestination) => {
+        const { message, subnet, destination, asUint8Array } = parameters
 
-      const serializedMessage = asUint8Array ?? serializePeerMessage(message)
+        const serializedMessage = asUint8Array ?? serializePeerMessage(message)
 
-      sig.use(outgoingPeerMessageTopic).emit({
-        ...parameters,
-        asUint8Array: serializedMessage,
-      })
-
-      const peer = peers.read().get(`${subnet}.${destination}`)
-
-      if (!peer) {
-        logger.warn("peer not found, unable to send message", {
-          to: destination,
+        sig.use(outgoingPeerMessageTopic).emit({
+          ...parameters,
+          asUint8Array: serializedMessage,
         })
-        return
-      }
 
-      const envelopeSerializationResult = peerMessage.serialize({
-        version: 0,
-        subnetId: subnet,
-        sender: nodeId,
-        authentication: {
-          type: "ED25519_X25519_HMAC-SHA256",
-          value: {
-            sessionPublicKey: Uint8Array.from(Buffer.alloc(32)),
+        const peer = peers.read().get(`${subnet}.${destination}`)
+
+        if (!peer) {
+          logger.warn("peer not found, unable to send message", {
+            to: destination,
+          })
+          return
+        }
+
+        const envelopeSerializationResult = peerMessage.serialize({
+          version: 0,
+          subnetId: subnet,
+          sender: nodeId,
+          authentication: {
+            type: "ED25519_X25519_HMAC-SHA256",
+            value: {
+              sessionPublicKey: Uint8Array.from(Buffer.alloc(32)),
+            },
           },
-        },
-        content: { bytes: serializedMessage },
-      })
-
-      if (!envelopeSerializationResult.success) {
-        logger.warn("failed to serialize message", {
-          error: envelopeSerializationResult.error,
+          content: { bytes: serializedMessage },
         })
-        return
-      }
 
-      const result = await axios<Buffer>(`${peer.url}/peer`, {
-        method: "POST",
-        data: envelopeSerializationResult.value,
-        headers: {
-          accept: "application/dassie-peer-message",
-          "content-type": "application/dassie-peer-message",
-        },
-        responseType: "arraybuffer",
-      })
+        if (!envelopeSerializationResult.success) {
+          logger.warn("failed to serialize message", {
+            error: envelopeSerializationResult.error,
+          })
+          return
+        }
 
-      return new Uint8Array(result.data.buffer)
+        const result = await axios<Buffer>(`${peer.url}/peer`, {
+          method: "POST",
+          data: envelopeSerializationResult.value,
+          headers: {
+            accept: "application/dassie-peer-message",
+            "content-type": "application/dassie-peer-message",
+          },
+          responseType: "arraybuffer",
+        })
+
+        return new Uint8Array(result.data.buffer)
+      },
     }
   })
