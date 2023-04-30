@@ -2,9 +2,9 @@
 
 > A multi-currency, zero-config, peer-to-peer, Interledger-enabled payment network
 
-## Dassie Talk 
+## Intro 
 
-[![dassie-talk](http://img.youtube.com/vi/Whp4RfW3K_U/0.jpg)](http://www.youtube.com/watch?v=Whp4RfW3K_U&t=8371 "Dassie Talk")
+[![intro](http://img.youtube.com/vi/Whp4RfW3K_U/0.jpg)](http://www.youtube.com/watch?v=Whp4RfW3K_U&t=8371 "Intro")
 
 ## Development Environment
 
