@@ -68,6 +68,7 @@ export const discoverNodes = () =>
           nodeId,
           subnetId,
           url: signed.url,
+          alias: signed.alias,
           nodePublicKey: signed.nodePublicKey,
           linkState: {
             sequence: signed.sequence,

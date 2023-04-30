@@ -26,6 +26,15 @@ export interface NodeTableEntry {
   url: string
 
   /**
+   * Node's human-readable alias.
+   *
+   * @remarks
+   *
+   * This alias is not verified and intended for debuggability only.
+   */
+  alias: string
+
+  /**
    * Latest known state of the node's links.
    */
   linkState: LinkState

@@ -23,7 +23,7 @@ export const handleLinkStateUpdate = () =>
         },
       }: IncomingPeerMessageEvent<"linkStateUpdate">) => {
         const { value: linkState, bytes: linkStateBytes } = content
-        const { nodeId, url, sequence, entries, nodePublicKey } =
+        const { nodeId, url, alias, sequence, entries, nodePublicKey } =
           linkState.signed
         const nodes = nodeTable.read()
 
@@ -102,6 +102,7 @@ export const handleLinkStateUpdate = () =>
             subnetId,
             nodeId,
             url,
+            alias,
             nodePublicKey,
             linkState: {
               sequence,

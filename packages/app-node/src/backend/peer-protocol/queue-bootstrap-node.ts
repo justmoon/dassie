@@ -34,6 +34,7 @@ export const queueBootstrapNodes = () =>
           nodeId: candidate.nodeId,
           subnetId,
           url: candidate.url,
+          alias: candidate.alias,
           nodePublicKey: hexToBytes(candidate.nodePublicKey),
           linkState: {
             sequence: 0n,

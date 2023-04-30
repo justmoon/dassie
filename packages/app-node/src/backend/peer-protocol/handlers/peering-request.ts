@@ -17,7 +17,7 @@ export const handlePeeringRequest = () =>
       }: IncomingPeerMessageEvent<"peeringRequest">) => {
         const { nodeInfo } = content
 
-        const { subnetId, nodeId, url, nodePublicKey } = nodeInfo.signed
+        const { subnetId, nodeId, url, alias, nodePublicKey } = nodeInfo.signed
 
         const nodeKey: NodeTableKey = `${subnetId}.${nodeId}`
         const existingEntry = nodeTable.read().get(nodeKey)
@@ -32,6 +32,7 @@ export const handlePeeringRequest = () =>
             nodeId,
             peerState: { id: "peered", lastSeen: Date.now() },
             url,
+            alias,
             nodePublicKey,
             linkState: {
               lastUpdate: undefined,

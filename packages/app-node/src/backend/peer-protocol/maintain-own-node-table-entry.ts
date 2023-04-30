@@ -25,7 +25,7 @@ export const maintainOwnNodeTableEntry = () =>
 
     const nodeId = sig.get(nodeIdSignal)
     const nodePublicKey = sig.get(nodePublicKeySignal)
-    const { url } = sig.getKeys(configSignal, ["url"])
+    const { url, alias } = sig.getKeys(configSignal, ["url", "alias"])
     const ownNodeTableEntry = sig
       .use(nodeTableStore)
       .read()
@@ -43,6 +43,7 @@ export const maintainOwnNodeTableEntry = () =>
         nodeId,
         nodePublicKey,
         url,
+        alias,
         sequence,
         entries: peerIds.map((peerId) => ({
           type: "neighbor",
@@ -80,6 +81,7 @@ export const maintainOwnNodeTableEntry = () =>
           nodeId,
           nodePublicKey,
           url,
+          alias,
           linkState: {
             neighbors: peerIds,
             sequence,

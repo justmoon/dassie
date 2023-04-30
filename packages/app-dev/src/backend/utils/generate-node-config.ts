@@ -55,6 +55,7 @@ const generatePeerInfo = (peerIndex: number) => ({
   url: `https://${nodeIndexToFriendlyId(peerIndex)}.localhost:${nodeIndexToPort(
     peerIndex
   )}`,
+  alias: nodeIndexToFriendlyId(peerIndex),
   nodePublicKey: Buffer.from(nodeIndexToPublicKey(peerIndex)).toString("hex"),
 })
 

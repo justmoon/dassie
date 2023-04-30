@@ -13,6 +13,7 @@ import {
   uint32Number,
   uint64Bigint,
   uppercaseLetters,
+  utf8String,
   visibleString,
 } from "@dassie/lib-oer"
 
@@ -40,6 +41,7 @@ export const peerNodeInfo = sequence({
   nodeId: nodeIdSchema,
   sequence: uint64Bigint(),
   url: visibleString(),
+  alias: utf8String(),
   nodePublicKey: octetString(),
   entries: sequenceOf(nodeInfoEntry),
 })

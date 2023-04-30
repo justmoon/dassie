@@ -8,6 +8,7 @@ export const subnetConfigSchema = z.array(
       z.object({
         nodeId: z.string(),
         url: z.string(),
+        alias: z.string(),
         nodePublicKey: z.string(),
       })
     ),

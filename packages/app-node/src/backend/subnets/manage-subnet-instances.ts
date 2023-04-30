@@ -35,6 +35,7 @@ const runSubnetModule = () =>
         const nodePublicKey = hexToBytes(peer.nodePublicKey)
         sig.use(nodeTableStore).addNode({
           ...peer,
+          alias: peer.alias ?? "initial",
           nodePublicKey,
           subnetId,
           linkState: {
