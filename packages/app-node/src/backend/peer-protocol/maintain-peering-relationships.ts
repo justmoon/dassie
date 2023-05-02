@@ -3,8 +3,8 @@ import { createActor } from "@dassie/lib-reactive"
 
 import { configSignal } from "../config"
 import { nodeIdSignal } from "../ilp-connector/computed/node-id"
+import type { PerSubnetParameters } from "../subnets/manage-subnet-instances"
 import { peersComputation } from "./computed/peers"
-import type { PerSubnetParameters } from "./run-per-subnet-effects"
 import { nodeTableStore } from "./stores/node-table"
 
 const PEERING_CHECK_INTERVAL = 1000

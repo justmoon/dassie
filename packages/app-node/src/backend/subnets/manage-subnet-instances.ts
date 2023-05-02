@@ -3,7 +3,7 @@ import { hexToBytes } from "@noble/hashes/utils"
 import { createActor } from "@dassie/lib-reactive"
 
 import { configSignal } from "../config"
-import { runPerSubnetEffects } from "../peer-protocol/run-per-subnet-effects"
+import { speakPeerProtocolPerSubnet } from "../peer-protocol"
 import { nodeTableStore } from "../peer-protocol/stores/node-table"
 import modules from "./modules"
 import { activeSubnetsSignal } from "./signals/active-subnets"
@@ -13,6 +13,10 @@ export const manageSubnetInstances = () =>
   createActor(async (sig) => {
     await Promise.all(sig.for(activeSubnetsSignal, runSubnetModule))
   })
+
+export interface PerSubnetParameters {
+  subnetId: string
+}
 
 const runSubnetModule = () =>
   createActor(async (sig, subnetId: string) => {
@@ -58,7 +62,7 @@ const runSubnetModule = () =>
     /**
      * Instantiate aspects of the peer protocol that are specific to this subnet.
      */
-    await sig.run(runPerSubnetEffects, {
+    await sig.run(speakPeerProtocolPerSubnet, {
       subnetId,
     })
   })

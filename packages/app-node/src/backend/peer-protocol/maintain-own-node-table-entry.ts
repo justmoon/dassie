@@ -5,10 +5,10 @@ import { configSignal } from "../config"
 import { nodePublicKeySignal } from "../crypto/computed/node-public-key"
 import { signerService } from "../crypto/signer"
 import { nodeIdSignal } from "../ilp-connector/computed/node-id"
+import type { PerSubnetParameters } from "../subnets/manage-subnet-instances"
 import { compareSetToArray } from "../utils/compare-sets"
 import { peersComputation } from "./computed/peers"
 import { peerNodeInfo, signedPeerNodeInfo } from "./peer-schema"
-import type { PerSubnetParameters } from "./run-per-subnet-effects"
 import { nodeTableStore, parseNodeKey } from "./stores/node-table"
 
 const logger = createLogger("das:node:maintain-own-node-table-entry")

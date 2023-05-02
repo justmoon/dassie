@@ -4,7 +4,7 @@ import { createActor } from "@dassie/lib-reactive"
 
 import { configSignal } from "../config"
 import { nodeIdSignal } from "../ilp-connector/computed/node-id"
-import type { PerSubnetParameters } from "./run-per-subnet-effects"
+import type { PerSubnetParameters } from "../subnets/manage-subnet-instances"
 import { nodeDiscoveryQueueStore } from "./stores/node-discovery-queue"
 import { type NodeTableKey, nodeTableStore } from "./stores/node-table"
 
