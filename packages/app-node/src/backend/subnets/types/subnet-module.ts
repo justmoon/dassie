@@ -1,6 +1,6 @@
 import type { Promisable } from "type-fest"
 
-import type { Actor, Factory } from "@dassie/lib-reactive"
+import type { Behavior } from "@dassie/lib-reactive"
 
 import type { VALID_REALMS } from "../../constants/general"
 import type { IlpPacketWithAttachedPrepare } from "../../ilp-connector/topics/incoming-ilp-packet"
@@ -50,11 +50,11 @@ export interface SubnetModule {
   readonly realm: (typeof VALID_REALMS)[number]
 
   /**
-   * Actor which will be instantiated while the node is connected to this subnet.
+   * Behavior of the actor which will be instantiated while the node is connected to this subnet.
    *
    * @remarks
    *
    * Use this to do things like maintaining a connection to the ledger in question.
    */
-  actor: Factory<Actor<Promisable<void>, SubnetProperties>>
+  behavior: Behavior<Promisable<void>, SubnetProperties>
 }

@@ -54,14 +54,21 @@ const runSubnetModule = () =>
       }
     }
 
-    /**
-     * Instantiate subnet module actor.
-     */
-    await sig.run(module.actor, { subnetId })
+    // Create a unique factory for the subnet module actor.
+    //
+    // The same subnet module may be used for different subnets, so we are deliberately creating a unique factory for each subnet.
+    const subnetActor = () => createActor(module.behavior)
 
-    /**
-     * Instantiate aspects of the peer protocol that are specific to this subnet.
-     */
+    // For easier debugging, we give the subnet factory a unique name as well.
+    Object.defineProperty(subnetActor, "name", {
+      value: `subnet-${subnetId}`,
+      writable: false,
+    })
+
+    // Instantiate subnet module actor.
+    await sig.run(subnetActor, { subnetId })
+
+    // Instantiate aspects of the peer protocol that are specific to this subnet.
     await sig.run(speakPeerProtocolPerSubnet, {
       subnetId,
     })

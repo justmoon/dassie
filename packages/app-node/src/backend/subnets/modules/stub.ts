@@ -1,5 +1,3 @@
-import { createActor } from "@dassie/lib-reactive"
-
 import type { SubnetModule } from "../types/subnet-module"
 
 /**
@@ -14,12 +12,11 @@ const stub = {
   supportedVersions: [1],
   realm: "test",
 
-  actor: () =>
-    createActor(() => {
-      if (process.env["NODE_ENV"] === "production") {
-        throw new Error('The "stub" subnet cannot be used in production')
-      }
-    }),
+  behavior: () => {
+    if (process.env["NODE_ENV"] === "production") {
+      throw new Error('The "stub" subnet cannot be used in production')
+    }
+  },
 } satisfies SubnetModule
 
 export default stub
