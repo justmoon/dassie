@@ -41,12 +41,6 @@ export const DisposeSymbol = Symbol("das:reactive:dispose")
 export type Disposer = () => void
 export type AsyncDisposer = () => Promisable<void>
 
-const tagWithEffectName = (target: unknown, effectName: string) => {
-  if (isObject(target) && FactoryNameSymbol in target) {
-    target[FactoryNameSymbol] = effectName
-  }
-}
-
 export interface UseOptions {
   /**
    * Custom lifecycle scope to use for this state.
@@ -145,7 +139,13 @@ export class Reactor extends LifecycleScope {
         })
       }
 
-      tagWithEffectName(result, factoryPath)
+      // Tag with factory name
+      {
+        const target: unknown = result
+        if (isObject(target) && FactoryNameSymbol in target) {
+          target[FactoryNameSymbol] = factoryPath
+        }
+      }
 
       // Run intialization function if there is one
       if (
