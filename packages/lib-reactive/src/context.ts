@@ -1,8 +1,5 @@
 import type { Actor } from "./actor"
-import {
-  createArrayEffect,
-  createIndexedArrayEffect,
-} from "./internal/array-effect"
+import { forArrayElement, forArrayIndex } from "./internal/actor-arrays"
 import type { LifecycleScope } from "./internal/lifecycle-scope"
 import type {
   AsyncDisposer,
@@ -356,9 +353,7 @@ export class ActorContext {
     arraySignalFactory: Factory<ReadonlySignal<readonly TElement[]>>,
     actorFactory: Factory<Actor<TReturn, TElement>>
   ) {
-    return this.run(
-      createArrayEffect(arraySignalFactory, actorFactory, this.name)
-    )
+    return forArrayElement(this, arraySignalFactory, actorFactory, this.name)
   }
 
   /**
@@ -370,9 +365,6 @@ export class ActorContext {
       Actor<TReturn, readonly [element: TElement, index: number]>
     >
   ) {
-    return this.run(
-      createIndexedArrayEffect(arraySignalFactory, actorFactory, this.name),
-      undefined
-    )
+    return forArrayIndex(this, arraySignalFactory, actorFactory, this.name)
   }
 }
