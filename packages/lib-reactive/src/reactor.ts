@@ -91,10 +91,9 @@ export interface RunOptions<TReturn> {
 
 export type Factory<TInstance> = (reactor: Reactor) => TInstance
 
-export interface ContextState
-  extends WeakMap<Factory<unknown> | Behavior, unknown> {
-  get<T>(key: Factory<T> | Behavior<T>): T | undefined
-  set<T>(key: Factory<T> | Behavior<T>, value: T): this
+export interface ContextState extends WeakMap<Factory<unknown>, unknown> {
+  get<T>(key: Factory<T>): T | undefined
+  set<T>(key: Factory<T>, value: T): this
 }
 
 interface RunSignature {
@@ -242,13 +241,11 @@ export class Reactor extends LifecycleScope {
    * @param factory - Key to the element in the context.
    * @returns The value stored in the context if any.
    */
-  peek = <TReturn>(
-    factory: Factory<TReturn> | Behavior<TReturn>
-  ): TReturn | undefined => {
+  peek = <TReturn>(factory: Factory<TReturn>): TReturn | undefined => {
     return this.contextState.get(factory)
   }
 
-  delete = (factory: Factory<unknown> | Behavior) => {
+  delete = (factory: Factory<unknown>) => {
     if (!this.contextState.has(factory)) return
 
     const result = this.contextState.get(factory)
@@ -275,7 +272,7 @@ export class Reactor extends LifecycleScope {
    * @param factory - The factory which should be used as the key to store this context element.
    * @param value - The value to store in the context.
    */
-  set = <T>(factory: Factory<T> | Behavior<T>, value: T) => {
+  set = <T>(factory: Factory<T>, value: T) => {
     this.contextState.set(factory, value)
   }
 
