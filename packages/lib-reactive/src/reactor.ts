@@ -50,12 +50,12 @@ export interface UseOptions {
   parentLifecycleScope?: LifecycleScope | undefined
 
   /**
-   * A string that will be used to prefix the debug log messages related to this effect.
+   * A string that will be used to prefix the debug log messages related to this context item.
    */
   pathPrefix?: string | undefined
 
   /**
-   * If true, the factory or effect will be instantiated fresh every time and will not be stored in the context.
+   * If true, the factory will be instantiated fresh every time and will not be stored in the context.
    */
   stateless?: boolean | undefined
 }
@@ -176,7 +176,13 @@ export class Reactor extends LifecycleScope {
   }
 
   /**
-   * Instantiate an actor in the reactor's global context. The key is a factory which returns the value sought. If the value does not exist yet, it will be created by running the factory function.
+   * Execute an actor and return its first return value.
+   *
+   * @remarks
+   *
+   * You may pass a second parameter (usually a properties object) which will be passed as the second argument to the actor's behavior function.
+   *
+   * The actor will run for the duration of the `parentLifecycleScope` or the reactor's lifecycle scope if none is provided.
    *
    * @param effect - A function that will be executed to create the value if it does not yet exist in this reactor.
    * @returns The value stored in the context.
@@ -236,7 +242,7 @@ export class Reactor extends LifecycleScope {
   }
 
   /**
-   * Access an element in the context but without creating it if it does not yet exist. This also does not increase the reference count.
+   * Access an element in the context but without creating it if it does not yet exist.
    *
    * @param factory - Key to the element in the context.
    * @returns The value stored in the context if any.
