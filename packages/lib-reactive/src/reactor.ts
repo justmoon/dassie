@@ -195,12 +195,10 @@ export class Reactor extends LifecycleScope {
   ) => {
     let result: TReturn | undefined
 
-    const actor = register ? this.use(factory) : factory(this)
-
-    const actorPath = pathPrefix ? `${pathPrefix}${factory.name}` : factory.name
+    const actor = register ? this.use(factory, { pathPrefix }) : factory(this)
 
     if (actor.isRunning) {
-      throw new Error(`actor is already running: ${actorPath}`)
+      throw new Error(`actor is already running: ${actor[FactoryNameSymbol]}`)
     }
 
     actor.isRunning = true
@@ -208,7 +206,7 @@ export class Reactor extends LifecycleScope {
     loopEffect(
       this,
       actor.behavior,
-      actorPath,
+      actor[FactoryNameSymbol],
       properties,
       parentLifecycleScope ?? this,
       (_result) => {
@@ -229,7 +227,7 @@ export class Reactor extends LifecycleScope {
     ).catch((error: unknown) => {
       console.error("error in actor", {
         effect: factory.name,
-        path: actorPath,
+        path: actor[FactoryNameSymbol],
         error,
         ...additionalDebugData,
       })
