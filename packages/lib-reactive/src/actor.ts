@@ -56,10 +56,10 @@ export type Actor<TInstance, TProperties = undefined> = Signal<
    *
    * @param message - The message to send to the actor.
    */
-  tell: <TMethod extends string & keyof TInstance>(
+  tell: <TMethod extends string & keyof Awaited<TInstance>>(
     this: void,
     method: TMethod,
-    message: InferActorMessageType<TInstance, TMethod>
+    message: InferActorMessageType<Awaited<TInstance>, TMethod>
   ) => void
 
   /**
@@ -68,11 +68,11 @@ export type Actor<TInstance, TProperties = undefined> = Signal<
    * @param message - The message to send to the actor.
    * @returns A promise that will resolve with the response from the actor.
    */
-  ask: <TMethod extends string & keyof TInstance>(
+  ask: <TMethod extends string & keyof Awaited<TInstance>>(
     this: void,
     method: TMethod,
-    message: InferActorMessageType<TInstance, TMethod>
-  ) => Promise<InferActorReturnType<TInstance, TMethod>>
+    message: InferActorMessageType<Awaited<TInstance>, TMethod>
+  ) => Promise<InferActorReturnType<Awaited<TInstance>, TMethod>>
 }
 
 type CreateActorSignature = <TInstance, TProperties = undefined>(
@@ -165,21 +165,23 @@ export const createActor: CreateActorSignature = <
           resolve(
             (
               handler as (
-                parameter: InferActorMessageType<TInstance, typeof method>
-              ) => InferActorReturnType<TInstance, typeof method>
+                parameter: typeof message
+              ) => InferActorReturnType<Awaited<TInstance>, typeof method>
             )(message)
           )
           return
         }
 
-        const removeListener = signal.on((handler) => {
+        const removeListener = signal.on((handlerRecord) => {
+          const handler = handlerRecord?.[method]
+
           if (handler) {
             try {
               resolve(
                 (
                   handler as (
-                    parameter: InferActorMessageType<TInstance, typeof method>
-                  ) => InferActorReturnType<TInstance, typeof method>
+                    parameter: typeof message
+                  ) => InferActorReturnType<Awaited<TInstance>, typeof method>
                 )(message)
               )
             } catch (error) {
