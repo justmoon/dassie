@@ -4,6 +4,7 @@ import type { Behavior } from "@dassie/lib-reactive"
 
 import type { VALID_REALMS } from "../../constants/general"
 import type { IlpPacketWithAttachedPrepare } from "../../ilp-connector/topics/incoming-ilp-packet"
+import type { NodeTableKey } from "../../peer-protocol/stores/node-table"
 
 export interface BalanceMap {
   adjustBalance: (subnetId: string, adjustment: bigint) => void
@@ -17,6 +18,15 @@ export interface PacketInformation {
 
 export interface SubnetProperties {
   readonly subnetId: string
+}
+
+export interface SettlementParameters {
+  amount: bigint
+  peerKey: NodeTableKey
+}
+
+export interface SubnetActorMethods {
+  settle: (parameters: SettlementParameters) => Promisable<void>
 }
 
 export interface SubnetModule {
@@ -56,5 +66,5 @@ export interface SubnetModule {
    *
    * Use this to do things like maintaining a connection to the ledger in question.
    */
-  behavior: Behavior<Promisable<void>, SubnetProperties>
+  behavior: Behavior<Promisable<SubnetActorMethods>, SubnetProperties>
 }

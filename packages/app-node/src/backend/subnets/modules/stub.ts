@@ -16,6 +16,12 @@ const stub = {
     if (process.env["NODE_ENV"] === "production") {
       throw new Error('The "stub" subnet cannot be used in production')
     }
+
+    return {
+      settle: ({ amount, peerKey }) => {
+        console.log(`Sending settlement for ${amount} units to ${peerKey}`)
+      },
+    }
   },
 } satisfies SubnetModule
 
