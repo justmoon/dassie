@@ -1,3 +1,5 @@
+import type { ConditionalKeys } from "type-fest"
+
 import { isObject } from "@dassie/lib-type-utils"
 
 import type { ActorContext } from "./context"
@@ -18,19 +20,15 @@ export type MessageHandlerRecord = Record<string, MessageHandler>
 export type InferActorMessageType<
   TInstance,
   TMethod extends string & keyof TInstance
-> = TInstance extends MessageHandlerRecord
-  ? TInstance[TMethod] extends (message: infer TMessage) => unknown
-    ? TMessage
-    : "foo"
-  : "foo2"
+> = TInstance[TMethod] extends (message: infer TMessage) => unknown
+  ? TMessage
+  : never
 
 export type InferActorReturnType<
   TInstance,
   TMethod extends string & keyof TInstance
-> = TInstance extends MessageHandlerRecord
-  ? TInstance[TMethod] extends (...parameters: never[]) => infer TReturn
-    ? TReturn
-    : never
+> = TInstance[TMethod] extends (...parameters: never[]) => infer TReturn
+  ? TReturn
   : never
 
 export type Actor<TInstance, TProperties = undefined> = Signal<
@@ -56,7 +54,9 @@ export type Actor<TInstance, TProperties = undefined> = Signal<
    *
    * @param message - The message to send to the actor.
    */
-  tell: <TMethod extends string & keyof Awaited<TInstance>>(
+  tell: <
+    TMethod extends string & ConditionalKeys<Awaited<TInstance>, MessageHandler>
+  >(
     this: void,
     method: TMethod,
     message: InferActorMessageType<Awaited<TInstance>, TMethod>
@@ -68,7 +68,9 @@ export type Actor<TInstance, TProperties = undefined> = Signal<
    * @param message - The message to send to the actor.
    * @returns A promise that will resolve with the response from the actor.
    */
-  ask: <TMethod extends string & keyof Awaited<TInstance>>(
+  ask: <
+    TMethod extends string & ConditionalKeys<Awaited<TInstance>, MessageHandler>
+  >(
     this: void,
     method: TMethod,
     message: InferActorMessageType<Awaited<TInstance>, TMethod>
