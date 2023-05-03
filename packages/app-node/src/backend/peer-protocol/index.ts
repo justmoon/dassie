@@ -1,4 +1,4 @@
-import { createActor } from "@dassie/lib-reactive"
+import { createActor, createComputed } from "@dassie/lib-reactive"
 
 import type { PerSubnetParameters } from "../subnets/manage-subnet-instances"
 import { handlePeerMessage } from "./actions/handle-peer-message"
@@ -25,8 +25,6 @@ export const speakPeerProtocol = () =>
     sig.run(sendHeartbeats)
     sig.run(forwardLinkStateUpdate)
     sig.run(discoverNodes)
-
-    sig.for(peersArrayComputation, runPerPeerEffects)
   })
 
 /**
@@ -38,4 +36,15 @@ export const speakPeerProtocolPerSubnet = () =>
     await sig.run(maintainOwnNodeTableEntry, parameters)
     sig.run(maintainPeeringRelationships, parameters)
     sig.run(queueBootstrapNodes, parameters)
+
+    // Get peers for this subnet and prepare parameters for each one
+    const subnetPeersParametersSignal = () =>
+      createComputed((sig) =>
+        sig
+          .get(peersArrayComputation)
+          .filter((peerId) => peerId.startsWith(`${parameters.subnetId}.`))
+          .map((peerKey) => ({ ...parameters, peerKey }))
+      )
+
+    sig.for(subnetPeersParametersSignal, runPerPeerEffects)
   })
