@@ -58,15 +58,21 @@ export const handleInterledgerPacket = () =>
         const peerKey: NodeTableKey = `${subnetId}.${sender}`
         switch (packet.type) {
           case IlpType.Prepare: {
-            balanceMap.handleIncomingPrepared(peerKey, packet.amount)
+            if (packet.amount > 0n) {
+              balanceMap.handleIncomingPrepared(peerKey, packet.amount)
+            }
             break
           }
           case IlpType.Fulfill: {
-            balanceMap.handleOutgoingFulfilled(peerKey, packet.prepare.amount)
+            if (packet.prepare.amount > 0n) {
+              balanceMap.handleOutgoingFulfilled(peerKey, packet.prepare.amount)
+            }
             break
           }
           case IlpType.Reject: {
-            balanceMap.handleOutgoingRejected(peerKey, packet.prepare.amount)
+            if (packet.prepare.amount > 0n) {
+              balanceMap.handleOutgoingRejected(peerKey, packet.prepare.amount)
+            }
             break
           }
         }

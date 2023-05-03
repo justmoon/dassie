@@ -131,21 +131,27 @@ export const calculateRoutes = () =>
             const peerKey: NodeTableKey = `${subnetId}.${nextHop}`
             switch (packet.type) {
               case IlpType.Prepare: {
-                balanceMap.handleOutgoingPrepared(peerKey, packet.amount)
+                if (packet.amount > 0n) {
+                  balanceMap.handleOutgoingPrepared(peerKey, packet.amount)
+                }
                 break
               }
               case IlpType.Fulfill: {
-                balanceMap.handleIncomingFulfilled(
-                  peerKey,
-                  packet.prepare.amount
-                )
+                if (packet.prepare.amount > 0n) {
+                  balanceMap.handleIncomingFulfilled(
+                    peerKey,
+                    packet.prepare.amount
+                  )
+                }
                 break
               }
               case IlpType.Reject: {
-                balanceMap.handleIncomingRejected(
-                  peerKey,
-                  packet.prepare.amount
-                )
+                if (packet.prepare.amount > 0n) {
+                  balanceMap.handleIncomingRejected(
+                    peerKey,
+                    packet.prepare.amount
+                  )
+                }
                 break
               }
             }
