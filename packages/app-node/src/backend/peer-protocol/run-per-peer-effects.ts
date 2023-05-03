@@ -1,7 +1,7 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { settlePerPeer } from "../../settlement"
 import { peerBalanceMapStore } from "../balances/stores/peer-balance-map"
+import { settlePerPeer } from "../settlement"
 import type { PerSubnetParameters } from "../subnets/manage-subnet-instances"
 import type { NodeTableKey } from "./stores/node-table"
 

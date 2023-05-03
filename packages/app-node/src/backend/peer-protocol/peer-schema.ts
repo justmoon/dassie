@@ -68,6 +68,10 @@ export const peerMessageContent = choice({
     subnetId: subnetIdSchema,
     nodeId: nodeIdSchema,
   }).tag(3),
+  subnetModuleMessage: sequence({
+    subnetId: subnetIdSchema,
+    message: octetString(),
+  }).tag(4),
 })
 
 export const peerMessage = sequence({

@@ -1,6 +1,6 @@
 import type { Promisable } from "type-fest"
 
-import type { Behavior } from "@dassie/lib-reactive"
+import type { Actor, Behavior, Factory } from "@dassie/lib-reactive"
 
 import type { VALID_REALMS } from "../../constants/general"
 import type { IlpPacketWithAttachedPrepare } from "../../ilp-connector/topics/incoming-ilp-packet"
@@ -18,6 +18,7 @@ export interface PacketInformation {
 
 export interface SubnetProperties {
   readonly subnetId: string
+  host: SubnetHostMethods
 }
 
 export interface SettlementParameters {
@@ -25,9 +26,23 @@ export interface SettlementParameters {
   peerKey: NodeTableKey
 }
 
+export interface PeerMessageParameters {
+  peerKey: NodeTableKey
+  message: Uint8Array
+}
+
+export interface SubnetHostMethods {
+  sendMessage: (parameters: PeerMessageParameters) => Promisable<void>
+}
+
 export interface SubnetActorMethods {
   settle: (parameters: SettlementParameters) => Promisable<void>
+  handleMessage: (parameters: PeerMessageParameters) => Promisable<void>
 }
+
+export type SubnetActorFactory = Factory<
+  Actor<Promisable<SubnetActorMethods>, SubnetProperties>
+>
 
 export interface SubnetModule {
   /**

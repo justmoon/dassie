@@ -9,6 +9,7 @@ import { handleInterledgerPacket } from "../handlers/interledger-packet"
 import { handleLinkStateRequest } from "../handlers/link-state-request"
 import { handleLinkStateUpdate } from "../handlers/link-state-update"
 import { handlePeeringRequest } from "../handlers/peering-request"
+import { handleSubnetModuleMessage } from "../handlers/subnet-module-message"
 import type { PeerMessage } from "../peer-schema"
 
 export interface IncomingPeerMessageEvent<
@@ -46,6 +47,7 @@ const HANDLERS: AllPeerMessageHandlerFactories = {
   linkStateUpdate: handleLinkStateUpdate,
   interledgerPacket: handleInterledgerPacket,
   linkStateRequest: handleLinkStateRequest,
+  subnetModuleMessage: handleSubnetModuleMessage,
 }
 
 export const handlePeerMessage = () =>
