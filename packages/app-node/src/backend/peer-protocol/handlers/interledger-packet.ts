@@ -59,19 +59,25 @@ export const handleInterledgerPacket = () =>
         switch (packet.type) {
           case IlpType.Prepare: {
             if (packet.amount > 0n) {
-              balanceMap.handleIncomingPrepared(peerKey, packet.amount)
+              balanceMap.handleIncomingPacketPrepared(peerKey, packet.amount)
             }
             break
           }
           case IlpType.Fulfill: {
             if (packet.prepare.amount > 0n) {
-              balanceMap.handleOutgoingFulfilled(peerKey, packet.prepare.amount)
+              balanceMap.handleOutgoingPacketFulfilled(
+                peerKey,
+                packet.prepare.amount
+              )
             }
             break
           }
           case IlpType.Reject: {
             if (packet.prepare.amount > 0n) {
-              balanceMap.handleOutgoingRejected(peerKey, packet.prepare.amount)
+              balanceMap.handleOutgoingPacketRejected(
+                peerKey,
+                packet.prepare.amount
+              )
             }
             break
           }

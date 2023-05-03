@@ -132,13 +132,16 @@ export const calculateRoutes = () =>
             switch (packet.type) {
               case IlpType.Prepare: {
                 if (packet.amount > 0n) {
-                  balanceMap.handleOutgoingPrepared(peerKey, packet.amount)
+                  balanceMap.handleOutgoingPacketPrepared(
+                    peerKey,
+                    packet.amount
+                  )
                 }
                 break
               }
               case IlpType.Fulfill: {
                 if (packet.prepare.amount > 0n) {
-                  balanceMap.handleIncomingFulfilled(
+                  balanceMap.handleIncomingPacketFulfilled(
                     peerKey,
                     packet.prepare.amount
                   )
@@ -147,7 +150,7 @@ export const calculateRoutes = () =>
               }
               case IlpType.Reject: {
                 if (packet.prepare.amount > 0n) {
-                  balanceMap.handleIncomingRejected(
+                  balanceMap.handleIncomingPacketRejected(
                     peerKey,
                     packet.prepare.amount
                   )

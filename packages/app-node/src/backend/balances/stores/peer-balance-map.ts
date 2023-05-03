@@ -36,7 +36,7 @@ export const peerBalanceMapStore = () =>
         draft.delete(peerKey)
       }),
 
-    handleIncomingPrepared: (peerKey: NodeTableKey, amount: bigint) =>
+    handleIncomingPacketPrepared: (peerKey: NodeTableKey, amount: bigint) =>
       produce((draft) => {
         if (amount <= 0n) {
           throw new TypeError("Amount must be positive (>0)")
@@ -52,7 +52,7 @@ export const peerBalanceMapStore = () =>
 
         currentBalance.incomingPending += amount
       }),
-    handleIncomingFulfilled: (peerKey: NodeTableKey, amount: bigint) =>
+    handleIncomingPacketFulfilled: (peerKey: NodeTableKey, amount: bigint) =>
       produce((draft) => {
         if (amount <= 0n) {
           throw new TypeError("Amount must be positive (>0)")
@@ -70,7 +70,7 @@ export const peerBalanceMapStore = () =>
         currentBalance.balance += amount
         currentBalance.totalTraffic += amount
       }),
-    handleIncomingRejected: (peerKey: NodeTableKey, amount: bigint) =>
+    handleIncomingPacketRejected: (peerKey: NodeTableKey, amount: bigint) =>
       produce((draft) => {
         if (amount <= 0n) {
           throw new TypeError("Amount must be positive (>0)")
@@ -87,7 +87,7 @@ export const peerBalanceMapStore = () =>
         currentBalance.incomingPending -= amount
       }),
 
-    handleOutgoingPrepared: (peerKey: NodeTableKey, amount: bigint) =>
+    handleOutgoingPacketPrepared: (peerKey: NodeTableKey, amount: bigint) =>
       produce((draft) => {
         if (amount <= 0n) {
           throw new TypeError("Amount must be positive (>0)")
@@ -103,7 +103,7 @@ export const peerBalanceMapStore = () =>
 
         currentBalance.outgoingPending += amount
       }),
-    handleOutgoingFulfilled: (peerKey: NodeTableKey, amount: bigint) =>
+    handleOutgoingPacketFulfilled: (peerKey: NodeTableKey, amount: bigint) =>
       produce((draft) => {
         if (amount <= 0n) {
           throw new TypeError("Amount must be positive (>0)")
@@ -121,7 +121,7 @@ export const peerBalanceMapStore = () =>
         currentBalance.balance -= amount
         currentBalance.totalTraffic += amount
       }),
-    handleOutgoingRejected: (peerKey: NodeTableKey, amount: bigint) =>
+    handleOutgoingPacketRejected: (peerKey: NodeTableKey, amount: bigint) =>
       produce((draft) => {
         if (amount <= 0n) {
           throw new TypeError("Amount must be positive (>0)")
