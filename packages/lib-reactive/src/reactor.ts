@@ -117,9 +117,9 @@ export class Reactor extends LifecycleScope {
    * @returns The value stored in the context.
    */
   use = <TReturn>(
-    factory: (reactor: Reactor) => TReturn,
+    factory: Factory<TReturn>,
     { parentLifecycleScope, pathPrefix, stateless }: UseOptions = {}
-  ) => {
+  ): TReturn => {
     let result!: TReturn
 
     // We use has() to check if the effect is already in the context. Note that the factory's return value may be undefined, so it would not be sufficient to check if the return value of get() is undefined.
