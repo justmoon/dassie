@@ -33,7 +33,7 @@ export const speakPeerProtocol = () =>
 export const speakPeerProtocolPerSubnet = () =>
   createActor(async (sig, parameters: PerSubnetParameters) => {
     sig.run(calculateRoutes, parameters)
-    await sig.run(maintainOwnNodeTableEntry, parameters)
+    await sig.run(maintainOwnNodeTableEntry, parameters).result
     sig.run(maintainPeeringRelationships, parameters)
     sig.run(queueBootstrapNodes, parameters)
 

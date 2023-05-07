@@ -35,7 +35,7 @@ export const listenForRpcWebSocket = () =>
           keyPath,
         },
       ],
-    })
+    }).result
 
     const httpsServer = createServer({
       cert: readFileSync(certificatePath),

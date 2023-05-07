@@ -25,9 +25,9 @@ export const rootActor = () =>
     sig.run(startIlpConnector)
     sig.run(startIldcpServer)
     sig.run(startBalances)
-    await sig.run(startExchangeRates)
-    await sig.run(startSubnets)
-    await sig.run(startSpspServer)
+    await sig.run(startExchangeRates).result
+    await sig.run(startSubnets).result
+    await sig.run(startSpspServer).result
     sig.run(startOpenPaymentsServer)
     sig.run(startStatisticsServer)
 

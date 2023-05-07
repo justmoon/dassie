@@ -64,7 +64,7 @@ export const forArrayElement = <TElement, TReturn>(
             index,
             parentEffect: parentEffectName,
           },
-        })
+        }).result!
       })
 
       runningEffects.set(element, {
@@ -139,7 +139,7 @@ export const forArrayIndex = <TElement, TReturn>(
             index,
             parentEffect: parentEffectName,
           },
-        })
+        }).result!
       })
 
       runningEffects[index] = {

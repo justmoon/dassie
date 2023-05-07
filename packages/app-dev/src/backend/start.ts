@@ -20,15 +20,15 @@ const rootActor = () =>
 
     sig.run(registerReactiveLogger)
     sig.run(proxyByHostname)
-    await sig.run(listenForRpcWebSocket)
+    await sig.run(listenForRpcWebSocket).result
 
-    await sig.run(viteService, undefined, { register: true })
+    await sig.run(viteService, undefined, { register: true }).result
     sig.run(viteNodeService, undefined, { register: true })
 
-    await sig.run(compileRunner)
+    await sig.run(compileRunner).result
     sig.run(handleFileChange)
-    await sig.run(runNodes)
-    await sig.run(debugUiServer)
+    await sig.run(runNodes).result
+    await sig.run(debugUiServer).result
 
     sig.run(regenerateNodeConfig)
 

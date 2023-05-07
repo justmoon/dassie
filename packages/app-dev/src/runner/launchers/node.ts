@@ -20,9 +20,9 @@ const debugRunner = () =>
     sig.run(handleDisconnect)
     sig.run(forwardLogs)
     sig.run(forwardPeerTraffic)
-    await sig.run(reportPeeringState)
-    await sig.run(serveWallet)
-    await sig.run(nodeRootActor)
+    await sig.run(reportPeeringState).result
+    await sig.run(serveWallet).result
+    await sig.run(nodeRootActor).result
     sig.run(runDebugRpcServer)
   })
 

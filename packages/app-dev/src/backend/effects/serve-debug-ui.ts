@@ -42,7 +42,7 @@ export const debugUiServer = () =>
           keyPath,
         },
       ],
-    })
+    }).result
 
     const server = await createServer({
       root: debugUiPath,

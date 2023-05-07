@@ -37,6 +37,6 @@ export const runNodeChildProcess = <T>() =>
           DASSIE_DEV_NODE_ID: node.id,
           DASSIE_DEBUG_RPC_PORT: String(node.debugPort),
         },
-      })
+      }).result
     }
   )

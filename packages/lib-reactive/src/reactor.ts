@@ -2,7 +2,7 @@ import type { Promisable } from "type-fest"
 
 import { isObject } from "@dassie/lib-type-utils"
 
-import type { Actor, Behavior } from "./actor"
+import type { Actor } from "./actor"
 import { ActorContext } from "./context"
 import { createDebugTools } from "./debug/debug-tools"
 import { LifecycleScope } from "./internal/lifecycle-scope"
@@ -50,41 +50,31 @@ export interface UseOptions {
   parentLifecycleScope?: LifecycleScope | undefined
 
   /**
-   * A string that will be used to prefix the debug log messages related to this context item.
-   */
-  pathPrefix?: string | undefined
-
-  /**
    * If true, the factory will be instantiated fresh every time and will not be stored in the context.
    */
   stateless?: boolean | undefined
 }
 
-export interface RunOptions<TReturn> {
+export interface RunOptions {
   /**
-   * A callback which will be called with the effect's return value each time it executes.
-   */
-  onResult?: ((result: TReturn) => void) | undefined
-
-  /**
-   * Object with additional debug information that will be merged into the debug log data related to the effect.
+   * Object with additional debug information that will be merged into the debug log data related to the actor.
    */
   additionalDebugData?: Record<string, unknown> | undefined
 
   /**
-   * Custom lifecycle scope to use for this effect.
+   * Custom lifecycle scope to use for this actor.
    *
    * @internal
    */
   parentLifecycleScope?: LifecycleScope | undefined
 
   /**
-   * A string that will be used to prefix the debug log messages related to this effect.
+   * A string that will be used to prefix the debug log messages related to this actor.
    */
   pathPrefix?: string | undefined
 
   /**
-   * If true, the factory or effect will be instantiated fresh every time and will not be stored in the context.
+   * If true, a reference to the actor will be stored in the context.
    */
   register?: boolean | undefined
 }
@@ -97,12 +87,12 @@ export interface ContextState extends WeakMap<Factory<unknown>, unknown> {
 }
 
 interface RunSignature {
-  <TReturn>(factory: Factory<Actor<TReturn>>): TReturn
-  <TProperties, TReturn>(
+  <TReturn>(factory: Factory<Actor<TReturn>>): Actor<TReturn>
+  <TReturn, TProperties>(
     factory: Factory<Actor<TReturn, TProperties>>,
     properties: TProperties,
-    options?: RunOptions<TReturn> | undefined
-  ): TReturn
+    options?: RunOptions | undefined
+  ): Actor<TReturn, TProperties>
 }
 
 export class Reactor extends LifecycleScope {
@@ -118,16 +108,12 @@ export class Reactor extends LifecycleScope {
    */
   use = <TReturn>(
     factory: Factory<TReturn>,
-    { parentLifecycleScope, pathPrefix, stateless }: UseOptions = {}
+    { parentLifecycleScope, stateless }: UseOptions = {}
   ): TReturn => {
     let result!: TReturn
 
     // We use has() to check if the effect is already in the context. Note that the factory's return value may be undefined, so it would not be sufficient to check if the return value of get() is undefined.
     if (stateless || !this.contextState.has(factory)) {
-      const factoryPath = pathPrefix
-        ? `${pathPrefix}${factory.name}`
-        : factory.name
-
       Reactor.current = this
       result = factory(this)
       Reactor.current = undefined
@@ -142,7 +128,7 @@ export class Reactor extends LifecycleScope {
       {
         const target: unknown = result
         if (isObject(target) && FactoryNameSymbol in target) {
-          target[FactoryNameSymbol] = factoryPath
+          target[FactoryNameSymbol] = factory.name
         }
       }
 
@@ -187,58 +173,36 @@ export class Reactor extends LifecycleScope {
    * @param effect - A function that will be executed to create the value if it does not yet exist in this reactor.
    * @returns The value stored in the context.
    */
-  run: RunSignature = <TProperties, TReturn>(
+  run: RunSignature = <TReturn, TProperties>(
     factory: Factory<Actor<TReturn, TProperties | undefined>>,
     properties?: TProperties,
     {
-      onResult,
       additionalDebugData,
       parentLifecycleScope,
       pathPrefix,
       register,
-    }: RunOptions<TReturn> = {}
-  ) => {
-    let result: TReturn | undefined
-
-    const actor = register ? this.use(factory, { pathPrefix }) : factory(this)
+    }: RunOptions = {}
+  ): Actor<TReturn, TProperties> => {
+    const actor = register ? this.use(factory) : factory(this)
 
     if (actor.isRunning) {
       throw new Error(`actor is already running: ${actor[FactoryNameSymbol]}`)
     }
 
-    actor.isRunning = true
+    const actorPath = pathPrefix
+      ? `${pathPrefix}${actor[FactoryNameSymbol]}`
+      : actor[FactoryNameSymbol]
 
-    loopEffect(
+    void loopActor(
       this,
-      actor.behavior,
-      actor[FactoryNameSymbol],
+      actor,
+      actorPath,
       properties,
       parentLifecycleScope ?? this,
-      (_result) => {
-        result = _result
+      additionalDebugData
+    )
 
-        void Promise.resolve(_result).then((resolvedResult) => {
-          actor.write(resolvedResult)
-        })
-
-        if (onResult && _result !== undefined) {
-          onResult(_result)
-        }
-      },
-      () => {
-        actor.isRunning = false
-        actor.write(undefined)
-      }
-    ).catch((error: unknown) => {
-      console.error("error in actor", {
-        effect: factory.name,
-        path: actor[FactoryNameSymbol],
-        error,
-        ...additionalDebugData,
-      })
-    })
-
-    return result
+    return actor
   }
 
   /**
@@ -306,14 +270,13 @@ export const createReactor = (
   return reactor
 }
 
-const loopEffect = async <TProperties, TReturn>(
+const loopActor = async <TReturn, TProperties>(
   reactor: Reactor,
-  effect: Behavior<TReturn, TProperties>,
-  effectPath: string,
+  actor: Actor<TReturn, TProperties>,
+  actorPath: string,
   properties: TProperties,
   parentLifecycle: LifecycleScope,
-  resultCallback: (result: TReturn) => void,
-  disposeCallback: () => void
+  additionalDebugData: Record<string, unknown> | undefined
 ) => {
   for (;;) {
     if (parentLifecycle.isDisposed) return
@@ -325,25 +288,37 @@ const loopEffect = async <TProperties, TReturn>(
       reactor,
       lifecycle,
       waker.resolve,
-      effect.name,
-      effectPath
+      actor[FactoryNameSymbol],
+      actorPath
     )
 
     try {
-      const effectResult = effect(context, properties)
+      actor.isRunning = true
 
-      // runEffect MUST always call the resultCallback or throw an error
-      resultCallback(effectResult)
+      const actorReturn = actor.behavior(context, properties)
 
-      // --- There must be no `await` before calling the resultCallback ---
+      // Synchronously store the result of the actor's behavior function
+      actor.result = actorReturn
 
-      // Wait in case the effect is asynchronous.
+      // Wait in case the actor is asynchronous.
       // eslint-disable-next-line @typescript-eslint/await-thenable
-      await effectResult
+      const actorResult = await actorReturn
+
+      actor.write(actorResult)
 
       await waker
+    } catch (error: unknown) {
+      actor.result = Promise.reject(error)
+
+      console.error("error in actor", {
+        actor: actor[FactoryNameSymbol],
+        path: actorPath,
+        error,
+        ...additionalDebugData,
+      })
     } finally {
-      disposeCallback()
+      actor.isRunning = false
+      actor.write(undefined)
       await lifecycle.dispose()
     }
   }

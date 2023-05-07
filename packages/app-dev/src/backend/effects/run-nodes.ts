@@ -59,21 +59,21 @@ export const runNodes = () =>
           await sig.run(validateCertificates, {
             id: node.id,
             certificates: neededCertificates,
-          })
+          }).result
         }
 
         // Prepare data directory
         {
           const { dataPath } = node.config
 
-          await sig.run(prepareDataDirectory, dataPath)
+          await sig.run(prepareDataDirectory, dataPath).result
         }
 
         await sig.run(runNodeChildProcess, {
           viteServer,
           nodeServer,
           node,
-        })
+        }).result
       })
 
     await Promise.all(sig.for(activeNodesStore, nodeActor))

@@ -93,13 +93,13 @@ const runSubnetModule = () =>
     }
 
     // Instantiate subnet module actor.
-    await sig.run(subnetActor, { subnetId, host }, { register: true })
+    await sig.run(subnetActor, { subnetId, host }, { register: true }).result
 
     // Instantiate aspects of the peer protocol that are specific to this subnet.
     await sig.run(speakPeerProtocolPerSubnet, {
       subnetId,
       subnetActor,
-    })
+    }).result
 
     // Register subnet actor to handle incoming subnet module messages.
     sig.use(handleSubnetModuleMessage).tell("register", {

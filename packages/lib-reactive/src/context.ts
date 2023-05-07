@@ -168,7 +168,7 @@ export class ActorContext {
         } catch (error: unknown) {
           console.error("error in listener", {
             topic: topic.name,
-            effect: this.name,
+            actor: this.name,
             path: this.path,
             error,
           })
@@ -194,7 +194,7 @@ export class ActorContext {
         } catch (error: unknown) {
           console.error("error in once listener", {
             topic: topic.name,
-            effect: this.name,
+            actor: this.name,
             path: this.path,
             error,
           })
@@ -218,7 +218,7 @@ export class ActorContext {
         listener(message).catch((error: unknown) => {
           console.error("error in async listener", {
             topic: topic.name,
-            effect: this.name,
+            actor: this.name,
             path: this.path,
             error,
           })
@@ -242,7 +242,7 @@ export class ActorContext {
         listener(message).catch((error: unknown) => {
           console.error("error in onceAsync listener", {
             topic: topic.name,
-            effect: this.name,
+            actor: this.name,
             path: this.path,
             error,
           })
@@ -262,7 +262,7 @@ export class ActorContext {
         callback()
       } catch (error) {
         console.error("error in interval callback", {
-          effect: this.name,
+          actor: this.name,
           path: this.path,
           error,
         })
@@ -285,7 +285,7 @@ export class ActorContext {
         callback()
       } catch (error) {
         console.error("error in timeout callback", {
-          effect: this.name,
+          actor: this.name,
           path: this.path,
           error,
         })
@@ -328,16 +328,16 @@ export class ActorContext {
    * @param properties - Properties to be passed to the actor behavior function as the second parameter.
    * @returns - Return value of the first invocation of the actor.
    */
-  run<TReturn>(factory: Factory<Actor<TReturn>>): TReturn
-  run<TProperties, TReturn>(
+  run<TReturn>(factory: Factory<Actor<TReturn>>): Actor<TReturn>
+  run<TReturn, TProperties>(
     factory: Factory<Actor<TReturn, TProperties>>,
     properties: TProperties,
-    options?: RunOptions<TReturn> | undefined
-  ): TReturn
-  run<TProperties, TReturn>(
+    options?: RunOptions | undefined
+  ): Actor<TReturn, TProperties>
+  run<TReturn, TProperties>(
     factory: Factory<Actor<TReturn, TProperties>>,
     properties?: TProperties | undefined,
-    options?: RunOptions<TReturn> | undefined
+    options?: RunOptions | undefined
   ) {
     return this.reactor.run(factory, properties!, {
       parentLifecycleScope: options?.parentLifecycleScope ?? this.lifecycle,

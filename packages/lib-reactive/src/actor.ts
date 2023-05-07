@@ -45,6 +45,16 @@ export type Actor<TInstance, TProperties = undefined> = Signal<
   isRunning: boolean
 
   /**
+   * The result of the most recent succesful execution of the actor.
+   *
+   * Note that this is the raw result which may be a promise. If you want to get the resolved value, use `actor.read()`.
+   *
+   * If the actor hasn't run yet, the result will be undefined.
+   * If the actor throws an error, the result will be a rejected promise which is represented by a Promise<never> type.
+   */
+  result: TInstance | undefined | Promise<never>
+
+  /**
    * The function that initializes the actor. Used internally. You should call reactor.run() or sig.run() if you want to start the actor.
    */
   behavior: Behavior<TInstance, TProperties>
@@ -92,6 +102,7 @@ export const createActor: CreateActorSignature = <
     ...signal,
     [ActorSymbol]: true,
     isRunning: false,
+    result: undefined,
     behavior,
     tell: (method, message) => {
       const handler = signal.read()?.[method]
