@@ -10,7 +10,7 @@ export {
   UseSymbol,
   DisposeSymbol,
 } from "./reactor"
-export { ActorContext as EffectContext } from "./context"
+export { ActorContext } from "./context"
 export { debugFirehose } from "./debug/debug-tools"
 
 export type { Topic, ReadonlyTopic, Listener, InferMessageType } from "./topic"

@@ -12,9 +12,9 @@ import {
 
 import {
   type Actor,
+  ActorContext,
   type BoundAction,
   type Change,
-  EffectContext,
   type InferMessageType,
   type LifecycleScope,
   createActor,
@@ -24,9 +24,9 @@ import { type Reactor, createReactor } from "@dassie/lib-reactive"
 
 import type { ExposedTopicsMap, RemoteReactiveRouter } from "../server"
 
-interface ReactEffectContext {
+interface ReactActorContext {
   lifecycle: LifecycleScope
-  context: EffectContext
+  context: ActorContext
   wake: () => void
 }
 
@@ -43,15 +43,15 @@ const noop = () => {
   // empty
 }
 
-const createReactEffectContext = (reactor: Reactor) => {
+const createReactActorContext = (reactor: Reactor) => {
   const lifecycle = reactor.deriveChildLifecycle()
-  const reactEffectContext: ReactEffectContext = {
+  const reactActorContext: ReactActorContext = {
     lifecycle,
-    context: new EffectContext(
+    context: new ActorContext(
       reactor,
       lifecycle,
       () => {
-        reactEffectContext.wake()
+        reactActorContext.wake()
       },
       "react",
       "react"
@@ -59,7 +59,7 @@ const createReactEffectContext = (reactor: Reactor) => {
     wake: noop,
   }
 
-  return reactEffectContext
+  return reactActorContext
 }
 
 const createReactiveHooks = <TExposedTopicsMap extends ExposedTopicsMap>() => {
@@ -109,16 +109,16 @@ const createReactiveHooks = <TExposedTopicsMap extends ExposedTopicsMap>() => {
   const useSig = () => {
     const reactor = useReactor()
 
-    const effectContext = useRef<ReactEffectContext | undefined>()
+    const actorContext = useRef<ReactActorContext | undefined>()
 
-    if (effectContext.current === undefined) {
-      effectContext.current = createReactEffectContext(reactor)
+    if (actorContext.current === undefined) {
+      actorContext.current = createReactActorContext(reactor)
     }
 
     useEffect(() => {
       return () => {
-        effectContext.current!.lifecycle.dispose().catch((error: unknown) => {
-          console.error("error while disposing react effect context", { error })
+        actorContext.current!.lifecycle.dispose().catch((error: unknown) => {
+          console.error("error while disposing react actor context", { error })
         })
       }
     }, [reactor])
@@ -127,29 +127,29 @@ const createReactiveHooks = <TExposedTopicsMap extends ExposedTopicsMap>() => {
       useCallback(
         (listener) => {
           const handleWake = () => {
-            effectContext
+            actorContext
               .current!.lifecycle.dispose()
               .catch((error: unknown) => {
-                console.error("error while disposing react effect context", {
+                console.error("error while disposing react actor context", {
                   error,
                 })
               })
               .finally(() => {
-                effectContext.current = createReactEffectContext(reactor)
-                effectContext.current.wake = handleWake
+                actorContext.current = createReactActorContext(reactor)
+                actorContext.current.wake = handleWake
                 listener()
               })
           }
 
-          effectContext.current!.wake = handleWake
+          actorContext.current!.wake = handleWake
 
           return () => {
-            effectContext.current!.wake = noop
+            actorContext.current!.wake = noop
           }
         },
         [reactor]
       ),
-      () => effectContext.current!.context
+      () => actorContext.current!.context
     )
   }
 

@@ -1,6 +1,6 @@
-import type { EffectContext } from "@dassie/lib-reactive"
+import type { ActorContext } from "@dassie/lib-reactive"
 
-export const createContextFactory = (sig: EffectContext) => () => {
+export const createContextFactory = (sig: ActorContext) => () => {
   return {
     sig,
   }

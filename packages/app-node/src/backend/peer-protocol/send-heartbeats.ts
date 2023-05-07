@@ -1,5 +1,5 @@
 import { createLogger } from "@dassie/lib-logger"
-import { EffectContext, createActor } from "@dassie/lib-reactive"
+import { ActorContext, createActor } from "@dassie/lib-reactive"
 
 import { nodeIdSignal } from "../ilp-connector/computed/node-id"
 import { sendPeerMessage } from "./actions/send-peer-message"
@@ -83,7 +83,7 @@ interface HeartbeatParameters {
 }
 
 const sendPeeringRequest = (
-  sig: EffectContext,
+  sig: ActorContext,
   { peerSubnetId, peerNodeId, lastLinkStateUpdate }: HeartbeatParameters
 ) => {
   logger.debug(`sending peering request`, {
@@ -104,7 +104,7 @@ const sendPeeringRequest = (
 }
 
 const sendHeartbeat = (
-  sig: EffectContext,
+  sig: ActorContext,
   { peerSubnetId, peerNodeId, lastLinkStateUpdate }: HeartbeatParameters
 ) => {
   logger.debug(`sending heartbeat`, {
