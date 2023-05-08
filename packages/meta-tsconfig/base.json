@@ -12,6 +12,7 @@
     "noEmit": true,
     "resolveJsonModule": true,
     "noErrorTruncation": true,
+    "incremental": true,
     "outDir": "dist"
   },
   "files": [],
