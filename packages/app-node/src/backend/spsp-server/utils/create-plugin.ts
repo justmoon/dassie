@@ -3,7 +3,7 @@ import { nanoid } from "nanoid"
 
 import { type Reactor } from "@dassie/lib-reactive"
 
-import { ilpRoutingTableSignal } from "../../ilp-connector/signals/ilp-routing-table"
+import { localIlpRoutingTableSignal } from "../../ilp-connector/signals/local-ilp-routing-table"
 import { incomingIlpPacketTopic } from "../../ilp-connector/topics/incoming-ilp-packet"
 
 let nextRequestId = 1
@@ -27,15 +27,15 @@ export const createPlugin = (
     connect: () => {
       if (connection) return Promise.resolve()
 
-      const ilpClientMap = reactor.use(ilpRoutingTableSignal)
+      const ilpClientMap = reactor.use(localIlpRoutingTableSignal)
 
-      let ilpAddress: string
+      let localIlpAddressPart: string
       do {
-        ilpAddress = `${nodeIlpAddress}.${nanoid(6)}`
-      } while (ilpClientMap.read().get(ilpAddress))
+        localIlpAddressPart = nanoid(6)
+      } while (ilpClientMap.read().get(localIlpAddressPart))
 
-      ilpClientMap.read().set(ilpAddress, {
-        prefix: ilpAddress,
+      ilpClientMap.read().set(localIlpAddressPart, {
+        prefix: localIlpAddressPart,
         type: "spsp",
         sendPacket: async ({ asUint8Array, requestId }) => {
           const existingRequest = outstandingRequests.get(requestId)
@@ -53,20 +53,23 @@ export const createPlugin = (
 
           reactor.use(incomingIlpPacketTopic).emitPacket({
             packet: response,
-            source: ilpAddress,
+            source: `${nodeIlpAddress}.${localIlpAddressPart}`,
             requestId,
           })
         },
       })
 
-      connection = { ilpAddress }
+      connection = { ilpAddress: `${nodeIlpAddress}.${localIlpAddressPart}` }
 
       return Promise.resolve()
     },
     disconnect: () => {
       if (!connection) return Promise.resolve()
 
-      reactor.use(ilpRoutingTableSignal).read().delete(connection.ilpAddress)
+      reactor
+        .use(localIlpRoutingTableSignal)
+        .read()
+        .delete(connection.ilpAddress)
 
       connection = false
 

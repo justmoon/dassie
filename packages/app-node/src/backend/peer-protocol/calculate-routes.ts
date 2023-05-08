@@ -8,7 +8,7 @@ import { peerBalanceMapStore } from "../balances/stores/peer-balance-map"
 import { configSignal } from "../config"
 import { nodeIdSignal } from "../ilp-connector/computed/node-id"
 import { IlpType } from "../ilp-connector/ilp-packet-codec"
-import { ilpRoutingTableSignal } from "../ilp-connector/signals/ilp-routing-table"
+import { globalIlpRoutingTableSignal } from "../ilp-connector/signals/global-ilp-routing-table"
 import type { PerSubnetParameters } from "../subnets/manage-subnet-instances"
 import subnetModules from "../subnets/modules"
 import { sendPeerMessage } from "./actions/send-peer-message"
@@ -92,7 +92,7 @@ export const calculateRoutes = () =>
     }
 
     const routes = new Map<string, RoutingTableEntry>()
-    const ilpRoutingTable = sig.get(ilpRoutingTableSignal)
+    const ilpRoutingTable = sig.get(globalIlpRoutingTableSignal)
     for (const [nodeId, nodeInfo] of nodeInfoMap.entries()) {
       let level = nodeInfo.level
       let parents = new Set(nodeInfo.parents)
