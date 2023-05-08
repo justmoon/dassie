@@ -185,6 +185,8 @@ export class Reactor extends LifecycleScope {
   ): Actor<TReturn, TProperties> => {
     const actor = register ? this.use(factory) : factory(this)
 
+    actor[FactoryNameSymbol] = factory.name
+
     if (actor.isRunning) {
       throw new Error(`actor is already running: ${actor[FactoryNameSymbol]}`)
     }
@@ -192,6 +194,11 @@ export class Reactor extends LifecycleScope {
     const actorPath = pathPrefix
       ? `${pathPrefix}${actor[FactoryNameSymbol]}`
       : actor[FactoryNameSymbol]
+
+    Object.defineProperty(actor.behavior, "name", {
+      value: actorPath,
+      writable: false,
+    })
 
     void loopActor(
       this,

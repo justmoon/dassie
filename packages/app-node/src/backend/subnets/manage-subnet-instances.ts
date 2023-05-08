@@ -71,7 +71,7 @@ const runSubnetModule = () =>
 
     // For easier debugging, we give the subnet factory a unique name as well.
     Object.defineProperty(subnetActor, "name", {
-      value: `subnet-${subnetId}`,
+      value: subnetId,
       writable: false,
     })
 
