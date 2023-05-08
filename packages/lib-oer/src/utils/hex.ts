@@ -15,7 +15,7 @@ export const uint8ArrayToHex = (
 }
 
 export const hexToUint8Array = (hexString: string) => {
-  hexString = hexString.replace(/[^\dA-Fa-f]/g, "")
+  hexString = hexString.replaceAll(/[^\dA-Fa-f]/g, "")
 
   if (hexString.length % 2 !== 0) {
     throw new Error("hexString must have an even number of characters")

@@ -35,7 +35,7 @@
     "@dassie/eslint-config": "workspace:^",
     "@dassie/lib-logger": "workspace:^1.0.0",
     "@dassie/meta-tsconfig": "workspace:^",
-    "type-fest": "^3.8.0"
+    "type-fest": "^3.10.0"
   },
   "peerDependencies": {
     "@dassie/lib-logger": "workspace:^1.0.0"

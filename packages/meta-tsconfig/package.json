@@ -7,6 +7,6 @@
   "license": "Apache-2.0",
   "devDependencies": {
     "@dassie/eslint-config": "workspace:^",
-    "@tsconfig/strictest": "^2.0.0"
+    "@tsconfig/strictest": "^2.0.1"
   }
 }

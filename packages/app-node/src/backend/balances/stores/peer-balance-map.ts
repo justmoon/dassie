@@ -1,4 +1,4 @@
-import produce, { enableMapSet } from "immer"
+import { enableMapSet, produce } from "immer"
 
 import { createStore } from "@dassie/lib-reactive"
 

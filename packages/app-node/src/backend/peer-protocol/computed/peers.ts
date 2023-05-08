@@ -1,4 +1,4 @@
-import produce, { enableMapSet } from "immer"
+import { enableMapSet, produce } from "immer"
 
 import { createComputed } from "@dassie/lib-reactive"
 import { UnreachableCaseError } from "@dassie/lib-type-utils"
