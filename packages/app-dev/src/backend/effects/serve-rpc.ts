@@ -10,7 +10,7 @@ import { createActor } from "@dassie/lib-reactive"
 import { LOCAL_FOLDER } from "../constants/paths"
 import { DEBUG_RPC_PORT } from "../constants/ports"
 import { type AppRouter, appRouter } from "../rpc-routers/app-router"
-import { validateCertificates } from "./validate-certificates"
+import { validateCertificates } from "../utils/validate-certificates"
 
 const certificatePath = join(
   LOCAL_FOLDER,
@@ -25,7 +25,7 @@ const CONNECTION_CLOSE_TIMEOUT = 250
 
 export const listenForRpcWebSocket = () =>
   createActor(async (sig) => {
-    await sig.run(validateCertificates, {
+    await validateCertificates({
       id: "dev",
       certificates: [
         {
@@ -35,7 +35,7 @@ export const listenForRpcWebSocket = () =>
           keyPath,
         },
       ],
-    }).result
+    })
 
     const httpsServer = createServer({
       cert: readFileSync(certificatePath),

@@ -5,13 +5,13 @@ import { viteNodeService } from "../services/vite-node-server"
 import { viteService } from "../services/vite-server"
 import { activeNodesStore } from "../stores/active-nodes"
 import type { generateNodeConfig } from "../utils/generate-node-config"
-import { fileChangeTopic } from "./handle-file-change"
-import { prepareDataDirectory } from "./prepare-data-directory"
-import { runNodeChildProcess } from "./run-node-child-process"
 import {
   type CertificateInfo,
   validateCertificates,
-} from "./validate-certificates"
+} from "../utils/validate-certificates"
+import { fileChangeTopic } from "./handle-file-change"
+import { prepareDataDirectory } from "./prepare-data-directory"
+import { runNodeChildProcess } from "./run-node-child-process"
 
 const logger = createLogger("das:dev:run-nodes")
 
@@ -56,10 +56,10 @@ export const runNodes = () =>
             },
           ]
 
-          await sig.run(validateCertificates, {
+          await validateCertificates({
             id: node.id,
             certificates: neededCertificates,
-          }).result
+          })
         }
 
         // Prepare data directory

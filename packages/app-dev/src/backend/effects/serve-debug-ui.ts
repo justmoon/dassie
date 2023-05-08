@@ -10,7 +10,7 @@ import { createActor } from "@dassie/lib-reactive"
 
 import { LOCAL_FOLDER } from "../constants/paths"
 import { DEBUG_UI_PORT } from "../constants/ports"
-import { validateCertificates } from "./validate-certificates"
+import { validateCertificates } from "../utils/validate-certificates"
 
 const logger = createLogger("das:dev:debug-ui-server")
 
@@ -32,7 +32,7 @@ const devtoolsServer = () => ({
 
 export const debugUiServer = () =>
   createActor(async (sig) => {
-    await sig.run(validateCertificates, {
+    await validateCertificates({
       id: "dev",
       certificates: [
         {
@@ -42,7 +42,7 @@ export const debugUiServer = () =>
           keyPath,
         },
       ],
-    }).result
+    })
 
     const server = await createServer({
       root: debugUiPath,
