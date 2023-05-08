@@ -5,12 +5,12 @@ import { createActor } from "@dassie/lib-reactive"
 import { configSignal } from "../config"
 import { speakPeerProtocolPerSubnet } from "../peer-protocol"
 import { sendPeerMessage } from "../peer-protocol/actions/send-peer-message"
-import { handleSubnetModuleMessage } from "../peer-protocol/handlers/subnet-module-message"
 import {
   nodeTableStore,
   parseNodeKey,
 } from "../peer-protocol/stores/node-table"
 import modules from "./modules"
+import { registerSubnetActor } from "./register-subnet-actor"
 import { activeSubnetsSignal } from "./signals/active-subnets"
 import { subnetMapSignal } from "./signals/subnet-map"
 import type {
@@ -95,15 +95,13 @@ const runSubnetModule = () =>
     // Instantiate subnet module actor.
     await sig.run(subnetActor, { subnetId, host }, { register: true }).result
 
-    // Instantiate aspects of the peer protocol that are specific to this subnet.
-    await sig.run(speakPeerProtocolPerSubnet, {
+    const subnetParameters: PerSubnetParameters = {
       subnetId,
       subnetActor,
-    }).result
+    }
 
-    // Register subnet actor to handle incoming subnet module messages.
-    sig.use(handleSubnetModuleMessage).tell("register", {
-      subnetId,
-      subnetActor,
-    })
+    // Instantiate aspects of the peer protocol that are specific to this subnet.
+    await sig.run(speakPeerProtocolPerSubnet, subnetParameters).result
+
+    sig.run(registerSubnetActor, subnetParameters)
   })
