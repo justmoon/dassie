@@ -12,7 +12,7 @@ const signal1 = () =>
 
 const rootActor = () =>
   createActor((sig) => {
-    console.log("root effect created")
+    console.log("root actor created")
 
     sig.on(topic1, (message) => {
       console.log("heard", message)
@@ -23,7 +23,7 @@ const rootActor = () =>
     }, 1000)
 
     sig.onCleanup(() => {
-      console.log("root effect cleaned up")
+      console.log("root actor cleaned up")
     })
 
     sig.run(subActor)
@@ -32,7 +32,7 @@ const rootActor = () =>
 
 const subActor = () =>
   createActor((sig) => {
-    console.log("child effect created")
+    console.log("child actor created")
 
     sig.on(topic1, (message) => {
       console.log("reacting to", message)
@@ -45,13 +45,13 @@ const subActor = () =>
     })
 
     sig.onCleanup(() => {
-      console.log("child effect cleaned up")
+      console.log("child actor cleaned up")
     })
   })
 
 const subActor2 = () =>
   createActor((sig) => {
-    console.log("child effect 2 created")
+    console.log("child actor 2 created")
     const stateCount = sig.get(signal1, ({ states }) => states.length)
 
     console.log(stateCount)
@@ -62,7 +62,7 @@ const subActor2 = () =>
     }
 
     sig.onCleanup(() => {
-      console.log("child effect 2 cleaned up")
+      console.log("child actor 2 cleaned up")
     })
   })
 

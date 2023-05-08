@@ -9,7 +9,7 @@ export interface PerPeerParameters extends PerSubnetParameters {
   peerKey: NodeTableKey
 }
 
-export const runPerPeerEffects = () =>
+export const runPerPeerActors = () =>
   createActor((sig, parameters: PerPeerParameters) => {
     const { peerKey } = parameters
 

@@ -3,7 +3,7 @@ import { createWSClient, wsLink } from "@trpc/client/links/wsLink"
 import { keyedObjectReffx } from "reffx/lib"
 import superjson from "superjson"
 
-import type { DebugRpcRouter } from "../../runner/effects/debug-rpc-server"
+import type { DebugRpcRouter } from "../../runner/actors/debug-rpc-server"
 import { nodeIdToDebugUrl } from "../utils/node-id-to-debug-port"
 
 export const nodeClients = keyedObjectReffx((nodeId: string) => {

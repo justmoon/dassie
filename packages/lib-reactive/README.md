@@ -35,13 +35,13 @@ The reactor will pass an `ActorContext` to the actor as the first parameter. Thi
 
 ```ts
 const rootActor = () => createActor((sig) =>
-  console.log("Hello from the root effect")
+  console.log("Hello from the root actor")
 
   sig.run(subActor)
 })
 
 const subActor = () => createActor((sig) =>
-  console.log("Hello from the sub effect")
+  console.log("Hello from the sub actor")
 })
 
 createReactor(rootActor)
@@ -179,7 +179,7 @@ You may have noticed before that we have been creating factory functions instead
 
 - Functions have a unique property in JavaScript: They capture their own name when they are being defined. In the example above, `pingPongTopic.name` will be set to `"pingPongTopic"`. We can use that feature to provide great debuggability without any additional boilerplate like having to give things a name.
 
-In order to `emit` a message on a topic, we first need to get an instance of the topic. In order to do that, we can call `sig.use` from inside of an effect:
+In order to `emit` a message on a topic, we first need to get an instance of the topic. In order to do that, we can call `sig.use` from inside of an actor:
 
 ```ts
 const rootActor = () =>
@@ -326,7 +326,7 @@ const logger = () =>
     const t2 = sig.get(signal2)
     const t3 = sig.get(signal3)
 
-    console.log(`effect run with ${t1} ${t2} ${t3}`)
+    console.log(`actor run with ${t1} ${t2} ${t3}`)
   })
 
 const rootEffect = () =>

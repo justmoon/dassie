@@ -1,6 +1,6 @@
 import { Route, Switch } from "wouter"
 
-import { rootActor } from "./effects/root"
+import { rootActor } from "./actors/root"
 import { Account } from "./pages/account/account"
 import { CreateFirstAccount } from "./pages/create-first-account/create-first-account"
 import { Open } from "./pages/open/open"

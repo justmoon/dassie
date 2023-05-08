@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 
-import { nodeClients } from "../shared-effects/node-rpc-clients"
+import { nodeClients } from "../shared/node-rpc-clients"
 
 export interface FirehoseEvent {
   topic: string

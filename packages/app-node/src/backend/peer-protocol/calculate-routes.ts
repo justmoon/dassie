@@ -27,7 +27,7 @@ interface NodeInfoEntry {
 }
 
 /**
- * This effect generates an Even-Shiloach tree which is then condensed into a routing table. The routing table contains all possible first hops which are on one of the shortest paths to the target node.
+ * This actor generates an Even-Shiloach tree which is then condensed into a routing table. The routing table contains all possible first hops which are on one of the shortest paths to the target node.
  */
 export const calculateRoutes = () =>
   createActor((sig, parameters: PerSubnetParameters) => {

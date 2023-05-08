@@ -4,7 +4,7 @@ import {
   type PeerBalanceState,
   peerBalanceMapStore,
 } from "../balances/stores/peer-balance-map"
-import type { PerPeerParameters } from "../peer-protocol/run-per-peer-effects"
+import type { PerPeerParameters } from "../peer-protocol/run-per-peer-actors"
 
 const SETTLEMENT_CHECK_INTERVAL = 10_000
 const SETTLEMENT_RATIO = 0.8

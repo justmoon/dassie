@@ -112,7 +112,7 @@ export class Reactor extends LifecycleScope {
   ): TReturn => {
     let result!: TReturn
 
-    // We use has() to check if the effect is already in the context. Note that the factory's return value may be undefined, so it would not be sufficient to check if the return value of get() is undefined.
+    // We use has() to check if the actor is already in the context. Note that the factory's return value may be undefined, so it would not be sufficient to check if the return value of get() is undefined.
     if (stateless || !this.contextState.has(factory)) {
       Reactor.current = this
       result = factory(this)
@@ -170,7 +170,7 @@ export class Reactor extends LifecycleScope {
    *
    * The actor will run for the duration of the `parentLifecycleScope` or the reactor's lifecycle scope if none is provided.
    *
-   * @param effect - A function that will be executed to create the value if it does not yet exist in this reactor.
+   * @param factory - A function which returns a new actor instance.
    * @returns The value stored in the context.
    */
   run: RunSignature = <TReturn, TProperties>(
@@ -254,14 +254,14 @@ export class Reactor extends LifecycleScope {
 
 export const createReactor = (
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  rootEffect?: Factory<Actor<Promisable<void>>> | undefined
+  rootActor?: Factory<Actor<Promisable<void>>> | undefined
 ): Reactor => {
   const reactor: Reactor = new Reactor()
 
-  if (rootEffect) {
-    Promise.resolve(reactor.run(rootEffect)).catch((error: unknown) => {
+  if (rootActor) {
+    Promise.resolve(reactor.run(rootActor)).catch((error: unknown) => {
       console.error("error running root actor", {
-        effect: rootEffect.name,
+        actor: rootActor.name,
         error,
       })
     })

@@ -3,8 +3,8 @@ import { useEffect } from "react"
 
 import type { InferMessageType } from "@dassie/lib-reactive"
 
-import type { ExposedStoresMap as NodeExposedStoresMap } from "../../runner/effects/debug-rpc-server"
-import { nodeClients } from "../shared-effects/node-rpc-clients"
+import type { ExposedStoresMap as NodeExposedStoresMap } from "../../runner/actors/debug-rpc-server"
+import { nodeClients } from "../shared/node-rpc-clients"
 
 const fetchNodeRemoteStore = async <
   TStoreName extends keyof NodeExposedStoresMap

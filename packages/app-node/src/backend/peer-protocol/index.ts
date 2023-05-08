@@ -11,7 +11,7 @@ import { maintainOwnNodeTableEntry } from "./maintain-own-node-table-entry"
 import { maintainPeeringRelationships } from "./maintain-peering-relationships"
 import { queueBootstrapNodes } from "./queue-bootstrap-node"
 import { registerPeerHttpHandler } from "./register-peer-http-handler"
-import { runPerPeerEffects } from "./run-per-peer-effects"
+import { runPerPeerActors } from "./run-per-peer-actors"
 import { sendHeartbeats } from "./send-heartbeats"
 
 export const speakPeerProtocol = () =>
@@ -28,7 +28,7 @@ export const speakPeerProtocol = () =>
   })
 
 /**
- * Some effects are specific to each subnet so we export this helper which is called from the subnet instantiation code.
+ * Some actors are specific to each subnet so we export this helper which is called from the subnet instantiation code.
  */
 export const speakPeerProtocolPerSubnet = () =>
   createActor(async (sig, parameters: PerSubnetParameters) => {
@@ -46,5 +46,5 @@ export const speakPeerProtocolPerSubnet = () =>
           .map((peerKey) => ({ ...parameters, peerKey }))
       )
 
-    sig.for(subnetPeersParametersSignal, runPerPeerEffects)
+    sig.for(subnetPeersParametersSignal, runPerPeerActors)
   })

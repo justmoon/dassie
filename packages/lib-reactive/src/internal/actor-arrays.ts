@@ -15,15 +15,15 @@ export const forArrayElement = <TElement, TReturn>(
   actorFactory: Factory<Actor<TReturn, TElement>>,
   parentEffectName: string
 ) => {
-  const runningEffects = new Map<TElement, EffectCache<TReturn>>()
+  const runningActors = new Map<TElement, EffectCache<TReturn>>()
 
   sig.onCleanup(async () => {
     const disposerPromises: Promise<void>[] = []
-    for (const cache of runningEffects.values()) {
+    for (const cache of runningActors.values()) {
       const result = cache.lifecycleScope.dispose()
       if (typeof result.then === "function") disposerPromises.push(result)
     }
-    runningEffects.clear()
+    runningActors.clear()
     await Promise.all(disposerPromises)
   })
 
@@ -32,7 +32,7 @@ export const forArrayElement = <TElement, TReturn>(
 
     const removed = new Set<TElement>()
 
-    for (const element of runningEffects.keys()) {
+    for (const element of runningActors.keys()) {
       if (!asSet.has(element)) {
         removed.add(element)
       }
@@ -42,16 +42,16 @@ export const forArrayElement = <TElement, TReturn>(
 
     let index = 0
     for (const element of removed) {
-      const effectCache = runningEffects.get(element)
-      disposalPromises[index++] = effectCache!.lifecycleScope.dispose()
-      runningEffects.delete(element)
+      const actorCache = runningActors.get(element)
+      disposalPromises[index++] = actorCache!.lifecycleScope.dispose()
+      runningActors.delete(element)
     }
 
     const disposalPromise = Promise.all(disposalPromises)
 
     const results: Promise<TReturn>[] = arrayValue.map((element, index) => {
-      if (runningEffects.has(element)) {
-        return runningEffects.get(element)!.returnPromise
+      if (runningActors.has(element)) {
+        return runningActors.get(element)!.returnPromise
       }
 
       const lifecycleScope = new LifecycleScope()
@@ -67,7 +67,7 @@ export const forArrayElement = <TElement, TReturn>(
         }).result!
       })
 
-      runningEffects.set(element, {
+      runningActors.set(element, {
         returnPromise,
         lifecycleScope,
       })
@@ -113,9 +113,9 @@ export const forArrayIndex = <TElement, TReturn>(
     const disposalPromises: Promise<void>[] = []
 
     for (let index = 0; index <= maxIndex; index++) {
-      const effectCache = runningEffects[index]
-      if (effectCache && effectCache.element !== arrayValue[index]) {
-        disposalPromises.push(effectCache.lifecycleScope.dispose())
+      const actorCache = runningEffects[index]
+      if (actorCache && actorCache.element !== arrayValue[index]) {
+        disposalPromises.push(actorCache.lifecycleScope.dispose())
         // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
         delete runningEffects[index]
       }

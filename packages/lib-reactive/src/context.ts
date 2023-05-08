@@ -88,7 +88,7 @@ export class ActorContext {
     const handleTopicMessage = (message: TState) => {
       const newValue = selector(message)
       if (!comparator(value, newValue)) {
-        // Once we have detected a change we can stop listening because once the effect re-runs it will create a new listener anyways.
+        // Once we have detected a change we can stop listening because once the actor re-runs it will create a new listener anyways.
         dispose()
         notify()
       }
