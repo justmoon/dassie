@@ -1,5 +1,4 @@
 import esbuild from "rollup-plugin-esbuild"
-import hashbang from "rollup-plugin-hashbang"
 
 // eslint-disable-next-line tsdoc/syntax
 /** @type {(input?: Record<string, string> | string) => Array<import('rollup').RollupOptions>} */
@@ -13,7 +12,7 @@ export const createLibraryConfig = (input = "src/index.ts") => {
   return [
     {
       ...bundle,
-      plugins: [hashbang(), esbuild()],
+      plugins: [esbuild()],
       output: [
         {
           dir: "dist",
