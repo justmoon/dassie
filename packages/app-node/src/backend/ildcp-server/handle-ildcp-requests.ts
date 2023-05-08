@@ -50,4 +50,8 @@ export const handleIldcpRequests = () =>
         })
       },
     })
+
+    sig.onCleanup(() => {
+      ilpRoutingTable.delete(ILDCP_ADDRESS)
+    })
   })

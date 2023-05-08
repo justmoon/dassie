@@ -17,9 +17,9 @@ export const streamServerService = () =>
     const nodeIlpAddress = sig.get(primaryIlpAddressSignal)
     if (!nodeIlpAddress) return
 
-    const { ilpAddress, plugin } = createPlugin(sig.reactor, nodeIlpAddress)
+    logger.debug("starting stream server")
 
-    logger.debug("starting stream server", { address: ilpAddress })
+    const plugin = createPlugin(sig.reactor, nodeIlpAddress)
 
     const server = await createServer({
       plugin,

@@ -50,7 +50,7 @@ export const sendSpspPayments = () =>
         destinationAccount,
       })
 
-      const { plugin } = createPlugin(sig.reactor, nodeIlpAddress)
+      const plugin = createPlugin(sig.reactor, nodeIlpAddress)
 
       const connection = await createConnection({
         plugin,
