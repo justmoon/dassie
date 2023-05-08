@@ -3,7 +3,6 @@ import type { RollupOptions } from "rollup"
 import esbuild from "rollup-plugin-esbuild"
 
 import { createLogger } from "@dassie/lib-logger"
-import { createActor } from "@dassie/lib-reactive"
 
 const logger = createLogger("das:dev:compile-runner")
 
@@ -25,25 +24,24 @@ const rollupConfig: RollupOptions = {
   ],
 }
 
-export const compileRunner = () =>
-  createActor(async () => {
-    let bundle
-    try {
-      bundle = await rollup(rollupConfig)
+export const compileRunner = async () => {
+  let bundle
+  try {
+    bundle = await rollup(rollupConfig)
 
-      if (!rollupConfig.output) {
-        logger.error('rollup config has no "output" property')
-        return
-      }
-
-      for (const outputOptions of [rollupConfig.output].flat()) {
-        await bundle.write(outputOptions)
-      }
-    } catch (error) {
-      logger.error("error while compiling the runner entrypoint", { error })
-    } finally {
-      if (bundle) {
-        await bundle.close()
-      }
+    if (!rollupConfig.output) {
+      logger.error('rollup config has no "output" property')
+      return
     }
-  })
+
+    for (const outputOptions of [rollupConfig.output].flat()) {
+      await bundle.write(outputOptions)
+    }
+  } catch (error) {
+    logger.error("error while compiling the runner entrypoint", { error })
+  } finally {
+    if (bundle) {
+      await bundle.close()
+    }
+  }
+}
