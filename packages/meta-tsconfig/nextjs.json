@@ -4,6 +4,8 @@
   "extends": "./base.json",
   "compilerOptions": {
     "lib": ["dom", "dom.iterable", "esnext"],
-    "jsx": "preserve"
+    "jsx": "preserve",
+    "allowJs": true,
+    "moduleResolution": "node"
   }
 }
