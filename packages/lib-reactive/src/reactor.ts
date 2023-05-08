@@ -323,6 +323,7 @@ const loopActor = async <TReturn, TProperties>(
         error,
         ...additionalDebugData,
       })
+      return
     } finally {
       actor.isRunning = false
       actor.write(undefined)
