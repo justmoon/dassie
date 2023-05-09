@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react"
 
-import { Button } from "../../../components/button/button"
+import { Button } from "../../../components/ui/button"
 
 interface SubpageRecoverProperties {
   onConfirm: (mnemonic: string) => void

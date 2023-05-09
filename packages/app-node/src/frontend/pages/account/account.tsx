@@ -1,7 +1,7 @@
 import { Link } from "wouter"
 
 import { Amount } from "../../components/amount/amount"
-import { Button } from "../../components/button/button"
+import { Button } from "../../components/ui/button"
 import { useAccount } from "../../hooks/use-account"
 
 export const Account = () => {

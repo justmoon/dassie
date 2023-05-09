@@ -1,5 +1,5 @@
 import { Amount } from "../../../components/amount/amount"
-import { Button } from "../../../components/button/button"
+import { Button } from "../../../components/ui/button"
 import { USD_SPECIFICATION } from "../../../constants/currency"
 
 interface SubpageReviewProperties {

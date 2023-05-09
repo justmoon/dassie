@@ -1,6 +1,6 @@
 import { useCallback } from "react"
 
-import { Button } from "../../../components/button/button"
+import { Button } from "../../../components/ui/button"
 
 interface SubpageGenerateProperties {
   mnemonic: string

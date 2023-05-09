@@ -1,9 +1,9 @@
 import { ArrowRight, ProhibitInset } from "phosphor-react"
 import { useCallback } from "react"
 
-import { Button } from "../../components/button/button"
 import Dialog from "../../components/dialog/dialog"
 import Tabs from "../../components/tabs/tabs"
+import { Button } from "../../components/ui/button"
 import { walletStore } from "../../stores/wallet"
 import { useSig } from "../../utils/remote-reactive"
 
