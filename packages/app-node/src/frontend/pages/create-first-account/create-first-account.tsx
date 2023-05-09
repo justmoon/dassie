@@ -1,7 +1,7 @@
 import { ArrowRight, ProhibitInset } from "phosphor-react"
 import { useCallback } from "react"
 
-import Button from "../../components/button/button"
+import { Button } from "../../components/button/button"
 import Dialog from "../../components/dialog/dialog"
 import Tabs from "../../components/tabs/tabs"
 import { walletStore } from "../../stores/wallet"

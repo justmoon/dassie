@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { NumericFormat } from "react-number-format"
 
-import Button from "../../../components/button/button"
+import { Button } from "../../../components/button/button"
 import { USD_SPECIFICATION } from "../../../constants/currency"
 import { parseDecimalToBigInt } from "../../../utils/currency"
 

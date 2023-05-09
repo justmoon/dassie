@@ -1,23 +1,55 @@
-import { Link } from "wouter"
+import { Slot } from "@radix-ui/react-slot"
+import { VariantProps, cva } from "class-variance-authority"
+import * as React from "react"
 
-import classed from "../../utils/classed"
+import { cn } from "../../utils/class-helper"
 
-const basicButtonClasses =
-  "text-white focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 focus:outline-none dark:focus:ring-blue-800 inline-flex items-center justify-around"
-
-const Button = classed(
-  "button",
-  basicButtonClasses,
-  "enabled:bg-blue-700 enabled:hover:bg-blue-800 enabled:dark:bg-blue-600 enabled:dark:hover:bg-blue-700",
-  "disabled:bg-blue-400 disabled:dark:bg-blue-500 disabled:cursor-not-allowed"
+const buttonVariants = cva(
+  "inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none ring-offset-background",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        destructive:
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+        outline:
+          "border border-input hover:bg-accent hover:text-accent-foreground",
+        secondary:
+          "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+        ghost: "hover:bg-accent hover:text-accent-foreground",
+        link: "underline-offset-4 hover:underline text-primary",
+      },
+      size: {
+        default: "h-10 py-2 px-4",
+        sm: "h-9 px-3 rounded-md",
+        lg: "h-11 px-8 rounded-md",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  }
 )
 
-const LinkButton = classed(
-  Link,
-  basicButtonClasses,
-  "bg-blue-700 hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-700"
+export interface ButtonProperties
+  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
+    VariantProps<typeof buttonVariants> {
+  asChild?: boolean
+}
+
+const Button = React.forwardRef<HTMLButtonElement, ButtonProperties>(
+  ({ className, variant, size, asChild = false, ...properties }, reference) => {
+    const Component = asChild ? Slot : "button"
+    return (
+      <Component
+        className={cn(buttonVariants({ variant, size, className }))}
+        ref={reference}
+        {...properties}
+      />
+    )
+  }
 )
+Button.displayName = "Button"
 
-export { LinkButton }
-
-export default Button
+export { Button, buttonVariants }
