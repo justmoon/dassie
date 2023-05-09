@@ -13,7 +13,7 @@ export const Account = () => {
         <Amount balance={account.balance} currency={account.currency} />
       </div>
       <Link href="/send">
-        <Button variant="link">Send</Button>
+        <Button>Send</Button>
       </Link>
     </div>
   )

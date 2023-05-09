@@ -1,9 +1,8 @@
 import { nanoid } from "nanoid"
-import { ArrowLeft } from "phosphor-react"
 import { useState } from "react"
-import { Link, useLocation } from "wouter"
+import { useLocation } from "wouter"
 
-import Dialog from "../../components/dialog/dialog"
+import { Card, CardHeader, CardTitle } from "../../components/ui/card"
 import { trpc } from "../../utils/trpc"
 import { SubpageEnterAmount } from "./subpage-enter-amount/subpage-enter-amount"
 import { SubpageEnterPaymentPointer } from "./subpage-enter-payment-pointer/subpage-enter-payment-pointer"
@@ -33,7 +32,7 @@ type SubpageState =
   | SubpageReviewState
 
 const SUBPAGE_TITLES: Record<SubpageState["subpage"], string> = {
-  enterPaymentPointer: "Send to",
+  enterPaymentPointer: "Send Payment",
   enterAmount: "Choose Amount",
   review: "Review",
 } as const
@@ -61,7 +60,9 @@ export const Send = () => {
             paymentId: subpage.paymentId,
             paymentPointer: subpage.paymentPointer,
           })
-      : undefined
+      : () => {
+          setLocation("/")
+        }
 
   const onSubmitPaymentPointer = (paymentPointer: string) => {
     setSubpage({
@@ -102,13 +103,19 @@ export const Send = () => {
   const subpageElement = (() => {
     switch (subpage.subpage) {
       case "enterPaymentPointer": {
-        return <SubpageEnterPaymentPointer onSubmit={onSubmitPaymentPointer} />
+        return (
+          <SubpageEnterPaymentPointer
+            onSubmit={onSubmitPaymentPointer}
+            onBack={onBack}
+          />
+        )
       }
       case "enterAmount": {
         return (
           <SubpageEnterAmount
             paymentPointer={subpage.paymentPointer}
             onSubmit={onSubmitAmount}
+            onBack={onBack}
           />
         )
       }
@@ -118,6 +125,7 @@ export const Send = () => {
             paymentPointer={subpage.paymentPointer}
             amount={subpage.amount}
             onSubmit={onConfirmSend}
+            onBack={onBack}
           />
         )
       }
@@ -126,27 +134,14 @@ export const Send = () => {
 
   return (
     <div className="flex h-full items-center justify-center">
-      <Dialog.Root>
-        <Dialog.Titlebar>
-          {subpage.subpage === "enterPaymentPointer" ? (
-            <Link href="/">
-              <Dialog.TitleActionButton>
-                <ArrowLeft />
-                <span className="sr-only">Go back</span>
-              </Dialog.TitleActionButton>
-            </Link>
-          ) : onBack ? (
-            <Dialog.TitleActionButton onClick={onBack}>
-              <ArrowLeft />
-              <span className="sr-only">Go back</span>
-            </Dialog.TitleActionButton>
-          ) : undefined}
-          <h1 className="flex-grow flex-shrink-0 basis-auto font-bold text-lg md:text-xl">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex-grow flex-shrink-0 basis-auto font-bold text-lg md:text-xl">
             {SUBPAGE_TITLES[subpage.subpage]}
-          </h1>
-        </Dialog.Titlebar>
+          </CardTitle>
+        </CardHeader>
         {subpageElement}
-      </Dialog.Root>
+      </Card>
     </div>
   )
 }

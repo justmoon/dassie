@@ -2,25 +2,28 @@ import { useState } from "react"
 import { NumericFormat } from "react-number-format"
 
 import { Button } from "../../../components/ui/button"
+import { CardContent, CardFooter } from "../../../components/ui/card"
 import { USD_SPECIFICATION } from "../../../constants/currency"
 import { parseDecimalToBigInt } from "../../../utils/currency"
 
 interface SubpageEnterAmountProperties {
   paymentPointer: string
   onSubmit: (amount: bigint) => void
+  onBack: () => void
 }
 
 export const SubpageEnterAmount = ({
   paymentPointer,
   onSubmit,
+  onBack,
 }: SubpageEnterAmountProperties) => {
   const [amount, setAmount] = useState("40")
 
   const prefix = `${USD_SPECIFICATION.symbol}\u2009`
 
   return (
-    <div>
-      <div className="mb-6">
+    <>
+      <CardContent>
         <div>To: {paymentPointer}</div>
         <label
           htmlFor="payment_pointer"
@@ -42,6 +45,11 @@ export const SubpageEnterAmount = ({
           thousandSeparator=","
           onValueChange={({ value }) => setAmount(value)}
         />
+      </CardContent>
+      <CardFooter className="justify-between space-x-2">
+        <Button variant="ghost" onClick={() => onBack()}>
+          Back
+        </Button>
         <Button
           onClick={() =>
             onSubmit(
@@ -51,7 +59,7 @@ export const SubpageEnterAmount = ({
         >
           Review
         </Button>
-      </div>
-    </div>
+      </CardFooter>
+    </>
   )
 }
