@@ -1,34 +1,16 @@
 import react from "@vitejs/plugin-react"
-import { presetUno } from "unocss"
-import unocssPlugin from "unocss/vite"
+import tailwind from "tailwindcss"
 import { defineConfig } from "vite"
 
-const radixVariantRegex = /^radix-state-(active|inactive):/
+import tailwindConfig from "./tailwind.config.js"
 
 export default defineConfig({
-  plugins: [
-    react(),
-    unocssPlugin({
-      presets: [presetUno()],
-      variants: [
-        // Radix state variants
-        (matcher) => {
-          const match = matcher.match(radixVariantRegex)
-
-          if (!match) return matcher
-
-          const [fullMatch, state] = match
-
-          if (!fullMatch || !state) return matcher
-
-          return {
-            matcher: matcher.slice(fullMatch.length),
-            selector: (s) => `${s}[data-state="${state}"]`,
-          }
-        },
-      ],
-    }),
-  ],
+  plugins: [react()],
+  css: {
+    postcss: {
+      plugins: [tailwind({ config: tailwindConfig })],
+    },
+  },
   build: {
     target: "esnext",
   },

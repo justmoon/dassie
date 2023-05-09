@@ -31,7 +31,6 @@
     "@trpc/server": "10.25.0",
     "@types/connect": "^3.4.35",
     "@types/ws": "^8.5.4",
-    "@unocss/reset": "^0.51.12",
     "axios": "^1.4.0",
     "better-sqlite3": "^8.3.0",
     "classnames": "^2.3.2",
@@ -57,8 +56,10 @@
     "@dassie/meta-tsconfig": "workspace:^",
     "@types/express": "^4.17.17",
     "@vitejs/plugin-react": "^4.0.0",
+    "autoprefixer": "^10.4.14",
+    "postcss": "^8.4.23",
+    "tailwindcss": "^3.3.2",
     "type-fest": "^3.10.0",
-    "unocss": "^0.51.12",
     "vite": "^4.3.5"
   }
 }
