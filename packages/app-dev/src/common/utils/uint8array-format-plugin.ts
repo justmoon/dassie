@@ -12,7 +12,7 @@ export const Uint8ArrayFormatPlugin: Plugin = {
 
   serialize(value: Uint8Array, { indent }, indentation) {
     const currentIndent = `${indentation}${indent}`
-    const hex = uint8ArrayToHex(value).replace(
+    const hex = uint8ArrayToHex(value).replaceAll(
       /((?:[\dA-Fa-f]{2} ){24})/g,
       `$1\n${currentIndent}`
     )

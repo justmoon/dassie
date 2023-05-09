@@ -28,7 +28,7 @@ export const logsStore = () =>
       addLogLine:
         (logLine: NewLogLine) =>
         ({ logs }) => {
-          const lastIndex = logs[logs.length - 1]?.index ?? -1
+          const lastIndex = logs.at(-1)?.index ?? -1
           const startTime = new Date(logs[0]?.date ?? new Date().toISOString())
 
           logs.push({

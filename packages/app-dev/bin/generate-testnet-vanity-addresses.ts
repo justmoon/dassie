@@ -38,7 +38,7 @@ function saveResults() {
   found.sort(([a], [b]) => a - b)
 
   // Discard any indices above MAX_INDEX except for the record holder
-  const recordHolder = found[found.length - 1]
+  const recordHolder = found.at(-1)
   found = found.filter(
     ([index]) => index <= MAX_INDEX || index === recordHolder?.[0]
   )
