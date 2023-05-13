@@ -1,4 +1,5 @@
 export { assertDefined } from "./assert-defined"
+export { Failure, isFailure, FAILURE_UNIQUE_KEY } from "./failure"
 export { isErrorWithCode } from "./is-error-with-code"
 export { isObject } from "./is-object"
 export { UnreachableCaseError } from "./unreachable-case-error"
