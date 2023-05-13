@@ -1,6 +1,10 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { peerBalanceMapStore } from "../balances/stores/peer-balance-map"
+import {
+  cleanupPeer,
+  initializePeer,
+} from "../accounting/functions/manage-peer"
+import { ledgerStore } from "../accounting/stores/ledger"
 import { settlePerPeer } from "../settlement"
 import type { PerSubnetParameters } from "../subnets/manage-subnet-instances"
 import type { NodeTableKey } from "./stores/node-table"
@@ -13,11 +17,13 @@ export const runPerPeerActors = () =>
   createActor((sig, parameters: PerPeerParameters) => {
     const { peerKey } = parameters
 
-    sig.use(peerBalanceMapStore).initializePeer(peerKey)
+    const ledger = sig.use(ledgerStore)
+
+    initializePeer(ledger, peerKey)
 
     sig.run(settlePerPeer, parameters)
 
     sig.onCleanup(() => {
-      sig.use(peerBalanceMapStore).removePeer(peerKey)
+      cleanupPeer(ledger, peerKey)
     })
   })

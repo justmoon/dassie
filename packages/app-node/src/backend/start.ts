@@ -1,6 +1,6 @@
 import { createActor, createReactor } from "@dassie/lib-reactive"
 
-import { startBalances } from "./balances"
+import { startAccounting } from "./accounting"
 import { startBtpServer } from "./btp-server"
 import { signerService } from "./crypto/signer"
 import { startExchangeRates } from "./exchange-rates"
@@ -19,12 +19,12 @@ export const rootActor = () =>
   createActor(async (sig) => {
     sig.run(signerService, undefined, { register: true })
     sig.run(attachLogger)
+    sig.run(startAccounting)
     sig.run(startHttpServer)
     sig.run(startBtpServer)
     sig.run(startTrpcServer)
     sig.run(startIlpConnector)
     sig.run(startIldcpServer)
-    sig.run(startBalances)
     await sig.run(startExchangeRates).result
     await sig.run(startSubnets).result
     await sig.run(startSpspServer).result

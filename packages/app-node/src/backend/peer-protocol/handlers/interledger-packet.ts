@@ -1,8 +1,13 @@
 import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
+import { isFailure } from "@dassie/lib-type-utils"
 
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
-import { peerBalanceMapStore } from "../../balances/stores/peer-balance-map"
+import {
+  processPacketPrepare,
+  processPacketResult,
+} from "../../accounting/functions/process-interledger-packet"
+import { ledgerStore } from "../../accounting/stores/ledger"
 import { configSignal } from "../../config"
 import { IlpType } from "../../ilp-connector/ilp-packet-codec"
 import { incomingIlpPacketTopic } from "../../ilp-connector/topics/incoming-ilp-packet"
@@ -18,7 +23,7 @@ export const handleInterledgerPacket = () =>
     const { ilpAllocationScheme } = sig.getKeys(configSignal, [
       "ilpAllocationScheme",
     ])
-    const balanceMap = sig.use(peerBalanceMapStore)
+    const ledger = sig.use(ledgerStore)
 
     return {
       handle: ({
@@ -59,24 +64,39 @@ export const handleInterledgerPacket = () =>
         switch (packet.type) {
           case IlpType.Prepare: {
             if (packet.amount > 0n) {
-              balanceMap.handleIncomingPacketPrepared(peerKey, packet.amount)
+              const result = processPacketPrepare(
+                ledger,
+                `peer/${peerKey}/interledger`,
+                packet,
+                "incoming"
+              )
+              if (isFailure(result)) {
+                // TODO: reject packet
+                throw new Error(
+                  `failed to create transfer, invalid ${result.whichAccount} account: ${result.accountPath}`
+                )
+              }
             }
             break
           }
           case IlpType.Fulfill: {
             if (packet.prepare.amount > 0n) {
-              balanceMap.handleOutgoingPacketFulfilled(
-                peerKey,
-                packet.prepare.amount
+              processPacketResult(
+                ledger,
+                `peer/${peerKey}/interledger`,
+                packet.prepare,
+                "fulfill"
               )
             }
             break
           }
           case IlpType.Reject: {
             if (packet.prepare.amount > 0n) {
-              balanceMap.handleOutgoingPacketRejected(
-                peerKey,
-                packet.prepare.amount
+              processPacketResult(
+                ledger,
+                `peer/${peerKey}/interledger`,
+                packet.prepare,
+                "reject"
               )
             }
             break

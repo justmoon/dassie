@@ -1,8 +1,17 @@
 import type { Plugin } from "ilp-protocol-stream/dist/src/util/plugin-interface"
 import { nanoid } from "nanoid"
 
-import { type Reactor } from "@dassie/lib-reactive"
+import assert from "node:assert"
 
+import { type Reactor } from "@dassie/lib-reactive"
+import { isFailure } from "@dassie/lib-type-utils"
+
+import {
+  processPacketPrepare,
+  processPacketResult,
+} from "../../accounting/functions/process-interledger-packet"
+import { ledgerStore } from "../../accounting/stores/ledger"
+import { IlpType } from "../../ilp-connector/ilp-packet-codec"
 import { localIlpRoutingTableSignal } from "../../ilp-connector/signals/local-ilp-routing-table"
 import { incomingIlpPacketTopic } from "../../ilp-connector/topics/incoming-ilp-packet"
 
@@ -23,6 +32,9 @@ export const createPlugin = (
   let connection: Connection = false
   let currentHandler: ((data: Buffer) => Promise<Buffer>) | undefined
 
+  const ledger = reactor.use(ledgerStore)
+  const incomingIlpPacketTopicValue = reactor.use(incomingIlpPacketTopic)
+
   return {
     connect: () => {
       if (connection) return Promise.resolve()
@@ -37,7 +49,40 @@ export const createPlugin = (
       ilpClientMap.read().set(localIlpAddressPart, {
         prefix: localIlpAddressPart,
         type: "spsp",
-        sendPacket: async ({ asUint8Array, requestId }) => {
+        sendPacket: async ({ packet, asUint8Array, requestId }) => {
+          assert(connection)
+
+          switch (packet.type) {
+            case IlpType.Prepare: {
+              if (packet.amount > 0n) {
+                processPacketPrepare(ledger, "owner/spsp", packet, "outgoing")
+              }
+              break
+            }
+            case IlpType.Fulfill: {
+              if (packet.prepare.amount > 0n) {
+                processPacketResult(
+                  ledger,
+                  "owner/spsp",
+                  packet.prepare,
+                  "fulfill"
+                )
+              }
+              break
+            }
+            case IlpType.Reject: {
+              if (packet.prepare.amount > 0n) {
+                processPacketResult(
+                  ledger,
+                  "owner/spsp",
+                  packet.prepare,
+                  "reject"
+                )
+              }
+              break
+            }
+          }
+
           const existingRequest = outstandingRequests.get(requestId)
           if (existingRequest) {
             existingRequest(Buffer.from(asUint8Array))
@@ -51,11 +96,60 @@ export const createPlugin = (
 
           const response = await currentHandler(Buffer.from(asUint8Array))
 
-          reactor.use(incomingIlpPacketTopic).emitPacket({
+          const incomingPacketEvent = incomingIlpPacketTopicValue.prepareEvent({
             packet: response,
             source: `${nodeIlpAddress}.${localIlpAddressPart}`,
             requestId,
           })
+
+          // TODO: refactor to simplify/unify the processing of packets coming in and going out
+          {
+            const { packet } = incomingPacketEvent
+
+            switch (packet.type) {
+              case IlpType.Prepare: {
+                if (packet.amount > 0n) {
+                  const result = processPacketPrepare(
+                    ledger,
+                    "owner/spsp",
+                    packet,
+                    "incoming"
+                  )
+                  if (isFailure(result)) {
+                    // TODO: reject packet
+                    throw new Error(
+                      `failed to create transfer, invalid ${result.whichAccount} account: ${result.accountPath}`
+                    )
+                  }
+                }
+                break
+              }
+              case IlpType.Fulfill: {
+                if (packet.prepare.amount > 0n) {
+                  processPacketResult(
+                    ledger,
+                    "owner/spsp",
+                    packet.prepare,
+                    "fulfill"
+                  )
+                }
+                break
+              }
+              case IlpType.Reject: {
+                if (packet.prepare.amount > 0n) {
+                  processPacketResult(
+                    ledger,
+                    "owner/spsp",
+                    packet.prepare,
+                    "reject"
+                  )
+                }
+                break
+              }
+            }
+          }
+
+          reactor.use(incomingIlpPacketTopic).emit(incomingPacketEvent)
         },
       })
 
@@ -88,11 +182,58 @@ export const createPlugin = (
       const resultPromise = new Promise<Buffer>((resolve) => {
         const requestId = nextRequestId++
         outstandingRequests.set(requestId, resolve)
-        reactor.use(incomingIlpPacketTopic).emitPacket({
+
+        const incomingPacketEvent = incomingIlpPacketTopicValue.prepareEvent({
           packet: data,
           source: ilpAddress,
           requestId,
         })
+
+        const { packet } = incomingPacketEvent
+
+        switch (packet.type) {
+          case IlpType.Prepare: {
+            if (packet.amount > 0n) {
+              const result = processPacketPrepare(
+                ledger,
+                "owner/spsp",
+                packet,
+                "incoming"
+              )
+              if (isFailure(result)) {
+                // TODO: reject packet
+                throw new Error(
+                  `failed to create transfer, invalid ${result.whichAccount} account: ${result.accountPath}`
+                )
+              }
+            }
+            break
+          }
+          case IlpType.Fulfill: {
+            if (packet.prepare.amount > 0n) {
+              processPacketResult(
+                ledger,
+                "owner/spsp",
+                packet.prepare,
+                "fulfill"
+              )
+            }
+            break
+          }
+          case IlpType.Reject: {
+            if (packet.prepare.amount > 0n) {
+              processPacketResult(
+                ledger,
+                "owner/spsp",
+                packet.prepare,
+                "reject"
+              )
+            }
+            break
+          }
+        }
+
+        reactor.use(incomingIlpPacketTopic).emit(incomingPacketEvent)
       })
 
       return resultPromise

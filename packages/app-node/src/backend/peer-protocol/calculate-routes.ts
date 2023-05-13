@@ -4,7 +4,11 @@ import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 import { assertDefined } from "@dassie/lib-type-utils"
 
-import { peerBalanceMapStore } from "../balances/stores/peer-balance-map"
+import {
+  processPacketPrepare,
+  processPacketResult,
+} from "../accounting/functions/process-interledger-packet"
+import { ledgerStore } from "../accounting/stores/ledger"
 import { configSignal } from "../config"
 import { nodeIdSignal } from "../ilp-connector/computed/node-id"
 import { IlpType } from "../ilp-connector/ilp-packet-codec"
@@ -126,33 +130,38 @@ export const calculateRoutes = () =>
               throw new Error(`No subnet module found for subnet ${subnetId}`)
             }
 
-            const balanceMap = sig.use(peerBalanceMapStore)
-
+            const ledger = sig.use(ledgerStore)
             const peerKey: NodeTableKey = `${subnetId}.${nextHop}`
             switch (packet.type) {
               case IlpType.Prepare: {
                 if (packet.amount > 0n) {
-                  balanceMap.handleOutgoingPacketPrepared(
-                    peerKey,
-                    packet.amount
+                  processPacketPrepare(
+                    ledger,
+                    `peer/${peerKey}/interledger`,
+                    packet,
+                    "outgoing"
                   )
                 }
                 break
               }
               case IlpType.Fulfill: {
                 if (packet.prepare.amount > 0n) {
-                  balanceMap.handleIncomingPacketFulfilled(
-                    peerKey,
-                    packet.prepare.amount
+                  processPacketResult(
+                    ledger,
+                    `peer/${peerKey}/interledger`,
+                    packet.prepare,
+                    "fulfill"
                   )
                 }
                 break
               }
               case IlpType.Reject: {
                 if (packet.prepare.amount > 0n) {
-                  balanceMap.handleIncomingPacketRejected(
-                    peerKey,
-                    packet.prepare.amount
+                  processPacketResult(
+                    ledger,
+                    `peer/${peerKey}/interledger`,
+                    packet.prepare,
+                    "reject"
                   )
                 }
                 break

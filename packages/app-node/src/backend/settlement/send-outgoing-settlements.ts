@@ -1,13 +1,18 @@
+import assert from "node:assert"
+
 import { createActor } from "@dassie/lib-reactive"
+import { isFailure } from "@dassie/lib-type-utils"
 
 import {
-  type PeerBalanceState,
-  peerBalanceMapStore,
-} from "../balances/stores/peer-balance-map"
+  processSettlementPrepare,
+  processSettlementResult,
+} from "../accounting/functions/process-settlement"
+import { Ledger, ledgerStore } from "../accounting/stores/ledger"
 import type { PerPeerParameters } from "../peer-protocol/run-per-peer-actors"
+import { NodeTableKey } from "../peer-protocol/stores/node-table"
 
 const SETTLEMENT_CHECK_INTERVAL = 10_000
-const SETTLEMENT_RATIO = 0.8
+const SETTLEMENT_RATIO = 0.2
 
 /**
  * The precision to use when calculating ratios.
@@ -26,51 +31,67 @@ const multiplyAmountWithRatio = (amount: bigint, ratio: number) => {
   return (amount * ratioBigInt) / BigInt(10 ** RATIO_PRECISION)
 }
 
-const calculateSettlementAmount = (balanceInfo: PeerBalanceState) => {
-  const { balance, incomingCredit, outgoingCredit, incomingPending } =
-    balanceInfo
+const calculateSettlementAmount = (ledger: Ledger, peerKey: NodeTableKey) => {
+  const peerInterledgerAccount = ledger.getAccount(
+    `peer/${peerKey}/interledger`
+  )
+  const peerTrustAccount = ledger.getAccount(`peer/${peerKey}/trust`)
+  const peerSettlementAccount = ledger.getAccount(`peer/${peerKey}/settlement`)
 
-  const settlementMidpoint =
-    (incomingCredit + outgoingCredit) / 2n - incomingCredit
+  assert(peerInterledgerAccount)
+  assert(peerTrustAccount)
+  assert(peerSettlementAccount)
+
+  const balance =
+    peerInterledgerAccount.creditsPosted -
+    peerInterledgerAccount.debitsPosted -
+    peerInterledgerAccount.debitsPending
+
+  const outgoingCredit =
+    peerTrustAccount.debitsPosted - peerTrustAccount.creditsPosted
+
+  // TODO: Get actual peer credit to use here, for now we assume they extended us the same credit that we extended them
+  const incomingCredit = outgoingCredit
+
+  const settlementMidpoint = (incomingCredit + outgoingCredit) / 2n
   const settlementThreshold =
-    multiplyAmountWithRatio(
-      settlementMidpoint + incomingCredit,
-      SETTLEMENT_RATIO
-    ) - incomingCredit
+    settlementMidpoint +
+    multiplyAmountWithRatio(outgoingCredit, SETTLEMENT_RATIO)
 
-  if (balance > settlementThreshold) {
+  if (balance < settlementThreshold) {
     return 0n
   }
 
-  const proposedSettlementAmount = settlementMidpoint - balance
-  const maxSettlementAmount = outgoingCredit - balance - incomingPending
+  const proposedSettlementAmount = balance - settlementMidpoint
 
   return proposedSettlementAmount < 0
     ? 0n
-    : proposedSettlementAmount > maxSettlementAmount
-    ? maxSettlementAmount
+    : proposedSettlementAmount > balance
+    ? balance
     : proposedSettlementAmount
 }
 
 export const sendOutgoingSettlements = () =>
   createActor((sig, { peerKey, subnetActor }: PerPeerParameters) => {
     const subnetActorInstance = sig.use(subnetActor)
-    const balanceMapStore = sig.use(peerBalanceMapStore)
+    const ledger = sig.use(ledgerStore)
 
     sig.interval(() => {
-      const balanceInfo = balanceMapStore.read().get(peerKey)
-
-      if (balanceInfo == undefined) {
-        throw new Error(`Unable to read peer balance for ${peerKey}`)
-      }
-
-      const settlementAmount = calculateSettlementAmount(balanceInfo)
+      const settlementAmount = calculateSettlementAmount(ledger, peerKey)
 
       if (settlementAmount > 0n) {
-        balanceMapStore.handleOutgoingSettlementPrepared(
+        const settlementTransfer = processSettlementPrepare(
+          ledger,
           peerKey,
-          settlementAmount
+          settlementAmount,
+          "outgoing"
         )
+
+        if (isFailure(settlementTransfer)) {
+          throw new Error(
+            `Settlement failed, invalid ${settlementTransfer.whichAccount} account ${settlementTransfer.accountPath}`
+          )
+        }
 
         subnetActorInstance
           .ask("settle", {
@@ -78,16 +99,10 @@ export const sendOutgoingSettlements = () =>
             peerKey,
           })
           .then(() => {
-            balanceMapStore.handleOutgoingSettlementFulfilled(
-              peerKey,
-              settlementAmount
-            )
+            processSettlementResult(ledger, settlementTransfer, "fulfill")
           })
           .catch(() => {
-            balanceMapStore.handleOutgoingSettlementRejected(
-              peerKey,
-              settlementAmount
-            )
+            processSettlementResult(ledger, settlementTransfer, "reject")
           })
       }
     }, SETTLEMENT_CHECK_INTERVAL)
