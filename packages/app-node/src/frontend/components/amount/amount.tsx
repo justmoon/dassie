@@ -29,7 +29,7 @@ export const Amount = ({ balance, currency }: AmountProperties) => {
       <div>{integerPart}</div>
       <div>.</div>
       <div>{emphasizedPart}</div>
-      <div className="text-gray-400">{deemphasizedPart.slice(0, 2)}</div>
+      <div className="text-muted">{deemphasizedPart.slice(0, 2)}</div>
     </div>
   )
 }

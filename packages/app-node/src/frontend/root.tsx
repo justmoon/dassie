@@ -8,6 +8,7 @@ import { useState } from "react"
 
 import type { AppRouter } from "../backend/trpc-server/app-router"
 import App from "./app"
+import { DarkModeProvider } from "./components/context/dark-mode"
 import { Provider as RemoteReactiveProvider } from "./utils/remote-reactive"
 import { trpc } from "./utils/trpc"
 
@@ -29,13 +30,15 @@ const Root = () => {
   })
 
   return (
-    <RemoteReactiveProvider trpcClient={trpcProxyClient}>
-      <trpc.Provider client={trpcClient} queryClient={queryClient}>
-        <QueryClientProvider client={queryClient}>
-          <App />
-        </QueryClientProvider>
-      </trpc.Provider>
-    </RemoteReactiveProvider>
+    <DarkModeProvider>
+      <RemoteReactiveProvider trpcClient={trpcProxyClient}>
+        <trpc.Provider client={trpcClient} queryClient={queryClient}>
+          <QueryClientProvider client={queryClient}>
+            <App />
+          </QueryClientProvider>
+        </trpc.Provider>
+      </RemoteReactiveProvider>
+    </DarkModeProvider>
   )
 }
 

@@ -1,10 +1,9 @@
 import { bytesToHex } from "@noble/hashes/utils"
 import * as bip39 from "@scure/bip39"
 import { wordlist } from "@scure/bip39/wordlists/english"
-import { ArrowLeft } from "phosphor-react"
 import { useCallback, useState } from "react"
 
-import Dialog from "../../components/dialog/dialog"
+import { Card, CardHeader, CardTitle } from "../../components/ui/card"
 import { walletStore } from "../../stores/wallet"
 import { useSig } from "../../utils/remote-reactive"
 import { SubpageGenerate } from "./subpage-generate/subpage-generate"
@@ -115,16 +114,21 @@ export const Open = () => {
           <SubpageGenerate
             mnemonic={subpage.mnemonic}
             onConfirm={onGenerateConfirm}
+            onBack={onBack}
           />
         )
       }
       case "verify": {
         return (
-          <SubpageVerify mnemonic={subpage.mnemonic} onConfirm={onMnemonic} />
+          <SubpageVerify
+            mnemonic={subpage.mnemonic}
+            onConfirm={onMnemonic}
+            onBack={onBack}
+          />
         )
       }
       case "recover": {
-        return <SubpageRecover onConfirm={onMnemonic} />
+        return <SubpageRecover onConfirm={onMnemonic} onBack={onBack} />
       }
       case "opening": {
         return null
@@ -134,20 +138,12 @@ export const Open = () => {
 
   return (
     <div className="flex h-full items-center justify-center">
-      <Dialog.Root>
-        <Dialog.Titlebar>
-          {subpage.subpage === "intro" ? null : (
-            <Dialog.TitleActionButton onClick={onBack}>
-              <ArrowLeft />
-              <span className="sr-only">Go back</span>
-            </Dialog.TitleActionButton>
-          )}
-          <h1 className="flex-grow flex-shrink-0 basis-auto font-bold text-lg md:text-xl">
-            {SUBPAGE_TITLES[subpage.subpage]}
-          </h1>
-        </Dialog.Titlebar>
+      <Card>
+        <CardHeader>
+          <CardTitle>{SUBPAGE_TITLES[subpage.subpage]}</CardTitle>
+        </CardHeader>
         {subpageElement}
-      </Dialog.Root>
+      </Card>
     </div>
   )
 }

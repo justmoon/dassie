@@ -1,12 +1,18 @@
 import { useCallback, useState } from "react"
 
 import { Button } from "../../../components/ui/button"
+import { CardContent, CardFooter } from "../../../components/ui/card"
+import { Input } from "../../../components/ui/input"
 
 interface SubpageRecoverProperties {
   onConfirm: (mnemonic: string) => void
+  onBack: () => void
 }
 
-export const SubpageRecover = ({ onConfirm }: SubpageRecoverProperties) => {
+export const SubpageRecover = ({
+  onConfirm,
+  onBack,
+}: SubpageRecoverProperties) => {
   const [mnemonic, setMnemonic] = useState("")
 
   const onClickSubmit = useCallback(() => {
@@ -15,30 +21,34 @@ export const SubpageRecover = ({ onConfirm }: SubpageRecoverProperties) => {
 
   return (
     <>
-      <p>
-        Please enter the passphrase corresponding to the wallet you would like
-        to load.
-      </p>
-      <div className="mb-6">
-        <label
-          htmlFor="email"
-          className="font-medium text-sm mb-2 text-gray-900 block dark:text-gray-300"
-        >
-          Passphrase
-        </label>
-        <input
-          type="text"
-          id="word"
-          className="border rounded-lg bg-gray-50 border-gray-300 text-sm w-full p-2.5 text-gray-900 block dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400 focus:border-blue-500 focus:ring-blue-500 dark:focus:border-blue-500 dark:focus:ring-blue-500"
-          placeholder="Enter your passphrase"
-          value={mnemonic}
-          onChange={(event) => setMnemonic(event.target.value)}
-          required
-        />
-      </div>
-      <div className="flex flex-col gap-4">
+      <CardContent>
+        <p>
+          Please enter the passphrase corresponding to the wallet you would like
+          to load.
+        </p>
+        <div className="mt-6">
+          <label
+            htmlFor="email"
+            className="font-medium text-sm mb-2 text-gray-900 block dark:text-gray-300"
+          >
+            Passphrase
+          </label>
+          <Input
+            type="text"
+            id="word"
+            placeholder="Enter your passphrase"
+            value={mnemonic}
+            onChange={(event) => setMnemonic(event.target.value)}
+            required
+          />
+        </div>
+      </CardContent>
+      <CardFooter className="justify-between">
+        <Button variant="ghost" onClick={onBack}>
+          Back
+        </Button>
         <Button onClick={onClickSubmit}>Open Wallet</Button>
-      </div>
+      </CardFooter>
     </>
   )
 }
