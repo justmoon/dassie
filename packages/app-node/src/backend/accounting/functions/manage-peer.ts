@@ -3,7 +3,7 @@ import assert from "node:assert"
 import { NodeTableKey } from "../../peer-protocol/stores/node-table"
 import { Ledger } from "../stores/ledger"
 
-const DEFAULT_CREDIT = 1_000_000n
+const DEFAULT_CREDIT = 1_000_000_000n
 
 export const initializePeer = (ledger: Ledger, peerKey: NodeTableKey) => {
   ledger.createAccount(`peer/${peerKey}/interledger`, {

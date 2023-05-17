@@ -21,7 +21,7 @@ export const Account = () => {
         </CardHeader>
         <CardContent>
           <div className="flex p-2 text-dark text-center max-w-md w-full justify-center text-4xl md:text-5xl">
-            <Amount balance={account.balance} currency={account.currency} />
+            <Amount value={account.balance} currency={account.currency} />
           </div>
         </CardContent>
       </Card>

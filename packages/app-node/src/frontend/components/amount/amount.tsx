@@ -1,13 +1,13 @@
 import type { CurrencySpecification } from "../../types/currency"
 
 export interface AmountProperties {
-  balance: bigint
+  value: bigint
   currency: CurrencySpecification
 }
 
-export const Amount = ({ balance, currency }: AmountProperties) => {
-  const negative = balance < 0n ? "-" : ""
-  const absoluteBalance = negative ? -balance : balance
+export const Amount = ({ value, currency }: AmountProperties) => {
+  const negative = value < 0n ? "-" : ""
+  const absoluteBalance = negative ? -value : value
 
   const totalPrecisionDividend = 10n ** BigInt(currency.totalPrecision)
   10n ** BigInt(currency.totalPrecision - currency.precision)
@@ -29,7 +29,9 @@ export const Amount = ({ balance, currency }: AmountProperties) => {
       <div>{integerPart}</div>
       <div>.</div>
       <div>{emphasizedPart}</div>
-      <div className="text-muted">{deemphasizedPart.slice(0, 2)}</div>
+      <div className="text-muted-foreground">
+        {deemphasizedPart.slice(0, 2)}
+      </div>
     </div>
   )
 }

@@ -20,7 +20,7 @@ export const SubpageReview = ({
       <CardContent>
         <div>Payment Pointer: {paymentPointer}</div>
         <div>
-          Amount: <Amount balance={amount} currency={USD_SPECIFICATION} />
+          Amount: <Amount value={amount} currency={USD_SPECIFICATION} />
         </div>
       </CardContent>
       <CardFooter className="justify-between space-x-2">

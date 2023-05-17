@@ -67,7 +67,7 @@ export function extend<
     return createElement(type, {
       ...properties,
       ref: reference,
-      className: combine(className, ...addtionalClassNames),
+      className: combine(...addtionalClassNames, className),
     })
   })
 

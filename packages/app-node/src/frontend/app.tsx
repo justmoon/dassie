@@ -1,8 +1,10 @@
 import { Route, Switch } from "wouter"
 
 import { rootActor } from "./actors/root"
+import { MainNavigation } from "./layout/main-navigation"
 import { Account } from "./pages/account/account"
 import { CreateFirstAccount } from "./pages/create-first-account/create-first-account"
+import { Ledger } from "./pages/debug/ledger/ledger"
 import { Open } from "./pages/open/open"
 import { PaymentStatus } from "./pages/payment-status/payment-status"
 import { Send } from "./pages/send/send"
@@ -24,11 +26,15 @@ const App = () => {
   }
 
   return (
-    <Switch>
-      <Route path="/send" component={Send} />
-      <Route path="/payments/:paymentId" component={PaymentStatus} />
-      <Route component={Account} />
-    </Switch>
+    <div>
+      <MainNavigation />
+      <Switch>
+        <Route path="/send" component={Send} />
+        <Route path="/payments/:paymentId" component={PaymentStatus} />
+        <Route path="/debug/ledger" component={Ledger} />
+        <Route component={Account} />
+      </Switch>
+    </div>
   )
 }
 
