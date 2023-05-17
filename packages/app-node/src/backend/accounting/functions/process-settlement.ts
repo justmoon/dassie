@@ -14,8 +14,8 @@ export const processSettlementPrepare = (
 
   const transfer: CreateTransferParameters = {
     key: randomBytes(16).toString("base64"),
-    debitAccountPath: direction === "incoming" ? peerPath : settlementPath,
-    creditAccountPath: direction === "incoming" ? settlementPath : peerPath,
+    debitAccountPath: direction === "incoming" ? settlementPath : peerPath,
+    creditAccountPath: direction === "incoming" ? peerPath : settlementPath,
     amount,
     pending: true,
   }

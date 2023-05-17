@@ -54,9 +54,10 @@ const calculateSettlementAmount = (ledger: Ledger, peerKey: NodeTableKey) => {
   const incomingCredit = outgoingCredit
 
   const settlementMidpoint = (incomingCredit + outgoingCredit) / 2n
-  const settlementThreshold =
-    settlementMidpoint +
-    multiplyAmountWithRatio(outgoingCredit, SETTLEMENT_RATIO)
+  const settlementThreshold = multiplyAmountWithRatio(
+    settlementMidpoint,
+    1 + SETTLEMENT_RATIO / 2
+  )
 
   if (balance < settlementThreshold) {
     return 0n
