@@ -4,7 +4,6 @@ import { nanoid } from "nanoid"
 import assert from "node:assert"
 
 import { type Reactor } from "@dassie/lib-reactive"
-import { isFailure } from "@dassie/lib-type-utils"
 
 import {
   processPacketPrepare,
@@ -12,8 +11,8 @@ import {
 } from "../../accounting/functions/process-interledger-packet"
 import { ledgerStore } from "../../accounting/stores/ledger"
 import { IlpType } from "../../ilp-connector/ilp-packet-codec"
+import { processIncomingPacket } from "../../ilp-connector/process-incoming-packet"
 import { localIlpRoutingTableSignal } from "../../ilp-connector/signals/local-ilp-routing-table"
-import { incomingIlpPacketTopic } from "../../ilp-connector/topics/incoming-ilp-packet"
 
 let nextRequestId = 1
 
@@ -33,7 +32,7 @@ export const createPlugin = (
   let currentHandler: ((data: Buffer) => Promise<Buffer>) | undefined
 
   const ledger = reactor.use(ledgerStore)
-  const incomingIlpPacketTopicValue = reactor.use(incomingIlpPacketTopic)
+  const processIncomingPacketActor = reactor.use(processIncomingPacket)
 
   return {
     connect: () => {
@@ -96,60 +95,12 @@ export const createPlugin = (
 
           const response = await currentHandler(Buffer.from(asUint8Array))
 
-          const incomingPacketEvent = incomingIlpPacketTopicValue.prepareEvent({
-            packet: response,
-            source: `${nodeIlpAddress}.${localIlpAddressPart}`,
+          processIncomingPacketActor.tell("handle", {
+            sourceIlpAddress: `${nodeIlpAddress}.${localIlpAddressPart}`,
+            ledgerAccountPath: "owner/spsp",
+            serializedPacket: response,
             requestId,
           })
-
-          // TODO: refactor to simplify/unify the processing of packets coming in and going out
-          {
-            const { packet } = incomingPacketEvent
-
-            switch (packet.type) {
-              case IlpType.Prepare: {
-                if (packet.amount > 0n) {
-                  const result = processPacketPrepare(
-                    ledger,
-                    "owner/spsp",
-                    packet,
-                    "incoming"
-                  )
-                  if (isFailure(result)) {
-                    // TODO: reject packet
-                    throw new Error(
-                      `failed to create transfer, invalid ${result.whichAccount} account: ${result.accountPath}`
-                    )
-                  }
-                }
-                break
-              }
-              case IlpType.Fulfill: {
-                if (packet.prepare.amount > 0n) {
-                  processPacketResult(
-                    ledger,
-                    "owner/spsp",
-                    packet.prepare,
-                    "fulfill"
-                  )
-                }
-                break
-              }
-              case IlpType.Reject: {
-                if (packet.prepare.amount > 0n) {
-                  processPacketResult(
-                    ledger,
-                    "owner/spsp",
-                    packet.prepare,
-                    "reject"
-                  )
-                }
-                break
-              }
-            }
-          }
-
-          reactor.use(incomingIlpPacketTopic).emit(incomingPacketEvent)
         },
       })
 
@@ -183,57 +134,12 @@ export const createPlugin = (
         const requestId = nextRequestId++
         outstandingRequests.set(requestId, resolve)
 
-        const incomingPacketEvent = incomingIlpPacketTopicValue.prepareEvent({
-          packet: data,
-          source: ilpAddress,
+        processIncomingPacketActor.tell("handle", {
+          sourceIlpAddress: ilpAddress,
+          ledgerAccountPath: "owner/spsp",
+          serializedPacket: data,
           requestId,
         })
-
-        const { packet } = incomingPacketEvent
-
-        switch (packet.type) {
-          case IlpType.Prepare: {
-            if (packet.amount > 0n) {
-              const result = processPacketPrepare(
-                ledger,
-                "owner/spsp",
-                packet,
-                "incoming"
-              )
-              if (isFailure(result)) {
-                // TODO: reject packet
-                throw new Error(
-                  `failed to create transfer, invalid ${result.whichAccount} account: ${result.accountPath}`
-                )
-              }
-            }
-            break
-          }
-          case IlpType.Fulfill: {
-            if (packet.prepare.amount > 0n) {
-              processPacketResult(
-                ledger,
-                "owner/spsp",
-                packet.prepare,
-                "fulfill"
-              )
-            }
-            break
-          }
-          case IlpType.Reject: {
-            if (packet.prepare.amount > 0n) {
-              processPacketResult(
-                ledger,
-                "owner/spsp",
-                packet.prepare,
-                "reject"
-              )
-            }
-            break
-          }
-        }
-
-        reactor.use(incomingIlpPacketTopic).emit(incomingPacketEvent)
       })
 
       return resultPromise

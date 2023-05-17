@@ -1,9 +1,9 @@
 import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
-import { IlpType } from "../ilp-connector/ilp-packet-codec"
+import { IlpType, serializeIlpPacket } from "../ilp-connector/ilp-packet-codec"
+import { processIncomingPacket } from "../ilp-connector/process-incoming-packet"
 import { globalIlpRoutingTableSignal } from "../ilp-connector/signals/global-ilp-routing-table"
-import { outgoingIlpPacketBuffer } from "../ilp-connector/topics/outgoing-ilp-packet"
 import { ildcpResponseSchema } from "./ildcp-packet-codec"
 
 const logger = createLogger("das:node:handle-ildcp-requests")
@@ -13,6 +13,7 @@ export const ILDCP_ADDRESS = "peer.config"
 export const handleIldcpRequests = () =>
   createActor((sig) => {
     const ilpRoutingTable = sig.get(globalIlpRoutingTableSignal)
+    const processIncomingPacketActor = sig.use(processIncomingPacket)
 
     ilpRoutingTable.set(ILDCP_ADDRESS, {
       prefix: ILDCP_ADDRESS,
@@ -42,11 +43,12 @@ export const handleIldcpRequests = () =>
           destination: source,
         })
 
-        sig.use(outgoingIlpPacketBuffer).emitEvent({
-          source: ILDCP_ADDRESS,
-          packet: responsePacket,
-          incomingRequestId: requestId,
-          outgoingRequestId: requestId,
+        processIncomingPacketActor.tell("handle", {
+          sourceIlpAddress: ILDCP_ADDRESS,
+          ledgerAccountPath: `internal/ildcp`,
+          serializedPacket: serializeIlpPacket(responsePacket),
+          parsedPacket: responsePacket,
+          requestId,
         })
       },
     })

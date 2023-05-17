@@ -20,10 +20,10 @@ export const rootActor = () =>
     sig.run(signerService, undefined, { register: true })
     sig.run(attachLogger)
     sig.run(startAccounting)
+    sig.run(startIlpConnector)
     sig.run(startHttpServer)
     sig.run(startBtpServer)
     sig.run(startTrpcServer)
-    sig.run(startIlpConnector)
     sig.run(startIldcpServer)
     await sig.run(startExchangeRates).result
     await sig.run(startSubnets).result
