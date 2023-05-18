@@ -12,7 +12,6 @@ import {
 import { createActor } from "@dassie/lib-reactive"
 
 import { websocketRoutesSignal } from "../http-server/serve-http"
-import { IlpType } from "../ilp-connector/ilp-packet-codec"
 import { processIncomingPacket } from "../ilp-connector/process-incoming-packet"
 import { localIlpRoutingTableSignal } from "../ilp-connector/signals/local-ilp-routing-table"
 import { primaryIlpAddressSignal } from "../ilp-connector/signals/primary-ilp-address"
@@ -183,14 +182,18 @@ export const registerBtpHttpUpgrade = () =>
         ilpClientMap.read().set(localIlpAddressPart, {
           prefix: localIlpAddressPart,
           type: "btp",
-          sendPacket: ({ packet, asUint8Array, requestId }) => {
-            if (packet.type !== IlpType.Prepare || packet.amount === 0n) {
+          sendPreparePacket: ({
+            parsedPacket,
+            serializedPacket,
+            outgoingRequestId: requestId,
+          }) => {
+            if (parsedPacket.amount === 0n) {
               const btpMessageSerializeResult = btpMessageSchema.serialize({
                 protocolData: [
                   {
                     protocolName: "ilp",
                     contentType: 0,
-                    data: asUint8Array,
+                    data: serializedPacket,
                   },
                 ],
               })
@@ -203,62 +206,7 @@ export const registerBtpHttpUpgrade = () =>
               }
 
               const btpEnvelopeSerializeResult = btpEnvelopeSchema.serialize({
-                messageType:
-                  packet.type === IlpType.Prepare
-                    ? BtpType.Message
-                    : BtpType.Response,
-                requestId,
-                message: btpMessageSerializeResult.value,
-              })
-
-              if (!btpEnvelopeSerializeResult.success) {
-                logger.error("could not serialize BTP envelope", {
-                  error: btpEnvelopeSerializeResult.error,
-                })
-                return
-              }
-
-              socket.send(btpEnvelopeSerializeResult.value)
-
-              return
-            } else {
-              const btpMessageSerializeResult = btpMessageSchema.serialize({
-                protocolData: [
-                  {
-                    protocolName: "ilp",
-                    contentType: 0,
-                    data: asUint8Array,
-                  },
-                ],
-              })
-
-              if (!btpMessageSerializeResult.success) {
-                logger.error("could not serialize BTP message", {
-                  error: btpMessageSerializeResult.error,
-                })
-                return
-              }
-
-              // const btpTransferSerializeResult = btpTransferSchema.serialize({
-              //   amount,
-              //   protocolData: [
-              //     {
-              //       protocolName: "ilp",
-              //       contentType: 0,
-              //       data: packet,
-              //     },
-              //   ],
-              // })
-
-              // if (!btpTransferSerializeResult.success) {
-              //   logger.error("could not serialize BTP transfer", {
-              //     error: btpTransferSerializeResult.failure,
-              //   })
-              //   return
-              // }
-
-              const btpEnvelopeSerializeResult = btpEnvelopeSchema.serialize({
-                messageType: 6, // Message
+                messageType: BtpType.Message,
                 requestId,
                 message: btpMessageSerializeResult.value,
               })
@@ -274,6 +222,94 @@ export const registerBtpHttpUpgrade = () =>
 
               return
             }
+
+            const btpMessageSerializeResult = btpMessageSchema.serialize({
+              protocolData: [
+                {
+                  protocolName: "ilp",
+                  contentType: 0,
+                  data: serializedPacket,
+                },
+              ],
+            })
+
+            if (!btpMessageSerializeResult.success) {
+              logger.error("could not serialize BTP message", {
+                error: btpMessageSerializeResult.error,
+              })
+              return
+            }
+
+            // const btpTransferSerializeResult = btpTransferSchema.serialize({
+            //   amount,
+            //   protocolData: [
+            //     {
+            //       protocolName: "ilp",
+            //       contentType: 0,
+            //       data: packet,
+            //     },
+            //   ],
+            // })
+
+            // if (!btpTransferSerializeResult.success) {
+            //   logger.error("could not serialize BTP transfer", {
+            //     error: btpTransferSerializeResult.failure,
+            //   })
+            //   return
+            // }
+
+            const btpEnvelopeSerializeResult = btpEnvelopeSchema.serialize({
+              messageType: 6, // Message
+              requestId,
+              message: btpMessageSerializeResult.value,
+            })
+
+            if (!btpEnvelopeSerializeResult.success) {
+              logger.error("could not serialize BTP envelope", {
+                error: btpEnvelopeSerializeResult.error,
+              })
+              return
+            }
+
+            socket.send(btpEnvelopeSerializeResult.value)
+
+            return
+          },
+          sendResultPacket: ({
+            prepare: { incomingRequestId: requestId },
+            serializedPacket,
+          }) => {
+            const btpMessageSerializeResult = btpMessageSchema.serialize({
+              protocolData: [
+                {
+                  protocolName: "ilp",
+                  contentType: 0,
+                  data: serializedPacket,
+                },
+              ],
+            })
+
+            if (!btpMessageSerializeResult.success) {
+              logger.error("could not serialize BTP message", {
+                error: btpMessageSerializeResult.error,
+              })
+              return
+            }
+
+            const btpEnvelopeSerializeResult = btpEnvelopeSchema.serialize({
+              messageType: BtpType.Response,
+              requestId,
+              message: btpMessageSerializeResult.value,
+            })
+
+            if (!btpEnvelopeSerializeResult.success) {
+              logger.error("could not serialize BTP envelope", {
+                error: btpEnvelopeSerializeResult.error,
+              })
+              return
+            }
+
+            socket.send(btpEnvelopeSerializeResult.value)
           },
         })
 

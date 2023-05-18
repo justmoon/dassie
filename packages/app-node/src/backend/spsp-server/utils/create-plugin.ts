@@ -48,43 +48,20 @@ export const createPlugin = (
       ilpClientMap.read().set(localIlpAddressPart, {
         prefix: localIlpAddressPart,
         type: "spsp",
-        sendPacket: async ({ packet, asUint8Array, requestId }) => {
+        sendPreparePacket: async ({
+          parsedPacket,
+          serializedPacket,
+          outgoingRequestId: requestId,
+        }) => {
           assert(connection)
 
-          switch (packet.type) {
-            case IlpType.Prepare: {
-              if (packet.amount > 0n) {
-                processPacketPrepare(ledger, "owner/spsp", packet, "outgoing")
-              }
-              break
-            }
-            case IlpType.Fulfill: {
-              if (packet.prepare.amount > 0n) {
-                processPacketResult(
-                  ledger,
-                  "owner/spsp",
-                  packet.prepare,
-                  "fulfill"
-                )
-              }
-              break
-            }
-            case IlpType.Reject: {
-              if (packet.prepare.amount > 0n) {
-                processPacketResult(
-                  ledger,
-                  "owner/spsp",
-                  packet.prepare,
-                  "reject"
-                )
-              }
-              break
-            }
+          if (parsedPacket.amount > 0n) {
+            processPacketPrepare(ledger, "owner/spsp", parsedPacket, "outgoing")
           }
 
           const existingRequest = outstandingRequests.get(requestId)
           if (existingRequest) {
-            existingRequest(Buffer.from(asUint8Array))
+            existingRequest(Buffer.from(serializedPacket))
             outstandingRequests.delete(requestId)
             return
           }
@@ -93,7 +70,7 @@ export const createPlugin = (
             throw new Error("No handler registered")
           }
 
-          const response = await currentHandler(Buffer.from(asUint8Array))
+          const response = await currentHandler(Buffer.from(serializedPacket))
 
           processIncomingPacketActor.tell("handle", {
             sourceIlpAddress: `${nodeIlpAddress}.${localIlpAddressPart}`,
@@ -101,6 +78,33 @@ export const createPlugin = (
             serializedPacket: response,
             requestId,
           })
+        },
+        sendResultPacket: ({
+          parsedPacket: packet,
+          serializedPacket: asUint8Array,
+          prepare: {
+            parsedPacket: preparePacket,
+            incomingRequestId: requestId,
+          },
+        }) => {
+          assert(connection)
+
+          if (preparePacket.amount > 0n) {
+            processPacketResult(
+              ledger,
+              "owner/spsp",
+              preparePacket,
+              packet.type === IlpType.Fulfill ? "fulfill" : "reject"
+            )
+          }
+
+          const existingRequest = outstandingRequests.get(requestId)
+          if (!existingRequest) {
+            throw new Error("No request found")
+          }
+
+          existingRequest(Buffer.from(asUint8Array))
+          outstandingRequests.delete(requestId)
         },
       })
 

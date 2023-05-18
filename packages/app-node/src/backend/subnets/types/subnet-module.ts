@@ -3,17 +3,10 @@ import type { Promisable } from "type-fest"
 import type { Actor, Behavior, Factory } from "@dassie/lib-reactive"
 
 import type { VALID_REALMS } from "../../constants/general"
-import type { IlpPacketWithAttachedPrepare } from "../../ilp-connector/topics/incoming-ilp-packet"
 import type { NodeTableKey } from "../../peer-protocol/stores/node-table"
 
 export interface BalanceMap {
   adjustBalance: (subnetId: string, adjustment: bigint) => void
-}
-
-export interface PacketInformation {
-  subnetId: string
-  balanceMap: BalanceMap
-  packet: IlpPacketWithAttachedPrepare
 }
 
 export interface SubnetProperties {

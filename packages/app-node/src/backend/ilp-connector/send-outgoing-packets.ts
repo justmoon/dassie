@@ -7,14 +7,19 @@ import { nodeIdSignal } from "./computed/node-id"
 import { globalIlpRoutingTableSignal } from "./signals/global-ilp-routing-table"
 import { localIlpRoutingTableSignal } from "./signals/local-ilp-routing-table"
 import {
-  type OutgoingIlpPacket,
-  outgoingIlpPacketBuffer,
-} from "./topics/outgoing-ilp-packet"
+  PreparedIlpPacketEvent,
+  preparedIlpPacketTopic,
+} from "./topics/prepared-ilp-packet"
+import {
+  ResolvedIlpPacketEvent,
+  resolvedIlpPacketTopic,
+} from "./topics/resolved-ilp-packet"
 
 export interface IlpClientInfo {
   prefix: string
   type: string
-  sendPacket: (packet: OutgoingIlpPacket) => Promisable<void>
+  sendPreparePacket: (event: PreparedIlpPacketEvent) => Promisable<void>
+  sendResultPacket: (event: ResolvedIlpPacketEvent) => Promisable<void>
 }
 
 export const sendOutgoingPackets = () =>
@@ -59,13 +64,27 @@ export const sendOutgoingPackets = () =>
         : localIlpClientMap.read().lookup(localPart)
     }
 
-    sig.onAsync(outgoingIlpPacketBuffer, async (event) => {
-      const client = getClient(event.destination)
+    sig.onAsync(preparedIlpPacketTopic, async (event) => {
+      const client = getClient(event.parsedPacket.destination)
 
       if (!client) {
-        throw new Error(`No routing table entry found for ${event.destination}`)
+        throw new Error(
+          `No routing table entry found for ${event.parsedPacket.destination}`
+        )
       }
 
-      await client.sendPacket(event)
+      await client.sendPreparePacket(event)
+    })
+
+    sig.onAsync(resolvedIlpPacketTopic, async (event) => {
+      const client = getClient(event.prepare.sourceIlpAddress)
+
+      if (!client) {
+        throw new Error(
+          `No routing table entry found for ${event.prepare.sourceIlpAddress}`
+        )
+      }
+
+      await client.sendResultPacket(event)
     })
   })

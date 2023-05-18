@@ -121,7 +121,11 @@ export const calculateRoutes = () =>
         ilpRoutingTable.set(ilpAddress, {
           prefix: ilpAddress,
           type: "peer",
-          sendPacket: ({ packet, asUint8Array, requestId }) => {
+          sendPreparePacket: ({
+            parsedPacket,
+            serializedPacket,
+            outgoingRequestId: requestId,
+          }) => {
             const nextHop = firstHopOptions[0]!
 
             const subnetModule = subnetModules[subnetId]
@@ -132,40 +136,56 @@ export const calculateRoutes = () =>
 
             const ledger = sig.use(ledgerStore)
             const peerKey: NodeTableKey = `${subnetId}.${nextHop}`
-            switch (packet.type) {
-              case IlpType.Prepare: {
-                if (packet.amount > 0n) {
-                  processPacketPrepare(
-                    ledger,
-                    `peer/${peerKey}/interledger`,
-                    packet,
-                    "outgoing"
-                  )
-                }
-                break
-              }
-              case IlpType.Fulfill: {
-                if (packet.prepare.amount > 0n) {
-                  processPacketResult(
-                    ledger,
-                    `peer/${peerKey}/interledger`,
-                    packet.prepare,
-                    "fulfill"
-                  )
-                }
-                break
-              }
-              case IlpType.Reject: {
-                if (packet.prepare.amount > 0n) {
-                  processPacketResult(
-                    ledger,
-                    `peer/${peerKey}/interledger`,
-                    packet.prepare,
-                    "reject"
-                  )
-                }
-                break
-              }
+            if (parsedPacket.amount > 0n) {
+              processPacketPrepare(
+                ledger,
+                `peer/${peerKey}/interledger`,
+                parsedPacket,
+                "outgoing"
+              )
+            }
+
+            logger.debug("sending ilp packet", { nextHop })
+
+            sig.use(sendPeerMessage).tell("send", {
+              subnet: subnetId,
+              destination: nextHop,
+              message: {
+                type: "interledgerPacket",
+                value: {
+                  signed: {
+                    requestId: requestId,
+                    packet: serializedPacket,
+                  },
+                },
+              },
+            })
+          },
+          sendResultPacket: ({
+            parsedPacket: packet,
+            serializedPacket: asUint8Array,
+            prepare: {
+              parsedPacket: preparePacket,
+              incomingRequestId: requestId,
+            },
+          }) => {
+            const nextHop = firstHopOptions[0]!
+
+            const subnetModule = subnetModules[subnetId]
+
+            if (!subnetModule) {
+              throw new Error(`No subnet module found for subnet ${subnetId}`)
+            }
+
+            const ledger = sig.use(ledgerStore)
+            const peerKey: NodeTableKey = `${subnetId}.${nextHop}`
+            if (preparePacket.amount > 0n) {
+              processPacketResult(
+                ledger,
+                `peer/${peerKey}/interledger`,
+                preparePacket,
+                packet.type === IlpType.Fulfill ? "fulfill" : "reject"
+              )
             }
 
             logger.debug("sending ilp packet", { nextHop })

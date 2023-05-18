@@ -1,12 +1,6 @@
 import { createSignal } from "@dassie/lib-reactive"
 
-import { IlpPreparePacket, IlpType } from "../ilp-packet-codec"
-
-interface RequestIdMapEntry {
-  sourceAddress: string
-  sourceRequestId: number
-  preparePacket: IlpPreparePacket & { type: typeof IlpType.Prepare }
-}
+import { PreparedIlpPacketEvent } from "../topics/prepared-ilp-packet"
 
 export const requestIdMapSignal = () =>
-  createSignal(new Map<number, RequestIdMapEntry>())
+  createSignal(new Map<number, PreparedIlpPacketEvent>())

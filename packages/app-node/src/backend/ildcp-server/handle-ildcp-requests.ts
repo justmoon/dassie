@@ -18,10 +18,13 @@ export const handleIldcpRequests = () =>
     ilpRoutingTable.set(ILDCP_ADDRESS, {
       prefix: ILDCP_ADDRESS,
       type: "peer",
-      sendPacket: ({ source, requestId }) => {
+      sendPreparePacket: ({
+        sourceIlpAddress,
+        outgoingRequestId: requestId,
+      }) => {
         // IL-DCP
         const ildcpSerializationResult = ildcpResponseSchema.serialize({
-          address: source,
+          address: sourceIlpAddress,
           assetScale: 9,
           assetCode: "XRP",
         })
@@ -40,7 +43,7 @@ export const handleIldcpRequests = () =>
         }
 
         logger.debug("sending IL-DCP response", {
-          destination: source,
+          destination: sourceIlpAddress,
         })
 
         processIncomingPacketActor.tell("handle", {
@@ -50,6 +53,11 @@ export const handleIldcpRequests = () =>
           parsedPacket: responsePacket,
           requestId,
         })
+      },
+      sendResultPacket: () => {
+        throw new Error(
+          "IL-DCP never sends requests so it should never receive responses"
+        )
       },
     })
 
