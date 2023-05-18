@@ -8,12 +8,15 @@ import {
 } from "../accounting/functions/process-interledger-packet"
 import { ledgerStore } from "../accounting/stores/ledger"
 import { IlpPacket, IlpType, parseIlpPacket } from "./ilp-packet-codec"
-import { requestIdMapSignal } from "./route-ilp-packets"
+import { requestIdMapSignal } from "./signals/request-id-map"
 import {
   IlpPacketWithAttachedPrepare,
   IncomingIlpPacket,
-  incomingIlpPacketTopic,
 } from "./topics/incoming-ilp-packet"
+import {
+  OutgoingIlpPacket,
+  outgoingIlpPacketBuffer,
+} from "./topics/outgoing-ilp-packet"
 
 const logger = createLogger("das:ilp-connector:process-incoming-packet")
 
@@ -28,7 +31,7 @@ export interface ProcessIncomingPacketParameters {
 export const processIncomingPacket = () =>
   createActor((sig) => {
     const ledger = sig.use(ledgerStore)
-    const incomingIlpPacketTopicValue = sig.use(incomingIlpPacketTopic)
+    const outgoingIlpPacketBufferInstance = sig.use(outgoingIlpPacketBuffer)
     const requestIdMap = sig.use(requestIdMapSignal).read()
 
     const lookupPacket = (
@@ -78,6 +81,12 @@ export const processIncomingPacket = () =>
 
         switch (packet.type) {
           case IlpType.Prepare: {
+            logger.debug("received ILP prepare", {
+              from: sourceIlpAddress,
+              to: packet.destination,
+              amount: packet.amount,
+            })
+
             if (packet.amount > 0n) {
               const result = processPacketPrepare(
                 ledger,
@@ -92,9 +101,37 @@ export const processIncomingPacket = () =>
                 )
               }
             }
+
+            const outgoingRequestId = Math.trunc(Math.random() * 0xff_ff_ff_ff)
+
+            requestIdMap.set(outgoingRequestId, {
+              sourceAddress: sourceIlpAddress,
+              sourceRequestId: requestId,
+              preparePacket: packet,
+            })
+
+            logger.debug("forwarding ILP prepare", {
+              source: sourceIlpAddress,
+              destination: packet.destination,
+              requestId: outgoingRequestId,
+            })
+
+            const outgoingPacketEvent: OutgoingIlpPacket = {
+              source: sourceIlpAddress,
+              packet,
+              asUint8Array: serializedPacket,
+              requestId: outgoingRequestId,
+              destination: packet.destination,
+            }
+
+            outgoingIlpPacketBufferInstance.emit(outgoingPacketEvent)
             break
           }
           case IlpType.Fulfill: {
+            logger.debug("received ILP fulfill", {
+              requestId,
+            })
+
             if (packet.prepare.amount > 0n) {
               processPacketResult(
                 ledger,
@@ -103,9 +140,39 @@ export const processIncomingPacket = () =>
                 "fulfill"
               )
             }
+
+            const requestMapEntry = requestIdMap.get(requestId)
+
+            if (!requestMapEntry) {
+              throw new Error(
+                "Received response ILP packet which did not match any request ILP packet we sent"
+              )
+            }
+
+            requestIdMap.delete(requestId)
+
+            const preparedEvent: OutgoingIlpPacket = {
+              source: sourceIlpAddress,
+              packet,
+              asUint8Array: serializedPacket,
+              requestId: requestMapEntry.sourceRequestId,
+              destination: requestMapEntry.sourceAddress,
+            }
+
+            logger.debug("sending ILP fulfill to source", {
+              destination: preparedEvent.destination,
+            })
+
+            outgoingIlpPacketBufferInstance.emit(preparedEvent)
             break
           }
           case IlpType.Reject: {
+            logger.debug("received ILP reject", {
+              triggeredBy: packet.triggeredBy,
+              message: packet.message,
+              requestId,
+            })
+
             if (packet.prepare.amount > 0n) {
               processPacketResult(
                 ledger,
@@ -114,11 +181,33 @@ export const processIncomingPacket = () =>
                 "reject"
               )
             }
+
+            const requestMapEntry = requestIdMap.get(requestId)
+
+            if (!requestMapEntry) {
+              throw new Error(
+                "Received response ILP packet which did not match any request ILP packet we sent"
+              )
+            }
+
+            requestIdMap.delete(requestId)
+
+            const preparedEvent: OutgoingIlpPacket = {
+              source: sourceIlpAddress,
+              packet,
+              asUint8Array: serializedPacket,
+              requestId: requestMapEntry.sourceRequestId,
+              destination: requestMapEntry.sourceAddress,
+            }
+
+            logger.debug("sending ILP reject to source", {
+              destination: preparedEvent.destination,
+            })
+
+            outgoingIlpPacketBufferInstance.emit(preparedEvent)
             break
           }
         }
-
-        incomingIlpPacketTopicValue.emit(incomingPacketEvent)
       },
     }
   })
