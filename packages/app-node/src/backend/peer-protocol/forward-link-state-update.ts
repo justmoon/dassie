@@ -1,7 +1,7 @@
 import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
-import { sendPeerMessage } from "./actions/send-peer-message"
+import { sendPeerMessage } from "./actors/send-peer-message"
 import { peersComputation } from "./computed/peers"
 import { peerMessageContent } from "./peer-schema"
 import { nodeTableStore, parseNodeKey } from "./stores/node-table"

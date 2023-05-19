@@ -3,7 +3,7 @@ import { setTimeout } from "node:timers/promises"
 import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
-import { sendPeerMessage } from "./actions/send-peer-message"
+import { sendPeerMessage } from "./actors/send-peer-message"
 import { signedPeerNodeInfo } from "./peer-schema"
 import { nodeDiscoveryQueueStore } from "./stores/node-discovery-queue"
 import { nodeTableStore, parseNodeKey } from "./stores/node-table"

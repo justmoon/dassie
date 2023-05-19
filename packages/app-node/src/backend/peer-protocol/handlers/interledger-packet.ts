@@ -4,7 +4,7 @@ import { createActor } from "@dassie/lib-reactive"
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import { configSignal } from "../../config"
 import { processIncomingPacket } from "../../ilp-connector/process-incoming-packet"
-import type { IncomingPeerMessageEvent } from "../actions/handle-peer-message"
+import type { IncomingPeerMessageEvent } from "../actors/handle-peer-message"
 
 const logger = createLogger("das:node:handle-interledger-packet")
 

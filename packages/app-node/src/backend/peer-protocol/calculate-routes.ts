@@ -15,7 +15,7 @@ import { IlpType } from "../ilp-connector/ilp-packet-codec"
 import { globalIlpRoutingTableSignal } from "../ilp-connector/signals/global-ilp-routing-table"
 import type { PerSubnetParameters } from "../subnets/manage-subnet-instances"
 import subnetModules from "../subnets/modules"
-import { sendPeerMessage } from "./actions/send-peer-message"
+import { sendPeerMessage } from "./actors/send-peer-message"
 import { nodeDiscoveryQueueStore } from "./stores/node-discovery-queue"
 import { type NodeTableKey, nodeTableStore } from "./stores/node-table"
 import {

@@ -2,7 +2,7 @@ import { createLogger } from "@dassie/lib-logger"
 import { ActorContext, createActor } from "@dassie/lib-reactive"
 
 import { nodeIdSignal } from "../ilp-connector/computed/node-id"
-import { sendPeerMessage } from "./actions/send-peer-message"
+import { sendPeerMessage } from "./actors/send-peer-message"
 import { peersComputation } from "./computed/peers"
 import { requestedPeersComputation } from "./computed/requested-peers"
 import { nodeTableStore, parseNodeKey } from "./stores/node-table"

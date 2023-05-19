@@ -2,7 +2,7 @@ import { createActor } from "@dassie/lib-reactive"
 
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import { nodeIdSignal } from "../../ilp-connector/computed/node-id"
-import type { IncomingPeerMessageEvent } from "../actions/handle-peer-message"
+import type { IncomingPeerMessageEvent } from "../actors/handle-peer-message"
 import { nodeTableStore } from "../stores/node-table"
 
 export const handleLinkStateRequest = () =>

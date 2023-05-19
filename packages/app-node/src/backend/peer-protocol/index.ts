@@ -1,8 +1,8 @@
 import { createActor, createComputed } from "@dassie/lib-reactive"
 
 import type { PerSubnetParameters } from "../subnets/manage-subnet-instances"
-import { handlePeerMessage } from "./actions/handle-peer-message"
-import { sendPeerMessage } from "./actions/send-peer-message"
+import { handlePeerMessage } from "./actors/handle-peer-message"
+import { sendPeerMessage } from "./actors/send-peer-message"
 import { calculateRoutes } from "./calculate-routes"
 import { peersArrayComputation } from "./computed/peers"
 import { discoverNodes } from "./discover-nodes"

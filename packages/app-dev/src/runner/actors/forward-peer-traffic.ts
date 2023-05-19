@@ -1,4 +1,4 @@
-import { outgoingPeerMessageTopic } from "@dassie/app-node/src/backend/peer-protocol/actions/send-peer-message"
+import { outgoingPeerMessageTopic } from "@dassie/app-node/src/backend/peer-protocol/actors/send-peer-message"
 import { createActor } from "@dassie/lib-reactive"
 
 import { convertVanityNodeIdToFriendly } from "../../common/utils/vanity-node-id-to-friendly"

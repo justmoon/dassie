@@ -13,7 +13,7 @@ import { routerService } from "../http-server/serve-http"
 import {
   handlePeerMessage,
   incomingPeerMessageTopic,
-} from "./actions/handle-peer-message"
+} from "./actors/handle-peer-message"
 import { ALLOW_ANONYMOUS_USAGE } from "./constants/anonymous-messages"
 import { peerMessage as peerMessageSchema } from "./peer-schema"
 import { nodeTableStore } from "./stores/node-table"

@@ -4,7 +4,7 @@ import { createActor } from "@dassie/lib-reactive"
 
 import { configSignal } from "../config"
 import { speakPeerProtocolPerSubnet } from "../peer-protocol"
-import { sendPeerMessage } from "../peer-protocol/actions/send-peer-message"
+import { sendPeerMessage } from "../peer-protocol/actors/send-peer-message"
 import {
   nodeTableStore,
   parseNodeKey,

@@ -2,7 +2,7 @@ import { createActor } from "@dassie/lib-reactive"
 
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import type { SubnetActorFactory } from "../../subnets/types/subnet-module"
-import type { IncomingPeerMessageEvent } from "../actions/handle-peer-message"
+import type { IncomingPeerMessageEvent } from "../actors/handle-peer-message"
 
 export const handleSubnetModuleMessage = () =>
   createActor((sig) => {
