@@ -3,6 +3,7 @@ import type { ConditionalKeys } from "type-fest"
 import { isObject } from "@dassie/lib-type-utils"
 
 import type { ActorContext } from "./context"
+import { SettablePromise, makePromise } from "./internal/promise"
 import { FactoryNameSymbol } from "./reactor"
 import { type Signal, createSignal } from "./signal"
 
@@ -54,6 +55,8 @@ export type Actor<TInstance, TProperties = undefined> = Signal<
    */
   result: TInstance | undefined | Promise<never>
 
+  promise: SettablePromise<TInstance>
+
   /**
    * The function that initializes the actor. Used internally. You should call reactor.run() or sig.run() if you want to start the actor.
    */
@@ -103,108 +106,26 @@ export const createActor: CreateActorSignature = <
     [ActorSymbol]: true,
     isRunning: false,
     result: undefined,
+    promise: makePromise(),
     behavior,
     tell: (method, message) => {
-      const handler = signal.read()?.[method]
-
-      if (handler) {
-        try {
-          const result = (handler as (parameter: typeof message) => unknown)(
-            message
-          )
-
-          if (
-            isObject(result) &&
-            "catch" in result &&
-            typeof result["catch"] === "function"
-          ) {
-            ;(result as unknown as Promise<unknown>).catch((error: unknown) => {
-              console.error("error in actor", {
-                error,
-                actor: actor[FactoryNameSymbol],
-              })
-            })
-          }
-        } catch (error: unknown) {
-          console.error("error in actor", {
-            error,
-            actor: actor[FactoryNameSymbol],
-          })
-        }
-
-        return
-      }
-
-      const removeListener = signal.on((handlerRecord) => {
-        const handler = handlerRecord?.[method]
-        if (handler) {
-          try {
-            const result = (handler as (parameter: typeof message) => unknown)(
-              message
-            )
-
-            if (
-              isObject(result) &&
-              "catch" in result &&
-              typeof result["catch"] === "function"
-            ) {
-              ;(result as unknown as Promise<unknown>).catch(
-                (error: unknown) => {
-                  console.error("error in actor", {
-                    error,
-                    actor: actor[FactoryNameSymbol],
-                  })
-                }
-              )
-            }
-
-            return
-          } catch (error: unknown) {
-            console.error("error in actor", {
-              error,
-              actor: actor[FactoryNameSymbol],
-            })
-          } finally {
-            removeListener()
-          }
-        }
-      })
-    },
-    ask: (method, message) => {
-      const handler = signal.read()?.[method]
-
-      return new Promise((resolve, reject) => {
-        if (handler) {
-          resolve(
-            (
-              handler as (
-                parameter: typeof message
-              ) => InferActorReturnType<Awaited<TInstance>, typeof method>
-            )(message)
-          )
-          return
-        }
-
-        const removeListener = signal.on((handlerRecord) => {
-          const handler = handlerRecord?.[method]
-
-          if (handler) {
-            try {
-              resolve(
-                (
-                  handler as (
-                    parameter: typeof message
-                  ) => InferActorReturnType<Awaited<TInstance>, typeof method>
-                )(message)
-              )
-            } catch (error) {
-              reject(error)
-            } finally {
-              removeListener()
-            }
-          }
+      actor.ask(method, message).catch((error: unknown) => {
+        console.error("error in actor handler", {
+          error,
+          actor: actor[FactoryNameSymbol],
+          method,
+          message,
         })
       })
+    },
+    ask: async (method, message) => {
+      const actorInstance = await actor.promise
+
+      return (
+        actorInstance[method] as (
+          parameter: typeof message
+        ) => InferActorReturnType<Awaited<TInstance>, typeof method>
+      )(message)
     },
   }
 

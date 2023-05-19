@@ -312,6 +312,7 @@ const loopActor = async <TReturn, TProperties>(
       const actorResult = await actorReturn
 
       actor.write(actorResult)
+      actor.promise.resolve(actorResult)
 
       await waker
     } catch (error: unknown) {
@@ -327,6 +328,7 @@ const loopActor = async <TReturn, TProperties>(
     } finally {
       actor.isRunning = false
       actor.write(undefined)
+      actor.promise = makePromise()
       await lifecycle.dispose()
     }
   }
