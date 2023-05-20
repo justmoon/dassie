@@ -100,6 +100,10 @@ export class Reactor extends LifecycleScope {
 
   private contextState = new WeakMap() as ContextState
 
+  constructor() {
+    super("Reactor")
+  }
+
   /**
    * Retrieve a value from the reactor's global context. The key is a factory which returns the value sought. If the value does not exist yet, it will be created by running the factory function.
    *
@@ -288,7 +292,7 @@ const loopActor = async <TReturn, TProperties>(
   for (;;) {
     if (parentLifecycle.isDisposed) return
 
-    const lifecycle = parentLifecycle.deriveChildLifecycle()
+    const lifecycle = parentLifecycle.deriveChildLifecycle(actorPath)
     const waker = makePromise()
 
     const context = new ActorContext(

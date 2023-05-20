@@ -1,6 +1,8 @@
 import type { AsyncDisposer } from "../reactor"
 
 export class LifecycleScope {
+  constructor(public readonly name: string) {}
+
   /**
    * Set of cleanup handlers that will be run when the scope is disposed.
    *
@@ -44,12 +46,12 @@ export class LifecycleScope {
     }
   }
 
-  deriveChildLifecycle(): LifecycleScope {
+  deriveChildLifecycle(name: string): LifecycleScope {
     if (!this.cleanupQueue) {
       throw new Error("cannot derive child lifecycle from disposed scope")
     }
 
-    const child = new LifecycleScope()
+    const child = new LifecycleScope(name)
     this.onCleanup(child.dispose)
     child.onCleanup(() => this.offCleanup(child.dispose))
     return child
