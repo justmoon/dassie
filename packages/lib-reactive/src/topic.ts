@@ -1,11 +1,15 @@
+import { Promisable } from "type-fest"
+
 import { isObject } from "@dassie/lib-type-utils"
 
-import { type Disposer, type Factory, FactoryNameSymbol } from "./reactor"
+import { Lifecycle } from "./internal/lifecycle"
+import { type Factory, FactoryNameSymbol } from "./reactor"
 
-export type Listener<TMessage> = (message: TMessage) => void
-export type AsyncListener<TMessage> = (message: TMessage) => Promise<void>
+export type Listener<TMessage> = (message: TMessage) => Promisable<void>
 
 export const TopicSymbol = Symbol("das:reactive:topic")
+
+export const ListenerNameSymbol = Symbol("das:reactive:listener-name")
 
 export type InferMessageType<TTopic extends Factory<ReadonlyTopic<unknown>>> =
   TTopic extends Factory<ReadonlyTopic<infer TMessage>> ? TMessage : never
@@ -35,7 +39,7 @@ export interface ReadonlyTopic<TMessage = never> {
    * @param listener - A function that will be called every time a message is emitted on the topic.
    * @returns A function which if called will unsubscribe the listener from the topic.
    */
-  on: (this: void, listener: Listener<TMessage>) => Disposer
+  on: (this: void, lifecycle: Lifecycle, listener: Listener<TMessage>) => void
 
   /**
    * Subscribe to receive a single message from a topic. Similar to {@link on} but will only call the listener once.
@@ -43,23 +47,14 @@ export interface ReadonlyTopic<TMessage = never> {
    * @param listener - A function that will be called once the next time a message is emitted on the topic.
    * @returns A function which if called will unsubscribe the listener from the topic.
    */
-  once: (this: void, listener: Listener<TMessage>) => Disposer
+  once: (this: void, lifecycle: Lifecycle, listener: Listener<TMessage>) => void
 
   /**
-   * Like {@link on} but handles errors in async listeners.
+   * Remove a listener from a topic.
    *
-   * @param topic - Topic that the message should be sent to.
-   * @param listener - An async function that will be called every time a message is emitted on the topic.
+   * @param listener - The listener to remove.
    */
-  onAsync: (this: void, listener: AsyncListener<TMessage>) => Disposer
-
-  /**
-   * Like {@link once} but handles errors in async listeners.
-   *
-   * @param topic - Topic that the message should be sent to.
-   * @param listener - An async function that will be called every time a message is emitted on the topic.
-   */
-  onceAsync: (this: void, listener: AsyncListener<TMessage>) => Disposer
+  off: (this: void, listener: Listener<TMessage>) => void
 }
 
 export type Topic<TMessage = never> = ReadonlyTopic<TMessage> & {
@@ -83,34 +78,56 @@ export const createTopic = <TMessage>(): Topic<TMessage> => {
    */
   let listeners: Listener<TMessage> | Set<Listener<TMessage>> | undefined
 
-  const emit = (message: TMessage) => {
-    if (typeof listeners === "function") {
-      try {
-        listeners(message)
-      } catch (error) {
-        console.error("error in listener", {
-          topic: topic[FactoryNameSymbol],
-          error,
+  const emitToListener = (listener: Listener<TMessage>, message: TMessage) => {
+    try {
+      const result = listener(message)
+
+      if (typeof result?.then === "function") {
+        result.then(undefined, (error: unknown) => {
+          console.error("error in async listener", {
+            topic: topic[FactoryNameSymbol],
+            scope:
+              (listener as { [ListenerNameSymbol]?: string })[
+                ListenerNameSymbol
+              ] ?? "anonymous",
+            error,
+          })
         })
       }
+    } catch (error) {
+      console.error("error in listener", {
+        topic: topic[FactoryNameSymbol],
+        scope:
+          (listener as { [ListenerNameSymbol]?: string })[ListenerNameSymbol] ??
+          "anonymous",
+        error,
+      })
+    }
+  }
+
+  const emit = (message: TMessage) => {
+    if (listeners == undefined) {
       return
-    } else if (listeners == undefined) {
+    }
+
+    if (typeof listeners === "function") {
+      emitToListener(listeners, message)
       return
     }
 
     for (const listener of listeners) {
-      try {
-        listener(message)
-      } catch (error) {
-        console.error("error in listener", {
-          topic: topic[FactoryNameSymbol],
-          error,
-        })
-      }
+      emitToListener(listener, message)
     }
   }
 
-  const on = (listener: Listener<TMessage>) => {
+  const on = (lifecycle: Lifecycle, listener: Listener<TMessage>) => {
+    if (import.meta.env.DEV) {
+      Object.defineProperty(listener, ListenerNameSymbol, {
+        value: lifecycle.name,
+        enumerable: false,
+      })
+    }
+
     if (typeof listeners === "function") {
       listeners = new Set([listeners, listener])
     } else if (listeners == undefined) {
@@ -119,52 +136,36 @@ export const createTopic = <TMessage>(): Topic<TMessage> => {
       listeners.add(listener)
     }
 
-    return () => {
-      if (typeof listeners === "function") {
-        if (listeners === listener) {
-          listeners = undefined
-        }
-      } else if (listeners != undefined) {
-        listeners.delete(listener)
+    lifecycle.onCleanup(() => {
+      off(listener)
+    })
+  }
 
-        if (listeners.size === 1) {
-          // Generally it's better to use an iterator to get the first element from a set because it's more performant for large sets. But in this case the size of the set is always one so it's actually faster to use the array syntax.
-          // See: https://tinyurl.com/perf-set-get-sole-element
-          listeners = [...listeners][0]
-        }
+  const once = (lifecycle: Lifecycle, listener: Listener<TMessage>) => {
+    on(lifecycle, (message) => {
+      off(listener)
+      return listener(message)
+    })
+
+    lifecycle.onCleanup(() => {
+      off(listener)
+    })
+  }
+
+  const off = (listener: Listener<TMessage>) => {
+    if (typeof listeners === "function") {
+      if (listeners === listener) {
+        listeners = undefined
+      }
+    } else if (listeners != undefined) {
+      listeners.delete(listener)
+
+      if (listeners.size === 1) {
+        // Generally it's better to use an iterator to get the first element from a set because it's more performant for large sets. But in this case the size of the set is always one so it's actually faster to use the array syntax.
+        // See: https://tinyurl.com/perf-set-get-sole-element
+        listeners = [...listeners][0]
       }
     }
-  }
-
-  const once = (listener: Listener<TMessage>) => {
-    const disposer = on((message) => {
-      disposer()
-      listener(message)
-    })
-
-    return disposer
-  }
-
-  const onAsync = (listener: AsyncListener<TMessage>) => {
-    return topic.on((message) => {
-      listener(message).catch((error: unknown) => {
-        console.error("error in async listener", {
-          topic: [FactoryNameSymbol],
-          error,
-        })
-      })
-    })
-  }
-
-  const onceAsync = (listener: AsyncListener<TMessage>) => {
-    return topic.once((message) => {
-      listener(message).catch((error: unknown) => {
-        console.error("error in onceAsync listener", {
-          topic: topic[FactoryNameSymbol],
-          error,
-        })
-      })
-    })
   }
 
   const topic: Topic<TMessage> = {
@@ -172,8 +173,7 @@ export const createTopic = <TMessage>(): Topic<TMessage> => {
     [FactoryNameSymbol]: "anonymous",
     on,
     once,
-    onAsync,
-    onceAsync,
+    off,
     emit,
   }
 

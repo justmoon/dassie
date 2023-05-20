@@ -6,7 +6,7 @@ import { trpcClientService } from "../services/trpc-client"
 
 export const forwardPeerTraffic = () =>
   createActor((sig) => {
-    sig.onAsync(outgoingPeerMessageTopic, async ({ destination }) => {
+    sig.on(outgoingPeerMessageTopic, async ({ destination }) => {
       const trpcClient = sig.get(trpcClientService)
       if (!trpcClient) return
 

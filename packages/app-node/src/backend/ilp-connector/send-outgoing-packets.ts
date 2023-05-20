@@ -64,7 +64,7 @@ export const sendOutgoingPackets = () =>
         : localIlpClientMap.read().lookup(localPart)
     }
 
-    sig.onAsync(preparedIlpPacketTopic, async (event) => {
+    sig.on(preparedIlpPacketTopic, async (event) => {
       const client = getClient(event.parsedPacket.destination)
 
       if (!client) {
@@ -76,7 +76,7 @@ export const sendOutgoingPackets = () =>
       await client.sendPreparePacket(event)
     })
 
-    sig.onAsync(resolvedIlpPacketTopic, async (event) => {
+    sig.on(resolvedIlpPacketTopic, async (event) => {
       const client = getClient(event.prepare.sourceIlpAddress)
 
       if (!client) {

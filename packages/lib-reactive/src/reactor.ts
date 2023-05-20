@@ -5,7 +5,7 @@ import { isObject } from "@dassie/lib-type-utils"
 import type { Actor } from "./actor"
 import { ActorContext } from "./context"
 import { createDebugTools } from "./debug/debug-tools"
-import { LifecycleScope } from "./internal/lifecycle-scope"
+import { DisposableLifecycle } from "./internal/lifecycle"
 import { makePromise } from "./internal/promise"
 
 /**
@@ -47,7 +47,7 @@ export interface UseOptions {
    *
    * @internal
    */
-  parentLifecycleScope?: LifecycleScope | undefined
+  parentLifecycleScope?: DisposableLifecycle | undefined
 
   /**
    * If true, the factory will be instantiated fresh every time and will not be stored in the context.
@@ -66,7 +66,7 @@ export interface RunOptions {
    *
    * @internal
    */
-  parentLifecycleScope?: LifecycleScope | undefined
+  parentLifecycleScope?: DisposableLifecycle | undefined
 
   /**
    * A string that will be used to prefix the debug log messages related to this actor.
@@ -95,7 +95,7 @@ interface RunSignature {
   ): Actor<TReturn, TProperties>
 }
 
-export class Reactor extends LifecycleScope {
+export class Reactor extends DisposableLifecycle {
   static current: Reactor | undefined
 
   private contextState = new WeakMap() as ContextState
@@ -260,7 +260,7 @@ export class Reactor extends LifecycleScope {
   /**
    * Returns a set of debug tools for this reactor. Note that this is only available during development.
    */
-  debug = createDebugTools(this.use, this.contextState)
+  debug = createDebugTools(this, this.contextState)
 }
 
 export const createReactor = (
@@ -286,7 +286,7 @@ const loopActor = async <TReturn, TProperties>(
   actor: Actor<TReturn, TProperties>,
   actorPath: string,
   properties: TProperties,
-  parentLifecycle: LifecycleScope,
+  parentLifecycle: DisposableLifecycle,
   additionalDebugData: Record<string, unknown> | undefined
 ) => {
   for (;;) {

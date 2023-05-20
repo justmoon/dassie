@@ -22,10 +22,7 @@ export class DebugTools {
     }
   )
 
-  constructor(
-    readonly useContext: Reactor["use"],
-    readonly contextState: ContextState
-  ) {}
+  constructor(readonly reactor: Reactor, readonly contextState: ContextState) {}
 
   notifyOfContextInstantiation<T>(factory: Factory<T>, value: T) {
     if (factory === (debugFirehose as Factory<unknown>)) {
@@ -41,8 +38,8 @@ export class DebugTools {
     this.registry.register(value, weakReference)
 
     if (isTopic(value)) {
-      const firehose = this.useContext(debugFirehose)
-      value.on((message) => {
+      const firehose = this.reactor.use(debugFirehose)
+      value.on(this.reactor, (message) => {
         firehose.emit({
           topic: factory as unknown as Factory<ReadonlyTopic>,
           message,
@@ -64,6 +61,6 @@ export class DebugTools {
 }
 
 export const createDebugTools = import.meta.env.DEV
-  ? (fromContext: Reactor["use"], topicsCache: ContextState) =>
-      new DebugTools(fromContext, topicsCache)
+  ? (reactor: Reactor, topicsCache: ContextState) =>
+      new DebugTools(reactor, topicsCache)
   : () => undefined

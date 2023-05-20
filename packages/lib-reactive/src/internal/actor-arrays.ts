@@ -2,11 +2,11 @@ import { type Actor } from "../actor"
 import type { ActorContext } from "../context"
 import type { Factory } from "../reactor"
 import type { ReadonlySignal } from "../signal"
-import { LifecycleScope } from "./lifecycle-scope"
+import { DisposableLifecycle } from "./lifecycle"
 
 interface EffectCache<TReturn> {
   returnPromise: Promise<TReturn>
-  lifecycleScope: LifecycleScope
+  lifecycleScope: DisposableLifecycle
 }
 
 export const forArrayElement = <TElement, TReturn>(
@@ -54,7 +54,9 @@ export const forArrayElement = <TElement, TReturn>(
         return runningActors.get(element)!.returnPromise
       }
 
-      const lifecycleScope = new LifecycleScope()
+      const lifecycleScope = new DisposableLifecycle(
+        `${parentEffectName}/${actorFactory.name}#${index}`
+      )
 
       const returnPromise = disposalPromise.then(() => {
         return sig.run(actorFactory, element, {
@@ -78,7 +80,7 @@ export const forArrayElement = <TElement, TReturn>(
     return results
   }
 
-  sig.on(arraySignalFactory, handleArrayChanges)
+  sig.on(arraySignalFactory, (value) => void handleArrayChanges(value))
 
   return handleArrayChanges(sig.use(arraySignalFactory).read())
 }
@@ -129,7 +131,9 @@ export const forArrayIndex = <TElement, TReturn>(
         return cache.returnPromise
       }
 
-      const lifecycleScope = new LifecycleScope()
+      const lifecycleScope = new DisposableLifecycle(
+        `${parentEffectName}/${actorFactory.name}#${index}`
+      )
 
       const returnPromise = disposalPromise.then(() => {
         return sig.run(actorFactory, [element, index] as const, {
@@ -154,7 +158,7 @@ export const forArrayIndex = <TElement, TReturn>(
     return results
   }
 
-  sig.on(arraySignalFactory, handleArrayChanges)
+  sig.on(arraySignalFactory, (value) => void handleArrayChanges(value))
 
   return handleArrayChanges(sig.use(arraySignalFactory).read())
 }

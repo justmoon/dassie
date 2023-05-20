@@ -44,7 +44,7 @@ const noop = () => {
 }
 
 const createReactActorContext = (reactor: Reactor) => {
-  const lifecycle = reactor.deriveChildLifecycle()
+  const lifecycle = reactor.deriveChildLifecycle("react")
   const reactActorContext: ReactActorContext = {
     lifecycle,
     context: new ActorContext(
@@ -228,13 +228,11 @@ const createReactiveHooks = <TExposedTopicsMap extends ExposedTopicsMap>() => {
         throw new Error("Store is not synchronizable")
       }
 
-      sig.onCleanup(
-        localStore.on((newValue) => {
-          service.write(
-            newValue as Awaited<InferMessageType<TExposedTopicsMap[TStoreName]>>
-          )
-        })
-      )
+      localStore.on(sig.lifecycle, (newValue) => {
+        service.write(
+          newValue as Awaited<InferMessageType<TExposedTopicsMap[TStoreName]>>
+        )
+      })
 
       // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
       const subscription = client.listenToChanges.subscribe(storeName, {

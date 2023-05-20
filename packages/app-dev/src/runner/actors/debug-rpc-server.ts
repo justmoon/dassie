@@ -7,7 +7,11 @@ import { WebSocketServer } from "ws"
 import { nodeTableStore } from "@dassie/app-node"
 import { routingTableStore } from "@dassie/app-node/src/backend/peer-protocol/stores/routing-table"
 import { createLogger } from "@dassie/lib-logger"
-import { createActor, debugFirehose } from "@dassie/lib-reactive"
+import {
+  InferMessageType,
+  createActor,
+  debugFirehose,
+} from "@dassie/lib-reactive"
 import {
   type ReactiveContext,
   createRemoteReactiveRouter,
@@ -31,12 +35,15 @@ export const debugRpcRouter = trpc.mergeRouters(
   trpc.router({
     listenToFirehose: trpc.procedure.subscription(({ ctx }) => {
       return observable<{ topic: string; message: string }>((emit) => {
-        return ctx.reactor.use(debugFirehose).on((event) => {
+        const firehose = ctx.reactor.use(debugFirehose)
+        const listener = (event: InferMessageType<typeof debugFirehose>) => {
           emit.next({
             topic: event.topic.name,
             message: prettyFormat(event.message),
           })
-        })
+        }
+        firehose.on(ctx.reactor, listener)
+        return () => firehose.off(listener)
       })
     }),
   }),

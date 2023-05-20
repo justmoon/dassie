@@ -12,7 +12,7 @@ export const totalOwnerBalanceComputed = () =>
       balance += account.creditsPosted - account.debitsPosted
     }
 
-    const disposeSubscription = sig.use(postedTransfersTopic).on((transfer) => {
+    sig.use(postedTransfersTopic).on(sig.reactor, (transfer) => {
       let newBalance = balance
       if (transfer.creditAccount.startsWith("owner/")) {
         newBalance += transfer.amount
@@ -27,8 +27,6 @@ export const totalOwnerBalanceComputed = () =>
         balance = newBalance
       }
     })
-
-    sig.onCleanup(disposeSubscription)
 
     return balance
   })

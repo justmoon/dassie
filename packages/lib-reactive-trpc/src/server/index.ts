@@ -81,9 +81,11 @@ export const createRemoteReactiveRouter = <
             emit.next(store.read())
           }
 
-          return store.on((value) => {
+          const listener = (value: unknown) => {
             emit.next(value)
-          })
+          }
+          store.on(reactor, listener)
+          return () => store.off(listener)
         })
       }),
     listenToChanges: castTrpc.procedure
@@ -116,15 +118,17 @@ export const createRemoteReactiveRouter = <
             data: store.read(),
           })
 
-          const disposeSubscription = store.changes.on((change) => {
+          const listener = (change: Change) => {
             emit.next({
               type: "change",
               data: change,
             })
-          })
+          }
+
+          store.changes.on(reactor, listener)
 
           return () => {
-            disposeSubscription()
+            store.changes.off(listener)
           }
         })
       }),

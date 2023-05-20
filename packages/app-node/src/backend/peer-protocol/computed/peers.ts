@@ -19,43 +19,40 @@ export const peersComputation = () =>
       }
     }
 
-    const disposeSubscription = nodeTable.changes.on(
-      ([actionId, parameters]) => {
-        const peersComputationValue = sig.use(peersComputation)
-        const peersSet = peersComputationValue.read()
-        const priorSize = peersSet.size
+    nodeTable.changes.on(sig.reactor, ([actionId, parameters]) => {
+      const peersComputationValue = sig.use(peersComputation)
+      const peersSet = peersComputationValue.read()
+      const priorSize = peersSet.size
 
-        const newSet = produce(peersSet, (draft) => {
-          switch (actionId) {
-            case "addNode": {
-              const { peerState, subnetId, nodeId } = parameters[0]
-              if (peerState.id === "peered") {
-                draft.add(`${subnetId}.${nodeId}`)
-              }
-              break
+      const newSet = produce(peersSet, (draft) => {
+        switch (actionId) {
+          case "addNode": {
+            const { peerState, subnetId, nodeId } = parameters[0]
+            if (peerState.id === "peered") {
+              draft.add(`${subnetId}.${nodeId}`)
             }
-            case "updateNode": {
-              const nodeKey = parameters[0]
-              const { peerState } = parameters[1]
-              if (peerState?.id === "peered") {
-                draft.add(nodeKey)
-              } else if (peerState) {
-                draft.delete(nodeKey)
-              }
-              break
-            }
-            default: {
-              throw new UnreachableCaseError(actionId)
-            }
+            break
           }
-        })
-
-        if (newSet.size !== priorSize) {
-          peersComputationValue.write(newSet)
+          case "updateNode": {
+            const nodeKey = parameters[0]
+            const { peerState } = parameters[1]
+            if (peerState?.id === "peered") {
+              draft.add(nodeKey)
+            } else if (peerState) {
+              draft.delete(nodeKey)
+            }
+            break
+          }
+          default: {
+            throw new UnreachableCaseError(actionId)
+          }
         }
+      })
+
+      if (newSet.size !== priorSize) {
+        peersComputationValue.write(newSet)
       }
-    )
-    sig.onCleanup(disposeSubscription)
+    })
 
     return initialSet
   })

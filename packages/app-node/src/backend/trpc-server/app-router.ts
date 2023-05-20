@@ -50,9 +50,11 @@ export const appRouter = trpc.router({
     return observable<string>((emit) => {
       const overallBalance = sig.use(totalOwnerBalanceComputed)
       emit.next(overallBalance.read().toString())
-      return overallBalance.on((balance) => {
+      const listener = (balance: bigint) => {
         emit.next(balance.toString())
-      })
+      }
+      overallBalance.on(sig.lifecycle, listener)
+      return () => overallBalance.off(listener)
     })
   }),
   getLedger: trpc.procedure.query(({ ctx: { sig } }) => {

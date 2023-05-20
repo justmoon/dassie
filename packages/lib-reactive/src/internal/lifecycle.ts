@@ -1,6 +1,13 @@
 import type { AsyncDisposer } from "../reactor"
 
-export class LifecycleScope {
+export interface Lifecycle {
+  name: string
+  onCleanup: typeof DisposableLifecycle.prototype.onCleanup
+  offCleanup: typeof DisposableLifecycle.prototype.offCleanup
+  deriveChildLifecycle: typeof DisposableLifecycle.prototype.deriveChildLifecycle
+}
+
+export class DisposableLifecycle implements Lifecycle {
   constructor(public readonly name: string) {}
 
   /**
@@ -46,12 +53,12 @@ export class LifecycleScope {
     }
   }
 
-  deriveChildLifecycle(name: string): LifecycleScope {
+  deriveChildLifecycle(name: string): DisposableLifecycle {
     if (!this.cleanupQueue) {
       throw new Error("cannot derive child lifecycle from disposed scope")
     }
 
-    const child = new LifecycleScope(name)
+    const child = new DisposableLifecycle(name)
     this.onCleanup(child.dispose)
     child.onCleanup(() => this.offCleanup(child.dispose))
     return child

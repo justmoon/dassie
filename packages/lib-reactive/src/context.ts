@@ -1,6 +1,6 @@
 import type { Actor } from "./actor"
 import { forArrayElement, forArrayIndex } from "./internal/actor-arrays"
-import type { LifecycleScope } from "./internal/lifecycle-scope"
+import type { DisposableLifecycle } from "./internal/lifecycle"
 import type {
   AsyncDisposer,
   Factory,
@@ -9,7 +9,7 @@ import type {
   UseOptions,
 } from "./reactor"
 import type { ReadonlySignal } from "./signal"
-import type { AsyncListener, Listener, ReadonlyTopic } from "./topic"
+import type { Listener, ReadonlyTopic } from "./topic"
 
 export class ActorContext {
   constructor(
@@ -27,7 +27,7 @@ export class ActorContext {
      *
      * @internal
      */
-    readonly lifecycle: LifecycleScope,
+    readonly lifecycle: DisposableLifecycle,
 
     /**
      * Wake function. If called, the actor will be cleaned up and re-run.
@@ -87,16 +87,14 @@ export class ActorContext {
       const newValue = selector(message)
       if (!comparator(value, newValue)) {
         // Once we have detected a change we can stop listening because once the actor re-runs it will create a new listener anyways.
-        dispose()
+        signal.off(handleTopicMessage)
         notify()
       }
     }
 
     const signal = this.use(signalFactory)
     const value = selector(signal.read())
-    const dispose = signal.on(handleTopicMessage)
-
-    this.lifecycle.onCleanup(dispose)
+    signal.on(this.lifecycle, handleTopicMessage)
 
     return value
   }
@@ -159,20 +157,7 @@ export class ActorContext {
     topic: Factory<ReadonlyTopic<TMessage>>,
     listener: Listener<TMessage>
   ) {
-    this.lifecycle.onCleanup(
-      this.use(topic).on((message) => {
-        try {
-          listener(message)
-        } catch (error: unknown) {
-          console.error("error in listener", {
-            topic: topic.name,
-            actor: this.name,
-            path: this.path,
-            error,
-          })
-        }
-      })
-    )
+    this.use(topic).on(this.lifecycle, listener)
   }
 
   /**
@@ -185,68 +170,7 @@ export class ActorContext {
     topic: Factory<ReadonlyTopic<TMessage>>,
     listener: Listener<TMessage>
   ) {
-    this.lifecycle.onCleanup(
-      this.use(topic).once((message) => {
-        try {
-          listener(message)
-        } catch (error: unknown) {
-          console.error("error in once listener", {
-            topic: topic.name,
-            actor: this.name,
-            path: this.path,
-            error,
-          })
-        }
-      })
-    )
-  }
-
-  /**
-   * Like {@link on} but handles errors in async listeners.
-   *
-   * @param topic - Topic that the message should be sent to.
-   * @param listener - An async function that will be called every time a message is emitted on the topic.
-   */
-  onAsync<TMessage>(
-    topic: Factory<ReadonlyTopic<TMessage>>,
-    listener: AsyncListener<TMessage>
-  ) {
-    this.lifecycle.onCleanup(
-      this.use(topic).on((message) => {
-        listener(message).catch((error: unknown) => {
-          console.error("error in async listener", {
-            topic: topic.name,
-            actor: this.name,
-            path: this.path,
-            error,
-          })
-        })
-      })
-    )
-  }
-
-  /**
-   * Like {@link once} but handles errors in async listeners.
-   *
-   * @param topic - Topic that the message should be sent to.
-   * @param listener - An async function that will be called every time a message is emitted on the topic.
-   */
-  onceAsync<TMessage>(
-    topic: Factory<ReadonlyTopic<TMessage>>,
-    listener: AsyncListener<TMessage>
-  ) {
-    this.lifecycle.onCleanup(
-      this.use(topic).once((message) => {
-        listener(message).catch((error: unknown) => {
-          console.error("error in onceAsync listener", {
-            topic: topic.name,
-            actor: this.name,
-            path: this.path,
-            error,
-          })
-        })
-      })
-    )
+    this.use(topic).once(this.lifecycle, listener)
   }
 
   /**

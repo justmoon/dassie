@@ -1,6 +1,6 @@
 import { isObject } from "@dassie/lib-type-utils"
 
-import type { LifecycleScope } from "./internal/lifecycle-scope"
+import type { DisposableLifecycle } from "./internal/lifecycle"
 import { type Factory, Reactor, type UseOptions } from "./reactor"
 import { type ReadonlySignal, type Signal, createSignal } from "./signal"
 
@@ -67,7 +67,7 @@ export interface ComputationContext {
    *
    * Computed values are only cleaned up when the reactor is cleaned up, so the handler won't be called until then.
    */
-  onCleanup: LifecycleScope["onCleanup"]
+  onCleanup: DisposableLifecycle["onCleanup"]
 }
 
 export function createComputed<TState>(
@@ -75,8 +75,7 @@ export function createComputed<TState>(
 ): Computed<TState> {
   const reactor = Reactor.current
 
-  let sources = new Set<Factory<ReadonlySignal<unknown>>>()
-  const disposers = new Map<Factory<ReadonlySignal<unknown>>, () => void>()
+  let sources = new Set<ReadonlySignal<unknown>>()
 
   if (!reactor) {
     throw new Error("Computed signals must be created by a reactor.")
@@ -86,8 +85,9 @@ export function createComputed<TState>(
     reactor,
 
     get<TState>(signalFactory: Factory<ReadonlySignal<TState>>) {
-      sources.add(signalFactory)
-      return reactor.use(signalFactory).read()
+      const signal = reactor.use(signalFactory)
+      sources.add(signal)
+      return signal.read()
     },
 
     peek<TState>(signalFactory: Factory<ReadonlySignal<TState>>) {
@@ -121,14 +121,14 @@ export function createComputed<TState>(
     // Unsubscribe from any sources that are no longer used.
     for (const source of previousSources) {
       if (!sources.has(source)) {
-        disposers.get(source)?.()
+        source.off(notify)
       }
     }
 
     // Subscribe to any new sources.
     for (const source of sources) {
       if (!previousSources.has(source)) {
-        disposers.set(source, reactor.use(source).on(notify))
+        source.on(reactor, notify)
       }
     }
 
