@@ -3,6 +3,7 @@ import { isObject } from "@dassie/lib-type-utils"
 import { type Disposer, type Factory, FactoryNameSymbol } from "./reactor"
 
 export type Listener<TMessage> = (message: TMessage) => void
+export type AsyncListener<TMessage> = (message: TMessage) => Promise<void>
 
 export const TopicSymbol = Symbol("das:reactive:topic")
 
@@ -43,6 +44,22 @@ export interface ReadonlyTopic<TMessage = never> {
    * @returns A function which if called will unsubscribe the listener from the topic.
    */
   once: (this: void, listener: Listener<TMessage>) => Disposer
+
+  /**
+   * Like {@link on} but handles errors in async listeners.
+   *
+   * @param topic - Topic that the message should be sent to.
+   * @param listener - An async function that will be called every time a message is emitted on the topic.
+   */
+  onAsync: (this: void, listener: AsyncListener<TMessage>) => Disposer
+
+  /**
+   * Like {@link once} but handles errors in async listeners.
+   *
+   * @param topic - Topic that the message should be sent to.
+   * @param listener - An async function that will be called every time a message is emitted on the topic.
+   */
+  onceAsync: (this: void, listener: AsyncListener<TMessage>) => Disposer
 }
 
 export type Topic<TMessage = never> = ReadonlyTopic<TMessage> & {
@@ -128,11 +145,35 @@ export const createTopic = <TMessage>(): Topic<TMessage> => {
     return disposer
   }
 
+  const onAsync = (listener: AsyncListener<TMessage>) => {
+    return topic.on((message) => {
+      listener(message).catch((error: unknown) => {
+        console.error("error in async listener", {
+          topic: [FactoryNameSymbol],
+          error,
+        })
+      })
+    })
+  }
+
+  const onceAsync = (listener: AsyncListener<TMessage>) => {
+    return topic.once((message) => {
+      listener(message).catch((error: unknown) => {
+        console.error("error in onceAsync listener", {
+          topic: topic[FactoryNameSymbol],
+          error,
+        })
+      })
+    })
+  }
+
   const topic: Topic<TMessage> = {
     [TopicSymbol]: true,
     [FactoryNameSymbol]: "anonymous",
     on,
     once,
+    onAsync,
+    onceAsync,
     emit,
   }
 

@@ -9,9 +9,7 @@ import type {
   UseOptions,
 } from "./reactor"
 import type { ReadonlySignal } from "./signal"
-import type { Listener, ReadonlyTopic } from "./topic"
-
-export type AsyncListener<TMessage> = (message: TMessage) => Promise<void>
+import type { AsyncListener, Listener, ReadonlyTopic } from "./topic"
 
 export class ActorContext {
   constructor(
@@ -152,7 +150,7 @@ export class ActorContext {
   }
 
   /**
-   * Like {@link TopicFactory.on} but will automatically manage disposing the subscription when the current actor is disposed.
+   * Like {@link ReadonlyTopic.on} but will automatically manage disposing the subscription when the current actor is disposed.
    *
    * @param topic - Reference to the topic, i.e. the message factory function.
    * @param listener - A function that will be called every time a message is emitted on the topic.
@@ -178,7 +176,7 @@ export class ActorContext {
   }
 
   /**
-   * Like {@link TopicFactory.once} but will automatically manage disposing the subscription when the current actor is disposed.
+   * Like {@link ReadonlyTopic.once} but will automatically manage disposing the subscription when the current actor is disposed.
    *
    * @param topic - Reference to the topic, i.e. the message factory function.
    * @param listener - A function that will be called every time a message is emitted on the topic.
