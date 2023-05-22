@@ -4,6 +4,7 @@ import { MainNavigation } from "./layout/main-navigation"
 import { Account } from "./pages/account/account"
 import { CreateFirstAccount } from "./pages/create-first-account/create-first-account"
 import { Ledger } from "./pages/debug/ledger/ledger"
+import { Nodes } from "./pages/debug/nodes/nodes"
 import { Open } from "./pages/open/open"
 import { PaymentStatus } from "./pages/payment-status/payment-status"
 import { Send } from "./pages/send/send"
@@ -30,6 +31,7 @@ const App = () => {
         <Route path="/send" component={Send} />
         <Route path="/payments/:paymentId" component={PaymentStatus} />
         <Route path="/debug/ledger" component={Ledger} />
+        <Route path="/debug/nodes" component={Nodes} />
         <Route component={Account} />
       </Switch>
     </div>
