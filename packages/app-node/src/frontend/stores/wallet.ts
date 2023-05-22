@@ -1,53 +1,18 @@
-import { createStore } from "@dassie/lib-reactive"
+import { effect, signal } from "@preact/signals-react"
 
-import type { AccountConfiguration } from "../types/account-configuration"
-
-export interface WalletModel {
-  version: 1
-  seed: string | undefined
-  accounts: AccountConfiguration[]
+export const walletStore = {
+  seed: signal<string | undefined>(localStorage.getItem("seed") ?? undefined),
+  setSeed: (seed: string) => {
+    walletStore.seed.value = seed
+  },
 }
 
-const loadWallet = (): WalletModel => {
-  try {
-    const storedWallet = localStorage.getItem("wallet")
-
-    if (storedWallet) {
-      const parsedWallet = JSON.parse(storedWallet) as unknown
-
-      return parsedWallet as WalletModel
+effect(() => {
+  if (localStorage.getItem("seed") !== walletStore.seed.value) {
+    if (walletStore.seed.value === undefined) {
+      localStorage.removeItem("seed")
+    } else {
+      localStorage.setItem("seed", walletStore.seed.value)
     }
-  } catch (error) {
-    console.error("failed to load wallet", error)
   }
-
-  return {
-    version: 1,
-    seed: undefined,
-    accounts: [],
-  }
-}
-
-export const walletStore = () =>
-  createStore(loadWallet(), {
-    setSeed: (seed: string) => (state) => ({ ...state, seed }),
-    addAccount: (subnet: AccountConfiguration) => (state) => ({
-      ...state,
-      accounts: [...state.accounts, subnet],
-    }),
-    addUplink:
-      <T extends AccountConfiguration>(
-        targetAccount: T,
-        uplink: T["uplinks"][number]
-      ) =>
-      (state: WalletModel) => ({
-        ...state,
-        accounts: state.accounts.map((account) => {
-          if (account === targetAccount) {
-            return { ...account, uplinks: [...account.uplinks, uplink] }
-          }
-
-          return account
-        }),
-      }),
-  })
+})

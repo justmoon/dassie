@@ -5,7 +5,6 @@ import { useCallback, useState } from "react"
 
 import { Card, CardHeader, CardTitle } from "../../components/ui/card"
 import { walletStore } from "../../stores/wallet"
-import { useSig } from "../../utils/remote-reactive"
 import { SubpageGenerate } from "./subpage-generate/subpage-generate"
 import { SubpageIntro } from "./subpage-intro/subpage-intro"
 import { SubpageRecover } from "./subpage-recover/subpage-recover"
@@ -52,7 +51,6 @@ const SUBPAGE_TITLES: Record<SubpageState["subpage"], string> = {
 
 export const Open = () => {
   const [subpage, setSubpage] = useState<SubpageState>({ subpage: "intro" })
-  const sig = useSig()
 
   const onBack = useCallback(() => {
     switch (subpage.subpage) {
@@ -92,11 +90,9 @@ export const Open = () => {
 
       void bip39
         .mnemonicToSeed(mnemonic)
-        .then((binarySeed) =>
-          sig.use(walletStore).setSeed(bytesToHex(binarySeed))
-        )
+        .then((binarySeed) => walletStore.setSeed(bytesToHex(binarySeed)))
     },
-    [setSubpage, sig]
+    [setSubpage]
   )
 
   const subpageElement = (() => {

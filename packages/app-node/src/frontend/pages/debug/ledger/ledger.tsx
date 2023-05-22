@@ -27,10 +27,7 @@ export function Ledger() {
         <TableBody>
           {ledger.map(
             ({ path, debitsPending, creditsPosted, debitsPosted }) => {
-              const balance =
-                BigInt(creditsPosted) -
-                BigInt(debitsPosted) -
-                BigInt(debitsPending)
+              const balance = creditsPosted - debitsPosted - debitsPending
               return (
                 <TableRow key={path}>
                   <TableCell className="font-medium">{path}</TableCell>
@@ -39,15 +36,12 @@ export function Ledger() {
                   </TableCell>
                   <TableCell className="text-right">
                     <Amount
-                      value={BigInt(creditsPosted)}
+                      value={creditsPosted}
                       currency={USD_SPECIFICATION}
                     />
                   </TableCell>
                   <TableCell className="text-right">
-                    <Amount
-                      value={BigInt(debitsPosted)}
-                      currency={USD_SPECIFICATION}
-                    />
+                    <Amount value={debitsPosted} currency={USD_SPECIFICATION} />
                   </TableCell>
                 </TableRow>
               )

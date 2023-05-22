@@ -1,5 +1,4 @@
 import { ArrowRight, ProhibitInset } from "phosphor-react"
-import { useCallback } from "react"
 
 import Tabs from "../../components/tabs/tabs"
 import { Button } from "../../components/ui/button"
@@ -9,16 +8,12 @@ import {
   CardHeader,
   CardTitle,
 } from "../../components/ui/card"
-import { walletStore } from "../../stores/wallet"
-import { useSig } from "../../utils/remote-reactive"
+
+const onSelectNullSubnet = () => {
+  throw new Error("not implemented")
+}
 
 export const CreateFirstAccount = () => {
-  const sig = useSig()
-
-  const onSelectNullSubnet = useCallback(() => {
-    sig.use(walletStore).addAccount({ type: "null", uplinks: [] })
-  }, [sig])
-
   return (
     <div className="flex h-full items-center justify-center">
       <Card className="w-full mx-8">

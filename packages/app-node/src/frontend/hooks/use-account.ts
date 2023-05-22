@@ -8,7 +8,7 @@ export const useAccount = () => {
 
   trpc.subscribeBalance.useSubscription(undefined, {
     onData: (data) => {
-      setBalance(BigInt(data))
+      setBalance(data)
     },
   })
 

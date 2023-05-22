@@ -264,11 +264,8 @@ importers:
         specifier: workspace:^1.0.0
         version: link:../lib-protocol-utils
       '@dassie/lib-reactive':
-        specifier: workspace:^1.0.0
+        specifier: workspace:^
         version: link:../lib-reactive
-      '@dassie/lib-reactive-trpc':
-        specifier: workspace:^1.0.0
-        version: link:../lib-reactive-trpc
       '@dassie/lib-sqlite':
         specifier: workspace:^1.0.0
         version: link:../lib-sqlite
@@ -281,6 +278,9 @@ importers:
       '@noble/hashes':
         specifier: ^1.3.0
         version: 1.3.0
+      '@preact/signals-react':
+        specifier: ^1.3.2
+        version: 1.3.2(react@18.2.0)
       '@radix-ui/react-slot':
         specifier: ^1.0.1
         version: 1.0.1(react@18.2.0)
@@ -362,6 +362,9 @@ importers:
       react-number-format:
         specifier: ^5.1.4
         version: 5.1.4(react-dom@18.2.0)(react@18.2.0)
+      superjson:
+        specifier: ^1.12.3
+        version: 1.12.3
       tailwind-merge:
         specifier: ^1.12.0
         version: 1.12.0
@@ -1554,6 +1557,20 @@ packages:
 
   /@popperjs/core@2.11.7:
     resolution: {integrity: sha512-Cr4OjIkipTtcXKjAsm8agyleBuDHvxzeBoa1v543lbv1YaIwQjESsVcmjiWiPEbC1FIeHOG/Op9kdCmAmiS3Kw==}
+    dev: false
+
+  /@preact/signals-core@1.3.0:
+    resolution: {integrity: sha512-M+M3ZOtd1dtV/uasyk4SZu1vbfEJ4NeENv0F7F12nijZYedB5wSgbtZcuACyssnTznhF4ctUyrR0dZHuHfyWKA==}
+    dev: false
+
+  /@preact/signals-react@1.3.2(react@18.2.0):
+    resolution: {integrity: sha512-IjMUjjMMVI/hKa5jnS79rUmOAF4o+fUFjDrU/xHbE8a+Bv0n1svybWD/L31DRSMgGy5kyu5R77CWWaIg1pYy3Q==}
+    peerDependencies:
+      react: ^16.14.0 || 17.x || 18.x
+    dependencies:
+      '@preact/signals-core': 1.3.0
+      react: 18.2.0
+      use-sync-external-store: 1.2.0(react@18.2.0)
     dev: false
 
   /@radix-ui/primitive@1.0.0:

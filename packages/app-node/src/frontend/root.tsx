@@ -1,15 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import {
-  createTRPCClientProxy,
-  createWSClient,
-  wsLink as createWSLink,
-} from "@trpc/react-query"
+import { createWSClient, wsLink as createWSLink } from "@trpc/react-query"
 import { useState } from "react"
+import superjson from "superjson"
 
-import type { AppRouter } from "../backend/trpc-server/app-router"
 import App from "./app"
 import { DarkModeProvider } from "./components/context/dark-mode"
-import { Provider as RemoteReactiveProvider } from "./utils/remote-reactive"
 import { trpc } from "./utils/trpc"
 
 const Root = () => {
@@ -23,21 +18,17 @@ const Root = () => {
   const [trpcClient] = useState(() => {
     return trpc.createClient({
       links: [wsLink],
+      transformer: superjson,
     })
-  })
-  const [trpcProxyClient] = useState(() => {
-    return createTRPCClientProxy<AppRouter>(trpcClient)
   })
 
   return (
     <DarkModeProvider>
-      <RemoteReactiveProvider trpcClient={trpcProxyClient}>
-        <trpc.Provider client={trpcClient} queryClient={queryClient}>
-          <QueryClientProvider client={queryClient}>
-            <App />
-          </QueryClientProvider>
-        </trpc.Provider>
-      </RemoteReactiveProvider>
+      <trpc.Provider client={trpcClient} queryClient={queryClient}>
+        <QueryClientProvider client={queryClient}>
+          <App />
+        </QueryClientProvider>
+      </trpc.Provider>
     </DarkModeProvider>
   )
 }
