@@ -13,11 +13,9 @@ import { configSignal } from "../config"
 import { nodeIdSignal } from "../ilp-connector/computed/node-id"
 import { IlpType } from "../ilp-connector/ilp-packet-codec"
 import { globalIlpRoutingTableSignal } from "../ilp-connector/signals/global-ilp-routing-table"
-import type { PerSubnetParameters } from "../subnets/manage-subnet-instances"
-import subnetModules from "../subnets/modules"
 import { sendPeerMessage } from "./actors/send-peer-message"
 import { nodeDiscoveryQueueStore } from "./stores/node-discovery-queue"
-import { type NodeTableKey, nodeTableStore } from "./stores/node-table"
+import { nodeTableStore } from "./stores/node-table"
 import {
   type RoutingTableEntry,
   routingTableStore,
@@ -34,16 +32,14 @@ interface NodeInfoEntry {
  * This actor generates an Even-Shiloach tree which is then condensed into a routing table. The routing table contains all possible first hops which are on one of the shortest paths to the target node.
  */
 export const calculateRoutes = () =>
-  createActor((sig, parameters: PerSubnetParameters) => {
-    const { subnetId } = parameters
-
+  createActor((sig) => {
     const { ilpAllocationScheme } = sig.getKeys(configSignal, [
       "ilpAllocationScheme",
     ])
     const ownNodeId = sig.get(nodeIdSignal)
     const nodeTable = sig.get(nodeTableStore)
 
-    const ownNodeTableEntry = nodeTable.get(`${subnetId}.${ownNodeId}`)
+    const ownNodeTableEntry = nodeTable.get(ownNodeId)
 
     const queue = new Denque([ownNodeTableEntry])
     const queueSet = new Set([ownNodeId])
@@ -80,7 +76,7 @@ export const calculateRoutes = () =>
           }
           nodeInfoMap.set(neighborId, newNeighborInfo)
 
-          const neighbor = nodeTable.get(`${subnetId}.${neighborId}`)
+          const neighbor = nodeTable.get(neighborId)
 
           if (neighbor) {
             queue.push(neighbor)
@@ -89,7 +85,7 @@ export const calculateRoutes = () =>
             // We came across a node in the graph that we don't know. Let's ask someone about it.
             sig
               .use(nodeDiscoveryQueueStore)
-              .addNode(`${subnetId}.${neighborId}`, currentNode.nodeId)
+              .addNode(neighborId, currentNode.nodeId)
           }
         }
       }
@@ -117,7 +113,9 @@ export const calculateRoutes = () =>
       })
 
       if (nodeInfo.level > 0) {
-        const ilpAddress = `${ilpAllocationScheme}.das.${subnetId}.${nodeId}`
+        const ilpAddress = `${ilpAllocationScheme}.das.${nodeId}`
+
+        // TODO: We shouldn't replicate this for every destination. The routing table should only store the peer ID and there should then be a routine for sending an ILP packet via a peer.
         ilpRoutingTable.set(ilpAddress, {
           prefix: ilpAddress,
           type: "peer",
@@ -128,18 +126,20 @@ export const calculateRoutes = () =>
           }) => {
             const nextHop = firstHopOptions[0]!
 
-            const subnetModule = subnetModules[subnetId]
+            const peerState = sig
+              .use(nodeTableStore)
+              .read()
+              .get(nextHop)?.peerState
 
-            if (!subnetModule) {
-              throw new Error(`No subnet module found for subnet ${subnetId}`)
+            if (peerState?.id !== "peered") {
+              throw new Error(`Next hop node is not actually peered ${nextHop}`)
             }
 
             const ledger = sig.use(ledgerStore)
-            const peerKey: NodeTableKey = `${subnetId}.${nextHop}`
             if (parsedPacket.amount > 0n) {
               processPacketPrepare(
                 ledger,
-                `peer/${peerKey}/interledger`,
+                `peer/${peerState.subnetId}.${nextHop}/interledger`,
                 parsedPacket,
                 "outgoing"
               )
@@ -148,7 +148,6 @@ export const calculateRoutes = () =>
             logger.debug("sending ilp packet", { nextHop })
 
             sig.use(sendPeerMessage).tell("send", {
-              subnet: subnetId,
               destination: nextHop,
               message: {
                 type: "interledgerPacket",
@@ -171,18 +170,20 @@ export const calculateRoutes = () =>
           }) => {
             const nextHop = firstHopOptions[0]!
 
-            const subnetModule = subnetModules[subnetId]
+            const peerState = sig
+              .use(nodeTableStore)
+              .read()
+              .get(nextHop)?.peerState
 
-            if (!subnetModule) {
-              throw new Error(`No subnet module found for subnet ${subnetId}`)
+            if (peerState?.id !== "peered") {
+              throw new Error(`Next hop node is not actually peered ${nextHop}`)
             }
 
             const ledger = sig.use(ledgerStore)
-            const peerKey: NodeTableKey = `${subnetId}.${nextHop}`
             if (preparePacket.amount > 0n) {
               processPacketResult(
                 ledger,
-                `peer/${peerKey}/interledger`,
+                `peer/${peerState.subnetId}.${nextHop}/interledger`,
                 preparePacket,
                 packet.type === IlpType.Fulfill ? "fulfill" : "reject"
               )
@@ -191,7 +192,6 @@ export const calculateRoutes = () =>
             logger.debug("sending ilp packet", { nextHop })
 
             sig.use(sendPeerMessage).tell("send", {
-              subnet: subnetId,
               destination: nextHop,
               message: {
                 type: "interledgerPacket",
@@ -210,7 +210,7 @@ export const calculateRoutes = () =>
 
     sig.onCleanup(() => {
       for (const nodeId of nodeInfoMap.keys()) {
-        const ilpAddress = `${ilpAllocationScheme}.das.${subnetId}.${nodeId}`
+        const ilpAddress = `${ilpAllocationScheme}.das.${nodeId}`
         ilpRoutingTable.delete(ilpAddress)
       }
     })

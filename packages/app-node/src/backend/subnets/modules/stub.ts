@@ -21,16 +21,16 @@ const stub = {
     const decoder = new TextDecoder()
 
     return {
-      settle: async ({ peerKey, amount }) => {
-        console.log(`Sending settlement for ${amount} units to ${peerKey}`)
+      settle: async ({ peerId, amount }) => {
+        console.log(`Sending settlement for ${amount} units to ${peerId}`)
         await host.sendMessage({
-          peerKey,
+          peerId: peerId,
           message: encoder.encode(amount.toString()),
         })
       },
-      handleMessage: ({ peerKey, message }) => {
+      handleMessage: ({ peerId, message }) => {
         const amount = BigInt(decoder.decode(message))
-        console.log(`Received settlement for ${amount} units from ${peerKey}`)
+        console.log(`Received settlement for ${amount} units from ${peerId}`)
       },
     }
   },

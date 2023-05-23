@@ -31,12 +31,20 @@ const multiplyAmountWithRatio = (amount: bigint, ratio: number) => {
   return (amount * ratioBigInt) / BigInt(10 ** RATIO_PRECISION)
 }
 
-const calculateSettlementAmount = (ledger: Ledger, peerKey: NodeTableKey) => {
+const calculateSettlementAmount = (
+  ledger: Ledger,
+  subnetId: string,
+  peerKey: NodeTableKey
+) => {
   const peerInterledgerAccount = ledger.getAccount(
-    `peer/${peerKey}/interledger`
+    `peer/${subnetId}.${peerKey}/interledger`
   )
-  const peerTrustAccount = ledger.getAccount(`peer/${peerKey}/trust`)
-  const peerSettlementAccount = ledger.getAccount(`peer/${peerKey}/settlement`)
+  const peerTrustAccount = ledger.getAccount(
+    `peer/${subnetId}.${peerKey}/trust`
+  )
+  const peerSettlementAccount = ledger.getAccount(
+    `peer/${subnetId}.${peerKey}/settlement`
+  )
 
   assert(peerInterledgerAccount)
   assert(peerTrustAccount)
@@ -73,17 +81,22 @@ const calculateSettlementAmount = (ledger: Ledger, peerKey: NodeTableKey) => {
 }
 
 export const sendOutgoingSettlements = () =>
-  createActor((sig, { peerKey, subnetActor }: PerPeerParameters) => {
+  createActor((sig, { peerId, subnetId, subnetActor }: PerPeerParameters) => {
     const subnetActorInstance = sig.use(subnetActor)
     const ledger = sig.use(ledgerStore)
 
     sig.interval(() => {
-      const settlementAmount = calculateSettlementAmount(ledger, peerKey)
+      const settlementAmount = calculateSettlementAmount(
+        ledger,
+        subnetId,
+        peerId
+      )
 
       if (settlementAmount > 0n) {
         const settlementTransfer = processSettlementPrepare(
           ledger,
-          peerKey,
+          subnetId,
+          peerId,
           settlementAmount,
           "outgoing"
         )
@@ -97,7 +110,7 @@ export const sendOutgoingSettlements = () =>
         subnetActorInstance
           .ask("settle", {
             amount: settlementAmount,
-            peerKey,
+            peerId: peerId,
           })
           .then(() => {
             processSettlementResult(ledger, settlementTransfer, "fulfill")

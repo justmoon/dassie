@@ -11,6 +11,7 @@ import { handleLinkStateUpdate } from "../handlers/link-state-update"
 import { handlePeeringRequest } from "../handlers/peering-request"
 import { handleSubnetModuleMessage } from "../handlers/subnet-module-message"
 import type { PeerMessage } from "../peer-schema"
+import { PeerState } from "../stores/node-table"
 
 export interface IncomingPeerMessageEvent<
   TType extends PeerMessageType = PeerMessageType
@@ -19,6 +20,7 @@ export interface IncomingPeerMessageEvent<
     content: { value: { type: TType; value: PeerMessageContent<TType> } }
   }
   authenticated: boolean
+  peerState: PeerState | undefined
   asUint8Array: Uint8Array
 }
 

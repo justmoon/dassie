@@ -6,11 +6,6 @@ enableMapSet()
 
 export interface NodeTableEntry {
   /**
-   * Subnet that the node is a part of.
-   */
-  subnetId: string
-
-  /**
    * ID of the node - unique in our subnet.
    */
   nodeId: string
@@ -50,10 +45,12 @@ export type PeerState =
   | {
       id: "request-peering"
       lastSeen: number
+      subnetId: string
     }
   | {
       id: "peered"
       lastSeen: number
+      subnetId: string
     }
 
 export interface LinkState {
@@ -66,6 +63,11 @@ export interface LinkState {
    * List of the node's peers.
    */
   neighbors: string[]
+
+  /**
+   * List of the node's supported subnets.
+   */
+  subnets: string[]
 
   /**
    * Sequence number of the most recent link state update.
@@ -83,13 +85,13 @@ export interface LinkState {
   scheduledRetransmitTime: number
 }
 
-export type NodeTableKey = `${string}.${string}`
+export type NodeTableKey = string
 
 export const nodeTableStore = () =>
   createStore(new Map<NodeTableKey, NodeTableEntry>(), {
     addNode: (entry: NodeTableEntry) =>
       produce((draft) => {
-        draft.set(`${entry.subnetId}.${entry.nodeId}`, {
+        draft.set(entry.nodeId, {
           ...entry,
         })
       }),
@@ -105,11 +107,3 @@ export const nodeTableStore = () =>
         })
       }),
   })
-
-export const parseNodeKey = (
-  key: NodeTableKey
-): [subnetId: string, nodeId: string] => {
-  const subnetId = key.slice(0, key.indexOf("."))
-  const nodeId = key.slice(key.indexOf(".") + 1)
-  return [subnetId, nodeId]
-}

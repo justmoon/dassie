@@ -6,7 +6,8 @@ import { createActor } from "@dassie/lib-reactive"
 import { sendPeerMessage } from "./actors/send-peer-message"
 import { signedPeerNodeInfo } from "./peer-schema"
 import { nodeDiscoveryQueueStore } from "./stores/node-discovery-queue"
-import { nodeTableStore, parseNodeKey } from "./stores/node-table"
+import { nodeTableStore } from "./stores/node-table"
+import { parseLinkStateEntries } from "./utils/parse-link-state-entries"
 
 const NODE_DISCOVERY_INTERVAL = 1000
 
@@ -35,38 +36,38 @@ export const discoverNodes = () =>
 
       if (!nextNode) return
 
-      const [nodeKey, referrerNodeId] = nextNode
+      const [nodeId, referrerNodeId] = nextNode
 
-      logger.debug("discovering node", { nodeKey, referrerNodeId })
+      logger.debug("discovering node", { nodeId, referrerNodeId })
 
-      nodeDiscoveryQueue.removeNode(nodeKey)
-
-      const [subnetId, nodeId] = parseNodeKey(nodeKey)
+      nodeDiscoveryQueue.removeNode(nodeId)
 
       // Send a peer discovery request
-      const linkState = await queryLinkState(subnetId, referrerNodeId, nodeId)
+      const linkState = await queryLinkState(referrerNodeId, nodeId)
 
       const { signed } = signedPeerNodeInfo.parseOrThrow(linkState)
 
+      const { neighbors, subnets } = parseLinkStateEntries(signed.entries)
+
       const nodeTable = sig.use(nodeTableStore)
 
-      const node = nodeTable.read().get(nodeKey)
+      const node = nodeTable.read().get(nodeId)
       if (node) {
         if (node.linkState.sequence < signed.sequence) {
-          nodeTable.updateNode(nodeKey, {
+          nodeTable.updateNode(nodeId, {
             linkState: {
               sequence: signed.sequence,
               lastUpdate: linkState,
               updateReceivedCounter: 0,
               scheduledRetransmitTime: 0,
-              neighbors: signed.entries.map(({ value: { nodeId } }) => nodeId),
+              neighbors,
+              subnets,
             },
           })
         }
       } else {
         nodeTable.addNode({
           nodeId,
-          subnetId,
           url: signed.url,
           alias: signed.alias,
           nodePublicKey: signed.nodePublicKey,
@@ -75,7 +76,8 @@ export const discoverNodes = () =>
             lastUpdate: linkState,
             updateReceivedCounter: 0,
             scheduledRetransmitTime: 0,
-            neighbors: signed.entries.map(({ value: { nodeId } }) => nodeId),
+            neighbors,
+            subnets,
           },
           peerState: { id: "none" },
         })
@@ -83,17 +85,14 @@ export const discoverNodes = () =>
     }
 
     const queryLinkState = async (
-      subnetId: string,
       oracleNodeId: string,
       subjectNodeId: string
     ) => {
       const response = await reactor.use(sendPeerMessage).ask("send", {
-        subnet: subnetId,
         destination: oracleNodeId,
         message: {
           type: "linkStateRequest",
           value: {
-            subnetId,
             nodeId: subjectNodeId,
           },
         },

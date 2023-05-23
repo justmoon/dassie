@@ -1,12 +1,15 @@
 import { createActor } from "@dassie/lib-reactive"
 
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
+import { activeSubnetsSignal } from "../../subnets/signals/active-subnets"
 import type { IncomingPeerMessageEvent } from "../actors/handle-peer-message"
-import { type NodeTableKey, nodeTableStore } from "../stores/node-table"
+import { nodeTableStore } from "../stores/node-table"
 
 export const handlePeeringRequest = () =>
   createActor((sig) => {
     const nodeTable = sig.use(nodeTableStore)
+    const activeSubnets = sig.get(activeSubnetsSignal)
+
     return {
       handle: ({
         message: {
@@ -15,28 +18,29 @@ export const handlePeeringRequest = () =>
           },
         },
       }: IncomingPeerMessageEvent<"peeringRequest">) => {
-        const { nodeInfo } = content
+        const { nodeInfo, subnetId } = content
 
-        const { subnetId, nodeId, url, alias, nodePublicKey } = nodeInfo.signed
+        const { nodeId, url, alias, nodePublicKey } = nodeInfo.signed
 
-        const nodeKey: NodeTableKey = `${subnetId}.${nodeId}`
-        const existingEntry = nodeTable.read().get(nodeKey)
+        if (!activeSubnets.includes(subnetId)) return EMPTY_UINT8ARRAY
+
+        const existingEntry = nodeTable.read().get(nodeId)
 
         if (existingEntry) {
-          nodeTable.updateNode(nodeKey, {
-            peerState: { id: "peered", lastSeen: Date.now() },
+          nodeTable.updateNode(nodeId, {
+            peerState: { id: "peered", lastSeen: Date.now(), subnetId },
           })
         } else {
           nodeTable.addNode({
-            subnetId,
             nodeId,
-            peerState: { id: "peered", lastSeen: Date.now() },
+            peerState: { id: "peered", lastSeen: Date.now(), subnetId },
             url,
             alias,
             nodePublicKey,
             linkState: {
               lastUpdate: undefined,
               neighbors: [],
+              subnets: [],
               scheduledRetransmitTime: 0,
               sequence: 0n,
               updateReceivedCounter: 0,

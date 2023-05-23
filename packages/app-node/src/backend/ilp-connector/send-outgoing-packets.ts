@@ -38,16 +38,12 @@ export const sendOutgoingPackets = () =>
         return false
       }
 
-      const nodeIdStartIndex = destination.indexOf(".", generalPrefix.length)
+      const nodeIdStartIndex = generalPrefix.length
 
-      if (nodeIdStartIndex === -1) {
-        return false
-      }
-
-      const nodeIdEndIndex = destination.indexOf(".", nodeIdStartIndex + 1)
+      const nodeIdEndIndex = destination.indexOf(".", nodeIdStartIndex)
 
       const destinationNodeId = destination.slice(
-        nodeIdStartIndex + 1,
+        nodeIdStartIndex,
         nodeIdEndIndex === -1 ? undefined : nodeIdEndIndex
       )
 

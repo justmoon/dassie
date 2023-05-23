@@ -112,14 +112,10 @@ const NodeGraph = () => {
     ) => {
       const links = Object.entries(action.peeringState ?? {}).flatMap(
         ([nodeId, peers]) =>
-          peers.flatMap((peer) => {
-            // Strip subnet identifier
-            const peerId = peer.split(".")[1]
+          peers.flatMap((peerId) => {
             return peerId &&
               peerId > nodeId &&
-              action.peeringState?.[peerId]?.find((peerId) =>
-                peerId.endsWith(`.${nodeId}`)
-              )
+              action.peeringState?.[peerId]?.includes(nodeId)
               ? [
                   { source: nodeId, target: peerId },
                   { source: peerId, target: nodeId },

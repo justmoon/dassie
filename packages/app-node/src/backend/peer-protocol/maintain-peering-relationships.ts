@@ -1,9 +1,8 @@
 import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
-import { configSignal } from "../config"
 import { nodeIdSignal } from "../ilp-connector/computed/node-id"
-import type { PerSubnetParameters } from "../subnets/manage-subnet-instances"
+import { activeSubnetsSignal } from "../subnets/signals/active-subnets"
 import { peersComputation } from "./computed/peers"
 import { nodeTableStore } from "./stores/node-table"
 
@@ -15,16 +14,14 @@ const logger = createLogger(
   "das:app-node:peer-protocol:maintain-peering-relationships"
 )
 
-export const maintainPeeringRelationships = () =>
-  createActor((sig, { subnetId }: PerSubnetParameters) => {
-    const subnetConfig = sig.get(configSignal, (state) =>
-      state.initialSubnets.find(({ id }) => id === subnetId)
-    )
-    const ownNodeId = sig.get(nodeIdSignal)
+function findCommonElement(array1: string[], array2: string[]): string | false {
+  return array1.find((element) => array2.includes(element)) ?? false
+}
 
-    if (!subnetConfig) {
-      throw new Error(`Subnet '${subnetId}' is not configured`)
-    }
+export const maintainPeeringRelationships = () =>
+  createActor((sig) => {
+    const ownNodeId = sig.get(nodeIdSignal)
+    const ourSubnets = sig.get(activeSubnetsSignal)
 
     const { reactor } = sig
     const checkPeers = () => {
@@ -44,11 +41,20 @@ export const maintainPeeringRelationships = () =>
 
     const addPeer = () => {
       // TODO: This is slow but once we switch node table to an sqlite table, we'll be able to optimize it
-      const candidates = [...sig.use(nodeTableStore).read().values()].filter(
-        (node) => {
-          return node.nodeId !== ownNodeId && node.peerState.id === "none"
-        }
-      )
+      const candidates = [...sig.use(nodeTableStore).read().values()]
+        .map((candidate) => ({
+          ...candidate,
+          commonSubnet: findCommonElement(
+            candidate.linkState.subnets,
+            ourSubnets
+          ),
+        }))
+        .filter(
+          (node): node is typeof node & { commonSubnet: string } =>
+            node.nodeId !== ownNodeId &&
+            node.peerState.id === "none" &&
+            node.commonSubnet !== false
+        )
 
       const randomNode =
         candidates[Math.floor(Math.random() * candidates.length)]
@@ -58,11 +64,13 @@ export const maintainPeeringRelationships = () =>
         return
       }
 
-      reactor
-        .use(nodeTableStore)
-        .updateNode(`${subnetId}.${randomNode.nodeId}`, {
-          peerState: { id: "request-peering", lastSeen: Date.now() },
-        })
+      reactor.use(nodeTableStore).updateNode(randomNode.nodeId, {
+        peerState: {
+          id: "request-peering",
+          lastSeen: Date.now(),
+          subnetId: randomNode.commonSubnet,
+        },
+      })
     }
 
     checkPeers()

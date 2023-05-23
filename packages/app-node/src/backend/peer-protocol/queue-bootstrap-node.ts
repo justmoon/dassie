@@ -6,7 +6,7 @@ import { configSignal } from "../config"
 import { nodeIdSignal } from "../ilp-connector/computed/node-id"
 import type { PerSubnetParameters } from "../subnets/manage-subnet-instances"
 import { nodeDiscoveryQueueStore } from "./stores/node-discovery-queue"
-import { type NodeTableKey, nodeTableStore } from "./stores/node-table"
+import { nodeTableStore } from "./stores/node-table"
 
 export const queueBootstrapNodes = () =>
   createActor((sig, { subnetId }: PerSubnetParameters) => {
@@ -26,13 +26,11 @@ export const queueBootstrapNodes = () =>
     const nodes = sig.use(nodeTableStore).read()
 
     for (const candidate of candidates) {
-      const nodeKey: NodeTableKey = `${subnetId}.${candidate.nodeId}`
-      const node = nodes.get(nodeKey)
+      const node = nodes.get(candidate.nodeId)
 
       if (!node) {
         sig.use(nodeTableStore).addNode({
           nodeId: candidate.nodeId,
-          subnetId,
           url: candidate.url,
           alias: candidate.alias,
           nodePublicKey: hexToBytes(candidate.nodePublicKey),
@@ -42,13 +40,16 @@ export const queueBootstrapNodes = () =>
             updateReceivedCounter: 0,
             scheduledRetransmitTime: 0,
             neighbors: [],
+            subnets: [],
           },
           peerState: { id: "none" },
         })
       }
 
       if (!node?.linkState) {
-        sig.use(nodeDiscoveryQueueStore).addNode(nodeKey, candidate.nodeId)
+        sig
+          .use(nodeDiscoveryQueueStore)
+          .addNode(candidate.nodeId, candidate.nodeId)
       }
     }
   })

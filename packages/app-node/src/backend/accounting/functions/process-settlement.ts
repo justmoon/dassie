@@ -5,12 +5,13 @@ import { CreateTransferParameters, Ledger, Transfer } from "../stores/ledger"
 
 export const processSettlementPrepare = (
   ledger: Ledger,
-  peerKey: NodeTableKey,
+  subnetId: string,
+  peerId: NodeTableKey,
   amount: bigint,
   direction: "incoming" | "outgoing"
 ) => {
-  const peerPath = `peer/${peerKey}/interledger`
-  const settlementPath = `peer/${peerKey}/settlement`
+  const peerPath = `peer/${subnetId}.${peerId}/interledger`
+  const settlementPath = `peer/${subnetId}.${peerId}/settlement`
 
   const transfer: CreateTransferParameters = {
     key: randomBytes(16).toString("base64"),

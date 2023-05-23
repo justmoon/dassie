@@ -16,11 +16,11 @@ export interface SubnetProperties {
 
 export interface SettlementParameters {
   amount: bigint
-  peerKey: NodeTableKey
+  peerId: NodeTableKey
 }
 
 export interface PeerMessageParameters {
-  peerKey: NodeTableKey
+  peerId: NodeTableKey
   message: Uint8Array
 }
 

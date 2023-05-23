@@ -68,7 +68,7 @@ export const processIncomingPacket = () =>
             if (isFailure(result)) {
               // TODO: reject packet
               throw new Error(
-                `failed to create transfer, invalid ${result.whichAccount} account: ${result.accountPath}`
+                `failed to create transfer, invalid ${result.whichAccount} account ${result.accountPath}`
               )
             }
           }

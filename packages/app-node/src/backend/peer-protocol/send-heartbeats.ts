@@ -1,3 +1,5 @@
+import assert from "node:assert"
+
 import { createLogger } from "@dassie/lib-logger"
 import { ActorContext, createActor } from "@dassie/lib-reactive"
 
@@ -5,7 +7,7 @@ import { nodeIdSignal } from "../ilp-connector/computed/node-id"
 import { sendPeerMessage } from "./actors/send-peer-message"
 import { peersComputation } from "./computed/peers"
 import { requestedPeersComputation } from "./computed/requested-peers"
-import { nodeTableStore, parseNodeKey } from "./stores/node-table"
+import { nodeTableStore } from "./stores/node-table"
 
 const logger = createLogger("das:node:peer-greeter")
 
@@ -19,56 +21,31 @@ export const sendHeartbeats = () =>
     const peers = sig.get(peersComputation)
     const requestedPeers = sig.get(requestedPeersComputation)
 
-    const linkStateUpdateCache = new Map<string, Uint8Array>()
-    const getLinkStateUpdate = (subnetId: string) => {
-      if (!linkStateUpdateCache.has(subnetId)) {
-        const ownNodeTableEntry = sig.get(nodeTableStore, (nodeTable) =>
-          nodeTable.get(`${subnetId}.${ownNodeId}`)
-        )
+    const linkStateUpdate = sig.get(nodeTableStore, (nodeTable) =>
+      nodeTable.get(ownNodeId)
+    )?.linkState.lastUpdate
 
-        if (!ownNodeTableEntry?.linkState.lastUpdate) {
-          return undefined
-        }
-
-        linkStateUpdateCache.set(
-          subnetId,
-          ownNodeTableEntry.linkState.lastUpdate
-        )
-      }
-
-      return linkStateUpdateCache.get(subnetId)
+    if (!linkStateUpdate) {
+      return
     }
 
     // Send peer requests
     for (const peer of requestedPeers) {
-      const [peerSubnetId, peerNodeId] = parseNodeKey(peer)
+      const peerState = sig.use(nodeTableStore).read().get(peer)?.peerState
 
-      const linkStateUpdate = getLinkStateUpdate(peerSubnetId)
-
-      if (!linkStateUpdate) {
-        continue
-      }
+      assert(peerState?.id === "request-peering")
 
       sendPeeringRequest(sig, {
-        peerSubnetId,
-        peerNodeId,
+        peerNodeId: peer,
+        subnetId: peerState.subnetId,
         lastLinkStateUpdate: linkStateUpdate,
       })
     }
 
     // Send heartbeats to existing peers
     for (const peer of peers) {
-      const [peerSubnetId, peerNodeId] = parseNodeKey(peer)
-
-      const linkStateUpdate = getLinkStateUpdate(peerSubnetId)
-
-      if (!linkStateUpdate) {
-        continue
-      }
-
       sendHeartbeat(sig, {
-        peerSubnetId,
-        peerNodeId,
+        peerNodeId: peer,
         lastLinkStateUpdate: linkStateUpdate,
       })
     }
@@ -76,44 +53,46 @@ export const sendHeartbeats = () =>
     sig.timeout(sig.wake, Math.random() * MAX_HEARTBEAT_INTERVAL)
   })
 
-interface HeartbeatParameters {
-  peerSubnetId: string
+interface PeeringRequestParameters {
   peerNodeId: string
+  subnetId: string
   lastLinkStateUpdate: Uint8Array
 }
 
 const sendPeeringRequest = (
   sig: ActorContext,
-  { peerSubnetId, peerNodeId, lastLinkStateUpdate }: HeartbeatParameters
+  { peerNodeId, subnetId, lastLinkStateUpdate }: PeeringRequestParameters
 ) => {
   logger.debug(`sending peering request`, {
-    subnet: peerSubnetId,
     to: peerNodeId,
   })
 
   sig.use(sendPeerMessage).tell("send", {
-    subnet: peerSubnetId,
     destination: peerNodeId,
     message: {
       type: "peeringRequest",
       value: {
         nodeInfo: lastLinkStateUpdate,
+        subnetId,
       },
     },
   })
 }
 
+interface HeartbeatParameters {
+  peerNodeId: string
+  lastLinkStateUpdate: Uint8Array
+}
+
 const sendHeartbeat = (
   sig: ActorContext,
-  { peerSubnetId, peerNodeId, lastLinkStateUpdate }: HeartbeatParameters
+  { peerNodeId, lastLinkStateUpdate }: HeartbeatParameters
 ) => {
   logger.debug(`sending heartbeat`, {
-    subnet: peerSubnetId,
     to: peerNodeId,
   })
 
   sig.use(sendPeerMessage).tell("send", {
-    subnet: peerSubnetId,
     destination: peerNodeId,
     message: {
       type: "linkStateUpdate",

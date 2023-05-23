@@ -31,7 +31,7 @@ export const rootActor = () =>
     sig.run(startOpenPaymentsServer)
     sig.run(startStatisticsServer)
 
-    sig.run(speakPeerProtocol)
+    await sig.run(speakPeerProtocol).result
   })
 
 export const start = () => createReactor(rootActor)

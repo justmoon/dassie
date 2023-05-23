@@ -4,7 +4,7 @@ import { createActor } from "@dassie/lib-reactive"
 import { sendPeerMessage } from "./actors/send-peer-message"
 import { peersComputation } from "./computed/peers"
 import { peerMessageContent } from "./peer-schema"
-import { nodeTableStore, parseNodeKey } from "./stores/node-table"
+import { nodeTableStore } from "./stores/node-table"
 
 const logger = createLogger("das:node:forward-link-state-update")
 
@@ -23,7 +23,7 @@ export const forwardLinkStateUpdate = () =>
         node.linkState.scheduledRetransmitTime < Date.now()
       ) {
         // Set scheduled retransmit time to be infinitely far in the future so we don't retransmit the same update again.
-        sig.use(nodeTableStore).updateNode(`${node.subnetId}.${node.nodeId}`, {
+        sig.use(nodeTableStore).updateNode(node.nodeId, {
           linkState: {
             ...node.linkState,
             scheduledRetransmitTime: Number.POSITIVE_INFINITY,
@@ -44,20 +44,17 @@ export const forwardLinkStateUpdate = () =>
         }
 
         for (const peer of peers) {
-          const [peerSubnetId, peerNodeId] = parseNodeKey(peer)
-          if (peerNodeId === node.nodeId && peerSubnetId === node.subnetId)
-            continue
+          if (peer === node.nodeId) continue
 
           logger.debug("retransmit link state update", {
             from: node.nodeId,
-            to: peerNodeId,
+            to: peer,
             sequence: node.linkState.sequence,
           })
 
           // Retransmit the link state update
           sig.use(sendPeerMessage).tell("send", {
-            subnet: peerSubnetId,
-            destination: peerNodeId,
+            destination: peer,
             message: {
               type: "linkStateUpdate",
               value: {

@@ -33,11 +33,13 @@ export const nodeInfoEntry = choice({
   neighbor: sequence({
     nodeId: nodeIdSchema,
   }).tag(0),
+  subnet: sequence({
+    subnetId: subnetIdSchema,
+  }).tag(1),
 })
 
 export const peerNodeInfo = sequence({
   type: objectIdentifier().constant(dassiePeerNodeInfoId),
-  subnetId: subnetIdSchema,
   nodeId: nodeIdSchema,
   sequence: uint64Bigint(),
   url: visibleString(),
@@ -58,6 +60,7 @@ export const peerInterledgerPacket = sequence({
 
 export const peerMessageContent = choice({
   peeringRequest: sequence({
+    subnetId: subnetIdSchema,
     nodeInfo: octetString().containing(signedPeerNodeInfo),
   }).tag(0),
   linkStateUpdate: captured(signedPeerNodeInfo).tag(1),
@@ -65,7 +68,6 @@ export const peerMessageContent = choice({
     signed: octetString().containing(peerInterledgerPacket),
   }).tag(2),
   linkStateRequest: sequence({
-    subnetId: subnetIdSchema,
     nodeId: nodeIdSchema,
   }).tag(3),
   subnetModuleMessage: sequence({
@@ -76,7 +78,6 @@ export const peerMessageContent = choice({
 
 export const peerMessage = sequence({
   version: uint8Number(),
-  subnetId: subnetIdSchema,
   sender: nodeIdSchema,
   authentication: choice({
     ["NONE"]: sequence({}).tag(0),

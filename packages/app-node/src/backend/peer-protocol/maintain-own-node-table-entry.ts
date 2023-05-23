@@ -5,17 +5,16 @@ import { configSignal } from "../config"
 import { nodePublicKeySignal } from "../crypto/computed/node-public-key"
 import { signerService } from "../crypto/signer"
 import { nodeIdSignal } from "../ilp-connector/computed/node-id"
-import type { PerSubnetParameters } from "../subnets/manage-subnet-instances"
+import { activeSubnetsSignal } from "../subnets/signals/active-subnets"
 import { compareSetToArray } from "../utils/compare-sets"
 import { peersComputation } from "./computed/peers"
 import { peerNodeInfo, signedPeerNodeInfo } from "./peer-schema"
-import { nodeTableStore, parseNodeKey } from "./stores/node-table"
+import { nodeTableStore } from "./stores/node-table"
 
 const logger = createLogger("das:node:maintain-own-node-table-entry")
 
 export const maintainOwnNodeTableEntry = () =>
-  createActor(async (sig, parameters: PerSubnetParameters) => {
-    const { subnetId } = parameters
+  createActor(async (sig) => {
     const signer = sig.get(signerService)
 
     if (!signer) return
@@ -23,32 +22,36 @@ export const maintainOwnNodeTableEntry = () =>
     // Get the current peers and re-run the actor if they change
     const peers = sig.get(peersComputation)
 
+    const subnets = sig.get(activeSubnetsSignal)
+
     const nodeId = sig.get(nodeIdSignal)
     const nodePublicKey = sig.get(nodePublicKeySignal)
     const { url, alias } = sig.getKeys(configSignal, ["url", "alias"])
-    const ownNodeTableEntry = sig
-      .use(nodeTableStore)
-      .read()
-      .get(`${subnetId}.${nodeId}`)
+    const ownNodeTableEntry = sig.use(nodeTableStore).read().get(nodeId)
 
     if (
       ownNodeTableEntry == null ||
       !compareSetToArray(peers, ownNodeTableEntry.linkState.neighbors)
     ) {
       const sequence = BigInt(Date.now())
-      const peerIds = [...peers].map((peer) => parseNodeKey(peer)[1])
+      const peerIds = [...peers]
 
       const peerNodeInfoResult = peerNodeInfo.serialize({
-        subnetId,
         nodeId,
         nodePublicKey,
         url,
         alias,
         sequence,
-        entries: peerIds.map((peerId) => ({
-          type: "neighbor",
-          value: { nodeId: peerId },
-        })),
+        entries: [
+          ...peerIds.map((nodeId) => ({
+            type: "neighbor" as const,
+            value: { nodeId },
+          })),
+          ...subnets.map((subnetId) => ({
+            type: "subnet" as const,
+            value: { subnetId },
+          })),
+        ],
       })
 
       if (!peerNodeInfoResult.success) {
@@ -77,13 +80,13 @@ export const maintainOwnNodeTableEntry = () =>
           neighbors: peerIds.join(","),
         })
         sig.use(nodeTableStore).addNode({
-          subnetId,
           nodeId,
           nodePublicKey,
           url,
           alias,
           linkState: {
             neighbors: peerIds,
+            subnets,
             sequence,
             scheduledRetransmitTime: Date.now(),
             updateReceivedCounter: 0,
@@ -96,9 +99,10 @@ export const maintainOwnNodeTableEntry = () =>
           sequence,
           neighbors: peerIds.join(","),
         })
-        sig.use(nodeTableStore).updateNode(`${subnetId}.${nodeId}`, {
+        sig.use(nodeTableStore).updateNode(nodeId, {
           linkState: {
             neighbors: peerIds,
+            subnets,
             sequence,
             scheduledRetransmitTime: Date.now(),
             updateReceivedCounter: 0,

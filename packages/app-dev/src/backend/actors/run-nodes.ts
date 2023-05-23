@@ -50,7 +50,7 @@ export const runNodes = () =>
             },
             {
               type: "dassie",
-              commonName: `test.das.null.${node.id}`,
+              commonName: `test.das.${node.id}`,
               certificatePath: node.config.tlsDassieCertFile,
               keyPath: node.config.tlsDassieKeyFile,
             },

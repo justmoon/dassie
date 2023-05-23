@@ -15,7 +15,7 @@ export const requestedPeersComputation = () =>
 
     for (const node of nodeTable.read().values()) {
       if (node.peerState.id === "request-peering") {
-        initialSet.add(`${node.subnetId}.${node.nodeId}`)
+        initialSet.add(node.nodeId)
       }
     }
 
@@ -27,9 +27,9 @@ export const requestedPeersComputation = () =>
       const newSet = produce(peersSet, (draft) => {
         switch (actionId) {
           case "addNode": {
-            const { peerState, subnetId, nodeId } = parameters[0]
+            const { peerState, nodeId } = parameters[0]
             if (peerState.id === "request-peering") {
-              draft.add(`${subnetId}.${nodeId}`)
+              draft.add(nodeId)
             }
             break
           }

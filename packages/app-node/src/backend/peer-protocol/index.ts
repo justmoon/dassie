@@ -1,5 +1,6 @@
 import { createActor, createComputed } from "@dassie/lib-reactive"
 
+import { nodeTableStore } from ".."
 import type { PerSubnetParameters } from "../subnets/manage-subnet-instances"
 import { handlePeerMessage } from "./actors/handle-peer-message"
 import { sendPeerMessage } from "./actors/send-peer-message"
@@ -15,26 +16,27 @@ import { runPerPeerActors } from "./run-per-peer-actors"
 import { sendHeartbeats } from "./send-heartbeats"
 
 export const speakPeerProtocol = () =>
-  createActor((sig) => {
+  createActor(async (sig) => {
     sig.run(handlePeerMessage, undefined, { register: true })
     sig.run(sendPeerMessage, undefined, { register: true })
 
     // Handle incoming Dassie messages via HTTP
     sig.run(registerPeerHttpHandler)
 
+    await sig.run(maintainOwnNodeTableEntry).result
+    sig.run(maintainPeeringRelationships)
+
     sig.run(sendHeartbeats)
     sig.run(forwardLinkStateUpdate)
     sig.run(discoverNodes)
+    sig.run(calculateRoutes)
   })
 
 /**
  * Some actors are specific to each subnet so we export this helper which is called from the subnet instantiation code.
  */
 export const speakPeerProtocolPerSubnet = () =>
-  createActor(async (sig, parameters: PerSubnetParameters) => {
-    sig.run(calculateRoutes, parameters)
-    await sig.run(maintainOwnNodeTableEntry, parameters).result
-    sig.run(maintainPeeringRelationships, parameters)
+  createActor((sig, parameters: PerSubnetParameters) => {
     sig.run(queueBootstrapNodes, parameters)
 
     // Get peers for this subnet and prepare parameters for each one
@@ -42,8 +44,17 @@ export const speakPeerProtocolPerSubnet = () =>
       createComputed((sig) =>
         sig
           .get(peersArrayComputation)
-          .filter((peerId) => peerId.startsWith(`${parameters.subnetId}.`))
-          .map((peerKey) => ({ ...parameters, peerKey }))
+          .filter((peerId) => {
+            const peerState = sig
+              .use(nodeTableStore)
+              .read()
+              .get(peerId)?.peerState
+            return (
+              peerState?.id === "peered" &&
+              peerState.subnetId === parameters.subnetId
+            )
+          })
+          .map((peerId) => ({ ...parameters, peerId }))
       )
 
     sig.for(subnetPeersParametersSignal, runPerPeerActors)

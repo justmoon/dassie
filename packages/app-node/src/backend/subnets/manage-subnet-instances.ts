@@ -5,10 +5,7 @@ import { createActor } from "@dassie/lib-reactive"
 import { configSignal } from "../config"
 import { speakPeerProtocolPerSubnet } from "../peer-protocol"
 import { sendPeerMessage } from "../peer-protocol/actors/send-peer-message"
-import {
-  nodeTableStore,
-  parseNodeKey,
-} from "../peer-protocol/stores/node-table"
+import { nodeTableStore } from "../peer-protocol/stores/node-table"
 import modules from "./modules"
 import { registerSubnetActor } from "./register-subnet-actor"
 import { activeSubnetsSignal } from "./signals/active-subnets"
@@ -51,15 +48,15 @@ const runSubnetModule = () =>
           ...peer,
           alias: peer.alias ?? "initial",
           nodePublicKey,
-          subnetId,
           linkState: {
             sequence: 0n,
             updateReceivedCounter: 0,
             scheduledRetransmitTime: 0,
             neighbors: [],
+            subnets: [],
             lastUpdate: undefined,
           },
-          peerState: { id: "request-peering", lastSeen: 0 },
+          peerState: { id: "request-peering", lastSeen: 0, subnetId },
         })
       }
     }
@@ -76,11 +73,9 @@ const runSubnetModule = () =>
     })
 
     const host: SubnetHostMethods = {
-      sendMessage: ({ peerKey, message }) => {
-        const [subnet, destination] = parseNodeKey(peerKey)
+      sendMessage: ({ peerId, message }) => {
         sig.use(sendPeerMessage).tell("send", {
-          subnet,
-          destination,
+          destination: peerId,
           message: {
             type: "subnetModuleMessage",
             value: {

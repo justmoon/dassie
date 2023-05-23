@@ -19,20 +19,29 @@ export const handleInterledgerPacket = () =>
       handle: ({
         message: {
           sender,
-          subnetId,
           content: {
             value: { value: content },
           },
         },
         authenticated,
+        peerState,
       }: IncomingPeerMessageEvent<"interledgerPacket">) => {
         if (!authenticated) {
           logger.warn("received unauthenticated interledger packet, discarding")
           return EMPTY_UINT8ARRAY
         }
 
+        if (peerState?.id !== "peered") {
+          logger.warn(
+            "received interledger packet from unpeered node, discarding"
+          )
+          return EMPTY_UINT8ARRAY
+        }
+
+        const { subnetId } = peerState
+
         processIncomingPacketActor.tell("handle", {
-          sourceIlpAddress: `${ilpAllocationScheme}.das.${subnetId}.${sender}`,
+          sourceIlpAddress: `${ilpAllocationScheme}.das.${sender}`,
           ledgerAccountPath: `peer/${subnetId}.${sender}/interledger`,
           serializedPacket: content.signed.packet,
           requestId: content.signed.requestId,

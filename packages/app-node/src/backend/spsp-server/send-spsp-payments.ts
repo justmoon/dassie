@@ -3,7 +3,7 @@ import { createConnection } from "ilp-protocol-stream"
 import { createLogger } from "@dassie/lib-logger"
 import { createActor, createStore } from "@dassie/lib-reactive"
 
-import { primaryIlpAddressSignal } from "../ilp-connector/signals/primary-ilp-address"
+import { nodeIlpAddressSignal } from "../ilp-connector/computed/node-ilp-address"
 import { resolvePaymentPointer } from "../utils/resolve-payment-pointer"
 import { createPlugin } from "./utils/create-plugin"
 
@@ -26,8 +26,7 @@ export const spspPaymentQueueStore = () =>
 
 export const sendSpspPayments = () =>
   createActor(async (sig) => {
-    const nodeIlpAddress = sig.get(primaryIlpAddressSignal)
-    if (!nodeIlpAddress) return
+    const nodeIlpAddress = sig.get(nodeIlpAddressSignal)
 
     const nextPayment = sig.get(spspPaymentQueueStore, (queue) => queue[0])
 

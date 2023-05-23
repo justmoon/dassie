@@ -3,7 +3,8 @@ import { createActor } from "@dassie/lib-reactive"
 
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import type { IncomingPeerMessageEvent } from "../actors/handle-peer-message"
-import { type NodeTableKey, nodeTableStore } from "../stores/node-table"
+import { nodeTableStore } from "../stores/node-table"
+import { parseLinkStateEntries } from "../utils/parse-link-state-entries"
 
 const logger = createLogger("das:node:handle-link-state-update")
 
@@ -16,7 +17,6 @@ export const handleLinkStateUpdate = () =>
     return {
       handle: ({
         message: {
-          subnetId,
           content: {
             value: { value: content },
           },
@@ -27,22 +27,18 @@ export const handleLinkStateUpdate = () =>
           linkState.signed
         const nodes = nodeTable.read()
 
-        const neighbors = entries
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-          .filter(({ type }) => type === "neighbor")
-          .map((entry) => entry.value.nodeId)
+        const { neighbors, subnets } = parseLinkStateEntries(entries)
 
-        const nodeKey: NodeTableKey = `${subnetId}.${nodeId}`
-        const node = nodes.get(nodeKey)
+        const node = nodes.get(nodeId)
         const isPeer = node?.peerState.id !== "none"
 
         if (node) {
           if (sequence < node.linkState.sequence) {
             logger.debug("received a stale link state update", {
-              subnet: subnetId,
               from: nodeId,
               sequence,
               neighbors: neighbors.join(","),
+              subnets: subnets.join(","),
               previousSequence: node.linkState.sequence,
             })
             return EMPTY_UINT8ARRAY
@@ -51,20 +47,18 @@ export const handleLinkStateUpdate = () =>
           if (sequence === node.linkState.sequence) {
             if (isPeer) {
               logger.debug("received heartbeat from peer", {
-                subnet: subnetId,
                 from: nodeId,
                 sequence,
               })
             } else {
               logger.debug("received another copy of a link state update", {
-                subnet: subnetId,
                 from: nodeId,
                 sequence,
                 counter: node.linkState.updateReceivedCounter + 1,
               })
             }
 
-            nodeTable.updateNode(nodeKey, {
+            nodeTable.updateNode(nodeId, {
               linkState: {
                 ...node.linkState,
                 updateReceivedCounter: node.linkState.updateReceivedCounter + 1,
@@ -74,15 +68,15 @@ export const handleLinkStateUpdate = () =>
           }
 
           logger.debug("process new link state update", {
-            subnet: subnetId,
             from: nodeId,
             sequence,
             neighbors: neighbors.join(","),
           })
-          nodeTable.updateNode(nodeKey, {
+          nodeTable.updateNode(nodeId, {
             linkState: {
               sequence,
               neighbors,
+              subnets,
               lastUpdate: linkStateBytes,
               updateReceivedCounter: 1,
               scheduledRetransmitTime:
@@ -94,12 +88,11 @@ export const handleLinkStateUpdate = () =>
             peerState:
               node.peerState.id === "request-peering" ||
               node.peerState.id === "peered"
-                ? { id: "peered", lastSeen: Date.now() }
+                ? { ...node.peerState, id: "peered", lastSeen: Date.now() }
                 : node.peerState,
           })
         } else {
           nodeTable.addNode({
-            subnetId,
             nodeId,
             url,
             alias,
@@ -113,6 +106,7 @@ export const handleLinkStateUpdate = () =>
                   Math.random() * MAX_LINK_STATE_UPDATE_RETRANSMIT_DELAY
                 ),
               neighbors,
+              subnets,
               lastUpdate: linkStateBytes,
             },
             peerState: { id: "none" },

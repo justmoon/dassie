@@ -95,7 +95,6 @@ const NodeTable = ({ nodeId }: BasicNodeElementProperties) => {
       <table className="border-separate border-spacing-2 my-4 -ml-2">
         <thead>
           <tr>
-            <th className="text-left">Subnet</th>
             <th className="text-left">Node</th>
             <th>Distance</th>
             <th className="text-left">Peering</th>
@@ -108,7 +107,6 @@ const NodeTable = ({ nodeId }: BasicNodeElementProperties) => {
           {sortedNodeTable.map((node) => {
             return (
               <tr key={node.nodeId}>
-                <td className="text-slate-400">{node.subnetId}</td>
                 <td className="">
                   <NodeLink nodeId={node.nodeId} />
                 </td>

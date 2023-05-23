@@ -53,12 +53,8 @@ export const registerPeerHttpHandler = () =>
           throw new BadRequestError(`Bad Request, unsupported version`)
         }
 
-        const subnetId = parseResult.value.subnetId
         const senderId = parseResult.value.sender
-        const senderNode = sig
-          .use(nodeTableStore)
-          .read()
-          .get(`${subnetId}.${senderId}`)
+        const senderNode = sig.use(nodeTableStore).read().get(senderId)
 
         const isAuthenticated =
           !!senderNode &&
@@ -84,12 +80,14 @@ export const registerPeerHttpHandler = () =>
         sig.use(incomingPeerMessageTopic).emit({
           message: parseResult.value,
           authenticated: isAuthenticated,
+          peerState: senderNode?.peerState,
           asUint8Array: body,
         })
 
         const responseMessage = await sig.use(handlePeerMessage).ask("handle", {
           message: parseResult.value,
           authenticated: isAuthenticated,
+          peerState: senderNode?.peerState,
           asUint8Array: body,
         })
 

@@ -23,7 +23,7 @@ export const handleSubnetModuleMessage = () =>
 
         if (subnetActorInstance) {
           subnetActorInstance.tell("handleMessage", {
-            peerKey: `${subnetId}.${sender}`,
+            peerId: sender,
             message,
           })
         }

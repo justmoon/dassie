@@ -21,9 +21,8 @@ export const registerStatisticsHttpHandler = () =>
 
           if (!node) return false
 
-          const { nodeId, subnetId, url, nodePublicKey } = node
+          const { nodeId, url, nodePublicKey } = node
           return {
-            subnetId,
             nodeId,
             url,
             nodePublicKey: Buffer.from(nodePublicKey).toString("base64url"),

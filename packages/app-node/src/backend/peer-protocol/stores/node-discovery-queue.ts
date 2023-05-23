@@ -8,14 +8,14 @@ enableMapSet()
 
 export const nodeDiscoveryQueueStore = () =>
   createStore(new Map<NodeTableKey, string>(), {
-    addNode: (nodeKey: NodeTableKey, referrer: string) =>
+    addNode: (nodeId: NodeTableKey, referrer: string) =>
       produce((queue) => {
-        if (!queue.has(nodeKey)) {
-          queue.set(nodeKey, referrer)
+        if (!queue.has(nodeId)) {
+          queue.set(nodeId, referrer)
         }
       }),
-    removeNode: (nodeKey: NodeTableKey) =>
+    removeNode: (nodeId: NodeTableKey) =>
       produce((queue) => {
-        queue.delete(nodeKey)
+        queue.delete(nodeId)
       }),
   })

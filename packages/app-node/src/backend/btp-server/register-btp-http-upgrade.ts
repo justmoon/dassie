@@ -12,9 +12,9 @@ import {
 import { createActor } from "@dassie/lib-reactive"
 
 import { websocketRoutesSignal } from "../http-server/serve-http"
+import { nodeIlpAddressSignal } from "../ilp-connector/computed/node-ilp-address"
 import { processIncomingPacket } from "../ilp-connector/process-incoming-packet"
 import { localIlpRoutingTableSignal } from "../ilp-connector/signals/local-ilp-routing-table"
-import { primaryIlpAddressSignal } from "../ilp-connector/signals/primary-ilp-address"
 
 const logger = createLogger("das:node:websocket-server")
 
@@ -22,7 +22,7 @@ let unique = 0
 
 export const registerBtpHttpUpgrade = () =>
   createActor((sig) => {
-    const nodeIlpAddress = sig.get(primaryIlpAddressSignal)
+    const nodeIlpAddress = sig.get(nodeIlpAddressSignal)
     if (!nodeIlpAddress) return
 
     const websocketRoutes = sig.get(websocketRoutesSignal)

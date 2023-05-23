@@ -18,7 +18,6 @@ export type MessageWithDestination = SetOptional<
 
 export interface OutgoingPeerMessageEvent {
   message: InferSerialize<typeof peerMessageContent>
-  subnet: string
   destination: string
   asUint8Array: Uint8Array
 }
@@ -47,7 +46,7 @@ export const sendPeerMessage = () =>
 
     return {
       send: async (parameters: MessageWithDestination) => {
-        const { message, subnet, destination, asUint8Array } = parameters
+        const { message, destination, asUint8Array } = parameters
 
         const serializedMessage = asUint8Array ?? serializePeerMessage(message)
 
@@ -56,7 +55,7 @@ export const sendPeerMessage = () =>
           asUint8Array: serializedMessage,
         })
 
-        const peer = peers.read().get(`${subnet}.${destination}`)
+        const peer = peers.read().get(destination)
 
         if (!peer) {
           logger.warn("peer not found, unable to send message", {
@@ -67,7 +66,6 @@ export const sendPeerMessage = () =>
 
         const envelopeSerializationResult = peerMessage.serialize({
           version: 0,
-          subnetId: subnet,
           sender: nodeId,
           authentication: {
             type: "ED25519_X25519_HMAC-SHA256",
