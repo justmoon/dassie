@@ -292,16 +292,15 @@ const loopActor = async <TReturn, TProperties>(
   for (;;) {
     if (parentLifecycle.isDisposed) return
 
-    const lifecycle = parentLifecycle.deriveChildLifecycle(actorPath)
     const waker = makePromise()
 
     const context = new ActorContext(
-      reactor,
-      lifecycle,
-      waker.resolve,
       actor[FactoryNameSymbol],
-      actorPath
+      actorPath,
+      reactor,
+      waker.resolve
     )
+    context.attachToParent(parentLifecycle)
 
     try {
       actor.isRunning = true
@@ -333,7 +332,7 @@ const loopActor = async <TReturn, TProperties>(
       actor.isRunning = false
       actor.write(undefined)
       actor.promise = makePromise()
-      await lifecycle.dispose()
+      await context.dispose()
     }
   }
 }

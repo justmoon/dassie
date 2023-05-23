@@ -16,7 +16,6 @@ import {
   type BoundAction,
   type Change,
   type InferMessageType,
-  type LifecycleScope,
   createActor,
   isStore,
 } from "@dassie/lib-reactive"
@@ -25,7 +24,6 @@ import { type Reactor, createReactor } from "@dassie/lib-reactive"
 import type { ExposedTopicsMap, RemoteReactiveRouter } from "../server"
 
 interface ReactActorContext {
-  lifecycle: LifecycleScope
   context: ActorContext
   wake: () => void
 }
@@ -44,20 +42,13 @@ const noop = () => {
 }
 
 const createReactActorContext = (reactor: Reactor) => {
-  const lifecycle = reactor.deriveChildLifecycle("react")
   const reactActorContext: ReactActorContext = {
-    lifecycle,
-    context: new ActorContext(
-      reactor,
-      lifecycle,
-      () => {
-        reactActorContext.wake()
-      },
-      "react",
-      "react"
-    ),
+    context: new ActorContext("react", "react", reactor, () => {
+      reactActorContext.wake()
+    }),
     wake: noop,
   }
+  reactActorContext.context.attachToParent(reactor)
 
   return reactActorContext
 }
@@ -117,7 +108,7 @@ const createReactiveHooks = <TExposedTopicsMap extends ExposedTopicsMap>() => {
 
     useEffect(() => {
       return () => {
-        actorContext.current!.lifecycle.dispose().catch((error: unknown) => {
+        actorContext.current!.context.dispose().catch((error: unknown) => {
           console.error("error while disposing react actor context", { error })
         })
       }
@@ -128,7 +119,7 @@ const createReactiveHooks = <TExposedTopicsMap extends ExposedTopicsMap>() => {
         (listener) => {
           const handleWake = () => {
             actorContext
-              .current!.lifecycle.dispose()
+              .current!.context.dispose()
               .catch((error: unknown) => {
                 console.error("error while disposing react actor context", {
                   error,
@@ -228,7 +219,7 @@ const createReactiveHooks = <TExposedTopicsMap extends ExposedTopicsMap>() => {
         throw new Error("Store is not synchronizable")
       }
 
-      localStore.on(sig.lifecycle, (newValue) => {
+      localStore.on(sig, (newValue) => {
         service.write(
           newValue as Awaited<InferMessageType<TExposedTopicsMap[TStoreName]>>
         )

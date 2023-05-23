@@ -17,11 +17,10 @@ export const discoverNodes = () =>
   createActor((sig) => {
     const nodeDiscoveryQueue = sig.use(nodeDiscoveryQueueStore)
 
-    const { reactor, lifecycle } = sig
     const discoverPeerLoop = async () => {
       for (;;) {
         try {
-          if (lifecycle.isDisposed) return
+          if (sig.isDisposed) return
 
           await discoverPeer()
         } catch (error) {
@@ -88,7 +87,7 @@ export const discoverNodes = () =>
       oracleNodeId: string,
       subjectNodeId: string
     ) => {
-      const response = await reactor.use(sendPeerMessage).ask("send", {
+      const response = await sig.reactor.use(sendPeerMessage).ask("send", {
         destination: oracleNodeId,
         message: {
           type: "linkStateRequest",

@@ -27,7 +27,7 @@ const subscribeToSignal = <TValue>(
     const listener = (value: TValue) => {
       emit.next(value)
     }
-    signal.on(sig.lifecycle, listener)
+    signal.on(sig, listener)
     listener(signal.read())
     return () => {
       signal.off(listener)

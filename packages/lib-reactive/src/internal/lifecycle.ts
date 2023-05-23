@@ -4,7 +4,6 @@ export interface Lifecycle {
   name: string
   onCleanup: typeof DisposableLifecycle.prototype.onCleanup
   offCleanup: typeof DisposableLifecycle.prototype.offCleanup
-  deriveChildLifecycle: typeof DisposableLifecycle.prototype.deriveChildLifecycle
 }
 
 export class DisposableLifecycle implements Lifecycle {
@@ -17,6 +16,15 @@ export class DisposableLifecycle implements Lifecycle {
    */
   private cleanupQueue: AsyncDisposer[] | undefined = []
 
+  /**
+   * Register a callback that will be run when this lifecycle scope is disposed.
+   *
+   * @remarks
+   *
+   * The callback may be asynchronous.
+   *
+   * @param cleanupHandler - Callback that will be run when the scope is disposed.
+   */
   onCleanup = (cleanupHandler: AsyncDisposer) => {
     if (!this.cleanupQueue) {
       // If the scope has already been disposed, run the cleanup handler immediately.
@@ -29,6 +37,11 @@ export class DisposableLifecycle implements Lifecycle {
     this.cleanupQueue.push(cleanupHandler)
   }
 
+  /**
+   * Unregister a callback that was previously registered with {@link DisposableLifecycle.onCleanup}.
+   *
+   * @param cleanupHandler - Callback to remove from the cleanup queue.
+   */
   offCleanup = (cleanupHandler: AsyncDisposer) => {
     // TODO: This could be slow if there are a lot of cleanup handlers. Benchmark and optimize for 0, 1, small, and large numbers of handlers.
     const index = this.cleanupQueue?.indexOf(cleanupHandler) ?? -1
@@ -41,6 +54,15 @@ export class DisposableLifecycle implements Lifecycle {
     return this.cleanupQueue === undefined
   }
 
+  /**
+   * Call the cleanup handlers and mark this lifecycle as disposed.
+   *
+   * @remarks
+   *
+   * This method is idempotent.
+   *
+   * @returns A promise that resolves when all cleanup handlers have been run.
+   */
   dispose = async () => {
     if (!this.cleanupQueue) return
 
@@ -53,14 +75,15 @@ export class DisposableLifecycle implements Lifecycle {
     }
   }
 
-  deriveChildLifecycle(name: string): DisposableLifecycle {
-    if (!this.cleanupQueue) {
-      throw new Error("cannot derive child lifecycle from disposed scope")
-    }
-
-    const child = new DisposableLifecycle(name)
-    this.onCleanup(child.dispose)
-    child.onCleanup(() => this.offCleanup(child.dispose))
-    return child
+  /**
+   * Make this lifecycle exist within the confines of another lifecycle.
+   *
+   * @remarks
+   *
+   * This simply means that this lifecycle should be disposed automatically when the parent lifecycle is disposed.
+   */
+  attachToParent = (parent: Lifecycle) => {
+    parent.onCleanup(this.dispose)
+    this.onCleanup(() => parent.offCleanup(this.dispose))
   }
 }
