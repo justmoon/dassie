@@ -7,6 +7,7 @@ import { Reactor } from "@dassie/lib-reactive"
 
 import PrefixMap from "../../ilp-connector/utils/prefix-map"
 import InvalidAccountFailure from "../failures/invalid-account"
+import { getLedgerIdFromPath } from "../functions/get-ledger-id-from-path"
 import { postedTransfersTopic } from "../topics/posted-transfers"
 
 const logger = createLogger("das:accounting:ledger")
@@ -17,10 +18,10 @@ const logger = createLogger("das:accounting:ledger")
 // internal/… -> Own accounts
 // internal/connector -> Connector account
 // peer/… -> Peer accounts
-// peer/<peerKey> -> Accounts for a specific peer
-// peer/<peerKey>/interledger -> Interledger packets
-// peer/<peerKey>/settlement -> Underlying settlement account
-// peer/<peerKey>/trust -> Trust extended or revoked
+// peer/<nodeId> -> Accounts for a specific peer
+// peer/<nodeId>/interledger -> Interledger packets
+// peer/<nodeId>/settlement -> Underlying settlement account
+// peer/<nodeId>/trust -> Trust extended or revoked
 // owner/… -> Owner accounts
 // owner/spsp/<spspAccountId> -> SPSP accounts
 // owner/btp/<btpAccountId> -> BTP accounts
@@ -92,7 +93,16 @@ export const ledgerStore = (reactor: Reactor) => {
       const { key, debitAccountPath, creditAccountPath, amount, pending } =
         transferParameters
 
-      assert(creditAccountPath !== debitAccountPath)
+      assert(
+        creditAccountPath !== debitAccountPath,
+        "transfer credit and debit accounts must be different"
+      )
+
+      assert(
+        getLedgerIdFromPath(debitAccountPath) ===
+          getLedgerIdFromPath(creditAccountPath),
+        "transfer credit and debit accounts must be in the same ledger"
+      )
 
       const debitAccount = ledger.get(debitAccountPath)
 

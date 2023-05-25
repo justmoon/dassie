@@ -2,6 +2,8 @@ import { hexToBytes } from "@noble/hashes/utils"
 
 import { createActor } from "@dassie/lib-reactive"
 
+import { initializeCommonAccounts } from "../accounting/functions/manage-common-accounts"
+import { ledgerStore } from "../accounting/stores/ledger"
 import { configSignal } from "../config"
 import { speakPeerProtocolPerSubnet } from "../peer-protocol"
 import { sendPeerMessage } from "../peer-protocol/actors/send-peer-message"
@@ -41,6 +43,9 @@ const runSubnetModule = () =>
     if (realm !== module.realm) {
       throw new Error("Subnet module is not compatible with realm")
     }
+
+    const ledger = sig.use(ledgerStore)
+    initializeCommonAccounts(ledger, subnetId)
 
     if (subnetState?.initialPeers) {
       for (const peer of subnetState.initialPeers) {

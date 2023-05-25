@@ -38,16 +38,16 @@ const calculateSettlementAmount = (
   peerId: NodeId
 ) => {
   const peerInterledgerAccount = ledger.getAccount(
-    `peer/${subnetId}.${peerId}/interledger`
+    `${subnetId}/peer/${peerId}/interledger`
   )
-  const peerTrustAccount = ledger.getAccount(`peer/${subnetId}.${peerId}/trust`)
+  const peerTrustAccount = ledger.getAccount(`${subnetId}/peer/${peerId}/trust`)
   const peerSettlementAccount = ledger.getAccount(
-    `peer/${subnetId}.${peerId}/settlement`
+    `${subnetId}/peer/${peerId}/settlement`
   )
 
-  assert(peerInterledgerAccount)
-  assert(peerTrustAccount)
-  assert(peerSettlementAccount)
+  assert(peerInterledgerAccount, "peer interledger account not found")
+  assert(peerTrustAccount, "peer trust account not found")
+  assert(peerSettlementAccount, "peer settlement account not found")
 
   const balance =
     peerInterledgerAccount.creditsPosted -

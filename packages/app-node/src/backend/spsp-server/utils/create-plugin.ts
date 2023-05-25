@@ -56,7 +56,12 @@ export const createPlugin = (
           assert(connection)
 
           if (parsedPacket.amount > 0n) {
-            processPacketPrepare(ledger, "owner/spsp", parsedPacket, "outgoing")
+            processPacketPrepare(
+              ledger,
+              "builtin/owner/spsp",
+              parsedPacket,
+              "outgoing"
+            )
           }
 
           const existingRequest = outstandingRequests.get(requestId)
@@ -74,7 +79,7 @@ export const createPlugin = (
 
           processIncomingPacketActor.tell("handle", {
             sourceIlpAddress: `${nodeIlpAddress}.${localIlpAddressPart}`,
-            ledgerAccountPath: "owner/spsp",
+            ledgerAccountPath: "builtin/owner/spsp",
             serializedPacket: response,
             requestId,
           })
@@ -92,7 +97,7 @@ export const createPlugin = (
           if (preparePacket.amount > 0n) {
             processPacketResult(
               ledger,
-              "owner/spsp",
+              "builtin/owner/spsp",
               preparePacket,
               packet.type === IlpType.Fulfill ? "fulfill" : "reject"
             )
@@ -140,7 +145,7 @@ export const createPlugin = (
 
         processIncomingPacketActor.tell("handle", {
           sourceIlpAddress: ilpAddress,
-          ledgerAccountPath: "owner/spsp",
+          ledgerAccountPath: "builtin/owner/spsp",
           serializedPacket: data,
           requestId,
         })

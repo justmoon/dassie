@@ -11,19 +11,19 @@ export const initializePeer = (
   subnetId: SubnetId,
   peerId: NodeId
 ) => {
-  ledger.createAccount(`peer/${subnetId}.${peerId}/interledger`, {
+  ledger.createAccount(`${subnetId}/peer/${peerId}/interledger`, {
     limit: "debits_must_not_exceed_credits",
   })
-  ledger.createAccount(`peer/${subnetId}.${peerId}/settlement`)
-  ledger.createAccount(`peer/${subnetId}.${peerId}/trust`, {
+  ledger.createAccount(`${subnetId}/peer/${peerId}/settlement`)
+  ledger.createAccount(`${subnetId}/peer/${peerId}/trust`, {
     limit: "credits_must_not_exceed_debits",
   })
 
   // Extend initial trust limit
   ledger.createTransfer({
     key: `${peerId}/initialTrust`,
-    debitAccountPath: `peer/${subnetId}.${peerId}/trust`,
-    creditAccountPath: `peer/${subnetId}.${peerId}/interledger`,
+    debitAccountPath: `${subnetId}/peer/${peerId}/trust`,
+    creditAccountPath: `${subnetId}/peer/${peerId}/interledger`,
     amount: DEFAULT_CREDIT,
   })
 }

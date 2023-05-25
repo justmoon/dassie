@@ -42,7 +42,7 @@ export const handleInterledgerPacket = () =>
 
         processIncomingPacketActor.tell("handle", {
           sourceIlpAddress: `${ilpAllocationScheme}.das.${sender}`,
-          ledgerAccountPath: `peer/${subnetId}.${sender}/interledger`,
+          ledgerAccountPath: `${subnetId}/peer/${sender}/interledger`,
           serializedPacket: content.signed.packet,
           requestId: content.signed.requestId,
         })

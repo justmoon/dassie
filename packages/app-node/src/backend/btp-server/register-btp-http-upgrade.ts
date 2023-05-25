@@ -103,7 +103,7 @@ export const registerBtpHttpUpgrade = () =>
                     logger.debug("received ILP packet via BTP message")
                     processIncomingPacketActor.tell("handle", {
                       sourceIlpAddress: `${nodeIlpAddress}.${localIlpAddressPart}`,
-                      ledgerAccountPath: "owner/btp",
+                      ledgerAccountPath: "builtin/owner/btp",
                       serializedPacket: protocolData.data,
                       requestId: message.requestId,
                     })
@@ -133,7 +133,7 @@ export const registerBtpHttpUpgrade = () =>
 
                     processIncomingPacketActor.tell("handle", {
                       sourceIlpAddress: `${nodeIlpAddress}.${localIlpAddressPart}`,
-                      ledgerAccountPath: "owner/btp",
+                      ledgerAccountPath: "builtin/owner/btp",
                       serializedPacket: protocolData.data,
                       requestId: message.requestId,
                     })
@@ -161,7 +161,7 @@ export const registerBtpHttpUpgrade = () =>
                     logger.debug("received ILP packet via BTP response")
                     processIncomingPacketActor.tell("handle", {
                       sourceIlpAddress: `${nodeIlpAddress}.${localIlpAddressPart}`,
-                      ledgerAccountPath: "owner/btp",
+                      ledgerAccountPath: "builtin/owner/btp",
                       serializedPacket: protocolData.data,
                       requestId: message.requestId,
                     })

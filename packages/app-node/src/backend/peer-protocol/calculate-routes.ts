@@ -140,7 +140,7 @@ export const calculateRoutes = () =>
             if (parsedPacket.amount > 0n) {
               processPacketPrepare(
                 ledger,
-                `peer/${peerState.subnetId}.${nextHop}/interledger`,
+                `${peerState.subnetId}/peer/${nextHop}/interledger`,
                 parsedPacket,
                 "outgoing"
               )
@@ -184,7 +184,7 @@ export const calculateRoutes = () =>
             if (preparePacket.amount > 0n) {
               processPacketResult(
                 ledger,
-                `peer/${peerState.subnetId}.${nextHop}/interledger`,
+                `${peerState.subnetId}/peer/${nextHop}/interledger`,
                 preparePacket,
                 packet.type === IlpType.Fulfill ? "fulfill" : "reject"
               )

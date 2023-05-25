@@ -1,5 +1,6 @@
 import { IlpPreparePacket } from "../../ilp-connector/ilp-packet-codec"
 import { CreateTransferParameters, Ledger } from "../stores/ledger"
+import { getLedgerIdFromPath } from "./get-ledger-id-from-path"
 
 export const processPacketPrepare = (
   ledger: Ledger,
@@ -7,7 +8,8 @@ export const processPacketPrepare = (
   packet: IlpPreparePacket,
   direction: "incoming" | "outgoing"
 ) => {
-  const connectorPath = "internal/connector"
+  const ledgerId = getLedgerIdFromPath(accountPath)
+  const connectorPath = `${ledgerId}/internal/connector`
 
   const base64Condition = Buffer.from(packet.executionCondition).toString(
     "base64"

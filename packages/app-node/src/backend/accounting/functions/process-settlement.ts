@@ -10,8 +10,8 @@ export const processSettlementPrepare = (
   amount: bigint,
   direction: "incoming" | "outgoing"
 ) => {
-  const peerPath = `peer/${subnetId}.${peerId}/interledger`
-  const settlementPath = `peer/${subnetId}.${peerId}/settlement`
+  const peerPath = `${subnetId}/peer/${peerId}/interledger`
+  const settlementPath = `${subnetId}/peer/${peerId}/settlement`
 
   const transfer: CreateTransferParameters = {
     key: randomBytes(16).toString("base64"),
