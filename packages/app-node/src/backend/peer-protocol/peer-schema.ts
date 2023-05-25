@@ -18,16 +18,18 @@ import {
 } from "@dassie/lib-oer"
 
 import { dassiePeerNodeInfoId } from "../constants/object-identifiers"
+import { NodeId } from "./types/node-id"
+import { SubnetId } from "./types/subnet-id"
 
 export type PeerMessage = Infer<typeof peerMessage>
 
-export const subnetIdSchema = ia5String([2, 128]).from(
-  lowercaseLetters + digits + "-"
-)
+export const subnetIdSchema = ia5String([2, 128])
+  .from(lowercaseLetters + digits + "-")
+  .refine((_value): _value is SubnetId => true)
 
-export const nodeIdSchema = ia5String([2, 45]).from(
-  lowercaseLetters + uppercaseLetters + digits + "-_"
-)
+export const nodeIdSchema = ia5String([2, 45])
+  .from(lowercaseLetters + uppercaseLetters + digits + "-_")
+  .refine((_value): _value is NodeId => true)
 
 export const nodeInfoEntry = choice({
   neighbor: sequence({

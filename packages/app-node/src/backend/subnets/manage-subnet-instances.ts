@@ -6,6 +6,7 @@ import { configSignal } from "../config"
 import { speakPeerProtocolPerSubnet } from "../peer-protocol"
 import { sendPeerMessage } from "../peer-protocol/actors/send-peer-message"
 import { nodeTableStore } from "../peer-protocol/stores/node-table"
+import { SubnetId } from "../peer-protocol/types/subnet-id"
 import modules from "./modules"
 import { registerSubnetActor } from "./register-subnet-actor"
 import { activeSubnetsSignal } from "./signals/active-subnets"
@@ -21,12 +22,12 @@ export const manageSubnetInstances = () =>
   })
 
 export interface PerSubnetParameters {
-  subnetId: string
+  subnetId: SubnetId
   subnetActor: SubnetActorFactory
 }
 
 const runSubnetModule = () =>
-  createActor(async (sig, subnetId: string) => {
+  createActor(async (sig, subnetId: SubnetId) => {
     const realm = sig.get(configSignal, (state) => state.realm)
     const subnetMap = sig.get(subnetMapSignal)
 

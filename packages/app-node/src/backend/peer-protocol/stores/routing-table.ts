@@ -1,8 +1,10 @@
 import { createSignal } from "@dassie/lib-reactive"
 
+import { NodeId } from "../types/node-id"
+
 export interface RoutingTableEntry {
   distance: number
-  firstHopOptions: string[]
+  firstHopOptions: NodeId[]
 }
 
 export const routingTableStore = () =>

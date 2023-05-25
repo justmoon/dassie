@@ -3,24 +3,25 @@ import type { Promisable } from "type-fest"
 import type { Actor, Behavior, Factory } from "@dassie/lib-reactive"
 
 import type { VALID_REALMS } from "../../constants/general"
-import type { NodeTableKey } from "../../peer-protocol/stores/node-table"
+import { NodeId } from "../../peer-protocol/types/node-id"
+import { SubnetId } from "../../peer-protocol/types/subnet-id"
 
 export interface BalanceMap {
-  adjustBalance: (subnetId: string, adjustment: bigint) => void
+  adjustBalance: (subnetId: SubnetId, adjustment: bigint) => void
 }
 
 export interface SubnetProperties {
-  readonly subnetId: string
+  readonly subnetId: SubnetId
   host: SubnetHostMethods
 }
 
 export interface SettlementParameters {
   amount: bigint
-  peerId: NodeTableKey
+  peerId: NodeId
 }
 
 export interface PeerMessageParameters {
-  peerId: NodeTableKey
+  peerId: NodeId
   message: Uint8Array
 }
 

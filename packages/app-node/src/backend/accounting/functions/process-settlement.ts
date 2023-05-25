@@ -1,12 +1,12 @@
 import { randomBytes } from "node:crypto"
 
-import { NodeTableKey } from "../../peer-protocol/stores/node-table"
+import { NodeId } from "../../peer-protocol/types/node-id"
 import { CreateTransferParameters, Ledger, Transfer } from "../stores/ledger"
 
 export const processSettlementPrepare = (
   ledger: Ledger,
   subnetId: string,
-  peerId: NodeTableKey,
+  peerId: NodeId,
   amount: bigint,
   direction: "incoming" | "outgoing"
 ) => {

@@ -5,6 +5,7 @@ import { nodeIdSignal } from "../ilp-connector/computed/node-id"
 import { activeSubnetsSignal } from "../subnets/signals/active-subnets"
 import { peersComputation } from "./computed/peers"
 import { nodeTableStore } from "./stores/node-table"
+import { SubnetId } from "./types/subnet-id"
 
 const PEERING_CHECK_INTERVAL = 1000
 
@@ -14,7 +15,7 @@ const logger = createLogger(
   "das:app-node:peer-protocol:maintain-peering-relationships"
 )
 
-function findCommonElement(array1: string[], array2: string[]): string | false {
+function findCommonElement<T>(array1: T[], array2: T[]): T | false {
   return array1.find((element) => array2.includes(element)) ?? false
 }
 
@@ -50,7 +51,7 @@ export const maintainPeeringRelationships = () =>
           ),
         }))
         .filter(
-          (node): node is typeof node & { commonSubnet: string } =>
+          (node): node is typeof node & { commonSubnet: SubnetId } =>
             node.nodeId !== ownNodeId &&
             node.peerState.id === "none" &&
             node.commonSubnet !== false

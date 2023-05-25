@@ -9,7 +9,8 @@ import {
 } from "../accounting/functions/process-settlement"
 import { Ledger, ledgerStore } from "../accounting/stores/ledger"
 import type { PerPeerParameters } from "../peer-protocol/run-per-peer-actors"
-import { NodeTableKey } from "../peer-protocol/stores/node-table"
+import { NodeId } from "../peer-protocol/types/node-id"
+import { SubnetId } from "../peer-protocol/types/subnet-id"
 
 const SETTLEMENT_CHECK_INTERVAL = 10_000
 const SETTLEMENT_RATIO = 0.2
@@ -33,17 +34,15 @@ const multiplyAmountWithRatio = (amount: bigint, ratio: number) => {
 
 const calculateSettlementAmount = (
   ledger: Ledger,
-  subnetId: string,
-  peerKey: NodeTableKey
+  subnetId: SubnetId,
+  peerId: NodeId
 ) => {
   const peerInterledgerAccount = ledger.getAccount(
-    `peer/${subnetId}.${peerKey}/interledger`
+    `peer/${subnetId}.${peerId}/interledger`
   )
-  const peerTrustAccount = ledger.getAccount(
-    `peer/${subnetId}.${peerKey}/trust`
-  )
+  const peerTrustAccount = ledger.getAccount(`peer/${subnetId}.${peerId}/trust`)
   const peerSettlementAccount = ledger.getAccount(
-    `peer/${subnetId}.${peerKey}/settlement`
+    `peer/${subnetId}.${peerId}/settlement`
   )
 
   assert(peerInterledgerAccount)

@@ -7,10 +7,10 @@ import {
 import { ledgerStore } from "../accounting/stores/ledger"
 import { settlePerPeer } from "../settlement"
 import type { PerSubnetParameters } from "../subnets/manage-subnet-instances"
-import { NodeTableKey } from "./stores/node-table"
+import { NodeId } from "./types/node-id"
 
 export interface PerPeerParameters extends PerSubnetParameters {
-  peerId: NodeTableKey
+  peerId: NodeId
 }
 
 export const runPerPeerActors = () =>

@@ -2,13 +2,16 @@ import { enableMapSet, produce } from "immer"
 
 import { createStore } from "@dassie/lib-reactive"
 
+import { NodeId } from "../types/node-id"
+import { SubnetId } from "../types/subnet-id"
+
 enableMapSet()
 
 export interface NodeTableEntry {
   /**
    * ID of the node - unique in our subnet.
    */
-  nodeId: string
+  nodeId: NodeId
 
   /**
    * Node's public key.
@@ -45,12 +48,12 @@ export type PeerState =
   | {
       id: "request-peering"
       lastSeen: number
-      subnetId: string
+      subnetId: SubnetId
     }
   | {
       id: "peered"
       lastSeen: number
-      subnetId: string
+      subnetId: SubnetId
     }
 
 export interface LinkState {
@@ -62,12 +65,12 @@ export interface LinkState {
   /**
    * List of the node's peers.
    */
-  neighbors: string[]
+  neighbors: NodeId[]
 
   /**
    * List of the node's supported subnets.
    */
-  subnets: string[]
+  subnets: SubnetId[]
 
   /**
    * Sequence number of the most recent link state update.
@@ -85,17 +88,15 @@ export interface LinkState {
   scheduledRetransmitTime: number
 }
 
-export type NodeTableKey = string
-
 export const nodeTableStore = () =>
-  createStore(new Map<NodeTableKey, NodeTableEntry>(), {
+  createStore(new Map<NodeId, NodeTableEntry>(), {
     addNode: (entry: NodeTableEntry) =>
       produce((draft) => {
         draft.set(entry.nodeId, {
           ...entry,
         })
       }),
-    updateNode: (key: NodeTableKey, nodeEntry: Partial<NodeTableEntry>) =>
+    updateNode: (key: NodeId, nodeEntry: Partial<NodeTableEntry>) =>
       produce((draft) => {
         const previousEntry = draft.get(key)
         if (previousEntry == undefined) {

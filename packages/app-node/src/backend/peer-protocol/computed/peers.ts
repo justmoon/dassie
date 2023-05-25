@@ -3,7 +3,8 @@ import { enableMapSet, produce } from "immer"
 import { createComputed } from "@dassie/lib-reactive"
 import { UnreachableCaseError } from "@dassie/lib-type-utils"
 
-import { type NodeTableKey, nodeTableStore } from "../stores/node-table"
+import { nodeTableStore } from "../stores/node-table"
+import { NodeId } from "../types/node-id"
 
 enableMapSet()
 
@@ -11,7 +12,7 @@ export const peersComputation = () =>
   createComputed((sig) => {
     const nodeTable = sig.use(nodeTableStore)
 
-    const initialSet = new Set<NodeTableKey>()
+    const initialSet = new Set<NodeId>()
 
     for (const node of nodeTable.read().values()) {
       if (node.peerState.id === "peered") {

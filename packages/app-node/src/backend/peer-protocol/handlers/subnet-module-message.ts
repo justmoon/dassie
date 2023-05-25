@@ -3,10 +3,11 @@ import { createActor } from "@dassie/lib-reactive"
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import type { SubnetActorFactory } from "../../subnets/types/subnet-module"
 import type { IncomingPeerMessageEvent } from "../actors/handle-peer-message"
+import { SubnetId } from "../types/subnet-id"
 
 export const handleSubnetModuleMessage = () =>
   createActor((sig) => {
-    const subnetActorMap = new Map<string, ReturnType<SubnetActorFactory>>()
+    const subnetActorMap = new Map<SubnetId, ReturnType<SubnetActorFactory>>()
 
     return {
       handle: ({
@@ -34,12 +35,12 @@ export const handleSubnetModuleMessage = () =>
         subnetId,
         subnetActor,
       }: {
-        subnetId: string
+        subnetId: SubnetId
         subnetActor: SubnetActorFactory
       }) => {
         subnetActorMap.set(subnetId, sig.use(subnetActor))
       },
-      deregister: ({ subnetId }: { subnetId: string }) => {
+      deregister: ({ subnetId }: { subnetId: SubnetId }) => {
         subnetActorMap.delete(subnetId)
       },
     }

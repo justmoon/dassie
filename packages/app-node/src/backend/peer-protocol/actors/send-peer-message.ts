@@ -8,6 +8,7 @@ import { createActor, createTopic } from "@dassie/lib-reactive"
 import { nodeIdSignal } from "../../ilp-connector/computed/node-id"
 import { peerMessage, peerMessageContent } from "../peer-schema"
 import { nodeTableStore } from "../stores/node-table"
+import { NodeId } from "../types/node-id"
 
 const logger = createLogger("das:node:outgoing-dassie-message-sender")
 
@@ -18,7 +19,7 @@ export type MessageWithDestination = SetOptional<
 
 export interface OutgoingPeerMessageEvent {
   message: InferSerialize<typeof peerMessageContent>
-  destination: string
+  destination: NodeId
   asUint8Array: Uint8Array
 }
 

@@ -7,6 +7,7 @@ import { sendPeerMessage } from "./actors/send-peer-message"
 import { signedPeerNodeInfo } from "./peer-schema"
 import { nodeDiscoveryQueueStore } from "./stores/node-discovery-queue"
 import { nodeTableStore } from "./stores/node-table"
+import { NodeId } from "./types/node-id"
 import { parseLinkStateEntries } from "./utils/parse-link-state-entries"
 
 const NODE_DISCOVERY_INTERVAL = 1000
@@ -84,8 +85,8 @@ export const discoverNodes = () =>
     }
 
     const queryLinkState = async (
-      oracleNodeId: string,
-      subjectNodeId: string
+      oracleNodeId: NodeId,
+      subjectNodeId: NodeId
     ) => {
       const response = await sig.reactor.use(sendPeerMessage).ask("send", {
         destination: oracleNodeId,

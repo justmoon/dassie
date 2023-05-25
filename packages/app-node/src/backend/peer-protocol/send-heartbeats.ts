@@ -8,6 +8,8 @@ import { sendPeerMessage } from "./actors/send-peer-message"
 import { peersComputation } from "./computed/peers"
 import { requestedPeersComputation } from "./computed/requested-peers"
 import { nodeTableStore } from "./stores/node-table"
+import { NodeId } from "./types/node-id"
+import { SubnetId } from "./types/subnet-id"
 
 const logger = createLogger("das:node:peer-greeter")
 
@@ -54,8 +56,8 @@ export const sendHeartbeats = () =>
   })
 
 interface PeeringRequestParameters {
-  peerNodeId: string
-  subnetId: string
+  peerNodeId: NodeId
+  subnetId: SubnetId
   lastLinkStateUpdate: Uint8Array
 }
 
@@ -80,7 +82,7 @@ const sendPeeringRequest = (
 }
 
 interface HeartbeatParameters {
-  peerNodeId: string
+  peerNodeId: NodeId
   lastLinkStateUpdate: Uint8Array
 }
 

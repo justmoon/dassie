@@ -1,6 +1,7 @@
 import type { InputConfig } from "@dassie/app-node"
 import { getPublicKey } from "@dassie/app-node/src/backend/crypto/ed25519"
 import { calculateNodeId } from "@dassie/app-node/src/backend/ilp-connector/utils/calculate-node-id"
+import { SubnetId } from "@dassie/app-node/src/backend/peer-protocol/types/subnet-id"
 
 import { TEST_NODE_VANITY_KEYS } from "../constants/node-keys"
 import {
@@ -86,7 +87,7 @@ export const generateNodeConfig = ((index, peers, environmentSettings) => {
       tlsWebKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost-key.pem`,
       initialSubnets: [
         {
-          id: "stub",
+          id: "stub" as SubnetId,
           config: {},
           bootstrapNodes: BOOTSTRAP_NODES.map((peerIndex) =>
             generatePeerInfo(peerIndex)

@@ -1,3 +1,5 @@
 import { createSignal } from "@dassie/lib-reactive"
 
-export const activeSubnetsSignal = () => createSignal<string[]>([])
+import { SubnetId } from "../../peer-protocol/types/subnet-id"
+
+export const activeSubnetsSignal = () => createSignal<SubnetId[]>([])

@@ -1,12 +1,15 @@
 import { z } from "zod"
 
+import { nodeIdSchema } from "../../config/schemas/node-id"
+import { subnetIdSchema } from "../../config/schemas/subnet-id"
+
 export const subnetConfigSchema = z.array(
   z.object({
-    id: z.string(),
+    id: subnetIdSchema,
     config: z.record(z.string(), z.unknown()),
     bootstrapNodes: z.array(
       z.object({
-        nodeId: z.string(),
+        nodeId: nodeIdSchema,
         url: z.string(),
         alias: z.string(),
         nodePublicKey: z.string(),
@@ -15,7 +18,7 @@ export const subnetConfigSchema = z.array(
     initialPeers: z
       .array(
         z.object({
-          nodeId: z.string(),
+          nodeId: nodeIdSchema,
           url: z.string(),
           nodePublicKey: z.string(),
         })

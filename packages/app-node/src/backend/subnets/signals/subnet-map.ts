@@ -1,10 +1,13 @@
 import { createSignal } from "@dassie/lib-reactive"
 
+import { NodeId } from "../../peer-protocol/types/node-id"
+import { SubnetId } from "../../peer-protocol/types/subnet-id"
+
 export interface SubnetState {
-  subnetId: string
+  subnetId: SubnetId
   config: unknown
   initialPeers: {
-    nodeId: string
+    nodeId: NodeId
     url: string
     alias?: string | undefined
     nodePublicKey: string

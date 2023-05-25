@@ -1,34 +1,35 @@
 import assert from "node:assert"
 
-import { NodeTableKey } from "../../peer-protocol/stores/node-table"
+import { NodeId } from "../../peer-protocol/types/node-id"
+import { SubnetId } from "../../peer-protocol/types/subnet-id"
 import { Ledger } from "../stores/ledger"
 
 const DEFAULT_CREDIT = 1_000_000_000n
 
 export const initializePeer = (
   ledger: Ledger,
-  subnetId: string,
-  peerKey: NodeTableKey
+  subnetId: SubnetId,
+  peerId: NodeId
 ) => {
-  ledger.createAccount(`peer/${subnetId}.${peerKey}/interledger`, {
+  ledger.createAccount(`peer/${subnetId}.${peerId}/interledger`, {
     limit: "debits_must_not_exceed_credits",
   })
-  ledger.createAccount(`peer/${subnetId}.${peerKey}/settlement`)
-  ledger.createAccount(`peer/${subnetId}.${peerKey}/trust`, {
+  ledger.createAccount(`peer/${subnetId}.${peerId}/settlement`)
+  ledger.createAccount(`peer/${subnetId}.${peerId}/trust`, {
     limit: "credits_must_not_exceed_debits",
   })
 
   // Extend initial trust limit
   ledger.createTransfer({
-    key: `${peerKey}/initialTrust`,
-    debitAccountPath: `peer/${subnetId}.${peerKey}/trust`,
-    creditAccountPath: `peer/${subnetId}.${peerKey}/interledger`,
+    key: `${peerId}/initialTrust`,
+    debitAccountPath: `peer/${subnetId}.${peerId}/trust`,
+    creditAccountPath: `peer/${subnetId}.${peerId}/interledger`,
     amount: DEFAULT_CREDIT,
   })
 }
 
-export const cleanupPeer = (_ledger: Ledger, _peerKey: NodeTableKey) => {
+export const cleanupPeer = (ledger: Ledger, peerId: NodeId) => {
   // TODO: void all pending transfers?
-  assert(_ledger)
-  assert(_peerKey)
+  assert(ledger)
+  assert(peerId)
 }

@@ -20,12 +20,13 @@ import {
   type RoutingTableEntry,
   routingTableStore,
 } from "./stores/routing-table"
+import { NodeId } from "./types/node-id"
 
 const logger = createLogger("das:node:calculate-routes")
 
 interface NodeInfoEntry {
   level: number
-  parents: string[]
+  parents: NodeId[]
 }
 
 /**
@@ -44,7 +45,7 @@ export const calculateRoutes = () =>
     const queue = new Denque([ownNodeTableEntry])
     const queueSet = new Set([ownNodeId])
 
-    const nodeInfoMap = new Map<string, NodeInfoEntry>()
+    const nodeInfoMap = new Map<NodeId, NodeInfoEntry>()
     nodeInfoMap.set(ownNodeId, { level: 0, parents: [] })
 
     let currentNode
