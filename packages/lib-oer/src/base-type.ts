@@ -3,17 +3,20 @@ import { ParseError, SerializeError } from "./utils/errors"
 import type { ParseContext, SerializeContext } from "./utils/parse"
 import { type TagClass, type TagMarker, tagClassMarkerMap } from "./utils/tag"
 
-export type AnyOerType = OerType<unknown>
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnyOerType = OerType<any>
 
 export type Infer<TOerType extends AnyOerType> = TOerType extends OerType<
   infer T,
-  never
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  any
 >
   ? T
   : never
 
 export type InferSerialize<TOerType extends AnyOerType> =
-  TOerType extends OerType<unknown, infer T> ? T : never
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  TOerType extends OerType<any, infer T> ? T : never
 
 export interface ParseOptions {
   allowNoncanonical?: boolean
@@ -130,14 +133,35 @@ export abstract class OerType<TParseValue, TSerializeValue = TParseValue> {
     return copy
   }
 
+  /**
+   * Mark this field as optional.
+   *
+   * @remarks
+   *
+   * If the field is not present in the encoding, the value will be `undefined`.
+   */
   optional(): OerOptional<TParseValue, TSerializeValue> {
     return new OerOptional(this, undefined)
   }
 
+  /**
+   * Provide a default value for this field.
+   *
+   * @remarks
+   *
+   * If the field is not present in the encoding, the default value will be used.
+   */
   default(value: TParseValue): OerOptional<TParseValue, TSerializeValue> {
     return new OerOptional(this, value)
   }
 
+  /**
+   * Mark this field as constant meaning the value must always be the same.
+   *
+   * @remarks
+   *
+   * If an encoding contains a different value, parsing will fail.
+   */
   constant<TParseValue, TSerializeValue>(
     this: OerType<TParseValue, TSerializeValue>,
     value: TSerializeValue

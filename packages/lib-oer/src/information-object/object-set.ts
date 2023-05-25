@@ -1,4 +1,4 @@
-import type { AnyOerType, Infer, Serializer } from "../base-type"
+import type { AnyOerType, Infer, OerType, Serializer } from "../base-type"
 import { octetString } from "../octet-string"
 import { ParseError, SerializeError } from "../utils/errors"
 import type { ParseContext } from "../utils/parse"
@@ -197,7 +197,10 @@ const defineObjectSetField = <
     _field: field,
     _type: type,
     parseWithContext(context, offset, informationObjectSetState) {
-      const parseResult = type.parseWithContext(context, offset)
+      const parseResult = (type as OerType<unknown>).parseWithContext(
+        context,
+        offset
+      )
 
       if (parseResult instanceof ParseError) {
         return parseResult

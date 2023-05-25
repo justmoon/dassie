@@ -37,10 +37,9 @@ export class OerSequenceOf<TShape extends AnyOerType> extends OerType<
     const result: Infer<TShape>[] = []
     let totalLength = sizeOfSize
     for (let index = 0n; index < size; index++) {
-      const elementResult = this.sequenceOfShape.parseWithContext(
-        context,
-        offset + totalLength
-      )
+      const elementResult = (
+        this.sequenceOfShape as OerType<unknown>
+      ).parseWithContext(context, offset + totalLength)
       if (elementResult instanceof ParseError) {
         return elementResult
       }

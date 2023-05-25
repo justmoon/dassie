@@ -136,7 +136,7 @@ export class OerChoice<TOptions extends OptionsShape> extends OerType<
       )
     }
 
-    const oer = this.options[type]!
+    const oer = this.options[type]! as OerType<unknown>
 
     const result = oer.parseWithContext(context, offset + tagLength)
 

@@ -41,12 +41,14 @@ export type InferObjectSerializeShape<TShape extends SequenceShape> = {
   [key in keyof ConditionalExcept<
     // We use ConditionalExcept to remove any constants from the serialize shape
     ConditionalPick<TShape, AnyOerType>,
-    OerConstant<unknown, unknown> | OerOptional<unknown, unknown>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    OerConstant<any, any> | OerOptional<any, any>
   >]: TShape[key] extends AnyOerType ? InferSerialize<TShape[key]> : never
 } & {
   [key in keyof ConditionalPick<
     TShape,
-    OerOptional<unknown, unknown>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    OerOptional<any, any>
   >]?: TShape[key] extends AnyOerType ? InferSerialize<TShape[key]> : never
 }
 
@@ -57,7 +59,8 @@ export type InferExtendedSequenceParseShape<
   Partial<{
     [key in keyof TConfig["extensions"]]: TConfig["extensions"] extends OerType<
       infer K,
-      never
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      any
     >
       ? K
       : InferObjectParseShape<TConfig["extensions"][key]>
@@ -68,7 +71,8 @@ export type InferExtendedSequenceSerializeShape<
 > = InferObjectSerializeShape<TConfig["root"]> &
   InferInformationObjectSerializeShape<TConfig["root"]> & {
     [key in keyof TConfig["extensions"]]?: TConfig["extensions"][key] extends OerType<
-      unknown,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      any,
       infer K
     >
       ? K

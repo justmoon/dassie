@@ -18,7 +18,8 @@ export type FullSample<T> = readonly [
   hex: string
 ]
 
-export const constantTests: FullSample<unknown>[] = [
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const constantTests: FullSample<any>[] = [
   ["empty fixed size octet string", octetString(0), hexToUint8Array(""), ""],
   [
     "fixed size octet string",
