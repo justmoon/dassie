@@ -81,7 +81,6 @@ const calculateSettlementAmount = (
 
 export const sendOutgoingSettlements = () =>
   createActor((sig, { peerId, subnetId, subnetActor }: PerPeerParameters) => {
-    const subnetActorInstance = sig.use(subnetActor)
     const ledger = sig.use(ledgerStore)
 
     sig.interval(() => {
@@ -106,7 +105,7 @@ export const sendOutgoingSettlements = () =>
           )
         }
 
-        subnetActorInstance
+        subnetActor
           .ask("settle", {
             amount: settlementAmount,
             peerId: peerId,

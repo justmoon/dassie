@@ -1,6 +1,6 @@
 import type { Promisable } from "type-fest"
 
-import type { Actor, Behavior, Factory } from "@dassie/lib-reactive"
+import type { Actor, Behavior } from "@dassie/lib-reactive"
 
 import type { VALID_REALMS } from "../../constants/general"
 import { NodeId } from "../../peer-protocol/types/node-id"
@@ -34,8 +34,9 @@ export interface SubnetActorMethods {
   handleMessage: (parameters: PeerMessageParameters) => Promisable<void>
 }
 
-export type SubnetActorFactory = Factory<
-  Actor<Promisable<SubnetActorMethods>, SubnetProperties>
+export type SubnetActor = Actor<
+  Promisable<SubnetActorMethods>,
+  SubnetProperties
 >
 
 export interface SubnetModule {
