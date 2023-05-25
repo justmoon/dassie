@@ -179,6 +179,29 @@ export abstract class OerType<TParseValue, TSerializeValue = TParseValue> {
     copy._unique = true
     return copy
   }
+
+  /**
+   * Provide a validation function which narrows the type of the parsed value.
+   *
+   * @remarks
+   *
+   * This is useful to create custom types which are a subset of the original type.
+   *
+   * @example
+   *
+   * ```typescript
+   * type PositiveInteger = number & { __positiveInteger: true }
+   * const uint8Type = oer.uint8().refind((value): value is PositiveInteger => value > 0))
+   * ```
+   *
+   * @param predicate - A function which returns true if the value is valid
+   * @returns A copy of this type with the validation function applied
+   */
+  refine<TNewType extends TParseValue & TSerializeValue>(
+    predicate: (value: TParseValue) => value is TNewType
+  ): OerRefined<TNewType, TParseValue, TSerializeValue> {
+    return new OerRefined(this, predicate)
+  }
 }
 
 export class OerOptional<TParseValue, TSerializeValue> extends OerType<
@@ -284,5 +307,49 @@ export class OerConstant<TParseValue, TSerializeValue> extends OerType<
 
   override serialize() {
     return super.serialize(undefined)
+  }
+}
+
+export class OerRefined<
+  TNarrowedType extends TParseType & TSerializeValue,
+  TParseType,
+  TSerializeValue
+> extends OerType<TNarrowedType, TNarrowedType> {
+  constructor(
+    readonly subType: OerType<TParseType, TSerializeValue>,
+    readonly predicate: (value: TParseType) => value is TNarrowedType
+  ) {
+    super()
+  }
+
+  clone(): OerRefined<TNarrowedType, TParseType, TSerializeValue> {
+    return new OerRefined(this.subType, this.predicate)
+  }
+
+  parseWithContext(
+    context: ParseContext,
+    offset: number
+  ): ParseError | readonly [TNarrowedType, number] {
+    const result = this.subType.parseWithContext(context, offset)
+
+    if (result instanceof ParseError) {
+      return result
+    }
+
+    const [value, size] = result
+
+    if (!this.predicate(value)) {
+      return new ParseError(
+        `refinement predicate failed`,
+        context.uint8Array,
+        offset
+      )
+    }
+
+    return [value, size]
+  }
+
+  serializeWithContext(value: TNarrowedType): SerializeError | Serializer {
+    return this.subType.serializeWithContext(value)
   }
 }
