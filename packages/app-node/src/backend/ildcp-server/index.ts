@@ -4,5 +4,5 @@ import { handleIldcpRequests } from "./handle-ildcp-requests"
 
 export const startIldcpServer = () =>
   createActor((sig) => {
-    sig.run(handleIldcpRequests)
+    sig.run(handleIldcpRequests, undefined, { register: true })
   })

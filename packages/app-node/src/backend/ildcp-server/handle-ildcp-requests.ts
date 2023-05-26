@@ -10,18 +10,26 @@ const logger = createLogger("das:node:handle-ildcp-requests")
 
 export const ILDCP_ADDRESS = "peer.config"
 
+export interface IldcpRequestParameters {
+  sourceIlpAddress: string
+  requestId: number
+}
+
 export const handleIldcpRequests = () =>
   createActor((sig) => {
     const ilpRoutingTable = sig.get(globalIlpRoutingTableSignal)
     const processIncomingPacketActor = sig.use(processIncomingPacket)
 
     ilpRoutingTable.set(ILDCP_ADDRESS, {
-      prefix: ILDCP_ADDRESS,
-      type: "peer",
-      sendPreparePacket: ({
-        sourceIlpAddress,
-        outgoingRequestId: requestId,
-      }) => {
+      type: "ildcp",
+    })
+
+    sig.onCleanup(() => {
+      ilpRoutingTable.delete(ILDCP_ADDRESS)
+    })
+
+    return {
+      handle: ({ sourceIlpAddress, requestId }: IldcpRequestParameters) => {
         // IL-DCP
         const ildcpSerializationResult = ildcpResponseSchema.serialize({
           address: sourceIlpAddress,
@@ -54,14 +62,5 @@ export const handleIldcpRequests = () =>
           requestId,
         })
       },
-      sendResultPacket: () => {
-        throw new Error(
-          "IL-DCP never sends requests so it should never receive responses"
-        )
-      },
-    })
-
-    sig.onCleanup(() => {
-      ilpRoutingTable.delete(ILDCP_ADDRESS)
-    })
+    }
   })

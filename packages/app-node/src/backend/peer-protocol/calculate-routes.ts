@@ -1,19 +1,11 @@
 import Denque from "denque"
 
-import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 import { assertDefined } from "@dassie/lib-type-utils"
 
-import {
-  processPacketPrepare,
-  processPacketResult,
-} from "../accounting/functions/process-interledger-packet"
-import { ledgerStore } from "../accounting/stores/ledger"
 import { configSignal } from "../config"
 import { nodeIdSignal } from "../ilp-connector/computed/node-id"
-import { IlpType } from "../ilp-connector/ilp-packet-codec"
 import { globalIlpRoutingTableSignal } from "../ilp-connector/signals/global-ilp-routing-table"
-import { sendPeerMessage } from "./actors/send-peer-message"
 import { nodeDiscoveryQueueStore } from "./stores/node-discovery-queue"
 import { nodeTableStore } from "./stores/node-table"
 import {
@@ -21,8 +13,6 @@ import {
   routingTableStore,
 } from "./stores/routing-table"
 import { NodeId } from "./types/node-id"
-
-const logger = createLogger("das:node:calculate-routes")
 
 interface NodeInfoEntry {
   level: number
@@ -116,95 +106,9 @@ export const calculateRoutes = () =>
       if (nodeInfo.level > 0) {
         const ilpAddress = `${ilpAllocationScheme}.das.${nodeId}`
 
-        // TODO: We shouldn't replicate this for every destination. The routing table should only store the peer ID and there should then be a routine for sending an ILP packet via a peer.
         ilpRoutingTable.set(ilpAddress, {
-          prefix: ilpAddress,
           type: "peer",
-          sendPreparePacket: ({
-            parsedPacket,
-            serializedPacket,
-            outgoingRequestId: requestId,
-          }) => {
-            const nextHop = firstHopOptions[0]!
-
-            const peerState = sig
-              .use(nodeTableStore)
-              .read()
-              .get(nextHop)?.peerState
-
-            if (peerState?.id !== "peered") {
-              throw new Error(`Next hop node is not actually peered ${nextHop}`)
-            }
-
-            const ledger = sig.use(ledgerStore)
-            if (parsedPacket.amount > 0n) {
-              processPacketPrepare(
-                ledger,
-                `${peerState.subnetId}/peer/${nextHop}/interledger`,
-                parsedPacket,
-                "outgoing"
-              )
-            }
-
-            logger.debug("sending ilp packet", { nextHop })
-
-            sig.use(sendPeerMessage).tell("send", {
-              destination: nextHop,
-              message: {
-                type: "interledgerPacket",
-                value: {
-                  signed: {
-                    requestId: requestId,
-                    packet: serializedPacket,
-                  },
-                },
-              },
-            })
-          },
-          sendResultPacket: ({
-            parsedPacket: packet,
-            serializedPacket: asUint8Array,
-            prepare: {
-              parsedPacket: preparePacket,
-              incomingRequestId: requestId,
-            },
-          }) => {
-            const nextHop = firstHopOptions[0]!
-
-            const peerState = sig
-              .use(nodeTableStore)
-              .read()
-              .get(nextHop)?.peerState
-
-            if (peerState?.id !== "peered") {
-              throw new Error(`Next hop node is not actually peered ${nextHop}`)
-            }
-
-            const ledger = sig.use(ledgerStore)
-            if (preparePacket.amount > 0n) {
-              processPacketResult(
-                ledger,
-                `${peerState.subnetId}/peer/${nextHop}/interledger`,
-                preparePacket,
-                packet.type === IlpType.Fulfill ? "fulfill" : "reject"
-              )
-            }
-
-            logger.debug("sending ilp packet", { nextHop })
-
-            sig.use(sendPeerMessage).tell("send", {
-              destination: nextHop,
-              message: {
-                type: "interledgerPacket",
-                value: {
-                  signed: {
-                    requestId: requestId,
-                    packet: asUint8Array,
-                  },
-                },
-              },
-            })
-          },
+          firstHopOptions,
         })
       }
     }

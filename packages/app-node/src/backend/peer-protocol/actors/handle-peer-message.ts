@@ -54,19 +54,18 @@ const HANDLERS: AllPeerMessageHandlerFactories = {
 
 export const handlePeerMessage = () =>
   createActor((sig) => {
-    for (const handler of Object.values(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      HANDLERS as Record<string, Factory<Actor<any>>>
-    )) {
-      sig.run(handler, undefined, { register: true })
+    for (const handler of Object.values(HANDLERS)) {
+      sig.run(handler as Factory<Actor<unknown>>, undefined, { register: true })
     }
 
-    const handlers = Object.fromEntries(
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const handlers: AllPeerMessageHandlers = Object.fromEntries(
+      Object.entries(HANDLERS).map(([key, value]) => [
+        key,
+        sig.use(value as Factory<unknown>),
+      ])
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      Object.entries(HANDLERS as Record<string, Factory<Actor<any>>>).map(
-        ([key, value]) => [key, sig.use(value)]
-      )
-    ) as unknown as AllPeerMessageHandlers
+    ) as any
 
     return {
       handle: async <TType extends PeerMessageType>(

@@ -23,17 +23,18 @@ let unique = 0
 export const registerBtpHttpUpgrade = () =>
   createActor((sig) => {
     const nodeIlpAddress = sig.get(nodeIlpAddressSignal)
-    if (!nodeIlpAddress) return
 
     const websocketRoutes = sig.get(websocketRoutesSignal)
 
     const processIncomingPacketActor = sig.use(processIncomingPacket)
 
-    const websocketServer = new WebSocketServer({ noServer: true })
+    const socketMap = new Map<number, WebSocket>()
 
     const handleConnection = (socket: WebSocket) => {
       try {
         const connectionId = unique++
+        socketMap.set(connectionId, socket)
+
         const ilpClientMap = sig.use(localIlpRoutingTableSignal)
         let localIlpAddressPart: string
         do {
@@ -180,137 +181,8 @@ export const registerBtpHttpUpgrade = () =>
         })
 
         ilpClientMap.read().set(localIlpAddressPart, {
-          prefix: localIlpAddressPart,
           type: "btp",
-          sendPreparePacket: ({
-            parsedPacket,
-            serializedPacket,
-            outgoingRequestId: requestId,
-          }) => {
-            if (parsedPacket.amount === 0n) {
-              const btpMessageSerializeResult = btpMessageSchema.serialize({
-                protocolData: [
-                  {
-                    protocolName: "ilp",
-                    contentType: 0,
-                    data: serializedPacket,
-                  },
-                ],
-              })
-
-              if (!btpMessageSerializeResult.success) {
-                logger.error("could not serialize BTP message", {
-                  error: btpMessageSerializeResult.error,
-                })
-                return
-              }
-
-              const btpEnvelopeSerializeResult = btpEnvelopeSchema.serialize({
-                messageType: BtpType.Message,
-                requestId,
-                message: btpMessageSerializeResult.value,
-              })
-
-              if (!btpEnvelopeSerializeResult.success) {
-                logger.error("could not serialize BTP envelope", {
-                  error: btpEnvelopeSerializeResult.error,
-                })
-                return
-              }
-
-              socket.send(btpEnvelopeSerializeResult.value)
-
-              return
-            }
-
-            const btpMessageSerializeResult = btpMessageSchema.serialize({
-              protocolData: [
-                {
-                  protocolName: "ilp",
-                  contentType: 0,
-                  data: serializedPacket,
-                },
-              ],
-            })
-
-            if (!btpMessageSerializeResult.success) {
-              logger.error("could not serialize BTP message", {
-                error: btpMessageSerializeResult.error,
-              })
-              return
-            }
-
-            // const btpTransferSerializeResult = btpTransferSchema.serialize({
-            //   amount,
-            //   protocolData: [
-            //     {
-            //       protocolName: "ilp",
-            //       contentType: 0,
-            //       data: packet,
-            //     },
-            //   ],
-            // })
-
-            // if (!btpTransferSerializeResult.success) {
-            //   logger.error("could not serialize BTP transfer", {
-            //     error: btpTransferSerializeResult.failure,
-            //   })
-            //   return
-            // }
-
-            const btpEnvelopeSerializeResult = btpEnvelopeSchema.serialize({
-              messageType: 6, // Message
-              requestId,
-              message: btpMessageSerializeResult.value,
-            })
-
-            if (!btpEnvelopeSerializeResult.success) {
-              logger.error("could not serialize BTP envelope", {
-                error: btpEnvelopeSerializeResult.error,
-              })
-              return
-            }
-
-            socket.send(btpEnvelopeSerializeResult.value)
-
-            return
-          },
-          sendResultPacket: ({
-            prepare: { incomingRequestId: requestId },
-            serializedPacket,
-          }) => {
-            const btpMessageSerializeResult = btpMessageSchema.serialize({
-              protocolData: [
-                {
-                  protocolName: "ilp",
-                  contentType: 0,
-                  data: serializedPacket,
-                },
-              ],
-            })
-
-            if (!btpMessageSerializeResult.success) {
-              logger.error("could not serialize BTP message", {
-                error: btpMessageSerializeResult.error,
-              })
-              return
-            }
-
-            const btpEnvelopeSerializeResult = btpEnvelopeSchema.serialize({
-              messageType: BtpType.Response,
-              requestId,
-              message: btpMessageSerializeResult.value,
-            })
-
-            if (!btpEnvelopeSerializeResult.success) {
-              logger.error("could not serialize BTP envelope", {
-                error: btpEnvelopeSerializeResult.error,
-              })
-              return
-            }
-
-            socket.send(btpEnvelopeSerializeResult.value)
-          },
+          connectionId,
         })
 
         socket.on("close", () => {
@@ -327,6 +199,8 @@ export const registerBtpHttpUpgrade = () =>
       }
     }
 
+    const websocketServer = new WebSocketServer({ noServer: true })
+
     websocketServer.on("connection", handleConnection)
 
     websocketRoutes.set("/btp", (request, socket, head) => {
@@ -340,4 +214,24 @@ export const registerBtpHttpUpgrade = () =>
       websocketServer.off("connection", handleConnection)
       websocketServer.close()
     })
+
+    return {
+      send: ({
+        connectionId,
+        message,
+      }: {
+        connectionId: number
+        message: Uint8Array
+      }) => {
+        const socket = socketMap.get(connectionId)
+        if (!socket) {
+          logger.error("failed to send BTP message: no socket found", {
+            connectionId,
+          })
+          return
+        }
+
+        socket.send(message)
+      },
+    }
   })

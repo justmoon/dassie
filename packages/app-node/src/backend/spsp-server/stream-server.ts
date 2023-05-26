@@ -7,18 +7,17 @@ import {
 import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
-import { nodeIlpAddressSignal } from "../ilp-connector/computed/node-ilp-address"
-import { createPlugin } from "./utils/create-plugin"
+import { managePlugins } from "./manage-plugins"
 
 const logger = createLogger("das:node:stream-server")
 
 export const streamServerService = () =>
   createActor(async (sig) => {
-    const nodeIlpAddress = sig.get(nodeIlpAddressSignal)
+    const pluginManager = sig.use(managePlugins)
 
     logger.debug("starting stream server")
 
-    const plugin = createPlugin(sig.reactor, nodeIlpAddress)
+    const plugin = await pluginManager.ask("createPlugin", undefined)
 
     const server = await createServer({
       plugin,
