@@ -5,13 +5,9 @@ import { assertDefined } from "@dassie/lib-type-utils"
 
 import { configSignal } from "../config"
 import { nodeIdSignal } from "../ilp-connector/computed/node-id"
-import { globalIlpRoutingTableSignal } from "../ilp-connector/signals/global-ilp-routing-table"
+import { routingTableSignal } from "../ilp-connector/signals/routing-table"
 import { nodeDiscoveryQueueStore } from "./stores/node-discovery-queue"
 import { nodeTableStore } from "./stores/node-table"
-import {
-  type RoutingTableEntry,
-  routingTableStore,
-} from "./stores/routing-table"
 import { NodeId } from "./types/node-id"
 
 interface NodeInfoEntry {
@@ -82,8 +78,7 @@ export const calculateRoutes = () =>
       }
     }
 
-    const routes = new Map<string, RoutingTableEntry>()
-    const ilpRoutingTable = sig.get(globalIlpRoutingTableSignal)
+    const ilpRoutingTable = sig.get(routingTableSignal)
     for (const [nodeId, nodeInfo] of nodeInfoMap.entries()) {
       let level = nodeInfo.level
       let parents = new Set(nodeInfo.parents)
@@ -98,19 +93,13 @@ export const calculateRoutes = () =>
 
       const firstHopOptions = nodeInfo.level === 1 ? [nodeId] : [...parents]
 
-      routes.set(nodeId, {
-        distance: nodeInfo.level,
+      const ilpAddress = `${ilpAllocationScheme}.das.${nodeId}`
+
+      ilpRoutingTable.set(ilpAddress, {
+        type: "peer",
         firstHopOptions,
+        distance: nodeInfo.level,
       })
-
-      if (nodeInfo.level > 0) {
-        const ilpAddress = `${ilpAllocationScheme}.das.${nodeId}`
-
-        ilpRoutingTable.set(ilpAddress, {
-          type: "peer",
-          firstHopOptions,
-        })
-      }
     }
 
     sig.onCleanup(() => {
@@ -119,6 +108,4 @@ export const calculateRoutes = () =>
         ilpRoutingTable.delete(ilpAddress)
       }
     })
-
-    sig.use(routingTableStore).write(routes)
   })

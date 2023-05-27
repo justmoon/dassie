@@ -65,19 +65,30 @@ const NodeLink = ({ nodeId }: BasicNodeElementProperties) => {
 }
 
 const NodeTable = ({ nodeId }: BasicNodeElementProperties) => {
+  const config = useNodeRemoteSignal(nodeId, "config")
   const nodeTable = useNodeRemoteSignal(nodeId, "nodeTable")
   const routingTable = useNodeRemoteSignal(nodeId, "routingTable")
 
-  if (!nodeTable.data || !routingTable.data) return null
+  if (!config.data || !nodeTable.data || !routingTable.data) return null
 
   const sortedNodeTable = [...nodeTable.data.values()]
     .map((node) => {
-      const routingTableEntry = routingTable.data.get(node.nodeId)
+      const routingTableEntry = routingTable.data.get(
+        `${config.data.ilpAllocationScheme}.das.${node.nodeId}`
+      )
+
+      if (routingTableEntry?.type !== "peer") {
+        return {
+          ...node,
+          distance: Number.POSITIVE_INFINITY,
+          nextHopNodes: [],
+        }
+      }
 
       return {
         ...node,
-        distance: routingTableEntry?.distance ?? Number.POSITIVE_INFINITY,
-        nextHopNodes: routingTable.data.get(node.nodeId)?.firstHopOptions ?? [],
+        distance: routingTableEntry.distance,
+        nextHopNodes: routingTableEntry.firstHopOptions,
       }
     })
     // Sort first by distance, then by nodeId

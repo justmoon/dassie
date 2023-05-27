@@ -2,8 +2,6 @@ import { Promisable } from "type-fest"
 
 import { Actor, Factory, createActor } from "@dassie/lib-reactive"
 
-import { configSignal } from ".."
-import { nodeIdSignal } from "./computed/node-id"
 import { BtpDestinationInfo, sendBtpPackets } from "./senders/send-btp-packets"
 import {
   IldcpDestinationInfo,
@@ -17,8 +15,7 @@ import {
   PluginDestinationInfo,
   sendPluginPackets,
 } from "./senders/send-plugin-packets"
-import { globalIlpRoutingTableSignal } from "./signals/global-ilp-routing-table"
-import { localIlpRoutingTableSignal } from "./signals/local-ilp-routing-table"
+import { routingTableSignal } from "./signals/routing-table"
 import {
   PreparedIlpPacketEvent,
   preparedIlpPacketTopic,
@@ -62,14 +59,7 @@ const SENDERS: AllPacketSenderFactories = {
 
 export const sendOutgoingPackets = () =>
   createActor((sig) => {
-    const { ilpAllocationScheme } = sig.getKeys(configSignal, [
-      "ilpAllocationScheme",
-    ])
-    const nodeId = sig.get(nodeIdSignal)
-    const globalIlpClientMap = sig.use(globalIlpRoutingTableSignal)
-    const localIlpClientMap = sig.use(localIlpRoutingTableSignal)
-
-    const generalPrefix = `${ilpAllocationScheme}.das.`
+    const globalIlpClientMap = sig.use(routingTableSignal)
 
     for (const sender of Object.values(SENDERS)) {
       sig.run(sender as Factory<Actor<unknown>>, undefined, { register: true })
@@ -84,33 +74,10 @@ export const sendOutgoingPackets = () =>
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ) as any
 
-    const getLocalPart = (destination: string): string | false => {
-      if (!destination.startsWith(generalPrefix)) {
-        return false
-      }
-
-      const nodeIdStartIndex = generalPrefix.length
-
-      const nodeIdEndIndex = destination.indexOf(".", nodeIdStartIndex)
-
-      const destinationNodeId = destination.slice(
-        nodeIdStartIndex,
-        nodeIdEndIndex === -1 ? undefined : nodeIdEndIndex
-      )
-
-      return destinationNodeId === nodeId
-        ? destination.slice(nodeIdEndIndex + 1)
-        : false
-    }
-
     const getDestinationInfo = (
       destination: string
     ): IlpDestinationInfo | undefined => {
-      const localPart = getLocalPart(destination)
-
-      return localPart === false
-        ? globalIlpClientMap.read().lookup(destination)
-        : localIlpClientMap.read().lookup(localPart)
+      return globalIlpClientMap.read().lookup(destination)
     }
 
     const callSendPrepare = <TType extends IlpDestinationInfo["type"]>(

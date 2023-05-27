@@ -6,7 +6,7 @@ import { createActor } from "@dassie/lib-reactive"
 
 import { nodeIlpAddressSignal } from "../ilp-connector/computed/node-ilp-address"
 import { processIncomingPacket } from "../ilp-connector/process-incoming-packet"
-import { localIlpRoutingTableSignal } from "../ilp-connector/signals/local-ilp-routing-table"
+import { routingTableSignal } from "../ilp-connector/signals/routing-table"
 
 const logger = createLogger("das:node:manage-plugins")
 
@@ -25,7 +25,7 @@ export const managePlugins = () =>
   createActor((sig) => {
     const nodeIlpAddress = sig.get(nodeIlpAddressSignal)
     const processIncomingPacketActor = sig.use(processIncomingPacket)
-    const ilpClientMap = sig.use(localIlpRoutingTableSignal)
+    const ilpClientMap = sig.use(routingTableSignal)
 
     const pluginHandlerMap = new Map<number, DataHandler>()
     const outstandingRequests = new Map<number, (data: Buffer) => void>()
@@ -44,13 +44,19 @@ export const managePlugins = () =>
 
             do {
               localIlpAddressPart = nanoid(6)
-            } while (ilpClientMap.read().get(localIlpAddressPart))
+            } while (
+              ilpClientMap
+                .read()
+                .get(`${nodeIlpAddress}.${localIlpAddressPart}`)
+            )
 
-            ilpClientMap.read().set(localIlpAddressPart, {
-              type: "plugin",
-              pluginId,
-              localIlpAddressPart,
-            })
+            ilpClientMap
+              .read()
+              .set(`${nodeIlpAddress}.${localIlpAddressPart}`, {
+                type: "plugin",
+                pluginId,
+                localIlpAddressPart,
+              })
 
             connection = {
               ilpAddress: `${nodeIlpAddress}.${localIlpAddressPart}`,
@@ -61,7 +67,9 @@ export const managePlugins = () =>
           disconnect: () => {
             if (!connection) return Promise.resolve()
 
-            ilpClientMap.read().delete(localIlpAddressPart)
+            ilpClientMap
+              .read()
+              .delete(`${nodeIlpAddress}.${localIlpAddressPart}`)
 
             connection = false
 

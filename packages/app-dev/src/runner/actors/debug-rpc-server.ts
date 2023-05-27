@@ -4,8 +4,8 @@ import { observable } from "@trpc/server/observable"
 import superjson from "superjson"
 import { WebSocketServer } from "ws"
 
-import { nodeTableStore } from "@dassie/app-node"
-import { routingTableStore } from "@dassie/app-node/src/backend/peer-protocol/stores/routing-table"
+import { configSignal, nodeTableStore } from "@dassie/app-node"
+import { routingTableSignal } from "@dassie/app-node/src/backend/ilp-connector/signals/routing-table"
 import { createLogger } from "@dassie/lib-logger"
 import {
   InferMessageType,
@@ -22,8 +22,9 @@ import { prettyFormat } from "../../common/utils/pretty-format"
 const logger = createLogger("das:dev:runner:debug-rpc-server")
 
 export const exposedStores = {
+  config: configSignal,
   nodeTable: nodeTableStore,
-  routingTable: routingTableStore,
+  routingTable: routingTableSignal,
 } as const
 
 export type ExposedStoresMap = typeof exposedStores

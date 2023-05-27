@@ -1,6 +1,7 @@
 import { inferObservableValue } from "@trpc/server/observable"
 import { useState } from "react"
 
+import { Config } from "../../../../backend"
 import {
   Table,
   TableBody,
@@ -16,9 +17,15 @@ export function Nodes() {
   type RoutingTable = inferObservableValue<
     RouterOutput["subscribeRoutingTable"]
   >
+  const [config, setConfig] = useState<Config>()
   const [nodeTable, setNodeTable] = useState<NodeTable>()
   const [routingTable, setRoutingTable] = useState<RoutingTable>()
 
+  trpc.subscribeConfig.useSubscription(undefined, {
+    onData: (data) => {
+      setConfig(data)
+    },
+  })
   trpc.subscribeNodeTable.useSubscription(undefined, {
     onData: (data) => {
       setNodeTable(data)
@@ -34,12 +41,22 @@ export function Nodes() {
 
   const sortedNodeTable = [...nodeTable.values()]
     .map((node) => {
-      const routingTableEntry = routingTable.get(node.nodeId)
+      const routingTableEntry = routingTable.get(
+        `${config?.ilpAllocationScheme ?? "g"}.das.${node.nodeId}`
+      )
+
+      if (routingTableEntry?.type !== "peer") {
+        return {
+          ...node,
+          distance: Number.POSITIVE_INFINITY,
+          nextHopNodes: [],
+        }
+      }
 
       return {
         ...node,
-        distance: routingTableEntry?.distance ?? Number.POSITIVE_INFINITY,
-        nextHopNodes: routingTable.get(node.nodeId)?.firstHopOptions ?? [],
+        distance: routingTableEntry.distance,
+        nextHopNodes: routingTableEntry.firstHopOptions,
       }
     })
     // Sort first by distance, then by nodeId

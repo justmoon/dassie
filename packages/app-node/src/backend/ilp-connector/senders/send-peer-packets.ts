@@ -15,6 +15,7 @@ import { PacketSender } from "../send-outgoing-packets"
 export interface PeerDestinationInfo {
   type: "peer"
   firstHopOptions: NodeId[]
+  distance: number
 }
 
 const logger = createLogger("das:node:send-interledger-packets")

@@ -14,7 +14,7 @@ import { createActor } from "@dassie/lib-reactive"
 import { websocketRoutesSignal } from "../http-server/serve-http"
 import { nodeIlpAddressSignal } from "../ilp-connector/computed/node-ilp-address"
 import { processIncomingPacket } from "../ilp-connector/process-incoming-packet"
-import { localIlpRoutingTableSignal } from "../ilp-connector/signals/local-ilp-routing-table"
+import { routingTableSignal } from "../ilp-connector/signals/routing-table"
 
 const logger = createLogger("das:node:websocket-server")
 
@@ -35,11 +35,13 @@ export const registerBtpHttpUpgrade = () =>
         const connectionId = unique++
         socketMap.set(connectionId, socket)
 
-        const ilpClientMap = sig.use(localIlpRoutingTableSignal)
+        const ilpRoutingTable = sig.use(routingTableSignal)
         let localIlpAddressPart: string
         do {
           localIlpAddressPart = nanoid(6)
-        } while (ilpClientMap.read().get(localIlpAddressPart))
+        } while (
+          ilpRoutingTable.read().get(`${nodeIlpAddress}.${localIlpAddressPart}`)
+        )
 
         logger.debug("handle BTP websocket connection", { connectionId })
 
@@ -180,13 +182,15 @@ export const registerBtpHttpUpgrade = () =>
           }
         })
 
-        ilpClientMap.read().set(localIlpAddressPart, {
+        ilpRoutingTable.read().set(`${nodeIlpAddress}.${localIlpAddressPart}`, {
           type: "btp",
           connectionId,
         })
 
         socket.on("close", () => {
-          sig.use(localIlpRoutingTableSignal).read().delete(localIlpAddressPart)
+          ilpRoutingTable
+            .read()
+            .delete(`${nodeIlpAddress}.${localIlpAddressPart}`)
         })
       } catch (error) {
         logger.error(

@@ -3,7 +3,7 @@ import { createActor } from "@dassie/lib-reactive"
 
 import { IlpType, serializeIlpPacket } from "../ilp-connector/ilp-packet-codec"
 import { processIncomingPacket } from "../ilp-connector/process-incoming-packet"
-import { globalIlpRoutingTableSignal } from "../ilp-connector/signals/global-ilp-routing-table"
+import { routingTableSignal } from "../ilp-connector/signals/routing-table"
 import { ildcpResponseSchema } from "./ildcp-packet-codec"
 
 const logger = createLogger("das:node:handle-ildcp-requests")
@@ -17,7 +17,7 @@ export interface IldcpRequestParameters {
 
 export const handleIldcpRequests = () =>
   createActor((sig) => {
-    const ilpRoutingTable = sig.get(globalIlpRoutingTableSignal)
+    const ilpRoutingTable = sig.get(routingTableSignal)
     const processIncomingPacketActor = sig.use(processIncomingPacket)
 
     ilpRoutingTable.set(ILDCP_ADDRESS, {

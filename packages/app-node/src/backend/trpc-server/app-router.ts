@@ -6,10 +6,10 @@ import { z } from "zod"
 import { createLogger } from "@dassie/lib-logger"
 import { ActorContext, Factory, ReadonlySignal } from "@dassie/lib-reactive"
 
-import { nodeTableStore } from ".."
+import { configSignal, nodeTableStore } from ".."
 import { totalOwnerBalanceComputed } from "../accounting/computed/total-owner-balance"
 import { ledgerStore } from "../accounting/stores/ledger"
-import { routingTableStore } from "../peer-protocol/stores/routing-table"
+import { routingTableSignal } from "../ilp-connector/signals/routing-table"
 import { spspPaymentQueueStore } from "../spsp-server/send-spsp-payments"
 import { resolvePaymentPointer } from "../utils/resolve-payment-pointer"
 import type { TrpcContext } from "./trpc-context"
@@ -73,11 +73,14 @@ export const appRouter = trpc.router({
   getLedger: trpc.procedure.query(({ ctx: { sig } }) => {
     return [...sig.use(ledgerStore).getAccounts("")]
   }),
+  subscribeConfig: trpc.procedure.subscription(({ ctx: { sig } }) => {
+    return subscribeToSignal(sig, configSignal)
+  }),
   subscribeNodeTable: trpc.procedure.subscription(({ ctx: { sig } }) => {
     return subscribeToSignal(sig, nodeTableStore)
   }),
   subscribeRoutingTable: trpc.procedure.subscription(({ ctx: { sig } }) => {
-    return subscribeToSignal(sig, routingTableStore)
+    return subscribeToSignal(sig, routingTableSignal)
   }),
 })
 
