@@ -37,12 +37,12 @@ export function Nodes() {
     },
   })
 
-  if (!nodeTable || !routingTable) return null
+  if (!config || !nodeTable || !routingTable) return null
 
   const sortedNodeTable = [...nodeTable.values()]
     .map((node) => {
       const routingTableEntry = routingTable.get(
-        `${config?.ilpAllocationScheme ?? "g"}.das.${node.nodeId}`
+        `${config.ilpAllocationScheme}.das.${node.nodeId}`
       )
 
       if (routingTableEntry?.type !== "peer") {

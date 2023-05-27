@@ -28,6 +28,7 @@ export function MainNavigation() {
             <ul className="grid gap-3 p-6 md:w-[400px] lg:w-[500px]">
               <ListItem href="/debug/nodes" title="Nodes" />
               <ListItem href="/debug/ledger" title="Ledger" />
+              <ListItem href="/debug/routing" title="Routing" />
             </ul>
           </NavigationMenuContent>
         </NavigationMenuItem>
