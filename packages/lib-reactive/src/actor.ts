@@ -119,6 +119,14 @@ export const createActor: CreateActorSignature = <
       })
     },
     ask: async (method, message) => {
+      if (import.meta.env.DEV && !actor.isRunning) {
+        debugOptimisticActorCall(
+          actor.promise,
+          actor[FactoryNameSymbol],
+          method
+        )
+      }
+
       const actorInstance = await actor.promise
 
       return (
@@ -136,3 +144,19 @@ export const isActor = (
   object: unknown
 ): object is Actor<MessageHandlerRecord, unknown> =>
   isObject(object) && object[ActorSymbol] === true
+
+const DEBUG_ACTOR_OPTIMISTIC_CALL_TIMEOUT = 2000
+export const debugOptimisticActorCall = (
+  actorPromise: Promise<unknown>,
+  actorName: string,
+  method: string
+) => {
+  const timeout = setTimeout(() => {
+    console.error("Actor called but never instantiated", {
+      actor: actorName,
+      method,
+    })
+  }, DEBUG_ACTOR_OPTIMISTIC_CALL_TIMEOUT)
+
+  actorPromise.finally(() => clearTimeout(timeout))
+}
