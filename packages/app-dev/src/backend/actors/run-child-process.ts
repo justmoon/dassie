@@ -1,4 +1,4 @@
-import colors from "picocolors"
+import chalk from "chalk"
 import type { Promisable } from "type-fest"
 import type { ViteNodeServer } from "vite-node/server"
 
@@ -42,7 +42,7 @@ export const runChildProcess = () =>
 
       const handleChildExit = (code: number | null) => {
         if (code === 0) {
-          logger.info(`${colors.green(`child exited`)}`)
+          logger.info(`${chalk.green(`child exited`)}`)
         } else {
           logger.error(`child exited with code: ${code ?? "unknown"}`)
         }

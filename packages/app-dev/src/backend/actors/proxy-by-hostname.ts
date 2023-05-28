@@ -1,4 +1,4 @@
-import { bold, dim } from "picocolors"
+import chalk from "chalk"
 
 import { Socket, connect, createServer } from "node:net"
 
@@ -220,7 +220,9 @@ export const proxyByHostname = () =>
     server.listen(SNI_PROXY_PORT)
 
     console.log(
-      `  ${bold("Debug UI:")} https://localhost/ ${dim("<-- Start here")}\n`
+      `  ${chalk.bold("Debug UI:")} https://localhost/ ${chalk.dim(
+        "<-- Start here"
+      )}\n`
     )
 
     sig.onCleanup(async () => {

@@ -1,4 +1,4 @@
-import * as colors from "picocolors"
+import chalk from "chalk"
 
 import { posix } from "node:path"
 
@@ -36,7 +36,7 @@ export const handleFileChange = () =>
 
       if (mods && mods.size > 0) {
         sig.use(logsStore).clear()
-        logger.info(`${colors.green(`change`)} ${colors.dim(shortFile)}`)
+        logger.info(`${chalk.green(`change`)} ${chalk.dim(shortFile)}`)
 
         sig.use(fileChangeTopic).emit(undefined)
       }

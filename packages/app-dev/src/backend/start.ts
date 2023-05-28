@@ -1,4 +1,4 @@
-import { bold, green } from "picocolors"
+import chalk from "chalk"
 
 import { createActor, createReactor } from "@dassie/lib-reactive"
 
@@ -16,7 +16,7 @@ import { compileRunner } from "./utils/compile-runner"
 
 const rootActor = () =>
   createActor(async (sig) => {
-    console.log(bold(`  Dassie${green("//dev")}\n`))
+    console.log(chalk.bold(`  Dassie${chalk.green("//dev")}\n`))
 
     sig.run(registerReactiveLogger)
     sig.run(proxyByHostname)

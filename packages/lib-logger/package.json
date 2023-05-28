@@ -31,7 +31,7 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@dassie/lib-type-utils": "workspace:^1.0.0",
-    "picocolors": "^1.0.0",
+    "chalk": "^5.2.0",
     "pretty-format": "^29.5.0"
   },
   "devDependencies": {

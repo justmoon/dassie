@@ -1,4 +1,4 @@
-import colors from "picocolors"
+import chalk from "chalk"
 import { format as prettyFormat } from "pretty-format"
 
 import type { Formatter } from "../types/formatter"
@@ -8,12 +8,12 @@ import { isError } from "../utils/is-error"
 import { selectBySeed } from "../utils/select-by-seed"
 
 export const COLORS = [
-  colors.red,
-  colors.green,
-  colors.yellow,
-  colors.blue,
-  colors.magenta,
-  colors.cyan,
+  chalk.red,
+  chalk.green,
+  chalk.yellow,
+  chalk.blue,
+  chalk.magenta,
+  chalk.cyan,
 ] as const
 
 export const formatFilePath = (filePath: string) => {
@@ -27,9 +27,9 @@ export const formatFilePath = (filePath: string) => {
     | [string, string, string, string]
     | null
   if (match) {
-    return `${colors.dim(`${protocolPrefix}${match[1]}packages/`)}${colors.cyan(
+    return `${chalk.dim(`${protocolPrefix}${match[1]}packages/`)}${chalk.cyan(
       match[2]
-    )}${colors.dim("/")}${match[3]}`
+    )}${chalk.dim("/")}${match[3]}`
   }
 
   return filePath
@@ -64,7 +64,7 @@ const getPrefix = (component: string) => {
 export const formatError = (error: Error, options: LogLineOptions): string => {
   return error.stack
     ? formatStack(error.stack, options)
-    : `${colors.red(colors.bold(`${error.name || "Error"}:`))} ${error.message}`
+    : `${chalk.red(chalk.bold(`${error.name || "Error"}:`))} ${error.message}`
 }
 
 export const formatStack = (
@@ -88,19 +88,19 @@ export const formatStack = (
           | null
         if (match) {
           if (match[2].startsWith("node:")) {
-            return colors.dim(line)
+            return chalk.dim(line)
           }
           if (options.skipAfter && match[1].includes(options.skipAfter)) {
             ignoreRest = true
           }
           const isNodeModules = match[2].includes("node_modules")
           const formattedFilePath = isNodeModules
-            ? colors.dim(match[2])
+            ? chalk.dim(match[2])
             : formatFilePath(match[2])
 
-          return `    ${colors.dim("at")} ${
-            isNodeModules ? colors.dim(match[1]) : match[1]
-          } ${colors.dim("(")}${formattedFilePath}${colors.dim(
+          return `    ${chalk.dim("at")} ${
+            isNodeModules ? chalk.dim(match[1]) : match[1]
+          } ${chalk.dim("(")}${formattedFilePath}${chalk.dim(
             `:${match[3]}:${match[4]})`
           )}`
         }
@@ -111,17 +111,17 @@ export const formatStack = (
           | null
         if (match) {
           const formattedFilePath = formatFilePath(match[1])
-          return `    ${colors.dim("at")} ${formattedFilePath}${colors.dim(
+          return `    ${chalk.dim("at")} ${formattedFilePath}${chalk.dim(
             `:${match[2]}:${match[3]}`
           )}`
         }
       }
 
-      return colors.dim(line)
+      return chalk.dim(line)
     })
     .filter(Boolean)
 
-  return `${colors.red(colors.bold(`${name ?? "Error"}:`))} ${colors.red(
+  return `${chalk.red(chalk.bold(`${name ?? "Error"}:`))} ${chalk.red(
     message ?? "no message"
   )}${formattedCallsites.length > 0 ? "\n" : ""}${formattedCallsites.join(
     "\n"
@@ -137,8 +137,8 @@ const log = (line: LogLine, options: LogLineOptions) => {
   const levelInsert = {
     debug: "",
     info: "",
-    warn: colors.yellow("! "),
-    error: colors.red("‼ "),
+    warn: chalk.yellow("! "),
+    error: chalk.red("‼ "),
   }[line.level]
 
   if (options.ignoreInProduction && process.env["NODE_ENV"] === "production")
