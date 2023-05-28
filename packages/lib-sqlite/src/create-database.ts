@@ -42,6 +42,11 @@ export interface DatabaseOptions {
    * A set of scalar definitions which effectively provide a type-safe key-value store.
    */
   scalars?: Record<string, ScalarDescription> | undefined
+
+  /**
+   * Path to the better_sqlite3.node module.
+   */
+  nativeBinding?: string | undefined
 }
 
 export interface InferDatabaseInstance<TOptions extends DatabaseOptions> {
@@ -65,7 +70,9 @@ export type InferScalarAccessors<TOptions extends DatabaseOptions> =
 export const createDatabase = <TOptions extends DatabaseOptions>(
   databaseOptions: TOptions
 ): InferDatabaseInstance<TOptions> => {
-  const database = new Database(databaseOptions.path)
+  const database = new Database(databaseOptions.path, {
+    nativeBinding: databaseOptions.nativeBinding,
+  })
 
   // SQLite INTEGERs are 64-bit signed integers, so we would like to get them as bigints from the database.
   database.defaultSafeIntegers(true)

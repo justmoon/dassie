@@ -1,6 +1,7 @@
 import { createActor, createReactor } from "@dassie/lib-reactive"
 
 import { buildBackend } from "./steps/build-backend"
+import { copyNativeBindings } from "./steps/copy-native-bindings"
 import { createOutputPath } from "./steps/create-output-path"
 import { deleteOutputPath } from "./steps/delete-output-path"
 
@@ -9,6 +10,7 @@ export const rootActor = () =>
     console.log("running build")
     await sig.run(deleteOutputPath).result
     await sig.run(createOutputPath).result
+    await sig.run(copyNativeBindings).result
     await sig.run(buildBackend).result
   })
 

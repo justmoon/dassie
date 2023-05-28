@@ -24,6 +24,7 @@ export interface Config {
   port: number
   url: string
   alias: string
+  rootPath: string
   dataPath: string
   tlsWebCert: string
   tlsWebKey: string
@@ -41,6 +42,7 @@ export const inputConfigSchema = z.object({
   port: z.union([z.string(), z.number()]).optional(),
   url: z.string().optional(),
   alias: z.string().optional(),
+  rootPath: z.string().optional(),
   dataPath: z.string().optional(),
   tlsWebCert: z.string().optional(),
   tlsWebCertFile: z.string().optional(),
@@ -88,6 +90,7 @@ export function fromPartialConfig(partialConfig: InputConfig): Config {
     alias: partialConfig.alias ?? "anonymous",
     url:
       partialConfig.url ?? `https://${host}${port === 443 ? "" : `:${port}`}`,
+    rootPath: partialConfig.rootPath ?? process.cwd(),
     dataPath: partialConfig.dataPath ?? paths.data,
     tlsWebCert: processFileOption(
       "tlsWebCert",

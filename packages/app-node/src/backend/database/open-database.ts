@@ -1,3 +1,5 @@
+import { resolve } from "node:path"
+
 import { type Reactor, createSignal } from "@dassie/lib-reactive"
 import { createDatabase } from "@dassie/lib-sqlite"
 
@@ -14,7 +16,7 @@ import { incomingPaymentTable } from "./tables/incoming-payment"
 const DASSIE_SQLITE_APPLICATION_ID = 0x1d_a5_3b_81
 
 export const databaseSignal = (reactor: Reactor) => {
-  const { dataPath } = reactor.use(configSignal).read()
+  const { rootPath, dataPath } = reactor.use(configSignal).read()
 
   const database = createDatabase({
     path: `${dataPath}/dassie.sqlite3`,
@@ -24,6 +26,9 @@ export const databaseSignal = (reactor: Reactor) => {
       incomingPayment: incomingPaymentTable,
     },
     scalars: {},
+    nativeBinding: import.meta.env.PROD
+      ? resolve(rootPath, "lib/better_sqlite3.node")
+      : undefined,
   })
 
   return createSignal(database)
