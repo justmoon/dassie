@@ -16,7 +16,6 @@ export const COLORS = [
   colors.cyan,
 ] as const
 
-const monorepoRoot = new URL("../../../..", import.meta.url).pathname
 export const formatFilePath = (filePath: string) => {
   let protocolPrefix = ""
   if (filePath.startsWith("file://")) {
@@ -24,19 +23,13 @@ export const formatFilePath = (filePath: string) => {
     filePath = filePath.slice(7)
   }
 
-  if (filePath.startsWith(monorepoRoot)) {
-    const localPath = filePath.slice(monorepoRoot.length)
-
-    const match = localPath.match(/^packages\/([\da-z-]+)\/(.*)$/) as
-      | [string, string, string]
-      | null
-    if (match) {
-      return `${colors.dim(
-        `${protocolPrefix}${monorepoRoot}packages/`
-      )}${colors.cyan(match[1])}${colors.dim("/")}${match[2]}`
-    }
-
-    return `${colors.dim(`${protocolPrefix}${monorepoRoot}`)}${localPath}`
+  const match = filePath.match(/^(.*)\/packages\/([\da-z-]+)\/(.*)$/) as
+    | [string, string, string, string]
+    | null
+  if (match) {
+    return `${colors.dim(`${protocolPrefix}${match[1]}packages/`)}${colors.cyan(
+      match[2]
+    )}${colors.dim("/")}${match[3]}`
   }
 
   return filePath
