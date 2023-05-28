@@ -1,0 +1,27 @@
+{
+  "name": "@dassie/app-build",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Tool used to build the Dassie release version",
+  "private": true,
+  "main": "./src/index.ts",
+  "scripts": {
+    "build": "vite-node bin/build.ts"
+  },
+  "author": "Stefan Thomas <justmoon@members.fsf.org>",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@dassie/app-node": "workspace:1.0.0",
+    "@dassie/lib-logger": "workspace:^1.0.0",
+    "@dassie/lib-reactive": "workspace:^1.0.0",
+    "@dassie/lib-type-utils": "workspace:1.0.0",
+    "esbuild": "^0.17.19",
+    "vite": "^4.3.9"
+  },
+  "devDependencies": {
+    "@dassie/eslint-config": "workspace:^",
+    "@dassie/meta-tsconfig": "workspace:^",
+    "type-fest": "^3.11.0",
+    "vite-node": "^0.31.1"
+  }
+}
