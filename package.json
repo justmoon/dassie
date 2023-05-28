@@ -2,8 +2,6 @@
   "name": "@dassie/root",
   "version": "1.0.0",
   "description": "Root package of the Dassie monorepo",
-  "main": "index.js",
-  "type": "module",
   "scripts": {
     "clean": "pnpm -r clean",
     "build": "pnpm -r build",
