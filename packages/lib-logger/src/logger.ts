@@ -1,9 +1,7 @@
-import { isObject } from "@dassie/lib-type-utils"
+import assert from "node:assert"
 
 import { createEnableChecker } from "./enabled"
 import type { LoggingContext } from "./types/context"
-import type { Formatter } from "./types/formatter"
-import type { LogLineOptions } from "./types/log-options"
 
 /**
  * Loggers are used to log messages related to a specific component.
@@ -41,39 +39,18 @@ export class Logger {
    * @alpha
    */
   clear() {
-    this.context.formatter(
-      {
-        component: this.component,
-        date: new Date(),
-        level: "clear",
-        message: "",
-      },
-      {}
-    )
+    console.clear()
   }
 
   /**
    * This will only log a message if this logger's component is part of the current debug scope.
    *
    * @param message - A freeform message
-   * @param data - Additional relevant data to log and make available for debugging
+   * @param parameters - Additional relevant data to log and make available for debugging
    */
-  debug(
-    message: string,
-    data?: Record<string, unknown>,
-    options?: LogLineOptions
-  ) {
+  debug(message: string, ...parameters: unknown[]) {
     if (this.context.enableChecker(this.component)) {
-      this.context.formatter(
-        {
-          component: this.component,
-          date: new Date(),
-          level: "debug",
-          message,
-          ...(data ? { data } : {}),
-        },
-        options ?? {}
-      )
+      console.debug(`${this.component} ${message}`, ...parameters)
     }
   }
 
@@ -81,85 +58,30 @@ export class Logger {
    * Logs a message.
    *
    * @param message - A freeform message
-   * @param data - Additional relevant data to log and make available for debugging
+   * @param parameters - Additional relevant data to log and make available for debugging
    */
-  info(
-    message: string,
-    data?: Record<string, unknown>,
-    options?: LogLineOptions
-  ) {
-    this.context.formatter(
-      {
-        component: this.component,
-        date: new Date(),
-        level: "info",
-        message,
-        ...(data ? { data } : {}),
-      },
-      options ?? {}
-    )
+  info(message: string, ...parameters: unknown[]) {
+    console.info(`${this.component} ${message}`, ...parameters)
   }
 
   /**
    * Logs a message with extra emphasis.
    *
    * @param message - A freeform message
-   * @param data - Additional relevant data to log and make available for debugging
+   * @param parameters - Additional relevant data to log and make available for debugging
    */
-  warn(
-    message: string,
-    data?: Record<string, unknown>,
-    options?: LogLineOptions
-  ) {
-    this.context.formatter(
-      {
-        component: this.component,
-
-        date: new Date(),
-        level: "warn",
-        message,
-        ...(data ? { data } : {}),
-      },
-      options ?? {}
-    )
+  warn(message: string, ...parameters: unknown[]) {
+    console.warn(`${this.component} ${message}`, ...parameters)
   }
 
   /**
    * Logs a message with the greatest possible emphasis.
    *
    * @param message - A freeform message
-   * @param data - Additional relevant data to log and make available for debugging
+   * @param parameters - Additional relevant data to log and make available for debugging
    */
-  error(
-    message: string,
-    data?: Record<string, unknown>,
-    options?: LogLineOptions
-  ) {
-    this.context.formatter(
-      {
-        component: this.component,
-        date: new Date(),
-        level: "error",
-        message,
-        ...(data ? { data } : {}),
-      },
-      options ?? {}
-    )
-  }
-
-  captureConsole() {
-    const methods = ["debug", "info", "warn", "error"] as const
-
-    for (const method of methods) {
-      console[method] = (message: string, ...parameters: unknown[]) => {
-        this[method](
-          message,
-          parameters.length === 1 && isObject(parameters[0])
-            ? parameters[0] ?? undefined
-            : { parameters }
-        )
-      }
-    }
+  error(message: string, ...parameters: unknown[]) {
+    console.error(`${this.component} ${message}`, ...parameters)
   }
 }
 
@@ -170,15 +92,13 @@ export class Logger {
  */
 export function createLoggerFactory(loggingContext: LoggingContext) {
   const createLogger = (component: string) => {
+    assert(!component.includes(" "), "Component name must not contain spaces")
+
     return new Logger(loggingContext, component)
   }
 
   createLogger.setDebugScope = (debugScope: string) => {
     loggingContext.enableChecker = createEnableChecker(debugScope)
-  }
-
-  createLogger.setFormatter = (formatter: Formatter) => {
-    loggingContext.formatter = formatter
   }
 
   return createLogger

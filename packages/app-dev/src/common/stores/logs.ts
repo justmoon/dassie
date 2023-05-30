@@ -1,16 +1,16 @@
 import type { SetOptional } from "type-fest"
 
-import type { SerializableLogLine } from "@dassie/lib-logger"
+import type { SerializableLogMessage } from "@dassie/lib-logger"
 import { createStore } from "@dassie/lib-reactive"
 
 export const LOGS_SOFT_LIMIT = 10_000
 export const LOGS_HARD_LIMIT = 10_100
 
-export interface NodeLogLine extends SerializableLogLine {
+export type NodeLogLine = SerializableLogMessage & {
   node: string
 }
 
-export interface IndexedLogLine extends NodeLogLine {
+export type IndexedLogLine = NodeLogLine & {
   index: number
   relativeTime: number
 }

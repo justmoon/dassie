@@ -31,18 +31,10 @@ const LogViewer = ({ filter: externalFilter }: LogViewerProperties) => {
         if (externalFilter && !externalFilter(item)) return false
 
         if (keywordFilter) {
-          const data = item.data
-            ? Object.entries(item.data)
-                .map(([key, value]) => `${key}=${value}`)
-                .join(" ")
-            : ""
           for (const filterElement of keywordFilter.split(/\s+/)) {
             const isNegative = filterElement.startsWith("-")
             const keyword = isNegative ? filterElement.slice(1) : filterElement
-            const isMatching =
-              item.message.includes(keyword) ||
-              item.component.includes(keyword) ||
-              data.includes(keyword)
+            const isMatching = item.message.includes(keyword)
 
             if (isNegative == isMatching) {
               return false

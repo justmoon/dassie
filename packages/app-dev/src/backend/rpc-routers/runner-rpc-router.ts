@@ -3,7 +3,6 @@ import { z } from "zod"
 import { logsStore } from "../../common/stores/logs"
 import { peeringStateStore } from "../stores/peering-state"
 import { peerTrafficTopic } from "../topics/peer-traffic"
-import { createCliOnlyLogger } from "../utils/cli-only-logger"
 import { trpc } from "./trpc"
 
 export const runnerRpcRouter = trpc.router({
@@ -21,33 +20,36 @@ export const runnerRpcRouter = trpc.router({
     .input(
       z.tuple([
         z.string(),
-        z.object({
-          component: z.string(),
-          date: z.string(),
-          level: z.union([
-            z.literal("debug"),
-            z.literal("info"),
-            z.literal("warn"),
-            z.literal("error"),
-            z.literal("clear"),
-          ]),
-          message: z.string(),
-          data: z.record(z.string(), z.string()).optional(),
-        }),
+        z.union([
+          z.object({
+            type: z.union([
+              z.literal("debug"),
+              z.literal("info"),
+              z.literal("warn"),
+              z.literal("error"),
+            ]),
+            date: z.string(),
+            message: z.string(),
+            parameters: z.array(z.unknown()),
+          }),
+          z.object({
+            type: z.literal("clear"),
+            date: z.string(),
+          }),
+        ]),
       ])
     )
-    .mutation(({ input: [nodeId, logLine], ctx: { reactor } }) => {
+    .mutation(({ input: [nodeId, logEvent], ctx: { reactor } }) => {
       const logs = reactor.use(logsStore)
+      if (logEvent.type === "clear") {
+        logs.clear()
+        return
+      }
+
       logs.addLogLine({
         node: nodeId,
-        ...logLine,
+        ...logEvent,
       })
-
-      if (process.env["DASSIE_LOG_TO_CLI"] === "true") {
-        const prefix = `◼ ${nodeId}`
-        const cliLogger = createCliOnlyLogger(prefix)
-        cliLogger.info(logLine.message, logLine.data)
-      }
     }),
   notifyPeerState: trpc.procedure
     .input(

@@ -1,7 +1,8 @@
+import { attachLogger } from "@dassie/app-node/src/backend/logger"
 import {
-  type SerializableLogLine,
+  type SerializableLogEvent,
+  captureConsole,
   createJsonFormatter,
-  createLogger,
 } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
@@ -12,21 +13,18 @@ export const forwardLogs = () =>
     const trpcClient = sig.get(trpcClientService)
     if (!trpcClient) return
 
-    let inRecursion = false
     const jsonFormatter = createJsonFormatter({
-      outputFunction(line: SerializableLogLine) {
+      serializationFunction(line: SerializableLogEvent) {
         void trpcClient.runner.notifyLogLine.mutate([
           process.env["DASSIE_DEV_NODE_ID"] ?? "unknown",
           line,
         ])
+        return ""
       },
     })
 
-    createLogger.setFormatter((...parameters) => {
-      if (inRecursion) return
-
-      inRecursion = true
-      jsonFormatter(...parameters)
-      inRecursion = false
-    })
+    // Overwrite logger behavior so we can forward logs to the server
+    sig.use(attachLogger).behavior = () => {
+      captureConsole({ formatter: jsonFormatter })
+    }
   })

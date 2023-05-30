@@ -18,7 +18,7 @@ import { startTrpcServer } from "./trpc-server"
 export const rootActor = () =>
   createActor(async (sig) => {
     sig.run(signerService, undefined, { register: true })
-    sig.run(attachLogger)
+    sig.run(attachLogger, undefined, { register: true })
     sig.run(startAccounting)
     sig.run(startIlpConnector)
     sig.run(startHttpServer)

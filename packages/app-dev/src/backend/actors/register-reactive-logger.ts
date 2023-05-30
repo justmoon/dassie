@@ -1,34 +1,59 @@
+import chalk from "chalk"
+
 import {
-  type SerializableLogLine,
+  SerializableLogEvent,
+  captureConsole,
   createCliFormatter,
   createJsonFormatter,
-  createLogger,
+  selectBySeed,
 } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
 import { logsStore } from "../../common/stores/logs"
+import { COLORS } from "../../frontend/constants/palette"
 
 export const registerReactiveLogger = () =>
   createActor((sig) => {
-    let inRecursion = false
-    const cliFormatter = createCliFormatter()
     const jsonFormatter = createJsonFormatter({
-      outputFunction(line: SerializableLogLine) {
-        sig.use(logsStore).addLogLine({
-          node: "",
-          ...line,
-        })
+      serializationFunction(line: SerializableLogEvent) {
+        if (line.type === "clear") {
+          sig.use(logsStore).clear()
+        } else {
+          sig.use(logsStore).addLogLine({
+            node: "host",
+            ...line,
+          })
+        }
+        return ""
       },
     })
 
-    createLogger.setFormatter((...parameters) => {
-      if (process.env["DASSIE_LOG_TO_CLI"] === "true") {
-        cliFormatter(...parameters)
-      }
-      if (inRecursion) return
+    captureConsole({ formatter: jsonFormatter })
 
-      inRecursion = true
-      jsonFormatter(...parameters)
-      inRecursion = false
-    })
+    if (process.env["DASSIE_LOG_TO_CLI"] === "true") {
+      const cliFormatter = createCliFormatter()
+      sig.use(logsStore).changes.on(sig, (action) => {
+        switch (action[0]) {
+          case "clear": {
+            break
+          }
+          case "addLogLine": {
+            const { node, type, date, message, parameters } = action[1][0]
+            const prefix = node
+              ? chalk.hex(selectBySeed(COLORS, node))(node) + " "
+              : ""
+            process.stdout.write(
+              prefix +
+                cliFormatter({
+                  type,
+                  message,
+                  date: new Date(date),
+                  parameters,
+                })
+            )
+            break
+          }
+        }
+      })
+    }
   })

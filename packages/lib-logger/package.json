@@ -6,6 +6,7 @@
   "main": "./src/index.ts",
   "exports": {
     ".": {
+      "types": "./src/index.ts",
       "node": "./src/index.ts",
       "import": "./src/browser.ts"
     }
@@ -31,11 +32,15 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@dassie/lib-type-utils": "workspace:^1.0.0",
+    "ansi-escapes": "^6.2.0",
     "chalk": "^5.2.0",
-    "pretty-format": "^29.5.0"
+    "is-generator-function": "^1.0.10",
+    "pretty-format": "^29.5.0",
+    "string-width": "^6.1.0"
   },
   "devDependencies": {
     "@dassie/eslint-config": "workspace:^",
-    "@dassie/meta-tsconfig": "workspace:^"
+    "@dassie/meta-tsconfig": "workspace:^",
+    "@types/is-generator-function": "^1.0.1"
   }
 }

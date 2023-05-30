@@ -11,7 +11,6 @@ import { createActor } from "@dassie/lib-reactive"
 import { assertDefined, isObject } from "@dassie/lib-type-utils"
 
 import { logsStore } from "../../common/stores/logs"
-import { createCliOnlyLogger } from "../utils/cli-only-logger"
 
 const logger = createLogger("das:dev:run-child-process")
 
@@ -36,9 +35,6 @@ export const runChildProcess = () =>
       { nodeServer, id, environment }: RunNodeChildProcessProperties
     ) => {
       let child: ChildProcess | undefined
-
-      const prefix = `◼ ${id}`
-      const cliLogger = createCliOnlyLogger(prefix)
 
       const handleChildExit = (code: number | null) => {
         if (code === 0) {
@@ -94,7 +90,10 @@ export const runChildProcess = () =>
         })()
       }
 
-      const processLog = async (input: Readable, inputName: string) => {
+      const processLog = async (
+        input: Readable,
+        inputName: "stdout" | "stderr"
+      ) => {
         for await (const line of byLine(input)) {
           // Suppress annoying node debugger spam
           if (
@@ -106,14 +105,11 @@ export const runChildProcess = () =>
 
           sig.use(logsStore).addLogLine({
             node: id,
-            component: inputName,
+            type: inputName === "stdout" ? "info" : "warn",
             message: line,
             date: new Date().toISOString(),
-            level: "info",
+            parameters: [],
           })
-          if (process.env["DASSIE_LOG_TO_CLI"] === "true") {
-            cliLogger.info(line)
-          }
         }
       }
 

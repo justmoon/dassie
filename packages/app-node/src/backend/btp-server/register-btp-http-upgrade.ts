@@ -193,13 +193,7 @@ export const registerBtpHttpUpgrade = () =>
             .delete(`${nodeIlpAddress}.${localIlpAddressPart}`)
         })
       } catch (error) {
-        logger.error(
-          "error handling websocket connection",
-          { error },
-          {
-            skipAfter: "WebSocketService.handleConnection",
-          }
-        )
+        logger.error("error handling websocket connection", { error })
       }
     }
 

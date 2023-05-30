@@ -1,25 +1,40 @@
 import { Link } from "wouter"
 
 import { selectBySeed } from "@dassie/lib-logger"
+import { isObject } from "@dassie/lib-type-utils"
 
 import type { IndexedLogLine } from "../../../common/stores/logs"
 import { COLORS } from "../../constants/palette"
-import { AnsiSpan, type AnsiSpanProperties } from "../utilities/ansi-span"
+import { AnsiSpan } from "../utilities/ansi-span"
 
-const DATA_PREVIEW_MAX_LENGTH = 30
+const MAX_STRING_LENGTH = 30
 
-export const DataValue = ({
-  content,
-  ...otherProperties
-}: AnsiSpanProperties) => {
-  const endOffset = Math.min(
-    ...[DATA_PREVIEW_MAX_LENGTH, content.indexOf("\n")].filter((a) => a !== -1)
-  )
-  let abbreviatedContent = content.slice(0, endOffset)
-  if (abbreviatedContent.length !== content.length) {
-    abbreviatedContent += "…"
+interface DataValueProperties {
+  content: unknown
+}
+
+export const DataValue = ({ content }: DataValueProperties) => {
+  if (typeof content === "string") {
+    if (content.length < MAX_STRING_LENGTH) {
+      return <span>{content}</span>
+    }
+
+    return <span>{`${content.slice(0, MAX_STRING_LENGTH)}…`}</span>
+  } else if (typeof content === "number") {
+    return <span>{content}</span>
+  } else if (typeof content === "boolean") {
+    return <span>{content ? "true" : "false"}</span>
+  } else if (typeof content === "bigint") {
+    return <span>{content.toString()}</span>
+  } else if (content === null) {
+    return <span>null</span>
+  } else if (Array.isArray(content)) {
+    return <span>Array({content.length})</span>
+  } else if (isObject(content)) {
+    return <span>Object</span>
   }
-  return <AnsiSpan content={abbreviatedContent} {...otherProperties} />
+
+  return <span>Other</span>
 }
 
 interface LogLineProperties {
@@ -27,6 +42,40 @@ interface LogLineProperties {
 }
 
 const LogLine = ({ log }: LogLineProperties) => {
+  const renderedParameters = [] as JSX.Element[]
+
+  if (
+    log.parameters.length === 1 &&
+    isObject(log.parameters[0]) &&
+    Object.prototype.toString.call(log.parameters[0]) === "[object Object]" &&
+    Object.getOwnPropertySymbols(log.parameters[0]).length === 0
+  ) {
+    for (const [key, parameter] of Object.entries(
+      log.parameters[0] as Record<string, unknown>
+    )) {
+      renderedParameters.push(
+        <div
+          key={renderedParameters.length}
+          className="bg-dark-100 rounded-1 text-xs ml-1 px-1 inline-block"
+        >
+          <span className="font-sans text-gray-400">{key}=</span>
+          <DataValue key={renderedParameters.length} content={parameter} />
+        </div>
+      )
+    }
+  } else {
+    for (const parameter of log.parameters) {
+      renderedParameters.push(
+        <div
+          key={renderedParameters.length}
+          className="bg-dark-100 rounded-1 text-xs ml-1 px-1 inline-block"
+        >
+          <DataValue content={parameter} />
+        </div>
+      )
+    }
+  }
+
   return (
     <div className="flex text-xs py-0.5" style={{ order: -log.index }}>
       <div className="font-mono flex-shrink-0 text-right px-2 text-gray-400 w-20">
@@ -39,30 +88,10 @@ const LogLine = ({ log }: LogLineProperties) => {
         <Link href={`/nodes/${log.node}`}>{log.node}</Link>
       </div>
       <pre className="font-mono px-2 whitespace-pre-wrap">
-        <span style={{ color: selectBySeed(COLORS, log.component) }}>
-          {log.component}
-        </span>{" "}
         <span>
           <AnsiSpan content={log.message}></AnsiSpan>
         </span>
-        {Object.entries(log.data ?? {}).map(([key, value]) =>
-          key === "error" ? null : (
-            <div
-              key={key}
-              className="bg-dark-100 rounded-1 text-xs ml-1 px-1 inline-block"
-            >
-              <span className="font-sans text-gray-400">{key}=</span>
-              <span>
-                <DataValue content={value} />
-              </span>
-            </div>
-          )
-        )}
-        {log.data?.["error"] ? (
-          <p className="rounded-md bg-dark-300 mt-2 mb-4 p-2">
-            <AnsiSpan content={log.data["error"]} />
-          </p>
-        ) : null}
+        {renderedParameters}
       </pre>
     </div>
   )
