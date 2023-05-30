@@ -28,6 +28,7 @@ export const runNodeChildProcess = <T>() =>
           FORCE_COLOR: "1",
           ...process.env,
           DEBUG: debugScopes,
+          DEBUG_HIDE_DATE: "1",
           DASSIE_LOG_FORMATTER: "json",
           DASSIE_CONFIG: JSON.stringify(node.config),
           DASSIE_DEV_ROOT: viteServer.config.root,

@@ -7,6 +7,7 @@ import { runDebugRpcServer } from "../actors/debug-rpc-server"
 import { forwardLogs } from "../actors/forward-logs"
 import { forwardPeerTraffic } from "../actors/forward-peer-traffic"
 import { handleDisconnect } from "../actors/handle-disconnect"
+import { patchIlpLogger } from "../actors/patch-ilp-logger"
 import { reportPeeringState } from "../actors/report-peering-state"
 import { serveWallet } from "../actors/serve-wallet"
 import { trpcClientService } from "../services/trpc-client"
@@ -19,6 +20,7 @@ const debugRunner = () =>
     sig.run(handleShutdownSignals)
     sig.run(handleDisconnect)
     sig.run(forwardLogs)
+    sig.run(patchIlpLogger)
     sig.run(forwardPeerTraffic)
     await sig.run(reportPeeringState).result
     await sig.run(serveWallet).result
