@@ -93,6 +93,12 @@ export class Logger {
 export function createLoggerFactory(loggingContext: LoggingContext) {
   const createLogger = (component: string) => {
     assert(!component.includes(" "), "Component name must not contain spaces")
+    assert(component.includes(":"), "Component name must contain a colon")
+    assert(
+      !component.startsWith(":"),
+      "Component name must not start with a colon"
+    )
+    assert(!component.endsWith(":"), "Component name must not end with a colon")
 
     return new Logger(loggingContext, component)
   }
