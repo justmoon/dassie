@@ -1,16 +1,20 @@
 import assert from "node:assert"
 
+import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 import { isFailure } from "@dassie/lib-type-utils"
 
+import { nodeTableStore } from ".."
 import {
   processSettlementPrepare,
   processSettlementResult,
 } from "../accounting/functions/process-settlement"
 import { Ledger, ledgerStore } from "../accounting/stores/ledger"
-import type { PerPeerParameters } from "../peer-protocol/run-per-peer-actors"
 import { NodeId } from "../peer-protocol/types/node-id"
 import { SubnetId } from "../peer-protocol/types/subnet-id"
+import { manageSubnetInstances } from "../subnets/manage-subnet-instances"
+
+const logger = createLogger("das:node:send-outgoing-settlements")
 
 const SETTLEMENT_CHECK_INTERVAL = 10_000
 const SETTLEMENT_RATIO = 0.2
@@ -80,10 +84,25 @@ const calculateSettlementAmount = (
 }
 
 export const sendOutgoingSettlements = () =>
-  createActor((sig, { peerId, subnetId, subnetActor }: PerPeerParameters) => {
+  createActor((sig, peerId: NodeId) => {
     const ledger = sig.use(ledgerStore)
+    const nodeTable = sig.use(nodeTableStore)
+    const subnetManager = sig.use(manageSubnetInstances)
 
-    sig.interval(() => {
+    sig.interval(async () => {
+      const peerState = nodeTable.read().get(peerId)?.peerState
+
+      assert(peerState?.id === "peered", "peer state must be 'peered'")
+
+      const { subnetId } = peerState
+
+      const subnetActor = await subnetManager.ask("getActor", subnetId)
+
+      if (!subnetActor) {
+        logger.warn("subnet actor not found, skipping settlement", { subnetId })
+        return
+      }
+      subnetActor
       const settlementAmount = calculateSettlementAmount(
         ledger,
         subnetId,

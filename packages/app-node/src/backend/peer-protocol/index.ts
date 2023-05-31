@@ -1,6 +1,5 @@
-import { createActor, createComputed } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 
-import { nodeTableStore } from ".."
 import type { PerSubnetParameters } from "../subnets/manage-subnet-instances"
 import { handlePeerMessage } from "./actors/handle-peer-message"
 import { sendPeerMessage } from "./actors/send-peer-message"
@@ -30,6 +29,8 @@ export const speakPeerProtocol = () =>
     sig.run(forwardLinkStateUpdate)
     sig.run(discoverNodes)
     sig.run(calculateRoutes)
+
+    sig.for(peersArrayComputation, runPerPeerActors)
   })
 
 /**
@@ -38,24 +39,4 @@ export const speakPeerProtocol = () =>
 export const speakPeerProtocolPerSubnet = () =>
   createActor((sig, parameters: PerSubnetParameters) => {
     sig.run(queueBootstrapNodes, parameters)
-
-    // Get peers for this subnet and prepare parameters for each one
-    const subnetPeersParametersSignal = () =>
-      createComputed((sig) =>
-        sig
-          .get(peersArrayComputation)
-          .filter((peerId) => {
-            const peerState = sig
-              .use(nodeTableStore)
-              .read()
-              .get(peerId)?.peerState
-            return (
-              peerState?.id === "peered" &&
-              peerState.subnetId === parameters.subnetId
-            )
-          })
-          .map((peerId) => ({ ...parameters, peerId }))
-      )
-
-    sig.for(subnetPeersParametersSignal, runPerPeerActors)
   })

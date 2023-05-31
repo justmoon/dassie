@@ -1,3 +1,7 @@
+import { Promisable } from "type-fest"
+
+import { isObject } from "@dassie/lib-type-utils"
+
 import type { Actor } from "./actor"
 import { forArrayElement, forArrayIndex } from "./internal/actor-arrays"
 import { DisposableLifecycle } from "./internal/lifecycle"
@@ -165,12 +169,29 @@ export class ActorContext extends DisposableLifecycle {
   /**
    * Create a JS interval that will be automatically cancelled when the current actor is disposed.
    */
-  interval(callback: () => void, intervalInMilliseconds?: number | undefined) {
+  interval(
+    callback: () => Promisable<void>,
+    intervalInMilliseconds?: number | undefined
+  ) {
     if (this.isDisposed) return
 
     const interval = setInterval(() => {
       try {
-        callback()
+        const result = callback()
+
+        if (
+          isObject(result) &&
+          "catch" in result &&
+          typeof result["catch"] === "function"
+        ) {
+          result["catch"]((error: unknown) => {
+            console.error("error in interval callback", {
+              actor: this.name,
+              path: this.path,
+              error,
+            })
+          })
+        }
       } catch (error) {
         console.error("error in interval callback", {
           actor: this.name,

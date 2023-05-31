@@ -117,6 +117,7 @@ export const manageSubnetInstances = () =>
     )
 
     return {
+      getActor: (subnetId: SubnetId) => subnetActorMap.get(subnetId)?.actor,
       handleMessage: ({
         subnetId,
         peerId,
