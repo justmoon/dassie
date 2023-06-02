@@ -111,10 +111,12 @@ export function createMapped<TInput, TOutput>(
     )
     lifecycle.attachToParent(reactor)
 
+    Reactor.current = reactor
     internalMap.set(item, {
       output: mapFunction(item, lifecycle),
       lifecycle,
     })
+    Reactor.current = undefined
 
     // No need to emit anything on the additions topic, since nobody has had a chance to subscribe yet.
   }
