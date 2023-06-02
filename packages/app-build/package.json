@@ -6,7 +6,9 @@
   "private": true,
   "main": "./src/index.ts",
   "scripts": {
-    "build": "vite-node bin/build.ts"
+    "build": "vite-node bin/build.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc"
   },
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
