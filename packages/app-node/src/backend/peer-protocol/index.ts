@@ -4,7 +4,6 @@ import type { PerSubnetParameters } from "../subnets/manage-subnet-instances"
 import { handlePeerMessage } from "./actors/handle-peer-message"
 import { sendPeerMessage } from "./actors/send-peer-message"
 import { calculateRoutes } from "./calculate-routes"
-import { peersArrayComputation } from "./computed/peers"
 import { discoverNodes } from "./discover-nodes"
 import { forwardLinkStateUpdate } from "./forward-link-state-update"
 import { maintainOwnNodeTableEntry } from "./maintain-own-node-table-entry"
@@ -30,7 +29,7 @@ export const speakPeerProtocol = () =>
     sig.run(discoverNodes)
     sig.run(calculateRoutes)
 
-    sig.for(peersArrayComputation, runPerPeerActors)
+    sig.runMap(runPerPeerActors)
   })
 
 /**

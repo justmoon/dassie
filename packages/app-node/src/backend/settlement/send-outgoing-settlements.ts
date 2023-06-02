@@ -89,20 +89,20 @@ export const sendOutgoingSettlements = () =>
     const nodeTable = sig.use(nodeTableStore)
     const subnetManager = sig.use(manageSubnetInstances)
 
-    sig.interval(async () => {
+    sig.interval(() => {
       const peerState = nodeTable.read().get(peerId)?.peerState
 
       assert(peerState?.id === "peered", "peer state must be 'peered'")
 
       const { subnetId } = peerState
 
-      const subnetActor = await subnetManager.ask("getActor", subnetId)
+      const subnetActor = subnetManager.get(subnetId)
 
       if (!subnetActor) {
         logger.warn("subnet actor not found, skipping settlement", { subnetId })
         return
       }
-      subnetActor
+
       const settlementAmount = calculateSettlementAmount(
         ledger,
         subnetId,

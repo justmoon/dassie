@@ -22,7 +22,7 @@ export const handlePeeringRequest = () =>
 
         const { nodeId, url, alias, nodePublicKey } = nodeInfo.signed
 
-        if (!activeSubnets.includes(subnetId)) return EMPTY_UINT8ARRAY
+        if (!activeSubnets.has(subnetId)) return EMPTY_UINT8ARRAY
 
         const existingEntry = nodeTable.read().get(nodeId)
 

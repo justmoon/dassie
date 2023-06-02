@@ -19,8 +19,11 @@ export const handleSubnetModuleMessage = () =>
           },
         },
       }: IncomingPeerMessageEvent<"subnetModuleMessage">) => {
-        subnetManager.tell("handleMessage", {
-          subnetId,
+        const subnetActor = subnetManager.get(subnetId)
+
+        if (!subnetActor) return EMPTY_UINT8ARRAY
+
+        subnetActor.tell("handleMessage", {
           peerId: sender,
           message,
         })

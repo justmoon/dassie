@@ -26,7 +26,7 @@ export const rootActor = () =>
     sig.run(startTrpcServer)
     sig.run(startIldcpServer)
     await sig.run(startExchangeRates)
-    await sig.run(startSubnets)
+    sig.run(startSubnets)
     await sig.run(startSpspServer)
     sig.run(startOpenPaymentsServer)
     sig.run(startStatisticsServer)

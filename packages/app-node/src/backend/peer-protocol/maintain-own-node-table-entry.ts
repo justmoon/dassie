@@ -35,6 +35,7 @@ export const maintainOwnNodeTableEntry = () =>
     ) {
       const sequence = BigInt(Date.now())
       const peerIds = [...peers]
+      const subnetIds = [...subnets]
 
       const peerNodeInfoResult = peerNodeInfo.serialize({
         nodeId,
@@ -47,7 +48,7 @@ export const maintainOwnNodeTableEntry = () =>
             type: "neighbor" as const,
             value: { nodeId },
           })),
-          ...subnets.map((subnetId) => ({
+          ...subnetIds.map((subnetId) => ({
             type: "subnet" as const,
             value: { subnetId },
           })),
@@ -86,7 +87,7 @@ export const maintainOwnNodeTableEntry = () =>
           alias,
           linkState: {
             neighbors: peerIds,
-            subnets,
+            subnets: subnetIds,
             sequence,
             scheduledRetransmitTime: Date.now(),
             updateReceivedCounter: 0,
@@ -102,7 +103,7 @@ export const maintainOwnNodeTableEntry = () =>
         sig.use(nodeTableStore).updateNode(nodeId, {
           linkState: {
             neighbors: peerIds,
-            subnets,
+            subnets: subnetIds,
             sequence,
             scheduledRetransmitTime: Date.now(),
             updateReceivedCounter: 0,

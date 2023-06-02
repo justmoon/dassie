@@ -20,7 +20,7 @@ export const loadSubnetConfig = () =>
 
     sig
       .use(activeSubnetsSignal)
-      .write(initialSubnets.map((subnet) => subnet.id))
+      .write(new Set(initialSubnets.map((subnet) => subnet.id)))
 
     // TODO: Primary subnet should be intelligently managed
     sig.use(primarySubnetSignal).write(initialSubnets[0]?.id)
