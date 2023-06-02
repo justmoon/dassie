@@ -3,7 +3,6 @@ import { Promisable } from "type-fest"
 import { isObject } from "@dassie/lib-type-utils"
 
 import type { Actor, RunOptions } from "./actor"
-import { forArrayElement, forArrayIndex } from "./internal/actor-arrays"
 import { DisposableLifecycle } from "./internal/lifecycle"
 import { Mapped } from "./mapped"
 import type { Factory, Reactor, UseOptions } from "./reactor"
@@ -283,13 +282,18 @@ export class ActorContext extends DisposableLifecycle {
    * @param factory - Factory function of the mapped actors.
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  runMap(factory: Factory<Mapped<unknown, Actor<any>>>): void {
+  runMap<TReturn>(
+    factory: Factory<Mapped<unknown, Actor<TReturn>>>
+  ): (TReturn | undefined)[] {
     const mapped = this.use(factory)
+    const results: (TReturn | undefined)[] = Array.from({ length: mapped.size })
+
+    let index = 0
     for (const [, actor, mapLifecycle] of mapped) {
       const actorLifecycle = new DisposableLifecycle("")
       actorLifecycle.attachToParent(mapLifecycle)
       actorLifecycle.attachToParent(this)
-      actor.run(actorLifecycle)
+      results[index++] = actor.run(actorLifecycle)
     }
 
     mapped.additions.on(this, ([, actor, mapLifecycle]) => {
