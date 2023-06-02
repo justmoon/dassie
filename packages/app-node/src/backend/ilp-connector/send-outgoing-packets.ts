@@ -1,6 +1,6 @@
 import { Promisable } from "type-fest"
 
-import { Actor, Factory, createActor } from "@dassie/lib-reactive"
+import { Actor, createActor } from "@dassie/lib-reactive"
 
 import { BtpDestinationInfo, sendBtpPackets } from "./senders/send-btp-packets"
 import {
@@ -46,29 +46,16 @@ type AllPacketSenders = {
   [K in IlpDestinationInfo["type"]]: PacketSender<K>
 }
 
-type AllPacketSenderFactories = {
-  [K in keyof AllPacketSenders]: Factory<AllPacketSenders[K]>
-}
-
-const SENDERS: AllPacketSenderFactories = {
-  peer: sendPeerPackets,
-  ildcp: sendIldcpPackets,
-  btp: sendBtpPackets,
-  plugin: sendPluginPackets,
-}
-
 export const sendOutgoingPackets = () =>
   createActor((sig) => {
     const globalIlpClientMap = sig.use(routingTableSignal)
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const senders: AllPacketSenders = Object.fromEntries(
-      Object.entries(SENDERS).map(([key, value]) => [
-        key,
-        sig.use(value as Factory<unknown>),
-      ])
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ) as any
+    const senders: AllPacketSenders = {
+      peer: sig.use(sendPeerPackets),
+      ildcp: sig.use(sendIldcpPackets),
+      btp: sig.use(sendBtpPackets),
+      plugin: sig.use(sendPluginPackets),
+    }
 
     for (const sender of Object.values(senders)) {
       sender.run(sig)
