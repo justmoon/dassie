@@ -8,10 +8,10 @@ import { deleteOutputPath } from "./steps/delete-output-path"
 export const rootActor = () =>
   createActor(async (sig) => {
     console.log("running build")
-    await sig.run(deleteOutputPath).result
-    await sig.run(createOutputPath).result
-    await sig.run(copyNativeBindings).result
-    await sig.run(buildBackend).result
+    await sig.run(deleteOutputPath)
+    await sig.run(createOutputPath)
+    await sig.run(copyNativeBindings)
+    await sig.run(buildBackend)
   })
 
 export const start = () => createReactor(rootActor)
