@@ -5,6 +5,7 @@ import { isObject } from "@dassie/lib-type-utils"
 import type { Actor } from "./actor"
 import { forArrayElement, forArrayIndex } from "./internal/actor-arrays"
 import { DisposableLifecycle } from "./internal/lifecycle"
+import { Mapped } from "./mapped"
 import type { Factory, Reactor, RunOptions, UseOptions } from "./reactor"
 import type { ReadonlySignal } from "./signal"
 import type { Listener, ReadonlyTopic } from "./topic"
@@ -266,6 +267,24 @@ export class ActorContext extends DisposableLifecycle {
       parentLifecycleScope: options?.parentLifecycleScope ?? this,
       pathPrefix: `${this.path}.`,
       ...options,
+    })
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  runMap(factory: Factory<Mapped<unknown, Actor<any>>>): void {
+    const mapped = this.use(factory)
+    for (const [, actor, mapLifecycle] of mapped) {
+      const actorLifecycle = new DisposableLifecycle("")
+      actorLifecycle.attachToParent(mapLifecycle)
+      actorLifecycle.attachToParent(this)
+      this.run(() => actor, undefined, { parentLifecycleScope: actorLifecycle })
+    }
+
+    mapped.additions.on(this, ([, actor, mapLifecycle]) => {
+      const actorLifecycle = new DisposableLifecycle("")
+      actorLifecycle.attachToParent(mapLifecycle)
+      actorLifecycle.attachToParent(this)
+      this.run(() => actor, undefined, { parentLifecycleScope: actorLifecycle })
     })
   }
 

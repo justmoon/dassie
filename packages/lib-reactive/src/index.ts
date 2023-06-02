@@ -3,6 +3,7 @@ export { createSignal, isSignal, SignalSymbol } from "./signal"
 export { createActor, isActor, ActorSymbol } from "./actor"
 export { createStore, isStore, StoreSymbol } from "./store"
 export { createComputed, isComputed, ComputedSymbol } from "./computed"
+export { createMapped, isMapped, MappedSymbol } from "./mapped"
 export {
   createReactor,
   FactoryNameSymbol,
@@ -33,5 +34,6 @@ export type {
   InferChanges,
 } from "./store"
 export type { Computed, ComputationContext } from "./computed"
+export type { Mapped } from "./mapped"
 export type { Reactor, Factory, Disposer, AsyncDisposer } from "./reactor"
 export type { DisposableLifecycle as LifecycleScope } from "./internal/lifecycle"

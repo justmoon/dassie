@@ -37,6 +37,7 @@
   "devDependencies": {
     "@dassie/eslint-config": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
+    "immer": "^10.0.2",
     "type-fest": "^3.11.0"
   }
 }
