@@ -1,3 +1,5 @@
+import { isError } from "@dassie/lib-logger"
+
 import NodeLink from "../shared/node-link/node-link"
 import { ANSI_COLORS } from "./ansi-theme"
 
@@ -16,7 +18,11 @@ interface TypeInfo {
 
 const typeofOperator = (value: unknown) => typeof value
 
-type RecognizedType = ReturnType<typeof typeofOperator> | "array" | "null"
+type RecognizedType =
+  | ReturnType<typeof typeofOperator>
+  | "array"
+  | "null"
+  | "error"
 
 const CHAR_LETTER_LOWERCASE_N = 110 // "n"
 const NODE_ID_LENGTH = 43
@@ -74,6 +80,10 @@ const TYPES = {
   undefined: {
     color: ANSI_COLORS["ansi-bright-red"],
   },
+  error: {
+    color: ANSI_COLORS["ansi-bright-red"],
+    formatter: (value: Error) => value.stack ?? value.message,
+  },
 } satisfies {
   [typeIdentifier in RecognizedType]: TypeInfo
 }
@@ -84,6 +94,8 @@ export const DataValue = ({ keyName, content }: DataValueProperties) => {
   if (typeIdentifier === "object") {
     if (Array.isArray(content)) {
       typeIdentifier = "array"
+    } else if (isError(content)) {
+      typeIdentifier = "error"
     } else if (content === null) {
       typeIdentifier = "null"
     }

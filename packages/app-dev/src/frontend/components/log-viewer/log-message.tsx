@@ -132,7 +132,7 @@ export const LogMessage = ({ message, parameters }: ParseLogParameters) => {
 
     elements.push(
       ...parseAnsi(unique++, message.slice(lastChunkEnd, message.length)),
-      ...Object.entries(remainingParameters[0]).map(([key, value]) => (
+      ...Object.entries(primaryObject).map(([key, value]) => (
         <DataValue key={key} keyName={key} content={value} />
       ))
     )

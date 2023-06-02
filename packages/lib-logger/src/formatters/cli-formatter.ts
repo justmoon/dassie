@@ -812,15 +812,17 @@ const formatEvent = (context: FormattingContext, line: LogMessage) => {
 
   let error: Error | undefined
   if (isObject(line.parameters[0]) && isError(line.parameters[0]["error"])) {
-    error = line.parameters[0]["error"]
-    // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
-    delete line.parameters[0]["error"]
-
-    if (
-      line.parameters.length === 1 &&
-      Object.keys(line.parameters[0]).length === 0
-    ) {
-      line.parameters = []
+    const { error: extractedError, ...primaryObjectWithoutError } =
+      line.parameters[0]
+    error = extractedError
+    line = {
+      ...line,
+      parameters: [
+        ...(Object.keys(primaryObjectWithoutError).length > 0
+          ? [primaryObjectWithoutError]
+          : []),
+        ...line.parameters.slice(1),
+      ],
     }
   }
 
