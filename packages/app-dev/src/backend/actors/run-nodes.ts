@@ -1,10 +1,12 @@
-import { createLogger } from "@dassie/lib-logger"
-import { createActor } from "@dassie/lib-reactive"
+import assert from "node:assert"
 
+import { createLogger } from "@dassie/lib-logger"
+import { createActor, createMapped } from "@dassie/lib-reactive"
+
+import { activeNodesSetSignal } from "../computed/active-nodes-set"
 import { viteNodeService } from "../services/vite-node-server"
 import { viteService } from "../services/vite-server"
 import { activeNodesStore } from "../stores/active-nodes"
-import type { generateNodeConfig } from "../utils/generate-node-config"
 import { prepareDataDirectory } from "../utils/prepare-data-directory"
 import {
   type CertificateInfo,
@@ -37,44 +39,53 @@ export const runNodes = () =>
 
     logger.debug("starting node processes")
 
-    const nodeActor = () =>
-      createActor(async (sig, node: ReturnType<typeof generateNodeConfig>) => {
-        // Generate TLS certificates
-        {
-          const neededCertificates: CertificateInfo[] = [
-            {
-              type: "web",
-              commonName: `${node.id}.localhost`,
-              certificatePath: node.config.tlsWebCertFile,
-              keyPath: node.config.tlsWebKeyFile,
-            },
-            {
-              type: "dassie",
-              commonName: `test.das.${node.id}`,
-              certificatePath: node.config.tlsDassieCertFile,
-              keyPath: node.config.tlsDassieKeyFile,
-            },
-          ]
+    const nodeActorMap = () =>
+      createMapped(activeNodesSetSignal, (nodeId) =>
+        createActor(async (sig) => {
+          const node = sig.get(
+            activeNodesStore,
+            (nodes) => nodes.find((node) => node.id === nodeId) ?? null
+          )
 
-          await validateCertificates({
-            id: node.id,
-            certificates: neededCertificates,
+          assert(node, `node ${nodeId} should exist in config store`)
+
+          // Generate TLS certificates
+          {
+            const neededCertificates: CertificateInfo[] = [
+              {
+                type: "web",
+                commonName: `${node.id}.localhost`,
+                certificatePath: node.config.tlsWebCertFile,
+                keyPath: node.config.tlsWebKeyFile,
+              },
+              {
+                type: "dassie",
+                commonName: `test.das.${node.id}`,
+                certificatePath: node.config.tlsDassieCertFile,
+                keyPath: node.config.tlsDassieKeyFile,
+              },
+            ]
+
+            await validateCertificates({
+              id: node.id,
+              certificates: neededCertificates,
+            })
+          }
+
+          // Prepare data directory
+          {
+            const { dataPath } = node.config
+
+            await prepareDataDirectory(dataPath)
+          }
+
+          await sig.run(runNodeChildProcess, {
+            viteServer,
+            nodeServer,
+            node,
           })
-        }
-
-        // Prepare data directory
-        {
-          const { dataPath } = node.config
-
-          await prepareDataDirectory(dataPath)
-        }
-
-        await sig.run(runNodeChildProcess, {
-          viteServer,
-          nodeServer,
-          node,
         })
-      })
+      )
 
-    await Promise.all(sig.for(activeNodesStore, nodeActor))
+    await Promise.all(sig.runMap(nodeActorMap))
   })

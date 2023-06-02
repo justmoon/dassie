@@ -302,27 +302,7 @@ export class ActorContext extends DisposableLifecycle {
       actorLifecycle.attachToParent(this)
       actor.run(actorLifecycle)
     })
-  }
 
-  /**
-   * Run an actor for each element of an array signal. When the array value changes, only the actors corresponding to changed elements will be re-run.
-   */
-  for<TElement, TReturn>(
-    arraySignalFactory: Factory<ReadonlySignal<readonly TElement[]>>,
-    actorFactory: Factory<Actor<TReturn, TElement>>
-  ) {
-    return forArrayElement(this, arraySignalFactory, actorFactory, this.name)
-  }
-
-  /**
-   * Like {@link for} but compares elements based on their index in the array. Also passes the index to the actor.
-   */
-  forIndex<TElement, TReturn>(
-    arraySignalFactory: Factory<ReadonlySignal<readonly TElement[]>>,
-    actorFactory: Factory<
-      Actor<TReturn, readonly [element: TElement, index: number]>
-    >
-  ) {
-    return forArrayIndex(this, arraySignalFactory, actorFactory, this.name)
+    return results
   }
 }
