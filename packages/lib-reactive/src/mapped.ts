@@ -56,6 +56,11 @@ export interface Mapped<TInput, TOutput> {
   [Symbol.iterator]: () => IterableIterator<
     readonly [TInput, TOutput, Lifecycle]
   >
+
+  /**
+   * The number of items in the map.
+   */
+  size: number
 }
 
 interface InternalMapEntry<TOutput> {
@@ -102,6 +107,10 @@ export function createMapped<TInput, TOutput>(
       for (const [key, item] of internalMap) {
         yield [key, item.output, item.lifecycle] as const
       }
+    },
+
+    get size() {
+      return internalMap.size
     },
   }
 
