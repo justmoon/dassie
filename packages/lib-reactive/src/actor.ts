@@ -2,9 +2,10 @@ import type { ConditionalKeys } from "type-fest"
 
 import { isObject } from "@dassie/lib-type-utils"
 
-import type { ActorContext } from "./context"
+import { ActorContext } from "./context"
+import { DisposableLifecycle, Lifecycle } from "./internal/lifecycle"
 import { SettablePromise, makePromise } from "./internal/promise"
-import { FactoryNameSymbol } from "./reactor"
+import { FactoryNameSymbol, Reactor } from "./reactor"
 import { type Signal, createSignal } from "./signal"
 
 export type Behavior<TReturn = unknown, TProperties = unknown> = (
@@ -53,7 +54,7 @@ export type Actor<TInstance, TProperties = undefined> = Signal<
    * If the actor hasn't run yet, the result will be undefined.
    * If the actor throws an error, the result will be a rejected promise which is represented by a Promise<never> type.
    */
-  result: TInstance | undefined | Promise<never>
+  result: TInstance | undefined
 
   promise: SettablePromise<TInstance>
 
@@ -61,6 +62,17 @@ export type Actor<TInstance, TProperties = undefined> = Signal<
    * The function that initializes the actor. Used internally. You should call reactor.run() or sig.run() if you want to start the actor.
    */
   behavior: Behavior<TInstance, TProperties>
+
+  /**
+   * Run the actor and return the result.
+   *
+   * @remarks
+   *
+   * @param lifecycle - The parent lifecycle scope. The actor will automatically be disposed when this scope is disposed.
+   * @param properties - The properties to pass to the actor.
+   * @returns The return value of the actor.
+   */
+  run: RunSignature<TInstance, TProperties>
 
   /**
    * Fire-and-forget message to the actor. The message will be delivered asynchronously and any return value will be ignored.
@@ -90,6 +102,34 @@ export type Actor<TInstance, TProperties = undefined> = Signal<
   ) => Promise<InferActorReturnType<Awaited<TInstance>, TMethod>>
 }
 
+interface RunSignature<TReturn, TProperties> {
+  (lifecycle: Lifecycle): TReturn | undefined
+  (
+    lifecycle: Lifecycle,
+    properties: TProperties,
+    options?: RunOptions | undefined
+  ): TReturn | undefined
+}
+
+export interface RunOptions {
+  /**
+   * Object with additional debug information that will be merged into the debug log data related to the actor.
+   */
+  additionalDebugData?: Record<string, unknown> | undefined
+
+  /**
+   * Custom lifecycle scope to use for this actor.
+   *
+   * @internal
+   */
+  parentLifecycleScope?: DisposableLifecycle | undefined
+
+  /**
+   * A string that will be used to prefix the debug log messages related to this actor.
+   */
+  pathPrefix?: string | undefined
+}
+
 type CreateActorSignature = <TInstance, TProperties = undefined>(
   behavior: Behavior<TInstance, TProperties>
 ) => Actor<TInstance, TProperties>
@@ -100,6 +140,12 @@ export const createActor: CreateActorSignature = <
 >(
   behavior: Behavior<TInstance, TProperties>
 ): Actor<TInstance, TProperties> => {
+  const reactor = Reactor.current
+
+  if (!reactor) {
+    throw new Error("Actors must be created by a reactor.")
+  }
+
   const signal = createSignal<Awaited<TInstance> | undefined>(undefined)
   const actor: Actor<TInstance, TProperties> = {
     ...signal,
@@ -108,6 +154,35 @@ export const createActor: CreateActorSignature = <
     result: undefined,
     promise: makePromise(),
     behavior,
+    run: (
+      lifecycle: Lifecycle,
+      properties?: TProperties,
+      { additionalDebugData, pathPrefix }: RunOptions = {}
+    ) => {
+      if (actor.isRunning) {
+        throw new Error(`actor is already running: ${actor[FactoryNameSymbol]}`)
+      }
+
+      const actorPath = pathPrefix
+        ? `${pathPrefix}${actor[FactoryNameSymbol]}`
+        : actor[FactoryNameSymbol]
+
+      Object.defineProperty(actor.behavior, "name", {
+        value: actorPath,
+        writable: false,
+      })
+
+      void loopActor(
+        reactor,
+        actor,
+        actorPath,
+        properties!,
+        lifecycle,
+        additionalDebugData
+      )
+
+      return actor.result
+    },
     tell: (method, message) => {
       actor.ask(method, message).catch((error: unknown) => {
         console.error("error in actor handler", {
@@ -159,4 +234,58 @@ export const debugOptimisticActorCall = (
   }, DEBUG_ACTOR_OPTIMISTIC_CALL_TIMEOUT)
 
   actorPromise.finally(() => clearTimeout(timeout))
+}
+
+const loopActor = async <TReturn, TProperties>(
+  reactor: Reactor,
+  actor: Actor<TReturn, TProperties>,
+  actorPath: string,
+  properties: TProperties,
+  parentLifecycle: Lifecycle,
+  additionalDebugData: Record<string, unknown> | undefined
+) => {
+  for (;;) {
+    if (parentLifecycle.isDisposed) return
+
+    const waker = makePromise()
+
+    const context = new ActorContext(
+      actor[FactoryNameSymbol],
+      actorPath,
+      reactor,
+      waker.resolve
+    )
+    context.attachToParent(parentLifecycle)
+
+    try {
+      actor.isRunning = true
+
+      const actorReturn = actor.behavior(context, properties)
+
+      // Synchronously store the result of the actor's behavior function
+      actor.result = actorReturn
+
+      // Wait in case the actor is asynchronous.
+      // eslint-disable-next-line @typescript-eslint/await-thenable
+      const actorResult = await actorReturn
+
+      actor.write(actorResult)
+      actor.promise.resolve(actorResult)
+
+      await waker
+    } catch (error: unknown) {
+      console.error("error in actor", {
+        actor: actor[FactoryNameSymbol],
+        path: actorPath,
+        error,
+        ...additionalDebugData,
+      })
+      return
+    } finally {
+      actor.isRunning = false
+      actor.write(undefined)
+      actor.promise = makePromise()
+      await context.dispose()
+    }
+  }
 }

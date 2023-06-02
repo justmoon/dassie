@@ -73,7 +73,7 @@ export const runNodes = () =>
           viteServer,
           nodeServer,
           node,
-        }).result
+        })
       })
 
     await Promise.all(sig.for(activeNodesStore, nodeActor))

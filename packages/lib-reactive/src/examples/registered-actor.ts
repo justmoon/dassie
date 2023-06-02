@@ -24,7 +24,7 @@ const httpService = () =>
 
 const rootActor = () =>
   createActor((sig) => {
-    sig.run(httpService, undefined, { register: true })
+    sig.run(httpService)
 
     sig.timeout(
       () => sig.use(config).update((config) => ({ ...config, port: 3100 })),

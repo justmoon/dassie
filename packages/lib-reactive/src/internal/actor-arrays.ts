@@ -5,7 +5,7 @@ import type { ReadonlySignal } from "../signal"
 import { DisposableLifecycle } from "./lifecycle"
 
 interface EffectCache<TReturn> {
-  returnPromise: Promise<TReturn>
+  returnPromise: Promise<TReturn | undefined>
   lifecycleScope: DisposableLifecycle
 }
 
@@ -49,33 +49,36 @@ export const forArrayElement = <TElement, TReturn>(
 
     const disposalPromise = Promise.all(disposalPromises)
 
-    const results: Promise<TReturn>[] = arrayValue.map((element, index) => {
-      if (runningActors.has(element)) {
-        return runningActors.get(element)!.returnPromise
+    const results: Promise<TReturn | undefined>[] = arrayValue.map(
+      (element, index) => {
+        if (runningActors.has(element)) {
+          return runningActors.get(element)!.returnPromise
+        }
+
+        const lifecycleScope = new DisposableLifecycle(
+          `${parentEffectName}/${actorFactory.name}#${index}`
+        )
+
+        const returnPromise = disposalPromise.then(() => {
+          return sig
+            .use(actorFactory, { stateless: true })
+            .run(lifecycleScope, element, {
+              additionalDebugData: {
+                topic: arraySignalFactory.name,
+                index,
+                parentEffect: parentEffectName,
+              },
+            })
+        })
+
+        runningActors.set(element, {
+          returnPromise,
+          lifecycleScope,
+        })
+
+        return returnPromise
       }
-
-      const lifecycleScope = new DisposableLifecycle(
-        `${parentEffectName}/${actorFactory.name}#${index}`
-      )
-
-      const returnPromise = disposalPromise.then(() => {
-        return sig.run(actorFactory, element, {
-          parentLifecycleScope: lifecycleScope,
-          additionalDebugData: {
-            topic: arraySignalFactory.name,
-            index,
-            parentEffect: parentEffectName,
-          },
-        }).result!
-      })
-
-      runningActors.set(element, {
-        returnPromise,
-        lifecycleScope,
-      })
-
-      return returnPromise
-    })
+    )
 
     return results
   }
@@ -125,35 +128,38 @@ export const forArrayIndex = <TElement, TReturn>(
 
     const disposalPromise = Promise.all(disposalPromises)
 
-    const results: Promise<TReturn>[] = arrayValue.map((element, index) => {
-      const cache = runningEffects[index]
-      if (cache) {
-        return cache.returnPromise
+    const results: Promise<TReturn | undefined>[] = arrayValue.map(
+      (element, index) => {
+        const cache = runningEffects[index]
+        if (cache) {
+          return cache.returnPromise
+        }
+
+        const lifecycleScope = new DisposableLifecycle(
+          `${parentEffectName}/${actorFactory.name}#${index}`
+        )
+
+        const returnPromise = disposalPromise.then(() => {
+          return sig
+            .use(actorFactory, { stateless: true })
+            .run(lifecycleScope, [element, index] as const, {
+              additionalDebugData: {
+                topic: arraySignalFactory.name,
+                index,
+                parentEffect: parentEffectName,
+              },
+            })
+        })
+
+        runningEffects[index] = {
+          element,
+          returnPromise,
+          lifecycleScope,
+        }
+
+        return returnPromise
       }
-
-      const lifecycleScope = new DisposableLifecycle(
-        `${parentEffectName}/${actorFactory.name}#${index}`
-      )
-
-      const returnPromise = disposalPromise.then(() => {
-        return sig.run(actorFactory, [element, index] as const, {
-          parentLifecycleScope: lifecycleScope,
-          additionalDebugData: {
-            topic: arraySignalFactory.name,
-            index,
-            parentEffect: parentEffectName,
-          },
-        }).result!
-      })
-
-      runningEffects[index] = {
-        element,
-        returnPromise,
-        lifecycleScope,
-      }
-
-      return returnPromise
-    })
+    )
 
     return results
   }

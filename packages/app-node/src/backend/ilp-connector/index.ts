@@ -5,6 +5,6 @@ import { sendOutgoingPackets } from "./send-outgoing-packets"
 
 export const startIlpConnector = () =>
   createActor((sig) => {
-    sig.run(processIncomingPacket, undefined, { register: true })
+    sig.run(processIncomingPacket)
     sig.run(sendOutgoingPackets)
   })

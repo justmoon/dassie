@@ -139,7 +139,9 @@ export function createMapped<TInput, TOutput>(
         )
         lifecycle.attachToParent(reactor)
 
+        Reactor.current = reactor
         const output = mapFunction(item, lifecycle)
+        Reactor.current = undefined
 
         internalMap.set(item, {
           output,

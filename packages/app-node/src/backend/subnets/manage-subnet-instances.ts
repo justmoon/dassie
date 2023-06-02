@@ -89,11 +89,8 @@ export const manageSubnetInstances = () =>
           }
 
           // Instantiate subnet module actor.
-          const subnetActor = sig.run(
-            subnetActorFactory,
-            { subnetId, host },
-            { register: true }
-          )
+          const subnetActor = sig.use(subnetActorFactory)
+          await subnetActor.run(sig, { subnetId, host })
 
           subnetActorMap.set(subnetId, {
             actor: subnetActor,
@@ -107,7 +104,9 @@ export const manageSubnetInstances = () =>
           }
 
           // Instantiate aspects of the peer protocol that are specific to this subnet.
-          await sig.run(speakPeerProtocolPerSubnet, subnetParameters).result
+          sig
+            .use(speakPeerProtocolPerSubnet, { stateless: true })
+            .run(sig, subnetParameters)
 
           sig.onCleanup(() => {
             subnetActorMap.delete(subnetId)

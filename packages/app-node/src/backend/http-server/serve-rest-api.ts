@@ -14,5 +14,5 @@ export const restApiService = () =>
 
 export const serveRestApi = () =>
   createActor((sig) => {
-    sig.run(restApiService, undefined, { register: true })
+    sig.run(restApiService)
   })

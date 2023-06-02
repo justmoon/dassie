@@ -109,6 +109,6 @@ export const httpService = () =>
 
 export const serveHttp = () =>
   createActor((sig) => {
-    sig.run(routerService, undefined, { register: true })
-    sig.run(httpService, undefined, { register: true })
+    sig.run(routerService)
+    sig.run(httpService)
   })

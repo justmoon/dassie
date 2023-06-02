@@ -16,13 +16,13 @@ import { sendHeartbeats } from "./send-heartbeats"
 
 export const speakPeerProtocol = () =>
   createActor(async (sig) => {
-    sig.run(handlePeerMessage, undefined, { register: true })
-    sig.run(sendPeerMessage, undefined, { register: true })
+    sig.run(handlePeerMessage)
+    sig.run(sendPeerMessage)
 
     // Handle incoming Dassie messages via HTTP
     sig.run(registerPeerHttpHandler)
 
-    await sig.run(maintainOwnNodeTableEntry).result
+    await sig.run(maintainOwnNodeTableEntry)
     sig.run(maintainPeeringRelationships)
 
     sig.run(sendHeartbeats)

@@ -17,21 +17,21 @@ import { startTrpcServer } from "./trpc-server"
 
 export const rootActor = () =>
   createActor(async (sig) => {
-    sig.run(signerService, undefined, { register: true })
-    sig.run(attachLogger, undefined, { register: true })
+    sig.run(signerService)
+    sig.run(attachLogger)
     sig.run(startAccounting)
     sig.run(startIlpConnector)
     sig.run(startHttpServer)
     sig.run(startBtpServer)
     sig.run(startTrpcServer)
     sig.run(startIldcpServer)
-    await sig.run(startExchangeRates).result
-    await sig.run(startSubnets).result
-    await sig.run(startSpspServer).result
+    await sig.run(startExchangeRates)
+    await sig.run(startSubnets)
+    await sig.run(startSpspServer)
     sig.run(startOpenPaymentsServer)
     sig.run(startStatisticsServer)
 
-    await sig.run(speakPeerProtocol).result
+    await sig.run(speakPeerProtocol)
   })
 
 export const start = () => createReactor(rootActor)

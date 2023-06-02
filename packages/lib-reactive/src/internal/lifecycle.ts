@@ -2,6 +2,7 @@ import type { AsyncDisposer } from "../reactor"
 
 export interface Lifecycle {
   name: string
+  isDisposed: boolean
   onCleanup: typeof DisposableLifecycle.prototype.onCleanup
   offCleanup: typeof DisposableLifecycle.prototype.offCleanup
 }

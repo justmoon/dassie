@@ -61,10 +61,6 @@ export const sendOutgoingPackets = () =>
   createActor((sig) => {
     const globalIlpClientMap = sig.use(routingTableSignal)
 
-    for (const sender of Object.values(SENDERS)) {
-      sig.run(sender as Factory<Actor<unknown>>, undefined, { register: true })
-    }
-
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const senders: AllPacketSenders = Object.fromEntries(
       Object.entries(SENDERS).map(([key, value]) => [
@@ -73,6 +69,10 @@ export const sendOutgoingPackets = () =>
       ])
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ) as any
+
+    for (const sender of Object.values(senders)) {
+      sender.run(sig)
+    }
 
     const getDestinationInfo = (
       destination: string

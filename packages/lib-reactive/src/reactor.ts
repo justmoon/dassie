@@ -3,10 +3,8 @@ import type { Promisable } from "type-fest"
 import { isObject } from "@dassie/lib-type-utils"
 
 import type { Actor } from "./actor"
-import { ActorContext } from "./context"
 import { createDebugTools } from "./debug/debug-tools"
 import { DisposableLifecycle } from "./internal/lifecycle"
-import { makePromise } from "./internal/promise"
 
 /**
  * The reactor will automatically set this property on each instantiated object.
@@ -55,44 +53,11 @@ export interface UseOptions {
   stateless?: boolean | undefined
 }
 
-export interface RunOptions {
-  /**
-   * Object with additional debug information that will be merged into the debug log data related to the actor.
-   */
-  additionalDebugData?: Record<string, unknown> | undefined
-
-  /**
-   * Custom lifecycle scope to use for this actor.
-   *
-   * @internal
-   */
-  parentLifecycleScope?: DisposableLifecycle | undefined
-
-  /**
-   * A string that will be used to prefix the debug log messages related to this actor.
-   */
-  pathPrefix?: string | undefined
-
-  /**
-   * If true, a reference to the actor will be stored in the context.
-   */
-  register?: boolean | undefined
-}
-
 export type Factory<TInstance> = (reactor: Reactor) => TInstance
 
 export interface ContextState extends WeakMap<Factory<unknown>, unknown> {
   get<T>(key: Factory<T>): T | undefined
   set<T>(key: Factory<T>, value: T): this
-}
-
-interface RunSignature {
-  <TReturn>(factory: Factory<Actor<TReturn>>): Actor<TReturn>
-  <TReturn, TProperties>(
-    factory: Factory<Actor<TReturn, TProperties>>,
-    properties: TProperties,
-    options?: RunOptions | undefined
-  ): Actor<TReturn, TProperties>
 }
 
 export class Reactor extends DisposableLifecycle {
@@ -166,57 +131,6 @@ export class Reactor extends DisposableLifecycle {
   }
 
   /**
-   * Execute an actor and return its first return value.
-   *
-   * @remarks
-   *
-   * You may pass a second parameter (usually a properties object) which will be passed as the second argument to the actor's behavior function.
-   *
-   * The actor will run for the duration of the `parentLifecycleScope` or the reactor's lifecycle scope if none is provided.
-   *
-   * @param factory - A function which returns a new actor instance.
-   * @returns The value stored in the context.
-   */
-  run: RunSignature = <TReturn, TProperties>(
-    factory: Factory<Actor<TReturn, TProperties | undefined>>,
-    properties?: TProperties,
-    {
-      additionalDebugData,
-      parentLifecycleScope,
-      pathPrefix,
-      register,
-    }: RunOptions = {}
-  ): Actor<TReturn, TProperties> => {
-    const actor = register ? this.use(factory) : factory(this)
-
-    actor[FactoryNameSymbol] = factory.name
-
-    if (actor.isRunning) {
-      throw new Error(`actor is already running: ${actor[FactoryNameSymbol]}`)
-    }
-
-    const actorPath = pathPrefix
-      ? `${pathPrefix}${actor[FactoryNameSymbol]}`
-      : actor[FactoryNameSymbol]
-
-    Object.defineProperty(actor.behavior, "name", {
-      value: actorPath,
-      writable: false,
-    })
-
-    void loopActor(
-      this,
-      actor,
-      actorPath,
-      properties,
-      parentLifecycleScope ?? this,
-      additionalDebugData
-    )
-
-    return actor
-  }
-
-  /**
    * Access an element in the context but without creating it if it does not yet exist.
    *
    * @param factory - Key to the element in the context.
@@ -270,69 +184,15 @@ export const createReactor = (
   const reactor: Reactor = new Reactor()
 
   if (rootActor) {
-    Promise.resolve(reactor.run(rootActor)).catch((error: unknown) => {
-      console.error("error running root actor", {
-        actor: rootActor.name,
-        error,
-      })
-    })
+    Promise.resolve(reactor.use(rootActor).run(reactor)).catch(
+      (error: unknown) => {
+        console.error("error running root actor", {
+          actor: rootActor.name,
+          error,
+        })
+      }
+    )
   }
 
   return reactor
-}
-
-const loopActor = async <TReturn, TProperties>(
-  reactor: Reactor,
-  actor: Actor<TReturn, TProperties>,
-  actorPath: string,
-  properties: TProperties,
-  parentLifecycle: DisposableLifecycle,
-  additionalDebugData: Record<string, unknown> | undefined
-) => {
-  for (;;) {
-    if (parentLifecycle.isDisposed) return
-
-    const waker = makePromise()
-
-    const context = new ActorContext(
-      actor[FactoryNameSymbol],
-      actorPath,
-      reactor,
-      waker.resolve
-    )
-    context.attachToParent(parentLifecycle)
-
-    try {
-      actor.isRunning = true
-
-      const actorReturn = actor.behavior(context, properties)
-
-      // Synchronously store the result of the actor's behavior function
-      actor.result = actorReturn
-
-      // Wait in case the actor is asynchronous.
-      // eslint-disable-next-line @typescript-eslint/await-thenable
-      const actorResult = await actorReturn
-
-      actor.write(actorResult)
-      actor.promise.resolve(actorResult)
-
-      await waker
-    } catch (error: unknown) {
-      actor.result = Promise.reject(error)
-
-      console.error("error in actor", {
-        actor: actor[FactoryNameSymbol],
-        path: actorPath,
-        error,
-        ...additionalDebugData,
-      })
-      return
-    } finally {
-      actor.isRunning = false
-      actor.write(undefined)
-      actor.promise = makePromise()
-      await context.dispose()
-    }
-  }
 }

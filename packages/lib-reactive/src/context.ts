@@ -2,11 +2,11 @@ import { Promisable } from "type-fest"
 
 import { isObject } from "@dassie/lib-type-utils"
 
-import type { Actor } from "./actor"
+import type { Actor, RunOptions } from "./actor"
 import { forArrayElement, forArrayIndex } from "./internal/actor-arrays"
 import { DisposableLifecycle } from "./internal/lifecycle"
 import { Mapped } from "./mapped"
-import type { Factory, Reactor, RunOptions, UseOptions } from "./reactor"
+import type { Factory, Reactor, UseOptions } from "./reactor"
 import type { ReadonlySignal } from "./signal"
 import type { Listener, ReadonlyTopic } from "./topic"
 
@@ -246,30 +246,42 @@ export class ActorContext extends DisposableLifecycle {
    *
    * @remarks
    *
-   * When created using `run`, the actor will inherit the current actor's lifecycle, i.e. it will be disposed when the current actor is disposed.
+   * This is essentially a shorthand for `sig.use(actorFactory).run(sig)`. If there are any properties passed, the actor will be instantiated statelessly, i.e. it will not be added to the context and can't be accessed via `sig.use`.
+   *
+   * If you want to create a stateless actor but retain a reference to it, you can use `sig.use(actorFactory, { stateless: true })`.
+   *
+   * If you want to pass properties to an actor, but still register it in the global context, you can use `sig.use(actorFactory).run(sig, properties)`.
+   *
+   * In all cases, the actor will inherit the current actor's lifecycle, i.e. it will be disposed when the current actor is disposed.
    *
    * @param factory - Factory function of the actor to be instantiated.
-   * @param properties - Properties to be passed to the actor behavior function as the second parameter.
+   * @param properties - Properties to be passed to the actor behavior function as the second parameter. If this is undefined, the actor will be registered in the global context.
    * @returns - Return value of the first invocation of the actor.
    */
-  run<TReturn>(factory: Factory<Actor<TReturn>>): Actor<TReturn>
+  run<TReturn>(factory: Factory<Actor<TReturn>>): TReturn | undefined
   run<TReturn, TProperties>(
     factory: Factory<Actor<TReturn, TProperties>>,
     properties: TProperties,
     options?: RunOptions | undefined
-  ): Actor<TReturn, TProperties>
+  ): TReturn | undefined
   run<TReturn, TProperties>(
     factory: Factory<Actor<TReturn, TProperties>>,
     properties?: TProperties | undefined,
     options?: RunOptions | undefined
   ) {
-    return this.reactor.run(factory, properties!, {
-      parentLifecycleScope: options?.parentLifecycleScope ?? this,
-      pathPrefix: `${this.path}.`,
-      ...options,
-    })
+    return this.reactor
+      .use(factory, { stateless: properties !== undefined })
+      .run(this, properties!, options)
   }
 
+  /**
+   * Run a map of actors.
+   *
+   * @remarks
+   *
+   * The mapped types allows you to specify a map of actors, where the keys are arbitrary strings and the values are actors. The actors will be instantiated as children of the current actor, and will automatically be created and disposed as map items are added or removed.
+   * @param factory - Factory function of the mapped actors.
+   */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   runMap(factory: Factory<Mapped<unknown, Actor<any>>>): void {
     const mapped = this.use(factory)
@@ -277,14 +289,14 @@ export class ActorContext extends DisposableLifecycle {
       const actorLifecycle = new DisposableLifecycle("")
       actorLifecycle.attachToParent(mapLifecycle)
       actorLifecycle.attachToParent(this)
-      this.run(() => actor, undefined, { parentLifecycleScope: actorLifecycle })
+      actor.run(actorLifecycle)
     }
 
     mapped.additions.on(this, ([, actor, mapLifecycle]) => {
       const actorLifecycle = new DisposableLifecycle("")
       actorLifecycle.attachToParent(mapLifecycle)
       actorLifecycle.attachToParent(this)
-      this.run(() => actor, undefined, { parentLifecycleScope: actorLifecycle })
+      actor.run(actorLifecycle)
     })
   }
 

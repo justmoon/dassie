@@ -16,15 +16,15 @@ export const logger = createLogger("das:dev:launcher:node")
 
 const debugRunner = () =>
   createActor(async (sig) => {
-    sig.run(trpcClientService, undefined, { register: true })
+    sig.run(trpcClientService)
     sig.run(handleShutdownSignals)
     sig.run(handleDisconnect)
     sig.run(forwardLogs)
     sig.run(patchIlpLogger)
     sig.run(forwardPeerTraffic)
-    await sig.run(reportPeeringState).result
-    await sig.run(serveWallet).result
-    await sig.run(nodeRootActor).result
+    await sig.run(reportPeeringState)
+    await sig.run(serveWallet)
+    await sig.run(nodeRootActor)
     sig.run(runDebugRpcServer)
   })
 
