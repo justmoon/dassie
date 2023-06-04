@@ -1,4 +1,4 @@
-import { copyFile, mkdir } from "node:fs/promises"
+import { copyFile, cp, mkdir } from "node:fs/promises"
 import { resolve } from "node:path"
 
 import { Architecture } from "../constants/architectures"
@@ -41,6 +41,18 @@ export const copyFilesIntoBundle = async (architecture: Architecture) => {
     const backendOutputPath = resolve(bundlePath, "backend.js")
 
     await copyFile(backendSourcePath, backendOutputPath)
+  }
+
+  {
+    const frontendSourcePath = resolve(PATH_DIST_STAGING_SHARED, "frontend")
+    const frontendOutputPath = resolve(bundlePath, "share/public")
+
+    await mkdir(frontendOutputPath, { recursive: true })
+
+    await cp(frontendSourcePath, frontendOutputPath, {
+      recursive: true,
+      preserveTimestamps: true,
+    })
   }
 
   {

@@ -3,6 +3,7 @@ import { createActor, createReactor } from "@dassie/lib-reactive"
 import { SUPPORTED_ARCHITECTURES } from "./constants/architectures"
 import { DASSIE_VERSION } from "./constants/version"
 import { buildBackend } from "./steps/build-backend"
+import { buildFrontend } from "./steps/build-frontend"
 import { compressBundle } from "./steps/compress-bundle"
 import { copyFilesIntoBundle } from "./steps/copy-files-into-bundle"
 import { createOutputPath } from "./steps/create-output-path"
@@ -20,6 +21,9 @@ export const rootActor = () =>
 
     console.log("Building backend")
     await buildBackend()
+
+    console.log("Building frontend")
+    await buildFrontend()
 
     for (const architecture of SUPPORTED_ARCHITECTURES) {
       console.log(`Creating ${getBundleFilename(architecture)}`)
