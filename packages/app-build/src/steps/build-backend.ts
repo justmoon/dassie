@@ -2,7 +2,10 @@ import { build } from "esbuild"
 
 import { resolve } from "node:path"
 
-import { PATH_DIST_BUNDLE, PATH_PACKAGE_APP_NODE } from "../constants/paths"
+import {
+  PATH_DIST_STAGING_SHARED,
+  PATH_PACKAGE_APP_NODE,
+} from "../constants/paths"
 
 const BANNER = `
 await (async () => {
@@ -31,7 +34,7 @@ await (async () => {
 export const buildBackend = async () => {
   await build({
     entryPoints: [resolve(PATH_PACKAGE_APP_NODE, "src/backend/entry.ts")],
-    outfile: resolve(PATH_DIST_BUNDLE, "backend.js"),
+    outfile: resolve(PATH_DIST_STAGING_SHARED, "backend.js"),
     bundle: true,
     platform: "node",
     format: "esm",

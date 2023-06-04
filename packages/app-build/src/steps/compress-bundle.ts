@@ -1,12 +1,20 @@
 import { basename, resolve } from "node:path"
 
-import { PATH_DIST, PATH_DIST_BUNDLE } from "../constants/paths"
+import { Architecture } from "../constants/architectures"
+import { PATH_DIST } from "../constants/paths"
+import { getBundleFilename } from "../utils/bundle-name"
+import { getBundlePath } from "../utils/dynamic-paths"
 import { run } from "../utils/run"
 
-export const compressBundle = async () => {
-  const outputArchiveFile = resolve(PATH_DIST, "bundle.tar.xz")
+export const compressBundle = async (architecture: Architecture) => {
+  const bundlePath = getBundlePath(architecture)
+
+  const outputArchiveFile = resolve(
+    PATH_DIST,
+    `${getBundleFilename(architecture)}`
+  )
   await run`tar -cJf ${outputArchiveFile} -C ${resolve(
-    PATH_DIST_BUNDLE,
+    bundlePath,
     ".."
-  )} ${basename(PATH_DIST_BUNDLE)}`
+  )} ${basename(bundlePath)}`
 }
