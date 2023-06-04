@@ -2,9 +2,11 @@
 import tailwindAnimate from "tailwindcss-animate"
 import defaultTheme from "tailwindcss/defaultTheme"
 
+const frontendRoot = new URL(".", import.meta.url).pathname
+
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: ["./packages/app-node/src/frontend/**/*.{html,js,ts,jsx,tsx}"],
+  content: [`${frontendRoot}**/*.{html,js,ts,jsx,tsx}`],
   darkMode: "class",
   theme: {
     container: {

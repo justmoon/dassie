@@ -8,10 +8,14 @@ import { DarkModeProvider } from "./components/context/dark-mode"
 import { trpc } from "./utils/trpc"
 
 const Root = () => {
+  const wsUrl = new URL("/", location.href)
+  wsUrl.protocol = "wss:"
+  wsUrl.pathname = "/trpc"
+
   const [queryClient] = useState(() => new QueryClient())
   const [wsLink] = useState(() => {
     const wsClient = createWSClient({
-      url: `${__DASSIE_NODE_URL__.replace(/^http/, "ws")}trpc`,
+      url: wsUrl.toString(),
     })
     return createWSLink({ client: wsClient })
   })

@@ -42,8 +42,7 @@ function getHtmlFilename(url: string, server: ViteDevServer) {
 export const serveWallet = () =>
   createActor(async (sig) => {
     const additionalMiddlewares = sig.use(additionalMiddlewaresSignal)
-    const { host, port, tlsWebCert, tlsWebKey } = sig.getKeys(configSignal, [
-      "host",
+    const { port, tlsWebCert, tlsWebKey } = sig.getKeys(configSignal, [
       "port",
       "tlsWebCert",
       "tlsWebKey",
@@ -63,9 +62,6 @@ export const serveWallet = () =>
           key: tlsWebKey,
         },
         cors: false,
-      },
-      define: {
-        __DASSIE_NODE_URL__: `'https://${host}/'`,
       },
     })
 
