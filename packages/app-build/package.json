@@ -17,8 +17,10 @@
     "@dassie/lib-logger": "workspace:^1.0.0",
     "@dassie/lib-reactive": "workspace:^1.0.0",
     "@dassie/lib-type-utils": "workspace:1.0.0",
+    "axios": "^1.4.0",
     "esbuild": "^0.17.19",
-    "vite": "^4.3.9"
+    "vite": "^4.3.9",
+    "zx": "^7.2.2"
   },
   "devDependencies": {
     "@dassie/eslint-config": "workspace:^",

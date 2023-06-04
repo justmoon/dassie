@@ -1,11 +1,8 @@
 import { mkdir } from "node:fs/promises"
 
-import { createActor } from "@dassie/lib-reactive"
+import { PATH_DIST, PATH_DIST_BUNDLE } from "../constants/paths"
 
-import { outputPathSignal } from "../computed/output-path"
-
-export const createOutputPath = () =>
-  createActor(async (sig) => {
-    const outputPath = sig.get(outputPathSignal)
-    await mkdir(outputPath, { recursive: true })
-  })
+export const createOutputPath = async () => {
+  await mkdir(PATH_DIST, { recursive: true })
+  await mkdir(PATH_DIST_BUNDLE, { recursive: true })
+}

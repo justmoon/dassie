@@ -1,0 +1,17 @@
+[Unit]
+Description=Dassie
+After=network.target
+
+[Service]
+ExecStart=/opt/dassie/current/bin/node /opt/dassie/current/backend.js
+WorkingDirectory=/opt/dassie/current
+User=dassie
+Group=dassie
+Restart=always
+Environment=PATH=/usr/bin:/usr/local/bin
+Environment=NODE_ENV=production
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
