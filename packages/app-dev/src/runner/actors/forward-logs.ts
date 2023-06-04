@@ -25,6 +25,6 @@ export const forwardLogs = () =>
 
     // Overwrite logger behavior so we can forward logs to the server
     sig.use(attachLogger).behavior = () => {
-      captureConsole({ formatter: jsonFormatter })
+      captureConsole({ formatter: jsonFormatter, outputFunction: () => void 0 })
     }
   })

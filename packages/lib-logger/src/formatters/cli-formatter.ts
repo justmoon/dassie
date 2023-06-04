@@ -829,8 +829,8 @@ const formatEvent = (context: FormattingContext, line: LogMessage) => {
   return `${levelInsert}${formatMessage(
     context,
     line.message
-  )}${formatParameters(context, line.parameters)}\n${
-    error ? "\n" + formatError(context, error) + "\n\n" : ""
+  )}${formatParameters(context, line.parameters)}${
+    error ? "\n\n" + formatError(context, error) + "\n" : ""
   }`
 }
 

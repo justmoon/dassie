@@ -28,7 +28,7 @@ export const registerReactiveLogger = () =>
       },
     })
 
-    captureConsole({ formatter: jsonFormatter })
+    captureConsole({ formatter: jsonFormatter, outputFunction: () => void 0 })
 
     if (process.env["DASSIE_LOG_TO_CLI"] === "true") {
       const cliFormatter = createCliFormatter()
@@ -49,7 +49,8 @@ export const registerReactiveLogger = () =>
                   message,
                   date: new Date(date),
                   parameters,
-                })
+                }) +
+                "\n"
             )
             break
           }
