@@ -3,6 +3,6 @@
   "display": "Vite Isomorphic",
   "extends": "./base.json",
   "compilerOptions": {
-    "types": ["vite/client", "node"]
+    "types": ["vite/client", "vitest/importMeta", "node"]
   }
 }

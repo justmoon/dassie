@@ -43,6 +43,8 @@ export const buildBackend = async () => {
       "import.meta.env.MODE": '"production"',
       "import.meta.env.PROD": "true",
       "import.meta.env.DEV": "false",
+      // We have to split the string here to avoid vitest from seeing it
+      ["import.meta." + "vitest"]: "undefined",
     },
     banner: {
       js: BANNER,

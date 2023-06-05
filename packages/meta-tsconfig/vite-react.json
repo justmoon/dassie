@@ -5,6 +5,6 @@
   "compilerOptions": {
     "lib": ["dom", "dom.iterable", "esnext"],
     "jsx": "react-jsx",
-    "types": ["vite/client"]
+    "types": ["vite/client", "vitest/importMeta"]
   }
 }
