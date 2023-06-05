@@ -11,33 +11,31 @@ import PeeringModeToggle from "./peering-mode-toggle"
 
 const NodesList = () => {
   const sig = useSig()
-  const nodes = sig.get(activeNodesStore)
+  const nodes = [...(sig.get(activeNodesStore) ?? new Set())]
   const addRandomNode = trpc.ui.addRandomNode.useMutation()
-
-  if (!nodes) return <div />
 
   return (
     <div className="rounded-lg flex flex-col bg-gray-800 min-h-0 p-4">
       <PeeringModeToggle />
       <h2 className="font-bold text-xl">Nodes</h2>
       <div className="grid grid-cols-2 py-4 gap-x-2 gap-y-3">
-        {nodes.map((node) => (
+        {nodes.map((nodeId) => (
           <div
-            key={node.id}
+            key={nodeId}
             className="flex gap-2 items-center bg-slate-700 rounded-full"
           >
             <Link
-              href={`/nodes/${node.id}`}
+              href={`/nodes/${nodeId}`}
               className="flex items-center flex-1 pl-3 py-1 hover:bg-slate-600 rounded-full"
             >
               <i
                 className="rounded-full h-2 mr-2 w-2 inline-block"
-                style={{ background: selectBySeed(COLORS, node.id) }}
+                style={{ background: selectBySeed(COLORS, nodeId) }}
               ></i>
-              {node.id}
+              {nodeId}
             </Link>
             <a
-              href={`https://${node.id}.localhost`}
+              href={`https://${nodeId}.localhost`}
               className="flex text-gray-400 hover:text-white h-full px-2 items-center rounded-full"
               target="_blank"
               rel="noreferrer"

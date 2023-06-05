@@ -1,3 +1,7 @@
+import pureRand from "pure-rand"
+
+import assert from "node:assert"
+
 import type { InputConfig } from "@dassie/app-node"
 import { getPublicKey } from "@dassie/app-node/src/backend/crypto/ed25519"
 import { calculateNodeId } from "@dassie/app-node/src/backend/ilp-connector/utils/calculate-node-id"
@@ -38,6 +42,14 @@ export const nodeIndexToId = (index: number) => {
 export const nodeIndexToCoordinates = (index: number) =>
   calculateHaltonLocation(index + 1)
 
+export const nodeFriendlyIdToIndex = (id: string) => {
+  const index = Number.parseInt(id.slice(1), 10) - 1
+
+  assert(`n${index + 1}` === id, `Invalid node id: ${id}`)
+
+  return index
+}
+
 export interface NodeConfig {
   id: string
   port: number
@@ -51,6 +63,38 @@ export interface NodeConfig {
   entry: string
 }
 
+const MAX_PEERS = 3
+const PEER_SELECTION_BASE_SEED = 0xa3_e5_ef_27
+
+const selectPeers = (nodeIndex: number) => {
+  const generator = pureRand.xoroshiro128plus(
+    PEER_SELECTION_BASE_SEED + nodeIndex
+  )
+
+  const peers = new Set<number>()
+
+  if (nodeIndex === 0) {
+    return []
+  }
+
+  const peerCount = pureRand.unsafeUniformIntDistribution(
+    1,
+    MAX_PEERS,
+    generator
+  )
+
+  for (let index = 0; index < peerCount; index++) {
+    const peerIndex = pureRand.unsafeUniformIntDistribution(
+      0,
+      nodeIndex - 1,
+      generator
+    )
+    peers.add(peerIndex)
+  }
+
+  return [...peers]
+}
+
 const generatePeerInfo = (peerIndex: number) => ({
   nodeId: nodeIndexToId(peerIndex),
   url: `https://${nodeIndexToFriendlyId(peerIndex)}.localhost:${nodeIndexToPort(
@@ -60,10 +104,11 @@ const generatePeerInfo = (peerIndex: number) => ({
   nodePublicKey: Buffer.from(nodeIndexToPublicKey(peerIndex)).toString("hex"),
 })
 
-export const generateNodeConfig = ((index, peers, environmentSettings) => {
-  const id = nodeIndexToFriendlyId(index)
+export const generateNodeConfig = ((id, environmentSettings) => {
+  const index = nodeFriendlyIdToIndex(id)
   const port = nodeIndexToPort(index)
   const { latitude, longitude } = nodeIndexToCoordinates(index)
+  const peers = selectPeers(index)
 
   const peersInfo = peers.map((peerIndex) => generatePeerInfo(peerIndex))
 
@@ -102,7 +147,6 @@ export const generateNodeConfig = ((index, peers, environmentSettings) => {
     entry: ENTRYPOINT,
   }
 }) satisfies (
-  index: number,
-  peers: readonly number[],
+  id: string,
   environmentSettings: EnvironmentSettings
 ) => NodeConfig

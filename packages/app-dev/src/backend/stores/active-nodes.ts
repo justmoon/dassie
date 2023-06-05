@@ -1,27 +1,17 @@
+import { enableMapSet, produce } from "immer"
+
 import { createStore } from "@dassie/lib-reactive"
 
-import { PEERS } from "../constants/development-nodes"
-import { generateNodeConfig } from "../utils/generate-node-config"
-import {
-  DEFAULT_ENVIRONMENT_SETTINGS,
-  type EnvironmentSettings,
-} from "./environment-settings"
+enableMapSet()
+
+const INITIAL_NODES = ["n1", "n2", "n3", "n4", "n5", "n6"]
 
 export const activeNodesStore = () =>
-  createStore(
-    PEERS.map((peers, index) =>
-      generateNodeConfig(index, peers, DEFAULT_ENVIRONMENT_SETTINGS)
-    ),
-    {
-      addNode: (node: ReturnType<typeof generateNodeConfig>) => (nodes) =>
-        [...nodes, node],
-      regenerateConfig:
-        (environmentSettings: EnvironmentSettings) => (nodes) => {
-          const newNodes = nodes.map((node, index) =>
-            generateNodeConfig(index, node.peerIndices, environmentSettings)
-          )
-
-          return newNodes
-        },
-    }
-  )
+  createStore(new Set<string>(INITIAL_NODES), {
+    addNode: () =>
+      produce((nodes) => {
+        let index = 1
+        while (nodes.has(`n${index}`)) index++
+        nodes.add(`n${index}`)
+      }),
+  })

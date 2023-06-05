@@ -1,10 +1,9 @@
 import { initTRPC } from "@trpc/server"
-import { Observable, observable } from "@trpc/server/observable"
 import superjson from "superjson"
 import { z } from "zod"
 
 import { createLogger } from "@dassie/lib-logger"
-import { ActorContext, Factory, ReadonlySignal } from "@dassie/lib-reactive"
+import { subscribeToSignal } from "@dassie/lib-reactive-trpc/server"
 
 import { configSignal, nodeTableStore } from ".."
 import { totalOwnerBalanceComputed } from "../accounting/computed/total-owner-balance"
@@ -17,23 +16,6 @@ import type { TrpcContext } from "./trpc-context"
 const logger = createLogger("das:node:trpc-router")
 
 const trpc = initTRPC.context<TrpcContext>().create({ transformer: superjson })
-
-const subscribeToSignal = <TValue>(
-  sig: ActorContext,
-  signalFactory: Factory<ReadonlySignal<TValue>>
-): Observable<TValue, unknown> => {
-  return observable<TValue>((emit) => {
-    const signal = sig.use(signalFactory)
-    const listener = (value: TValue) => {
-      emit.next(value)
-    }
-    signal.on(sig, listener)
-    listener(signal.read())
-    return () => {
-      signal.off(listener)
-    }
-  })
-}
 
 export const appRouter = trpc.router({
   resolvePaymentPointer: trpc.procedure

@@ -1,10 +1,12 @@
 import { type AnyRootConfig, type RootConfig, initTRPC } from "@trpc/server"
-import { observable } from "@trpc/server/observable"
+import { type Observable, observable } from "@trpc/server/observable"
 
 import {
+  ActorContext,
   type Change,
   type Factory,
   type Reactor,
+  ReadonlySignal,
   type ReadonlyTopic,
   isSignal,
   isStore,
@@ -25,6 +27,23 @@ export interface ReactiveCapableTrpc {
 }
 
 export type ExposedTopicsMap = Record<string, Factory<ReadonlyTopic<unknown>>>
+
+export const subscribeToSignal = <TValue>(
+  sig: ActorContext,
+  signalFactory: Factory<ReadonlySignal<TValue>>
+): Observable<TValue, unknown> => {
+  return observable<TValue>((emit) => {
+    const signal = sig.use(signalFactory)
+    const listener = (value: TValue) => {
+      emit.next(value)
+    }
+    signal.on(sig, listener)
+    listener(signal.read())
+    return () => {
+      signal.off(listener)
+    }
+  })
+}
 
 export const createRemoteReactiveRouter = <
   TExposedTopicsMap extends ExposedTopicsMap

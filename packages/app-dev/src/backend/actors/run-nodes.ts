@@ -1,12 +1,11 @@
-import assert from "node:assert"
-
 import { createLogger } from "@dassie/lib-logger"
 import { createActor, createMapped } from "@dassie/lib-reactive"
 
-import { activeNodesSetSignal } from "../computed/active-nodes-set"
 import { viteNodeService } from "../services/vite-node-server"
 import { viteService } from "../services/vite-server"
 import { activeNodesStore } from "../stores/active-nodes"
+import { environmentSettingsStore } from "../stores/environment-settings"
+import { generateNodeConfig } from "../utils/generate-node-config"
 import { prepareDataDirectory } from "../utils/prepare-data-directory"
 import {
   type CertificateInfo,
@@ -40,14 +39,10 @@ export const runNodes = () =>
     logger.debug("starting node processes")
 
     const nodeActorMap = () =>
-      createMapped(activeNodesSetSignal, (nodeId) =>
+      createMapped(activeNodesStore, (nodeId) =>
         createActor(async (sig) => {
-          const node = sig.get(
-            activeNodesStore,
-            (nodes) => nodes.find((node) => node.id === nodeId) ?? null
-          )
-
-          assert(node, `node ${nodeId} should exist in config store`)
+          const environmentSettings = sig.get(environmentSettingsStore)
+          const node = generateNodeConfig(nodeId, environmentSettings)
 
           // Generate TLS certificates
           {

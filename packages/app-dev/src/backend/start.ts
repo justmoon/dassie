@@ -5,7 +5,6 @@ import { createActor, createReactor } from "@dassie/lib-reactive"
 import { handleShutdownSignals } from "../common/actors/handle-shutdown-signals"
 import { handleFileChange } from "./actors/handle-file-change"
 import { proxyByHostname } from "./actors/proxy-by-hostname"
-import { regenerateNodeConfig } from "./actors/regenerate-node-config"
 import { registerReactiveLogger } from "./actors/register-reactive-logger"
 import { runNodes } from "./actors/run-nodes"
 import { debugUiServer } from "./actors/serve-debug-ui"
@@ -29,8 +28,6 @@ const rootActor = () =>
     sig.run(handleFileChange)
     await sig.run(runNodes)
     await sig.run(debugUiServer)
-
-    sig.run(regenerateNodeConfig)
 
     sig.run(handleShutdownSignals)
   })

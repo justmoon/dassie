@@ -46,7 +46,7 @@ export const listenForRpcWebSocket = () =>
     const { broadcastReconnectNotification } = applyWSSHandler<AppRouter>({
       wss,
       router: appRouter,
-      createContext: () => ({ reactor: sig.reactor }),
+      createContext: () => ({ sig, reactor: sig.reactor }),
     })
 
     httpsServer.listen(DEBUG_RPC_PORT)

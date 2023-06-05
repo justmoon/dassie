@@ -17,6 +17,7 @@
     "@dassie/lib-oer": "workspace:^1.0.0",
     "@dassie/lib-protocol-utils": "workspace:^1.0.0",
     "@dassie/lib-reactive": "workspace:^",
+    "@dassie/lib-reactive-trpc": "workspace:^",
     "@dassie/lib-sqlite": "workspace:^1.0.0",
     "@dassie/lib-type-utils": "workspace:^1.0.0",
     "@noble/ed25519": "^2.0.0",
