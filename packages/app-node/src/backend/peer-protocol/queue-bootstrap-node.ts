@@ -2,7 +2,7 @@ import { hexToBytes } from "@noble/hashes/utils"
 
 import { createActor } from "@dassie/lib-reactive"
 
-import { configSignal } from "../config"
+import { environmentConfigSignal } from "../config/environment-config"
 import { nodeIdSignal } from "../ilp-connector/computed/node-id"
 import type { PerSubnetParameters } from "../subnets/manage-subnet-instances"
 import { nodeDiscoveryQueueStore } from "./stores/node-discovery-queue"
@@ -10,7 +10,7 @@ import { nodeTableStore } from "./stores/node-table"
 
 export const queueBootstrapNodes = () =>
   createActor((sig, { subnetId }: PerSubnetParameters) => {
-    const subnetConfig = sig.get(configSignal, (state) =>
+    const subnetConfig = sig.get(environmentConfigSignal, (state) =>
       state.initialSubnets.find(({ id }) => id === subnetId)
     )
     const ownNodeId = sig.get(nodeIdSignal)

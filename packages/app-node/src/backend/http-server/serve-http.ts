@@ -8,7 +8,7 @@ import type { Duplex } from "node:stream"
 import { createLogger } from "@dassie/lib-logger"
 import { createActor, createSignal } from "@dassie/lib-reactive"
 
-import { configSignal } from "../config"
+import { environmentConfigSignal } from "../config/environment-config"
 
 const logger = createLogger("das:node:http-server")
 
@@ -41,12 +41,10 @@ export const httpService = () =>
 
     if (!router) return
 
-    const { host, port, tlsWebCert, tlsWebKey } = sig.getKeys(configSignal, [
-      "host",
-      "port",
-      "tlsWebCert",
-      "tlsWebKey",
-    ])
+    const { host, port, tlsWebCert, tlsWebKey } = sig.getKeys(
+      environmentConfigSignal,
+      ["host", "port", "tlsWebCert", "tlsWebKey"]
+    )
 
     const app = express()
 

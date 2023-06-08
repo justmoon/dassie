@@ -4,7 +4,7 @@ import { observable } from "@trpc/server/observable"
 import superjson from "superjson"
 import { WebSocketServer } from "ws"
 
-import { configSignal, nodeTableStore } from "@dassie/app-node"
+import { environmentConfigSignal, nodeTableStore } from "@dassie/app-node"
 import { routingTableSignal } from "@dassie/app-node/src/backend/ilp-connector/signals/routing-table"
 import { createLogger } from "@dassie/lib-logger"
 import {
@@ -22,7 +22,7 @@ import { prettyFormat } from "../../common/utils/pretty-format"
 const logger = createLogger("das:dev:runner:debug-rpc-server")
 
 export const exposedStores = {
-  config: configSignal,
+  config: environmentConfigSignal,
   nodeTable: nodeTableStore,
   routingTable: routingTableSignal,
 } as const

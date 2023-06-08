@@ -3,7 +3,7 @@ import Denque from "denque"
 import { createActor } from "@dassie/lib-reactive"
 import { assertDefined } from "@dassie/lib-type-utils"
 
-import { configSignal } from "../config"
+import { environmentConfigSignal } from "../config/environment-config"
 import { nodeIdSignal } from "../ilp-connector/computed/node-id"
 import { routingTableSignal } from "../ilp-connector/signals/routing-table"
 import { nodeDiscoveryQueueStore } from "./stores/node-discovery-queue"
@@ -20,7 +20,7 @@ interface NodeInfoEntry {
  */
 export const calculateRoutes = () =>
   createActor((sig) => {
-    const { ilpAllocationScheme } = sig.getKeys(configSignal, [
+    const { ilpAllocationScheme } = sig.getKeys(environmentConfigSignal, [
       "ilpAllocationScheme",
     ])
     const ownNodeId = sig.get(nodeIdSignal)

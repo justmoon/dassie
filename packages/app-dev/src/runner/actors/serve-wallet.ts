@@ -5,7 +5,7 @@ import { type ViteDevServer, createServer } from "vite"
 import { existsSync, readFileSync } from "node:fs"
 import { join, normalize } from "node:path"
 
-import { configSignal } from "@dassie/app-node"
+import { environmentConfigSignal } from "@dassie/app-node"
 import { additionalMiddlewaresSignal } from "@dassie/app-node/src/backend/http-server/serve-http"
 import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
@@ -42,11 +42,10 @@ function getHtmlFilename(url: string, server: ViteDevServer) {
 export const serveWallet = () =>
   createActor(async (sig) => {
     const additionalMiddlewares = sig.use(additionalMiddlewaresSignal)
-    const { port, tlsWebCert, tlsWebKey } = sig.getKeys(configSignal, [
-      "port",
-      "tlsWebCert",
-      "tlsWebKey",
-    ])
+    const { port, tlsWebCert, tlsWebKey } = sig.getKeys(
+      environmentConfigSignal,
+      ["port", "tlsWebCert", "tlsWebKey"]
+    )
 
     const server = await createServer({
       root: walletPath,

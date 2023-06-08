@@ -1,13 +1,13 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { configSignal } from "../config"
+import { environmentConfigSignal } from "../config/environment-config"
 import { activeSubnetsSignal } from "./signals/active-subnets"
 import { primarySubnetSignal } from "./signals/primary-subnet"
 import { subnetMapSignal } from "./signals/subnet-map"
 
 export const loadSubnetConfig = () =>
   createActor((sig) => {
-    const { initialSubnets } = sig.use(configSignal).read()
+    const { initialSubnets } = sig.use(environmentConfigSignal).read()
     const subnetMap = sig.get(subnetMapSignal)
 
     for (const initialSubnet of initialSubnets) {

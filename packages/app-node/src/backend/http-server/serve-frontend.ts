@@ -5,7 +5,7 @@ import { resolve } from "node:path"
 
 import { createActor } from "@dassie/lib-reactive"
 
-import { configSignal } from "../config"
+import { environmentConfigSignal } from "../config/environment-config"
 import { additionalMiddlewaresSignal } from "./serve-http"
 
 export const serveFrontend = () =>
@@ -14,7 +14,7 @@ export const serveFrontend = () =>
     // TODO: Not sure if that is still the best way to do it.
     if (process.env["NODE_ENV"] === "development") return
 
-    const { rootPath } = sig.getKeys(configSignal, ["rootPath"])
+    const { rootPath } = sig.getKeys(environmentConfigSignal, ["rootPath"])
     const frontendPath = resolve(rootPath, "share/public")
 
     const middleware = sig.use(additionalMiddlewaresSignal)

@@ -5,7 +5,7 @@ import { z } from "zod"
 import { createLogger } from "@dassie/lib-logger"
 import { subscribeToSignal } from "@dassie/lib-reactive-trpc/server"
 
-import { configSignal, nodeTableStore } from ".."
+import { environmentConfigSignal, nodeTableStore } from ".."
 import { totalOwnerBalanceComputed } from "../accounting/computed/total-owner-balance"
 import { ledgerStore } from "../accounting/stores/ledger"
 import { routingTableSignal } from "../ilp-connector/signals/routing-table"
@@ -56,7 +56,7 @@ export const appRouter = trpc.router({
     return [...sig.use(ledgerStore).getAccounts("")]
   }),
   subscribeConfig: trpc.procedure.subscription(({ ctx: { sig } }) => {
-    return subscribeToSignal(sig, configSignal)
+    return subscribeToSignal(sig, environmentConfigSignal)
   }),
   subscribeNodeTable: trpc.procedure.subscription(({ ctx: { sig } }) => {
     return subscribeToSignal(sig, nodeTableStore)

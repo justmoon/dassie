@@ -4,7 +4,7 @@ import { z } from "zod"
 import { respondJson } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
-import { configSignal } from "../config"
+import { environmentConfigSignal } from "../config/environment-config"
 import { databaseSignal } from "../database/open-database"
 import { restApiService } from "../http-server/serve-rest-api"
 import { streamServerService } from "../spsp-server/stream-server"
@@ -16,7 +16,7 @@ export const handleIncomingPayments = () =>
     const api = sig.get(restApiService)
     const database = sig.get(databaseSignal)
     const streamServer = sig.get(streamServerService)
-    const { url } = sig.getKeys(configSignal, ["url"])
+    const { url } = sig.getKeys(environmentConfigSignal, ["url"])
 
     if (!api || !streamServer) return
 

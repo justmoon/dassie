@@ -7,11 +7,11 @@ import { createLogger } from "@dassie/lib-logger"
 import { createSignal } from "@dassie/lib-reactive"
 import { isErrorWithCode } from "@dassie/lib-type-utils"
 
-import { APP_NAME, VALID_REALMS } from "./constants/general"
+import { APP_NAME, VALID_REALMS } from "../constants/general"
 import {
   type SubnetConfig,
   subnetConfigSchema,
-} from "./subnets/schemas/subnet-config"
+} from "../subnets/schemas/subnet-config"
 
 const logger = createLogger("das:node:config")
 
@@ -144,4 +144,5 @@ export function fromEnvironment() {
   return fromPartialConfig({ ...fileConfig, ...environmentConfig })
 }
 
-export const configSignal = () => createSignal<Config>(fromEnvironment())
+export const environmentConfigSignal = () =>
+  createSignal<Config>(fromEnvironment())
