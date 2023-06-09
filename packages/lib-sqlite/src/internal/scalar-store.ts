@@ -1,3 +1,5 @@
+import type { ZodTypeAny, TypeOf as ZodTypeOf } from "zod"
+
 import type {
   SqliteDataType,
   SqliteToTypescriptTypeMap,
@@ -15,6 +17,7 @@ export type ScalarDescription<
     ? {
         type: TSqliteType
         defaultValue?: SqliteToTypescriptTypeMap[TSqliteType]
+        schema?: ZodTypeAny
       }
     : never
 
@@ -32,8 +35,10 @@ export interface ScalarStore<
 }
 
 export type InferScalarType<T extends ScalarDescription> =
-  | SqliteToTypescriptTypeMap[T["type"]]
-  | T["defaultValue"]
+  | (T["schema"] extends ZodTypeAny
+      ? ZodTypeOf<T["schema"]>
+      : SqliteToTypescriptTypeMap[T["type"]])
+  | ("defaultValue" extends keyof T ? T["defaultValue"] : undefined)
 
 export const scalarTable = {
   name: "scalar",
@@ -51,15 +56,22 @@ export const createScalarStore = <
 ): ScalarStore<TScalars> => {
   return {
     get(key) {
-      if (!(key in scalarDescriptions)) {
+      const description = scalarDescriptions[key]
+      if (!description) {
         throw new Error(`Unknown scalar: ${key}`)
       }
 
-      const value =
-        connectedScalarTable.selectUnique("key", key)?.value ??
-        scalarDescriptions[key]?.defaultValue
+      const rawValue = connectedScalarTable.selectUnique("key", key)?.value
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      const value: InferScalarType<TScalars[typeof key]> =
+        rawValue === undefined
+          ? description.defaultValue
+          : description.schema
+          ? description.schema.parse(rawValue)
+          : rawValue
 
-      return value as InferScalarType<TScalars[typeof key]>
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+      return value
     },
 
     set(key, value) {

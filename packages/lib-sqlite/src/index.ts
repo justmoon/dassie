@@ -4,3 +4,8 @@
 export * from "./create-database"
 export * from "./define-table"
 export type { MigrationDefinition } from "./types/migration"
+export type {
+  ScalarDescription,
+  InferScalarType,
+} from "./internal/scalar-store"
+export type * from "./types/sqlite-datatypes"
