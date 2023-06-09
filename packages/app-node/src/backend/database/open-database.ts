@@ -1,6 +1,6 @@
 import { resolve } from "node:path"
 
-import { type Reactor, createSignal } from "@dassie/lib-reactive"
+import { type Reactor } from "@dassie/lib-reactive"
 import { createDatabase } from "@dassie/lib-sqlite"
 
 import { environmentConfigSignal } from "../config/environment-config"
@@ -15,7 +15,7 @@ import { incomingPaymentTable } from "./tables/incoming-payment"
  */
 const DASSIE_SQLITE_APPLICATION_ID = 0x1d_a5_3b_81
 
-export const databaseSignal = (reactor: Reactor) => {
+export const databasePlain = (reactor: Reactor) => {
   const { rootPath, dataPath } = reactor.use(environmentConfigSignal).read()
 
   const database = createDatabase({
@@ -31,5 +31,9 @@ export const databaseSignal = (reactor: Reactor) => {
       : undefined,
   })
 
-  return createSignal(database)
+  reactor.onCleanup(() => {
+    database.raw.close()
+  })
+
+  return database
 }

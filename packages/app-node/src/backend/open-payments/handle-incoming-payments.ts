@@ -5,7 +5,7 @@ import { respondJson } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
 import { environmentConfigSignal } from "../config/environment-config"
-import { databaseSignal } from "../database/open-database"
+import { databasePlain } from "../database/open-database"
 import { restApiService } from "../http-server/serve-rest-api"
 import { streamServerService } from "../spsp-server/stream-server"
 import { PAYMENT_POINTER_ROOT } from "./constants/payment-pointer"
@@ -14,7 +14,7 @@ import { createIncomingPaymentFormatter } from "./utils/format-incoming-payment"
 export const handleIncomingPayments = () =>
   createActor((sig) => {
     const api = sig.get(restApiService)
-    const database = sig.get(databaseSignal)
+    const database = sig.use(databasePlain)
     const streamServer = sig.get(streamServerService)
     const { url } = sig.getKeys(environmentConfigSignal, ["url"])
 
