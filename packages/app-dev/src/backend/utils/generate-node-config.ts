@@ -121,7 +121,6 @@ export const generateNodeConfig = ((id, environmentSettings) => {
     latitude,
     longitude,
     config: {
-      realm: "test" as const,
       host: `${id}.localhost`,
       port: nodeIndexToPort(index),
       alias: id,

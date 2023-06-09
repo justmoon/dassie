@@ -5,6 +5,7 @@ import superjson from "superjson"
 import { WebSocketServer } from "ws"
 
 import { environmentConfigSignal, nodeTableStore } from "@dassie/app-node"
+import { ilpAllocationSchemeSignal } from "@dassie/app-node/src/backend/config/computed/ilp-allocation-scheme"
 import { routingTableSignal } from "@dassie/app-node/src/backend/ilp-connector/signals/routing-table"
 import { createLogger } from "@dassie/lib-logger"
 import {
@@ -23,6 +24,7 @@ const logger = createLogger("das:dev:runner:debug-rpc-server")
 
 export const exposedStores = {
   config: environmentConfigSignal,
+  ilpAllocationScheme: ilpAllocationSchemeSignal,
   nodeTable: nodeTableStore,
   routingTable: routingTableSignal,
 } as const

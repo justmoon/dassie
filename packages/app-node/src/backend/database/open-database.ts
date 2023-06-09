@@ -4,6 +4,7 @@ import { type Reactor } from "@dassie/lib-reactive"
 import { type DatabaseSchema, createDatabase } from "@dassie/lib-sqlite"
 
 import { environmentConfigSignal } from "../config/environment-config"
+import { CONFIG_DATABASE_SCALARS } from "../config/schemas/database-scalars"
 import migrations from "./migrations"
 import { incomingPaymentTable } from "./tables/incoming-payment"
 
@@ -22,8 +23,10 @@ export const DASSIE_DATABASE_SCHEMA = {
     incomingPayment: incomingPaymentTable,
   },
   scalars: {
+    ...CONFIG_DATABASE_SCALARS,
   },
 } as const satisfies DatabaseSchema
+
 export const databasePlain = (reactor: Reactor) => {
   const { rootPath, dataPath } = reactor.use(environmentConfigSignal).read()
 

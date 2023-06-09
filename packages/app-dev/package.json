@@ -26,6 +26,7 @@
     "@dassie/lib-oer": "workspace:^1.0.0",
     "@dassie/lib-reactive": "workspace:^1.0.0",
     "@dassie/lib-reactive-trpc": "workspace:^1.0.0",
+    "@dassie/lib-sqlite": "workspace:^",
     "@dassie/lib-type-utils": "workspace:1.0.0",
     "@radix-ui/react-tabs": "^1.0.4",
     "@react-hook/size": "^2.1.2",

@@ -65,16 +65,17 @@ const NodeLink = ({ nodeId }: BasicNodeElementProperties) => {
 }
 
 const NodeTable = ({ nodeId }: BasicNodeElementProperties) => {
-  const config = useNodeRemoteSignal(nodeId, "config")
+  const ilpAllocationScheme = useNodeRemoteSignal(nodeId, "ilpAllocationScheme")
   const nodeTable = useNodeRemoteSignal(nodeId, "nodeTable")
   const routingTable = useNodeRemoteSignal(nodeId, "routingTable")
 
-  if (!config.data || !nodeTable.data || !routingTable.data) return null
+  if (!ilpAllocationScheme.data || !nodeTable.data || !routingTable.data)
+    return null
 
   const sortedNodeTable = [...nodeTable.data.values()]
     .map((node) => {
       const routingTableEntry = routingTable.data.get(
-        `${config.data.ilpAllocationScheme}.das.${node.nodeId}`
+        `${ilpAllocationScheme.data}.das.${node.nodeId}`
       )
 
       if (routingTableEntry?.type !== "peer") {

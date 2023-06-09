@@ -8,6 +8,7 @@ import { subscribeToSignal } from "@dassie/lib-reactive-trpc/server"
 import { environmentConfigSignal, nodeTableStore } from ".."
 import { totalOwnerBalanceComputed } from "../accounting/computed/total-owner-balance"
 import { ledgerStore } from "../accounting/stores/ledger"
+import { ilpAllocationSchemeSignal } from "../config/computed/ilp-allocation-scheme"
 import { routingTableSignal } from "../ilp-connector/signals/routing-table"
 import { spspPaymentQueueStore } from "../spsp-server/send-spsp-payments"
 import { resolvePaymentPointer } from "../utils/resolve-payment-pointer"
@@ -51,6 +52,9 @@ export const appRouter = trpc.router({
     ),
   subscribeBalance: trpc.procedure.subscription(({ ctx: { sig } }) => {
     return subscribeToSignal(sig, totalOwnerBalanceComputed)
+  }),
+  getAllocationScheme: trpc.procedure.query(({ ctx: { sig } }) => {
+    return sig.use(ilpAllocationSchemeSignal).read()
   }),
   getLedger: trpc.procedure.query(({ ctx: { sig } }) => {
     return [...sig.use(ledgerStore).getAccounts("")]

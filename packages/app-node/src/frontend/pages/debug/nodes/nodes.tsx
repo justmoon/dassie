@@ -21,6 +21,11 @@ export function Nodes() {
   const [nodeTable, setNodeTable] = useState<NodeTable>()
   const [routingTable, setRoutingTable] = useState<RoutingTable>()
 
+  const { data: ilpAllocationScheme } =
+    trpc.getAllocationScheme.useQuery(undefined)
+
+  if (!ilpAllocationScheme) return null
+
   trpc.subscribeConfig.useSubscription(undefined, {
     onData: (data) => {
       setConfig(data)
@@ -42,7 +47,7 @@ export function Nodes() {
   const sortedNodeTable = [...nodeTable.values()]
     .map((node) => {
       const routingTableEntry = routingTable.get(
-        `${config.ilpAllocationScheme}.das.${node.nodeId}`
+        `${ilpAllocationScheme}.das.${node.nodeId}`
       )
 
       if (routingTableEntry?.type !== "peer") {

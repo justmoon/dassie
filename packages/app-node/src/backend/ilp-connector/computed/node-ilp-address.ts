@@ -1,11 +1,11 @@
 import { createComputed } from "@dassie/lib-reactive"
 
-import { environmentConfigSignal } from "../.."
+import { ilpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-scheme"
 import { nodeIdSignal } from "./node-id"
 
 export const nodeIlpAddressSignal = () =>
   createComputed((sig) => {
-    const { ilpAllocationScheme } = sig.get(environmentConfigSignal)
+    const ilpAllocationScheme = sig.get(ilpAllocationSchemeSignal)
 
     const nodeId = sig.get(nodeIdSignal)
 

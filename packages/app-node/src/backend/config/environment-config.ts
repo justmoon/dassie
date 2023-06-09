@@ -18,8 +18,6 @@ const logger = createLogger("das:node:config")
 export type RealmType = (typeof VALID_REALMS)[number]
 
 export interface Config {
-  realm: RealmType
-  ilpAllocationScheme: "test" | "g"
   host: string
   port: number
   url: string
@@ -37,7 +35,6 @@ export interface Config {
 
 export type InputConfig = z.infer<typeof inputConfigSchema>
 export const inputConfigSchema = z.object({
-  realm: z.enum(VALID_REALMS).optional(),
   host: z.string().optional(),
   port: z.union([z.string(), z.number()]).optional(),
   url: z.string().optional(),
@@ -77,14 +74,10 @@ export const processFileOption = (
 export function fromPartialConfig(partialConfig: InputConfig): Config {
   const paths = envPaths(APP_NAME)
 
-  const realm = partialConfig.realm ?? (import.meta.env.DEV ? "test" : "live")
-  const ilpAllocationScheme = realm === "test" ? "test" : "g"
   const host = partialConfig.host ?? "localhost"
   const port = partialConfig.port ? Number(partialConfig.port) : 8443
 
   return {
-    realm,
-    ilpAllocationScheme,
     host,
     port,
     alias: partialConfig.alias ?? "anonymous",

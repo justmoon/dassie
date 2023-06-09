@@ -141,6 +141,9 @@ importers:
       '@dassie/lib-reactive-trpc':
         specifier: workspace:^1.0.0
         version: link:../lib-reactive-trpc
+      '@dassie/lib-sqlite':
+        specifier: workspace:^
+        version: link:../lib-sqlite
       '@dassie/lib-type-utils':
         specifier: workspace:1.0.0
         version: link:../lib-type-utils
