@@ -60,14 +60,16 @@ export class ActorContext extends DisposableLifecycle {
    * @param comparator - By default, the reactor checks for strict equality (`===`) to determine if the value has changed. This can be overridden by passing a custom comparator function.
    * @returns The current value of the signal, narrowed by the selector.
    */
-  get<TState>(signalFactory: Factory<ReadonlySignal<TState>>): TState
+  get<TState>(
+    signalFactory: Factory<ReadonlySignal<TState>> | ReadonlySignal<TState>
+  ): TState
   get<TState, TSelection>(
-    signalFactory: Factory<ReadonlySignal<TState>>,
+    signalFactory: Factory<ReadonlySignal<TState>> | ReadonlySignal<TState>,
     selector: (state: TState) => TSelection,
     comparator?: (oldValue: TSelection, newValue: TSelection) => boolean
   ): TSelection
   get<TState, TSelection>(
-    signalFactory: Factory<ReadonlySignal<TState>>,
+    signalFactory: Factory<ReadonlySignal<TState>> | ReadonlySignal<TState>,
     selector: (state: TState) => TSelection = (a) =>
       // Based on the overloaded function signature, the selector parameter may be omitted iff TMessage equals TSelection.
       // Therefore this cast is safe.
@@ -85,7 +87,10 @@ export class ActorContext extends DisposableLifecycle {
       }
     }
 
-    const signal = this.use(signalFactory)
+    const signal =
+      typeof signalFactory === "function"
+        ? this.use(signalFactory)
+        : signalFactory
     const value = selector(signal.read())
     signal.on(this, handleTopicMessage)
 

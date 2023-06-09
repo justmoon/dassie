@@ -30,9 +30,11 @@ export interface ComputationContext {
    * @param comparator - By default, the reactor checks for strict equality (`===`) to determine if the value has changed. This can be overridden by passing a custom comparator function.
    * @returns The current value of the signal, narrowed by the selector.
    */
-  get<TState>(signalFactory: Factory<ReadonlySignal<TState>>): TState
+  get<TState>(
+    signalFactory: Factory<ReadonlySignal<TState>> | ReadonlySignal<TState>
+  ): TState
   get<TState, TSelection>(
-    signalFactory: Factory<ReadonlySignal<TState>>,
+    signalFactory: Factory<ReadonlySignal<TState>> | ReadonlySignal<TState>,
     selector: (state: TState) => TSelection,
     comparator?: (oldValue: TSelection, newValue: TSelection) => boolean
   ): TSelection
@@ -84,8 +86,13 @@ export function createComputed<TState>(
   const context = {
     reactor,
 
-    get<TState>(signalFactory: Factory<ReadonlySignal<TState>>) {
-      const signal = reactor.use(signalFactory)
+    get<TState>(
+      signalFactory: Factory<ReadonlySignal<TState>> | ReadonlySignal<TState>
+    ) {
+      const signal =
+        typeof signalFactory === "function"
+          ? reactor.use(signalFactory)
+          : signalFactory
       sources.add(signal)
       return signal.read()
     },
