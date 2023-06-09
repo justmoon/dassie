@@ -15,12 +15,7 @@ import { migrate } from "./utils/migrate"
 
 const logger = createLogger("das:sqlite:database")
 
-export interface DatabaseOptions {
-  /**
-   * Path to the sqlite database file.
-   */
-  path: string
-
+export interface DatabaseSchema {
   /**
    * Signed 32-bit integer identifying the type of SQLite database.
    *
@@ -42,6 +37,18 @@ export interface DatabaseOptions {
    * A set of scalar definitions which effectively provide a type-safe key-value store.
    */
   scalars?: Record<string, ScalarDescription> | undefined
+}
+
+export interface DatabaseOptions {
+  /**
+   * Path to the sqlite database file.
+   */
+  path: string
+
+  /**
+   * Metadata about the contents of the database.
+   */
+  schema: DatabaseSchema
 
   /**
    * Path to the better_sqlite3.node module.
@@ -56,15 +63,17 @@ export interface InferDatabaseInstance<TOptions extends DatabaseOptions> {
 }
 
 export type InferTableAccessors<TOptions extends DatabaseOptions> =
-  TOptions["tables"] extends Record<string, TableDescription>
+  TOptions["schema"]["tables"] extends Record<string, TableDescription>
     ? {
-        [K in keyof TOptions["tables"]]: ConnectedTable<TOptions["tables"][K]>
+        [K in keyof TOptions["schema"]["tables"]]: ConnectedTable<
+          TOptions["schema"]["tables"][K]
+        >
       }
     : undefined
 
 export type InferScalarAccessors<TOptions extends DatabaseOptions> =
-  TOptions["scalars"] extends Record<string, ScalarDescription>
-    ? ScalarStore<TOptions["scalars"]>
+  TOptions["schema"]["scalars"] extends Record<string, ScalarDescription>
+    ? ScalarStore<TOptions["schema"]["scalars"]>
     : undefined
 
 export const createDatabase = <TOptions extends DatabaseOptions>(
@@ -78,7 +87,7 @@ export const createDatabase = <TOptions extends DatabaseOptions>(
   database.defaultSafeIntegers(true)
 
   // If this is a brand-new, empty database, initialize it by setting the application ID
-  const applicationIdBigint = BigInt(databaseOptions.applicationId)
+  const applicationIdBigint = BigInt(databaseOptions.schema.applicationId)
   if (
     database.pragma("application_id", { simple: true }) === 0n &&
     database.pragma("schema_version", { simple: true }) === 0n
@@ -94,20 +103,19 @@ export const createDatabase = <TOptions extends DatabaseOptions>(
     throw new Error("Database file is not a valid Dassie node database")
   }
 
-  migrate(database, databaseOptions.migrations)
+  migrate(database, databaseOptions.schema.migrations)
 
   return {
-    tables: (databaseOptions.tables
+    tables: (databaseOptions.schema.tables
       ? Object.fromEntries(
-          Object.entries(databaseOptions.tables).map(([tableName, table]) => [
-            tableName,
-            connectTable(table, database),
-          ])
+          Object.entries(databaseOptions.schema.tables).map(
+            ([tableName, table]) => [tableName, connectTable(table, database)]
+          )
         )
       : undefined) as InferTableAccessors<TOptions>,
-    scalars: (databaseOptions.scalars
+    scalars: (databaseOptions.schema.scalars
       ? createScalarStore(
-          databaseOptions.scalars,
+          databaseOptions.schema.scalars,
           connectTable(scalarTable, database)
         )
       : undefined) as InferScalarAccessors<TOptions>,

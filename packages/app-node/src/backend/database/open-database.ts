@@ -1,7 +1,7 @@
 import { resolve } from "node:path"
 
 import { type Reactor } from "@dassie/lib-reactive"
-import { createDatabase } from "@dassie/lib-sqlite"
+import { type DatabaseSchema, createDatabase } from "@dassie/lib-sqlite"
 
 import { environmentConfigSignal } from "../config/environment-config"
 import migrations from "./migrations"
@@ -15,17 +15,21 @@ import { incomingPaymentTable } from "./tables/incoming-payment"
  */
 const DASSIE_SQLITE_APPLICATION_ID = 0x1d_a5_3b_81
 
+export const DASSIE_DATABASE_SCHEMA = {
+  applicationId: DASSIE_SQLITE_APPLICATION_ID,
+  migrations,
+  tables: {
+    incomingPayment: incomingPaymentTable,
+  },
+  scalars: {
+  },
+} as const satisfies DatabaseSchema
 export const databasePlain = (reactor: Reactor) => {
   const { rootPath, dataPath } = reactor.use(environmentConfigSignal).read()
 
   const database = createDatabase({
     path: `${dataPath}/dassie.sqlite3`,
-    applicationId: DASSIE_SQLITE_APPLICATION_ID,
-    migrations,
-    tables: {
-      incomingPayment: incomingPaymentTable,
-    },
-    scalars: {},
+    schema: DASSIE_DATABASE_SCHEMA,
     nativeBinding: import.meta.env.PROD
       ? resolve(rootPath, "lib/better_sqlite3.node")
       : undefined,
