@@ -1,16 +1,18 @@
 import { resolve } from "node:path"
 
-export const PATH_DIST = new URL("../../dist", import.meta.url).pathname
-export const PATH_DIST_BUNDLE = resolve(PATH_DIST, `bundle`)
-export const PATH_DIST_STAGING = resolve(PATH_DIST, `staging`)
-export const PATH_DIST_STAGING_SHARED = resolve(PATH_DIST_STAGING, `shared`)
-
 export const PATH_PACKAGE_APP_BUILD = new URL("../../", import.meta.url)
   .pathname
 export const PATH_PACKAGE_APP_NODE = new URL(
   "../../../app-node/",
   import.meta.url
 ).pathname
+
+export const PATH_DIST = resolve(PATH_PACKAGE_APP_BUILD, "dist")
+export const PATH_DIST_UPLOAD = resolve(PATH_DIST, "upload")
+export const PATH_DIST_CONTENTS = resolve(PATH_DIST, "contents")
+export const PATH_DIST_STAGING = resolve(PATH_DIST, "staging")
+export const PATH_DIST_STAGING_SHARED = resolve(PATH_DIST_STAGING, "shared")
+
 export const PATH_PACKAGE_LIB_SQLITE = new URL(
   "../../../lib-sqlite/",
   import.meta.url
