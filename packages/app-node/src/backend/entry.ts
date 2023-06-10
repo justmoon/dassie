@@ -1,3 +1,3 @@
-import { start } from "./"
+import { main } from "./command-line"
 
-start()
+await main()
