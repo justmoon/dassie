@@ -1,9 +1,10 @@
-import { copyFile, cp, mkdir } from "node:fs/promises"
+import { chmod, copyFile, cp, mkdir } from "node:fs/promises"
 import { resolve } from "node:path"
 
 import { Architecture } from "../constants/architectures"
 import {
   PATH_DIST_STAGING_SHARED,
+  PATH_RESOURCES_LAUNCHER,
   PATH_RESOURCES_SYSTEMD_UNIT,
 } from "../constants/paths"
 import { getBundlePath, getStagingPath } from "../utils/dynamic-paths"
@@ -12,6 +13,7 @@ export const copyFilesIntoBundle = async (architecture: Architecture) => {
   const stagingPath = getStagingPath(architecture)
   const bundlePath = getBundlePath(architecture)
 
+  // Node binary
   {
     const pathNode = resolve(stagingPath, "node")
     const pathBundleBin = resolve(bundlePath, "bin")
@@ -22,6 +24,7 @@ export const copyFilesIntoBundle = async (architecture: Architecture) => {
     await copyFile(resolve(pathNode, "bin/node"), pathBundleBinNode)
   }
 
+  // Better SQLite3 bindings
   {
     const libraryPath = resolve(bundlePath, "lib")
 
@@ -36,13 +39,15 @@ export const copyFilesIntoBundle = async (architecture: Architecture) => {
     await copyFile(bindingSourcePath, bindingOutputPath)
   }
 
+  // Backend
   {
-    const backendSourcePath = resolve(PATH_DIST_STAGING_SHARED, "backend.js")
-    const backendOutputPath = resolve(bundlePath, "backend.js")
+    const backendSourcePath = resolve(PATH_DIST_STAGING_SHARED, "backend.mjs")
+    const backendOutputPath = resolve(bundlePath, "backend.mjs")
 
     await copyFile(backendSourcePath, backendOutputPath)
   }
 
+  // Frontend
   {
     const frontendSourcePath = resolve(PATH_DIST_STAGING_SHARED, "frontend")
     const frontendOutputPath = resolve(bundlePath, "share/public")
@@ -55,6 +60,17 @@ export const copyFilesIntoBundle = async (architecture: Architecture) => {
     })
   }
 
+  // Launcher
+  {
+    const launcherOutputPath = resolve(bundlePath, "bin/dassie")
+
+    await cp(PATH_RESOURCES_LAUNCHER, launcherOutputPath)
+
+    // Make the launcher executable
+    await chmod(launcherOutputPath, 0o755)
+  }
+
+  // systemd unit
   {
     const pathShare = resolve(bundlePath, "share")
 

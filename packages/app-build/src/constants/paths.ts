@@ -23,5 +23,9 @@ export const PATH_RESOURCES_SYSTEMD_UNIT = resolve(
   PATH_RESOURCES,
   "systemd/dassie.service"
 )
+export const PATH_RESOURCES_LAUNCHER = resolve(
+  PATH_RESOURCES,
+  "launcher/dassie.sh"
+)
 
 export const PATH_CACHE = resolve(PATH_PACKAGE_APP_BUILD, ".cache")
