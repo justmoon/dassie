@@ -58,6 +58,10 @@ export interface BaseNodeConfig {
   peerIndices: readonly number[]
   latitude: number
   longitude: number
+  tlsDassieCertFile: string
+  tlsDassieKeyFile: string
+  tlsWebCertFile: string
+  tlsWebKeyFile: string
   config: InputConfig
   url: string
   entry: string
@@ -122,15 +126,15 @@ export const generateNodeConfig = ((id, environmentSettings) => {
     peerIndices: peers,
     latitude,
     longitude,
+    tlsDassieCertFile: `${LOCAL_PATH}/tls/${id}.localhost/dassie-${id}.localhost.pem`,
+    tlsDassieKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/dassie-${id}.localhost-key.pem`,
+    tlsWebCertFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost.pem`,
+    tlsWebKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost-key.pem`,
     config: {
       host: `${id}.localhost`,
       port: nodeIndexToPort(index),
       alias: id,
       dataPath: `${LOCAL_PATH}/data/${id}.localhost`,
-      tlsDassieCertFile: `${LOCAL_PATH}/tls/${id}.localhost/dassie-${id}.localhost.pem`,
-      tlsDassieKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/dassie-${id}.localhost-key.pem`,
-      tlsWebCertFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost.pem`,
-      tlsWebKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost-key.pem`,
       initialSubnets: [
         {
           id: "stub" as SubnetId,

@@ -53,14 +53,14 @@ export const runNodes = () =>
               {
                 type: "web",
                 commonName: `${node.id}.localhost`,
-                certificatePath: node.config.tlsWebCertFile,
-                keyPath: node.config.tlsWebKeyFile,
+                certificatePath: node.tlsWebCertFile,
+                keyPath: node.tlsWebKeyFile,
               },
               {
                 type: "dassie",
                 commonName: `test.das.${node.id}`,
-                certificatePath: node.config.tlsDassieCertFile,
-                keyPath: node.config.tlsDassieKeyFile,
+                certificatePath: node.tlsDassieCertFile,
+                keyPath: node.tlsDassieKeyFile,
               },
             ]
 
@@ -75,7 +75,7 @@ export const runNodes = () =>
             const { dataPath } = node.config
 
             await prepareDataDirectory(dataPath)
-            await prefillDatabase({ dataPath })
+            await prefillDatabase(node)
           }
 
           const debugScopes = sig.get(debugScopesSignal)

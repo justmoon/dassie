@@ -13,4 +13,20 @@ export const CONFIG_DATABASE_SCALARS = {
     type: "TEXT",
     schema: z.enum(VALID_REALMS),
   },
+  "config.tls_web_cert": {
+    type: "TEXT",
+    schema: z.string(),
+  },
+  "config.tls_web_key": {
+    type: "TEXT",
+    schema: z.string(),
+  },
+  "config.tls_dassie_cert": {
+    type: "TEXT",
+    schema: z.string(),
+  },
+  "config.tls_dassie_key": {
+    type: "TEXT",
+    schema: z.string(),
+  },
 } as const satisfies Record<`config.${string}`, ScalarDescription>

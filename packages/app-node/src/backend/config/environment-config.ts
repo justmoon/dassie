@@ -25,10 +25,6 @@ export interface Config {
   alias: string
   rootPath: string
   dataPath: string
-  tlsWebCert: string
-  tlsWebKey: string
-  tlsDassieCert: string
-  tlsDassieKey: string
   initialSubnets: SubnetConfig
   exchangeRateUrl: string
   internalAmountPrecision: number
@@ -42,35 +38,10 @@ export const inputConfigSchema = z.object({
   alias: z.string().optional(),
   rootPath: z.string().optional(),
   dataPath: z.string().optional(),
-  tlsWebCert: z.string().optional(),
-  tlsWebCertFile: z.string().optional(),
-  tlsWebKey: z.string().optional(),
-  tlsWebKeyFile: z.string().optional(),
-  tlsDassieCert: z.string().optional(),
-  tlsDassieCertFile: z.string().optional(),
-  tlsDassieKey: z.string().optional(),
-  tlsDassieKeyFile: z.string().optional(),
   initialSubnets: subnetConfigSchema.optional(),
   exchangeRateUrl: z.string().optional(),
   internalAmountPrecision: z.number().optional(),
 })
-
-export const processFileOption = (
-  name: string,
-  value?: string,
-  filePath?: string,
-  defaultValue?: string
-): string => {
-  if (value) {
-    return value
-  } else if (filePath) {
-    return readFileSync(filePath, "utf8")
-  } else if (defaultValue) {
-    return defaultValue
-  } else {
-    throw new Error(`Required option ${name}/${name}File is missing`)
-  }
-}
 
 export function fromPartialConfig(partialConfig: InputConfig): Config {
   const paths = envPaths(APP_NAME)
@@ -86,26 +57,6 @@ export function fromPartialConfig(partialConfig: InputConfig): Config {
       partialConfig.url ?? `https://${host}${port === 443 ? "" : `:${port}`}`,
     rootPath: partialConfig.rootPath ?? process.cwd(),
     dataPath: partialConfig.dataPath ?? paths.data,
-    tlsWebCert: processFileOption(
-      "tlsWebCert",
-      partialConfig.tlsWebCert,
-      partialConfig.tlsWebCertFile
-    ),
-    tlsWebKey: processFileOption(
-      "tlsWebKey",
-      partialConfig.tlsWebKey,
-      partialConfig.tlsWebKeyFile
-    ),
-    tlsDassieCert: processFileOption(
-      "tlsDassieCert",
-      partialConfig.tlsDassieCert,
-      partialConfig.tlsDassieCertFile
-    ),
-    tlsDassieKey: processFileOption(
-      "tlsDassieKey",
-      partialConfig.tlsDassieKey,
-      partialConfig.tlsDassieKeyFile
-    ),
     initialSubnets: partialConfig.initialSubnets ?? [],
     exchangeRateUrl:
       partialConfig.exchangeRateUrl ??
