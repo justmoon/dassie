@@ -1,5 +1,6 @@
 import type { FetchResult, ViteNodeResolveId } from "vite-node"
-import { ViteNodeRunner } from "vite-node/client"
+import { ModuleCacheMap, ViteNodeRunner } from "vite-node/client"
+import { installSourcemapsSupport } from "vite-node/source-map"
 
 // Please note that this file is statically compiled and intentionally minimal. Any additional functionality you're thinking about adding, you should consider adding to the launchers/*.ts instead.
 
@@ -26,9 +27,17 @@ const callRpc = (method: string, parameters: unknown[]) => {
   })
 }
 
+const moduleCache = new ModuleCacheMap()
+
+// fixes stacktraces in Errors
+installSourcemapsSupport({
+  getSourceMap: (source) => moduleCache.getSourceMap(source),
+})
+
 const runner = new ViteNodeRunner({
   root: process.env["DASSIE_DEV_ROOT"]!,
   base: process.env["DASSIE_DEV_BASE"]!,
+  moduleCache,
   async fetchModule(id) {
     return callRpc("fetchModule", [id]) as Promise<FetchResult>
   },
