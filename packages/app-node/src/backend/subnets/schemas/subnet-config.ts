@@ -1,3 +1,4 @@
+import { ReadonlyDeep } from "type-fest"
 import { z } from "zod"
 
 import { nodeIdSchema } from "../../config/schemas/node-id"
@@ -27,4 +28,4 @@ export const subnetConfigSchema = z.array(
   })
 )
 
-export type SubnetConfig = z.infer<typeof subnetConfigSchema>
+export type SubnetConfig = ReadonlyDeep<z.infer<typeof subnetConfigSchema>>

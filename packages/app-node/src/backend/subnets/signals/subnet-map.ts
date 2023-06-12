@@ -6,7 +6,7 @@ import { SubnetId } from "../../peer-protocol/types/subnet-id"
 export interface SubnetState {
   subnetId: SubnetId
   config: unknown
-  initialPeers: {
+  initialPeers: readonly {
     nodeId: NodeId
     url: string
     alias?: string | undefined

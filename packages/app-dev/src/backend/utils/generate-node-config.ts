@@ -50,7 +50,7 @@ export const nodeFriendlyIdToIndex = (id: string) => {
   return index
 }
 
-export interface NodeConfig {
+export interface BaseNodeConfig {
   id: string
   port: number
   debugPort: number
@@ -62,6 +62,8 @@ export interface NodeConfig {
   url: string
   entry: string
 }
+
+export type NodeConfig = ReturnType<typeof generateNodeConfig>
 
 const MAX_PEERS = 3
 const PEER_SELECTION_BASE_SEED = 0xa3_e5_ef_27
@@ -144,8 +146,8 @@ export const generateNodeConfig = ((id, environmentSettings) => {
     },
     url: `https://${id}.localhost:${port}/`,
     entry: ENTRYPOINT,
-  }
+  } as const
 }) satisfies (
   id: string,
   environmentSettings: EnvironmentSettings
-) => NodeConfig
+) => BaseNodeConfig

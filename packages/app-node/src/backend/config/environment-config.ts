@@ -1,4 +1,5 @@
 import envPaths from "env-paths"
+import { ReadonlyDeep } from "type-fest"
 import { z } from "zod"
 
 import { readFileSync } from "node:fs"
@@ -33,7 +34,7 @@ export interface Config {
   internalAmountPrecision: number
 }
 
-export type InputConfig = z.infer<typeof inputConfigSchema>
+export type InputConfig = ReadonlyDeep<z.infer<typeof inputConfigSchema>>
 export const inputConfigSchema = z.object({
   host: z.string().optional(),
   port: z.union([z.string(), z.number()]).optional(),
