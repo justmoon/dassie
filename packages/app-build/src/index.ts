@@ -14,19 +14,19 @@ import { getBundleFilename } from "./utils/bundle-name"
 
 export const rootActor = () =>
   createActor(async () => {
-    console.log(`Creating Dassie bundles for version ${DASSIE_VERSION}`)
+    console.info(`Creating Dassie bundles for version ${DASSIE_VERSION}`)
 
     await deleteOutputPath()
     await createOutputPath()
 
-    console.log("Building backend")
+    console.info("Building backend")
     await buildBackend()
 
-    console.log("Building frontend")
+    console.info("Building frontend")
     await buildFrontend()
 
     for (const architecture of SUPPORTED_ARCHITECTURES) {
-      console.log(`Creating ${getBundleFilename(architecture)}`)
+      console.info(`Creating ${getBundleFilename(architecture)}`)
       await downloadNodeJs(architecture)
       await downloadBetterSqlite3(architecture)
       await copyFilesIntoBundle(architecture)

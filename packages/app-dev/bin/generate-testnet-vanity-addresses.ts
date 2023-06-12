@@ -107,7 +107,7 @@ function isNewOrBetter(index: number, key: string) {
   return hyphenCount < existingHyphenCount
 }
 
-console.log("Generating vanity addresses... (press Ctrl+C to stop)")
+console.info("Generating vanity addresses... (press Ctrl+C to stop)")
 for (;;) {
   const { match, nodePrivateKey, nodeId } = findNextMatch()
   const index = Number.parseInt(match[1]!, 10) - 1
@@ -117,14 +117,14 @@ for (;;) {
   if (index > MAX_INDEX) {
     if (isLargestEver(index)) {
       foundMap.set(index, key)
-      console.log(`${friendlyId} => ${nodeId} (new record!)`)
+      console.info(`${friendlyId} => ${nodeId} (new record!)`)
       saveResults()
     } else {
-      console.log(`${friendlyId} => ${nodeId} (skipped, too large)`)
+      console.info(`${friendlyId} => ${nodeId} (skipped, too large)`)
     }
   } else if (isNewOrBetter(index, key)) {
     foundMap.set(index, key)
-    console.log(`${friendlyId} => ${nodeId}`)
+    console.info(`${friendlyId} => ${nodeId}`)
     saveResults()
   }
 }

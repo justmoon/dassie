@@ -14,7 +14,7 @@ const clock = () =>
 const logger = () =>
   createActor((sig) => {
     sig.on(counterSignal, (state) => {
-      console.log(`the counter is: ${state}`)
+      console.info(`the counter is: ${state}`)
     })
   })
 

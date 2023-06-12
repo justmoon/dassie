@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import { LogEventFormatter } from "./types/formatter"
 
 export interface CaptureParameters {

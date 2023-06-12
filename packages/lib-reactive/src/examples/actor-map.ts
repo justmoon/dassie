@@ -12,12 +12,12 @@ const customersSignal = () => createSignal<Set<string>>(new Set())
 const customerServiceActors = () =>
   createMapped(customersSignal, (customer) =>
     createActor((sig) => {
-      console.log(`${customer} added`)
+      console.info(`${customer} added`)
 
-      sig.onCleanup(() => console.log(`${customer} removed`))
+      sig.onCleanup(() => console.info(`${customer} removed`))
 
       return {
-        greet: () => console.log(`Hello ${customer}`),
+        greet: () => console.info(`Hello ${customer}`),
       }
     })
   )

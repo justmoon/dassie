@@ -17,7 +17,7 @@ const httpService = () =>
       server.close()
     })
 
-    console.log(`http-server listening on port ${port}`)
+    console.info(`http-server listening on port ${port}`)
 
     return server
   })

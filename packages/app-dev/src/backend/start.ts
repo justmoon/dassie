@@ -15,6 +15,7 @@ import { compileRunner } from "./utils/compile-runner"
 
 const rootActor = () =>
   createActor(async (sig) => {
+    // eslint-disable-next-line no-console
     console.log(chalk.bold(`  Dassie${chalk.green("//dev")}\n`))
 
     sig.run(registerReactiveLogger)

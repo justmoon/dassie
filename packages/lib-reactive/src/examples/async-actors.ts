@@ -18,7 +18,7 @@ const innerActor = () =>
     const counter = sig.get(counterSignal)
 
     // This will only print every three seconds or so
-    console.log(counter)
+    console.info(counter)
 
     // Wait long enough so the counter will have updated a bunch of times before we're ready to run again
     await new Promise((resolve) => setTimeout(resolve, 3000))

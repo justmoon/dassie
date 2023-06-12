@@ -22,7 +22,7 @@ const greeter = () =>
 
 const logger = () =>
   createActor((sig) => {
-    sig.on(outputTopic, console.log)
+    sig.on(outputTopic, console.info)
   })
 
 createReactor(rootActor)

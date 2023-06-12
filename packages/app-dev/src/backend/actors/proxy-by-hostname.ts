@@ -208,7 +208,7 @@ export const proxyByHostname = () =>
 
     server.on("error", (error: unknown) => {
       if (isErrorWithCode(error, "EACCES")) {
-        console.log(
+        console.warn(
           "Unable to bind to port 443. Try running `sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0`."
         )
         return
@@ -219,6 +219,7 @@ export const proxyByHostname = () =>
 
     server.listen(SNI_PROXY_PORT)
 
+    // eslint-disable-next-line no-console
     console.log(
       `  ${chalk.bold("Debug UI:")} https://localhost/ ${chalk.dim(
         "<-- Start here"

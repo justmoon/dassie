@@ -27,7 +27,7 @@ const subActor = () =>
     const t2 = sig.get(signal2)
     const t3 = sig.get(signal3)
 
-    console.log(`actor run with ${t1} ${t2} ${t3}`)
+    console.info(`actor run with ${t1} ${t2} ${t3}`)
   })
 
 createReactor(rootActor)

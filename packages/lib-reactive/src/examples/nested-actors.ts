@@ -12,10 +12,10 @@ const signal1 = () =>
 
 const rootActor = () =>
   createActor((sig) => {
-    console.log("root actor created")
+    console.info("root actor created")
 
     sig.on(topic1, (message) => {
-      console.log("heard", message)
+      console.info("heard", message)
     })
 
     sig.interval(() => {
@@ -23,7 +23,7 @@ const rootActor = () =>
     }, 1000)
 
     sig.onCleanup(() => {
-      console.log("root actor cleaned up")
+      console.info("root actor cleaned up")
     })
 
     sig.run(subActor)
@@ -32,10 +32,10 @@ const rootActor = () =>
 
 const subActor = () =>
   createActor((sig) => {
-    console.log("child actor created")
+    console.info("child actor created")
 
     sig.on(topic1, (message) => {
-      console.log("reacting to", message)
+      console.info("reacting to", message)
 
       if (message) {
         sig.use(signal1).update(({ states }) => ({
@@ -45,24 +45,24 @@ const subActor = () =>
     })
 
     sig.onCleanup(() => {
-      console.log("child actor cleaned up")
+      console.info("child actor cleaned up")
     })
   })
 
 const subActor2 = () =>
   createActor((sig) => {
-    console.log("child actor 2 created")
+    console.info("child actor 2 created")
     const stateCount = sig.get(signal1, ({ states }) => states.length)
 
-    console.log(stateCount)
+    console.info(stateCount)
 
     if (stateCount > 4) {
-      console.log("stopping")
+      console.info("stopping")
       void sig.reactor.dispose()
     }
 
     sig.onCleanup(() => {
-      console.log("child actor 2 cleaned up")
+      console.info("child actor 2 cleaned up")
     })
   })
 

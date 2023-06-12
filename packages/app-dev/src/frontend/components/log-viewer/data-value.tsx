@@ -106,6 +106,7 @@ export const DataValue = ({ keyName, content }: DataValueProperties) => {
   const value =
     "formatter" in typeInfo ? typeInfo.formatter(content) : String(content)
 
+  // eslint-disable-next-line no-console
   const onClick = () => console.log(content)
 
   return keyName ? (

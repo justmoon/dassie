@@ -28,7 +28,7 @@ const ponger = () =>
 
 const logger = () =>
   createActor((sig) => {
-    sig.on(pingPongTopic, console.log)
+    sig.on(pingPongTopic, console.info)
   })
 
 const rootActor = () =>

@@ -12,7 +12,6 @@ export const resolvePaymentPointer = async (paymentPointer: string) => {
     spspUrl.pathname = "/.well-known/pay"
   }
 
-  console.log(spspUrl)
   const spspFetchResult = await fetch(spspUrl)
   const spspRawResult = (await spspFetchResult.json()) as unknown
 

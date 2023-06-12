@@ -19,7 +19,7 @@ const quadrupled = () =>
 
 const log = () =>
   createActor((sig) => {
-    console.log(sig.get(quadrupled))
+    console.info(sig.get(quadrupled))
   })
 
 const increment = () =>

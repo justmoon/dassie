@@ -27,6 +27,10 @@ module.exports = {
     "vite.*.config.js",
   ],
   rules: {
+    "no-console": [
+      "warn",
+      { allow: ["debug", "info", "warn", "error", "clear"] },
+    ],
     "unicorn/no-null": "off",
     "unicorn/no-useless-undefined": "off",
     "tsdoc/syntax": "warn",

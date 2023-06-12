@@ -22,7 +22,7 @@ const stub = {
 
     return {
       settle: async ({ peerId, amount }) => {
-        console.log(`Sending settlement for ${amount} units to ${peerId}`)
+        console.info(`Sending settlement for ${amount} units to ${peerId}`)
         await host.sendMessage({
           peerId: peerId,
           message: encoder.encode(amount.toString()),
@@ -30,7 +30,7 @@ const stub = {
       },
       handleMessage: ({ peerId, message }) => {
         const amount = BigInt(decoder.decode(message))
-        console.log(`Received settlement for ${amount} units from ${peerId}`)
+        console.info(`Received settlement for ${amount} units from ${peerId}`)
       },
     }
   },
