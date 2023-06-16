@@ -1,8 +1,10 @@
+import { mkdirSync } from "node:fs"
 import { resolve } from "node:path"
 
 import { type Reactor, createComputed } from "@dassie/lib-reactive"
 import { type DatabaseSchema, createDatabase } from "@dassie/lib-sqlite"
 
+import { ACME_DATABASE_SCALARS } from "../acme-certificate-manager/schemas/database-scalars"
 import { environmentConfigSignal } from "../config/environment-config"
 import { CONFIG_DATABASE_SCALARS } from "../config/schemas/database-scalars"
 import migrations from "./migrations"
@@ -24,6 +26,7 @@ export const DASSIE_DATABASE_SCHEMA = {
   },
   scalars: {
     ...CONFIG_DATABASE_SCALARS,
+    ...ACME_DATABASE_SCALARS,
   },
 } as const satisfies DatabaseSchema
 
@@ -39,6 +42,8 @@ export const betterSqliteNativeBindingComputed = () =>
 export const databasePlain = (reactor: Reactor) => {
   const { dataPath } = reactor.use(environmentConfigSignal).read()
   const nativeBinding = reactor.use(betterSqliteNativeBindingComputed).read()
+
+  mkdirSync(dataPath, { recursive: true })
 
   const database = createDatabase({
     path: `${dataPath}/dassie.sqlite3`,

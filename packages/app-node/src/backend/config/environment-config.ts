@@ -86,7 +86,11 @@ export function fromEnvironment() {
     JSON.parse(process.env["DASSIE_CONFIG"] ?? "{}")
   )
 
-  return fromPartialConfig({ ...fileConfig, ...environmentConfig })
+  return fromPartialConfig({
+    rootPath: process.env["DASSIE_ROOT"],
+    ...fileConfig,
+    ...environmentConfig,
+  })
 }
 
 export const environmentConfigSignal = () =>

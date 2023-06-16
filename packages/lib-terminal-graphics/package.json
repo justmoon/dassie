@@ -1,0 +1,32 @@
+{
+  "name": "@dassie/lib-terminal-graphics",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "For building easy-to-use, interactive command-line interface (CLI) applications.",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "eslint .",
+    "typecheck": "tsc"
+  },
+  "author": "Stefan Thomas <justmoon@members.fsf.org>",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@dassie/eslint-config": "workspace:^",
+    "@dassie/meta-tsconfig": "workspace:^",
+    "@types/wcwidth": "^1.0.0"
+  },
+  "dependencies": {
+    "chalk": "^5.2.0",
+    "cli-cursor": "^4.0.0",
+    "is-unicode-supported": "^1.3.0",
+    "strip-ansi": "^7.1.0",
+    "wcwidth": "^1.0.1",
+    "wrap-ansi": "^8.1.0"
+  }
+}

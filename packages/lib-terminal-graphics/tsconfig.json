@@ -1,0 +1,4 @@
+{
+  "extends": "@dassie/meta-tsconfig/vite-node.json",
+  "include": [".eslintrc.cjs", "src/**/*.ts"]
+}
