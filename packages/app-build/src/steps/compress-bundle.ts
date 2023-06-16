@@ -1,25 +1,36 @@
 import { mkdir } from "node:fs/promises"
-import { basename, resolve } from "node:path"
+import { dirname } from "node:path"
+
+import { UnreachableCaseError } from "@dassie/lib-type-utils"
 
 import { Architecture } from "../constants/architectures"
-import { PATH_DIST_UPLOAD } from "../constants/paths"
-import { DASSIE_VERSION } from "../constants/version"
-import { getBundleFilename } from "../utils/bundle-name"
-import { getBundlePath } from "../utils/dynamic-paths"
+import { Compression } from "../constants/compression"
+import { getCompressedPath, getTarPath } from "../utils/bundle-name"
 import { run } from "../utils/run"
 
-export const compressBundle = async (architecture: Architecture) => {
-  const bundlePath = getBundlePath(architecture)
-  const archivePath = resolve(PATH_DIST_UPLOAD, DASSIE_VERSION)
+export const compressBundle = async (
+  architecture: Architecture,
+  compression: Compression
+) => {
+  const tarFile = getTarPath(architecture)
+  const compressedFile = getCompressedPath(architecture, compression)
 
-  await mkdir(archivePath, { recursive: true })
+  // Make directory for compressed file
+  await mkdir(dirname(compressedFile), { recursive: true })
 
-  const outputArchiveFile = resolve(
-    archivePath,
-    `${getBundleFilename(architecture)}`
-  )
-  await run`tar -cJf ${outputArchiveFile} -C ${resolve(
-    bundlePath,
-    ".."
-  )} ${basename(bundlePath)}`
+  switch (compression) {
+    case "gz": {
+      await run`gzip -f ${tarFile} -c > ${compressedFile}`
+      break
+    }
+
+    case "xz": {
+      await run`xz -f ${tarFile} -c > ${compressedFile}`
+      break
+    }
+
+    default: {
+      throw new UnreachableCaseError(compression)
+    }
+  }
 }
