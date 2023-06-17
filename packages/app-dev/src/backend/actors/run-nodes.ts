@@ -1,3 +1,5 @@
+import { setTimeout } from "node:timers/promises"
+
 import { createLogger } from "@dassie/lib-logger"
 import { createActor, createMapped } from "@dassie/lib-reactive"
 
@@ -18,6 +20,9 @@ import { fileChangeTopic } from "./handle-file-change"
 import { runChildProcess } from "./run-child-process"
 
 const logger = createLogger("das:dev:run-nodes")
+
+// Amount of time to wait between starting each node process
+const NODE_STARTUP_INTERVAL = 500
 
 export interface NodeDefinition<T> {
   id: string
@@ -97,8 +102,10 @@ export const runNodes = () =>
               DASSIE_DEBUG_RPC_PORT: String(node.debugPort),
             },
           })
+
+          await setTimeout(NODE_STARTUP_INTERVAL)
         })
       )
 
-    await Promise.all(sig.runMap(nodeActorMap))
+    await sig.runMapSequential(nodeActorMap)
   })
