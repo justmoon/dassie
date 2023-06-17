@@ -37,7 +37,7 @@ export const maintainPeeringRelationships = () =>
         logger.error("peer check failed", { error })
       }
 
-      sig.timeout(() => checkPeers(), PEERING_CHECK_INTERVAL)
+      sig.timeout(checkPeers, PEERING_CHECK_INTERVAL)
     }
 
     const addPeer = () => {

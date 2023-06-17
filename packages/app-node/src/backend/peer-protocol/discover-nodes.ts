@@ -1,5 +1,3 @@
-import { setTimeout } from "node:timers/promises"
-
 import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
@@ -18,20 +16,16 @@ export const discoverNodes = () =>
   createActor((sig) => {
     const nodeDiscoveryQueue = sig.use(nodeDiscoveryQueueStore)
 
-    const discoverPeerLoop = async () => {
-      for (;;) {
-        try {
-          if (sig.isDisposed) return
-
-          await discoverPeer()
-        } catch (error) {
-          logger.error("node discovery failed", { error })
-        }
-        await setTimeout(NODE_DISCOVERY_INTERVAL)
+    const discoverNodeTick = async () => {
+      try {
+        await discoverNode()
+      } catch (error) {
+        logger.error("node discovery failed", { error })
       }
+      sig.timeout(discoverNodeTick, NODE_DISCOVERY_INTERVAL)
     }
 
-    const discoverPeer = async () => {
+    const discoverNode = async () => {
       const [nextNode] = nodeDiscoveryQueue.read()
 
       if (!nextNode) return
@@ -105,5 +99,5 @@ export const discoverNodes = () =>
       return response
     }
 
-    void discoverPeerLoop()
+    void discoverNodeTick()
   })
