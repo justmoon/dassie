@@ -8,7 +8,15 @@
   "scripts": {
     "build": "vite-node bin/build.ts",
     "lint": "eslint .",
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "shellcheck:installer": "docker run --rm -i -v \"$PWD:/mnt:ro\" koalaman/shellcheck:latest resources/shell-installer/install.sh --shell sh",
+    "shellcheck:launcher": "docker run --rm -i -v \"$PWD:/mnt:ro\" koalaman/shellcheck:latest resources/launcher/dassie.sh --shell sh",
+    "serve-mirror": "http-server --port 8443 --tls --cert ../../local/tls/localhost/web-localhost.pem --key ../../local/tls/localhost/web-localhost-key.pem dist/upload/",
+    "test-in-docker:centos": "docker run --privileged --network host --rm --env DASSIE_MIRROR_URL=https://localhost:8443 --env CURL_CA_BUNDLE=/opt/mkcert/rootCA.pem -v \"${PWD}/resources/shell-installer/:/opt/install\" -v \"$(mkcert -CAROOT)/rootCA.pem:/opt/mkcert/rootCA.pem\" -it jrei/systemd-centos /bin/sh /opt/install/install.sh",
+    "test-in-docker:debian": "docker run --privileged --network host --rm --env DASSIE_MIRROR_URL=https://localhost:8443 --env CURL_CA_BUNDLE=/opt/mkcert/rootCA.pem -v \"${PWD}/resources/shell-installer/:/opt/install\" -v \"$(mkcert -CAROOT)/rootCA.pem:/opt/mkcert/rootCA.pem\" -it jrei/systemd-debian /bin/sh -c \"apt-get update && apt-get install -y curl xz-utils && sh /opt/install/install.sh\"",
+    "test-in-docker:fedora": "docker run --privileged --network host --rm --env DASSIE_MIRROR_URL=https://localhost:8443 --env CURL_CA_BUNDLE=/opt/mkcert/rootCA.pem -v \"${PWD}/resources/shell-installer/:/opt/install\" -v \"$(mkcert -CAROOT)/rootCA.pem:/opt/mkcert/rootCA.pem\" -it jrei/systemd-fedora /bin/sh /opt/install/install.sh",
+    "test-in-docker:ubuntu": "docker run --privileged --network host --rm --env DASSIE_MIRROR_URL=https://localhost:8443 --env CURL_CA_BUNDLE=/opt/mkcert/rootCA.pem -v \"${PWD}/resources/shell-installer/:/opt/install\" -v \"$(mkcert -CAROOT)/rootCA.pem:/opt/mkcert/rootCA.pem\" -it jrei/systemd-ubuntu /bin/sh -c \"apt-get update && apt-get install -y curl && sh /opt/install/install.sh\"",
+    "upload": "gcloud storage cp dist/upload/* gs://get.dassie.land --recursive"
   },
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
@@ -19,6 +27,7 @@
     "@dassie/lib-type-utils": "workspace:1.0.0",
     "axios": "^1.4.0",
     "esbuild": "^0.17.19",
+    "http-server": "^14.1.1",
     "vite": "^4.3.9",
     "zx": "^7.2.2"
   },
