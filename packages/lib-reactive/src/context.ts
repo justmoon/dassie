@@ -324,4 +324,37 @@ export class ActorContext extends DisposableLifecycle {
 
     return results
   }
+
+  /**
+   * Run a map of actors sequentially.
+   *
+   * @remarks
+   *
+   * This method is similar to `runMap`, but it will wait for each actor to finish starting up before starting the next one. When all actors are started, the method returns.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async runMapSequential<TReturn>(
+    factory: Factory<Mapped<unknown, Actor<TReturn>>>
+  ): Promise<(TReturn | undefined)[]> {
+    const mapped = this.use(factory)
+    const results: (TReturn | undefined)[] = Array.from({ length: mapped.size })
+
+    let index = 0
+    for (const [, actor, mapLifecycle] of mapped) {
+      const actorLifecycle = new DisposableLifecycle("")
+      actorLifecycle.attachToParent(mapLifecycle)
+      actorLifecycle.attachToParent(this)
+      // eslint-disable-next-line @typescript-eslint/await-thenable
+      results[index++] = await actor.run(actorLifecycle)
+    }
+
+    mapped.additions.on(this, ([, actor, mapLifecycle]) => {
+      const actorLifecycle = new DisposableLifecycle("")
+      actorLifecycle.attachToParent(mapLifecycle)
+      actorLifecycle.attachToParent(this)
+      actor.run(actorLifecycle)
+    })
+
+    return results
+  }
 }
