@@ -19,8 +19,10 @@ const rootActor = () =>
     console.log(chalk.bold(`  Dassie${chalk.green("//dev")}\n`))
 
     sig.run(registerReactiveLogger)
-    sig.run(proxyByHostname)
     await sig.run(listenForRpcWebSocket)
+    await sig.run(debugUiServer)
+
+    sig.run(proxyByHostname)
 
     await sig.run(viteService)
     sig.run(viteNodeService)
@@ -28,7 +30,6 @@ const rootActor = () =>
     await compileRunner()
     sig.run(handleFileChange)
     await sig.run(runNodes)
-    await sig.run(debugUiServer)
 
     sig.run(handleShutdownSignals)
   })
