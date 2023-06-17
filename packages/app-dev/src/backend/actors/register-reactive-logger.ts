@@ -30,30 +30,43 @@ export const registerReactiveLogger = () =>
 
     captureConsole({ formatter: jsonFormatter, outputFunction: () => void 0 })
 
+    const cliFormatter = createCliFormatter()
     if (process.env["DASSIE_LOG_TO_CLI"] === "true") {
-      const cliFormatter = createCliFormatter()
       sig.use(logsStore).changes.on(sig, (action) => {
-        switch (action[0]) {
-          case "clear": {
-            break
-          }
-          case "addLogLine": {
-            const { node, type, date, message, parameters } = action[1][0]
-            const prefix = node
-              ? chalk.hex(selectBySeed(COLORS, node))(node) + " "
-              : ""
-            process.stdout.write(
-              prefix +
-                cliFormatter({
-                  type,
-                  message,
-                  date: new Date(date),
-                  parameters,
-                }) +
-                "\n"
-            )
-            break
-          }
+        if (action[0] === "addLogLine") {
+          const { node, type, date, message, parameters } = action[1][0]
+          const prefix = node
+            ? chalk.hex(selectBySeed(COLORS, node))(node) + " "
+            : ""
+          process.stdout.write(
+            prefix +
+              cliFormatter({
+                type,
+                message,
+                date: new Date(date),
+                parameters,
+              }) +
+              "\n"
+          )
+        }
+      })
+    } else {
+      // We still want to log warnings and errors from the host so the user
+      // knows what happened in case something goes wrong with the web UI.
+      sig.use(logsStore).changes.on(sig, (action) => {
+        if (action[0] === "addLogLine") {
+          const { node, type, date, message, parameters } = action[1][0]
+          if (node !== "host") return
+          if (type !== "warn" && type !== "error") return
+
+          process.stdout.write(
+            cliFormatter({
+              type,
+              message,
+              date: new Date(date),
+              parameters,
+            }) + "\n"
+          )
         }
       })
     }
