@@ -190,7 +190,7 @@ export class ActorContext extends DisposableLifecycle {
           typeof result["catch"] === "function"
         ) {
           result["catch"]((error: unknown) => {
-            console.error("error in interval callback", {
+            console.error("error in async interval callback", {
               actor: this.name,
               path: this.path,
               error,
@@ -212,14 +212,28 @@ export class ActorContext extends DisposableLifecycle {
    * Create a JS timeout that will be automatically cancelled when the current actor is disposed.
    */
   timeout(
-    callback: () => void,
+    callback: () => Promisable<void>,
     delayInMilliseconds?: number | undefined
   ): void {
     if (this.isDisposed) return
 
     const timer = setTimeout(() => {
       try {
-        callback()
+        const result = callback()
+
+        if (
+          isObject(result) &&
+          "catch" in result &&
+          typeof result["catch"] === "function"
+        ) {
+          result["catch"]((error: unknown) => {
+            console.error("error in async timeout callback", {
+              actor: this.name,
+              path: this.path,
+              error,
+            })
+          })
+        }
       } catch (error) {
         console.error("error in timeout callback", {
           actor: this.name,

@@ -26,10 +26,9 @@ const rootActor = () =>
   createActor((sig) => {
     sig.run(httpService)
 
-    sig.timeout(
-      () => sig.use(config).update((config) => ({ ...config, port: 3100 })),
-      1000
-    )
+    sig.timeout(() => {
+      sig.use(config).update((config) => ({ ...config, port: 3100 }))
+    }, 1000)
 
     sig.timeout(() => void sig.reactor.dispose(), 2000)
   })
