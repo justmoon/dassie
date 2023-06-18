@@ -40,6 +40,10 @@ export const rootActor = () =>
         await compressBundle(architecture, compression)
       }
     }
+
+    console.info()
+    console.info("Generate metadata")
+    await generateMetadata()
   })
 
 export const start = () => createReactor(rootActor)
