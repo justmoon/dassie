@@ -2,28 +2,36 @@ import { resolve } from "node:path"
 
 import { Architecture } from "../constants/architectures"
 import { PATH_DIST_STAGING, PATH_DIST_UPLOAD } from "../constants/paths"
-import { DASSIE_VERSION } from "../constants/version"
+import { DassieVersion } from "../constants/version"
 
-export const getBundleName = (architecture: Architecture) =>
-  `dassie-${DASSIE_VERSION}-linux-${architecture}`
+export const getBundleName = (
+  version: DassieVersion,
+  architecture: Architecture
+) => `dassie-${version}-linux-${architecture}`
 
-export const getTarFilename = (architecture: Architecture) =>
-  `${getBundleName(architecture)}.tar`
+export const getTarFilename = (
+  version: DassieVersion,
+  architecture: Architecture
+) => `${getBundleName(version, architecture)}.tar`
 
-export const getTarPath = (architecture: Architecture) =>
-  resolve(PATH_DIST_STAGING, `${getTarFilename(architecture)}`)
+export const getTarPath = (
+  version: DassieVersion,
+  architecture: Architecture
+) => resolve(PATH_DIST_STAGING, `${getTarFilename(version, architecture)}`)
 
 export const getCompressedFilename = (
+  version: DassieVersion,
   architecture: Architecture,
   compression: string
-) => `${getTarFilename(architecture)}.${compression}`
+) => `${getTarFilename(version, architecture)}.${compression}`
 
 export const getCompressedPath = (
+  version: DassieVersion,
   architecture: Architecture,
   compression: string
 ) =>
   resolve(
     PATH_DIST_UPLOAD,
-    DASSIE_VERSION,
-    `${getCompressedFilename(architecture, compression)}`
+    version,
+    `${getCompressedFilename(version, architecture, compression)}`
   )

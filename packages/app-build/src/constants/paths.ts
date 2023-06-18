@@ -27,5 +27,9 @@ export const PATH_RESOURCES_LAUNCHER = resolve(
   PATH_RESOURCES,
   "launcher/dassie.sh"
 )
+export const PATH_RESOURCES_INSTALLER = resolve(
+  PATH_RESOURCES,
+  "shell-installer/install.sh"
+)
 
 export const PATH_CACHE = resolve(PATH_PACKAGE_APP_BUILD, ".cache")

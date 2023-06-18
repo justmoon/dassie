@@ -1,3 +1,5 @@
-import start from "../src"
+import process from "node:process"
 
-start()
+import build from "../src"
+
+await build(process.argv[2])

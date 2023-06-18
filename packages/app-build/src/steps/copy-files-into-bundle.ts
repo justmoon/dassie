@@ -7,11 +7,15 @@ import {
   PATH_RESOURCES_LAUNCHER,
   PATH_RESOURCES_SYSTEMD_UNIT,
 } from "../constants/paths"
+import { DassieVersion } from "../constants/version"
 import { getBundlePath, getStagingPath } from "../utils/dynamic-paths"
 
-export const copyFilesIntoBundle = async (architecture: Architecture) => {
+export const copyFilesIntoBundle = async (
+  version: DassieVersion,
+  architecture: Architecture
+) => {
   const stagingPath = getStagingPath(architecture)
-  const bundlePath = getBundlePath(architecture)
+  const bundlePath = getBundlePath(version, architecture)
 
   // Node binary
   {

@@ -6,7 +6,7 @@
   "private": true,
   "main": "./src/index.ts",
   "scripts": {
-    "build": "vite-node bin/build.ts",
+    "build": "vite-node bin/build.ts --",
     "lint": "eslint .",
     "typecheck": "tsc",
     "shellcheck:installer": "docker run --rm -i -v \"$PWD:/mnt:ro\" koalaman/shellcheck:latest resources/shell-installer/install.sh --shell sh",
