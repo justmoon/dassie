@@ -1,6 +1,6 @@
 import { SUPPORTED_ARCHITECTURES } from "../constants/architectures"
 import { SUPPORTED_COMPRESSIONS } from "../constants/compression"
-import { DassieVersion } from "../constants/version"
+import { DassieDetailedVersion, DassieVersion } from "../constants/version"
 import { buildBackend } from "../steps/build-backend"
 import { buildFrontend } from "../steps/build-frontend"
 import { compressBundle } from "../steps/compress-bundle"
@@ -15,23 +15,25 @@ import { getCompressedFilename, getTarFilename } from "../utils/bundle-name"
 
 export interface BundleOptions {
   version: DassieVersion
+  detailedVersion: DassieDetailedVersion
   isMainRelease: boolean
 }
 
 export const buildBundle = async ({
   version,
+  detailedVersion,
   isMainRelease,
 }: BundleOptions) => {
-  console.info(`Creating Dassie bundles for version ${version}`)
+  console.info(`Creating Dassie bundles for version ${detailedVersion}`)
 
   await deleteOutputPath()
   await createOutputPath()
 
   console.info("Building backend")
-  await buildBackend()
+  await buildBackend(detailedVersion)
 
   console.info("Building frontend")
-  await buildFrontend()
+  await buildFrontend(detailedVersion)
 
   for (const architecture of SUPPORTED_ARCHITECTURES) {
     console.info()

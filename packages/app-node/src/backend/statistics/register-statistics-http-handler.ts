@@ -30,6 +30,9 @@ export const registerStatisticsHttpHandler = () =>
         })
         .filter(Boolean)
 
-      respondJson(response, 200, { peers })
+      respondJson(response, 200, {
+        version: __DASSIE_VERSION__,
+        peers,
+      })
     })
   })

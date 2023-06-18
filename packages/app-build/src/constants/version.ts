@@ -15,3 +15,7 @@ const sqlitePackageJson = createRequire(PATH_PACKAGE_LIB_SQLITE)(
 export const BETTER_SQLITE3_VERSION = sqlitePackageJson.version
 
 export type DassieVersion = `${number}.${number}.${number}` | "canary"
+
+export type DassieDetailedVersion =
+  | `${number}.${number}.${number}`
+  | `canary-${string}`

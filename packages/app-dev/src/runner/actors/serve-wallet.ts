@@ -52,6 +52,9 @@ export const serveWallet = () =>
       root: walletPath,
       mode: "development",
       appType: "custom",
+      define: {
+        __DASSIE_VERSION__: '"dev"',
+      },
       server: {
         middlewareMode: true,
         hmr: {

@@ -26,6 +26,7 @@
     "@dassie/lib-reactive": "workspace:^1.0.0",
     "@dassie/lib-type-utils": "workspace:1.0.0",
     "axios": "^1.4.0",
+    "date-fns": "^2.30.0",
     "esbuild": "^0.17.19",
     "http-server": "^14.1.1",
     "vite": "^4.3.9",

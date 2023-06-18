@@ -31,7 +31,7 @@ await (async () => {
 })();
 `
 
-export const buildBackend = async () => {
+export const buildBackend = async (detailedVersion: string) => {
   await build({
     entryPoints: [resolve(PATH_PACKAGE_APP_NODE, "src/backend/entry.ts")],
     outfile: resolve(PATH_DIST_STAGING_SHARED, "backend.mjs"),
@@ -43,6 +43,7 @@ export const buildBackend = async () => {
       "import.meta.env.MODE": '"production"',
       "import.meta.env.PROD": "true",
       "import.meta.env.DEV": "false",
+      __DASSIE_VERSION__: JSON.stringify(detailedVersion),
       // We have to split the string here to avoid vitest from seeing it
       ["import.meta." + "vitest"]: "undefined",
     },

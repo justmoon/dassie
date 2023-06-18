@@ -6,6 +6,9 @@ export const viteService = () =>
   createActor(async (sig) => {
     // create vite server
     const viteServer = await createServer({
+      define: {
+        __DASSIE_VERSION__: '"dev"',
+      },
       server: { hmr: false },
       optimizeDeps: {
         // It's recommended to disable deps optimization

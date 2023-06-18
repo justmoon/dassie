@@ -10,7 +10,7 @@ import {
   PATH_PACKAGE_APP_NODE,
 } from "../constants/paths"
 
-export const buildFrontend = async () => {
+export const buildFrontend = async (detailedVersion: string) => {
   const sourceDirectory = resolve(PATH_PACKAGE_APP_NODE, "src/frontend")
   const outputDirectory = resolve(PATH_DIST_STAGING_SHARED, "frontend")
 
@@ -21,6 +21,10 @@ export const buildFrontend = async () => {
   await build({
     ...viteConfig,
     root: sourceDirectory,
+    define: {
+      ...viteConfig.define,
+      __DASSIE_VERSION__: JSON.stringify(detailedVersion),
+    },
     build: {
       ...viteConfig.build,
       outDir: outputDirectory,
