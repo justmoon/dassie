@@ -1,7 +1,7 @@
 import { createActor } from "@dassie/lib-reactive"
 
 import { handleIldcpRequests } from "../../ildcp-server/handle-ildcp-requests"
-import { PacketSender } from "../send-outgoing-packets"
+import { PacketSender } from "../functions/send-packet"
 
 export interface IldcpDestinationInfo {
   type: "ildcp"

@@ -3,7 +3,7 @@ import { createActor } from "@dassie/lib-reactive"
 
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import { ilpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-scheme"
-import { processIncomingPacket } from "../../ilp-connector/process-incoming-packet"
+import { processPacket } from "../../ilp-connector/process-packet"
 import type { IncomingPeerMessageEvent } from "../actors/handle-peer-message"
 
 const logger = createLogger("das:node:handle-interledger-packet")
@@ -11,7 +11,7 @@ const logger = createLogger("das:node:handle-interledger-packet")
 export const handleInterledgerPacket = () =>
   createActor((sig) => {
     const ilpAllocationScheme = sig.get(ilpAllocationSchemeSignal)
-    const processIncomingPacketActor = sig.use(processIncomingPacket)
+    const processIncomingPacketActor = sig.use(processPacket)
 
     return {
       handle: ({

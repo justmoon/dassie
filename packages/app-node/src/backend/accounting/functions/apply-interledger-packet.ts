@@ -2,7 +2,7 @@ import { IlpPreparePacket } from "../../ilp-connector/ilp-packet-codec"
 import { CreateTransferParameters, Ledger } from "../stores/ledger"
 import { getLedgerIdFromPath } from "./get-ledger-id-from-path"
 
-export const processPacketPrepare = (
+export const applyPacketPrepareToLedger = (
   ledger: Ledger,
   accountPath: string,
   packet: IlpPreparePacket,
@@ -25,7 +25,7 @@ export const processPacketPrepare = (
   return ledger.createTransfer(transfer)
 }
 
-export const processPacketResult = (
+export const applyPacketResultToLedger = (
   ledger: Ledger,
   accountPath: string,
   packet: IlpPreparePacket,

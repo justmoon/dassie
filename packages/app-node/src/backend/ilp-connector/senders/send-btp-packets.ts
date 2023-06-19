@@ -7,7 +7,7 @@ import {
 import { createActor } from "@dassie/lib-reactive"
 
 import { registerBtpHttpUpgrade } from "../../btp-server/register-btp-http-upgrade"
-import { PacketSender } from "../send-outgoing-packets"
+import { PacketSender } from "../functions/send-packet"
 
 const logger = createLogger("das:node:send-btp-packets")
 

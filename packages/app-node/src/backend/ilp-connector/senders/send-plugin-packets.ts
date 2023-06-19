@@ -1,13 +1,7 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import {
-  processPacketPrepare,
-  processPacketResult,
-} from "../../accounting/functions/process-interledger-packet"
-import { ledgerStore } from "../../accounting/stores/ledger"
 import { managePlugins } from "../../spsp-server/manage-plugins"
-import { IlpType } from "../ilp-packet-codec"
-import { PacketSender } from "../send-outgoing-packets"
+import { PacketSender } from "../functions/send-packet"
 
 export interface PluginDestinationInfo {
   type: "plugin"
@@ -17,26 +11,15 @@ export interface PluginDestinationInfo {
 
 export const sendPluginPackets = () =>
   createActor((sig) => {
-    const ledger = sig.use(ledgerStore)
     const pluginManager = sig.use(managePlugins)
 
     return {
       sendPrepare: ({
         pluginId,
         localIlpAddressPart,
-        parsedPacket,
         serializedPacket,
         outgoingRequestId,
       }) => {
-        if (parsedPacket.amount > 0n) {
-          processPacketPrepare(
-            ledger,
-            "builtin/owner/spsp",
-            parsedPacket,
-            "outgoing"
-          )
-        }
-
         pluginManager.tell("submitPrepare", {
           pluginId,
           localIlpAddressPart,
@@ -45,19 +28,9 @@ export const sendPluginPackets = () =>
         })
       },
       sendResult: ({
-        prepare: { parsedPacket: preparePacket, incomingRequestId: requestId },
-        parsedPacket,
+        prepare: { incomingRequestId: requestId },
         serializedPacket,
       }) => {
-        if (preparePacket.amount > 0n) {
-          processPacketResult(
-            ledger,
-            "builtin/owner/spsp",
-            preparePacket,
-            parsedPacket.type === IlpType.Fulfill ? "fulfill" : "reject"
-          )
-        }
-
         pluginManager.tell("submitResult", {
           requestId,
           serializedPacket,

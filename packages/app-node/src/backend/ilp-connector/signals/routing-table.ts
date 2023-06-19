@@ -1,6 +1,6 @@
 import { createSignal } from "@dassie/lib-reactive"
 
-import type { IlpDestinationInfo } from "../send-outgoing-packets"
+import type { IlpDestinationInfo } from "../functions/send-packet"
 import PrefixMap from "../utils/prefix-map"
 
 export const routingTableSignal = () =>

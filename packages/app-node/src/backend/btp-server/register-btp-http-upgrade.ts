@@ -13,7 +13,7 @@ import { createActor } from "@dassie/lib-reactive"
 
 import { websocketRoutesSignal } from "../http-server/serve-http"
 import { nodeIlpAddressSignal } from "../ilp-connector/computed/node-ilp-address"
-import { processIncomingPacket } from "../ilp-connector/process-incoming-packet"
+import { processPacket } from "../ilp-connector/process-packet"
 import { routingTableSignal } from "../ilp-connector/signals/routing-table"
 
 const logger = createLogger("das:node:websocket-server")
@@ -26,7 +26,7 @@ export const registerBtpHttpUpgrade = () =>
 
     const websocketRoutes = sig.get(websocketRoutesSignal)
 
-    const processIncomingPacketActor = sig.use(processIncomingPacket)
+    const processIncomingPacketActor = sig.use(processPacket)
 
     const socketMap = new Map<number, WebSocket>()
 

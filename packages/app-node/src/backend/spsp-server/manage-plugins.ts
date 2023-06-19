@@ -5,7 +5,7 @@ import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
 import { nodeIlpAddressSignal } from "../ilp-connector/computed/node-ilp-address"
-import { processIncomingPacket } from "../ilp-connector/process-incoming-packet"
+import { processPacket } from "../ilp-connector/process-packet"
 import { routingTableSignal } from "../ilp-connector/signals/routing-table"
 
 const logger = createLogger("das:node:manage-plugins")
@@ -24,7 +24,7 @@ type DataHandler = (data: Buffer) => Promise<Buffer>
 export const managePlugins = () =>
   createActor((sig) => {
     const nodeIlpAddress = sig.get(nodeIlpAddressSignal)
-    const processIncomingPacketActor = sig.use(processIncomingPacket)
+    const processPacketActor = sig.use(processPacket)
     const ilpClientMap = sig.use(routingTableSignal)
 
     const pluginHandlerMap = new Map<number, DataHandler>()
@@ -89,7 +89,7 @@ export const managePlugins = () =>
               const requestId = nextRequestId++
               outstandingRequests.set(requestId, resolve)
 
-              processIncomingPacketActor.tell("handle", {
+              processPacketActor.tell("handle", {
                 sourceIlpAddress: ilpAddress,
                 ledgerAccountPath: "builtin/owner/spsp",
                 serializedPacket: data,
@@ -134,7 +134,7 @@ export const managePlugins = () =>
 
         const response = await dataHandler(Buffer.from(serializedPacket))
 
-        processIncomingPacketActor.tell("handle", {
+        processPacketActor.tell("handle", {
           sourceIlpAddress: `${nodeIlpAddress}.${localIlpAddressPart}`,
           ledgerAccountPath: "builtin/owner/spsp",
           serializedPacket: response,
