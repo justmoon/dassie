@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createTRPCProxyClient } from "@trpc/client"
 import { createWSClient, wsLink } from "@trpc/client/links/wsLink"
-import superjson from "superjson"
+import superjson, { allowErrorProps } from "superjson"
 import WebSocket from "ws"
 
 import { createActor } from "@dassie/lib-reactive"
@@ -19,6 +19,8 @@ export const trpcClientService = () =>
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       WebSocket: WebSocket as any,
     })
+
+    allowErrorProps("stack")
 
     const trpcClient = createTRPCProxyClient<AppRouter>({
       links: [

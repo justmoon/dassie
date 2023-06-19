@@ -7,6 +7,7 @@ import { isObject } from "@dassie/lib-type-utils"
 import { COLORS } from "../../constants/palette"
 import { ANSI_COLORS, ANSI_DECORATIONS } from "./ansi-theme"
 import DataValue from "./data-value"
+import { PrimaryError } from "./primary-error"
 
 export interface ParseLogParameters {
   message: string
@@ -138,7 +139,7 @@ export const LogMessage = ({ message, parameters }: ParseLogParameters) => {
     )
 
     if (error) {
-      elements.push(<DataValue key="error" content={error} />)
+      elements.push(<PrimaryError key="error" error={error} />)
     }
   } else {
     // Remaining log message and parameters

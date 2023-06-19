@@ -1,3 +1,4 @@
+import launchEditor from "launch-editor"
 import { z } from "zod"
 
 import { subscribeToSignal } from "@dassie/lib-reactive-trpc/server"
@@ -24,6 +25,9 @@ export const uiRpcRouter = trpc.mergeRouters(
       }),
     subscribeToNodes: trpc.procedure.subscription(({ ctx: { sig } }) => {
       return subscribeToSignal(sig, activeNodesStore)
+    }),
+    openFile: trpc.procedure.input(z.string()).mutation(({ input }) => {
+      launchEditor(input)
     }),
   })
 )
