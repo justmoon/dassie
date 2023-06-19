@@ -189,7 +189,6 @@ export const createActor: CreateActorSignature = <
           error,
           actor: actor[FactoryNameSymbol],
           method,
-          message,
         })
       })
     },
