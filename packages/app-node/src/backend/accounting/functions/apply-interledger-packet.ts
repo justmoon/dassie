@@ -1,4 +1,4 @@
-import { IlpPreparePacket } from "../../ilp-connector/ilp-packet-codec"
+import { IlpPreparePacket } from "../../ilp-connector/schemas/ilp-packet-codec"
 import { CreateTransferParameters, Ledger } from "../stores/ledger"
 import { getLedgerIdFromPath } from "./get-ledger-id-from-path"
 

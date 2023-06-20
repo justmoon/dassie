@@ -1,6 +1,7 @@
 import { createTopic } from "@dassie/lib-reactive"
 
-import { IlpPreparePacket } from "../ilp-packet-codec"
+import { Transfer } from "../../accounting/stores/ledger"
+import { IlpPreparePacket } from "../schemas/ilp-packet-codec"
 
 export interface PreparedIlpPacketEvent {
   sourceIlpAddress: string
@@ -9,6 +10,7 @@ export interface PreparedIlpPacketEvent {
   parsedPacket: IlpPreparePacket
   incomingRequestId: number
   outgoingRequestId: number
+  pendingTransfers: readonly Transfer[]
 }
 
 export const preparedIlpPacketTopic = () =>

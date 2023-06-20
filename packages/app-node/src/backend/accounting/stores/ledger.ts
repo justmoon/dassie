@@ -40,7 +40,7 @@ export interface LedgerAccount {
 
 export interface Transfer {
   key: string
-  state: "pending" | "posted"
+  state: "pending" | "posted" | "voided"
   debitAccount: string
   creditAccount: string
   amount: bigint
@@ -159,11 +159,15 @@ export const ledgerStore = (reactor: Reactor) => {
     },
 
     voidPendingTransfer: (transfer: Transfer) => {
+      assert(transfer.state === "pending")
+
       const debitAccount = ledger.get(transfer.debitAccount)
       assert(debitAccount)
 
       const creditAccount = ledger.get(transfer.creditAccount)
       assert(creditAccount)
+
+      transfer.state = "voided"
 
       debitAccount.debitsPending -= transfer.amount
 

@@ -1,8 +1,11 @@
 import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
-import { IlpType, serializeIlpPacket } from "../ilp-connector/ilp-packet-codec"
 import { processPacket } from "../ilp-connector/process-packet"
+import {
+  IlpType,
+  serializeIlpPacket,
+} from "../ilp-connector/schemas/ilp-packet-codec"
 import { routingTableSignal } from "../ilp-connector/signals/routing-table"
 import { ildcpResponseSchema } from "./ildcp-packet-codec"
 

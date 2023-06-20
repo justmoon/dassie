@@ -2,10 +2,11 @@ import { createLogger } from "@dassie/lib-logger"
 import { isFailure } from "@dassie/lib-type-utils"
 
 import { applyPacketPrepareToLedger } from "../../accounting/functions/apply-interledger-packet"
-import { ledgerStore } from "../../accounting/stores/ledger"
+import { Transfer, ledgerStore } from "../../accounting/stores/ledger"
 import { createPacketSender } from "../functions/send-packet"
-import { IlpPreparePacket } from "../ilp-packet-codec"
 import { ProcessIncomingPacketParameters } from "../process-packet"
+import { IlpErrorCode } from "../schemas/ilp-errors"
+import { IlpPreparePacket } from "../schemas/ilp-packet-codec"
 import { requestIdMapSignal } from "../signals/request-id-map"
 import { routingTableSignal } from "../signals/routing-table"
 import {
@@ -13,6 +14,7 @@ import {
   preparedIlpPacketTopic,
 } from "../topics/prepared-ilp-packet"
 import { createGetLedgerPathForDestination } from "./get-ledger-path-for-destination"
+import { createTriggerRejection } from "./trigger-rejection"
 
 const logger = createLogger("das:ilp-connector:process-prepare-packet")
 
@@ -25,6 +27,7 @@ export interface ProcessPreparePacketEnvironment {
     typeof createGetLedgerPathForDestination
   >
   sendPacket: ReturnType<typeof createPacketSender>
+  triggerRejection: ReturnType<typeof createTriggerRejection>
 }
 
 export type ProcessPreparePacketParameters = ProcessIncomingPacketParameters & {
@@ -38,6 +41,7 @@ export const createProcessPreparePacket = ({
   routingTable,
   getLedgerPathForDestination,
   sendPacket,
+  triggerRejection,
 }: ProcessPreparePacketEnvironment) => {
   return ({
     sourceIlpAddress,
@@ -54,6 +58,8 @@ export const createProcessPreparePacket = ({
 
     const outgoingRequestId = Math.trunc(Math.random() * 0xff_ff_ff_ff)
 
+    const tentativeTransfers: Transfer[] = []
+
     const preparedIlpPacketEvent: PreparedIlpPacketEvent = {
       sourceIlpAddress,
       ledgerAccountPath,
@@ -61,7 +67,10 @@ export const createProcessPreparePacket = ({
       parsedPacket,
       incomingRequestId: requestId,
       outgoingRequestId,
+      pendingTransfers: tentativeTransfers,
     }
+
+    requestIdMap.read().set(outgoingRequestId, preparedIlpPacketEvent)
 
     if (parsedPacket.amount > 0n) {
       const result = applyPacketPrepareToLedger(
@@ -71,14 +80,15 @@ export const createProcessPreparePacket = ({
         "incoming"
       )
       if (isFailure(result)) {
-        // TODO: reject packet
-        throw new Error(
-          `failed to create transfer, invalid ${result.whichAccount} account ${result.accountPath}`
-        )
+        triggerRejection({
+          requestId: outgoingRequestId,
+          errorCode: IlpErrorCode.T00_INTERNAL_ERROR,
+          message: "Missing internal ledger account for inbound transfer",
+        })
+        return
       }
+      tentativeTransfers.push(result)
     }
-
-    requestIdMap.read().set(outgoingRequestId, preparedIlpPacketEvent)
 
     logger.debug("forwarding ILP prepare", {
       source: sourceIlpAddress,
@@ -86,25 +96,35 @@ export const createProcessPreparePacket = ({
       requestId: outgoingRequestId,
     })
 
-    preparedIlpPacketTopicValue.emit(preparedIlpPacketEvent)
-
     const destinationInfo = routingTable.read().lookup(parsedPacket.destination)
 
     if (!destinationInfo) {
-      throw new Error(
-        `Failed to forward Interledger packet: No route found for destination ${parsedPacket.destination}`
-      )
+      triggerRejection({
+        requestId: outgoingRequestId,
+        errorCode: IlpErrorCode.F02_UNREACHABLE,
+        message: "No route found for destination",
+      })
+      return
     }
 
     if (parsedPacket.amount > 0n) {
-      applyPacketPrepareToLedger(
+      const result = applyPacketPrepareToLedger(
         ledger,
         getLedgerPathForDestination(destinationInfo),
         parsedPacket,
         "outgoing"
       )
+      if (isFailure(result)) {
+        triggerRejection({
+          requestId: outgoingRequestId,
+          errorCode: IlpErrorCode.T00_INTERNAL_ERROR,
+          message: "Missing internal ledger account for outbound transfer",
+        })
+        return
+      }
     }
 
     sendPacket(destinationInfo, preparedIlpPacketEvent)
+    preparedIlpPacketTopicValue.emit(preparedIlpPacketEvent)
   }
 }
