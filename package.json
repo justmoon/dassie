@@ -59,6 +59,9 @@
     "eslint": "^8.41.0",
     "turbo": "^1.9.9"
   },
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "pnpm": {
     "peerDependencyRules": {
       "ignoreMissing": [

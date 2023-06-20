@@ -12,7 +12,7 @@ In order to develop a peer-to-peer application, it is very useful to quickly spi
 
 ### Prerequisites
 
-- Node.js 18
+- Node.js 20 (crypto.subtle)
 - [mkcert](https://github.com/FiloSottile/mkcert)
   1. Run `mkcert -install` to create the private CA and register it in your OS and browser.
   2. Add `export NODE_EXTRA_CA_CERTS="$(mkcert -CAROOT)/rootCA.pem"` to your `.bashrc`, `.zshrc`, or similar.
