@@ -6,7 +6,7 @@ import { WebSocketServer } from "ws"
 
 import { environmentConfigSignal, nodeTableStore } from "@dassie/app-node"
 import { ilpAllocationSchemeSignal } from "@dassie/app-node/src/backend/config/computed/ilp-allocation-scheme"
-import { routingTableSignal } from "@dassie/app-node/src/backend/ilp-connector/signals/routing-table"
+import { routingTableSignal } from "@dassie/app-node/src/backend/routing/signals/routing-table"
 import { createLogger } from "@dassie/lib-logger"
 import {
   InferMessageType,

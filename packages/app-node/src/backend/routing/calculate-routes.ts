@@ -5,10 +5,10 @@ import { assertDefined } from "@dassie/lib-type-utils"
 
 import { ilpAllocationSchemeSignal } from "../config/computed/ilp-allocation-scheme"
 import { nodeIdSignal } from "../ilp-connector/computed/node-id"
-import { routingTableSignal } from "../ilp-connector/signals/routing-table"
-import { nodeDiscoveryQueueStore } from "./stores/node-discovery-queue"
-import { nodeTableStore } from "./stores/node-table"
-import { NodeId } from "./types/node-id"
+import { nodeDiscoveryQueueStore } from "../peer-protocol/stores/node-discovery-queue"
+import { nodeTableStore } from "../peer-protocol/stores/node-table"
+import { NodeId } from "../peer-protocol/types/node-id"
+import { routingTableSignal } from "./signals/routing-table"
 
 interface NodeInfoEntry {
   level: number

@@ -3,12 +3,12 @@ import { isFailure } from "@dassie/lib-type-utils"
 
 import { applyPacketPrepareToLedger } from "../../accounting/functions/apply-interledger-packet"
 import { Transfer, ledgerStore } from "../../accounting/stores/ledger"
+import { routingTableSignal } from "../../routing/signals/routing-table"
 import { createPacketSender } from "../functions/send-packet"
 import { ProcessIncomingPacketParameters } from "../process-packet"
 import { IlpErrorCode } from "../schemas/ilp-errors"
 import { IlpPreparePacket } from "../schemas/ilp-packet-codec"
 import { requestIdMapSignal } from "../signals/request-id-map"
-import { routingTableSignal } from "../signals/routing-table"
 import {
   PreparedIlpPacketEvent,
   preparedIlpPacketTopic,

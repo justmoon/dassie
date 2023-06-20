@@ -10,6 +10,7 @@ import { startIlpConnector } from "./ilp-connector"
 import { attachLogger } from "./logger"
 import { startOpenPaymentsServer } from "./open-payments"
 import { speakPeerProtocol } from "./peer-protocol"
+import { doRouting } from "./routing"
 import { startSpspServer } from "./spsp-server"
 import { startStatisticsServer } from "./statistics"
 import { startSubnets } from "./subnets"
@@ -32,6 +33,7 @@ export const rootActor = () =>
     sig.run(startStatisticsServer)
 
     await sig.run(speakPeerProtocol)
+    sig.run(doRouting)
   })
 
 export const start = () => createReactor(rootActor)

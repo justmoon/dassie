@@ -14,7 +14,7 @@ import { createActor } from "@dassie/lib-reactive"
 import { websocketRoutesSignal } from "../http-server/serve-http"
 import { nodeIlpAddressSignal } from "../ilp-connector/computed/node-ilp-address"
 import { processPacket } from "../ilp-connector/process-packet"
-import { routingTableSignal } from "../ilp-connector/signals/routing-table"
+import { routingTableSignal } from "../routing/signals/routing-table"
 
 const logger = createLogger("das:node:websocket-server")
 

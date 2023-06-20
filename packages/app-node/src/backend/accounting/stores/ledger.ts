@@ -5,7 +5,7 @@ import assert from "node:assert"
 import { createLogger } from "@dassie/lib-logger"
 import { Reactor } from "@dassie/lib-reactive"
 
-import PrefixMap from "../../ilp-connector/utils/prefix-map"
+import PrefixMap from "../../routing/utils/prefix-map"
 import InvalidAccountFailure from "../failures/invalid-account"
 import { getLedgerIdFromPath } from "../functions/get-ledger-id-from-path"
 import { postedTransfersTopic } from "../topics/posted-transfers"

@@ -6,7 +6,7 @@ import {
   IlpType,
   serializeIlpPacket,
 } from "../ilp-connector/schemas/ilp-packet-codec"
-import { routingTableSignal } from "../ilp-connector/signals/routing-table"
+import { routingTableSignal } from "../routing/signals/routing-table"
 import { ildcpResponseSchema } from "./ildcp-packet-codec"
 
 const logger = createLogger("das:node:handle-ildcp-requests")

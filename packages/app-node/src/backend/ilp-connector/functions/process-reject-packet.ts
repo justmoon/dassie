@@ -1,9 +1,9 @@
 import { createLogger } from "@dassie/lib-logger"
 
 import { ledgerStore } from "../../accounting/stores/ledger"
+import { routingTableSignal } from "../../routing/signals/routing-table"
 import { IlpRejectPacket, IlpType } from "../schemas/ilp-packet-codec"
 import { requestIdMapSignal } from "../signals/request-id-map"
-import { routingTableSignal } from "../signals/routing-table"
 import {
   ResolvedIlpPacketEvent,
   resolvedIlpPacketTopic,

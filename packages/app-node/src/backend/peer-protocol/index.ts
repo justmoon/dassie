@@ -3,7 +3,6 @@ import { createActor } from "@dassie/lib-reactive"
 import type { PerSubnetParameters } from "../subnets/manage-subnet-instances"
 import { handlePeerMessage } from "./actors/handle-peer-message"
 import { sendPeerMessage } from "./actors/send-peer-message"
-import { calculateRoutes } from "./calculate-routes"
 import { discoverNodes } from "./discover-nodes"
 import { forwardLinkStateUpdate } from "./forward-link-state-update"
 import { maintainOwnNodeTableEntry } from "./maintain-own-node-table-entry"
@@ -27,7 +26,6 @@ export const speakPeerProtocol = () =>
     sig.run(sendHeartbeats)
     sig.run(forwardLinkStateUpdate)
     sig.run(discoverNodes)
-    sig.run(calculateRoutes)
 
     sig.runMap(runPerPeerActors)
   })
