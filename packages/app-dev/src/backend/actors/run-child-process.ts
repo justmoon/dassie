@@ -36,11 +36,14 @@ export const runChildProcess = () =>
     ) => {
       let child: ChildProcess | undefined
 
-      const handleChildExit = (code: number | null) => {
+      const handleChildExit = (
+        code: number | null,
+        signal: NodeJS.Signals | null
+      ) => {
         if (code === 0) {
-          logger.info(`${chalk.green(`child exited`)}`)
+          logger.info(chalk.green(`child exited`), { code, signal })
         } else {
-          logger.error(`child exited with code: ${code ?? "unknown"}`)
+          logger.error("child exited", { code, signal })
         }
         child = undefined
       }
