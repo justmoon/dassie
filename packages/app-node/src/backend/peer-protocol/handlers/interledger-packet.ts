@@ -4,6 +4,7 @@ import { createActor } from "@dassie/lib-reactive"
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import { ilpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-scheme"
 import { processPacket } from "../../ilp-connector/process-packet"
+import { PeerEndpointInfo } from "../../ilp-connector/senders/send-peer-packets"
 import type { IncomingPeerMessageEvent } from "../actors/handle-peer-message"
 
 const logger = createLogger("das:node:handle-interledger-packet")
@@ -38,9 +39,15 @@ export const handleInterledgerPacket = () =>
 
         const { subnetId } = peerState
 
+        const endpointInfo: PeerEndpointInfo = {
+          type: "peer",
+          nodeId: sender,
+          ilpAddress: `${ilpAllocationScheme}.das.${sender}`,
+          accountPath: `${subnetId}/peer/${sender}/interledger`,
+        }
+
         processIncomingPacketActor.tell("handle", {
-          sourceIlpAddress: `${ilpAllocationScheme}.das.${sender}`,
-          ledgerAccountPath: `${subnetId}/peer/${sender}/interledger`,
+          sourceEndpointInfo: endpointInfo,
           serializedPacket: content.signed.packet,
           requestId: content.signed.requestId,
         })

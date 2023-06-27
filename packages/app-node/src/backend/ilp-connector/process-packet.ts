@@ -2,14 +2,16 @@ import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 import { UnreachableCaseError } from "@dassie/lib-type-utils"
 
+import { nodeTableStore } from ".."
 import { ledgerStore } from "../accounting/stores/ledger"
+import { ilpAllocationSchemeSignal } from "../config/computed/ilp-allocation-scheme"
+import { createResolveIlpAddress } from "../routing/functions/resolve-ilp-address"
 import { routingTableSignal } from "../routing/signals/routing-table"
 import { nodeIlpAddressSignal } from "./computed/node-ilp-address"
-import { createGetLedgerPathForDestination } from "./functions/get-ledger-path-for-destination"
 import { createProcessFulfillPacket } from "./functions/process-fulfill-packet"
 import { createProcessPreparePacket } from "./functions/process-prepare-packet"
 import { createProcessRejectPacket } from "./functions/process-reject-packet"
-import { createPacketSender } from "./functions/send-packet"
+import { EndpointInfo, createPacketSender } from "./functions/send-packet"
 import { createTriggerRejection } from "./functions/trigger-rejection"
 import { IlpPacket, IlpType, parseIlpPacket } from "./schemas/ilp-packet-codec"
 import { requestIdMapSignal } from "./signals/request-id-map"
@@ -19,8 +21,7 @@ import { resolvedIlpPacketTopic } from "./topics/resolved-ilp-packet"
 const logger = createLogger("das:node:ilp-connector:process-packet")
 
 export interface ProcessIncomingPacketParameters {
-  sourceIlpAddress: string
-  ledgerAccountPath: string
+  sourceEndpointInfo: EndpointInfo
   serializedPacket: Uint8Array
   parsedPacket?: IlpPacket | undefined
   requestId: number
@@ -33,23 +34,27 @@ export const processPacket = () =>
     const resolvedIlpPacketTopicValue = sig.use(resolvedIlpPacketTopic)
     const requestIdMap = sig.use(requestIdMapSignal)
     const routingTable = sig.use(routingTableSignal)
+    const nodeTable = sig.use(nodeTableStore)
+    const ilpAllocationScheme = sig.use(ilpAllocationSchemeSignal)
     const ownIlpAddress = sig.use(nodeIlpAddressSignal)
 
-    const getLedgerPathForDestination = createGetLedgerPathForDestination(sig)
+    const resolveIlpAddress = createResolveIlpAddress({
+      routingTable,
+      nodeTable,
+      ilpAllocationScheme,
+    })
     const sendPacket = createPacketSender(sig)
 
     const processFulfillPacket = createProcessFulfillPacket({
       ledger,
       resolvedIlpPacketTopicValue,
       requestIdMap,
-      routingTable,
       sendPacket,
     })
     const processRejectPacket = createProcessRejectPacket({
       ledger,
       resolvedIlpPacketTopicValue,
       requestIdMap,
-      routingTable,
       sendPacket,
     })
     const triggerRejection = createTriggerRejection({
@@ -60,22 +65,20 @@ export const processPacket = () =>
       ledger,
       preparedIlpPacketTopicValue,
       requestIdMap,
-      routingTable,
-      getLedgerPathForDestination,
+      resolveIlpAddress,
       sendPacket,
       triggerRejection,
     })
 
     return {
       handle: ({
-        sourceIlpAddress,
-        ledgerAccountPath,
+        sourceEndpointInfo,
         serializedPacket,
         requestId,
         parsedPacket: optionalParsedPacket,
       }: ProcessIncomingPacketParameters) => {
         logger.debug("handle interledger packet", {
-          from: sourceIlpAddress,
+          from: sourceEndpointInfo.ilpAddress,
         })
 
         // Parse packet if not already done
@@ -85,8 +88,7 @@ export const processPacket = () =>
         switch (parsedPacket.type) {
           case IlpType.Prepare: {
             processPreparePacket({
-              sourceIlpAddress,
-              ledgerAccountPath,
+              sourceEndpointInfo,
               serializedPacket,
               parsedPacket,
               requestId,

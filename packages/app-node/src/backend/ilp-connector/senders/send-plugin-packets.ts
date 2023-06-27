@@ -1,9 +1,9 @@
 import { createActor } from "@dassie/lib-reactive"
 
 import { managePlugins } from "../../spsp-server/manage-plugins"
-import { PacketSender } from "../functions/send-packet"
+import { CommonEndpointInfo, PacketSender } from "../functions/send-packet"
 
-export interface PluginDestinationInfo {
+export interface PluginEndpointInfo extends CommonEndpointInfo {
   type: "plugin"
   pluginId: number
   localIlpAddressPart: string

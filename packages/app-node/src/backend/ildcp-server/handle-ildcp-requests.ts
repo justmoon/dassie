@@ -6,6 +6,7 @@ import {
   IlpType,
   serializeIlpPacket,
 } from "../ilp-connector/schemas/ilp-packet-codec"
+import { IldcpEndpointInfo } from "../ilp-connector/senders/send-ildcp-packets"
 import { routingTableSignal } from "../routing/signals/routing-table"
 import { ildcpResponseSchema } from "./ildcp-packet-codec"
 
@@ -18,13 +19,20 @@ export interface IldcpRequestParameters {
   requestId: number
 }
 
+const ILDCP_DESTINATION_INFO: IldcpEndpointInfo = {
+  type: "ildcp",
+  ilpAddress: ILDCP_ADDRESS,
+  accountPath: `internal/ildcp`,
+}
+
 export const handleIldcpRequests = () =>
   createActor((sig) => {
     const ilpRoutingTable = sig.get(routingTableSignal)
     const processIncomingPacketActor = sig.use(processPacket)
 
     ilpRoutingTable.set(ILDCP_ADDRESS, {
-      type: "ildcp",
+      type: "fixed",
+      destination: ILDCP_DESTINATION_INFO,
     })
 
     sig.onCleanup(() => {
@@ -58,8 +66,7 @@ export const handleIldcpRequests = () =>
         })
 
         processIncomingPacketActor.tell("handle", {
-          sourceIlpAddress: ILDCP_ADDRESS,
-          ledgerAccountPath: `internal/ildcp`,
+          sourceEndpointInfo: ILDCP_DESTINATION_INFO,
           serializedPacket: serializeIlpPacket(responsePacket),
           parsedPacket: responsePacket,
           requestId,

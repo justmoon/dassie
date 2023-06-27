@@ -1,9 +1,9 @@
 import { createActor } from "@dassie/lib-reactive"
 
 import { handleIldcpRequests } from "../../ildcp-server/handle-ildcp-requests"
-import { PacketSender } from "../functions/send-packet"
+import { CommonEndpointInfo, PacketSender } from "../functions/send-packet"
 
-export interface IldcpDestinationInfo {
+export interface IldcpEndpointInfo extends CommonEndpointInfo {
   type: "ildcp"
 }
 
@@ -12,9 +12,9 @@ export const sendIldcpPackets = () =>
     const ildcpHandler = sig.use(handleIldcpRequests)
 
     return {
-      sendPrepare: ({ sourceIlpAddress, outgoingRequestId: requestId }) => {
+      sendPrepare: ({ sourceEndpointInfo, outgoingRequestId: requestId }) => {
         ildcpHandler.tell("handle", {
-          sourceIlpAddress,
+          sourceIlpAddress: sourceEndpointInfo.ilpAddress,
           requestId,
         })
       },

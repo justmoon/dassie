@@ -14,6 +14,7 @@ import { createActor } from "@dassie/lib-reactive"
 import { websocketRoutesSignal } from "../http-server/serve-http"
 import { nodeIlpAddressSignal } from "../ilp-connector/computed/node-ilp-address"
 import { processPacket } from "../ilp-connector/process-packet"
+import { BtpEndpointInfo } from "../ilp-connector/senders/send-btp-packets"
 import { routingTableSignal } from "../routing/signals/routing-table"
 
 const logger = createLogger("das:node:websocket-server")
@@ -42,6 +43,13 @@ export const registerBtpHttpUpgrade = () =>
         } while (
           ilpRoutingTable.read().get(`${nodeIlpAddress}.${localIlpAddressPart}`)
         )
+
+        const endpointInfo: BtpEndpointInfo = {
+          type: "btp",
+          connectionId,
+          ilpAddress: `${nodeIlpAddress}.${localIlpAddressPart}`,
+          accountPath: "builtin/owner/btp",
+        }
 
         logger.debug("handle BTP websocket connection", { connectionId })
 
@@ -105,8 +113,7 @@ export const registerBtpHttpUpgrade = () =>
                   if (protocolData.protocolName === "ilp") {
                     logger.debug("received ILP packet via BTP message")
                     processIncomingPacketActor.tell("handle", {
-                      sourceIlpAddress: `${nodeIlpAddress}.${localIlpAddressPart}`,
-                      ledgerAccountPath: "builtin/owner/btp",
+                      sourceEndpointInfo: endpointInfo,
                       serializedPacket: protocolData.data,
                       requestId: message.requestId,
                     })
@@ -135,8 +142,7 @@ export const registerBtpHttpUpgrade = () =>
                     logger.debug("received ILP packet via BTP transfer")
 
                     processIncomingPacketActor.tell("handle", {
-                      sourceIlpAddress: `${nodeIlpAddress}.${localIlpAddressPart}`,
-                      ledgerAccountPath: "builtin/owner/btp",
+                      sourceEndpointInfo: endpointInfo,
                       serializedPacket: protocolData.data,
                       requestId: message.requestId,
                     })
@@ -163,8 +169,7 @@ export const registerBtpHttpUpgrade = () =>
                   if (protocolData.protocolName === "ilp") {
                     logger.debug("received ILP packet via BTP response")
                     processIncomingPacketActor.tell("handle", {
-                      sourceIlpAddress: `${nodeIlpAddress}.${localIlpAddressPart}`,
-                      ledgerAccountPath: "builtin/owner/btp",
+                      sourceEndpointInfo: endpointInfo,
                       serializedPacket: protocolData.data,
                       requestId: message.requestId,
                     })
@@ -183,8 +188,8 @@ export const registerBtpHttpUpgrade = () =>
         })
 
         ilpRoutingTable.read().set(`${nodeIlpAddress}.${localIlpAddressPart}`, {
-          type: "btp",
-          connectionId,
+          type: "fixed",
+          destination: endpointInfo,
         })
 
         socket.on("close", () => {

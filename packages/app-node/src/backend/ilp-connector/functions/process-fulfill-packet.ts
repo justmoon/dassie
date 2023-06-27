@@ -1,7 +1,6 @@
 import { createLogger } from "@dassie/lib-logger"
 
 import { ledgerStore } from "../../accounting/stores/ledger"
-import { routingTableSignal } from "../../routing/signals/routing-table"
 import { IlpFulfillPacket, IlpType } from "../schemas/ilp-packet-codec"
 import { requestIdMapSignal } from "../signals/request-id-map"
 import {
@@ -16,7 +15,6 @@ export interface ProcessFulfillPacketEnvironment {
   ledger: ReturnType<typeof ledgerStore>
   resolvedIlpPacketTopicValue: ReturnType<typeof resolvedIlpPacketTopic>
   requestIdMap: ReturnType<typeof requestIdMapSignal>
-  routingTable: ReturnType<typeof routingTableSignal>
   sendPacket: ReturnType<typeof createPacketSender>
 }
 
@@ -30,7 +28,6 @@ export const createProcessFulfillPacket = ({
   ledger,
   resolvedIlpPacketTopicValue,
   requestIdMap,
-  routingTable,
   sendPacket,
 }: ProcessFulfillPacketEnvironment) => {
   return ({
@@ -56,21 +53,13 @@ export const createProcessFulfillPacket = ({
       ledger.postPendingTransfer(transfer)
     }
 
-    const destinationInfo = routingTable.read().lookup(prepare.sourceIlpAddress)
-
-    if (!destinationInfo) {
-      throw new Error(
-        `Failed to pass on packet result: No route found for origin ${prepare.sourceIlpAddress}`
-      )
-    }
-
     const resolvedIlpPacketEvent: ResolvedIlpPacketEvent = {
       prepare,
       parsedPacket,
       serializedPacket,
     }
 
-    sendPacket(destinationInfo, resolvedIlpPacketEvent)
+    sendPacket(prepare.sourceEndpointInfo, resolvedIlpPacketEvent)
     resolvedIlpPacketTopicValue.emit(resolvedIlpPacketEvent)
   }
 }

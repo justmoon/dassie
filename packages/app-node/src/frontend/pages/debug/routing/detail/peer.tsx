@@ -1,8 +1,8 @@
-import { PeerDestinationInfo } from "../../../../../backend/ilp-connector/senders/send-peer-packets"
+import { PeerRoutingInfo } from "../../../../../backend/routing/signals/routing-table"
 
 export const PeerRoutingDetail = ({
   firstHopOptions,
   distance,
-}: PeerDestinationInfo) => {
+}: PeerRoutingInfo) => {
   return <span>{`${firstHopOptions.join(", ")} (distance: ${distance})`}</span>
 }

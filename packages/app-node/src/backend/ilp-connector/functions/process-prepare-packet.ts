@@ -3,7 +3,7 @@ import { isFailure } from "@dassie/lib-type-utils"
 
 import { applyPacketPrepareToLedger } from "../../accounting/functions/apply-interledger-packet"
 import { Transfer, ledgerStore } from "../../accounting/stores/ledger"
-import { routingTableSignal } from "../../routing/signals/routing-table"
+import { createResolveIlpAddress } from "../../routing/functions/resolve-ilp-address"
 import { createPacketSender } from "../functions/send-packet"
 import { ProcessIncomingPacketParameters } from "../process-packet"
 import { IlpErrorCode } from "../schemas/ilp-errors"
@@ -13,7 +13,6 @@ import {
   PreparedIlpPacketEvent,
   preparedIlpPacketTopic,
 } from "../topics/prepared-ilp-packet"
-import { createGetLedgerPathForDestination } from "./get-ledger-path-for-destination"
 import { createTriggerRejection } from "./trigger-rejection"
 
 const logger = createLogger("das:ilp-connector:process-prepare-packet")
@@ -22,10 +21,7 @@ export interface ProcessPreparePacketEnvironment {
   ledger: ReturnType<typeof ledgerStore>
   preparedIlpPacketTopicValue: ReturnType<typeof preparedIlpPacketTopic>
   requestIdMap: ReturnType<typeof requestIdMapSignal>
-  routingTable: ReturnType<typeof routingTableSignal>
-  getLedgerPathForDestination: ReturnType<
-    typeof createGetLedgerPathForDestination
-  >
+  resolveIlpAddress: ReturnType<typeof createResolveIlpAddress>
   sendPacket: ReturnType<typeof createPacketSender>
   triggerRejection: ReturnType<typeof createTriggerRejection>
 }
@@ -38,20 +34,18 @@ export const createProcessPreparePacket = ({
   ledger,
   preparedIlpPacketTopicValue,
   requestIdMap,
-  routingTable,
-  getLedgerPathForDestination,
+  resolveIlpAddress,
   sendPacket,
   triggerRejection,
 }: ProcessPreparePacketEnvironment) => {
   return ({
-    sourceIlpAddress,
+    sourceEndpointInfo,
     parsedPacket,
-    ledgerAccountPath,
     serializedPacket,
     requestId,
   }: ProcessPreparePacketParameters) => {
     logger.debug("received ILP prepare", {
-      from: sourceIlpAddress,
+      from: sourceEndpointInfo.ilpAddress,
       to: parsedPacket.destination,
       amount: parsedPacket.amount,
     })
@@ -61,8 +55,7 @@ export const createProcessPreparePacket = ({
     const tentativeTransfers: Transfer[] = []
 
     const preparedIlpPacketEvent: PreparedIlpPacketEvent = {
-      sourceIlpAddress,
-      ledgerAccountPath,
+      sourceEndpointInfo,
       serializedPacket,
       parsedPacket,
       incomingRequestId: requestId,
@@ -75,7 +68,7 @@ export const createProcessPreparePacket = ({
     if (parsedPacket.amount > 0n) {
       const result = applyPacketPrepareToLedger(
         ledger,
-        ledgerAccountPath,
+        sourceEndpointInfo.accountPath,
         parsedPacket,
         "incoming"
       )
@@ -91,14 +84,14 @@ export const createProcessPreparePacket = ({
     }
 
     logger.debug("forwarding ILP prepare", {
-      source: sourceIlpAddress,
+      source: sourceEndpointInfo.ilpAddress,
       destination: parsedPacket.destination,
       requestId: outgoingRequestId,
     })
 
-    const destinationInfo = routingTable.read().lookup(parsedPacket.destination)
+    const destinationEndpointInfo = resolveIlpAddress(parsedPacket.destination)
 
-    if (!destinationInfo) {
+    if (isFailure(destinationEndpointInfo)) {
       triggerRejection({
         requestId: outgoingRequestId,
         errorCode: IlpErrorCode.F02_UNREACHABLE,
@@ -110,7 +103,7 @@ export const createProcessPreparePacket = ({
     if (parsedPacket.amount > 0n) {
       const result = applyPacketPrepareToLedger(
         ledger,
-        getLedgerPathForDestination(destinationInfo),
+        destinationEndpointInfo.accountPath,
         parsedPacket,
         "outgoing"
       )
@@ -124,7 +117,7 @@ export const createProcessPreparePacket = ({
       }
     }
 
-    sendPacket(destinationInfo, preparedIlpPacketEvent)
+    sendPacket(destinationEndpointInfo, preparedIlpPacketEvent)
     preparedIlpPacketTopicValue.emit(preparedIlpPacketEvent)
   }
 }

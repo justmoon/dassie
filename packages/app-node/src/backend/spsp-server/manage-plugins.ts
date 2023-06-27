@@ -6,6 +6,7 @@ import { createActor } from "@dassie/lib-reactive"
 
 import { nodeIlpAddressSignal } from "../ilp-connector/computed/node-ilp-address"
 import { processPacket } from "../ilp-connector/process-packet"
+import { PluginEndpointInfo } from "../ilp-connector/senders/send-plugin-packets"
 import { routingTableSignal } from "../routing/signals/routing-table"
 
 const logger = createLogger("das:node:manage-plugins")
@@ -13,11 +14,7 @@ const logger = createLogger("das:node:manage-plugins")
 let nextRequestId = 1
 let nextPluginId = 1
 
-type Connection =
-  | {
-      ilpAddress: string
-    }
-  | false
+type Connection = PluginEndpointInfo | false
 
 type DataHandler = (data: Buffer) => Promise<Buffer>
 
@@ -25,7 +22,7 @@ export const managePlugins = () =>
   createActor((sig) => {
     const nodeIlpAddress = sig.get(nodeIlpAddressSignal)
     const processPacketActor = sig.use(processPacket)
-    const ilpClientMap = sig.use(routingTableSignal)
+    const routingTable = sig.use(routingTableSignal)
 
     const pluginHandlerMap = new Map<number, DataHandler>()
     const outstandingRequests = new Map<number, (data: Buffer) => void>()
@@ -45,29 +42,32 @@ export const managePlugins = () =>
             do {
               localIlpAddressPart = nanoid(6)
             } while (
-              ilpClientMap
+              routingTable
                 .read()
                 .get(`${nodeIlpAddress}.${localIlpAddressPart}`)
             )
 
-            ilpClientMap
+            connection = {
+              type: "plugin",
+              pluginId,
+              localIlpAddressPart,
+              ilpAddress: `${nodeIlpAddress}.${localIlpAddressPart}`,
+              accountPath: "builtin/owner/spsp",
+            }
+
+            routingTable
               .read()
               .set(`${nodeIlpAddress}.${localIlpAddressPart}`, {
-                type: "plugin",
-                pluginId,
-                localIlpAddressPart,
+                type: "fixed",
+                destination: connection,
               })
-
-            connection = {
-              ilpAddress: `${nodeIlpAddress}.${localIlpAddressPart}`,
-            }
 
             return Promise.resolve()
           },
           disconnect: () => {
             if (!connection) return Promise.resolve()
 
-            ilpClientMap
+            routingTable
               .read()
               .delete(`${nodeIlpAddress}.${localIlpAddressPart}`)
 
@@ -83,15 +83,14 @@ export const managePlugins = () =>
               throw new Error("Plugin is not connected")
             }
 
-            const { ilpAddress } = connection
+            const sourceEndpointInfo = connection
 
             const resultPromise = new Promise<Buffer>((resolve) => {
               const requestId = nextRequestId++
               outstandingRequests.set(requestId, resolve)
 
               processPacketActor.tell("handle", {
-                sourceIlpAddress: ilpAddress,
-                ledgerAccountPath: "builtin/owner/spsp",
+                sourceEndpointInfo,
                 serializedPacket: data,
                 requestId,
               })
@@ -134,9 +133,16 @@ export const managePlugins = () =>
 
         const response = await dataHandler(Buffer.from(serializedPacket))
 
+        const sourceEndpointInfo: PluginEndpointInfo = {
+          type: "plugin",
+          pluginId,
+          localIlpAddressPart,
+          ilpAddress: `${nodeIlpAddress}.${localIlpAddressPart}`,
+          accountPath: "builtin/owner/spsp",
+        }
+
         processPacketActor.tell("handle", {
-          sourceIlpAddress: `${nodeIlpAddress}.${localIlpAddressPart}`,
-          ledgerAccountPath: "builtin/owner/spsp",
+          sourceEndpointInfo,
           serializedPacket: response,
           requestId: outgoingRequestId,
         })

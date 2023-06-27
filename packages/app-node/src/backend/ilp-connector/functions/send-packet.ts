@@ -2,41 +2,43 @@ import { Promisable } from "type-fest"
 
 import { Actor, ActorContext } from "@dassie/lib-reactive"
 
-import { BtpDestinationInfo, sendBtpPackets } from "../senders/send-btp-packets"
+import { BtpEndpointInfo, sendBtpPackets } from "../senders/send-btp-packets"
 import {
-  IldcpDestinationInfo,
+  IldcpEndpointInfo,
   sendIldcpPackets,
 } from "../senders/send-ildcp-packets"
+import { PeerEndpointInfo, sendPeerPackets } from "../senders/send-peer-packets"
 import {
-  PeerDestinationInfo,
-  sendPeerPackets,
-} from "../senders/send-peer-packets"
-import {
-  PluginDestinationInfo,
+  PluginEndpointInfo,
   sendPluginPackets,
 } from "../senders/send-plugin-packets"
 import { PreparedIlpPacketEvent } from "../topics/prepared-ilp-packet"
 import { ResolvedIlpPacketEvent } from "../topics/resolved-ilp-packet"
 
-export type IlpDestinationInfo =
-  | PeerDestinationInfo
-  | IldcpDestinationInfo
-  | BtpDestinationInfo
-  | PluginDestinationInfo
+export interface CommonEndpointInfo {
+  accountPath: string
+  ilpAddress: string
+}
 
-export type PreparedPacketParameters<TType extends IlpDestinationInfo["type"]> =
-  IlpDestinationInfo & { type: TType } & PreparedIlpPacketEvent
+export type EndpointInfo =
+  | PeerEndpointInfo
+  | IldcpEndpointInfo
+  | BtpEndpointInfo
+  | PluginEndpointInfo
 
-export type ResolvedPacketParameters<TType extends IlpDestinationInfo["type"]> =
-  IlpDestinationInfo & { type: TType } & ResolvedIlpPacketEvent
+export type PreparedPacketParameters<TType extends EndpointInfo["type"]> =
+  EndpointInfo & { type: TType } & PreparedIlpPacketEvent
 
-export type PacketSender<TType extends IlpDestinationInfo["type"]> = Actor<{
+export type ResolvedPacketParameters<TType extends EndpointInfo["type"]> =
+  EndpointInfo & { type: TType } & ResolvedIlpPacketEvent
+
+export type PacketSender<TType extends EndpointInfo["type"]> = Actor<{
   sendPrepare: (parameters: PreparedPacketParameters<TType>) => Promisable<void>
   sendResult: (parameters: ResolvedPacketParameters<TType>) => Promisable<void>
 }>
 
 type AllPacketSenders = {
-  [K in IlpDestinationInfo["type"]]: PacketSender<K>
+  [K in EndpointInfo["type"]]: PacketSender<K>
 }
 
 export const createPacketSender = (sig: ActorContext) => {
@@ -51,8 +53,8 @@ export const createPacketSender = (sig: ActorContext) => {
     sender.run(sig)
   }
 
-  return <TType extends IlpDestinationInfo["type"]>(
-    client: IlpDestinationInfo & { type: TType },
+  return <TType extends EndpointInfo["type"]>(
+    client: EndpointInfo & { type: TType },
     event: PreparedIlpPacketEvent | ResolvedIlpPacketEvent
   ) => {
     const sender = senders[client.type] as PacketSender<TType>
