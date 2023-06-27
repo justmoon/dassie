@@ -27,7 +27,7 @@
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "dependencies": {
-    "@dassie/lib-oer": "workspace:^1.0.0"
+    "@dassie/lib-oer": "workspace:^"
   },
   "devDependencies": {
     "@dassie/eslint-config": "workspace:^",

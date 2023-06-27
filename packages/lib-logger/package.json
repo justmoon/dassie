@@ -29,7 +29,7 @@
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "dependencies": {
-    "@dassie/lib-type-utils": "workspace:^1.0.0",
+    "@dassie/lib-type-utils": "workspace:^",
     "ansi-escapes": "^6.2.0",
     "chalk": "^5.2.0",
     "is-generator-function": "^1.0.10",

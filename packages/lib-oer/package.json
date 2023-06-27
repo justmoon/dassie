@@ -27,11 +27,11 @@
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "dependencies": {
-    "@dassie/lib-type-utils": "workspace:^1.0.0"
+    "@dassie/lib-type-utils": "workspace:^"
   },
   "devDependencies": {
     "@dassie/eslint-config": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
-    "type-fest": "^3.11.0"
+    "type-fest": "^3.12.0"
   }
 }
