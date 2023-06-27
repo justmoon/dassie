@@ -24,7 +24,7 @@ const stub = {
       settle: async ({ peerId, amount }) => {
         console.info(`Sending settlement for ${amount} units to ${peerId}`)
         await host.sendMessage({
-          peerId: peerId,
+          peerId,
           message: encoder.encode(amount.toString()),
         })
       },

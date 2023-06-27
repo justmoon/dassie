@@ -31,7 +31,7 @@ const NodeHeader = ({ nodeId }: BasicNodeElementProperties) => {
           Node:{" "}
           <span
             style={{
-              color: color,
+              color,
             }}
           >
             {nodeId}

@@ -127,7 +127,7 @@ export const sendOutgoingSettlements = () =>
         subnetActor
           .ask("settle", {
             amount: settlementAmount,
-            peerId: peerId,
+            peerId,
           })
           .then(() => {
             processSettlementResult(ledger, settlementTransfer, "fulfill")

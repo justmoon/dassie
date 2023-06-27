@@ -36,6 +36,7 @@ module.exports = {
     "tsdoc/syntax": "warn",
     "@typescript-eslint/no-non-null-assertion": "off",
     "@typescript-eslint/no-invalid-void-type": "off",
+    "object-shorthand": ["warn", "properties"],
   },
   overrides: [
     {
