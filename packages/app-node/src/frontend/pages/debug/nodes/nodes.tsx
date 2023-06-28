@@ -24,8 +24,6 @@ export function Nodes() {
   const { data: ilpAllocationScheme } =
     trpc.getAllocationScheme.useQuery(undefined)
 
-  if (!ilpAllocationScheme) return null
-
   trpc.subscribeConfig.useSubscription(undefined, {
     onData: (data) => {
       setConfig(data)
@@ -42,7 +40,9 @@ export function Nodes() {
     },
   })
 
-  if (!config || !nodeTable || !routingTable) return null
+  if (!ilpAllocationScheme || !config || !nodeTable || !routingTable) {
+    return null
+  }
 
   const sortedNodeTable = [...nodeTable.values()]
     .map((node) => {
