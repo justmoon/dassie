@@ -20,7 +20,7 @@ export const Account = () => {
           <CardTitle className="text-sm font-medium">Balance</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex p-2 text-dark text-center max-w-md w-full justify-center text-4xl md:text-5xl">
+          <div className="flex p-2 text-center max-w-md w-full justify-center text-4xl md:text-5xl">
             <Amount value={account.balance} currency={account.currency} />
           </div>
         </CardContent>

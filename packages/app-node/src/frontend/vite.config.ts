@@ -1,16 +1,9 @@
 import react from "@vitejs/plugin-react"
-import tailwind from "tailwindcss"
+import unocss from "unocss/vite"
 import { defineConfig } from "vite"
 
-import tailwindConfig from "./tailwind.config.js"
-
 export default defineConfig({
-  plugins: [react()],
-  css: {
-    postcss: {
-      plugins: [tailwind({ config: tailwindConfig })],
-    },
-  },
+  plugins: [react(), unocss()],
   build: {
     target: "esnext",
   },
