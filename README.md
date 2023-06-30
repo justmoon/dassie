@@ -13,6 +13,7 @@ In order to develop a peer-to-peer application, it is very useful to quickly spi
 ### Prerequisites
 
 - A Node version manager [which respects `.node-version`](https://stackoverflow.com/questions/27425852/what-uses-respects-the-node-version-file). For example, [fnm](https://github.com/Schniz/fnm).
+- `*.localhost` mapped to `127.0.0.1` via something like dnsmasq ([MacOS](https://hedichaibi.com/how-to-setup-wildcard-dev-domains-with-dnsmasq-on-a-mac/)).
 - [mkcert](https://github.com/FiloSottile/mkcert)
   1. Run `mkcert -install` to create the private CA and register it in your OS and browser.
   2. Add `export NODE_EXTRA_CA_CERTS="$(mkcert -CAROOT)/rootCA.pem"` to your `.bashrc`, `.zshrc`, or similar.
