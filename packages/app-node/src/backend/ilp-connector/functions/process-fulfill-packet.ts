@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto"
+
 import { createLogger } from "@dassie/lib-logger"
 
 import { ledgerStore } from "../../accounting/stores/ledger"
@@ -45,6 +47,22 @@ export const createProcessFulfillPacket = ({
       throw new Error(
         "Received response ILP packet which did not match any request ILP packet we sent"
       )
+    }
+
+    const hasher = createHash("sha256")
+    hasher.update(parsedPacket.fulfillment)
+    const fulfillmentHash = hasher.digest()
+
+    if (!fulfillmentHash.equals(prepare.parsedPacket.executionCondition)) {
+      logger.warn(
+        "discarding ILP fulfill packet whose fulfillment hash does not match the corresponding execution condition",
+        {
+          fulfillment: parsedPacket.fulfillment,
+          fulfillmentHash,
+          executionCondition: prepare.parsedPacket.executionCondition,
+        }
+      )
+      return
     }
 
     requestIdMap.read().delete(requestId)
