@@ -108,6 +108,10 @@ export interface Theme {
 
     errorName: (name: string) => string
     errorMessage: (message: string) => string
+
+    aggregateErrorStart: string
+    aggregateErrorSeparator: string
+    aggregateErrorEnd: string
   }
   limits: {
     maxStringLength: number
@@ -221,6 +225,10 @@ export const defaultAnsiTheme: Theme = {
 
     errorName: (name) => chalk.red.bold(`${name}: `),
     errorMessage: (message) => `${chalk.red(message)}`,
+
+    aggregateErrorStart: "\n\n",
+    aggregateErrorSeparator: "\n\n",
+    aggregateErrorEnd: "\n",
   },
   limits: {
     maxStringLength: 100,
@@ -263,19 +271,32 @@ const colorDeterministically = (
 }
 
 const formatError = (context: FormattingContext, error: Error): string => {
-  return error.stack
-    ? formatStack(context, error.stack)
-    : `${context.theme.structures.errorName(
-        `${error.name || "Error"}`
-      )}${context.theme.structures.errorMessage(error.message)}`
+  return `${context.theme.structures.errorName(
+    `${error.name || "Error"}`
+  )}${context.theme.structures.errorMessage(error.message)}${
+    error.stack ? formatStack(context, error.stack) : ""
+  }${isAggregateError(error) ? formatAggregateError(context, error) : ""}`
+}
+
+const isAggregateError = (error: Error): error is AggregateError =>
+  error.name === "AggregateError" &&
+  "errors" in error &&
+  Array.isArray(error.errors) &&
+  error.errors.every((error) => isError(error))
+
+const formatAggregateError = (
+  context: FormattingContext,
+  error: AggregateError
+): string => {
+  return `${context.theme.structures.aggregateErrorStart}${error.errors
+    .map(formatError.bind(null, context))
+    .join(context.theme.structures.aggregateErrorSeparator)}${
+    context.theme.structures.aggregateErrorEnd
+  }`
 }
 
 const formatStack = (context: FormattingContext, stack: string): string => {
   const lines = stack.split("\n")
-
-  if (!lines[0]) return stack
-
-  const [name, message] = lines[0]?.split(": ") ?? []
 
   const formattedCallsites = lines
     .slice(1)
@@ -316,9 +337,7 @@ const formatStack = (context: FormattingContext, stack: string): string => {
     })
     .filter(Boolean)
 
-  return `${context.theme.structures.errorName(
-    name ?? "Error"
-  )}${context.theme.structures.errorMessage(message ?? "no message")}${
+  return `${
     formattedCallsites.length > 0 ? `\n${context.indent}` : ""
   }${formattedCallsites.join(`\n${context.indent}`)}`
 }

@@ -19,6 +19,6 @@ export { createEnableChecker } from "./enabled"
 export { createLoggerFactory } from "./logger"
 export { type CaptureParameters, captureConsole } from "./capture"
 export { selectBySeed } from "./utils/select-by-seed"
-export { isError } from "./utils/is-error"
+export { isError, hasAggregatedErrors } from "./utils/is-error"
 
 export type { Logger } from "./logger"

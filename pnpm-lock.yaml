@@ -183,6 +183,9 @@ importers:
       ansicolor:
         specifier: ^1.1.100
         version: 1.1.100
+      axios:
+        specifier: ^1.4.0
+        version: 1.4.0
       chalk:
         specifier: ^5.2.0
         version: 5.2.0

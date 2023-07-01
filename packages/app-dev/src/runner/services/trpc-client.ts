@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createTRPCProxyClient } from "@trpc/client"
 import { createWSClient, wsLink } from "@trpc/client/links/wsLink"
-import superjson, { allowErrorProps } from "superjson"
+import { AxiosError } from "axios"
+import superjson, { allowErrorProps, registerClass } from "superjson"
 import WebSocket from "ws"
 
 import { createActor } from "@dassie/lib-reactive"
@@ -20,7 +21,13 @@ export const trpcClientService = () =>
       WebSocket: WebSocket as any,
     })
 
-    allowErrorProps("stack")
+    allowErrorProps("stack", "cause")
+    registerClass(AggregateError, {
+      allowProps: ["errors", "message", "stack", "cause"],
+    })
+    registerClass(AxiosError, {
+      allowProps: ["code", "errors", "message", "name", "config", "cause"],
+    })
 
     const trpcClient = createTRPCProxyClient<AppRouter>({
       links: [

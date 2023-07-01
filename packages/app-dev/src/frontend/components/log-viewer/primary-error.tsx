@@ -1,6 +1,9 @@
 import cx from "classnames"
 
+import { hasAggregatedErrors } from "@dassie/lib-logger"
+
 import { trpc } from "../../utils/trpc"
+import DataValue from "./data-value"
 
 export interface PrimaryErrorProperties {
   error: Error
@@ -57,14 +60,11 @@ const UnknownStackFrame = ({ frame }: UnknownStackFrameProperties) => {
 }
 
 export const PrimaryError = ({ error }: PrimaryErrorProperties) => {
-  const stack =
-    error.stack ?? `${error.name || "Error"}: ${error.message || "no message"}`
-  const lines = stack.split("\n")
+  const name = error.name || "Error"
+  const message = error.message || ""
+  const stack = error.stack?.split("\n").slice(1) ?? []
 
-  const [name, message] = lines[0]?.split(": ") ?? []
-
-  const formattedCallsites = lines
-    .slice(1)
+  const formattedCallsites = stack
     .map((line) => {
       {
         const match = line.match(/^ {4}at (.*) \((.*):(\d+):(\d+)\)$/) as
@@ -102,15 +102,29 @@ export const PrimaryError = ({ error }: PrimaryErrorProperties) => {
     .filter(Boolean)
 
   return (
-    <div className={`bg-dark-100 rounded-2 text-xs my-2 p-3`}>
-      <div className="text-red-400 font-bold mb-1">
-        <span>{name}</span>: <span>{message}</span>
+    <>
+      <div className={`bg-dark-100 rounded-2 text-xs my-2 p-3`}>
+        <div className="text-red-400 font-bold mb-1">
+          <span>{name}</span>
+          {message ? ": " : ""}
+          <span>{message}</span>
+        </div>
+        <ul>
+          {formattedCallsites.map((line, index) => (
+            <li key={index}>{line}</li>
+          ))}
+        </ul>
       </div>
-      <ul>
-        {formattedCallsites.map((line, index) => (
-          <li key={index}>{line}</li>
+      {"cause" in error &&
+        error.cause &&
+        error !== error.cause &&
+        !hasAggregatedErrors(error) && (
+          <DataValue keyName="cause" content={error.cause} />
+        )}
+      {hasAggregatedErrors(error) &&
+        error.errors.map((error, index) => (
+          <PrimaryError key={index} error={error} />
         ))}
-      </ul>
-    </div>
+    </>
   )
 }

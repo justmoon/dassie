@@ -4,9 +4,17 @@ import {
   wsLink as createWSLink,
 } from "@trpc/client/links/wsLink"
 import { createTRPCReact } from "@trpc/react-query"
-import superjson from "superjson"
+import { AxiosError } from "axios"
+import superjson, { registerClass } from "superjson"
 
 import type { AppRouter } from "../../backend/rpc-routers/app-router"
+
+registerClass(AggregateError, {
+  allowProps: ["errors", "message", "stack", "cause"],
+})
+registerClass(AxiosError, {
+  allowProps: ["code", "errors", "message", "name", "config", "cause"],
+})
 
 export const trpc = createTRPCReact<AppRouter>()
 
