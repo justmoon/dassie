@@ -46,7 +46,7 @@ export interface TrpcStoreSubscriptionHook<TInitial, TChange> {
       onData: (
         data:
           | { type: "initial"; value: TInitial }
-          | { type: "change"; value: TChange }
+          | { type: "changes"; value: readonly TChange[] }
       ) => void
     }
   ) => void
@@ -163,16 +163,18 @@ const createReactiveHooks = () => {
         if (data.type === "initial") {
           store.write(data.value)
         } else {
-          const action = store[data.value[0]] as
-            | BoundAction<unknown, unknown[]>
-            | undefined
+          for (const [actionName, parameters] of data.value) {
+            const action = store[actionName] as
+              | BoundAction<unknown, unknown[]>
+              | undefined
 
-          if (!action) {
-            throw new Error(
-              `Tried to synchronize action ${data.value[0]} which does not exist in the local implementation`
-            )
+            if (!action) {
+              throw new Error(
+                `Tried to synchronize action ${actionName} which does not exist in the local implementation`
+              )
+            }
+            action(...parameters)
           }
-          action(...data.value[1])
         }
       },
     })

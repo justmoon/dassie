@@ -52,7 +52,7 @@ export type StoreMessage<
   TActions extends Record<string, Action<TState>>
 > =
   | { type: "initial"; value: TState }
-  | { type: "change"; value: InferChanges<TActions> }
+  | { type: "changes"; value: readonly InferChanges<TActions>[] }
 
 export const subscribeToStore = <
   TState,
@@ -64,7 +64,7 @@ export const subscribeToStore = <
   return observable<StoreMessage<TState, TActions>, never>((emit) => {
     const store = sig.use(storeFactory)
     const listener = (change: InferChanges<TActions>) => {
-      emit.next({ type: "change", value: change })
+      emit.next({ type: "changes", value: [change] })
     }
     store.changes.on(sig, listener)
 
