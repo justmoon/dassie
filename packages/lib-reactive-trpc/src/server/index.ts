@@ -14,6 +14,10 @@ import {
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 export type ReactiveContext = { reactor: Reactor }
 
+export interface SubscriptionOptions {
+  batching?: boolean
+}
+
 export const subscribeToTopic = <TMessage>(
   sig: ActorContext,
   topicFactory: Factory<ReadonlyTopic<TMessage>>
@@ -59,12 +63,35 @@ export const subscribeToStore = <
   TActions extends Record<string, Action<TState>>
 >(
   sig: ActorContext,
-  storeFactory: Factory<Store<TState, TActions>>
+  storeFactory: Factory<Store<TState, TActions>>,
+  { batching = true }: SubscriptionOptions = {}
 ): Observable<StoreMessage<TState, TActions>, never> => {
   return observable<StoreMessage<TState, TActions>, never>((emit) => {
+    let timer: ReturnType<typeof setImmediate> | undefined
+    const queuedChanges = new Set<InferChanges<TActions>>()
+
     const store = sig.use(storeFactory)
     const listener = (change: InferChanges<TActions>) => {
-      emit.next({ type: "changes", value: [change] })
+      if (batching) {
+        if (!timer) {
+          timer = setImmediate(() => {
+            emit.next({
+              type: "changes",
+              value: [...queuedChanges],
+            })
+            queuedChanges.clear()
+            timer = undefined
+          })
+        }
+
+        queuedChanges.add(change)
+        return
+      }
+
+      emit.next({
+        type: "changes",
+        value: [change],
+      })
     }
     store.changes.on(sig, listener)
 
