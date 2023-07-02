@@ -4,54 +4,36 @@ import { observable } from "@trpc/server/observable"
 import superjson from "superjson"
 import { WebSocketServer } from "ws"
 
-import { environmentConfigSignal, nodeTableStore } from "@dassie/app-node"
-import { ilpAllocationSchemeSignal } from "@dassie/app-node/src/backend/config/computed/ilp-allocation-scheme"
-import { routingTableSignal } from "@dassie/app-node/src/backend/routing/signals/routing-table"
 import { createLogger } from "@dassie/lib-logger"
 import {
   InferMessageType,
   createActor,
   debugFirehose,
 } from "@dassie/lib-reactive"
-import {
-  type ReactiveContext,
-  createRemoteReactiveRouter,
-} from "@dassie/lib-reactive-trpc/server"
+import { type ReactiveContext } from "@dassie/lib-reactive-trpc/server"
 
 import { prettyFormat } from "../../common/utils/pretty-format"
 
 const logger = createLogger("das:dev:runner:debug-rpc-server")
 
-export const exposedStores = {
-  config: environmentConfigSignal,
-  ilpAllocationScheme: ilpAllocationSchemeSignal,
-  nodeTable: nodeTableStore,
-  routingTable: routingTableSignal,
-} as const
-
-export type ExposedStoresMap = typeof exposedStores
-
 export const trpc = initTRPC.context<ReactiveContext>().create({
   transformer: superjson,
 })
-export const debugRpcRouter = trpc.mergeRouters(
-  trpc.router({
-    listenToFirehose: trpc.procedure.subscription(({ ctx }) => {
-      return observable<{ topic: string; message: string }>((emit) => {
-        const firehose = ctx.reactor.use(debugFirehose)
-        const listener = (event: InferMessageType<typeof debugFirehose>) => {
-          emit.next({
-            topic: event.topic.name,
-            message: prettyFormat(event.message),
-          })
-        }
-        firehose.on(ctx.reactor, listener)
-        return () => firehose.off(listener)
-      })
-    }),
+export const debugRpcRouter = trpc.router({
+  listenToFirehose: trpc.procedure.subscription(({ ctx }) => {
+    return observable<{ topic: string; message: string }>((emit) => {
+      const firehose = ctx.reactor.use(debugFirehose)
+      const listener = (event: InferMessageType<typeof debugFirehose>) => {
+        emit.next({
+          topic: event.topic.name,
+          message: prettyFormat(event.message),
+        })
+      }
+      firehose.on(ctx.reactor, listener)
+      return () => firehose.off(listener)
+    })
   }),
-  createRemoteReactiveRouter(trpc, exposedStores)
-)
+})
 
 export type DebugRpcRouter = typeof debugRpcRouter
 

@@ -2,16 +2,14 @@ import { FaPlus, FaWallet } from "react-icons/fa"
 import { Link } from "wouter"
 
 import { selectBySeed } from "@dassie/lib-logger"
+import { useRemoteSignal } from "@dassie/lib-reactive-trpc/client"
 
 import { COLORS } from "../../../constants/palette"
-import { activeNodesStore } from "../../../remote-signals/active-nodes"
-import { useSig } from "../../../utils/remote-reactive"
 import { trpc } from "../../../utils/trpc"
 import PeeringModeToggle from "./peering-mode-toggle"
 
 const NodesList = () => {
-  const sig = useSig()
-  const nodes = [...(sig.get(activeNodesStore) ?? new Set())]
+  const nodes = [...(useRemoteSignal(trpc.ui.subscribeToNodes) ?? new Set())]
   const addRandomNode = trpc.ui.addRandomNode.useMutation()
 
   return (

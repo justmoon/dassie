@@ -1,7 +1,5 @@
-import { inferObservableValue } from "@trpc/server/observable"
-import { useState } from "react"
+import { useRemoteSignal } from "@dassie/lib-reactive-trpc/client"
 
-import { Config } from "../../../../backend"
 import {
   Table,
   TableBody,
@@ -10,35 +8,15 @@ import {
   TableHeader,
   TableRow,
 } from "../../../components/ui/table"
-import { RouterOutput, trpc } from "../../../utils/trpc"
+import { trpc } from "../../../utils/trpc"
 
 export function Nodes() {
-  type NodeTable = inferObservableValue<RouterOutput["subscribeNodeTable"]>
-  type RoutingTable = inferObservableValue<
-    RouterOutput["subscribeRoutingTable"]
-  >
-  const [config, setConfig] = useState<Config>()
-  const [nodeTable, setNodeTable] = useState<NodeTable>()
-  const [routingTable, setRoutingTable] = useState<RoutingTable>()
+  const config = useRemoteSignal(trpc.subscribeConfig)
+  const nodeTable = useRemoteSignal(trpc.subscribeNodeTable)
+  const routingTable = useRemoteSignal(trpc.subscribeRoutingTable)
 
   const { data: ilpAllocationScheme } =
     trpc.getAllocationScheme.useQuery(undefined)
-
-  trpc.subscribeConfig.useSubscription(undefined, {
-    onData: (data) => {
-      setConfig(data)
-    },
-  })
-  trpc.subscribeNodeTable.useSubscription(undefined, {
-    onData: (data) => {
-      setNodeTable(data)
-    },
-  })
-  trpc.subscribeRoutingTable.useSubscription(undefined, {
-    onData: (data) => {
-      setRoutingTable(data)
-    },
-  })
 
   if (!ilpAllocationScheme || !config || !nodeTable || !routingTable) {
     return null

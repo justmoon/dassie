@@ -8,13 +8,11 @@ import ReactForceGraph2d, {
 import { useLocation } from "wouter"
 
 import { selectBySeed } from "@dassie/lib-logger"
+import { useRemoteSignal } from "@dassie/lib-reactive-trpc/client"
 
 import type { PeerMessageMetadata } from "../../../backend/topics/peer-traffic"
 import { COLORS } from "../../constants/palette"
-import { activeNodesStore } from "../../remote-signals/active-nodes"
-import { peeringStateStore } from "../../remote-signals/peering-state"
-import { peerTrafficTopic } from "../../remote-topics/peer-traffic"
-import { useSig } from "../../utils/remote-reactive"
+import { trpc } from "../../utils/trpc"
 
 interface NodeGraphViewProperties {
   graphData: GraphData
@@ -23,7 +21,6 @@ interface NodeGraphViewProperties {
 const generateNode = (nodeId: string) => ({ id: nodeId })
 
 const NodeGraphView = ({ graphData }: NodeGraphViewProperties) => {
-  const sig = useSig()
   const rootReference = useRef<HTMLDivElement>(null)
   const forceGraphReference = useRef<ForceGraphMethods>()
   const [width, height] = useSize(rootReference)
@@ -40,9 +37,8 @@ const NodeGraphView = ({ graphData }: NodeGraphViewProperties) => {
     []
   )
 
-  sig.on(
-    peerTrafficTopic,
-    useCallback(
+  trpc.ui.subscribeToPeerTraffic.useSubscription(undefined, {
+    onData: useCallback(
       (data: PeerMessageMetadata | undefined) => {
         if (!data) return
 
@@ -56,8 +52,8 @@ const NodeGraphView = ({ graphData }: NodeGraphViewProperties) => {
         if (link) forceGraphReference.current?.emitParticle(link)
       },
       [forceGraphReference, graphData]
-    )
-  )
+    ),
+  })
 
   return (
     <div className="h-full relative" ref={rootReference}>
@@ -79,9 +75,8 @@ const NodeGraphView = ({ graphData }: NodeGraphViewProperties) => {
 }
 
 const NodeGraph = () => {
-  const sig = useSig()
-  const nodes = sig.get(activeNodesStore)
-  const peeringState = sig.get(peeringStateStore)
+  const nodes = useRemoteSignal(trpc.ui.subscribeToNodes)
+  const peeringState = useRemoteSignal(trpc.ui.subscribeToPeeringState)
   const [graphData, dispatchGraphData] = useReducer(
     (
       previousGraphData: GraphData,

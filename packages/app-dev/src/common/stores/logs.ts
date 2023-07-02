@@ -19,29 +19,25 @@ type NewLogLine = SetOptional<IndexedLogLine, "index" | "relativeTime">
 
 export const logsStore = () =>
   createStore(
-    { logs: [] as IndexedLogLine[] } as const,
+    [] as IndexedLogLine[],
     {
       // eslint-disable-next-line unicorn/consistent-function-scoping
-      clear: () => () => ({
-        logs: [],
-      }),
-      addLogLine:
-        (logLine: NewLogLine) =>
-        ({ logs }) => {
-          const lastIndex = logs.at(-1)?.index ?? -1
-          const startTime = new Date(logs[0]?.date ?? new Date().toISOString())
+      clear: () => () => [],
+      addLogLine: (logLine: NewLogLine) => (logs) => {
+        const lastIndex = logs.at(-1)?.index ?? -1
+        const startTime = new Date(logs[0]?.date ?? new Date().toISOString())
 
-          logs.push({
-            index: lastIndex + 1,
-            relativeTime: Date.now() - Number(startTime),
-            ...logLine,
-          })
+        logs.push({
+          index: lastIndex + 1,
+          relativeTime: Date.now() - Number(startTime),
+          ...logLine,
+        })
 
-          if (logs.length > LOGS_HARD_LIMIT) {
-            logs = logs.slice(logs.length - LOGS_SOFT_LIMIT)
-          }
+        if (logs.length > LOGS_HARD_LIMIT) {
+          logs = logs.slice(logs.length - LOGS_SOFT_LIMIT)
+        }
 
-          return { logs }
-        },
+        return logs
+      },
     } as const
   )

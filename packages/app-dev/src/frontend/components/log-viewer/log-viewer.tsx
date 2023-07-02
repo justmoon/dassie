@@ -8,9 +8,10 @@ import {
   useState,
 } from "react"
 
-import type { IndexedLogLine } from "../../../common/stores/logs"
-import { remoteLogsStore } from "../../remote-signals/logs"
-import { useSig } from "../../utils/remote-reactive"
+import { useRemoteStore } from "@dassie/lib-reactive-trpc/client"
+
+import { type IndexedLogLine, logsStore } from "../../../common/stores/logs"
+import { trpc } from "../../utils/trpc"
 import LogLine from "./log-line"
 
 export interface LogViewerProperties {
@@ -22,12 +23,11 @@ const LogViewer = ({ filter: externalFilter }: LogViewerProperties) => {
   const [shouldStick, setShouldStick] = useState(true)
   const scrollPositionReference = useRef<number | undefined>(undefined)
   const [keywordFilter, setKeywordFilter] = useState("")
-  const sig = useSig()
-  const logs = sig.get(remoteLogsStore)?.logs
-  const latestLogLine = logs?.[logs.length - 1]
+  const logs = useRemoteStore(trpc.ui.subscribeToLogs, logsStore)
+  const latestLogLine = logs.at(-1)
   const filteredLogs = useMemo(
     () =>
-      logs?.filter((item) => {
+      logs.filter((item) => {
         if (externalFilter && !externalFilter(item)) return false
 
         if (keywordFilter) {
@@ -43,7 +43,7 @@ const LogViewer = ({ filter: externalFilter }: LogViewerProperties) => {
         }
 
         return true
-      }) ?? [],
+      }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [keywordFilter, externalFilter, logs, latestLogLine]
   )

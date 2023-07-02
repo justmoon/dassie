@@ -1,18 +1,14 @@
 import * as Tabs from "@radix-ui/react-tabs"
 import { useMemo, useState } from "react"
 import { FaLink } from "react-icons/fa"
-import { format } from "timeago.js"
-import { Link } from "wouter"
 
 import { selectBySeed } from "@dassie/lib-logger"
 
-import { convertVanityNodeIdToFriendly } from "../../../common/utils/vanity-node-id-to-friendly"
 import { COLORS } from "../../constants/palette"
 import {
   type FirehoseEvent,
   useNodeFirehose,
 } from "../../hooks/use-node-firehose"
-import { useNodeRemoteSignal } from "../../hooks/use-node-state"
 import LogViewer from "../log-viewer/log-viewer"
 
 interface BasicNodeElementProperties {
@@ -48,112 +44,6 @@ const NodeHeader = ({ nodeId }: BasicNodeElementProperties) => {
         </h1>
       </div>
     </header>
-  )
-}
-
-const NodeLink = ({ nodeId }: BasicNodeElementProperties) => {
-  const friendlyId = convertVanityNodeIdToFriendly(nodeId)
-  return (
-    <Link
-      href={`/nodes/${friendlyId}`}
-      className="font-bold"
-      style={{ color: selectBySeed(COLORS, friendlyId) }}
-    >
-      {friendlyId}
-    </Link>
-  )
-}
-
-const NodeTable = ({ nodeId }: BasicNodeElementProperties) => {
-  const ilpAllocationScheme = useNodeRemoteSignal(nodeId, "ilpAllocationScheme")
-  const nodeTable = useNodeRemoteSignal(nodeId, "nodeTable")
-  const routingTable = useNodeRemoteSignal(nodeId, "routingTable")
-
-  if (!ilpAllocationScheme.data || !nodeTable.data || !routingTable.data)
-    return null
-
-  const sortedNodeTable = [...nodeTable.data.values()]
-    .map((node) => {
-      const routingTableEntry = routingTable.data.get(
-        `${ilpAllocationScheme.data}.das.${node.nodeId}`
-      )
-
-      if (routingTableEntry?.type !== "peer") {
-        return {
-          ...node,
-          distance: Number.POSITIVE_INFINITY,
-          nextHopNodes: [],
-        }
-      }
-
-      return {
-        ...node,
-        distance: routingTableEntry.distance,
-        nextHopNodes: routingTableEntry.firstHopOptions,
-      }
-    })
-    // Sort first by distance, then by nodeId
-    .sort((a, b) => {
-      if (a.distance === b.distance) {
-        return a.nodeId.localeCompare(b.nodeId)
-      }
-
-      return a.distance - b.distance
-    })
-
-  return (
-    <div className="min-h-0">
-      <h2 className="font-bold text-xl">Node Table</h2>
-      <table className="border-separate border-spacing-2 my-4 -ml-2">
-        <thead>
-          <tr>
-            <th className="text-left">Node</th>
-            <th>Distance</th>
-            <th className="text-left">Peering</th>
-            <th>Next Hop Options</th>
-            <th>Neighbors</th>
-            <th className="text-left">Last Seen</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sortedNodeTable.map((node) => {
-            return (
-              <tr key={node.nodeId}>
-                <td className="">
-                  <NodeLink nodeId={node.nodeId} />
-                </td>
-                <td>{node.distance}</td>
-                <td>{node.peerState.id}</td>
-                <td>
-                  <div className="flex gap-2">
-                    {node.nextHopNodes.map((nodeId) => (
-                      <NodeLink key={nodeId} nodeId={nodeId} />
-                    ))}
-                  </div>
-                </td>
-                <td>
-                  <div className="flex gap-2">
-                    {node.linkState.neighbors.map((nodeId) => (
-                      <NodeLink key={nodeId} nodeId={nodeId} />
-                    ))}
-                  </div>
-                </td>
-                {node.peerState.id === "none" ? (
-                  <td></td>
-                ) : (
-                  <td
-                    className=""
-                    title={new Date(node.peerState.lastSeen).toISOString()}
-                  >
-                    {format(new Date(node.peerState.lastSeen))}
-                  </td>
-                )}
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-    </div>
   )
 }
 
@@ -249,12 +139,6 @@ const NodeDetail = ({ nodeId }: BasicNodeElementProperties) => {
             Logs
           </Tabs.Trigger>
           <Tabs.Trigger
-            value="state"
-            className="border-transparent rounded-t-lg border-b-2 p-4 inline-block hover:border-gray-300 hover:text-gray-300"
-          >
-            State
-          </Tabs.Trigger>
-          <Tabs.Trigger
             value="events"
             className="border-transparent rounded-t-lg border-b-2 p-4 inline-block hover:border-gray-300 hover:text-gray-300"
           >
@@ -266,12 +150,6 @@ const NodeDetail = ({ nodeId }: BasicNodeElementProperties) => {
           className="rounded-lg bg-gray-800 min-h-0 p-4"
         >
           <NodeLogViewer nodeId={nodeId} />
-        </Tabs.Content>
-        <Tabs.Content
-          value="state"
-          className="rounded-lg bg-gray-800 min-h-0 p-4"
-        >
-          <NodeTable nodeId={nodeId} />
         </Tabs.Content>
         <Tabs.Content value="events" className="rounded-lg bg-gray-800 min-h-0">
           <NodeFirehoseViewer nodeId={nodeId} events={events} />

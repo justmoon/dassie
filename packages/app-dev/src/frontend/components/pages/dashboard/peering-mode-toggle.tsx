@@ -1,13 +1,14 @@
 import cx from "classnames"
 
-import { environmentSettingsStore } from "../../../remote-signals/environment-settings"
-import { useSig } from "../../../utils/remote-reactive"
+import { useRemoteSignal } from "@dassie/lib-reactive-trpc/client"
+
 import { trpc } from "../../../utils/trpc"
 
 const PeeringModeToggle = () => {
-  const sig = useSig()
   const setPeeringMode = trpc.ui.setPeeringMode.useMutation()
-  const environmentSettings = sig.get(environmentSettingsStore)
+  const environmentSettings = useRemoteSignal(
+    trpc.ui.subscribeToEnvironmentSettings
+  )
 
   return (
     <>
