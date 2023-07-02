@@ -1,11 +1,17 @@
 import type { CurrencySpecification } from "../../types/currency"
+import { combine } from "../../utils/class-helper"
 
-export interface AmountProperties {
+export interface AmountProperties extends React.HTMLAttributes<HTMLDivElement> {
   value: bigint
   currency: CurrencySpecification
 }
 
-export const Amount = ({ value, currency }: AmountProperties) => {
+export const Amount = ({
+  value,
+  currency,
+  className,
+  ...remainingProperties
+}: AmountProperties) => {
   const negative = value < 0n ? "-" : ""
   const absoluteBalance = negative ? -value : value
 
@@ -23,7 +29,10 @@ export const Amount = ({ value, currency }: AmountProperties) => {
   const deemphasizedPart = fractionalPart.slice(currency.precision)
 
   return (
-    <div className="inline-flex items-baseline">
+    <div
+      className={combine("inline-flex items-baseline", className)}
+      {...remainingProperties}
+    >
       {negative ? <div>&minus;&#x2009;</div> : null}
       <div>{currency.symbol}&#x2009;</div>
       <div>{integerPart}</div>
