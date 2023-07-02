@@ -11,6 +11,7 @@ export interface PreparedIlpPacketEvent {
   incomingRequestId: number
   outgoingRequestId: number
   pendingTransfers: readonly Transfer[]
+  timeoutAbort: AbortController
 }
 
 export const preparedIlpPacketTopic = () =>

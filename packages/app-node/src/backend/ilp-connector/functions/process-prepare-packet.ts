@@ -14,6 +14,7 @@ import {
   PreparedIlpPacketEvent,
   preparedIlpPacketTopic,
 } from "../topics/prepared-ilp-packet"
+import { createScheduleTimeout } from "./schedule-timeout"
 import { createTriggerRejection } from "./trigger-rejection"
 
 const logger = createLogger("das:ilp-connector:process-prepare-packet")
@@ -25,6 +26,7 @@ export interface ProcessPreparePacketEnvironment {
   resolveIlpAddress: ReturnType<typeof createResolveIlpAddress>
   sendPacket: ReturnType<typeof createPacketSender>
   triggerRejection: ReturnType<typeof createTriggerRejection>
+  scheduleTimeout: ReturnType<typeof createScheduleTimeout>
 }
 
 export type ProcessPreparePacketParameters = ProcessIncomingPacketParameters & {
@@ -38,6 +40,7 @@ export const createProcessPreparePacket = ({
   resolveIlpAddress,
   sendPacket,
   triggerRejection,
+  scheduleTimeout,
 }: ProcessPreparePacketEnvironment) => {
   return ({
     sourceEndpointInfo,
@@ -55,6 +58,8 @@ export const createProcessPreparePacket = ({
 
     const pendingTransfers: Transfer[] = []
 
+    const timeoutAbort = new AbortController()
+
     const preparedIlpPacketEvent: PreparedIlpPacketEvent = {
       sourceEndpointInfo,
       serializedPacket,
@@ -62,15 +67,18 @@ export const createProcessPreparePacket = ({
       incomingRequestId: requestId,
       outgoingRequestId,
       pendingTransfers, // Note that we will still add transfers to this array
+      timeoutAbort,
     }
-
-    requestIdMap.read().set(outgoingRequestId, preparedIlpPacketEvent)
 
     logger.debug("forwarding ILP prepare", {
       source: sourceEndpointInfo.ilpAddress,
       destination: parsedPacket.destination,
       requestId: outgoingRequestId,
     })
+
+    requestIdMap.read().set(outgoingRequestId, preparedIlpPacketEvent)
+
+    scheduleTimeout({ requestId: outgoingRequestId, timeoutAbort })
 
     const destinationEndpointInfo = resolveIlpAddress(parsedPacket.destination)
 

@@ -44,9 +44,11 @@ export const createProcessFulfillPacket = ({
     const prepare = requestIdMap.read().get(requestId)
 
     if (!prepare) {
-      throw new Error(
-        "Received response ILP packet which did not match any request ILP packet we sent"
+      logger.warn(
+        "received fulfill packet which did not match any pending request",
+        { requestId }
       )
+      return
     }
 
     const hasher = createHash("sha256")
@@ -66,6 +68,8 @@ export const createProcessFulfillPacket = ({
     }
 
     requestIdMap.read().delete(requestId)
+
+    prepare.timeoutAbort.abort()
 
     for (const transfer of prepare.pendingTransfers) {
       ledger.postPendingTransfer(transfer)

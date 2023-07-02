@@ -11,6 +11,7 @@ import { nodeIlpAddressSignal } from "./computed/node-ilp-address"
 import { createProcessFulfillPacket } from "./functions/process-fulfill-packet"
 import { createProcessPreparePacket } from "./functions/process-prepare-packet"
 import { createProcessRejectPacket } from "./functions/process-reject-packet"
+import { createScheduleTimeout } from "./functions/schedule-timeout"
 import { EndpointInfo, createPacketSender } from "./functions/send-packet"
 import { createTriggerRejection } from "./functions/trigger-rejection"
 import { IlpPacket, IlpType, parseIlpPacket } from "./schemas/ilp-packet-codec"
@@ -61,6 +62,9 @@ export const processPacket = () =>
       ownIlpAddress,
       processRejectPacket,
     })
+    const scheduleTimeout = createScheduleTimeout({
+      triggerRejection,
+    })
     const processPreparePacket = createProcessPreparePacket({
       ledger,
       preparedIlpPacketTopicValue,
@@ -68,6 +72,7 @@ export const processPacket = () =>
       resolveIlpAddress,
       sendPacket,
       triggerRejection,
+      scheduleTimeout,
     })
 
     return {
