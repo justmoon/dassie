@@ -1,3 +1,5 @@
+import { createLogger } from "@dassie/lib-logger"
+
 import { nodeIlpAddressSignal } from "../computed/node-ilp-address"
 import { IlpErrorCode } from "../schemas/ilp-errors"
 import {
@@ -6,6 +8,8 @@ import {
   serializeIlpPacket,
 } from "../schemas/ilp-packet-codec"
 import { createProcessRejectPacket } from "./process-reject-packet"
+
+const logger = createLogger("das:ilp-connector:trigger-rejection")
 
 export interface RejectPacketEnvironment {
   ownIlpAddress: ReturnType<typeof nodeIlpAddressSignal>
@@ -23,6 +27,8 @@ export const createTriggerRejection = ({
   processRejectPacket,
 }: RejectPacketEnvironment) => {
   return ({ requestId, errorCode, message }: RejectPacketParameters) => {
+    logger.info("triggering ILP rejection", { requestId, errorCode, message })
+
     const rejectPacket: IlpRejectPacket & { type: typeof IlpType.Reject } = {
       type: IlpType.Reject,
       code: errorCode,
