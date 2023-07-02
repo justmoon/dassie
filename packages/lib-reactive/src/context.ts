@@ -141,8 +141,10 @@ export class ActorContext extends DisposableLifecycle {
    *
    * @param topic - Reference to the topic's factory function.
    */
-  subscribe<TMessage>(topic: Factory<ReadonlyTopic<TMessage>>) {
-    this.once(topic, this.wake)
+  subscribe<TMessage>(
+    topicFactory: Factory<ReadonlyTopic<TMessage>> | ReadonlyTopic<TMessage>
+  ) {
+    this.once(topicFactory, this.wake)
   }
 
   /**
@@ -152,10 +154,12 @@ export class ActorContext extends DisposableLifecycle {
    * @param listener - A function that will be called every time a message is emitted on the topic.
    */
   on<TMessage>(
-    topic: Factory<ReadonlyTopic<TMessage>>,
+    topicFactory: Factory<ReadonlyTopic<TMessage>> | ReadonlyTopic<TMessage>,
     listener: Listener<TMessage>
   ) {
-    this.use(topic).on(this, listener)
+    const topic =
+      typeof topicFactory === "function" ? this.use(topicFactory) : topicFactory
+    topic.on(this, listener)
   }
 
   /**
@@ -165,10 +169,12 @@ export class ActorContext extends DisposableLifecycle {
    * @param listener - A function that will be called every time a message is emitted on the topic.
    */
   once<TMessage>(
-    topic: Factory<ReadonlyTopic<TMessage>>,
+    topicFactory: Factory<ReadonlyTopic<TMessage>> | ReadonlyTopic<TMessage>,
     listener: Listener<TMessage>
   ) {
-    this.use(topic).once(this, listener)
+    const topic =
+      typeof topicFactory === "function" ? this.use(topicFactory) : topicFactory
+    topic.once(this, listener)
   }
 
   /**
