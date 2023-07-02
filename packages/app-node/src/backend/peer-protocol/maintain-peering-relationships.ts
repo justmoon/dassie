@@ -15,7 +15,7 @@ const logger = createLogger(
   "das:app-node:peer-protocol:maintain-peering-relationships"
 )
 
-function findCommonElement<T>(array: T[], set: Set<T>): T | false {
+function findCommonElement<T>(array: readonly T[], set: Set<T>): T | false {
   return array.find((element) => set.has(element)) ?? false
 }
 

@@ -11,7 +11,10 @@ export const compareSetOfKeys = (
   return true
 }
 
-export const compareKeysToArray = (a: Map<string, unknown>, b: string[]) => {
+export const compareKeysToArray = (
+  a: Map<string, unknown>,
+  b: readonly string[]
+) => {
   if (a.size !== b.length) return false
 
   for (const key of b) {
@@ -21,7 +24,7 @@ export const compareKeysToArray = (a: Map<string, unknown>, b: string[]) => {
   return true
 }
 
-export const compareSetToArray = (a: Set<string>, b: string[]) => {
+export const compareSetToArray = (a: Set<string>, b: readonly string[]) => {
   if (a.size !== b.length) return false
 
   for (const key of b) {
@@ -31,7 +34,7 @@ export const compareSetToArray = (a: Set<string>, b: string[]) => {
   return true
 }
 
-export const compareArrays = (a: string[], b: string[]) => {
+export const compareArrays = (a: readonly string[], b: readonly string[]) => {
   if (a.length !== b.length) return false
 
   for (const key of b) {

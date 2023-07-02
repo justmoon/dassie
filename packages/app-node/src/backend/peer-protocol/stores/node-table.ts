@@ -1,4 +1,4 @@
-import { enableMapSet, produce } from "immer"
+import { castDraft, castImmutable, enableMapSet, produce } from "immer"
 
 import { createStore } from "@dassie/lib-reactive"
 
@@ -11,17 +11,17 @@ export interface NodeTableEntry {
   /**
    * ID of the node - unique in our subnet.
    */
-  nodeId: NodeId
+  readonly nodeId: NodeId
 
   /**
    * Node's public key.
    */
-  nodePublicKey: Uint8Array
+  readonly nodePublicKey: Uint8Array
 
   /**
    * Node's publicly reachable URL.
    */
-  url: string
+  readonly url: string
 
   /**
    * Node's human-readable alias.
@@ -30,71 +30,74 @@ export interface NodeTableEntry {
    *
    * This alias is not verified and intended for debuggability only.
    */
-  alias: string
+  readonly alias: string
 
   /**
    * Latest known state of the node's links.
    */
-  linkState: LinkState
+  readonly linkState: LinkState
 
   /**
    * Current peering state between us and this node.
    */
-  peerState: PeerState
+  readonly peerState: PeerState
 }
 
 export type PeerState =
-  | { id: "none" }
+  | { readonly id: "none" }
   | {
-      id: "request-peering"
-      lastSeen: number
-      subnetId: SubnetId
+      readonly id: "request-peering"
+      readonly lastSeen: number
+      readonly subnetId: SubnetId
     }
   | {
-      id: "peered"
-      lastSeen: number
-      subnetId: SubnetId
+      readonly id: "peered"
+      readonly lastSeen: number
+      readonly subnetId: SubnetId
     }
 
 export interface LinkState {
   /**
    * Binary copy of the most recent link state update.
    */
-  lastUpdate: Uint8Array | undefined
+  readonly lastUpdate: Uint8Array | undefined
 
   /**
    * List of the node's peers.
    */
-  neighbors: NodeId[]
+  readonly neighbors: readonly NodeId[]
 
   /**
    * List of the node's supported subnets.
    */
-  subnets: SubnetId[]
+  readonly subnets: readonly SubnetId[]
 
   /**
    * Sequence number of the most recent link state update.
    */
-  sequence: bigint
+  readonly sequence: bigint
 
   /**
    * How many times has the most recent link state update been received?
    */
-  updateReceivedCounter: number
+  readonly updateReceivedCounter: number
 
   /**
    * Time when we will retransmit the most recent link state update unless the update received counter exceeds the threshold.
    */
-  scheduledRetransmitTime: number
+  readonly scheduledRetransmitTime: number
 }
 
 export const nodeTableStore = () =>
-  createStore(new Map<NodeId, NodeTableEntry>(), {
+  createStore(castImmutable(new Map<NodeId, NodeTableEntry>()), {
     addNode: (entry: NodeTableEntry) =>
       produce((draft) => {
-        draft.set(entry.nodeId, {
-          ...entry,
-        })
+        draft.set(
+          entry.nodeId,
+          castDraft({
+            ...entry,
+          })
+        )
       }),
     updateNode: (key: NodeId, nodeEntry: Partial<NodeTableEntry>) =>
       produce((draft) => {
@@ -102,9 +105,12 @@ export const nodeTableStore = () =>
         if (previousEntry == undefined) {
           throw new Error("Node not found")
         }
-        draft.set(key, {
-          ...previousEntry,
-          ...nodeEntry,
-        })
+        draft.set(
+          key,
+          castDraft({
+            ...previousEntry,
+            ...nodeEntry,
+          })
+        )
       }),
   })
