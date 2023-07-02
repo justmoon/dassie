@@ -2,7 +2,7 @@ import assert from "node:assert"
 
 import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
-import { isFailure } from "@dassie/lib-type-utils"
+import { UnreachableCaseError, isFailure } from "@dassie/lib-type-utils"
 
 import { nodeTableStore } from ".."
 import {
@@ -119,9 +119,25 @@ export const sendOutgoingSettlements = () =>
         )
 
         if (isFailure(settlementTransfer)) {
-          throw new Error(
-            `Settlement failed, invalid ${settlementTransfer.whichAccount} account ${settlementTransfer.accountPath}`
-          )
+          switch (settlementTransfer.name) {
+            case "InvalidAccountFailure": {
+              throw new Error(
+                `Settlement failed, invalid ${settlementTransfer.whichAccount} account ${settlementTransfer.accountPath}`
+              )
+            }
+
+            case "ExceedsCreditsFailure": {
+              throw new Error(`Settlement failed, exceeds credits`)
+            }
+
+            case "ExceedsDebitsFailure": {
+              throw new Error(`Settlement failed, exceeds debits`)
+            }
+
+            default: {
+              throw new UnreachableCaseError(settlementTransfer)
+            }
+          }
         }
 
         subnetActor

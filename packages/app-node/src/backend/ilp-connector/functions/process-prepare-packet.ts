@@ -1,9 +1,10 @@
 import { createLogger } from "@dassie/lib-logger"
-import { isFailure } from "@dassie/lib-type-utils"
+import { UnreachableCaseError, isFailure } from "@dassie/lib-type-utils"
 
 import { applyPacketPrepareToLedger } from "../../accounting/functions/apply-interledger-packet"
 import { Transfer, ledgerStore } from "../../accounting/stores/ledger"
 import { createResolveIlpAddress } from "../../routing/functions/resolve-ilp-address"
+import { MAX_PACKET_AMOUNT } from "../constants/max-packet-amount"
 import { createPacketSender } from "../functions/send-packet"
 import { ProcessIncomingPacketParameters } from "../process-packet"
 import { IlpErrorCode } from "../schemas/ilp-errors"
@@ -52,7 +53,7 @@ export const createProcessPreparePacket = ({
 
     const outgoingRequestId = Math.trunc(Math.random() * 0xff_ff_ff_ff)
 
-    const tentativeTransfers: Transfer[] = []
+    const pendingTransfers: Transfer[] = []
 
     const preparedIlpPacketEvent: PreparedIlpPacketEvent = {
       sourceEndpointInfo,
@@ -60,28 +61,10 @@ export const createProcessPreparePacket = ({
       parsedPacket,
       incomingRequestId: requestId,
       outgoingRequestId,
-      pendingTransfers: tentativeTransfers,
+      pendingTransfers, // Note that we will still add transfers to this array
     }
 
     requestIdMap.read().set(outgoingRequestId, preparedIlpPacketEvent)
-
-    if (parsedPacket.amount > 0n) {
-      const result = applyPacketPrepareToLedger(
-        ledger,
-        sourceEndpointInfo.accountPath,
-        parsedPacket,
-        "incoming"
-      )
-      if (isFailure(result)) {
-        triggerRejection({
-          requestId: outgoingRequestId,
-          errorCode: IlpErrorCode.T00_INTERNAL_ERROR,
-          message: "Missing internal ledger account for inbound transfer",
-        })
-        return
-      }
-      tentativeTransfers.push(result)
-    }
 
     logger.debug("forwarding ILP prepare", {
       source: sourceEndpointInfo.ilpAddress,
@@ -101,19 +84,100 @@ export const createProcessPreparePacket = ({
     }
 
     if (parsedPacket.amount > 0n) {
-      const result = applyPacketPrepareToLedger(
-        ledger,
-        destinationEndpointInfo.accountPath,
-        parsedPacket,
-        "outgoing"
-      )
-      if (isFailure(result)) {
+      if (parsedPacket.amount > MAX_PACKET_AMOUNT) {
         triggerRejection({
           requestId: outgoingRequestId,
-          errorCode: IlpErrorCode.T00_INTERNAL_ERROR,
-          message: "Missing internal ledger account for outbound transfer",
+          errorCode: IlpErrorCode.F08_AMOUNT_TOO_LARGE,
+          message: "Packet amount exceeds maximum allowed amount",
         })
         return
+      }
+
+      {
+        const result = applyPacketPrepareToLedger(
+          ledger,
+          sourceEndpointInfo.accountPath,
+          parsedPacket,
+          "incoming"
+        )
+        if (isFailure(result)) {
+          switch (result.name) {
+            case "InvalidAccountFailure": {
+              triggerRejection({
+                requestId: outgoingRequestId,
+                errorCode: IlpErrorCode.T00_INTERNAL_ERROR,
+                message: "Missing internal ledger account for inbound transfer",
+              })
+              return
+            }
+            case "ExceedsCreditsFailure": {
+              triggerRejection({
+                requestId: outgoingRequestId,
+                errorCode: IlpErrorCode.T04_INSUFFICIENT_LIQUIDITY,
+                message:
+                  "Insufficient liquidity (connector account credit limit exceeded)",
+              })
+              return
+            }
+            case "ExceedsDebitsFailure": {
+              triggerRejection({
+                requestId: outgoingRequestId,
+                errorCode: IlpErrorCode.T04_INSUFFICIENT_LIQUIDITY,
+                message:
+                  "Insufficient liquidity (source account debit limit exceeded)",
+              })
+              return
+            }
+            default: {
+              throw new UnreachableCaseError(result)
+            }
+          }
+        }
+        pendingTransfers.push(result)
+      }
+
+      {
+        const result = applyPacketPrepareToLedger(
+          ledger,
+          destinationEndpointInfo.accountPath,
+          parsedPacket,
+          "outgoing"
+        )
+        if (isFailure(result)) {
+          switch (result.name) {
+            case "InvalidAccountFailure": {
+              triggerRejection({
+                requestId: outgoingRequestId,
+                errorCode: IlpErrorCode.T00_INTERNAL_ERROR,
+                message:
+                  "Missing internal ledger account for outbound transfer",
+              })
+              return
+            }
+            case "ExceedsCreditsFailure": {
+              triggerRejection({
+                requestId: outgoingRequestId,
+                errorCode: IlpErrorCode.T04_INSUFFICIENT_LIQUIDITY,
+                message:
+                  "Insufficient liquidity (destination account credit limit exceeded)",
+              })
+              return
+            }
+            case "ExceedsDebitsFailure": {
+              triggerRejection({
+                requestId: outgoingRequestId,
+                errorCode: IlpErrorCode.T04_INSUFFICIENT_LIQUIDITY,
+                message:
+                  "Insufficient liquidity (connector account debit limit exceeded)",
+              })
+              return
+            }
+            default: {
+              throw new UnreachableCaseError(result)
+            }
+          }
+        }
+        pendingTransfers.push(result)
       }
     }
 

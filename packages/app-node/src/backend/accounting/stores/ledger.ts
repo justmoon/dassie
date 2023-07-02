@@ -6,6 +6,8 @@ import { createLogger } from "@dassie/lib-logger"
 import { Reactor } from "@dassie/lib-reactive"
 
 import PrefixMap from "../../routing/utils/prefix-map"
+import { EXCEEDS_CREDITS_FAILURE } from "../failures/exceeds-credits"
+import { EXCEEDS_DEBITS_FAILURE } from "../failures/exceeds-debits"
 import InvalidAccountFailure from "../failures/invalid-account"
 import { getLedgerIdFromPath } from "../functions/get-ledger-id-from-path"
 import { postedTransfersTopic } from "../topics/posted-transfers"
@@ -110,10 +112,24 @@ export const ledgerStore = (reactor: Reactor) => {
         return new InvalidAccountFailure("debit", debitAccountPath)
       }
 
+      if (
+        debitAccount.limit === "debits_must_not_exceed_credits" &&
+        debitAccount.debitsPending + amount > debitAccount.creditsPosted
+      ) {
+        return EXCEEDS_DEBITS_FAILURE
+      }
+
       const creditAccount = ledger.get(creditAccountPath)
 
       if (!creditAccount) {
         return new InvalidAccountFailure("credit", creditAccountPath)
+      }
+
+      if (
+        creditAccount.limit === "credits_must_not_exceed_debits" &&
+        creditAccount.creditsPending + amount > creditAccount.debitsPosted
+      ) {
+        return EXCEEDS_CREDITS_FAILURE
       }
 
       const transfer: Transfer = {
