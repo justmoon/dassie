@@ -36,11 +36,23 @@ export const subscribeToTopic = <TMessage>(
 
 export const subscribeToSignal = <TValue>(
   sig: ActorContext,
-  signalFactory: Factory<ReadonlySignal<TValue>>
+  signalFactory: Factory<ReadonlySignal<TValue>>,
+  { batching = true }: SubscriptionOptions = {}
 ): Observable<TValue, unknown> => {
   return observable<TValue>((emit) => {
+    let timer: ReturnType<typeof setImmediate> | undefined
     const signal = sig.use(signalFactory)
     const listener = (value: TValue) => {
+      if (batching) {
+        if (!timer) {
+          timer = setImmediate(() => {
+            emit.next(value)
+            timer = undefined
+          })
+        }
+        return
+      }
+
       emit.next(value)
     }
     signal.on(sig, listener)
