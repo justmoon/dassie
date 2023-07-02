@@ -1,5 +1,3 @@
-import { randomBytes } from "node:crypto"
-
 import { NodeId } from "../../peer-protocol/types/node-id"
 import { CreateTransferParameters, Ledger, Transfer } from "../stores/ledger"
 
@@ -14,7 +12,6 @@ export const processSettlementPrepare = (
   const settlementPath = `${subnetId}/peer/${peerId}/settlement`
 
   const transfer: CreateTransferParameters = {
-    key: randomBytes(16).toString("base64"),
     debitAccountPath: direction === "incoming" ? settlementPath : peerPath,
     creditAccountPath: direction === "incoming" ? peerPath : settlementPath,
     amount,

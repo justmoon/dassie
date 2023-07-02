@@ -11,11 +11,7 @@ export const applyPacketPrepareToLedger = (
   const ledgerId = getLedgerIdFromPath(accountPath)
   const connectorPath = `${ledgerId}/internal/connector`
 
-  const base64Condition = Buffer.from(packet.executionCondition).toString(
-    "base64"
-  )
   const transfer: CreateTransferParameters = {
-    key: `${accountPath};${base64Condition}`,
     debitAccountPath: direction === "incoming" ? accountPath : connectorPath,
     creditAccountPath: direction === "incoming" ? connectorPath : accountPath,
     amount: packet.amount,

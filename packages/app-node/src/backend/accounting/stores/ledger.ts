@@ -41,7 +41,6 @@ export interface LedgerAccount {
 }
 
 export interface Transfer {
-  key: string
   state: "pending" | "posted" | "voided"
   debitAccount: string
   creditAccount: string
@@ -49,7 +48,6 @@ export interface Transfer {
 }
 
 export interface CreateTransferParameters {
-  key: string
   debitAccountPath: string
   creditAccountPath: string
   amount: bigint
@@ -58,7 +56,7 @@ export interface CreateTransferParameters {
 
 export const ledgerStore = (reactor: Reactor) => {
   const ledger = new PrefixMap<LedgerAccount>()
-  const pendingTransfers = new Map<string, Transfer>()
+  const pendingTransfers = new Set<Transfer>()
 
   const postedTransfers = reactor.use(postedTransfersTopic)
 
@@ -89,10 +87,10 @@ export const ledgerStore = (reactor: Reactor) => {
 
     getAccounts: (filterPrefix: string) => ledger.filterPrefix(filterPrefix),
 
-    getPendingTransfer: (id: string) => pendingTransfers.get(id),
+    getPendingTransfers: () => [...pendingTransfers],
 
     createTransfer: (transferParameters: CreateTransferParameters) => {
-      const { key, debitAccountPath, creditAccountPath, amount, pending } =
+      const { debitAccountPath, creditAccountPath, amount, pending } =
         transferParameters
 
       assert(
@@ -133,7 +131,6 @@ export const ledgerStore = (reactor: Reactor) => {
       }
 
       const transfer: Transfer = {
-        key,
         state: pending ? "pending" : "posted",
         debitAccount: debitAccountPath,
         creditAccount: creditAccountPath,
@@ -143,7 +140,7 @@ export const ledgerStore = (reactor: Reactor) => {
       if (pending) {
         debitAccount.debitsPending += amount
         creditAccount.creditsPending += amount
-        pendingTransfers.set(key, transfer)
+        pendingTransfers.add(transfer)
       } else {
         debitAccount.debitsPosted += amount
         creditAccount.creditsPosted += amount
@@ -169,7 +166,7 @@ export const ledgerStore = (reactor: Reactor) => {
       creditAccount.creditsPending -= transfer.amount
       creditAccount.creditsPosted += transfer.amount
 
-      pendingTransfers.delete(transfer.key)
+      pendingTransfers.delete(transfer)
 
       postedTransfers.emit(transfer as Transfer & { state: "posted" })
     },
@@ -189,7 +186,7 @@ export const ledgerStore = (reactor: Reactor) => {
 
       creditAccount.creditsPending -= transfer.amount
 
-      pendingTransfers.delete(transfer.key)
+      pendingTransfers.delete(transfer)
     },
   }
 }

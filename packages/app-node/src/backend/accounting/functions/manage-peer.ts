@@ -21,7 +21,6 @@ export const initializePeer = (
 
   // Extend initial trust limit
   ledger.createTransfer({
-    key: `${peerId}/initialTrust`,
     debitAccountPath: `${subnetId}/peer/${peerId}/trust`,
     creditAccountPath: `${subnetId}/peer/${peerId}/interledger`,
     amount: DEFAULT_CREDIT,
