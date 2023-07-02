@@ -25,10 +25,10 @@ export type InferBoundActions<TActions> = {
 
 export type InferChanges<TActions> = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key in keyof TActions]: TActions[key] extends Action<any, any[]>
+  [key in keyof TActions & string]: TActions[key] extends Action<any, any[]>
     ? [key, Parameters<TActions[key]>]
     : never
-}[keyof TActions]
+}[keyof TActions & string]
 
 export type BoundAction<TState, TParameters extends unknown[]> = (
   this: void,
