@@ -4,12 +4,12 @@ import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 import { UnreachableCaseError, isFailure } from "@dassie/lib-type-utils"
 
-import { nodeTableStore } from ".."
 import {
   processSettlementPrepare,
   processSettlementResult,
 } from "../accounting/functions/process-settlement"
 import { Ledger, ledgerStore } from "../accounting/stores/ledger"
+import { nodeTableStore } from "../peer-protocol/stores/node-table"
 import { NodeId } from "../peer-protocol/types/node-id"
 import { SubnetId } from "../peer-protocol/types/subnet-id"
 import { manageSubnetInstances } from "../subnets/manage-subnet-instances"

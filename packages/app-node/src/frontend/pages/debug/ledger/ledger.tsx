@@ -11,7 +11,7 @@ import { USD_SPECIFICATION } from "../../../constants/currency"
 import { trpc } from "../../../utils/trpc"
 
 export function Ledger() {
-  const ledger = trpc.getLedger.useQuery().data ?? []
+  const ledger = trpc.debug.getLedger.useQuery().data ?? []
 
   return (
     <div>

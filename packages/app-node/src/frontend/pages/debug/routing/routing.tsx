@@ -1,5 +1,4 @@
-import { inferObservableValue } from "@trpc/server/observable"
-import { useState } from "react"
+import { useRemoteSignal } from "@dassie/lib-reactive-trpc/client"
 
 import {
   Table,
@@ -9,20 +8,11 @@ import {
   TableHeader,
   TableRow,
 } from "../../../components/ui/table"
-import { RouterOutput, trpc } from "../../../utils/trpc"
+import { trpc } from "../../../utils/trpc"
 import { PeerRoutingDetail } from "./detail/peer"
 
 export function Routing() {
-  type RoutingTable = inferObservableValue<
-    RouterOutput["subscribeRoutingTable"]
-  >
-  const [routingTable, setRoutingTable] = useState<RoutingTable>()
-
-  trpc.subscribeRoutingTable.useSubscription(undefined, {
-    onData: (data) => {
-      setRoutingTable(data)
-    },
-  })
+  const routingTable = useRemoteSignal(trpc.debug.subscribeRoutingTable)
 
   if (!routingTable) return null
 

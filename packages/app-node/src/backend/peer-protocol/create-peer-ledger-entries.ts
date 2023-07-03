@@ -2,12 +2,12 @@ import assert from "node:assert"
 
 import { createActor } from "@dassie/lib-reactive"
 
-import { nodeTableStore } from ".."
 import {
   cleanupPeer,
   initializePeer,
 } from "../accounting/functions/manage-peer"
 import { ledgerStore } from "../accounting/stores/ledger"
+import { nodeTableStore } from "./stores/node-table"
 import { NodeId } from "./types/node-id"
 
 export const createPeerLedgerEntries = () =>

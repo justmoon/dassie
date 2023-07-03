@@ -1,10 +1,10 @@
 import { UnreachableCaseError } from "@dassie/lib-type-utils"
 import { Failure } from "@dassie/lib-type-utils"
 
-import { nodeTableStore } from "../.."
 import { ilpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-scheme"
 import { EndpointInfo } from "../../ilp-connector/functions/send-packet"
 import { PeerEndpointInfo } from "../../ilp-connector/senders/send-peer-packets"
+import { nodeTableStore } from "../../peer-protocol/stores/node-table"
 import { routingTableSignal } from "../signals/routing-table"
 
 export interface ResolveIlpAddressEnvironment {

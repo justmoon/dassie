@@ -1,3 +1,6 @@
+import { initTRPC } from "@trpc/server"
+import superjson from "superjson"
+
 import type { ActorContext } from "@dassie/lib-reactive"
 
 export const createContextFactory = (sig: ActorContext) => () => {
@@ -7,3 +10,7 @@ export const createContextFactory = (sig: ActorContext) => () => {
 }
 
 export type TrpcContext = ReturnType<ReturnType<typeof createContextFactory>>
+
+export const trpc = initTRPC
+  .context<TrpcContext>()
+  .create({ transformer: superjson })

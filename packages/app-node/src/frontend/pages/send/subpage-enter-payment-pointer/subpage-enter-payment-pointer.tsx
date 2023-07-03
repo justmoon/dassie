@@ -14,7 +14,7 @@ export const SubpageEnterPaymentPointer = ({
   onBack,
 }: SubpageEnterPaymentPointerProperties) => {
   const [paymentPointer, setPaymentPointer] = useState("$n2.localhost")
-  const paymentPointerInfo = trpc.resolvePaymentPointer.useQuery({
+  const paymentPointerInfo = trpc.payment.resolvePaymentPointer.useQuery({
     paymentPointer,
   })
 

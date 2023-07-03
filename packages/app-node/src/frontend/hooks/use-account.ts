@@ -6,7 +6,7 @@ import { trpc } from "../utils/trpc"
 export const useAccount = () => {
   const [balance, setBalance] = useState(0n)
 
-  trpc.subscribeBalance.useSubscription(undefined, {
+  trpc.general.subscribeBalance.useSubscription(undefined, {
     onData: (data) => {
       setBalance(data)
     },

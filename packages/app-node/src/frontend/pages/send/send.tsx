@@ -44,7 +44,7 @@ export const Send = () => {
   })
   const [, setLocation] = useLocation()
 
-  const createPayment = trpc.createPayment.useMutation()
+  const createPayment = trpc.payment.createPayment.useMutation()
 
   const onBack =
     subpage.subpage === "enterAmount"
