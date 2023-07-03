@@ -1,5 +1,7 @@
 import { hexToBytes } from "@noble/hashes/utils"
 
+import assert from "node:assert"
+
 import { createActor, createMapped } from "@dassie/lib-reactive"
 
 import { initializeCommonAccounts } from "../accounting/functions/manage-common-accounts"
@@ -21,7 +23,11 @@ export interface SubnetInstance {
 export const manageSubnetInstances = () =>
   createMapped(activeSubnetsSignal, (subnetId) =>
     createActor(async (sig) => {
-      const realm = sig.get(sig.use(databaseConfigPlain).realm)
+      const config = sig.use(databaseConfigPlain)
+
+      assert(config.hasWebUi, "Web UI is not configured")
+
+      const realm = sig.get(config.realm)
       const subnetMap = sig.get(subnetMapSignal)
 
       const subnetState = subnetMap.get(subnetId)

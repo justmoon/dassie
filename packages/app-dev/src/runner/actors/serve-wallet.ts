@@ -2,6 +2,7 @@ import type { NextHandleFunction } from "connect"
 import history from "connect-history-api-fallback"
 import { type ViteDevServer, createServer } from "vite"
 
+import assert from "node:assert"
 import { existsSync, readFileSync } from "node:fs"
 import { join, normalize } from "node:path"
 
@@ -42,11 +43,15 @@ function getHtmlFilename(url: string, server: ViteDevServer) {
 
 export const serveWallet = () =>
   createActor(async (sig) => {
+    const config = sig.use(databaseConfigPlain)
+
+    assert(config.hasWebUi, "Web UI is not configured")
+
     const additionalMiddlewares = sig.use(additionalMiddlewaresSignal)
     const { port } = sig.getKeys(environmentConfigSignal, ["port"])
 
-    const tlsWebCert = sig.get(sig.use(databaseConfigPlain).tlsWebCert)
-    const tlsWebKey = sig.get(sig.use(databaseConfigPlain).tlsWebKey)
+    const tlsWebCert = sig.get(config.tlsWebCert)
+    const tlsWebKey = sig.get(config.tlsWebKey)
 
     const server = await createServer({
       root: walletPath,

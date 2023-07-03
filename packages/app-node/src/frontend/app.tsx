@@ -9,13 +9,22 @@ import { Routing } from "./pages/debug/routing/routing"
 import { Open } from "./pages/open/open"
 import { PaymentStatus } from "./pages/payment-status/payment-status"
 import { Send } from "./pages/send/send"
-import { walletStore } from "./stores/wallet"
+import { trpc } from "./utils/trpc"
 
 const App = () => {
-  const { seed } = walletStore
+  const { data: basicState } = trpc.general.getBasicState.useQuery()
 
-  if (seed.value == undefined) {
+  if (!basicState) {
+    return
+  }
+
+  if (basicState.state === "uninitialized") {
     return <Open />
+  }
+
+  if (basicState.state === "anonymous") {
+    // TODO: Show login page
+    return null
   }
 
   // TODO: Get accounts from server

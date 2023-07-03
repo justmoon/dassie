@@ -1,4 +1,5 @@
 import { rootActor as nodeRootActor } from "@dassie/app-node"
+import { databaseConfigPlain } from "@dassie/app-node/src/backend/config/database-config"
 import { createLogger } from "@dassie/lib-logger"
 import { createActor, createReactor } from "@dassie/lib-reactive"
 
@@ -16,6 +17,7 @@ export const logger = createLogger("das:dev:launcher:node")
 
 const debugRunner = () =>
   createActor(async (sig) => {
+    const config = sig.use(databaseConfigPlain)
     sig.run(trpcClientService)
     sig.run(handleShutdownSignals)
     sig.run(handleDisconnect)
@@ -23,7 +25,9 @@ const debugRunner = () =>
     sig.run(patchIlpLogger)
     sig.run(forwardPeerTraffic)
     await sig.run(reportPeeringState)
-    await sig.run(serveWallet)
+    if (config.hasWebUi) {
+      await sig.run(serveWallet)
+    }
     await sig.run(nodeRootActor)
     sig.run(runDebugRpcServer)
   })

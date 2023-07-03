@@ -1,6 +1,7 @@
 import type { NextHandleFunction } from "connect"
 import express, { Router } from "express"
 
+import assert from "node:assert"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { createServer } from "node:https"
 import type { Duplex } from "node:stream"
@@ -37,6 +38,10 @@ export const websocketRoutesSignal = () =>
 
 export const httpService = () =>
   createActor((sig) => {
+    const config = sig.use(databaseConfigPlain)
+
+    assert(config.hasWebUi, "Web UI is not configured")
+
     const router = sig.get(routerService)
     const additionalMiddlewares = sig.get(additionalMiddlewaresSignal)
 
@@ -47,8 +52,8 @@ export const httpService = () =>
       "port",
     ])
 
-    const tlsWebCert = sig.get(sig.use(databaseConfigPlain).tlsWebCert)
-    const tlsWebKey = sig.get(sig.use(databaseConfigPlain).tlsWebKey)
+    const tlsWebCert = sig.get(config.tlsWebCert)
+    const tlsWebKey = sig.get(config.tlsWebKey)
 
     const app = express()
 
