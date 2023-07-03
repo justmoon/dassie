@@ -112,7 +112,8 @@ export const ledgerStore = (reactor: Reactor) => {
 
       if (
         debitAccount.limit === "debits_must_not_exceed_credits" &&
-        debitAccount.debitsPending + amount > debitAccount.creditsPosted
+        debitAccount.debitsPosted + debitAccount.debitsPending + amount >
+          debitAccount.creditsPosted
       ) {
         return EXCEEDS_DEBITS_FAILURE
       }
@@ -125,7 +126,8 @@ export const ledgerStore = (reactor: Reactor) => {
 
       if (
         creditAccount.limit === "credits_must_not_exceed_debits" &&
-        creditAccount.creditsPending + amount > creditAccount.debitsPosted
+        creditAccount.creditsPosted + creditAccount.creditsPending + amount >
+          creditAccount.debitsPosted
       ) {
         return EXCEEDS_CREDITS_FAILURE
       }
