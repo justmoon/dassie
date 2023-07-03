@@ -54,3 +54,6 @@ await runner.executeId("/@vite/env")
 
 // execute the file
 await runner.executeId(process.env["DASSIE_DEV_ENTRY"]!)
+
+// indicate readiness
+await callRpc("ready", [])

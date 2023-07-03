@@ -1,4 +1,6 @@
 import chalk from "chalk"
+import pDefer from "p-defer"
+import pTimeout from "p-timeout"
 import type { Promisable } from "type-fest"
 import type { ViteNodeServer } from "vite-node/server"
 
@@ -16,6 +18,8 @@ const logger = createLogger("das:dev:run-child-process")
 
 const RUNNER_MODULE = new URL("../../../dist/runner.js", import.meta.url)
   .pathname
+
+const CHILD_READY_TIMEOUT = 60_000
 const CHILD_SHUTDOWN_GRACE_PERIOD = 1000
 
 const handleChildError = (error: Error) => {
@@ -35,6 +39,7 @@ export const runChildProcess = () =>
       { nodeServer, id, environment }: RunNodeChildProcessProperties
     ) => {
       let child: ChildProcess | undefined
+      const ready = pDefer<void>()
 
       const handleChildExit = (
         code: number | null,
@@ -70,6 +75,11 @@ export const runChildProcess = () =>
                     message["params"][0] as string,
                     message["params"][1] as string | undefined
                   )
+                  break
+                }
+                case "ready": {
+                  ready.resolve()
+                  result = true
                   break
                 }
               }
@@ -166,7 +176,10 @@ export const runChildProcess = () =>
         }
       })
 
-      // Wait for first message from child to indicate it is ready
-      await new Promise((resolve) => child?.once("message", resolve))
+      // Wait for ready message from child to indicate it is ready
+      await pTimeout(ready.promise, {
+        milliseconds: CHILD_READY_TIMEOUT,
+        message: `Child process did not become ready within ${CHILD_READY_TIMEOUT}ms`,
+      })
     }
   )

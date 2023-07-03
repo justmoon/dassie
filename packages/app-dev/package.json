@@ -53,6 +53,8 @@
     "force-graph": "^1.43.1",
     "immer": "^10.0.2",
     "launch-editor": "^2.6.0",
+    "p-defer": "^4.0.0",
+    "p-timeout": "^6.1.2",
     "pretty-format": "^29.5.0",
     "pure-rand": "^6.0.2",
     "react": "^18.2.0",

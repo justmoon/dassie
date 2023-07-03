@@ -28,4 +28,5 @@ const debugRunner = () =>
     sig.run(runDebugRpcServer)
   })
 
-createReactor(debugRunner)
+const reactor = createReactor()
+await reactor.use(debugRunner).run(reactor)
