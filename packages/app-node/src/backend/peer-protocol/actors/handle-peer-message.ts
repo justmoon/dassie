@@ -1,9 +1,12 @@
+import { Promisable } from "type-fest"
+
 import { type Actor, createActor, createTopic } from "@dassie/lib-reactive"
 
 import { handleInterledgerPacket } from "../handlers/interledger-packet"
 import { handleLinkStateRequest } from "../handlers/link-state-request"
 import { handleLinkStateUpdate } from "../handlers/link-state-update"
 import { handlePeeringRequest } from "../handlers/peering-request"
+import { handleSettlement } from "../handlers/settlement"
 import { handleSubnetModuleMessage } from "../handlers/subnet-module-message"
 import type { PeerMessage } from "../peer-schema"
 import { PeerState } from "../stores/node-table"
@@ -31,7 +34,7 @@ export const incomingPeerMessageTopic = () =>
 
 type AllPeerMessageHandlers = {
   [K in PeerMessageType]: Actor<{
-    handle: (parameters: IncomingPeerMessageEvent<K>) => Uint8Array
+    handle: (parameters: IncomingPeerMessageEvent<K>) => Promisable<Uint8Array>
   }>
 }
 
@@ -42,6 +45,7 @@ export const handlePeerMessage = () =>
       linkStateUpdate: sig.use(handleLinkStateUpdate),
       interledgerPacket: sig.use(handleInterledgerPacket),
       linkStateRequest: sig.use(handleLinkStateRequest),
+      settlement: sig.use(handleSettlement),
       subnetModuleMessage: sig.use(handleSubnetModuleMessage),
     }
 

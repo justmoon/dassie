@@ -4,11 +4,9 @@ import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 import { UnreachableCaseError, isFailure } from "@dassie/lib-type-utils"
 
-import {
-  processSettlementPrepare,
-  processSettlementResult,
-} from "../accounting/functions/process-settlement"
+import { processSettlementPrepare } from "../accounting/functions/process-settlement"
 import { Ledger, ledgerStore } from "../accounting/stores/ledger"
+import { sendPeerMessage } from "../peer-protocol/actors/send-peer-message"
 import { nodeTableStore } from "../peer-protocol/stores/node-table"
 import { NodeId } from "../peer-protocol/types/node-id"
 import { SubnetId } from "../peer-protocol/types/subnet-id"
@@ -145,11 +143,26 @@ export const sendOutgoingSettlements = () =>
             amount: settlementAmount,
             peerId,
           })
-          .then(() => {
-            processSettlementResult(ledger, settlementTransfer, "fulfill")
+          .then((data) => {
+            return data
+          })
+          .then(({ proof }) => {
+            ledger.postPendingTransfer(settlementTransfer)
+
+            sig.use(sendPeerMessage).tell("send", {
+              destination: peerId,
+              message: {
+                type: "settlement",
+                value: {
+                  subnetId,
+                  amount: settlementAmount,
+                  proof,
+                },
+              },
+            })
           })
           .catch(() => {
-            processSettlementResult(ledger, settlementTransfer, "reject")
+            ledger.voidPendingTransfer(settlementTransfer)
           })
       }
     }, SETTLEMENT_CHECK_INTERVAL)

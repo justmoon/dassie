@@ -12,25 +12,26 @@ const stub = {
   supportedVersions: [1],
   realm: "test",
 
-  behavior: (_sig, { host }) => {
+  behavior: () => {
     if (process.env["NODE_ENV"] === "production") {
       throw new Error('The "stub" subnet cannot be used in production')
     }
 
-    const encoder = new TextEncoder()
-    const decoder = new TextDecoder()
-
     return {
-      settle: async ({ peerId, amount }) => {
+      settle: ({ peerId, amount }) => {
         console.info(`Sending settlement for ${amount} units to ${peerId}`)
-        await host.sendMessage({
-          peerId,
-          message: encoder.encode(amount.toString()),
-        })
+        return {
+          proof: new Uint8Array(),
+        }
       },
-      handleMessage: ({ peerId, message }) => {
-        const amount = BigInt(decoder.decode(message))
+      handleSettlement: ({ peerId, amount }) => {
         console.info(`Received settlement for ${amount} units from ${peerId}`)
+        return {
+          result: "accept",
+        }
+      },
+      handleMessage: () => {
+        // no-op
       },
     }
   },

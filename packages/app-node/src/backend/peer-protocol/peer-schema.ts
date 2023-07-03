@@ -72,10 +72,15 @@ export const peerMessageContent = choice({
   linkStateRequest: sequence({
     nodeId: nodeIdSchema,
   }).tag(3),
+  settlement: sequence({
+    subnetId: subnetIdSchema,
+    amount: uint64Bigint(),
+    proof: octetString(),
+  }).tag(4),
   subnetModuleMessage: sequence({
     subnetId: subnetIdSchema,
     message: octetString(),
-  }).tag(4),
+  }).tag(5),
 })
 
 export const peerMessage = sequence({

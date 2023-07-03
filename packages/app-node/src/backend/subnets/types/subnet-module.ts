@@ -15,9 +15,23 @@ export interface SubnetProperties {
   host: SubnetHostMethods
 }
 
-export interface SettlementParameters {
+export interface OutgoingSettlementParameters {
   amount: bigint
   peerId: NodeId
+}
+
+export interface OutgoingSettlementResult {
+  proof: Uint8Array
+}
+
+export interface IncomingSettlementParameters {
+  amount: bigint
+  peerId: NodeId
+  proof: Uint8Array
+}
+
+export interface IncomingSettlementResult {
+  result: "accept" | "reject"
 }
 
 export interface PeerMessageParameters {
@@ -30,7 +44,12 @@ export interface SubnetHostMethods {
 }
 
 export interface SubnetActorMethods {
-  settle: (parameters: SettlementParameters) => Promisable<void>
+  settle: (
+    parameters: OutgoingSettlementParameters
+  ) => Promisable<OutgoingSettlementResult>
+  handleSettlement: (
+    parameters: IncomingSettlementParameters
+  ) => Promisable<IncomingSettlementResult>
   handleMessage: (parameters: PeerMessageParameters) => Promisable<void>
 }
 

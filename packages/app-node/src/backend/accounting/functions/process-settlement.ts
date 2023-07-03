@@ -1,5 +1,5 @@
 import { NodeId } from "../../peer-protocol/types/node-id"
-import { CreateTransferParameters, Ledger, Transfer } from "../stores/ledger"
+import { CreateTransferParameters, Ledger } from "../stores/ledger"
 
 export const processSettlementPrepare = (
   ledger: Ledger,
@@ -19,16 +19,4 @@ export const processSettlementPrepare = (
   }
 
   return ledger.createTransfer(transfer)
-}
-
-export const processSettlementResult = (
-  ledger: Ledger,
-  transfer: Transfer,
-  result: "fulfill" | "reject"
-) => {
-  if (result === "fulfill") {
-    ledger.postPendingTransfer(transfer)
-  } else {
-    ledger.voidPendingTransfer(transfer)
-  }
 }
