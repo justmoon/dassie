@@ -4,12 +4,13 @@ import { createLogger } from "@dassie/lib-logger"
 
 import { spspPaymentQueueStore } from "../../spsp-server/send-spsp-payments"
 import { resolvePaymentPointer } from "../../utils/resolve-payment-pointer"
+import { protectedProcedure } from "../middlewares/auth"
 import { trpc } from "../trpc-context"
 
 const logger = createLogger("das:trpc-router:payment")
 
 export const paymentRouter = trpc.router({
-  resolvePaymentPointer: trpc.procedure
+  resolvePaymentPointer: protectedProcedure
     .input(
       z.object({
         paymentPointer: z.string(),
@@ -18,7 +19,7 @@ export const paymentRouter = trpc.router({
     .query(async ({ input: { paymentPointer } }) => {
       return resolvePaymentPointer(paymentPointer)
     }),
-  createPayment: trpc.procedure
+  createPayment: protectedProcedure
     .input(
       z.object({
         paymentId: z.string(),

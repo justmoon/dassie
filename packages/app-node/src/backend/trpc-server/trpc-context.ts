@@ -6,6 +6,7 @@ import type { ActorContext } from "@dassie/lib-reactive"
 export const createContextFactory = (sig: ActorContext) => () => {
   return {
     sig,
+    user: true as undefined | true,
   }
 }
 
