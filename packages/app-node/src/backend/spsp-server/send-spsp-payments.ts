@@ -29,21 +29,19 @@ export const sendSpspPayments = () =>
     const nextPayment = sig.get(spspPaymentQueueStore, (queue) => queue[0])
 
     if (nextPayment) {
-      const { id, destination, totalAmount, sentAmount } = nextPayment
-
       logger.debug("initiating payment", {
-        id,
-        to: destination,
-        amount: totalAmount,
+        id: nextPayment.id,
+        to: nextPayment.destination,
+        totalAmount: nextPayment.totalAmount,
       })
 
       const {
         destination_account: destinationAccount,
         shared_secret: sharedSecret,
-      } = await resolvePaymentPointer(destination)
+      } = await resolvePaymentPointer(nextPayment.destination)
 
       logger.debug("resolved payment pointer", {
-        id,
+        id: nextPayment.id,
         destinationAccount,
       })
 
@@ -55,25 +53,39 @@ export const sendSpspPayments = () =>
         sharedSecret: Buffer.from(sharedSecret, "base64"),
       })
 
-      logger.debug("created STREAM connection", { id })
+      logger.debug("created STREAM connection", {
+        id: nextPayment.id,
+      })
 
       const stream = connection.createStream()
 
-      stream.setSendMax(String(totalAmount - sentAmount))
+      stream.setSendMax(
+        String(nextPayment.totalAmount - nextPayment.sentAmount)
+      )
 
       stream.on("outgoing_money", (amountString: string) => {
         const amount = BigInt(amountString)
-        logger.debug("sent money", { id, amount })
 
-        if (sentAmount + amount >= totalAmount) {
-          logger.debug("payment complete", { id })
+        // TODO: Mutating this object doesn't seem like the best way to handle this?
+        nextPayment.sentAmount += amount
+
+        logger.debug("sent money", {
+          id: nextPayment.id,
+          newlySentAmount: amount,
+          sentAmount: nextPayment.sentAmount,
+          totalAmount: nextPayment.totalAmount,
+        })
+
+        if (nextPayment.sentAmount + amount >= nextPayment.totalAmount) {
+          logger.debug("payment complete", { id: nextPayment.id })
           connection.end().catch((error: unknown) => {
-            logger.error("error ending connection", { id, error })
+            logger.error("error ending connection", {
+              id: nextPayment.id,
+              error,
+            })
           })
           sig.use(spspPaymentQueueStore).shift()
         }
-
-        // TODO: should record/update sent amount
       })
     }
   })
