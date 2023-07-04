@@ -12,12 +12,14 @@ interface SubpageEnterAmountProperties {
   onBack: () => void
 }
 
+const DEFAULT_AMOUNT = "5"
+
 export const SubpageEnterAmount = ({
   paymentPointer,
   onSubmit,
   onBack,
 }: SubpageEnterAmountProperties) => {
-  const [amount, setAmount] = useState("40")
+  const [amount, setAmount] = useState(DEFAULT_AMOUNT)
 
   const prefix = `${USD_SPECIFICATION.symbol}\u2009`
 

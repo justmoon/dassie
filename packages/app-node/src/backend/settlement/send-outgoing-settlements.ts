@@ -14,7 +14,7 @@ import { manageSubnetInstances } from "../subnets/manage-subnet-instances"
 
 const logger = createLogger("das:node:send-outgoing-settlements")
 
-const SETTLEMENT_CHECK_INTERVAL = 10_000
+const SETTLEMENT_CHECK_INTERVAL = 4000
 const SETTLEMENT_RATIO = 0.2
 
 /**
