@@ -4,7 +4,7 @@ import { handleIldcpRequests } from "../../ildcp-server/handle-ildcp-requests"
 import { CommonEndpointInfo, PacketSender } from "../functions/send-packet"
 
 export interface IldcpEndpointInfo extends CommonEndpointInfo {
-  type: "ildcp"
+  readonly type: "ildcp"
 }
 
 export const sendIldcpPackets = () =>

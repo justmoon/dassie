@@ -4,9 +4,9 @@ import { managePlugins } from "../../spsp-server/manage-plugins"
 import { CommonEndpointInfo, PacketSender } from "../functions/send-packet"
 
 export interface PluginEndpointInfo extends CommonEndpointInfo {
-  type: "plugin"
-  pluginId: number
-  localIlpAddressPart: string
+  readonly type: "plugin"
+  readonly pluginId: number
+  readonly localIlpAddressPart: string
 }
 
 export const sendPluginPackets = () =>

@@ -4,9 +4,9 @@ import { IlpPacket, IlpPreparePacket } from "../schemas/ilp-packet-codec"
 import { PreparedIlpPacketEvent } from "./prepared-ilp-packet"
 
 export interface ResolvedIlpPacketEvent {
-  prepare: PreparedIlpPacketEvent
-  serializedPacket: Uint8Array
-  parsedPacket: Exclude<IlpPacket, IlpPreparePacket>
+  readonly prepare: PreparedIlpPacketEvent
+  readonly serializedPacket: Uint8Array
+  readonly parsedPacket: Exclude<IlpPacket, IlpPreparePacket>
 }
 
 export const resolvedIlpPacketTopic = () =>

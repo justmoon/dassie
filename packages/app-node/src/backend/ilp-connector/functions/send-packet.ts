@@ -16,8 +16,8 @@ import { PreparedIlpPacketEvent } from "../topics/prepared-ilp-packet"
 import { ResolvedIlpPacketEvent } from "../topics/resolved-ilp-packet"
 
 export interface CommonEndpointInfo {
-  accountPath: string
-  ilpAddress: string
+  readonly accountPath: string
+  readonly ilpAddress: string
 }
 
 export type EndpointInfo =

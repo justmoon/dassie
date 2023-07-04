@@ -12,8 +12,8 @@ import { CommonEndpointInfo, PacketSender } from "../functions/send-packet"
 const logger = createLogger("das:node:send-btp-packets")
 
 export interface BtpEndpointInfo extends CommonEndpointInfo {
-  type: "btp"
-  connectionId: number
+  readonly type: "btp"
+  readonly connectionId: number
 }
 
 export const sendBtpPackets = () =>

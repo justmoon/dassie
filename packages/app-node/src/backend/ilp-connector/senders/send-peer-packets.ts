@@ -6,8 +6,8 @@ import { NodeId } from "../../peer-protocol/types/node-id"
 import { CommonEndpointInfo, PacketSender } from "../functions/send-packet"
 
 export interface PeerEndpointInfo extends CommonEndpointInfo {
-  type: "peer"
-  nodeId: NodeId
+  readonly type: "peer"
+  readonly nodeId: NodeId
 }
 
 const logger = createLogger("das:node:send-interledger-packets")

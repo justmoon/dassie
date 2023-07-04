@@ -5,13 +5,13 @@ import { EndpointInfo } from "../functions/send-packet"
 import { IlpPreparePacket } from "../schemas/ilp-packet-codec"
 
 export interface PreparedIlpPacketEvent {
-  sourceEndpointInfo: EndpointInfo
-  serializedPacket: Uint8Array
-  parsedPacket: IlpPreparePacket
-  incomingRequestId: number
-  outgoingRequestId: number
-  pendingTransfers: readonly Transfer[]
-  timeoutAbort: AbortController
+  readonly sourceEndpointInfo: EndpointInfo
+  readonly serializedPacket: Uint8Array
+  readonly parsedPacket: IlpPreparePacket
+  readonly incomingRequestId: number
+  readonly outgoingRequestId: number
+  readonly pendingTransfers: readonly Transfer[]
+  readonly timeoutAbort: AbortController
 }
 
 export const preparedIlpPacketTopic = () =>
