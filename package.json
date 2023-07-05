@@ -11,7 +11,8 @@
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
     "api": "vite-node scripts/extract-apis.ts",
-    "web": "pnpm --filter=app-website dev"
+    "web": "pnpm --filter=app-website dev",
+    "cli": "vite-node --config packages/app-dev/vite.backend.config.js packages/app-dev/bin/run-dassie-cli.ts --"
   },
   "repository": {
     "type": "git",

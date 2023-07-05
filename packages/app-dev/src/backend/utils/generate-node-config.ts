@@ -50,6 +50,12 @@ export const nodeFriendlyIdToIndex = (id: string) => {
   return index
 }
 
+export const nodeIndexToDataPath = (index: number) => {
+  const friendlyId = nodeIndexToFriendlyId(index)
+
+  return `${LOCAL_PATH}/data/${friendlyId}.localhost`
+}
+
 export interface BaseNodeConfig {
   id: string
   port: number
@@ -115,6 +121,7 @@ export const generateNodeConfig = ((id, environmentSettings) => {
   const port = nodeIndexToPort(index)
   const { latitude, longitude } = nodeIndexToCoordinates(index)
   const peers = selectPeers(index)
+  const dataPath = nodeIndexToDataPath(index)
 
   const peersInfo = peers.map((peerIndex) => generatePeerInfo(peerIndex))
 
@@ -134,7 +141,7 @@ export const generateNodeConfig = ((id, environmentSettings) => {
       host: `${id}.localhost`,
       port: nodeIndexToPort(index),
       alias: id,
-      dataPath: `${LOCAL_PATH}/data/${id}.localhost`,
+      dataPath,
       initialSubnets: [
         {
           id: "stub" as SubnetId,

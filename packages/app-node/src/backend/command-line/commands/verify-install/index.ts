@@ -8,7 +8,7 @@ import {
   betterSqliteNativeBindingComputed,
 } from "../../../database/open-database"
 
-const verifyInstallCommand = command({
+export const verifyInstallCommand = command({
   name: "verify-install",
   description:
     "Verify that Dassie and its dependencies are correctly installed",
@@ -31,5 +31,3 @@ const verifyInstallCommand = command({
     console.info("Success! Dassie appears be to installed correctly.")
   },
 })
-
-export default verifyInstallCommand

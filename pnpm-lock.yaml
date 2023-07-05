@@ -340,6 +340,9 @@ importers:
       '@dassie/lib-terminal-graphics':
         specifier: workspace:^
         version: link:../lib-terminal-graphics
+      '@dassie/lib-trpc-ipc':
+        specifier: workspace:^
+        version: link:../lib-trpc-ipc
       '@dassie/lib-type-utils':
         specifier: workspace:^
         version: link:../lib-type-utils
@@ -710,6 +713,28 @@ importers:
       '@types/wcwidth':
         specifier: ^1.0.0
         version: 1.0.0
+
+  packages/lib-trpc-ipc:
+    dependencies:
+      '@trpc/client':
+        specifier: 10.32.0
+        version: 10.32.0(@trpc/server@10.32.0)
+      '@trpc/server':
+        specifier: 10.32.0
+        version: 10.32.0
+      zod:
+        specifier: ^3.21.4
+        version: 3.21.4
+    devDependencies:
+      '@dassie/eslint-config':
+        specifier: workspace:^
+        version: link:../meta-eslint-config
+      '@dassie/meta-tsconfig':
+        specifier: workspace:^
+        version: link:../meta-tsconfig
+      type-fest:
+        specifier: ^3.12.0
+        version: 3.12.0
 
   packages/lib-type-utils:
     devDependencies:

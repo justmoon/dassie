@@ -2,13 +2,18 @@ import { binary, run, subcommands } from "cmd-ts"
 
 import process from "node:process"
 
-import initCommand from "./commands/init"
-import verifyInstallCommand from "./commands/verify-install"
+import { Reactor } from "@dassie/lib-reactive"
 
-export const main = async () => {
+import { initCommand } from "./commands/init"
+import { verifyInstallCommand } from "./commands/verify-install"
+
+export const main = async (reactor: Reactor) => {
   const rootCommand = subcommands({
     name: "dassie",
-    cmds: { init: initCommand, "verify-install": verifyInstallCommand },
+    cmds: {
+      init: initCommand(reactor),
+      "verify-install": verifyInstallCommand,
+    },
   })
 
   const binaryCommand = binary(rootCommand)

@@ -9,6 +9,7 @@ import { startExchangeRates } from "./exchange-rates"
 import { startHttpServer } from "./http-server"
 import { startIldcpServer } from "./ildcp-server"
 import { startIlpConnector } from "./ilp-connector"
+import { startLocalRpcServer } from "./local-ipc-server"
 import { attachLogger } from "./logger"
 import { startOpenPaymentsServer } from "./open-payments"
 import { speakPeerProtocol } from "./peer-protocol"
@@ -24,6 +25,7 @@ export const rootActor = () =>
   createActor(async (sig) => {
     const config = sig.use(databaseConfigPlain)
     sig.run(attachLogger)
+    sig.run(startLocalRpcServer)
 
     if (!config.hasWebUi) {
       logger.warn("Web UI is not configured")

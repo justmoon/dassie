@@ -1,0 +1,46 @@
+{
+  "name": "@dassie/lib-trpc-ipc",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "IPC using trpc over sockets",
+  "exports": {
+    "./adapter": {
+      "import": "./src/adapter/index.ts"
+    },
+    "./link": {
+      "import": "./src/link/index.ts"
+    }
+  },
+  "publishConfig": {
+    "main": "./dist/adapter.js",
+    "exports": {
+      "./adapter": {
+        "types": "./dist/adapter.d.ts",
+        "require": "./dist/adapter.cjs",
+        "import": "./dist/adapter.js"
+      },
+      "./link": {
+        "types": "./dist/link.d.ts",
+        "require": "./dist/link.cjs",
+        "import": "./dist/link.js"
+      }
+    }
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "eslint .",
+    "typecheck": "tsc"
+  },
+  "author": "Stefan Thomas <justmoon@members.fsf.org>",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@dassie/eslint-config": "workspace:^",
+    "@dassie/meta-tsconfig": "workspace:^",
+    "type-fest": "^3.12.0"
+  },
+  "dependencies": {
+    "@trpc/client": "10.32.0",
+    "@trpc/server": "10.32.0",
+    "zod": "^3.21.4"
+  }
+}

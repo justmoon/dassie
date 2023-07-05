@@ -1,3 +1,4 @@
+import { resolve } from "node:path"
 import { setTimeout } from "node:timers/promises"
 
 import { createLogger } from "@dassie/lib-logger"
@@ -100,6 +101,10 @@ export const runNodes = () =>
               DASSIE_DEV_RPC_URL: `wss://dev-rpc.localhost:${DEBUG_RPC_PORT}`,
               DASSIE_DEV_NODE_ID: node.id,
               DASSIE_DEBUG_RPC_PORT: String(node.debugPort),
+              DASSIE_IPC_SOCKET_PATH: resolve(
+                node.config.dataPath,
+                "dassie.sock"
+              ),
             },
           })
 

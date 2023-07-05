@@ -15,7 +15,7 @@ const App = () => {
   const { data: basicState } = trpc.general.getBasicState.useQuery()
 
   if (!basicState) {
-    return
+    return null
   }
 
   if (basicState.state === "uninitialized") {

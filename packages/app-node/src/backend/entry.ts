@@ -1,3 +1,7 @@
+import { createReactor } from "@dassie/lib-reactive"
+
 import { main } from "./command-line"
 
-await main()
+const reactor = createReactor()
+await main(reactor)
+await reactor.dispose()
