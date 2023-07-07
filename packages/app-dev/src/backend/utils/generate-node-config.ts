@@ -8,11 +8,7 @@ import { calculateNodeId } from "@dassie/app-node/src/backend/ilp-connector/util
 import { SubnetId } from "@dassie/app-node/src/backend/peer-protocol/types/subnet-id"
 
 import { TEST_NODE_VANITY_KEYS } from "../constants/node-keys"
-import {
-  DEBUG_UI_PORT,
-  NODES_DEBUG_START_PORT,
-  NODES_START_PORT,
-} from "../constants/ports"
+import { NODES_DEBUG_START_PORT, NODES_START_PORT } from "../constants/ports"
 import type { EnvironmentSettings } from "../stores/environment-settings"
 import { calculateHaltonLocation } from "./calculate-halton-location"
 
@@ -58,6 +54,7 @@ export const nodeIndexToDataPath = (index: number) => {
 
 export interface BaseNodeConfig {
   id: string
+  hostname: string
   port: number
   debugPort: number
   peers: string[]
@@ -127,6 +124,7 @@ export const generateNodeConfig = ((id, environmentSettings) => {
 
   return {
     id,
+    hostname: `${id}.localhost`,
     port,
     debugPort: NODES_DEBUG_START_PORT + index,
     peers: peers.map((index) => nodeIndexToFriendlyId(index)),
@@ -138,9 +136,6 @@ export const generateNodeConfig = ((id, environmentSettings) => {
     tlsWebCertFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost.pem`,
     tlsWebKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost-key.pem`,
     config: {
-      host: `${id}.localhost`,
-      port: nodeIndexToPort(index),
-      alias: id,
       dataPath,
       initialSubnets: [
         {
@@ -153,7 +148,6 @@ export const generateNodeConfig = ((id, environmentSettings) => {
             environmentSettings.peeringMode === "fixed" ? peersInfo : undefined,
         },
       ],
-      exchangeRateUrl: `https://localhost:${DEBUG_UI_PORT}/rates.json`,
     },
     url: `https://${id}.localhost:${port}/`,
     entry: ENTRYPOINT,

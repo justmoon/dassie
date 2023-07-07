@@ -6,7 +6,7 @@ import { createActor, createMapped } from "@dassie/lib-reactive"
 
 import { initializeCommonAccounts } from "../accounting/functions/manage-common-accounts"
 import { ledgerStore } from "../accounting/stores/ledger"
-import { databaseConfigPlain } from "../config/database-config"
+import { databaseConfigSignal } from "../config/database-config"
 import { speakPeerProtocolPerSubnet } from "../peer-protocol"
 import { sendPeerMessage } from "../peer-protocol/actors/send-peer-message"
 import { nodeTableStore } from "../peer-protocol/stores/node-table"
@@ -23,11 +23,11 @@ export interface SubnetInstance {
 export const manageSubnetInstances = () =>
   createMapped(activeSubnetsSignal, (subnetId) =>
     createActor(async (sig) => {
-      const config = sig.use(databaseConfigPlain)
+      const config = sig.get(databaseConfigSignal)
 
       assert(config.hasWebUi, "Web UI is not configured")
 
-      const realm = sig.get(config.realm)
+      const realm = config.realm
       const subnetMap = sig.get(subnetMapSignal)
 
       const subnetState = subnetMap.get(subnetId)

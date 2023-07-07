@@ -2,13 +2,13 @@ import { subscribeToSignal } from "@dassie/lib-reactive-trpc/server"
 
 import { totalOwnerBalanceComputed } from "../../accounting/computed/total-owner-balance"
 import { ilpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-scheme"
-import { databaseConfigPlain } from "../../config/database-config"
+import { databaseConfigSignal } from "../../config/database-config"
 import { protectedProcedure } from "../middlewares/auth"
 import { trpc } from "../trpc-context"
 
 export const generalRouter = trpc.router({
   getBasicState: trpc.procedure.query(({ ctx: { sig, user } }) => {
-    const config = sig.use(databaseConfigPlain)
+    const config = sig.use(databaseConfigSignal).read()
 
     if (!config.hasNodeIdentity) {
       return {

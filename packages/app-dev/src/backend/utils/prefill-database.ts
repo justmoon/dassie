@@ -4,10 +4,14 @@ import { DASSIE_DATABASE_SCHEMA } from "@dassie/app-node/src/backend/database/op
 import { createDatabase } from "@dassie/lib-sqlite"
 import { isErrorWithCode } from "@dassie/lib-type-utils"
 
+import { DEBUG_UI_PORT } from "../constants/ports"
 import { NodeConfig } from "./generate-node-config"
 
 export const prefillDatabase = async ({
   config: { dataPath },
+  id,
+  hostname,
+  port,
   tlsDassieCertFile,
   tlsDassieKeyFile,
   tlsWebCertFile,
@@ -31,6 +35,11 @@ export const prefillDatabase = async ({
 
   database.scalars.set("config.realm", "test")
 
+  database.scalars.set("config.hostname", hostname)
+  database.scalars.set("config.port", port)
+
+  database.scalars.set("config.alias", id)
+
   database.scalars.set(
     "config.tls_dassie_cert",
     await readFile(tlsDassieCertFile, "utf8")
@@ -46,6 +55,10 @@ export const prefillDatabase = async ({
   database.scalars.set(
     "config.tls_web_key",
     await readFile(tlsWebKeyFile, "utf8")
+  )
+  database.scalars.set(
+    "config.exchange_rate_url",
+    `https://localhost:${DEBUG_UI_PORT}/rates.json`
   )
 
   database.raw.close()

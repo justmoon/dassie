@@ -1,5 +1,5 @@
-import { rootActor as nodeRootActor } from "@dassie/app-node"
-import { databaseConfigPlain } from "@dassie/app-node/src/backend/config/database-config"
+import { daemonActor } from "@dassie/app-node"
+import { databaseConfigSignal } from "@dassie/app-node/src/backend/config/database-config"
 import { createLogger } from "@dassie/lib-logger"
 import { createActor, createReactor } from "@dassie/lib-reactive"
 
@@ -17,7 +17,7 @@ export const logger = createLogger("das:dev:launcher:node")
 
 const debugRunner = () =>
   createActor(async (sig) => {
-    const config = sig.use(databaseConfigPlain)
+    const config = sig.get(databaseConfigSignal)
     sig.run(trpcClientService)
     sig.run(handleShutdownSignals)
     sig.run(handleDisconnect)

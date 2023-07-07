@@ -1,7 +1,7 @@
 import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
-import { environmentConfigSignal } from "../config/environment-config"
+import { databaseConfigSignal } from "../config/database-config"
 import { nodePublicKeySignal } from "../crypto/computed/node-public-key"
 import { signerService } from "../crypto/signer"
 import { nodeIdSignal } from "../ilp-connector/computed/node-id"
@@ -26,10 +26,7 @@ export const maintainOwnNodeTableEntry = () =>
 
     const nodeId = sig.get(nodeIdSignal)
     const nodePublicKey = sig.get(nodePublicKeySignal)
-    const { url, alias } = sig.getKeys(environmentConfigSignal, [
-      "url",
-      "alias",
-    ])
+    const { url, alias } = sig.get(databaseConfigSignal)
     const ownNodeTableEntry = sig.use(nodeTableStore).read().get(nodeId)
 
     if (

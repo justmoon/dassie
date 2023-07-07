@@ -9,8 +9,7 @@ import type { Duplex } from "node:stream"
 import { createLogger } from "@dassie/lib-logger"
 import { createActor, createSignal } from "@dassie/lib-reactive"
 
-import { databaseConfigPlain } from "../config/database-config"
-import { environmentConfigSignal } from "../config/environment-config"
+import { databaseConfigSignal } from "../config/database-config"
 
 const logger = createLogger("das:node:http-server")
 
@@ -38,7 +37,7 @@ export const websocketRoutesSignal = () =>
 
 export const httpService = () =>
   createActor((sig) => {
-    const config = sig.use(databaseConfigPlain)
+    const config = sig.get(databaseConfigSignal)
 
     assert(config.hasWebUi, "Web UI is not configured")
 
@@ -47,13 +46,7 @@ export const httpService = () =>
 
     if (!router) return
 
-    const { host, port } = sig.getKeys(environmentConfigSignal, [
-      "host",
-      "port",
-    ])
-
-    const tlsWebCert = sig.get(config.tlsWebCert)
-    const tlsWebKey = sig.get(config.tlsWebKey)
+    const { hostname, port, tlsWebCert, tlsWebKey } = config
 
     const app = express()
 
@@ -76,7 +69,7 @@ export const httpService = () =>
     server.listen(port)
 
     logger.info(
-      `listening on https://${host}${port === 443 ? "" : `:${port}`}/`
+      `listening on https://${hostname}${port === 443 ? "" : `:${port}`}/`
     )
 
     function handleUpgrade(

@@ -19,43 +19,23 @@ const logger = createLogger("das:node:config")
 export type RealmType = (typeof VALID_REALMS)[number]
 
 export interface Config {
-  host: string
-  port: number
-  url: string
-  alias: string
   rootPath: string
   dataPath: string
   runtimePath: string
   initialSubnets: SubnetConfig
-  exchangeRateUrl: string
-  internalAmountPrecision: number
 }
 
 export type InputConfig = ReadonlyDeep<z.infer<typeof inputConfigSchema>>
 export const inputConfigSchema = z.object({
-  host: z.string().optional(),
-  port: z.union([z.string(), z.number()]).optional(),
-  url: z.string().optional(),
-  alias: z.string().optional(),
   rootPath: z.string().optional(),
   dataPath: z.string().optional(),
   initialSubnets: subnetConfigSchema.optional(),
-  exchangeRateUrl: z.string().optional(),
-  internalAmountPrecision: z.number().optional(),
 })
 
 export function fromPartialConfig(partialConfig: InputConfig): Config {
   const paths = envPaths(APP_NAME)
 
-  const host = partialConfig.host ?? "localhost"
-  const port = partialConfig.port ? Number(partialConfig.port) : 8443
-
   return {
-    host,
-    port,
-    alias: partialConfig.alias ?? "anonymous",
-    url:
-      partialConfig.url ?? `https://${host}${port === 443 ? "" : `:${port}`}`,
     rootPath: partialConfig.rootPath ?? process.cwd(),
     dataPath:
       partialConfig.dataPath ??
@@ -67,10 +47,6 @@ export function fromPartialConfig(partialConfig: InputConfig): Config {
       process.env["RUNTIME_DIRECTORY"] ??
       "/run/dassie",
     initialSubnets: partialConfig.initialSubnets ?? [],
-    exchangeRateUrl:
-      partialConfig.exchangeRateUrl ??
-      "https://api.coinbase.com/v2/exchange-rates",
-    internalAmountPrecision: partialConfig.internalAmountPrecision ?? 12,
   }
 }
 

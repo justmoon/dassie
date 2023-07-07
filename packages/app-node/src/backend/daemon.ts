@@ -3,7 +3,7 @@ import { createActor, createReactor } from "@dassie/lib-reactive"
 
 import { startAccounting } from "./accounting"
 import { startBtpServer } from "./btp-server"
-import { databaseConfigPlain } from "./config/database-config"
+import { databaseConfigSignal } from "./config/database-config"
 import { signerService } from "./crypto/signer"
 import { startExchangeRates } from "./exchange-rates"
 import { startHttpServer } from "./http-server"
@@ -24,7 +24,7 @@ const logger = createLogger("das:start")
 
 export const daemonActor = () =>
   createActor(async (sig) => {
-    const config = sig.use(databaseConfigPlain)
+    const config = sig.get(databaseConfigSignal)
     sig.run(attachLogger)
     sig.run(startLocalRpcServer)
     sig.run(supportSystemd)

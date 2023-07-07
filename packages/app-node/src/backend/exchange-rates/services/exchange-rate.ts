@@ -4,7 +4,7 @@ import { z } from "zod"
 import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
-import { environmentConfigSignal } from "../../config/environment-config"
+import { databaseConfigSignal } from "../../config/database-config"
 
 const logger = createLogger("das:node:exchange-rate-service")
 
@@ -23,7 +23,7 @@ export interface CurrencyDescription {
 export const exchangeRateService = () =>
   createActor(async (sig) => {
     const { exchangeRateUrl, internalAmountPrecision } = sig.getKeys(
-      environmentConfigSignal,
+      databaseConfigSignal,
       ["exchangeRateUrl", "internalAmountPrecision"]
     )
 
