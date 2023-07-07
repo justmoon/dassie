@@ -5,7 +5,7 @@ import { Architecture } from "../constants/architectures"
 import {
   PATH_DIST_STAGING_SHARED,
   PATH_RESOURCES_LAUNCHER,
-  PATH_RESOURCES_SYSTEMD_UNIT,
+  PATH_RESOURCES_SYSTEMD,
 } from "../constants/paths"
 import { DassieVersion } from "../constants/version"
 import { getBundlePath, getStagingPath } from "../utils/dynamic-paths"
@@ -74,13 +74,13 @@ export const copyFilesIntoBundle = async (
     await chmod(launcherOutputPath, 0o755)
   }
 
-  // systemd unit
+  // systemd units
   {
     const pathShare = resolve(bundlePath, "share")
 
     await mkdir(pathShare, { recursive: true })
 
-    const pathShareSystemd = resolve(pathShare, "dassie.service")
-    await copyFile(PATH_RESOURCES_SYSTEMD_UNIT, pathShareSystemd)
+    const pathShareSystemd = resolve(pathShare, "systemd")
+    await cp(PATH_RESOURCES_SYSTEMD, pathShareSystemd, { recursive: true })
   }
 }

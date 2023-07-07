@@ -2,4 +2,4 @@
 /// <reference path="../environment.d.ts" />
 
 export type { Config, InputConfig } from "./config/environment-config"
-export { start, rootActor } from "./start"
+export { startDaemon, daemonActor } from "./daemon"

@@ -25,6 +25,7 @@ export interface Config {
   alias: string
   rootPath: string
   dataPath: string
+  runtimePath: string
   initialSubnets: SubnetConfig
   exchangeRateUrl: string
   internalAmountPrecision: number
@@ -56,7 +57,15 @@ export function fromPartialConfig(partialConfig: InputConfig): Config {
     url:
       partialConfig.url ?? `https://${host}${port === 443 ? "" : `:${port}`}`,
     rootPath: partialConfig.rootPath ?? process.cwd(),
-    dataPath: partialConfig.dataPath ?? paths.data,
+    dataPath:
+      partialConfig.dataPath ??
+      process.env["DASSIE_STATE_DIRECTORY"] ??
+      process.env["STATE_DIRECTORY"] ??
+      paths.data,
+    runtimePath:
+      process.env["DASSIE_RUNTIME_DIRECTORY"] ??
+      process.env["RUNTIME_DIRECTORY"] ??
+      "/run/dassie",
     initialSubnets: partialConfig.initialSubnets ?? [],
     exchangeRateUrl:
       partialConfig.exchangeRateUrl ??

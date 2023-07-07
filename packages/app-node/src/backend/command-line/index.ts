@@ -4,6 +4,7 @@ import process from "node:process"
 
 import { Reactor } from "@dassie/lib-reactive"
 
+import { daemonCommand } from "./commands/daemon"
 import { initCommand } from "./commands/init"
 import { verifyInstallCommand } from "./commands/verify-install"
 
@@ -13,6 +14,7 @@ export const main = async (reactor: Reactor) => {
     cmds: {
       init: initCommand(reactor),
       "verify-install": verifyInstallCommand,
+      daemon: daemonCommand,
     },
   })
 

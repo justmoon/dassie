@@ -19,10 +19,7 @@ export const PATH_PACKAGE_LIB_SQLITE = new URL(
 ).pathname
 
 export const PATH_RESOURCES = resolve(PATH_PACKAGE_APP_BUILD, "resources")
-export const PATH_RESOURCES_SYSTEMD_UNIT = resolve(
-  PATH_RESOURCES,
-  "systemd/dassie.service"
-)
+export const PATH_RESOURCES_SYSTEMD = resolve(PATH_RESOURCES, "systemd")
 export const PATH_RESOURCES_LAUNCHER = resolve(
   PATH_RESOURCES,
   "launcher/dassie.sh"

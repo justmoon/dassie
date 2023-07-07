@@ -1,4 +1,4 @@
 #!/usr/bin/env node
-import { start } from "../src/backend/start"
+import { startDaemon } from "../src/backend/daemon"
 
-start()
+startDaemon()

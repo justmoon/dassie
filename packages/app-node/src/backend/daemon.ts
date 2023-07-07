@@ -17,18 +17,20 @@ import { doRouting } from "./routing"
 import { startSpspServer } from "./spsp-server"
 import { startStatisticsServer } from "./statistics"
 import { startSubnets } from "./subnets"
+import { supportSystemd } from "./systemd"
 import { startTrpcServer } from "./trpc-server"
 
 const logger = createLogger("das:start")
 
-export const rootActor = () =>
+export const daemonActor = () =>
   createActor(async (sig) => {
     const config = sig.use(databaseConfigPlain)
     sig.run(attachLogger)
     sig.run(startLocalRpcServer)
+    sig.run(supportSystemd)
 
     if (!config.hasWebUi) {
-      logger.warn("Web UI is not configured")
+      logger.warn("Web UI is not configured, run `dassie init`")
       return
     }
 
@@ -56,4 +58,4 @@ export const rootActor = () =>
     sig.run(doRouting)
   })
 
-export const start = () => createReactor(rootActor)
+export const startDaemon = () => createReactor(daemonActor)

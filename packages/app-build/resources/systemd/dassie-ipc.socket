@@ -1,0 +1,12 @@
+[Unit]
+Description=Dassie IPC Socket
+
+[Socket]
+ListenStream=/run/dassie/ipc.sock
+SocketMode=0660
+SocketUser=root
+SocketGroup=dassie-users
+Service=dassie.service
+
+[Install]
+WantedBy=sockets.target

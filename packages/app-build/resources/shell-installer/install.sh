@@ -97,13 +97,40 @@ main() {
   run_root ln -sf /opt/dassie/current/bin/dassie /usr/local/bin/dassie \
     || error "E_DASSIE_COMMAND_SYMLINK_FAILED" "Failed to create symlink to Dassie command."
 
-  step "Installing systemd service..."
-  run_root cp "${TEMP_DIRECTORY}/dassie/share/dassie.service" /etc/systemd/system/dassie.service \
-    || error "E_SYSTEMD_SERVICE_INSTALL_FAILED" "Failed to install systemd service."
+  if ! quiet getent group dassie-users; then
+    step "Creating dassie-users group..."
+    run_root groupadd dassie-users \
+      || error "E_GROUP_CREATION_FAILED" "Failed to create dassie-users group."
+  else
+    step "Skip creation of dassie-users group - already exists"
+  fi
+
+  if [ "$(id -u)" -ne 0 ]; then
+    if ! id -nG "$(whoami)" | grep -qw dassie-users; then
+      step "Adding $(whoami) to dassie-users group..."
+      run_root usermod -a -G dassie-users "$(whoami)"
+    else
+      step "Skip adding current user to dassie-users group - already a member"
+    fi
+  else
+    step "Skip adding current user to dassie-users group - user is root"
+  fi
+
+  step "Installing systemd units..."
+  run_root cp "${TEMP_DIRECTORY}"/dassie/share/systemd/* /etc/systemd/system/ \
+    || error "E_SYSTEMD_SERVICE_INSTALL_FAILED" "Failed to install systemd units."
 
   step "Enabling systemd service..."
   run_root systemctl enable dassie.service \
     || error "E_SYSTEMD_SERVICE_ENABLE_FAILED" "Failed to enable systemd service."
+
+  step "Reloading systemd configuration..."
+  run_root systemctl daemon-reload \
+    || error "E_SYSTEMD_DAEMON_RELOAD_FAILED" "Failed to reload systemd configuration."
+
+  step "Starting systemd service..."
+  run_root systemctl restart dassie.service \
+    || error "E_SYSTEMD_SERVICE_START_FAILED" "Failed to start systemd service."
 
   step "Verify Dassie installation..."
   run dassie verify-install \

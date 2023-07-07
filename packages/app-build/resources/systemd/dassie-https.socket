@@ -1,0 +1,10 @@
+[Unit]
+Description=Dassie Public HTTPS Socket
+
+[Socket]
+ListenStream=0.0.0.0:443
+NoDelay=true
+Service=dassie.service
+
+[Install]
+WantedBy=sockets.target

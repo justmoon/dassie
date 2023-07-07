@@ -5,4 +5,4 @@ DASSIE_ROOT="$(dirname "$BIN_FOLDER")"
 
 export DASSIE_ROOT
 
-"$BIN_FOLDER/node" "$DASSIE_ROOT/backend.mjs" "$@"
+exec "$BIN_FOLDER/node" "$DASSIE_ROOT/backend.mjs" "$@"

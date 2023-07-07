@@ -5,6 +5,12 @@ export const VERIFIED_HASHES: Record<string, string> = {
     "1af63104e276269c1c312aeb8ba894716536ae323fb612d8177bdd1c6d713e9b",
   "https://nodejs.org/dist/v20.2.0/node-v20.2.0-linux-x64.tar.xz":
     "9257b5d5cc807d372da0d3574ce0e2d9b14c9510d7099081d30a464e5d4c0b2b",
+  "https://nodejs.org/dist/v20.3.1/node-v20.3.1-linux-arm64.tar.xz":
+    "75f820e7e0c460d902eb2c35716d158c06a4692e69f9a6cf2be30a721d7e0b42",
+  "https://nodejs.org/dist/v20.3.1/node-v20.3.1-linux-armv7l.tar.xz":
+    "55d405b0ce92fe85a2604c56e92757ba255fff698f7e7d1bc5c9a3f5efcc966c",
+  "https://nodejs.org/dist/v20.3.1/node-v20.3.1-linux-x64.tar.xz":
+    "a9f94435763f9c0128a8b6282ccbeefd0413a96e78e4427cfb7831d150c50334",
   "https://github.com/WiseLibs/better-sqlite3/releases/download/v8.4.0/better-sqlite3-v8.4.0-node-v115-linux-arm64.tar.gz":
     "944d537e729e690daf97c929e3da544e771e39e7d1fd16478a08c880a9eaa431",
   "https://github.com/WiseLibs/better-sqlite3/releases/download/v8.4.0/better-sqlite3-v8.4.0-node-v115-linux-arm.tar.gz":

@@ -28,7 +28,7 @@ const debugRunner = () =>
     if (config.hasWebUi) {
       await sig.run(serveWallet)
     }
-    await sig.run(nodeRootActor)
+    await sig.run(daemonActor)
     sig.run(runDebugRpcServer)
   })
 
