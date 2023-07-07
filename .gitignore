@@ -111,3 +111,6 @@ local/
 
 # Turbo build tool
 .turbo/
+
+# Vagrant
+.vagrant/

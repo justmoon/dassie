@@ -1,0 +1,25 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "generic/fedora37"
+
+  # Copy the rootCA.pem file to the VM
+  CAROOT=`mkcert -CAROOT`.chomp
+  config.vm.provision "file", source: "#{CAROOT}/rootCA.pem", destination: "/home/vagrant/rootCA.pem"
+
+  # Configure environment variables and /etc/hosts entry
+  config.vm.provision "shell", inline: <<-SHELL
+    # Set curl to trust our mkcert root certificate
+    echo 'export CURL_CA_BUNDLE="/home/vagrant/rootCA.pem"' > /etc/profile.d/dassie-mirror.sh
+
+    # Instruct the Dassie installer to load files from our local mirror
+    echo 'export DASSIE_MIRROR_URL="https://dassie-mirror:8443"' >> /etc/profile.d/dassie-mirror.sh
+
+    # Load the environment variables immediately
+    source /etc/profile.d/dassie-mirror.sh
+
+    # Add an entry to /etc/hosts which points to the host system
+    echo "$(getent hosts _gateway | awk '{ print $1 }') dassie-mirror" >> /etc/hosts
+  SHELL
+end
