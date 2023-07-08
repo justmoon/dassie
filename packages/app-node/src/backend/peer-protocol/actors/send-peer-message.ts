@@ -84,17 +84,26 @@ export const sendPeerMessage = () =>
           return
         }
 
-        const result = await axios<Buffer>(`${peer.url}/peer`, {
-          method: "POST",
-          data: envelopeSerializationResult.value,
-          headers: {
-            accept: "application/dassie-peer-message",
-            "content-type": "application/dassie-peer-message",
-          },
-          responseType: "arraybuffer",
-        })
+        try {
+          const result = await axios<Buffer>(`${peer.url}/peer`, {
+            method: "POST",
+            data: envelopeSerializationResult.value,
+            headers: {
+              accept: "application/dassie-peer-message",
+              "content-type": "application/dassie-peer-message",
+            },
+            responseType: "arraybuffer",
+          })
 
-        return new Uint8Array(result.data.buffer)
+          return new Uint8Array(result.data.buffer)
+        } catch (error) {
+          logger.warn("failed to send message", {
+            error,
+            url: peer.url,
+          })
+
+          return
+        }
       },
     }
   })
