@@ -2,21 +2,19 @@ import type {
   ColumnDescription,
   InferRowFromColumns,
 } from "./internal/query-builder/columns"
-import type { ScalarDescription } from "./internal/scalar-store"
 
 export interface TableDescription {
   name: string
-  columns: Record<string, ColumnDescription>
-  scalars?: Record<string, ScalarDescription>
+  columns: readonly ColumnDescription[]
 }
 
 export type InferRowType<T extends TableDescription> = InferRowFromColumns<
   T["columns"]
 >
 
-export type InferColumnNames<T extends TableDescription> = keyof T["columns"] &
-  string
+export type InferColumnNames<T extends TableDescription> =
+  T["columns"][number]["name"] & string
 
-export const defineTable = <TTable extends TableDescription>(
+export const defineTable = <const TTable extends TableDescription>(
   table: TTable
 ): TTable => table

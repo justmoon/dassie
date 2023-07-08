@@ -45,7 +45,7 @@ export interface SelectQueryBuilder<TState extends SelectQueryBuilderState> {
 }
 
 export interface SelectQueryBuilderState {
-  columns: Record<string, ColumnDescription>
+  columns: readonly ColumnDescription[]
   table: TableDescription
 }
 

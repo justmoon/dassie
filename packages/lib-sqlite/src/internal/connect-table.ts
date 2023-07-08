@@ -49,7 +49,9 @@ export interface ConnectedTable<TTable extends TableDescription> {
    */
   selectUnique: <TColumn extends InferColumnNames<TTable>>(
     column: TColumn,
-    value: InferColumnType<TTable["columns"][TColumn]>
+    value: InferColumnType<
+      Extract<TTable["columns"][number], { name: TColumn }>
+    >
   ) => InferRowType<TTable> | undefined
 
   /**

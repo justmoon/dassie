@@ -42,10 +42,10 @@ export type InferScalarType<T extends ScalarDescription> =
 
 export const scalarTable = {
   name: "scalar",
-  columns: {
-    key: { type: "TEXT" },
-    value: { type: "ANY" },
-  },
+  columns: [
+    { name: "key", type: "TEXT" },
+    { name: "value", type: "ANY" },
+  ],
 } as const
 
 export const createScalarStore = <

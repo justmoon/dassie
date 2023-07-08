@@ -80,8 +80,8 @@ export const createInsertQueryBuilder = <TTable extends TableDescription>(
   database: Database
 ): NewInsertQueryBuilder<TTable> => {
   let cachedStatement: Statement<unknown[]> | undefined
-  let indexedColumns: readonly (keyof TTable["columns"] & string)[] | undefined
-  let updateColumns: readonly (keyof TTable["columns"] & string)[] | undefined
+  let indexedColumns: readonly InferColumnNames<TTable>[] | undefined
+  let updateColumns: readonly InferColumnNames<TTable>[] | undefined
 
   const builder: NewInsertQueryBuilder<TTable> = {
     ignoreConflicts(newIndexedColumns) {
