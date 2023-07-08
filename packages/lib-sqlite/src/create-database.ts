@@ -3,6 +3,7 @@ import Database from "better-sqlite3"
 import { createLogger } from "@dassie/lib-logger"
 
 import type { TableDescription } from "./define-table"
+import { checkSchema } from "./internal/check-schema"
 import { type ConnectedTable, connectTable } from "./internal/connect-table"
 import {
   type ScalarDescription,
@@ -54,6 +55,11 @@ export interface DatabaseOptions {
    * Path to the better_sqlite3.node module.
    */
   nativeBinding?: string | undefined
+
+  /**
+   * Whether to check that the database schema matches the schema defined in the code.
+   */
+  checkSchema?: boolean | undefined
 }
 
 export interface InferDatabaseInstance<TOptions extends DatabaseOptions> {
@@ -104,6 +110,15 @@ export const createDatabase = <TOptions extends DatabaseOptions>(
   }
 
   migrate(database, databaseOptions.schema.migrations)
+
+  if (databaseOptions.checkSchema) {
+    checkSchema(database, {
+      scalarTable,
+    })
+    checkSchema(database, {
+      ...databaseOptions.schema.tables,
+    })
+  }
 
   return {
     tables: (databaseOptions.schema.tables

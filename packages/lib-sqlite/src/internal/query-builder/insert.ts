@@ -127,10 +127,10 @@ export const createInsertQueryBuilder = <TTable extends TableDescription>(
             ") DO NOTHING"
         : ""
 
-      return `INSERT INTO ${tableDescription.name} (${Object.keys(
-        tableDescription.columns
-      ).join(", ")}) VALUES (${Object.keys(tableDescription.columns)
-        .map((columnName) => `@${columnName}`)
+      return `INSERT INTO ${tableDescription.name} (${tableDescription.columns
+        .map((column) => column.name)
+        .join(", ")}) VALUES (${tableDescription.columns
+        .map((column) => `@${column.name}`)
         .join(", ")})${conflictClause}`
     },
 

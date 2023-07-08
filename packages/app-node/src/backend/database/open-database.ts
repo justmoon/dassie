@@ -49,6 +49,7 @@ export const databasePlain = (reactor: Reactor) => {
     path: `${dataPath}/dassie.sqlite3`,
     schema: DASSIE_DATABASE_SCHEMA,
     nativeBinding,
+    checkSchema: true,
   })
 
   reactor.onCleanup(() => {

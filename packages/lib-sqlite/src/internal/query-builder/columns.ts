@@ -18,4 +18,12 @@ export type InferRowFromColumns<TColumns extends readonly ColumnDescription[]> =
 export interface ColumnDescription {
   name: string
   type: SqliteDataType
+  /**
+   * Equivalent to `NOT NULL`.
+   */
+  required?: boolean | undefined
+  /**
+   * Equivalent to `PRIMARY KEY`.
+   */
+  primaryKey?: boolean | undefined
 }
