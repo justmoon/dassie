@@ -95,7 +95,11 @@ export const sendPeerMessage = () =>
             responseType: "arraybuffer",
           })
 
-          return new Uint8Array(result.data.buffer)
+          return new Uint8Array(
+            result.data.buffer,
+            result.data.byteOffset,
+            result.data.byteLength
+          )
         } catch (error) {
           logger.warn("failed to send message", {
             error,
