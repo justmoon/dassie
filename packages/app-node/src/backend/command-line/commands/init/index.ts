@@ -1,4 +1,8 @@
-import acme from "acme-client"
+import {
+  Client as AcmeClient,
+  crypto as acmeCrypto,
+  directory as acmeDirectory,
+} from "acme-client"
 import { command } from "cmd-ts"
 
 import { Reactor } from "@dassie/lib-reactive"
@@ -90,9 +94,9 @@ export const initCommand = (reactor: Reactor) =>
         return
       }
 
-      const accountKey = await acme.crypto.createPrivateKey()
-      const client = new acme.Client({
-        directoryUrl: acme.directory.letsencrypt.staging,
+      const accountKey = await acmeCrypto.createPrivateKey()
+      const client = new AcmeClient({
+        directoryUrl: acmeDirectory.letsencrypt.staging,
         accountKey,
       })
 

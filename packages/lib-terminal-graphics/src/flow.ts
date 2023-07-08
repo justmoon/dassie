@@ -1,7 +1,6 @@
 import cursor from "cli-cursor"
 
-import { stdin, stdout } from "node:process"
-import process from "node:process"
+import process, { stdin, stdout } from "node:process"
 import { ReadStream, WriteStream } from "node:tty"
 
 import { Canceled } from "./canceled"

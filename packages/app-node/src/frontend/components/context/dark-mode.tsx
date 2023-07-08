@@ -1,7 +1,12 @@
-import { createContext, useContext, useEffect, useState } from "react"
-import { ReactNode } from "react"
+import {
+  ReactNode,
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+} from "react"
 
-import useMediaQuery from "../../hooks/use-media-query"
+import { useMediaQuery } from "../../hooks/use-media-query"
 
 export type DarkModeSetting = "dark" | "light" | "system"
 

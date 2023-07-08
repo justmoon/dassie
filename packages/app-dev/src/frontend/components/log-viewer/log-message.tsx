@@ -6,7 +6,7 @@ import { isObject } from "@dassie/lib-type-utils"
 
 import { COLORS } from "../../constants/palette"
 import { ANSI_COLORS, ANSI_DECORATIONS } from "./ansi-theme"
-import DataValue from "./data-value"
+import { DataValue } from "./data-value"
 import { PrimaryError } from "./primary-error"
 
 export interface ParseLogParameters {

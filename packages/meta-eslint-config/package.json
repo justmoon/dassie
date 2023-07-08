@@ -11,5 +11,9 @@
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-tsdoc": "^0.2.17",
     "eslint-plugin-unicorn": "^47.0.0"
+  },
+  "dependencies": {
+    "eslint-config-next": "^13.4.7",
+    "eslint-plugin-import": "^2.27.5"
   }
 }

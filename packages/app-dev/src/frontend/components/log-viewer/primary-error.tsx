@@ -3,7 +3,7 @@ import cx from "classnames"
 import { hasAggregatedErrors } from "@dassie/lib-logger"
 
 import { trpc } from "../../utils/trpc"
-import DataValue from "./data-value"
+import { DataValue } from "./data-value"
 
 export interface PrimaryErrorProperties {
   error: Error

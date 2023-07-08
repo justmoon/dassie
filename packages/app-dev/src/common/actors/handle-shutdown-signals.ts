@@ -1,4 +1,4 @@
-import wtfnode from "wtfnode"
+import { dump } from "wtfnode"
 
 import { createActor } from "@dassie/lib-reactive"
 
@@ -10,7 +10,7 @@ export const handleShutdownSignals = () =>
         .then(() => {
           setTimeout(() => {
             if (process.env["DASSIE_DEV_OPEN_HANDLES"]) {
-              wtfnode.dump()
+              dump()
             }
           })
         })

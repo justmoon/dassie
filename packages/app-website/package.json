@@ -28,7 +28,6 @@
   },
   "devDependencies": {
     "@dassie/eslint-config": "workspace:^",
-    "@dassie/meta-tsconfig": "workspace:^",
-    "eslint-config-next": "^13.4.7"
+    "@dassie/meta-tsconfig": "workspace:^"
   }
 }

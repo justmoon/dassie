@@ -1,4 +1,4 @@
-import { NextHandleFunction } from "connect"
+import type { NextHandleFunction } from "connect"
 import { type Request, type Response, static as serveStatic } from "express"
 
 import { resolve } from "node:path"

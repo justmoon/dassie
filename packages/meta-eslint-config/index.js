@@ -5,6 +5,8 @@ module.exports = {
     "plugin:@typescript-eslint/recommended",
     "plugin:@typescript-eslint/recommended-requiring-type-checking",
     "plugin:@typescript-eslint/strict",
+    "plugin:import/recommended",
+    "plugin:import/typescript",
     "plugin:unicorn/recommended",
     "plugin:react/recommended",
     "plugin:react/jsx-runtime",
@@ -37,6 +39,7 @@ module.exports = {
     "@typescript-eslint/no-non-null-assertion": "off",
     "@typescript-eslint/no-invalid-void-type": "off",
     "object-shorthand": ["warn", "properties"],
+    "import/no-unresolved": ["error", { ignore: ["^virtual:"] }],
   },
   overrides: [
     {
@@ -61,6 +64,10 @@ module.exports = {
   settings: {
     react: {
       version: "18.0.0",
+    },
+    "import/resolver": {
+      typescript: true,
+      node: true,
     },
   },
 }

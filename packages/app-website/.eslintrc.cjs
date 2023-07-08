@@ -1,6 +1,6 @@
 module.exports = {
   root: true,
-  extends: ["@dassie", "next"],
+  extends: ["@dassie/eslint-config/next"],
   parserOptions: {
     tsconfigRootDir: __dirname,
     project: ["./tsconfig.json"],

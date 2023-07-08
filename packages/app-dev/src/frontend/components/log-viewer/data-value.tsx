@@ -127,5 +127,3 @@ export const DataValue = ({ keyName, content }: DataValueProperties) => {
     </span>
   )
 }
-
-export default DataValue

@@ -35,5 +35,3 @@ export const build = async (target = "release") => {
     }
   }
 }
-
-export default build

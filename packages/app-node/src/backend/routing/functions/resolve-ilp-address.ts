@@ -1,5 +1,4 @@
-import { UnreachableCaseError } from "@dassie/lib-type-utils"
-import { Failure } from "@dassie/lib-type-utils"
+import { Failure, UnreachableCaseError } from "@dassie/lib-type-utils"
 
 import { ilpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-scheme"
 import { EndpointInfo } from "../../ilp-connector/functions/send-packet"
