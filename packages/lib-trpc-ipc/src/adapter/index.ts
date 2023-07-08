@@ -14,7 +14,7 @@ import {
 } from "@trpc/server"
 import { Unsubscribable, isObservable } from "@trpc/server/observable"
 import { getErrorShape } from "@trpc/server/shared"
-import { Promisable } from "type-fest"
+import type { Promisable } from "type-fest"
 
 import { Socket } from "node:net"
 import { createInterface } from "node:readline"

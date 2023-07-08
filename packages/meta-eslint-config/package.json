@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "eslint-config-next": "^13.4.7",
-    "eslint-plugin-import": "^2.27.5"
+    "eslint-plugin-import": "^2.27.5",
+    "eslint-plugin-n": "^16.0.1"
   }
 }

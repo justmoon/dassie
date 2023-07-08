@@ -11,6 +11,7 @@ module.exports = {
     "plugin:react/recommended",
     "plugin:react/jsx-runtime",
     "plugin:react-hooks/recommended",
+    "plugin:n/recommended-module",
     "prettier",
   ],
 
@@ -40,6 +41,11 @@ module.exports = {
     "@typescript-eslint/no-invalid-void-type": "off",
     "object-shorthand": ["warn", "properties"],
     "import/no-unresolved": ["error", { ignore: ["^virtual:"] }],
+    "n/no-missing-import": "off",
+    "n/no-unpublished-import": "off",
+    "n/no-extraneous-import": "off",
+    "n/shebang": "off",
+    "n/no-process-exit": "off",
   },
   overrides: [
     {
