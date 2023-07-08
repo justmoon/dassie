@@ -7,7 +7,7 @@ import { handleLinkStateRequest } from "../handlers/link-state-request"
 import { handleLinkStateUpdate } from "../handlers/link-state-update"
 import { handlePeeringRequest } from "../handlers/peering-request"
 import { handleSettlement } from "../handlers/settlement"
-import { handleSubnetModuleMessage } from "../handlers/subnet-module-message"
+import { handleSettlementSchemeModuleMessage } from "../handlers/settlement-scheme-module-message"
 import type { PeerMessage } from "../peer-schema"
 import { PeerState } from "../stores/node-table"
 
@@ -46,7 +46,9 @@ export const handlePeerMessage = () =>
       interledgerPacket: sig.use(handleInterledgerPacket),
       linkStateRequest: sig.use(handleLinkStateRequest),
       settlement: sig.use(handleSettlement),
-      subnetModuleMessage: sig.use(handleSubnetModuleMessage),
+      settlementSchemeModuleMessage: sig.use(
+        handleSettlementSchemeModuleMessage
+      ),
     }
 
     for (const handler of Object.values(handlers)) {

@@ -19,13 +19,13 @@ import {
 
 import { dassiePeerNodeInfoId } from "../constants/object-identifiers"
 import { NodeId } from "./types/node-id"
-import { SubnetId } from "./types/subnet-id"
+import { SettlementSchemeId } from "./types/settlement-scheme-id"
 
 export type PeerMessage = Infer<typeof peerMessage>
 
-export const subnetIdSchema = ia5String([2, 128])
+export const settlementSchemeIdSchema = ia5String([2, 128])
   .from(lowercaseLetters + digits + "-")
-  .refine((_value): _value is SubnetId => true)
+  .refine((_value): _value is SettlementSchemeId => true)
 
 export const nodeIdSchema = ia5String([2, 45])
   .from(lowercaseLetters + uppercaseLetters + digits + "-_")
@@ -35,8 +35,8 @@ export const nodeInfoEntry = choice({
   neighbor: sequence({
     nodeId: nodeIdSchema,
   }).tag(0),
-  subnet: sequence({
-    subnetId: subnetIdSchema,
+  settlementScheme: sequence({
+    settlementSchemeId: settlementSchemeIdSchema,
   }).tag(1),
 })
 
@@ -62,7 +62,7 @@ export const peerInterledgerPacket = sequence({
 
 export const peerMessageContent = choice({
   peeringRequest: sequence({
-    subnetId: subnetIdSchema,
+    settlementSchemeId: settlementSchemeIdSchema,
     nodeInfo: octetString().containing(signedPeerNodeInfo),
   }).tag(0),
   linkStateUpdate: captured(signedPeerNodeInfo).tag(1),
@@ -73,12 +73,12 @@ export const peerMessageContent = choice({
     nodeId: nodeIdSchema,
   }).tag(3),
   settlement: sequence({
-    subnetId: subnetIdSchema,
+    settlementSchemeId: settlementSchemeIdSchema,
     amount: uint64Bigint(),
     proof: octetString(),
   }).tag(4),
-  subnetModuleMessage: sequence({
-    subnetId: subnetIdSchema,
+  settlementSchemeModuleMessage: sequence({
+    settlementSchemeId: settlementSchemeIdSchema,
     message: octetString(),
   }).tag(5),
 })

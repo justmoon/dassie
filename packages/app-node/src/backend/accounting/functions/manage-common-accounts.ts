@@ -1,9 +1,9 @@
-import { SubnetId } from "../../peer-protocol/types/subnet-id"
+import { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
 import { Ledger } from "../stores/ledger"
 
 export const initializeCommonAccounts = (
   ledger: Ledger,
-  subnetId: SubnetId
+  settlementSchemeId: SettlementSchemeId
 ) => {
-  ledger.createAccount(`${subnetId}/internal/connector`)
+  ledger.createAccount(`${settlementSchemeId}/internal/connector`)
 }

@@ -14,9 +14,9 @@ import { attachLogger } from "./logger"
 import { startOpenPaymentsServer } from "./open-payments"
 import { speakPeerProtocol } from "./peer-protocol"
 import { doRouting } from "./routing"
+import { startSettlementSchemes } from "./settlement-schemes"
 import { startSpspServer } from "./spsp-server"
 import { startStatisticsServer } from "./statistics"
-import { startSubnets } from "./subnets"
 import { supportSystemd } from "./systemd"
 import { startTrpcServer } from "./trpc-server"
 
@@ -49,7 +49,7 @@ export const daemonActor = () =>
     sig.run(startIldcpServer)
     await sig.run(startExchangeRates)
 
-    sig.run(startSubnets)
+    sig.run(startSettlementSchemes)
     await sig.run(startSpspServer)
     sig.run(startOpenPaymentsServer)
     sig.run(startStatisticsServer)

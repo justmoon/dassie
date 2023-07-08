@@ -9,7 +9,7 @@ import { peersComputation } from "./computed/peers"
 import { requestedPeersComputation } from "./computed/requested-peers"
 import { nodeTableStore } from "./stores/node-table"
 import { NodeId } from "./types/node-id"
-import { SubnetId } from "./types/subnet-id"
+import { SettlementSchemeId } from "./types/settlement-scheme-id"
 
 const logger = createLogger("das:node:peer-greeter")
 
@@ -39,7 +39,7 @@ export const sendHeartbeats = () =>
 
       sendPeeringRequest(sig, {
         peerNodeId: peer,
-        subnetId: peerState.subnetId,
+        settlementSchemeId: peerState.settlementSchemeId,
         lastLinkStateUpdate: linkStateUpdate,
       })
     }
@@ -57,13 +57,17 @@ export const sendHeartbeats = () =>
 
 interface PeeringRequestParameters {
   peerNodeId: NodeId
-  subnetId: SubnetId
+  settlementSchemeId: SettlementSchemeId
   lastLinkStateUpdate: Uint8Array
 }
 
 const sendPeeringRequest = (
   sig: ActorContext,
-  { peerNodeId, subnetId, lastLinkStateUpdate }: PeeringRequestParameters
+  {
+    peerNodeId,
+    settlementSchemeId,
+    lastLinkStateUpdate,
+  }: PeeringRequestParameters
 ) => {
   logger.debug(`sending peering request`, {
     to: peerNodeId,
@@ -75,7 +79,7 @@ const sendPeeringRequest = (
       type: "peeringRequest",
       value: {
         nodeInfo: lastLinkStateUpdate,
-        subnetId,
+        settlementSchemeId,
       },
     },
   })

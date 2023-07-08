@@ -1,6 +1,6 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import type { PerSubnetParameters } from "../subnets/manage-subnet-instances"
+import type { PerSettlementSchemeParameters } from "../settlement-schemes/manage-settlement-scheme-instances"
 import { handlePeerMessage } from "./actors/handle-peer-message"
 import { sendPeerMessage } from "./actors/send-peer-message"
 import { discoverNodes } from "./discover-nodes"
@@ -31,9 +31,9 @@ export const speakPeerProtocol = () =>
   })
 
 /**
- * Some actors are specific to each subnet so we export this helper which is called from the subnet instantiation code.
+ * Some actors are specific to each settlement scheme so we export this helper which is called from the settlement scheme instantiation code.
  */
-export const speakPeerProtocolPerSubnet = () =>
-  createActor((sig, parameters: PerSubnetParameters) => {
+export const speakPeerProtocolPerSettlementScheme = () =>
+  createActor((sig, parameters: PerSettlementSchemeParameters) => {
     sig.run(queueBootstrapNodes, parameters)
   })

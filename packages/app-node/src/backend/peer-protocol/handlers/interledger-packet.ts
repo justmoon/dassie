@@ -37,13 +37,13 @@ export const handleInterledgerPacket = () =>
           return EMPTY_UINT8ARRAY
         }
 
-        const { subnetId } = peerState
+        const { settlementSchemeId } = peerState
 
         const endpointInfo: PeerEndpointInfo = {
           type: "peer",
           nodeId: sender,
           ilpAddress: `${ilpAllocationScheme}.das.${sender}`,
-          accountPath: `${subnetId}/peer/${sender}/interledger`,
+          accountPath: `${settlementSchemeId}/peer/${sender}/interledger`,
         }
 
         processIncomingPacketActor.tell("handle", {

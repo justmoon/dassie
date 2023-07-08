@@ -1,7 +1,7 @@
-import type { SubnetModule } from "../types/subnet-module"
+import type { SettlementSchemeModule } from "../types/settlement-scheme-module"
 
 /**
- * The stub subnet pretends to settle but does not actually do anything.
+ * The stub settlement scheme pretends to settle but does not actually do anything.
  *
  * @remarks
  *
@@ -14,7 +14,9 @@ const stub = {
 
   behavior: () => {
     if (process.env["NODE_ENV"] === "production") {
-      throw new Error('The "stub" subnet cannot be used in production')
+      throw new Error(
+        'The "stub" settlement scheme cannot be used in production'
+      )
     }
 
     return {
@@ -35,6 +37,6 @@ const stub = {
       },
     }
   },
-} satisfies SubnetModule
+} satisfies SettlementSchemeModule
 
 export default stub

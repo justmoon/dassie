@@ -7,7 +7,7 @@ export type LinkStateEntry = Infer<typeof nodeInfoEntry>
 
 export const parseLinkStateEntries = (entries: LinkStateEntry[]) => {
   const neighbors = []
-  const subnets = []
+  const settlementSchemes = []
 
   for (const entry of entries) {
     switch (entry.type) {
@@ -15,8 +15,8 @@ export const parseLinkStateEntries = (entries: LinkStateEntry[]) => {
         neighbors.push(entry.value.nodeId)
         break
       }
-      case "subnet": {
-        subnets.push(entry.value.subnetId)
+      case "settlementScheme": {
+        settlementSchemes.push(entry.value.settlementSchemeId)
         break
       }
       default: {
@@ -27,6 +27,6 @@ export const parseLinkStateEntries = (entries: LinkStateEntry[]) => {
 
   return {
     neighbors,
-    subnets,
+    settlementSchemes,
   }
 }

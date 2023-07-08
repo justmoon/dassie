@@ -5,7 +5,7 @@ import { databaseConfigSignal } from "../config/database-config"
 import { nodePublicKeySignal } from "../crypto/computed/node-public-key"
 import { signerService } from "../crypto/signer"
 import { nodeIdSignal } from "../ilp-connector/computed/node-id"
-import { activeSubnetsSignal } from "../subnets/signals/active-subnets"
+import { activeSettlementSchemesSignal } from "../settlement-schemes/signals/active-settlement-schemes"
 import { compareSetToArray } from "../utils/compare-sets"
 import { peersComputation } from "./computed/peers"
 import { peerNodeInfo, signedPeerNodeInfo } from "./peer-schema"
@@ -22,7 +22,7 @@ export const maintainOwnNodeTableEntry = () =>
     // Get the current peers and re-run the actor if they change
     const peers = sig.get(peersComputation)
 
-    const subnets = sig.get(activeSubnetsSignal)
+    const settlementSchemes = sig.get(activeSettlementSchemesSignal)
 
     const nodeId = sig.get(nodeIdSignal)
     const nodePublicKey = sig.get(nodePublicKeySignal)
@@ -35,7 +35,7 @@ export const maintainOwnNodeTableEntry = () =>
     ) {
       const sequence = BigInt(Date.now())
       const peerIds = [...peers]
-      const subnetIds = [...subnets]
+      const settlementSchemeIds = [...settlementSchemes]
 
       const peerNodeInfoResult = peerNodeInfo.serialize({
         nodeId,
@@ -48,9 +48,9 @@ export const maintainOwnNodeTableEntry = () =>
             type: "neighbor" as const,
             value: { nodeId },
           })),
-          ...subnetIds.map((subnetId) => ({
-            type: "subnet" as const,
-            value: { subnetId },
+          ...settlementSchemeIds.map((settlementSchemeId) => ({
+            type: "settlementScheme" as const,
+            value: { settlementSchemeId },
           })),
         ],
       })
@@ -87,7 +87,7 @@ export const maintainOwnNodeTableEntry = () =>
           alias,
           linkState: {
             neighbors: peerIds,
-            subnets: subnetIds,
+            settlementSchemes: settlementSchemeIds,
             sequence,
             scheduledRetransmitTime: Date.now(),
             updateReceivedCounter: 0,
@@ -103,7 +103,7 @@ export const maintainOwnNodeTableEntry = () =>
         sig.use(nodeTableStore).updateNode(nodeId, {
           linkState: {
             neighbors: peerIds,
-            subnets: subnetIds,
+            settlementSchemes: settlementSchemeIds,
             sequence,
             scheduledRetransmitTime: Date.now(),
             updateReceivedCounter: 0,

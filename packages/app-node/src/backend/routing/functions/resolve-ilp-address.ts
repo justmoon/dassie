@@ -46,7 +46,7 @@ export const createResolveIlpAddress = ({
         const destinationInfo: PeerEndpointInfo = {
           type: "peer",
           nodeId: nextHop,
-          accountPath: `${peerState.subnetId}/peer/${nextHop}/interledger`,
+          accountPath: `${peerState.settlementSchemeId}/peer/${nextHop}/interledger`,
           ilpAddress: `${ilpAllocationScheme.read()}.das.${nextHop}`,
         }
 

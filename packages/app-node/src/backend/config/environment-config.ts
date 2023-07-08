@@ -10,9 +10,9 @@ import { isErrorWithCode } from "@dassie/lib-type-utils"
 
 import { APP_NAME, VALID_REALMS } from "../constants/general"
 import {
-  type SubnetConfig,
-  subnetConfigSchema,
-} from "../subnets/schemas/subnet-config"
+  type SettlementSchemeConfig,
+  settlementSchemeConfigSchema,
+} from "../settlement-schemes/schemas/settlement-scheme-config"
 
 const logger = createLogger("das:node:config")
 
@@ -22,14 +22,14 @@ export interface Config {
   rootPath: string
   dataPath: string
   runtimePath: string
-  initialSubnets: SubnetConfig
+  initialSettlementSchemes: SettlementSchemeConfig
 }
 
 export type InputConfig = ReadonlyDeep<z.infer<typeof inputConfigSchema>>
 export const inputConfigSchema = z.object({
   rootPath: z.string().optional(),
   dataPath: z.string().optional(),
-  initialSubnets: subnetConfigSchema.optional(),
+  initialSettlementSchemes: settlementSchemeConfigSchema.optional(),
 })
 
 export function fromPartialConfig(partialConfig: InputConfig): Config {
@@ -46,7 +46,7 @@ export function fromPartialConfig(partialConfig: InputConfig): Config {
       process.env["DASSIE_RUNTIME_DIRECTORY"] ??
       process.env["RUNTIME_DIRECTORY"] ??
       "/run/dassie",
-    initialSubnets: partialConfig.initialSubnets ?? [],
+    initialSettlementSchemes: partialConfig.initialSettlementSchemes ?? [],
   }
 }
 

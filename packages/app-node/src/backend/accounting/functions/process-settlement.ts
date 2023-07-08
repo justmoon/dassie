@@ -3,13 +3,13 @@ import { CreateTransferParameters, Ledger } from "../stores/ledger"
 
 export const processSettlementPrepare = (
   ledger: Ledger,
-  subnetId: string,
+  settlementSchemeId: string,
   peerId: NodeId,
   amount: bigint,
   direction: "incoming" | "outgoing"
 ) => {
-  const peerPath = `${subnetId}/peer/${peerId}/interledger`
-  const settlementPath = `${subnetId}/peer/${peerId}/settlement`
+  const peerPath = `${settlementSchemeId}/peer/${peerId}/interledger`
+  const settlementPath = `${settlementSchemeId}/peer/${peerId}/settlement`
 
   const transfer: CreateTransferParameters = {
     debitAccountPath: direction === "incoming" ? settlementPath : peerPath,

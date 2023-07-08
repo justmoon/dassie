@@ -27,7 +27,7 @@ export const handleLinkStateUpdate = () =>
           linkState.signed
         const nodes = nodeTable.read()
 
-        const { neighbors, subnets } = parseLinkStateEntries(entries)
+        const { neighbors, settlementSchemes } = parseLinkStateEntries(entries)
 
         const node = nodes.get(nodeId)
         const isPeer = node?.peerState.id !== "none"
@@ -38,7 +38,7 @@ export const handleLinkStateUpdate = () =>
               from: nodeId,
               sequence,
               neighbors: neighbors.join(","),
-              subnets: subnets.join(","),
+              settlementSchemes: settlementSchemes.join(","),
               previousSequence: node.linkState.sequence,
             })
             return EMPTY_UINT8ARRAY
@@ -76,7 +76,7 @@ export const handleLinkStateUpdate = () =>
             linkState: {
               sequence,
               neighbors,
-              subnets,
+              settlementSchemes,
               lastUpdate: linkStateBytes,
               updateReceivedCounter: 1,
               scheduledRetransmitTime:
@@ -106,7 +106,7 @@ export const handleLinkStateUpdate = () =>
                   Math.random() * MAX_LINK_STATE_UPDATE_RETRANSMIT_DELAY
                 ),
               neighbors,
-              subnets,
+              settlementSchemes,
               lastUpdate: linkStateBytes,
             },
             peerState: { id: "none" },

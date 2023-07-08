@@ -38,8 +38,8 @@ export const CreateFirstAccount = () => {
                   </h5>
                 </a>
                 <p className="mb-3 font-normal text-gray-500 dark:text-gray-400">
-                  This subnet allows sending Interledger packets without any
-                  underlying settlement.
+                  This settlement scheme allows sending Interledger packets
+                  without any underlying settlement.
                 </p>
                 <Button onClick={onSelectNullSubnet}>
                   Select{" "}

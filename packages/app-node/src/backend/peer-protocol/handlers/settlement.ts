@@ -4,12 +4,12 @@ import { UnreachableCaseError, isFailure } from "@dassie/lib-type-utils"
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import { processSettlementPrepare } from "../../accounting/functions/process-settlement"
 import { ledgerStore } from "../../accounting/stores/ledger"
-import { manageSubnetInstances } from "../../subnets/manage-subnet-instances"
+import { manageSettlementSchemeInstances } from "../../settlement-schemes/manage-settlement-scheme-instances"
 import type { IncomingPeerMessageEvent } from "../actors/handle-peer-message"
 
 export const handleSettlement = () =>
   createActor((sig) => {
-    const subnetManager = sig.use(manageSubnetInstances)
+    const settlementSchemeManager = sig.use(manageSettlementSchemeInstances)
     const ledger = sig.use(ledgerStore)
 
     return {
@@ -18,18 +18,19 @@ export const handleSettlement = () =>
           sender,
           content: {
             value: {
-              value: { subnetId, amount, proof },
+              value: { settlementSchemeId, amount, proof },
             },
           },
         },
       }: IncomingPeerMessageEvent<"settlement">) => {
-        const subnetActor = subnetManager.get(subnetId)
+        const settlementSchemeActor =
+          settlementSchemeManager.get(settlementSchemeId)
 
-        if (!subnetActor) return EMPTY_UINT8ARRAY
+        if (!settlementSchemeActor) return EMPTY_UINT8ARRAY
 
         const settlementTransfer = processSettlementPrepare(
           ledger,
-          subnetId,
+          settlementSchemeId,
           sender,
           amount,
           "incoming"
@@ -57,7 +58,7 @@ export const handleSettlement = () =>
           }
         }
 
-        const { result } = await subnetActor.ask("handleSettlement", {
+        const { result } = await settlementSchemeActor.ask("handleSettlement", {
           peerId: sender,
           amount,
           proof,

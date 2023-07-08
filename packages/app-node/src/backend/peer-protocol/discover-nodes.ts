@@ -41,7 +41,9 @@ export const discoverNodes = () =>
 
       const { signed } = signedPeerNodeInfo.parseOrThrow(linkState)
 
-      const { neighbors, subnets } = parseLinkStateEntries(signed.entries)
+      const { neighbors, settlementSchemes } = parseLinkStateEntries(
+        signed.entries
+      )
 
       const nodeTable = sig.use(nodeTableStore)
 
@@ -55,7 +57,7 @@ export const discoverNodes = () =>
               updateReceivedCounter: 0,
               scheduledRetransmitTime: 0,
               neighbors,
-              subnets,
+              settlementSchemes,
             },
           })
         }
@@ -71,7 +73,7 @@ export const discoverNodes = () =>
             updateReceivedCounter: 0,
             scheduledRetransmitTime: 0,
             neighbors,
-            subnets,
+            settlementSchemes,
           },
           peerState: { id: "none" },
         })

@@ -4,22 +4,22 @@ import { createActor } from "@dassie/lib-reactive"
 
 import { environmentConfigSignal } from "../config/environment-config"
 import { nodeIdSignal } from "../ilp-connector/computed/node-id"
-import type { PerSubnetParameters } from "../subnets/manage-subnet-instances"
+import type { PerSettlementSchemeParameters } from "../settlement-schemes/manage-settlement-scheme-instances"
 import { nodeDiscoveryQueueStore } from "./stores/node-discovery-queue"
 import { nodeTableStore } from "./stores/node-table"
 
 export const queueBootstrapNodes = () =>
-  createActor((sig, { subnetId }: PerSubnetParameters) => {
-    const subnetConfig = sig.get(environmentConfigSignal, (state) =>
-      state.initialSubnets.find(({ id }) => id === subnetId)
+  createActor((sig, { settlementSchemeId }: PerSettlementSchemeParameters) => {
+    const settlementSchemeConfig = sig.get(environmentConfigSignal, (state) =>
+      state.initialSettlementSchemes.find(({ id }) => id === settlementSchemeId)
     )
     const ownNodeId = sig.get(nodeIdSignal)
 
-    if (!subnetConfig) {
-      throw new Error(`Subnet '${subnetId}' is not configured`)
+    if (!settlementSchemeConfig) {
+      throw new Error(`Subnet '${settlementSchemeId}' is not configured`)
     }
 
-    const candidates = subnetConfig.bootstrapNodes.filter(
+    const candidates = settlementSchemeConfig.bootstrapNodes.filter(
       ({ nodeId }) => nodeId !== ownNodeId
     )
 
@@ -40,7 +40,7 @@ export const queueBootstrapNodes = () =>
             updateReceivedCounter: 0,
             scheduledRetransmitTime: 0,
             neighbors: [],
-            subnets: [],
+            settlementSchemes: [],
           },
           peerState: { id: "none" },
         })

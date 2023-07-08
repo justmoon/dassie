@@ -2,11 +2,11 @@ import { ReadonlyDeep } from "type-fest"
 import { z } from "zod"
 
 import { nodeIdSchema } from "../../config/schemas/node-id"
-import { subnetIdSchema } from "../../config/schemas/subnet-id"
+import { settlementSchemeIdSchema } from "../../config/schemas/settlement-scheme-id"
 
-export const subnetConfigSchema = z.array(
+export const settlementSchemeConfigSchema = z.array(
   z.object({
-    id: subnetIdSchema,
+    id: settlementSchemeIdSchema,
     config: z.record(z.string(), z.unknown()),
     bootstrapNodes: z.array(
       z.object({
@@ -28,4 +28,6 @@ export const subnetConfigSchema = z.array(
   })
 )
 
-export type SubnetConfig = ReadonlyDeep<z.infer<typeof subnetConfigSchema>>
+export type SettlementSchemeConfig = ReadonlyDeep<
+  z.infer<typeof settlementSchemeConfigSchema>
+>

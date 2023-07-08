@@ -19,9 +19,9 @@ export const createPeerLedgerEntries = () =>
 
     assert(peerState?.id === "peered", "peer state must be 'peered'")
 
-    const { subnetId } = peerState
+    const { settlementSchemeId } = peerState
 
-    initializePeer(ledger, subnetId, peerId)
+    initializePeer(ledger, settlementSchemeId, peerId)
 
     sig.onCleanup(() => {
       cleanupPeer(ledger, peerId)

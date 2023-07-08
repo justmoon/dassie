@@ -1,14 +1,14 @@
 import { createActor } from "@dassie/lib-reactive"
 
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
-import { activeSubnetsSignal } from "../../subnets/signals/active-subnets"
+import { activeSettlementSchemesSignal } from "../../settlement-schemes/signals/active-settlement-schemes"
 import type { IncomingPeerMessageEvent } from "../actors/handle-peer-message"
 import { nodeTableStore } from "../stores/node-table"
 
 export const handlePeeringRequest = () =>
   createActor((sig) => {
     const nodeTable = sig.use(nodeTableStore)
-    const activeSubnets = sig.get(activeSubnetsSignal)
+    const activeSubnets = sig.get(activeSettlementSchemesSignal)
 
     return {
       handle: ({
@@ -18,29 +18,37 @@ export const handlePeeringRequest = () =>
           },
         },
       }: IncomingPeerMessageEvent<"peeringRequest">) => {
-        const { nodeInfo, subnetId } = content
+        const { nodeInfo, settlementSchemeId } = content
 
         const { nodeId, url, alias, nodePublicKey } = nodeInfo.signed
 
-        if (!activeSubnets.has(subnetId)) return EMPTY_UINT8ARRAY
+        if (!activeSubnets.has(settlementSchemeId)) return EMPTY_UINT8ARRAY
 
         const existingEntry = nodeTable.read().get(nodeId)
 
         if (existingEntry) {
           nodeTable.updateNode(nodeId, {
-            peerState: { id: "peered", lastSeen: Date.now(), subnetId },
+            peerState: {
+              id: "peered",
+              lastSeen: Date.now(),
+              settlementSchemeId,
+            },
           })
         } else {
           nodeTable.addNode({
             nodeId,
-            peerState: { id: "peered", lastSeen: Date.now(), subnetId },
+            peerState: {
+              id: "peered",
+              lastSeen: Date.now(),
+              settlementSchemeId,
+            },
             url,
             alias,
             nodePublicKey,
             linkState: {
               lastUpdate: undefined,
               neighbors: [],
-              subnets: [],
+              settlementSchemes: [],
               scheduledRetransmitTime: 0,
               sequence: 0n,
               updateReceivedCounter: 0,

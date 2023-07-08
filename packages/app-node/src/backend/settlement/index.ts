@@ -4,7 +4,7 @@ import { NodeId } from "../peer-protocol/types/node-id"
 import { sendOutgoingSettlements } from "./send-outgoing-settlements"
 
 /**
- * Some actors are specific to each subnet so we export this helper which is called from the subnet instantiation code.
+ * Some actors are specific to each peer so we export this helper which is called from the per-peer code.
  */
 export const settlePerPeer = () =>
   createActor((sig, peerId: NodeId) => {

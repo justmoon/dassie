@@ -2,10 +2,10 @@ import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
 import { nodeIdSignal } from "../ilp-connector/computed/node-id"
-import { activeSubnetsSignal } from "../subnets/signals/active-subnets"
+import { activeSettlementSchemesSignal } from "../settlement-schemes/signals/active-settlement-schemes"
 import { peersComputation } from "./computed/peers"
 import { nodeTableStore } from "./stores/node-table"
-import { SubnetId } from "./types/subnet-id"
+import { SettlementSchemeId } from "./types/settlement-scheme-id"
 
 const PEERING_CHECK_INTERVAL = 1000
 
@@ -22,7 +22,7 @@ function findCommonElement<T>(array: readonly T[], set: Set<T>): T | false {
 export const maintainPeeringRelationships = () =>
   createActor((sig) => {
     const ownNodeId = sig.get(nodeIdSignal)
-    const ourSubnets = sig.get(activeSubnetsSignal)
+    const ourSubnets = sig.get(activeSettlementSchemesSignal)
 
     const { reactor } = sig
     const checkPeers = () => {
@@ -46,12 +46,12 @@ export const maintainPeeringRelationships = () =>
         .map((candidate) => ({
           ...candidate,
           commonSubnet: findCommonElement(
-            candidate.linkState.subnets,
+            candidate.linkState.settlementSchemes,
             ourSubnets
           ),
         }))
         .filter(
-          (node): node is typeof node & { commonSubnet: SubnetId } =>
+          (node): node is typeof node & { commonSubnet: SettlementSchemeId } =>
             node.nodeId !== ownNodeId &&
             node.peerState.id === "none" &&
             node.commonSubnet !== false
@@ -69,7 +69,7 @@ export const maintainPeeringRelationships = () =>
         peerState: {
           id: "request-peering",
           lastSeen: Date.now(),
-          subnetId: randomNode.commonSubnet,
+          settlementSchemeId: randomNode.commonSubnet,
         },
       })
     }

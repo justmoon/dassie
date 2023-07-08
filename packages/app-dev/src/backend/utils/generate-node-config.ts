@@ -5,7 +5,7 @@ import assert from "node:assert"
 import type { InputConfig } from "@dassie/app-node"
 import { getPublicKey } from "@dassie/app-node/src/backend/crypto/ed25519"
 import { calculateNodeId } from "@dassie/app-node/src/backend/ilp-connector/utils/calculate-node-id"
-import { SubnetId } from "@dassie/app-node/src/backend/peer-protocol/types/subnet-id"
+import { SettlementSchemeId } from "@dassie/app-node/src/backend/peer-protocol/types/settlement-scheme-id"
 
 import { TEST_NODE_VANITY_KEYS } from "../constants/node-keys"
 import { NODES_DEBUG_START_PORT, NODES_START_PORT } from "../constants/ports"
@@ -137,9 +137,9 @@ export const generateNodeConfig = ((id, environmentSettings) => {
     tlsWebKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost-key.pem`,
     config: {
       dataPath,
-      initialSubnets: [
+      initialSettlementSchemes: [
         {
-          id: "stub" as SubnetId,
+          id: "stub" as SettlementSchemeId,
           config: {},
           bootstrapNodes: BOOTSTRAP_NODES.map((peerIndex) =>
             generatePeerInfo(peerIndex)

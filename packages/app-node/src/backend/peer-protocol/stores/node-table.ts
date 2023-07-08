@@ -3,13 +3,13 @@ import { castDraft, castImmutable, enableMapSet, produce } from "immer"
 import { createStore } from "@dassie/lib-reactive"
 
 import { NodeId } from "../types/node-id"
-import { SubnetId } from "../types/subnet-id"
+import { SettlementSchemeId } from "../types/settlement-scheme-id"
 
 enableMapSet()
 
 export interface NodeTableEntry {
   /**
-   * ID of the node - unique in our subnet.
+   * ID of the node - globally unique within the Dassie realm.
    */
   readonly nodeId: NodeId
 
@@ -48,12 +48,12 @@ export type PeerState =
   | {
       readonly id: "request-peering"
       readonly lastSeen: number
-      readonly subnetId: SubnetId
+      readonly settlementSchemeId: SettlementSchemeId
     }
   | {
       readonly id: "peered"
       readonly lastSeen: number
-      readonly subnetId: SubnetId
+      readonly settlementSchemeId: SettlementSchemeId
     }
 
 export interface LinkState {
@@ -68,9 +68,9 @@ export interface LinkState {
   readonly neighbors: readonly NodeId[]
 
   /**
-   * List of the node's supported subnets.
+   * List of the node's supported settlement schemes.
    */
-  readonly subnets: readonly SubnetId[]
+  readonly settlementSchemes: readonly SettlementSchemeId[]
 
   /**
    * Sequence number of the most recent link state update.

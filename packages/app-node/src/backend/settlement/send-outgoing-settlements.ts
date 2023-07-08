@@ -9,8 +9,8 @@ import { Ledger, ledgerStore } from "../accounting/stores/ledger"
 import { sendPeerMessage } from "../peer-protocol/actors/send-peer-message"
 import { nodeTableStore } from "../peer-protocol/stores/node-table"
 import { NodeId } from "../peer-protocol/types/node-id"
-import { SubnetId } from "../peer-protocol/types/subnet-id"
-import { manageSubnetInstances } from "../subnets/manage-subnet-instances"
+import { SettlementSchemeId } from "../peer-protocol/types/settlement-scheme-id"
+import { manageSettlementSchemeInstances } from "../settlement-schemes/manage-settlement-scheme-instances"
 
 const logger = createLogger("das:node:send-outgoing-settlements")
 
@@ -36,15 +36,17 @@ const multiplyAmountWithRatio = (amount: bigint, ratio: number) => {
 
 const calculateSettlementAmount = (
   ledger: Ledger,
-  subnetId: SubnetId,
+  settlementSchemeId: SettlementSchemeId,
   peerId: NodeId
 ) => {
   const peerInterledgerAccount = ledger.getAccount(
-    `${subnetId}/peer/${peerId}/interledger`
+    `${settlementSchemeId}/peer/${peerId}/interledger`
   )
-  const peerTrustAccount = ledger.getAccount(`${subnetId}/peer/${peerId}/trust`)
+  const peerTrustAccount = ledger.getAccount(
+    `${settlementSchemeId}/peer/${peerId}/trust`
+  )
   const peerSettlementAccount = ledger.getAccount(
-    `${subnetId}/peer/${peerId}/settlement`
+    `${settlementSchemeId}/peer/${peerId}/settlement`
   )
 
   assert(peerInterledgerAccount, "peer interledger account not found")
@@ -85,32 +87,35 @@ export const sendOutgoingSettlements = () =>
   createActor((sig, peerId: NodeId) => {
     const ledger = sig.use(ledgerStore)
     const nodeTable = sig.use(nodeTableStore)
-    const subnetManager = sig.use(manageSubnetInstances)
+    const settlementSchemeManager = sig.use(manageSettlementSchemeInstances)
 
     sig.interval(() => {
       const peerState = nodeTable.read().get(peerId)?.peerState
 
       assert(peerState?.id === "peered", "peer state must be 'peered'")
 
-      const { subnetId } = peerState
+      const { settlementSchemeId: settlementSchemeId } = peerState
 
-      const subnetActor = subnetManager.get(subnetId)
+      const settlementSchemeActor =
+        settlementSchemeManager.get(settlementSchemeId)
 
-      if (!subnetActor) {
-        logger.warn("subnet actor not found, skipping settlement", { subnetId })
+      if (!settlementSchemeActor) {
+        logger.warn("settlement scheme actor not found, skipping settlement", {
+          settlementSchemeId,
+        })
         return
       }
 
       const settlementAmount = calculateSettlementAmount(
         ledger,
-        subnetId,
+        settlementSchemeId,
         peerId
       )
 
       if (settlementAmount > 0n) {
         const settlementTransfer = processSettlementPrepare(
           ledger,
-          subnetId,
+          settlementSchemeId,
           peerId,
           settlementAmount,
           "outgoing"
@@ -138,7 +143,7 @@ export const sendOutgoingSettlements = () =>
           }
         }
 
-        subnetActor
+        settlementSchemeActor
           .ask("settle", {
             amount: settlementAmount,
             peerId,
@@ -154,7 +159,7 @@ export const sendOutgoingSettlements = () =>
               message: {
                 type: "settlement",
                 value: {
-                  subnetId,
+                  settlementSchemeId,
                   amount: settlementAmount,
                   proof,
                 },
