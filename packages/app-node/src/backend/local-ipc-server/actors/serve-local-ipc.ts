@@ -1,12 +1,14 @@
 import { initTRPC } from "@trpc/server"
 import { z } from "zod"
 
+import { unlinkSync } from "node:fs"
 import { createServer } from "node:net"
 import { resolve } from "node:path"
 
 import { createLogger } from "@dassie/lib-logger"
 import { ActorContext, createActor } from "@dassie/lib-reactive"
 import { createSocketHandler } from "@dassie/lib-trpc-ipc/adapter"
+import { isErrorWithCode } from "@dassie/lib-type-utils"
 
 import { environmentConfigSignal } from "../../config/environment-config"
 import { databasePlain } from "../../database/open-database"
@@ -46,6 +48,14 @@ export const serveLocalIpc = () =>
       process.env["DASSIE_IPC_SOCKET_PATH"] ?? resolve(runtimePath, "ipc.sock")
 
     if (!path) return
+
+    try {
+      unlinkSync(path)
+    } catch (error) {
+      if (!isErrorWithCode(error, "ENOENT")) {
+        throw error
+      }
+    }
 
     logger.debug("creating local ipc socket", { path })
 
