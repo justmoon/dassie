@@ -80,7 +80,7 @@ main() {
     || error "E_BUNDLE_EXTRACTION_FAILED" "Failed to extract ${DASSIE_BUNDLE_NAME}"
 
   step "Installing Dassie to /opt/dassie..."
-  run_root mkdir -p "/opt/dassie/${DASSIE_VERSION}" \
+  run_root mkdir -p "/opt/dassie" \
     || error "E_BUNDLE_INSTALL_FAILED" "Failed to create directory /opt/dassie/${DASSIE_VERSION}."
   if [ -d "/opt/dassie/${DASSIE_VERSION}" ]; then
     run_root rm -rf "/opt/dassie/${DASSIE_VERSION}" \
@@ -139,8 +139,8 @@ main() {
   echo ""
   echo "$(color "0;1;7;32") + $(color "0;1;32") Dassie installed successfully! $(color "0")"
   echo ""
-  echo "    $(color "0;2")One more step: You need to run Dassie's configuration wizard. $(color "0")"
-  echo "    $(color "0;32")dassie init$(color "0")"
+  echo "$(color "0;2")The next step is to configure Dassie's web interface. You can do this by running:$(color "0")"
+  echo "$(color "0;32")dassie init$(color "0")"
   echo ""
 }
 
