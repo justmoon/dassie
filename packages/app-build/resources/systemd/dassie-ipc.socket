@@ -2,7 +2,7 @@
 Description=Dassie IPC Socket
 
 [Socket]
-ListenStream=/run/dassie/ipc.sock
+ListenStream=/run/dassie.sock
 SocketMode=0660
 SocketUser=root
 SocketGroup=dassie-users

@@ -9,7 +9,7 @@ import { LocalIpcRouter } from "../local-ipc-server/actors/serve-local-ipc"
 
 export const connectIpcClient = (lifecycle: LifecycleScope) => {
   const ipcSocket = createConnection(
-    process.env["DASSIE_IPC_SOCKET_PATH"] ?? "/run/dassie/ipc.sock"
+    process.env["DASSIE_IPC_SOCKET_PATH"] ?? "/run/dassie.sock"
   )
 
   const ipcClient = createTRPCProxyClient<LocalIpcRouter>({

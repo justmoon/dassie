@@ -3,7 +3,6 @@ import { z } from "zod"
 
 import { unlinkSync } from "node:fs"
 import { createServer } from "node:net"
-import { resolve } from "node:path"
 
 import { createLogger } from "@dassie/lib-logger"
 import { ActorContext, createActor } from "@dassie/lib-reactive"
@@ -12,8 +11,14 @@ import { isErrorWithCode } from "@dassie/lib-type-utils"
 
 import { environmentConfigSignal } from "../../config/environment-config"
 import { databasePlain } from "../../database/open-database"
+import {
+  getSocketActivationFileDescriptors,
+  getSocketActivationState,
+} from "../../systemd/socket-activation"
 
 const logger = createLogger("das:local-ipc-server")
+
+const SOCKET_ACTIVATION_NAME_IPC = "dassie-ipc.socket"
 
 export interface IpcContext {
   sig: ActorContext
@@ -39,25 +44,38 @@ export const localIpcRouter = trpc.router({
 
 export type LocalIpcRouter = typeof localIpcRouter
 
+const getListenTargets = (
+  socketPath: string
+): readonly (string | { fd: number })[] => {
+  const socketActivationState = getSocketActivationState()
+
+  if (socketActivationState) {
+    const fds = getSocketActivationFileDescriptors(
+      socketActivationState,
+      SOCKET_ACTIVATION_NAME_IPC
+    )
+    logger.debug("using socket activation to create ipc socket", { fds })
+    return fds.map((fd) => ({ fd }))
+  }
+
+  try {
+    unlinkSync(socketPath)
+  } catch (error) {
+    if (!isErrorWithCode(error, "ENOENT")) {
+      throw error
+    }
+  }
+
+  logger.debug("creating local ipc socket", { path: socketPath })
+
+  return [socketPath]
+}
+
 export const serveLocalIpc = () =>
   createActor((sig) => {
-    const { runtimePath } = sig.getKeys(environmentConfigSignal, [
-      "runtimePath",
+    const { ipcSocketPath } = sig.getKeys(environmentConfigSignal, [
+      "ipcSocketPath",
     ])
-    const path =
-      process.env["DASSIE_IPC_SOCKET_PATH"] ?? resolve(runtimePath, "ipc.sock")
-
-    if (!path) return
-
-    try {
-      unlinkSync(path)
-    } catch (error) {
-      if (!isErrorWithCode(error, "ENOENT")) {
-        throw error
-      }
-    }
-
-    logger.debug("creating local ipc socket", { path })
 
     const handler = createSocketHandler({
       router: localIpcRouter,
@@ -72,7 +90,9 @@ export const serveLocalIpc = () =>
       logger.error("local ipc server error", { error })
     })
 
-    server.listen(path)
+    for (const listenTarget of getListenTargets(ipcSocketPath)) {
+      server.listen(listenTarget)
+    }
 
     sig.onCleanup(() => {
       server.close()

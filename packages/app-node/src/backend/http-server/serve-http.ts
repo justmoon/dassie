@@ -10,6 +10,10 @@ import { createLogger } from "@dassie/lib-logger"
 import { createActor, createSignal } from "@dassie/lib-reactive"
 
 import { databaseConfigSignal } from "../config/database-config"
+import {
+  getSocketActivationFileDescriptors,
+  getSocketActivationState,
+} from "../systemd/socket-activation"
 
 const logger = createLogger("das:node:http-server")
 
@@ -34,6 +38,34 @@ export type WebsocketHandler = (
 
 export const websocketRoutesSignal = () =>
   createSignal(new Map<string, WebsocketHandler>())
+
+const SOCKET_ACTIVATION_NAME_HTTPS = "dassie-https.socket"
+
+const getListenTargets = (
+  hostname: string,
+  port: number
+): readonly (number | { fd: number })[] => {
+  const socketActivationState = getSocketActivationState()
+
+  if (socketActivationState) {
+    const fds = getSocketActivationFileDescriptors(
+      socketActivationState,
+      SOCKET_ACTIVATION_NAME_HTTPS
+    )
+    logger.debug("using socket activation for web server", { fds })
+    return fds.map((fd) => ({ fd }))
+  }
+
+  logger.info(
+    `listening on https://${hostname}${port === 443 ? "" : `:${port}`}/`
+  )
+
+  return [port]
+}
+
+function handleError(error: unknown) {
+  logger.error("http server error", { error })
+}
 
 export const httpService = () =>
   createActor((sig) => {
@@ -66,11 +98,9 @@ export const httpService = () =>
       app
     )
 
-    server.listen(port)
-
-    logger.info(
-      `listening on https://${hostname}${port === 443 ? "" : `:${port}`}/`
-    )
+    for (const listenTarget of getListenTargets(hostname, port)) {
+      server.listen(listenTarget)
+    }
 
     function handleUpgrade(
       request: IncomingMessage,
@@ -89,10 +119,6 @@ export const httpService = () =>
       }
 
       handler(request, socket, head)
-    }
-
-    function handleError(error: unknown) {
-      logger.error("http server error", { error })
     }
 
     server.addListener("upgrade", handleUpgrade)

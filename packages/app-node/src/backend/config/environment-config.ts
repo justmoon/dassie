@@ -21,7 +21,8 @@ export type RealmType = (typeof VALID_REALMS)[number]
 export interface Config {
   rootPath: string
   dataPath: string
-  runtimePath: string
+  cachePath: string
+  ipcSocketPath: string
   initialSettlementSchemes: SettlementSchemeConfig
 }
 
@@ -29,6 +30,8 @@ export type InputConfig = ReadonlyDeep<z.infer<typeof inputConfigSchema>>
 export const inputConfigSchema = z.object({
   rootPath: z.string().optional(),
   dataPath: z.string().optional(),
+  cachePath: z.string().optional(),
+  ipcSocketPath: z.string().optional(),
   initialSettlementSchemes: settlementSchemeConfigSchema.optional(),
 })
 
@@ -42,10 +45,12 @@ export function fromPartialConfig(partialConfig: InputConfig): Config {
       process.env["DASSIE_STATE_DIRECTORY"] ??
       process.env["STATE_DIRECTORY"] ??
       paths.data,
-    runtimePath:
-      process.env["DASSIE_RUNTIME_DIRECTORY"] ??
-      process.env["RUNTIME_DIRECTORY"] ??
-      "/run/dassie",
+    cachePath:
+      partialConfig.cachePath ??
+      process.env["DASSIE_CACHE_DIRECTORY"] ??
+      process.env["CACHE_DIRECTORY"] ??
+      paths.cache,
+    ipcSocketPath: process.env["DASSIE_IPC_SOCKET_PATH"] ?? "/run/dassie.sock",
     initialSettlementSchemes: partialConfig.initialSettlementSchemes ?? [],
   }
 }
