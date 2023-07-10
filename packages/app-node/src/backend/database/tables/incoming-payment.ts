@@ -1,14 +1,14 @@
-import { type InferRowType, defineTable } from "@dassie/lib-sqlite"
+import { InferRowReadType, column, table } from "@dassie/lib-sqlite"
 
-export const incomingPaymentTable = defineTable({
+export const incomingPaymentTable = table({
   name: "incoming_payment",
-  columns: [
-    { name: "id", type: "TEXT", required: true, primaryKey: true },
-    { name: "subnet", type: "TEXT", required: true },
-    { name: "total_amount", type: "INTEGER", required: true },
-    { name: "received_amount", type: "INTEGER", required: true },
-    { name: "external_reference", type: "TEXT", required: true },
-  ],
+  columns: {
+    id: column().type("TEXT").required().primaryKey(),
+    subnet: column().type("TEXT").required(),
+    total_amount: column().type("INTEGER").required(),
+    received_amount: column().type("INTEGER").required(),
+    external_reference: column().type("TEXT").required(),
+  },
 })
 
-export type IncomingPaymentRow = InferRowType<typeof incomingPaymentTable>
+export type IncomingPaymentRow = InferRowReadType<typeof incomingPaymentTable>

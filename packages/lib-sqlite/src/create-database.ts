@@ -2,7 +2,6 @@ import Database from "better-sqlite3"
 
 import { createLogger } from "@dassie/lib-logger"
 
-import type { TableDescription } from "./define-table"
 import { checkSchema } from "./internal/check-schema"
 import { type ConnectedTable, connectTable } from "./internal/connect-table"
 import {
@@ -12,6 +11,7 @@ import {
   scalarTable,
 } from "./internal/scalar-store"
 import type { MigrationDefinition } from "./types/migration"
+import type { AnyTableDescription } from "./types/table"
 import { migrate } from "./utils/migrate"
 
 const logger = createLogger("das:sqlite:database")
@@ -32,7 +32,7 @@ export interface DatabaseSchema {
   /**
    * A set of table definitions which provide a type-safe interface to the database.
    */
-  tables?: Record<string, TableDescription> | undefined
+  tables?: Record<string, AnyTableDescription> | undefined
 
   /**
    * A set of scalar definitions which effectively provide a type-safe key-value store.
@@ -62,14 +62,21 @@ export interface DatabaseOptions {
   checkSchema?: boolean | undefined
 }
 
-export interface InferDatabaseInstance<TOptions extends DatabaseOptions> {
-  tables: InferTableAccessors<TOptions>
-  scalars: InferScalarAccessors<TOptions>
+export interface DatabaseGenerics {
+  schema: DatabaseSchema
+}
+
+export interface InferDatabaseInstance<T extends DatabaseGenerics> {
+  tables: InferTableAccessors<T>
+  scalars: InferScalarAccessors<T>
   raw: Database.Database
 }
 
-export type InferTableAccessors<TOptions extends DatabaseOptions> =
-  TOptions["schema"]["tables"] extends Record<string, TableDescription>
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnyDatabase = InferDatabaseInstance<any>
+
+export type InferTableAccessors<TOptions extends DatabaseGenerics> =
+  TOptions["schema"]["tables"] extends Record<string, AnyTableDescription>
     ? {
         [K in keyof TOptions["schema"]["tables"]]: ConnectedTable<
           TOptions["schema"]["tables"][K]
@@ -77,7 +84,7 @@ export type InferTableAccessors<TOptions extends DatabaseOptions> =
       }
     : undefined
 
-export type InferScalarAccessors<TOptions extends DatabaseOptions> =
+export type InferScalarAccessors<TOptions extends DatabaseGenerics> =
   TOptions["schema"]["scalars"] extends Record<string, ScalarDescription>
     ? ScalarStore<TOptions["schema"]["scalars"]>
     : undefined
@@ -106,7 +113,9 @@ export const createDatabase = <TOptions extends DatabaseOptions>(
   if (
     database.pragma("application_id", { simple: true }) !== applicationIdBigint
   ) {
-    throw new Error("Database file is not a valid Dassie node database")
+    throw new Error(
+      "Database file has the wrong application ID - please make sure that the database file is not being shared between multiple applications"
+    )
   }
 
   migrate(database, databaseOptions.schema.migrations)

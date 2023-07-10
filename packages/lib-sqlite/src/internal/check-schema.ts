@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3"
 
-import { TableDescription } from "../define-table"
+import { TableDescription, TableDescriptionGenerics } from "../types/table"
 
 interface ColumnSchema {
   cid: bigint
@@ -13,7 +13,7 @@ interface ColumnSchema {
 
 export const checkSchema = (
   database: Database.Database,
-  tables: Record<string, TableDescription>
+  tables: Record<string, TableDescription<TableDescriptionGenerics>>
 ) => {
   for (const table of Object.values(tables)) {
     const tableSchema = database.pragma(
@@ -24,40 +24,48 @@ export const checkSchema = (
       throw new Error(`Table "${table.name}" not found`)
     }
 
-    for (const expectedSchema of table.columns) {
+    for (const [columnName, expectedSchema] of Object.entries(table.columns)) {
       const actualSchema = tableSchema.find(
-        (schema) => schema.name === expectedSchema.name
+        (schema) => schema.name === columnName
       )
 
       if (!actualSchema) {
         throw new Error(
-          `Column "${expectedSchema.name}" not found in table "${table.name}"`
+          `Column "${columnName}" not found in table "${table.name}"`
         )
       }
 
-      if (actualSchema.type !== expectedSchema.type) {
+      if (actualSchema.type !== expectedSchema.description.type) {
         throw new Error(
-          `Column "${expectedSchema.name}" in table "${table.name}" has type "${actualSchema.type}" but should be "${expectedSchema.type}"`
+          `Column "${columnName}" in table "${table.name}" has type "${
+            actualSchema.type
+          }" but should be "${expectedSchema.description.type as string}"`
         )
       }
 
-      if (expectedSchema.required && actualSchema.notnull !== 1n) {
+      if (expectedSchema.description.required && actualSchema.notnull !== 1n) {
         throw new Error(
-          `Column "${expectedSchema.name}" in table "${table.name}" should be marked NOT NULL but isn't`
+          `Column "${columnName}" in table "${table.name}" should be marked NOT NULL but isn't`
         )
-      } else if (!expectedSchema.required && actualSchema.notnull !== 0n) {
+      } else if (
+        !expectedSchema.description.required &&
+        actualSchema.notnull !== 0n
+      ) {
         throw new Error(
-          `Column "${expectedSchema.name}" in table "${table.name}" should not be marked NOT NULL but is`
+          `Column "${columnName}" in table "${table.name}" should not be marked NOT NULL but is`
         )
       }
 
-      if (expectedSchema.primaryKey && actualSchema.pk !== 1n) {
+      if (expectedSchema.description.primaryKey && actualSchema.pk !== 1n) {
         throw new Error(
-          `Column "${expectedSchema.name}" in table "${table.name}" should be marked PRIMARY KEY but isn't`
+          `Column "${columnName}" in table "${table.name}" should be marked PRIMARY KEY but isn't`
         )
-      } else if (!expectedSchema.primaryKey && actualSchema.pk !== 0n) {
+      } else if (
+        !expectedSchema.description.primaryKey &&
+        actualSchema.pk !== 0n
+      ) {
         throw new Error(
-          `Column "${expectedSchema.name}" in table "${table.name}" should not be marked PRIMARY KEY but is`
+          `Column "${columnName}" in table "${table.name}" should not be marked PRIMARY KEY but is`
         )
       }
     }

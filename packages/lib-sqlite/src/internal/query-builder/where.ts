@@ -1,20 +1,26 @@
 import type { RequireExactlyOne } from "type-fest"
 
-import type { InferRowType, TableDescription } from "../../define-table"
+import {
+  InferRowReadType,
+  TableDescription,
+  TableDescriptionGenerics,
+} from "../../types/table"
 import type { PlaceholderStore } from "./placeholders"
 
-export type Condition<TTable extends TableDescription> = RequireExactlyOne<
-  ConditionTypes<TTable>
->
+export type Condition<
+  TTable extends TableDescription<TableDescriptionGenerics>
+> = RequireExactlyOne<ConditionTypes<TTable>>
 
-export interface ConditionTypes<TTable extends TableDescription> {
-  equals: Partial<InferRowType<TTable>>
+export interface ConditionTypes<
+  TTable extends TableDescription<TableDescriptionGenerics>
+> {
+  equals: Partial<InferRowReadType<TTable>>
   and: Condition<TTable>[]
   or: Condition<TTable>[]
 }
 
 export const generateWhereClause = (
-  condition: Condition<TableDescription>,
+  condition: Condition<TableDescription<TableDescriptionGenerics>>,
   mutablePlaceholders: PlaceholderStore
 ): string => {
   if ("equals" in condition) {

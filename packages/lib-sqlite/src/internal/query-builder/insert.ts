@@ -2,9 +2,11 @@ import type { Database, RunResult, Statement } from "better-sqlite3"
 
 import type {
   InferColumnNames,
-  InferRowType,
+  InferRowWriteType,
   TableDescription,
-} from "../../define-table"
+  TableDescriptionGenerics,
+} from "../../types/table"
+import { RowSerializer } from "./serialize"
 
 export interface InsertQueryBuilder<TState extends InsertQueryBuilderState> {
   /**
@@ -48,22 +50,25 @@ export interface InsertQueryBuilder<TState extends InsertQueryBuilderState> {
   /**
    * Insert a single row and return the rowid of the inserted row.
    */
-  one(row: InferRowType<TState["table"]>): SingleInsertResult
+  one(row: InferRowWriteType<TState["table"]>): SingleInsertResult
 
   /**
    * Insert multiple rows in a single transaction and return the rowids of the inserted rows.
    */
-  many(rows: readonly InferRowType<TState["table"]>[]): MultipleInsertResult
+  many(
+    rows: readonly InferRowWriteType<TState["table"]>[]
+  ): MultipleInsertResult
 }
 
 export interface InsertQueryBuilderState {
-  table: TableDescription
+  table: TableDescription<TableDescriptionGenerics>
 }
 
-export type NewInsertQueryBuilder<TTable extends TableDescription> =
-  InsertQueryBuilder<{
-    table: TTable
-  }>
+export type NewInsertQueryBuilder<
+  TTable extends TableDescription<TableDescriptionGenerics>
+> = InsertQueryBuilder<{
+  table: TTable
+}>
 
 export interface SingleInsertResult {
   changes: 0 | 1
@@ -75,8 +80,11 @@ export interface MultipleInsertResult {
   rowids: bigint[]
 }
 
-export const createInsertQueryBuilder = <TTable extends TableDescription>(
+export const createInsertQueryBuilder = <
+  TTable extends TableDescription<TableDescriptionGenerics>
+>(
   tableDescription: TTable,
+  serializeRow: RowSerializer<TTable>,
   database: Database
 ): NewInsertQueryBuilder<TTable> => {
   let cachedStatement: Statement<unknown[]> | undefined
@@ -127,10 +135,10 @@ export const createInsertQueryBuilder = <TTable extends TableDescription>(
             ") DO NOTHING"
         : ""
 
-      return `INSERT INTO ${tableDescription.name} (${tableDescription.columns
-        .map((column) => column.name)
-        .join(", ")}) VALUES (${tableDescription.columns
-        .map((column) => `@${column.name}`)
+      return `INSERT INTO ${tableDescription.name} (${Object.keys(
+        tableDescription.columns
+      ).join(", ")}) VALUES (${Object.keys(tableDescription.columns)
+        .map((column) => `@${column}`)
         .join(", ")})${conflictClause}`
     },
 
@@ -142,7 +150,7 @@ export const createInsertQueryBuilder = <TTable extends TableDescription>(
 
     one(row) {
       const query = builder.prepare()
-      const { changes, lastInsertRowid } = query.run(row)
+      const { changes, lastInsertRowid } = query.run(serializeRow(row))
 
       return {
         changes: changes as 0 | 1,
@@ -154,7 +162,7 @@ export const createInsertQueryBuilder = <TTable extends TableDescription>(
       const query = builder.prepare()
       const results = database.transaction<(_rows: typeof rows) => RunResult[]>(
         (rows) => {
-          return rows.map((row) => query.run(row))
+          return rows.map((row) => query.run(serializeRow(row)))
         }
       )(rows)
 

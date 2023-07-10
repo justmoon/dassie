@@ -1,8 +1,16 @@
 import type { Database, Statement } from "better-sqlite3"
+import { Simplify } from "type-fest"
 
-import type { InferRowType, TableDescription } from "../../define-table"
-import type { ColumnDescription, InferRowFromColumns } from "./columns"
+import type {
+  AnyTableDescription,
+  InferRowReadType,
+  InferRowSqliteType,
+  TableColumnRecord,
+  TableDescription,
+  TableDescriptionGenerics,
+} from "../../types/table"
 import { createPlaceholderStore } from "./placeholders"
+import { RowDeserializer } from "./serialize"
 import { type Condition, generateWhereClause } from "./where"
 
 export interface SelectQueryBuilder<TState extends SelectQueryBuilderState> {
@@ -36,27 +44,30 @@ export interface SelectQueryBuilder<TState extends SelectQueryBuilderState> {
   /**
    * Execute the query and return all result rows.
    */
-  all(): InferRowType<TState["table"]>[]
+  all(): Simplify<InferRowReadType<TState["table"]>>[]
 
   /**
    * Execute the query and return the first result row.
    */
-  first(): InferRowFromColumns<TState["columns"]> | undefined
+  first(): Simplify<InferRowReadType<TState["table"]>> | undefined
 }
 
 export interface SelectQueryBuilderState {
-  columns: readonly ColumnDescription[]
-  table: TableDescription
+  columns: TableColumnRecord
+  table: TableDescription<TableDescriptionGenerics>
 }
 
-export type NewSelectQueryBuilder<TTable extends TableDescription> =
+export type NewSelectQueryBuilder<TTable extends AnyTableDescription> =
   SelectQueryBuilder<{
     columns: TTable["columns"]
     table: TTable
   }>
 
-export const createSelectQueryBuilder = <TTable extends TableDescription>(
+export const createSelectQueryBuilder = <
+  TTable extends TableDescription<TableDescriptionGenerics>
+>(
   tableDescription: TTable,
+  deserializeRow: RowDeserializer<TTable>,
   database: Database
 ): NewSelectQueryBuilder<TTable> => {
   const placeholders = createPlaceholderStore()
@@ -102,12 +113,20 @@ export const createSelectQueryBuilder = <TTable extends TableDescription>(
 
     all() {
       const query = builder.prepare()
-      return query.all(placeholders.get()) as InferRowType<TTable>[]
+      return (
+        (query.all(placeholders.get()) as InferRowSqliteType<TTable>[])
+          // eslint-disable-next-line unicorn/no-array-callback-reference
+          .map(deserializeRow)
+      )
     },
 
     first() {
       const query = builder.prepare()
-      return query.get(placeholders.get()) as InferRowType<TTable> | undefined
+      const result = query.get(placeholders.get()) as
+        | InferRowSqliteType<TTable>
+        | undefined
+
+      return result === undefined ? undefined : deserializeRow(result)
     },
   }
 

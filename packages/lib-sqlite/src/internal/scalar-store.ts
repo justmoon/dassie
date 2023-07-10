@@ -1,5 +1,6 @@
 import type { ZodTypeAny, TypeOf as ZodTypeOf } from "zod"
 
+import { column } from "../define-column"
 import type {
   SqliteDataType,
   SqliteToTypescriptTypeMap,
@@ -42,10 +43,10 @@ export type InferScalarType<T extends ScalarDescription> =
 
 export const scalarTable = {
   name: "scalar",
-  columns: [
-    { name: "key", type: "TEXT", required: true, primaryKey: true },
-    { name: "value", type: "ANY", required: true },
-  ],
+  columns: {
+    key: column().type("TEXT").required().primaryKey(),
+    value: column().type("ANY").required(),
+  },
 } as const
 
 export const createScalarStore = <
