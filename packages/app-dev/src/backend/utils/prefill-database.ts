@@ -9,10 +9,10 @@ import { DEBUG_UI_PORT } from "../constants/ports"
 import { NodeConfig, generatePeerInfo } from "./generate-node-config"
 
 export const prefillDatabase = async ({
-  config: { dataPath },
   id,
   hostname,
   port,
+  dataPath,
   tlsDassieCertFile,
   tlsDassieKeyFile,
   tlsWebCertFile,

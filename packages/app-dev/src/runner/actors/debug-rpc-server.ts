@@ -39,7 +39,7 @@ export type DebugRpcRouter = typeof debugRpcRouter
 
 export const runDebugRpcServer = () =>
   createActor((sig) => {
-    const port = Number(process.env["DASSIE_DEBUG_RPC_PORT"])
+    const port = Number(process.env["DASSIE_DEV_DEBUG_RPC_PORT"])
 
     if (!port) return
 

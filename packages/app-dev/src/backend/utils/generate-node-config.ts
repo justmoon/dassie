@@ -1,8 +1,9 @@
 import pureRand from "pure-rand"
 
 import assert from "node:assert"
+import { resolve } from "node:path"
 
-import type { InputConfig } from "@dassie/app-node"
+import { BootstrapNodesConfig } from "@dassie/app-node/src/backend/config/environment-config"
 import { getPublicKey } from "@dassie/app-node/src/backend/crypto/ed25519"
 import { calculateNodeId } from "@dassie/app-node/src/backend/ilp-connector/utils/calculate-node-id"
 
@@ -59,11 +60,13 @@ export interface BaseNodeConfig {
   peers: readonly number[]
   latitude: number
   longitude: number
+  dataPath: string
+  ipcSocketPath: string
   tlsDassieCertFile: string
   tlsDassieKeyFile: string
   tlsWebCertFile: string
   tlsWebKeyFile: string
-  config: InputConfig
+  bootstrapNodes: BootstrapNodesConfig
   url: string
   entry: string
 }
@@ -126,19 +129,18 @@ export const generateNodeConfig = ((id, environmentSettings) => {
     peers: environmentSettings.peeringMode === "fixed" ? peers : [],
     latitude,
     longitude,
+    dataPath,
+    ipcSocketPath: resolve(dataPath, "dassie.sock"),
     tlsDassieCertFile: `${LOCAL_PATH}/tls/${id}.localhost/dassie-${id}.localhost.pem`,
     tlsDassieKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/dassie-${id}.localhost-key.pem`,
     tlsWebCertFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost.pem`,
     tlsWebKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost-key.pem`,
-    config: {
-      dataPath,
-      bootstrapNodes: BOOTSTRAP_NODES.map((peerIndex) =>
-        generatePeerInfo(peerIndex)
-      ).map((peerInfo) => ({
-        ...peerInfo,
-        nodePublicKey: Buffer.from(peerInfo.nodePublicKey).toString("hex"),
-      })),
-    },
+    bootstrapNodes: BOOTSTRAP_NODES.map((peerIndex) =>
+      generatePeerInfo(peerIndex)
+    ).map((peerInfo) => ({
+      ...peerInfo,
+      nodePublicKey: Buffer.from(peerInfo.nodePublicKey).toString("hex"),
+    })),
     url: `https://${id}.localhost:${port}/`,
     entry: ENTRYPOINT,
   } as const

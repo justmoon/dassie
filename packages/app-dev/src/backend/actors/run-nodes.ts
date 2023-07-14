@@ -1,9 +1,9 @@
-import { resolve } from "node:path"
 import { setTimeout } from "node:timers/promises"
 
 import { createLogger } from "@dassie/lib-logger"
 import { createActor, createMapped } from "@dassie/lib-reactive"
 
+import { RunnerEnvironment } from "../../common/types/runner-environment"
 import { DEBUG_RPC_PORT } from "../constants/ports"
 import { viteNodeService } from "../services/vite-node-server"
 import { viteService } from "../services/vite-server"
@@ -78,7 +78,7 @@ export const runNodes = () =>
 
           // Prepare data directory with database
           {
-            const { dataPath } = node.config
+            const { dataPath } = node
 
             await prepareDataDirectory(dataPath)
             await prefillDatabase(node)
@@ -93,19 +93,15 @@ export const runNodes = () =>
               ...process.env,
               DEBUG: debugScopes,
               DEBUG_HIDE_DATE: "1",
-              DASSIE_LOG_FORMATTER: "json",
-              DASSIE_CONFIG: JSON.stringify(node.config),
+              DASSIE_BOOTSTRAP_NODES: JSON.stringify(node.bootstrapNodes),
+              DASSIE_IPC_SOCKET_PATH: node.ipcSocketPath,
               DASSIE_DEV_ROOT: viteServer.config.root,
               DASSIE_DEV_BASE: viteServer.config.base,
               DASSIE_DEV_ENTRY: node.entry,
               DASSIE_DEV_RPC_URL: `wss://dev-rpc.localhost:${DEBUG_RPC_PORT}`,
               DASSIE_DEV_NODE_ID: node.id,
-              DASSIE_DEBUG_RPC_PORT: String(node.debugPort),
-              DASSIE_IPC_SOCKET_PATH: resolve(
-                node.config.dataPath,
-                "dassie.sock"
-              ),
-            },
+              DASSIE_DEV_DEBUG_RPC_PORT: String(node.debugPort),
+            } satisfies RunnerEnvironment,
           })
 
           await setTimeout(NODE_STARTUP_INTERVAL)
