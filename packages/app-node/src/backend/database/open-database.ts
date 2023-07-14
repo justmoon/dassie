@@ -7,8 +7,11 @@ import { type DatabaseSchema, createDatabase } from "@dassie/lib-sqlite"
 import { ACME_DATABASE_SCALARS } from "../acme-certificate-manager/schemas/database-scalars"
 import { environmentConfigSignal } from "../config/environment-config"
 import { CONFIG_DATABASE_SCALARS } from "../config/schemas/database-scalars"
+import { incomingPaymentTable } from "../open-payments/tables/incoming-payment"
+import { nodesTable } from "../peer-protocol/tables/nodes"
+import { peersTable } from "../peer-protocol/tables/peers"
+import { settlementSchemesTable } from "../settlement-schemes/database-tables/settlement-schemes"
 import migrations from "./migrations"
-import { incomingPaymentTable } from "./tables/incoming-payment"
 
 /**
  * Unique application ID for identifying the SQLite database as belonging to Dassie.
@@ -23,6 +26,9 @@ export const DASSIE_DATABASE_SCHEMA = {
   migrations,
   tables: {
     incomingPayment: incomingPaymentTable,
+    settlementSchemes: settlementSchemesTable,
+    nodes: nodesTable,
+    peers: peersTable,
   },
   scalars: {
     ...CONFIG_DATABASE_SCALARS,

@@ -5,7 +5,6 @@ import assert from "node:assert"
 import type { InputConfig } from "@dassie/app-node"
 import { getPublicKey } from "@dassie/app-node/src/backend/crypto/ed25519"
 import { calculateNodeId } from "@dassie/app-node/src/backend/ilp-connector/utils/calculate-node-id"
-import { SettlementSchemeId } from "@dassie/app-node/src/backend/peer-protocol/types/settlement-scheme-id"
 
 import { TEST_NODE_VANITY_KEYS } from "../constants/node-keys"
 import { NODES_DEBUG_START_PORT, NODES_START_PORT } from "../constants/ports"
@@ -57,8 +56,7 @@ export interface BaseNodeConfig {
   hostname: string
   port: number
   debugPort: number
-  peers: string[]
-  peerIndices: readonly number[]
+  peers: readonly number[]
   latitude: number
   longitude: number
   tlsDassieCertFile: string
@@ -104,13 +102,13 @@ const selectPeers = (nodeIndex: number) => {
   return [...peers]
 }
 
-const generatePeerInfo = (peerIndex: number) => ({
+export const generatePeerInfo = (peerIndex: number) => ({
   nodeId: nodeIndexToId(peerIndex),
   url: `https://${nodeIndexToFriendlyId(peerIndex)}.localhost:${nodeIndexToPort(
     peerIndex
   )}`,
   alias: nodeIndexToFriendlyId(peerIndex),
-  nodePublicKey: Buffer.from(nodeIndexToPublicKey(peerIndex)).toString("hex"),
+  nodePublicKey: nodeIndexToPublicKey(peerIndex),
 })
 
 export const generateNodeConfig = ((id, environmentSettings) => {
@@ -120,15 +118,12 @@ export const generateNodeConfig = ((id, environmentSettings) => {
   const peers = selectPeers(index)
   const dataPath = nodeIndexToDataPath(index)
 
-  const peersInfo = peers.map((peerIndex) => generatePeerInfo(peerIndex))
-
   return {
     id,
     hostname: `${id}.localhost`,
     port,
     debugPort: NODES_DEBUG_START_PORT + index,
-    peers: peers.map((index) => nodeIndexToFriendlyId(index)),
-    peerIndices: peers,
+    peers: environmentSettings.peeringMode === "fixed" ? peers : [],
     latitude,
     longitude,
     tlsDassieCertFile: `${LOCAL_PATH}/tls/${id}.localhost/dassie-${id}.localhost.pem`,
@@ -137,17 +132,12 @@ export const generateNodeConfig = ((id, environmentSettings) => {
     tlsWebKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost-key.pem`,
     config: {
       dataPath,
-      initialSettlementSchemes: [
-        {
-          id: "stub" as SettlementSchemeId,
-          config: {},
-          bootstrapNodes: BOOTSTRAP_NODES.map((peerIndex) =>
-            generatePeerInfo(peerIndex)
-          ),
-          initialPeers:
-            environmentSettings.peeringMode === "fixed" ? peersInfo : undefined,
-        },
-      ],
+      bootstrapNodes: BOOTSTRAP_NODES.map((peerIndex) =>
+        generatePeerInfo(peerIndex)
+      ).map((peerInfo) => ({
+        ...peerInfo,
+        nodePublicKey: Buffer.from(peerInfo.nodePublicKey).toString("hex"),
+      })),
     },
     url: `https://${id}.localhost:${port}/`,
     entry: ENTRYPOINT,

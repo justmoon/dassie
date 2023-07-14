@@ -1,6 +1,5 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import type { PerSettlementSchemeParameters } from "../settlement-schemes/manage-settlement-scheme-instances"
 import { handlePeerMessage } from "./actors/handle-peer-message"
 import { sendPeerMessage } from "./actors/send-peer-message"
 import { discoverNodes } from "./discover-nodes"
@@ -25,15 +24,8 @@ export const speakPeerProtocol = () =>
 
     sig.run(sendHeartbeats)
     sig.run(forwardLinkStateUpdate)
+    sig.run(queueBootstrapNodes)
     sig.run(discoverNodes)
 
     sig.runMap(runPerPeerActors)
-  })
-
-/**
- * Some actors are specific to each settlement scheme so we export this helper which is called from the settlement scheme instantiation code.
- */
-export const speakPeerProtocolPerSettlementScheme = () =>
-  createActor((sig, parameters: PerSettlementSchemeParameters) => {
-    sig.run(queueBootstrapNodes, parameters)
   })

@@ -1,7 +1,9 @@
 import { castDraft, castImmutable, enableMapSet, produce } from "immer"
 
-import { createStore } from "@dassie/lib-reactive"
+import { Reactor, createStore } from "@dassie/lib-reactive"
+import { InferRowSqliteType } from "@dassie/lib-sqlite"
 
+import { databasePlain } from "../../database/open-database"
 import { NodeId } from "../types/node-id"
 import { SettlementSchemeId } from "../types/settlement-scheme-id"
 
@@ -88,8 +90,47 @@ export interface LinkState {
   readonly scheduledRetransmitTime: number
 }
 
-export const nodeTableStore = () =>
-  createStore(castImmutable(new Map<NodeId, NodeTableEntry>()), {
+export const nodeTableStore = (reactor: Reactor) => {
+  const database = reactor.use(databasePlain)
+
+  const result = database.raw
+    .prepare(
+      `SELECT nodes.*, peers.* FROM nodes LEFT JOIN peers ON nodes.rowid = peers.node`
+    )
+    .all() as (InferRowSqliteType<typeof database.schema.tables.nodes> &
+    Partial<InferRowSqliteType<typeof database.schema.tables.peers>>)[]
+
+  const initialNodesMap = new Map<NodeId, NodeTableEntry>()
+
+  for (const row of result) {
+    initialNodesMap.set(row.id as NodeId, {
+      nodeId: row.id as NodeId,
+      nodePublicKey: new Uint8Array(
+        row.public_key.buffer,
+        row.public_key.byteOffset,
+        row.public_key.byteLength
+      ),
+      url: row.url,
+      alias: row.alias,
+      linkState: {
+        lastUpdate: undefined,
+        neighbors: [],
+        settlementSchemes: [],
+        sequence: 0n,
+        updateReceivedCounter: 0,
+        scheduledRetransmitTime: 0,
+      },
+      peerState: row.node
+        ? {
+            id: "peered",
+            lastSeen: 0,
+            settlementSchemeId: row.settlement_scheme_id! as SettlementSchemeId,
+          }
+        : { id: "none" },
+    })
+  }
+
+  return createStore(castImmutable(initialNodesMap), {
     addNode: (entry: NodeTableEntry) =>
       produce((draft) => {
         draft.set(
@@ -114,3 +155,4 @@ export const nodeTableStore = () =>
         )
       }),
   })
+}

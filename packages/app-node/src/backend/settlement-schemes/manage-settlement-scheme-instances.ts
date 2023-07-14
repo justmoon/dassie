@@ -7,10 +7,8 @@ import { createActor, createMapped } from "@dassie/lib-reactive"
 import { initializeCommonAccounts } from "../accounting/functions/manage-common-accounts"
 import { ledgerStore } from "../accounting/stores/ledger"
 import { databaseConfigSignal } from "../config/database-config"
-import { speakPeerProtocolPerSettlementScheme } from "../peer-protocol"
 import { sendPeerMessage } from "../peer-protocol/actors/send-peer-message"
 import { nodeTableStore } from "../peer-protocol/stores/node-table"
-import { SettlementSchemeId } from "../peer-protocol/types/settlement-scheme-id"
 import modules from "./modules"
 import { activeSettlementSchemesSignal } from "./signals/active-settlement-schemes"
 import { settlementSchemeMapSignal } from "./signals/settlement-scheme-map"
@@ -111,21 +109,6 @@ export const manageSettlementSchemeInstances = () =>
         throw new Error("Subnet module failed to initialize")
       }
 
-      const settlementSchemeParamters: PerSettlementSchemeParameters = {
-        settlementSchemeId,
-        settlementSchemeActor,
-      }
-
-      // Instantiate aspects of the peer protocol that are specific to this settlement scheme.
-      sig
-        .use(speakPeerProtocolPerSettlementScheme, { stateless: true })
-        .run(sig, settlementSchemeParamters)
-
       return settlementSchemeActorMethods
     })
   )
-
-export interface PerSettlementSchemeParameters {
-  settlementSchemeId: SettlementSchemeId
-  settlementSchemeActor: SettlementSchemeActor
-}

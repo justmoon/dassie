@@ -1,7 +1,7 @@
 import type { Server as StreamServer } from "ilp-protocol-stream"
 
-import type { IncomingPaymentRow } from "../../database/tables/incoming-payment"
 import { PAYMENT_POINTER_ROOT } from "../constants/payment-pointer"
+import type { IncomingPaymentRow } from "../tables/incoming-payment"
 
 export interface IncomingPaymentFormatterOptions {
   url: string
