@@ -1,6 +1,7 @@
 import type { ZodTypeAny, TypeOf as ZodTypeOf } from "zod"
 
 import { column } from "../define-column"
+import { table } from "../define-table"
 import type {
   SqliteDataType,
   SqliteToTypescriptTypeMap,
@@ -41,13 +42,13 @@ export type InferScalarType<T extends ScalarDescription> =
       : SqliteToTypescriptTypeMap[T["type"]])
   | ("defaultValue" extends keyof T ? T["defaultValue"] : undefined)
 
-export const scalarTable = {
+export const scalarTable = table({
   name: "scalar",
   columns: {
     key: column().type("TEXT").required().primaryKey(),
     value: column().type("ANY").required(),
   },
-} as const
+})
 
 export const createScalarStore = <
   TScalars extends Record<string, ScalarDescription>

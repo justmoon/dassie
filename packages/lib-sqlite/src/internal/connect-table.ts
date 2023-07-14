@@ -3,13 +3,11 @@ import { Simplify } from "type-fest"
 
 import type { InferColumnReadType } from "../types/column"
 import type {
-  AnyTableDescription,
   InferColumnNames,
   InferRowReadType,
   InferRowSqliteType,
   InferRowWriteType,
   TableDescription,
-  TableDescriptionGenerics,
 } from "../types/table"
 import {
   type MultipleInsertResult,
@@ -26,9 +24,7 @@ import {
   createRowSerializer,
 } from "./query-builder/serialize"
 
-export interface ConnectedTable<
-  TTable extends TableDescription<TableDescriptionGenerics>
-> {
+export interface ConnectedTable<TTable extends TableDescription> {
   /**
    * Create a new SELECT query builder.
    *
@@ -60,7 +56,7 @@ export interface ConnectedTable<
    */
   selectUnique: <TColumn extends InferColumnNames<TTable>>(
     column: TColumn,
-    value: InferColumnReadType<TTable["columns"][TColumn]["description"]>
+    value: InferColumnReadType<TTable["columns"][TColumn]>
   ) => Simplify<InferRowReadType<TTable>> | undefined
 
   /**
@@ -68,7 +64,7 @@ export interface ConnectedTable<
    *
    * Equivalent to `table.insert().one(row)`.
    */
-  insertOne: (row: InferRowWriteType<TTable>) => SingleInsertResult
+  insertOne: (row: Simplify<InferRowWriteType<TTable>>) => SingleInsertResult
 
   /**
    * Shorthand: Insert multiple rows into the database.
@@ -78,7 +74,7 @@ export interface ConnectedTable<
   insertMany: (rows: InferRowWriteType<TTable>[]) => MultipleInsertResult
 }
 
-export const connectTable = <TTable extends AnyTableDescription>(
+export const connectTable = <TTable extends TableDescription>(
   tableDescription: TTable,
   database: Database
 ): ConnectedTable<TTable> => {

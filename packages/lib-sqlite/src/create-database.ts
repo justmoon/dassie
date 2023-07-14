@@ -11,7 +11,7 @@ import {
   scalarTable,
 } from "./internal/scalar-store"
 import type { MigrationDefinition } from "./types/migration"
-import type { AnyTableDescription } from "./types/table"
+import type { TableDescription } from "./types/table"
 import { migrate } from "./utils/migrate"
 
 const logger = createLogger("das:sqlite:database")
@@ -32,7 +32,7 @@ export interface DatabaseSchema {
   /**
    * A set of table definitions which provide a type-safe interface to the database.
    */
-  tables?: Record<string, AnyTableDescription> | undefined
+  tables?: Record<string, TableDescription> | undefined
 
   /**
    * A set of scalar definitions which effectively provide a type-safe key-value store.
@@ -70,13 +70,14 @@ export interface InferDatabaseInstance<T extends DatabaseGenerics> {
   tables: InferTableAccessors<T>
   scalars: InferScalarAccessors<T>
   raw: Database.Database
+  schema: T["schema"]
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyDatabase = InferDatabaseInstance<any>
 
 export type InferTableAccessors<TOptions extends DatabaseGenerics> =
-  TOptions["schema"]["tables"] extends Record<string, AnyTableDescription>
+  TOptions["schema"]["tables"] extends Record<string, TableDescription>
     ? {
         [K in keyof TOptions["schema"]["tables"]]: ConnectedTable<
           TOptions["schema"]["tables"][K]
@@ -144,5 +145,6 @@ export const createDatabase = <TOptions extends DatabaseOptions>(
         )
       : undefined) as InferScalarAccessors<TOptions>,
     raw: database,
+    schema: databaseOptions.schema,
   }
 }

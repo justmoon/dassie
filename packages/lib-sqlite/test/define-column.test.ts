@@ -8,10 +8,10 @@ describe("column schema builder", () => {
 
     expect(example.description).toMatchInlineSnapshot(`
       {
-        "deserialize": undefined,
+        "deserialize": [Function],
         "primaryKey": false,
         "required": false,
-        "serialize": undefined,
+        "serialize": [Function],
         "type": "TEXT",
       }
     `)
@@ -22,10 +22,10 @@ describe("column schema builder", () => {
 
     expect(example.description).toMatchInlineSnapshot(`
       {
-        "deserialize": undefined,
+        "deserialize": [Function],
         "primaryKey": false,
         "required": false,
-        "serialize": undefined,
+        "serialize": [Function],
         "type": "INTEGER",
       }
     `)
@@ -36,10 +36,10 @@ describe("column schema builder", () => {
 
     expect(example.description).toMatchInlineSnapshot(`
       {
-        "deserialize": undefined,
+        "deserialize": [Function],
         "primaryKey": false,
         "required": true,
-        "serialize": undefined,
+        "serialize": [Function],
         "type": "TEXT",
       }
     `)
@@ -50,10 +50,10 @@ describe("column schema builder", () => {
 
     expect(example.description).toMatchInlineSnapshot(`
       {
-        "deserialize": undefined,
+        "deserialize": [Function],
         "primaryKey": true,
         "required": false,
-        "serialize": undefined,
+        "serialize": [Function],
         "type": "TEXT",
       }
     `)
@@ -64,7 +64,7 @@ describe("column schema builder", () => {
 
     expect(example.description).toMatchInlineSnapshot(`
       {
-        "deserialize": undefined,
+        "deserialize": [Function],
         "primaryKey": false,
         "required": false,
         "serialize": [Function],
@@ -83,7 +83,7 @@ describe("column schema builder", () => {
         "deserialize": [Function],
         "primaryKey": false,
         "required": false,
-        "serialize": undefined,
+        "serialize": [Function],
         "type": "TEXT",
       }
     `)
@@ -97,10 +97,10 @@ describe("column schema builder", () => {
 
     expect(example.description).toMatchInlineSnapshot(`
       {
-        "deserialize": undefined,
+        "deserialize": [Function],
         "primaryKey": true,
         "required": true,
-        "serialize": undefined,
+        "serialize": [Function],
         "type": "INTEGER",
       }
     `)

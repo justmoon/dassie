@@ -4,7 +4,6 @@ import type {
   InferColumnNames,
   InferRowWriteType,
   TableDescription,
-  TableDescriptionGenerics,
 } from "../../types/table"
 import { RowSerializer } from "./serialize"
 
@@ -61,14 +60,13 @@ export interface InsertQueryBuilder<TState extends InsertQueryBuilderState> {
 }
 
 export interface InsertQueryBuilderState {
-  table: TableDescription<TableDescriptionGenerics>
+  table: TableDescription
 }
 
-export type NewInsertQueryBuilder<
-  TTable extends TableDescription<TableDescriptionGenerics>
-> = InsertQueryBuilder<{
-  table: TTable
-}>
+export type NewInsertQueryBuilder<TTable extends TableDescription> =
+  InsertQueryBuilder<{
+    table: TTable
+  }>
 
 export interface SingleInsertResult {
   changes: 0 | 1
@@ -80,9 +78,7 @@ export interface MultipleInsertResult {
   rowids: bigint[]
 }
 
-export const createInsertQueryBuilder = <
-  TTable extends TableDescription<TableDescriptionGenerics>
->(
+export const createInsertQueryBuilder = <TTable extends TableDescription>(
   tableDescription: TTable,
   serializeRow: RowSerializer<TTable>,
   database: Database

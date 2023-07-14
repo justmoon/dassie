@@ -2,12 +2,9 @@ import type { Database, Statement } from "better-sqlite3"
 import { Simplify } from "type-fest"
 
 import type {
-  AnyTableDescription,
   InferRowReadType,
   InferRowSqliteType,
-  TableColumnRecord,
   TableDescription,
-  TableDescriptionGenerics,
 } from "../../types/table"
 import { createPlaceholderStore } from "./placeholders"
 import { RowDeserializer } from "./serialize"
@@ -53,19 +50,17 @@ export interface SelectQueryBuilder<TState extends SelectQueryBuilderState> {
 }
 
 export interface SelectQueryBuilderState {
-  columns: TableColumnRecord
-  table: TableDescription<TableDescriptionGenerics>
+  columns: TableDescription["columns"]
+  table: TableDescription
 }
 
-export type NewSelectQueryBuilder<TTable extends AnyTableDescription> =
+export type NewSelectQueryBuilder<TTable extends TableDescription> =
   SelectQueryBuilder<{
     columns: TTable["columns"]
     table: TTable
   }>
 
-export const createSelectQueryBuilder = <
-  TTable extends TableDescription<TableDescriptionGenerics>
->(
+export const createSelectQueryBuilder = <TTable extends TableDescription>(
   tableDescription: TTable,
   deserializeRow: RowDeserializer<TTable>,
   database: Database

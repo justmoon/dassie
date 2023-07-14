@@ -1,8 +1,17 @@
 import type Database from "better-sqlite3"
 
-import { TableDescription, TableDescriptionGenerics } from "../types/table"
+import { TableDescription } from "../types/table"
 
-interface ColumnSchema {
+interface SqliteTableSchema {
+  schema: string
+  name: string
+  type: string
+  ncol: bigint
+  wr: bigint
+  strict: bigint
+}
+
+interface SqliteColumnSchema {
   cid: bigint
   name: string
   type: string
@@ -13,19 +22,30 @@ interface ColumnSchema {
 
 export const checkSchema = (
   database: Database.Database,
-  tables: Record<string, TableDescription<TableDescriptionGenerics>>
+  tables: Record<string, TableDescription>
 ) => {
-  for (const table of Object.values(tables)) {
-    const tableSchema = database.pragma(
-      `table_info(${table.name})`
-    ) as ColumnSchema[]
+  const actualTables = Object.fromEntries(
+    (database.pragma("table_list") as SqliteTableSchema[]).map((table) => [
+      table.name,
+      table,
+    ])
+  )
 
-    if (tableSchema.length === 0) {
+  for (const table of Object.values(tables)) {
+    const actualColumns = database.pragma(
+      `table_info(${table.name})`
+    ) as SqliteColumnSchema[]
+
+    if (actualColumns.length === 0) {
       throw new Error(`Table "${table.name}" not found`)
     }
 
+    if (actualTables[table.name]?.strict !== 1n) {
+      throw new Error(`Table "${table.name}" should be marked STRICT but isn't`)
+    }
+
     for (const [columnName, expectedSchema] of Object.entries(table.columns)) {
-      const actualSchema = tableSchema.find(
+      const actualSchema = actualColumns.find(
         (schema) => schema.name === columnName
       )
 
@@ -35,35 +55,31 @@ export const checkSchema = (
         )
       }
 
-      if (actualSchema.type !== expectedSchema.description.type) {
+      if (actualSchema.type !== expectedSchema.type) {
         throw new Error(
           `Column "${columnName}" in table "${table.name}" has type "${
             actualSchema.type
-          }" but should be "${expectedSchema.description.type as string}"`
+          }" but should be "${expectedSchema.type as string}"`
         )
       }
 
-      if (expectedSchema.description.required && actualSchema.notnull !== 1n) {
+      // We require all tables to be in STRICT mode in which case any column marked PRIMARY KEY will also be NOT NULL
+      const expectNotNull = expectedSchema.required || expectedSchema.primaryKey
+      if (expectNotNull && actualSchema.notnull !== 1n) {
         throw new Error(
           `Column "${columnName}" in table "${table.name}" should be marked NOT NULL but isn't`
         )
-      } else if (
-        !expectedSchema.description.required &&
-        actualSchema.notnull !== 0n
-      ) {
+      } else if (!expectNotNull && actualSchema.notnull !== 0n) {
         throw new Error(
           `Column "${columnName}" in table "${table.name}" should not be marked NOT NULL but is`
         )
       }
 
-      if (expectedSchema.description.primaryKey && actualSchema.pk !== 1n) {
+      if (expectedSchema.primaryKey && actualSchema.pk !== 1n) {
         throw new Error(
           `Column "${columnName}" in table "${table.name}" should be marked PRIMARY KEY but isn't`
         )
-      } else if (
-        !expectedSchema.description.primaryKey &&
-        actualSchema.pk !== 0n
-      ) {
+      } else if (!expectedSchema.primaryKey && actualSchema.pk !== 0n) {
         throw new Error(
           `Column "${columnName}" in table "${table.name}" should not be marked PRIMARY KEY but is`
         )

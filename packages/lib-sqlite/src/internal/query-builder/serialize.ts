@@ -1,24 +1,22 @@
+import { identity } from "../../define-column"
 import {
   InferRowReadType,
   InferRowSqliteType,
   InferRowWriteType,
   TableDescription,
-  TableDescriptionGenerics,
 } from "../../types/table"
 
-export type RowSerializer<
-  T extends TableDescription<TableDescriptionGenerics>
-> = (row: InferRowWriteType<T>) => InferRowSqliteType<T>
+export type RowSerializer<T extends TableDescription> = (
+  row: InferRowWriteType<T>
+) => InferRowSqliteType<T>
 
-export const createRowSerializer = <
-  T extends TableDescription<TableDescriptionGenerics>
->(
+export const createRowSerializer = <T extends TableDescription>(
   table: T
 ): RowSerializer<T> => {
   const serializers = new Map<string, (value: unknown) => unknown>()
   for (const [columnName, column] of Object.entries(table.columns)) {
-    if (column.description.serialize) {
-      serializers.set(columnName, column.description.serialize)
+    if (column.serialize !== identity) {
+      serializers.set(columnName, column.serialize)
     }
   }
 
@@ -41,19 +39,17 @@ export const createRowSerializer = <
   }
 }
 
-export type RowDeserializer<
-  T extends TableDescription<TableDescriptionGenerics>
-> = (row: InferRowSqliteType<T>) => InferRowReadType<T>
+export type RowDeserializer<T extends TableDescription> = (
+  row: InferRowSqliteType<T>
+) => InferRowReadType<T>
 
-export const createRowDeserializer = <
-  T extends TableDescription<TableDescriptionGenerics>
->(
+export const createRowDeserializer = <T extends TableDescription>(
   table: T
 ): RowDeserializer<T> => {
   const deserializers = new Map<string, (value: unknown) => unknown>()
   for (const [columnName, column] of Object.entries(table.columns)) {
-    if (column.description.deserialize) {
-      deserializers.set(columnName, column.description.deserialize)
+    if (column.deserialize !== identity) {
+      deserializers.set(columnName, column.deserialize)
     }
   }
 

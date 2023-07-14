@@ -3,7 +3,10 @@ import {
   ColumnDescription,
   ColumnDescriptionBuilder,
   ColumnDescriptionGenerics,
+  DefaultColumnDescriptionGenerics,
 } from "./types/column"
+
+export const identity = <T>(value: T): T => value
 
 const createBuilder = <T extends ColumnDescriptionGenerics>(
   description: ColumnDescription<T>
@@ -20,8 +23,8 @@ const createBuilder = <T extends ColumnDescriptionGenerics>(
     > = {
       ...description,
       type,
-      serialize: undefined,
-      deserialize: undefined,
+      serialize: identity,
+      deserialize: identity,
     }
 
     return createBuilder(newDescription)
@@ -68,12 +71,13 @@ const createBuilder = <T extends ColumnDescriptionGenerics>(
   },
 })
 
-export const column = (): ColumnDescriptionBuilder => {
-  return createBuilder({
-    type: "TEXT",
-    required: false,
-    primaryKey: false,
-    serialize: undefined,
-    deserialize: undefined,
-  })
-}
+export const column =
+  (): ColumnDescriptionBuilder<DefaultColumnDescriptionGenerics> => {
+    return createBuilder({
+      type: "TEXT",
+      required: false,
+      primaryKey: false,
+      serialize: identity,
+      deserialize: identity,
+    })
+  }

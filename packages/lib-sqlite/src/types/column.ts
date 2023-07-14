@@ -35,20 +35,22 @@ export interface ColumnDescription<
   /**
    * A transformation function that is applied when writing to the database.
    */
-  serialize:
-    | ((value: T["writeType"]) => SqliteToTypescriptTypeMap[T["sqliteType"]])
-    | undefined
+  serialize(
+    this: void,
+    value: T["writeType"]
+  ): SqliteToTypescriptTypeMap[T["sqliteType"]]
 
   /**
    * A transformation function that is applied when reading from the database.
    */
-  deserialize:
-    | ((value: SqliteToTypescriptTypeMap[T["sqliteType"]]) => T["readType"])
-    | undefined
+  deserialize(
+    this: void,
+    value: SqliteToTypescriptTypeMap[T["sqliteType"]]
+  ): T["readType"]
 }
 
 export interface ColumnDescriptionBuilder<
-  T extends ColumnDescriptionGenerics = DefaultColumnDescriptionGenerics
+  T extends ColumnDescriptionGenerics = ColumnDescriptionGenerics
 > {
   description: ColumnDescription<T>
 
@@ -96,14 +98,10 @@ export interface ColumnDescriptionBuilder<
 }
 
 export type InferColumnReadType<T extends ColumnDescription> =
-  | T["deserialize"] extends (value: unknown) => infer TReadType
-  ? TReadType
-  : SqliteToTypescriptTypeMap[T["type"]]
+  T extends ColumnDescription<infer TGenerics> ? TGenerics["readType"] : never
 
 export type InferColumnWriteType<T extends ColumnDescription> =
-  | T["serialize"] extends (value: infer TWriteType) => unknown
-  ? TWriteType
-  : SqliteToTypescriptTypeMap[T["type"]]
+  T extends ColumnDescription<infer TGenerics> ? TGenerics["writeType"] : never
 
 export type InferRowReadTypeFromColumns<
   TColumns extends Record<string, ColumnDescription>
@@ -120,7 +118,8 @@ export type InferRowWriteTypeFromColumns<
 export type InferRowSqliteTypeFromColumns<
   TColumns extends Record<string, ColumnDescription>
 > = {
-  [K in keyof TColumns]: TColumns[K]["type"]
+  [K in keyof TColumns]: SqliteToTypescriptTypeMap[TColumns[K]["type"]]
 }
 
+export type AnyColumnDescription = ColumnDescription<any>
 export type AnyColumnDescriptionBuilder = ColumnDescriptionBuilder<any>
