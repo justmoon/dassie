@@ -22,8 +22,8 @@ export default {
     users: table({
       name: "users",
       columns: {
-        id: column().type("INTEGER").required().primaryKey(),
-        name: column().type("TEXT").required(),
+        id: column().type("INTEGER").notNull().primaryKey(),
+        name: column().type("TEXT").notNull(),
       },
     }),
   },

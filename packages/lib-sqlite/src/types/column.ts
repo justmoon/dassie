@@ -5,7 +5,7 @@ export interface ColumnDescriptionGenerics {
   sqliteType: SqliteDataType
   writeType: unknown
   readType: unknown
-  required: boolean
+  notNull: boolean
   primaryKey: boolean
 }
 
@@ -13,7 +13,7 @@ export interface DefaultColumnDescriptionGenerics {
   sqliteType: "TEXT"
   writeType: string
   readType: string
-  required: false
+  notNull: false
   primaryKey: false
 }
 
@@ -25,7 +25,7 @@ export interface ColumnDescription<
   /**
    * Equivalent to `NOT NULL`.
    */
-  required: T["required"]
+  notNull: T["notNull"]
 
   /**
    * Equivalent to `PRIMARY KEY`.
@@ -84,7 +84,7 @@ export interface ColumnDescriptionBuilder<
     }
   >
 
-  required(): ColumnDescriptionBuilder<
+  notNull(): ColumnDescriptionBuilder<
     Omit<T, "required"> & {
       required: true
     }

@@ -30,12 +30,12 @@ const createBuilder = <T extends ColumnDescriptionGenerics>(
     return createBuilder(newDescription)
   },
 
-  required() {
+  notNull() {
     const newDescription: ColumnDescription<
       Omit<T, "required"> & { required: true }
     > = {
       ...description,
-      required: true,
+      notNull: true,
     }
     return createBuilder(newDescription)
   },
@@ -75,7 +75,7 @@ export const column =
   (): ColumnDescriptionBuilder<DefaultColumnDescriptionGenerics> => {
     return createBuilder({
       type: "TEXT",
-      required: false,
+      notNull: false,
       primaryKey: false,
       serialize: identity,
       deserialize: identity,

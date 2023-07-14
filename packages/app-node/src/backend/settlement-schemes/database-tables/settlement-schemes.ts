@@ -12,7 +12,7 @@ export const settlementSchemesTable = table({
       .deserialize((value) => value as SettlementSchemeId),
     config: column()
       .type("TEXT")
-      .required()
+      .notNull()
       .serialize((value: object) => JSON.stringify(value))
       .deserialize((value) => JSON.parse(value) as object),
   },

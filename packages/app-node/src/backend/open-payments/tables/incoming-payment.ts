@@ -3,11 +3,11 @@ import { InferRowReadType, column, table } from "@dassie/lib-sqlite"
 export const incomingPaymentTable = table({
   name: "incoming_payment",
   columns: {
-    id: column().type("TEXT").required().primaryKey(),
-    subnet: column().type("TEXT").required(),
-    total_amount: column().type("INTEGER").required(),
-    received_amount: column().type("INTEGER").required(),
-    external_reference: column().type("TEXT").required(),
+    id: column().type("TEXT").notNull().primaryKey(),
+    subnet: column().type("TEXT").notNull(),
+    total_amount: column().type("INTEGER").notNull(),
+    received_amount: column().type("INTEGER").notNull(),
+    external_reference: column().type("TEXT").notNull(),
   },
 })
 

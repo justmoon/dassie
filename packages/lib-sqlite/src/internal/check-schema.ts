@@ -64,7 +64,7 @@ export const checkSchema = (
       }
 
       // We require all tables to be in STRICT mode in which case any column marked PRIMARY KEY will also be NOT NULL
-      const expectNotNull = expectedSchema.required || expectedSchema.primaryKey
+      const expectNotNull = expectedSchema.notNull || expectedSchema.primaryKey
       if (expectNotNull && actualSchema.notnull !== 1n) {
         throw new Error(
           `Column "${columnName}" in table "${table.name}" should be marked NOT NULL but isn't`

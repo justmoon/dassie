@@ -9,8 +9,8 @@ describe("column schema builder", () => {
     expect(example.description).toMatchInlineSnapshot(`
       {
         "deserialize": [Function],
+        "notNull": false,
         "primaryKey": false,
-        "required": false,
         "serialize": [Function],
         "type": "TEXT",
       }
@@ -23,8 +23,8 @@ describe("column schema builder", () => {
     expect(example.description).toMatchInlineSnapshot(`
       {
         "deserialize": [Function],
+        "notNull": false,
         "primaryKey": false,
-        "required": false,
         "serialize": [Function],
         "type": "INTEGER",
       }
@@ -32,13 +32,13 @@ describe("column schema builder", () => {
   })
 
   test("should allow setting the required flag", ({ expect }) => {
-    const example = column().required()
+    const example = column().notNull()
 
     expect(example.description).toMatchInlineSnapshot(`
       {
         "deserialize": [Function],
+        "notNull": true,
         "primaryKey": false,
-        "required": true,
         "serialize": [Function],
         "type": "TEXT",
       }
@@ -51,8 +51,8 @@ describe("column schema builder", () => {
     expect(example.description).toMatchInlineSnapshot(`
       {
         "deserialize": [Function],
+        "notNull": false,
         "primaryKey": true,
-        "required": false,
         "serialize": [Function],
         "type": "TEXT",
       }
@@ -65,8 +65,8 @@ describe("column schema builder", () => {
     expect(example.description).toMatchInlineSnapshot(`
       {
         "deserialize": [Function],
+        "notNull": false,
         "primaryKey": false,
-        "required": false,
         "serialize": [Function],
         "type": "TEXT",
       }
@@ -81,8 +81,8 @@ describe("column schema builder", () => {
     expect(example.description).toMatchInlineSnapshot(`
       {
         "deserialize": [Function],
+        "notNull": false,
         "primaryKey": false,
-        "required": false,
         "serialize": [Function],
         "type": "TEXT",
       }
@@ -93,13 +93,13 @@ describe("column schema builder", () => {
   test("should allow setting the type, required flag and primary key flag", ({
     expect,
   }) => {
-    const example = column().type("INTEGER").required().primaryKey()
+    const example = column().type("INTEGER").notNull().primaryKey()
 
     expect(example.description).toMatchInlineSnapshot(`
       {
         "deserialize": [Function],
+        "notNull": true,
         "primaryKey": true,
-        "required": true,
         "serialize": [Function],
         "type": "INTEGER",
       }
@@ -111,7 +111,7 @@ describe("column schema builder", () => {
   }) => {
     const example = column()
       .type("INTEGER")
-      .required()
+      .notNull()
       .primaryKey()
       .serialize(BigInt)
       .deserialize(Number)
@@ -119,8 +119,8 @@ describe("column schema builder", () => {
     expect(example.description).toMatchInlineSnapshot(`
       {
         "deserialize": [Function],
+        "notNull": true,
         "primaryKey": true,
-        "required": true,
         "serialize": [Function],
         "type": "INTEGER",
       }
