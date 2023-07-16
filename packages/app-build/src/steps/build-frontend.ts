@@ -18,8 +18,13 @@ export const buildFrontend = async (detailedVersion: string) => {
 
   assert(typeof viteConfig === "object", "Expected viteConfig to be an object")
 
+  // vite-node sets NODE_ENV to "development" by default so we need to override
+  // it, otherwise react/jsx-runtime will use the development version.
+  process.env["NODE_ENV"] = "production"
+
   await build({
     ...viteConfig,
+    mode: "production",
     root: sourceDirectory,
     define: {
       ...viteConfig.define,
@@ -29,7 +34,6 @@ export const buildFrontend = async (detailedVersion: string) => {
       ...viteConfig.build,
       outDir: outputDirectory,
       chunkSizeWarningLimit: 1024 * 1024,
-      sourcemap: true,
       minify: false,
     },
   })
