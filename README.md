@@ -24,7 +24,7 @@ In order to develop a peer-to-peer application, it is very useful to quickly spi
 Install package dependencies.
 
 ```sh
-pnpm i
+pnpm install
 ```
 
 ### Starting the development environment
@@ -33,4 +33,30 @@ Run the development environment.
 
 ```sh
 pnpm start
+```
+
+## Dassie Production Builds
+
+You generally won't need to build Dassie images locally as this job is normally done by our CI. However, there are a few situations where you may want create custom Dassie binaries.
+
+### Prerequisites
+
+- Node.js
+- PNPM (`npm install -g pnpm`)
+- Docker
+
+### Building
+
+To initiate a build, simply run:
+
+```sh
+pnpm build
+```
+
+This will first create a "builder" Docker image and then call this image with any parameters that you pass in.
+
+For example, you can pass in a different build target:
+
+```sh
+pnpm build canary
 ```

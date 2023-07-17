@@ -4,7 +4,8 @@
   "description": "Root package of the Dassie monorepo",
   "scripts": {
     "clean": "pnpm -r clean",
-    "build": "pnpm -r build",
+    "build": "docker build --file=packages/app-build/resources/docker/builder/Dockerfile --build-arg=NODE_VERSION=$(tail -c +2 .node-version) --tag=builder:latest . && docker run --tty --rm --volume=$(pwd)/dist:/app/dist --volume=$(pwd)/.git:/app/.git:ro builder",
+    "build:web": "pnpm --filter=app-website build",
     "start": "vite-node --watch --config packages/app-dev/vite.backend.config.js packages/app-dev/bin/start-development-server.ts",
     "test": "vitest",
     "prettier": "prettier --config .prettierrc.json --write \"packages/*/{src,test}/**/*.ts\"",

@@ -7,7 +7,7 @@ export const PATH_PACKAGE_APP_NODE = new URL(
   import.meta.url
 ).pathname
 
-export const PATH_DIST = resolve(PATH_PACKAGE_APP_BUILD, "dist")
+export const PATH_DIST = resolve(PATH_PACKAGE_APP_BUILD, "../../dist")
 export const PATH_DIST_UPLOAD = resolve(PATH_DIST, "upload")
 export const PATH_DIST_CONTENTS = resolve(PATH_DIST, "contents")
 export const PATH_DIST_STAGING = resolve(PATH_DIST, "staging")

@@ -1,0 +1,15 @@
+# Ignore everything by default
+*
+
+# Includes
+!packages
+!pnpm-workspace.yaml
+!pnpm-lock.yaml
+!package.json
+
+# Excludes
+packages/app-website
+packages/*/node_modules
+packages/*/dist
+packages/*/.cache
+packages/*/.turbo
