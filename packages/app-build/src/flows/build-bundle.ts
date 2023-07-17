@@ -6,6 +6,7 @@ import { buildFrontend } from "../steps/build-frontend"
 import { clearOutputPath } from "../steps/clear-output-path"
 import { compressBundle } from "../steps/compress-bundle"
 import { copyFilesIntoBundle } from "../steps/copy-files-into-bundle"
+import { copyInstallScript } from "../steps/copy-install-script"
 import { createOutputPath } from "../steps/create-output-path"
 import { downloadBetterSqlite3 } from "../steps/download-better-sqlite3"
 import { downloadNodeJs } from "../steps/download-node-js"
@@ -50,6 +51,10 @@ export const buildBundle = async ({
       await compressBundle(version, architecture, compression)
     }
   }
+
+  console.info()
+  console.info("Copy install script")
+  await copyInstallScript()
 
   if (isMainRelease) {
     console.info()

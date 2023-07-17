@@ -2,7 +2,6 @@ import { format } from "date-fns"
 
 import { LATEST_DASSIE_VERSION } from "./constants/version"
 import { buildBundle } from "./flows/build-bundle"
-import { buildInstaller } from "./flows/build-installer"
 import { getHeadCommitShort } from "./utils/git"
 
 export const build = async (target = "release") => {
@@ -24,10 +23,6 @@ export const build = async (target = "release") => {
         )}-${await getHeadCommitShort()}`,
         isMainRelease: false,
       })
-      break
-    }
-    case "installer": {
-      await buildInstaller()
       break
     }
     default: {
