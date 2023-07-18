@@ -7,7 +7,7 @@ main() {
   # ----------------------------------------------------------------------------
 
   : "${DASSIE_MIRROR_URL:="https://get.dassie.land"}"
-  : "${DASSIE_VERSION:="0.0.1"}"
+  : "${DASSIE_VERSION:="latest"}"
 
   # Gather information about the system
   # ----------------------------------------------------------------------------
@@ -61,6 +61,13 @@ main() {
 
   # Download and extract Dassie bundle
   # ----------------------------------------------------------------------------
+
+  # Get latest version from the mirror if "latest" was specified
+  if [ "$DASSIE_VERSION" = "latest" ]; then
+    step "Determining latest Dassie version..."
+    DASSIE_VERSION="$(download "${DASSIE_MIRROR_URL}/meta/latest" -)" \
+      || error "E_VERSION_FETCH_FAILED" "Failed to determine latest Dassie version."
+  fi
 
   # Create a temporary directory to store the downloaded files
   TEMP_DIRECTORY="$(mktemp -d -t dassie-installer-XXXXXXXXXX)"
