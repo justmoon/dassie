@@ -1,5 +1,6 @@
 [Unit]
 Description=Dassie Public HTTPS Socket
+Documentation=https://dassie.land/
 
 [Socket]
 ListenStream=0.0.0.0:443

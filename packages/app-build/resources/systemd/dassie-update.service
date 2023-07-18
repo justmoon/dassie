@@ -1,0 +1,8 @@
+[Unit]
+Description=Update Dassie to the latest version
+Documentation=https://dassie.land/
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/opt/dassie/current/bin/dassie update

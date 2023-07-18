@@ -130,7 +130,7 @@ main() {
     || error "E_SYSTEMD_SERVICE_INSTALL_FAILED" "Failed to install systemd units."
 
   step "Enabling systemd service..."
-  run_root systemctl enable dassie.service \
+  run_root systemctl enable dassie.service dassie-update.timer \
     || error "E_SYSTEMD_SERVICE_ENABLE_FAILED" "Failed to enable systemd service."
 
   step "Reloading systemd configuration..."

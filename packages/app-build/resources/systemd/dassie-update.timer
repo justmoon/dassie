@@ -1,0 +1,11 @@
+[Unit]
+Description=Run dassie-update.service once a day
+Documentation=https://dassie.land/
+
+[Timer]
+OnCalendar=*-*-* 03:20:00
+RandomizedDelaySec=3600
+Persistent=true
+
+[Install]
+WantedBy=timers.target
