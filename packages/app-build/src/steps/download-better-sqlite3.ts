@@ -1,3 +1,5 @@
+import { $ } from "execa"
+
 import { mkdir } from "node:fs/promises"
 import { basename, resolve } from "node:path"
 
@@ -5,7 +7,6 @@ import { Architecture } from "../constants/architectures"
 import { BETTER_SQLITE3_VERSION, NODE_ABI_VERSION } from "../constants/version"
 import { downloadFile } from "../utils/download-file"
 import { getStagingPath } from "../utils/dynamic-paths"
-import { run } from "../utils/run"
 
 const getDownloadUrl = (
   version: string,
@@ -39,5 +40,5 @@ export const downloadBetterSqlite3 = async (architecture: Architecture) => {
 
   await downloadFile(downloadUrl, sqliteLocalFile)
 
-  await run`tar -xzf ${sqliteLocalFile} -C ${pathSqlite} --strip-components=1`
+  await $`tar -xzf ${sqliteLocalFile} -C ${pathSqlite} --strip-components=1`
 }

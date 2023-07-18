@@ -1,3 +1,5 @@
+import { $ } from "execa"
+
 import { mkdir } from "node:fs/promises"
 import { dirname } from "node:path"
 
@@ -7,7 +9,6 @@ import { Architecture } from "../constants/architectures"
 import { Compression } from "../constants/compression"
 import { DassieVersion } from "../constants/version"
 import { getCompressedPath, getTarPath } from "../utils/bundle-name"
-import { run } from "../utils/run"
 
 export const compressBundle = async (
   version: DassieVersion,
@@ -22,12 +23,12 @@ export const compressBundle = async (
 
   switch (compression) {
     case "gz": {
-      await run`gzip -f ${tarFile} -c > ${compressedFile}`
+      await $`gzip -f ${tarFile} -c`.pipeStdout!(compressedFile)
       break
     }
 
     case "xz": {
-      await run`xz -f ${tarFile} -c > ${compressedFile}`
+      await $`xz -f ${tarFile} -c`.pipeStdout!(compressedFile)
       break
     }
 

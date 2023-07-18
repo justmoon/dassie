@@ -1,8 +1,8 @@
-import { $ } from "zx"
+import { $ } from "execa"
 
 import assert from "node:assert"
 import { writeFileSync } from "node:fs"
-import { unlink } from "node:fs/promises"
+import { mkdir, unlink } from "node:fs/promises"
 import { dirname } from "node:path"
 
 import { derPreamble } from "@dassie/app-node/src/backend/utils/pem"
@@ -59,10 +59,10 @@ const generateCertificate = async ({
   keyPath,
 }: CertificateInfo) => {
   if (type === "web") {
-    await $`openssl req -new -key ${keyPath} -out ${certificatePath}.csr -days 365 -subj "/CN=${commonName}"`
+    await $`openssl req -new -key ${keyPath} -out ${certificatePath}.csr -days 365 -subj /CN=${commonName}`
     await $`mkcert -csr ${certificatePath}.csr -cert-file ${certificatePath}`
   } else {
-    await $`openssl req -new -x509 -key ${keyPath} -out ${certificatePath} -days 365 -subj "/CN=${commonName}"`
+    await $`openssl req -new -x509 -key ${keyPath} -out ${certificatePath} -days 365 -subj /CN=${commonName}`
   }
 }
 
@@ -110,7 +110,7 @@ export const validateCertificates = async ({
         id,
         name: certificate.commonName,
       })
-      await $`mkdir -p ${dirname(certificate.certificatePath)}`
+      await mkdir(dirname(certificate.certificatePath), { recursive: true })
     }
 
     if (keyStatus === "missing" && certificateStatus === "ok") {

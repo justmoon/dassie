@@ -1,5 +1,5 @@
 #!/usr/bin/env -S npx vite-node
-import { $ } from "zx"
+import { $ } from "execa"
 
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
@@ -7,9 +7,7 @@ import { resolve } from "node:path"
 const DIST_PATH = new URL("../dist", import.meta.url).pathname
 const CACHE_FILE = resolve(DIST_PATH, "terminfo.csv")
 
-$.verbose = false
-
-const toeResult = await $`toe -as | awk '{print $1}'`
+const toeResult = await $`toe -as`.pipeStdout!($`awk '{print $1}'`)
 const toeOutput = toeResult.stdout.split("\n").filter(Boolean)
 
 const terminalColors = new Map<string, number>()
