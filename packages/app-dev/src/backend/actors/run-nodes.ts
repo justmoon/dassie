@@ -94,6 +94,7 @@ export const runNodes = () =>
               DEBUG: debugScopes,
               DEBUG_HIDE_DATE: "1",
               DASSIE_BOOTSTRAP_NODES: JSON.stringify(node.bootstrapNodes),
+              DASSIE_STATE_DIRECTORY: node.dataPath,
               DASSIE_IPC_SOCKET_PATH: node.ipcSocketPath,
               DASSIE_DEV_ROOT: viteServer.config.root,
               DASSIE_DEV_BASE: viteServer.config.base,
