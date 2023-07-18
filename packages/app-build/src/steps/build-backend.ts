@@ -50,5 +50,6 @@ export const buildBackend = async (detailedVersion: string) => {
     banner: {
       js: BANNER,
     },
+    logLevel: "info",
   })
 }
