@@ -6,6 +6,7 @@ import { Reactor } from "@dassie/lib-reactive"
 
 import { daemonCommand } from "./commands/daemon"
 import { initCommand } from "./commands/init"
+import { updateCommand } from "./commands/update"
 import { verifyInstallCommand } from "./commands/verify-install"
 
 export const main = async (reactor: Reactor) => {
@@ -15,6 +16,7 @@ export const main = async (reactor: Reactor) => {
       init: initCommand(reactor),
       "verify-install": verifyInstallCommand,
       daemon: daemonCommand,
+      update: updateCommand(reactor),
     },
   })
 

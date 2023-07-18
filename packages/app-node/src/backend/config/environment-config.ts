@@ -13,6 +13,7 @@ export interface Config {
   rootPath: string
   dataPath: string
   cachePath: string
+  temporaryPath: string
   ipcSocketPath: string
   bootstrapNodes: BootstrapNodesConfig
 }
@@ -56,6 +57,7 @@ export function fromEnvironment(): Config {
       environment.DASSIE_CACHE_DIRECTORY ??
       environment.CACHE_DIRECTORY ??
       paths.cache,
+    temporaryPath: environment.DASSIE_TEMPORARY_DIRECTORY ?? paths.temp,
     ipcSocketPath: environment.DASSIE_IPC_SOCKET_PATH ?? "/run/dassie.sock",
     bootstrapNodes: parseConfigOptionWithSchema(
       environment.DASSIE_BOOTSTRAP_NODES,

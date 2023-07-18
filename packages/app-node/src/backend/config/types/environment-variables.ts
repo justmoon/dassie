@@ -7,6 +7,7 @@ export interface EnvironmentVariables {
   readonly STATE_DIRECTORY?: string
   readonly DASSIE_CACHE_DIRECTORY?: string
   readonly CACHE_DIRECTORY?: string
+  readonly DASSIE_TEMPORARY_DIRECTORY?: string
   readonly DASSIE_IPC_SOCKET_PATH?: string
   readonly DASSIE_BOOTSTRAP_NODES?: string
 }
