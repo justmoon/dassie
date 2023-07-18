@@ -56,8 +56,24 @@ main() {
       ;;
   esac
 
-  # TODO: Check for systemd
-  # TODO: Check for curl
+  # Check that systemd is installed and running
+  if ! quiet command -v systemctl; then
+    error "E_SYSTEMD_REQUIRED" "Systemd is required to run Dassie."
+  fi
+
+  if ! systemctl is-system-running --quiet; then
+    error "E_SYSTEMD_NOT_RUNNING" "Systemd is not running."
+  fi
+
+  # Check that at least one of curl or wget are installed
+  if ! quiet command -v curl && ! quiet command -v wget; then
+    error "E_CURL_OR_WGET_REQUIRED" "Either curl or wget is required to download Dassie."
+  fi
+
+  # Check that tar is installed
+  if ! quiet command -v tar; then
+    error "E_TAR_REQUIRED" "Tar is required to extract Dassie."
+  fi
 
   # Download and extract Dassie bundle
   # ----------------------------------------------------------------------------
