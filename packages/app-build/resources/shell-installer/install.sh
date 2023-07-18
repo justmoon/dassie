@@ -112,10 +112,12 @@ main() {
     step "Skip creation of dassie-users group - already exists"
   fi
 
+  ADDED_GROUP_MEMBERSHIP=0
   if [ "$(id -u)" -ne 0 ]; then
     if ! id -nG "$(whoami)" | grep -qw dassie-users; then
       step "Adding $(whoami) to dassie-users group..."
       run_root usermod -a -G dassie-users "$(whoami)"
+      ADDED_GROUP_MEMBERSHIP=1
     else
       step "Skip adding current user to dassie-users group - already a member"
     fi
@@ -140,14 +142,26 @@ main() {
     || error "E_SYSTEMD_SERVICE_START_FAILED" "Failed to start systemd service."
 
   step "Verify Dassie installation..."
-  run dassie verify-install \
+  run_root dassie verify-install \
     || error "E_SELF_TEST_FAILED" "Dassie installation verification failed. Please look for any error messages above to understand why it failed."
 
   echo ""
   echo "$(color "0;1;7;32") + $(color "0;1;32") Dassie installed successfully! $(color "0")"
+
+  if [ "$ADDED_GROUP_MEMBERSHIP" -eq 1 ]; then
+    echo ""
+    echo "$(color "0;1;7;36") i $(color "0;1") The user $(color "0;1;32")$(whoami)$(color "0;1") has been added to the $(color "0;1;33")dassie-users$(color "0;1") group.$(color "0")"
+    echo ""
+    echo "$(color "0;1;31")This means that you will need to log out and back in again before you can use the $(color "0;1;32")dassie$(color "0;1;31") command-line tool.$(color "0")"
+    echo ""
+    echo "$(color "0;2")You can also add other users to the dassie-users group to give them access to Dassie. You can do this by running:$(color "0")"
+    echo "$(color "0;2")\$ $(color "0;33")sudo $(color "0;32")usermod $(color "0;2")-a -G dassie-users <username>$(color "0")"
+  fi
   echo ""
-  echo "$(color "0;2")The next step is to configure Dassie's web interface. You can do this by running:$(color "0")"
-  echo "$(color "0;32")dassie init$(color "0")"
+  echo "$(color "0;1;7;36") i $(color "0;1") Next: Configure Dassie's web interface$(color "0")"
+  echo ""
+  echo "$(color "0;2")You can do this by running:$(color "0")"
+  echo "$(color "0;2")\$ $(color "0;32")dassie $(color "0;2")init$(color "0")"
   echo ""
 }
 
