@@ -30,17 +30,22 @@ export const bootstrapNodesSchema = z.array(
 export type BootstrapNodesConfig = z.infer<typeof bootstrapNodesSchema>
 
 function parseConfigOptionWithSchema<TSchema extends ZodTypeAny>(
-  option: string | undefined,
+  optionName: keyof EnvironmentVariables,
   schema: TSchema,
   defaultValue?: z.infer<TSchema>
 ): z.infer<TSchema> {
+  const option = process.env[optionName]
   if (option === undefined && defaultValue !== undefined) {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-return
     return defaultValue
   }
 
+  if (option === undefined) {
+    throw new Error(`Missing required environment variable ${optionName}`)
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-  return schema.parse(option) as z.infer<TSchema>
+  return schema.parse(JSON.parse(option)) as z.infer<TSchema>
 }
 
 export function fromEnvironment(): Config {
@@ -60,7 +65,7 @@ export function fromEnvironment(): Config {
     temporaryPath: environment.DASSIE_TEMPORARY_DIRECTORY ?? paths.temp,
     ipcSocketPath: environment.DASSIE_IPC_SOCKET_PATH ?? "/run/dassie.sock",
     bootstrapNodes: parseConfigOptionWithSchema(
-      environment.DASSIE_BOOTSTRAP_NODES,
+      "DASSIE_BOOTSTRAP_NODES",
       bootstrapNodesSchema,
       []
     ),
