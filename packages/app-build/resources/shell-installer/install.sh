@@ -61,9 +61,13 @@ main() {
     error "E_SYSTEMD_REQUIRED" "Systemd is required to run Dassie."
   fi
 
-  if ! systemctl is-system-running --quiet; then
-    error "E_SYSTEMD_NOT_RUNNING" "Systemd is not running."
-  fi
+  case "$(systemctl is-system-running)" in
+    running | degraded)
+      ;;
+    *)
+      error "E_SYSTEMD_NOT_RUNNING" "Systemd is not running."
+      ;;
+  esac
 
   # Check that at least one of curl or wget are installed
   if ! quiet command -v curl && ! quiet command -v wget; then
