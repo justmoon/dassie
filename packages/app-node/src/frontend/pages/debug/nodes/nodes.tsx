@@ -60,11 +60,19 @@ export function Nodes() {
             <TableHead>Distance</TableHead>
             <TableHead>Next Hop</TableHead>
             <TableHead>Neighbors</TableHead>
+            <TableHead>Peer State</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {sortedNodeTable.map(
-            ({ nodeId, alias, distance, nextHopNodes, linkState }) => (
+            ({
+              nodeId,
+              alias,
+              distance,
+              nextHopNodes,
+              linkState,
+              peerState,
+            }) => (
               <TableRow key={nodeId}>
                 <TableCell>
                   <NodeName nodeId={nodeId} alias={alias} />
@@ -80,6 +88,7 @@ export function Nodes() {
                     <NodeName key={nodeId} nodeId={nodeId} />
                   ))}
                 </TableCell>
+                <TableCell>{peerState.id}</TableCell>
               </TableRow>
             )
           )}
