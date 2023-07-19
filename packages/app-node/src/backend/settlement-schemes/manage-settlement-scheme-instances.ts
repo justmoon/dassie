@@ -1,5 +1,3 @@
-import { hexToBytes } from "@noble/hashes/utils"
-
 import assert from "node:assert"
 
 import { createActor, createMapped } from "@dassie/lib-reactive"
@@ -8,10 +6,8 @@ import { initializeCommonAccounts } from "../accounting/functions/manage-common-
 import { ledgerStore } from "../accounting/stores/ledger"
 import { databaseConfigSignal } from "../config/database-config"
 import { sendPeerMessage } from "../peer-protocol/actors/send-peer-message"
-import { nodeTableStore } from "../peer-protocol/stores/node-table"
 import modules from "./modules"
 import { activeSettlementSchemesSignal } from "./signals/active-settlement-schemes"
-import { settlementSchemeMapSignal } from "./signals/settlement-scheme-map"
 import type {
   SettlementSchemeActor,
   SettlementSchemeHostMethods,
@@ -29,9 +25,6 @@ export const manageSettlementSchemeInstances = () =>
       assert(config.hasWebUi, "Web UI is not configured")
 
       const realm = config.realm
-      const settlementSchemeMap = sig.get(settlementSchemeMapSignal)
-
-      const settlementSchemeState = settlementSchemeMap.get(settlementSchemeId)
 
       const module = modules[settlementSchemeId]
       if (!module) {
@@ -44,30 +37,6 @@ export const manageSettlementSchemeInstances = () =>
 
       const ledger = sig.use(ledgerStore)
       initializeCommonAccounts(ledger, settlementSchemeId)
-
-      if (settlementSchemeState?.initialPeers) {
-        for (const peer of settlementSchemeState.initialPeers) {
-          const nodePublicKey = hexToBytes(peer.nodePublicKey)
-          sig.use(nodeTableStore).addNode({
-            ...peer,
-            alias: peer.alias ?? "initial",
-            nodePublicKey,
-            linkState: {
-              sequence: 0n,
-              updateReceivedCounter: 0,
-              scheduledRetransmitTime: 0,
-              neighbors: [],
-              settlementSchemes: [],
-              lastUpdate: undefined,
-            },
-            peerState: {
-              id: "request-peering",
-              lastSeen: 0,
-              settlementSchemeId,
-            },
-          })
-        }
-      }
 
       // Create a unique factory for the settlement scheme actor.
       //

@@ -45,16 +45,20 @@ export const maintainPeeringRelationships = () =>
       const candidates = [...sig.use(nodeTableStore).read().values()]
         .map((candidate) => ({
           ...candidate,
-          commonSubnet: findCommonElement(
+          commonSettlementScheme: findCommonElement(
             candidate.linkState.settlementSchemes,
             ourSubnets
           ),
         }))
         .filter(
-          (node): node is typeof node & { commonSubnet: SettlementSchemeId } =>
+          (
+            node
+          ): node is typeof node & {
+            commonSettlementScheme: SettlementSchemeId
+          } =>
             node.nodeId !== ownNodeId &&
             node.peerState.id === "none" &&
-            node.commonSubnet !== false
+            node.commonSettlementScheme !== false
         )
 
       const randomNode =
@@ -69,7 +73,7 @@ export const maintainPeeringRelationships = () =>
         peerState: {
           id: "request-peering",
           lastSeen: Date.now(),
-          settlementSchemeId: randomNode.commonSubnet,
+          settlementSchemeId: randomNode.commonSettlementScheme,
         },
       })
     }
