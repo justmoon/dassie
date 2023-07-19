@@ -26,7 +26,8 @@ export const createFlow = ({
 }: FlowOptions = {}) => {
   let previousOutput: string | undefined
   const render = (chunks: readonly string[]) => {
-    if (previousOutput) {
+    if (previousOutput && outputStream.isTTY) {
+      outputStream.cursorTo(0)
       const previousLines = countLines(previousOutput, outputStream.columns)
       for (let index = 0; index < previousLines; index++) {
         if (index > 0) {
@@ -38,7 +39,6 @@ export const createFlow = ({
 
     const concatenatedOutput = chunks.join("")
     outputStream.write(concatenatedOutput)
-    outputStream.cursorTo(0)
 
     previousOutput = concatenatedOutput
   }
@@ -65,7 +65,7 @@ export const createFlow = ({
         return component.result(state) as InferComponentResult<TComponent>
       }
 
-      cursor.hide(inputStream)
+      cursor.hide(outputStream)
 
       try {
         const reader = createInputReader({ inputStream })
