@@ -78,12 +78,21 @@ importers:
       '@dassie/lib-reactive':
         specifier: workspace:^
         version: link:../lib-reactive
+      '@dassie/lib-terminal-graphics':
+        specifier: workspace:^
+        version: link:../lib-terminal-graphics
       '@dassie/lib-type-utils':
         specifier: workspace:*
         version: link:../lib-type-utils
       axios:
         specifier: ^1.4.0
         version: 1.4.0
+      chalk:
+        specifier: ^5.2.0
+        version: 5.2.0
+      cmd-ts:
+        specifier: ^0.12.1
+        version: 0.12.1
       date-fns:
         specifier: ^2.30.0
         version: 2.30.0

@@ -22,6 +22,7 @@ export const buildFrontend = async (detailedVersion: string) => {
   // it, otherwise react/jsx-runtime will use the development version.
   process.env["NODE_ENV"] = "production"
 
+  console.info()
   await build({
     ...viteConfig,
     mode: "production",

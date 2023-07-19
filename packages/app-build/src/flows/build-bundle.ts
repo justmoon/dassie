@@ -1,3 +1,7 @@
+import chalk from "chalk"
+
+import { createFlow, header, note } from "@dassie/lib-terminal-graphics"
+
 import { SUPPORTED_ARCHITECTURES } from "../constants/architectures"
 import { SUPPORTED_COMPRESSIONS } from "../constants/compression"
 import { DassieDetailedVersion, DassieVersion } from "../constants/version"
@@ -25,20 +29,26 @@ export const buildBundle = async ({
   detailedVersion,
   isMainRelease,
 }: BundleOptions) => {
-  console.info(`Creating Dassie bundles for version ${detailedVersion}`)
+  const flow = createFlow()
+
+  flow.show(header({ title: "Dassie Build" }))
+
+  flow.show(
+    note({ title: `Creating Dassie bundles for version ${detailedVersion}` })
+  )
 
   await createOutputPath()
   await clearOutputPath()
 
-  console.info("Building backend")
+  flow.show(note({ title: "Building backend" }))
   await buildBackend(detailedVersion)
 
-  console.info("Building frontend")
+  flow.show(note({ title: "Building frontend" }))
   await buildFrontend(detailedVersion)
 
   for (const architecture of SUPPORTED_ARCHITECTURES) {
-    console.info()
-    console.info(`Creating ${getTarFilename(version, architecture)}`)
+    flow.show(note({ title: `Building bundles for ${architecture}` }))
+    console.info(chalk.dim(` … ${getTarFilename(version, architecture)}`))
     await downloadNodeJs(architecture)
     await downloadBetterSqlite3(architecture)
     await copyFilesIntoBundle(version, architecture)
@@ -46,19 +56,19 @@ export const buildBundle = async ({
 
     for (const compression of SUPPORTED_COMPRESSIONS) {
       console.info(
-        `Creating ${getCompressedFilename(version, architecture, compression)}`
+        chalk.dim(
+          ` … ${getCompressedFilename(version, architecture, compression)}`
+        )
       )
       await compressBundle(version, architecture, compression)
     }
   }
 
-  console.info()
-  console.info("Copy install script")
+  flow.show(note({ title: "Copying install script" }))
   await copyInstallScript()
 
   if (isMainRelease) {
-    console.info()
-    console.info("Generate metadata")
+    flow.show(note({ title: "Generating metadata" }))
     await generateMetadata(version)
   }
 }
