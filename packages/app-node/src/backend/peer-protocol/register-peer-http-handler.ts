@@ -9,7 +9,7 @@ import {
 import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
-import { routerService } from "../http-server/serve-http"
+import { httpsRouterService } from "../http-server/serve-https"
 import {
   handlePeerMessage,
   incomingPeerMessageTopic,
@@ -23,7 +23,7 @@ const logger = createLogger("das:node:handle-peer-http-request")
 
 export const registerPeerHttpHandler = () =>
   createActor((sig) => {
-    const router = sig.get(routerService)
+    const router = sig.get(httpsRouterService)
 
     if (!router) return
 

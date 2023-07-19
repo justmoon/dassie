@@ -8,7 +8,7 @@ export const ilpAllocationSchemeSignal = () =>
   createComputed((sig) => {
     const config = sig.get(databaseConfigSignal)
 
-    assert(config.hasWebUi, "Web UI is not configured")
+    assert(config.hasTls, "Web UI is not configured")
 
     return config.realm === "test" ? "test" : "g"
   })

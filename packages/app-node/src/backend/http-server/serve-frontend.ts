@@ -6,7 +6,7 @@ import { resolve } from "node:path"
 import { createActor } from "@dassie/lib-reactive"
 
 import { environmentConfigSignal } from "../config/environment-config"
-import { additionalMiddlewaresSignal } from "./serve-http"
+import { additionalMiddlewaresSignal } from "./serve-https"
 
 export const serveFrontend = () =>
   createActor((sig) => {

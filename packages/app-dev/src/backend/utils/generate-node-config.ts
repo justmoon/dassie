@@ -55,7 +55,7 @@ export const nodeIndexToDataPath = (index: number) => {
 export interface BaseNodeConfig {
   id: string
   hostname: string
-  port: number
+  httpsPort: number
   debugPort: number
   peers: readonly number[]
   latitude: number
@@ -124,7 +124,7 @@ export const generateNodeConfig = ((id, environmentSettings) => {
   return {
     id,
     hostname: `${id}.localhost`,
-    port,
+    httpsPort: port,
     debugPort: NODES_DEBUG_START_PORT + index,
     peers: environmentSettings.peeringMode === "fixed" ? peers : [],
     latitude,

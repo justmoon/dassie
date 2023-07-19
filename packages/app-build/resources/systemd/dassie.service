@@ -1,9 +1,9 @@
 [Unit]
 Description=Dassie
 Documentation=https://dassie.land
-After=network-online.target dassie-ipc.socket dassie-https.socket time-set.target
+After=network-online.target dassie-ipc.socket dassie-https.socket dassie-http.socket time-set.target
 Wants=network-online.target
-Requires=dassie-https.socket dassie-ipc.socket
+Requires=dassie-ipc.socket dassie-https.socket dassie-http.socket
 
 [Service]
 Type=notify

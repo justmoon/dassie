@@ -1,13 +1,13 @@
 import { respondJson } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
-import { routerService } from "../http-server/serve-http"
+import { httpsRouterService } from "../http-server/serve-https"
 import { peersComputation } from "../peer-protocol/computed/peers"
 import { nodeTableStore } from "../peer-protocol/stores/node-table"
 
 export const registerStatisticsHttpHandler = () =>
   createActor((sig) => {
-    const router = sig.get(routerService)
+    const router = sig.get(httpsRouterService)
 
     if (!router) return
 

@@ -25,7 +25,7 @@ const debugRunner = () =>
     sig.run(patchIlpLogger)
     sig.run(forwardPeerTraffic)
     await sig.run(reportPeeringState)
-    if (config.hasWebUi) {
+    if (config.hasTls) {
       await sig.run(serveWallet)
     }
     await sig.run(daemonActor)

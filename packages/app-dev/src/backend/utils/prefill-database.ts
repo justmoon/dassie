@@ -11,7 +11,7 @@ import { NodeConfig, generatePeerInfo } from "./generate-node-config"
 export const prefillDatabase = async ({
   id,
   hostname,
-  port,
+  httpsPort,
   dataPath,
   tlsDassieCertFile,
   tlsDassieKeyFile,
@@ -38,7 +38,8 @@ export const prefillDatabase = async ({
   database.scalars.set("config.realm", "test")
 
   database.scalars.set("config.hostname", hostname)
-  database.scalars.set("config.port", port)
+  database.scalars.set("config.https_port", httpsPort)
+  database.scalars.set("config.enable_http_server", false)
 
   database.scalars.set("config.alias", id)
 

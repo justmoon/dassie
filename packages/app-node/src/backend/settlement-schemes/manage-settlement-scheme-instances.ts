@@ -22,7 +22,7 @@ export const manageSettlementSchemeInstances = () =>
     createActor(async (sig) => {
       const config = sig.get(databaseConfigSignal)
 
-      assert(config.hasWebUi, "Web UI is not configured")
+      assert(config.hasTls, "Web UI is not configured")
 
       const realm = config.realm
 

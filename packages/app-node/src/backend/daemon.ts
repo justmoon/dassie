@@ -24,20 +24,23 @@ const logger = createLogger("das:start")
 
 export const daemonActor = () =>
   createActor(async (sig) => {
-    const config = sig.get(databaseConfigSignal)
+    const { hasTls, hasNodeIdentity } = sig.getKeys(databaseConfigSignal, [
+      "hasTls",
+      "hasNodeIdentity",
+    ])
     sig.run(attachLogger)
     sig.run(startLocalRpcServer)
     sig.run(supportSystemd)
+    sig.run(startHttpServer)
 
-    if (!config.hasWebUi) {
+    if (!hasTls) {
       logger.warn("Web UI is not configured, run `dassie init`")
       return
     }
 
-    sig.run(startHttpServer)
     sig.run(startTrpcServer)
 
-    if (!config.hasNodeIdentity) {
+    if (!hasNodeIdentity) {
       logger.warn("Node identity is not configured")
       return
     }

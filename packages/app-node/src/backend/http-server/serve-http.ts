@@ -1,31 +1,18 @@
-import type { NextHandleFunction } from "connect"
 import express, { Router } from "express"
 
-import assert from "node:assert"
-import type { IncomingMessage, ServerResponse } from "node:http"
-import { createServer } from "node:https"
+import type { IncomingMessage } from "node:http"
+import { createServer } from "node:http"
 import type { Duplex } from "node:stream"
 
 import { createLogger } from "@dassie/lib-logger"
 import { createActor, createSignal } from "@dassie/lib-reactive"
 
 import { databaseConfigSignal } from "../config/database-config"
-import {
-  getSocketActivationFileDescriptors,
-  getSocketActivationState,
-} from "../systemd/socket-activation"
+import { getListenTargets } from "./utils/listen-targets"
 
 const logger = createLogger("das:node:http-server")
 
-export type Handler = (
-  request: IncomingMessage,
-  response: ServerResponse
-) => void
-
-export const additionalMiddlewaresSignal = () =>
-  createSignal<NextHandleFunction[]>([])
-
-export const routerService = () =>
+export const httpRouterService = () =>
   createActor<Router>(() => {
     return Router()
   })
@@ -39,30 +26,6 @@ export type WebsocketHandler = (
 export const websocketRoutesSignal = () =>
   createSignal(new Map<string, WebsocketHandler>())
 
-const SOCKET_ACTIVATION_NAME_HTTPS = "dassie-https.socket"
-
-const getListenTargets = (
-  hostname: string,
-  port: number
-): readonly (number | { fd: number })[] => {
-  const socketActivationState = getSocketActivationState()
-
-  if (socketActivationState) {
-    const fds = getSocketActivationFileDescriptors(
-      socketActivationState,
-      SOCKET_ACTIVATION_NAME_HTTPS
-    )
-    logger.debug("using socket activation for web server", { fds })
-    return fds.map((fd) => ({ fd }))
-  }
-
-  logger.info(
-    `listening on https://${hostname}${port === 443 ? "" : `:${port}`}/`
-  )
-
-  return [port]
-}
-
 function handleError(error: unknown) {
   logger.error("http server error", { error })
 }
@@ -71,61 +34,38 @@ export const httpService = () =>
   createActor((sig) => {
     const config = sig.get(databaseConfigSignal)
 
-    assert(config.hasWebUi, "Web UI is not configured")
-
-    const router = sig.get(routerService)
-    const additionalMiddlewares = sig.get(additionalMiddlewaresSignal)
+    const router = sig.get(httpRouterService)
 
     if (!router) return
 
-    const { hostname, port, tlsWebCert, tlsWebKey } = config
+    const { hasTls, httpPort, httpsPort, enableHttpServer } = config
+
+    if (!enableHttpServer) return
 
     const app = express()
 
     app.use(router)
 
-    for (const middleware of additionalMiddlewares) {
-      app.use(middleware)
+    // TODO: Maybe show some helpful message if TLS is not yet set up
+    if (hasTls) {
+      app.use("*", (request, response) => {
+        response.redirect(
+          `https://${request.hostname}${
+            httpsPort === 443 ? "" : `:${httpsPort}`
+          }${request.originalUrl}`
+        )
+      })
     }
 
-    const server = createServer(
-      {
-        cert: tlsWebCert,
-        key: tlsWebKey,
-        requestCert: true,
-        rejectUnauthorized: false,
-      },
-      app
-    )
+    const server = createServer({}, app)
 
-    for (const listenTarget of getListenTargets(hostname, port)) {
+    for (const listenTarget of getListenTargets(httpPort, false)) {
       server.listen(listenTarget)
     }
 
-    function handleUpgrade(
-      request: IncomingMessage,
-      socket: Duplex,
-      head: Buffer
-    ) {
-      logger.debug("websocket upgrade request", { url: request.url })
-
-      const { pathname } = new URL(request.url!, "http://localhost")
-
-      const handler = sig.use(websocketRoutesSignal).read().get(pathname)
-
-      if (!handler) {
-        socket.destroy()
-        return
-      }
-
-      handler(request, socket, head)
-    }
-
-    server.addListener("upgrade", handleUpgrade)
     server.addListener("error", handleError)
 
     sig.onCleanup(() => {
-      server.removeListener("upgrade", handleUpgrade)
       server.removeListener("error", handleError)
       server.close()
     })
@@ -135,6 +75,6 @@ export const httpService = () =>
 
 export const serveHttp = () =>
   createActor((sig) => {
-    sig.run(routerService)
+    sig.run(httpRouterService)
     sig.run(httpService)
   })

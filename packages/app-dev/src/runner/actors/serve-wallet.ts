@@ -7,7 +7,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { join, normalize } from "node:path"
 
 import { databaseConfigSignal } from "@dassie/app-node/src/backend/config/database-config"
-import { additionalMiddlewaresSignal } from "@dassie/app-node/src/backend/http-server/serve-http"
+import { additionalMiddlewaresSignal } from "@dassie/app-node/src/backend/http-server/serve-https"
 import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
@@ -44,11 +44,11 @@ export const serveWallet = () =>
   createActor(async (sig) => {
     const config = sig.get(databaseConfigSignal)
 
-    assert(config.hasWebUi, "Web UI is not configured")
+    assert(config.hasTls, "Web UI is not configured")
 
     const additionalMiddlewares = sig.use(additionalMiddlewaresSignal)
 
-    const { port, tlsWebCert, tlsWebKey } = config
+    const { httpsPort, tlsWebCert, tlsWebKey } = config
 
     const server = await createServer({
       root: walletPath,
@@ -60,7 +60,7 @@ export const serveWallet = () =>
       server: {
         middlewareMode: true,
         hmr: {
-          port: port + 4400,
+          port: httpsPort + 4400,
         },
         https: {
           cert: tlsWebCert,

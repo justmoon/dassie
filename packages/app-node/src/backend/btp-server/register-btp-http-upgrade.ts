@@ -11,7 +11,7 @@ import {
 } from "@dassie/lib-protocol-utils"
 import { createActor } from "@dassie/lib-reactive"
 
-import { websocketRoutesSignal } from "../http-server/serve-http"
+import { websocketRoutesSignal } from "../http-server/serve-https"
 import { nodeIlpAddressSignal } from "../ilp-connector/computed/node-ilp-address"
 import { processPacket } from "../ilp-connector/process-packet"
 import { BtpEndpointInfo } from "../ilp-connector/senders/send-btp-packets"

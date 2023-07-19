@@ -1,0 +1,11 @@
+[Unit]
+Description=Dassie Public HTTP Socket
+Documentation=https://dassie.land/
+
+[Socket]
+ListenStream=0.0.0.0:80
+NoDelay=true
+Service=dassie.service
+
+[Install]
+WantedBy=sockets.target

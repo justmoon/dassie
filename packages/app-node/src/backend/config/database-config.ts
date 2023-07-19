@@ -11,33 +11,32 @@ export const ConfigLevel = {
 
 export type ConfigLevel = (typeof ConfigLevel)[keyof typeof ConfigLevel]
 
-export type Config =
-  | NullLevelConfig
-  | WebUiLevelConfig
-  | NodeIdentityLevelConfig
+export type Config = BaseLevelConfig | TlsLevelConfig | NodeIdentityLevelConfig
 
-export interface NullLevelConfig {
-  readonly hasWebUi: false
+export interface BaseLevelConfig {
+  readonly hasTls: false
   readonly hasNodeIdentity: false
 
   readonly hostname: string
-  readonly port: number
+  readonly httpPort: number
+  readonly httpsPort: number
   readonly alias: string
   readonly url: string
+  readonly enableHttpServer: boolean
 
   readonly exchangeRateUrl: string
   readonly internalAmountPrecision: number
 }
 
-export interface WebUiLevelConfig extends Omit<NullLevelConfig, "hasWebUi"> {
-  readonly hasWebUi: true
+export interface TlsLevelConfig extends Omit<BaseLevelConfig, "hasTls"> {
+  readonly hasTls: true
   readonly realm: (typeof VALID_REALMS)[number]
   readonly tlsWebCert: string
   readonly tlsWebKey: string
 }
 
 export interface NodeIdentityLevelConfig
-  extends Omit<WebUiLevelConfig, "hasNodeIdentity"> {
+  extends Omit<TlsLevelConfig, "hasNodeIdentity"> {
   readonly hasNodeIdentity: true
   readonly tlsDassieCert: string
   readonly tlsDassieKey: string
@@ -50,8 +49,11 @@ export const databaseConfigSignal = (
 
   const configRealm = database.scalars.get("config.realm")
   const configHostname = database.scalars.get("config.hostname") ?? "localhost"
-  const configPort = database.scalars.get("config.port") ?? 8443
+  const configHttpPort = database.scalars.get("config.http_port") ?? 80
+  const configHttpsPort = database.scalars.get("config.https_port") ?? 443
   const configAlias = database.scalars.get("config.alias") ?? "anonymous"
+  const configEnableHttpServer =
+    database.scalars.get("config.enable_http_server") ?? true
   const configTlsWebCert = database.scalars.get("config.tls_web_cert")
   const configTlsWebKey = database.scalars.get("config.tls_web_key")
   const configTlsDassieCert = database.scalars.get("config.tls_dassie_cert")
@@ -62,14 +64,16 @@ export const databaseConfigSignal = (
   )
 
   let config: Config = {
-    hasWebUi: false,
+    hasTls: false,
     hasNodeIdentity: false,
     hostname: configHostname,
-    port: configPort,
+    httpPort: configHttpPort,
+    httpsPort: configHttpsPort,
     alias: configAlias,
     url: `https://${configHostname}${
-      configPort === 443 ? "" : `:${configPort}`
+      configHttpsPort === 443 ? "" : `:${configHttpsPort}`
     }`,
+    enableHttpServer: configEnableHttpServer,
     exchangeRateUrl:
       configExchangeRateUrl ?? "https://api.coinbase.com/v2/exchange-rates",
     internalAmountPrecision: configInternalAmountPrecision ?? 12,
@@ -81,7 +85,7 @@ export const databaseConfigSignal = (
 
   config = {
     ...config,
-    hasWebUi: true,
+    hasTls: true,
     realm: configRealm,
     tlsWebCert: configTlsWebCert,
     tlsWebKey: configTlsWebKey,

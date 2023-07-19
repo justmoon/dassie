@@ -4,7 +4,7 @@ import { WebSocketServer } from "ws"
 
 import { createActor } from "@dassie/lib-reactive"
 
-import { websocketRoutesSignal } from "../http-server/serve-http"
+import { websocketRoutesSignal } from "../http-server/serve-https"
 import { appRouter } from "./app-router"
 import { createContextFactory } from "./trpc-context"
 

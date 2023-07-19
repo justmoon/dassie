@@ -1,11 +1,11 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { routerService } from "../http-server/serve-http"
+import { httpsRouterService } from "../http-server/serve-https"
 import { streamServerService } from "./stream-server"
 
 export const handleSpspRequests = () =>
   createActor((sig) => {
-    const router = sig.get(routerService)
+    const router = sig.get(httpsRouterService)
     const streamServer = sig.get(streamServerService)
 
     if (!router || !streamServer) {

@@ -4,6 +4,8 @@ import { type ScalarDescription } from "@dassie/lib-sqlite"
 
 import { VALID_REALMS } from "../../constants/general"
 
+export const portSchema = z.number().int().min(1).max(65_535)
+
 /**
  * This defines all the scalar values that are stored in the database which will
  * allow us to access them in a type-safe way.
@@ -17,9 +19,13 @@ export const CONFIG_DATABASE_SCALARS = {
     type: "TEXT",
     schema: z.string(),
   },
-  "config.port": {
+  "config.http_port": {
     type: "INTEGER",
-    schema: z.number().int().min(1).max(65_535),
+    schema: portSchema,
+  },
+  "config.https_port": {
+    type: "INTEGER",
+    schema: portSchema,
   },
   "config.alias": {
     type: "TEXT",
@@ -48,5 +54,9 @@ export const CONFIG_DATABASE_SCALARS = {
   "config.internal_amount_precision": {
     type: "INTEGER",
     schema: z.number().int().min(3),
+  },
+  "config.enable_http_server": {
+    type: "INTEGER",
+    schema: z.number().int().min(0).max(1).transform(Boolean),
   },
 } as const satisfies Record<`config.${string}`, ScalarDescription>
