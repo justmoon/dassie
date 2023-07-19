@@ -115,6 +115,7 @@ export const confirm = ({ title, initialValue = false }: ConfirmOptions) =>
       return state
     },
     render: ({ state, value }, { columns, theme }) => [
+      "\n",
       chalk.blueBright.inverse.bold(` ? `),
       chalk.bold(
         ` ${indentString(wrapAnsi(title, columns - 4), 4, {

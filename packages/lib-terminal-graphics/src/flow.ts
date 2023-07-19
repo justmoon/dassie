@@ -51,7 +51,6 @@ export const createFlow = ({
   return {
     show(component: StaticTerminalComponent): void {
       render(component.render(getRenderEnvironment()))
-      outputStream.write("\n")
       previousOutput = undefined
     },
 
@@ -63,7 +62,6 @@ export const createFlow = ({
       render(component.render(state, getRenderEnvironment()))
 
       if (component.isFinal(state)) {
-        outputStream.write("\n")
         return component.result(state) as InferComponentResult<TComponent>
       }
 
@@ -96,7 +94,6 @@ export const createFlow = ({
           // We handle the cancel key after we have sent it to the component in
           // case the component wants to change its state in response to it.
           if (key.ctrl && key.name === "c") {
-            outputStream.write("\n")
             previousOutput = undefined
             return Canceled
           }
@@ -107,7 +104,6 @@ export const createFlow = ({
         cursor.show(outputStream)
       }
 
-      outputStream.write("\n")
       previousOutput = undefined
       return component.result(state) as InferComponentResult<TComponent>
     },

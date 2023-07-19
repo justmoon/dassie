@@ -152,6 +152,7 @@ export const text = ({ title, explanation }: TextOptions) =>
       return state
     },
     render: ({ state, value, cursor }, { columns }) => [
+      "\n",
       chalk.blueBright.inverse.bold(` ? `),
       chalk.bold(
         ` ${indentString(wrapAnsi(title, columns - 4), 4, {

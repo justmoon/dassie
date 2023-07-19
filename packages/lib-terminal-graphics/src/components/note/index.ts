@@ -17,6 +17,7 @@ export const note = ({ title, body, style = "info" }: NoteOptions) =>
   ({
     type: "static",
     render: ({ columns, theme }) => [
+      "\n",
       chalk[theme.stepStyles[style].color].inverse.bold(
         ` ${maybeUnicode(theme.stepStyles[style].icon)} `
       ),
@@ -25,8 +26,8 @@ export const note = ({ title, body, style = "info" }: NoteOptions) =>
           indentFirstLine: false,
         })} `
       ),
-      "\n",
-      body ? chalk.dim(indentString(wrapAnsi(body, columns - 4), 4)) : "",
       body ? "\n" : "",
+      body ? chalk.dim(indentString(wrapAnsi(body, columns - 4), 4)) : "",
+      "\n",
     ],
   } satisfies StaticTerminalComponent)
