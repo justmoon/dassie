@@ -26,9 +26,12 @@ export const updateCommand = (reactor: Reactor) =>
       }`
 
       try {
-        if (!rootPath.endsWith("/current")) {
+        if (
+          !rootPath.endsWith("/current") &&
+          !rootPath.endsWith(`/${__DASSIE_VERSION__}`)
+        ) {
           throw new Error(
-            `DASSIE_ROOT must end with "/current" in order for the auto-updater to work (DASSIE_ROOT=${rootPath})`
+            `DASSIE_ROOT must end with "/current" or "/${__DASSIE_VERSION__}" in order for the auto-updater to work (DASSIE_ROOT=${rootPath})`
           )
         }
 
