@@ -2,7 +2,10 @@ import chalk from "chalk"
 
 import { createFlow, header, note } from "@dassie/lib-terminal-graphics"
 
-import { SUPPORTED_ARCHITECTURES } from "../constants/architectures"
+import {
+  Architecture,
+  SUPPORTED_ARCHITECTURES,
+} from "../constants/architectures"
 import { SUPPORTED_COMPRESSIONS } from "../constants/compression"
 import { DassieDetailedVersion, DassieVersion } from "../constants/version"
 import { buildBackend } from "../steps/build-backend"
@@ -22,12 +25,14 @@ export interface BundleOptions {
   version: DassieVersion
   detailedVersion: DassieDetailedVersion
   isMainRelease: boolean
+  architectures?: readonly Architecture[]
 }
 
 export const buildBundle = async ({
   version,
   detailedVersion,
   isMainRelease,
+  architectures = SUPPORTED_ARCHITECTURES,
 }: BundleOptions) => {
   const flow = createFlow()
 
@@ -46,7 +51,7 @@ export const buildBundle = async ({
   flow.show(note({ title: "Building frontend" }))
   await buildFrontend(detailedVersion)
 
-  for (const architecture of SUPPORTED_ARCHITECTURES) {
+  for (const architecture of architectures) {
     flow.show(note({ title: `Building bundles for ${architecture}` }))
     console.info(chalk.dim(` … ${getTarFilename(version, architecture)}`))
     await downloadNodeJs(architecture)

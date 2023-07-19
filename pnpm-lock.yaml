@@ -108,6 +108,9 @@ importers:
       vite:
         specifier: ^4.3.9
         version: 4.3.9(@types/node@20.3.2)
+      zod:
+        specifier: ^3.21.4
+        version: 3.21.4
     devDependencies:
       '@dassie/eslint-config':
         specifier: workspace:^
