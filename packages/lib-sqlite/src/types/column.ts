@@ -85,8 +85,8 @@ export interface ColumnDescriptionBuilder<
   >
 
   notNull(): ColumnDescriptionBuilder<
-    Omit<T, "required"> & {
-      required: true
+    Omit<T, "notNull"> & {
+      notNull: true
     }
   >
 
@@ -98,10 +98,30 @@ export interface ColumnDescriptionBuilder<
 }
 
 export type InferColumnReadType<T extends ColumnDescription> =
-  T extends ColumnDescription<infer TGenerics> ? TGenerics["readType"] : never
+  T extends ColumnDescription<infer TGenerics>
+    ? TGenerics["readType"] | InferColumnNullable<T>
+    : never
 
 export type InferColumnWriteType<T extends ColumnDescription> =
-  T extends ColumnDescription<infer TGenerics> ? TGenerics["writeType"] : never
+  T extends ColumnDescription<infer TGenerics>
+    ? TGenerics["writeType"] | InferColumnNullable<T>
+    : never
+
+export type InferColumnSqliteType<T extends ColumnDescription> =
+  T extends ColumnDescription<infer TGenerics>
+    ?
+        | SqliteToTypescriptTypeMap[TGenerics["sqliteType"]]
+        | InferColumnNullable<T>
+    : never
+
+export type InferColumnNullable<T extends ColumnDescription> =
+  T extends ColumnDescription<infer TGenerics>
+    ? TGenerics["notNull"] extends false
+      ? TGenerics["primaryKey"] extends false
+        ? null
+        : never
+      : never
+    : never
 
 export type InferRowReadTypeFromColumns<
   TColumns extends Record<string, ColumnDescription>

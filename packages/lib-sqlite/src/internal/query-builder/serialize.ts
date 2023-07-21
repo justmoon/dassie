@@ -31,7 +31,10 @@ export const createRowSerializer = <T extends TableDescription>(
       const serializer = serializers.get(columnName)
 
       if (serializer) {
-        processedRow[columnName] = serializer(processedRow[columnName])
+        processedRow[columnName] =
+          processedRow[columnName] == null
+            ? null
+            : serializer(processedRow[columnName])
       }
     }
 
@@ -64,7 +67,10 @@ export const createRowDeserializer = <T extends TableDescription>(
       const deserializer = deserializers.get(columnName)
 
       if (deserializer) {
-        processedRow[columnName] = deserializer(processedRow[columnName])
+        processedRow[columnName] =
+          processedRow[columnName] == null
+            ? null
+            : deserializer(processedRow[columnName])
       }
     }
 

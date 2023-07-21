@@ -32,7 +32,7 @@ const createBuilder = <T extends ColumnDescriptionGenerics>(
 
   notNull() {
     const newDescription: ColumnDescription<
-      Omit<T, "required"> & { required: true }
+      Omit<T, "notNull"> & { notNull: true }
     > = {
       ...description,
       notNull: true,
