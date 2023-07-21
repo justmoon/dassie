@@ -16,6 +16,7 @@ StateDirectory=dassie
 CacheDirectory=dassie
 Restart=always
 RestartSec=1
+Environment=HOME=/var/lib/dassie
 Environment=PATH=/usr/bin:/usr/local/bin
 Environment=NODE_ENV=production
 NoNewPrivileges=true
