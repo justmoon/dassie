@@ -59,16 +59,16 @@ export const createSocketHandler = <TRouter extends AnyRouter>(
 
     const onMessage = async (line: string) => {
       const message = JSON.parse(line) as TRPCSocketRequest
-      if (!("trpc" in message)) return
-      const { trpc } = message
-      if (!("id" in trpc) || trpc.id == null) return
+      if (!("id" in message) || message.id == null) return
 
-      const { id, jsonrpc, method } = trpc
+      const { id, method } = message
 
-      const sendResponse = (response: TRPCSocketResponse["trpc"]) => {
+      const sendResponse = (response: TRPCSocketResponse) => {
         socket.write(
           JSON.stringify({
-            trpc: { id, jsonrpc, ...response },
+            id,
+            jsonrpc: "2.0",
+            ...response,
           } as TRPCSocketResponse) + "\n"
         )
       }
@@ -93,7 +93,7 @@ export const createSocketHandler = <TRouter extends AnyRouter>(
         }
 
         // eslint-disable-next-line unicorn/consistent-destructuring
-        parameters = trpc.params
+        parameters = message.params
 
         input = transformer.input.deserialize(parameters.input)
 

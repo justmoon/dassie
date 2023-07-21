@@ -13,17 +13,11 @@ import type {
 
 import { Socket } from "node:net"
 
-export interface TRPCSocketRequest {
-  trpc: TRPCRequest | TRPCClientOutgoingMessage
-}
+export type TRPCSocketRequest = TRPCRequest | TRPCClientOutgoingMessage
 
-export interface TRPCSocketSuccessResponse {
-  trpc: TRPCResultMessage<unknown>
-}
+export type TRPCSocketSuccessResponse = TRPCResultMessage<unknown>
 
-export interface TRPCSocketErrorResponse {
-  trpc: TRPCErrorResponse
-}
+export type TRPCSocketErrorResponse = TRPCErrorResponse
 
 export type TRPCSocketResponse =
   | TRPCSocketSuccessResponse
