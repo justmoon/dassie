@@ -67,7 +67,9 @@ export const socketLink = <TRouter extends AnyRouter>(
           }
 
           socketLineReader.addListener("line", onMessage)
-          disposers.push(() => socketLineReader.close())
+          disposers.push(() =>
+            socketLineReader.removeListener("line", onMessage)
+          )
 
           socket.write(
             JSON.stringify({
