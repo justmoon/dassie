@@ -5,6 +5,7 @@ import { type Reactor, createComputed } from "@dassie/lib-reactive"
 import { type DatabaseSchema, createDatabase } from "@dassie/lib-sqlite"
 
 import { ACME_DATABASE_SCALARS } from "../acme-certificate-manager/schemas/database-scalars"
+import { acmeTokensTable } from "../acme-certificate-manager/tables/acme-tokens"
 import { environmentConfigSignal } from "../config/environment-config"
 import { CONFIG_DATABASE_SCALARS } from "../config/schemas/database-scalars"
 import { incomingPaymentTable } from "../open-payments/tables/incoming-payment"
@@ -29,6 +30,7 @@ export const DASSIE_DATABASE_SCHEMA = {
     settlementSchemes: settlementSchemesTable,
     nodes: nodesTable,
     peers: peersTable,
+    acmeTokens: acmeTokensTable,
   },
   scalars: {
     ...CONFIG_DATABASE_SCALARS,

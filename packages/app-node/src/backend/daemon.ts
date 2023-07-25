@@ -2,6 +2,7 @@ import { createLogger } from "@dassie/lib-logger"
 import { createActor, createReactor } from "@dassie/lib-reactive"
 
 import { startAccounting } from "./accounting"
+import { startAcmeCertificateManager } from "./acme-certificate-manager"
 import { startBtpServer } from "./btp-server"
 import { databaseConfigSignal } from "./config/database-config"
 import { signerService } from "./crypto/signer"
@@ -32,6 +33,7 @@ export const daemonActor = () =>
     sig.run(startLocalRpcServer)
     sig.run(supportSystemd)
     sig.run(startHttpServer)
+    sig.run(startAcmeCertificateManager)
 
     if (!hasTls) {
       logger.warn("Web UI is not configured, run `dassie init`")

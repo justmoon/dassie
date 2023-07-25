@@ -1,48 +1,22 @@
-import { initTRPC } from "@trpc/server"
-import { z } from "zod"
-
 import { unlinkSync } from "node:fs"
 import { createServer } from "node:net"
 
 import { createLogger } from "@dassie/lib-logger"
-import { ActorContext, createActor } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 import { createSocketHandler } from "@dassie/lib-trpc-ipc/adapter"
 import { isErrorWithCode } from "@dassie/lib-type-utils"
 
 import { environmentConfigSignal } from "../../config/environment-config"
-import { databasePlain } from "../../database/open-database"
 import {
   getSocketActivationFileDescriptors,
   getSocketActivationState,
 } from "../../systemd/socket-activation"
+import { appRouter } from "../../trpc-server/app-router"
+import { createContextFactory } from "../../trpc-server/trpc-context"
 
 const logger = createLogger("das:local-ipc-server")
 
 const SOCKET_ACTIVATION_NAME_IPC = "dassie-ipc.socket"
-
-export interface IpcContext {
-  sig: ActorContext
-}
-
-export const trpc = initTRPC.context<IpcContext>().create()
-
-export const localIpcRouter = trpc.router({
-  setNodeTlsConfiguration: trpc.procedure
-    .input(
-      z.object({
-        accountUrl: z.string(),
-        accountKey: z.string(),
-      })
-    )
-    .mutation(({ input: { accountUrl, accountKey }, ctx: { sig } }) => {
-      const database = sig.use(databasePlain)
-      database.scalars.set("acme.account_url", accountUrl)
-      database.scalars.set("acme.account_key", accountKey)
-      return true
-    }),
-})
-
-export type LocalIpcRouter = typeof localIpcRouter
 
 const getListenTargets = (
   socketPath: string
@@ -78,10 +52,8 @@ export const serveLocalIpc = () =>
     ])
 
     const handler = createSocketHandler({
-      router: localIpcRouter,
-      createContext: () => ({
-        sig,
-      }),
+      router: appRouter,
+      createContext: createContextFactory(sig),
     })
 
     const server = createServer(handler)
