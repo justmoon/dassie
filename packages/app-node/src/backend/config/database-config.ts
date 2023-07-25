@@ -1,21 +1,12 @@
-import { Reactor, ReadonlySignal, createSignal } from "@dassie/lib-reactive"
+import { produce } from "immer"
+
+import { Reactor, createStore } from "@dassie/lib-reactive"
 
 import type { VALID_REALMS } from "../constants/general"
 import { databasePlain } from "../database/open-database"
 
-export const ConfigLevel = {
-  Null: 0,
-  WebUi: 1,
-  NodeIdentity: 2,
-} as const
-
-export type ConfigLevel = (typeof ConfigLevel)[keyof typeof ConfigLevel]
-
-export type Config = BaseLevelConfig | TlsLevelConfig | NodeIdentityLevelConfig
-
-export interface BaseLevelConfig {
-  readonly hasTls: false
-  readonly hasNodeIdentity: false
+export interface Config {
+  readonly realm: (typeof VALID_REALMS)[number]
 
   readonly hostname: string
   readonly httpPort: number
@@ -26,28 +17,30 @@ export interface BaseLevelConfig {
 
   readonly exchangeRateUrl: string
   readonly internalAmountPrecision: number
+
+  readonly tlsWebCert: string | undefined
+  readonly tlsWebKey: string | undefined
+
+  readonly tlsDassieCert: string | undefined
+  readonly tlsDassieKey: string | undefined
 }
 
-export interface TlsLevelConfig extends Omit<BaseLevelConfig, "hasTls"> {
-  readonly hasTls: true
-  readonly realm: (typeof VALID_REALMS)[number]
-  readonly tlsWebCert: string
-  readonly tlsWebKey: string
+export const hasTls = (
+  config: Config
+): config is Config & { tlsWebCert: string; tlsWebKey: string } => {
+  return config.tlsWebCert !== undefined && config.tlsWebKey !== undefined
 }
 
-export interface NodeIdentityLevelConfig
-  extends Omit<TlsLevelConfig, "hasNodeIdentity"> {
-  readonly hasNodeIdentity: true
-  readonly tlsDassieCert: string
-  readonly tlsDassieKey: string
+export const hasNodeIdentity = (
+  config: Config
+): config is Config & { tlsDassieCert: string; tlsDassieKey: string } => {
+  return config.tlsDassieCert !== undefined && config.tlsDassieKey !== undefined
 }
 
-export const databaseConfigSignal = (
-  reactor: Reactor
-): ReadonlySignal<Config> => {
-  const database = reactor.use(databasePlain)
-
-  const configRealm = database.scalars.get("config.realm")
+const loadInitialConfig = (
+  database: ReturnType<typeof databasePlain>
+): Config => {
+  const configRealm = database.scalars.get("config.realm") ?? "test"
   const configHostname = database.scalars.get("config.hostname") ?? "localhost"
   const configHttpPort = database.scalars.get("config.http_port") ?? 80
   const configHttpsPort = database.scalars.get("config.https_port") ?? 443
@@ -63,9 +56,9 @@ export const databaseConfigSignal = (
     "config.internal_amount_precision"
   )
 
-  let config: Config = {
-    hasTls: false,
-    hasNodeIdentity: false,
+  return {
+    realm: configRealm,
+
     hostname: configHostname,
     httpPort: configHttpPort,
     httpsPort: configHttpsPort,
@@ -77,30 +70,31 @@ export const databaseConfigSignal = (
     exchangeRateUrl:
       configExchangeRateUrl ?? "https://api.coinbase.com/v2/exchange-rates",
     internalAmountPrecision: configInternalAmountPrecision ?? 12,
-  }
 
-  if (!configRealm || !configTlsWebCert || !configTlsWebKey) {
-    return createSignal(config)
-  }
-
-  config = {
-    ...config,
-    hasTls: true,
-    realm: configRealm,
     tlsWebCert: configTlsWebCert,
     tlsWebKey: configTlsWebKey,
-  }
 
-  if (!configTlsDassieCert || !configTlsDassieKey) {
-    return createSignal(config)
-  }
-
-  config = {
-    ...config,
-    hasNodeIdentity: true,
     tlsDassieCert: configTlsDassieCert,
     tlsDassieKey: configTlsDassieKey,
   }
+}
 
-  return createSignal(config)
+export const databaseConfigStore = (reactor: Reactor) => {
+  const database = reactor.use(databasePlain)
+
+  return createStore(loadInitialConfig(database), {
+    setRealm: (realm: (typeof VALID_REALMS)[number]) =>
+      produce((draft) => {
+        database.scalars.set("config.realm", realm)
+        draft.realm = realm
+      }),
+
+    setTlsCertificates: (tlsCert: string, tlsKey: string) =>
+      produce((draft) => {
+        database.scalars.set("config.tls_web_cert", tlsCert)
+        database.scalars.set("config.tls_web_key", tlsKey)
+        draft.tlsWebCert = tlsCert
+        draft.tlsWebKey = tlsKey
+      }),
+  })
 }

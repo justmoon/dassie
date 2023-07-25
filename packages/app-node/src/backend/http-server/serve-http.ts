@@ -7,7 +7,8 @@ import type { Duplex } from "node:stream"
 import { createLogger } from "@dassie/lib-logger"
 import { createActor, createSignal } from "@dassie/lib-reactive"
 
-import { databaseConfigSignal } from "../config/database-config"
+import { hasTlsComputed } from "../config/computed/has-tls"
+import { databaseConfigStore } from "../config/database-config"
 import { getListenTargets } from "./utils/listen-targets"
 
 const logger = createLogger("das:node:http-server")
@@ -32,13 +33,14 @@ function handleError(error: unknown) {
 
 export const httpService = () =>
   createActor((sig) => {
-    const config = sig.get(databaseConfigSignal)
-
+    const { httpPort, httpsPort, enableHttpServer } = sig.getKeys(
+      databaseConfigStore,
+      ["httpPort", "httpsPort", "enableHttpServer"]
+    )
+    const hasTls = sig.get(hasTlsComputed)
     const router = sig.get(httpRouterService)
 
     if (!router) return
-
-    const { hasTls, httpPort, httpsPort, enableHttpServer } = config
 
     if (!enableHttpServer) return
 

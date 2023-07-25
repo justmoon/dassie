@@ -6,7 +6,7 @@ import assert from "node:assert"
 import { existsSync, readFileSync } from "node:fs"
 import { join, normalize } from "node:path"
 
-import { databaseConfigSignal } from "@dassie/app-node/src/backend/config/database-config"
+import { databaseConfigStore } from "@dassie/app-node/src/backend/config/database-config"
 import { additionalMiddlewaresSignal } from "@dassie/app-node/src/backend/http-server/serve-https"
 import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
@@ -42,13 +42,15 @@ function getHtmlFilename(url: string, server: ViteDevServer) {
 
 export const serveWallet = () =>
   createActor(async (sig) => {
-    const config = sig.get(databaseConfigSignal)
+    const { httpsPort, tlsWebCert, tlsWebKey } = sig.getKeys(
+      databaseConfigStore,
+      ["httpsPort", "tlsWebCert", "tlsWebKey"]
+    )
 
-    assert(config.hasTls, "Web UI is not configured")
+    assert(tlsWebCert, "Web UI is not configured, missing certificate")
+    assert(tlsWebKey, "Web UI is not configured, missing private key")
 
     const additionalMiddlewares = sig.use(additionalMiddlewaresSignal)
-
-    const { httpsPort, tlsWebCert, tlsWebKey } = config
 
     const server = await createServer({
       root: walletPath,

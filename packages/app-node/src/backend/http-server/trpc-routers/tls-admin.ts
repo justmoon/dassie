@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { databasePlain } from "../../database/open-database"
+import { databaseConfigStore } from "../../config/database-config"
 import { trpc } from "../../local-ipc-server/trpc-context"
 import { protectedProcedure } from "../../trpc-server/middlewares/auth"
 
@@ -13,9 +13,8 @@ export const tlsAdminRouter = trpc.router({
       })
     )
     .mutation(({ input: { certificate, privateKey }, ctx: { sig } }) => {
-      const database = sig.use(databasePlain)
-      database.scalars.set("config.tls_web_cert", certificate)
-      database.scalars.set("config.tls_web_key", privateKey)
+      const config = sig.use(databaseConfigStore)
+      config.setTlsCertificates(certificate, privateKey)
       return true
     }),
 })

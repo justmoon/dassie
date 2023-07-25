@@ -1,5 +1,5 @@
 import { daemonActor } from "@dassie/app-node"
-import { databaseConfigSignal } from "@dassie/app-node/src/backend/config/database-config"
+import { hasTlsComputed } from "@dassie/app-node/src/backend/config/computed/has-tls"
 import { createLogger } from "@dassie/lib-logger"
 import { createActor, createReactor } from "@dassie/lib-reactive"
 
@@ -17,7 +17,6 @@ export const logger = createLogger("das:dev:launcher:node")
 
 const debugRunner = () =>
   createActor(async (sig) => {
-    const config = sig.get(databaseConfigSignal)
     sig.run(trpcClientService)
     sig.run(handleShutdownSignals)
     sig.run(handleDisconnect)
@@ -25,7 +24,9 @@ const debugRunner = () =>
     sig.run(patchIlpLogger)
     sig.run(forwardPeerTraffic)
     await sig.run(reportPeeringState)
-    if (config.hasTls) {
+
+    const hasTls = sig.get(hasTlsComputed)
+    if (hasTls) {
       await sig.run(serveWallet)
     }
     await sig.run(daemonActor)

@@ -4,7 +4,8 @@ import { createActor, createReactor } from "@dassie/lib-reactive"
 import { startAccounting } from "./accounting"
 import { startAcmeCertificateManager } from "./acme-certificate-manager"
 import { startBtpServer } from "./btp-server"
-import { databaseConfigSignal } from "./config/database-config"
+import { hasNodeIdentityComputed } from "./config/computed/has-node-identity"
+import { hasTlsComputed } from "./config/computed/has-tls"
 import { signerService } from "./crypto/signer"
 import { startExchangeRates } from "./exchange-rates"
 import { startHttpServer } from "./http-server"
@@ -25,15 +26,13 @@ const logger = createLogger("das:start")
 
 export const daemonActor = () =>
   createActor(async (sig) => {
-    const { hasTls, hasNodeIdentity } = sig.getKeys(databaseConfigSignal, [
-      "hasTls",
-      "hasNodeIdentity",
-    ])
     sig.run(attachLogger)
     sig.run(startLocalRpcServer)
     sig.run(supportSystemd)
     sig.run(startHttpServer)
     sig.run(startAcmeCertificateManager)
+
+    const hasTls = sig.get(hasTlsComputed)
 
     if (!hasTls) {
       logger.warn("Web UI is not configured, run `dassie init`")
@@ -41,6 +40,8 @@ export const daemonActor = () =>
     }
 
     sig.run(startTrpcServer)
+
+    const hasNodeIdentity = sig.get(hasNodeIdentityComputed)
 
     if (!hasNodeIdentity) {
       logger.warn("Node identity is not configured")

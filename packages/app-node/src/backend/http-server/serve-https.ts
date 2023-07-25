@@ -9,7 +9,7 @@ import type { Duplex } from "node:stream"
 import { createLogger } from "@dassie/lib-logger"
 import { createActor, createSignal } from "@dassie/lib-reactive"
 
-import { databaseConfigSignal } from "../config/database-config"
+import { databaseConfigStore } from "../config/database-config"
 import { getListenTargets } from "./utils/listen-targets"
 
 const logger = createLogger("das:node:https-server")
@@ -42,16 +42,18 @@ function handleError(error: unknown) {
 
 export const httpsService = () =>
   createActor((sig) => {
-    const config = sig.get(databaseConfigSignal)
+    const { httpsPort, url, tlsWebCert, tlsWebKey } = sig.getKeys(
+      databaseConfigStore,
+      ["httpsPort", "url", "tlsWebCert", "tlsWebKey"]
+    )
 
-    assert(config.hasTls, "Web UI is not configured")
+    assert(tlsWebCert, "Web UI is not configured, missing certificate")
+    assert(tlsWebKey, "Web UI is not configured, missing private key")
 
     const router = sig.get(httpsRouterService)
     const additionalMiddlewares = sig.get(additionalMiddlewaresSignal)
 
     if (!router) return
-
-    const { httpsPort, url, tlsWebCert, tlsWebKey } = config
 
     const app = express()
 

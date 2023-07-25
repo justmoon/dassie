@@ -1,9 +1,9 @@
 import { z } from "zod"
 
 import { VALID_REALMS } from "../../constants/general"
-import { databasePlain } from "../../database/open-database"
 import { trpc } from "../../local-ipc-server/trpc-context"
 import { protectedProcedure } from "../../trpc-server/middlewares/auth"
+import { databaseConfigStore } from "../database-config"
 
 export const configAdminRouter = trpc.router({
   setRealm: protectedProcedure
@@ -17,8 +17,9 @@ export const configAdminRouter = trpc.router({
         throw new Error("Livenet is not yet supported")
       }
 
-      const database = sig.use(databasePlain)
-      database.scalars.set("config.realm", realm)
+      const config = sig.use(databaseConfigStore)
+
+      config.setRealm(realm)
       return true
     }),
 })

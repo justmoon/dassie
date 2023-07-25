@@ -1,10 +1,8 @@
-import assert from "node:assert"
-
 import { createActor, createMapped } from "@dassie/lib-reactive"
 
 import { initializeCommonAccounts } from "../accounting/functions/manage-common-accounts"
 import { ledgerStore } from "../accounting/stores/ledger"
-import { databaseConfigSignal } from "../config/database-config"
+import { databaseConfigStore } from "../config/database-config"
 import { sendPeerMessage } from "../peer-protocol/actors/send-peer-message"
 import modules from "./modules"
 import { activeSettlementSchemesSignal } from "./signals/active-settlement-schemes"
@@ -20,11 +18,7 @@ export interface SettlementSchemeInstance {
 export const manageSettlementSchemeInstances = () =>
   createMapped(activeSettlementSchemesSignal, (settlementSchemeId) =>
     createActor(async (sig) => {
-      const config = sig.get(databaseConfigSignal)
-
-      assert(config.hasTls, "Web UI is not configured")
-
-      const realm = config.realm
+      const { realm } = sig.getKeys(databaseConfigStore, ["realm"])
 
       const module = modules[settlementSchemeId]
       if (!module) {
