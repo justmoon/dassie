@@ -12,5 +12,5 @@ export interface SqliteToTypescriptTypeMap {
   REAL: number
   BOOLEAN: boolean
   BLOB: Buffer
-  ANY: unknown
+  ANY: NonNullable<unknown>
 }

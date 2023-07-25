@@ -3,8 +3,8 @@ import { SqliteDataType, SqliteToTypescriptTypeMap } from "./sqlite-datatypes"
 
 export interface ColumnDescriptionGenerics {
   sqliteType: SqliteDataType
-  writeType: unknown
-  readType: unknown
+  writeType: NonNullable<unknown>
+  readType: NonNullable<unknown>
   notNull: boolean
   primaryKey: boolean
 }
@@ -64,7 +64,7 @@ export interface ColumnDescriptionBuilder<
     }
   >
 
-  serialize<TWriteType>(
+  serialize<TWriteType extends NonNullable<unknown>>(
     serializer: (
       value: TWriteType
     ) => SqliteToTypescriptTypeMap[T["sqliteType"]]
@@ -74,7 +74,7 @@ export interface ColumnDescriptionBuilder<
     }
   >
 
-  deserialize<TReadType>(
+  deserialize<TReadType extends NonNullable<unknown>>(
     deserializer: (
       value: SqliteToTypescriptTypeMap[T["sqliteType"]]
     ) => TReadType

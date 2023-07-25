@@ -13,7 +13,10 @@ export type RowSerializer<T extends TableDescription> = (
 export const createRowSerializer = <T extends TableDescription>(
   table: T
 ): RowSerializer<T> => {
-  const serializers = new Map<string, (value: unknown) => unknown>()
+  const serializers = new Map<
+    string,
+    (this: void, value: NonNullable<unknown>) => unknown
+  >()
   for (const [columnName, column] of Object.entries(table.columns)) {
     if (column.serialize !== identity) {
       serializers.set(columnName, column.serialize)
@@ -31,10 +34,8 @@ export const createRowSerializer = <T extends TableDescription>(
       const serializer = serializers.get(columnName)
 
       if (serializer) {
-        processedRow[columnName] =
-          processedRow[columnName] == null
-            ? null
-            : serializer(processedRow[columnName])
+        const value = processedRow[columnName]
+        processedRow[columnName] = value == null ? null : serializer(value)
       }
     }
 
@@ -49,7 +50,10 @@ export type RowDeserializer<T extends TableDescription> = (
 export const createRowDeserializer = <T extends TableDescription>(
   table: T
 ): RowDeserializer<T> => {
-  const deserializers = new Map<string, (value: unknown) => unknown>()
+  const deserializers = new Map<
+    string,
+    (value: NonNullable<unknown>) => unknown
+  >()
   for (const [columnName, column] of Object.entries(table.columns)) {
     if (column.deserialize !== identity) {
       deserializers.set(columnName, column.deserialize)
@@ -67,10 +71,8 @@ export const createRowDeserializer = <T extends TableDescription>(
       const deserializer = deserializers.get(columnName)
 
       if (deserializer) {
-        processedRow[columnName] =
-          processedRow[columnName] == null
-            ? null
-            : deserializer(processedRow[columnName])
+        const value = processedRow[columnName]
+        processedRow[columnName] = value == null ? null : deserializer(value)
       }
     }
 
