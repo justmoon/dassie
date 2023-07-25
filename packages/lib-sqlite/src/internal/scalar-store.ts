@@ -34,6 +34,8 @@ export interface ScalarStore<
     key: TScalar,
     value: InferScalarType<TScalars[TScalar]>
   ): void
+
+  delete(key: keyof TScalars & string): void
 }
 
 export type InferScalarType<T extends ScalarDescription> =
@@ -85,6 +87,14 @@ export const createScalarStore = <
         .insert()
         .upsert(["key"], ["value"])
         .one({ key, value })
+    },
+
+    delete(key) {
+      if (!(key in scalarDescriptions)) {
+        throw new Error(`Unknown scalar: ${key}`)
+      }
+
+      connectedScalarTable.select().where({ equals: { key } }).delete()
     },
   }
 }
