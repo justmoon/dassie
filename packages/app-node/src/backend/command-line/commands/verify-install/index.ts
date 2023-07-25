@@ -3,10 +3,8 @@ import { command } from "cmd-ts"
 import { createReactor } from "@dassie/lib-reactive"
 import { createDatabase } from "@dassie/lib-sqlite"
 
-import {
-  DASSIE_DATABASE_SCHEMA,
-  betterSqliteNativeBindingComputed,
-} from "../../../database/open-database"
+import { betterSqliteNativeBindingComputed } from "../../../database/open-database"
+import { DASSIE_DATABASE_SCHEMA } from "../../../database/schema"
 
 export const verifyInstallCommand = command({
   name: "verify-install",

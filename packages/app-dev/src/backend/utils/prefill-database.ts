@@ -1,6 +1,6 @@
 import { readFile, unlink } from "node:fs/promises"
 
-import { DASSIE_DATABASE_SCHEMA } from "@dassie/app-node/src/backend/database/open-database"
+import { DASSIE_DATABASE_SCHEMA } from "@dassie/app-node/src/backend/database/schema"
 import { SettlementSchemeId } from "@dassie/app-node/src/backend/peer-protocol/types/settlement-scheme-id"
 import { createDatabase } from "@dassie/lib-sqlite"
 import { isErrorWithCode } from "@dassie/lib-type-utils"
