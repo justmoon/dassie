@@ -1,12 +1,10 @@
-import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
+import { peerProtocol as logger } from "../../logger/instances"
 import type { IncomingPeerMessageEvent } from "../actors/handle-peer-message"
 import { nodeTableStore } from "../stores/node-table"
 import { parseLinkStateEntries } from "../utils/parse-link-state-entries"
-
-const logger = createLogger("das:node:handle-link-state-update")
 
 export const MAX_LINK_STATE_UPDATE_RETRANSMIT_DELAY = 500
 

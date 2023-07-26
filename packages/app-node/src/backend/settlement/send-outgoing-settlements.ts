@@ -1,18 +1,16 @@
 import assert from "node:assert"
 
-import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 import { UnreachableCaseError, isFailure } from "@dassie/lib-type-utils"
 
 import { processSettlementPrepare } from "../accounting/functions/process-settlement"
 import { Ledger, ledgerStore } from "../accounting/stores/ledger"
+import { settlement as logger } from "../logger/instances"
 import { sendPeerMessage } from "../peer-protocol/actors/send-peer-message"
 import { nodeTableStore } from "../peer-protocol/stores/node-table"
 import { NodeId } from "../peer-protocol/types/node-id"
 import { SettlementSchemeId } from "../peer-protocol/types/settlement-scheme-id"
 import { manageSettlementSchemeInstances } from "../settlement-schemes/manage-settlement-scheme-instances"
-
-const logger = createLogger("das:node:send-outgoing-settlements")
 
 const SETTLEMENT_CHECK_INTERVAL = 4000
 const SETTLEMENT_RATIO = 0.2

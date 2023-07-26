@@ -2,17 +2,15 @@ import { SetOptional, Simplify } from "type-fest"
 
 import assert from "node:assert"
 
-import { createLogger } from "@dassie/lib-logger"
 import { Reactor } from "@dassie/lib-reactive"
 
+import { accounting as logger } from "../../logger/instances"
 import PrefixMap from "../../routing/utils/prefix-map"
 import { EXCEEDS_CREDITS_FAILURE } from "../failures/exceeds-credits"
 import { EXCEEDS_DEBITS_FAILURE } from "../failures/exceeds-debits"
 import InvalidAccountFailure from "../failures/invalid-account"
 import { getLedgerIdFromPath } from "../functions/get-ledger-id-from-path"
 import { postedTransfersTopic } from "../topics/posted-transfers"
-
-const logger = createLogger("das:accounting:ledger")
 
 // Ledger Account Structure
 // ------------------------

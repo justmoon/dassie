@@ -1,7 +1,7 @@
-import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
 import { nodeIdSignal } from "../ilp-connector/computed/node-id"
+import { peerProtocol as logger } from "../logger/instances"
 import { activeSettlementSchemesSignal } from "../settlement-schemes/signals/active-settlement-schemes"
 import { peersComputation } from "./computed/peers"
 import { nodeTableStore } from "./stores/node-table"
@@ -10,10 +10,6 @@ import { SettlementSchemeId } from "./types/settlement-scheme-id"
 const PEERING_CHECK_INTERVAL = 1000
 
 const MINIMUM_PEERS = 2
-
-const logger = createLogger(
-  "das:app-node:peer-protocol:maintain-peering-relationships"
-)
 
 function findCommonElement<T>(array: readonly T[], set: Set<T>): T | false {
   return array.find((element) => set.has(element)) ?? false

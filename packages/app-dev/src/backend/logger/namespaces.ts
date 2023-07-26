@@ -1,0 +1,5 @@
+export const LOGGER_CHILDREN = "das:dev:children"
+export const LOGGER_RUNNER = "das:dev:runner"
+export const LOGGER_SETUP = "das:dev:setup"
+export const LOGGER_SERVER = "das:dev:server"
+export const LOGGER_VITE = "das:dev:vite"

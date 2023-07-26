@@ -1,12 +1,10 @@
 import { createConnection } from "ilp-protocol-stream"
 
-import { createLogger } from "@dassie/lib-logger"
 import { createActor, createStore } from "@dassie/lib-reactive"
 
+import { payment as logger } from "../logger/instances"
 import { resolvePaymentPointer } from "../utils/resolve-payment-pointer"
 import { managePlugins } from "./manage-plugins"
-
-const logger = createLogger("das:node:send-spsp-payments")
 
 export interface OutgoingSpspPayment {
   id: string

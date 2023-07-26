@@ -1,17 +1,15 @@
-import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
 import { databaseConfigStore } from "../config/database-config"
 import { nodePublicKeySignal } from "../crypto/computed/node-public-key"
 import { signerService } from "../crypto/signer"
 import { nodeIdSignal } from "../ilp-connector/computed/node-id"
+import { peerProtocol as logger } from "../logger/instances"
 import { activeSettlementSchemesSignal } from "../settlement-schemes/signals/active-settlement-schemes"
 import { compareSetToArray } from "../utils/compare-sets"
 import { peersComputation } from "./computed/peers"
 import { peerNodeInfo, signedPeerNodeInfo } from "./peer-schema"
 import { nodeTableStore } from "./stores/node-table"
-
-const logger = createLogger("das:node:maintain-own-node-table-entry")
 
 export const maintainOwnNodeTableEntry = () =>
   createActor(async (sig) => {

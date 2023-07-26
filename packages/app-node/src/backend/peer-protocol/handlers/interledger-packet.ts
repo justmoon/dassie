@@ -1,13 +1,11 @@
-import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import { ilpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-scheme"
 import { processPacket } from "../../ilp-connector/process-packet"
 import { PeerEndpointInfo } from "../../ilp-connector/senders/send-peer-packets"
+import { peerProtocol as logger } from "../../logger/instances"
 import type { IncomingPeerMessageEvent } from "../actors/handle-peer-message"
-
-const logger = createLogger("das:node:handle-interledger-packet")
 
 export const handleInterledgerPacket = () =>
   createActor((sig) => {

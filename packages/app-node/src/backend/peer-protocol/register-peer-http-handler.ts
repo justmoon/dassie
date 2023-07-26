@@ -6,10 +6,10 @@ import {
   parseBody,
   respondBinary,
 } from "@dassie/lib-http-server"
-import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
 import { httpsRouterService } from "../http-server/serve-https"
+import { peerProtocol as logger } from "../logger/instances"
 import {
   handlePeerMessage,
   incomingPeerMessageTopic,
@@ -18,8 +18,6 @@ import { ALLOW_ANONYMOUS_USAGE } from "./constants/anonymous-messages"
 import { peerMessage as peerMessageSchema } from "./peer-schema"
 import { nodeTableStore } from "./stores/node-table"
 import { authenticatePeerMessage } from "./utils/authenticate-peer-message"
-
-const logger = createLogger("das:node:handle-peer-http-request")
 
 export const registerPeerHttpHandler = () =>
   createActor((sig) => {

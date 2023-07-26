@@ -1,15 +1,13 @@
 import type { Plugin } from "ilp-protocol-stream/dist/src/util/plugin-interface"
 import { nanoid } from "nanoid"
 
-import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
 import { nodeIlpAddressSignal } from "../ilp-connector/computed/node-ilp-address"
 import { processPacket } from "../ilp-connector/process-packet"
 import { PluginEndpointInfo } from "../ilp-connector/senders/send-plugin-packets"
+import { payment as logger } from "../logger/instances"
 import { routingTableSignal } from "../routing/signals/routing-table"
-
-const logger = createLogger("das:node:manage-plugins")
 
 let nextRequestId = 1
 let nextPluginId = 1

@@ -1,8 +1,8 @@
-import { createLogger } from "@dassie/lib-logger"
 import { UnreachableCaseError, isFailure } from "@dassie/lib-type-utils"
 
 import { applyPacketPrepareToLedger } from "../../accounting/functions/apply-interledger-packet"
 import { Transfer, ledgerStore } from "../../accounting/stores/ledger"
+import { connector as logger } from "../../logger/instances"
 import { createResolveIlpAddress } from "../../routing/functions/resolve-ilp-address"
 import { MAX_PACKET_AMOUNT } from "../constants/max-packet-amount"
 import { createPacketSender } from "../functions/send-packet"
@@ -16,8 +16,6 @@ import {
 } from "../topics/prepared-ilp-packet"
 import { createScheduleTimeout } from "./schedule-timeout"
 import { createTriggerRejection } from "./trigger-rejection"
-
-const logger = createLogger("das:ilp-connector:process-prepare-packet")
 
 export interface ProcessPreparePacketEnvironment {
   ledger: ReturnType<typeof ledgerStore>

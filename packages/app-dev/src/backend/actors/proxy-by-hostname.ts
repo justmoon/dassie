@@ -2,7 +2,6 @@ import chalk from "chalk"
 
 import { Socket, connect, createServer } from "node:net"
 
-import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 import { isErrorWithCode } from "@dassie/lib-type-utils"
 
@@ -13,8 +12,7 @@ import {
   NODES_START_PORT,
   SNI_PROXY_PORT,
 } from "../constants/ports"
-
-const logger = createLogger("das:dev:sni-proxy")
+import { server as logger } from "../logger/instances"
 
 const HEADER_LENGTH = 5
 

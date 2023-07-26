@@ -1,11 +1,8 @@
-import { createLogger } from "@dassie/lib-logger"
-
+import { http as logger } from "../../logger/instances"
 import {
   getSocketActivationFileDescriptors,
   getSocketActivationState,
 } from "../../systemd/socket-activation"
-
-const logger = createLogger("das:node:http-listen-targets")
 
 export const SOCKET_ACTIVATION_NAME_HTTP = "dassie-http.socket"
 export const SOCKET_ACTIVATION_NAME_HTTPS = "dassie-https.socket"

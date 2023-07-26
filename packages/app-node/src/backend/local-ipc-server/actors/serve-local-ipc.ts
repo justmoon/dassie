@@ -1,20 +1,18 @@
 import { unlinkSync } from "node:fs"
 import { createServer } from "node:net"
 
-import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 import { createSocketHandler } from "@dassie/lib-trpc-ipc/adapter"
 import { isErrorWithCode } from "@dassie/lib-type-utils"
 
 import { environmentConfigSignal } from "../../config/environment-config"
+import { ipc as logger } from "../../logger/instances"
 import {
   getSocketActivationFileDescriptors,
   getSocketActivationState,
 } from "../../systemd/socket-activation"
 import { appRouter } from "../../trpc-server/app-router"
 import { createContextFactory } from "../../trpc-server/trpc-context"
-
-const logger = createLogger("das:local-ipc-server")
 
 const SOCKET_ACTIVATION_NAME_IPC = "dassie-ipc.socket"
 

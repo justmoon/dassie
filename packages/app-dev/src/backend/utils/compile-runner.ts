@@ -2,9 +2,7 @@ import { rollup } from "rollup"
 import type { RollupOptions } from "rollup"
 import esbuild from "rollup-plugin-esbuild"
 
-import { createLogger } from "@dassie/lib-logger"
-
-const logger = createLogger("das:dev:compile-runner")
+import { setup as logger } from "../logger/instances"
 
 const rollupConfig: RollupOptions = {
   input: new URL("../../runner/runner.ts", import.meta.url).pathname,

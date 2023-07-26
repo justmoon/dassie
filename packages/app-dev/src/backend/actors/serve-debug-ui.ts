@@ -5,14 +5,12 @@ import type { ViteDevServer } from "vite"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 
-import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
 import { LOCAL_FOLDER } from "../constants/paths"
 import { DEBUG_UI_PORT } from "../constants/ports"
+import { server as logger } from "../logger/instances"
 import { validateCertificates } from "../utils/validate-certificates"
-
-const logger = createLogger("das:dev:debug-ui-server")
 
 const debugUiPath = new URL("../../../", import.meta.url).pathname
 const certificatePath = join(LOCAL_FOLDER, "tls/localhost/web-localhost.pem")

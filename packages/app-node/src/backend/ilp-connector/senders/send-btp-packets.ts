@@ -1,4 +1,3 @@
-import { createLogger } from "@dassie/lib-logger"
 import {
   BtpType,
   btpEnvelopeSchema,
@@ -7,9 +6,8 @@ import {
 import { createActor } from "@dassie/lib-reactive"
 
 import { registerBtpHttpUpgrade } from "../../btp-server/register-btp-http-upgrade"
+import { connector as logger } from "../../logger/instances"
 import { CommonEndpointInfo, PacketSender } from "../functions/send-packet"
-
-const logger = createLogger("das:node:send-btp-packets")
 
 export interface BtpEndpointInfo extends CommonEndpointInfo {
   readonly type: "btp"

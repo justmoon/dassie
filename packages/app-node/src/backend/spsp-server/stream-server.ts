@@ -4,12 +4,10 @@ import {
   createServer,
 } from "ilp-protocol-stream"
 
-import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
+import { payment as logger } from "../logger/instances"
 import { managePlugins } from "./manage-plugins"
-
-const logger = createLogger("das:node:stream-server")
 
 export const streamServerService = () =>
   createActor(async (sig) => {

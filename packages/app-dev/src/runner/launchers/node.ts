@@ -1,6 +1,5 @@
 import { daemonActor } from "@dassie/app-node"
 import { hasTlsComputed } from "@dassie/app-node/src/backend/config/computed/has-tls"
-import { createLogger } from "@dassie/lib-logger"
 import { createActor, createReactor } from "@dassie/lib-reactive"
 
 import { handleShutdownSignals } from "../../common/actors/handle-shutdown-signals"
@@ -12,8 +11,6 @@ import { patchIlpLogger } from "../actors/patch-ilp-logger"
 import { reportPeeringState } from "../actors/report-peering-state"
 import { serveWallet } from "../actors/serve-wallet"
 import { trpcClientService } from "../services/trpc-client"
-
-export const logger = createLogger("das:dev:launcher:node")
 
 const debugRunner = () =>
   createActor(async (sig) => {

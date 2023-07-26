@@ -1,4 +1,3 @@
-import { createLogger } from "@dassie/lib-logger"
 import { createActor, createReactor } from "@dassie/lib-reactive"
 
 import { startAccounting } from "./accounting"
@@ -12,7 +11,8 @@ import { startHttpServer } from "./http-server"
 import { startIldcpServer } from "./ildcp-server"
 import { startIlpConnector } from "./ilp-connector"
 import { startLocalRpcServer } from "./local-ipc-server"
-import { attachLogger } from "./logger"
+import { startLogger } from "./logger"
+import { daemon as logger } from "./logger/instances"
 import { startOpenPaymentsServer } from "./open-payments"
 import { speakPeerProtocol } from "./peer-protocol"
 import { doRouting } from "./routing"
@@ -22,11 +22,9 @@ import { startStatisticsServer } from "./statistics"
 import { supportSystemd } from "./systemd"
 import { startTrpcServer } from "./trpc-server"
 
-const logger = createLogger("das:start")
-
 export const daemonActor = () =>
   createActor(async (sig) => {
-    sig.run(attachLogger)
+    sig.run(startLogger)
     sig.run(startLocalRpcServer)
     sig.run(supportSystemd)
     sig.run(startHttpServer)

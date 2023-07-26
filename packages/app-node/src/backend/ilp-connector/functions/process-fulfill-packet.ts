@@ -1,8 +1,7 @@
 import { createHash } from "node:crypto"
 
-import { createLogger } from "@dassie/lib-logger"
-
 import { ledgerStore } from "../../accounting/stores/ledger"
+import { connector as logger } from "../../logger/instances"
 import { IlpFulfillPacket, IlpType } from "../schemas/ilp-packet-codec"
 import { requestIdMapSignal } from "../signals/request-id-map"
 import {
@@ -10,8 +9,6 @@ import {
   resolvedIlpPacketTopic,
 } from "../topics/resolved-ilp-packet"
 import { createPacketSender } from "./send-packet"
-
-const logger = createLogger("das:ilp-connector:process-result-packet")
 
 export interface ProcessFulfillPacketEnvironment {
   ledger: ReturnType<typeof ledgerStore>

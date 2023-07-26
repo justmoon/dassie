@@ -6,12 +6,10 @@ import { mkdir, unlink } from "node:fs/promises"
 import { dirname } from "node:path"
 
 import { derPreamble } from "@dassie/app-node/src/backend/utils/pem"
-import { createLogger } from "@dassie/lib-logger"
 
 import { TEST_NODE_VANITY_KEYS } from "../constants/node-keys"
+import { setup as logger } from "../logger/instances"
 import { checkFileStatus } from "./check-file-status"
-
-const logger = createLogger("das:dev:validate-certificates")
 
 export interface CertificateInfo {
   type: "web" | "dassie"

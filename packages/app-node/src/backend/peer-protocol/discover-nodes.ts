@@ -1,6 +1,6 @@
-import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
+import { peerProtocol as logger } from "../logger/instances"
 import { sendPeerMessage } from "./actors/send-peer-message"
 import { signedPeerNodeInfo } from "./peer-schema"
 import { nodeDiscoveryQueueStore } from "./stores/node-discovery-queue"
@@ -9,8 +9,6 @@ import { NodeId } from "./types/node-id"
 import { parseLinkStateEntries } from "./utils/parse-link-state-entries"
 
 const NODE_DISCOVERY_INTERVAL = 1000
-
-const logger = createLogger("das:app-node:peer-protocol:discover-nodes")
 
 export const discoverNodes = () =>
   createActor((sig) => {

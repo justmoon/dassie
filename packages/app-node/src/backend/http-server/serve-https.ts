@@ -6,13 +6,11 @@ import type { IncomingMessage, ServerResponse } from "node:http"
 import { createServer } from "node:https"
 import type { Duplex } from "node:stream"
 
-import { createLogger } from "@dassie/lib-logger"
 import { createActor, createSignal } from "@dassie/lib-reactive"
 
 import { databaseConfigStore } from "../config/database-config"
+import { http as logger } from "../logger/instances"
 import { getListenTargets } from "./utils/listen-targets"
-
-const logger = createLogger("das:node:https-server")
 
 export type Handler = (
   request: IncomingMessage,

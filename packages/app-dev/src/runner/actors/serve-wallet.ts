@@ -8,10 +8,9 @@ import { join, normalize } from "node:path"
 
 import { databaseConfigStore } from "@dassie/app-node/src/backend/config/database-config"
 import { additionalMiddlewaresSignal } from "@dassie/app-node/src/backend/http-server/serve-https"
-import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
-const logger = createLogger("das:dev:runner:wallet-server")
+import { runner as logger } from "../../backend/logger/instances"
 
 const walletPath = new URL("../../../../app-node/src/frontend", import.meta.url)
   .pathname

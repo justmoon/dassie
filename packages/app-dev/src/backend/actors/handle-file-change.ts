@@ -2,14 +2,12 @@ import chalk from "chalk"
 
 import { posix } from "node:path"
 
-import { createLogger } from "@dassie/lib-logger"
 import { createActor, createTopic } from "@dassie/lib-reactive"
 
 import { logsStore } from "../../common/stores/logs"
+import { vite as logger } from "../logger/instances"
 import { viteNodeService } from "../services/vite-node-server"
 import { viteService } from "../services/vite-server"
-
-const logger = createLogger("das:dev:handle-file-change")
 
 export function getShortName(file: string, root: string): string {
   return file.startsWith(root + "/") ? posix.relative(root, file) : file

@@ -1,12 +1,10 @@
 import axios from "axios"
 import { z } from "zod"
 
-import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
 import { databaseConfigStore } from "../../config/database-config"
-
-const logger = createLogger("das:node:exchange-rate-service")
+import { exchange as logger } from "../../logger/instances"
 
 const exchangeRateSchema = z.object({
   data: z.object({

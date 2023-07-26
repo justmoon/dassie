@@ -1,9 +1,9 @@
-import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 import { UnreachableCaseError } from "@dassie/lib-type-utils"
 
 import { ledgerStore } from "../accounting/stores/ledger"
 import { ilpAllocationSchemeSignal } from "../config/computed/ilp-allocation-scheme"
+import { connector as logger } from "../logger/instances"
 import { nodeTableStore } from "../peer-protocol/stores/node-table"
 import { createResolveIlpAddress } from "../routing/functions/resolve-ilp-address"
 import { routingTableSignal } from "../routing/signals/routing-table"
@@ -18,8 +18,6 @@ import { IlpPacket, IlpType, parseIlpPacket } from "./schemas/ilp-packet-codec"
 import { requestIdMapSignal } from "./signals/request-id-map"
 import { preparedIlpPacketTopic } from "./topics/prepared-ilp-packet"
 import { resolvedIlpPacketTopic } from "./topics/resolved-ilp-packet"
-
-const logger = createLogger("das:node:ilp-connector:process-packet")
 
 export interface ProcessIncomingPacketParameters {
   sourceEndpointInfo: EndpointInfo

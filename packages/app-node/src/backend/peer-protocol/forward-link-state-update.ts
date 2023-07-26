@@ -1,12 +1,10 @@
-import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
+import { peerProtocol as logger } from "../logger/instances"
 import { sendPeerMessage } from "./actors/send-peer-message"
 import { peersComputation } from "./computed/peers"
 import { peerMessageContent } from "./peer-schema"
 import { nodeTableStore } from "./stores/node-table"
-
-const logger = createLogger("das:node:forward-link-state-update")
 
 const COUNTER_THRESHOLD = 3
 const MAX_RETRANSMIT_CHECK_INTERVAL = 200

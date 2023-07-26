@@ -1,4 +1,3 @@
-import { createLogger } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
 import { processPacket } from "../ilp-connector/process-packet"
@@ -7,10 +6,9 @@ import {
   serializeIlpPacket,
 } from "../ilp-connector/schemas/ilp-packet-codec"
 import { IldcpEndpointInfo } from "../ilp-connector/senders/send-ildcp-packets"
+import { ildcp as logger } from "../logger/instances"
 import { routingTableSignal } from "../routing/signals/routing-table"
 import { ildcpResponseSchema } from "./ildcp-packet-codec"
-
-const logger = createLogger("das:node:handle-ildcp-requests")
 
 export const ILDCP_ADDRESS = "peer.config"
 

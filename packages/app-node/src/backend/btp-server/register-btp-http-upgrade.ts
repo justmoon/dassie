@@ -2,7 +2,6 @@ import { nanoid } from "nanoid"
 import type { WebSocket } from "ws"
 import { WebSocketServer } from "ws"
 
-import { createLogger } from "@dassie/lib-logger"
 import {
   BtpType,
   btpEnvelopeSchema,
@@ -15,9 +14,8 @@ import { websocketRoutesSignal } from "../http-server/serve-https"
 import { nodeIlpAddressSignal } from "../ilp-connector/computed/node-ilp-address"
 import { processPacket } from "../ilp-connector/process-packet"
 import { BtpEndpointInfo } from "../ilp-connector/senders/send-btp-packets"
+import { btp as logger } from "../logger/instances"
 import { routingTableSignal } from "../routing/signals/routing-table"
-
-const logger = createLogger("das:node:websocket-server")
 
 let unique = 0
 

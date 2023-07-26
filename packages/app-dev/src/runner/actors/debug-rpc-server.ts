@@ -4,7 +4,6 @@ import { observable } from "@trpc/server/observable"
 import superjson from "superjson"
 import { WebSocketServer } from "ws"
 
-import { createLogger } from "@dassie/lib-logger"
 import {
   InferMessageType,
   createActor,
@@ -12,9 +11,8 @@ import {
 } from "@dassie/lib-reactive"
 import { type ReactiveContext } from "@dassie/lib-reactive-trpc/server"
 
+import { server as logger } from "../../backend/logger/instances"
 import { prettyFormat } from "../../common/utils/pretty-format"
-
-const logger = createLogger("das:dev:runner:debug-rpc-server")
 
 export const trpc = initTRPC.context<ReactiveContext>().create({
   transformer: superjson,

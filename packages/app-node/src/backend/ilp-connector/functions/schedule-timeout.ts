@@ -1,11 +1,10 @@
 import { setTimeout } from "node:timers/promises"
 
-import { createLogger, isError } from "@dassie/lib-logger"
+import { isError } from "@dassie/lib-logger"
 
+import { connector as logger } from "../../logger/instances"
 import { IlpErrorCode } from "../schemas/ilp-errors"
 import { createTriggerRejection } from "./trigger-rejection"
-
-const logger = createLogger("das:ilp-connector:schedule-timeout")
 
 export interface ScheduleTimeoutEnvironment {
   triggerRejection: ReturnType<typeof createTriggerRejection>

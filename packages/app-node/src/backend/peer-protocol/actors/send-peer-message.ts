@@ -1,16 +1,14 @@
 import axios from "axios"
 import type { SetOptional } from "type-fest"
 
-import { createLogger } from "@dassie/lib-logger"
 import type { InferSerialize } from "@dassie/lib-oer"
 import { createActor, createTopic } from "@dassie/lib-reactive"
 
 import { nodeIdSignal } from "../../ilp-connector/computed/node-id"
+import { peerProtocol as logger } from "../../logger/instances"
 import { peerMessage, peerMessageContent } from "../peer-schema"
 import { nodeTableStore } from "../stores/node-table"
 import { NodeId } from "../types/node-id"
-
-const logger = createLogger("das:node:outgoing-dassie-message-sender")
 
 export type MessageWithDestination = SetOptional<
   OutgoingPeerMessageEvent,

@@ -1,17 +1,15 @@
 import assert from "node:assert"
 
-import { createLogger } from "@dassie/lib-logger"
 import { ActorContext, createActor } from "@dassie/lib-reactive"
 
 import { nodeIdSignal } from "../ilp-connector/computed/node-id"
+import { peerProtocol as logger } from "../logger/instances"
 import { sendPeerMessage } from "./actors/send-peer-message"
 import { peersComputation } from "./computed/peers"
 import { requestedPeersComputation } from "./computed/requested-peers"
 import { nodeTableStore } from "./stores/node-table"
 import { NodeId } from "./types/node-id"
 import { SettlementSchemeId } from "./types/settlement-scheme-id"
-
-const logger = createLogger("das:node:peer-greeter")
 
 const MAX_HEARTBEAT_INTERVAL = 20_000
 

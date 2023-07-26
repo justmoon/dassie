@@ -1,4 +1,4 @@
-import { attachLogger } from "@dassie/app-node/src/backend/logger"
+import { attachLogger } from "@dassie/app-node/src/backend/logger/attach-logger"
 import {
   type SerializableLogEvent,
   captureConsole,

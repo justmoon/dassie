@@ -1,10 +1,10 @@
 import { setTimeout } from "node:timers/promises"
 
-import { createLogger } from "@dassie/lib-logger"
 import { createActor, createMapped } from "@dassie/lib-reactive"
 
 import { RunnerEnvironment } from "../../common/types/runner-environment"
 import { DEBUG_RPC_PORT } from "../constants/ports"
+import { children as logger } from "../logger/instances"
 import { viteNodeService } from "../services/vite-node-server"
 import { viteService } from "../services/vite-server"
 import { debugScopesSignal } from "../signals/debug-scopes"
@@ -19,8 +19,6 @@ import {
 } from "../utils/validate-certificates"
 import { fileChangeTopic } from "./handle-file-change"
 import { runChildProcess } from "./run-child-process"
-
-const logger = createLogger("das:dev:run-nodes")
 
 // Amount of time to wait between starting each node process
 const NODE_STARTUP_INTERVAL = 500
