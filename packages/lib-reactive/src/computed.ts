@@ -1,6 +1,6 @@
 import { isObject } from "@dassie/lib-type-utils"
 
-import type { DisposableLifecycle } from "./internal/lifecycle"
+import type { DisposableLifecycleScope } from "./lifecycle"
 import { type Factory, Reactor, type UseOptions } from "./reactor"
 import { type ReadonlySignal, type Signal, createSignal } from "./signal"
 
@@ -69,7 +69,7 @@ export interface ComputationContext {
    *
    * Computed values are only cleaned up when the reactor is cleaned up, so the handler won't be called until then.
    */
-  onCleanup: DisposableLifecycle["onCleanup"]
+  onCleanup: DisposableLifecycleScope["onCleanup"]
 }
 
 export function createComputed<TState>(

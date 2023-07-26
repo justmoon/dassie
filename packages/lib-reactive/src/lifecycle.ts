@@ -1,13 +1,13 @@
-import type { AsyncDisposer } from "../reactor"
+import type { AsyncDisposer } from "./reactor"
 
-export interface Lifecycle {
+export interface LifecycleScope {
   name: string
   isDisposed: boolean
-  onCleanup: typeof DisposableLifecycle.prototype.onCleanup
-  offCleanup: typeof DisposableLifecycle.prototype.offCleanup
+  onCleanup: typeof DisposableLifecycleScope.prototype.onCleanup
+  offCleanup: typeof DisposableLifecycleScope.prototype.offCleanup
 }
 
-export class DisposableLifecycle implements Lifecycle {
+export class DisposableLifecycleScope implements LifecycleScope {
   constructor(public readonly name: string) {}
 
   /**
@@ -39,7 +39,7 @@ export class DisposableLifecycle implements Lifecycle {
   }
 
   /**
-   * Unregister a callback that was previously registered with {@link DisposableLifecycle.onCleanup}.
+   * Unregister a callback that was previously registered with {@link DisposableLifecycleScope.onCleanup}.
    *
    * @param cleanupHandler - Callback to remove from the cleanup queue.
    */
@@ -83,8 +83,11 @@ export class DisposableLifecycle implements Lifecycle {
    *
    * This simply means that this lifecycle should be disposed automatically when the parent lifecycle is disposed.
    */
-  attachToParent = (parent: Lifecycle) => {
+  attachToParent = (parent: LifecycleScope) => {
     parent.onCleanup(this.dispose)
     this.onCleanup(() => parent.offCleanup(this.dispose))
   }
 }
+
+export const createLifecycleScope = (name: string) =>
+  new DisposableLifecycleScope(name)

@@ -4,7 +4,7 @@ import { isObject } from "@dassie/lib-type-utils"
 
 import type { Actor } from "./actor"
 import { createDebugTools } from "./debug/debug-tools"
-import { DisposableLifecycle } from "./internal/lifecycle"
+import { DisposableLifecycleScope } from "./lifecycle"
 
 /**
  * The reactor will automatically set this property on each instantiated object.
@@ -45,7 +45,7 @@ export interface UseOptions {
    *
    * @internal
    */
-  parentLifecycleScope?: DisposableLifecycle | undefined
+  parentLifecycleScope?: DisposableLifecycleScope | undefined
 
   /**
    * If true, the factory will be instantiated fresh every time and will not be stored in the context.
@@ -60,7 +60,7 @@ export interface ContextState extends WeakMap<Factory<unknown>, unknown> {
   set<T>(key: Factory<T>, value: T): this
 }
 
-export class Reactor extends DisposableLifecycle {
+export class Reactor extends DisposableLifecycleScope {
   static current: Reactor | undefined
 
   private contextState = new WeakMap() as ContextState

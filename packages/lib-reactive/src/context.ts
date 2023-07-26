@@ -3,13 +3,13 @@ import { Promisable } from "type-fest"
 import { isObject } from "@dassie/lib-type-utils"
 
 import type { Actor, RunOptions } from "./actor"
-import { DisposableLifecycle } from "./internal/lifecycle"
+import { DisposableLifecycleScope } from "./lifecycle"
 import { Mapped } from "./mapped"
 import type { Factory, Reactor, UseOptions } from "./reactor"
 import type { ReadonlySignal } from "./signal"
 import type { Listener, ReadonlyTopic } from "./topic"
 
-export class ActorContext extends DisposableLifecycle {
+export class ActorContext extends DisposableLifecycleScope {
   constructor(
     /**
      * Name of the actor.
@@ -315,14 +315,14 @@ export class ActorContext extends DisposableLifecycle {
 
     let index = 0
     for (const [, actor, mapLifecycle] of mapped) {
-      const actorLifecycle = new DisposableLifecycle("")
+      const actorLifecycle = new DisposableLifecycleScope("")
       actorLifecycle.attachToParent(mapLifecycle)
       actorLifecycle.attachToParent(this)
       results[index++] = actor.run(actorLifecycle)
     }
 
     mapped.additions.on(this, ([, actor, mapLifecycle]) => {
-      const actorLifecycle = new DisposableLifecycle("")
+      const actorLifecycle = new DisposableLifecycleScope("")
       actorLifecycle.attachToParent(mapLifecycle)
       actorLifecycle.attachToParent(this)
       actor.run(actorLifecycle)
@@ -347,7 +347,7 @@ export class ActorContext extends DisposableLifecycle {
 
     let index = 0
     for (const [, actor, mapLifecycle] of mapped) {
-      const actorLifecycle = new DisposableLifecycle("")
+      const actorLifecycle = new DisposableLifecycleScope("")
       actorLifecycle.attachToParent(mapLifecycle)
       actorLifecycle.attachToParent(this)
       // eslint-disable-next-line @typescript-eslint/await-thenable
@@ -355,7 +355,7 @@ export class ActorContext extends DisposableLifecycle {
     }
 
     mapped.additions.on(this, ([, actor, mapLifecycle]) => {
-      const actorLifecycle = new DisposableLifecycle("")
+      const actorLifecycle = new DisposableLifecycleScope("")
       actorLifecycle.attachToParent(mapLifecycle)
       actorLifecycle.attachToParent(this)
       actor.run(actorLifecycle)

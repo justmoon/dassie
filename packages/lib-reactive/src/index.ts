@@ -13,6 +13,7 @@ export {
 } from "./reactor"
 export { ActorContext } from "./context"
 export { debugFirehose } from "./debug/debug-tools"
+export { createLifecycleScope } from "./lifecycle"
 
 export type { Topic, ReadonlyTopic, Listener, InferMessageType } from "./topic"
 export type { Signal, ReadonlySignal, Reducer } from "./signal"
@@ -36,4 +37,4 @@ export type {
 export type { Computed, ComputationContext } from "./computed"
 export type { Mapped } from "./mapped"
 export type { Reactor, Factory, Disposer, AsyncDisposer } from "./reactor"
-export type { DisposableLifecycle as LifecycleScope } from "./internal/lifecycle"
+export type { LifecycleScope, DisposableLifecycleScope } from "./lifecycle"

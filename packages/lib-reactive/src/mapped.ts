@@ -1,6 +1,6 @@
 import { isObject } from "@dassie/lib-type-utils"
 
-import { DisposableLifecycle, Lifecycle } from "./internal/lifecycle"
+import { DisposableLifecycleScope, LifecycleScope } from "./lifecycle"
 import { Factory, FactoryNameSymbol, Reactor } from "./reactor"
 import { type ReadonlySignal } from "./signal"
 import { ReadonlyTopic, createTopic } from "./topic"
@@ -38,7 +38,7 @@ export interface Mapped<TInput, TOutput> {
    */
   getWithLifecycle(
     key: TInput
-  ): readonly [TOutput, Lifecycle] | readonly [undefined, undefined]
+  ): readonly [TOutput, LifecycleScope] | readonly [undefined, undefined]
 
   /**
    * Check if the map contains an item with the given key.
@@ -48,13 +48,13 @@ export interface Mapped<TInput, TOutput> {
   /**
    * A topic tracking new additions to the map.
    */
-  additions: ReadonlyTopic<readonly [TInput, TOutput, Lifecycle]>
+  additions: ReadonlyTopic<readonly [TInput, TOutput, LifecycleScope]>
 
   /**
    * You can iterate over the map. The iterator returns a tuple consisting of the key, the item and its lifecycle.
    */
   [Symbol.iterator]: () => IterableIterator<
-    readonly [TInput, TOutput, Lifecycle]
+    readonly [TInput, TOutput, LifecycleScope]
   >
 
   /**
@@ -65,12 +65,12 @@ export interface Mapped<TInput, TOutput> {
 
 interface InternalMapEntry<TOutput> {
   output: TOutput
-  lifecycle: DisposableLifecycle
+  lifecycle: DisposableLifecycleScope
 }
 
 export function createMapped<TInput, TOutput>(
   baseSetFactory: Factory<ReadonlySignal<Set<TInput>>>,
-  mapFunction: (input: TInput, lifecycle: Lifecycle) => TOutput
+  mapFunction: (input: TInput, lifecycle: LifecycleScope) => TOutput
 ): Mapped<TInput, TOutput> {
   const reactor = Reactor.current
 
@@ -82,7 +82,7 @@ export function createMapped<TInput, TOutput>(
 
   const internalMap = new Map<TInput, InternalMapEntry<TOutput>>()
 
-  const additions = createTopic<readonly [TInput, TOutput, Lifecycle]>()
+  const additions = createTopic<readonly [TInput, TOutput, LifecycleScope]>()
 
   const mapped: Mapped<TInput, TOutput> = {
     [MappedSymbol]: true,
@@ -115,7 +115,7 @@ export function createMapped<TInput, TOutput>(
   }
 
   for (const item of baseSet.read()) {
-    const lifecycle = new DisposableLifecycle(
+    const lifecycle = new DisposableLifecycleScope(
       `${mapped[FactoryNameSymbol]} item}`
     )
     lifecycle.attachToParent(reactor)
@@ -145,7 +145,7 @@ export function createMapped<TInput, TOutput>(
 
     for (const item of newSet) {
       if (!internalMap.has(item)) {
-        const lifecycle = new DisposableLifecycle(
+        const lifecycle = new DisposableLifecycleScope(
           `${mapped[FactoryNameSymbol]} item}`
         )
         lifecycle.attachToParent(reactor)

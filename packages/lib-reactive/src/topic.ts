@@ -2,7 +2,7 @@ import { Promisable } from "type-fest"
 
 import { isObject } from "@dassie/lib-type-utils"
 
-import { Lifecycle } from "./internal/lifecycle"
+import { LifecycleScope } from "./lifecycle"
 import { type Factory, FactoryNameSymbol } from "./reactor"
 
 export type Listener<TMessage> = (message: TMessage) => Promisable<void>
@@ -39,7 +39,11 @@ export interface ReadonlyTopic<TMessage = never> {
    * @param listener - A function that will be called every time a message is emitted on the topic.
    * @returns A function which if called will unsubscribe the listener from the topic.
    */
-  on: (this: void, lifecycle: Lifecycle, listener: Listener<TMessage>) => void
+  on: (
+    this: void,
+    lifecycle: LifecycleScope,
+    listener: Listener<TMessage>
+  ) => void
 
   /**
    * Subscribe to receive a single message from a topic. Similar to {@link on} but will only call the listener once.
@@ -47,7 +51,11 @@ export interface ReadonlyTopic<TMessage = never> {
    * @param listener - A function that will be called once the next time a message is emitted on the topic.
    * @returns A function which if called will unsubscribe the listener from the topic.
    */
-  once: (this: void, lifecycle: Lifecycle, listener: Listener<TMessage>) => void
+  once: (
+    this: void,
+    lifecycle: LifecycleScope,
+    listener: Listener<TMessage>
+  ) => void
 
   /**
    * Remove a listener from a topic.
@@ -120,7 +128,7 @@ export const createTopic = <TMessage>(): Topic<TMessage> => {
     }
   }
 
-  const on = (lifecycle: Lifecycle, listener: Listener<TMessage>) => {
+  const on = (lifecycle: LifecycleScope, listener: Listener<TMessage>) => {
     if (import.meta.env.DEV) {
       Object.defineProperty(listener, ListenerNameSymbol, {
         value: lifecycle.name,
@@ -141,7 +149,7 @@ export const createTopic = <TMessage>(): Topic<TMessage> => {
     })
   }
 
-  const once = (lifecycle: Lifecycle, listener: Listener<TMessage>) => {
+  const once = (lifecycle: LifecycleScope, listener: Listener<TMessage>) => {
     on(lifecycle, (message) => {
       off(listener)
       return listener(message)

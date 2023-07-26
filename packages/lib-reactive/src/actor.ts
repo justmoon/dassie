@@ -3,8 +3,8 @@ import type { ConditionalKeys } from "type-fest"
 import { isObject } from "@dassie/lib-type-utils"
 
 import { ActorContext } from "./context"
-import { DisposableLifecycle, Lifecycle } from "./internal/lifecycle"
 import { SettablePromise, makePromise } from "./internal/promise"
+import { DisposableLifecycleScope, LifecycleScope } from "./lifecycle"
 import { FactoryNameSymbol, Reactor } from "./reactor"
 import { type Signal, createSignal } from "./signal"
 
@@ -103,9 +103,9 @@ export type Actor<TInstance, TProperties = undefined> = Signal<
 }
 
 interface RunSignature<TReturn, TProperties> {
-  (lifecycle: Lifecycle): TReturn | undefined
+  (lifecycle: LifecycleScope): TReturn | undefined
   (
-    lifecycle: Lifecycle,
+    lifecycle: LifecycleScope,
     properties: TProperties,
     options?: RunOptions | undefined
   ): TReturn | undefined
@@ -122,7 +122,7 @@ export interface RunOptions {
    *
    * @internal
    */
-  parentLifecycleScope?: DisposableLifecycle | undefined
+  parentLifecycleScope?: DisposableLifecycleScope | undefined
 
   /**
    * A string that will be used to prefix the debug log messages related to this actor.
@@ -155,7 +155,7 @@ export const createActor: CreateActorSignature = <
     promise: makePromise(),
     behavior,
     run: (
-      lifecycle: Lifecycle,
+      lifecycle: LifecycleScope,
       properties?: TProperties,
       { additionalDebugData, pathPrefix }: RunOptions = {}
     ) => {
@@ -240,7 +240,7 @@ const loopActor = async <TReturn, TProperties>(
   actor: Actor<TReturn, TProperties>,
   actorPath: string,
   properties: TProperties,
-  parentLifecycle: Lifecycle,
+  parentLifecycle: LifecycleScope,
   additionalDebugData: Record<string, unknown> | undefined
 ) => {
   for (;;) {
