@@ -5,12 +5,12 @@ import { createLogger } from "@dassie/lib-logger"
 import { checkSchema } from "./internal/check-schema"
 import { type ConnectedTable, connectTable } from "./internal/connect-table"
 import {
-  type ScalarDescription,
   type ScalarStore,
   createScalarStore,
   scalarTable,
 } from "./internal/scalar-store"
 import type { MigrationDefinition } from "./types/migration"
+import { ScalarDescriptionBuilder } from "./types/scalar"
 import type { TableDescription } from "./types/table"
 import { migrate } from "./utils/migrate"
 
@@ -37,7 +37,7 @@ export interface DatabaseSchema {
   /**
    * A set of scalar definitions which effectively provide a type-safe key-value store.
    */
-  scalars?: Record<string, ScalarDescription> | undefined
+  scalars?: Record<string, ScalarDescriptionBuilder> | undefined
 }
 
 export interface DatabaseOptions {
@@ -86,7 +86,7 @@ export type InferTableAccessors<TOptions extends DatabaseGenerics> =
     : undefined
 
 export type InferScalarAccessors<TOptions extends DatabaseGenerics> =
-  TOptions["schema"]["scalars"] extends Record<string, ScalarDescription>
+  TOptions["schema"]["scalars"] extends Record<string, ScalarDescriptionBuilder>
     ? ScalarStore<TOptions["schema"]["scalars"]>
     : undefined
 

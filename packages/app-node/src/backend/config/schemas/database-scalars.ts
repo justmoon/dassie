@@ -1,62 +1,48 @@
 import { z } from "zod"
 
-import { type ScalarDescription } from "@dassie/lib-sqlite"
+import { NamespacedScalars, scalar } from "@dassie/lib-sqlite"
 
 import { VALID_REALMS } from "../../constants/general"
+import { RealmType } from "../environment-config"
 
-export const portSchema = z.number().int().min(1).max(65_535)
+export const portSchema = z.coerce.number().int().min(1).max(65_535)
 
 /**
  * This defines all the scalar values that are stored in the database which will
  * allow us to access them in a type-safe way.
  */
 export const CONFIG_DATABASE_SCALARS = {
-  "config.realm": {
-    type: "TEXT",
-    schema: z.enum(VALID_REALMS),
-  },
-  "config.hostname": {
-    type: "TEXT",
-    schema: z.string(),
-  },
-  "config.http_port": {
-    type: "INTEGER",
-    schema: portSchema,
-  },
-  "config.https_port": {
-    type: "INTEGER",
-    schema: portSchema,
-  },
-  "config.alias": {
-    type: "TEXT",
-    schema: z.string(),
-  },
-  "config.tls_web_cert": {
-    type: "TEXT",
-    schema: z.string(),
-  },
-  "config.tls_web_key": {
-    type: "TEXT",
-    schema: z.string(),
-  },
-  "config.tls_dassie_cert": {
-    type: "TEXT",
-    schema: z.string(),
-  },
-  "config.tls_dassie_key": {
-    type: "TEXT",
-    schema: z.string(),
-  },
-  "config.exchange_rate_url": {
-    type: "TEXT",
-    schema: z.string(),
-  },
-  "config.internal_amount_precision": {
-    type: "INTEGER",
-    schema: z.number().int().min(3),
-  },
-  "config.enable_http_server": {
-    type: "INTEGER",
-    schema: z.number().int().min(0).max(1).transform(Boolean),
-  },
-} as const satisfies Record<`config.${string}`, ScalarDescription>
+  configRealm: scalar()
+    .name("config.realm")
+    .type("TEXT")
+    .deserialize((value) => z.enum(VALID_REALMS).parse(value))
+    .serialize((value: RealmType) => value),
+  configHostname: scalar().name("config.hostname").type("TEXT"),
+  configHttpPort: scalar()
+    .name("config.http_port")
+    .type("INTEGER")
+    .deserialize((value) => portSchema.parse(value))
+    .serialize(BigInt),
+  configHttpsPort: scalar()
+    .name("config.https_port")
+    .type("INTEGER")
+    .deserialize((value) => portSchema.parse(value))
+    .serialize(BigInt),
+  configAlias: scalar().name("config.alias").type("TEXT"),
+  configTlsWebCert: scalar().name("config.tls_web_cert").type("TEXT"),
+  configTlsWebKey: scalar().name("config.tls_web_key").type("TEXT"),
+  configTlsDassieCert: scalar().name("config.tls_dassie_cert").type("TEXT"),
+  configTlsDassieKey: scalar().name("config.tls_dassie_key").type("TEXT"),
+  configExchangeRateUrl: scalar().name("config.exchange_rate_url").type("TEXT"),
+  configInternalAmountPrecision: scalar()
+    .name("config.internal_amount_precision")
+    .type("INTEGER")
+    .deserialize((value) => z.number().int().min(3).parse(value)),
+  configEnableHttpServer: scalar()
+    .name("config.enable_http_server")
+    .type("INTEGER")
+    .deserialize((value) =>
+      z.coerce.number().int().min(0).max(1).transform(Boolean).parse(value)
+    )
+    .serialize((value: boolean) => (value ? 1n : 0n)),
+} as const satisfies NamespacedScalars<"config">

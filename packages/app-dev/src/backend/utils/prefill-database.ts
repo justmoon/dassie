@@ -35,32 +35,23 @@ export const prefillDatabase = async ({
     schema: DASSIE_DATABASE_SCHEMA,
   })
 
-  database.scalars.set("config.realm", "test")
+  database.scalars.configRealm.set("test")
 
-  database.scalars.set("config.hostname", hostname)
-  database.scalars.set("config.https_port", httpsPort)
-  database.scalars.set("config.enable_http_server", false)
+  database.scalars.configHostname.set(hostname)
+  database.scalars.configHttpsPort.set(httpsPort)
+  database.scalars.configEnableHttpServer.set(false)
 
-  database.scalars.set("config.alias", id)
+  database.scalars.configAlias.set(id)
 
-  database.scalars.set(
-    "config.tls_dassie_cert",
+  database.scalars.configTlsDassieCert.set(
     await readFile(tlsDassieCertFile, "utf8")
   )
-  database.scalars.set(
-    "config.tls_dassie_key",
+  database.scalars.configTlsDassieKey.set(
     await readFile(tlsDassieKeyFile, "utf8")
   )
-  database.scalars.set(
-    "config.tls_web_cert",
-    await readFile(tlsWebCertFile, "utf8")
-  )
-  database.scalars.set(
-    "config.tls_web_key",
-    await readFile(tlsWebKeyFile, "utf8")
-  )
-  database.scalars.set(
-    "config.exchange_rate_url",
+  database.scalars.configTlsWebCert.set(await readFile(tlsWebCertFile, "utf8"))
+  database.scalars.configTlsWebKey.set(await readFile(tlsWebKeyFile, "utf8"))
+  database.scalars.configExchangeRateUrl.set(
     `https://localhost:${DEBUG_UI_PORT}/rates.json`
   )
 

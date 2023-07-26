@@ -40,21 +40,20 @@ export const hasNodeIdentity = (
 const loadInitialConfig = (
   database: ReturnType<typeof databasePlain>
 ): Config => {
-  const configRealm = database.scalars.get("config.realm") ?? "test"
-  const configHostname = database.scalars.get("config.hostname") ?? "localhost"
-  const configHttpPort = database.scalars.get("config.http_port") ?? 80
-  const configHttpsPort = database.scalars.get("config.https_port") ?? 443
-  const configAlias = database.scalars.get("config.alias") ?? "anonymous"
+  const configRealm = database.scalars.configRealm.get() ?? "test"
+  const configHostname = database.scalars.configHostname.get() ?? "localhost"
+  const configHttpPort = database.scalars.configHttpPort.get() ?? 80
+  const configHttpsPort = database.scalars.configHttpsPort.get() ?? 443
+  const configAlias = database.scalars.configAlias.get() ?? "anonymous"
   const configEnableHttpServer =
-    database.scalars.get("config.enable_http_server") ?? true
-  const configTlsWebCert = database.scalars.get("config.tls_web_cert")
-  const configTlsWebKey = database.scalars.get("config.tls_web_key")
-  const configTlsDassieCert = database.scalars.get("config.tls_dassie_cert")
-  const configTlsDassieKey = database.scalars.get("config.tls_dassie_key")
-  const configExchangeRateUrl = database.scalars.get("config.exchange_rate_url")
-  const configInternalAmountPrecision = database.scalars.get(
-    "config.internal_amount_precision"
-  )
+    database.scalars.configEnableHttpServer.get() ?? true
+  const configTlsWebCert = database.scalars.configTlsWebCert.get()
+  const configTlsWebKey = database.scalars.configTlsWebKey.get()
+  const configTlsDassieCert = database.scalars.configTlsDassieCert.get()
+  const configTlsDassieKey = database.scalars.configTlsDassieKey.get()
+  const configExchangeRateUrl = database.scalars.configExchangeRateUrl.get()
+  const configInternalAmountPrecision =
+    database.scalars.configInternalAmountPrecision.get()
 
   return {
     realm: configRealm,
@@ -85,14 +84,14 @@ export const databaseConfigStore = (reactor: Reactor) => {
   return createStore(loadInitialConfig(database), {
     setRealm: (realm: (typeof VALID_REALMS)[number]) =>
       produce((draft) => {
-        database.scalars.set("config.realm", realm)
+        database.scalars.configRealm.set(realm)
         draft.realm = realm
       }),
 
     setTlsCertificates: (tlsCert: string, tlsKey: string) =>
       produce((draft) => {
-        database.scalars.set("config.tls_web_cert", tlsCert)
-        database.scalars.set("config.tls_web_key", tlsKey)
+        database.scalars.configTlsWebCert.set(tlsCert)
+        database.scalars.configTlsWebKey.set(tlsKey)
         draft.tlsWebCert = tlsCert
         draft.tlsWebKey = tlsKey
       }),

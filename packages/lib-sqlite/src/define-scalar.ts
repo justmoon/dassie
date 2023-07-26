@@ -1,19 +1,29 @@
 import {
-  ColumnDescription,
-  ColumnDescriptionBuilder,
-  ColumnDescriptionGenerics,
-  DefaultColumnDescriptionGenerics,
-} from "./types/column"
+  DefaultScalarDescriptionGenerics,
+  ScalarDescription,
+  ScalarDescriptionBuilder,
+  ScalarDescriptionGenerics,
+} from "./types/scalar"
 import { SqliteToTypescriptTypeMap } from "./types/sqlite-datatypes"
 import { identity } from "./utils/identity"
 
-const createBuilder = <T extends ColumnDescriptionGenerics>(
-  description: ColumnDescription<T>
-): ColumnDescriptionBuilder<T> => ({
+const createBuilder = <T extends ScalarDescriptionGenerics>(
+  description: ScalarDescription<T>
+): ScalarDescriptionBuilder<T> => ({
   description,
 
+  name(name) {
+    const newDescription: ScalarDescription<
+      Omit<T, "name"> & { name: typeof name }
+    > = {
+      ...description,
+      name,
+    }
+    return createBuilder(newDescription)
+  },
+
   type(type) {
-    const newDescription: ColumnDescription<
+    const newDescription: ScalarDescription<
       Omit<T, "sqliteType" | "writeType" | "readType"> & {
         sqliteType: typeof type
         writeType: SqliteToTypescriptTypeMap[typeof type]
@@ -29,28 +39,8 @@ const createBuilder = <T extends ColumnDescriptionGenerics>(
     return createBuilder(newDescription)
   },
 
-  notNull() {
-    const newDescription: ColumnDescription<
-      Omit<T, "notNull"> & { notNull: true }
-    > = {
-      ...description,
-      notNull: true,
-    }
-    return createBuilder(newDescription)
-  },
-
-  primaryKey() {
-    const newDescription: ColumnDescription<
-      Omit<T, "primaryKey"> & { primaryKey: true }
-    > = {
-      ...description,
-      primaryKey: true,
-    }
-    return createBuilder(newDescription)
-  },
-
   serialize(serialize) {
-    const newDescription: ColumnDescription<
+    const newDescription: ScalarDescription<
       Omit<T, "writeType"> & { writeType: Parameters<typeof serialize>[0] }
     > = {
       ...description,
@@ -60,7 +50,7 @@ const createBuilder = <T extends ColumnDescriptionGenerics>(
   },
 
   deserialize(deserialize) {
-    const newDescription: ColumnDescription<
+    const newDescription: ScalarDescription<
       Omit<T, "readType"> & { readType: ReturnType<typeof deserialize> }
     > = {
       ...description,
@@ -68,15 +58,25 @@ const createBuilder = <T extends ColumnDescriptionGenerics>(
     }
     return createBuilder(newDescription)
   },
+
+  defaultValue(defaultValue) {
+    const newDescription: ScalarDescription<
+      Omit<T, "defaultValueType"> & { defaultValueType: typeof defaultValue }
+    > = {
+      ...description,
+      defaultValue,
+    }
+    return createBuilder(newDescription)
+  },
 })
 
-export const column =
-  (): ColumnDescriptionBuilder<DefaultColumnDescriptionGenerics> => {
+export const scalar =
+  (): ScalarDescriptionBuilder<DefaultScalarDescriptionGenerics> => {
     return createBuilder({
+      name: undefined,
       type: "TEXT",
-      notNull: false,
-      primaryKey: false,
       serialize: identity,
       deserialize: identity,
+      defaultValue: undefined,
     })
   }

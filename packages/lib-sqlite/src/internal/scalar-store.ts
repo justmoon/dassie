@@ -1,48 +1,24 @@
-import type { ZodTypeAny, TypeOf as ZodTypeOf } from "zod"
-
 import { column } from "../define-column"
 import { table } from "../define-table"
-import type {
-  SqliteDataType,
-  SqliteToTypescriptTypeMap,
-} from "../types/sqlite-datatypes"
+import {
+  InferScalarReadType,
+  InferScalarWriteType,
+  ScalarDescriptionBuilder,
+} from "../types/scalar"
+import { identity } from "../utils/identity"
 import type { ConnectedTable } from "./connect-table"
 
-export type ScalarDescription<
-  TSqliteType extends SqliteDataType = SqliteDataType
-> =
-  // This conditional ensures that the defaultValue is of the same type given
-  // in the type property. Otherwise, the type system might infer TSqliteType
-  // as a union of multiple sqlite types, which would allow default values of
-  // the wrong type, e.g. { type: "INTEGER", defaultValue: "foo" }.
-  TSqliteType extends SqliteDataType
-    ? {
-        type: TSqliteType
-        defaultValue?: SqliteToTypescriptTypeMap[TSqliteType]
-        schema?: ZodTypeAny
-      }
-    : never
-
-export interface ScalarStore<
-  TScalars extends Record<string, ScalarDescription>
-> {
-  get<TScalar extends keyof TScalars & string>(
-    key: TScalar
-  ): InferScalarType<TScalars[TScalar]>
-
-  set<TScalar extends keyof TScalars & string>(
-    key: TScalar,
-    value: InferScalarType<TScalars[TScalar]>
-  ): void
-
-  delete(key: keyof TScalars & string): void
+export interface ConnectedScalar<TScalar extends ScalarDescriptionBuilder> {
+  get(): InferScalarReadType<TScalar>
+  set(value: InferScalarWriteType<TScalar>): void
+  delete(): void
 }
 
-export type InferScalarType<T extends ScalarDescription> =
-  | (T["schema"] extends ZodTypeAny
-      ? ZodTypeOf<T["schema"]>
-      : SqliteToTypescriptTypeMap[T["type"]])
-  | ("defaultValue" extends keyof T ? T["defaultValue"] : undefined)
+export type ScalarStore<
+  TScalars extends Record<string, ScalarDescriptionBuilder>
+> = {
+  [TScalar in keyof TScalars]: ConnectedScalar<TScalars[TScalar]>
+}
 
 export const scalarTable = table({
   name: "scalar",
@@ -53,43 +29,69 @@ export const scalarTable = table({
 })
 
 export const createScalarStore = <
-  TScalars extends Record<string, ScalarDescription>
+  TScalars extends Record<string, ScalarDescriptionBuilder>
 >(
   scalarDescriptions: TScalars,
   connectedScalarTable: ConnectedTable<typeof scalarTable>
 ): ScalarStore<TScalars> => {
+  const scalarStore = {} as ScalarStore<TScalars>
+
+  for (const key in scalarDescriptions) {
+    scalarStore[key] = createConnectedScalar(
+      key,
+      scalarDescriptions,
+      connectedScalarTable
+    )
+  }
+
+  return scalarStore
+}
+
+const createConnectedScalar = <
+  TScalars extends Record<string, ScalarDescriptionBuilder>
+>(
+  key: keyof TScalars & string,
+  scalarDescriptions: TScalars,
+  connectedScalarTable: ConnectedTable<typeof scalarTable>
+): ConnectedScalar<TScalars[typeof key]> => {
   return {
-    get(key) {
-      const description = scalarDescriptions[key]
+    get() {
+      const description = scalarDescriptions[key]?.description
       if (!description) {
         throw new Error(`Unknown scalar: ${key}`)
       }
 
       const rawValue = connectedScalarTable.selectUnique("key", key)?.value
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-      const value: InferScalarType<TScalars[typeof key]> =
+      const value =
         rawValue === undefined
           ? description.defaultValue
-          : description.schema
-          ? description.schema.parse(rawValue)
-          : rawValue
+          : description.deserialize === identity
+          ? rawValue
+          : description.deserialize(rawValue)
 
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-      return value
+      return value as InferScalarReadType<TScalars[typeof key]>
     },
 
-    set(key, value) {
-      if (!(key in scalarDescriptions)) {
+    set(value) {
+      const description = scalarDescriptions[key]?.description
+
+      if (!description) {
         throw new Error(`Unknown scalar: ${key}`)
       }
 
       connectedScalarTable
         .insert()
         .upsert(["key"], ["value"])
-        .one({ key, value })
+        .one({
+          key,
+          value:
+            description.serialize === identity
+              ? value
+              : description.serialize(value),
+        })
     },
 
-    delete(key) {
+    delete() {
       if (!(key in scalarDescriptions)) {
         throw new Error(`Unknown scalar: ${key}`)
       }

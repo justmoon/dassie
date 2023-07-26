@@ -14,8 +14,8 @@ export const acmeRouter = trpc.router({
     )
     .mutation(({ input: { accountUrl, accountKey }, ctx: { sig } }) => {
       const database = sig.use(databasePlain)
-      database.scalars.set("acme.account_url", accountUrl)
-      database.scalars.set("acme.account_key", accountKey)
+      database.scalars.acmeAccountUrl.set(accountUrl)
+      database.scalars.acmeAccountKey.set(accountKey)
       return true
     }),
   registerToken: protectedProcedure

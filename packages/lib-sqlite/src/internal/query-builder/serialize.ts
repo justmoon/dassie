@@ -1,10 +1,10 @@
-import { identity } from "../../define-column"
 import {
   InferRowReadType,
   InferRowSqliteType,
   InferRowWriteType,
   TableDescription,
 } from "../../types/table"
+import { identity } from "../../utils/identity"
 
 export type RowSerializer<T extends TableDescription> = (
   row: InferRowWriteType<T>
