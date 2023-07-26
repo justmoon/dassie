@@ -114,7 +114,7 @@ export const DataValue = ({ keyName, content }: DataValueProperties) => {
       onClick={onClick}
       className={`bg-dark-100 rounded-1 text-xs mx-1 px-1 inline-block cursor-pointer`}
     >
-      <span className="italic">{keyName}=</span>
+      <span className="font-sans text-gray-3 italic">{keyName}=</span>
       <span style={{ color: typeInfo.color }}>{value}</span>
     </span>
   ) : (
