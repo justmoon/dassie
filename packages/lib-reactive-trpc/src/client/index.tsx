@@ -1,29 +1,19 @@
 import {
   type ReactNode,
   createContext,
-  useCallback,
   useContext,
-  useEffect,
   useMemo,
-  useRef,
   useState,
-  useSyncExternalStore,
 } from "react"
 
 import {
   Action,
-  ActorContext,
   BoundAction,
   Factory,
   InferChanges,
   Store,
 } from "@dassie/lib-reactive"
 import { type Reactor, createReactor } from "@dassie/lib-reactive"
-
-interface ReactActorContext {
-  context: ActorContext
-  wake: () => void
-}
 
 interface ProviderProperties {
   reactor?: Reactor | undefined
@@ -52,22 +42,6 @@ export interface TrpcStoreSubscriptionHook<TInitial, TChange> {
   ) => void
 }
 
-const noop = () => {
-  // empty
-}
-
-const createReactActorContext = (reactor: Reactor) => {
-  const reactActorContext: ReactActorContext = {
-    context: new ActorContext("react", "react", reactor, () => {
-      reactActorContext.wake()
-    }),
-    wake: noop,
-  }
-  reactActorContext.context.attachToParent(reactor)
-
-  return reactActorContext
-}
-
 const createReactiveHooks = () => {
   const ReactorContext = createContext<Reactor>(createReactor())
 
@@ -81,60 +55,6 @@ const createReactiveHooks = () => {
   }
 
   const useReactor = () => useContext(ReactorContext)
-
-  const useSig = () => {
-    const reactor = useReactor()
-
-    const actorContext = useRef<ReactActorContext | undefined>()
-
-    if (actorContext.current === undefined) {
-      actorContext.current = createReactActorContext(reactor)
-    }
-
-    useEffect(() => {
-      return () => {
-        actorContext.current!.context.dispose().catch((error: unknown) => {
-          console.error("error while disposing react actor context", { error })
-        })
-      }
-    }, [reactor])
-
-    return useSyncExternalStore(
-      useCallback(
-        (listener) => {
-          const handleWake = () => {
-            actorContext
-              .current!.context.dispose()
-              .catch((error: unknown) => {
-                console.error("error while disposing react actor context", {
-                  error,
-                })
-              })
-              .finally(() => {
-                actorContext
-                  .current!.context.dispose()
-                  .catch((error: unknown) => {
-                    console.error("error while disposing react actor context", {
-                      error,
-                    })
-                  })
-                actorContext.current = createReactActorContext(reactor)
-                actorContext.current.wake = handleWake
-                listener()
-              })
-          }
-
-          actorContext.current!.wake = handleWake
-
-          return () => {
-            actorContext.current!.wake = noop
-          }
-        },
-        [reactor]
-      ),
-      () => actorContext.current!.context
-    )
-  }
 
   const useRemoteSignal = <TValue,>({
     useSubscription,
@@ -159,11 +79,13 @@ const createReactiveHooks = () => {
     implementation: Factory<Store<TState, TActions>>
   ) => {
     const reactor = useReactor()
-    const sig = useSig()
     const store = useMemo(
       () => reactor.use(() => implementation(reactor)),
       [reactor, implementation]
     )
+    const [state, setState] = useState<{ state: TState }>({
+      state: store.read(),
+    })
 
     useSubscription(undefined, {
       onData: (data) => {
@@ -181,25 +103,24 @@ const createReactiveHooks = () => {
               )
             }
             action(...parameters)
+            setState({ state: store.read() })
           }
         }
       },
     })
 
-    sig.subscribe(store)
-    return store.read()
+    return state.state
   }
 
   return {
     Provider,
     useReactor,
-    useSig,
     useRemoteSignal,
     useRemoteStore,
   }
 }
 
-export const { Provider, useReactor, useSig, useRemoteSignal, useRemoteStore } =
+export const { Provider, useReactor, useRemoteSignal, useRemoteStore } =
   createReactiveHooks()
 
 export { createReactiveHooks }
