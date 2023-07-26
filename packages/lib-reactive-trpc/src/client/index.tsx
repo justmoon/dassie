@@ -111,6 +111,13 @@ const createReactiveHooks = () => {
                 })
               })
               .finally(() => {
+                actorContext
+                  .current!.context.dispose()
+                  .catch((error: unknown) => {
+                    console.error("error while disposing react actor context", {
+                      error,
+                    })
+                  })
                 actorContext.current = createReactActorContext(reactor)
                 actorContext.current.wake = handleWake
                 listener()
