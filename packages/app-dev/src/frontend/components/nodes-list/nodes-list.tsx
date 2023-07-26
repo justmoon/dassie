@@ -7,6 +7,7 @@ import { useRemoteSignal } from "@dassie/lib-reactive-trpc/client"
 import { COLORS } from "../../constants/palette"
 import { trpc } from "../../utils/trpc"
 import PeeringModeToggle from "../pages/dashboard/peering-mode-toggle"
+import { HOST_COLOR } from "../pages/host-detail"
 
 const NodesList = () => {
   const nodes = [...(useRemoteSignal(trpc.ui.subscribeToNodes) ?? new Set())]
@@ -29,6 +30,18 @@ const NodesList = () => {
         </button>
       </div>
       <div className="grid grid-cols-2 py-4 gap-x-2 gap-y-3">
+        <div className="flex gap-2 items-center bg-slate-700 rounded-full col-span-2">
+          <Link
+            href="/nodes/host"
+            className="flex items-center flex-1 pl-3 py-1 hover:bg-slate-600 rounded-full"
+          >
+            <i
+              className="rounded-full h-2 mr-2 w-2 inline-block"
+              style={{ background: HOST_COLOR }}
+            ></i>
+            Host
+          </Link>
+        </div>
         {nodes.map((nodeId) => (
           <div
             key={nodeId}

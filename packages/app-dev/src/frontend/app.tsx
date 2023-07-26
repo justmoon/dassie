@@ -1,6 +1,7 @@
 import { Route } from "wouter"
 
 import Dashboard from "./components/pages/dashboard/dashboard"
+import HostDetail from "./components/pages/host-detail"
 import Logs from "./components/pages/logs"
 import NodeDetail from "./components/pages/node-detail"
 import MainNavigation from "./main-navigation"
@@ -17,7 +18,13 @@ const App = () => {
           <Logs />
         </Route>
         <Route path="/nodes/:nodeId">
-          {({ nodeId }) => (nodeId ? <NodeDetail nodeId={nodeId} /> : null)}
+          {({ nodeId }) =>
+            nodeId === "host" ? (
+              <HostDetail />
+            ) : nodeId ? (
+              <NodeDetail nodeId={nodeId} />
+            ) : null
+          }
         </Route>
       </div>
     </>
