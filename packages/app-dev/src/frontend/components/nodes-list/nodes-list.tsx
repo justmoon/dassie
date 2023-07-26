@@ -4,18 +4,30 @@ import { Link } from "wouter"
 import { selectBySeed } from "@dassie/lib-logger"
 import { useRemoteSignal } from "@dassie/lib-reactive-trpc/client"
 
-import { COLORS } from "../../../constants/palette"
-import { trpc } from "../../../utils/trpc"
-import PeeringModeToggle from "./peering-mode-toggle"
+import { COLORS } from "../../constants/palette"
+import { trpc } from "../../utils/trpc"
+import PeeringModeToggle from "../pages/dashboard/peering-mode-toggle"
 
 const NodesList = () => {
   const nodes = [...(useRemoteSignal(trpc.ui.subscribeToNodes) ?? new Set())]
   const addRandomNode = trpc.ui.addRandomNode.useMutation()
 
   return (
-    <div className="rounded-lg flex flex-col bg-gray-800 min-h-0 p-4">
+    <div className="rounded-lg flex flex-col bg-gray-800 min-h-0 pt-4">
       <PeeringModeToggle />
-      <h2 className="font-bold text-xl">Nodes</h2>
+      <div className="flex justify-between items-end">
+        <h2 className="font-bold text-xl">Nodes</h2>
+        <button
+          type="button"
+          className="rounded font-medium bg-blue-700 text-white text-xs text-center mr-2 p-1 inline-flex items-center dark:bg-blue-600 hover:bg-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-300 dark:hover:bg-blue-700 dark:focus:ring-blue-800"
+          onClick={() => {
+            addRandomNode.mutate({})
+          }}
+        >
+          <FaPlus className="flex-shrink-0 text-lg" />
+          <span className="sr-only">Add node</span>
+        </button>
+      </div>
       <div className="grid grid-cols-2 py-4 gap-x-2 gap-y-3">
         {nodes.map((nodeId) => (
           <div
@@ -42,18 +54,6 @@ const NodesList = () => {
             </a>
           </div>
         ))}
-      </div>
-      <div>
-        <button
-          type="button"
-          className="rounded-lg font-medium bg-blue-700 text-white text-sm text-center mr-2 p-2.5 inline-flex items-center dark:bg-blue-600 hover:bg-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-300 dark:hover:bg-blue-700 dark:focus:ring-blue-800"
-          onClick={() => {
-            addRandomNode.mutate({})
-          }}
-        >
-          <FaPlus className="flex-shrink-0 text-lg" />
-          <span className="sr-only">Add node</span>
-        </button>
       </div>
     </div>
   )

@@ -1,6 +1,5 @@
 import LogViewer from "../../log-viewer/log-viewer"
 import NodeGraph from "../../node-graph/node-graph"
-import NodesList from "./nodes-list"
 
 const Dashboard = () => {
   return (
@@ -13,8 +12,7 @@ const Dashboard = () => {
         </div>
       </header>
       <main className="min-h-0 relative">
-        <div className="h-full mx-auto min-h-0 max-w-7xl grid grid-rows-[min-content_auto] px-4 gap-4 grid-cols-[300px_auto] sm:px-6 sm:px-0 lg:px-8">
-          <NodesList />
+        <div className="h-full mx-auto min-h-0 max-w-7xl grid grid-rows-[min-content_auto] grid-cols-1 px-4 gap-4 sm:px-6 sm:px-0 lg:px-8">
           <div className="h-lg">
             <NodeGraph />
           </div>

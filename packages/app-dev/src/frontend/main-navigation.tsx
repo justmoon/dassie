@@ -1,6 +1,8 @@
 import { FaHome, FaList } from "react-icons/fa"
 import { Link } from "wouter"
 
+import NodesList from "./components/nodes-list/nodes-list"
+
 const MainNavigation = () => {
   return (
     <div className="flex flex-col bg-gray-800 pt-5 inset-y-0 w-64 fixed">
@@ -25,6 +27,8 @@ const MainNavigation = () => {
           <FaList className="flex-shrink-0 mr-2 text-xl" />
           <span className="flex-1 text-base">Logs</span>
         </Link>
+
+        <NodesList />
       </nav>
     </div>
   )
