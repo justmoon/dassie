@@ -243,6 +243,13 @@ const loopActor = async <TReturn, TProperties>(
   parentLifecycle: LifecycleScope,
   additionalDebugData: Record<string, unknown> | undefined
 ) => {
+  const resetActor = async () => {
+    await actor.promise
+    actor.isRunning = false
+    actor.write(undefined)
+    actor.promise = makePromise()
+  }
+
   for (;;) {
     if (parentLifecycle.isDisposed) return
 
@@ -255,6 +262,7 @@ const loopActor = async <TReturn, TProperties>(
       waker.resolve
     )
     context.attachToParent(parentLifecycle)
+    context.onCleanup(resetActor)
 
     try {
       actor.isRunning = true
@@ -281,9 +289,6 @@ const loopActor = async <TReturn, TProperties>(
       })
       return
     } finally {
-      actor.isRunning = false
-      actor.write(undefined)
-      actor.promise = makePromise()
       await context.dispose()
     }
   }
