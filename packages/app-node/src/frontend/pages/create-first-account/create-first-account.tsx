@@ -1,4 +1,4 @@
-import { ArrowRight, ProhibitInset } from "phosphor-react"
+import { ArrowRight, CircleSlash } from "lucide-react"
 
 import Tabs from "../../components/tabs/tabs"
 import { Button } from "../../components/ui/button"
@@ -28,7 +28,7 @@ export const CreateFirstAccount = () => {
             </Tabs.List>
             <Tabs.Content value="testnet">
               <div className="p-6 mt-4 max-w-sm bg-white rounded-lg border border-gray-200 shadow-md dark:bg-gray-800 dark:border-gray-700">
-                <ProhibitInset
+                <CircleSlash
                   aria-hidden="true"
                   className="mb-2 w-10 h-10 text-gray-500 dark:text-gray-400"
                 />

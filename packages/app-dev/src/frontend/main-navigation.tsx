@@ -1,4 +1,4 @@
-import { FaHome, FaList } from "react-icons/fa"
+import { Home, List } from "lucide-react"
 import { Link } from "wouter"
 
 import NodesList from "./components/nodes-list/nodes-list"
@@ -17,14 +17,14 @@ const MainNavigation = () => {
           href="/"
           className="rounded-md flex font-medium bg-gray-900 text-white text-sm py-2 px-2 group items-center"
         >
-          <FaHome className="flex-shrink-0 mr-2 text-xl" />
+          <Home className="flex-shrink-0 mr-2 text-xl" />
           <span className="flex-1 text-base">Dashboard</span>
         </Link>
         <Link
           href="/logs"
           className="rounded-md flex font-medium bg-gray-900 text-white text-sm py-2 px-2 group items-center"
         >
-          <FaList className="flex-shrink-0 mr-2 text-xl" />
+          <List className="flex-shrink-0 mr-2 text-xl" />
           <span className="flex-1 text-base">Logs</span>
         </Link>
 

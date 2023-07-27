@@ -1,6 +1,6 @@
 import * as Tabs from "@radix-ui/react-tabs"
+import { Link } from "lucide-react"
 import { useMemo, useState } from "react"
-import { FaLink } from "react-icons/fa"
 
 import { selectBySeed } from "@dassie/lib-logger"
 
@@ -39,7 +39,7 @@ const NodeHeader = ({ nodeId }: BasicNodeElementProperties) => {
             rel="noreferrer"
           >
             Wallet
-            <FaLink className="inline-block ml-2" />
+            <Link className="inline-block ml-2" />
           </a>
         </h1>
       </div>

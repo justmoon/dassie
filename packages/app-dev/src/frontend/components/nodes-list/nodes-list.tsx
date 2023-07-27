@@ -1,4 +1,4 @@
-import { FaPlus, FaWallet } from "react-icons/fa"
+import { Plus, Wallet } from "lucide-react"
 import { Link } from "wouter"
 
 import { selectBySeed } from "@dassie/lib-logger"
@@ -25,7 +25,7 @@ const NodesList = () => {
             addRandomNode.mutate({})
           }}
         >
-          <FaPlus className="flex-shrink-0 text-lg" />
+          <Plus className="flex-shrink-0 text-lg" />
           <span className="sr-only">Add node</span>
         </button>
       </div>
@@ -63,7 +63,7 @@ const NodesList = () => {
               target="_blank"
               rel="noreferrer"
             >
-              <FaWallet />
+              <Wallet />
             </a>
           </div>
         ))}
