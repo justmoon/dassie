@@ -13,8 +13,7 @@ export const prefillDatabase = async ({
   hostname,
   httpsPort,
   dataPath,
-  tlsDassieCertFile,
-  tlsDassieKeyFile,
+  dassieKeyFile,
   tlsWebCertFile,
   tlsWebKeyFile,
   peers,
@@ -43,12 +42,7 @@ export const prefillDatabase = async ({
 
   database.scalars.configAlias.set(id)
 
-  database.scalars.configTlsDassieCert.set(
-    await readFile(tlsDassieCertFile, "utf8")
-  )
-  database.scalars.configTlsDassieKey.set(
-    await readFile(tlsDassieKeyFile, "utf8")
-  )
+  database.scalars.configDassieKey.set(await readFile(dassieKeyFile, "utf8"))
   database.scalars.configTlsWebCert.set(await readFile(tlsWebCertFile, "utf8"))
   database.scalars.configTlsWebKey.set(await readFile(tlsWebKeyFile, "utf8"))
   database.scalars.configExchangeRateUrl.set(

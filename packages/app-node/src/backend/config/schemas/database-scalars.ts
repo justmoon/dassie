@@ -31,8 +31,7 @@ export const CONFIG_DATABASE_SCALARS = {
   configAlias: scalar().name("config.alias").type("TEXT"),
   configTlsWebCert: scalar().name("config.tls_web_cert").type("TEXT"),
   configTlsWebKey: scalar().name("config.tls_web_key").type("TEXT"),
-  configTlsDassieCert: scalar().name("config.tls_dassie_cert").type("TEXT"),
-  configTlsDassieKey: scalar().name("config.tls_dassie_key").type("TEXT"),
+  configDassieKey: scalar().name("config.dassie_key").type("TEXT"),
   configExchangeRateUrl: scalar().name("config.exchange_rate_url").type("TEXT"),
   configInternalAmountPrecision: scalar()
     .name("config.internal_amount_precision")

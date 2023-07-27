@@ -14,5 +14,5 @@ export const nodePrivateKeySignal = () =>
 
     assert(hasNodeIdentity(config), "Node identity is not configured")
 
-    return parseEd25519PrivateKey(config.tlsDassieKey)
+    return parseEd25519PrivateKey(config.dassieKey)
   })

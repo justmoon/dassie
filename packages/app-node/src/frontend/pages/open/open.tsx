@@ -5,6 +5,8 @@ import { useCallback, useState } from "react"
 
 import { Card, CardHeader, CardTitle } from "../../components/ui/card"
 import { walletStore } from "../../stores/wallet"
+import { getPrivateSeedAtPath } from "../../utils/signer"
+import { trpc } from "../../utils/trpc"
 import { SubpageGenerate } from "./subpage-generate/subpage-generate"
 import { SubpageIntro } from "./subpage-intro/subpage-intro"
 import { SubpageRecover } from "./subpage-recover/subpage-recover"
@@ -51,6 +53,7 @@ const SUBPAGE_TITLES: Record<SubpageState["subpage"], string> = {
 
 export const Open = () => {
   const [subpage, setSubpage] = useState<SubpageState>({ subpage: "intro" })
+  const setNodeIdentity = trpc.config.setNodeIdentity.useMutation()
 
   const onBack = useCallback(() => {
     switch (subpage.subpage) {
@@ -84,15 +87,19 @@ export const Open = () => {
     setSubpage({ subpage: "recover", mnemonic: "" })
   }, [setSubpage])
 
+  const setNodeIdentityMutate = setNodeIdentity.mutate
   const onMnemonic = useCallback(
     (mnemonic: string) => {
       setSubpage({ subpage: "opening", mnemonic })
 
-      void bip39
-        .mnemonicToSeed(mnemonic)
-        .then((binarySeed) => walletStore.setSeed(bytesToHex(binarySeed)))
+      void bip39.mnemonicToSeed(mnemonic).then((binarySeed) => {
+        setNodeIdentityMutate({
+          rawDassieKeyHex: bytesToHex(getPrivateSeedAtPath(binarySeed, "node")),
+        })
+        walletStore.setSeed(bytesToHex(binarySeed))
+      })
     },
-    [setSubpage]
+    [setSubpage, setNodeIdentityMutate]
   )
 
   const subpageElement = (() => {

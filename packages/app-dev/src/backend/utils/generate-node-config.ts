@@ -62,8 +62,8 @@ export interface BaseNodeConfig {
   longitude: number
   dataPath: string
   ipcSocketPath: string
-  tlsDassieCertFile: string
-  tlsDassieKeyFile: string
+  dassieCertFile: string
+  dassieKeyFile: string
   tlsWebCertFile: string
   tlsWebKeyFile: string
   bootstrapNodes: BootstrapNodesConfig
@@ -131,8 +131,8 @@ export const generateNodeConfig = ((id, environmentSettings) => {
     longitude,
     dataPath,
     ipcSocketPath: resolve(dataPath, "dassie.sock"),
-    tlsDassieCertFile: `${LOCAL_PATH}/tls/${id}.localhost/dassie-${id}.localhost.pem`,
-    tlsDassieKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/dassie-${id}.localhost-key.pem`,
+    dassieCertFile: `${LOCAL_PATH}/tls/${id}.localhost/dassie-${id}.localhost.pem`,
+    dassieKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/dassie-${id}.localhost-key.pem`,
     tlsWebCertFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost.pem`,
     tlsWebKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost-key.pem`,
     bootstrapNodes: BOOTSTRAP_NODES.map((peerIndex) =>

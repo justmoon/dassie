@@ -21,8 +21,7 @@ export interface Config {
   readonly tlsWebCert: string | undefined
   readonly tlsWebKey: string | undefined
 
-  readonly tlsDassieCert: string | undefined
-  readonly tlsDassieKey: string | undefined
+  readonly dassieKey: string | undefined
 }
 
 export const hasTls = (
@@ -33,8 +32,8 @@ export const hasTls = (
 
 export const hasNodeIdentity = (
   config: Config
-): config is Config & { tlsDassieCert: string; tlsDassieKey: string } => {
-  return config.tlsDassieCert !== undefined && config.tlsDassieKey !== undefined
+): config is Config & { dassieKey: string } => {
+  return config.dassieKey !== undefined
 }
 
 const loadInitialConfig = (
@@ -49,8 +48,7 @@ const loadInitialConfig = (
     database.scalars.configEnableHttpServer.get() ?? true
   const configTlsWebCert = database.scalars.configTlsWebCert.get()
   const configTlsWebKey = database.scalars.configTlsWebKey.get()
-  const configTlsDassieCert = database.scalars.configTlsDassieCert.get()
-  const configTlsDassieKey = database.scalars.configTlsDassieKey.get()
+  const configDassieKey = database.scalars.configDassieKey.get()
   const configExchangeRateUrl = database.scalars.configExchangeRateUrl.get()
   const configInternalAmountPrecision =
     database.scalars.configInternalAmountPrecision.get()
@@ -73,8 +71,7 @@ const loadInitialConfig = (
     tlsWebCert: configTlsWebCert,
     tlsWebKey: configTlsWebKey,
 
-    tlsDassieCert: configTlsDassieCert,
-    tlsDassieKey: configTlsDassieKey,
+    dassieKey: configDassieKey,
   }
 }
 
@@ -94,6 +91,12 @@ export const databaseConfigStore = (reactor: Reactor) => {
         database.scalars.configTlsWebKey.set(tlsKey)
         draft.tlsWebCert = tlsCert
         draft.tlsWebKey = tlsKey
+      }),
+
+    setNodeIdentity: (dassieKey: string) =>
+      produce((draft) => {
+        database.scalars.configDassieKey.set(dassieKey)
+        draft.dassieKey = dassieKey
       }),
   })
 }

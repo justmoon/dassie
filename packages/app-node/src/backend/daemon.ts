@@ -22,14 +22,8 @@ import { startStatisticsServer } from "./statistics"
 import { supportSystemd } from "./systemd"
 import { startTrpcServer } from "./trpc-server"
 
-export const daemonActor = () =>
-  createActor(async (sig) => {
-    sig.run(startLogger)
-    sig.run(startLocalRpcServer)
-    sig.run(supportSystemd)
-    sig.run(startHttpServer)
-    sig.run(startAcmeCertificateManager)
-
+export const startTlsDependentServices = () =>
+  createActor((sig) => {
     const hasTls = sig.get(hasTlsComputed)
 
     if (!hasTls) {
@@ -38,7 +32,10 @@ export const daemonActor = () =>
     }
 
     sig.run(startTrpcServer)
+  })
 
+export const startNodeIdentityDependentServices = () =>
+  createActor(async (sig) => {
     const hasNodeIdentity = sig.get(hasNodeIdentityComputed)
 
     if (!hasNodeIdentity) {
@@ -60,6 +57,18 @@ export const daemonActor = () =>
 
     await sig.run(speakPeerProtocol)
     sig.run(doRouting)
+  })
+
+export const daemonActor = () =>
+  createActor(async (sig) => {
+    sig.run(startLogger)
+    sig.run(startLocalRpcServer)
+    sig.run(supportSystemd)
+    sig.run(startHttpServer)
+    sig.run(startAcmeCertificateManager)
+
+    sig.run(startTlsDependentServices)
+    await sig.run(startNodeIdentityDependentServices)
   })
 
 export const startDaemon = () => createReactor(daemonActor)

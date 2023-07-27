@@ -63,8 +63,8 @@ export const runNodes = () =>
               {
                 type: "dassie",
                 commonName: `test.das.${node.id}`,
-                certificatePath: node.tlsDassieCertFile,
-                keyPath: node.tlsDassieKeyFile,
+                certificatePath: node.dassieCertFile,
+                keyPath: node.dassieKeyFile,
               },
             ]
 
