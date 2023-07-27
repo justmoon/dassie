@@ -27,10 +27,7 @@ const App = () => {
     return null
   }
 
-  // TODO: Get accounts from server
-  const accounts = ["stub"]
-
-  if (accounts.length === 0) {
+  if (basicState.activeSettlementSchemes.length === 0) {
     return <CreateFirstAccount />
   }
 

@@ -2,6 +2,8 @@ import { z } from "zod"
 
 import { VALID_REALMS } from "../../constants/general"
 import { trpc } from "../../local-ipc-server/trpc-context"
+import { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
+import { settlementSchemesStore } from "../../settlement-schemes/database-stores/settlement-schemes"
 import { protectedProcedure } from "../../trpc-server/middlewares/auth"
 import { serializeEd25519PrivateKey } from "../../utils/pem"
 import { databaseConfigStore } from "../database-config"
@@ -36,5 +38,15 @@ export const configAdminRouter = trpc.router({
       const dassieKey = serializeEd25519PrivateKey(rawDassieKeyBuffer)
 
       config.setNodeIdentity(dassieKey)
+    }),
+  addSettlementScheme: protectedProcedure
+    .input(
+      z.object({
+        id: z.string().transform((id) => id as SettlementSchemeId),
+        config: z.object({}),
+      })
+    )
+    .mutation(({ ctx: { sig }, input: { id, config } }) => {
+      sig.use(settlementSchemesStore).addSettlementScheme(id, config)
     }),
 })

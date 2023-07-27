@@ -1,4 +1,5 @@
 import { ArrowRight, CircleSlash } from "lucide-react"
+import { useCallback } from "react"
 
 import Tabs from "../../components/tabs/tabs"
 import { Button } from "../../components/ui/button"
@@ -8,15 +9,21 @@ import {
   CardHeader,
   CardTitle,
 } from "../../components/ui/card"
-
-const onSelectNullSubnet = () => {
-  throw new Error("not implemented")
-}
+import { trpc } from "../../utils/trpc"
 
 export const CreateFirstAccount = () => {
+  const addSettlementScheme = trpc.config.addSettlementScheme.useMutation()
+
+  const onSelectNullSubnet = useCallback(() => {
+    addSettlementScheme.mutate({
+      id: "null",
+      config: {},
+    })
+  }, [addSettlementScheme])
+
   return (
     <div className="flex h-full items-center justify-center">
-      <Card className="w-full mx-8">
+      <Card className="w-full max-w-lg mx-8 h-full max-h-lg">
         <CardHeader>
           <CardTitle>Select a network</CardTitle>
         </CardHeader>

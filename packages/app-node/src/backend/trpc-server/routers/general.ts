@@ -16,9 +16,9 @@ export const generalRouter = trpc.router({
       } as const
     }
 
-    const activeSettlementSchemes = sig
-      .use(activeSettlementSchemesSignal)
-      .read()
+    const activeSettlementSchemes = [
+      ...sig.use(activeSettlementSchemesSignal).read(),
+    ]
 
     if (!user) {
       return {
