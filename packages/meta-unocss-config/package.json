@@ -1,0 +1,15 @@
+{
+  "name": "@dassie/meta-unocss-config",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Dassie Unocss config",
+  "main": "./uno.config.ts",
+  "author": "Stefan Thomas <justmoon@members.fsf.org>",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@unocss/preset-mini": "^0.53.4",
+    "@unocss/reset": "^0.53.4",
+    "@unocss/transformer-directives": "^0.53.4",
+    "unocss": "^0.53.4"
+  }
+}

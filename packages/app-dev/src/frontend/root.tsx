@@ -2,6 +2,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { useState } from "react"
 import superjson from "superjson"
 
+import { DarkModeProvider } from "@dassie/app-node/src/frontend/components/context/dark-mode"
+
 import App from "./app"
 import { trpc, wsLink } from "./utils/trpc"
 
@@ -15,11 +17,13 @@ const Root = () => {
   })
 
   return (
-    <trpc.Provider client={trpcClient} queryClient={queryClient}>
-      <QueryClientProvider client={queryClient}>
-        <App />
-      </QueryClientProvider>
-    </trpc.Provider>
+    <DarkModeProvider>
+      <trpc.Provider client={trpcClient} queryClient={queryClient}>
+        <QueryClientProvider client={queryClient}>
+          <App />
+        </QueryClientProvider>
+      </trpc.Provider>
+    </DarkModeProvider>
   )
 }
 

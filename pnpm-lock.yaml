@@ -153,6 +153,9 @@ importers:
       '@dassie/lib-type-utils':
         specifier: workspace:*
         version: link:../lib-type-utils
+      '@dassie/meta-unocss-config':
+        specifier: workspace:^
+        version: link:../meta-unocss-config
       '@radix-ui/react-tabs':
         specifier: ^1.0.4
         version: 1.0.4(@types/react-dom@18.2.6)(@types/react@18.2.14)(react-dom@18.2.0)(react@18.2.0)
@@ -358,6 +361,9 @@ importers:
       '@dassie/lib-type-utils':
         specifier: workspace:^
         version: link:../lib-type-utils
+      '@dassie/meta-unocss-config':
+        specifier: workspace:^
+        version: link:../meta-unocss-config
       '@noble/ed25519':
         specifier: ^2.0.0
         version: 2.0.0
@@ -397,15 +403,6 @@ importers:
       '@types/ws':
         specifier: ^8.5.5
         version: 8.5.5
-      '@unocss/preset-mini':
-        specifier: ^0.53.4
-        version: 0.53.4
-      '@unocss/reset':
-        specifier: ^0.53.4
-        version: 0.53.4
-      '@unocss/transformer-directives':
-        specifier: ^0.53.4
-        version: 0.53.4
       acme-client:
         specifier: ^5.0.0
         version: 5.0.0
@@ -793,6 +790,21 @@ importers:
       '@tsconfig/strictest':
         specifier: ^2.0.1
         version: 2.0.1
+
+  packages/meta-unocss-config:
+    dependencies:
+      '@unocss/preset-mini':
+        specifier: ^0.53.4
+        version: 0.53.4
+      '@unocss/reset':
+        specifier: ^0.53.4
+        version: 0.53.4
+      '@unocss/transformer-directives':
+        specifier: ^0.53.4
+        version: 0.53.4
+      unocss:
+        specifier: ^0.53.4
+        version: 0.53.4(postcss@8.4.24)(rollup@3.25.3)(vite@4.3.9)
 
 packages:
 

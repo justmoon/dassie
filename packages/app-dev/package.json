@@ -28,6 +28,7 @@
     "@dassie/lib-reactive-trpc": "workspace:^",
     "@dassie/lib-sqlite": "workspace:^",
     "@dassie/lib-type-utils": "workspace:*",
+    "@dassie/meta-unocss-config": "workspace:^",
     "@radix-ui/react-tabs": "^1.0.4",
     "@react-hook/size": "^2.1.2",
     "@tanstack/react-query": "^4.29.19",
