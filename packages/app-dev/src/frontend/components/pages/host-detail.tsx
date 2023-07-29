@@ -1,5 +1,9 @@
-import * as Tabs from "@radix-ui/react-tabs"
-
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@dassie/app-node/src/frontend/components/ui/tabs"
 import { selectBySeed } from "@dassie/lib-logger"
 
 import { COLORS } from "../../constants/palette"
@@ -9,15 +13,13 @@ export const HOST_COLOR = selectBySeed(COLORS, "host")
 const HostHeader = () => {
   return (
     <header>
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <h1 className="font-bold leading-tight text-3xl text-gray-100">
-          <i
-            className="rounded-full h-5 mr-4 w-5 inline-block"
-            style={{ background: HOST_COLOR }}
-          ></i>
-          Host
-        </h1>
-      </div>
+      <h1 className="font-bold leading-tight text-3xl px-4">
+        <i
+          className="rounded-full h-5 mr-4 w-5 inline-block"
+          style={{ background: HOST_COLOR }}
+        ></i>
+        Host
+      </h1>
     </header>
   )
 }
@@ -28,27 +30,19 @@ const HostLogViewer = () => {
 
 const HostDetail = () => {
   return (
-    <div className="h-screen grid grid-rows-[min-content_auto] py-10">
+    <div className="h-screen grid grid-rows-[auto_1fr] gap-4 py-10">
       <HostHeader />
-      <Tabs.Root
+      <Tabs
         defaultValue="logs"
-        className="mx-auto w-full min-h-0 max-w-7xl grid grid-rows-[min-content_auto] pt-8 gap-4 sm:px-6 lg:px-8"
+        className="min-h-0 grid grid-rows-[auto_1fr] px-4"
       >
-        <Tabs.List className="flex flex-wrap -mb-px">
-          <Tabs.Trigger
-            value="logs"
-            className="border-transparent rounded-t-lg border-b-2 p-4 inline-block hover:border-gray-300 hover:text-gray-300"
-          >
-            Logs
-          </Tabs.Trigger>
-        </Tabs.List>
-        <Tabs.Content
-          value="logs"
-          className="rounded-lg bg-gray-800 min-h-0 p-4"
-        >
+        <TabsList className="justify-start">
+          <TabsTrigger value="logs">Logs</TabsTrigger>
+        </TabsList>
+        <TabsContent value="logs" className="min-h-0">
           <HostLogViewer />
-        </Tabs.Content>
-      </Tabs.Root>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

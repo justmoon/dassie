@@ -103,8 +103,8 @@ export const PrimaryError = ({ error }: PrimaryErrorProperties) => {
 
   return (
     <>
-      <div className={`bg-dark-100 rounded-2 text-xs my-2 p-3`}>
-        <div className="text-red-400 font-bold mb-1">
+      <div className={`bg-destructive rounded-2 text-xs my-2 p-3`}>
+        <div className="text-destructive-foreground font-bold mb-1">
           <span>{name}</span>
           {message ? ": " : ""}
           <span>{message}</span>

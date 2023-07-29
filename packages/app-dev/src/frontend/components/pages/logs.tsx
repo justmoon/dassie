@@ -2,17 +2,13 @@ import LogViewer from "../log-viewer/log-viewer"
 
 const Logs = () => {
   return (
-    <div className="flex flex-col h-full max-h-screen py-10">
+    <div className="grid grid-rows-[auto_1fr] gap-4 h-full max-h-screen py-10">
       <header>
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <h1 className="font-bold leading-tight text-3xl text-gray-100">
-            Logs
-          </h1>
-        </div>
+        <h1 className="font-bold leading-tight text-3xl px-4">Logs</h1>
       </header>
-      <main className="rounded-lg flex flex-col mx-auto bg-gray-800 flex-1 mt-4 min-h-0 w-full max-w-7xl p-4 col-span-2">
+      <div className="px-4 min-h-0">
         <LogViewer />
-      </main>
+      </div>
     </div>
   )
 }

@@ -14,6 +14,7 @@ import {
   CardHeader,
 } from "@dassie/app-node/src/frontend/components/ui/card"
 import { Input } from "@dassie/app-node/src/frontend/components/ui/input"
+import { combine } from "@dassie/app-node/src/frontend/utils/class-helper"
 import { useRemoteStore } from "@dassie/lib-reactive-trpc/client"
 
 import { type IndexedLogLine, logsStore } from "../../../common/stores/logs"
@@ -22,9 +23,13 @@ import LogLine from "./log-line"
 
 export interface LogViewerProperties {
   filter?: (line: IndexedLogLine) => boolean
+  className?: string | undefined
 }
 
-const LogViewer = ({ filter: externalFilter }: LogViewerProperties) => {
+const LogViewer = ({
+  filter: externalFilter,
+  className,
+}: LogViewerProperties) => {
   const outerReference = useRef<HTMLDivElement>(null)
   const [shouldStick, setShouldStick] = useState(true)
   const scrollPositionReference = useRef<number | undefined>(undefined)
@@ -95,7 +100,9 @@ const LogViewer = ({ filter: externalFilter }: LogViewerProperties) => {
   })
 
   return (
-    <Card className="h-full grid grid-rows-[auto_1fr]">
+    <Card
+      className={combine("min-h-0 h-full grid grid-rows-[auto_1fr]", className)}
+    >
       <CardHeader>
         <Input
           type="text"
@@ -108,7 +115,7 @@ const LogViewer = ({ filter: externalFilter }: LogViewerProperties) => {
           }}
         />
       </CardHeader>
-      <CardContent ref={outerReference} className="overflow-y-scroll">
+      <CardContent ref={outerReference} className="min-h-0 overflow-y-scroll">
         <div
           className="relative"
           style={{ height: virtualizer.getTotalSize() }}

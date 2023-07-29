@@ -8,9 +8,9 @@ import MainNavigation from "./main-navigation"
 
 const App = () => {
   return (
-    <>
+    <div className="grid grid-cols-[auto_1fr] min-h-screen">
       <MainNavigation />
-      <div className="min-h-screen pl-64">
+      <div>
         <Route path="/">
           <Dashboard />
         </Route>
@@ -27,7 +27,7 @@ const App = () => {
           }
         </Route>
       </div>
-    </>
+    </div>
   )
 }
 

@@ -1,7 +1,12 @@
-import * as Tabs from "@radix-ui/react-tabs"
 import { Link } from "lucide-react"
 import { useMemo, useState } from "react"
 
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@dassie/app-node/src/frontend/components/ui/tabs"
 import { selectBySeed } from "@dassie/lib-logger"
 
 import { COLORS } from "../../constants/palette"
@@ -18,31 +23,29 @@ const NodeHeader = ({ nodeId }: BasicNodeElementProperties) => {
   const color = useMemo(() => selectBySeed(COLORS, nodeId), [nodeId])
   return (
     <header>
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <h1 className="font-bold leading-tight text-3xl text-gray-100">
-          <i
-            className="rounded-full h-5 mr-4 w-5 inline-block"
-            style={{ background: color }}
-          ></i>
-          Node:{" "}
-          <span
-            style={{
-              color,
-            }}
-          >
-            {nodeId}
-          </span>
-          <a
-            href={`https://${nodeId}.localhost`}
-            target="_blank"
-            className="ml-8 text-gray text-lg"
-            rel="noreferrer"
-          >
-            Wallet
-            <Link className="inline-block ml-2" />
-          </a>
-        </h1>
-      </div>
+      <h1 className="font-bold leading-tight text-3xl px-4">
+        <i
+          className="rounded-full h-5 mr-4 w-5 inline-block"
+          style={{ background: color }}
+        ></i>
+        Node:{" "}
+        <span
+          style={{
+            color,
+          }}
+        >
+          {nodeId}
+        </span>
+        <a
+          href={`https://${nodeId}.localhost`}
+          target="_blank"
+          className="ml-8 text-gray text-lg"
+          rel="noreferrer"
+        >
+          Wallet
+          <Link className="inline-block ml-2" />
+        </a>
+      </h1>
     </header>
   )
 }
@@ -58,12 +61,11 @@ const NodeFirehoseEventList = ({
   onClick,
 }: NodeFirehoseEventListProperties) => {
   return (
-    <div className="h-full overflow-y-auto">
+    <div className="h-full w-64 overflow-y-auto">
       <table className="border-separate border-spacing-2 -m-2">
         <thead className="relative">
           <tr>
             <th className="text-left">Topic</th>
-            <th className="text-left">Message</th>
           </tr>
         </thead>
         <tbody>
@@ -88,7 +90,7 @@ const NodeFirehoseEventDetail = ({
   events,
 }: NodeFirehoseEventDetailProperties) => {
   return (
-    <div className="p-4 overflow-auto">
+    <div className="p-4 overflow-auto min-h-0 h-full">
       <pre>{events[messageId]?.message}</pre>
     </div>
   )
@@ -101,13 +103,13 @@ interface NodeFirehoseViewerProperties extends BasicNodeElementProperties {
 const NodeFirehoseViewer = ({ events }: NodeFirehoseViewerProperties) => {
   const [messageId, setMessageId] = useState<number | undefined>(undefined)
   return (
-    <div className="h-full grid p-4 gap-4 grid-cols-[400px_auto]">
+    <div className="h-full grid p-4 gap-4 grid-cols-[auto_1fr]">
       <NodeFirehoseEventList
         messageId={messageId}
         events={events}
         onClick={(messageId) => setMessageId(messageId)}
       />
-      <div>
+      <div className="min-h-0">
         {messageId == undefined ? null : (
           <NodeFirehoseEventDetail messageId={messageId} events={events} />
         )}
@@ -125,36 +127,23 @@ const NodeDetail = ({ nodeId }: BasicNodeElementProperties) => {
   const events = useNodeFirehose(nodeId)
 
   return (
-    <div className="h-screen grid grid-rows-[min-content_auto] py-10">
+    <div className="h-screen grid grid-rows-[auto_1fr] gap-4 py-10">
       <NodeHeader nodeId={nodeId} />
-      <Tabs.Root
+      <Tabs
         defaultValue="logs"
-        className="mx-auto w-full min-h-0 max-w-7xl grid grid-rows-[min-content_auto] pt-8 gap-4 sm:px-6 lg:px-8"
+        className="min-h-0 grid grid-rows-[auto_1fr] px-4"
       >
-        <Tabs.List className="flex flex-wrap -mb-px">
-          <Tabs.Trigger
-            value="logs"
-            className="border-transparent rounded-t-lg border-b-2 p-4 inline-block hover:border-gray-300 hover:text-gray-300"
-          >
-            Logs
-          </Tabs.Trigger>
-          <Tabs.Trigger
-            value="events"
-            className="border-transparent rounded-t-lg border-b-2 p-4 inline-block hover:border-gray-300 hover:text-gray-300"
-          >
-            Events
-          </Tabs.Trigger>
-        </Tabs.List>
-        <Tabs.Content
-          value="logs"
-          className="rounded-lg bg-gray-800 min-h-0 p-4"
-        >
+        <TabsList className="justify-start">
+          <TabsTrigger value="logs">Logs</TabsTrigger>
+          <TabsTrigger value="events">Events</TabsTrigger>
+        </TabsList>
+        <TabsContent value="logs" className="min-h-0">
           <NodeLogViewer nodeId={nodeId} />
-        </Tabs.Content>
-        <Tabs.Content value="events" className="rounded-lg bg-gray-800 min-h-0">
+        </TabsContent>
+        <TabsContent value="events" className="min-h-0">
           <NodeFirehoseViewer nodeId={nodeId} events={events} />
-        </Tabs.Content>
-      </Tabs.Root>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

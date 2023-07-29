@@ -15,14 +15,17 @@ const LOG_LEVEL_COLORS = {
 
 const LogLine = ({ log }: LogLineProperties) => {
   return (
-    <div className="flex text-xs py-0.5" style={{ order: -log.index }}>
+    <div
+      className="flex space-x-1 text-xs py-0.5 items-baseline"
+      style={{ order: -log.index }}
+    >
       <div className="font-mono flex-shrink-0 text-right px-2 text-gray-400 w-20">
         {(log.relativeTime / 1000).toFixed(3)}
       </div>
-      <div className="w-8" style={{ color: LOG_LEVEL_COLORS[log.type] }}>
+      <div className="w-10" style={{ color: LOG_LEVEL_COLORS[log.type] }}>
         {log.type}
       </div>
-      <div className="font-bold flex-shrink-0 text-center w-8">
+      <div className="font-bold flex-shrink-0 w-8">
         <NodeLink id={log.node} />
       </div>
       <pre className="font-mono px-2 whitespace-pre-wrap">

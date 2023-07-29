@@ -1,35 +1,52 @@
 import { Home, List } from "lucide-react"
-import { Link } from "wouter"
+import { Link, useRoute } from "wouter"
+
+import { Button } from "@dassie/app-node/src/frontend/components/ui/button"
+import { combine } from "@dassie/app-node/src/frontend/utils/class-helper"
 
 import NodesList from "./components/nodes-list/nodes-list"
 
+interface NavigationItemProperties {
+  children: React.ReactNode
+  href: string
+  className?: string | undefined
+}
+
+const NavigationItem = ({
+  children,
+  href,
+  className,
+}: NavigationItemProperties) => {
+  const [isActive] = useRoute(href)
+
+  return (
+    <Button
+      variant={isActive ? "secondary" : "ghost"}
+      className={combine("w-full justify-start", className)}
+      asChild
+    >
+      <Link href={href}>{children}</Link>
+    </Button>
+  )
+}
+
 const MainNavigation = () => {
   return (
-    <div className="flex flex-col bg-gray-800 pt-5 inset-y-0 w-64 fixed">
-      <div className="font-black flex-shrink-0 px-4 text-2xl overflow-y-auto">
+    <div className="space-y-4 py-4 w-64">
+      <div className="mb-2 px-4 text-lg font-semibold tracking-tight">
         Dassie<span className="text-lime-500">{"//dev"}</span>
       </div>
-      <nav
-        className="space-y-1 bg-gray-800 flex-1 mt-5 px-2"
-        aria-label="Sidebar"
-      >
-        <Link
-          href="/"
-          className="rounded-md flex font-medium bg-gray-900 text-white text-sm py-2 px-2 group items-center"
-        >
-          <Home className="flex-shrink-0 mr-2 text-xl" />
-          <span className="flex-1 text-base">Dashboard</span>
-        </Link>
-        <Link
-          href="/logs"
-          className="rounded-md flex font-medium bg-gray-900 text-white text-sm py-2 px-2 group items-center"
-        >
-          <List className="flex-shrink-0 mr-2 text-xl" />
-          <span className="flex-1 text-base">Logs</span>
-        </Link>
-
-        <NodesList />
+      <nav className="space-y-2 flex-1 px-3" aria-label="Sidebar">
+        <NavigationItem href="/">
+          <Home className="mr-2 h-4 w-4" />
+          <span className="">Dashboard</span>
+        </NavigationItem>
+        <NavigationItem href="/logs">
+          <List className="mr-2 h-4 w-4" />
+          <span>Logs</span>
+        </NavigationItem>
       </nav>
+      <NodesList />
     </div>
   )
 }
