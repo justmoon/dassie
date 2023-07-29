@@ -8,6 +8,12 @@ import {
   useState,
 } from "react"
 
+import {
+  Card,
+  CardContent,
+  CardHeader,
+} from "@dassie/app-node/src/frontend/components/ui/card"
+import { Input } from "@dassie/app-node/src/frontend/components/ui/input"
 import { useRemoteStore } from "@dassie/lib-reactive-trpc/client"
 
 import { type IndexedLogLine, logsStore } from "../../../common/stores/logs"
@@ -89,9 +95,9 @@ const LogViewer = ({ filter: externalFilter }: LogViewerProperties) => {
   })
 
   return (
-    <div className="h-full w-full flex flex-col gap-4 min-h-0">
-      <div className="flex items-center gap-2">
-        <input
+    <Card className="h-full grid grid-rows-[auto_1fr]">
+      <CardHeader>
+        <Input
           type="text"
           value={keywordFilter}
           placeholder="Filter"
@@ -100,12 +106,11 @@ const LogViewer = ({ filter: externalFilter }: LogViewerProperties) => {
               setKeywordFilter(event.currentTarget.value)
             })
           }}
-          className="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg placeholder-gray-400 focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
         />
-      </div>
-      <div ref={outerReference} className="flex-1 overflow-y-scroll">
+      </CardHeader>
+      <CardContent ref={outerReference} className="overflow-y-scroll">
         <div
-          className="w-full relative"
+          className="relative"
           style={{ height: virtualizer.getTotalSize() }}
         >
           {virtualizer.getVirtualItems().map((virtualItem) => {
@@ -124,8 +129,8 @@ const LogViewer = ({ filter: externalFilter }: LogViewerProperties) => {
             )
           })}
         </div>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   )
 }
 
