@@ -65,8 +65,6 @@ export const httpsService = () =>
       {
         cert: tlsWebCert,
         key: tlsWebKey,
-        requestCert: true,
-        rejectUnauthorized: false,
       },
       app
     )
