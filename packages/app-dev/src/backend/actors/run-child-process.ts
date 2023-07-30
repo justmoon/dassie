@@ -28,13 +28,19 @@ interface RunNodeChildProcessProperties {
   nodeServer: ViteNodeServer
   id: string
   environment: Record<string, string> & NodeJS.ProcessEnv
+  extraArguments?: string[] | undefined
 }
 
 export const runChildProcess = () =>
   createActor(
     async (
       sig,
-      { nodeServer, id, environment }: RunNodeChildProcessProperties
+      {
+        nodeServer,
+        id,
+        environment,
+        extraArguments = [],
+      }: RunNodeChildProcessProperties
     ) => {
       let child: ChildProcess | undefined
       const ready = pDefer<void>()
@@ -134,7 +140,7 @@ export const runChildProcess = () =>
       child = fork(resolvedEntryPoint.id, [], {
         detached: false,
         silent: true,
-        execArgv: ["--enable-source-maps"],
+        execArgv: ["--enable-source-maps", ...extraArguments],
         env: environment,
       })
       child.addListener("error", handleChildError)

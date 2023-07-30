@@ -3,7 +3,6 @@ import { hasTlsComputed } from "@dassie/app-node/src/backend/config/computed/has
 import { createActor, createReactor } from "@dassie/lib-reactive"
 
 import { handleShutdownSignals } from "../../common/actors/handle-shutdown-signals"
-import { runDebugRpcServer } from "../actors/debug-rpc-server"
 import { forwardLogs } from "../actors/forward-logs"
 import { forwardPeerTraffic } from "../actors/forward-peer-traffic"
 import { handleDisconnect } from "../actors/handle-disconnect"
@@ -27,7 +26,6 @@ const debugRunner = () =>
       await sig.run(serveWallet)
     }
     await sig.run(daemonActor)
-    sig.run(runDebugRpcServer)
   })
 
 const reactor = createReactor()

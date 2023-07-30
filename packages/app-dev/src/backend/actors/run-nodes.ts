@@ -99,8 +99,8 @@ export const runNodes = () =>
               DASSIE_DEV_ENTRY: node.entry,
               DASSIE_DEV_RPC_URL: `wss://dev-rpc.localhost:${DEBUG_RPC_PORT}`,
               DASSIE_DEV_NODE_ID: node.id,
-              DASSIE_DEV_DEBUG_RPC_PORT: String(node.debugPort),
             } satisfies RunnerEnvironment,
+            extraArguments: [`--inspect-port=${node.debugPort}`],
           })
 
           await setTimeout(NODE_STARTUP_INTERVAL)
