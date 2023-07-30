@@ -6,8 +6,9 @@ import { createActor } from "@dassie/lib-reactive"
 export const patchIlpLogger = () =>
   createActor(() => {
     const ownRequire = createRequire(import.meta.url)
+    const nodeRequire = createRequire(ownRequire.resolve("@dassie/app-node"))
     const streamRequire = createRequire(
-      ownRequire.resolve("ilp-protocol-stream")
+      nodeRequire.resolve("ilp-protocol-stream")
     )
     const loggerRequire = createRequire(streamRequire.resolve("ilp-logger"))
     const debug = loggerRequire("debug") as unknown

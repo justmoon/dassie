@@ -1,4 +1,6 @@
 import chalk from "chalk"
+import { ViteDevServer } from "vite"
+import { ViteNodeServer } from "vite-node/server"
 
 import { posix } from "node:path"
 
@@ -6,8 +8,6 @@ import { createActor, createTopic } from "@dassie/lib-reactive"
 
 import { logsStore } from "../../common/stores/logs"
 import { vite as logger } from "../logger/instances"
-import { viteNodeService } from "../services/vite-node-server"
-import { viteService } from "../services/vite-server"
 
 export function getShortName(file: string, root: string): string {
   return file.startsWith(root + "/") ? posix.relative(root, file) : file
@@ -15,20 +15,20 @@ export function getShortName(file: string, root: string): string {
 
 export const fileChangeTopic = () => createTopic()
 
+export interface FileChangeParameters {
+  viteServer: ViteDevServer
+  viteNodeServer: ViteNodeServer
+}
+
 export const handleFileChange = () =>
-  createActor((sig) => {
-    const viteServer = sig.get(viteService)
-    const viteNodeServer = sig.get(viteNodeService)
-
-    if (!viteServer) return
-
+  createActor((sig, { viteServer, viteNodeServer }: FileChangeParameters) => {
     const onFileChange = (file: string) => {
       const { config, moduleGraph } = viteServer
       const shortFile = getShortName(file, config.root)
 
       // The cache in vite-node doesn't correctly invalidate, so we need to clear it on each file change.
       // It still helps a lot with performance because we are compiling the code once and then re-using it for every running process.
-      if (viteNodeServer) viteNodeServer.fetchCache = new Map()
+      viteNodeServer.fetchCache = new Map()
 
       const mods = moduleGraph.getModulesByFile(file)
 

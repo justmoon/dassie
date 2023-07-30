@@ -1,4 +1,6 @@
 import chalk from "chalk"
+import { ViteDevServer } from "vite"
+import { ViteNodeServer } from "vite-node/server"
 
 import { createActor, createReactor } from "@dassie/lib-reactive"
 
@@ -9,12 +11,15 @@ import { registerReactiveLogger } from "./actors/register-reactive-logger"
 import { runNodes } from "./actors/run-nodes"
 import { debugUiServer } from "./actors/serve-debug-ui"
 import { listenForRpcWebSocket } from "./actors/serve-rpc"
-import { viteNodeService } from "./services/vite-node-server"
-import { viteService } from "./services/vite-server"
 import { compileRunner } from "./utils/compile-runner"
 
+export interface StartParameters {
+  viteServer: ViteDevServer
+  viteNodeServer: ViteNodeServer
+}
+
 const rootActor = () =>
-  createActor(async (sig) => {
+  createActor(async (sig, { viteServer, viteNodeServer }: StartParameters) => {
     // eslint-disable-next-line no-console
     console.log(chalk.bold(`  Dassie${chalk.green("//dev")}\n`))
 
@@ -24,16 +29,21 @@ const rootActor = () =>
 
     sig.run(proxyByHostname)
 
-    await sig.run(viteService)
-    sig.run(viteNodeService)
-
     await compileRunner()
-    sig.run(handleFileChange)
-    await sig.run(runNodes)
+    sig.run(handleFileChange, { viteServer, viteNodeServer })
+    await sig.run(runNodes, { viteServer, viteNodeServer })
 
     sig.run(handleShutdownSignals)
   })
 
-const start = () => createReactor(rootActor)
+const start = async ({ viteServer, viteNodeServer }: StartParameters) => {
+  const reactor = createReactor()
+  reactor.onCleanup(async () => {
+    await viteServer.close()
+  })
+  const startActor = reactor.use(rootActor)
+  await startActor.run(reactor, { viteServer, viteNodeServer })
+  return reactor
+}
 
 export default start
