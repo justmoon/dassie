@@ -5,7 +5,7 @@ import superjson from "superjson"
 
 import App from "./app"
 import { DarkModeProvider } from "./components/context/dark-mode"
-import { trpc } from "./utils/trpc"
+import { queryClientReactContext, trpc } from "./utils/trpc"
 
 const Root = () => {
   const wsUrl = new URL("/", location.href)
@@ -29,7 +29,10 @@ const Root = () => {
   return (
     <DarkModeProvider>
       <trpc.Provider client={trpcClient} queryClient={queryClient}>
-        <QueryClientProvider client={queryClient}>
+        <QueryClientProvider
+          client={queryClient}
+          context={queryClientReactContext}
+        >
           <App />
         </QueryClientProvider>
       </trpc.Provider>
