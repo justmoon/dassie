@@ -39,7 +39,9 @@ const loadDevelopmentServer = async () => {
 
     /** @type import("../src") */
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const startModule = await viteNodeRunner.executeFile("packages/app-dev/src")
+    const startModule = await viteNodeRunner.executeFile(
+      "packages/app-dev/src/index.ts"
+    )
 
     return {
       viteServer,
