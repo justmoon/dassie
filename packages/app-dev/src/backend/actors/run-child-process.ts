@@ -14,7 +14,7 @@ import { assertDefined, isObject } from "@dassie/lib-type-utils"
 import { logsStore } from "../../common/stores/logs"
 import { children as logger } from "../logger/instances"
 
-const RUNNER_MODULE = new URL("../../../dist/runner.js", import.meta.url)
+const RUNNER_MODULE = new URL("../../runner/runner.js", import.meta.url)
   .pathname
 
 const CHILD_READY_TIMEOUT = 60_000

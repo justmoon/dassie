@@ -11,7 +11,6 @@ import { registerReactiveLogger } from "./actors/register-reactive-logger"
 import { runNodes } from "./actors/run-nodes"
 import { debugUiServer } from "./actors/serve-debug-ui"
 import { listenForRpcWebSocket } from "./actors/serve-rpc"
-import { compileRunner } from "./utils/compile-runner"
 
 export interface StartParameters {
   viteServer: ViteDevServer
@@ -29,7 +28,6 @@ const rootActor = () =>
 
     sig.run(proxyByHostname)
 
-    await compileRunner()
     sig.run(handleFileChange, { viteServer, viteNodeServer })
     await sig.run(runNodes, { viteServer, viteNodeServer })
 

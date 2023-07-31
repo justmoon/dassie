@@ -61,8 +61,6 @@
     "react-dom": "^18.2.0",
     "react-force-graph-2d": "^1.25.0",
     "reffx": "^1.1.0",
-    "rollup": "^3.25.3",
-    "rollup-plugin-esbuild": "^5.0.0",
     "superjson": "^1.12.4",
     "timeago.js": "^4.0.2",
     "unocss": "^0.53.4",
