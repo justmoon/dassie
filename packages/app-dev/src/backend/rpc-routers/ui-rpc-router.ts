@@ -17,40 +17,38 @@ import { peeringStateStore } from "../stores/peering-state"
 import { peerTrafficTopic } from "../topics/peer-traffic"
 import { trpc } from "./trpc"
 
-export const uiRpcRouter = trpc.mergeRouters(
-  trpc.router({
-    addRandomNode: trpc.procedure
-      // TRPC seems to throw an error when using superjson as a transformer on a method with no parameters.
-      .input(z.object({}))
-      .mutation(({ ctx: { sig } }) => {
-        sig.use(activeNodesStore).addNode()
-      }),
-    setPeeringMode: trpc.procedure
-      .input(z.enum(VALID_PEERING_MODES))
-      .mutation(({ ctx: { sig }, input }) => {
-        sig.use(environmentSettingsStore).setPeeringMode(input)
-      }),
-    subscribeToNodes: trpc.procedure.subscription(({ ctx: { sig } }) => {
-      return subscribeToSignal(sig, activeNodesStore)
+export const uiRpcRouter = trpc.router({
+  addRandomNode: trpc.procedure
+    // TRPC seems to throw an error when using superjson as a transformer on a method with no parameters.
+    .input(z.object({}))
+    .mutation(({ ctx: { sig } }) => {
+      sig.use(activeNodesStore).addNode()
     }),
-    openFile: trpc.procedure.input(z.string()).mutation(({ input }) => {
-      launchEditor(input)
+  setPeeringMode: trpc.procedure
+    .input(z.enum(VALID_PEERING_MODES))
+    .mutation(({ ctx: { sig }, input }) => {
+      sig.use(environmentSettingsStore).setPeeringMode(input)
     }),
-    subscribeToLogs: trpc.procedure.subscription(({ ctx: { sig } }) => {
-      return subscribeToStore(sig, logsStore)
-    }),
-    subscribeToPeerTraffic: trpc.procedure.subscription(({ ctx: { sig } }) => {
-      return subscribeToTopic(sig, peerTrafficTopic)
-    }),
-    subscribeToPeeringState: trpc.procedure.subscription(({ ctx: { sig } }) => {
-      return subscribeToSignal(sig, peeringStateStore)
-    }),
-    subscribeToEnvironmentSettings: trpc.procedure.subscription(
-      ({ ctx: { sig } }) => {
-        return subscribeToSignal(sig, environmentSettingsStore)
-      }
-    ),
-  })
-)
+  subscribeToNodes: trpc.procedure.subscription(({ ctx: { sig } }) => {
+    return subscribeToSignal(sig, activeNodesStore)
+  }),
+  openFile: trpc.procedure.input(z.string()).mutation(({ input }) => {
+    launchEditor(input)
+  }),
+  subscribeToLogs: trpc.procedure.subscription(({ ctx: { sig } }) => {
+    return subscribeToStore(sig, logsStore)
+  }),
+  subscribeToPeerTraffic: trpc.procedure.subscription(({ ctx: { sig } }) => {
+    return subscribeToTopic(sig, peerTrafficTopic)
+  }),
+  subscribeToPeeringState: trpc.procedure.subscription(({ ctx: { sig } }) => {
+    return subscribeToSignal(sig, peeringStateStore)
+  }),
+  subscribeToEnvironmentSettings: trpc.procedure.subscription(
+    ({ ctx: { sig } }) => {
+      return subscribeToSignal(sig, environmentSettingsStore)
+    }
+  ),
+})
 
 export type UiRpcRouter = typeof uiRpcRouter
