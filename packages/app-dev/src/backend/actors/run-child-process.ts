@@ -123,8 +123,9 @@ export const runChildProcess = () =>
           sig.use(logsStore).addLogLine({
             node: id,
             type: inputName === "stdout" ? "info" : "warn",
+            namespace: inputName,
             message: line,
-            date: new Date().toISOString(),
+            date: Date.now(),
             parameters: [],
           })
         }

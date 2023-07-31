@@ -1,36 +1,20 @@
-/* eslint-disable no-console */
-import { LogEventFormatter } from "./types/formatter"
+import { createLogger } from "./logger"
 
-export interface CaptureParameters {
-  formatter: LogEventFormatter
-  outputFunction?: (line: string) => void
-}
-
-export const captureConsole = ({
-  formatter,
-  outputFunction = console.log,
-}: CaptureParameters) => {
+export const captureConsole = () => {
   const methods = ["debug", "info", "warn", "error"] as const
 
+  // Creating a logger here has the side effect of making sure that the global
+  // logging context is initialized which keeps a copy of the real console.
+  const logger = createLogger("console")
+
   for (const method of methods) {
+    // eslint-disable-next-line no-console
     console[method] = (message: string, ...parameters: unknown[]) => {
-      outputFunction(
-        formatter({
-          type: method,
-          date: new Date(),
-          message,
-          parameters,
-        })
-      )
+      logger[method](message, parameters)
     }
   }
 
   console.clear = () => {
-    outputFunction(
-      formatter({
-        type: "clear",
-        date: new Date(),
-      })
-    )
+    logger.clear()
   }
 }

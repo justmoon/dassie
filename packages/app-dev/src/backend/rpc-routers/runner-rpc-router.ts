@@ -28,13 +28,14 @@ export const runnerRpcRouter = trpc.router({
               z.literal("warn"),
               z.literal("error"),
             ]),
-            date: z.string(),
+            namespace: z.string(),
+            date: z.number(),
             message: z.string(),
             parameters: z.array(z.unknown()),
           }),
           z.object({
             type: z.literal("clear"),
-            date: z.string(),
+            date: z.number(),
           }),
         ]),
       ])

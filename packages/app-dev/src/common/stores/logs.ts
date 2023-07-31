@@ -1,12 +1,12 @@
 import type { SetOptional } from "type-fest"
 
-import type { SerializableLogMessage } from "@dassie/lib-logger"
+import type { LogMessage } from "@dassie/lib-logger"
 import { createStore } from "@dassie/lib-reactive"
 
 export const LOGS_SOFT_LIMIT = 10_000
 export const LOGS_HARD_LIMIT = 10_100
 
-export type NodeLogLine = SerializableLogMessage & {
+export type NodeLogLine = LogMessage & {
   node: string
 }
 
@@ -17,19 +17,20 @@ export type IndexedLogLine = NodeLogLine & {
 
 type NewLogLine = SetOptional<IndexedLogLine, "index" | "relativeTime">
 
-export const logsStore = () =>
-  createStore(
+export const logsStore = () => {
+  const startTime = Date.now()
+
+  return createStore(
     [] as IndexedLogLine[],
     {
       // eslint-disable-next-line unicorn/consistent-function-scoping
       clear: () => () => [],
       addLogLine: (logLine: NewLogLine) => (logs) => {
         const lastIndex = logs.at(-1)?.index ?? -1
-        const startTime = new Date(logs[0]?.date ?? new Date().toISOString())
 
         logs.push({
           index: lastIndex + 1,
-          relativeTime: Date.now() - Number(startTime),
+          relativeTime: logLine.date - startTime,
           ...logLine,
         })
 
@@ -41,3 +42,4 @@ export const logsStore = () =>
       },
     } as const
   )
+}

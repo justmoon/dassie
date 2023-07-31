@@ -1,10 +1,14 @@
 import { createRequire } from "node:module"
 
-import { defaultTheme, selectBySeed } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
+import { trpcClientService } from "../services/trpc-client"
+
 export const patchIlpLogger = () =>
-  createActor(() => {
+  createActor((sig) => {
+    const trpcClient = sig.get(trpcClientService)
+    if (!trpcClient) return
+
     const ownRequire = createRequire(import.meta.url)
     const nodeRequire = createRequire(ownRequire.resolve("@dassie/app-node"))
     const streamRequire = createRequire(
@@ -17,13 +21,18 @@ export const patchIlpLogger = () =>
       ...parameters: unknown[]
     ) => {
       const firstSpace = message.indexOf(" ")
-      if (firstSpace !== -1) {
-        const namespace = message.slice(0, firstSpace)
-        message = `${selectBySeed(
-          defaultTheme.colors,
-          namespace
-        )(namespace)} ${message.slice(firstSpace + 1)}`
-      }
-      console.debug(message, ...parameters)
+      const namespace =
+        firstSpace === -1 ? "debug" : message.slice(0, firstSpace)
+
+      void trpcClient.runner.notifyLogLine.mutate([
+        process.env["DASSIE_DEV_NODE_ID"] ?? "unknown",
+        {
+          type: "debug",
+          namespace,
+          date: Date.now(),
+          message: firstSpace === -1 ? message : message.slice(firstSpace + 1),
+          parameters,
+        },
+      ])
     }
   })

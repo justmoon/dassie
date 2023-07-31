@@ -1,13 +1,14 @@
 export interface LogMessage {
   type: "debug" | "info" | "warn" | "error"
-  date: Date
+  namespace: string
+  date: number
   message: string
   parameters: unknown[]
 }
 
 export interface LogClear {
   type: "clear"
-  date: Date
+  date: number
 }
 
 export type LogEvent = LogMessage | LogClear

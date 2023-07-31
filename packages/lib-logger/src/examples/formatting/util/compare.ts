@@ -8,7 +8,8 @@ export const showComparison = (value: unknown, title: string) => {
   console.log(
     formatter({
       type: "info",
-      date: new Date(),
+      namespace: "example",
+      date: Date.now(),
       message: title,
       parameters: [{ value }],
     })

@@ -5,7 +5,8 @@ const formatter = createCliFormatter()
 process.stdout.write(
   formatter({
     type: "debug",
-    date: new Date(),
+    namespace: "basic",
+    date: Date.now(),
     message: "Debug message",
     parameters: [],
   })
@@ -14,7 +15,8 @@ process.stdout.write(
 process.stdout.write(
   formatter({
     type: "info",
-    date: new Date(),
+    namespace: "basic",
+    date: Date.now(),
     message: "Information message",
     parameters: [123.456, true, "abc", 123n],
   })
@@ -23,7 +25,8 @@ process.stdout.write(
 process.stdout.write(
   formatter({
     type: "warn",
-    date: new Date(),
+    namespace: "basic",
+    date: Date.now(),
     message: "Warning message",
     parameters: [
       {
@@ -44,7 +47,8 @@ process.stdout.write(
 process.stdout.write(
   formatter({
     type: "error",
-    date: new Date(),
+    namespace: "basic",
+    date: Date.now(),
     message: "Error message",
     parameters: [{ error: new Error("Something went wrong") }],
   })

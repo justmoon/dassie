@@ -1,7 +1,6 @@
 import assert from "node:assert"
 
-import { createEnableChecker } from "./enabled"
-import type { LoggingContext } from "./types/context"
+import { LogContext, getLogContext } from "./context"
 
 /**
  * Loggers are used to log messages related to a specific component.
@@ -19,7 +18,7 @@ export class Logger {
    * @internal
    */
   constructor(
-    readonly context: LoggingContext,
+    readonly context: LogContext,
 
     /**
      * An arbitrary name to uniquely identify the component this logger belongs to.
@@ -39,7 +38,13 @@ export class Logger {
    * @alpha
    */
   clear() {
-    console.clear()
+    this.context.output(
+      {
+        type: "clear",
+        date: Date.now(),
+      },
+      this.context
+    )
   }
 
   /**
@@ -50,7 +55,16 @@ export class Logger {
    */
   debug(message: string, ...parameters: unknown[]) {
     if (this.context.enableChecker(this.component)) {
-      console.debug(`${this.component} ${message}`, ...parameters)
+      this.context.output(
+        {
+          type: "debug",
+          date: Date.now(),
+          namespace: this.component,
+          message,
+          parameters,
+        },
+        this.context
+      )
     }
   }
 
@@ -61,7 +75,16 @@ export class Logger {
    * @param parameters - Additional relevant data to log and make available for debugging
    */
   info(message: string, ...parameters: unknown[]) {
-    console.info(`${this.component} ${message}`, ...parameters)
+    this.context.output(
+      {
+        type: "info",
+        date: Date.now(),
+        namespace: this.component,
+        message,
+        parameters,
+      },
+      this.context
+    )
   }
 
   /**
@@ -71,7 +94,16 @@ export class Logger {
    * @param parameters - Additional relevant data to log and make available for debugging
    */
   warn(message: string, ...parameters: unknown[]) {
-    console.warn(`${this.component} ${message}`, ...parameters)
+    this.context.output(
+      {
+        type: "warn",
+        date: Date.now(),
+        namespace: this.component,
+        message,
+        parameters,
+      },
+      this.context
+    )
   }
 
   /**
@@ -81,31 +113,35 @@ export class Logger {
    * @param parameters - Additional relevant data to log and make available for debugging
    */
   error(message: string, ...parameters: unknown[]) {
-    console.error(`${this.component} ${message}`, ...parameters)
+    this.context.output(
+      {
+        type: "error",
+        date: Date.now(),
+        namespace: this.component,
+        message,
+        parameters,
+      },
+      this.context
+    )
   }
 }
+
+export interface LoggerOptions {
+  context?: LogContext
+}
+
+const defaultContext = getLogContext()
 
 /**
  * Create a logger factory which creates loggers using a given logging context.
  *
  * @alpha
  */
-export function createLoggerFactory(loggingContext: LoggingContext) {
-  const createLogger = (component: string) => {
-    assert(!component.includes(" "), "Component name must not contain spaces")
-    assert(component.includes(":"), "Component name must contain a colon")
-    assert(
-      !component.startsWith(":"),
-      "Component name must not start with a colon"
-    )
-    assert(!component.endsWith(":"), "Component name must not end with a colon")
+export const createLogger = (
+  component: string,
+  { context = defaultContext }: LoggerOptions = {}
+) => {
+  assert(!component.includes(" "), "Component name must not contain spaces")
 
-    return new Logger(loggingContext, component)
-  }
-
-  createLogger.setDebugScope = (debugScope: string) => {
-    loggingContext.enableChecker = createEnableChecker(debugScope)
-  }
-
-  return createLogger
+  return new Logger(context, component)
 }

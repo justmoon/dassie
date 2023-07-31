@@ -1,10 +1,9 @@
 /* eslint-disable unicorn/prefer-code-point */
 import Anser from "anser"
 
-import { isError, selectBySeed } from "@dassie/lib-logger"
+import { isError } from "@dassie/lib-logger"
 import { isObject } from "@dassie/lib-type-utils"
 
-import { COLORS } from "../../constants/palette"
 import { ANSI_COLORS, ANSI_DECORATIONS } from "./ansi-theme"
 import { DataValue } from "./data-value"
 import { PrimaryError } from "./primary-error"
@@ -15,9 +14,6 @@ export interface ParseLogParameters {
 }
 
 const CHAR_CODE_PERCENT = 37
-const CHAR_CODE_COLON = 58
-const CHAR_CODE_SPACE = 32
-const CHAR_CODE_ESCAPE = 27
 
 const FORMATTERS = new Set([
   115, // s
@@ -62,38 +58,8 @@ export const LogMessage = ({ message, parameters }: ParseLogParameters) => {
   const elements = [] as JSX.Element[]
   let lastChunkEnd = 0
   let unique = 0
-  let sawColon = false
-  let sawSpace = false
 
   for (let index = 0; index < message.length; index++) {
-    // Check for a component name (identified by a string containing a colon but not as the first or last character)
-    if (lastChunkEnd === 0 && !sawSpace) {
-      if (message.charCodeAt(index) === CHAR_CODE_COLON) {
-        sawColon = true
-      }
-      if (message.charCodeAt(index) === CHAR_CODE_SPACE) {
-        sawSpace = true
-        if (
-          sawColon &&
-          message.charCodeAt(index) === CHAR_CODE_SPACE &&
-          message.charCodeAt(index - 1) !== CHAR_CODE_COLON &&
-          message.charCodeAt(0) !== CHAR_CODE_COLON &&
-          message.charCodeAt(0) !== CHAR_CODE_ESCAPE
-        ) {
-          const componentName = message.slice(0, index)
-          elements.push(
-            <span
-              key={unique++}
-              style={{ color: selectBySeed(COLORS, componentName) }}
-            >
-              {componentName}
-            </span>
-          )
-          lastChunkEnd = index
-          continue
-        }
-      }
-    }
     if (message.charCodeAt(index) !== CHAR_CODE_PERCENT) continue
 
     const nextCharacter = message.charCodeAt(index + 1)

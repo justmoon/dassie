@@ -17,7 +17,6 @@ export type SerializableLogEvent = SerializableLogMessage | SerializableLogClear
 
 export interface JsonFormatterOptions {
   serializationFunction?: (line: SerializableLogEvent) => string
-  outputFunction?: (line: string) => void
 }
 
 export const createJsonFormatter = ({
@@ -28,11 +27,11 @@ export const createJsonFormatter = ({
       line.type === "clear"
         ? {
             type: "clear",
-            date: line.date.toISOString(),
+            date: new Date(line.date).toISOString(),
           }
         : {
             ...line,
-            date: line.date.toISOString(),
+            date: new Date(line.date).toISOString(),
           }
     return serializationFunction(serializedLine)
   }

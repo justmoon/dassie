@@ -14,10 +14,10 @@ export {
   type SerializableLogEvent,
   createJsonFormatter,
 } from "./formatters/json-formatter"
-export type {} from "./formatters/json-formatter"
 export { createEnableChecker } from "./enabled"
-export { createLoggerFactory } from "./logger"
-export { type CaptureParameters, captureConsole } from "./capture"
+export { logContextSymbol, getLogContext as getLoggingContext } from "./context"
+export { createLogger } from "./logger"
+export { captureConsole } from "./capture"
 export { selectBySeed } from "./utils/select-by-seed"
 export { isError, hasAggregatedErrors } from "./utils/is-error"
 

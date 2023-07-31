@@ -3,23 +3,11 @@
   "type": "module",
   "version": "1.0.0",
   "description": "Logging library for the Dassie ILP project",
-  "main": "./src/index.ts",
+  "main": "./src/node.ts",
   "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "node": "./src/index.ts",
-      "import": "./src/browser.ts"
-    }
-  },
-  "publishConfig": {
-    "main": "./dist/index.js",
-    "exports": {
-      ".": {
-        "types": "./dist/index.d.ts",
-        "require": "./dist/index.cjs",
-        "import": "./dist/index.js"
-      }
-    }
+    "types": "./src/node.ts",
+    "node": "./src/node.ts",
+    "import": "./src/browser.ts"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
