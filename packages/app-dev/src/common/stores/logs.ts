@@ -1,3 +1,4 @@
+import { produce } from "immer"
 import type { SetOptional } from "type-fest"
 
 import type { LogMessage } from "@dassie/lib-logger"
@@ -15,31 +16,39 @@ export type IndexedLogLine = NodeLogLine & {
   relativeTime: number
 }
 
+export interface LogsStoreState {
+  logs: IndexedLogLine[]
+  startTime: number
+}
+
 type NewLogLine = SetOptional<IndexedLogLine, "index" | "relativeTime">
 
 export const logsStore = () => {
-  const startTime = Date.now()
-
   return createStore(
-    [] as IndexedLogLine[],
+    {
+      logs: [],
+      startTime: Date.now(),
+    } as LogsStoreState,
     {
       // eslint-disable-next-line unicorn/consistent-function-scoping
-      clear: () => () => [],
-      addLogLine: (logLine: NewLogLine) => (logs) => {
-        const lastIndex = logs.at(-1)?.index ?? -1
+      clear: () =>
+        produce((draft) => {
+          draft.logs = []
+        }),
+      addLogLine: (logLine: NewLogLine) =>
+        produce(({ logs, startTime }) => {
+          const lastIndex = logs.at(-1)?.index ?? -1
 
-        logs.push({
-          index: lastIndex + 1,
-          relativeTime: logLine.date - startTime,
-          ...logLine,
-        })
+          logs.push({
+            index: lastIndex + 1,
+            relativeTime: logLine.date - startTime,
+            ...logLine,
+          })
 
-        if (logs.length > LOGS_HARD_LIMIT) {
-          logs = logs.slice(logs.length - LOGS_SOFT_LIMIT)
-        }
-
-        return logs
-      },
+          if (logs.length > LOGS_HARD_LIMIT) {
+            logs.splice(0, logs.length - LOGS_SOFT_LIMIT)
+          }
+        }),
     } as const
   )
 }
