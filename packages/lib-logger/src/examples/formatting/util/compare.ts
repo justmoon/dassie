@@ -12,6 +12,7 @@ export const showComparison = (value: unknown, title: string) => {
       date: Date.now(),
       message: title,
       parameters: [{ value }],
+      caller: undefined,
     })
   )
 

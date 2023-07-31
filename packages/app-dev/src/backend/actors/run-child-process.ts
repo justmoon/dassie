@@ -127,6 +127,7 @@ export const runChildProcess = () =>
             message: line,
             date: Date.now(),
             parameters: [],
+            caller: undefined,
           })
         }
       }

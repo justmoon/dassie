@@ -4,6 +4,7 @@ export interface LogMessage {
   date: number
   message: string
   parameters: unknown[]
+  caller: string | undefined
 }
 
 export interface LogClear {

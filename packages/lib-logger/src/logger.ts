@@ -1,3 +1,4 @@
+/* eslint-disable unicorn/error-message */
 import assert from "node:assert"
 
 import { LogContext, getLogContext } from "./context"
@@ -62,6 +63,9 @@ export class Logger {
           namespace: this.component,
           message,
           parameters,
+          caller: this.context.captureCaller
+            ? this.context.getCaller(1, new Error())
+            : undefined,
         },
         this.context
       )
@@ -82,6 +86,9 @@ export class Logger {
         namespace: this.component,
         message,
         parameters,
+        caller: this.context.captureCaller
+          ? this.context.getCaller(1, new Error())
+          : undefined,
       },
       this.context
     )
@@ -101,6 +108,9 @@ export class Logger {
         namespace: this.component,
         message,
         parameters,
+        caller: this.context.captureCaller
+          ? this.context.getCaller(1, new Error())
+          : undefined,
       },
       this.context
     )
@@ -120,6 +130,9 @@ export class Logger {
         namespace: this.component,
         message,
         parameters,
+        caller: this.context.captureCaller
+          ? this.context.getCaller(1, new Error())
+          : undefined,
       },
       this.context
     )

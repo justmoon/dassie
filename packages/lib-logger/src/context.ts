@@ -3,14 +3,13 @@ import { LogEvent } from "./types/log-event"
 /* eslint-disable unicorn/no-negated-condition */
 export const logContextSymbol = Symbol.for("dassie.logger.context")
 
-export interface LogContextParameters {
-  enableChecker: (component: string) => boolean
-  output: (logEvent: LogEvent, context: LogContext) => void
-}
-
 export interface LogContext {
+  captureCaller: boolean
+
   enableChecker: (component: string) => boolean
   output: (logEvent: LogEvent, context: LogContext) => void
+  getCaller: (depth: number, error: Error) => string | undefined
+
   readonly emit: (logEvent: LogEvent) => void
   readonly realConsole: Console
 }
@@ -26,8 +25,12 @@ const getGlobalThis = () =>
 
 const createLogContext = (): LogContext => {
   const context: LogContext = {
+    captureCaller: false,
+
     enableChecker: () => false,
     output: () => void 0,
+    getCaller: () => void 0,
+
     emit: (event) => {
       if (
         event.type === "debug" ? context.enableChecker(event.namespace) : true

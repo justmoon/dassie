@@ -9,6 +9,7 @@ process.stdout.write(
     date: Date.now(),
     message: "Debug message",
     parameters: [],
+    caller: undefined,
   })
 )
 
@@ -19,6 +20,7 @@ process.stdout.write(
     date: Date.now(),
     message: "Information message",
     parameters: [123.456, true, "abc", 123n],
+    caller: undefined,
   })
 )
 
@@ -41,6 +43,7 @@ process.stdout.write(
         ],
       },
     ],
+    caller: undefined,
   })
 )
 
@@ -51,5 +54,6 @@ process.stdout.write(
     date: Date.now(),
     message: "Error message",
     parameters: [{ error: new Error("Something went wrong") }],
+    caller: undefined,
   })
 )

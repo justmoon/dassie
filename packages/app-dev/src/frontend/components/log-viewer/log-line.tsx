@@ -1,9 +1,7 @@
-import { selectBySeed } from "@dassie/lib-logger"
-
 import type { IndexedLogLine } from "../../../common/stores/logs"
-import { COLORS } from "../../constants/palette"
 import NodeLink from "../shared/node-link/node-link"
 import { LogMessage } from "./log-message"
+import { LogNamespace } from "./log-namespace"
 
 interface LogLineProperties {
   log: IndexedLogLine
@@ -32,9 +30,7 @@ const LogLine = ({ log }: LogLineProperties) => {
         <NodeLink id={log.node} />
       </div>
       <pre className="font-mono px-2 whitespace-pre-wrap">
-        <span style={{ color: selectBySeed(COLORS, log.namespace) }}>
-          {log.namespace}
-        </span>{" "}
+        <LogNamespace namespace={log.namespace} caller={log.caller} />{" "}
         <LogMessage message={log.message} parameters={log.parameters} />
       </pre>
     </div>

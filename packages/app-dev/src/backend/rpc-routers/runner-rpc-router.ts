@@ -32,6 +32,7 @@ export const runnerRpcRouter = trpc.router({
             date: z.number(),
             message: z.string(),
             parameters: z.array(z.unknown()),
+            caller: z.union([z.string(), z.undefined()]),
           }),
           z.object({
             type: z.literal("clear"),
@@ -50,6 +51,7 @@ export const runnerRpcRouter = trpc.router({
       logs.addLogLine({
         node: nodeId,
         ...logEvent,
+        caller: logEvent.caller ?? undefined,
       })
     }),
   notifyPeerState: trpc.procedure
