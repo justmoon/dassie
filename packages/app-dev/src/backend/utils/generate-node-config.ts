@@ -3,11 +3,15 @@ import pureRand from "pure-rand"
 import assert from "node:assert"
 import { resolve } from "node:path"
 
+import { SessionToken } from "@dassie/app-node/src/backend/authentication/types/session-token"
 import { BootstrapNodesConfig } from "@dassie/app-node/src/backend/config/environment-config"
 import { getPublicKey } from "@dassie/app-node/src/backend/crypto/ed25519"
 import { calculatePathHmac } from "@dassie/app-node/src/backend/crypto/utils/seed-paths"
 import { calculateNodeId } from "@dassie/app-node/src/backend/ilp-connector/utils/calculate-node-id"
-import { SEED_PATH_NODE } from "@dassie/app-node/src/common/constants/seed-paths"
+import {
+  SEED_PATH_DEV_SESSION,
+  SEED_PATH_NODE,
+} from "@dassie/app-node/src/common/constants/seed-paths"
 
 import { TEST_NODE_VANITY_SEEDS } from "../constants/node-seeds"
 import { NODES_DEBUG_START_PORT, NODES_START_PORT } from "../constants/ports"
@@ -53,6 +57,12 @@ export const nodeFriendlyIdToIndex = (id: string) => {
 
   return index
 }
+export const nodeIndexToSessionToken = (index: number) => {
+  const seed = nodeIndexToSeed(index)
+  return calculatePathHmac(seed, SEED_PATH_DEV_SESSION).toString(
+    "hex"
+  ) as SessionToken
+}
 
 export const nodeIndexToDataPath = (index: number) => {
   const friendlyId = nodeIndexToFriendlyId(index)
@@ -74,6 +84,7 @@ export interface BaseNodeConfig {
   dassieKeyFile: string
   tlsWebCertFile: string
   tlsWebKeyFile: string
+  sessionToken: SessionToken
   bootstrapNodes: BootstrapNodesConfig
   url: string
   entry: string
@@ -143,6 +154,7 @@ export const generateNodeConfig = ((id, environmentSettings) => {
     dassieKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/dassie-${id}.localhost-key.pem`,
     tlsWebCertFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost.pem`,
     tlsWebKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost-key.pem`,
+    sessionToken: nodeIndexToSessionToken(index),
     bootstrapNodes: BOOTSTRAP_NODES.map((peerIndex) =>
       generatePeerInfo(peerIndex)
     ).map((peerInfo) => ({

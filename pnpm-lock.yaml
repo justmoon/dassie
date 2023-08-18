@@ -156,6 +156,9 @@ importers:
       '@dassie/meta-unocss-config':
         specifier: workspace:^
         version: link:../meta-unocss-config
+      '@noble/hashes':
+        specifier: ^1.3.1
+        version: 1.3.1
       '@radix-ui/react-tabs':
         specifier: ^1.0.4
         version: 1.0.4(@types/react-dom@18.2.6)(@types/react@18.2.14)(react-dom@18.2.0)(react@18.2.0)

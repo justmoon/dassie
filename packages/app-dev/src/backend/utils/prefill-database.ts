@@ -16,6 +16,7 @@ export const prefillDatabase = async ({
   dassieKeyFile,
   tlsWebCertFile,
   tlsWebKeyFile,
+  sessionToken,
   peers,
 }: NodeConfig) => {
   const databasePath = `${dataPath}/dassie.sqlite3`
@@ -69,6 +70,10 @@ export const prefillDatabase = async ({
       settlement_scheme_id: "stub" as SettlementSchemeId,
     })
   }
+
+  database.tables.sessions.insertOne({
+    token: sessionToken,
+  })
 
   database.raw.close()
 }
