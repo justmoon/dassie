@@ -5,9 +5,11 @@ import { resolve } from "node:path"
 
 import { BootstrapNodesConfig } from "@dassie/app-node/src/backend/config/environment-config"
 import { getPublicKey } from "@dassie/app-node/src/backend/crypto/ed25519"
+import { calculatePathHmac } from "@dassie/app-node/src/backend/crypto/utils/seed-paths"
 import { calculateNodeId } from "@dassie/app-node/src/backend/ilp-connector/utils/calculate-node-id"
+import { SEED_PATH_NODE } from "@dassie/app-node/src/common/constants/seed-paths"
 
-import { TEST_NODE_VANITY_KEYS } from "../constants/node-keys"
+import { TEST_NODE_VANITY_SEEDS } from "../constants/node-seeds"
 import { NODES_DEBUG_START_PORT, NODES_START_PORT } from "../constants/ports"
 import type { EnvironmentSettings } from "../stores/environment-settings"
 import { calculateHaltonLocation } from "./calculate-halton-location"
@@ -20,20 +22,26 @@ const BOOTSTRAP_NODES = [0, 1]
 
 export const nodeIndexToFriendlyId = (index: number) => `n${index + 1}`
 export const nodeIndexToPort = (index: number) => NODES_START_PORT + index
-export const nodeIndexToPublicKey = (index: number) => {
-  const nodePrivateKey = TEST_NODE_VANITY_KEYS[index]
+export const nodeIndexToSeed = (index: number): Buffer => {
+  const seed = TEST_NODE_VANITY_SEEDS[index]
 
-  if (!nodePrivateKey) {
+  if (!seed) {
     throw new Error(`No private key for node ${index}`)
   }
 
+  return Buffer.from(seed, "hex")
+}
+export const nodeIndexToPrivateKey = (index: number) => {
+  const seed = nodeIndexToSeed(index)
+  return calculatePathHmac(seed, SEED_PATH_NODE)
+}
+export const nodeIndexToPublicKey = (index: number) => {
+  const nodePrivateKey = nodeIndexToPrivateKey(index)
   return getPublicKey(nodePrivateKey)
 }
 export const nodeIndexToId = (index: number) => {
   const nodePublicKey = nodeIndexToPublicKey(index)
-  const nodeId = calculateNodeId(nodePublicKey)
-
-  return nodeId
+  return calculateNodeId(nodePublicKey)
 }
 export const nodeIndexToCoordinates = (index: number) =>
   calculateHaltonLocation(index + 1)

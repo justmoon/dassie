@@ -4,22 +4,24 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { getPublicKey } from "@dassie/app-node/src/backend/crypto/ed25519"
+import { calculatePathHmac } from "@dassie/app-node/src/backend/crypto/utils/seed-paths"
 import { calculateNodeId } from "@dassie/app-node/src/backend/ilp-connector/utils/calculate-node-id"
+import { SEED_PATH_NODE } from "@dassie/app-node/src/common/constants/seed-paths"
 
-import { TEST_NODE_VANITY_KEYS } from "../src/backend/constants/node-keys"
+import { TEST_NODE_VANITY_SEEDS } from "../src/backend/constants/node-seeds"
 import { nodeIndexToFriendlyId } from "../src/backend/utils/generate-node-config"
 
 const TARGET_PATTERN = /^n([1-9]\d*)_/
 
 const OUTPUT_FILE_PATH = resolve(
   dirname(fileURLToPath(import.meta.url)),
-  "../src/backend/constants/node-keys.ts"
+  "../src/backend/constants/node-seeds.ts"
 )
 
 const OUTPUT_FILE_HEADER = `// Generated with packages/app-dev/bin/generate-testnet-vanity-addresses.ts
 /* eslint-disable unicorn/numeric-separators-style */
 
-export const TEST_NODE_VANITY_KEYS: Record<number, string> = {
+export const TEST_NODE_VANITY_SEEDS: Record<number, string> = {
 `
 
 const OUTPUT_FILE_FOOTER = `}`
@@ -29,7 +31,7 @@ const MAX_INDEX = 999
 
 const foundMap = new Map<number, string>()
 
-for (const [index, key] of Object.entries(TEST_NODE_VANITY_KEYS)) {
+for (const [index, key] of Object.entries(TEST_NODE_VANITY_SEEDS)) {
   foundMap.set(Number.parseInt(index, 10), key)
 }
 
@@ -45,9 +47,8 @@ function saveResults() {
 
   let output = OUTPUT_FILE_HEADER
   for (const [index, key] of found) {
-    const nodePrivateKey = Buffer.from(key, "hex")
-    const nodePublicKey = getPublicKey(nodePrivateKey)
-    const nodeId = calculateNodeId(nodePublicKey)
+    const nodeSeed = Buffer.from(key, "hex")
+    const nodeId = getNodeIdFromSeed(nodeSeed)
     output += `  ${index}: "${key}", // ${nodeId}\n`
   }
   output += OUTPUT_FILE_FOOTER
@@ -55,21 +56,24 @@ function saveResults() {
   writeFileSync(OUTPUT_FILE_PATH, output)
 }
 
+function getNodeIdFromSeed(seed: Buffer) {
+  const nodePrivateKey = calculatePathHmac(seed, SEED_PATH_NODE)
+  const nodePublicKey = getPublicKey(nodePrivateKey)
+  return calculateNodeId(nodePublicKey)
+}
+
 function findNextMatch() {
   for (;;) {
-    const nodePrivateKey = randomBytes(32)
-    const nodePublicKey = getPublicKey(nodePrivateKey)
-    const nodeId = calculateNodeId(nodePublicKey)
+    const seed = randomBytes(32)
+    const nodeId = getNodeIdFromSeed(seed)
 
     const match = nodeId.match(TARGET_PATTERN)
-    if (match) return { match, nodePrivateKey, nodeId }
+    if (match) return { match, seed, nodeId }
   }
 }
 
-function countHyphensAndUnderscores(key: string): number {
-  const nodePrivateKey = Buffer.from(key, "hex")
-  const nodePublicKey = getPublicKey(nodePrivateKey)
-  const nodeId = calculateNodeId(nodePublicKey)
+function countHyphensAndUnderscores(seed: Buffer): number {
+  const nodeId = getNodeIdFromSeed(seed)
 
   let count = 0
 
@@ -97,33 +101,35 @@ function isLargestEver(index: number) {
  *
  * The address is new if we don't have any vanity key for the given index. It is better if it has fewer hyphens and underscores than the existing one.
  */
-function isNewOrBetter(index: number, key: string) {
+function isNewOrBetter(index: number, seed: Buffer) {
   const existing = foundMap.get(index)
   if (!existing) return true
 
-  const existingHyphenCount = countHyphensAndUnderscores(existing)
-  const hyphenCount = countHyphensAndUnderscores(key)
+  const existingHyphenCount = countHyphensAndUnderscores(
+    Buffer.from(existing, "hex")
+  )
+  const hyphenCount = countHyphensAndUnderscores(seed)
 
   return hyphenCount < existingHyphenCount
 }
 
 console.info("Generating vanity addresses... (press Ctrl+C to stop)")
 for (;;) {
-  const { match, nodePrivateKey, nodeId } = findNextMatch()
+  const { match, seed, nodeId } = findNextMatch()
   const index = Number.parseInt(match[1]!, 10) - 1
-  const key = Buffer.from(nodePrivateKey).toString("hex")
+  const seedHex = seed.toString("hex")
   const friendlyId = nodeIndexToFriendlyId(index)
 
   if (index > MAX_INDEX) {
     if (isLargestEver(index)) {
-      foundMap.set(index, key)
+      foundMap.set(index, seedHex)
       console.info(`${friendlyId} => ${nodeId} (new record!)`)
       saveResults()
     } else {
       console.info(`${friendlyId} => ${nodeId} (skipped, too large)`)
     }
-  } else if (isNewOrBetter(index, key)) {
-    foundMap.set(index, key)
+  } else if (isNewOrBetter(index, seed)) {
+    foundMap.set(index, seedHex)
     console.info(`${friendlyId} => ${nodeId}`)
     saveResults()
   }

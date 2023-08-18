@@ -5,9 +5,11 @@ import { writeFileSync } from "node:fs"
 import { mkdir, unlink } from "node:fs/promises"
 import { dirname } from "node:path"
 
+import { calculatePathHmac } from "@dassie/app-node/src/backend/crypto/utils/seed-paths"
 import { derPreamble } from "@dassie/app-node/src/backend/utils/pem"
+import { SEED_PATH_NODE } from "@dassie/app-node/src/common/constants/seed-paths"
 
-import { TEST_NODE_VANITY_KEYS } from "../constants/node-keys"
+import { TEST_NODE_VANITY_SEEDS } from "../constants/node-seeds"
 import { setup as logger } from "../logger/instances"
 import { checkFileStatus } from "./check-file-status"
 
@@ -36,14 +38,12 @@ function splitStringIntoChunks(input: string, chunkSize: number): string[] {
   return chunks
 }
 
-const writeVanityKey = ({ keyPath }: CertificateInfo, key: string) => {
+const writeVanityKey = ({ keyPath }: CertificateInfo, key: Buffer) => {
   writeFileSync(
     keyPath,
     PRIVATE_KEY_HEADER +
       splitStringIntoChunks(
-        Buffer.concat([derPreamble, Buffer.from(key, "hex")]).toString(
-          "base64"
-        ),
+        Buffer.concat([derPreamble, key]).toString("base64"),
         OPENSSL_ASCII_CHUNK_SIZE
       ).join("\n") +
       PRIVATE_KEY_FOOTER
@@ -124,15 +124,20 @@ export const validateCertificates = async ({
     if (keyStatus === "missing") {
       if (certificate.type === "dassie") {
         const index = parseNodeIndex(id)
-        const key = TEST_NODE_VANITY_KEYS[index]
-        if (key) {
-          logger.info("using vanity node key", {
-            id,
-            name: certificate.commonName,
-            type: certificate.type,
-          })
-          writeVanityKey(certificate, key)
+        const seed = TEST_NODE_VANITY_SEEDS[index]
+        if (!seed) {
+          throw new Error('No vanity key available for node "' + id + '"')
         }
+
+        logger.info("using vanity node key", {
+          id,
+          name: certificate.commonName,
+          type: certificate.type,
+        })
+        writeVanityKey(
+          certificate,
+          calculatePathHmac(Buffer.from(seed, "hex"), SEED_PATH_NODE)
+        )
       } else {
         logger.info("generating key", {
           id,

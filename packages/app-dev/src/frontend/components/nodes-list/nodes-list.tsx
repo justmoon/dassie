@@ -8,6 +8,7 @@ import { useRemoteSignal } from "@dassie/lib-reactive-trpc/client"
 
 import { COLORS } from "../../constants/palette"
 import { trpc } from "../../utils/trpc"
+import { getWalletUrl } from "../../utils/wallet-url"
 
 interface NodeProperties {
   nodeId: string
@@ -46,7 +47,7 @@ const Node = ({ nodeId, wallet, className }: NodeProperties) => {
       {wallet && (
         <Button variant="ghost" className="rounded-none rounded-r" asChild>
           <a
-            href={`https://${nodeId}.localhost`}
+            href={getWalletUrl(nodeId)}
             className="flex text-gray-400 hover:text-white h-full px-2 items-center rounded-full"
             target="_blank"
             rel="noreferrer"

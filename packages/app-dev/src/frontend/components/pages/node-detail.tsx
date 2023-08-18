@@ -20,6 +20,7 @@ import {
 import { selectBySeed } from "@dassie/lib-logger"
 
 import { COLORS } from "../../constants/palette"
+import { getWalletUrl } from "../../utils/wallet-url"
 import LogViewer from "../log-viewer/log-viewer"
 
 interface BasicNodeElementProperties {
@@ -43,7 +44,7 @@ const NodeHeader = ({ nodeId }: BasicNodeElementProperties) => {
           {nodeId}
         </span>
         <a
-          href={`https://${nodeId}.localhost`}
+          href={getWalletUrl(nodeId)}
           target="_blank"
           className="ml-8 text-gray text-lg"
           rel="noreferrer"
