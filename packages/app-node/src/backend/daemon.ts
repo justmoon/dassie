@@ -2,6 +2,7 @@ import { createActor, createReactor } from "@dassie/lib-reactive"
 
 import { startAccounting } from "./accounting"
 import { startAcmeCertificateManager } from "./acme-certificate-manager"
+import { startAuthenticationFeature } from "./authentication"
 import { startBtpServer } from "./btp-server"
 import { hasNodeIdentityComputed } from "./config/computed/has-node-identity"
 import { hasTlsComputed } from "./config/computed/has-tls"
@@ -50,6 +51,7 @@ export const startNodeIdentityDependentServices = () =>
     sig.run(startIldcpServer)
     await sig.run(startExchangeRates)
 
+    sig.run(startAuthenticationFeature)
     sig.run(startSettlementSchemes)
     await sig.run(startSpspServer)
     sig.run(startOpenPaymentsServer)

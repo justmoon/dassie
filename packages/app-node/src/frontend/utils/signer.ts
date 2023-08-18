@@ -1,7 +1,7 @@
 import { hmac } from "@noble/hashes/hmac"
 import { sha256 } from "@noble/hashes/sha256"
 
-import { SeedPath } from "../constants/seed-paths"
+import { SeedPath } from "../../common/constants/seed-paths"
 
 export const getPrivateSeedAtPath = (
   binarySeed: Uint8Array,
