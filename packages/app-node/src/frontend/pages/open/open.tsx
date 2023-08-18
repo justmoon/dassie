@@ -4,6 +4,7 @@ import { wordlist } from "@scure/bip39/wordlists/english"
 import { useCallback, useState } from "react"
 
 import { Card, CardHeader, CardTitle } from "../../components/ui/card"
+import { SEED_PATH_NODE } from "../../constants/seed-paths"
 import { walletStore } from "../../stores/wallet"
 import { getPrivateSeedAtPath } from "../../utils/signer"
 import { trpc } from "../../utils/trpc"
@@ -94,7 +95,9 @@ export const Open = () => {
 
       void bip39.mnemonicToSeed(mnemonic).then((binarySeed) => {
         setNodeIdentityMutate({
-          rawDassieKeyHex: bytesToHex(getPrivateSeedAtPath(binarySeed, "node")),
+          rawDassieKeyHex: bytesToHex(
+            getPrivateSeedAtPath(binarySeed, SEED_PATH_NODE)
+          ),
         })
         walletStore.setSeed(bytesToHex(binarySeed))
       })
