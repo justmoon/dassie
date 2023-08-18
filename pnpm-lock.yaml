@@ -403,6 +403,9 @@ importers:
       cmd-ts:
         specifier: ^0.12.1
         version: 0.12.1
+      cookie:
+        specifier: ^0.5.0
+        version: 0.5.0
       denque:
         specifier: ^2.1.0
         version: 2.1.0
@@ -461,6 +464,9 @@ importers:
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
+      '@types/cookie':
+        specifier: ^0.5.1
+        version: 0.5.1
       '@types/express':
         specifier: ^4.17.17
         version: 4.17.17
@@ -2531,6 +2537,10 @@ packages:
     resolution: {integrity: sha512-cdeYyv4KWoEgpBISTxWvqYsVy444DOqehiF3fM3ne10AmJ62RSyNkUnxMJXHQWRQQX2eR94m5y1IZyDwBjV9FQ==}
     dependencies:
       '@types/node': 20.3.2
+
+  /@types/cookie@0.5.1:
+    resolution: {integrity: sha512-COUnqfB2+ckwXXSFInsFdOAWQzCCx+a5hq2ruyj+Vjund94RJQd4LG2u9hnvJrTgunKAaax7ancBYlDrNYxA0g==}
+    dev: true
 
   /@types/cors@2.8.13:
     resolution: {integrity: sha512-RG8AStHlUiV5ysZQKq97copd2UmVYw3/pRMLefISZ3S1hK104Cwm7iLQ3fTKx+lsUH2CE8FlLaYeEA2LSeqYUA==}

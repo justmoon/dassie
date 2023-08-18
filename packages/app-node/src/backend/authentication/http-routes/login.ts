@@ -5,6 +5,7 @@ import { randomBytes } from "node:crypto"
 import { respondJson } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
+import { SESSION_COOKIE_NAME } from "../../../common/constants/cookie-name"
 import { SEED_PATH_NODE_LOGIN } from "../../../common/constants/seed-paths"
 import { nodePrivateKeySignal } from "../../crypto/computed/node-private-key"
 import { getPrivateSeedAtPath } from "../../crypto/utils/seed-paths"
@@ -47,7 +48,7 @@ export const registerLoginRoute = () =>
 
         sessions.addSession(sessionToken)
 
-        response.cookie("DASSIE_SESSION_TOKEN", sessionToken, {
+        response.cookie(SESSION_COOKIE_NAME, sessionToken, {
           httpOnly: true,
           secure: true,
           sameSite: "strict",
