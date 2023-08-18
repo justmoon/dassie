@@ -34,7 +34,6 @@ export const debugUiServer = () =>
       id: "dev",
       certificates: [
         {
-          type: "web",
           commonName: "localhost",
           certificatePath,
           keyPath,

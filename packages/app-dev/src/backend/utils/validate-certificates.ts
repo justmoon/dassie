@@ -1,73 +1,29 @@
 import { $ } from "execa"
 
 import assert from "node:assert"
-import { writeFileSync } from "node:fs"
 import { mkdir, unlink } from "node:fs/promises"
 import { dirname } from "node:path"
 
-import { calculatePathHmac } from "@dassie/app-node/src/backend/crypto/utils/seed-paths"
-import { derPreamble } from "@dassie/app-node/src/backend/utils/pem"
-import { SEED_PATH_NODE } from "@dassie/app-node/src/common/constants/seed-paths"
-
-import { TEST_NODE_VANITY_SEEDS } from "../constants/node-seeds"
 import { setup as logger } from "../logger/instances"
 import { checkFileStatus } from "./check-file-status"
 
 export interface CertificateInfo {
-  type: "web" | "dassie"
   commonName: string
   certificatePath: string
   keyPath: string
 }
 
-const generateKey = async ({ type, keyPath }: CertificateInfo) => {
-  await $`openssl genpkey -algorithm ${
-    type === "web" ? "RSA" : "Ed25519"
-  } -out ${keyPath}`
-}
-
-const PRIVATE_KEY_HEADER = "-----BEGIN PRIVATE KEY-----\n"
-const PRIVATE_KEY_FOOTER = "\n-----END PRIVATE KEY-----\n"
-const OPENSSL_ASCII_CHUNK_SIZE = 64
-
-function splitStringIntoChunks(input: string, chunkSize: number): string[] {
-  const chunks: string[] = []
-  for (let index = 0; index < input.length; index += chunkSize) {
-    chunks.push(input.slice(index, index + chunkSize))
-  }
-  return chunks
-}
-
-const writeVanityKey = ({ keyPath }: CertificateInfo, key: Buffer) => {
-  writeFileSync(
-    keyPath,
-    PRIVATE_KEY_HEADER +
-      splitStringIntoChunks(
-        Buffer.concat([derPreamble, key]).toString("base64"),
-        OPENSSL_ASCII_CHUNK_SIZE
-      ).join("\n") +
-      PRIVATE_KEY_FOOTER
-  )
+const generateKey = async ({ keyPath }: CertificateInfo) => {
+  await $`openssl genpkey -algorithm RSA -out ${keyPath}`
 }
 
 const generateCertificate = async ({
-  type,
   commonName,
   certificatePath,
   keyPath,
 }: CertificateInfo) => {
-  if (type === "web") {
-    await $`openssl req -new -key ${keyPath} -out ${certificatePath}.csr -days 365 -subj /CN=${commonName}`
-    await $`mkcert -csr ${certificatePath}.csr -cert-file ${certificatePath}`
-  } else {
-    await $`openssl req -new -x509 -key ${keyPath} -out ${certificatePath} -days 365 -subj /CN=${commonName}`
-  }
-}
-
-const parseNodeIndex = (id: string) => {
-  const match = id.match(/n(\d+)/)
-  if (!match) return -1
-  return Number.parseInt(match[1]!, 10) - 1
+  await $`openssl req -new -key ${keyPath} -out ${certificatePath}.csr -days 365 -subj /CN=${commonName}`
+  await $`mkcert -csr ${certificatePath}.csr -cert-file ${certificatePath}`
 }
 
 interface ValidateCertificatesProperties {
@@ -89,7 +45,6 @@ export const validateCertificates = async ({
       logger.error("key is unreadable", {
         id,
         name: certificate.commonName,
-        type: certificate.type,
       })
       return
     }
@@ -98,7 +53,6 @@ export const validateCertificates = async ({
       logger.error("certificate is unreadable", {
         id,
         name: certificate.commonName,
-        type: certificate.type,
       })
       return
     }
@@ -122,38 +76,18 @@ export const validateCertificates = async ({
     }
 
     if (keyStatus === "missing") {
-      if (certificate.type === "dassie") {
-        const index = parseNodeIndex(id)
-        const seed = TEST_NODE_VANITY_SEEDS[index]
-        if (!seed) {
-          throw new Error('No vanity key available for node "' + id + '"')
-        }
+      logger.info("generating key", {
+        id,
+        name: certificate.commonName,
+      })
 
-        logger.info("using vanity node key", {
-          id,
-          name: certificate.commonName,
-          type: certificate.type,
-        })
-        writeVanityKey(
-          certificate,
-          calculatePathHmac(Buffer.from(seed, "hex"), SEED_PATH_NODE)
-        )
-      } else {
-        logger.info("generating key", {
-          id,
-          name: certificate.commonName,
-          type: certificate.type,
-        })
-
-        await generateKey(certificate)
-      }
+      await generateKey(certificate)
     }
 
     if (certificateStatus === "missing") {
       logger.info("generating certificate", {
         id,
         name: certificate.commonName,
-        type: certificate.type,
       })
       await generateCertificate(certificate)
     }

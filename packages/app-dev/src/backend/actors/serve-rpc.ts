@@ -29,7 +29,6 @@ export const listenForRpcWebSocket = () =>
       id: "dev",
       certificates: [
         {
-          type: "web",
           commonName: "dev-rpc.localhost",
           certificatePath,
           keyPath,

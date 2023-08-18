@@ -56,16 +56,9 @@ export const runNodes = () =>
             {
               const neededCertificates: CertificateInfo[] = [
                 {
-                  type: "web",
                   commonName: `${node.id}.localhost`,
                   certificatePath: node.tlsWebCertFile,
                   keyPath: node.tlsWebKeyFile,
-                },
-                {
-                  type: "dassie",
-                  commonName: `test.das.${node.id}`,
-                  certificatePath: node.dassieCertFile,
-                  keyPath: node.dassieKeyFile,
                 },
               ]
 
