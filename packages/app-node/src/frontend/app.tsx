@@ -6,6 +6,7 @@ import { CreateFirstAccount } from "./pages/create-first-account/create-first-ac
 import { Ledger } from "./pages/debug/ledger/ledger"
 import { Nodes } from "./pages/debug/nodes/nodes"
 import { Routing } from "./pages/debug/routing/routing"
+import { LoginPage } from "./pages/login/login"
 import { Open } from "./pages/open/open"
 import { PaymentStatus } from "./pages/payment-status/payment-status"
 import { Send } from "./pages/send/send"
@@ -23,8 +24,7 @@ const App = () => {
   }
 
   if (basicState.state === "anonymous") {
-    // TODO: Show login page
-    return null
+    return <LoginPage />
   }
 
   if (basicState.activeSettlementSchemes.length === 0) {

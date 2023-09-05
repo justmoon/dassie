@@ -14,8 +14,8 @@ import {
   SEED_PATH_NODE,
 } from "@dassie/app-node/src/common/constants/seed-paths"
 
-import { TEST_NODE_VANITY_SEEDS } from "../constants/node-seeds"
 import { NODES_DEBUG_START_PORT, NODES_START_PORT } from "../constants/ports"
+import { TEST_NODE_VANITY_SEEDS } from "../constants/vanity-nodes"
 import type { EnvironmentSettings } from "../stores/environment-settings"
 import { calculateHaltonLocation } from "./calculate-halton-location"
 
@@ -28,13 +28,13 @@ const BOOTSTRAP_NODES = [0, 1]
 export const nodeIndexToFriendlyId = (index: number) => `n${index + 1}`
 export const nodeIndexToPort = (index: number) => NODES_START_PORT + index
 export const nodeIndexToSeed = (index: number): Buffer => {
-  const seed = TEST_NODE_VANITY_SEEDS[index]
+  const seedHex = TEST_NODE_VANITY_SEEDS[index]
 
-  if (!seed) {
-    throw new Error(`No private key for node ${index}`)
+  if (!seedHex) {
+    throw new Error(`No vanity private key for node ${index} available`)
   }
 
-  return Buffer.from(seed, "hex")
+  return Buffer.from(seedHex, "hex")
 }
 export const nodeIndexToPrivateKey = (index: number) => {
   const seed = nodeIndexToSeed(index)
