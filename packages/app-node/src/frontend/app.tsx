@@ -10,6 +10,7 @@ import { LoginPage } from "./pages/login/login"
 import { Open } from "./pages/open/open"
 import { PaymentStatus } from "./pages/payment-status/payment-status"
 import { Send } from "./pages/send/send"
+import { Settings } from "./pages/settings/settings"
 import { trpc } from "./utils/trpc"
 
 const App = () => {
@@ -40,6 +41,7 @@ const App = () => {
         <Route path="/debug/ledger" component={Ledger} />
         <Route path="/debug/nodes" component={Nodes} />
         <Route path="/debug/routing" component={Routing} />
+        <Route path="/settings" component={Settings} />
         <Route component={Account} />
       </Switch>
     </div>

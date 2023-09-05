@@ -23,3 +23,16 @@ export const login = async (binarySeed: Uint8Array) => {
     throw new Error(`Login failed with status ${response.status}`)
   }
 }
+
+export const logout = async () => {
+  const response = await fetch("/api/logout", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error(`Logout failed with status ${response.status}`)
+  }
+}

@@ -22,5 +22,13 @@ export const sessionsStore = (reactor: Reactor) => {
           token: sessionToken,
         })
       }),
+    removeSession: (sessionToken: SessionToken) =>
+      produce((draft) => {
+        draft.delete(sessionToken)
+        database.tables.sessions
+          .select()
+          .where({ equals: { token: sessionToken } })
+          .delete()
+      }),
   })
 }

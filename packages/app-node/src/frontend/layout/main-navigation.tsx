@@ -32,6 +32,13 @@ export function MainNavigation() {
             </ul>
           </NavigationMenuContent>
         </NavigationMenuItem>
+        <NavigationMenuItem>
+          <Link href="/settings">
+            <NavigationMenuLink className={navigationMenuTriggerStyle()}>
+              Settings
+            </NavigationMenuLink>
+          </Link>
+        </NavigationMenuItem>
       </NavigationMenuList>
     </NavigationMenu>
   )
