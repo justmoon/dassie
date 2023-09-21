@@ -107,7 +107,9 @@ export const initCommand = (reactor: Reactor) =>
 
       const accountKey = await acmeCrypto.createPrivateKey()
       const client = new AcmeClient({
-        directoryUrl: acmeDirectory.letsencrypt.staging,
+        directoryUrl: import.meta.env.DEV
+          ? acmeDirectory.letsencrypt.staging
+          : acmeDirectory.letsencrypt.production,
         accountKey,
       })
 
