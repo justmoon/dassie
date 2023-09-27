@@ -67,6 +67,10 @@ export const initCommand = (reactor: Reactor) =>
         return
       }
 
+      await ipcClient.config.setHostname.mutate({
+        hostname: domain,
+      })
+
       flow.show(
         note({
           title: "Let's Encrypt Service Agreement",

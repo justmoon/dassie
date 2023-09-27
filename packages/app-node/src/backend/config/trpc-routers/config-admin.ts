@@ -24,6 +24,18 @@ export const configAdminRouter = trpc.router({
       config.setRealm(realm)
       return true
     }),
+  setHostname: protectedProcedure
+    .input(
+      z.object({
+        hostname: z.string(),
+      })
+    )
+    .mutation(({ input: { hostname }, ctx: { sig } }) => {
+      const config = sig.use(databaseConfigStore)
+
+      config.setHostname(hostname)
+      return true
+    }),
   addSettlementScheme: protectedProcedure
     .input(
       z.object({

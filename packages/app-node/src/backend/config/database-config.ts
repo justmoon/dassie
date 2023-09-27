@@ -85,6 +85,12 @@ export const databaseConfigStore = (reactor: Reactor) => {
         draft.realm = realm
       }),
 
+    setHostname: (hostname: string) =>
+      produce((draft) => {
+        database.scalars.configHostname.set(hostname)
+        draft.hostname = hostname
+      }),
+
     setTlsCertificates: (tlsCert: string, tlsKey: string) =>
       produce((draft) => {
         database.scalars.configTlsWebCert.set(tlsCert)
