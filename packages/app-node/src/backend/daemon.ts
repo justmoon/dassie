@@ -3,6 +3,7 @@ import { createActor, createReactor } from "@dassie/lib-reactive"
 import { startAccounting } from "./accounting"
 import { startAcmeCertificateManager } from "./acme-certificate-manager"
 import { startAuthenticationFeature } from "./authentication"
+import { setupUrlComputed } from "./authentication/computed/setup-url"
 import { startBtpServer } from "./btp-server"
 import { hasNodeIdentityComputed } from "./config/computed/has-node-identity"
 import { hasTlsComputed } from "./config/computed/has-tls"
@@ -33,6 +34,7 @@ export const startTlsDependentServices = () =>
     }
 
     sig.run(startTrpcServer)
+    sig.run(startAuthenticationFeature)
   })
 
 export const startNodeIdentityDependentServices = () =>
@@ -40,7 +42,8 @@ export const startNodeIdentityDependentServices = () =>
     const hasNodeIdentity = sig.get(hasNodeIdentityComputed)
 
     if (!hasNodeIdentity) {
-      logger.warn("Node identity is not configured")
+      const setupUrl = sig.get(setupUrlComputed)
+      logger.warn(`Node identity is not configured, visit ${setupUrl}`)
       return
     }
 
@@ -51,7 +54,6 @@ export const startNodeIdentityDependentServices = () =>
     sig.run(startIldcpServer)
     await sig.run(startExchangeRates)
 
-    sig.run(startAuthenticationFeature)
     sig.run(startSettlementSchemes)
     await sig.run(startSpspServer)
     sig.run(startOpenPaymentsServer)

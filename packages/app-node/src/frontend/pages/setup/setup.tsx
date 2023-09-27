@@ -1,13 +1,9 @@
-import { bytesToHex } from "@noble/hashes/utils"
 import * as bip39 from "@scure/bip39"
 import { wordlist } from "@scure/bip39/wordlists/english"
 import { useCallback, useState } from "react"
 
-import { SEED_PATH_NODE } from "../../../common/constants/seed-paths"
 import { Card, CardHeader, CardTitle } from "../../components/ui/card"
-import { walletStore } from "../../stores/wallet"
-import { getPrivateSeedAtPath } from "../../utils/signer"
-import { trpc } from "../../utils/trpc"
+import { setup } from "../../utils/authentication"
 import { SubpageGenerate } from "./subpage-generate/subpage-generate"
 import { SubpageIntro } from "./subpage-intro/subpage-intro"
 import { SubpageRecover } from "./subpage-recover/subpage-recover"
@@ -52,9 +48,12 @@ const SUBPAGE_TITLES: Record<SubpageState["subpage"], string> = {
   opening: "Opening Wallet",
 } as const
 
-export const Open = () => {
+export interface SetupProperties {
+  token: string
+}
+
+export const Setup = ({ token }: SetupProperties) => {
   const [subpage, setSubpage] = useState<SubpageState>({ subpage: "intro" })
-  const setNodeIdentity = trpc.config.setNodeIdentity.useMutation()
 
   const onBack = useCallback(() => {
     switch (subpage.subpage) {
@@ -88,21 +87,21 @@ export const Open = () => {
     setSubpage({ subpage: "recover", mnemonic: "" })
   }, [setSubpage])
 
-  const setNodeIdentityMutate = setNodeIdentity.mutate
   const onMnemonic = useCallback(
     (mnemonic: string) => {
       setSubpage({ subpage: "opening", mnemonic })
 
-      void bip39.mnemonicToSeed(mnemonic).then((binarySeed) => {
-        setNodeIdentityMutate({
-          rawDassieKeyHex: bytesToHex(
-            getPrivateSeedAtPath(binarySeed, SEED_PATH_NODE)
-          ),
+      void bip39
+        .mnemonicToSeed(mnemonic)
+        .then((binarySeed) => {
+          return setup(binarySeed, token)
         })
-        walletStore.setSeed(bytesToHex(binarySeed))
-      })
+        .then(() => {
+          window.history.replaceState({}, "", "/")
+          window.location.reload()
+        })
     },
-    [setSubpage, setNodeIdentityMutate]
+    [setSubpage, token]
   )
 
   const subpageElement = (() => {

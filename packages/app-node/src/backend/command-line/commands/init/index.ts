@@ -229,7 +229,7 @@ export const initCommand = (reactor: Reactor) =>
         })
       )
 
-      await ipcClient.tls.setNodeTlsConfiguration.mutate({
+      const setupUrl = await ipcClient.tls.setNodeTlsConfiguration.mutate({
         certificate: certificate.toString(),
         privateKey: key.toString(),
       })
@@ -238,7 +238,7 @@ export const initCommand = (reactor: Reactor) =>
         note({
           style: "success",
           title: "Configuration completed!",
-          body: "You may now launch Dassie!",
+          body: `You may now continue setup in your browser by visiting ${setupUrl}`,
         })
       )
     },

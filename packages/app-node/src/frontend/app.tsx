@@ -1,4 +1,4 @@
-import { Route, Switch } from "wouter"
+import { Route, Switch, useRoute } from "wouter"
 
 import { MainNavigation } from "./layout/main-navigation"
 import { Account } from "./pages/account/account"
@@ -7,21 +7,27 @@ import { Ledger } from "./pages/debug/ledger/ledger"
 import { Nodes } from "./pages/debug/nodes/nodes"
 import { Routing } from "./pages/debug/routing/routing"
 import { LoginPage } from "./pages/login/login"
-import { Open } from "./pages/open/open"
 import { PaymentStatus } from "./pages/payment-status/payment-status"
 import { Send } from "./pages/send/send"
 import { Settings } from "./pages/settings/settings"
+import { Setup } from "./pages/setup/setup"
+import { SetupInfoPage } from "./pages/setup/setup-info"
 import { trpc } from "./utils/trpc"
 
 const App = () => {
   const { data: basicState } = trpc.general.getBasicState.useQuery()
+  const [isSetupRoute, setupRouteParameters] = useRoute("/setup/:token")
 
   if (!basicState) {
     return null
   }
 
   if (basicState.state === "uninitialized") {
-    return <Open />
+    return isSetupRoute ? (
+      <Setup token={setupRouteParameters.token} />
+    ) : (
+      <SetupInfoPage />
+    )
   }
 
   if (basicState.state === "anonymous") {
