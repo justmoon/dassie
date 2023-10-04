@@ -26,6 +26,7 @@ import { renderValueWithCursor } from "./render-value-with-cursor"
 export interface TextOptions {
   title: string
   explanation?: string
+  initialValue?: string
 }
 
 export interface TextState {
@@ -34,12 +35,12 @@ export interface TextState {
   cursor: number
 }
 
-export const text = ({ title, explanation }: TextOptions) =>
+export const text = ({ title, explanation, initialValue }: TextOptions) =>
   ({
     type: "interactive",
     initialState: {
       state: "normal",
-      value: "",
+      value: initialValue ?? "",
       cursor: 0,
     },
     isFinal: (state) => state.state === "confirm" || state.state === "cancel",

@@ -19,6 +19,8 @@ export interface FlowOptions {
   theme?: PromptTheme
 }
 
+export type Flow = ReturnType<typeof createFlow>
+
 export const createFlow = ({
   inputStream = stdin,
   outputStream = stdout,
