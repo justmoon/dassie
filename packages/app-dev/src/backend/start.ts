@@ -1,4 +1,3 @@
-import chalk from "chalk"
 import { ViteDevServer } from "vite"
 import { ViteNodeServer } from "vite-node/server"
 
@@ -19,9 +18,6 @@ export interface StartParameters {
 
 const rootActor = () =>
   createActor(async (sig, { viteServer, viteNodeServer }: StartParameters) => {
-    // eslint-disable-next-line no-console
-    console.log(chalk.bold(`  Dassie${chalk.green("//dev")}\n`))
-
     sig.run(registerReactiveLogger)
     await sig.run(listenForRpcWebSocket)
     await sig.run(debugUiServer)

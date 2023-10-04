@@ -1,9 +1,13 @@
+import chalk from "chalk"
 import { createServer } from "vite"
 import { ViteNodeRunner } from "vite-node/client"
 import { ViteNodeServer } from "vite-node/server"
 import { installSourcemapsSupport } from "vite-node/source-map"
 
 const loadDevelopmentServer = async () => {
+  console.info(chalk.bold(`  Dassie${chalk.green("//dev")}\n`))
+  console.info("  Starting development server...\n")
+
   const viteServer = await createServer({
     logLevel: "error",
     configFile: "packages/app-dev/vite.backend.config.js",
