@@ -1,7 +1,7 @@
-import { ArrowRight, CircleSlash } from "lucide-react"
+import { ArrowRight, CircleSlash, TestTube2Icon } from "lucide-react"
 import { useCallback } from "react"
 
-import Tabs from "../../components/tabs/tabs"
+import { Alert, AlertDescription, AlertTitle } from "../../components/ui/alert"
 import { Button } from "../../components/ui/button"
 import {
   Card,
@@ -12,7 +12,11 @@ import {
 import { trpc } from "../../utils/trpc"
 
 export const CreateFirstAccount = () => {
-  const addSettlementScheme = trpc.config.addSettlementScheme.useMutation()
+  const addSettlementScheme = trpc.config.addSettlementScheme.useMutation({
+    onSuccess: () => {
+      window.location.reload()
+    },
+  })
 
   const onSelectNullSubnet = useCallback(() => {
     addSettlementScheme.mutate({
@@ -25,47 +29,39 @@ export const CreateFirstAccount = () => {
     <div className="flex h-full items-center justify-center">
       <Card className="w-full max-w-lg mx-8 h-full max-h-lg">
         <CardHeader>
-          <CardTitle>Select a network</CardTitle>
+          <CardTitle>Select a settlement method</CardTitle>
         </CardHeader>
         <CardContent>
-          <Tabs.Root className="w-full" defaultValue="testnet">
-            <Tabs.List>
-              <Tabs.Trigger value="testnet">Test Networks</Tabs.Trigger>
-              <Tabs.Trigger value="livenet">Live Networks</Tabs.Trigger>
-            </Tabs.List>
-            <Tabs.Content value="testnet">
-              <div className="p-6 mt-4 max-w-sm bg-white rounded-lg border border-gray-200 shadow-md dark:bg-gray-800 dark:border-gray-700">
-                <CircleSlash
-                  aria-hidden="true"
-                  className="mb-2 w-10 h-10 text-gray-500 dark:text-gray-400"
-                />
-                <a href="#">
-                  <h5 className="mb-2 text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">
-                    Null Subnet
-                  </h5>
-                </a>
-                <p className="mb-3 font-normal text-gray-500 dark:text-gray-400">
-                  This settlement scheme allows sending Interledger packets
-                  without any underlying settlement.
-                </p>
-                <Button onClick={onSelectNullSubnet}>
-                  Select{" "}
-                  <ArrowRight
-                    className="ml-2 -mr-1 w-5 h-5"
-                    aria-hidden="true"
-                  />
-                </Button>
-              </div>
-            </Tabs.Content>
-            <Tabs.Content value="livenet">
-              <div
-                className="p-4 my-4 text-sm text-blue-700 bg-blue-100 rounded-lg dark:bg-blue-200 dark:text-blue-800"
-                role="alert"
-              >
-                Connecting to the Dassie livenet is not yet supported.
-              </div>
-            </Tabs.Content>
-          </Tabs.Root>
+          <Alert>
+            <TestTube2Icon className="h-4 w-4" />
+            <AlertTitle>Testnet</AlertTitle>
+            <AlertDescription>
+              You are connected to the Dassie test network. The settlement
+              methods below do <strong>not</strong> use real money.
+            </AlertDescription>
+          </Alert>
+          <div className="p-6 mt-4 max-w-sm bg-white rounded-lg border border-gray-200 shadow-md dark:bg-gray-800 dark:border-gray-700">
+            <CircleSlash
+              aria-hidden="true"
+              className="mb-2 w-10 h-10 text-gray-500 dark:text-gray-400"
+            />
+            <a href="#">
+              <h5 className="mb-2 text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">
+                Null Settlement
+              </h5>
+            </a>
+            <p className="mb-3 font-normal text-gray-500 dark:text-gray-400">
+              This settlement scheme simulates settlement delays but does not
+              actually connect to any external ledger.
+            </p>
+            <Button
+              onClick={onSelectNullSubnet}
+              disabled={addSettlementScheme.isLoading}
+            >
+              Select{" "}
+              <ArrowRight className="ml-2 -mr-1 w-5 h-5" aria-hidden="true" />
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>
