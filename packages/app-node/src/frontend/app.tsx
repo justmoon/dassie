@@ -1,6 +1,6 @@
 import { Route, Switch, useRoute } from "wouter"
 
-import { MainNavigation } from "./layout/main-navigation"
+import { MainNavigation } from "./layout/main-navigation/main-navigation"
 import { Account } from "./pages/account/account"
 import { CreateFirstAccount } from "./pages/create-first-account/create-first-account"
 import { Ledger } from "./pages/debug/ledger/ledger"

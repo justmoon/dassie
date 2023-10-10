@@ -1,3 +1,4 @@
+import { SettingsIcon } from "lucide-react"
 import { Link, LinkProps } from "wouter"
 
 import {
@@ -8,12 +9,13 @@ import {
   NavigationMenuList,
   NavigationMenuTrigger,
   navigationMenuTriggerStyle,
-} from "../components/ui/navigation-menu"
-import { combine } from "../utils/class-helper"
+} from "../../components/ui/navigation-menu"
+import { combine } from "../../utils/class-helper"
+import { NetworkStatus } from "./network-status"
 
 export function MainNavigation() {
   return (
-    <NavigationMenu>
+    <NavigationMenu className="p-2">
       <NavigationMenuList>
         <NavigationMenuItem>
           <Link href="/dashboard">
@@ -32,10 +34,21 @@ export function MainNavigation() {
             </ul>
           </NavigationMenuContent>
         </NavigationMenuItem>
+      </NavigationMenuList>
+      <div className="flex-1" />
+      <NavigationMenuList>
+        <NavigationMenuItem>
+          <Link href="/debug/nodes">
+            <NavigationMenuLink className={navigationMenuTriggerStyle()}>
+              <NetworkStatus />
+            </NavigationMenuLink>
+          </Link>
+        </NavigationMenuItem>
         <NavigationMenuItem>
           <Link href="/settings">
             <NavigationMenuLink className={navigationMenuTriggerStyle()}>
-              Settings
+              <SettingsIcon className="w-4 h-4 md:mr-2 inline-block" />
+              <span className="hidden md:inline">Settings</span>
             </NavigationMenuLink>
           </Link>
         </NavigationMenuItem>
