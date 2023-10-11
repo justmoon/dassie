@@ -10,7 +10,7 @@ import { type Signal, createSignal } from "./signal"
 
 export type Behavior<TReturn = unknown, TProperties = unknown> = (
   sig: ActorContext,
-  properties: TProperties
+  properties: TProperties,
 ) => TReturn
 
 export const ActorSymbol = Symbol("das:reactive:actor")
@@ -21,14 +21,14 @@ export type MessageHandlerRecord = Record<string, MessageHandler>
 
 export type InferActorMessageType<
   TInstance,
-  TMethod extends string & keyof TInstance
+  TMethod extends string & keyof TInstance,
 > = TInstance[TMethod] extends (message: infer TMessage) => unknown
   ? TMessage
   : never
 
 export type InferActorReturnType<
   TInstance,
-  TMethod extends string & keyof TInstance
+  TMethod extends string & keyof TInstance,
 > = TInstance[TMethod] extends (...parameters: never[]) => infer TReturn
   ? TReturn
   : never
@@ -80,11 +80,12 @@ export type Actor<TInstance, TProperties = undefined> = Signal<
    * @param message - The message to send to the actor.
    */
   tell: <
-    TMethod extends string & ConditionalKeys<Awaited<TInstance>, MessageHandler>
+    TMethod extends string &
+      ConditionalKeys<Awaited<TInstance>, MessageHandler>,
   >(
     this: void,
     method: TMethod,
-    message: InferActorMessageType<Awaited<TInstance>, TMethod>
+    message: InferActorMessageType<Awaited<TInstance>, TMethod>,
   ) => void
 
   /**
@@ -94,11 +95,12 @@ export type Actor<TInstance, TProperties = undefined> = Signal<
    * @returns A promise that will resolve with the response from the actor.
    */
   ask: <
-    TMethod extends string & ConditionalKeys<Awaited<TInstance>, MessageHandler>
+    TMethod extends string &
+      ConditionalKeys<Awaited<TInstance>, MessageHandler>,
   >(
     this: void,
     method: TMethod,
-    message: InferActorMessageType<Awaited<TInstance>, TMethod>
+    message: InferActorMessageType<Awaited<TInstance>, TMethod>,
   ) => Promise<InferActorReturnType<Awaited<TInstance>, TMethod>>
 }
 
@@ -107,7 +109,7 @@ interface RunSignature<TReturn, TProperties> {
   (
     lifecycle: LifecycleScope,
     properties: TProperties,
-    options?: RunOptions | undefined
+    options?: RunOptions | undefined,
   ): TReturn | undefined
 }
 
@@ -131,14 +133,14 @@ export interface RunOptions {
 }
 
 type CreateActorSignature = <TInstance, TProperties = undefined>(
-  behavior: Behavior<TInstance, TProperties>
+  behavior: Behavior<TInstance, TProperties>,
 ) => Actor<TInstance, TProperties>
 
 export const createActor: CreateActorSignature = <
   TInstance,
-  TProperties = undefined
+  TProperties = undefined,
 >(
-  behavior: Behavior<TInstance, TProperties>
+  behavior: Behavior<TInstance, TProperties>,
 ): Actor<TInstance, TProperties> => {
   const reactor = Reactor.current
 
@@ -157,7 +159,7 @@ export const createActor: CreateActorSignature = <
     run: (
       lifecycle: LifecycleScope,
       properties?: TProperties,
-      { additionalDebugData, pathPrefix }: RunOptions = {}
+      { additionalDebugData, pathPrefix }: RunOptions = {},
     ) => {
       if (actor.isRunning) {
         throw new Error(`actor is already running: ${actor[FactoryNameSymbol]}`)
@@ -178,7 +180,7 @@ export const createActor: CreateActorSignature = <
         actorPath,
         properties!,
         lifecycle,
-        additionalDebugData
+        additionalDebugData,
       )
 
       return actor.result
@@ -197,7 +199,7 @@ export const createActor: CreateActorSignature = <
         debugOptimisticActorCall(
           actor.promise,
           actor[FactoryNameSymbol],
-          method
+          method,
         )
       }
 
@@ -205,7 +207,7 @@ export const createActor: CreateActorSignature = <
 
       return (
         actorInstance[method] as (
-          parameter: typeof message
+          parameter: typeof message,
         ) => InferActorReturnType<Awaited<TInstance>, typeof method>
       )(message)
     },
@@ -215,7 +217,7 @@ export const createActor: CreateActorSignature = <
 }
 
 export const isActor = (
-  object: unknown
+  object: unknown,
 ): object is Actor<MessageHandlerRecord, unknown> =>
   isObject(object) && object[ActorSymbol] === true
 
@@ -223,7 +225,7 @@ const DEBUG_ACTOR_OPTIMISTIC_CALL_TIMEOUT = 2000
 export const debugOptimisticActorCall = (
   actorPromise: Promise<unknown>,
   actorName: string,
-  method: string
+  method: string,
 ) => {
   const timeout = setTimeout(() => {
     console.error("Actor called but never instantiated", {
@@ -232,7 +234,7 @@ export const debugOptimisticActorCall = (
     })
   }, DEBUG_ACTOR_OPTIMISTIC_CALL_TIMEOUT)
 
-  actorPromise.finally(() => clearTimeout(timeout))
+  void actorPromise.finally(() => clearTimeout(timeout))
 }
 
 const loopActor = async <TReturn, TProperties>(
@@ -241,7 +243,7 @@ const loopActor = async <TReturn, TProperties>(
   actorPath: string,
   properties: TProperties,
   parentLifecycle: LifecycleScope,
-  additionalDebugData: Record<string, unknown> | undefined
+  additionalDebugData: Record<string, unknown> | undefined,
 ) => {
   const resetActor = async () => {
     await actor.promise
@@ -259,7 +261,7 @@ const loopActor = async <TReturn, TProperties>(
       actor[FactoryNameSymbol],
       actorPath,
       reactor,
-      waker.resolve
+      waker.resolve,
     )
     context.attachToParent(parentLifecycle)
     context.onCleanup(resetActor)

@@ -27,14 +27,14 @@
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "dependencies": {
-    "better-sqlite3": "^8.4.0"
+    "better-sqlite3": "^9.0.0"
   },
   "devDependencies": {
     "@dassie/eslint-config": "workspace:^",
     "@dassie/lib-logger": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
-    "type-fest": "^3.12.0",
-    "zod": "^3.21.4"
+    "type-fest": "^4.4.0",
+    "zod": "^3.22.4"
   },
   "peerDependencies": {
     "@dassie/lib-logger": "workspace:^1.0.0"
