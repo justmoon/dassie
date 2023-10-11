@@ -2,16 +2,16 @@ import { enableMapSet, produce } from "immer"
 
 import { Reactor, createStore } from "@dassie/lib-reactive"
 
-import { databasePlain } from "../../database/open-database"
+import { Database } from "../../database/open-database"
 import { SessionToken } from "../types/session-token"
 
 enableMapSet()
 
-export const sessionsStore = (reactor: Reactor) => {
-  const database = reactor.use(databasePlain)
+export const SessionsStore = (reactor: Reactor) => {
+  const database = reactor.use(Database)
 
   const sessionSet = new Set(
-    database.tables.sessions.selectAll().map(({ token }) => token)
+    database.tables.sessions.selectAll().map(({ token }) => token),
   )
 
   return createStore(sessionSet, {

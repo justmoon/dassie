@@ -4,7 +4,7 @@ import { SettlementSchemeId } from "../peer-protocol/types/settlement-scheme-id"
 import { initializeCommonAccounts } from "./functions/manage-common-accounts"
 import { ledgerStore } from "./stores/ledger"
 
-export const manageBuiltinAccounts = () =>
+export const ManageBuiltinAccountsActor = () =>
   createActor((sig) => {
     const ledger = sig.use(ledgerStore)
 

@@ -1,8 +1,8 @@
 import { z } from "zod"
 
-import { logsStore } from "../../common/stores/logs"
-import { peeringStateStore } from "../stores/peering-state"
-import { peerTrafficTopic } from "../topics/peer-traffic"
+import { LogsStore } from "../../common/stores/logs"
+import { PeeringStateStore } from "../stores/peering-state"
+import { PeerTrafficTopic } from "../topics/peer-traffic"
 import { trpc } from "./trpc"
 
 export const runnerRpcRouter = trpc.router({
@@ -11,10 +11,10 @@ export const runnerRpcRouter = trpc.router({
       z.object({
         from: z.string(),
         to: z.string(),
-      })
+      }),
     )
     .mutation(({ input: peerMessageMetadata, ctx: { reactor } }) => {
-      reactor.use(peerTrafficTopic).emit(peerMessageMetadata)
+      reactor.use(PeerTrafficTopic).emit(peerMessageMetadata)
     }),
   notifyLogLine: trpc.procedure
     .input(
@@ -39,10 +39,10 @@ export const runnerRpcRouter = trpc.router({
             date: z.number(),
           }),
         ]),
-      ])
+      ]),
     )
     .mutation(({ input: [nodeId, logEvent], ctx: { reactor } }) => {
-      const logs = reactor.use(logsStore)
+      const logs = reactor.use(LogsStore)
       if (logEvent.type === "clear") {
         logs.clear()
         return
@@ -59,10 +59,10 @@ export const runnerRpcRouter = trpc.router({
       z.object({
         nodeId: z.string(),
         peers: z.array(z.string()),
-      })
+      }),
     )
     .mutation(({ input: { nodeId, peers }, ctx: { reactor } }) => {
-      const peeringState = reactor.use(peeringStateStore)
+      const peeringState = reactor.use(PeeringStateStore)
       peeringState.updateNodePeers(nodeId, peers)
     }),
 })

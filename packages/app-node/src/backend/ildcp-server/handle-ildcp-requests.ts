@@ -1,13 +1,13 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { processPacket } from "../ilp-connector/process-packet"
+import { ProcessPacketActor } from "../ilp-connector/process-packet"
 import {
   IlpType,
   serializeIlpPacket,
 } from "../ilp-connector/schemas/ilp-packet-codec"
 import { IldcpEndpointInfo } from "../ilp-connector/senders/send-ildcp-packets"
 import { ildcp as logger } from "../logger/instances"
-import { routingTableSignal } from "../routing/signals/routing-table"
+import { RoutingTableSignal } from "../routing/signals/routing-table"
 import { ildcpResponseSchema } from "./ildcp-packet-codec"
 
 export const ILDCP_ADDRESS = "peer.config"
@@ -23,10 +23,10 @@ const ILDCP_DESTINATION_INFO: IldcpEndpointInfo = {
   accountPath: `internal/ildcp`,
 }
 
-export const handleIldcpRequests = () =>
+export const HandleIldcpRequestsActor = () =>
   createActor((sig) => {
-    const ilpRoutingTable = sig.get(routingTableSignal)
-    const processIncomingPacketActor = sig.use(processPacket)
+    const ilpRoutingTable = sig.get(RoutingTableSignal)
+    const processIncomingPacketActor = sig.use(ProcessPacketActor)
 
     ilpRoutingTable.set(ILDCP_ADDRESS, {
       type: "fixed",

@@ -1,18 +1,18 @@
-import { createComputed } from "@dassie/lib-reactive"
+import { Reactor, createComputed } from "@dassie/lib-reactive"
 
 import { ledgerStore } from "../stores/ledger"
-import { postedTransfersTopic } from "../topics/posted-transfers"
+import { PostedTransfersTopic } from "../topics/posted-transfers"
 
-export const totalOwnerBalanceComputed = () =>
-  createComputed((sig) => {
-    const ledger = sig.use(ledgerStore)
+export const TotalOwnerBalanceSignal = (reactor: Reactor) =>
+  createComputed(reactor.lifecycle, () => {
+    const ledger = reactor.use(ledgerStore)
 
     let balance = 0n
     for (const account of ledger.getAccounts("builtin/owner/")) {
       balance += account.creditsPosted - account.debitsPosted
     }
 
-    sig.use(postedTransfersTopic).on(sig.reactor, (transfer) => {
+    reactor.use(PostedTransfersTopic).on(reactor.lifecycle, (transfer) => {
       let newBalance = balance
       if (transfer.creditAccount.startsWith("builtin/owner/")) {
         newBalance += transfer.amount
@@ -23,7 +23,7 @@ export const totalOwnerBalanceComputed = () =>
       }
 
       if (newBalance !== balance) {
-        sig.use(totalOwnerBalanceComputed).write(newBalance)
+        reactor.use(TotalOwnerBalanceSignal).write(newBalance)
         balance = newBalance
       }
     })

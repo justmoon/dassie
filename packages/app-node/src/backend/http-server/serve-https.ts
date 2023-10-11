@@ -8,19 +8,19 @@ import type { Duplex } from "node:stream"
 
 import { createActor, createSignal } from "@dassie/lib-reactive"
 
-import { databaseConfigStore } from "../config/database-config"
+import { DatabaseConfigStore } from "../config/database-config"
 import { http as logger } from "../logger/instances"
 import { getListenTargets } from "./utils/listen-targets"
 
 export type Handler = (
   request: IncomingMessage,
-  response: ServerResponse
+  response: ServerResponse,
 ) => void
 
-export const additionalMiddlewaresSignal = () =>
+export const AdditionalMiddlewaresSignal = () =>
   createSignal<NextHandleFunction[]>([])
 
-export const httpsRouterService = () =>
+export const HttpsRouterServiceActor = () =>
   createActor<Router>(() => {
     return Router()
   })
@@ -28,28 +28,28 @@ export const httpsRouterService = () =>
 export type WebsocketHandler = (
   request: IncomingMessage,
   socket: Duplex,
-  head: Buffer
+  head: Buffer,
 ) => void
 
-export const websocketRoutesSignal = () =>
+export const WebsocketRoutesSignal = () =>
   createSignal(new Map<string, WebsocketHandler>())
 
 function handleError(error: unknown) {
   logger.error("https server error", { error })
 }
 
-export const httpsService = () =>
+export const HttpsServiceActor = () =>
   createActor((sig) => {
     const { httpsPort, url, tlsWebCert, tlsWebKey } = sig.getKeys(
-      databaseConfigStore,
-      ["httpsPort", "url", "tlsWebCert", "tlsWebKey"]
+      DatabaseConfigStore,
+      ["httpsPort", "url", "tlsWebCert", "tlsWebKey"],
     )
 
     assert(tlsWebCert, "Web UI is not configured, missing certificate")
     assert(tlsWebKey, "Web UI is not configured, missing private key")
 
-    const router = sig.get(httpsRouterService)
-    const additionalMiddlewares = sig.get(additionalMiddlewaresSignal)
+    const router = sig.get(HttpsRouterServiceActor)
+    const additionalMiddlewares = sig.get(AdditionalMiddlewaresSignal)
 
     if (!router) return
 
@@ -66,7 +66,7 @@ export const httpsService = () =>
         cert: tlsWebCert,
         key: tlsWebKey,
       },
-      app
+      app,
     )
 
     for (const listenTarget of getListenTargets(httpsPort, true)) {
@@ -78,13 +78,13 @@ export const httpsService = () =>
     function handleUpgrade(
       request: IncomingMessage,
       socket: Duplex,
-      head: Buffer
+      head: Buffer,
     ) {
       logger.debug("websocket upgrade request", { url: request.url })
 
       const { pathname } = new URL(request.url!, "http://localhost")
 
-      const handler = sig.use(websocketRoutesSignal).read().get(pathname)
+      const handler = sig.use(WebsocketRoutesSignal).read().get(pathname)
 
       if (!handler) {
         socket.destroy()
@@ -106,8 +106,8 @@ export const httpsService = () =>
     return server
   })
 
-export const serveHttps = () =>
+export const ServeHttpsActor = () =>
   createActor((sig) => {
-    sig.run(httpsRouterService)
-    sig.run(httpsService)
+    sig.run(HttpsRouterServiceActor)
+    sig.run(HttpsServiceActor)
   })

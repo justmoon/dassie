@@ -1,28 +1,28 @@
 import { createActor } from "../actor"
-import { createReactor } from "../reactor"
+import { Reactor, createReactor } from "../reactor"
 import { createSignal } from "../signal"
 
-const counterSignal = () => createSignal(0)
+const CountSignal = () => createSignal(0)
 
-const clock = () =>
+const ClockActor = () =>
   createActor((sig) => {
     sig.interval(() => {
-      sig.use(counterSignal).update((state) => state + 1)
+      sig.use(CountSignal).update((state) => state + 1)
     }, 75)
   })
 
-const logger = () =>
+const LoggerActor = () =>
   createActor((sig) => {
-    sig.on(counterSignal, (state) => {
+    sig.on(CountSignal, (state) => {
       console.info(`the counter is: ${state}`)
     })
   })
 
-const rootActor = () =>
+const RootActor = (reactor: Reactor) =>
   createActor((sig) => {
-    sig.run(clock)
-    sig.run(logger)
-    sig.timeout(() => void sig.reactor.dispose(), 400)
+    sig.run(ClockActor)
+    sig.run(LoggerActor)
+    sig.timeout(() => void reactor.lifecycle.dispose(), 400)
   })
 
-createReactor(rootActor)
+createReactor(RootActor)

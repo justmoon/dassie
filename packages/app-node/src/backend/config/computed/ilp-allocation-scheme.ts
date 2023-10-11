@@ -1,10 +1,10 @@
-import { createComputed } from "@dassie/lib-reactive"
+import { Reactor, createComputed } from "@dassie/lib-reactive"
 
-import { databaseConfigStore } from "../database-config"
+import { DatabaseConfigStore } from "../database-config"
 
-export const ilpAllocationSchemeSignal = () =>
-  createComputed((sig) => {
-    const config = sig.get(databaseConfigStore)
+export const IlpAllocationSchemeSignal = (reactor: Reactor) =>
+  createComputed(reactor.lifecycle, (sig) => {
+    const config = sig.get(reactor.use(DatabaseConfigStore))
 
     return config.realm === "test" ? "test" : "g"
   })

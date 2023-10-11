@@ -9,18 +9,18 @@ import { createPacketSender } from "../functions/send-packet"
 import { ProcessIncomingPacketParameters } from "../process-packet"
 import { IlpErrorCode } from "../schemas/ilp-errors"
 import { IlpPreparePacket } from "../schemas/ilp-packet-codec"
-import { requestIdMapSignal } from "../signals/request-id-map"
+import { RequestIdMapSignal } from "../signals/request-id-map"
 import {
   PreparedIlpPacketEvent,
-  preparedIlpPacketTopic,
+  PreparedIlpPacketTopic,
 } from "../topics/prepared-ilp-packet"
 import { createScheduleTimeout } from "./schedule-timeout"
 import { createTriggerRejection } from "./trigger-rejection"
 
 export interface ProcessPreparePacketEnvironment {
   ledger: ReturnType<typeof ledgerStore>
-  preparedIlpPacketTopicValue: ReturnType<typeof preparedIlpPacketTopic>
-  requestIdMap: ReturnType<typeof requestIdMapSignal>
+  preparedIlpPacketTopicValue: ReturnType<typeof PreparedIlpPacketTopic>
+  requestIdMap: ReturnType<typeof RequestIdMapSignal>
   resolveIlpAddress: ReturnType<typeof createResolveIlpAddress>
   sendPacket: ReturnType<typeof createPacketSender>
   triggerRejection: ReturnType<typeof createTriggerRejection>
@@ -104,7 +104,7 @@ export const createProcessPreparePacket = ({
           ledger,
           sourceEndpointInfo.accountPath,
           parsedPacket,
-          "incoming"
+          "incoming",
         )
         if (isFailure(result)) {
           switch (result.name) {
@@ -147,7 +147,7 @@ export const createProcessPreparePacket = ({
           ledger,
           destinationEndpointInfo.accountPath,
           parsedPacket,
-          "outgoing"
+          "outgoing",
         )
         if (isFailure(result)) {
           switch (result.name) {

@@ -1,18 +1,18 @@
 import { z } from "zod"
 
-import { setupUrlComputed } from "../../authentication/computed/setup-url"
+import { SetupUrlSignal } from "../../authentication/computed/setup-url"
 import { VALID_REALMS } from "../../constants/general"
-import { nodeIdSignal } from "../../ilp-connector/computed/node-id"
+import { NodeIdSignal } from "../../ilp-connector/computed/node-id"
 import { trpc } from "../../local-ipc-server/trpc-context"
 import { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
-import { settlementSchemesStore } from "../../settlement-schemes/database-stores/settlement-schemes"
+import { SettlementSchemesStore } from "../../settlement-schemes/database-stores/settlement-schemes"
 import { protectedProcedure } from "../../trpc-server/middlewares/auth"
-import { hasTlsComputed } from "../computed/has-tls"
-import { databaseConfigStore } from "../database-config"
+import { HasTlsSignal } from "../computed/has-tls"
+import { DatabaseConfigStore } from "../database-config"
 
 export const configAdminRouter = trpc.router({
   getConfig: protectedProcedure.query(({ ctx: { sig } }) => {
-    const { hostname, dassieKey } = sig.use(databaseConfigStore).read()
+    const { hostname, dassieKey } = sig.use(DatabaseConfigStore).read()
 
     const nodeIdFields =
       dassieKey === undefined
@@ -21,20 +21,20 @@ export const configAdminRouter = trpc.router({
           }
         : {
             hasNodeIdentity: true as const,
-            nodeId: sig.use(nodeIdSignal).read(),
+            nodeId: sig.use(NodeIdSignal).read(),
           }
 
     const result = {
       hostname,
       ...nodeIdFields,
-      hasTls: sig.use(hasTlsComputed).read(),
+      hasTls: sig.use(HasTlsSignal).read(),
     }
 
     return result
   }),
 
   getSetupUrl: protectedProcedure.query(({ ctx: { sig } }) => {
-    const setupUrl = sig.use(setupUrlComputed).read()
+    const setupUrl = sig.use(SetupUrlSignal).read()
     return setupUrl
   }),
 
@@ -42,14 +42,14 @@ export const configAdminRouter = trpc.router({
     .input(
       z.object({
         realm: z.enum(VALID_REALMS),
-      })
+      }),
     )
     .mutation(({ input: { realm }, ctx: { sig } }) => {
       if (realm === "live") {
         throw new Error("Livenet is not yet supported")
       }
 
-      const config = sig.use(databaseConfigStore)
+      const config = sig.use(DatabaseConfigStore)
 
       config.setRealm(realm)
       return true
@@ -58,10 +58,10 @@ export const configAdminRouter = trpc.router({
     .input(
       z.object({
         hostname: z.string(),
-      })
+      }),
     )
     .mutation(({ input: { hostname }, ctx: { sig } }) => {
-      const config = sig.use(databaseConfigStore)
+      const config = sig.use(DatabaseConfigStore)
 
       config.setHostname(hostname)
       return true
@@ -71,9 +71,9 @@ export const configAdminRouter = trpc.router({
       z.object({
         id: z.string().transform((id) => id as SettlementSchemeId),
         config: z.object({}),
-      })
+      }),
     )
     .mutation(({ ctx: { sig }, input: { id, config } }) => {
-      sig.use(settlementSchemesStore).addSettlementScheme(id, config)
+      sig.use(SettlementSchemesStore).addSettlementScheme(id, config)
     }),
 })

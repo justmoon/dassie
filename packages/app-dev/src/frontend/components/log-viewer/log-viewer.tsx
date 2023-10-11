@@ -17,7 +17,7 @@ import { Input } from "@dassie/app-node/src/frontend/components/ui/input"
 import { combine } from "@dassie/app-node/src/frontend/utils/class-helper"
 import { useRemoteStore } from "@dassie/lib-reactive-trpc/client"
 
-import { type IndexedLogLine, logsStore } from "../../../common/stores/logs"
+import { type IndexedLogLine, LogsStore } from "../../../common/stores/logs"
 import { trpc } from "../../utils/trpc"
 import LogLine from "./log-line"
 
@@ -34,7 +34,7 @@ const LogViewer = ({
   const [shouldStick, setShouldStick] = useState(true)
   const scrollPositionReference = useRef<number | undefined>(undefined)
   const [keywordFilter, setKeywordFilter] = useState("")
-  const { logs } = useRemoteStore(trpc.ui.subscribeToLogs, logsStore)
+  const { logs } = useRemoteStore(trpc.ui.subscribeToLogs, LogsStore)
   const latestLogLine = logs.at(-1)
   const filteredLogs = useMemo(
     () =>
@@ -56,7 +56,7 @@ const LogViewer = ({
         return true
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [keywordFilter, externalFilter, logs, latestLogLine]
+    [keywordFilter, externalFilter, logs, latestLogLine],
   )
 
   const virtualizer = useVirtualizer({

@@ -1,18 +1,18 @@
 import { createActor } from "@dassie/lib-reactive"
 
 import { peerProtocol as logger } from "../logger/instances"
-import { sendPeerMessage } from "./actors/send-peer-message"
-import { peersComputation } from "./computed/peers"
+import { SendPeerMessageActor } from "./actors/send-peer-message"
+import { PeersSignal } from "./computed/peers"
 import { peerMessageContent } from "./peer-schema"
-import { nodeTableStore } from "./stores/node-table"
+import { NodeTableStore } from "./stores/node-table"
 
 const COUNTER_THRESHOLD = 3
 const MAX_RETRANSMIT_CHECK_INTERVAL = 200
 
-export const forwardLinkStateUpdate = () =>
+export const ForwardLinkStateUpdateActor = () =>
   createActor((sig) => {
-    const nodes = sig.get(nodeTableStore)
-    const peers = sig.get(peersComputation)
+    const nodes = sig.get(NodeTableStore)
+    const peers = sig.get(PeersSignal)
 
     for (const node of nodes.values()) {
       if (
@@ -21,7 +21,7 @@ export const forwardLinkStateUpdate = () =>
         node.linkState.scheduledRetransmitTime < Date.now()
       ) {
         // Set scheduled retransmit time to be infinitely far in the future so we don't retransmit the same update again.
-        sig.use(nodeTableStore).updateNode(node.nodeId, {
+        sig.use(NodeTableStore).updateNode(node.nodeId, {
           linkState: {
             ...node.linkState,
             scheduledRetransmitTime: Number.POSITIVE_INFINITY,
@@ -51,7 +51,7 @@ export const forwardLinkStateUpdate = () =>
           })
 
           // Retransmit the link state update
-          sig.use(sendPeerMessage).tell("send", {
+          sig.use(SendPeerMessageActor).tell("send", {
             destination: peer,
             message: {
               type: "linkStateUpdate",
@@ -65,5 +65,5 @@ export const forwardLinkStateUpdate = () =>
       }
     }
 
-    sig.timeout(sig.wake.bind(sig), MAX_RETRANSMIT_CHECK_INTERVAL)
+    sig.timeout(sig.wake, MAX_RETRANSMIT_CHECK_INTERVAL)
   })

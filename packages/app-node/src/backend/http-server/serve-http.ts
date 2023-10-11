@@ -6,12 +6,12 @@ import type { Duplex } from "node:stream"
 
 import { createActor, createSignal } from "@dassie/lib-reactive"
 
-import { hasTlsComputed } from "../config/computed/has-tls"
-import { databaseConfigStore } from "../config/database-config"
+import { HasTlsSignal } from "../config/computed/has-tls"
+import { DatabaseConfigStore } from "../config/database-config"
 import { http as logger } from "../logger/instances"
 import { getListenTargets } from "./utils/listen-targets"
 
-export const httpRouterService = () =>
+export const HttpRouterServiceActor = () =>
   createActor<Router>(() => {
     return Router()
   })
@@ -19,24 +19,24 @@ export const httpRouterService = () =>
 export type WebsocketHandler = (
   request: IncomingMessage,
   socket: Duplex,
-  head: Buffer
+  head: Buffer,
 ) => void
 
-export const websocketRoutesSignal = () =>
+export const WebsocketRoutesSignal = () =>
   createSignal(new Map<string, WebsocketHandler>())
 
 function handleError(error: unknown) {
   logger.error("http server error", { error })
 }
 
-export const httpService = () =>
+export const HttpServiceActor = () =>
   createActor((sig) => {
     const { httpPort, httpsPort, enableHttpServer } = sig.getKeys(
-      databaseConfigStore,
-      ["httpPort", "httpsPort", "enableHttpServer"]
+      DatabaseConfigStore,
+      ["httpPort", "httpsPort", "enableHttpServer"],
     )
-    const hasTls = sig.get(hasTlsComputed)
-    const router = sig.get(httpRouterService)
+    const hasTls = sig.get(HasTlsSignal)
+    const router = sig.get(HttpRouterServiceActor)
 
     if (!router) return
 
@@ -52,7 +52,7 @@ export const httpService = () =>
         response.redirect(
           `https://${request.hostname}${
             httpsPort === 443 ? "" : `:${httpsPort}`
-          }${request.originalUrl}`
+          }${request.originalUrl}`,
         )
       })
     }
@@ -73,8 +73,8 @@ export const httpService = () =>
     return server
   })
 
-export const serveHttp = () =>
+export const ServeHttpActor = () =>
   createActor((sig) => {
-    sig.run(httpRouterService)
-    sig.run(httpService)
+    sig.run(HttpRouterServiceActor)
+    sig.run(HttpServiceActor)
   })

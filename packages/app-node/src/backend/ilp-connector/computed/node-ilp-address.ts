@@ -1,13 +1,13 @@
-import { createComputed } from "@dassie/lib-reactive"
+import { Reactor, createComputed } from "@dassie/lib-reactive"
 
-import { ilpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-scheme"
-import { nodeIdSignal } from "./node-id"
+import { IlpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-scheme"
+import { NodeIdSignal } from "./node-id"
 
-export const nodeIlpAddressSignal = () =>
-  createComputed((sig) => {
-    const ilpAllocationScheme = sig.get(ilpAllocationSchemeSignal)
+export const NodeIlpAddressSignal = (reactor: Reactor) =>
+  createComputed(reactor.lifecycle, (sig) => {
+    const ilpAllocationScheme = sig.get(reactor.use(IlpAllocationSchemeSignal))
 
-    const nodeId = sig.get(nodeIdSignal)
+    const nodeId = sig.get(reactor.use(NodeIdSignal))
 
     return `${ilpAllocationScheme}.das.${nodeId}`
   })

@@ -8,20 +8,20 @@ import {
 } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
-import { httpsRouterService } from "../http-server/serve-https"
+import { HttpsRouterServiceActor } from "../http-server/serve-https"
 import { peerProtocol as logger } from "../logger/instances"
 import {
-  handlePeerMessage,
-  incomingPeerMessageTopic,
+  HandlePeerMessageActor,
+  IncomingPeerMessageTopic,
 } from "./actors/handle-peer-message"
 import { ALLOW_ANONYMOUS_USAGE } from "./constants/anonymous-messages"
 import { peerMessage as peerMessageSchema } from "./peer-schema"
-import { nodeTableStore } from "./stores/node-table"
+import { NodeTableStore } from "./stores/node-table"
 import { authenticatePeerMessage } from "./utils/authenticate-peer-message"
 
-export const registerPeerHttpHandler = () =>
+export const RegisterPeerHttpHandlerActor = () =>
   createActor((sig) => {
-    const router = sig.get(httpsRouterService)
+    const router = sig.get(HttpsRouterServiceActor)
 
     if (!router) return
 
@@ -52,7 +52,7 @@ export const registerPeerHttpHandler = () =>
         }
 
         const senderId = parseResult.value.sender
-        const senderNode = sig.use(nodeTableStore).read().get(senderId)
+        const senderNode = sig.use(NodeTableStore).read().get(senderId)
 
         const isAuthenticated =
           !!senderNode &&
@@ -70,31 +70,33 @@ export const registerPeerHttpHandler = () =>
             {
               message: parseResult.value,
               body,
-            }
+            },
           )
           return
         }
 
-        sig.use(incomingPeerMessageTopic).emit({
+        sig.use(IncomingPeerMessageTopic).emit({
           message: parseResult.value,
           authenticated: isAuthenticated,
           peerState: senderNode?.peerState,
           asUint8Array: body,
         })
 
-        const responseMessage = await sig.use(handlePeerMessage).ask("handle", {
-          message: parseResult.value,
-          authenticated: isAuthenticated,
-          peerState: senderNode?.peerState,
-          asUint8Array: body,
-        })
+        const responseMessage = await sig
+          .use(HandlePeerMessageActor)
+          .ask("handle", {
+            message: parseResult.value,
+            authenticated: isAuthenticated,
+            peerState: senderNode?.peerState,
+            asUint8Array: body,
+          })
 
         respondBinary(
           response,
           200,
           responseMessage,
-          "application/dassie-peer-response"
+          "application/dassie-peer-response",
         )
-      })
+      }),
     )
   })

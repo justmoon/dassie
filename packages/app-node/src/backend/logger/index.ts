@@ -1,8 +1,8 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { attachLogger } from "./attach-logger"
+import { AttachLoggerActor } from "./attach-logger"
 
-export const startLogger = () =>
+export const LoggerActor = () =>
   createActor((sig) => {
-    sig.run(attachLogger)
+    sig.run(AttachLoggerActor)
   })

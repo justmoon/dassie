@@ -5,7 +5,7 @@ import {
 } from "@dassie/lib-protocol-utils"
 import { createActor } from "@dassie/lib-reactive"
 
-import { registerBtpHttpUpgrade } from "../../btp-server/register-btp-http-upgrade"
+import { RegisterBtpHttpUpgradeActor } from "../../btp-server/register-btp-http-upgrade"
 import { connector as logger } from "../../logger/instances"
 import { CommonEndpointInfo, PacketSender } from "../functions/send-packet"
 
@@ -14,9 +14,9 @@ export interface BtpEndpointInfo extends CommonEndpointInfo {
   readonly connectionId: number
 }
 
-export const sendBtpPackets = () =>
+export const SendBtpPacketsActor = () =>
   createActor((sig) => {
-    const btpBroker = sig.use(registerBtpHttpUpgrade)
+    const btpBroker = sig.use(RegisterBtpHttpUpgradeActor)
 
     return {
       sendPrepare: ({

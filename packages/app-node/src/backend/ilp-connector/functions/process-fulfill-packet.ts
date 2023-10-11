@@ -3,17 +3,17 @@ import { createHash } from "node:crypto"
 import { ledgerStore } from "../../accounting/stores/ledger"
 import { connector as logger } from "../../logger/instances"
 import { IlpFulfillPacket, IlpType } from "../schemas/ilp-packet-codec"
-import { requestIdMapSignal } from "../signals/request-id-map"
+import { RequestIdMapSignal } from "../signals/request-id-map"
 import {
   ResolvedIlpPacketEvent,
-  resolvedIlpPacketTopic,
+  ResolvedIlpPacketTopic,
 } from "../topics/resolved-ilp-packet"
 import { createPacketSender } from "./send-packet"
 
 export interface ProcessFulfillPacketEnvironment {
   ledger: ReturnType<typeof ledgerStore>
-  resolvedIlpPacketTopicValue: ReturnType<typeof resolvedIlpPacketTopic>
-  requestIdMap: ReturnType<typeof requestIdMapSignal>
+  resolvedIlpPacketTopic: ReturnType<typeof ResolvedIlpPacketTopic>
+  requestIdMap: ReturnType<typeof RequestIdMapSignal>
   sendPacket: ReturnType<typeof createPacketSender>
 }
 
@@ -25,7 +25,7 @@ export interface ProcessFulfillPacketParameters {
 
 export const createProcessFulfillPacket = ({
   ledger,
-  resolvedIlpPacketTopicValue,
+  resolvedIlpPacketTopic,
   requestIdMap,
   sendPacket,
 }: ProcessFulfillPacketEnvironment) => {
@@ -43,7 +43,7 @@ export const createProcessFulfillPacket = ({
     if (!prepare) {
       logger.warn(
         "received fulfill packet which did not match any pending request",
-        { requestId }
+        { requestId },
       )
       return
     }
@@ -59,7 +59,7 @@ export const createProcessFulfillPacket = ({
           fulfillment: parsedPacket.fulfillment,
           fulfillmentHash,
           executionCondition: prepare.parsedPacket.executionCondition,
-        }
+        },
       )
       return
     }
@@ -79,6 +79,6 @@ export const createProcessFulfillPacket = ({
     }
 
     sendPacket(prepare.sourceEndpointInfo, resolvedIlpPacketEvent)
-    resolvedIlpPacketTopicValue.emit(resolvedIlpPacketEvent)
+    resolvedIlpPacketTopic.emit(resolvedIlpPacketEvent)
   }
 }

@@ -4,4 +4,4 @@ import { main } from "./command-line"
 
 const reactor = createReactor()
 await main(reactor)
-await reactor.dispose()
+await reactor.lifecycle.dispose()

@@ -6,11 +6,11 @@ import { UnreachableCaseError, isFailure } from "@dassie/lib-type-utils"
 import { processSettlementPrepare } from "../accounting/functions/process-settlement"
 import { Ledger, ledgerStore } from "../accounting/stores/ledger"
 import { settlement as logger } from "../logger/instances"
-import { sendPeerMessage } from "../peer-protocol/actors/send-peer-message"
-import { nodeTableStore } from "../peer-protocol/stores/node-table"
+import { SendPeerMessageActor } from "../peer-protocol/actors/send-peer-message"
+import { NodeTableStore } from "../peer-protocol/stores/node-table"
 import { NodeId } from "../peer-protocol/types/node-id"
 import { SettlementSchemeId } from "../peer-protocol/types/settlement-scheme-id"
-import { manageSettlementSchemeInstances } from "../settlement-schemes/manage-settlement-scheme-instances"
+import { ManageSettlementSchemeInstancesActor } from "../settlement-schemes/manage-settlement-scheme-instances"
 
 const SETTLEMENT_CHECK_INTERVAL = 4000
 const SETTLEMENT_RATIO = 0.2
@@ -35,16 +35,16 @@ const multiplyAmountWithRatio = (amount: bigint, ratio: number) => {
 const calculateSettlementAmount = (
   ledger: Ledger,
   settlementSchemeId: SettlementSchemeId,
-  peerId: NodeId
+  peerId: NodeId,
 ) => {
   const peerInterledgerAccount = ledger.getAccount(
-    `${settlementSchemeId}/peer/${peerId}/interledger`
+    `${settlementSchemeId}/peer/${peerId}/interledger`,
   )
   const peerTrustAccount = ledger.getAccount(
-    `${settlementSchemeId}/peer/${peerId}/trust`
+    `${settlementSchemeId}/peer/${peerId}/trust`,
   )
   const peerSettlementAccount = ledger.getAccount(
-    `${settlementSchemeId}/peer/${peerId}/settlement`
+    `${settlementSchemeId}/peer/${peerId}/settlement`,
   )
 
   assert(peerInterledgerAccount, "peer interledger account not found")
@@ -65,7 +65,7 @@ const calculateSettlementAmount = (
   const settlementMidpoint = (incomingCredit + outgoingCredit) / 2n
   const settlementThreshold = multiplyAmountWithRatio(
     settlementMidpoint,
-    1 + SETTLEMENT_RATIO / 2
+    1 + SETTLEMENT_RATIO / 2,
   )
 
   if (balance < settlementThreshold) {
@@ -81,11 +81,13 @@ const calculateSettlementAmount = (
     : proposedSettlementAmount
 }
 
-export const sendOutgoingSettlements = () =>
+export const SendOutgoingSettlementsActor = () =>
   createActor((sig, peerId: NodeId) => {
     const ledger = sig.use(ledgerStore)
-    const nodeTable = sig.use(nodeTableStore)
-    const settlementSchemeManager = sig.use(manageSettlementSchemeInstances)
+    const nodeTable = sig.use(NodeTableStore)
+    const settlementSchemeManager = sig.use(
+      ManageSettlementSchemeInstancesActor,
+    )
 
     sig.interval(() => {
       const peerState = nodeTable.read().get(peerId)?.peerState
@@ -107,7 +109,7 @@ export const sendOutgoingSettlements = () =>
       const settlementAmount = calculateSettlementAmount(
         ledger,
         settlementSchemeId,
-        peerId
+        peerId,
       )
 
       if (settlementAmount > 0n) {
@@ -116,14 +118,14 @@ export const sendOutgoingSettlements = () =>
           settlementSchemeId,
           peerId,
           settlementAmount,
-          "outgoing"
+          "outgoing",
         )
 
         if (isFailure(settlementTransfer)) {
           switch (settlementTransfer.name) {
             case "InvalidAccountFailure": {
               throw new Error(
-                `Settlement failed, invalid ${settlementTransfer.whichAccount} account ${settlementTransfer.accountPath}`
+                `Settlement failed, invalid ${settlementTransfer.whichAccount} account ${settlementTransfer.accountPath}`,
               )
             }
 
@@ -152,7 +154,7 @@ export const sendOutgoingSettlements = () =>
           .then(({ proof }) => {
             ledger.postPendingTransfer(settlementTransfer)
 
-            sig.use(sendPeerMessage).tell("send", {
+            sig.use(SendPeerMessageActor).tell("send", {
               destination: peerId,
               message: {
                 type: "settlement",

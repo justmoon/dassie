@@ -1,9 +1,9 @@
-import { createComputed } from "@dassie/lib-reactive"
+import { Reactor, createComputed } from "@dassie/lib-reactive"
 
-import { databaseConfigStore, hasNodeIdentity } from "../database-config"
+import { DatabaseConfigStore, hasNodeIdentity } from "../database-config"
 
-export const hasNodeIdentityComputed = () =>
-  createComputed((sig) => {
-    const config = sig.get(databaseConfigStore)
+export const HasNodeIdentitySignal = (reactor: Reactor) =>
+  createComputed(reactor.lifecycle, (sig) => {
+    const config = sig.get(reactor.use(DatabaseConfigStore))
     return hasNodeIdentity(config)
   })

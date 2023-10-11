@@ -28,7 +28,7 @@ export const initCommand = (reactor: Reactor) =>
       "This command assists with the initial configuration and setup",
     args: {},
     async handler() {
-      const ipcClient = connectIpcClient(reactor)
+      const ipcClient = connectIpcClient(reactor.lifecycle)
 
       const flow = createFlow()
 
@@ -40,7 +40,7 @@ export const initCommand = (reactor: Reactor) =>
         note({
           title: "Setting realm to 'test'",
           body: "In this preview version of Dassie, only the test realm is supported. This means that you will not be able to use real money.",
-        })
+        }),
       )
 
       await ipcClient.config.setRealm.mutate({
@@ -51,14 +51,14 @@ export const initCommand = (reactor: Reactor) =>
         note({
           title: "Public HTTPS Setup",
           body: "Dassie nodes must be accessible over HTTPS. This configuration tool will help you set up HTTPS using Let's Encrypt.",
-        })
+        }),
       )
 
       const domain = await flow.interact(
         text({
           title: "What is the publicly accessible domain name of this host?",
           initialValue: currentConfig.hostname,
-        })
+        }),
       )
 
       if (isCanceled(domain) || !domain) {
@@ -66,7 +66,7 @@ export const initCommand = (reactor: Reactor) =>
           note({
             style: "error",
             title: "Canceled. Exiting...",
-          })
+          }),
         )
         return
       }
@@ -83,7 +83,7 @@ export const initCommand = (reactor: Reactor) =>
           confirm({
             title:
               "An existing TLS certificate was found, would you like to skip ACME/LetsEncrypt setup?",
-          })
+          }),
         )
 
         if (isCanceled(skipAcmeResult)) {
@@ -91,7 +91,7 @@ export const initCommand = (reactor: Reactor) =>
             note({
               style: "error",
               title: "Canceled. Exiting...",
-            })
+            }),
           )
           return
         }
@@ -109,7 +109,7 @@ export const initCommand = (reactor: Reactor) =>
             style: "success",
             title: "Configuration completed!",
             body: `You may now visit your Dassie node at https://${domain}/`,
-          })
+          }),
         )
       } else {
         const setupUrl = await ipcClient.config.getSetupUrl.query()
@@ -119,7 +119,7 @@ export const initCommand = (reactor: Reactor) =>
             style: "success",
             title: "Configuration completed!",
             body: `You may now continue setup in your browser by visiting ${setupUrl}`,
-          })
+          }),
         )
       }
     },
@@ -128,13 +128,13 @@ export const initCommand = (reactor: Reactor) =>
 const doAcmeFlow = async (
   flow: Flow,
   ipcClient: ReturnType<typeof connectIpcClient>,
-  domain: string
+  domain: string,
 ) => {
   flow.show(
     note({
       title: "Let's Encrypt Service Agreement",
       body: `Please read the Terms of Service at ${LETSENCRYPT_TOS_URL}. You must agree in order to register with the ACME server.`,
-    })
+    }),
   )
 
   const tosResult = await flow.interact(confirm({ title: "Do you agree?" }))
@@ -145,7 +145,7 @@ const doAcmeFlow = async (
         style: "error",
         title: "Let's Encrypt Service Agreement rejected",
         body: "In this preview version of Dassie, you must use Let's Encrypt to obtain a TLS certificate. Since you rejected the Let's Encrypt Service Agreement, Dassie cannot continue.",
-      })
+      }),
     )
     return
   }
@@ -155,7 +155,7 @@ const doAcmeFlow = async (
       title: "What is your email address?",
       explanation:
         "Let's Encrypt will use this email address to contact you about your certificate.",
-    })
+    }),
   )
 
   if (isCanceled(email)) {
@@ -163,7 +163,7 @@ const doAcmeFlow = async (
       note({
         style: "error",
         title: "Canceled. Exiting...",
-      })
+      }),
     )
     return
   }
@@ -191,7 +191,7 @@ const doAcmeFlow = async (
   flow.show(
     note({
       title: "Ordering certificate...",
-    })
+    }),
   )
 
   const order = await client.createOrder({
@@ -202,23 +202,22 @@ const doAcmeFlow = async (
 
   for (const authorization of authorizations) {
     const challenge = authorization.challenges.find(
-      (challenge) => challenge.type === "http-01"
+      (challenge) => challenge.type === "http-01",
     )
 
     if (!challenge) {
       throw new Error(
-        `Could not find http-01 challenge for authorization ${authorization.identifier.value}`
+        `Could not find http-01 challenge for authorization ${authorization.identifier.value}`,
       )
     }
 
-    const keyAuthorization = await client.getChallengeKeyAuthorization(
-      challenge
-    )
+    const keyAuthorization =
+      await client.getChallengeKeyAuthorization(challenge)
 
     flow.show(
       note({
         title: "Preparing challenge...",
-      })
+      }),
     )
 
     await ipcClient.acme.registerToken.mutate({
@@ -233,7 +232,7 @@ const doAcmeFlow = async (
       flow.show(
         note({
           title: "Verifying challenge...",
-        })
+        }),
       )
 
       await client.verifyChallenge(authorization, challenge)
@@ -241,7 +240,7 @@ const doAcmeFlow = async (
       flow.show(
         note({
           title: "Completing challenge...",
-        })
+        }),
       )
 
       await client.completeChallenge(challenge)
@@ -249,7 +248,7 @@ const doAcmeFlow = async (
       flow.show(
         note({
           title: "Waiting for confirmation from ACME provider...",
-        })
+        }),
       )
 
       await client.waitForValidStatus(challenge)
@@ -263,7 +262,7 @@ const doAcmeFlow = async (
   flow.show(
     note({
       title: "Generating certificate signing request...",
-    })
+    }),
   )
 
   const [key, csr] = await acmeCrypto.createCsr({
@@ -273,7 +272,7 @@ const doAcmeFlow = async (
   flow.show(
     note({
       title: "Finalizing order...",
-    })
+    }),
   )
 
   const finalizedOrder = await client.finalizeOrder(order, csr)
@@ -281,7 +280,7 @@ const doAcmeFlow = async (
   flow.show(
     note({
       title: "Fetching certificate...",
-    })
+    }),
   )
 
   const certificate = await client.getCertificate(finalizedOrder)
@@ -289,7 +288,7 @@ const doAcmeFlow = async (
   flow.show(
     note({
       title: "Installing certificate...",
-    })
+    }),
   )
 
   await ipcClient.tls.setNodeTlsConfiguration.mutate({

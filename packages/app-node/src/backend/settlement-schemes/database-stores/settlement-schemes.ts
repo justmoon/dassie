@@ -2,18 +2,18 @@ import { produce } from "immer"
 
 import { Reactor, createStore } from "@dassie/lib-reactive"
 
-import { databasePlain } from "../../database/open-database"
+import { Database } from "../../database/open-database"
 import { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
 
-export const settlementSchemesStore = (reactor: Reactor) => {
-  const database = reactor.use(databasePlain)
+export const SettlementSchemesStore = (reactor: Reactor) => {
+  const database = reactor.use(Database)
 
   const settlementSchemeRows = database.tables.settlementSchemes.selectAll()
 
   return createStore(settlementSchemeRows, {
     addSettlementScheme: (
       settlementSchemeId: SettlementSchemeId,
-      config: object
+      config: object,
     ) =>
       produce((draft) => {
         draft.push({

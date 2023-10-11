@@ -1,11 +1,11 @@
 import { context as loggingContext } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
-import { trpcClientService } from "../services/trpc-client"
+import { TrpcClientServiceActor } from "../services/trpc-client"
 
-export const forwardLogs = () =>
+export const ForwardLogsActor = () =>
   createActor((sig) => {
-    const trpcClient = sig.get(trpcClientService)
+    const trpcClient = sig.get(TrpcClientServiceActor)
     if (!trpcClient) return
 
     loggingContext.output = (logEvent) => {

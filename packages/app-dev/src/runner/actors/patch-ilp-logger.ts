@@ -2,17 +2,17 @@ import { createRequire } from "node:module"
 
 import { createActor } from "@dassie/lib-reactive"
 
-import { trpcClientService } from "../services/trpc-client"
+import { TrpcClientServiceActor } from "../services/trpc-client"
 
-export const patchIlpLogger = () =>
+export const PatchIlpLoggerActor = () =>
   createActor((sig) => {
-    const trpcClient = sig.get(trpcClientService)
+    const trpcClient = sig.get(TrpcClientServiceActor)
     if (!trpcClient) return
 
     const ownRequire = createRequire(import.meta.url)
     const nodeRequire = createRequire(ownRequire.resolve("@dassie/app-node"))
     const streamRequire = createRequire(
-      nodeRequire.resolve("ilp-protocol-stream")
+      nodeRequire.resolve("ilp-protocol-stream"),
     )
     const loggerRequire = createRequire(streamRequire.resolve("ilp-logger"))
     const debug = loggerRequire("debug") as unknown

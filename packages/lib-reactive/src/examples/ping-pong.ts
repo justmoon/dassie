@@ -1,43 +1,43 @@
 import { createActor } from "../actor"
-import { createReactor } from "../reactor"
+import { Reactor, createReactor } from "../reactor"
 import { createTopic } from "../topic"
 
-const pingPongTopic = () => createTopic<string>()
+const PingPongTopic = () => createTopic<string>()
 
-const pinger = () =>
+const PingerActor = () =>
   createActor((sig) => {
-    sig.on(pingPongTopic, (message) => {
+    sig.on(PingPongTopic, (message) => {
       if (message === "pong") {
         sig.timeout(() => {
-          sig.use(pingPongTopic).emit("ping")
+          sig.use(PingPongTopic).emit("ping")
         }, 75)
       }
     })
   })
 
-const ponger = () =>
+const PongerActor = () =>
   createActor((sig) => {
-    sig.on(pingPongTopic, (message) => {
+    sig.on(PingPongTopic, (message) => {
       if (message === "ping") {
         sig.timeout(() => {
-          sig.use(pingPongTopic).emit("pong")
+          sig.use(PingPongTopic).emit("pong")
         }, 75)
       }
     })
   })
 
-const logger = () =>
+const LoggerActor = () =>
   createActor((sig) => {
-    sig.on(pingPongTopic, console.info)
+    sig.on(PingPongTopic, console.info)
   })
 
-const rootActor = () =>
+const RootActor = (reactor: Reactor) =>
   createActor((sig) => {
-    sig.run(pinger)
-    sig.run(ponger)
-    sig.run(logger)
-    sig.use(pingPongTopic).emit("ping")
-    sig.timeout(() => void sig.reactor.dispose(), 500)
+    sig.run(PingerActor)
+    sig.run(PongerActor)
+    sig.run(LoggerActor)
+    sig.use(PingPongTopic).emit("ping")
+    sig.timeout(() => void reactor.lifecycle.dispose(), 500)
   })
 
-createReactor(rootActor)
+createReactor(RootActor)

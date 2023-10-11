@@ -1,8 +1,8 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { registerStatisticsHttpHandler } from "./register-statistics-http-handler"
+import { RegisterStatisticsHttpHandlerActor } from "./register-statistics-http-handler"
 
-export const startStatisticsServer = () =>
+export const StatisticsServerActor = () =>
   createActor((sig) => {
-    sig.run(registerStatisticsHttpHandler)
+    sig.run(RegisterStatisticsHttpHandlerActor)
   })

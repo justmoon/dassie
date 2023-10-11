@@ -4,7 +4,7 @@ import { createActor, createStore } from "@dassie/lib-reactive"
 
 import { payment as logger } from "../logger/instances"
 import { resolvePaymentPointer } from "../utils/resolve-payment-pointer"
-import { managePlugins } from "./manage-plugins"
+import { ManagePluginsActor } from "./manage-plugins"
 
 export interface OutgoingSpspPayment {
   id: string
@@ -13,18 +13,20 @@ export interface OutgoingSpspPayment {
   sentAmount: bigint
 }
 
-export const spspPaymentQueueStore = () =>
+export const SpspPaymentQueueStore = () =>
   createStore([] as OutgoingSpspPayment[], {
-    addPayment: (payment: OutgoingSpspPayment) => (state) =>
-      [...state, payment],
+    addPayment: (payment: OutgoingSpspPayment) => (state) => [
+      ...state,
+      payment,
+    ],
     // eslint-disable-next-line unicorn/consistent-function-scoping
     shift: () => (state) => state.slice(1),
   })
 
-export const sendSpspPayments = () =>
+export const SendSpspPaymentsActor = () =>
   createActor(async (sig) => {
-    const pluginManager = sig.use(managePlugins)
-    const nextPayment = sig.get(spspPaymentQueueStore, (queue) => queue[0])
+    const pluginManager = sig.use(ManagePluginsActor)
+    const nextPayment = sig.get(SpspPaymentQueueStore, (queue) => queue[0])
 
     if (nextPayment) {
       logger.debug("initiating payment", {
@@ -58,7 +60,7 @@ export const sendSpspPayments = () =>
       const stream = connection.createStream()
 
       stream.setSendMax(
-        String(nextPayment.totalAmount - nextPayment.sentAmount)
+        String(nextPayment.totalAmount - nextPayment.sentAmount),
       )
 
       stream.on("outgoing_money", (amountString: string) => {
@@ -82,7 +84,7 @@ export const sendSpspPayments = () =>
               error,
             })
           })
-          sig.use(spspPaymentQueueStore).shift()
+          sig.use(SpspPaymentQueueStore).shift()
         }
       })
     }

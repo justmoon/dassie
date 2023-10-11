@@ -6,17 +6,17 @@ import { WebSocketServer } from "ws"
 import { createActor } from "@dassie/lib-reactive"
 
 import { SESSION_COOKIE_NAME } from "../../common/constants/cookie-name"
-import { sessionsStore } from "../authentication/database-stores/sessions"
+import { SessionsStore } from "../authentication/database-stores/sessions"
 import { SessionToken } from "../authentication/types/session-token"
-import { websocketRoutesSignal } from "../http-server/serve-https"
+import { WebsocketRoutesSignal } from "../http-server/serve-https"
 import { appRouter } from "./app-router"
 
 export const connectionMap = new Map<string, WebSocket>()
 
-export const registerTrpcHttpUpgrade = () =>
+export const RegisterTrpcHttpUpgradeActor = () =>
   createActor((sig) => {
-    const websocketRoutes = sig.get(websocketRoutesSignal)
-    const sessions = sig.use(sessionsStore)
+    const websocketRoutes = sig.get(WebsocketRoutesSignal)
+    const sessions = sig.use(SessionsStore)
 
     const websocketServer = new WebSocketServer({
       noServer: true,

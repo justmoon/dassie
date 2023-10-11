@@ -11,7 +11,7 @@ import { byLine } from "@dassie/lib-itergen-utils"
 import { createActor } from "@dassie/lib-reactive"
 import { assertDefined, isObject } from "@dassie/lib-type-utils"
 
-import { logsStore } from "../../common/stores/logs"
+import { LogsStore } from "../../common/stores/logs"
 import { children as logger } from "../logger/instances"
 
 const RUNNER_MODULE = new URL("../../runner/runner.js", import.meta.url)
@@ -31,7 +31,7 @@ interface RunNodeChildProcessProperties {
   extraArguments?: string[] | undefined
 }
 
-export const runChildProcess = () =>
+export const RunChildProcessActor = () =>
   createActor(
     async (
       sig,
@@ -40,14 +40,14 @@ export const runChildProcess = () =>
         id,
         environment,
         extraArguments = [],
-      }: RunNodeChildProcessProperties
+      }: RunNodeChildProcessProperties,
     ) => {
       let child: ChildProcess | undefined
       const ready = pDefer<void>()
 
       const handleChildExit = (
         code: number | null,
-        signal: NodeJS.Signals | null
+        signal: NodeJS.Signals | null,
       ) => {
         if (code === 0) {
           logger.info(chalk.green(`child exited`), { code, signal })
@@ -70,14 +70,14 @@ export const runChildProcess = () =>
               switch (message["method"]) {
                 case "fetchModule": {
                   result = await nodeServer.fetchModule(
-                    message["params"][0] as string
+                    message["params"][0] as string,
                   )
                   break
                 }
                 case "resolveId": {
                   result = await nodeServer.resolveId(
                     message["params"][0] as string,
-                    message["params"][1] as string | undefined
+                    message["params"][1] as string | undefined,
                   )
                   break
                 }
@@ -109,7 +109,7 @@ export const runChildProcess = () =>
 
       const processLog = async (
         input: Readable,
-        inputName: "stdout" | "stderr"
+        inputName: "stdout" | "stderr",
       ) => {
         for await (const line of byLine(input)) {
           // Suppress annoying node debugger spam
@@ -120,7 +120,7 @@ export const runChildProcess = () =>
           )
             continue
 
-          sig.use(logsStore).addLogLine({
+          sig.use(LogsStore).addLogLine({
             node: id,
             type: inputName === "stdout" ? "info" : "warn",
             namespace: inputName,
@@ -153,10 +153,10 @@ export const runChildProcess = () =>
       assertDefined(child.stderr)
 
       processLog(child.stdout, "stdout").catch((error: unknown) =>
-        logger.error("error processing child stdout", { node: id, error })
+        logger.error("error processing child stdout", { node: id, error }),
       )
       processLog(child.stderr, "stderr").catch((error: unknown) =>
-        logger.error("error processing child stdout", { node: id, error })
+        logger.error("error processing child stdout", { node: id, error }),
       )
 
       sig.onCleanup((): Promisable<void> => {
@@ -187,5 +187,5 @@ export const runChildProcess = () =>
         milliseconds: CHILD_READY_TIMEOUT,
         message: `Child process did not become ready within ${CHILD_READY_TIMEOUT}ms`,
       })
-    }
+    },
   )

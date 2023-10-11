@@ -1,8 +1,8 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { handleIncomingPayments } from "./handle-incoming-payments"
+import { HandleIncomingPaymentsActor } from "./handle-incoming-payments"
 
-export const startOpenPaymentsServer = () =>
+export const OpenPaymentsServerActor = () =>
   createActor((sig) => {
-    sig.run(handleIncomingPayments)
+    sig.run(HandleIncomingPaymentsActor)
   })

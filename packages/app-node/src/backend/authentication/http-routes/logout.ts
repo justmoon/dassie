@@ -4,14 +4,14 @@ import { respondJson } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
 import { SESSION_COOKIE_NAME } from "../../../common/constants/cookie-name"
-import { restApiService } from "../../http-server/serve-rest-api"
-import { sessionsStore } from "../database-stores/sessions"
+import { RestApiServiceActor } from "../../http-server/serve-rest-api"
+import { SessionsStore } from "../database-stores/sessions"
 import { SessionToken } from "../types/session-token"
 
-export const registerLogoutRoute = () =>
+export const RegisterLogoutRouteActor = () =>
   createActor((sig) => {
-    const api = sig.get(restApiService)
-    const sessions = sig.use(sessionsStore)
+    const api = sig.get(RestApiServiceActor)
+    const sessions = sig.use(SessionsStore)
     if (!api) return
 
     api.post("/api/logout").handler((request, response) => {

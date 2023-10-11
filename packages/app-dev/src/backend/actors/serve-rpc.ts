@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs"
 import { createServer } from "node:https"
 import { join } from "node:path"
 
-import { createActor } from "@dassie/lib-reactive"
+import { Reactor, createActor } from "@dassie/lib-reactive"
 
 import { LOCAL_FOLDER } from "../constants/paths"
 import { DEBUG_RPC_PORT } from "../constants/ports"
@@ -14,16 +14,16 @@ import { validateCertificates } from "../utils/validate-certificates"
 
 const certificatePath = join(
   LOCAL_FOLDER,
-  "tls/dev-rpc.localhost/web-dev-rpc.localhost.pem"
+  "tls/dev-rpc.localhost/web-dev-rpc.localhost.pem",
 )
 const keyPath = join(
   LOCAL_FOLDER,
-  "tls/dev-rpc.localhost/web-dev-rpc.localhost-key.pem"
+  "tls/dev-rpc.localhost/web-dev-rpc.localhost-key.pem",
 )
 
 const CONNECTION_CLOSE_TIMEOUT = 250
 
-export const listenForRpcWebSocket = () =>
+export const ListenForRpcWebSocketActor = (reactor: Reactor) =>
   createActor(async (sig) => {
     await validateCertificates({
       id: "dev",
@@ -45,7 +45,7 @@ export const listenForRpcWebSocket = () =>
     const { broadcastReconnectNotification } = applyWSSHandler<AppRouter>({
       wss,
       router: appRouter,
-      createContext: () => ({ sig, reactor: sig.reactor }),
+      createContext: () => ({ sig, reactor }),
     })
 
     httpsServer.listen(DEBUG_RPC_PORT)
@@ -72,7 +72,7 @@ export const listenForRpcWebSocket = () =>
 
             client.close()
           })
-        })
+        }),
       )
 
       wss.close()

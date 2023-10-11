@@ -2,7 +2,7 @@
 
 ## What is this?
 
-It's a TypeScript framework which is designed to run in both front- and backend code and synchronize between them. It loosely follows the actor model architecture found in Erlang and Akka. It also borrows ideas from reactive programming UI frameworks like React and Solid.js.
+It's a TypeScript framework which is designed to run in both front- and backend code and synchronize between them. It loosely follows the actor model architecture found in Erlang and Akka. It also borrows ideas from reactive programming UI frameworks like React, Solid.js, and [Reactively](https://github.com/modderme123/reactively).
 
 ## Features
 

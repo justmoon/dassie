@@ -10,22 +10,22 @@ import {
 } from "@dassie/lib-protocol-utils"
 import { createActor } from "@dassie/lib-reactive"
 
-import { websocketRoutesSignal } from "../http-server/serve-https"
-import { nodeIlpAddressSignal } from "../ilp-connector/computed/node-ilp-address"
-import { processPacket } from "../ilp-connector/process-packet"
+import { WebsocketRoutesSignal } from "../http-server/serve-https"
+import { NodeIlpAddressSignal } from "../ilp-connector/computed/node-ilp-address"
+import { ProcessPacketActor } from "../ilp-connector/process-packet"
 import { BtpEndpointInfo } from "../ilp-connector/senders/send-btp-packets"
 import { btp as logger } from "../logger/instances"
-import { routingTableSignal } from "../routing/signals/routing-table"
+import { RoutingTableSignal } from "../routing/signals/routing-table"
 
 let unique = 0
 
-export const registerBtpHttpUpgrade = () =>
+export const RegisterBtpHttpUpgradeActor = () =>
   createActor((sig) => {
-    const nodeIlpAddress = sig.get(nodeIlpAddressSignal)
+    const nodeIlpAddress = sig.get(NodeIlpAddressSignal)
 
-    const websocketRoutes = sig.get(websocketRoutesSignal)
+    const websocketRoutes = sig.get(WebsocketRoutesSignal)
 
-    const processIncomingPacketActor = sig.use(processPacket)
+    const processIncomingPacketActor = sig.use(ProcessPacketActor)
 
     const socketMap = new Map<number, WebSocket>()
 
@@ -34,7 +34,7 @@ export const registerBtpHttpUpgrade = () =>
         const connectionId = unique++
         socketMap.set(connectionId, socket)
 
-        const ilpRoutingTable = sig.use(routingTableSignal)
+        const ilpRoutingTable = sig.use(RoutingTableSignal)
         let localIlpAddressPart: string
         do {
           localIlpAddressPart = nanoid(6)
@@ -53,7 +53,7 @@ export const registerBtpHttpUpgrade = () =>
 
         socket.on("message", (messageBuffer) => {
           const messageResult = btpEnvelopeSchema.parse(
-            messageBuffer as Uint8Array
+            messageBuffer as Uint8Array,
           )
           if (messageResult.success) {
             const message = messageResult.value
@@ -64,7 +64,7 @@ export const registerBtpHttpUpgrade = () =>
             switch (message.messageType) {
               case BtpType.Message: {
                 const messageParseResult = btpMessageSchema.parse(
-                  message.message
+                  message.message,
                 )
 
                 if (!messageParseResult.success) {
@@ -76,7 +76,7 @@ export const registerBtpHttpUpgrade = () =>
 
                 if (
                   messageParseResult.value.protocolData.some(
-                    ({ protocolName }) => protocolName === "auth"
+                    ({ protocolName }) => protocolName === "auth",
                   )
                 ) {
                   logger.debug("received BTP auth packet")
@@ -124,7 +124,7 @@ export const registerBtpHttpUpgrade = () =>
 
               case BtpType.Transfer: {
                 const transferParseResult = btpTransferSchema.parse(
-                  message.message
+                  message.message,
                 )
 
                 if (!transferParseResult.success) {
@@ -152,7 +152,7 @@ export const registerBtpHttpUpgrade = () =>
 
               case BtpType.Response: {
                 const responseParseResult = btpMessageSchema.parse(
-                  message.message
+                  message.message,
                 )
 
                 if (!responseParseResult.success) {

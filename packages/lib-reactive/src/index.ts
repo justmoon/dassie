@@ -4,19 +4,23 @@ export { createActor, isActor, ActorSymbol } from "./actor"
 export { createStore, isStore, StoreSymbol } from "./store"
 export { createComputed, isComputed, ComputedSymbol } from "./computed"
 export { createMapped, isMapped, MappedSymbol } from "./mapped"
+export { createReactor } from "./reactor"
+export { ActorContext } from "./actor-context"
+export { createLifecycleScope } from "./lifecycle"
+export { CacheStatus } from "./internal/reactive"
 export {
-  createReactor,
   FactoryNameSymbol,
   InitSymbol,
   UseSymbol,
   DisposeSymbol,
-} from "./reactor"
-export { ActorContext } from "./context"
-export { debugFirehose } from "./debug/debug-tools"
-export { createLifecycleScope } from "./lifecycle"
+} from "./internal/context-base"
 
-export type { Topic, ReadonlyTopic, Listener, InferMessageType } from "./topic"
-export type { Signal, ReadonlySignal, Reducer } from "./signal"
+export type { Topic, ReadonlyTopic, InferMessageType } from "./topic"
+export type {
+  SignalImplementation as Signal,
+  ReadonlySignal,
+  Reducer,
+} from "./signal"
 export type {
   Actor,
   Behavior,
@@ -38,3 +42,8 @@ export type { Computed, ComputationContext } from "./computed"
 export type { Mapped } from "./mapped"
 export type { Reactor, Factory, Disposer, AsyncDisposer } from "./reactor"
 export type { LifecycleScope, DisposableLifecycleScope } from "./lifecycle"
+export type {
+  ReactiveSource as ReactiveProvider,
+  ReactiveObserver as ReactiveConsumer,
+} from "./internal/reactive"
+export type { Listener } from "./internal/emit-to-listener"

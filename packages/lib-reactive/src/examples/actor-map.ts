@@ -2,15 +2,15 @@ import { enableMapSet, produce } from "immer"
 
 import { createActor } from "../actor"
 import { createMapped } from "../mapped"
-import { createReactor } from "../reactor"
+import { Reactor, createReactor } from "../reactor"
 import { createSignal } from "../signal"
 
 enableMapSet()
 
-const customersSignal = () => createSignal<Set<string>>(new Set())
+const CustomersSignal = () => createSignal<Set<string>>(new Set())
 
-const customerServiceActors = () =>
-  createMapped(customersSignal, (customer) =>
+const CustomerServiceActors = (reactor: Reactor) =>
+  createMapped(reactor.lifecycle, reactor.use(CustomersSignal), (customer) =>
     createActor((sig) => {
       console.info(`${customer} added`)
 
@@ -19,44 +19,44 @@ const customerServiceActors = () =>
       return {
         greet: () => console.info(`Hello ${customer}`),
       }
-    })
+    }),
   )
 
-const rootActor = () =>
+const RootActor = (reactor: Reactor) =>
   createActor((sig) => {
-    sig.runMap(customerServiceActors)
+    sig.runMap(CustomerServiceActors)
 
-    const customers = sig.use(customersSignal)
+    const customers = sig.use(CustomersSignal)
 
     customers.update(
       produce((draft) => {
         draft.add("Alice")
-      })
+      }),
     )
     customers.update(
       produce((draft) => {
         draft.add("Bob")
-      })
+      }),
     )
     customers.update(
       produce((draft) => {
         draft.add("Charlie")
-      })
+      }),
     )
     customers.update(
       produce((draft) => {
         draft.delete("Bob")
-      })
+      }),
     )
     customers.update(
       produce((draft) => {
         draft.add("Denise")
-      })
+      }),
     )
 
-    sig.use(customerServiceActors).get("Alice")?.tell("greet", undefined)
+    sig.use(CustomerServiceActors).get("Alice")?.tell("greet", undefined)
 
-    sig.timeout(() => void sig.reactor.dispose(), 300)
+    sig.timeout(() => void reactor.lifecycle.dispose(), 300)
   })
 
-createReactor(rootActor)
+createReactor(RootActor)

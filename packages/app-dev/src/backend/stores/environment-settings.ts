@@ -10,7 +10,7 @@ export const DEFAULT_ENVIRONMENT_SETTINGS: EnvironmentSettings = {
   peeringMode: "autopeer",
 }
 
-export const environmentSettingsStore = () =>
+export const EnvironmentSettingsStore = () =>
   createStore(DEFAULT_ENVIRONMENT_SETTINGS, {
     setPeeringMode:
       (peeringMode: EnvironmentSettings["peeringMode"]) => () => ({

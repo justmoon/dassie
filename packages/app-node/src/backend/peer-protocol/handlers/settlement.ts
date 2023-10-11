@@ -4,12 +4,14 @@ import { UnreachableCaseError, isFailure } from "@dassie/lib-type-utils"
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import { processSettlementPrepare } from "../../accounting/functions/process-settlement"
 import { ledgerStore } from "../../accounting/stores/ledger"
-import { manageSettlementSchemeInstances } from "../../settlement-schemes/manage-settlement-scheme-instances"
+import { ManageSettlementSchemeInstancesActor } from "../../settlement-schemes/manage-settlement-scheme-instances"
 import type { IncomingPeerMessageEvent } from "../actors/handle-peer-message"
 
-export const handleSettlement = () =>
+export const HandleSettlementActor = () =>
   createActor((sig) => {
-    const settlementSchemeManager = sig.use(manageSettlementSchemeInstances)
+    const settlementSchemeManager = sig.use(
+      ManageSettlementSchemeInstancesActor,
+    )
     const ledger = sig.use(ledgerStore)
 
     return {
@@ -33,14 +35,14 @@ export const handleSettlement = () =>
           settlementSchemeId,
           sender,
           amount,
-          "incoming"
+          "incoming",
         )
 
         if (isFailure(settlementTransfer)) {
           switch (settlementTransfer.name) {
             case "InvalidAccountFailure": {
               throw new Error(
-                `Settlement failed, invalid ${settlementTransfer.whichAccount} account ${settlementTransfer.accountPath}`
+                `Settlement failed, invalid ${settlementTransfer.whichAccount} account ${settlementTransfer.accountPath}`,
               )
             }
 

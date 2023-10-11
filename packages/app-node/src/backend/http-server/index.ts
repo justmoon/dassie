@@ -1,19 +1,19 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { hasTlsComputed } from "../config/computed/has-tls"
-import { serveFrontend } from "./serve-frontend"
-import { serveHttp } from "./serve-http"
-import { serveHttps } from "./serve-https"
-import { serveRestApi } from "./serve-rest-api"
+import { HasTlsSignal } from "../config/computed/has-tls"
+import { ServeFrontendActor } from "./serve-frontend"
+import { ServeHttpActor } from "./serve-http"
+import { ServeHttpsActor } from "./serve-https"
+import { ServeRestApiActor } from "./serve-rest-api"
 
-export const startHttpServer = () =>
+export const HttpServerActor = () =>
   createActor((sig) => {
-    const hasTls = sig.get(hasTlsComputed)
-    sig.run(serveHttp)
+    const hasTls = sig.get(HasTlsSignal)
+    sig.run(ServeHttpActor)
 
     if (hasTls) {
-      sig.run(serveHttps)
-      sig.run(serveRestApi)
-      sig.run(serveFrontend)
+      sig.run(ServeHttpsActor)
+      sig.run(ServeRestApiActor)
+      sig.run(ServeFrontendActor)
     }
   })

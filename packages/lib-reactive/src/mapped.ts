@@ -1,8 +1,16 @@
 import { isObject } from "@dassie/lib-type-utils"
 
-import { DisposableLifecycleScope, LifecycleScope } from "./lifecycle"
-import { Factory, FactoryNameSymbol, Reactor } from "./reactor"
-import { type ReadonlySignal } from "./signal"
+import { FactoryNameSymbol } from "./internal/context-base"
+import {
+  Reactive,
+  ReactiveSource,
+  defaultComparator,
+} from "./internal/reactive"
+import {
+  DisposableLifecycleScope,
+  LifecycleScope,
+  createLifecycleScope,
+} from "./lifecycle"
 import { ReadonlyTopic, createTopic } from "./topic"
 
 export const MappedSymbol = Symbol("das:reactive:map")
@@ -37,7 +45,7 @@ export interface Mapped<TInput, TOutput> {
    * @returns A tuple consisting of the item and its lifecycle.
    */
   getWithLifecycle(
-    key: TInput
+    key: TInput,
   ): readonly [TOutput, LifecycleScope] | readonly [undefined, undefined]
 
   /**
@@ -68,103 +76,101 @@ interface InternalMapEntry<TOutput> {
   lifecycle: DisposableLifecycleScope
 }
 
-export function createMapped<TInput, TOutput>(
-  baseSetFactory: Factory<ReadonlySignal<Set<TInput>>>,
-  mapFunction: (input: TInput, lifecycle: LifecycleScope) => TOutput
-): Mapped<TInput, TOutput> {
-  const reactor = Reactor.current
+class MappedImplementation<TInput, TOutput> extends Reactive<
+  Map<TInput, InternalMapEntry<TOutput>>
+> {
+  [MappedSymbol] = true as const;
+  [FactoryNameSymbol] = "anonymous"
 
-  if (!reactor) {
-    throw new Error("Maps must be created by a reactor.")
-  }
+  private internalMap = new Map<TInput, InternalMapEntry<TOutput>>()
+  public readonly additions =
+    createTopic<readonly [TInput, TOutput, LifecycleScope]>()
 
-  const baseSet = reactor.use(baseSetFactory)
+  constructor(
+    private parentLifecycle: LifecycleScope,
+    private baseSet: ReactiveSource<Set<TInput>>,
+    private mapFunction: (input: TInput, lifecycle: LifecycleScope) => TOutput,
+  ) {
+    super(defaultComparator, true)
 
-  const internalMap = new Map<TInput, InternalMapEntry<TOutput>>()
-
-  const additions = createTopic<readonly [TInput, TOutput, LifecycleScope]>()
-
-  const mapped: Mapped<TInput, TOutput> = {
-    [MappedSymbol]: true,
-    [FactoryNameSymbol]: "anonymous",
-
-    get(key) {
-      return internalMap.get(key)?.output
-    },
-
-    getWithLifecycle(key) {
-      const item = internalMap.get(key)
-      return item ? [item.output, item.lifecycle] : [undefined, undefined]
-    },
-
-    has(key) {
-      return internalMap.has(key)
-    },
-
-    additions,
-
-    *[Symbol.iterator]() {
-      for (const [key, item] of internalMap) {
-        yield [key, item.output, item.lifecycle] as const
-      }
-    },
-
-    get size() {
-      return internalMap.size
-    },
-  }
-
-  for (const item of baseSet.read()) {
-    const lifecycle = new DisposableLifecycleScope(
-      `${mapped[FactoryNameSymbol]} item}`
-    )
-    lifecycle.attachToParent(reactor)
-
-    Reactor.current = reactor
-    internalMap.set(item, {
-      output: mapFunction(item, lifecycle),
-      lifecycle,
+    parentLifecycle.onCleanup(() => {
+      this.removeParentObservers()
     })
-    Reactor.current = undefined
-
-    // No need to emit anything on the additions topic, since nobody has had a chance to subscribe yet.
   }
 
-  baseSet.on(reactor, (newSet) => {
-    for (const [key, item] of internalMap) {
+  get(key: TInput) {
+    this.read()
+    return this.internalMap.get(key)?.output
+  }
+
+  getWithLifecycle(key: TInput) {
+    this.read()
+    const item = this.internalMap.get(key)
+    return item
+      ? ([item.output, item.lifecycle] as const)
+      : ([undefined, undefined] as const)
+  }
+
+  has(key: TInput) {
+    this.read()
+    return this.internalMap.has(key)
+  }
+
+  *[Symbol.iterator]() {
+    this.read()
+    for (const [key, item] of this.internalMap) {
+      yield [key, item.output, item.lifecycle] as const
+    }
+  }
+
+  get size() {
+    this.read()
+    return this.internalMap.size
+  }
+
+  recompute() {
+    const newSet = this.readWithTracking(this.baseSet)
+
+    for (const [key, item] of this.internalMap) {
       if (!newSet.has(key)) {
         item.lifecycle.dispose().catch((error: unknown) => {
           console.error("error in map item disposer", {
-            map: mapped[FactoryNameSymbol],
+            map: this[FactoryNameSymbol],
             error,
           })
         })
-        internalMap.delete(key)
+        this.internalMap.delete(key)
       }
     }
 
     for (const item of newSet) {
-      if (!internalMap.has(item)) {
-        const lifecycle = new DisposableLifecycleScope(
-          `${mapped[FactoryNameSymbol]} item}`
+      if (!this.internalMap.has(item)) {
+        const lifecycle = createLifecycleScope(
+          `${this[FactoryNameSymbol]} item`,
         )
-        lifecycle.attachToParent(reactor)
+        lifecycle.attachToParent(this.parentLifecycle)
 
-        Reactor.current = reactor
-        const output = mapFunction(item, lifecycle)
-        Reactor.current = undefined
+        const output = this.mapFunction(item, lifecycle)
 
-        internalMap.set(item, {
+        this.internalMap.set(item, {
           output,
           lifecycle,
         })
 
-        additions.emit([item, output, lifecycle])
+        this.additions.emit([item, output, lifecycle])
       }
     }
-  })
 
-  return mapped
+    this.cache = this.internalMap
+  }
+}
+
+export function createMapped<TInput, TOutput>(
+  parentLifecycle: LifecycleScope,
+  baseSet: ReactiveSource<Set<TInput>>,
+  mapFunction: (input: TInput, lifecycle: LifecycleScope) => TOutput,
+): Mapped<TInput, TOutput> {
+  return new MappedImplementation(parentLifecycle, baseSet, mapFunction)
 }
 
 export const isMapped = (object: unknown): object is Mapped<unknown, unknown> =>

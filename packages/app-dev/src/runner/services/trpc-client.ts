@@ -9,7 +9,7 @@ import { createActor } from "@dassie/lib-reactive"
 
 import type { AppRouter } from "../../backend/rpc-routers/app-router"
 
-export const trpcClientService = () =>
+export const TrpcClientServiceActor = () =>
   createActor((sig) => {
     // BUG in @trpc/client/links/wsLink: Theoretically, we're supposed to be able to pass a WebSocket implementation to createWSClient, but it tries to access the one on the global object anyway.
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment

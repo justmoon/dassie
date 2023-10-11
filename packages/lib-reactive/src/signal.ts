@@ -1,22 +1,33 @@
 import { isObject } from "@dassie/lib-type-utils"
 
-import { type ReadonlyTopic, createTopic } from "./topic"
+import { FactoryNameSymbol } from "./internal/context-base"
+import { CacheStatus, Reactive, ReactiveSource } from "./internal/reactive"
+import { createReactiveTopic } from "./internal/reactive-topic"
+import { ReadonlyTopic } from "./topic"
 
 export type Reducer<TState> = (previousState: TState) => TState
 
 export const SignalSymbol = Symbol("das:reactive:signal")
 
-export type ReadonlySignal<TState> = ReadonlyTopic<TState> & {
-  /**
-   * Marks this object as a signal.
-   */
-  [SignalSymbol]: true
+export type ReadonlySignal<TState> = ReadonlyTopic<TState> &
+  ReactiveSource<TState> & {
+    /**
+     * Marks this object as a signal.
+     */
+    [SignalSymbol]: true
 
-  /**
-   * Get the current state of the signal.
-   */
-  read(): TState
-}
+    /**
+     * Name of the factory function that created this signal.
+     *
+     * @see {@link FactoryNameSymbol}
+     */
+    [FactoryNameSymbol]: string
+
+    /**
+     * Get the current state of the signal.
+     */
+    read(): TState
+  }
 
 export type Signal<TState> = ReadonlySignal<TState> & {
   /**
@@ -35,33 +46,41 @@ export type Signal<TState> = ReadonlySignal<TState> & {
   update(this: void, reducer: Reducer<TState>): TState
 }
 
-export function createSignal<TState>(): Signal<TState | undefined>
-export function createSignal<TState>(initialState: TState): Signal<TState>
-export function createSignal<TState>(initialState?: TState): Signal<TState> {
-  const topic = createTopic<TState>()
-  let currentState = initialState as TState
+export class SignalImplementation<TState> extends Reactive<TState> {
+  [SignalSymbol] = true as const
 
-  const read = () => currentState
+  protected override cache: TState
 
-  const write = (newState: TState) => {
-    currentState = newState
-    topic.emit(newState)
+  constructor(initialState: TState) {
+    super()
+
+    this.cache = initialState
+    this.cacheStatus = CacheStatus.Clean
   }
 
-  const update = (reducer: Reducer<TState>) => {
-    currentState = reducer(currentState)
-    topic.emit(currentState)
-    return currentState
-  }
+  recompute() {}
 
-  return {
-    ...topic,
-    [SignalSymbol]: true,
-    read,
-    write,
-    update,
+  /**
+   * Apply a reducer which will accept the current state and return a new state.
+   *
+   * @param reducer - The reducer to apply to the state.
+   * @returns The new state of the signal.
+   */
+  update(reducer: Reducer<TState>) {
+    this.write(reducer(this.cache))
+    return this.cache
   }
 }
 
-export const isSignal = (object: unknown): object is Signal<unknown> =>
+export function createSignal<TState>(): Signal<TState | undefined>
+export function createSignal<TState>(initialState: TState): Signal<TState>
+export function createSignal<TState>(initialState?: TState): Signal<TState> {
+  const signal = new SignalImplementation(initialState as TState)
+
+  return Object.assign(signal, createReactiveTopic(signal))
+}
+
+export const isSignal = (
+  object: unknown,
+): object is SignalImplementation<unknown> =>
   isObject(object) && object[SignalSymbol] === true

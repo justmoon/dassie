@@ -1,9 +1,9 @@
 import { subscribeToSignal } from "@dassie/lib-reactive-trpc/server"
 
 import { ledgerStore } from "../../accounting/stores/ledger"
-import { environmentConfigSignal } from "../../config/environment-config"
-import { nodeTableStore } from "../../peer-protocol/stores/node-table"
-import { routingTableSignal } from "../../routing/signals/routing-table"
+import { EnvironmentConfigSignal } from "../../config/environment-config"
+import { NodeTableStore } from "../../peer-protocol/stores/node-table"
+import { RoutingTableSignal } from "../../routing/signals/routing-table"
 import { protectedProcedure } from "../middlewares/auth"
 import { trpc } from "../trpc-context"
 
@@ -12,12 +12,12 @@ export const debugRouter = trpc.router({
     return [...sig.use(ledgerStore).getAccounts("")]
   }),
   subscribeConfig: protectedProcedure.subscription(({ ctx: { sig } }) => {
-    return subscribeToSignal(sig, environmentConfigSignal)
+    return subscribeToSignal(sig, EnvironmentConfigSignal)
   }),
   subscribeNodeTable: protectedProcedure.subscription(({ ctx: { sig } }) => {
-    return subscribeToSignal(sig, nodeTableStore)
+    return subscribeToSignal(sig, NodeTableStore)
   }),
   subscribeRoutingTable: protectedProcedure.subscription(({ ctx: { sig } }) => {
-    return subscribeToSignal(sig, routingTableSignal)
+    return subscribeToSignal(sig, RoutingTableSignal)
   }),
 })

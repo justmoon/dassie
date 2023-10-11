@@ -6,8 +6,8 @@ import assert from "node:assert"
 import { existsSync, readFileSync } from "node:fs"
 import { join, normalize } from "node:path"
 
-import { databaseConfigStore } from "@dassie/app-node/src/backend/config/database-config"
-import { additionalMiddlewaresSignal } from "@dassie/app-node/src/backend/http-server/serve-https"
+import { DatabaseConfigStore } from "@dassie/app-node/src/backend/config/database-config"
+import { AdditionalMiddlewaresSignal } from "@dassie/app-node/src/backend/http-server/serve-https"
 import { createActor } from "@dassie/lib-reactive"
 
 import { runner as logger } from "../../backend/logger/instances"
@@ -23,7 +23,7 @@ const hashRE = /#.*$/s
 
 function fsPathFromId(id: string): string {
   const fsPath = normalize(
-    id.startsWith(FS_PREFIX) ? id.slice(FS_PREFIX.length) : id
+    id.startsWith(FS_PREFIX) ? id.slice(FS_PREFIX.length) : id,
   )
   return fsPath.startsWith("/") || VOLUME_RE.test(fsPath)
     ? fsPath
@@ -39,17 +39,17 @@ function getHtmlFilename(url: string, server: ViteDevServer) {
     : decodeURIComponent(normalize(join(server.config.root, url.slice(1))))
 }
 
-export const serveWallet = () =>
+export const ServeWalletActor = () =>
   createActor(async (sig) => {
     const { httpsPort, tlsWebCert, tlsWebKey } = sig.getKeys(
-      databaseConfigStore,
-      ["httpsPort", "tlsWebCert", "tlsWebKey"]
+      DatabaseConfigStore,
+      ["httpsPort", "tlsWebCert", "tlsWebKey"],
     )
 
     assert(tlsWebCert, "Web UI is not configured, missing certificate")
     assert(tlsWebKey, "Web UI is not configured, missing private key")
 
-    const additionalMiddlewares = sig.use(additionalMiddlewaresSignal)
+    const additionalMiddlewares = sig.use(AdditionalMiddlewaresSignal)
 
     const server = await createServer({
       root: walletPath,
@@ -92,7 +92,7 @@ export const serveWallet = () =>
     const serveIndexHtml: NextHandleFunction = async (
       request,
       response,
-      next
+      next,
     ) => {
       if (response.writableEnded) {
         return next()
@@ -111,7 +111,7 @@ export const serveWallet = () =>
             html = await server.transformIndexHtml(
               url,
               html,
-              request.originalUrl
+              request.originalUrl,
             )
             response.writeHead(200, { "Content-Type": "text/html" })
             response.end(html)
@@ -138,8 +138,8 @@ export const serveWallet = () =>
               server.middlewares,
               historySpaFallbackMiddleware,
               serveIndexHtml,
-            ].includes(middleware)
-        )
+            ].includes(middleware),
+        ),
       )
 
       await server.close()

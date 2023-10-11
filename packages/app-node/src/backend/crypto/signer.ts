@@ -2,11 +2,11 @@ import { signAsync } from "@noble/ed25519"
 
 import { createActor } from "@dassie/lib-reactive"
 
-import { nodePrivateKeySignal } from "./computed/node-private-key"
+import { NodePrivateKeySignal } from "./computed/node-private-key"
 
-export const signerService = () =>
+export const SignerActor = () =>
   createActor((sig) => {
-    const dassieKey = sig.get(nodePrivateKeySignal)
+    const dassieKey = sig.get(NodePrivateKeySignal)
 
     return {
       signWithDassieKey(data: Uint8Array) {

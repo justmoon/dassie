@@ -7,13 +7,13 @@ import {
   initializePeer,
 } from "../accounting/functions/manage-peer"
 import { ledgerStore } from "../accounting/stores/ledger"
-import { nodeTableStore } from "./stores/node-table"
+import { NodeTableStore } from "./stores/node-table"
 import { NodeId } from "./types/node-id"
 
-export const createPeerLedgerEntries = () =>
+export const CreatePeerLedgerEntriesActor = () =>
   createActor((sig, peerId: NodeId) => {
     const ledger = sig.use(ledgerStore)
-    const nodeTable = sig.use(nodeTableStore)
+    const nodeTable = sig.use(NodeTableStore)
 
     const peerState = nodeTable.read().get(peerId)?.peerState
 

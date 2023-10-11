@@ -3,13 +3,20 @@ import { Promisable } from "type-fest"
 import { isObject } from "@dassie/lib-type-utils"
 
 import type { Actor, RunOptions } from "./actor"
-import { DisposableLifecycleScope } from "./lifecycle"
+import { Listener } from "./internal/emit-to-listener"
+import {
+  ReactiveSelector,
+  type ReactiveSource,
+  defaultComparator,
+} from "./internal/reactive"
+import { DisposableLifecycleScopeImplementation } from "./lifecycle"
 import { Mapped } from "./mapped"
 import type { Factory, Reactor, UseOptions } from "./reactor"
-import type { ReadonlySignal } from "./signal"
-import type { Listener, ReadonlyTopic } from "./topic"
+import type { ReadonlyTopic } from "./topic"
 
-export class ActorContext extends DisposableLifecycleScope {
+export const defaultSelector = <T>(value: T) => value
+
+export class ActorContext extends DisposableLifecycleScopeImplementation {
   constructor(
     /**
      * Name of the actor.
@@ -41,7 +48,12 @@ export class ActorContext extends DisposableLifecycleScope {
     /**
      * Wake function. If called, the actor will be cleaned up and re-run.
      */
-    readonly wake: () => void
+    readonly wake: () => void,
+
+    /**
+     * A function which allows tracked reads of signals.
+     */
+    private readonly _get: <TState>(signal: ReactiveSource<TState>) => TState,
   ) {
     super(name)
   }
@@ -61,40 +73,37 @@ export class ActorContext extends DisposableLifecycleScope {
    * @returns The current value of the signal, narrowed by the selector.
    */
   get<TState>(
-    signalFactory: Factory<ReadonlySignal<TState>> | ReadonlySignal<TState>
+    signalFactory: Factory<ReactiveSource<TState>> | ReactiveSource<TState>,
   ): TState
   get<TState, TSelection>(
-    signalFactory: Factory<ReadonlySignal<TState>> | ReadonlySignal<TState>,
+    signalFactory: Factory<ReactiveSource<TState>> | ReactiveSource<TState>,
     selector: (state: TState) => TSelection,
-    comparator?: (oldValue: TSelection, newValue: TSelection) => boolean
+    comparator?: (oldValue: TSelection, newValue: TSelection) => boolean,
   ): TSelection
   get<TState, TSelection>(
-    signalFactory: Factory<ReadonlySignal<TState>> | ReadonlySignal<TState>,
-    selector: (state: TState) => TSelection = (a) =>
-      // Based on the overloaded function signature, the selector parameter may be omitted iff TMessage equals TSelection.
-      // Therefore this cast is safe.
-      a as unknown as TSelection,
-    comparator: (a: TSelection, b: TSelection) => boolean = (a, b) => a === b
+    signalFactory: Factory<ReactiveSource<TState>> | ReactiveSource<TState>,
+    // Based on the overloaded function signature, the selector parameter may be omitted iff TMessage equals TSelection.
+    // Therefore this cast is safe.
+    selector: (state: TState) => TSelection = defaultSelector as unknown as (
+      state: TState,
+    ) => TSelection,
+    comparator: (a: TSelection, b: TSelection) => boolean = defaultComparator,
   ) {
-    const notify = this.wake
-
-    const handleTopicMessage = (message: TState) => {
-      const newValue = selector(message)
-      if (!comparator(value, newValue)) {
-        // Once we have detected a change we can stop listening because once the actor re-runs it will create a new listener anyways.
-        signal.off(handleTopicMessage)
-        notify()
-      }
-    }
-
     const signal =
       typeof signalFactory === "function"
         ? this.use(signalFactory)
         : signalFactory
-    const value = selector(signal.read())
-    signal.on(this, handleTopicMessage)
 
-    return value
+    if (selector === defaultSelector && comparator === defaultComparator) {
+      return this._get(signal)
+    } else {
+      const intermediateSignal = new ReactiveSelector(
+        signal,
+        selector,
+        comparator,
+      )
+      return this._get(intermediateSignal)
+    }
   }
 
   /**
@@ -109,8 +118,8 @@ export class ActorContext extends DisposableLifecycleScope {
    * @returns A filtered version of the signal state containing only the requested keys.
    */
   getKeys<TState, TKeys extends keyof TState>(
-    signal: Factory<ReadonlySignal<TState>>,
-    keys: readonly TKeys[]
+    signal: Factory<ReactiveSource<TState>> | ReactiveSource<TState>,
+    keys: readonly TKeys[],
   ): Pick<TState, TKeys> {
     return this.get(
       signal,
@@ -128,7 +137,7 @@ export class ActorContext extends DisposableLifecycleScope {
           }
         }
         return true
-      }
+      },
     )
   }
 
@@ -142,7 +151,7 @@ export class ActorContext extends DisposableLifecycleScope {
    * @param topic - Reference to the topic's factory function.
    */
   subscribe<TMessage>(
-    topicFactory: Factory<ReadonlyTopic<TMessage>> | ReadonlyTopic<TMessage>
+    topicFactory: Factory<ReadonlyTopic<TMessage>> | ReadonlyTopic<TMessage>,
   ) {
     this.once(topicFactory, this.wake)
   }
@@ -155,7 +164,7 @@ export class ActorContext extends DisposableLifecycleScope {
    */
   on<TMessage>(
     topicFactory: Factory<ReadonlyTopic<TMessage>> | ReadonlyTopic<TMessage>,
-    listener: Listener<TMessage>
+    listener: Listener<TMessage>,
   ) {
     const topic =
       typeof topicFactory === "function" ? this.use(topicFactory) : topicFactory
@@ -170,7 +179,7 @@ export class ActorContext extends DisposableLifecycleScope {
    */
   once<TMessage>(
     topicFactory: Factory<ReadonlyTopic<TMessage>> | ReadonlyTopic<TMessage>,
-    listener: Listener<TMessage>
+    listener: Listener<TMessage>,
   ) {
     const topic =
       typeof topicFactory === "function" ? this.use(topicFactory) : topicFactory
@@ -182,7 +191,7 @@ export class ActorContext extends DisposableLifecycleScope {
    */
   interval(
     callback: () => Promisable<void>,
-    intervalInMilliseconds?: number | undefined
+    intervalInMilliseconds?: number | undefined,
   ) {
     if (this.isDisposed) return
 
@@ -219,7 +228,7 @@ export class ActorContext extends DisposableLifecycleScope {
    */
   timeout(
     callback: () => Promisable<void>,
-    delayInMilliseconds?: number | undefined
+    delayInMilliseconds?: number | undefined,
   ): void {
     if (this.isDisposed) return
 
@@ -270,7 +279,7 @@ export class ActorContext extends DisposableLifecycleScope {
    *
    * @remarks
    *
-   * This is essentially a shorthand for `sig.use(actorFactory).run(sig)`. If there are any properties passed, the actor will be instantiated statelessly, i.e. it will not be added to the context and can't be accessed via `sig.use`.
+   * This is essentially a shorthand for `sig.use(actorFactory).run(sig.reactor, sig)`. If there are any properties passed, the actor will be instantiated statelessly, i.e. it will not be added to the context and can't be accessed via `sig.use`.
    *
    * If you want to create a stateless actor but retain a reference to it, you can use `sig.use(actorFactory, { stateless: true })`.
    *
@@ -286,16 +295,16 @@ export class ActorContext extends DisposableLifecycleScope {
   run<TReturn, TProperties>(
     factory: Factory<Actor<TReturn, TProperties>>,
     properties: TProperties,
-    options?: RunOptions | undefined
+    options?: RunOptions | undefined,
   ): TReturn | undefined
   run<TReturn, TProperties>(
     factory: Factory<Actor<TReturn, TProperties>>,
     properties?: TProperties | undefined,
-    options?: RunOptions | undefined
+    options?: RunOptions | undefined,
   ) {
     return this.reactor
       .use(factory, { stateless: properties !== undefined })
-      .run(this, properties!, options)
+      .run(this.reactor, this, properties!, options)
   }
 
   /**
@@ -308,24 +317,24 @@ export class ActorContext extends DisposableLifecycleScope {
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   runMap<TReturn>(
-    factory: Factory<Mapped<unknown, Actor<TReturn>>>
+    factory: Factory<Mapped<unknown, Actor<TReturn>>>,
   ): (TReturn | undefined)[] {
     const mapped = this.use(factory)
     const results: (TReturn | undefined)[] = Array.from({ length: mapped.size })
 
     let index = 0
     for (const [, actor, mapLifecycle] of mapped) {
-      const actorLifecycle = new DisposableLifecycleScope("")
+      const actorLifecycle = new DisposableLifecycleScopeImplementation("")
       actorLifecycle.attachToParent(mapLifecycle)
       actorLifecycle.attachToParent(this)
-      results[index++] = actor.run(actorLifecycle)
+      results[index++] = actor.run(this.reactor, actorLifecycle)
     }
 
     mapped.additions.on(this, ([, actor, mapLifecycle]) => {
-      const actorLifecycle = new DisposableLifecycleScope("")
+      const actorLifecycle = new DisposableLifecycleScopeImplementation("")
       actorLifecycle.attachToParent(mapLifecycle)
       actorLifecycle.attachToParent(this)
-      actor.run(actorLifecycle)
+      actor.run(this.reactor, actorLifecycle)
     })
 
     return results
@@ -340,25 +349,25 @@ export class ActorContext extends DisposableLifecycleScope {
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async runMapSequential<TReturn>(
-    factory: Factory<Mapped<unknown, Actor<TReturn>>>
+    factory: Factory<Mapped<unknown, Actor<TReturn>>>,
   ): Promise<(TReturn | undefined)[]> {
     const mapped = this.use(factory)
     const results: (TReturn | undefined)[] = Array.from({ length: mapped.size })
 
     let index = 0
     for (const [, actor, mapLifecycle] of mapped) {
-      const actorLifecycle = new DisposableLifecycleScope("")
+      const actorLifecycle = new DisposableLifecycleScopeImplementation("")
       actorLifecycle.attachToParent(mapLifecycle)
       actorLifecycle.attachToParent(this)
       // eslint-disable-next-line @typescript-eslint/await-thenable
-      results[index++] = await actor.run(actorLifecycle)
+      results[index++] = await actor.run(this.reactor, actorLifecycle)
     }
 
     mapped.additions.on(this, ([, actor, mapLifecycle]) => {
-      const actorLifecycle = new DisposableLifecycleScope("")
+      const actorLifecycle = new DisposableLifecycleScopeImplementation("")
       actorLifecycle.attachToParent(mapLifecycle)
       actorLifecycle.attachToParent(this)
-      actor.run(actorLifecycle)
+      actor.run(this.reactor, actorLifecycle)
     })
 
     return results

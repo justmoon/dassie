@@ -1,18 +1,18 @@
 import { createRestApi } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
-import { httpsRouterService } from "./serve-https"
+import { HttpsRouterServiceActor } from "./serve-https"
 
-export const restApiService = () =>
+export const RestApiServiceActor = () =>
   createActor((sig) => {
-    const router = sig.get(httpsRouterService)
+    const router = sig.get(HttpsRouterServiceActor)
 
     if (!router) return
 
     return createRestApi(router)
   })
 
-export const serveRestApi = () =>
+export const ServeRestApiActor = () =>
   createActor((sig) => {
-    sig.run(restApiService)
+    sig.run(RestApiServiceActor)
   })

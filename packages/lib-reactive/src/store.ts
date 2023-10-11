@@ -7,7 +7,7 @@ export const StoreSymbol = Symbol("das:reactive:store")
 
 export type Action<
   TState = unknown,
-  TParameters extends unknown[] = never[]
+  TParameters extends unknown[] = never[],
 > = (...parameters: TParameters) => (previousState: TState) => TState
 
 export type Change = [actionId: string, parameters: unknown[]]
@@ -38,7 +38,7 @@ export type BoundAction<TState, TParameters extends unknown[]> = (
 const bindActions = <TState, TActions extends Record<string, Action<TState>>>(
   actions: TActions,
   signal: Signal<TState>,
-  changesTopic: Topic<InferChanges<TActions>>
+  changesTopic: Topic<InferChanges<TActions>>,
 ): InferBoundActions<TActions> => {
   const boundActions = {} as InferBoundActions<TActions>
 
@@ -63,7 +63,7 @@ const bindActions = <TState, TActions extends Record<string, Action<TState>>>(
 
 export type Store<
   TState,
-  TActions extends Record<string, Action<TState>>
+  TActions extends Record<string, Action<TState>>,
 > = Signal<TState> & {
   /**
    * Marks this object as a store.
@@ -82,25 +82,27 @@ export type Store<
  */
 export const createStore = <
   TState,
-  TActions extends Record<string, Action<TState>>
+  TActions extends Record<string, Action<TState>>,
 >(
   initialState: TState,
-  actions: TActions
+  actions: TActions,
 ): Store<TState, TActions> => {
   const signal = createSignal<TState>(initialState)
   const changes = createTopic<InferChanges<TActions>>()
 
   const boundActions = bindActions(actions, signal, changes)
 
-  return {
-    ...signal,
-    [StoreSymbol]: true,
-    changes,
-    ...boundActions,
-  }
+  return Object.assign(
+    signal,
+    {
+      [StoreSymbol]: true as const,
+      changes,
+    },
+    boundActions,
+  )
 }
 
 export const isStore = (
-  object: unknown
+  object: unknown,
 ): object is Store<unknown, Record<string, Action>> =>
   isObject(object) && object[StoreSymbol] === true

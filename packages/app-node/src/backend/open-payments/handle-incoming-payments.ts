@@ -4,19 +4,19 @@ import { z } from "zod"
 import { respondJson } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
-import { databaseConfigStore } from "../config/database-config"
-import { databasePlain } from "../database/open-database"
-import { restApiService } from "../http-server/serve-rest-api"
-import { streamServerService } from "../spsp-server/stream-server"
+import { DatabaseConfigStore } from "../config/database-config"
+import { Database } from "../database/open-database"
+import { RestApiServiceActor } from "../http-server/serve-rest-api"
+import { StreamServerServiceActor } from "../spsp-server/stream-server"
 import { PAYMENT_POINTER_ROOT } from "./constants/payment-pointer"
 import { createIncomingPaymentFormatter } from "./utils/format-incoming-payment"
 
-export const handleIncomingPayments = () =>
+export const HandleIncomingPaymentsActor = () =>
   createActor((sig) => {
-    const api = sig.get(restApiService)
-    const database = sig.use(databasePlain)
-    const streamServer = sig.get(streamServerService)
-    const { url } = sig.get(databaseConfigStore)
+    const api = sig.get(RestApiServiceActor)
+    const database = sig.use(Database)
+    const streamServer = sig.get(StreamServerServiceActor)
+    const { url } = sig.get(DatabaseConfigStore)
 
     if (!api || !streamServer) return
 
@@ -55,7 +55,7 @@ export const handleIncomingPayments = () =>
             expiresAt: z.string().optional(),
             description: z.string().optional(),
             externalRef: z.string().optional(),
-          })
+          }),
         )
         .handler((request, response) => {
           const { incomingAmount, externalRef } = request.body

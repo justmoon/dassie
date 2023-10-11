@@ -1,38 +1,38 @@
 import { createActor } from "../actor"
 import { createComputed } from "../computed"
-import { createReactor } from "../reactor"
+import { Reactor, createReactor } from "../reactor"
 import { createSignal } from "../signal"
 
-const count = () => createSignal(0)
+const CountSignal = () => createSignal(0)
 
-const doubled = () =>
-  createComputed((sig) => {
-    const value = sig.get(count)
+const DoubledSignal = (reactor: Reactor) =>
+  createComputed(reactor.lifecycle, (sig) => {
+    const value = sig.get(reactor.use(CountSignal))
     return value * 2
   })
 
-const quadrupled = () =>
-  createComputed((sig) => {
-    const value = sig.get(doubled)
+const QuadrupledSignal = (reactor: Reactor) =>
+  createComputed(reactor.lifecycle, (sig) => {
+    const value = sig.get(reactor.use(DoubledSignal))
     return value * 2
   })
 
-const log = () =>
+const LogActor = () =>
   createActor((sig) => {
-    console.info(sig.get(quadrupled))
+    console.info(sig.get(QuadrupledSignal))
   })
 
-const increment = () =>
+const IncrementActor = () =>
   createActor((sig) => {
     sig.interval(() => {
-      sig.use(count).update((x) => x + 1)
+      sig.use(CountSignal).update((x) => x + 1)
     }, 1000)
   })
 
-const rootActor = () =>
+const RootActor = () =>
   createActor((sig) => {
-    sig.run(log)
-    sig.run(increment)
+    sig.run(LogActor)
+    sig.run(IncrementActor)
   })
 
-createReactor(rootActor)
+createReactor(RootActor)

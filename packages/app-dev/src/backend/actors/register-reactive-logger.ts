@@ -5,11 +5,11 @@ import {
 } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 
-import { logsStore } from "../../common/stores/logs"
+import { LogsStore } from "../../common/stores/logs"
 
-export const registerReactiveLogger = () =>
+export const RegisterReactiveLoggerActor = () =>
   createActor((sig) => {
-    const logs = sig.use(logsStore)
+    const logs = sig.use(LogsStore)
 
     captureConsole()
 

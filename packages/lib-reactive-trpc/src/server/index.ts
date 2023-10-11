@@ -20,7 +20,7 @@ export interface SubscriptionOptions {
 
 export const subscribeToTopic = <TMessage>(
   sig: ActorContext,
-  topicFactory: Factory<ReadonlyTopic<TMessage>>
+  topicFactory: Factory<ReadonlyTopic<TMessage>>,
 ): Observable<TMessage, unknown> => {
   return observable<TMessage>((emit) => {
     const topic = sig.use(topicFactory)
@@ -37,7 +37,7 @@ export const subscribeToTopic = <TMessage>(
 export const subscribeToSignal = <TValue>(
   sig: ActorContext,
   signalFactory: Factory<ReadonlySignal<TValue>>,
-  { batching = true }: SubscriptionOptions = {}
+  { batching = true }: SubscriptionOptions = {},
 ): Observable<TValue, unknown> => {
   return observable<TValue>((emit) => {
     let timer: ReturnType<typeof setImmediate> | undefined
@@ -65,18 +65,18 @@ export const subscribeToSignal = <TValue>(
 
 export type StoreMessage<
   TState,
-  TActions extends Record<string, Action<TState>>
+  TActions extends Record<string, Action<TState>>,
 > =
   | { type: "initial"; value: TState }
   | { type: "changes"; value: readonly InferChanges<TActions>[] }
 
 export const subscribeToStore = <
   TState,
-  TActions extends Record<string, Action<TState>>
+  TActions extends Record<string, Action<TState>>,
 >(
   sig: ActorContext,
   storeFactory: Factory<Store<TState, TActions>>,
-  { batching = true }: SubscriptionOptions = {}
+  { batching = true }: SubscriptionOptions = {},
 ): Observable<StoreMessage<TState, TActions>, never> => {
   return observable<StoreMessage<TState, TActions>, never>((emit) => {
     let timer: ReturnType<typeof setImmediate> | undefined

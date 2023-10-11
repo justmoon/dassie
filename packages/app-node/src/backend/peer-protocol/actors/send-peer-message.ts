@@ -4,10 +4,10 @@ import type { SetOptional } from "type-fest"
 import type { InferSerialize } from "@dassie/lib-oer"
 import { createActor, createTopic } from "@dassie/lib-reactive"
 
-import { nodeIdSignal } from "../../ilp-connector/computed/node-id"
+import { NodeIdSignal } from "../../ilp-connector/computed/node-id"
 import { peerProtocol as logger } from "../../logger/instances"
 import { peerMessage, peerMessageContent } from "../peer-schema"
-import { nodeTableStore } from "../stores/node-table"
+import { NodeTableStore } from "../stores/node-table"
 import { NodeId } from "../types/node-id"
 
 export type MessageWithDestination = SetOptional<
@@ -21,11 +21,11 @@ export interface OutgoingPeerMessageEvent {
   asUint8Array: Uint8Array
 }
 
-export const outgoingPeerMessageTopic = () =>
+export const OutgoingPeerMessageTopic = () =>
   createTopic<OutgoingPeerMessageEvent>()
 
 const serializePeerMessage = (
-  message: InferSerialize<typeof peerMessageContent>
+  message: InferSerialize<typeof peerMessageContent>,
 ) => {
   const messageSerializeResult = peerMessageContent.serialize(message)
 
@@ -38,10 +38,10 @@ const serializePeerMessage = (
   return messageSerializeResult.value
 }
 
-export const sendPeerMessage = () =>
+export const SendPeerMessageActor = () =>
   createActor((sig) => {
-    const nodeId = sig.get(nodeIdSignal)
-    const peers = sig.use(nodeTableStore)
+    const nodeId = sig.get(NodeIdSignal)
+    const peers = sig.use(NodeTableStore)
 
     return {
       send: async (parameters: MessageWithDestination) => {
@@ -49,7 +49,7 @@ export const sendPeerMessage = () =>
 
         const serializedMessage = asUint8Array ?? serializePeerMessage(message)
 
-        sig.use(outgoingPeerMessageTopic).emit({
+        sig.use(OutgoingPeerMessageTopic).emit({
           ...parameters,
           asUint8Array: serializedMessage,
         })
@@ -96,7 +96,7 @@ export const sendPeerMessage = () =>
           return new Uint8Array(
             result.data.buffer,
             result.data.byteOffset,
-            result.data.byteLength
+            result.data.byteLength,
           )
         } catch (error) {
           logger.warn("failed to send message", {

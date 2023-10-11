@@ -21,14 +21,14 @@ const devtoolsServer = () => ({
   configureServer(server: ViteDevServer) {
     const devtoolsPath = new URL(
       "../../node_modules/chrome-devtools-frontend-prebuilt/public",
-      import.meta.url
+      import.meta.url,
     ).pathname
 
     server.middlewares.use("/devtools", serveStatic(devtoolsPath, {}))
   },
 })
 
-export const debugUiServer = () =>
+export const DebugUiServerActor = () =>
   createActor(async (sig) => {
     await validateCertificates({
       id: "dev",

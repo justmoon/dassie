@@ -1,8 +1,8 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { handleIldcpRequests } from "./handle-ildcp-requests"
+import { HandleIldcpRequestsActor } from "./handle-ildcp-requests"
 
-export const startIldcpServer = () =>
+export const IldcpServerActor = () =>
   createActor((sig) => {
-    sig.run(handleIldcpRequests)
+    sig.run(HandleIldcpRequestsActor)
   })

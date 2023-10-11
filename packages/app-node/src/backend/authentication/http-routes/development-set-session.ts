@@ -4,14 +4,14 @@ import { respondJson } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
 import { SESSION_COOKIE_NAME } from "../../../common/constants/cookie-name"
-import { restApiService } from "../../http-server/serve-rest-api"
+import { RestApiServiceActor } from "../../http-server/serve-rest-api"
 import { SessionToken } from "../types/session-token"
 
-export const registerDevelopmentSetSessionRoute = () =>
+export const RegisterDevelopmentSetSessionRouteActor = () =>
   createActor((sig) => {
     if (!import.meta.env.DEV) return
 
-    const api = sig.get(restApiService)
+    const api = sig.get(RestApiServiceActor)
 
     if (!api) return
 
@@ -22,7 +22,7 @@ export const registerDevelopmentSetSessionRoute = () =>
           sessionToken: z
             .string()
             .refine((_token): _token is SessionToken => true),
-        })
+        }),
       )
       .handler((request, response) => {
         const { sessionToken } = request.body

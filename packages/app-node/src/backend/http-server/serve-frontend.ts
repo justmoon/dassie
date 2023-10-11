@@ -5,19 +5,19 @@ import { resolve } from "node:path"
 
 import { createActor } from "@dassie/lib-reactive"
 
-import { environmentConfigSignal } from "../config/environment-config"
-import { additionalMiddlewaresSignal } from "./serve-https"
+import { EnvironmentConfigSignal } from "../config/environment-config"
+import { AdditionalMiddlewaresSignal } from "./serve-https"
 
-export const serveFrontend = () =>
+export const ServeFrontendActor = () =>
   createActor((sig) => {
     // In development, the frontend is injected by the runner.
     // TODO: Not sure if that is still the best way to do it.
     if (process.env["NODE_ENV"] === "development") return
 
-    const { rootPath } = sig.getKeys(environmentConfigSignal, ["rootPath"])
+    const { rootPath } = sig.getKeys(EnvironmentConfigSignal, ["rootPath"])
     const frontendPath = resolve(rootPath, "share/public")
 
-    const middleware = sig.use(additionalMiddlewaresSignal)
+    const middleware = sig.use(AdditionalMiddlewaresSignal)
     const staticMiddleware = serveStatic(frontendPath, {
       index: false,
     }) as NextHandleFunction
@@ -35,8 +35,8 @@ export const serveFrontend = () =>
       middleware.update((middlewares) =>
         middlewares.filter(
           (middleware) =>
-            middleware !== staticMiddleware && middleware !== indexMiddleware
-        )
+            middleware !== staticMiddleware && middleware !== indexMiddleware,
+        ),
       )
     })
   })

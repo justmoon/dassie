@@ -1,12 +1,14 @@
 import { createActor } from "@dassie/lib-reactive"
 
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
-import { manageSettlementSchemeInstances } from "../../settlement-schemes/manage-settlement-scheme-instances"
+import { ManageSettlementSchemeInstancesActor } from "../../settlement-schemes/manage-settlement-scheme-instances"
 import type { IncomingPeerMessageEvent } from "../actors/handle-peer-message"
 
-export const handleSettlementSchemeModuleMessage = () =>
+export const HandleSettlementSchemeModuleMessageActor = () =>
   createActor((sig) => {
-    const settlementSchemeManager = sig.use(manageSettlementSchemeInstances)
+    const settlementSchemeManager = sig.use(
+      ManageSettlementSchemeInstancesActor,
+    )
 
     return {
       handle: ({

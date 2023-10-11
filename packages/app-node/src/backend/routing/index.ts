@@ -1,8 +1,8 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { calculateRoutes } from "./calculate-routes"
+import { CalculateRoutesActor } from "./calculate-routes"
 
-export const doRouting = () =>
+export const RoutingActor = () =>
   createActor((sig) => {
-    sig.run(calculateRoutes)
+    sig.run(CalculateRoutesActor)
   })

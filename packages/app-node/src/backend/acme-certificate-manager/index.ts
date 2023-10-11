@@ -1,8 +1,8 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { serveTokens } from "./serve-tokens"
+import { ServeTokensActor } from "./serve-tokens"
 
-export const startAcmeCertificateManager = () =>
+export const AcmeCertificateManagerActor = () =>
   createActor((sig) => {
-    sig.run(serveTokens)
+    sig.run(ServeTokensActor)
   })

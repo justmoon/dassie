@@ -1,8 +1,8 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { serveLocalIpc } from "./actors/serve-local-ipc"
+import { ServeLocalIpcActor } from "./actors/serve-local-ipc"
 
-export const startLocalRpcServer = () =>
+export const LocalRpcServerActor = () =>
   createActor((sig) => {
-    sig.run(serveLocalIpc)
+    sig.run(ServeLocalIpcActor)
   })

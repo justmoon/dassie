@@ -2,27 +2,27 @@ import assert from "node:assert"
 
 import { ActorContext, createActor } from "@dassie/lib-reactive"
 
-import { nodeIdSignal } from "../ilp-connector/computed/node-id"
+import { NodeIdSignal } from "../ilp-connector/computed/node-id"
 import { peerProtocol as logger } from "../logger/instances"
-import { sendPeerMessage } from "./actors/send-peer-message"
-import { peersComputation } from "./computed/peers"
-import { requestedPeersComputation } from "./computed/requested-peers"
-import { nodeTableStore } from "./stores/node-table"
+import { SendPeerMessageActor } from "./actors/send-peer-message"
+import { PeersSignal } from "./computed/peers"
+import { RequestedPeersSignal } from "./computed/requested-peers"
+import { NodeTableStore } from "./stores/node-table"
 import { NodeId } from "./types/node-id"
 import { SettlementSchemeId } from "./types/settlement-scheme-id"
 
 const MAX_HEARTBEAT_INTERVAL = 20_000
 
-export const sendHeartbeats = () =>
+export const SendHeartbeatsActor = () =>
   createActor((sig) => {
-    const ownNodeId = sig.use(nodeIdSignal).read()
+    const ownNodeId = sig.use(NodeIdSignal).read()
 
     // Get the current peers and re-run the actor if they change
-    const peers = sig.get(peersComputation)
-    const requestedPeers = sig.get(requestedPeersComputation)
+    const peers = sig.get(PeersSignal)
+    const requestedPeers = sig.get(RequestedPeersSignal)
 
-    const linkStateUpdate = sig.get(nodeTableStore, (nodeTable) =>
-      nodeTable.get(ownNodeId)
+    const linkStateUpdate = sig.get(NodeTableStore, (nodeTable) =>
+      nodeTable.get(ownNodeId),
     )?.linkState.lastUpdate
 
     if (!linkStateUpdate) {
@@ -31,7 +31,7 @@ export const sendHeartbeats = () =>
 
     // Send peer requests
     for (const peer of requestedPeers) {
-      const peerState = sig.use(nodeTableStore).read().get(peer)?.peerState
+      const peerState = sig.use(NodeTableStore).read().get(peer)?.peerState
 
       assert(peerState?.id === "request-peering")
 
@@ -65,13 +65,13 @@ const sendPeeringRequest = (
     peerNodeId,
     settlementSchemeId,
     lastLinkStateUpdate,
-  }: PeeringRequestParameters
+  }: PeeringRequestParameters,
 ) => {
   logger.debug(`sending peering request`, {
     to: peerNodeId,
   })
 
-  sig.use(sendPeerMessage).tell("send", {
+  sig.use(SendPeerMessageActor).tell("send", {
     destination: peerNodeId,
     message: {
       type: "peeringRequest",
@@ -90,13 +90,13 @@ interface HeartbeatParameters {
 
 const sendHeartbeat = (
   sig: ActorContext,
-  { peerNodeId, lastLinkStateUpdate }: HeartbeatParameters
+  { peerNodeId, lastLinkStateUpdate }: HeartbeatParameters,
 ) => {
   logger.debug(`sending heartbeat`, {
     to: peerNodeId,
   })
 
-  sig.use(sendPeerMessage).tell("send", {
+  sig.use(SendPeerMessageActor).tell("send", {
     destination: peerNodeId,
     message: {
       type: "linkStateUpdate",

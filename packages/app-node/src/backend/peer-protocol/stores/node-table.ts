@@ -3,7 +3,7 @@ import { castDraft, castImmutable, enableMapSet, produce } from "immer"
 import { Reactor, createStore } from "@dassie/lib-reactive"
 import { InferRowSqliteType } from "@dassie/lib-sqlite"
 
-import { databasePlain } from "../../database/open-database"
+import { Database } from "../../database/open-database"
 import { NodeId } from "../types/node-id"
 import { SettlementSchemeId } from "../types/settlement-scheme-id"
 
@@ -90,12 +90,12 @@ export interface LinkState {
   readonly scheduledRetransmitTime: number
 }
 
-export const nodeTableStore = (reactor: Reactor) => {
-  const database = reactor.use(databasePlain)
+export const NodeTableStore = (reactor: Reactor) => {
+  const database = reactor.use(Database)
 
   const result = database.raw
     .prepare(
-      `SELECT nodes.*, peers.* FROM nodes LEFT JOIN peers ON nodes.rowid = peers.node`
+      `SELECT nodes.*, peers.* FROM nodes LEFT JOIN peers ON nodes.rowid = peers.node`,
     )
     .all() as (InferRowSqliteType<typeof database.schema.tables.nodes> &
     Partial<InferRowSqliteType<typeof database.schema.tables.peers>>)[]
@@ -108,7 +108,7 @@ export const nodeTableStore = (reactor: Reactor) => {
       nodePublicKey: new Uint8Array(
         row.public_key.buffer,
         row.public_key.byteOffset,
-        row.public_key.byteLength
+        row.public_key.byteLength,
       ),
       url: row.url,
       alias: row.alias,
@@ -137,7 +137,7 @@ export const nodeTableStore = (reactor: Reactor) => {
           entry.nodeId,
           castDraft({
             ...entry,
-          })
+          }),
         )
       }),
     updateNode: (key: NodeId, nodeEntry: Partial<NodeTableEntry>) =>
@@ -151,7 +151,7 @@ export const nodeTableStore = (reactor: Reactor) => {
           castDraft({
             ...previousEntry,
             ...nodeEntry,
-          })
+          }),
         )
       }),
   })

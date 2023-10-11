@@ -1,12 +1,12 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { databasePlain } from "../database/open-database"
-import { httpRouterService } from "../http-server/serve-http"
+import { Database } from "../database/open-database"
+import { HttpRouterServiceActor } from "../http-server/serve-http"
 
-export const serveTokens = () =>
+export const ServeTokensActor = () =>
   createActor((sig) => {
-    const httpRouter = sig.get(httpRouterService)
-    const database = sig.use(databasePlain)
+    const httpRouter = sig.get(HttpRouterServiceActor)
+    const database = sig.use(Database)
 
     if (!httpRouter) return
 
@@ -30,6 +30,6 @@ export const serveTokens = () =>
         const keyAuthorization = tokenRow.key_authorization
 
         response.send(keyAuthorization)
-      }
+      },
     )
   })

@@ -17,5 +17,5 @@ export interface PeerRoutingInfo {
   distance: number
 }
 
-export const routingTableSignal = () =>
+export const RoutingTableSignal = () =>
   createSignal(new PrefixMap<RoutingInfo>())

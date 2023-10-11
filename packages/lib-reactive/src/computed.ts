@@ -1,153 +1,140 @@
 import { isObject } from "@dassie/lib-type-utils"
 
-import type { DisposableLifecycleScope } from "./lifecycle"
-import { type Factory, Reactor, type UseOptions } from "./reactor"
-import { type ReadonlySignal, type Signal, createSignal } from "./signal"
+import { defaultSelector } from "./actor-context"
+import {
+  Reactive,
+  ReactiveSource,
+  defaultComparator,
+} from "./internal/reactive"
+import { createReactiveTopic } from "./internal/reactive-topic"
+import { LifecycleScope } from "./lifecycle"
+import { ReadonlySignal, SignalSymbol } from "./signal"
+import { TopicSymbol } from "./topic"
 
 export const ComputedSymbol = Symbol("das:reactive:computed")
 
-export type ComputedFactory<TState> = Factory<Computed<TState>>
-
-export type Computed<TState> = Signal<TState> & {
-  /**
-   * Marks this object as a signal.
-   */
-  [ComputedSymbol]: true
-}
-
 export interface ComputationContext {
-  reactor: Reactor
-
   /**
    * Read the current value from a signal and lazily recompute if the value changes.
    *
-   * @remarks
-   *
-   * To read a value without tracking, use {@link peek}.
-   *
-   * @param signalFactory - Reference to the signal's factory function.
+   * @param signal - Reference to the signal.
    * @param selector - Used to select only part of the value from a given signal. This can be useful to avoid re-running the actor if only an irrelevant portion of the value has changed.
    * @param comparator - By default, the reactor checks for strict equality (`===`) to determine if the value has changed. This can be overridden by passing a custom comparator function.
    * @returns The current value of the signal, narrowed by the selector.
    */
-  get<TState>(
-    signalFactory: Factory<ReadonlySignal<TState>> | ReadonlySignal<TState>
-  ): TState
+  get<TState>(signal: ReactiveSource<TState>): TState
   get<TState, TSelection>(
-    signalFactory: Factory<ReadonlySignal<TState>> | ReadonlySignal<TState>,
+    signal: ReactiveSource<TState>,
     selector: (state: TState) => TSelection,
-    comparator?: (oldValue: TSelection, newValue: TSelection) => boolean
+    comparator?: (oldValue: TSelection, newValue: TSelection) => boolean,
   ): TSelection
 
   /**
-   * Read the current value from a signal but without subscribing to changes.
-   *
-   * @param signalFactory - Reference to the signal's factory function.
-   * @returns The current value of the signal.
-   */
-  peek<TState>(signalFactory: Factory<ReadonlySignal<TState>>): TState
-
-  /**
-   * Fetch a context value.
+   * Convenience method for extracting specific keys from a signal.
    *
    * @remarks
    *
-   * If the value is not found, it will be instantiated by calling the factory function.
+   * This method works like {@link get} but will automatically create the correct selector and comparator for the given keys. The value will be recomputed if any of the values for any of the keys change by strict equality.
    *
-   * @param factory - Factory function corresponding to the desired value.
-   * @returns - Return value of the factory function.
+   * @param signal - Reference to the signal that should be queried.
+   * @param keys - Tuple of keys that should be extracted from the signal.
+   * @returns A filtered version of the signal state containing only the requested keys.
    */
-  use<TReturn>(
-    factory: Factory<TReturn>,
-    options?: UseOptions | undefined
-  ): TReturn
+  getKeys<TState, TKeys extends keyof TState>(
+    signal: ReactiveSource<TState>,
+    keys: readonly TKeys[],
+  ): Pick<TState, TKeys>
 
   /**
-   * Register a clean-up handler.
-   *
-   * @remarks
-   *
-   * Computed values are only cleaned up when the reactor is cleaned up, so the handler won't be called until then.
+   * The lifetime of the computation.
    */
-  onCleanup: DisposableLifecycleScope["onCleanup"]
+  lifecycle: LifecycleScope
+}
+
+export interface Computed<TState> extends ReadonlySignal<TState> {
+  /**
+   * Marks this object as a computed value.
+   */
+  [ComputedSymbol]: true
+
+  /**
+   * Asynchronously update the value of the computation.
+   */
+  write(value: TState): void
+}
+
+export interface ComputedOptions<TState> {
+  comparator?: ((oldValue: TState, newValue: TState) => boolean) | undefined
+}
+
+class ComputedImplementation<TState> extends Reactive<TState> {
+  [SignalSymbol] = true as const;
+  [TopicSymbol] = true as const;
+  [ComputedSymbol] = true as const
+
+  onCleanup: LifecycleScope["onCleanup"]
+
+  constructor(
+    readonly lifecycle: LifecycleScope,
+    private readonly computation: (sig: ComputationContext) => TState,
+    options: ComputedOptions<TState> = {},
+  ) {
+    super(options.comparator ?? defaultComparator, false)
+
+    lifecycle.onCleanup(() => {
+      this.removeParentObservers()
+    })
+    this.onCleanup = lifecycle.onCleanup
+  }
+
+  protected recompute() {
+    const context: ComputationContext = {
+      get: <T>(
+        signal: ReactiveSource<T>,
+        selector = defaultSelector,
+        comparator = defaultComparator,
+      ) => {
+        return selector === defaultSelector && comparator === defaultComparator
+          ? this.readWithTracking(signal)
+          : this.readWithTracking(signal, selector, comparator)
+      },
+      getKeys: <TState, TKeys extends keyof TState>(
+        signal: ReactiveSource<TState>,
+        keys: readonly TKeys[],
+      ) => {
+        return context.get(
+          signal,
+          (state) => {
+            const result = {} as Pick<TState, TKeys>
+            for (const key of keys) {
+              result[key] = state[key]
+            }
+            return result
+          },
+          (a, b) => {
+            for (const key of keys) {
+              if (a[key] !== b[key]) {
+                return false
+              }
+            }
+            return true
+          },
+        )
+      },
+      lifecycle: this.lifecycle,
+    }
+    this.cache = this.computation(context)
+  }
 }
 
 export function createComputed<TState>(
-  computation: (sig: ComputationContext) => TState
+  lifecycle: LifecycleScope,
+  computation: (sig: ComputationContext) => TState,
+  options: ComputedOptions<TState> = {},
 ): Computed<TState> {
-  const reactor = Reactor.current
+  const computed = new ComputedImplementation(lifecycle, computation, options)
 
-  let sources = new Set<ReadonlySignal<unknown>>()
-
-  if (!reactor) {
-    throw new Error("Computed signals must be created by a reactor.")
-  }
-
-  const context = {
-    reactor,
-
-    get<TState>(
-      signalFactory: Factory<ReadonlySignal<TState>> | ReadonlySignal<TState>
-    ) {
-      const signal =
-        typeof signalFactory === "function"
-          ? reactor.use(signalFactory)
-          : signalFactory
-      sources.add(signal)
-      return signal.read()
-    },
-
-    peek<TState>(signalFactory: Factory<ReadonlySignal<TState>>) {
-      return reactor.use(signalFactory).read()
-    },
-
-    use<TReturn>(factory: Factory<TReturn>, options?: UseOptions | undefined) {
-      return reactor.use(factory, options)
-    },
-
-    onCleanup: reactor.onCleanup,
-  }
-
-  let dirty = false
-  const notify = () => {
-    if (!dirty) {
-      dirty = true
-      queueMicrotask(() => {
-        dirty = false
-        signal.write(run())
-      })
-    }
-  }
-
-  const run = () => {
-    const previousSources = sources
-    sources = new Set()
-
-    const result = computation(context)
-
-    // Unsubscribe from any sources that are no longer used.
-    for (const source of previousSources) {
-      if (!sources.has(source)) {
-        source.off(notify)
-      }
-    }
-
-    // Subscribe to any new sources.
-    for (const source of sources) {
-      if (!previousSources.has(source)) {
-        source.on(reactor, notify)
-      }
-    }
-
-    return result
-  }
-
-  const signal = createSignal<TState>(run())
-
-  return {
-    ...signal,
-    [ComputedSymbol]: true,
-  }
+  return Object.assign(computed, createReactiveTopic(computed))
 }
 
 export const isComputed = (object: unknown): object is Computed<unknown> =>

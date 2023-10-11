@@ -1,8 +1,8 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { processPacket } from "./process-packet"
+import { ProcessPacketActor } from "./process-packet"
 
-export const startIlpConnector = () =>
+export const IlpConnectorActor = () =>
   createActor((sig) => {
-    sig.run(processPacket)
+    sig.run(ProcessPacketActor)
   })

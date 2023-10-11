@@ -9,5 +9,5 @@ export interface ResolvedIlpPacketEvent {
   readonly parsedPacket: Exclude<IlpPacket, IlpPreparePacket>
 }
 
-export const resolvedIlpPacketTopic = () =>
+export const ResolvedIlpPacketTopic = () =>
   createTopic<ResolvedIlpPacketEvent>()

@@ -3,7 +3,7 @@ import { produce } from "immer"
 import { Reactor, createStore } from "@dassie/lib-reactive"
 
 import type { VALID_REALMS } from "../constants/general"
-import { databasePlain } from "../database/open-database"
+import { Database } from "../database/open-database"
 
 export interface Config {
   readonly realm: (typeof VALID_REALMS)[number]
@@ -25,20 +25,18 @@ export interface Config {
 }
 
 export const hasTls = (
-  config: Config
+  config: Config,
 ): config is Config & { tlsWebCert: string; tlsWebKey: string } => {
   return config.tlsWebCert !== undefined && config.tlsWebKey !== undefined
 }
 
 export const hasNodeIdentity = (
-  config: Config
+  config: Config,
 ): config is Config & { dassieKey: string } => {
   return config.dassieKey !== undefined
 }
 
-const loadInitialConfig = (
-  database: ReturnType<typeof databasePlain>
-): Config => {
+const loadInitialConfig = (database: ReturnType<typeof Database>): Config => {
   const configRealm = database.scalars.configRealm.get() ?? "test"
   const configHostname = database.scalars.configHostname.get() ?? "localhost"
   const configHttpPort = database.scalars.configHttpPort.get() ?? 80
@@ -75,8 +73,8 @@ const loadInitialConfig = (
   }
 }
 
-export const databaseConfigStore = (reactor: Reactor) => {
-  const database = reactor.use(databasePlain)
+export const DatabaseConfigStore = (reactor: Reactor) => {
+  const database = reactor.use(Database)
 
   return createStore(loadInitialConfig(database), {
     setRealm: (realm: (typeof VALID_REALMS)[number]) =>

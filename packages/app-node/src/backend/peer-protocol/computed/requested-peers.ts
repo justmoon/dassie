@@ -1,16 +1,16 @@
 import { enableMapSet, produce } from "immer"
 
-import { createComputed } from "@dassie/lib-reactive"
+import { Reactor, createComputed } from "@dassie/lib-reactive"
 import { UnreachableCaseError } from "@dassie/lib-type-utils"
 
-import { nodeTableStore } from "../stores/node-table"
+import { NodeTableStore } from "../stores/node-table"
 import { NodeId } from "../types/node-id"
 
 enableMapSet()
 
-export const requestedPeersComputation = () =>
-  createComputed((sig) => {
-    const nodeTable = sig.use(nodeTableStore)
+export const RequestedPeersSignal = (reactor: Reactor) =>
+  createComputed(reactor.lifecycle, () => {
+    const nodeTable = reactor.use(NodeTableStore)
 
     const initialSet = new Set<NodeId>()
 
@@ -20,9 +20,9 @@ export const requestedPeersComputation = () =>
       }
     }
 
-    nodeTable.changes.on(sig.reactor, ([actionId, parameters]) => {
-      const requestedPeersComputationValue = sig.use(requestedPeersComputation)
-      const peersSet = requestedPeersComputationValue.read()
+    nodeTable.changes.on(reactor.lifecycle, ([actionId, parameters]) => {
+      const requestedPeersSignal = reactor.use(RequestedPeersSignal)
+      const peersSet = requestedPeersSignal.read()
       const priorSize = peersSet.size
 
       const newSet = produce(peersSet, (draft) => {
@@ -51,12 +51,14 @@ export const requestedPeersComputation = () =>
       })
 
       if (newSet.size !== priorSize) {
-        requestedPeersComputationValue.write(newSet)
+        requestedPeersSignal.write(newSet)
       }
     })
 
     return initialSet
   })
 
-export const requestedPeersArrayComputation = () =>
-  createComputed((sig) => [...sig.get(requestedPeersComputation)])
+export const RequestedPeersArraySignal = (reactor: Reactor) =>
+  createComputed(reactor.lifecycle, (sig) => [
+    ...sig.get(reactor.use(RequestedPeersSignal)),
+  ])

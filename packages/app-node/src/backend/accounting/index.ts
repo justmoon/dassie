@@ -1,8 +1,8 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { manageBuiltinAccounts } from "./manage-builtin-accounts"
+import { ManageBuiltinAccountsActor } from "./manage-builtin-accounts"
 
-export const startAccounting = () =>
+export const AccountingActor = () =>
   createActor((sig) => {
-    sig.run(manageBuiltinAccounts)
+    sig.run(ManageBuiltinAccountsActor)
   })

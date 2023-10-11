@@ -3,14 +3,14 @@ import { createActor } from "@dassie/lib-reactive"
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import { peerProtocol as logger } from "../../logger/instances"
 import type { IncomingPeerMessageEvent } from "../actors/handle-peer-message"
-import { nodeTableStore } from "../stores/node-table"
+import { NodeTableStore } from "../stores/node-table"
 import { parseLinkStateEntries } from "../utils/parse-link-state-entries"
 
 export const MAX_LINK_STATE_UPDATE_RETRANSMIT_DELAY = 500
 
-export const handleLinkStateUpdate = () =>
+export const HandleLinkStateUpdateActor = () =>
   createActor((sig) => {
-    const nodeTable = sig.use(nodeTableStore)
+    const nodeTable = sig.use(NodeTableStore)
 
     return {
       handle: ({
@@ -80,7 +80,7 @@ export const handleLinkStateUpdate = () =>
               scheduledRetransmitTime:
                 Date.now() +
                 Math.ceil(
-                  Math.random() * MAX_LINK_STATE_UPDATE_RETRANSMIT_DELAY
+                  Math.random() * MAX_LINK_STATE_UPDATE_RETRANSMIT_DELAY,
                 ),
             },
             peerState:
@@ -101,7 +101,7 @@ export const handleLinkStateUpdate = () =>
               scheduledRetransmitTime:
                 Date.now() +
                 Math.ceil(
-                  Math.random() * MAX_LINK_STATE_UPDATE_RETRANSMIT_DELAY
+                  Math.random() * MAX_LINK_STATE_UPDATE_RETRANSMIT_DELAY,
                 ),
               neighbors,
               settlementSchemes,

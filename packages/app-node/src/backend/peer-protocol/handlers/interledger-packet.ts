@@ -1,16 +1,16 @@
 import { createActor } from "@dassie/lib-reactive"
 
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
-import { ilpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-scheme"
-import { processPacket } from "../../ilp-connector/process-packet"
+import { IlpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-scheme"
+import { ProcessPacketActor } from "../../ilp-connector/process-packet"
 import { PeerEndpointInfo } from "../../ilp-connector/senders/send-peer-packets"
 import { peerProtocol as logger } from "../../logger/instances"
 import type { IncomingPeerMessageEvent } from "../actors/handle-peer-message"
 
-export const handleInterledgerPacket = () =>
+export const HandleInterledgerPacketActor = () =>
   createActor((sig) => {
-    const ilpAllocationScheme = sig.get(ilpAllocationSchemeSignal)
-    const processIncomingPacketActor = sig.use(processPacket)
+    const ilpAllocationScheme = sig.get(IlpAllocationSchemeSignal)
+    const processIncomingPacketActor = sig.use(ProcessPacketActor)
 
     return {
       handle: ({
@@ -30,7 +30,7 @@ export const handleInterledgerPacket = () =>
 
         if (peerState?.id !== "peered") {
           logger.warn(
-            "received interledger packet from unpeered node, discarding"
+            "received interledger packet from unpeered node, discarding",
           )
           return EMPTY_UINT8ARRAY
         }

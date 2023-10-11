@@ -24,7 +24,7 @@ export const bootstrapNodesSchema = z.array(
     url: z.string(),
     alias: z.string(),
     nodePublicKey: z.string(),
-  })
+  }),
 )
 
 export type BootstrapNodesConfig = z.infer<typeof bootstrapNodesSchema>
@@ -32,7 +32,7 @@ export type BootstrapNodesConfig = z.infer<typeof bootstrapNodesSchema>
 function parseConfigOptionWithSchema<TSchema extends ZodTypeAny>(
   optionName: keyof EnvironmentVariables,
   schema: TSchema,
-  defaultValue?: z.infer<TSchema>
+  defaultValue?: z.infer<TSchema>,
 ): z.infer<TSchema> {
   const option = process.env[optionName]
   if (option === undefined && defaultValue !== undefined) {
@@ -67,10 +67,10 @@ export function fromEnvironment(): Config {
     bootstrapNodes: parseConfigOptionWithSchema(
       "DASSIE_BOOTSTRAP_NODES",
       bootstrapNodesSchema,
-      []
+      [],
     ),
   }
 }
 
-export const environmentConfigSignal = () =>
+export const EnvironmentConfigSignal = () =>
   createSignal<Config>(fromEnvironment())

@@ -1,32 +1,32 @@
 import { daemonActor } from "@dassie/app-node"
-import { hasTlsComputed } from "@dassie/app-node/src/backend/config/computed/has-tls"
+import { HasTlsSignal } from "@dassie/app-node/src/backend/config/computed/has-tls"
 import { createActor, createReactor } from "@dassie/lib-reactive"
 
-import { handleShutdownSignals } from "../../common/actors/handle-shutdown-signals"
-import { forwardLogs } from "../actors/forward-logs"
-import { forwardPeerTraffic } from "../actors/forward-peer-traffic"
-import { handleDisconnect } from "../actors/handle-disconnect"
-import { patchIlpLogger } from "../actors/patch-ilp-logger"
-import { reportPeeringState } from "../actors/report-peering-state"
-import { serveWallet } from "../actors/serve-wallet"
-import { trpcClientService } from "../services/trpc-client"
+import { HandleShutdownSignalsActor } from "../../common/actors/handle-shutdown-signals"
+import { ForwardLogsActor } from "../actors/forward-logs"
+import { ForwardPeerTrafficActor } from "../actors/forward-peer-traffic"
+import { HandleDisconnectActor } from "../actors/handle-disconnect"
+import { PatchIlpLoggerActor } from "../actors/patch-ilp-logger"
+import { ReportPeeringStateActor } from "../actors/report-peering-state"
+import { ServeWalletActor } from "../actors/serve-wallet"
+import { TrpcClientServiceActor } from "../services/trpc-client"
 
-const debugRunner = () =>
+const DebugRunnerActor = () =>
   createActor(async (sig) => {
-    sig.run(trpcClientService)
-    sig.run(handleShutdownSignals)
-    sig.run(handleDisconnect)
-    sig.run(forwardLogs)
-    sig.run(patchIlpLogger)
-    sig.run(forwardPeerTraffic)
-    await sig.run(reportPeeringState)
+    sig.run(TrpcClientServiceActor)
+    sig.run(HandleShutdownSignalsActor)
+    sig.run(HandleDisconnectActor)
+    sig.run(ForwardLogsActor)
+    sig.run(PatchIlpLoggerActor)
+    sig.run(ForwardPeerTrafficActor)
+    await sig.run(ReportPeeringStateActor)
 
-    const hasTls = sig.get(hasTlsComputed)
+    const hasTls = sig.get(HasTlsSignal)
     if (hasTls) {
-      await sig.run(serveWallet)
+      await sig.run(ServeWalletActor)
     }
     await sig.run(daemonActor)
   })
 
 const reactor = createReactor()
-await reactor.use(debugRunner).run(reactor)
+await reactor.use(DebugRunnerActor).run(reactor, reactor.lifecycle)

@@ -3,7 +3,7 @@ import { command } from "cmd-ts"
 import { createReactor } from "@dassie/lib-reactive"
 import { createDatabase } from "@dassie/lib-sqlite"
 
-import { betterSqliteNativeBindingComputed } from "../../../database/open-database"
+import { BetterSqliteNativeBindingSignal } from "../../../database/open-database"
 import { DASSIE_DATABASE_SCHEMA } from "../../../database/schema"
 
 export const verifyInstallCommand = command({
@@ -13,7 +13,7 @@ export const verifyInstallCommand = command({
   args: {},
   handler() {
     const reactor = createReactor()
-    const nativeBinding = reactor.use(betterSqliteNativeBindingComputed).read()
+    const nativeBinding = reactor.use(BetterSqliteNativeBindingSignal).read()
 
     // Create an in-memory database to verify that the sqlite native binding is working.
     console.info("Verifying that SQLite is working...")

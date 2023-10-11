@@ -3,12 +3,12 @@ import Denque from "denque"
 import { createActor } from "@dassie/lib-reactive"
 import { assertDefined } from "@dassie/lib-type-utils"
 
-import { ilpAllocationSchemeSignal } from "../config/computed/ilp-allocation-scheme"
-import { nodeIdSignal } from "../ilp-connector/computed/node-id"
-import { nodeDiscoveryQueueStore } from "../peer-protocol/stores/node-discovery-queue"
-import { nodeTableStore } from "../peer-protocol/stores/node-table"
+import { IlpAllocationSchemeSignal } from "../config/computed/ilp-allocation-scheme"
+import { NodeIdSignal } from "../ilp-connector/computed/node-id"
+import { NodeDiscoveryQueueStore } from "../peer-protocol/stores/node-discovery-queue"
+import { NodeTableStore } from "../peer-protocol/stores/node-table"
 import { NodeId } from "../peer-protocol/types/node-id"
-import { routingTableSignal } from "./signals/routing-table"
+import { RoutingTableSignal } from "./signals/routing-table"
 
 interface NodeInfoEntry {
   level: number
@@ -18,11 +18,11 @@ interface NodeInfoEntry {
 /**
  * This actor generates an Even-Shiloach tree which is then condensed into a routing table. The routing table contains all possible first hops which are on one of the shortest paths to the target node.
  */
-export const calculateRoutes = () =>
+export const CalculateRoutesActor = () =>
   createActor((sig) => {
-    const ilpAllocationScheme = sig.get(ilpAllocationSchemeSignal)
-    const ownNodeId = sig.get(nodeIdSignal)
-    const nodeTable = sig.get(nodeTableStore)
+    const ilpAllocationScheme = sig.get(IlpAllocationSchemeSignal)
+    const ownNodeId = sig.get(NodeIdSignal)
+    const nodeTable = sig.get(NodeTableStore)
 
     const ownNodeTableEntry = nodeTable.get(ownNodeId)
 
@@ -69,14 +69,14 @@ export const calculateRoutes = () =>
           } else {
             // We came across a node in the graph that we don't know. Let's ask someone about it.
             sig
-              .use(nodeDiscoveryQueueStore)
+              .use(NodeDiscoveryQueueStore)
               .addNode(neighborId, currentNode.nodeId)
           }
         }
       }
     }
 
-    const ilpRoutingTable = sig.get(routingTableSignal)
+    const ilpRoutingTable = sig.get(RoutingTableSignal)
     for (const [nodeId, nodeInfo] of nodeInfoMap.entries()) {
       let level = nodeInfo.level
       let parents = new Set(nodeInfo.parents)
@@ -84,8 +84,8 @@ export const calculateRoutes = () =>
       while (--level > 1) {
         parents = new Set(
           [...parents].flatMap(
-            (parentId) => nodeInfoMap.get(parentId)?.parents ?? []
-          )
+            (parentId) => nodeInfoMap.get(parentId)?.parents ?? [],
+          ),
         )
       }
 

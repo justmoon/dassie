@@ -1,8 +1,8 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { registerBtpHttpUpgrade } from "./register-btp-http-upgrade"
+import { RegisterBtpHttpUpgradeActor } from "./register-btp-http-upgrade"
 
-export const startBtpServer = () =>
+export const BtpServerActor = () =>
   createActor((sig) => {
-    sig.run(registerBtpHttpUpgrade)
+    sig.run(RegisterBtpHttpUpgradeActor)
   })

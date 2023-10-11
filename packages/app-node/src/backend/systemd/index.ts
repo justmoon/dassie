@@ -1,8 +1,8 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { notifySystemd } from "./notify"
+import { NotifySystemdActor } from "./notify"
 
-export const supportSystemd = () =>
+export const SystemdActor = () =>
   createActor((sig) => {
-    sig.run(notifySystemd)
+    sig.run(NotifySystemdActor)
   })

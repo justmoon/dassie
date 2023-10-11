@@ -1,16 +1,16 @@
 import { subscribeToSignal } from "@dassie/lib-reactive-trpc/server"
 
-import { totalOwnerBalanceComputed } from "../../accounting/computed/total-owner-balance"
-import { hasNodeIdentityComputed } from "../../config/computed/has-node-identity"
-import { ilpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-scheme"
-import { nodeTableStore } from "../../peer-protocol/stores/node-table"
-import { activeSettlementSchemesSignal } from "../../settlement-schemes/signals/active-settlement-schemes"
+import { TotalOwnerBalanceSignal } from "../../accounting/computed/total-owner-balance"
+import { HasNodeIdentitySignal } from "../../config/computed/has-node-identity"
+import { IlpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-scheme"
+import { NodeTableStore } from "../../peer-protocol/stores/node-table"
+import { ActiveSettlementSchemesSignal } from "../../settlement-schemes/signals/active-settlement-schemes"
 import { protectedProcedure } from "../middlewares/auth"
 import { trpc } from "../trpc-context"
 
 export const generalRouter = trpc.router({
   getBasicState: trpc.procedure.query(({ ctx: { sig, user } }) => {
-    const hasNodeIdentity = sig.use(hasNodeIdentityComputed).read()
+    const hasNodeIdentity = sig.use(HasNodeIdentitySignal).read()
     if (!hasNodeIdentity) {
       return {
         state: "uninitialized",
@@ -18,9 +18,9 @@ export const generalRouter = trpc.router({
     }
 
     const activeSettlementSchemes = [
-      ...sig.use(activeSettlementSchemesSignal).read(),
+      ...sig.use(ActiveSettlementSchemesSignal).read(),
     ]
-    const nodeCount = sig.use(nodeTableStore).read().size
+    const nodeCount = sig.use(NodeTableStore).read().size
 
     if (!user) {
       return {
@@ -37,9 +37,9 @@ export const generalRouter = trpc.router({
     } as const
   }),
   subscribeBalance: protectedProcedure.subscription(({ ctx: { sig } }) => {
-    return subscribeToSignal(sig, totalOwnerBalanceComputed)
+    return subscribeToSignal(sig, TotalOwnerBalanceSignal)
   }),
   getAllocationScheme: protectedProcedure.query(({ ctx: { sig } }) => {
-    return sig.use(ilpAllocationSchemeSignal).read()
+    return sig.use(IlpAllocationSchemeSignal).read()
   }),
 })

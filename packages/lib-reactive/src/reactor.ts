@@ -2,39 +2,15 @@ import type { Promisable } from "type-fest"
 
 import { isObject } from "@dassie/lib-type-utils"
 
+import { DisposableLifecycleScope, createLifecycleScope } from "."
 import type { Actor } from "./actor"
 import { createDebugTools } from "./debug/debug-tools"
-import { DisposableLifecycleScope } from "./lifecycle"
-
-/**
- * The reactor will automatically set this property on each instantiated object.
- *
- * @remarks
- *
- * This is a bit of a hack, but it allows our users' code to be cleaner. Specifically, they don't have to repeat the name of the topic, they can just do this and the name `myTopic` will automatically be captured:
- *
- * @example
- *
- * ```ts
- * const myTopic = () => reactor.createTopic<string>()
- * ```
- */
-export const FactoryNameSymbol = Symbol("das:reactive:factory-name")
-
-/**
- * Can be used to add a function that will be automatically called after a context value has been instantiated.
- */
-export const InitSymbol = Symbol("das:reactive:init")
-
-/**
- * Can be used to add a function that will be automatically called each time a new reference to a context value is created.
- */
-export const UseSymbol = Symbol("das:reactive:use")
-
-/**
- * Can be used to add a function that will be automatically called each time a reference to a context value is destroyed.
- */
-export const DisposeSymbol = Symbol("das:reactive:dispose")
+import {
+  DisposeSymbol,
+  FactoryNameSymbol,
+  InitSymbol,
+  UseSymbol,
+} from "./internal/context-base"
 
 export type Disposer = () => void
 export type AsyncDisposer = () => Promisable<void>
@@ -60,32 +36,65 @@ export interface ContextState extends WeakMap<Factory<unknown>, unknown> {
   set<T>(key: Factory<T>, value: T): this
 }
 
-export class Reactor extends DisposableLifecycleScope {
-  static current: Reactor | undefined
-
-  private contextState = new WeakMap() as ContextState
-
-  constructor() {
-    super("Reactor")
-  }
+export interface Reactor {
+  /**
+   * Retrieve a value from the context or create it if it does not yet exist.
+   *
+   * @param factory - A function that is used both as the key to the value in the context and as the factory function to create the value if it does not yet exist in the context.
+   * @param options - Options for this use call.
+   */
+  use<TReturn>(
+    factory: Factory<TReturn>,
+    options?: UseOptions | undefined,
+  ): TReturn
 
   /**
-   * Retrieve a value from the reactor's global context. The key is a factory which returns the value sought. If the value does not exist yet, it will be created by running the factory function.
+   * Access an element in the context but without creating it if it does not yet exist.
    *
-   * @param factory - A function that will be executed to create the value if it does not yet exist in this reactor.
-   * @returns The value stored in the context.
+   * @param factory - Key to the element in the context.
+   * @returns The value stored in the context if any.
    */
-  use = <TReturn>(
+  peek<TReturn>(factory: Factory<TReturn>): TReturn | undefined
+
+  /**
+   * Delete an element from the context.
+   *
+   * @param factory - The factory which should be used as the key of the element to delete.
+   */
+  delete(factory: Factory<unknown>): void
+
+  /**
+   * Manually set the instance of a given element in the reactor's global context.
+   *
+   * @remarks
+   *
+   * This is not something you are likely to need to use. It is used internally to set values on the context. It could be useful for testing/mocking purposes.
+   *
+   * @param factory - The factory which should be used as the key to store this context element.
+   * @param value - The value to store in the context.
+   */
+  set<T>(factory: Factory<T>, value: T): void
+
+  debug: ReturnType<typeof createDebugTools>
+
+  lifecycle: DisposableLifecycleScope
+}
+
+class ReactorImplementation implements Reactor {
+  public readonly lifecycle = createLifecycleScope("Reactor")
+  private readonly contextState = new WeakMap() as ContextState
+
+  public readonly debug = createDebugTools(this, this.contextState)
+
+  use<TReturn>(
     factory: Factory<TReturn>,
-    { parentLifecycleScope, stateless }: UseOptions = {}
-  ): TReturn => {
+    { parentLifecycleScope, stateless }: UseOptions = {},
+  ): TReturn {
     let result!: TReturn
 
     // We use has() to check if the actor is already in the context. Note that the factory's return value may be undefined, so it would not be sufficient to check if the return value of get() is undefined.
     if (stateless || !this.contextState.has(factory)) {
-      Reactor.current = this
       result = factory(this)
-      Reactor.current = undefined
 
       if (parentLifecycleScope) {
         parentLifecycleScope.onCleanup(() => {
@@ -114,7 +123,7 @@ export class Reactor extends DisposableLifecycleScope {
         this.contextState.set(factory, result)
       }
 
-      this.debug?.notifyOfContextInstantiation(factory, result)
+      this.debug?.notifyOfContextInstantiation(result)
     } else {
       result = this.contextState.get(factory)!
     }
@@ -130,17 +139,11 @@ export class Reactor extends DisposableLifecycleScope {
     return result
   }
 
-  /**
-   * Access an element in the context but without creating it if it does not yet exist.
-   *
-   * @param factory - Key to the element in the context.
-   * @returns The value stored in the context if any.
-   */
-  peek = <TReturn>(factory: Factory<TReturn>): TReturn | undefined => {
+  peek<TReturn>(factory: Factory<TReturn>): TReturn | undefined {
     return this.contextState.get(factory)
   }
 
-  delete = (factory: Factory<unknown>) => {
+  delete(factory: Factory<unknown>) {
     if (!this.contextState.has(factory)) return
 
     const result = this.contextState.get(factory)
@@ -157,41 +160,25 @@ export class Reactor extends DisposableLifecycleScope {
     this.contextState.delete(factory)
   }
 
-  /**
-   * Manually set the instance of a given element in the reactor's global context.
-   *
-   * @remarks
-   *
-   * This is not something you are likely to need to use. It is used internally to set values on the context. It could be useful for testing/mocking purposes.
-   *
-   * @param factory - The factory which should be used as the key to store this context element.
-   * @param value - The value to store in the context.
-   */
-  set = <T>(factory: Factory<T>, value: T) => {
+  set<T>(factory: Factory<T>, value: T) {
     this.contextState.set(factory, value)
   }
-
-  /**
-   * Returns a set of debug tools for this reactor. Note that this is only available during development.
-   */
-  debug = createDebugTools(this, this.contextState)
 }
 
 export const createReactor = (
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  rootActor?: Factory<Actor<Promisable<void>>> | undefined
+  rootActor?: Factory<Actor<Promisable<void>>> | undefined,
 ): Reactor => {
-  const reactor: Reactor = new Reactor()
+  const reactor: Reactor = new ReactorImplementation()
 
   if (rootActor) {
-    Promise.resolve(reactor.use(rootActor).run(reactor)).catch(
-      (error: unknown) => {
-        console.error("error running root actor", {
-          actor: rootActor.name,
-          error,
-        })
-      }
-    )
+    Promise.resolve(
+      reactor.use(rootActor).run(reactor, reactor.lifecycle),
+    ).catch((error: unknown) => {
+      console.error("error running root actor", {
+        actor: rootActor.name,
+        error,
+      })
+    })
   }
 
   return reactor

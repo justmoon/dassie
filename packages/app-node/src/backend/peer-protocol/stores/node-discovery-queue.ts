@@ -6,7 +6,7 @@ import { NodeId } from "../types/node-id"
 
 enableMapSet()
 
-export const nodeDiscoveryQueueStore = () =>
+export const NodeDiscoveryQueueStore = () =>
   createStore(new Map<NodeId, NodeId>(), {
     addNode: (nodeId: NodeId, referrer: NodeId) =>
       produce((queue) => {

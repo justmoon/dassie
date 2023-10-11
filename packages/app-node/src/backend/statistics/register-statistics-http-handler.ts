@@ -1,21 +1,19 @@
 import { respondJson } from "@dassie/lib-http-server"
-import { createActor } from "@dassie/lib-reactive"
+import { Reactor, createActor } from "@dassie/lib-reactive"
 
-import { httpsRouterService } from "../http-server/serve-https"
-import { peersComputation } from "../peer-protocol/computed/peers"
-import { nodeTableStore } from "../peer-protocol/stores/node-table"
+import { HttpsRouterServiceActor } from "../http-server/serve-https"
+import { PeersSignal } from "../peer-protocol/computed/peers"
+import { NodeTableStore } from "../peer-protocol/stores/node-table"
 
-export const registerStatisticsHttpHandler = () =>
+export const RegisterStatisticsHttpHandlerActor = (reactor: Reactor) =>
   createActor((sig) => {
-    const router = sig.get(httpsRouterService)
+    const router = sig.get(HttpsRouterServiceActor)
 
     if (!router) return
 
-    const { reactor } = sig
-
     router.get("/stats", (_, response) => {
-      const nodeTable = reactor.use(nodeTableStore).read()
-      const peers = [...reactor.use(peersComputation).read()]
+      const nodeTable = reactor.use(NodeTableStore).read()
+      const peers = [...reactor.use(PeersSignal).read()]
         .map((nodeKey) => {
           const node = nodeTable.get(nodeKey)
 

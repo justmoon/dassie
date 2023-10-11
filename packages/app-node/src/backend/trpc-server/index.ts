@@ -1,8 +1,8 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { registerTrpcHttpUpgrade } from "./trpc-server"
+import { RegisterTrpcHttpUpgradeActor } from "./trpc-server"
 
-export const startTrpcServer = () =>
+export const TrpcServerActor = () =>
   createActor((sig) => {
-    sig.run(registerTrpcHttpUpgrade)
+    sig.run(RegisterTrpcHttpUpgradeActor)
   })

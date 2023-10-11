@@ -7,14 +7,14 @@ import {
   subscribeToTopic,
 } from "@dassie/lib-reactive-trpc/server"
 
-import { logsStore } from "../../common/stores/logs"
-import { activeNodesStore } from "../stores/active-nodes"
+import { LogsStore } from "../../common/stores/logs"
+import { ActiveNodesStore } from "../stores/active-nodes"
 import {
+  EnvironmentSettingsStore,
   VALID_PEERING_MODES,
-  environmentSettingsStore,
 } from "../stores/environment-settings"
-import { peeringStateStore } from "../stores/peering-state"
-import { peerTrafficTopic } from "../topics/peer-traffic"
+import { PeeringStateStore } from "../stores/peering-state"
+import { PeerTrafficTopic } from "../topics/peer-traffic"
 import { trpc } from "./trpc"
 
 export const uiRpcRouter = trpc.router({
@@ -22,32 +22,32 @@ export const uiRpcRouter = trpc.router({
     // TRPC seems to throw an error when using superjson as a transformer on a method with no parameters.
     .input(z.object({}))
     .mutation(({ ctx: { sig } }) => {
-      sig.use(activeNodesStore).addNode()
+      sig.use(ActiveNodesStore).addNode()
     }),
   setPeeringMode: trpc.procedure
     .input(z.enum(VALID_PEERING_MODES))
     .mutation(({ ctx: { sig }, input }) => {
-      sig.use(environmentSettingsStore).setPeeringMode(input)
+      sig.use(EnvironmentSettingsStore).setPeeringMode(input)
     }),
   subscribeToNodes: trpc.procedure.subscription(({ ctx: { sig } }) => {
-    return subscribeToSignal(sig, activeNodesStore)
+    return subscribeToSignal(sig, ActiveNodesStore)
   }),
   openFile: trpc.procedure.input(z.string()).mutation(({ input }) => {
     launchEditor(input)
   }),
   subscribeToLogs: trpc.procedure.subscription(({ ctx: { sig } }) => {
-    return subscribeToStore(sig, logsStore)
+    return subscribeToStore(sig, LogsStore)
   }),
   subscribeToPeerTraffic: trpc.procedure.subscription(({ ctx: { sig } }) => {
-    return subscribeToTopic(sig, peerTrafficTopic)
+    return subscribeToTopic(sig, PeerTrafficTopic)
   }),
   subscribeToPeeringState: trpc.procedure.subscription(({ ctx: { sig } }) => {
-    return subscribeToSignal(sig, peeringStateStore)
+    return subscribeToSignal(sig, PeeringStateStore)
   }),
   subscribeToEnvironmentSettings: trpc.procedure.subscription(
     ({ ctx: { sig } }) => {
-      return subscribeToSignal(sig, environmentSettingsStore)
-    }
+      return subscribeToSignal(sig, EnvironmentSettingsStore)
+    },
   ),
 })
 

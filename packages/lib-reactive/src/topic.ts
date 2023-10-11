@@ -1,31 +1,24 @@
-import { Promisable } from "type-fest"
-
 import { isObject } from "@dassie/lib-type-utils"
 
+import { ContextValue, FactoryNameSymbol } from "./internal/context-base"
+import {
+  Listener,
+  ListenerNameSymbol,
+  emitToListener,
+} from "./internal/emit-to-listener"
 import { LifecycleScope } from "./lifecycle"
-import { type Factory, FactoryNameSymbol } from "./reactor"
-
-export type Listener<TMessage> = (message: TMessage) => Promisable<void>
+import { type Factory } from "./reactor"
 
 export const TopicSymbol = Symbol("das:reactive:topic")
-
-export const ListenerNameSymbol = Symbol("das:reactive:listener-name")
 
 export type InferMessageType<TTopic extends Factory<ReadonlyTopic<unknown>>> =
   TTopic extends Factory<ReadonlyTopic<infer TMessage>> ? TMessage : never
 
-export interface ReadonlyTopic<TMessage = never> {
+export interface ReadonlyTopic<TMessage = never> extends ContextValue {
   /**
    * Marks this object as a topic.
    */
   [TopicSymbol]: true
-
-  /**
-   * Name of the factory function that created this topic.
-   *
-   * @see {@link FactoryNameSymbol}
-   */
-  [FactoryNameSymbol]: string
 
   /**
    * Subscribe to a topic.
@@ -42,7 +35,7 @@ export interface ReadonlyTopic<TMessage = never> {
   on: (
     this: void,
     lifecycle: LifecycleScope,
-    listener: Listener<TMessage>
+    listener: Listener<TMessage>,
   ) => void
 
   /**
@@ -54,7 +47,7 @@ export interface ReadonlyTopic<TMessage = never> {
   once: (
     this: void,
     lifecycle: LifecycleScope,
-    listener: Listener<TMessage>
+    listener: Listener<TMessage>,
   ) => void
 
   /**
@@ -86,45 +79,18 @@ export const createTopic = <TMessage>(): Topic<TMessage> => {
    */
   let listeners: Listener<TMessage> | Set<Listener<TMessage>> | undefined
 
-  const emitToListener = (listener: Listener<TMessage>, message: TMessage) => {
-    try {
-      const result = listener(message)
-
-      if (typeof result?.then === "function") {
-        result.then(undefined, (error: unknown) => {
-          console.error("error in async listener", {
-            topic: topic[FactoryNameSymbol],
-            scope:
-              (listener as { [ListenerNameSymbol]?: string })[
-                ListenerNameSymbol
-              ] ?? "anonymous",
-            error,
-          })
-        })
-      }
-    } catch (error) {
-      console.error("error in listener", {
-        topic: topic[FactoryNameSymbol],
-        scope:
-          (listener as { [ListenerNameSymbol]?: string })[ListenerNameSymbol] ??
-          "anonymous",
-        error,
-      })
-    }
-  }
-
   const emit = (message: TMessage) => {
     if (listeners == undefined) {
       return
     }
 
     if (typeof listeners === "function") {
-      emitToListener(listeners, message)
+      emitToListener(topic[FactoryNameSymbol], listeners, message)
       return
     }
 
     for (const listener of listeners) {
-      emitToListener(listener, message)
+      emitToListener(topic[FactoryNameSymbol], listener, message)
     }
   }
 
@@ -150,10 +116,12 @@ export const createTopic = <TMessage>(): Topic<TMessage> => {
   }
 
   const once = (lifecycle: LifecycleScope, listener: Listener<TMessage>) => {
-    on(lifecycle, (message) => {
-      off(listener)
+    const singleUseListener = (message: TMessage) => {
+      topic.off(singleUseListener)
       return listener(message)
-    })
+    }
+
+    on(lifecycle, singleUseListener)
 
     lifecycle.onCleanup(() => {
       off(listener)

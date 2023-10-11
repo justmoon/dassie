@@ -1,31 +1,31 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { handlePeerMessage } from "./actors/handle-peer-message"
-import { sendPeerMessage } from "./actors/send-peer-message"
-import { discoverNodes } from "./discover-nodes"
-import { forwardLinkStateUpdate } from "./forward-link-state-update"
-import { maintainOwnNodeTableEntry } from "./maintain-own-node-table-entry"
-import { maintainPeeringRelationships } from "./maintain-peering-relationships"
-import { queueBootstrapNodes } from "./queue-bootstrap-node"
-import { registerPeerHttpHandler } from "./register-peer-http-handler"
-import { runPerPeerActors } from "./run-per-peer-actors"
-import { sendHeartbeats } from "./send-heartbeats"
+import { HandlePeerMessageActor } from "./actors/handle-peer-message"
+import { SendPeerMessageActor } from "./actors/send-peer-message"
+import { DiscoverNodesActor } from "./discover-nodes"
+import { ForwardLinkStateUpdateActor } from "./forward-link-state-update"
+import { MaintainOwnNodeTableEntryActor } from "./maintain-own-node-table-entry"
+import { MaintainPeeringRelationshipsActor } from "./maintain-peering-relationships"
+import { QueueBootstrapNodesActor } from "./queue-bootstrap-node"
+import { RegisterPeerHttpHandlerActor } from "./register-peer-http-handler"
+import { PerPeerActors } from "./run-per-peer-actors"
+import { SendHeartbeatsActor } from "./send-heartbeats"
 
-export const speakPeerProtocol = () =>
+export const PeerProtocolActor = () =>
   createActor(async (sig) => {
-    sig.run(handlePeerMessage)
-    sig.run(sendPeerMessage)
+    sig.run(HandlePeerMessageActor)
+    sig.run(SendPeerMessageActor)
 
     // Handle incoming Dassie messages via HTTP
-    sig.run(registerPeerHttpHandler)
+    sig.run(RegisterPeerHttpHandlerActor)
 
-    await sig.run(maintainOwnNodeTableEntry)
-    sig.run(maintainPeeringRelationships)
+    await sig.run(MaintainOwnNodeTableEntryActor)
+    sig.run(MaintainPeeringRelationshipsActor)
 
-    sig.run(sendHeartbeats)
-    sig.run(forwardLinkStateUpdate)
-    sig.run(queueBootstrapNodes)
-    sig.run(discoverNodes)
+    sig.run(SendHeartbeatsActor)
+    sig.run(ForwardLinkStateUpdateActor)
+    sig.run(QueueBootstrapNodesActor)
+    sig.run(DiscoverNodesActor)
 
-    sig.runMap(runPerPeerActors)
+    sig.runMap(PerPeerActors)
   })

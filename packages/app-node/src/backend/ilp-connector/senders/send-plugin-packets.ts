@@ -1,6 +1,6 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { managePlugins } from "../../spsp-server/manage-plugins"
+import { ManagePluginsActor } from "../../spsp-server/manage-plugins"
 import { CommonEndpointInfo, PacketSender } from "../functions/send-packet"
 
 export interface PluginEndpointInfo extends CommonEndpointInfo {
@@ -9,9 +9,9 @@ export interface PluginEndpointInfo extends CommonEndpointInfo {
   readonly localIlpAddressPart: string
 }
 
-export const sendPluginPackets = () =>
+export const SendPluginPacketsActor = () =>
   createActor((sig) => {
-    const pluginManager = sig.use(managePlugins)
+    const pluginManager = sig.use(ManagePluginsActor)
 
     return {
       sendPrepare: ({

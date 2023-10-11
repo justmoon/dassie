@@ -1,8 +1,8 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { manageSettlementSchemeInstances } from "./manage-settlement-scheme-instances"
+import { ManageSettlementSchemeInstancesActor } from "./manage-settlement-scheme-instances"
 
-export const startSettlementSchemes = () =>
+export const SettlementSchemesActor = () =>
   createActor((sig) => {
-    sig.runMap(manageSettlementSchemeInstances)
+    sig.runMap(ManageSettlementSchemeInstancesActor)
   })

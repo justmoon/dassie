@@ -1,13 +1,13 @@
 import { createActor } from "@dassie/lib-reactive"
 
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
-import { nodeIdSignal } from "../../ilp-connector/computed/node-id"
-import { nodeTableStore } from "../stores/node-table"
+import { NodeIdSignal } from "../../ilp-connector/computed/node-id"
+import { NodeTableStore } from "../stores/node-table"
 
-export const handleLinkStateRequest = () =>
+export const HandleLinkStateRequestActor = () =>
   createActor((sig) => {
-    const nodeTable = sig.use(nodeTableStore)
-    const nodeId = sig.get(nodeIdSignal)
+    const nodeTable = sig.use(NodeTableStore)
+    const nodeId = sig.get(NodeIdSignal)
 
     return {
       handle: () => {

@@ -1,7 +1,7 @@
 import { createActor } from "@dassie/lib-reactive"
 
 import { connector as logger } from "../../logger/instances"
-import { sendPeerMessage } from "../../peer-protocol/actors/send-peer-message"
+import { SendPeerMessageActor } from "../../peer-protocol/actors/send-peer-message"
 import { NodeId } from "../../peer-protocol/types/node-id"
 import { CommonEndpointInfo, PacketSender } from "../functions/send-packet"
 
@@ -10,7 +10,7 @@ export interface PeerEndpointInfo extends CommonEndpointInfo {
   readonly nodeId: NodeId
 }
 
-export const sendPeerPackets = () =>
+export const SendPeerPacketsActor = () =>
   createActor((sig) => {
     return {
       sendPrepare: ({
@@ -20,7 +20,7 @@ export const sendPeerPackets = () =>
       }) => {
         logger.debug("sending ilp packet", { nextHop: nodeId })
 
-        sig.use(sendPeerMessage).tell("send", {
+        sig.use(SendPeerMessageActor).tell("send", {
           destination: nodeId,
           message: {
             type: "interledgerPacket",
@@ -40,7 +40,7 @@ export const sendPeerPackets = () =>
       }) => {
         logger.debug("sending ilp packet", { nextHop: nodeId })
 
-        sig.use(sendPeerMessage).tell("send", {
+        sig.use(SendPeerMessageActor).tell("send", {
           destination: nodeId,
           message: {
             type: "interledgerPacket",

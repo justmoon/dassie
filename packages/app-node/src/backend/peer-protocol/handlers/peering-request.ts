@@ -1,14 +1,14 @@
 import { createActor } from "@dassie/lib-reactive"
 
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
-import { activeSettlementSchemesSignal } from "../../settlement-schemes/signals/active-settlement-schemes"
+import { ActiveSettlementSchemesSignal } from "../../settlement-schemes/signals/active-settlement-schemes"
 import type { IncomingPeerMessageEvent } from "../actors/handle-peer-message"
-import { nodeTableStore } from "../stores/node-table"
+import { NodeTableStore } from "../stores/node-table"
 
-export const handlePeeringRequest = () =>
+export const HandlePeeringRequestActor = () =>
   createActor((sig) => {
-    const nodeTable = sig.use(nodeTableStore)
-    const activeSubnets = sig.get(activeSettlementSchemesSignal)
+    const nodeTable = sig.use(NodeTableStore)
+    const activeSubnets = sig.get(ActiveSettlementSchemesSignal)
 
     return {
       handle: ({

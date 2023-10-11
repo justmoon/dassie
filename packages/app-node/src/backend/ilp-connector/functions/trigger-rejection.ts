@@ -1,5 +1,5 @@
 import { connector as logger } from "../../logger/instances"
-import { nodeIlpAddressSignal } from "../computed/node-ilp-address"
+import { NodeIlpAddressSignal } from "../computed/node-ilp-address"
 import { IlpErrorCode } from "../schemas/ilp-errors"
 import {
   IlpRejectPacket,
@@ -9,7 +9,7 @@ import {
 import { createProcessRejectPacket } from "./process-reject-packet"
 
 export interface RejectPacketEnvironment {
-  ownIlpAddress: ReturnType<typeof nodeIlpAddressSignal>
+  ownIlpAddress: ReturnType<typeof NodeIlpAddressSignal>
   processRejectPacket: ReturnType<typeof createProcessRejectPacket>
 }
 

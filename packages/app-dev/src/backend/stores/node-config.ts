@@ -1,12 +1,12 @@
 import { Reactor, createMapped, createSignal } from "@dassie/lib-reactive"
 
 import { generateNodeConfig } from "../utils/generate-node-config"
-import { activeNodesStore } from "./active-nodes"
-import { environmentSettingsStore } from "./environment-settings"
+import { ActiveNodesStore } from "./active-nodes"
+import { EnvironmentSettingsStore } from "./environment-settings"
 
-export const nodeConfigMap = (reactor: Reactor) =>
-  createMapped(activeNodesStore, (nodeId) => {
-    const environmentSettings = reactor.use(environmentSettingsStore).read()
+export const NodeConfigSignals = (reactor: Reactor) =>
+  createMapped(reactor.lifecycle, reactor.use(ActiveNodesStore), (nodeId) => {
+    const environmentSettings = reactor.use(EnvironmentSettingsStore).read()
 
     return createSignal(generateNodeConfig(nodeId, environmentSettings))
   })

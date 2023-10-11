@@ -1,13 +1,13 @@
-import { createActor, createMapped } from "@dassie/lib-reactive"
+import { Reactor, createActor, createMapped } from "@dassie/lib-reactive"
 
-import { settlePerPeer } from "../settlement"
-import { peersComputation } from "./computed/peers"
-import { createPeerLedgerEntries } from "./create-peer-ledger-entries"
+import { SettlePerPeerActor } from "../settlement"
+import { PeersSignal } from "./computed/peers"
+import { CreatePeerLedgerEntriesActor } from "./create-peer-ledger-entries"
 
-export const runPerPeerActors = () =>
-  createMapped(peersComputation, (peerId) =>
+export const PerPeerActors = (reactor: Reactor) =>
+  createMapped(reactor.lifecycle, reactor.use(PeersSignal), (peerId) =>
     createActor((sig) => {
-      sig.run(createPeerLedgerEntries, peerId)
-      sig.run(settlePerPeer, peerId)
-    })
+      sig.run(CreatePeerLedgerEntriesActor, peerId)
+      sig.run(SettlePerPeerActor, peerId)
+    }),
   )

@@ -1,31 +1,31 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { databaseConfigStore } from "../config/database-config"
-import { nodePublicKeySignal } from "../crypto/computed/node-public-key"
-import { signerService } from "../crypto/signer"
-import { nodeIdSignal } from "../ilp-connector/computed/node-id"
+import { DatabaseConfigStore } from "../config/database-config"
+import { NodePublicKeySignal } from "../crypto/computed/node-public-key"
+import { SignerActor } from "../crypto/signer"
+import { NodeIdSignal } from "../ilp-connector/computed/node-id"
 import { peerProtocol as logger } from "../logger/instances"
-import { activeSettlementSchemesSignal } from "../settlement-schemes/signals/active-settlement-schemes"
+import { ActiveSettlementSchemesSignal } from "../settlement-schemes/signals/active-settlement-schemes"
 import { compareSetToArray } from "../utils/compare-sets"
-import { peersComputation } from "./computed/peers"
+import { PeersSignal } from "./computed/peers"
 import { peerNodeInfo, signedPeerNodeInfo } from "./peer-schema"
-import { nodeTableStore } from "./stores/node-table"
+import { NodeTableStore } from "./stores/node-table"
 
-export const maintainOwnNodeTableEntry = () =>
+export const MaintainOwnNodeTableEntryActor = () =>
   createActor(async (sig) => {
-    const signer = sig.get(signerService)
+    const signer = sig.get(SignerActor)
 
     if (!signer) return
 
     // Get the current peers and re-run the actor if they change
-    const peers = sig.get(peersComputation)
+    const peers = sig.get(PeersSignal)
 
-    const settlementSchemes = sig.get(activeSettlementSchemesSignal)
+    const settlementSchemes = sig.get(ActiveSettlementSchemesSignal)
 
-    const nodeId = sig.get(nodeIdSignal)
-    const nodePublicKey = sig.get(nodePublicKeySignal)
-    const { url, alias } = sig.get(databaseConfigStore)
-    const ownNodeTableEntry = sig.use(nodeTableStore).read().get(nodeId)
+    const nodeId = sig.get(NodeIdSignal)
+    const nodePublicKey = sig.get(NodePublicKeySignal)
+    const { url, alias } = sig.get(DatabaseConfigStore)
+    const ownNodeTableEntry = sig.use(NodeTableStore).read().get(nodeId)
 
     if (
       ownNodeTableEntry == null ||
@@ -78,7 +78,7 @@ export const maintainOwnNodeTableEntry = () =>
           sequence,
           neighbors: peerIds.join(","),
         })
-        sig.use(nodeTableStore).addNode({
+        sig.use(NodeTableStore).addNode({
           nodeId,
           nodePublicKey,
           url,
@@ -98,7 +98,7 @@ export const maintainOwnNodeTableEntry = () =>
           sequence,
           neighbors: peerIds.join(","),
         })
-        sig.use(nodeTableStore).updateNode(nodeId, {
+        sig.use(NodeTableStore).updateNode(nodeId, {
           linkState: {
             neighbors: peerIds,
             settlementSchemes: settlementSchemeIds,

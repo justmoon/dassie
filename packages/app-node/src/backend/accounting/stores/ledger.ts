@@ -10,7 +10,7 @@ import { EXCEEDS_CREDITS_FAILURE } from "../failures/exceeds-credits"
 import { EXCEEDS_DEBITS_FAILURE } from "../failures/exceeds-debits"
 import InvalidAccountFailure from "../failures/invalid-account"
 import { getLedgerIdFromPath } from "../functions/get-ledger-id-from-path"
-import { postedTransfersTopic } from "../topics/posted-transfers"
+import { PostedTransfersTopic } from "../topics/posted-transfers"
 
 // Ledger Account Structure
 // ------------------------
@@ -56,14 +56,14 @@ export const ledgerStore = (reactor: Reactor) => {
   const ledger = new PrefixMap<LedgerAccount>()
   const pendingTransfers = new Set<Transfer>()
 
-  const postedTransfers = reactor.use(postedTransfersTopic)
+  const postedTransfers = reactor.use(PostedTransfersTopic)
 
   return {
     createAccount: (
       path: string,
       options: Simplify<
         Pick<SetOptional<LedgerAccount, keyof LedgerAccount>, "limit">
-      > = {}
+      > = {},
     ) => {
       const { limit } = options
 
@@ -93,13 +93,13 @@ export const ledgerStore = (reactor: Reactor) => {
 
       assert(
         creditAccountPath !== debitAccountPath,
-        "transfer credit and debit accounts must be different"
+        "transfer credit and debit accounts must be different",
       )
 
       assert(
         getLedgerIdFromPath(debitAccountPath) ===
           getLedgerIdFromPath(creditAccountPath),
-        "transfer credit and debit accounts must be in the same ledger"
+        "transfer credit and debit accounts must be in the same ledger",
       )
 
       const debitAccount = ledger.get(debitAccountPath)

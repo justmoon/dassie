@@ -1,18 +1,39 @@
-import { createActor } from "@dassie/lib-reactive"
+import { Reactor, createActor } from "@dassie/lib-reactive"
 
 import { peerProtocol as logger } from "../logger/instances"
-import { sendPeerMessage } from "./actors/send-peer-message"
+import { SendPeerMessageActor } from "./actors/send-peer-message"
 import { signedPeerNodeInfo } from "./peer-schema"
-import { nodeDiscoveryQueueStore } from "./stores/node-discovery-queue"
-import { nodeTableStore } from "./stores/node-table"
+import { NodeDiscoveryQueueStore } from "./stores/node-discovery-queue"
+import { NodeTableStore } from "./stores/node-table"
 import { NodeId } from "./types/node-id"
 import { parseLinkStateEntries } from "./utils/parse-link-state-entries"
 
 const NODE_DISCOVERY_INTERVAL = 1000
 
-export const discoverNodes = () =>
-  createActor((sig) => {
-    const nodeDiscoveryQueue = sig.use(nodeDiscoveryQueueStore)
+export const DiscoverNodesActor = (reactor: Reactor) => {
+  const queryLinkState = async (
+    oracleNodeId: NodeId,
+    subjectNodeId: NodeId,
+  ) => {
+    const response = await reactor.use(SendPeerMessageActor).ask("send", {
+      destination: oracleNodeId,
+      message: {
+        type: "linkStateRequest",
+        value: {
+          nodeId: subjectNodeId,
+        },
+      },
+    })
+
+    if (!response?.length) {
+      throw new Error("no/invalid response")
+    }
+
+    return response
+  }
+
+  return createActor((sig) => {
+    const nodeDiscoveryQueue = sig.use(NodeDiscoveryQueueStore)
 
     const discoverNodeTick = async () => {
       try {
@@ -40,10 +61,10 @@ export const discoverNodes = () =>
       const { signed } = signedPeerNodeInfo.parseOrThrow(linkState)
 
       const { neighbors, settlementSchemes } = parseLinkStateEntries(
-        signed.entries
+        signed.entries,
       )
 
-      const nodeTable = sig.use(nodeTableStore)
+      const nodeTable = sig.use(NodeTableStore)
 
       const node = nodeTable.read().get(nodeId)
       if (node) {
@@ -78,26 +99,6 @@ export const discoverNodes = () =>
       }
     }
 
-    const queryLinkState = async (
-      oracleNodeId: NodeId,
-      subjectNodeId: NodeId
-    ) => {
-      const response = await sig.reactor.use(sendPeerMessage).ask("send", {
-        destination: oracleNodeId,
-        message: {
-          type: "linkStateRequest",
-          value: {
-            nodeId: subjectNodeId,
-          },
-        },
-      })
-
-      if (!response?.length) {
-        throw new Error("no/invalid response")
-      }
-
-      return response
-    }
-
     void discoverNodeTick()
   })
+}

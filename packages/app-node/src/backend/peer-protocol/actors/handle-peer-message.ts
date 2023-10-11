@@ -2,17 +2,17 @@ import { Promisable } from "type-fest"
 
 import { type Actor, createActor, createTopic } from "@dassie/lib-reactive"
 
-import { handleInterledgerPacket } from "../handlers/interledger-packet"
-import { handleLinkStateRequest } from "../handlers/link-state-request"
-import { handleLinkStateUpdate } from "../handlers/link-state-update"
-import { handlePeeringRequest } from "../handlers/peering-request"
-import { handleSettlement } from "../handlers/settlement"
-import { handleSettlementSchemeModuleMessage } from "../handlers/settlement-scheme-module-message"
+import { HandleInterledgerPacketActor } from "../handlers/interledger-packet"
+import { HandleLinkStateRequestActor } from "../handlers/link-state-request"
+import { HandleLinkStateUpdateActor } from "../handlers/link-state-update"
+import { HandlePeeringRequestActor } from "../handlers/peering-request"
+import { HandleSettlementActor } from "../handlers/settlement"
+import { HandleSettlementSchemeModuleMessageActor } from "../handlers/settlement-scheme-module-message"
 import type { PeerMessage } from "../peer-schema"
 import { PeerState } from "../stores/node-table"
 
 export interface IncomingPeerMessageEvent<
-  TType extends PeerMessageType = PeerMessageType
+  TType extends PeerMessageType = PeerMessageType,
 > {
   message: PeerMessage & {
     content: { value: { type: TType; value: PeerMessageContent<TType> } }
@@ -29,7 +29,7 @@ export type PeerMessageContent<T extends PeerMessageType> = Extract<
   { type: T }
 >["value"]
 
-export const incomingPeerMessageTopic = () =>
+export const IncomingPeerMessageTopic = () =>
   createTopic<IncomingPeerMessageEvent>()
 
 type AllPeerMessageHandlers = {
@@ -38,26 +38,26 @@ type AllPeerMessageHandlers = {
   }>
 }
 
-export const handlePeerMessage = () =>
+export const HandlePeerMessageActor = () =>
   createActor((sig) => {
     const handlers: AllPeerMessageHandlers = {
-      peeringRequest: sig.use(handlePeeringRequest),
-      linkStateUpdate: sig.use(handleLinkStateUpdate),
-      interledgerPacket: sig.use(handleInterledgerPacket),
-      linkStateRequest: sig.use(handleLinkStateRequest),
-      settlement: sig.use(handleSettlement),
+      peeringRequest: sig.use(HandlePeeringRequestActor),
+      linkStateUpdate: sig.use(HandleLinkStateUpdateActor),
+      interledgerPacket: sig.use(HandleInterledgerPacketActor),
+      linkStateRequest: sig.use(HandleLinkStateRequestActor),
+      settlement: sig.use(HandleSettlementActor),
       settlementSchemeModuleMessage: sig.use(
-        handleSettlementSchemeModuleMessage
+        HandleSettlementSchemeModuleMessageActor,
       ),
     }
 
     for (const handler of Object.values(handlers)) {
-      handler.run(sig)
+      handler.run(sig.reactor, sig)
     }
 
     return {
       handle: async <TType extends PeerMessageType>(
-        parameters: IncomingPeerMessageEvent<TType>
+        parameters: IncomingPeerMessageEvent<TType>,
       ) => {
         const type: TType = parameters.message.content.value.type
 

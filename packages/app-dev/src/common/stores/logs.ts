@@ -23,7 +23,7 @@ export interface LogsStoreState {
 
 type NewLogLine = SetOptional<IndexedLogLine, "index" | "relativeTime">
 
-export const logsStore = () => {
+export const LogsStore = () => {
   return createStore(
     {
       logs: [],
@@ -49,6 +49,6 @@ export const logsStore = () => {
             logs.splice(0, logs.length - LOGS_SOFT_LIMIT)
           }
         }),
-    } as const
+    } as const,
   )
 }

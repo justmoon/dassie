@@ -1,9 +1,9 @@
-import { createComputed } from "@dassie/lib-reactive"
+import { Reactor, createComputed } from "@dassie/lib-reactive"
 
-import { databaseConfigStore, hasTls } from "../database-config"
+import { DatabaseConfigStore, hasTls } from "../database-config"
 
-export const hasTlsComputed = () =>
-  createComputed((sig) => {
-    const config = sig.get(databaseConfigStore)
+export const HasTlsSignal = (reactor: Reactor) =>
+  createComputed(reactor.lifecycle, (sig) => {
+    const config = sig.get(reactor.use(DatabaseConfigStore))
     return hasTls(config)
   })

@@ -7,16 +7,16 @@ import { createActor } from "@dassie/lib-reactive"
 
 import { SESSION_COOKIE_NAME } from "../../../common/constants/cookie-name"
 import { SEED_PATH_NODE_LOGIN } from "../../../common/constants/seed-paths"
-import { nodePrivateKeySignal } from "../../crypto/computed/node-private-key"
+import { NodePrivateKeySignal } from "../../crypto/computed/node-private-key"
 import { getPrivateSeedAtPath } from "../../crypto/utils/seed-paths"
-import { restApiService } from "../../http-server/serve-rest-api"
-import { sessionsStore } from "../database-stores/sessions"
+import { RestApiServiceActor } from "../../http-server/serve-rest-api"
+import { SessionsStore } from "../database-stores/sessions"
 import { SessionToken } from "../types/session-token"
 
-export const registerLoginRoute = () =>
+export const RegisterLoginRouteActor = () =>
   createActor((sig) => {
-    const api = sig.get(restApiService)
-    const sessions = sig.use(sessionsStore)
+    const api = sig.get(RestApiServiceActor)
+    const sessions = sig.use(SessionsStore)
 
     if (!api) return
 
@@ -25,14 +25,14 @@ export const registerLoginRoute = () =>
       .body(
         z.object({
           loginAuthorizationSignature: z.string(),
-        })
+        }),
       )
       .handler((request, response) => {
         const { loginAuthorizationSignature } = request.body
 
         const expectedLoginAuthorizationSignature = getPrivateSeedAtPath(
-          sig.use(nodePrivateKeySignal).read(),
-          SEED_PATH_NODE_LOGIN
+          sig.use(NodePrivateKeySignal).read(),
+          SEED_PATH_NODE_LOGIN,
         ).toString("hex")
 
         if (

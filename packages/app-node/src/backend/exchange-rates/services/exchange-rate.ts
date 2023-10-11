@@ -3,7 +3,7 @@ import { z } from "zod"
 
 import { createActor } from "@dassie/lib-reactive"
 
-import { databaseConfigStore } from "../../config/database-config"
+import { DatabaseConfigStore } from "../../config/database-config"
 import { exchange as logger } from "../../logger/instances"
 
 const exchangeRateSchema = z.object({
@@ -18,11 +18,11 @@ export interface CurrencyDescription {
   scale: number
 }
 
-export const exchangeRateService = () =>
+export const ExchangeRateServiceActor = () =>
   createActor(async (sig) => {
     const { exchangeRateUrl, internalAmountPrecision } = sig.getKeys(
-      databaseConfigStore,
-      ["exchangeRateUrl", "internalAmountPrecision"]
+      DatabaseConfigStore,
+      ["exchangeRateUrl", "internalAmountPrecision"],
     )
 
     const rateRequest = await axios(exchangeRateUrl)
@@ -48,7 +48,7 @@ export const exchangeRateService = () =>
         }
 
         const rateBigInt = BigInt(
-          Math.round(Number(rate) * 10 ** internalAmountPrecision)
+          Math.round(Number(rate) * 10 ** internalAmountPrecision),
         )
 
         const baseAmount =
@@ -64,7 +64,7 @@ export const exchangeRateService = () =>
         }
 
         const rateBigInt = BigInt(
-          Math.round(Number(rate) * 10 ** internalAmountPrecision)
+          Math.round(Number(rate) * 10 ** internalAmountPrecision),
         )
 
         const targetAmount =
@@ -75,15 +75,15 @@ export const exchangeRateService = () =>
       convert(
         from: CurrencyDescription,
         to: CurrencyDescription,
-        sourceAmount: bigint
+        sourceAmount: bigint,
       ) {
         const baseAmount = exchangeRateConverter.convertToBaseFrom(
           from,
-          sourceAmount
+          sourceAmount,
         )
         const targetAmount = exchangeRateConverter.convertFromBaseTo(
           to,
-          baseAmount
+          baseAmount,
         )
 
         return targetAmount

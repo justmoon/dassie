@@ -3,11 +3,18 @@ import type { AsyncDisposer } from "./reactor"
 export interface LifecycleScope {
   name: string
   isDisposed: boolean
-  onCleanup: typeof DisposableLifecycleScope.prototype.onCleanup
-  offCleanup: typeof DisposableLifecycleScope.prototype.offCleanup
+  onCleanup: typeof DisposableLifecycleScopeImplementation.prototype.onCleanup
+  offCleanup: typeof DisposableLifecycleScopeImplementation.prototype.offCleanup
 }
 
-export class DisposableLifecycleScope implements LifecycleScope {
+export interface DisposableLifecycleScope extends LifecycleScope {
+  dispose: typeof DisposableLifecycleScopeImplementation.prototype.dispose
+  attachToParent: typeof DisposableLifecycleScopeImplementation.prototype.attachToParent
+}
+
+export class DisposableLifecycleScopeImplementation
+  implements DisposableLifecycleScope
+{
   constructor(public readonly name: string) {}
 
   /**
@@ -39,7 +46,7 @@ export class DisposableLifecycleScope implements LifecycleScope {
   }
 
   /**
-   * Unregister a callback that was previously registered with {@link DisposableLifecycleScope.onCleanup}.
+   * Unregister a callback that was previously registered with {@link DisposableLifecycleScopeImplementation.onCleanup}.
    *
    * @param cleanupHandler - Callback to remove from the cleanup queue.
    */
@@ -90,4 +97,4 @@ export class DisposableLifecycleScope implements LifecycleScope {
 }
 
 export const createLifecycleScope = (name: string) =>
-  new DisposableLifecycleScope(name)
+  new DisposableLifecycleScopeImplementation(name)

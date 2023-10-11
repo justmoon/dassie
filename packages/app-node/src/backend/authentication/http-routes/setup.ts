@@ -8,23 +8,23 @@ import { createActor } from "@dassie/lib-reactive"
 import { SESSION_COOKIE_NAME } from "../../../common/constants/cookie-name"
 import { SEED_PATH_NODE_LOGIN } from "../../../common/constants/seed-paths"
 import {
-  databaseConfigStore,
+  DatabaseConfigStore,
   hasNodeIdentity,
 } from "../../config/database-config"
 import { getPrivateSeedAtPath } from "../../crypto/utils/seed-paths"
-import { restApiService } from "../../http-server/serve-rest-api"
+import { RestApiServiceActor } from "../../http-server/serve-rest-api"
 import { serializeEd25519PrivateKey } from "../../utils/pem"
-import { sessionsStore } from "../database-stores/sessions"
-import { setupAuthorizationTokenSignal } from "../signals/setup-authorization-token"
+import { SessionsStore } from "../database-stores/sessions"
+import { SetupAuthorizationTokenSignal } from "../signals/setup-authorization-token"
 import { SessionToken } from "../types/session-token"
 
-export const registerSetupRoute = () =>
+export const RegisterSetupRouteActor = () =>
   createActor((sig) => {
-    const api = sig.get(restApiService)
-    const sessions = sig.use(sessionsStore)
-    const config = sig.use(databaseConfigStore)
+    const api = sig.get(RestApiServiceActor)
+    const sessions = sig.use(SessionsStore)
+    const config = sig.use(DatabaseConfigStore)
     const expectedSetupAuthorizationToken = sig
-      .use(setupAuthorizationTokenSignal)
+      .use(SetupAuthorizationTokenSignal)
       .read()
 
     if (!api) return
@@ -36,7 +36,7 @@ export const registerSetupRoute = () =>
           setupAuthorizationToken: z.string(),
           rawDassieKeyHex: z.string(),
           loginAuthorizationSignature: z.string(),
-        })
+        }),
       )
       .handler((request, response) => {
         if (hasNodeIdentity(config.read())) {
@@ -63,7 +63,7 @@ export const registerSetupRoute = () =>
 
         const expectedLoginAuthorizationSignature = getPrivateSeedAtPath(
           rawDassieKeyBuffer,
-          SEED_PATH_NODE_LOGIN
+          SEED_PATH_NODE_LOGIN,
         ).toString("hex")
 
         if (

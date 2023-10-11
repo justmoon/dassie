@@ -1,15 +1,15 @@
 import { Failure, UnreachableCaseError } from "@dassie/lib-type-utils"
 
-import { ilpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-scheme"
+import { IlpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-scheme"
 import { EndpointInfo } from "../../ilp-connector/functions/send-packet"
 import { PeerEndpointInfo } from "../../ilp-connector/senders/send-peer-packets"
-import { nodeTableStore } from "../../peer-protocol/stores/node-table"
-import { routingTableSignal } from "../signals/routing-table"
+import { NodeTableStore } from "../../peer-protocol/stores/node-table"
+import { RoutingTableSignal } from "../signals/routing-table"
 
 export interface ResolveIlpAddressEnvironment {
-  routingTable: ReturnType<typeof routingTableSignal>
-  nodeTable: ReturnType<typeof nodeTableStore>
-  ilpAllocationScheme: ReturnType<typeof ilpAllocationSchemeSignal>
+  routingTable: ReturnType<typeof RoutingTableSignal>
+  nodeTable: ReturnType<typeof NodeTableStore>
+  ilpAllocationScheme: ReturnType<typeof IlpAllocationSchemeSignal>
 }
 
 export default class NoRouteFoundFailure extends Failure {

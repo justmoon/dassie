@@ -3,11 +3,11 @@ import { nanoid } from "nanoid"
 
 import { createActor } from "@dassie/lib-reactive"
 
-import { nodeIlpAddressSignal } from "../ilp-connector/computed/node-ilp-address"
-import { processPacket } from "../ilp-connector/process-packet"
+import { NodeIlpAddressSignal } from "../ilp-connector/computed/node-ilp-address"
+import { ProcessPacketActor } from "../ilp-connector/process-packet"
 import { PluginEndpointInfo } from "../ilp-connector/senders/send-plugin-packets"
 import { payment as logger } from "../logger/instances"
-import { routingTableSignal } from "../routing/signals/routing-table"
+import { RoutingTableSignal } from "../routing/signals/routing-table"
 
 let nextRequestId = 1
 let nextPluginId = 1
@@ -16,11 +16,11 @@ type Connection = PluginEndpointInfo | false
 
 type DataHandler = (data: Buffer) => Promise<Buffer>
 
-export const managePlugins = () =>
+export const ManagePluginsActor = () =>
   createActor((sig) => {
-    const nodeIlpAddress = sig.get(nodeIlpAddressSignal)
-    const processPacketActor = sig.use(processPacket)
-    const routingTable = sig.use(routingTableSignal)
+    const nodeIlpAddress = sig.get(NodeIlpAddressSignal)
+    const processPacketActor = sig.use(ProcessPacketActor)
+    const routingTable = sig.use(RoutingTableSignal)
 
     const pluginHandlerMap = new Map<number, DataHandler>()
     const outstandingRequests = new Map<number, (data: Buffer) => void>()
@@ -125,7 +125,7 @@ export const managePlugins = () =>
 
         if (!dataHandler) {
           throw new Error(
-            "received prepare packet but there is no registered handler"
+            "received prepare packet but there is no registered handler",
           )
         }
 
@@ -156,7 +156,7 @@ export const managePlugins = () =>
 
         if (!resolve) {
           logger.error(
-            "received result packet but there is no outstanding request"
+            "received result packet but there is no outstanding request",
           )
           return
         }

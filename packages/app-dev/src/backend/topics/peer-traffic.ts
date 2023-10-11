@@ -5,4 +5,4 @@ export interface PeerMessageMetadata {
   to: string
 }
 
-export const peerTrafficTopic = () => createTopic<PeerMessageMetadata>()
+export const PeerTrafficTopic = () => createTopic<PeerMessageMetadata>()

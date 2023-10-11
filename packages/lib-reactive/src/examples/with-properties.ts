@@ -2,27 +2,27 @@ import { createActor } from "../actor"
 import { createReactor } from "../reactor"
 import { createTopic } from "../topic"
 
-const rootActor = () =>
+const RootActor = () =>
   createActor((sig) => {
-    sig.run(logger)
-    sig.run(greeter, { toGreet: "world" })
-    sig.run(greeter, { toGreet: "moms" })
+    sig.run(LoggerActor)
+    sig.run(GreeterActor, { toGreet: "world" })
+    sig.run(GreeterActor, { toGreet: "moms" })
   })
 
 interface ChildProperties {
   toGreet: string
 }
 
-const outputTopic = () => createTopic<string>()
+const OutputTopic = () => createTopic<string>()
 
-const greeter = () =>
+const GreeterActor = () =>
   createActor((sig, { toGreet }: ChildProperties) => {
-    sig.use(outputTopic).emit(`Hello ${toGreet}!`)
+    sig.use(OutputTopic).emit(`Hello ${toGreet}!`)
   })
 
-const logger = () =>
+const LoggerActor = () =>
   createActor((sig) => {
-    sig.on(outputTopic, console.info)
+    sig.on(OutputTopic, console.info)
   })
 
-createReactor(rootActor)
+createReactor(RootActor)

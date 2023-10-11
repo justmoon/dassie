@@ -2,15 +2,21 @@ import { Promisable } from "type-fest"
 
 import { Actor, ActorContext } from "@dassie/lib-reactive"
 
-import { BtpEndpointInfo, sendBtpPackets } from "../senders/send-btp-packets"
+import {
+  BtpEndpointInfo,
+  SendBtpPacketsActor,
+} from "../senders/send-btp-packets"
 import {
   IldcpEndpointInfo,
-  sendIldcpPackets,
+  SendIldcpPacketsActor,
 } from "../senders/send-ildcp-packets"
-import { PeerEndpointInfo, sendPeerPackets } from "../senders/send-peer-packets"
+import {
+  PeerEndpointInfo,
+  SendPeerPacketsActor,
+} from "../senders/send-peer-packets"
 import {
   PluginEndpointInfo,
-  sendPluginPackets,
+  SendPluginPacketsActor,
 } from "../senders/send-plugin-packets"
 import { PreparedIlpPacketEvent } from "../topics/prepared-ilp-packet"
 import { ResolvedIlpPacketEvent } from "../topics/resolved-ilp-packet"
@@ -43,19 +49,19 @@ type AllPacketSenders = {
 
 export const createPacketSender = (sig: ActorContext) => {
   const senders: AllPacketSenders = {
-    peer: sig.use(sendPeerPackets),
-    ildcp: sig.use(sendIldcpPackets),
-    btp: sig.use(sendBtpPackets),
-    plugin: sig.use(sendPluginPackets),
+    peer: sig.use(SendPeerPacketsActor),
+    ildcp: sig.use(SendIldcpPacketsActor),
+    btp: sig.use(SendBtpPacketsActor),
+    plugin: sig.use(SendPluginPacketsActor),
   }
 
   for (const sender of Object.values(senders)) {
-    sender.run(sig)
+    sender.run(sig.reactor, sig)
   }
 
   return <TType extends EndpointInfo["type"]>(
     client: EndpointInfo & { type: TType },
-    event: PreparedIlpPacketEvent | ResolvedIlpPacketEvent
+    event: PreparedIlpPacketEvent | ResolvedIlpPacketEvent,
   ) => {
     const sender = senders[client.type] as PacketSender<TType>
 

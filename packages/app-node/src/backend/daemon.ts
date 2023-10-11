@@ -1,78 +1,78 @@
 import { createActor, createReactor } from "@dassie/lib-reactive"
 
-import { startAccounting } from "./accounting"
-import { startAcmeCertificateManager } from "./acme-certificate-manager"
-import { startAuthenticationFeature } from "./authentication"
-import { setupUrlComputed } from "./authentication/computed/setup-url"
-import { startBtpServer } from "./btp-server"
-import { hasNodeIdentityComputed } from "./config/computed/has-node-identity"
-import { hasTlsComputed } from "./config/computed/has-tls"
-import { signerService } from "./crypto/signer"
-import { startExchangeRates } from "./exchange-rates"
-import { startHttpServer } from "./http-server"
-import { startIldcpServer } from "./ildcp-server"
-import { startIlpConnector } from "./ilp-connector"
-import { startLocalRpcServer } from "./local-ipc-server"
-import { startLogger } from "./logger"
+import { AccountingActor } from "./accounting"
+import { AcmeCertificateManagerActor } from "./acme-certificate-manager"
+import { AuthenticationFeatureActor } from "./authentication"
+import { SetupUrlSignal } from "./authentication/computed/setup-url"
+import { BtpServerActor } from "./btp-server"
+import { HasNodeIdentitySignal } from "./config/computed/has-node-identity"
+import { HasTlsSignal } from "./config/computed/has-tls"
+import { SignerActor } from "./crypto/signer"
+import { ExchangeRatesActor } from "./exchange-rates"
+import { HttpServerActor } from "./http-server"
+import { IldcpServerActor } from "./ildcp-server"
+import { IlpConnectorActor } from "./ilp-connector"
+import { LocalRpcServerActor } from "./local-ipc-server"
+import { LoggerActor } from "./logger"
 import { daemon as logger } from "./logger/instances"
-import { startOpenPaymentsServer } from "./open-payments"
-import { speakPeerProtocol } from "./peer-protocol"
-import { doRouting } from "./routing"
-import { startSettlementSchemes } from "./settlement-schemes"
-import { startSpspServer } from "./spsp-server"
-import { startStatisticsServer } from "./statistics"
-import { supportSystemd } from "./systemd"
-import { startTrpcServer } from "./trpc-server"
+import { OpenPaymentsServerActor } from "./open-payments"
+import { PeerProtocolActor } from "./peer-protocol"
+import { RoutingActor } from "./routing"
+import { SettlementSchemesActor } from "./settlement-schemes"
+import { SpspServerActor } from "./spsp-server"
+import { StatisticsServerActor } from "./statistics"
+import { SystemdActor } from "./systemd"
+import { TrpcServerActor } from "./trpc-server"
 
-export const startTlsDependentServices = () =>
+export const StartTlsDependentServicesActor = () =>
   createActor((sig) => {
-    const hasTls = sig.get(hasTlsComputed)
+    const hasTls = sig.get(HasTlsSignal)
 
     if (!hasTls) {
       logger.warn("Web UI is not configured, run `dassie init`")
       return
     }
 
-    sig.run(startTrpcServer)
-    sig.run(startAuthenticationFeature)
+    sig.run(TrpcServerActor)
+    sig.run(AuthenticationFeatureActor)
   })
 
-export const startNodeIdentityDependentServices = () =>
+export const StartNodeIdentityDependentServicesActor = () =>
   createActor(async (sig) => {
-    const hasNodeIdentity = sig.get(hasNodeIdentityComputed)
+    const hasNodeIdentity = sig.get(HasNodeIdentitySignal)
 
     if (!hasNodeIdentity) {
-      const setupUrl = sig.get(setupUrlComputed)
+      const setupUrl = sig.get(SetupUrlSignal)
       logger.warn(`Node identity is not configured, visit ${setupUrl}`)
       return
     }
 
-    sig.run(signerService)
-    sig.run(startAccounting)
-    sig.run(startIlpConnector)
-    sig.run(startBtpServer)
-    sig.run(startIldcpServer)
-    await sig.run(startExchangeRates)
+    sig.run(SignerActor)
+    sig.run(AccountingActor)
+    sig.run(IlpConnectorActor)
+    sig.run(BtpServerActor)
+    sig.run(IldcpServerActor)
+    await sig.run(ExchangeRatesActor)
 
-    sig.run(startSettlementSchemes)
-    await sig.run(startSpspServer)
-    sig.run(startOpenPaymentsServer)
-    sig.run(startStatisticsServer)
+    sig.run(SettlementSchemesActor)
+    await sig.run(SpspServerActor)
+    sig.run(OpenPaymentsServerActor)
+    sig.run(StatisticsServerActor)
 
-    await sig.run(speakPeerProtocol)
-    sig.run(doRouting)
+    await sig.run(PeerProtocolActor)
+    sig.run(RoutingActor)
   })
 
-export const daemonActor = () =>
+export const DaemonActor = () =>
   createActor(async (sig) => {
-    sig.run(startLogger)
-    sig.run(startLocalRpcServer)
-    sig.run(supportSystemd)
-    sig.run(startHttpServer)
-    sig.run(startAcmeCertificateManager)
+    sig.run(LoggerActor)
+    sig.run(LocalRpcServerActor)
+    sig.run(SystemdActor)
+    sig.run(HttpServerActor)
+    sig.run(AcmeCertificateManagerActor)
 
-    sig.run(startTlsDependentServices)
-    await sig.run(startNodeIdentityDependentServices)
+    sig.run(StartTlsDependentServicesActor)
+    await sig.run(StartNodeIdentityDependentServicesActor)
   })
 
-export const startDaemon = () => createReactor(daemonActor)
+export const startDaemon = () => createReactor(DaemonActor)

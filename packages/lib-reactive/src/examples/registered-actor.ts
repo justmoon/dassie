@@ -1,14 +1,14 @@
 import { createServer } from "node:http"
 
 import { createActor } from "../actor"
-import { createReactor } from "../reactor"
+import { Reactor, createReactor } from "../reactor"
 import { createSignal } from "../signal"
 
-const config = () => createSignal({ port: 3000 })
+const ConfigSignal = () => createSignal({ port: 3000 })
 
-const httpService = () =>
+const HttpServiceActor = () =>
   createActor((sig) => {
-    const port = sig.get(config, ({ port }) => port)
+    const port = sig.get(ConfigSignal, ({ port }) => port)
 
     const server = createServer()
     server.listen(port)
@@ -22,15 +22,15 @@ const httpService = () =>
     return server
   })
 
-const rootActor = () =>
+const RootActor = (reactor: Reactor) =>
   createActor((sig) => {
-    sig.run(httpService)
+    sig.run(HttpServiceActor)
 
     sig.timeout(() => {
-      sig.use(config).update((config) => ({ ...config, port: 3100 }))
+      sig.use(ConfigSignal).update((config) => ({ ...config, port: 3100 }))
     }, 1000)
 
-    sig.timeout(() => void sig.reactor.dispose(), 2000)
+    sig.timeout(() => void reactor.lifecycle.dispose(), 2000)
   })
 
-createReactor(rootActor)
+createReactor(RootActor)

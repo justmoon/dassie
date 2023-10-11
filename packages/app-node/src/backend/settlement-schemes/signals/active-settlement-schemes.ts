@@ -1,12 +1,12 @@
-import { createComputed } from "@dassie/lib-reactive"
+import { Reactor, createComputed } from "@dassie/lib-reactive"
 import { UnreachableCaseError } from "@dassie/lib-type-utils"
 
 import { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
-import { settlementSchemesStore } from "../database-stores/settlement-schemes"
+import { SettlementSchemesStore } from "../database-stores/settlement-schemes"
 
-export const activeSettlementSchemesSignal = () =>
-  createComputed((sig) => {
-    const settlementSchemes = sig.use(settlementSchemesStore)
+export const ActiveSettlementSchemesSignal = (reactor: Reactor) =>
+  createComputed(reactor.lifecycle, () => {
+    const settlementSchemes = reactor.use(SettlementSchemesStore)
 
     const activeSettlementSchemes = new Set<SettlementSchemeId>()
 
@@ -14,7 +14,7 @@ export const activeSettlementSchemesSignal = () =>
       activeSettlementSchemes.add(settlementScheme.id)
     }
 
-    settlementSchemes.changes.on(sig.reactor, (change) => {
+    settlementSchemes.changes.on(reactor.lifecycle, (change) => {
       switch (change[0]) {
         case "addSettlementScheme": {
           const [settlementSchemeId] = change[1]

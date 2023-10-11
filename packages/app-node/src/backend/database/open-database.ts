@@ -4,21 +4,21 @@ import { resolve } from "node:path"
 import { type Reactor, createComputed } from "@dassie/lib-reactive"
 import { createDatabase } from "@dassie/lib-sqlite"
 
-import { environmentConfigSignal } from "../config/environment-config"
+import { EnvironmentConfigSignal } from "../config/environment-config"
 import { DASSIE_DATABASE_SCHEMA } from "./schema"
 
-export const betterSqliteNativeBindingComputed = () =>
-  createComputed((sig) => {
-    const { rootPath } = sig.use(environmentConfigSignal).read()
+export const BetterSqliteNativeBindingSignal = (reactor: Reactor) =>
+  createComputed(reactor.lifecycle, () => {
+    const { rootPath } = reactor.use(EnvironmentConfigSignal).read()
 
     return import.meta.env.PROD
       ? resolve(rootPath, "lib/better_sqlite3.node")
       : undefined
   })
 
-export const databasePlain = (reactor: Reactor) => {
-  const { dataPath } = reactor.use(environmentConfigSignal).read()
-  const nativeBinding = reactor.use(betterSqliteNativeBindingComputed).read()
+export const Database = (reactor: Reactor) => {
+  const { dataPath } = reactor.use(EnvironmentConfigSignal).read()
+  const nativeBinding = reactor.use(BetterSqliteNativeBindingSignal).read()
 
   mkdirSync(dataPath, { recursive: true })
 
@@ -29,7 +29,7 @@ export const databasePlain = (reactor: Reactor) => {
     checkSchema: true,
   })
 
-  reactor.onCleanup(() => {
+  reactor.lifecycle.onCleanup(() => {
     database.raw.close()
   })
 

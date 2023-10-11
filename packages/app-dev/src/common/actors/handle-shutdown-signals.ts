@@ -1,11 +1,11 @@
 import { dump } from "wtfnode"
 
-import { createActor } from "@dassie/lib-reactive"
+import { Reactor, createActor } from "@dassie/lib-reactive"
 
-export const handleShutdownSignals = () =>
+export const HandleShutdownSignalsActor = (reactor: Reactor) =>
   createActor((sig) => {
     const onShutdown = () => {
-      sig.reactor
+      reactor.lifecycle
         .dispose()
         .then(() => {
           setTimeout(() => {

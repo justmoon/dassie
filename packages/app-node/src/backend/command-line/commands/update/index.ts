@@ -7,7 +7,7 @@ import { cp, mkdir, rm } from "node:fs/promises"
 import { Reactor } from "@dassie/lib-reactive"
 import { createFlow, header, note } from "@dassie/lib-terminal-graphics"
 
-import { environmentConfigSignal } from "../../../config/environment-config"
+import { EnvironmentConfigSignal } from "../../../config/environment-config"
 import { downloadFile } from "./download-file"
 
 export const updateCommand = (reactor: Reactor) =>
@@ -18,7 +18,7 @@ export const updateCommand = (reactor: Reactor) =>
     args: {},
     async handler() {
       const { rootPath, temporaryPath } = reactor
-        .use(environmentConfigSignal)
+        .use(EnvironmentConfigSignal)
         .read()
       const architecture = process.arch
       const sessionTemporaryPath = `${temporaryPath}/dassie-update-${Date.now()}-${
@@ -31,7 +31,7 @@ export const updateCommand = (reactor: Reactor) =>
           !rootPath.endsWith(`/${__DASSIE_VERSION__}`)
         ) {
           throw new Error(
-            `DASSIE_ROOT must end with "/current" or "/${__DASSIE_VERSION__}" in order for the auto-updater to work (DASSIE_ROOT=${rootPath})`
+            `DASSIE_ROOT must end with "/current" or "/${__DASSIE_VERSION__}" in order for the auto-updater to work (DASSIE_ROOT=${rootPath})`,
           )
         }
 
@@ -59,7 +59,7 @@ export const updateCommand = (reactor: Reactor) =>
         flow.show(
           note({
             title: `Installing ${latestVersion} (previous: ${__DASSIE_VERSION__})`,
-          })
+          }),
         )
 
         await mkdir(sessionTemporaryPath, { recursive: true })

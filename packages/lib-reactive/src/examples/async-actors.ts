@@ -2,20 +2,20 @@ import { createActor } from "../actor"
 import { createReactor } from "../reactor"
 import { createSignal } from "../signal"
 
-const counterSignal = () => createSignal(0)
+const CounterSignal = () => createSignal(0)
 
-const rootActor = () =>
+const RootActor = () =>
   createActor((sig) => {
     sig.interval(() => {
-      sig.use(counterSignal).update((a) => a + 1)
+      sig.use(CounterSignal).update((a) => a + 1)
     }, 500)
 
-    void sig.run(innerActor)
+    void sig.run(InnerActor)
   })
 
-const innerActor = () =>
+const InnerActor = () =>
   createActor(async (sig) => {
-    const counter = sig.get(counterSignal)
+    const counter = sig.get(CounterSignal)
 
     // This will only print every three seconds or so
     console.info(counter)
@@ -24,4 +24,4 @@ const innerActor = () =>
     await new Promise((resolve) => setTimeout(resolve, 3000))
   })
 
-createReactor(rootActor)
+createReactor(RootActor)

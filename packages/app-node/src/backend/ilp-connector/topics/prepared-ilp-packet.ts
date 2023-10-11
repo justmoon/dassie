@@ -14,5 +14,5 @@ export interface PreparedIlpPacketEvent {
   readonly timeoutAbort: AbortController
 }
 
-export const preparedIlpPacketTopic = () =>
+export const PreparedIlpPacketTopic = () =>
   createTopic<PreparedIlpPacketEvent>()

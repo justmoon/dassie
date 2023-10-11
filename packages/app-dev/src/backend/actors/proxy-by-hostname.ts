@@ -188,7 +188,7 @@ const handleIncomingConnection = async (socket: Socket) => {
   socket.pipe(proxy).pipe(socket)
 }
 
-export const proxyByHostname = () =>
+export const ProxyByHostnameActor = () =>
   createActor((sig) => {
     const connections = new Set<Socket>()
 
@@ -207,7 +207,7 @@ export const proxyByHostname = () =>
     server.on("error", (error: unknown) => {
       if (isErrorWithCode(error, "EACCES")) {
         console.warn(
-          "Unable to bind to port 443. Try running `sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0`."
+          "Unable to bind to port 443. Try running `sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0`.",
         )
         return
       }
@@ -220,8 +220,8 @@ export const proxyByHostname = () =>
     // eslint-disable-next-line no-console
     console.log(
       `  ${chalk.bold("Debug UI:")} https://localhost/ ${chalk.dim(
-        "<-- Start here"
-      )}\n`
+        "<-- Start here",
+      )}\n`,
     )
 
     sig.onCleanup(async () => {

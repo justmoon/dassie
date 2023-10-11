@@ -6,21 +6,21 @@ import { posix } from "node:path"
 
 import { createActor, createTopic } from "@dassie/lib-reactive"
 
-import { logsStore } from "../../common/stores/logs"
+import { LogsStore } from "../../common/stores/logs"
 import { vite as logger } from "../logger/instances"
 
 export function getShortName(file: string, root: string): string {
   return file.startsWith(root + "/") ? posix.relative(root, file) : file
 }
 
-export const fileChangeTopic = () => createTopic()
+export const FileChangeTopic = () => createTopic()
 
 export interface FileChangeParameters {
   viteServer: ViteDevServer
   viteNodeServer: ViteNodeServer
 }
 
-export const handleFileChange = () =>
+export const HandleFileChangeActor = () =>
   createActor((sig, { viteServer, viteNodeServer }: FileChangeParameters) => {
     const onFileChange = (file: string) => {
       const { config, moduleGraph } = viteServer
@@ -33,10 +33,10 @@ export const handleFileChange = () =>
       const mods = moduleGraph.getModulesByFile(file)
 
       if (mods && mods.size > 0) {
-        sig.use(logsStore).clear()
+        sig.use(LogsStore).clear()
         logger.info(`${chalk.green(`change`)} ${chalk.dim(shortFile)}`)
 
-        sig.use(fileChangeTopic).emit(undefined)
+        sig.use(FileChangeTopic).emit(undefined)
       }
     }
 
