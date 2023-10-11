@@ -6,8 +6,8 @@
   "private": true,
   "main": "./src/index.ts",
   "scripts": {
-    "lint": "eslint .",
-    "typecheck": "tsc"
+    "lint": "eslint --color .",
+    "typecheck": "tsc --pretty"
   },
   "exports": {
     ".": {

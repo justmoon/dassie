@@ -6,8 +6,8 @@
     "dev": "next dev",
     "start": "next start",
     "build": "next build",
-    "lint": "eslint .",
-    "typecheck": "tsc"
+    "lint": "eslint --color .",
+    "typecheck": "tsc --pretty"
   },
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",

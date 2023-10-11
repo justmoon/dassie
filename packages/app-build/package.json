@@ -7,8 +7,8 @@
   "main": "./src/index.ts",
   "scripts": {
     "build": "vite-node bin/build.ts --",
-    "lint": "eslint .",
-    "typecheck": "tsc",
+    "lint": "eslint --color .",
+    "typecheck": "tsc --pretty",
     "shellcheck:installer": "docker run --rm -i -v \"$PWD:/mnt:ro\" koalaman/shellcheck:latest resources/shell-installer/install.sh --shell sh",
     "shellcheck:launcher": "docker run --rm -i -v \"$PWD:/mnt:ro\" koalaman/shellcheck:latest resources/launcher/dassie.sh --shell sh",
     "serve-mirror": "mkdir -p ../../local/tls/mirror && mkcert -cert-file=../../local/tls/mirror/web-mirror.pem -key-file=../../local/tls/mirror/web-mirror-key.pem dassie-mirror localhost && http-server --port 8443 --tls --cert ../../local/tls/mirror/web-mirror.pem --key ../../local/tls/mirror/web-mirror-key.pem ../../dist/upload/",
