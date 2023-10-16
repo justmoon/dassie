@@ -1,10 +1,4 @@
-import {
-  type ReactNode,
-  createContext,
-  useContext,
-  useMemo,
-  useState,
-} from "react"
+import { type ReactNode, createContext, useContext, useState } from "react"
 
 import {
   Action,
@@ -25,7 +19,7 @@ export interface TrpcSubscriptionHook<TInput, TValue> {
     input: TInput,
     options: {
       onData: (data: TValue) => void
-    }
+    },
   ) => void
 }
 
@@ -36,9 +30,9 @@ export interface TrpcStoreSubscriptionHook<TInitial, TChange> {
       onData: (
         data:
           | { type: "initial"; value: TInitial }
-          | { type: "changes"; value: readonly TChange[] }
+          | { type: "changes"; value: readonly TChange[] },
       ) => void
-    }
+    },
   ) => void
 }
 
@@ -71,18 +65,15 @@ const createReactiveHooks = () => {
 
   const useRemoteStore = <
     TState,
-    TActions extends Record<string, Action<TState>>
+    TActions extends Record<string, Action<TState>>,
   >(
     {
       useSubscription,
     }: TrpcStoreSubscriptionHook<TState, InferChanges<TActions>>,
-    implementation: Factory<Store<TState, TActions>>
+    implementation: Factory<Store<TState, TActions>>,
   ) => {
     const reactor = useReactor()
-    const store = useMemo(
-      () => reactor.use(() => implementation(reactor)),
-      [reactor, implementation]
-    )
+    const store = reactor.use(implementation)
     const [state, setState] = useState<{ state: TState }>({
       state: store.read(),
     })
@@ -99,13 +90,13 @@ const createReactiveHooks = () => {
 
             if (!action) {
               throw new Error(
-                `Tried to synchronize action ${actionName} which does not exist in the local implementation`
+                `Tried to synchronize action ${actionName} which does not exist in the local implementation`,
               )
             }
             action(...parameters)
-            setState({ state: store.read() })
           }
         }
+        setState({ state: store.read() })
       },
     })
 
