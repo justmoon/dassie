@@ -9,6 +9,7 @@ import { RunnerEnvironment } from "../../common/types/runner-environment"
 import { DEBUG_RPC_PORT } from "../constants/ports"
 import { children as logger } from "../logger/instances"
 import { DebugScopesSignal } from "../signals/debug-scopes"
+import { SecurityTokenSignal } from "../signals/security-token"
 import { ActiveNodesStore } from "../stores/active-nodes"
 import { EnvironmentSettingsStore } from "../stores/environment-settings"
 import { generateNodeConfig } from "../utils/generate-node-config"
@@ -96,6 +97,9 @@ export const RunNodesActor = () =>
                   DASSIE_DEV_ENTRY: node.entry,
                   DASSIE_DEV_RPC_URL: `wss://dev-rpc.localhost:${DEBUG_RPC_PORT}`,
                   DASSIE_DEV_NODE_ID: node.id,
+                  DASSIE_DEV_SECURITY_TOKEN: reactor
+                    .use(SecurityTokenSignal)
+                    .read(),
                 } satisfies RunnerEnvironment,
                 extraArguments: [`--inspect-port=${node.debugPort}`],
               })

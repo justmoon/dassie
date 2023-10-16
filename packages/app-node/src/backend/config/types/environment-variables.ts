@@ -10,4 +10,5 @@ export interface EnvironmentVariables {
   readonly DASSIE_TEMPORARY_DIRECTORY?: string
   readonly DASSIE_IPC_SOCKET_PATH?: string
   readonly DASSIE_BOOTSTRAP_NODES?: string
+  readonly DASSIE_DEV_SECURITY_TOKEN?: string
 }

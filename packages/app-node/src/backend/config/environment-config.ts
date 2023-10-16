@@ -3,6 +3,7 @@ import { ZodTypeAny, z } from "zod"
 
 import { createSignal } from "@dassie/lib-reactive"
 
+import { DEV_SECURITY_TOKEN_LENGTH } from "../../common/constants/general"
 import { APP_NAME, VALID_REALMS } from "../constants/general"
 import { nodeIdSchema } from "./schemas/node-id"
 import { EnvironmentVariables } from "./types/environment-variables"
@@ -16,6 +17,7 @@ export interface Config {
   temporaryPath: string
   ipcSocketPath: string
   bootstrapNodes: BootstrapNodesConfig
+  devSecurityToken: string | false
 }
 
 export const bootstrapNodesSchema = z.array(
@@ -52,6 +54,15 @@ export function fromEnvironment(): Config {
   const paths = envPaths(APP_NAME)
   const environment = process.env as EnvironmentVariables
 
+  if (
+    environment.DASSIE_DEV_SECURITY_TOKEN &&
+    environment.DASSIE_DEV_SECURITY_TOKEN.length !== DEV_SECURITY_TOKEN_LENGTH
+  ) {
+    throw new Error(
+      `DASSIE_DEV_SECURITY_TOKEN must be ${DEV_SECURITY_TOKEN_LENGTH} characters long`,
+    )
+  }
+
   return {
     rootPath: environment.DASSIE_ROOT ?? process.cwd(),
     dataPath:
@@ -69,6 +80,7 @@ export function fromEnvironment(): Config {
       bootstrapNodesSchema,
       [],
     ),
+    devSecurityToken: environment.DASSIE_DEV_SECURITY_TOKEN ?? false,
   }
 }
 

@@ -8,6 +8,7 @@ import {
 } from "@dassie/lib-reactive-trpc/server"
 
 import { LogsStore } from "../../common/stores/logs"
+import { SecurityTokenSignal } from "../signals/security-token"
 import { ActiveNodesStore } from "../stores/active-nodes"
 import {
   EnvironmentSettingsStore,
@@ -18,6 +19,9 @@ import { PeerTrafficTopic } from "../topics/peer-traffic"
 import { trpc } from "./trpc"
 
 export const uiRpcRouter = trpc.router({
+  getSecurityToken: trpc.procedure.query(({ ctx: { sig } }) =>
+    sig.use(SecurityTokenSignal).read(),
+  ),
   addRandomNode: trpc.procedure
     // TRPC seems to throw an error when using superjson as a transformer on a method with no parameters.
     .input(z.object({}))

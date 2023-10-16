@@ -15,11 +15,12 @@ import { Nodes } from "@dassie/app-node/src/frontend/pages/debug/nodes/nodes"
 import { Routing } from "@dassie/app-node/src/frontend/pages/debug/routing/routing"
 import {
   queryClientReactContext,
-  trpc,
+  trpc as trpcNode,
 } from "@dassie/app-node/src/frontend/utils/trpc"
 import { selectBySeed } from "@dassie/lib-logger"
 
 import { COLORS } from "../../constants/palette"
+import { trpc as trpcDevelopment } from "../../utils/trpc"
 import { getWalletUrl } from "../../utils/wallet-url"
 import LogViewer from "../log-viewer/log-viewer"
 
@@ -61,12 +62,12 @@ const NodeLogViewer = ({ nodeId }: BasicNodeElementProperties) => {
   return <LogViewer filter={({ node }) => node === nodeId} />
 }
 
-const createNodeTrpcClients = (nodeId: string) => {
+const createNodeTrpcClients = (securityToken: string, nodeId: string) => {
   const queryClient = new QueryClient()
   const wsClient = createWSClient({
-    url: `wss://${nodeId}.localhost/trpc`,
+    url: `wss://${nodeId}.localhost/trpc?token=${securityToken}`,
   })
-  const trpcClient = trpc.createClient({
+  const trpcClient = trpcNode.createClient({
     links: [wsLink({ client: wsClient })],
     transformer: superjson,
   })
@@ -83,8 +84,12 @@ const NodeDetail = ({ nodeId }: BasicNodeElementProperties) => {
 
   const [ready, setReady] = useState(false)
 
+  const { data: securityToken } = trpcDevelopment.ui.getSecurityToken.useQuery()
+
   useEffect(() => {
-    const clients = createNodeTrpcClients(nodeId)
+    if (!securityToken) return
+
+    const clients = createNodeTrpcClients(securityToken, nodeId)
     setClients(clients)
 
     const handleConnect = () => {
@@ -102,12 +107,12 @@ const NodeDetail = ({ nodeId }: BasicNodeElementProperties) => {
         .removeEventListener("open", handleConnect)
       clients.wsClient.close()
     }
-  }, [nodeId])
+  }, [securityToken, nodeId])
 
   if (!clients) return null
 
   return (
-    <trpc.Provider
+    <trpcNode.Provider
       client={clients.trpcClient}
       queryClient={clients.queryClient}
     >
@@ -137,7 +142,7 @@ const NodeDetail = ({ nodeId }: BasicNodeElementProperties) => {
           </Tabs>
         </div>
       </QueryClientProvider>
-    </trpc.Provider>
+    </trpcNode.Provider>
   )
 }
 

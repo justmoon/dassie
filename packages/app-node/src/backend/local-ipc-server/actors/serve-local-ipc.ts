@@ -12,7 +12,6 @@ import {
   getSocketActivationState,
 } from "../../systemd/socket-activation"
 import { appRouter } from "../../trpc-server/app-router"
-import { createContextFactory } from "../../trpc-server/trpc-context"
 
 const SOCKET_ACTIVATION_NAME_IPC = "dassie-ipc.socket"
 
@@ -51,7 +50,10 @@ export const ServeLocalIpcActor = () =>
 
     const handler = createSocketHandler({
       router: appRouter,
-      createContext: createContextFactory(sig),
+      createContext: () => ({
+        sig,
+        user: true,
+      }),
     })
 
     const server = createServer(handler)
