@@ -1,26 +1,36 @@
 # Implementation Notes: Node Discovery
 
-The foundation of any peer-to-peer network is node discovery. For Dassie this means crawling the routing graph to discover nodes based on some set of initial, well-known nodes also called bootstrap nodes.
+## Context
 
-## When to stop discovering
+Note that node membership in the Dassie network is fairly well-defined which makes the node discovery process a lot simpler and more deterministic. Please read the [Network Membership](network-membership.md) implementation note for more detail.
 
-We cannot assume that our crawling of the routing graph will be perfect. Some nodes may be unavailable but their peers are still advertising them. Some nodes may publish false advertisements, knowingly or unknowingly. We may not be able to reach some nodes even though they are working fine due to network issues, firewall rules, or Internet censorship.
+When a node first comes online, it only knows whatever information is hardcoded in the Dassie implementation it is using. This hard-coded information is a list of bootstrap nodes called the Bootstrap Node List (BNL). All nodes have such a BNL, which can be the default BNL provided by the developers or a customized BNL provided by the node operator.
 
-For these reasons, we can't wait for the node discovery process to be 100% completed. We will have to crawl for some time until we are happy with the state of the crawl and then move on. Of course, we should still continue to update our knowledge about the network continuously, remove stale information and fill in missing details.
+In addition, all nodes also have a Known Node List (KNL) which contains all nodes that the node considers to be valid top-level routing destinations in the Dassie network.
+
+Given the BNL, node discovery is the process of initializing the KNL as well as downloading recent status updates for as many nodes on the KNL as possible.
+
+## Solution
+
+- As part of its startup process, a new node will contact each of the nodes on its BNL to download their latest KNL.
+- Once a node is present on more than N/2 + 1 of such KNLs (where N is the length of the BNL), it is added to the node's own KNL.
+- For each entry on the node's own KNL, the node will query a random node to get the latest signed status for that node. Nodes that respond quickly and with more up-to-date information will be chosen preferentially in future queries.
+
+## End of Discovery Phase
+
+Discovery is a continuous process, because we constantly want to know the latest node state for each node. However, during initialization we have to decide when we have done enough node discovery to move on to the next phase of node initialization (usually peer selection).
+
+Some nodes may be unavailable and we will never get an up-to-date status for them. As a result, we can't wait for the node discovery process to be 100% completed.
 
 The criteria for moving on from initial node discovery to the next step in the startup process is:
 
-- When we have up-to-date information about all nodes, we conclude initial discovery. This is mostly useful in testing scenarios where we have a small number of nodes which are all local and therefore node discovery can complete very quickly. In these scenarios, we don't want to introduce any unnecessary delay because we want a quick development cycle where we can make a change, relaunch the network, and have it initialize very quickly so we can test whatever functionality we are currently working on.
+- When we have up-to-date information about all nodes, we conclude initial discovery. This is mostly useful in testing scenarios where we have a small number of nodes which are all local and online and therefore node discovery can complete very quickly. In these scenarios, we don't want to introduce any unnecessary delay because we want a quick development cycle where we can make a change, relaunch the network, and have it initialize very quickly so we can test whatever functionality we are currently working on.
 
 - When a certain timeout is reached, we conclude node discovery. Timeouts are a simple catch-all which allows us to move on if we get stuck for some reason. The timeout needs to be somewhat generous to account for slower connections which may take longer to bootstrap as well as unforeseen delays.
 
-- When we have searched the network up to a certain depth, we conclude discovery. We also limit the number of nodes that we consider at each depth for this criterion. This gives us a finite number of nodes to look for. Of course, the network topology may be larger than that but we are only trying to get a decent set of nodes that would allow us continue with the next step of the initialization process.
+- When we have received KNLs from a certain percentage of our BNL nodes and we have received node status from a certain percentage of our KNL nodes, we conclude discovery. For this initial version of Dassie, the required BNL percentage is >=75% and the required KNL percentage is >=50%.
 
-Another important thing to note is that in the typical setup procedure for a production node, the node discovery process would start as soon as the Dassie daemon is started but the next phase (auto-peering) wouldn't start until after the user is done configuring ledger settings, depositing initial funds etc. which may take considerable time. The only times that the above criteria would come into play is if the auto-peering process is started very quickly such as during development or during rare scenarios where a node happens to be looking for new peers shortly after booting up. It is still important for these case so we don't choose peers only from the set of bootstrap nodes for example.
-
-## Indirect discovery
-
-We don't have to query each node individually about its state. Because the node state is always signed, we can ask any node for their knowledge about the target node. For an initial download, it would be most efficient to download most of the network state in bulk from nodes that have low latency and high bandwidth.
+Another important thing to note is that in the typical setup procedure for a production node, the node discovery process would start as soon as the Dassie daemon is started but the next phase (auto-peering) wouldn't start until after the user is done configuring ledger settings, depositing initial funds etc. which may take considerable time. The only times that the above criteria would come into play is if the auto-peering process is started very quickly such as during development or during rare scenarios where a node happens to be looking for new peers shortly after booting up. It is still important for these cases to do node discovery before starting auto-peering so we don't just choose peers from the BNL only.
 
 ## Node properties
 
