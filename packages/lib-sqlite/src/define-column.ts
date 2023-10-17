@@ -8,7 +8,7 @@ import { SqliteToTypescriptTypeMap } from "./types/sqlite-datatypes"
 import { identity } from "./utils/identity"
 
 const createBuilder = <T extends ColumnDescriptionGenerics>(
-  description: ColumnDescription<T>
+  description: ColumnDescription<T>,
 ): ColumnDescriptionBuilder<T> => ({
   description,
 
@@ -80,3 +80,9 @@ export const column =
       deserialize: identity,
     })
   }
+
+export const columnBoolean = () =>
+  column()
+    .type("INTEGER")
+    .serialize((value: boolean) => (value ? 1n : 0n))
+    .deserialize((value) => value === 1n)
