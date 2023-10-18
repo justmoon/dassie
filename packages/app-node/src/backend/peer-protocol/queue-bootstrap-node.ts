@@ -4,7 +4,6 @@ import { createActor } from "@dassie/lib-reactive"
 
 import { EnvironmentConfigSignal } from "../config/environment-config"
 import { NodeIdSignal } from "../ilp-connector/computed/node-id"
-import { NodeDiscoveryQueueStore } from "./stores/node-discovery-queue"
 import { NodeTableStore } from "./stores/node-table"
 
 export const QueueBootstrapNodesActor = () =>
@@ -40,12 +39,6 @@ export const QueueBootstrapNodesActor = () =>
           },
           peerState: { id: "none" },
         })
-      }
-
-      if (!node?.linkState) {
-        sig
-          .use(NodeDiscoveryQueueStore)
-          .addNode(candidate.nodeId, candidate.nodeId)
       }
     }
   })

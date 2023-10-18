@@ -60,6 +60,8 @@ export const peerInterledgerPacket = sequence({
   packet: octetString(),
 })
 
+export const nodeListResponse = sequenceOf(captured(signedPeerNodeInfo))
+
 export const peerMessageContent = choice({
   peeringRequest: sequence({
     settlementSchemeId: settlementSchemeIdSchema,
@@ -81,6 +83,10 @@ export const peerMessageContent = choice({
     settlementSchemeId: settlementSchemeIdSchema,
     message: octetString(),
   }).tag(5),
+  nodeListRequest: sequence({}).tag(6),
+  registration: sequence({
+    nodeInfo: captured(signedPeerNodeInfo),
+  }).tag(7),
 })
 
 export const peerMessage = sequence({

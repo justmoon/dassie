@@ -21,8 +21,7 @@ export const HandleLinkStateUpdateActor = () =>
         },
       }: IncomingPeerMessageEvent<"linkStateUpdate">) => {
         const { value: linkState, bytes: linkStateBytes } = content
-        const { nodeId, url, alias, sequence, entries, nodePublicKey } =
-          linkState.signed
+        const { nodeId, sequence, entries } = linkState.signed
         const nodes = nodeTable.read()
 
         const { neighbors, settlementSchemes } = parseLinkStateEntries(entries)
@@ -88,26 +87,6 @@ export const HandleLinkStateUpdateActor = () =>
               node.peerState.id === "peered"
                 ? { ...node.peerState, id: "peered", lastSeen: Date.now() }
                 : node.peerState,
-          })
-        } else {
-          nodeTable.addNode({
-            nodeId,
-            url,
-            alias,
-            nodePublicKey,
-            linkState: {
-              sequence,
-              updateReceivedCounter: 1,
-              scheduledRetransmitTime:
-                Date.now() +
-                Math.ceil(
-                  Math.random() * MAX_LINK_STATE_UPDATE_RETRANSMIT_DELAY,
-                ),
-              neighbors,
-              settlementSchemes,
-              lastUpdate: linkStateBytes,
-            },
-            peerState: { id: "none" },
           })
         }
 

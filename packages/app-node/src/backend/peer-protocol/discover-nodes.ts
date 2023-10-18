@@ -1,9 +1,11 @@
+import { Infer } from "@dassie/lib-oer"
 import { Reactor, createActor } from "@dassie/lib-reactive"
 
+import { EnvironmentConfigSignal } from "../config/environment-config"
+import { NodeIdSignal } from "../ilp-connector/computed/node-id"
 import { peerProtocol as logger } from "../logger/instances"
 import { SendPeerMessageActor } from "./actors/send-peer-message"
-import { signedPeerNodeInfo } from "./peer-schema"
-import { NodeDiscoveryQueueStore } from "./stores/node-discovery-queue"
+import { nodeListResponse } from "./peer-schema"
 import { NodeTableStore } from "./stores/node-table"
 import { NodeId } from "./types/node-id"
 import { parseLinkStateEntries } from "./utils/parse-link-state-entries"
@@ -11,94 +13,152 @@ import { parseLinkStateEntries } from "./utils/parse-link-state-entries"
 const NODE_DISCOVERY_INTERVAL = 1000
 
 export const DiscoverNodesActor = (reactor: Reactor) => {
-  const queryLinkState = async (
-    oracleNodeId: NodeId,
-    subjectNodeId: NodeId,
-  ) => {
+  const loadNodeList = async (
+    sourceNodeId: NodeId,
+  ): Promise<Infer<typeof nodeListResponse>> => {
     const response = await reactor.use(SendPeerMessageActor).ask("send", {
-      destination: oracleNodeId,
+      destination: sourceNodeId,
       message: {
-        type: "linkStateRequest",
-        value: {
-          nodeId: subjectNodeId,
-        },
+        type: "nodeListRequest",
+        value: {},
       },
     })
 
     if (!response?.length) {
-      throw new Error("no/invalid response")
+      logger.warn("no/invalid response to node list request", {
+        from: sourceNodeId,
+      })
+      return []
     }
 
-    return response
+    const nodeList = nodeListResponse.parseOrThrow(response)
+
+    return nodeList
+  }
+
+  const registerWithNode = (targetNodeId: NodeId, ourNodeInfo: Uint8Array) => {
+    reactor.use(SendPeerMessageActor).tell("send", {
+      destination: targetNodeId,
+      message: {
+        type: "registration",
+        value: {
+          nodeInfo: {
+            bytes: ourNodeInfo,
+          },
+        },
+      },
+    })
   }
 
   return createActor((sig) => {
-    const nodeDiscoveryQueue = sig.use(NodeDiscoveryQueueStore)
+    const environmentConfig = sig.use(EnvironmentConfigSignal)
+    const nodeTable = sig.use(NodeTableStore)
+    const ownNodeId = sig.get(NodeIdSignal)
 
-    const discoverNodeTick = async () => {
+    const discoverNodesTick = async () => {
       try {
-        await discoverNode()
+        await discoverNodes()
       } catch (error) {
         logger.error("node discovery failed", { error })
       }
-      sig.timeout(discoverNodeTick, NODE_DISCOVERY_INTERVAL)
+      sig.timeout(discoverNodesTick, NODE_DISCOVERY_INTERVAL)
     }
 
-    const discoverNode = async () => {
-      const [nextNode] = nodeDiscoveryQueue.read()
+    const discoverNodes = async () => {
+      const { bootstrapNodes } = environmentConfig.read()
 
-      if (!nextNode) return
+      const bootstrapNodeIds = bootstrapNodes.map((node) => node.nodeId)
 
-      const [nodeId, referrerNodeId] = nextNode
+      const promises = bootstrapNodeIds.map((nodeId) => loadNodeList(nodeId))
 
-      logger.debug("discovering node", { nodeId, referrerNodeId })
+      const nodeLists = await Promise.all(promises)
 
-      nodeDiscoveryQueue.removeNode(nodeId)
+      const nodeListCount = nodeLists.length
 
-      // Send a peer discovery request
-      const linkState = await queryLinkState(referrerNodeId, nodeId)
+      const latestNodeInfoMap = new Map<
+        NodeId,
+        (typeof nodeLists)[number][number]
+      >()
+      const nodeAppearanceCountMap = new Map<NodeId, number>()
 
-      const { signed } = signedPeerNodeInfo.parseOrThrow(linkState)
+      const bootstrapNodesWhoDontKnowUs = new Set<NodeId>()
 
-      const { neighbors, settlementSchemes } = parseLinkStateEntries(
-        signed.entries,
-      )
-
-      const nodeTable = sig.use(NodeTableStore)
-
-      const node = nodeTable.read().get(nodeId)
-      if (node) {
-        if (node.linkState.sequence < signed.sequence) {
-          nodeTable.updateNode(nodeId, {
-            linkState: {
-              sequence: signed.sequence,
-              lastUpdate: linkState,
-              updateReceivedCounter: 0,
-              scheduledRetransmitTime: 0,
-              neighbors,
-              settlementSchemes,
+      for (const [bootstrapNodeIndex, nodeList] of nodeLists.entries()) {
+        let foundOurselves = false
+        for (const node of nodeList) {
+          const {
+            value: {
+              signed: { nodeId, sequence },
             },
-          })
+          } = node
+
+          if (nodeId === ownNodeId) {
+            foundOurselves = true
+          }
+
+          nodeAppearanceCountMap.set(
+            nodeId,
+            (nodeAppearanceCountMap.get(nodeId) ?? 0) + 1,
+          )
+
+          const latestNode = latestNodeInfoMap.get(nodeId)
+
+          if (!latestNode || latestNode.value.signed.sequence < sequence) {
+            latestNodeInfoMap.set(nodeId, node)
+          }
         }
-      } else {
-        nodeTable.addNode({
-          nodeId,
-          url: signed.url,
-          alias: signed.alias,
-          nodePublicKey: signed.nodePublicKey,
-          linkState: {
-            sequence: signed.sequence,
-            lastUpdate: linkState,
-            updateReceivedCounter: 0,
-            scheduledRetransmitTime: 0,
-            neighbors,
-            settlementSchemes,
-          },
-          peerState: { id: "none" },
-        })
+
+        if (!foundOurselves) {
+          bootstrapNodesWhoDontKnowUs.add(bootstrapNodeIds[bootstrapNodeIndex]!)
+        }
+      }
+
+      for (const [nodeId, node] of latestNodeInfoMap) {
+        const nodeCount = nodeAppearanceCountMap.get(nodeId) ?? 0
+        if (nodeCount > nodeListCount / 2) {
+          const {
+            value: { signed },
+            bytes: linkState,
+          } = node
+
+          const { neighbors, settlementSchemes } = parseLinkStateEntries(
+            signed.entries,
+          )
+
+          if (!nodeTable.read().has(nodeId)) {
+            logger.debug("adding node by majority of bootstrap nodes", {
+              nodeId,
+              nodeCount,
+            })
+            nodeTable.addNode({
+              nodeId,
+              url: signed.url,
+              alias: signed.alias,
+              nodePublicKey: signed.nodePublicKey,
+              linkState: {
+                sequence: signed.sequence,
+                lastUpdate: linkState,
+                updateReceivedCounter: 0,
+                scheduledRetransmitTime: 0,
+                neighbors,
+                settlementSchemes,
+              },
+              peerState: { id: "none" },
+            })
+          }
+        }
+      }
+
+      for (const bootstrapNodeId of bootstrapNodesWhoDontKnowUs) {
+        const ourNodeInfo = nodeTable.read().get(ownNodeId)?.linkState
+          .lastUpdate
+
+        if (ourNodeInfo) {
+          registerWithNode(bootstrapNodeId, ourNodeInfo)
+        }
       }
     }
 
-    void discoverNodeTick()
+    void discoverNodesTick()
   })
 }

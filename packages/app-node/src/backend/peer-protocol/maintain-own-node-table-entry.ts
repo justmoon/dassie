@@ -1,4 +1,5 @@
 import { createActor } from "@dassie/lib-reactive"
+import { bigIntMax } from "@dassie/lib-type-utils"
 
 import { DatabaseConfigStore } from "../config/database-config"
 import { NodePublicKeySignal } from "../crypto/computed/node-public-key"
@@ -31,7 +32,12 @@ export const MaintainOwnNodeTableEntryActor = () =>
       ownNodeTableEntry == null ||
       !compareSetToArray(peers, ownNodeTableEntry.linkState.neighbors)
     ) {
-      const sequence = BigInt(Date.now())
+      // Sequence is the current time in milliseconds since 1970 but must be
+      // greater than the previous sequence number
+      const sequence = bigIntMax(
+        BigInt(Date.now()),
+        (ownNodeTableEntry?.linkState.sequence ?? 0n) + 1n,
+      )
       const peerIds = [...peers]
       const settlementSchemeIds = [...settlementSchemes]
 

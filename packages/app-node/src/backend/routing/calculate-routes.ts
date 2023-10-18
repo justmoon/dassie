@@ -5,7 +5,6 @@ import { assertDefined } from "@dassie/lib-type-utils"
 
 import { IlpAllocationSchemeSignal } from "../config/computed/ilp-allocation-scheme"
 import { NodeIdSignal } from "../ilp-connector/computed/node-id"
-import { NodeDiscoveryQueueStore } from "../peer-protocol/stores/node-discovery-queue"
 import { NodeTableStore } from "../peer-protocol/stores/node-table"
 import { NodeId } from "../peer-protocol/types/node-id"
 import { RoutingTableSignal } from "./signals/routing-table"
@@ -66,11 +65,6 @@ export const CalculateRoutesActor = () =>
           if (neighbor) {
             queue.push(neighbor)
             queueSet.add(neighborId)
-          } else {
-            // We came across a node in the graph that we don't know. Let's ask someone about it.
-            sig
-              .use(NodeDiscoveryQueueStore)
-              .addNode(neighborId, currentNode.nodeId)
           }
         }
       }
