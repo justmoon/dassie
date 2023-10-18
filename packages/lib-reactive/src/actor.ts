@@ -243,7 +243,10 @@ class ActorImplementation<TInstance, TProperties>
         this[FactoryNameSymbol],
         actorPath,
         reactor,
-        this.waker.resolve,
+        () => {
+          this.cacheStatus = CacheStatus.Dirty
+          this.waker.resolve()
+        },
         (signal) => {
           this.isReadingSource = true
           const value = signal.read()

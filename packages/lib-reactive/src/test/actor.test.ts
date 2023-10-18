@@ -3,7 +3,13 @@ import { afterEach, beforeEach, describe, test, vi } from "vitest"
 
 import { setTimeout } from "node:timers/promises"
 
-import { ActorContext, createActor, createReactor, createSignal } from ".."
+import {
+  ActorContext,
+  createActor,
+  createReactor,
+  createSignal,
+  createTopic,
+} from ".."
 
 describe("createActor", () => {
   beforeEach(() => {
@@ -272,6 +278,28 @@ describe("createActor", () => {
           draft.a = 2
         }),
       )
+
+      await setTimeout()
+
+      expect(behavior).toHaveBeenCalledTimes(2)
+    })
+
+    test("should re-run actor on subscribed topic message", async ({
+      expect,
+    }) => {
+      const topic = createTopic<void>()
+
+      const behavior = vi.fn((sig: ActorContext) => {
+        sig.subscribe(topic)
+      })
+
+      const Actor = () => createActor(behavior)
+
+      createReactor(Actor)
+
+      expect(behavior).toHaveBeenCalledTimes(1)
+
+      topic.emit()
 
       await setTimeout()
 
