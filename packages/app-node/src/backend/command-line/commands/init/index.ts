@@ -83,6 +83,7 @@ export const initCommand = (reactor: Reactor) =>
           confirm({
             title:
               "An existing TLS certificate was found, would you like to skip ACME/LetsEncrypt setup?",
+            initialValue: true,
           }),
         )
 
