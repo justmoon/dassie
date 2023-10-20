@@ -57,7 +57,7 @@ export const initCommand = (reactor: Reactor) =>
       const domain = await flow.interact(
         text({
           title: "What is the publicly accessible domain name of this host?",
-          initialValue: currentConfig.hostname,
+          initialValue: currentConfig.hostname ?? "",
         }),
       )
 

@@ -8,7 +8,6 @@ import { Database } from "../database/open-database"
 export interface Config {
   readonly realm: (typeof VALID_REALMS)[number]
 
-  readonly hostname: string
   readonly httpPort: number
   readonly httpsPort: number
   readonly alias: string
@@ -18,6 +17,7 @@ export interface Config {
   readonly exchangeRateUrl: string
   readonly internalAmountPrecision: number
 
+  readonly hostname: string | undefined
   readonly tlsWebCert: string | undefined
   readonly tlsWebKey: string | undefined
 
@@ -38,10 +38,10 @@ export const hasNodeIdentity = (
 
 const loadInitialConfig = (database: ReturnType<typeof Database>): Config => {
   const configRealm = database.scalars.configRealm.get() ?? "test"
-  const configHostname = database.scalars.configHostname.get() ?? "localhost"
+  const configHostname = database.scalars.configHostname.get()
   const configHttpPort = database.scalars.configHttpPort.get() ?? 80
   const configHttpsPort = database.scalars.configHttpsPort.get() ?? 443
-  const configAlias = database.scalars.configAlias.get() ?? "anonymous"
+  const configAlias = database.scalars.configAlias.get() ?? ""
   const configEnableHttpServer =
     database.scalars.configEnableHttpServer.get() ?? true
   const configTlsWebCert = database.scalars.configTlsWebCert.get()
