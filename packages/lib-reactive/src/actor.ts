@@ -141,6 +141,11 @@ export interface RunOptions {
    * A string that will be used to prefix the debug log messages related to this actor.
    */
   pathPrefix?: string | undefined
+
+  /**
+   * An alternative name to use for the Actor in the debug log messages.
+   */
+  overrideName?: string | undefined
 }
 
 class ActorImplementation<TInstance, TProperties>
@@ -188,18 +193,17 @@ class ActorImplementation<TInstance, TProperties>
     reactor: Reactor,
     lifecycle: LifecycleScope,
     properties?: TProperties,
-    { additionalDebugData, pathPrefix }: RunOptions = {},
+    { additionalDebugData, pathPrefix, overrideName }: RunOptions = {},
   ) {
     if (this.isRunning) {
       throw new Error(`actor is already running: ${this[FactoryNameSymbol]}`)
     }
 
-    const actorPath = pathPrefix
-      ? `${pathPrefix}${this[FactoryNameSymbol]}`
-      : this[FactoryNameSymbol]
+    const actorName = overrideName ?? this[FactoryNameSymbol] ?? "Anonymous"
+    const actorPath = pathPrefix ? `${pathPrefix}${actorName}` : actorName
 
     Object.defineProperty(this.behavior, "name", {
-      value: actorPath,
+      value: actorName,
       writable: false,
     })
 
@@ -265,7 +269,11 @@ class ActorImplementation<TInstance, TProperties>
         const previousSources = this.sources
         this.sources = new Set()
         this.setCacheStatus(CacheStatus.Clean)
-        const actorReturn = this.behavior(context, properties)
+
+        // This prevents "ActorImplementation." from showing up in the stack trace
+        const behavior = this.behavior
+
+        const actorReturn = behavior(context, properties)
 
         // Synchronously store the result of the actor's behavior function
         this.result = actorReturn

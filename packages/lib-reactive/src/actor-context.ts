@@ -2,6 +2,7 @@ import { Promisable } from "type-fest"
 
 import { isObject } from "@dassie/lib-type-utils"
 
+import { FactoryNameSymbol } from "."
 import type { Actor, RunOptions } from "./actor"
 import { Listener } from "./internal/emit-to-listener"
 import {
@@ -304,7 +305,10 @@ export class ActorContext extends DisposableLifecycleScopeImplementation {
   ) {
     return this.reactor
       .use(factory, { stateless: properties !== undefined })
-      .run(this.reactor, this, properties!, options)
+      .run(this.reactor, this, properties!, {
+        pathPrefix: `${this.path}.`,
+        ...options,
+      })
   }
 
   /**
@@ -322,19 +326,29 @@ export class ActorContext extends DisposableLifecycleScopeImplementation {
     const mapped = this.use(factory)
     const results: (TReturn | undefined)[] = Array.from({ length: mapped.size })
 
+    const runOptions: RunOptions = {
+      pathPrefix: `${this.path}.`,
+      overrideName: `${mapped[FactoryNameSymbol] ?? "anonymous"}[]`,
+    }
+
     let index = 0
     for (const [, actor, mapLifecycle] of mapped) {
       const actorLifecycle = new DisposableLifecycleScopeImplementation("")
       actorLifecycle.attachToParent(mapLifecycle)
       actorLifecycle.attachToParent(this)
-      results[index++] = actor.run(this.reactor, actorLifecycle)
+      results[index++] = actor.run(
+        this.reactor,
+        actorLifecycle,
+        undefined,
+        runOptions,
+      )
     }
 
     mapped.additions.on(this, ([, actor, mapLifecycle]) => {
       const actorLifecycle = new DisposableLifecycleScopeImplementation("")
       actorLifecycle.attachToParent(mapLifecycle)
       actorLifecycle.attachToParent(this)
-      actor.run(this.reactor, actorLifecycle)
+      actor.run(this.reactor, actorLifecycle, undefined, runOptions)
     })
 
     return results
