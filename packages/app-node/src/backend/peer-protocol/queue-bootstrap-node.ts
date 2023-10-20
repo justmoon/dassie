@@ -1,5 +1,3 @@
-import { hexToBytes } from "@noble/hashes/utils"
-
 import { createActor } from "@dassie/lib-reactive"
 
 import { EnvironmentConfigSignal } from "../config/environment-config"
@@ -23,12 +21,17 @@ export const QueueBootstrapNodesActor = () =>
     for (const candidate of candidates) {
       const node = nodes.get(candidate.nodeId)
 
+      const publicKeyBuffer = Buffer.from(candidate.nodePublicKey, "base64url")
       if (!node) {
         sig.use(NodeTableStore).addNode({
           nodeId: candidate.nodeId,
           url: candidate.url,
           alias: candidate.alias,
-          nodePublicKey: hexToBytes(candidate.nodePublicKey),
+          nodePublicKey: new Uint8Array(
+            publicKeyBuffer.buffer,
+            publicKeyBuffer.byteOffset,
+            publicKeyBuffer.byteLength,
+          ),
           linkState: {
             sequence: 0n,
             lastUpdate: undefined,

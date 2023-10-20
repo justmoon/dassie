@@ -58,7 +58,7 @@ export const nodeIndexToPrivateKeyPem = (index: number) => {
     PRIVATE_KEY_HEADER +
     splitStringIntoChunks(
       Buffer.concat([derPreamble, key]).toString("base64"),
-      OPENSSL_ASCII_CHUNK_SIZE
+      OPENSSL_ASCII_CHUNK_SIZE,
     ).join("\n") +
     PRIVATE_KEY_FOOTER
   )
@@ -84,7 +84,7 @@ export const nodeFriendlyIdToIndex = (id: string) => {
 export const nodeIndexToSessionToken = (index: number) => {
   const seed = nodeIndexToSeed(index)
   return calculatePathHmac(seed, SEED_PATH_DEV_SESSION).toString(
-    "hex"
+    "hex",
   ) as SessionToken
 }
 
@@ -120,7 +120,7 @@ const PEER_SELECTION_BASE_SEED = 0xa3_e5_ef_27
 
 const selectPeers = (nodeIndex: number) => {
   const generator = pureRand.xoroshiro128plus(
-    PEER_SELECTION_BASE_SEED + nodeIndex
+    PEER_SELECTION_BASE_SEED + nodeIndex,
   )
 
   const peers = new Set<number>()
@@ -132,14 +132,14 @@ const selectPeers = (nodeIndex: number) => {
   const peerCount = pureRand.unsafeUniformIntDistribution(
     1,
     MAX_PEERS,
-    generator
+    generator,
   )
 
   for (let index = 0; index < peerCount; index++) {
     const peerIndex = pureRand.unsafeUniformIntDistribution(
       0,
       nodeIndex - 1,
-      generator
+      generator,
     )
     peers.add(peerIndex)
   }
@@ -150,7 +150,7 @@ const selectPeers = (nodeIndex: number) => {
 export const generatePeerInfo = (peerIndex: number) => ({
   nodeId: nodeIndexToId(peerIndex),
   url: `https://${nodeIndexToFriendlyId(peerIndex)}.localhost:${nodeIndexToPort(
-    peerIndex
+    peerIndex,
   )}`,
   alias: nodeIndexToFriendlyId(peerIndex),
   nodePublicKey: nodeIndexToPublicKey(peerIndex),
@@ -178,15 +178,15 @@ export const generateNodeConfig = ((id, environmentSettings) => {
     tlsWebKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost-key.pem`,
     sessionToken: nodeIndexToSessionToken(index),
     bootstrapNodes: BOOTSTRAP_NODES.map((peerIndex) =>
-      generatePeerInfo(peerIndex)
+      generatePeerInfo(peerIndex),
     ).map((peerInfo) => ({
       ...peerInfo,
-      nodePublicKey: Buffer.from(peerInfo.nodePublicKey).toString("hex"),
+      nodePublicKey: Buffer.from(peerInfo.nodePublicKey).toString("base64url"),
     })),
     url: `https://${id}.localhost:${port}/`,
     entry: ENTRYPOINT,
   } as const
 }) satisfies (
   id: string,
-  environmentSettings: EnvironmentSettings
+  environmentSettings: EnvironmentSettings,
 ) => BaseNodeConfig
