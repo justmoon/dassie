@@ -18,9 +18,9 @@ export const CreateFirstAccount = () => {
     },
   })
 
-  const onSelectNullSubnet = useCallback(() => {
+  const onSelectStubSettlement = useCallback(() => {
     addSettlementScheme.mutate({
-      id: "null",
+      id: "stub",
       config: {},
     })
   }, [addSettlementScheme])
@@ -47,7 +47,7 @@ export const CreateFirstAccount = () => {
             />
             <a href="#">
               <h5 className="mb-2 text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">
-                Null Settlement
+                Stub Settlement
               </h5>
             </a>
             <p className="mb-3 font-normal text-gray-500 dark:text-gray-400">
@@ -55,7 +55,7 @@ export const CreateFirstAccount = () => {
               actually connect to any external ledger.
             </p>
             <Button
-              onClick={onSelectNullSubnet}
+              onClick={onSelectStubSettlement}
               disabled={addSettlementScheme.isLoading}
             >
               Select{" "}
