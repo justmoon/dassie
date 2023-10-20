@@ -4,6 +4,7 @@ import { ZodTypeAny, z } from "zod"
 import { createSignal } from "@dassie/lib-reactive"
 
 import { DEV_SECURITY_TOKEN_LENGTH } from "../../common/constants/general"
+import { DEFAULT_BOOTSTRAP_NODES } from "../constants/bootstrap-nodes"
 import { APP_NAME, VALID_REALMS } from "../constants/general"
 import { nodeIdSchema } from "./schemas/node-id"
 import { EnvironmentVariables } from "./types/environment-variables"
@@ -78,7 +79,7 @@ export function fromEnvironment(): Config {
     bootstrapNodes: parseConfigOptionWithSchema(
       "DASSIE_BOOTSTRAP_NODES",
       bootstrapNodesSchema,
-      [],
+      DEFAULT_BOOTSTRAP_NODES,
     ),
     devSecurityToken: environment.DASSIE_DEV_SECURITY_TOKEN ?? false,
   }
