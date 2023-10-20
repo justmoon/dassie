@@ -13,12 +13,6 @@ const stub = {
   realm: "test",
 
   behavior: () => {
-    if (process.env["NODE_ENV"] === "production") {
-      throw new Error(
-        'The "stub" settlement scheme cannot be used in production'
-      )
-    }
-
     return {
       settle: ({ peerId, amount }) => {
         console.info(`Sending settlement for ${amount} units to ${peerId}`)
