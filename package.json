@@ -4,7 +4,7 @@
   "description": "Root package of the Dassie monorepo",
   "scripts": {
     "clean": "pnpm -r clean",
-    "build": "docker build --file=packages/app-build/resources/docker/builder/Dockerfile --build-arg=NODE_VERSION=$(tail -c +2 .node-version) --tag=builder:latest . && docker run --tty --rm --volume=$(pwd)/dist:/app/dist --volume=$(pwd)/.git:/app/.git:ro builder",
+    "build": "docker build --file=packages/app-build/resources/docker/builder/Dockerfile --build-arg=NODE_VERSION=$(tail -c +2 .node-version) --tag=dassie-builder:latest . && docker run --tty --rm --volume=$(pwd)/dist:/app/dist --volume=$(pwd)/.git:/app/.git:ro dassie-builder",
     "build:web": "pnpm --filter=app-website build",
     "start": "node packages/app-dev/bin/start-development-server.js",
     "test": "vitest",
