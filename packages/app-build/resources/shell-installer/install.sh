@@ -8,6 +8,7 @@ main() {
 
   : "${DASSIE_MIRROR_URL:="https://get.dassie.land"}"
   : "${DASSIE_VERSION:="latest"}"
+  DASSIE_ACTION="install"
 
   # Gather information about the system
   # ----------------------------------------------------------------------------
@@ -20,6 +21,63 @@ main() {
 
   HAS_COLOR="$(supports_color "$IS_TTY")"
 
+  # Parse command-line options
+  # ----------------------------------------------------------------------------
+
+  shift
+  while [ -n "${1-}" ]; do
+    case "$1" in
+      -h | -\? | --help)
+        show_help
+        exit 1
+        ;;
+      -t | --target) # Specify target version
+        if [ -n "${2-}" ]; then
+          DASSIE_VERSION="$2"
+          shift
+        else
+          error "E_SYNTAX" "--target requires a non-empty option argument."
+        fi
+        ;;
+      --target=*)
+        DASSIE_VERSION="${1#*=}"
+        ;;
+      -m | --mirror) # Specify Dassie mirror URL
+        if [ -n "${2-}" ]; then
+          DASSIE_MIRROR_URL="$2"
+          shift
+        else
+          error "E_SYNTAX" "--mirror requires a non-empty option argument."
+        fi
+        ;;
+      --mirror=*)
+        DASSIE_MIRROR_URL="${1#*=}"
+        ;;
+      install)
+        DASSIE_ACTION="install"
+        ;;
+      uninstall)
+        DASSIE_ACTION="uninstall"
+        ;;
+      *)
+        error "E_SYNTAX" "Unknown option: ${1-}"
+        ;;
+    esac
+
+    shift
+  done
+
+  case "$DASSIE_ACTION" in
+    install)
+      install
+      ;;
+    uninstall)
+      uninstall
+      ;;
+  esac
+}
+
+install() {
   echo ""
   echo "$(color "0;1;7;34") Dassie Installer $(color "0")"
 
@@ -57,17 +115,7 @@ main() {
   esac
 
   # Check that systemd is installed and running
-  if ! quiet command -v systemctl; then
-    error "E_SYSTEMD_REQUIRED" "Systemd is required to run Dassie."
-  fi
-
-  case "$(systemctl is-system-running)" in
-    running | degraded)
-      ;;
-    *)
-      error "E_SYSTEMD_NOT_RUNNING" "Systemd is not running."
-      ;;
-  esac
+  verify_systemd
 
   # Check that at least one of curl or wget are installed
   if ! quiet command -v curl && ! quiet command -v wget; then
@@ -189,6 +237,34 @@ main() {
   echo ""
 }
 
+uninstall() {
+  echo ""
+  echo "$(color "0;1;7;34") Dassie Uninstaller $(color "0")"
+
+  # Check that systemd is installed and running
+  verify_systemd
+
+  step "Stopping systemd units..."
+  run_root systemctl stop dassie.service dassie-http.socket dassie-https.socket dassie-ipc.socket \
+    || error "E_SYSTEMD_SERVICE_STOP_FAILED" "Failed to stop systemd units."
+
+  step "Disabling systemd units..."
+  run_root systemctl disable dassie.service dassie-http.socket dassie-https.socket dassie-ipc.socket dassie-update.timer \
+    || error "E_SYSTEMD_SERVICE_DISABLE_FAILED" "Failed to disable systemd units."
+
+  step "Removing systemd units..."
+  run_root rm -f /etc/systemd/system/dassie.service /etc/systemd/system/dassie-http.socket /etc/systemd/system/dassie-https.socket /etc/systemd/system/dassie-ipc.socket /etc/systemd/system/dassie-update.timer \
+    || error "E_SYSTEMD_SERVICE_REMOVE_FAILED" "Failed to remove systemd units."
+
+  step "Reloading systemd configuration..."
+  run_root systemctl daemon-reload \
+    || error "E_SYSTEMD_DAEMON_RELOAD_FAILED" "Failed to reload systemd configuration."
+
+  step "Removing Dassie installation..."
+  run_root rm -rf /opt/dassie \
+    || error "E_BUNDLE_REMOVE_FAILED" "Failed to remove Dassie installation."
+}
+
 supports_color() {
   IS_TTY="$1"
 
@@ -231,6 +307,19 @@ supports_color() {
   echo 0
 }
 
+verify_systemd() {
+  if ! quiet command -v systemctl; then
+    error "E_SYSTEMD_REQUIRED" "Systemd is required to run Dassie."
+  fi
+
+  case "$(systemctl is-system-running)" in
+    running | degraded) ;;
+    *)
+      error "E_SYSTEMD_NOT_RUNNING" "Systemd is not running."
+      ;;
+  esac
+}
+
 # Print a CSI ANSI escape sequence
 color() {
   if [ "$HAS_COLOR" = "1" ]; then
@@ -240,6 +329,28 @@ color() {
 
 to_lowercase() {
   echo "$1" | tr '[:upper:]' '[:lower:]'
+}
+
+show_help() {
+  echo "Usage: curl --tlsv1.2 -sSf https://sh.dassie.land | sh -s -- [options] [command]"
+  echo ""
+  echo "Options:"
+  echo "  -h, --help               Show this help message"
+  echo "  -t, --target <version>   Specify target version (default: latest)"
+  echo "  -m, --mirror <url>       Specify Dassie mirror URL"
+  echo "                           (default: https://get.dassie.land)"
+  echo ""
+  echo "Commands:"
+  echo "  install                  Install Dassie (default)"
+  echo "  uninstall                Uninstall Dassie"
+  echo ""
+  echo "Examples:"
+  echo "  curl --tlsv1.2 -sSf https://sh.dassie.land | sh"
+  echo "  curl --tlsv1.2 -sSf https://sh.dassie.land | sh -s -- --target 1.0.0"
+  echo "  curl --tlsv1.2 -sSf https://sh.dassie.land | sh -s -- --target latest"
+  echo "  curl --tlsv1.2 -sSf https://sh.dassie.land | sh -s -- -m https://example.com"
+  echo "  curl --tlsv1.2 -sSf https://sh.dassie.land | sh -s -- uninstall"
+  echo ""
 }
 
 # Print an error message and exit
