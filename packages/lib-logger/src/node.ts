@@ -15,6 +15,14 @@ context.output = (logEvent) => {
 }
 
 const WORKING_DIRECTORY = `${process.cwd()}/`
+// In Node.js, stack frames with a name have the callsite in parentheses at
+// the end. Stack frames without a name are just "    at " followed by the
+// callsite.
+const getCallsite = (stackLine: string) =>
+  stackLine.endsWith(")")
+    ? stackLine.match(/\((.*)\)$/)?.[1]
+    : stackLine.match(/^\s*at\s+(.+)$/)?.[1]
+
 context.getCaller = (depth, error) => {
   const stackLine = error.stack
     ?.split("\n")
@@ -22,12 +30,9 @@ context.getCaller = (depth, error) => {
 
   if (!stackLine) return undefined
 
-  const filePathMatch = stackLine
-    .match(/\((.*)\)$/)?.[1]
+  return getCallsite(stackLine)
     ?.replace("file://", "")
     .replace(WORKING_DIRECTORY, "")
-
-  return filePathMatch
 }
 
 context.captureCaller = import.meta.env.DEV
