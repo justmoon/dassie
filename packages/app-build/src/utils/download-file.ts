@@ -3,7 +3,7 @@ import axios from "axios"
 import { createHash } from "node:crypto"
 import { createReadStream, createWriteStream } from "node:fs"
 import { copyFile, mkdir, unlink } from "node:fs/promises"
-import { resolve } from "node:path"
+import { basename, resolve } from "node:path"
 import { pipeline } from "node:stream/promises"
 
 import { VERIFIED_HASHES } from "../constants/hashes"
@@ -11,12 +11,30 @@ import { PATH_CACHE } from "../constants/paths"
 
 export const downloadFile = async (
   url: string,
-  localDestinationPath: string
+  localDestinationPath: string,
 ) => {
   const hash = VERIFIED_HASHES[url]
 
   if (!hash) {
     throw new Error(`No trusted hash available for URL: ${url}`)
+  }
+
+  const predownloadPath = process.env["DASSIE_BUILD_BINARY_DEPENDENCIES_PATH"]
+  if (predownloadPath) {
+    const predownloadFilePath = resolve(predownloadPath, basename(url))
+
+    try {
+      const hasher = createHash("sha256")
+      await pipeline(createReadStream(predownloadFilePath), hasher)
+      const hashResult = hasher.digest("hex")
+
+      if (hashResult === hash) {
+        await copyFile(predownloadFilePath, localDestinationPath)
+        return
+      }
+    } catch {
+      // Ignore errors
+    }
   }
 
   await mkdir(PATH_CACHE, { recursive: true })

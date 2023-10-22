@@ -3,6 +3,19 @@ ARG NODE_VERSION
 FROM node:${NODE_VERSION} AS base
 
 WORKDIR /app
+
+ADD packages/app-build/resources/binaries/binary-dependencies.txt .
+
+ENV DASSIE_BUILD_BINARY_DEPENDENCIES_PATH="/opt/binaries"
+RUN set -xe \
+  && mkdir -p "$DASSIE_BUILD_BINARY_DEPENDENCIES_PATH" \
+  && cd "$DASSIE_BUILD_BINARY_DEPENDENCIES_PATH" \
+  && while IFS=" " read -r url hash; do \
+       filename="$(basename "$url")"; \
+       curl -L -o "$filename" "$url"; \
+       echo "$hash $filename" | sha256sum -c -; \
+     done < /app/binary-dependencies.txt
+
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable && corepack prepare pnpm@8.6.8 --activate
