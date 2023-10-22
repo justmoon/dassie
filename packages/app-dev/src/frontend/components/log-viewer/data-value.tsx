@@ -112,16 +112,16 @@ export const DataValue = ({ keyName, content }: DataValueProperties) => {
   return keyName ? (
     <span
       onClick={onClick}
-      className={`bg-dark-100 rounded-1 text-xs mx-1 px-1 inline-block cursor-pointer`}
+      className={`bg-dark-100 rounded-1 text-xs px-1 inline-block cursor-pointer`}
     >
-      <span className="font-sans text-gray-3 italic">{keyName}=</span>
+      <span className="font-sans text-gray-3">{keyName}=</span>
       <span style={{ color: typeInfo.color }}>{value}</span>
     </span>
   ) : (
     <span
       onClick={onClick}
       style={{ color: typeInfo.color }}
-      className={`bg-dark-100 rounded-1 text-xs mx-1 px-1 inline-block cursor-pointer`}
+      className={`bg-dark-100 rounded-1 text-xs px-1 inline-block cursor-pointer`}
     >
       {value}
     </span>

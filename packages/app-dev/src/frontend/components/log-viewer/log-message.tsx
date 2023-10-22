@@ -1,5 +1,6 @@
 /* eslint-disable unicorn/prefer-code-point */
 import Anser from "anser"
+import { Fragment } from "react"
 
 import { isError } from "@dassie/lib-logger"
 import { isObject } from "@dassie/lib-type-utils"
@@ -74,7 +75,7 @@ export const LogMessage = ({ message, parameters }: ParseLogParameters) => {
     const parameter = remainingParameters.shift()
     elements.push(
       ...parseAnsi(unique++, message.slice(lastChunkEnd, index)),
-      <DataValue key={unique++} content={parameter} />
+      <DataValue key={unique++} content={parameter} />,
     )
     lastChunkEnd = index + 2
   }
@@ -100,8 +101,11 @@ export const LogMessage = ({ message, parameters }: ParseLogParameters) => {
     elements.push(
       ...parseAnsi(unique++, message.slice(lastChunkEnd, message.length)),
       ...Object.entries(primaryObject).map(([key, value]) => (
-        <DataValue key={key} keyName={key} content={value} />
-      ))
+        <Fragment key={key}>
+          {" "}
+          <DataValue keyName={key} content={value} />
+        </Fragment>
+      )),
     )
 
     if (error) {
@@ -112,8 +116,11 @@ export const LogMessage = ({ message, parameters }: ParseLogParameters) => {
     elements.push(
       ...parseAnsi(unique++, message.slice(lastChunkEnd, message.length)),
       ...remainingParameters.map((parameter) => (
-        <DataValue key={unique++} content={parameter} />
-      ))
+        <Fragment key={unique++}>
+          {" "}
+          <DataValue content={parameter} />
+        </Fragment>
+      )),
     )
   }
   return <>{elements}</>
