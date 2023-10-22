@@ -161,6 +161,10 @@ main() {
   run_root systemctl restart dassie.service \
     || error "E_SYSTEMD_SERVICE_START_FAILED" "Failed to start systemd service."
 
+  step "Cleaning up..."
+  run rm -rf "$TEMP_DIRECTORY" \
+    || error "E_CLEANUP_FAILED" "Failed to remove temporary directory."
+
   step "Verify Dassie installation..."
   run_root dassie verify-install \
     || error "E_SELF_TEST_FAILED" "Dassie installation verification failed. Please look for any error messages above to understand why it failed."
