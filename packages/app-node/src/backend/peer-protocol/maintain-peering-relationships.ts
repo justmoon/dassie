@@ -3,6 +3,7 @@ import { Reactor, createActor } from "@dassie/lib-reactive"
 import { NodeIdSignal } from "../ilp-connector/computed/node-id"
 import { peerProtocol as logger } from "../logger/instances"
 import { ActiveSettlementSchemesSignal } from "../settlement-schemes/signals/active-settlement-schemes"
+import { SendPeerMessageActor } from "./actors/send-peer-message"
 import { PeersSignal } from "./computed/peers"
 import { NodeTableStore } from "./stores/node-table"
 import { SettlementSchemeId } from "./types/settlement-scheme-id"
@@ -27,7 +28,9 @@ export const MaintainPeeringRelationshipsActor = (reactor: Reactor) =>
           return
         }
 
-        addPeer()
+        addPeer().catch((error: unknown) => {
+          logger.error("failed to add peer", { error })
+        })
       } catch (error) {
         logger.error("peer check failed", { error })
       }
@@ -35,9 +38,13 @@ export const MaintainPeeringRelationshipsActor = (reactor: Reactor) =>
       sig.timeout(checkPeers, PEERING_CHECK_INTERVAL)
     }
 
-    const addPeer = () => {
-      // TODO: This is slow but once we switch node table to an sqlite table, we'll be able to optimize it
+    const addPeer = async () => {
+      // TODO: This is slow but we will optimize it later
       const candidates = [...sig.use(NodeTableStore).read().values()]
+        .filter(
+          (node): node is typeof node & { linkState: object } =>
+            !!node.linkState,
+        )
         .map((candidate) => ({
           ...candidate,
           commonSettlementScheme: findCommonElement(
@@ -60,17 +67,41 @@ export const MaintainPeeringRelationshipsActor = (reactor: Reactor) =>
         candidates[Math.floor(Math.random() * candidates.length)]
 
       if (!randomNode) {
-        logger.debug("no valid candidates")
         return
       }
 
-      reactor.use(NodeTableStore).updateNode(randomNode.nodeId, {
-        peerState: {
-          id: "request-peering",
-          lastSeen: Date.now(),
-          settlementSchemeId: randomNode.commonSettlementScheme,
+      logger.debug(`sending peering request`, {
+        to: randomNode.nodeId,
+      })
+
+      const ownLinkState = sig.use(NodeTableStore).read().get(ownNodeId)
+        ?.linkState
+
+      if (!ownLinkState) {
+        logger.warn("node table does not contain own link state")
+        return
+      }
+
+      const response = await sig.use(SendPeerMessageActor).ask("send", {
+        destination: randomNode.nodeId,
+        message: {
+          type: "peeringRequest",
+          value: {
+            nodeInfo: ownLinkState.lastUpdate,
+            settlementSchemeId: randomNode.commonSettlementScheme,
+          },
         },
       })
+
+      if (response?.[0]) {
+        reactor.use(NodeTableStore).updateNode(randomNode.nodeId, {
+          peerState: {
+            id: "request-peering",
+            lastSeen: Date.now(),
+            settlementSchemeId: randomNode.commonSettlementScheme,
+          },
+        })
+      }
     }
 
     checkPeers()

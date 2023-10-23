@@ -19,11 +19,14 @@ export const RegisterStatisticsHttpHandlerActor = (reactor: Reactor) =>
 
           if (!node) return false
 
-          const { nodeId, url, nodePublicKey } = node
+          const { nodeId, linkState } = node
+
           return {
             nodeId,
-            url,
-            nodePublicKey: Buffer.from(nodePublicKey).toString("base64url"),
+            url: linkState?.url,
+            publicKey: linkState
+              ? Buffer.from(linkState.publicKey).toString("base64url")
+              : undefined,
           }
         })
         .filter(Boolean)

@@ -16,7 +16,7 @@ export const ForwardLinkStateUpdateActor = () =>
 
     for (const node of nodes.values()) {
       if (
-        node.linkState.lastUpdate &&
+        node.linkState &&
         node.linkState.updateReceivedCounter < COUNTER_THRESHOLD &&
         node.linkState.scheduledRetransmitTime < Date.now()
       ) {

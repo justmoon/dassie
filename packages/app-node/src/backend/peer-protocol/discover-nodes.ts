@@ -10,7 +10,7 @@ import { NodeTableStore } from "./stores/node-table"
 import { NodeId } from "./types/node-id"
 import { parseLinkStateEntries } from "./utils/parse-link-state-entries"
 
-const NODE_DISCOVERY_INTERVAL = 1000
+const NODE_DISCOVERY_INTERVAL = 10 * 1000
 
 export const DiscoverNodesActor = (reactor: Reactor) => {
   const loadNodeList = async (
@@ -67,7 +67,7 @@ export const DiscoverNodesActor = (reactor: Reactor) => {
     const discoverNodes = async () => {
       const { bootstrapNodes } = environmentConfig.read()
 
-      const bootstrapNodeIds = bootstrapNodes.map((node) => node.nodeId)
+      const bootstrapNodeIds = bootstrapNodes.map((node) => node.id)
 
       const promises = bootstrapNodeIds.map((nodeId) => loadNodeList(nodeId))
 
@@ -115,7 +115,10 @@ export const DiscoverNodesActor = (reactor: Reactor) => {
 
       for (const [nodeId, node] of latestNodeInfoMap) {
         const nodeCount = nodeAppearanceCountMap.get(nodeId) ?? 0
-        if (nodeCount > nodeListCount / 2) {
+        if (
+          bootstrapNodeIds.includes(nodeId) ||
+          nodeCount > nodeListCount / 2
+        ) {
           const {
             value: { signed },
             bytes: linkState,
@@ -126,18 +129,23 @@ export const DiscoverNodesActor = (reactor: Reactor) => {
           )
 
           if (!nodeTable.read().has(nodeId)) {
-            logger.debug("adding node by majority of bootstrap nodes", {
-              nodeId,
-              nodeCount,
-            })
+            logger.debug(
+              bootstrapNodeIds.includes(nodeId)
+                ? "adding bootstrap node to node table"
+                : "adding node by majority of bootstrap nodes",
+              {
+                nodeId,
+                nodeCount,
+              },
+            )
             nodeTable.addNode({
               nodeId,
-              url: signed.url,
-              alias: signed.alias,
-              nodePublicKey: signed.nodePublicKey,
               linkState: {
-                sequence: signed.sequence,
                 lastUpdate: linkState,
+                sequence: signed.sequence,
+                publicKey: signed.publicKey,
+                url: signed.url,
+                alias: signed.alias,
                 updateReceivedCounter: 0,
                 scheduledRetransmitTime: 0,
                 neighbors,
@@ -151,7 +159,7 @@ export const DiscoverNodesActor = (reactor: Reactor) => {
 
       for (const bootstrapNodeId of bootstrapNodesWhoDontKnowUs) {
         const ourNodeInfo = nodeTable.read().get(ownNodeId)?.linkState
-          .lastUpdate
+          ?.lastUpdate
 
         if (ourNodeInfo) {
           registerWithNode(bootstrapNodeId, ourNodeInfo)

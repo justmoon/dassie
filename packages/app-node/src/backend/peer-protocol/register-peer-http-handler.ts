@@ -55,10 +55,13 @@ export const RegisterPeerHttpHandlerActor = () =>
         const senderNode = sig.use(NodeTableStore).read().get(senderId)
 
         const isAuthenticated =
-          !!senderNode &&
+          !!senderNode?.linkState &&
           (senderNode.peerState.id === "peered" ||
             senderNode.peerState.id === "request-peering") &&
-          authenticatePeerMessage(senderNode.nodePublicKey, parseResult.value)
+          authenticatePeerMessage(
+            senderNode.linkState.publicKey,
+            parseResult.value,
+          )
 
         // Only certain messages are allowed to be sent anonymously
         if (

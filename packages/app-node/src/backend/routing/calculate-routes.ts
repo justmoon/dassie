@@ -38,7 +38,8 @@ export const CalculateRoutesActor = () =>
       const currentNodeInfo = nodeInfoMap.get(currentNode.nodeId)
       assertDefined(currentNodeInfo)
 
-      for (const neighborId of currentNode.linkState.neighbors) {
+      const neighbors = currentNode.linkState?.neighbors ?? []
+      for (const neighborId of neighbors) {
         const neighborInfo = nodeInfoMap.get(neighborId)
 
         if (neighborInfo) {

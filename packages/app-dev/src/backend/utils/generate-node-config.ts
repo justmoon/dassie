@@ -177,12 +177,15 @@ export const generateNodeConfig = ((id, environmentSettings) => {
     tlsWebCertFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost.pem`,
     tlsWebKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost-key.pem`,
     sessionToken: nodeIndexToSessionToken(index),
-    bootstrapNodes: BOOTSTRAP_NODES.map((peerIndex) =>
-      generatePeerInfo(peerIndex),
-    ).map((peerInfo) => ({
-      ...peerInfo,
-      nodePublicKey: Buffer.from(peerInfo.nodePublicKey).toString("base64url"),
-    })),
+    bootstrapNodes: BOOTSTRAP_NODES.map((peerIndex) => {
+      const peerInfo = generatePeerInfo(peerIndex)
+
+      return {
+        id: peerInfo.nodeId,
+        url: peerInfo.url,
+        publicKey: Buffer.from(peerInfo.nodePublicKey).toString("base64url"),
+      }
+    }),
     url: `https://${id}.localhost:${port}/`,
     entry: ENTRYPOINT,
   } as const

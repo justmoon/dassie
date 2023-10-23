@@ -16,28 +16,9 @@ export interface NodeTableEntry {
   readonly nodeId: NodeId
 
   /**
-   * Node's public key.
-   */
-  readonly nodePublicKey: Uint8Array
-
-  /**
-   * Node's publicly reachable URL.
-   */
-  readonly url: string
-
-  /**
-   * Node's human-readable alias.
-   *
-   * @remarks
-   *
-   * This alias is not verified and intended for debuggability only.
-   */
-  readonly alias: string
-
-  /**
    * Latest known state of the node's links.
    */
-  readonly linkState: LinkState
+  readonly linkState: LinkState | undefined
 
   /**
    * Current peering state between us and this node.
@@ -62,7 +43,31 @@ export interface LinkState {
   /**
    * Binary copy of the most recent link state update.
    */
-  readonly lastUpdate: Uint8Array | undefined
+  readonly lastUpdate: Uint8Array
+
+  /**
+   * Sequence number of the most recent link state update.
+   */
+  readonly sequence: bigint
+
+  /**
+   * Node's publicly reachable URL.
+   */
+  readonly url: string
+
+  /**
+   * Node's human-readable alias.
+   *
+   * @remarks
+   *
+   * This alias is not verified and intended for debuggability only.
+   */
+  readonly alias: string
+
+  /**
+   * Node's public key.
+   */
+  readonly publicKey: Uint8Array
 
   /**
    * List of the node's peers.
@@ -73,11 +78,6 @@ export interface LinkState {
    * List of the node's supported settlement schemes.
    */
   readonly settlementSchemes: readonly SettlementSchemeId[]
-
-  /**
-   * Sequence number of the most recent link state update.
-   */
-  readonly sequence: bigint
 
   /**
    * How many times has the most recent link state update been received?
@@ -105,21 +105,7 @@ export const NodeTableStore = (reactor: Reactor) => {
   for (const row of result) {
     initialNodesMap.set(row.id as NodeId, {
       nodeId: row.id as NodeId,
-      nodePublicKey: new Uint8Array(
-        row.public_key.buffer,
-        row.public_key.byteOffset,
-        row.public_key.byteLength,
-      ),
-      url: row.url,
-      alias: row.alias,
-      linkState: {
-        lastUpdate: undefined,
-        neighbors: [],
-        settlementSchemes: [],
-        sequence: 0n,
-        updateReceivedCounter: 0,
-        scheduledRetransmitTime: 0,
-      },
+      linkState: undefined,
       peerState: row.node
         ? {
             id: "peered",

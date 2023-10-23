@@ -23,10 +23,9 @@ export interface Config {
 
 export const bootstrapNodesSchema = z.array(
   z.object({
-    nodeId: nodeIdSchema,
+    id: nodeIdSchema,
     url: z.string(),
-    alias: z.string(),
-    nodePublicKey: z.string(),
+    publicKey: z.string(),
   }),
 )
 

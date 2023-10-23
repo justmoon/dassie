@@ -46,13 +46,17 @@ export const peerNodeInfo = sequence({
   sequence: uint64Bigint(),
   url: visibleString(),
   alias: utf8String(),
-  nodePublicKey: octetString(),
+  publicKey: octetString(),
   entries: sequenceOf(nodeInfoEntry),
+})
+
+export const signaturePackage = choice({
+  ed25519: octetString(64).tag(0),
 })
 
 export const signedPeerNodeInfo = sequence({
   signed: octetString().containing(peerNodeInfo),
-  signature: octetString(),
+  signature: signaturePackage,
 })
 
 export const peerInterledgerPacket = sequence({

@@ -6,7 +6,11 @@ import { createDatabase } from "@dassie/lib-sqlite"
 import { isErrorWithCode } from "@dassie/lib-type-utils"
 
 import { DEBUG_UI_PORT } from "../constants/ports"
-import { NodeConfig, generatePeerInfo } from "./generate-node-config"
+import {
+  NodeConfig,
+  generatePeerInfo,
+  nodeIndexToPublicKey,
+} from "./generate-node-config"
 
 export const prefillDatabase = async ({
   id,
@@ -47,7 +51,7 @@ export const prefillDatabase = async ({
   database.scalars.configTlsWebCert.set(await readFile(tlsWebCertFile, "utf8"))
   database.scalars.configTlsWebKey.set(await readFile(tlsWebKeyFile, "utf8"))
   database.scalars.configExchangeRateUrl.set(
-    `https://localhost:${DEBUG_UI_PORT}/rates.json`
+    `https://localhost:${DEBUG_UI_PORT}/rates.json`,
   )
 
   database.tables.settlementSchemes.insertOne({
@@ -55,14 +59,15 @@ export const prefillDatabase = async ({
     config: {},
   })
 
-  const peersInfo = peers.map((peerIndex) => generatePeerInfo(peerIndex))
+  for (const peer of peers) {
+    const peerInfo = generatePeerInfo(peer)
+    const publicKey = nodeIndexToPublicKey(peer)
 
-  for (const peer of peersInfo) {
     const { rowid: nodeRowid } = database.tables.nodes.insertOne({
-      id: peer.nodeId,
-      public_key: peer.nodePublicKey,
-      url: peer.url,
-      alias: peer.alias,
+      id: peerInfo.nodeId,
+      public_key: publicKey,
+      url: peerInfo.url,
+      alias: peerInfo.alias,
     })
 
     database.tables.peers.insertOne({

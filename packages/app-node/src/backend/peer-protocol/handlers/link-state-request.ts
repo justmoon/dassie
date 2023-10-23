@@ -13,7 +13,7 @@ export const HandleLinkStateRequestActor = () =>
       handle: () => {
         const ownNodeTableEntry = nodeTable.read().get(nodeId)
 
-        if (!ownNodeTableEntry?.linkState.lastUpdate) return EMPTY_UINT8ARRAY
+        if (!ownNodeTableEntry?.linkState) return EMPTY_UINT8ARRAY
 
         return ownNodeTableEntry.linkState.lastUpdate
       },

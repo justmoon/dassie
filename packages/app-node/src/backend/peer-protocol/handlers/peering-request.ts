@@ -1,6 +1,5 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import { ActiveSettlementSchemesSignal } from "../../settlement-schemes/signals/active-settlement-schemes"
 import type { IncomingPeerMessageEvent } from "../actors/handle-peer-message"
 import { NodeTableStore } from "../stores/node-table"
@@ -20,43 +19,27 @@ export const HandlePeeringRequestActor = () =>
       }: IncomingPeerMessageEvent<"peeringRequest">) => {
         const { nodeInfo, settlementSchemeId } = content
 
-        const { nodeId, url, alias, nodePublicKey } = nodeInfo.signed
+        const { nodeId } = nodeInfo.signed
 
-        if (!activeSubnets.has(settlementSchemeId)) return EMPTY_UINT8ARRAY
+        if (!activeSubnets.has(settlementSchemeId)) {
+          return new Uint8Array([0x00])
+        }
 
         const existingEntry = nodeTable.read().get(nodeId)
 
-        if (existingEntry) {
-          nodeTable.updateNode(nodeId, {
-            peerState: {
-              id: "peered",
-              lastSeen: Date.now(),
-              settlementSchemeId,
-            },
-          })
-        } else {
-          nodeTable.addNode({
-            nodeId,
-            peerState: {
-              id: "peered",
-              lastSeen: Date.now(),
-              settlementSchemeId,
-            },
-            url,
-            alias,
-            nodePublicKey,
-            linkState: {
-              lastUpdate: undefined,
-              neighbors: [],
-              settlementSchemes: [],
-              scheduledRetransmitTime: 0,
-              sequence: 0n,
-              updateReceivedCounter: 0,
-            },
-          })
+        if (!existingEntry) {
+          return new Uint8Array([0x00])
         }
 
-        return EMPTY_UINT8ARRAY
+        nodeTable.updateNode(nodeId, {
+          peerState: {
+            id: "peered",
+            lastSeen: Date.now(),
+            settlementSchemeId,
+          },
+        })
+
+        return new Uint8Array([0x01])
       },
     }
   })

@@ -4,8 +4,10 @@ import type { SetOptional } from "type-fest"
 import type { InferSerialize } from "@dassie/lib-oer"
 import { createActor, createTopic } from "@dassie/lib-reactive"
 
+import { EnvironmentConfigSignal } from "../../config/environment-config"
 import { NodeIdSignal } from "../../ilp-connector/computed/node-id"
 import { peerProtocol as logger } from "../../logger/instances"
+import { bufferToUint8Array } from "../../utils/buffer-to-typedarray"
 import { peerMessage, peerMessageContent } from "../peer-schema"
 import { NodeTableStore } from "../stores/node-table"
 import { NodeId } from "../types/node-id"
@@ -38,10 +40,50 @@ const serializePeerMessage = (
   return messageSerializeResult.value
 }
 
+interface NodeContactInfo {
+  url: string
+  publicKey: Uint8Array
+}
+
 export const SendPeerMessageActor = () =>
   createActor((sig) => {
     const nodeId = sig.get(NodeIdSignal)
-    const peers = sig.use(NodeTableStore)
+    const nodeTable = sig.use(NodeTableStore)
+    const { bootstrapNodes } = sig.getKeys(EnvironmentConfigSignal, [
+      "bootstrapNodes",
+    ])
+
+    const getNodeContactInfo = (
+      nodeId: NodeId,
+    ): NodeContactInfo | undefined => {
+      // If the node is in the node table, we can use the URL from the link state
+      {
+        const node = nodeTable.read().get(nodeId)
+
+        if (node?.linkState) {
+          return {
+            url: node.linkState.url,
+            publicKey: node.linkState.publicKey,
+          }
+        }
+      }
+
+      // If the node is a bootstrap node, we can use the URL from the config
+      {
+        const node = bootstrapNodes.find((node) => node.id === nodeId)
+
+        if (node) {
+          return {
+            url: node.url,
+            publicKey: bufferToUint8Array(
+              Buffer.from(node.publicKey, "base64url"),
+            ),
+          }
+        }
+      }
+
+      return undefined
+    }
 
     return {
       send: async (parameters: MessageWithDestination) => {
@@ -54,10 +96,10 @@ export const SendPeerMessageActor = () =>
           asUint8Array: serializedMessage,
         })
 
-        const peer = peers.read().get(destination)
+        const contactInfo = getNodeContactInfo(destination)
 
-        if (!peer) {
-          logger.warn("peer not found, unable to send message", {
+        if (!contactInfo) {
+          logger.warn("no url known for destination, unable to send message", {
             to: destination,
           })
           return
@@ -83,7 +125,7 @@ export const SendPeerMessageActor = () =>
         }
 
         try {
-          const result = await axios<Buffer>(`${peer.url}/peer`, {
+          const result = await axios<Buffer>(`${contactInfo.url}/peer`, {
             method: "POST",
             data: envelopeSerializationResult.value,
             headers: {
@@ -101,7 +143,8 @@ export const SendPeerMessageActor = () =>
         } catch (error) {
           logger.warn("failed to send message", {
             error,
-            url: peer.url,
+            to: destination,
+            url: contactInfo.url,
           })
 
           return

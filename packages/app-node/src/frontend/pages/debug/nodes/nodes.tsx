@@ -25,7 +25,7 @@ export function Nodes() {
   const sortedNodeTable = [...nodeTable.values()]
     .map((node) => {
       const routingTableEntry = routingTable.get(
-        `${ilpAllocationScheme}.das.${node.nodeId}`
+        `${ilpAllocationScheme}.das.${node.nodeId}`,
       )
 
       if (routingTableEntry?.type !== "peer") {
@@ -65,17 +65,13 @@ export function Nodes() {
         </TableHeader>
         <TableBody>
           {sortedNodeTable.map(
-            ({
-              nodeId,
-              alias,
-              distance,
-              nextHopNodes,
-              linkState,
-              peerState,
-            }) => (
+            ({ nodeId, distance, nextHopNodes, linkState, peerState }) => (
               <TableRow key={nodeId}>
                 <TableCell>
-                  <NodeName nodeId={nodeId} alias={alias} />
+                  <NodeName
+                    nodeId={nodeId}
+                    alias={linkState?.alias ?? "no link state"}
+                  />
                 </TableCell>
                 <TableCell>{distance}</TableCell>
                 <TableCell>
@@ -84,13 +80,13 @@ export function Nodes() {
                   ))}
                 </TableCell>
                 <TableCell>
-                  {linkState.neighbors.map((nodeId) => (
+                  {linkState?.neighbors.map((nodeId) => (
                     <NodeName key={nodeId} nodeId={nodeId} />
                   ))}
                 </TableCell>
                 <TableCell>{peerState.id}</TableCell>
               </TableRow>
-            )
+            ),
           )}
         </TableBody>
       </Table>
