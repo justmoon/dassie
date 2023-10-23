@@ -1,8 +1,9 @@
 import axios from "axios"
-import { command } from "cmd-ts"
+import { command, flag, option, string } from "cmd-ts"
 import { $ } from "execa"
 
 import { cp, mkdir, rm } from "node:fs/promises"
+import { dirname, resolve } from "node:path"
 
 import { Reactor } from "@dassie/lib-reactive"
 import { createFlow, header, note } from "@dassie/lib-terminal-graphics"
@@ -15,8 +16,22 @@ export const updateCommand = (reactor: Reactor) =>
     name: "update",
     description:
       "This command assists with the initial configuration and setup",
-    args: {},
-    async handler() {
+    args: {
+      force: flag({
+        long: "force",
+        short: "f",
+        description:
+          "Download and install target version even if same as currently installed",
+      }),
+      targetVersion: option({
+        long: "target-version",
+        short: "t",
+        type: string,
+        description: "Target version to install, e.g. '0.0.1'",
+        defaultValue: () => "",
+      }),
+    },
+    async handler({ force, targetVersion }) {
       const { rootPath, temporaryPath } = reactor
         .use(EnvironmentConfigSignal)
         .read()
@@ -35,6 +50,10 @@ export const updateCommand = (reactor: Reactor) =>
           )
         }
 
+        const superRootPath = dirname(rootPath)
+        const currentSymlinkPath = resolve(superRootPath, "current")
+        const oldVersionPath = resolve(superRootPath, __DASSIE_VERSION__)
+
         const flow = createFlow()
 
         flow.show(header({ title: "Dassie Update" }))
@@ -44,45 +63,50 @@ export const updateCommand = (reactor: Reactor) =>
         const mirrorUrl =
           process.env["DASSIE_MIRROR_URL"] ?? "https://get.dassie.land"
 
-        const metaLatestUrl = `${mirrorUrl}/meta/latest`
+        // If no target version provided, determine latest version
+        if (!targetVersion) {
+          const metaLatestUrl = `${mirrorUrl}/meta/latest`
 
-        const metaLatestResponse = await axios.get<string>(metaLatestUrl, {
-          responseType: "text",
-        })
-        const latestVersion = metaLatestResponse.data
+          const metaLatestResponse = await axios.get<string>(metaLatestUrl, {
+            responseType: "text",
+          })
+          targetVersion = metaLatestResponse.data
+        }
 
-        if (latestVersion === __DASSIE_VERSION__) {
-          flow.show(note({ title: `Already up to date (${latestVersion})` }))
+        const newVersionPath = resolve(superRootPath, targetVersion)
+
+        if (!force && targetVersion === __DASSIE_VERSION__) {
+          flow.show(note({ title: `Already up to date (${targetVersion})` }))
           return
         }
 
         flow.show(
           note({
-            title: `Installing ${latestVersion} (previous: ${__DASSIE_VERSION__})`,
+            title: `Installing ${targetVersion} (previous: ${__DASSIE_VERSION__})`,
           }),
         )
 
         await mkdir(sessionTemporaryPath, { recursive: true })
 
-        const filename = `dassie-${latestVersion}-linux-${architecture}.tar.gz`
+        const filename = `dassie-${targetVersion}-linux-${architecture}.tar.gz`
         const localBundlePath = `${sessionTemporaryPath}/${filename}`
-        const bundleUrl = `${mirrorUrl}/${latestVersion}/${filename}`
+        const bundleUrl = `${mirrorUrl}/${targetVersion}/${filename}`
 
         await downloadFile(bundleUrl, localBundlePath)
 
         await $`tar -xzf ${localBundlePath} -C ${sessionTemporaryPath}`
 
-        const rootPathParent = rootPath.slice(0, rootPath.lastIndexOf("/"))
-        const targetFolder = `${rootPathParent}/${latestVersion}`
-
-        await rm(targetFolder, { recursive: true, force: true })
-
-        await cp(`${sessionTemporaryPath}/dassie`, targetFolder, {
+        await cp(`${sessionTemporaryPath}/dassie`, newVersionPath, {
           recursive: true,
         })
 
-        await rm(rootPath, { recursive: true, force: true })
-        await $`ln -s ${targetFolder} ${rootPath}`
+        if (oldVersionPath !== newVersionPath) {
+          await rm(oldVersionPath, { recursive: true, force: true })
+        }
+
+        // Update symlink
+        await rm(currentSymlinkPath)
+        await $`ln -s ${newVersionPath} ${currentSymlinkPath}`
       } finally {
         await rm(sessionTemporaryPath, { recursive: true, force: true })
       }
