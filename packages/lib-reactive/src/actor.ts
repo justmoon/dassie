@@ -4,7 +4,7 @@ import { isObject } from "@dassie/lib-type-utils"
 
 import { ActorContext } from "./actor-context"
 import { ContextBase, FactoryNameSymbol } from "./internal/context-base"
-import { SettablePromise, makePromise } from "./internal/promise"
+import { makePromise } from "./internal/promise"
 import {
   CacheStatus,
   CacheUninitialized,
@@ -64,9 +64,15 @@ export type Actor<TInstance, TProperties = undefined> = ReactiveObserver &
      */
     readonly result: TInstance | undefined
 
-    promise: SettablePromise<TInstance>
-
-    waker: SettablePromise<void>
+    /**
+     * A promise which will resolve with the result of the actor.
+     *
+     * @remarks
+     *
+     * If the actor is not currently running, this promise will resolve the next
+     * time the actor completes executing its behavior function.
+     */
+    readonly promise: Promise<TInstance>
 
     /**
      * The function that initializes the actor. Used internally. You should call reactor.run() or sig.run() if you want to start the actor.
@@ -161,7 +167,7 @@ class ActorImplementation<TInstance, TProperties>
   isRunning = false
   result: TInstance | undefined
   promise = makePromise<TInstance>()
-  waker = makePromise()
+  private waker = makePromise()
 
   private cache: Awaited<TInstance> | undefined
   private cacheStatus: CacheStatus = CacheStatus.Clean
@@ -270,7 +276,8 @@ class ActorImplementation<TInstance, TProperties>
         this.sources = new Set()
         this.setCacheStatus(CacheStatus.Clean)
 
-        // This prevents "ActorImplementation." from showing up in the stack trace
+        // Assigning the behavior function to a local variable prevents
+        // "ActorImplementation." from cluttering the stack trace.
         const behavior = this.behavior
 
         const actorReturn = behavior(context, properties)
