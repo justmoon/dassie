@@ -16,9 +16,7 @@ import { NodeTableStore } from "./stores/node-table"
 
 export const MaintainOwnNodeTableEntryActor = () =>
   createActor(async (sig) => {
-    const signer = sig.get(SignerActor)
-
-    if (!signer) return
+    const signer = sig.use(SignerActor)
 
     // Get the current peers and re-run the actor if they change
     const peers = sig.get(PeersSignal)
@@ -75,7 +73,9 @@ export const MaintainOwnNodeTableEntryActor = () =>
         return
       }
 
-      const signature = await signer.signWithDassieKey(peerNodeInfoResult.value)
+      const signature = await signer.api.signWithDassieKey.ask(
+        peerNodeInfoResult.value,
+      )
       const message = signedPeerNodeInfo.serialize({
         signed: peerNodeInfoResult.value,
         signature: {
@@ -102,10 +102,10 @@ export const MaintainOwnNodeTableEntryActor = () =>
       )
       const modifyNodeTableActor = sig.use(ModifyNodeTableActor)
       if (oldLinkState === undefined) {
-        modifyNodeTableActor.tell("addNode", nodeId)
+        modifyNodeTableActor.api.addNode.tell(nodeId)
       }
 
-      modifyNodeTableActor.tell("processLinkState", {
+      modifyNodeTableActor.api.processLinkState.tell({
         linkStateBytes: message.value,
         linkState: {
           nodeId,

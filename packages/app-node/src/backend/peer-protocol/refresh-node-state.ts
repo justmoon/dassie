@@ -17,7 +17,7 @@ const MINIMUM_AGE = 60_000n
 
 export const RefreshNodeStateActor = (reactor: Reactor) => {
   const queryLinkState = async (nodeId: NodeId) => {
-    const response = await reactor.use(SendPeerMessageActor).ask("send", {
+    const response = await reactor.use(SendPeerMessageActor).api.send.ask({
       destination: nodeId,
       message: {
         type: "linkStateRequest",
@@ -64,7 +64,7 @@ export const RefreshNodeStateActor = (reactor: Reactor) => {
 
       const { signed } = signedPeerNodeInfo.parseOrThrow(linkState)
 
-      reactor.use(ModifyNodeTableActor).tell("processLinkState", {
+      reactor.use(ModifyNodeTableActor).api.processLinkState.tell({
         linkStateBytes: linkState,
         linkState: signed,
         retransmit: "never",

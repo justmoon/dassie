@@ -14,7 +14,7 @@ export const HandleSettlementActor = () =>
     )
     const ledger = sig.use(ledgerStore)
 
-    return {
+    return sig.handlers({
       handle: async ({
         message: {
           sender,
@@ -60,11 +60,13 @@ export const HandleSettlementActor = () =>
           }
         }
 
-        const { result } = await settlementSchemeActor.ask("handleSettlement", {
-          peerId: sender,
-          amount,
-          proof,
-        })
+        const { result } = await settlementSchemeActor.api.handleSettlement.ask(
+          {
+            peerId: sender,
+            amount,
+            proof,
+          },
+        )
 
         if (result === "accept") {
           ledger.postPendingTransfer(settlementTransfer)
@@ -74,5 +76,5 @@ export const HandleSettlementActor = () =>
 
         return EMPTY_UINT8ARRAY
       },
-    }
+    })
   })

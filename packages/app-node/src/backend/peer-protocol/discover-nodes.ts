@@ -16,7 +16,7 @@ export const DiscoverNodesActor = (reactor: Reactor) => {
   const loadNodeList = async (
     sourceNodeId: NodeId,
   ): Promise<Infer<typeof nodeListResponse>> => {
-    const response = await reactor.use(SendPeerMessageActor).ask("send", {
+    const response = await reactor.use(SendPeerMessageActor).api.send.ask({
       destination: sourceNodeId,
       message: {
         type: "nodeListRequest",
@@ -37,7 +37,7 @@ export const DiscoverNodesActor = (reactor: Reactor) => {
   }
 
   const registerWithNode = (targetNodeId: NodeId, ourNodeInfo: Uint8Array) => {
-    reactor.use(SendPeerMessageActor).tell("send", {
+    reactor.use(SendPeerMessageActor).api.send.tell({
       destination: targetNodeId,
       message: {
         type: "registration",

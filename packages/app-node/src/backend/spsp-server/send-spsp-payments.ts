@@ -45,7 +45,7 @@ export const SendSpspPaymentsActor = () =>
         destinationAccount,
       })
 
-      const plugin = await pluginManager.ask("createPlugin", undefined)
+      const plugin = await pluginManager.api.createPlugin.ask()
 
       const connection = await createConnection({
         plugin,

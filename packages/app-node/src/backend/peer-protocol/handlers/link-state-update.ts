@@ -8,7 +8,7 @@ export const HandleLinkStateUpdateActor = () =>
   createActor((sig) => {
     const modifyNodeTableActor = sig.use(ModifyNodeTableActor)
 
-    return {
+    return sig.handlers({
       handle: ({
         message: {
           sender,
@@ -19,7 +19,7 @@ export const HandleLinkStateUpdateActor = () =>
       }: IncomingPeerMessageEvent<"linkStateUpdate">) => {
         const { value: linkState, bytes: linkStateBytes } = content
 
-        modifyNodeTableActor.tell("processLinkState", {
+        modifyNodeTableActor.api.processLinkState.tell({
           linkState: linkState.signed,
           linkStateBytes,
           retransmit: "scheduled",
@@ -28,5 +28,5 @@ export const HandleLinkStateUpdateActor = () =>
 
         return EMPTY_UINT8ARRAY
       },
-    }
+    })
   })

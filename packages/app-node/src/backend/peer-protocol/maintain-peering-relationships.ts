@@ -82,7 +82,7 @@ export const MaintainPeeringRelationshipsActor = (reactor: Reactor) =>
         return
       }
 
-      const response = await sig.use(SendPeerMessageActor).ask("send", {
+      const response = await sig.use(SendPeerMessageActor).api.send.ask({
         destination: randomNode.nodeId,
         message: {
           type: "peeringRequest",

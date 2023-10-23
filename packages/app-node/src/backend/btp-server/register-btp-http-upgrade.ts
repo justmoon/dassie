@@ -110,7 +110,7 @@ export const RegisterBtpHttpUpgradeActor = () =>
                   .protocolData) {
                   if (protocolData.protocolName === "ilp") {
                     logger.debug("received ILP packet via BTP message")
-                    processIncomingPacketActor.tell("handle", {
+                    processIncomingPacketActor.api.handle.tell({
                       sourceEndpointInfo: endpointInfo,
                       serializedPacket: protocolData.data,
                       requestId: message.requestId,
@@ -139,7 +139,7 @@ export const RegisterBtpHttpUpgradeActor = () =>
                   if (protocolData.protocolName === "ilp") {
                     logger.debug("received ILP packet via BTP transfer")
 
-                    processIncomingPacketActor.tell("handle", {
+                    processIncomingPacketActor.api.handle.tell({
                       sourceEndpointInfo: endpointInfo,
                       serializedPacket: protocolData.data,
                       requestId: message.requestId,
@@ -166,7 +166,7 @@ export const RegisterBtpHttpUpgradeActor = () =>
                   .protocolData) {
                   if (protocolData.protocolName === "ilp") {
                     logger.debug("received ILP packet via BTP response")
-                    processIncomingPacketActor.tell("handle", {
+                    processIncomingPacketActor.api.handle.tell({
                       sourceEndpointInfo: endpointInfo,
                       serializedPacket: protocolData.data,
                       requestId: message.requestId,
@@ -216,7 +216,7 @@ export const RegisterBtpHttpUpgradeActor = () =>
       websocketServer.close()
     })
 
-    return {
+    return sig.handlers({
       send: ({
         connectionId,
         message,
@@ -234,5 +234,5 @@ export const RegisterBtpHttpUpgradeActor = () =>
 
         socket.send(message)
       },
-    }
+    })
   })

@@ -1,8 +1,9 @@
-import type { ConditionalKeys } from "type-fest"
+import type { ConditionalPick } from "type-fest"
+import { TagContainer } from "type-fest/source/opaque"
 
 import { isObject } from "@dassie/lib-type-utils"
 
-import { ActorContext } from "./actor-context"
+import { ActorApiCallbackSymbol, ActorContext } from "./actor-context"
 import { ContextBase, FactoryNameSymbol } from "./internal/context-base"
 import { makePromise } from "./internal/promise"
 import {
@@ -24,23 +25,82 @@ export type Behavior<TReturn = unknown, TProperties = unknown> = (
 
 export const ActorSymbol = Symbol("das:reactive:actor")
 
-export type MessageHandler = (message: never) => unknown
+export interface ActorApiHandler<
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  TCallback extends (...parameters: any[]) => unknown,
+> extends TagContainer<"ActorApiHandler"> {
+  /**
+   * Fire-and-forget message to the actor. The message will be delivered asynchronously and any return value will be ignored.
+   *
+   * @param message - The message to send to the actor.
+   */
+  tell(...parameters: Parameters<TCallback>): void
 
-export type MessageHandlerRecord = Record<string, MessageHandler>
+  /**
+   * Asynchronously message the actor and receive a response as a promise.
+   *
+   * @param message - The message to send to the actor.
+   * @returns A promise that will resolve with the response from the actor.
+   */
+  ask(
+    ...parameters: Parameters<TCallback>
+  ): Promise<Awaited<ReturnType<TCallback>>>
+}
 
-export type InferActorMessageType<
-  TInstance,
-  TMethod extends string & keyof TInstance,
-> = TInstance[TMethod] extends (message: infer TMessage) => unknown
-  ? TMessage
-  : never
+export type InferActorApi<TInstance> = ConditionalPick<
+  Awaited<TInstance>,
+  TagContainer<"ActorApiHandler">
+>
 
-export type InferActorReturnType<
-  TInstance,
-  TMethod extends string & keyof TInstance,
-> = TInstance[TMethod] extends (...parameters: never[]) => infer TReturn
-  ? TReturn
-  : never
+class ApiProxy {
+  constructor(
+    private readonly actor: Pick<
+      Actor<unknown, unknown>,
+      "isRunning" | "promise" | typeof FactoryNameSymbol
+    >,
+    private readonly method: string,
+  ) {}
+
+  private async getInstance() {
+    if (import.meta.env.DEV && !this.actor.isRunning) {
+      debugOptimisticActorCall(
+        this.actor.promise,
+        this.actor[FactoryNameSymbol],
+        this.method,
+      )
+    }
+
+    const actorInstance = (await this.actor.promise) as Record<
+      string,
+      {
+        [ActorApiCallbackSymbol]: (...parameters: unknown[]) => unknown
+      }
+    >
+    return actorInstance
+  }
+
+  ask = async (...parameters: unknown[]) => {
+    const actorInstance = await this.getInstance()
+
+    const handler = actorInstance[this.method]?.[ActorApiCallbackSymbol]
+
+    if (!handler) {
+      throw new Error(`Actor does not expose method: ${this.method}`)
+    }
+
+    return handler(...parameters)
+  }
+
+  tell = (...parameters: unknown[]) => {
+    this.ask(...parameters).catch((error: unknown) => {
+      console.error("error in actor handler", {
+        error,
+        actor: this.actor[FactoryNameSymbol],
+        method: this.method,
+      })
+    })
+  }
+}
 
 export type Actor<TInstance, TProperties = undefined> = ReactiveObserver &
   ReadonlySignal<Awaited<TInstance> | undefined> & {
@@ -75,11 +135,6 @@ export type Actor<TInstance, TProperties = undefined> = ReactiveObserver &
     readonly promise: Promise<TInstance>
 
     /**
-     * The function that initializes the actor. Used internally. You should call reactor.run() or sig.run() if you want to start the actor.
-     */
-    behavior: Behavior<TInstance, TProperties>
-
-    /**
      * Run the actor and return the result.
      *
      * @remarks
@@ -91,33 +146,15 @@ export type Actor<TInstance, TProperties = undefined> = ReactiveObserver &
     run: RunSignature<TInstance, TProperties>
 
     /**
-     * Fire-and-forget message to the actor. The message will be delivered asynchronously and any return value will be ignored.
+     * If the actor exposes a public API, you can interact with it here.
      *
-     * @param message - The message to send to the actor.
-     */
-    tell: <
-      TMethod extends string &
-        ConditionalKeys<Awaited<TInstance>, MessageHandler>,
-    >(
-      this: void,
-      method: TMethod,
-      message: InferActorMessageType<Awaited<TInstance>, TMethod>,
-    ) => void
-
-    /**
-     * Asynchronously message the actor and receive a response as a promise.
+     * @example
      *
-     * @param message - The message to send to the actor.
-     * @returns A promise that will resolve with the response from the actor.
+     * ```ts
+     * myActor.api.myMethod.tell({ foo: "bar" })
+     * ```
      */
-    ask: <
-      TMethod extends string &
-        ConditionalKeys<Awaited<TInstance>, MessageHandler>,
-    >(
-      this: void,
-      method: TMethod,
-      message: InferActorMessageType<Awaited<TInstance>, TMethod>,
-    ) => Promise<InferActorReturnType<Awaited<TInstance>, TMethod>>
+    api: InferActorApi<TInstance>
   }
 
 interface RunSignature<TReturn, TProperties> {
@@ -335,29 +372,15 @@ class ActorImplementation<TInstance, TProperties>
     }
   }
 
-  tell: Actor<TInstance, TProperties>["tell"] = (method, message) => {
-    this.ask(method, message).catch((error: unknown) => {
-      console.error("error in actor handler", {
-        error,
-        actor: this[FactoryNameSymbol],
-        method,
-      })
-    })
-  }
+  api = new Proxy(this, {
+    get(target, method) {
+      if (typeof method !== "string") {
+        throw new TypeError("Actor API method names must be strings")
+      }
 
-  ask: Actor<TInstance, TProperties>["ask"] = async (method, message) => {
-    if (import.meta.env.DEV && !this.isRunning) {
-      debugOptimisticActorCall(this.promise, this[FactoryNameSymbol], method)
-    }
-
-    const actorInstance = await this.promise
-
-    return (
-      actorInstance[method] as (
-        parameter: typeof message,
-      ) => InferActorReturnType<Awaited<TInstance>, typeof method>
-    )(message)
-  }
+      return new ApiProxy(target, method)
+    },
+  }) as unknown as InferActorApi<TInstance>
 
   /**
    * Apply a reducer which will accept the current state and return a new state.
@@ -396,9 +419,7 @@ export const createActor: CreateActorSignature = <
   return Object.assign(actor, createReactiveTopic(actor))
 }
 
-export const isActor = (
-  object: unknown,
-): object is Actor<MessageHandlerRecord, unknown> =>
+export const isActor = (object: unknown): object is Actor<unknown, unknown> =>
   isObject(object) && object[ActorSymbol] === true
 
 const DEBUG_ACTOR_OPTIMISTIC_CALL_TIMEOUT = 2000

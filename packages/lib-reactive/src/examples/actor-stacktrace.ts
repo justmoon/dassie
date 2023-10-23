@@ -7,8 +7,14 @@ import {
 } from ".."
 
 const InnerActor = () =>
-  createActor(() => {
-    throw new Error("Intentional error")
+  createActor((sig) => {
+    console.info(new Error("InnerActor behavior").stack)
+
+    return sig.handlers({
+      handle: () => {
+        console.info(new Error("InnerActor handler").stack)
+      },
+    })
   })
 
 const SomeSet = () => createSignal(new Set([undefined]))
@@ -17,6 +23,12 @@ const SetActors = (reactor: Reactor) =>
   createMapped(reactor.lifecycle, reactor.use(SomeSet), () =>
     createActor((sig) => {
       sig.run(InnerActor)
+
+      const callHandle = async () => {
+        await sig.use(InnerActor).api.handle.ask()
+      }
+
+      void callHandle()
     }),
   )
 

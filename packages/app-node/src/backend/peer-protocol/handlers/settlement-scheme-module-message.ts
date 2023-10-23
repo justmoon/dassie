@@ -10,7 +10,7 @@ export const HandleSettlementSchemeModuleMessageActor = () =>
       ManageSettlementSchemeInstancesActor,
     )
 
-    return {
+    return sig.handlers({
       handle: ({
         message: {
           sender,
@@ -26,12 +26,12 @@ export const HandleSettlementSchemeModuleMessageActor = () =>
 
         if (!settlementSchemeActor) return EMPTY_UINT8ARRAY
 
-        settlementSchemeActor.tell("handleMessage", {
+        settlementSchemeActor.api.handleMessage.tell({
           peerId: sender,
           message,
         })
 
         return EMPTY_UINT8ARRAY
       },
-    }
+    })
   })

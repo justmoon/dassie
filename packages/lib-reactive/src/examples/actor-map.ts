@@ -16,9 +16,9 @@ const CustomerServiceActors = (reactor: Reactor) =>
 
       sig.onCleanup(() => console.info(`${customer} removed`))
 
-      return {
+      return sig.handlers({
         greet: () => console.info(`Hello ${customer}`),
-      }
+      })
     }),
   )
 
@@ -54,7 +54,7 @@ const RootActor = (reactor: Reactor) =>
       }),
     )
 
-    sig.use(CustomerServiceActors).get("Alice")?.tell("greet", undefined)
+    sig.use(CustomerServiceActors).get("Alice")?.api.greet.tell()
 
     sig.timeout(() => void reactor.lifecycle.dispose(), 300)
   })

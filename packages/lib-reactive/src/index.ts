@@ -21,14 +21,7 @@ export type {
   ReadonlySignal,
   Reducer,
 } from "./signal"
-export type {
-  Actor,
-  Behavior,
-  MessageHandler,
-  MessageHandlerRecord,
-  InferActorMessageType,
-  InferActorReturnType,
-} from "./actor"
+export type { Actor, Behavior, ActorApiHandler, InferActorApi } from "./actor"
 export type {
   Store,
   Action,

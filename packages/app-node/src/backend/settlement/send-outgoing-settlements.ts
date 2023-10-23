@@ -143,8 +143,8 @@ export const SendOutgoingSettlementsActor = () =>
           }
         }
 
-        settlementSchemeActor
-          .ask("settle", {
+        settlementSchemeActor.api.settle
+          .ask({
             amount: settlementAmount,
             peerId,
           })
@@ -154,7 +154,7 @@ export const SendOutgoingSettlementsActor = () =>
           .then(({ proof }) => {
             ledger.postPendingTransfer(settlementTransfer)
 
-            sig.use(SendPeerMessageActor).tell("send", {
+            sig.use(SendPeerMessageActor).api.send.tell({
               destination: peerId,
               message: {
                 type: "settlement",

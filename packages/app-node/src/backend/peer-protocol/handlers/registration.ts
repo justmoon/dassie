@@ -7,7 +7,7 @@ import { ModifyNodeTableActor } from "../modify-node-table"
 
 export const HandleRegistrationActor = () =>
   createActor((sig) => {
-    return {
+    return sig.handlers({
       handle: ({
         message: {
           content: {
@@ -24,8 +24,8 @@ export const HandleRegistrationActor = () =>
         })
 
         const modifyNodeTableActor = sig.use(ModifyNodeTableActor)
-        modifyNodeTableActor.tell("addNode", nodeId)
-        modifyNodeTableActor.tell("processLinkState", {
+        modifyNodeTableActor.api.addNode.tell(nodeId)
+        modifyNodeTableActor.api.processLinkState.tell({
           linkState: linkState.signed,
           linkStateBytes,
           retransmit: "never",
@@ -34,5 +34,5 @@ export const HandleRegistrationActor = () =>
 
         return EMPTY_UINT8ARRAY
       },
-    }
+    })
   })

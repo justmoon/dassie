@@ -12,7 +12,7 @@ export const HandleInterledgerPacketActor = () =>
     const ilpAllocationScheme = sig.get(IlpAllocationSchemeSignal)
     const processIncomingPacketActor = sig.use(ProcessPacketActor)
 
-    return {
+    return sig.handlers({
       handle: ({
         message: {
           sender,
@@ -44,7 +44,7 @@ export const HandleInterledgerPacketActor = () =>
           accountPath: `${settlementSchemeId}/peer/${sender}/interledger`,
         }
 
-        processIncomingPacketActor.tell("handle", {
+        processIncomingPacketActor.api.handle.tell({
           sourceEndpointInfo: endpointInfo,
           serializedPacket: content.signed.packet,
           requestId: content.signed.requestId,
@@ -52,5 +52,5 @@ export const HandleInterledgerPacketActor = () =>
 
         return EMPTY_UINT8ARRAY
       },
-    }
+    })
   })

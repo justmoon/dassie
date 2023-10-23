@@ -51,7 +51,7 @@ export const ForwardLinkStateUpdateActor = () =>
           })
 
           // Retransmit the link state update
-          sig.use(SendPeerMessageActor).tell("send", {
+          sig.use(SendPeerMessageActor).api.send.tell({
             destination: peer,
             message: {
               type: "linkStateUpdate",

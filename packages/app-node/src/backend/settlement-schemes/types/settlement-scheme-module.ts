@@ -1,6 +1,6 @@
 import type { Promisable } from "type-fest"
 
-import type { Actor, Behavior } from "@dassie/lib-reactive"
+import type { Actor, ActorApiHandler, Behavior } from "@dassie/lib-reactive"
 
 import type { VALID_REALMS } from "../../constants/general"
 import { NodeId } from "../../peer-protocol/types/node-id"
@@ -9,7 +9,7 @@ import { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-
 export interface BalanceMap {
   adjustBalance: (
     settlementSchemeId: SettlementSchemeId,
-    adjustment: bigint
+    adjustment: bigint,
   ) => void
 }
 
@@ -47,13 +47,19 @@ export interface SettlementSchemeHostMethods {
 }
 
 export interface SettlementSchemeActorMethods {
-  settle: (
-    parameters: OutgoingSettlementParameters
-  ) => Promisable<OutgoingSettlementResult>
-  handleSettlement: (
-    parameters: IncomingSettlementParameters
-  ) => Promisable<IncomingSettlementResult>
-  handleMessage: (parameters: PeerMessageParameters) => Promisable<void>
+  settle: ActorApiHandler<
+    (
+      parameters: OutgoingSettlementParameters,
+    ) => Promisable<OutgoingSettlementResult>
+  >
+  handleSettlement: ActorApiHandler<
+    (
+      parameters: IncomingSettlementParameters,
+    ) => Promisable<IncomingSettlementResult>
+  >
+  handleMessage: ActorApiHandler<
+    (parameters: PeerMessageParameters) => Promisable<void>
+  >
 }
 
 export type SettlementSchemeActor = Actor<

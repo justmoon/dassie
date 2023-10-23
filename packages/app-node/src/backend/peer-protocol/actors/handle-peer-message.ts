@@ -1,6 +1,11 @@
 import { Promisable } from "type-fest"
 
-import { type Actor, createActor, createTopic } from "@dassie/lib-reactive"
+import {
+  type Actor,
+  ActorApiHandler,
+  createActor,
+  createTopic,
+} from "@dassie/lib-reactive"
 
 import { HandleInterledgerPacketActor } from "../handlers/interledger-packet"
 import { HandleLinkStateRequestActor } from "../handlers/link-state-request"
@@ -36,7 +41,9 @@ export const IncomingPeerMessageTopic = () =>
 
 type AllPeerMessageHandlers = {
   [K in PeerMessageType]: Actor<{
-    handle: (parameters: IncomingPeerMessageEvent<K>) => Promisable<Uint8Array>
+    handle: ActorApiHandler<
+      (parameters: IncomingPeerMessageEvent<K>) => Promisable<Uint8Array>
+    >
   }>
 }
 
@@ -59,13 +66,13 @@ export const HandlePeerMessageActor = () =>
       handler.run(sig.reactor, sig)
     }
 
-    return {
+    return sig.handlers({
       handle: async <TType extends PeerMessageType>(
         parameters: IncomingPeerMessageEvent<TType>,
       ) => {
         const type: TType = parameters.message.content.value.type
 
-        return await handlers[type].ask("handle", parameters)
+        return await handlers[type].api.handle.ask(parameters)
       },
-    }
+    })
   })

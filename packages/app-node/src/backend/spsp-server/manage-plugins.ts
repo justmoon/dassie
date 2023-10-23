@@ -25,7 +25,7 @@ export const ManagePluginsActor = () =>
     const pluginHandlerMap = new Map<number, DataHandler>()
     const outstandingRequests = new Map<number, (data: Buffer) => void>()
 
-    return {
+    return sig.handlers({
       createPlugin: (): Plugin => {
         const pluginId = nextPluginId++
         let connection: Connection = false
@@ -87,7 +87,7 @@ export const ManagePluginsActor = () =>
               const requestId = nextRequestId++
               outstandingRequests.set(requestId, resolve)
 
-              processPacketActor.tell("handle", {
+              processPacketActor.api.handle.tell({
                 sourceEndpointInfo,
                 serializedPacket: data,
                 requestId,
@@ -139,7 +139,7 @@ export const ManagePluginsActor = () =>
           accountPath: "builtin/owner/spsp",
         }
 
-        processPacketActor.tell("handle", {
+        processPacketActor.api.handle.tell({
           sourceEndpointInfo,
           serializedPacket: response,
           requestId: outgoingRequestId,
@@ -165,5 +165,5 @@ export const ManagePluginsActor = () =>
 
         outstandingRequests.delete(requestId)
       },
-    }
+    })
   })

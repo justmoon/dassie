@@ -9,7 +9,7 @@ export const HandlePeeringRequestActor = () =>
     const nodeTable = sig.use(NodeTableStore)
     const activeSubnets = sig.get(ActiveSettlementSchemesSignal)
 
-    return {
+    return sig.handlers({
       handle: ({
         message: {
           content: {
@@ -41,5 +41,5 @@ export const HandlePeeringRequestActor = () =>
 
         return new Uint8Array([0x01])
       },
-    }
+    })
   })

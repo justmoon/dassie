@@ -306,4 +306,134 @@ describe("createActor", () => {
       expect(behavior).toHaveBeenCalledTimes(2)
     })
   })
+
+  describe("with API", () => {
+    test("should be able to 'tell' API handler", async ({ expect }) => {
+      const apiHandler = vi.fn()
+      const Actor = () =>
+        createActor((sig) => {
+          return sig.handlers({
+            greet: apiHandler,
+          })
+        })
+
+      const RootActor = () =>
+        createActor((sig) => {
+          sig.run(Actor)
+        })
+
+      const reactor = createReactor(RootActor)
+
+      const actor = reactor.use(Actor)
+
+      expect(apiHandler).toHaveBeenCalledTimes(0)
+
+      actor.api.greet.tell()
+
+      await setTimeout()
+
+      expect(apiHandler).toHaveBeenCalledTimes(1)
+    })
+
+    test("should be able to 'ask' API handler", async ({ expect }) => {
+      const apiHandler = vi.fn(() => "hello")
+      const Actor = () =>
+        createActor((sig) => {
+          return sig.handlers({
+            greet: apiHandler,
+          })
+        })
+
+      const RootActor = () =>
+        createActor((sig) => {
+          sig.run(Actor)
+        })
+
+      const reactor = createReactor(RootActor)
+
+      const actor = reactor.use(Actor)
+
+      expect(apiHandler).toHaveBeenCalledTimes(0)
+
+      const response = await actor.api.greet.ask()
+
+      expect(response).toBe("hello")
+      expect(apiHandler).toHaveBeenCalledTimes(1)
+    })
+
+    test("should be able to 'tell' API handler even before actor is running", async ({
+      expect,
+    }) => {
+      const apiHandler = vi.fn()
+      const Actor = () =>
+        createActor((sig) => {
+          return sig.handlers({
+            greet: apiHandler,
+          })
+        })
+
+      const enableSignal = createSignal(false)
+
+      const RootActor = () =>
+        createActor((sig) => {
+          if (sig.get(enableSignal)) {
+            sig.run(Actor)
+          }
+        })
+
+      const reactor = createReactor(RootActor)
+
+      const actor = reactor.use(Actor)
+
+      expect(apiHandler).toHaveBeenCalledTimes(0)
+
+      actor.api.greet.tell()
+      await setTimeout()
+
+      expect(apiHandler).toHaveBeenCalledTimes(0)
+
+      enableSignal.write(true)
+      await setTimeout()
+
+      expect(apiHandler).toHaveBeenCalledTimes(1)
+    })
+
+    test("should be able to 'ask' API handler even before actor is running", async ({
+      expect,
+    }) => {
+      const apiHandler = vi.fn(() => "hello")
+      const Actor = () =>
+        createActor((sig) => {
+          return sig.handlers({
+            greet: apiHandler,
+          })
+        })
+
+      const enableSignal = createSignal(false)
+
+      const RootActor = () =>
+        createActor((sig) => {
+          if (sig.get(enableSignal)) {
+            sig.run(Actor)
+          }
+        })
+
+      const reactor = createReactor(RootActor)
+
+      const actor = reactor.use(Actor)
+
+      expect(apiHandler).toHaveBeenCalledTimes(0)
+
+      const responsePromise = actor.api.greet.ask()
+      await setTimeout()
+
+      expect(apiHandler).toHaveBeenCalledTimes(0)
+
+      enableSignal.write(true)
+      const response = await responsePromise
+
+      expect(response).toBe("hello")
+      expect(apiHandler).toHaveBeenCalledTimes(1)
+    })
+  })
 })

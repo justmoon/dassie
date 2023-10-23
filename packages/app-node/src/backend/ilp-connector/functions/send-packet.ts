@@ -1,6 +1,6 @@
 import { Promisable } from "type-fest"
 
-import { Actor, ActorContext } from "@dassie/lib-reactive"
+import { Actor, ActorApiHandler, ActorContext } from "@dassie/lib-reactive"
 
 import {
   BtpEndpointInfo,
@@ -39,8 +39,12 @@ export type ResolvedPacketParameters<TType extends EndpointInfo["type"]> =
   EndpointInfo & { type: TType } & ResolvedIlpPacketEvent
 
 export type PacketSender<TType extends EndpointInfo["type"]> = Actor<{
-  sendPrepare: (parameters: PreparedPacketParameters<TType>) => Promisable<void>
-  sendResult: (parameters: ResolvedPacketParameters<TType>) => Promisable<void>
+  sendPrepare: ActorApiHandler<
+    (parameters: PreparedPacketParameters<TType>) => Promisable<void>
+  >
+  sendResult: ActorApiHandler<
+    (parameters: ResolvedPacketParameters<TType>) => Promisable<void>
+  >
 }>
 
 type AllPacketSenders = {
@@ -66,12 +70,12 @@ export const createPacketSender = (sig: ActorContext) => {
     const sender = senders[client.type] as PacketSender<TType>
 
     if ("prepare" in event) {
-      sender.tell("sendResult", {
+      sender.api.sendResult.tell({
         ...client,
         ...event,
       })
     } else {
-      sender.tell("sendPrepare", {
+      sender.api.sendPrepare.tell({
         ...client,
         ...event,
       })

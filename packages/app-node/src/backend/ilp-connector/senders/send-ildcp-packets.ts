@@ -11,17 +11,18 @@ export const SendIldcpPacketsActor = () =>
   createActor((sig) => {
     const ildcpHandler = sig.use(HandleIldcpRequestsActor)
 
-    return {
+    return sig.handlers({
       sendPrepare: ({ sourceEndpointInfo, outgoingRequestId: requestId }) => {
-        ildcpHandler.tell("handle", {
+        ildcpHandler.api.handle.tell({
           sourceIlpAddress: sourceEndpointInfo.ilpAddress,
           requestId,
         })
       },
+
       sendResult: () => {
         throw new Error(
           "ILDCP never sends packets so it should never receive responses",
         )
       },
-    }
+    })
   }) satisfies PacketSender<"ildcp">

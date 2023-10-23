@@ -15,7 +15,7 @@ export const StreamServerServiceActor = () =>
 
     logger.debug("starting stream server")
 
-    const plugin = await pluginManager.ask("createPlugin", undefined)
+    const plugin = await pluginManager.api.createPlugin.ask()
 
     const server = await createServer({
       plugin,

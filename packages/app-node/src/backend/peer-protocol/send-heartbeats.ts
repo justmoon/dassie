@@ -43,7 +43,7 @@ const sendHeartbeat = (
   sig: ActorContext,
   { peerNodeId, lastLinkStateUpdate }: HeartbeatParameters,
 ) => {
-  sig.use(SendPeerMessageActor).tell("send", {
+  sig.use(SendPeerMessageActor).api.send.tell({
     destination: peerNodeId,
     message: {
       type: "linkStateUpdate",

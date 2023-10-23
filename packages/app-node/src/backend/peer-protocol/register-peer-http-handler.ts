@@ -87,7 +87,7 @@ export const RegisterPeerHttpHandlerActor = () =>
 
         const responseMessage = await sig
           .use(HandlePeerMessageActor)
-          .ask("handle", {
+          .api.handle.ask({
             message: parseResult.value,
             authenticated: isAuthenticated,
             peerState: senderNode?.peerState,

@@ -12,8 +12,8 @@ const stub = {
   supportedVersions: [1],
   realm: "test",
 
-  behavior: () => {
-    return {
+  behavior: (sig) => {
+    return sig.handlers({
       settle: ({ peerId, amount }) => {
         console.info(`Sending settlement for ${amount} units to ${peerId}`)
         return {
@@ -23,13 +23,13 @@ const stub = {
       handleSettlement: ({ peerId, amount }) => {
         console.info(`Received settlement for ${amount} units from ${peerId}`)
         return {
-          result: "accept",
+          result: "accept" as const,
         }
       },
       handleMessage: () => {
         // no-op
       },
-    }
+    })
   },
 } satisfies SettlementSchemeModule
 

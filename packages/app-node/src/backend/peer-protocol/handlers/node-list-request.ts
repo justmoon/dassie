@@ -7,7 +7,7 @@ export const HandleNodeListRequestActor = () =>
   createActor((sig) => {
     const nodeTable = sig.use(NodeTableStore)
 
-    return {
+    return sig.handlers({
       handle: () => {
         const nodeLinkStates: { bytes: Uint8Array }[] = []
 
@@ -23,5 +23,5 @@ export const HandleNodeListRequestActor = () =>
 
         return nodeList
       },
-    }
+    })
   })

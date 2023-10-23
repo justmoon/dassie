@@ -12,7 +12,7 @@ export interface PeerEndpointInfo extends CommonEndpointInfo {
 
 export const SendPeerPacketsActor = () =>
   createActor((sig) => {
-    return {
+    return sig.handlers({
       sendPrepare: ({
         nodeId,
         serializedPacket,
@@ -20,7 +20,7 @@ export const SendPeerPacketsActor = () =>
       }) => {
         logger.debug("sending ilp packet", { nextHop: nodeId })
 
-        sig.use(SendPeerMessageActor).tell("send", {
+        sig.use(SendPeerMessageActor).api.send.tell({
           destination: nodeId,
           message: {
             type: "interledgerPacket",
@@ -40,7 +40,7 @@ export const SendPeerPacketsActor = () =>
       }) => {
         logger.debug("sending ilp packet", { nextHop: nodeId })
 
-        sig.use(SendPeerMessageActor).tell("send", {
+        sig.use(SendPeerMessageActor).api.send.tell({
           destination: nodeId,
           message: {
             type: "interledgerPacket",
@@ -53,5 +53,5 @@ export const SendPeerPacketsActor = () =>
           },
         })
       },
-    }
+    })
   }) satisfies PacketSender<"peer">

@@ -73,7 +73,7 @@ export const ProcessPacketActor = () =>
       scheduleTimeout,
     })
 
-    return {
+    return sig.handlers({
       handle: ({
         sourceEndpointInfo,
         serializedPacket,
@@ -119,5 +119,5 @@ export const ProcessPacketActor = () =>
           }
         }
       },
-    }
+    })
   })

@@ -85,7 +85,7 @@ export const SendPeerMessageActor = () =>
       return undefined
     }
 
-    return {
+    return sig.handlers({
       send: async (parameters: MessageWithDestination) => {
         const { message, destination, asUint8Array } = parameters
 
@@ -150,5 +150,5 @@ export const SendPeerMessageActor = () =>
           return
         }
       },
-    }
+    })
   })
