@@ -8,8 +8,7 @@ export const peersTable = table({
     node: column().primaryKey().notNull().type("INTEGER"),
     settlement_scheme_id: column()
       .type("TEXT")
-      .notNull()
-      .serialize((value: SettlementSchemeId) => value)
-      .deserialize((value) => value as SettlementSchemeId),
+      .typescriptType<SettlementSchemeId>()
+      .notNull(),
   },
 })

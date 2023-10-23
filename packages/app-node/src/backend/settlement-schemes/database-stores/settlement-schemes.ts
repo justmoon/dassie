@@ -8,7 +8,12 @@ import { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-
 export const SettlementSchemesStore = (reactor: Reactor) => {
   const database = reactor.use(Database)
 
-  const settlementSchemeRows = database.tables.settlementSchemes.selectAll()
+  const settlementSchemeRows = database.tables.settlementSchemes
+    .selectAll()
+    .map(({ id, config }) => ({
+      id,
+      config: JSON.parse(config) as object,
+    }))
 
   return createStore(settlementSchemeRows, {
     addSettlementScheme: (
@@ -22,7 +27,7 @@ export const SettlementSchemesStore = (reactor: Reactor) => {
         })
         database.tables.settlementSchemes.insertOne({
           id: settlementSchemeId,
-          config,
+          config: JSON.stringify(config),
         })
       }),
   })

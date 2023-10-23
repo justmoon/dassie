@@ -3,22 +3,20 @@ import { SqliteDataType, SqliteToTypescriptTypeMap } from "./sqlite-datatypes"
 
 export interface ColumnDescriptionGenerics {
   sqliteType: SqliteDataType
-  writeType: NonNullable<unknown>
-  readType: NonNullable<unknown>
+  typescriptType: NonNullable<unknown>
   notNull: boolean
   primaryKey: boolean
 }
 
 export interface DefaultColumnDescriptionGenerics {
   sqliteType: "TEXT"
-  writeType: string
-  readType: string
+  typescriptType: string
   notNull: false
   primaryKey: false
 }
 
 export interface ColumnDescription<
-  T extends ColumnDescriptionGenerics = ColumnDescriptionGenerics
+  T extends ColumnDescriptionGenerics = ColumnDescriptionGenerics,
 > {
   type: T["sqliteType"]
 
@@ -31,56 +29,27 @@ export interface ColumnDescription<
    * Equivalent to `PRIMARY KEY`.
    */
   primaryKey: T["primaryKey"]
-
-  /**
-   * A transformation function that is applied when writing to the database.
-   */
-  serialize(
-    this: void,
-    value: T["writeType"]
-  ): SqliteToTypescriptTypeMap[T["sqliteType"]]
-
-  /**
-   * A transformation function that is applied when reading from the database.
-   */
-  deserialize(
-    this: void,
-    value: SqliteToTypescriptTypeMap[T["sqliteType"]]
-  ): T["readType"]
 }
 
 export interface ColumnDescriptionBuilder<
-  T extends ColumnDescriptionGenerics = ColumnDescriptionGenerics
+  T extends ColumnDescriptionGenerics = ColumnDescriptionGenerics,
 > {
   description: ColumnDescription<T>
 
   type<TType extends SqliteDataType>(
-    type: TType
+    type: TType,
   ): ColumnDescriptionBuilder<
-    Omit<T, "sqliteType" | "writeType" | "readType"> & {
+    Omit<T, "sqliteType" | "typescriptType"> & {
       sqliteType: TType
-      writeType: SqliteToTypescriptTypeMap[TType]
-      readType: SqliteToTypescriptTypeMap[TType]
+      typescriptType: SqliteToTypescriptTypeMap[TType]
     }
   >
 
-  serialize<TWriteType extends NonNullable<unknown>>(
-    serializer: (
-      value: TWriteType
-    ) => SqliteToTypescriptTypeMap[T["sqliteType"]]
-  ): ColumnDescriptionBuilder<
-    Omit<T, "writeType"> & {
-      writeType: TWriteType
-    }
-  >
-
-  deserialize<TReadType extends NonNullable<unknown>>(
-    deserializer: (
-      value: SqliteToTypescriptTypeMap[T["sqliteType"]]
-    ) => TReadType
-  ): ColumnDescriptionBuilder<
-    Omit<T, "readType"> & {
-      readType: TReadType
+  typescriptType<
+    TTypescriptType extends SqliteToTypescriptTypeMap[T["sqliteType"]],
+  >(): ColumnDescriptionBuilder<
+    Omit<T, "typescriptType"> & {
+      typescriptType: TTypescriptType
     }
   >
 
@@ -97,14 +66,9 @@ export interface ColumnDescriptionBuilder<
   >
 }
 
-export type InferColumnReadType<T extends ColumnDescription> =
+export type InferColumnTypescriptType<T extends ColumnDescription> =
   T extends ColumnDescription<infer TGenerics>
-    ? TGenerics["readType"] | InferColumnNullable<T>
-    : never
-
-export type InferColumnWriteType<T extends ColumnDescription> =
-  T extends ColumnDescription<infer TGenerics>
-    ? TGenerics["writeType"] | InferColumnNullable<T>
+    ? TGenerics["typescriptType"] | InferColumnNullable<T>
     : never
 
 export type InferColumnSqliteType<T extends ColumnDescription> =
@@ -122,24 +86,6 @@ export type InferColumnNullable<T extends ColumnDescription> =
         : never
       : never
     : never
-
-export type InferRowReadTypeFromColumns<
-  TColumns extends Record<string, ColumnDescription>
-> = {
-  [K in keyof TColumns]: InferColumnReadType<TColumns[K]>
-}
-
-export type InferRowWriteTypeFromColumns<
-  TColumns extends Record<string, ColumnDescription>
-> = {
-  [K in keyof TColumns]: InferColumnWriteType<TColumns[K]>
-}
-
-export type InferRowSqliteTypeFromColumns<
-  TColumns extends Record<string, ColumnDescription>
-> = {
-  [K in keyof TColumns]: SqliteToTypescriptTypeMap[TColumns[K]["type"]]
-}
 
 export type AnyColumnDescription = ColumnDescription<any>
 export type AnyColumnDescriptionBuilder = ColumnDescriptionBuilder<any>

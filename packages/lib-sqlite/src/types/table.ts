@@ -4,8 +4,7 @@ import { SqliteToTypescriptTypeMap } from ".."
 import {
   AnyColumnDescription,
   ColumnDescription,
-  InferColumnReadType,
-  InferColumnWriteType,
+  InferColumnTypescriptType,
 } from "./column"
 
 export interface TableDescription {
@@ -30,12 +29,8 @@ export interface InferTableDescription<T extends TableOptions = TableOptions>
   }
 }
 
-export type InferRowReadType<T extends TableDescription> = {
-  [K in keyof T["columns"]]: InferColumnReadType<T["columns"][K]>
-}
-
-export type InferRowWriteType<T extends TableDescription> = {
-  [K in keyof T["columns"]]: InferColumnWriteType<T["columns"][K]>
+export type InferRow<T extends TableDescription> = {
+  [K in keyof T["columns"]]: InferColumnTypescriptType<T["columns"][K]>
 }
 
 export type InferRowSqliteType<T extends TableDescription> = {

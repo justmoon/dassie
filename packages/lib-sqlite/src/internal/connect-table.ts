@@ -1,12 +1,10 @@
 import type { Database } from "better-sqlite3"
 import { Simplify } from "type-fest"
 
-import type { InferColumnReadType } from "../types/column"
+import type { InferColumnTypescriptType } from "../types/column"
 import type {
   InferColumnNames,
-  InferRowReadType,
-  InferRowSqliteType,
-  InferRowWriteType,
+  InferRow,
   TableDescription,
 } from "../types/table"
 import {
@@ -19,10 +17,6 @@ import {
   type NewSelectQueryBuilder,
   createSelectQueryBuilder,
 } from "./query-builder/select"
-import {
-  createRowDeserializer,
-  createRowSerializer,
-} from "./query-builder/serialize"
 
 export interface ConnectedTable<TTable extends TableDescription> {
   /**
@@ -47,7 +41,7 @@ export interface ConnectedTable<TTable extends TableDescription> {
    *
    * Equivalent to `table.select().all()`.
    */
-  selectAll: () => Simplify<InferRowReadType<TTable>>[]
+  selectAll: () => Simplify<InferRow<TTable>>[]
 
   /**
    * Shorthand: Fetch a unique row from the database.
@@ -56,63 +50,48 @@ export interface ConnectedTable<TTable extends TableDescription> {
    */
   selectUnique: <TColumn extends InferColumnNames<TTable>>(
     column: TColumn,
-    value: InferColumnReadType<TTable["columns"][TColumn]>
-  ) => Simplify<InferRowReadType<TTable>> | undefined
+    value: InferColumnTypescriptType<TTable["columns"][TColumn]>,
+  ) => Simplify<InferRow<TTable>> | undefined
 
   /**
    * Shorthand: Insert a single row into the database.
    *
    * Equivalent to `table.insert().one(row)`.
    */
-  insertOne: (row: Simplify<InferRowWriteType<TTable>>) => SingleInsertResult
+  insertOne: (row: Simplify<InferRow<TTable>>) => SingleInsertResult
 
   /**
    * Shorthand: Insert multiple rows into the database.
    *
    * Equivalent to `table.insert().many(rows)`.
    */
-  insertMany: (rows: InferRowWriteType<TTable>[]) => MultipleInsertResult
+  insertMany: (rows: InferRow<TTable>[]) => MultipleInsertResult
 }
 
 export const connectTable = <TTable extends TableDescription>(
   tableDescription: TTable,
-  database: Database
+  database: Database,
 ): ConnectedTable<TTable> => {
   const { name } = tableDescription
 
-  const serializeRow = createRowSerializer(tableDescription)
-  const deserializeRow = createRowDeserializer(tableDescription)
-
-  const selectAllQuery = createSelectQueryBuilder(
-    tableDescription,
-    deserializeRow,
-    database
-  )
-  const insertQuery = createInsertQueryBuilder(
-    tableDescription,
-    serializeRow,
-    database
-  )
+  const selectAllQuery = createSelectQueryBuilder(tableDescription, database)
+  const insertQuery = createInsertQueryBuilder(tableDescription, database)
 
   return {
     select: () => {
-      return createSelectQueryBuilder(
-        tableDescription,
-        deserializeRow,
-        database
-      )
+      return createSelectQueryBuilder(tableDescription, database)
     },
     insert: () => {
-      return createInsertQueryBuilder(tableDescription, serializeRow, database)
+      return createInsertQueryBuilder(tableDescription, database)
     },
     selectAll: () => {
       return selectAllQuery.all()
     },
     selectUnique: (column, value) => {
       const query = database.prepare(
-        `SELECT * FROM ${name} WHERE ${column} = ?`
+        `SELECT * FROM ${name} WHERE ${column} = ?`,
       )
-      return deserializeRow(query.get(value) as InferRowSqliteType<TTable>)
+      return query.get(value) as InferRow<TTable>
     },
     insertOne: (row) => {
       return insertQuery.one(row)

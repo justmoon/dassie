@@ -56,7 +56,7 @@ export const prefillDatabase = async ({
 
   database.tables.settlementSchemes.insertOne({
     id: "stub" as SettlementSchemeId,
-    config: {},
+    config: "{}",
   })
 
   for (const peer of peers) {
@@ -65,7 +65,7 @@ export const prefillDatabase = async ({
 
     const { rowid: nodeRowid } = database.tables.nodes.insertOne({
       id: peerInfo.nodeId,
-      public_key: publicKey,
+      public_key: Buffer.from(publicKey),
       url: peerInfo.url,
       alias: peerInfo.alias,
     })

@@ -5,15 +5,7 @@ import { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-
 export const settlementSchemesTable = table({
   name: "settlement_schemes",
   columns: {
-    id: column()
-      .type("TEXT")
-      .primaryKey()
-      .serialize((value: SettlementSchemeId) => value)
-      .deserialize((value) => value as SettlementSchemeId),
-    config: column()
-      .type("TEXT")
-      .notNull()
-      .serialize((value: object) => JSON.stringify(value))
-      .deserialize((value) => JSON.parse(value) as object),
+    id: column().type("TEXT").typescriptType<SettlementSchemeId>().primaryKey(),
+    config: column().type("TEXT").notNull(),
   },
 })

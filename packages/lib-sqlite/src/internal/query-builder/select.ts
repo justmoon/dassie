@@ -1,13 +1,8 @@
 import type { Database, Statement } from "better-sqlite3"
 import { Simplify } from "type-fest"
 
-import type {
-  InferRowReadType,
-  InferRowSqliteType,
-  TableDescription,
-} from "../../types/table"
+import type { InferRow, TableDescription } from "../../types/table"
 import { createPlaceholderStore } from "./placeholders"
-import { RowDeserializer } from "./serialize"
 import { type Condition, generateWhereClause } from "./where"
 
 export interface SelectQueryBuilder<TState extends SelectQueryBuilderState> {
@@ -25,7 +20,7 @@ export interface SelectQueryBuilder<TState extends SelectQueryBuilderState> {
    */
   limit: (
     limit: number,
-    offset?: number | undefined
+    offset?: number | undefined,
   ) => SelectQueryBuilder<TState>
 
   /**
@@ -41,12 +36,12 @@ export interface SelectQueryBuilder<TState extends SelectQueryBuilderState> {
   /**
    * Execute the query and return all result rows.
    */
-  all(): Simplify<InferRowReadType<TState["table"]>>[]
+  all(): Simplify<InferRow<TState["table"]>>[]
 
   /**
    * Execute the query and return the first result row.
    */
-  first(): Simplify<InferRowReadType<TState["table"]>> | undefined
+  first(): Simplify<InferRow<TState["table"]>> | undefined
 
   /**
    * Delete selected rows.
@@ -67,8 +62,7 @@ export type NewSelectQueryBuilder<TTable extends TableDescription> =
 
 export const createSelectQueryBuilder = <TTable extends TableDescription>(
   tableDescription: TTable,
-  deserializeRow: RowDeserializer<TTable>,
-  database: Database
+  database: Database,
 ): NewSelectQueryBuilder<TTable> => {
   const placeholders = createPlaceholderStore()
   const whereClauses: string[] = []
@@ -115,20 +109,16 @@ export const createSelectQueryBuilder = <TTable extends TableDescription>(
 
     all() {
       const query = builder.prepare()
-      return (
-        (query.all(placeholders.get()) as InferRowSqliteType<TTable>[])
-          // eslint-disable-next-line unicorn/no-array-callback-reference
-          .map(deserializeRow)
-      )
+      return query.all(placeholders.get()) as InferRow<TTable>[]
     },
 
     first() {
       const query = builder.prepare()
       const result = query.get(placeholders.get()) as
-        | InferRowSqliteType<TTable>
+        | InferRow<TTable>
         | undefined
 
-      return result === undefined ? undefined : deserializeRow(result)
+      return result
     },
 
     delete() {

@@ -5,9 +5,6 @@ export const acmeTokensTable = table({
   columns: {
     token: column().type("TEXT").primaryKey(),
     key_authorization: column().type("TEXT").notNull(),
-    expires: column()
-      .type("TEXT")
-      .serialize((value: Date) => value.toISOString())
-      .deserialize((value) => new Date(value)),
+    expires: column().type("TEXT"),
   },
 })

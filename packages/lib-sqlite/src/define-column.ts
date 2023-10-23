@@ -5,7 +5,6 @@ import {
   DefaultColumnDescriptionGenerics,
 } from "./types/column"
 import { SqliteToTypescriptTypeMap } from "./types/sqlite-datatypes"
-import { identity } from "./utils/identity"
 
 const createBuilder = <T extends ColumnDescriptionGenerics>(
   description: ColumnDescription<T>,
@@ -14,16 +13,13 @@ const createBuilder = <T extends ColumnDescriptionGenerics>(
 
   type(type) {
     const newDescription: ColumnDescription<
-      Omit<T, "sqliteType" | "writeType" | "readType"> & {
+      Omit<T, "sqliteType" | "typescriptType"> & {
         sqliteType: typeof type
-        writeType: SqliteToTypescriptTypeMap[typeof type]
-        readType: SqliteToTypescriptTypeMap[typeof type]
+        typescriptType: SqliteToTypescriptTypeMap[typeof type]
       }
     > = {
       ...description,
       type,
-      serialize: identity,
-      deserialize: identity,
     }
 
     return createBuilder(newDescription)
@@ -49,24 +45,9 @@ const createBuilder = <T extends ColumnDescriptionGenerics>(
     return createBuilder(newDescription)
   },
 
-  serialize(serialize) {
-    const newDescription: ColumnDescription<
-      Omit<T, "writeType"> & { writeType: Parameters<typeof serialize>[0] }
-    > = {
-      ...description,
-      serialize,
-    }
-    return createBuilder(newDescription)
-  },
-
-  deserialize(deserialize) {
-    const newDescription: ColumnDescription<
-      Omit<T, "readType"> & { readType: ReturnType<typeof deserialize> }
-    > = {
-      ...description,
-      deserialize,
-    }
-    return createBuilder(newDescription)
+  typescriptType() {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-explicit-any
+    return createBuilder(description) as any
   },
 })
 
@@ -76,13 +57,5 @@ export const column =
       type: "TEXT",
       notNull: false,
       primaryKey: false,
-      serialize: identity,
-      deserialize: identity,
     })
   }
-
-export const columnBoolean = () =>
-  column()
-    .type("INTEGER")
-    .serialize((value: boolean) => (value ? 1n : 0n))
-    .deserialize((value) => value === 1n)

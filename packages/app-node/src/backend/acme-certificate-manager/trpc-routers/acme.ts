@@ -33,7 +33,7 @@ export const acmeRouter = trpc.router({
         database.tables.acmeTokens.insertOne({
           token,
           key_authorization: keyAuthorization,
-          expires: expires ?? null,
+          expires: expires?.toISOString() ?? null,
         })
       },
     ),

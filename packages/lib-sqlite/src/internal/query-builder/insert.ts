@@ -2,10 +2,9 @@ import type { Database, RunResult, Statement } from "better-sqlite3"
 
 import type {
   InferColumnNames,
-  InferRowWriteType,
+  InferRow,
   TableDescription,
 } from "../../types/table"
-import { RowSerializer } from "./serialize"
 
 export interface InsertQueryBuilder<TState extends InsertQueryBuilderState> {
   /**
@@ -18,7 +17,7 @@ export interface InsertQueryBuilder<TState extends InsertQueryBuilderState> {
    * @param indexedColumns - The "conflict target" columns. These are columns with UNIQUE or PRIMARY KEY constraints that should be ignored when inserting.
    */
   ignoreConflicts(
-    indexedColumns: readonly InferColumnNames<TState["table"]>[]
+    indexedColumns: readonly InferColumnNames<TState["table"]>[],
   ): InsertQueryBuilder<TState>
 
   /**
@@ -33,7 +32,7 @@ export interface InsertQueryBuilder<TState extends InsertQueryBuilderState> {
    */
   upsert(
     indexedColumns: readonly InferColumnNames<TState["table"]>[],
-    updateColumns: readonly InferColumnNames<TState["table"]>[]
+    updateColumns: readonly InferColumnNames<TState["table"]>[],
   ): InsertQueryBuilder<TState>
 
   /**
@@ -49,14 +48,12 @@ export interface InsertQueryBuilder<TState extends InsertQueryBuilderState> {
   /**
    * Insert a single row and return the rowid of the inserted row.
    */
-  one(row: InferRowWriteType<TState["table"]>): SingleInsertResult
+  one(row: InferRow<TState["table"]>): SingleInsertResult
 
   /**
    * Insert multiple rows in a single transaction and return the rowids of the inserted rows.
    */
-  many(
-    rows: readonly InferRowWriteType<TState["table"]>[]
-  ): MultipleInsertResult
+  many(rows: readonly InferRow<TState["table"]>[]): MultipleInsertResult
 }
 
 export interface InsertQueryBuilderState {
@@ -80,8 +77,7 @@ export interface MultipleInsertResult {
 
 export const createInsertQueryBuilder = <TTable extends TableDescription>(
   tableDescription: TTable,
-  serializeRow: RowSerializer<TTable>,
-  database: Database
+  database: Database,
 ): NewInsertQueryBuilder<TTable> => {
   let cachedStatement: Statement<unknown[]> | undefined
   let indexedColumns: readonly InferColumnNames<TTable>[] | undefined
@@ -93,7 +89,7 @@ export const createInsertQueryBuilder = <TTable extends TableDescription>(
 
       if (indexedColumns !== undefined) {
         throw new Error(
-          "Cannot call ignoreConflicts() or upsert() multiple times."
+          "Cannot call ignoreConflicts() or upsert() multiple times.",
         )
       }
 
@@ -107,7 +103,7 @@ export const createInsertQueryBuilder = <TTable extends TableDescription>(
 
       if (indexedColumns !== undefined) {
         throw new Error(
-          "Cannot call ignoreConflicts() or upsert() multiple times."
+          "Cannot call ignoreConflicts() or upsert() multiple times.",
         )
       }
 
@@ -132,7 +128,7 @@ export const createInsertQueryBuilder = <TTable extends TableDescription>(
         : ""
 
       return `INSERT INTO ${tableDescription.name} (${Object.keys(
-        tableDescription.columns
+        tableDescription.columns,
       ).join(", ")}) VALUES (${Object.keys(tableDescription.columns)
         .map((column) => `@${column}`)
         .join(", ")})${conflictClause}`
@@ -146,7 +142,7 @@ export const createInsertQueryBuilder = <TTable extends TableDescription>(
 
     one(row) {
       const query = builder.prepare()
-      const { changes, lastInsertRowid } = query.run(serializeRow(row))
+      const { changes, lastInsertRowid } = query.run(row)
 
       return {
         changes: changes as 0 | 1,
@@ -158,8 +154,8 @@ export const createInsertQueryBuilder = <TTable extends TableDescription>(
       const query = builder.prepare()
       const results = database.transaction<(_rows: typeof rows) => RunResult[]>(
         (rows) => {
-          return rows.map((row) => query.run(serializeRow(row)))
-        }
+          return rows.map((row) => query.run(row))
+        },
       )(rows)
 
       let changes = 0

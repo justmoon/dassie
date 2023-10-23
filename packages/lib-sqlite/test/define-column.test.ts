@@ -1,6 +1,7 @@
-import { describe, test } from "vitest"
+import { Opaque } from "type-fest"
+import { assertType, describe, test } from "vitest"
 
-import { column } from "../src"
+import { ColumnDescriptionBuilder, column } from "../src"
 
 describe("column schema builder", () => {
   test("should start with a default column definition", ({ expect }) => {
@@ -8,10 +9,8 @@ describe("column schema builder", () => {
 
     expect(example.description).toMatchInlineSnapshot(`
       {
-        "deserialize": [Function],
         "notNull": false,
         "primaryKey": false,
-        "serialize": [Function],
         "type": "TEXT",
       }
     `)
@@ -22,10 +21,8 @@ describe("column schema builder", () => {
 
     expect(example.description).toMatchInlineSnapshot(`
       {
-        "deserialize": [Function],
         "notNull": false,
         "primaryKey": false,
-        "serialize": [Function],
         "type": "INTEGER",
       }
     `)
@@ -36,10 +33,8 @@ describe("column schema builder", () => {
 
     expect(example.description).toMatchInlineSnapshot(`
       {
-        "deserialize": [Function],
         "notNull": true,
         "primaryKey": false,
-        "serialize": [Function],
         "type": "TEXT",
       }
     `)
@@ -50,44 +45,23 @@ describe("column schema builder", () => {
 
     expect(example.description).toMatchInlineSnapshot(`
       {
-        "deserialize": [Function],
         "notNull": false,
         "primaryKey": true,
-        "serialize": [Function],
         "type": "TEXT",
       }
     `)
   })
 
-  test("should allow setting the serialize function", ({ expect }) => {
-    const example = column().serialize(String)
+  test("should allow setting the typescript type", ({ expect }) => {
+    const example = column().typescriptType<string>()
 
     expect(example.description).toMatchInlineSnapshot(`
       {
-        "deserialize": [Function],
         "notNull": false,
         "primaryKey": false,
-        "serialize": [Function],
         "type": "TEXT",
       }
     `)
-
-    expect(example.description.serialize).toBe(String)
-  })
-
-  test("should allow setting the deserialize function", ({ expect }) => {
-    const example = column().deserialize(Number)
-
-    expect(example.description).toMatchInlineSnapshot(`
-      {
-        "deserialize": [Function],
-        "notNull": false,
-        "primaryKey": false,
-        "serialize": [Function],
-        "type": "TEXT",
-      }
-    `)
-    expect(example.description.deserialize).toBe(Number)
   })
 
   test("should allow setting the type, required flag and primary key flag", ({
@@ -97,10 +71,8 @@ describe("column schema builder", () => {
 
     expect(example.description).toMatchInlineSnapshot(`
       {
-        "deserialize": [Function],
         "notNull": true,
         "primaryKey": true,
-        "serialize": [Function],
         "type": "INTEGER",
       }
     `)
@@ -109,19 +81,27 @@ describe("column schema builder", () => {
   test("should allow setting the type, required flag, primary key flag, serialize function, and deserialize function", ({
     expect,
   }) => {
+    type BrandedInteger = Opaque<bigint, "BrandedInteger">
+
     const example = column()
       .type("INTEGER")
+      .typescriptType<BrandedInteger>()
       .notNull()
       .primaryKey()
-      .serialize(BigInt)
-      .deserialize(Number)
+
+    assertType<
+      ColumnDescriptionBuilder<{
+        sqliteType: "INTEGER"
+        typescriptType: BrandedInteger
+        notNull: true
+        primaryKey: true
+      }>
+    >(example)
 
     expect(example.description).toMatchInlineSnapshot(`
       {
-        "deserialize": [Function],
         "notNull": true,
         "primaryKey": true,
-        "serialize": [Function],
         "type": "INTEGER",
       }
     `)

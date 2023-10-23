@@ -1,6 +1,6 @@
 import type { RequireExactlyOne } from "type-fest"
 
-import { InferRowReadType, TableDescription } from "../../types/table"
+import { InferRow, TableDescription } from "../../types/table"
 import type { PlaceholderStore } from "./placeholders"
 
 export type Condition<TTable extends TableDescription> = RequireExactlyOne<
@@ -8,14 +8,14 @@ export type Condition<TTable extends TableDescription> = RequireExactlyOne<
 >
 
 export interface ConditionTypes<TTable extends TableDescription> {
-  equals: Partial<InferRowReadType<TTable>>
+  equals: Partial<InferRow<TTable>>
   and: Condition<TTable>[]
   or: Condition<TTable>[]
 }
 
 export const generateWhereClause = (
   condition: Condition<TableDescription>,
-  mutablePlaceholders: PlaceholderStore
+  mutablePlaceholders: PlaceholderStore,
 ): string => {
   if ("equals" in condition) {
     const clauses = Object.entries(condition.equals).map(([column, value]) => {
@@ -26,14 +26,14 @@ export const generateWhereClause = (
 
   if ("and" in condition) {
     const clauses = condition.and.map(
-      (condition) => `(${generateWhereClause(condition, mutablePlaceholders)})`
+      (condition) => `(${generateWhereClause(condition, mutablePlaceholders)})`,
     )
     return clauses.join(" AND ")
   }
 
   if ("or" in condition) {
     const clauses = condition.or.map(
-      (condition) => `(${generateWhereClause(condition, mutablePlaceholders)})`
+      (condition) => `(${generateWhereClause(condition, mutablePlaceholders)})`,
     )
     return clauses.join(" OR ")
   }
