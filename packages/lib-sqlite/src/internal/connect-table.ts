@@ -1,103 +1,254 @@
-import type { Database } from "better-sqlite3"
+import type { Database, RunResult } from "better-sqlite3"
 import { Simplify } from "type-fest"
 
-import type { InferColumnTypescriptType } from "../types/column"
-import type {
-  InferColumnNames,
-  InferRow,
-  TableDescription,
-} from "../types/table"
-import {
-  type MultipleInsertResult,
-  type NewInsertQueryBuilder,
-  type SingleInsertResult,
-  createInsertQueryBuilder,
-} from "./query-builder/insert"
-import {
-  type NewSelectQueryBuilder,
-  createSelectQueryBuilder,
-} from "./query-builder/select"
+import type { InferRow, TableDescription } from "../types/table"
 
+export type BigIntRunResult = RunResult & {
+  lastInsertRowid: bigint
+}
+
+export interface InsertManyResult {
+  changes: number
+  rowids: bigint[]
+}
+
+/**
+ * Provides useful shorthands for common database operations.
+ *
+ * For more advanced queries, use Kysely.
+ */
 export interface ConnectedTable<TTable extends TableDescription> {
   /**
-   * Create a new SELECT query builder.
+   * Select rows from the database.
    *
-   * @see SelectQueryBuilder
+   * @param row - An object which will be used to filter the rows.
+   * @returns An array of rows matching the given criteria.
    */
-  select: () => NewSelectQueryBuilder<TTable>
+  select: (row?: Partial<InferRow<TTable>>) => Simplify<InferRow<TTable>>[]
 
   /**
-   * Create a new INSERT query builder.
+   * Fetch all rows from the database.
    *
-   * @see InsertQueryBuilder
-   */
-  insert: () => NewInsertQueryBuilder<TTable>
-
-  // --------------------------------------------------------------------------
-  // Shorthand methods
-
-  /**
-   * Shorthand: Fetch all rows from the database.
-   *
-   * Equivalent to `table.select().all()`.
+   * @returns An array of all rows in the table.
    */
   selectAll: () => Simplify<InferRow<TTable>>[]
 
   /**
-   * Shorthand: Fetch a unique row from the database.
+   * Fetch a unique row from the database.
    *
-   * Equivalent to `table.select().where({ column: value }).first()`.
+   * @param row - An object which will be used to filter the rows.
+   * @returns The first row matching the given criteria or undefined if no rows match.
    */
-  selectUnique: <TColumn extends InferColumnNames<TTable>>(
-    column: TColumn,
-    value: InferColumnTypescriptType<TTable["columns"][TColumn]>,
+  selectFirst: (
+    row?: Partial<InferRow<TTable>>,
   ) => Simplify<InferRow<TTable>> | undefined
 
   /**
-   * Shorthand: Insert a single row into the database.
-   *
-   * Equivalent to `table.insert().one(row)`.
+   * Update rows matching a set of fields.
    */
-  insertOne: (row: Simplify<InferRow<TTable>>) => SingleInsertResult
+  update: (
+    conditions: Partial<InferRow<TTable>>,
+    newValues: Partial<InferRow<TTable>>,
+  ) => BigIntRunResult
 
   /**
-   * Shorthand: Insert multiple rows into the database.
+   * Update all rows in the table.
    *
-   * Equivalent to `table.insert().many(rows)`.
+   * @param newValues - A record of the fields to update and their new values.
    */
-  insertMany: (rows: InferRow<TTable>[]) => MultipleInsertResult
+  updateAll: (newValues: Partial<InferRow<TTable>>) => BigIntRunResult
+
+  /**
+   * Insert a single row into the database.
+   *
+   * @param row - The row to insert.
+   */
+  insertOne: (row: Simplify<InferRow<TTable>>) => BigIntRunResult
+
+  /**
+   * Insert multiple rows into the database.
+   *
+   * @remarks
+   *
+   * This is more efficient than calling insertOne() multiple times.
+   *
+   * @param rows - The rows to insert.
+   */
+  insertMany: (rows: InferRow<TTable>[]) => InsertManyResult
+
+  /**
+   * Delete rows matching a set of fields.
+   *
+   * @remarks
+   *
+   * Unlike select(), the parameter is required to prevent accidental deletion
+   * of all rows.
+   *
+   * @param row - An object which will be used to filter the rows.
+   */
+  delete: (row: Partial<InferRow<TTable>>) => BigIntRunResult
+
+  /**
+   * Delete all rows from the table.
+   */
+  deleteAll: () => BigIntRunResult
+
+  /**
+   * Inserts a row, or - in the case of a conflicting row - updates it.
+   *
+   * @param row - The row to insert or update.
+   * @param conflictColumns - The columns to check for conflicts.
+   */
+  upsert: (
+    row: Simplify<InferRow<TTable>>,
+    conflictColumns: (keyof InferRow<TTable>)[],
+  ) => BigIntRunResult
 }
 
 export const connectTable = <TTable extends TableDescription>(
   tableDescription: TTable,
   database: Database,
 ): ConnectedTable<TTable> => {
-  const { name } = tableDescription
+  const { name, columns } = tableDescription
 
-  const selectAllQuery = createSelectQueryBuilder(tableDescription, database)
-  const insertQuery = createInsertQueryBuilder(tableDescription, database)
+  const selectAllQuery = database.prepare(`SELECT * FROM ${name}`)
+  const insertQuery = database.prepare(
+    `INSERT INTO ${name} (${Object.keys(columns).join(
+      ", ",
+    )}) VALUES (${Object.keys(columns)
+      .map((key) => `@${key}`)
+      .join(", ")})`,
+  )
+
+  const createWhereClause = (
+    row: Partial<InferRow<TTable>>,
+    prefix: string = "",
+  ) => {
+    const keys = Object.keys(row)
+
+    if (keys.length === 0) {
+      throw new Error("Empty condition object")
+    }
+
+    return Object.keys(row)
+      .map((key) => `${key} = @${prefix}${key}`)
+      .join(" AND ")
+  }
+
+  const createUpdateClause = (
+    row: Partial<InferRow<TTable>>,
+    prefix: string = "",
+  ) => {
+    const keys = Object.keys(row)
+
+    if (keys.length === 0) {
+      throw new Error("Empty update clause")
+    }
+
+    return Object.keys(row)
+      .map((key) => `${key} = @${prefix}${key}`)
+      .join(", ")
+  }
+
+  /**
+   * Prefix all keys in the given record with a given string prefix.
+   */
+  const prefixKeys = (row: Partial<InferRow<TTable>>, prefix: string) => {
+    return Object.fromEntries(
+      Object.entries(row).map(([key, value]) => [`${prefix}${key}`, value]),
+    )
+  }
 
   return {
-    select: () => {
-      return createSelectQueryBuilder(tableDescription, database)
-    },
-    insert: () => {
-      return createInsertQueryBuilder(tableDescription, database)
+    select: (row) => {
+      if (!row) {
+        return selectAllQuery.all() as Simplify<InferRow<TTable>>[]
+      }
+
+      const query = database.prepare<[typeof row]>(
+        `SELECT * FROM ${name} WHERE ${createWhereClause(row)}`,
+      )
+
+      return query.all(row) as Simplify<InferRow<TTable>>[]
     },
     selectAll: () => {
-      return selectAllQuery.all()
+      return selectAllQuery.all() as Simplify<InferRow<TTable>>[]
     },
-    selectUnique: (column, value) => {
+    selectFirst: (row) => {
+      const query = row
+        ? database.prepare(
+            `SELECT * FROM ${name} WHERE ${createWhereClause(row)}`,
+          )
+        : selectAllQuery
+
+      return query.get(row) as Simplify<InferRow<TTable>> | undefined
+    },
+    update: (conditions, newValues) => {
       const query = database.prepare(
-        `SELECT * FROM ${name} WHERE ${column} = ?`,
+        `UPDATE ${name} SET ${createUpdateClause(
+          newValues,
+          "u_",
+        )} WHERE ${createWhereClause(conditions, "w_")}`,
       )
-      return query.get(value) as InferRow<TTable>
+
+      return query.run({
+        ...prefixKeys(conditions, "w_"),
+        ...prefixKeys(newValues, "u_"),
+      }) as BigIntRunResult
+    },
+    updateAll: (newValues) => {
+      const query = database.prepare(
+        `UPDATE ${name} SET ${createUpdateClause(newValues)}`,
+      )
+
+      return query.run(newValues) as BigIntRunResult
     },
     insertOne: (row) => {
-      return insertQuery.one(row)
+      return insertQuery.run(row) as BigIntRunResult
     },
     insertMany: (rows) => {
-      return insertQuery.many(rows)
+      const results = database.transaction<(_rows: typeof rows) => RunResult[]>(
+        (rows) => {
+          return rows.map((row) => insertQuery.run(row))
+        },
+      )(rows)
+
+      let changes = 0
+      const rowids: bigint[] = []
+
+      for (const result of results) {
+        changes += result.changes
+        rowids.push(BigInt(result.lastInsertRowid))
+      }
+
+      return { changes, rowids }
+    },
+    delete: (row) => {
+      const query = database.prepare<[typeof row]>(
+        `DELETE FROM ${name} WHERE ${Object.keys(row)
+          .map((key) => `${key} = @${key}`)
+          .join(" AND ")}`,
+      )
+
+      return query.run(row) as BigIntRunResult
+    },
+    deleteAll: () => {
+      return database.prepare(`DELETE FROM ${name}`).run() as BigIntRunResult
+    },
+    upsert: (row, conflictColumns) => {
+      const keys = Object.keys(row)
+      const columnList = Object.keys(columns).join(", ")
+      const querySource = `INSERT INTO ${name} (${columnList}) VALUES (${keys
+        .map((key) => `@${key}`)
+        .join(", ")}) ON CONFLICT (${conflictColumns.join(
+        ", ",
+      )}) DO UPDATE SET ${keys
+        .map((key) => `${key} = EXCLUDED.${key}`)
+        .join(", ")}`
+
+      const query = database.prepare(querySource)
+
+      return query.run(row) as BigIntRunResult
     },
   }
 }

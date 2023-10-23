@@ -27,7 +27,9 @@
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "dependencies": {
-    "better-sqlite3": "^9.0.0"
+    "@types/better-sqlite3": "^7.6.6",
+    "better-sqlite3": "^9.0.0",
+    "kysely": "^0.26.3"
   },
   "devDependencies": {
     "@dassie/eslint-config": "workspace:^",

@@ -1,12 +1,8 @@
-import {
-  DatabaseSchema,
-  InferDatabaseInstance,
-  createDatabase,
-} from "../../src"
+import { DatabaseInstance, DatabaseSchema, createDatabase } from "../../src"
 
 export const createTestDatabase = <TSchema extends DatabaseSchema>(
-  schema: TSchema
-): InferDatabaseInstance<{
+  schema: TSchema,
+): DatabaseInstance<{
   schema: TSchema
 }> => {
   const database = createDatabase({

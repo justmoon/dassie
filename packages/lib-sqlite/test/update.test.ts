@@ -4,101 +4,80 @@ import minimal from "./schemas/minimal"
 import { createTestDatabase } from "./utils/create-test-database"
 import { dumpTable } from "./utils/dump-table"
 
-describe("INSERT", () => {
+describe("SELECT", () => {
   describe("with a minimal schema", () => {
-    test("should insert a row using kysely", async ({ expect }) => {
+    test("should update all rows using kysely", async ({ expect }) => {
       const database = createTestDatabase(minimal)
 
       await database.kysely
-        .insertInto("users")
-        .values({
-          id: 4n,
-          name: "Disha",
-          age: 91n,
+        .updateTable("users")
+        .set({
+          age: 100n,
         })
         .execute()
 
       expect(dumpTable(database, "users")).toMatchInlineSnapshot(`
         [
           {
-            "age": 42n,
+            "age": 100n,
             "id": 1n,
             "name": "Anzhela",
           },
           {
-            "age": 21n,
+            "age": 100n,
             "id": 2n,
             "name": "Borna",
           },
           {
-            "age": 42n,
+            "age": 100n,
             "id": 3n,
             "name": "Caelius",
-          },
-          {
-            "age": 91n,
-            "id": 4n,
-            "name": "Disha",
           },
         ]
       `)
     })
 
-    test("should insert a row using shorthand", ({ expect }) => {
+    test("should update all rows using shorthand", ({ expect }) => {
       const database = createTestDatabase(minimal)
 
-      database.tables.users.insertOne({
-        id: 4n,
-        name: "Disha",
-        age: 91n,
+      database.tables.users.updateAll({
+        age: 100n,
       })
 
       expect(dumpTable(database, "users")).toMatchInlineSnapshot(`
         [
           {
-            "age": 42n,
+            "age": 100n,
             "id": 1n,
             "name": "Anzhela",
           },
           {
-            "age": 21n,
+            "age": 100n,
             "id": 2n,
             "name": "Borna",
           },
           {
-            "age": 42n,
+            "age": 100n,
             "id": 3n,
             "name": "Caelius",
-          },
-          {
-            "age": 91n,
-            "id": 4n,
-            "name": "Disha",
           },
         ]
       `)
     })
 
-    test("should insert multiple rows using shorthand", ({ expect }) => {
+    test("should update a subset of rows using kysely", async ({ expect }) => {
       const database = createTestDatabase(minimal)
 
-      database.tables.users.insertMany([
-        {
-          id: 4n,
-          name: "Disha",
-          age: 91n,
-        },
-        {
-          id: 5n,
-          name: "Elias",
-          age: 42n,
-        },
-      ])
+      await database.kysely
+        .updateTable("users")
+        .set({ age: 100n })
+        .where("age", "=", 42n)
+        .execute()
 
       expect(dumpTable(database, "users")).toMatchInlineSnapshot(`
         [
           {
-            "age": 42n,
+            "age": 100n,
             "id": 1n,
             "name": "Anzhela",
           },
@@ -108,19 +87,35 @@ describe("INSERT", () => {
             "name": "Borna",
           },
           {
-            "age": 42n,
+            "age": 100n,
             "id": 3n,
             "name": "Caelius",
           },
+        ]
+      `)
+    })
+
+    test("should update a subset of rows using shorthand", ({ expect }) => {
+      const database = createTestDatabase(minimal)
+
+      database.tables.users.update({ age: 42n }, { age: 100n })
+
+      expect(dumpTable(database, "users")).toMatchInlineSnapshot(`
+        [
           {
-            "age": 91n,
-            "id": 4n,
-            "name": "Disha",
+            "age": 100n,
+            "id": 1n,
+            "name": "Anzhela",
           },
           {
-            "age": 42n,
-            "id": 5n,
-            "name": "Elias",
+            "age": 21n,
+            "id": 2n,
+            "name": "Borna",
+          },
+          {
+            "age": 100n,
+            "id": 3n,
+            "name": "Caelius",
           },
         ]
       `)

@@ -20,7 +20,7 @@ export const ServeTokensActor = () =>
           return
         }
 
-        const tokenRow = database.tables.acmeTokens.selectUnique("token", token)
+        const tokenRow = database.tables.acmeTokens.selectFirst({ token })
 
         if (!tokenRow) {
           response.status(404).send("Not Found")

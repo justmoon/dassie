@@ -15,20 +15,15 @@ export const SessionsStore = (reactor: Reactor) => {
   )
 
   return createStore(sessionSet, {
-    addSession: (sessionToken: SessionToken) =>
+    addSession: (token: SessionToken) =>
       produce((draft) => {
-        draft.add(sessionToken)
-        database.tables.sessions.insertOne({
-          token: sessionToken,
-        })
+        draft.add(token)
+        database.tables.sessions.insertOne({ token })
       }),
-    removeSession: (sessionToken: SessionToken) =>
+    removeSession: (token: SessionToken) =>
       produce((draft) => {
-        draft.delete(sessionToken)
-        database.tables.sessions
-          .select()
-          .where({ equals: { token: sessionToken } })
-          .delete()
+        draft.delete(token)
+        database.tables.sessions.delete({ token })
       }),
   })
 }

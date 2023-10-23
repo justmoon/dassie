@@ -9,8 +9,16 @@ export default {
         database.exec(`
           CREATE TABLE users (
             id INTEGER PRIMARY KEY,
-            name TEXT NOT NULL
+            name TEXT NOT NULL,
+            age INTEGER NOT NULL
           )
+        `)
+
+        database.exec(`
+          INSERT INTO users (id, name, age) VALUES
+            (1, 'Anzhela', 42),
+            (2, 'Borna', 21),
+            (3, 'Caelius', 42)
         `)
       },
       down: (database) => {
@@ -24,6 +32,7 @@ export default {
       columns: {
         id: column().type("INTEGER").notNull().primaryKey(),
         name: column().type("TEXT").notNull(),
+        age: column().type("INTEGER").notNull(),
       },
     }),
   },

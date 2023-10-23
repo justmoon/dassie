@@ -1,4 +1,5 @@
-import Database from "better-sqlite3"
+import SQLite from "better-sqlite3"
+import { CompiledQuery, Kysely, SqliteDialect } from "kysely"
 
 import { createLogger } from "@dassie/lib-logger"
 
@@ -9,6 +10,7 @@ import {
   createScalarStore,
   scalarTable,
 } from "./internal/scalar-store"
+import { InferKyselySchema } from "./types/kysely-schema"
 import type { MigrationDefinition } from "./types/migration"
 import { ScalarDescriptionBuilder } from "./types/scalar"
 import type { TableDescription } from "./types/table"
@@ -66,15 +68,23 @@ export interface DatabaseGenerics {
   schema: DatabaseSchema
 }
 
-export interface InferDatabaseInstance<T extends DatabaseGenerics> {
+export interface DatabaseInstance<
+  T extends DatabaseGenerics = DatabaseGenerics,
+> {
   tables: InferTableAccessors<T>
   scalars: InferScalarAccessors<T>
-  raw: Database.Database
+  raw: SQLite.Database
   schema: T["schema"]
+  kysely: Kysely<InferKyselySchema<T["schema"]["tables"]>>
+  executeSync: <TResult>(query: CompiledQuery<TResult>) => {
+    numAffectedRows?: bigint
+    insertId?: bigint
+    rows: TResult[]
+  }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AnyDatabase = InferDatabaseInstance<any>
+export type AnyDatabase = DatabaseInstance<any>
 
 export type InferTableAccessors<TOptions extends DatabaseGenerics> =
   TOptions["schema"]["tables"] extends Record<string, TableDescription>
@@ -91,9 +101,9 @@ export type InferScalarAccessors<TOptions extends DatabaseGenerics> =
     : undefined
 
 export const createDatabase = <TOptions extends DatabaseOptions>(
-  databaseOptions: TOptions
-): InferDatabaseInstance<TOptions> => {
-  const database = new Database(databaseOptions.path, {
+  databaseOptions: TOptions,
+): DatabaseInstance<TOptions> => {
+  const database = new SQLite(databaseOptions.path, {
     nativeBinding: databaseOptions.nativeBinding,
   })
 
@@ -115,7 +125,7 @@ export const createDatabase = <TOptions extends DatabaseOptions>(
     database.pragma("application_id", { simple: true }) !== applicationIdBigint
   ) {
     throw new Error(
-      "Database file has the wrong application ID - please make sure that the database file is not being shared between multiple applications"
+      "Database file has the wrong application ID - please make sure that the database file is not being shared between multiple applications",
     )
   }
 
@@ -130,21 +140,45 @@ export const createDatabase = <TOptions extends DatabaseOptions>(
     })
   }
 
+  const dialect = new SqliteDialect({ database })
+
+  const kysely = new Kysely<InferKyselySchema<TOptions["schema"]["tables"]>>({
+    dialect,
+  })
+
+  const executeSync: DatabaseInstance["executeSync"] = <TResult>(
+    query: CompiledQuery<TResult>,
+  ) => {
+    const statement = database.prepare(query.sql)
+
+    if (statement.reader) {
+      return { rows: statement.all(...query.parameters) as TResult[] }
+    } else {
+      const { changes, lastInsertRowid } = statement.run(...query.parameters)
+
+      return {
+        numAffectedRows: BigInt(changes),
+        insertId: BigInt(lastInsertRowid),
+        rows: [],
+      }
+    }
+  }
+
   return {
     tables: (databaseOptions.schema.tables
       ? Object.fromEntries(
           Object.entries(databaseOptions.schema.tables).map(
-            ([tableName, table]) => [tableName, connectTable(table, database)]
-          )
+            ([tableName, table]) => [tableName, connectTable(table, database)],
+          ),
         )
       : undefined) as InferTableAccessors<TOptions>,
     scalars: (databaseOptions.schema.scalars
-      ? createScalarStore(
-          databaseOptions.schema.scalars,
-          connectTable(scalarTable, database)
-        )
+      ? createScalarStore(databaseOptions.schema.scalars, database)
       : undefined) as InferScalarAccessors<TOptions>,
     raw: database,
     schema: databaseOptions.schema,
+
+    kysely,
+    executeSync,
   }
 }

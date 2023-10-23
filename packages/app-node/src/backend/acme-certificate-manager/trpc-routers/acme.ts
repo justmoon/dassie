@@ -46,6 +46,8 @@ export const acmeRouter = trpc.router({
     .mutation(({ input: { token }, ctx: { sig } }) => {
       const database = sig.use(Database)
 
-      database.tables.acmeTokens.select().where({ equals: { token } }).delete()
+      database.tables.acmeTokens.delete({
+        token,
+      })
     }),
 })

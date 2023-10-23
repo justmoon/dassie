@@ -63,7 +63,7 @@ export const prefillDatabase = async ({
     const peerInfo = generatePeerInfo(peer)
     const publicKey = nodeIndexToPublicKey(peer)
 
-    const { rowid: nodeRowid } = database.tables.nodes.insertOne({
+    const { lastInsertRowid: nodeRowid } = database.tables.nodes.insertOne({
       id: peerInfo.nodeId,
       public_key: Buffer.from(publicKey),
       url: peerInfo.url,
