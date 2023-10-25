@@ -15,6 +15,7 @@ import {
   IncomingPeerMessageTopic,
 } from "./actors/handle-peer-message"
 import { ALLOW_ANONYMOUS_USAGE } from "./constants/anonymous-messages"
+import { DASSIE_MESSAGE_CONTENT_TYPE } from "./constants/content-type"
 import { peerMessage as peerMessageSchema } from "./peer-schema"
 import { NodeTableStore } from "./stores/node-table"
 import { authenticatePeerMessage } from "./utils/authenticate-peer-message"
@@ -28,8 +29,8 @@ export const RegisterPeerHttpHandlerActor = () =>
     router.post(
       "/peer",
       asyncHandler(async (request, response) => {
-        assertAcceptHeader(request, "application/dassie-peer-message")
-        assertContentTypeHeader(request, "application/dassie-peer-message")
+        assertAcceptHeader(request, DASSIE_MESSAGE_CONTENT_TYPE)
+        assertContentTypeHeader(request, DASSIE_MESSAGE_CONTENT_TYPE)
 
         const body = await parseBody(request)
 

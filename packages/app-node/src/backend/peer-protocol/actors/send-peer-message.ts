@@ -8,6 +8,7 @@ import { EnvironmentConfigSignal } from "../../config/environment-config"
 import { NodeIdSignal } from "../../ilp-connector/computed/node-id"
 import { peerProtocol as logger } from "../../logger/instances"
 import { bufferToUint8Array } from "../../utils/buffer-to-typedarray"
+import { DASSIE_MESSAGE_CONTENT_TYPE } from "../constants/content-type"
 import { peerMessage, peerMessageContent } from "../peer-schema"
 import { NodeTableStore } from "../stores/node-table"
 import { NodeId } from "../types/node-id"
@@ -129,8 +130,8 @@ export const SendPeerMessageActor = () =>
             method: "POST",
             data: envelopeSerializationResult.value,
             headers: {
-              accept: "application/dassie-peer-message",
-              "content-type": "application/dassie-peer-message",
+              accept: DASSIE_MESSAGE_CONTENT_TYPE,
+              "content-type": DASSIE_MESSAGE_CONTENT_TYPE,
             },
             responseType: "arraybuffer",
           })
