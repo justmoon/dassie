@@ -3,6 +3,7 @@ import { subscribeToSignal } from "@dassie/lib-reactive-trpc/server"
 import { TotalOwnerBalanceSignal } from "../../accounting/computed/total-owner-balance"
 import { HasNodeIdentitySignal } from "../../config/computed/has-node-identity"
 import { IlpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-scheme"
+import { DatabaseConfigStore } from "../../config/database-config"
 import { NodeTableStore } from "../../peer-protocol/stores/node-table"
 import { ActiveSettlementSchemesSignal } from "../../settlement-schemes/signals/active-settlement-schemes"
 import { protectedProcedure } from "../middlewares/auth"
@@ -22,18 +23,15 @@ export const generalRouter = trpc.router({
     ]
     const nodeCount = sig.use(NodeTableStore).read().size
 
-    if (!user) {
-      return {
-        state: "anonymous",
-        activeSettlementSchemes,
-        nodeCount,
-      } as const
-    }
+    const hostname = sig.use(DatabaseConfigStore).read().hostname
 
+    // Please note that this is a public method that anyone can call so don't
+    // return any non-public information here.
     return {
-      state: "authenticated",
+      state: user ? "authenticated" : "anonymous",
       activeSettlementSchemes,
       nodeCount,
+      hostname,
     } as const
   }),
   subscribeBalance: protectedProcedure.subscription(({ ctx: { sig } }) => {
