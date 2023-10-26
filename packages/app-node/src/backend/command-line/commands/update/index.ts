@@ -2,11 +2,18 @@ import axios from "axios"
 import { command, flag, option, string } from "cmd-ts"
 import { $ } from "execa"
 
-import { cp, mkdir, rm } from "node:fs/promises"
+import {
+  access,
+  cp,
+  constants as fsConstants,
+  mkdir,
+  rm,
+} from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
 import { Reactor } from "@dassie/lib-reactive"
 import { createFlow, header, note } from "@dassie/lib-terminal-graphics"
+import { isErrorWithCode } from "@dassie/lib-type-utils"
 
 import { EnvironmentConfigSignal } from "../../../config/environment-config"
 import { downloadFile } from "./download-file"
@@ -58,13 +65,35 @@ export const updateCommand = (reactor: Reactor) =>
 
         flow.show(header({ title: "Dassie Update" }))
 
-        flow.show(note({ title: "Checking latest version..." }))
+        // Check permissions
+
+        try {
+          await access(rootPath, fsConstants.W_OK)
+          await access(superRootPath, fsConstants.W_OK)
+          await access(currentSymlinkPath, fsConstants.W_OK)
+          await access(oldVersionPath, fsConstants.W_OK)
+        } catch (error) {
+          if (isErrorWithCode(error, "EACCES")) {
+            flow.show(
+              note({
+                style: "error",
+                title: `Insufficient permissions`,
+                body: `Please run this command as root or with sudo`,
+              }),
+            )
+            return
+          }
+
+          throw error
+        }
 
         const mirrorUrl =
           process.env["DASSIE_MIRROR_URL"] ?? "https://get.dassie.land"
 
         // If no target version provided, determine latest version
         if (!targetVersion) {
+          flow.show(note({ title: "Checking latest version..." }))
+
           const metaLatestUrl = `${mirrorUrl}/meta/latest`
 
           const metaLatestResponse = await axios.get<string>(metaLatestUrl, {
@@ -82,7 +111,7 @@ export const updateCommand = (reactor: Reactor) =>
 
         flow.show(
           note({
-            title: `Installing ${targetVersion} (previous: ${__DASSIE_VERSION__})`,
+            title: `Downloading ${targetVersion} (previous: ${__DASSIE_VERSION__})`,
           }),
         )
 
@@ -94,6 +123,9 @@ export const updateCommand = (reactor: Reactor) =>
 
         await downloadFile(bundleUrl, localBundlePath)
 
+        note({
+          title: `Extracting`,
+        })
         await $`tar -xzf ${localBundlePath} -C ${sessionTemporaryPath}`
 
         await cp(`${sessionTemporaryPath}/dassie`, newVersionPath, {
@@ -101,12 +133,32 @@ export const updateCommand = (reactor: Reactor) =>
         })
 
         if (oldVersionPath !== newVersionPath) {
+          flow.show(
+            note({
+              title: `Removing ${oldVersionPath}`,
+            }),
+          )
           await rm(oldVersionPath, { recursive: true, force: true })
         }
 
         // Update symlink
         await rm(currentSymlinkPath)
         await $`ln -s ${newVersionPath} ${currentSymlinkPath}`
+
+        flow.show(
+          note({
+            title: `Restarting Dassie`,
+          }),
+        )
+
+        await $`systemctl restart dassie`
+
+        flow.show(
+          note({
+            style: "success",
+            title: `Successfully installed ${targetVersion}`,
+          }),
+        )
       } finally {
         await rm(sessionTemporaryPath, { recursive: true, force: true })
       }
