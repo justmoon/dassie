@@ -10,6 +10,8 @@ import { cancel } from "../common/actions/finalizations"
 export interface ConfirmOptions {
   title: string
   initialValue?: boolean
+  paddingTop?: number
+  paddingBottom?: number
 }
 
 export interface ConfirmState {
@@ -20,7 +22,7 @@ export interface ConfirmState {
 const renderOptions = (
   state: ConfirmState["state"],
   value: boolean,
-  theme: PromptTheme
+  theme: PromptTheme,
 ) => {
   switch (state) {
     case "normal": {
@@ -59,7 +61,12 @@ const renderOptions = (
   }
 }
 
-export const confirm = ({ title, initialValue = false }: ConfirmOptions) =>
+export const confirm = ({
+  title,
+  initialValue = false,
+  paddingTop = 1,
+  paddingBottom = 0,
+}: ConfirmOptions) =>
   ({
     type: "interactive",
     initialState: {
@@ -115,17 +122,17 @@ export const confirm = ({ title, initialValue = false }: ConfirmOptions) =>
       return state
     },
     render: ({ state, value }, { columns, theme }) => [
-      "\n",
+      "\n".repeat(paddingTop),
       chalk.blueBright.inverse.bold(` ? `),
       chalk.bold(
         ` ${indentString(wrapAnsi(title, columns - 4), 4, {
           indentFirstLine: false,
-        })} `
+        })} `,
       ),
       "\n",
       " ".repeat(4),
       ...renderOptions(state, value, theme),
-      "\n",
+      "\n".repeat(1 + paddingBottom),
     ],
     result: ({ value }) => value,
-  } satisfies InteractiveTerminalComponent<ConfirmState, boolean>)
+  }) satisfies InteractiveTerminalComponent<ConfirmState, boolean>

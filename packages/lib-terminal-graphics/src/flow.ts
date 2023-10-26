@@ -52,13 +52,25 @@ export const createFlow = ({
 
   return {
     show(component: StaticTerminalComponent): void {
+      if (previousOutput) {
+        throw new Error(
+          "Cannot render a static component while an interactive component is active",
+        )
+      }
+
       render(component.render(getRenderEnvironment()))
       previousOutput = undefined
     },
 
     async interact<TComponent extends InteractiveTerminalComponent>(
-      component: TComponent
+      component: TComponent,
     ): Promise<InferComponentResult<TComponent> | Canceled> {
+      if (previousOutput) {
+        throw new Error(
+          "Cannot render another interactive component until the previous one is finished",
+        )
+      }
+
       let state = component.initialState
 
       render(component.render(state, getRenderEnvironment()))
@@ -108,6 +120,17 @@ export const createFlow = ({
 
       previousOutput = undefined
       return component.result(state) as InferComponentResult<TComponent>
+    },
+
+    emptyLine(count: number = 1) {
+      if (previousOutput) {
+        throw new Error(
+          "Cannot render an empty line until the current interactive component is finished",
+        )
+      }
+
+      render(["\n".repeat(count)])
+      previousOutput = undefined
     },
   }
 }

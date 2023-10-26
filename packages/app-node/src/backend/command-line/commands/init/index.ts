@@ -110,6 +110,7 @@ export const initCommand = (reactor: Reactor) =>
             style: "success",
             title: "Configuration completed!",
             body: `You may now visit your Dassie node at https://${domain}/`,
+            paddingBottom: 1,
           }),
         )
       } else {
@@ -120,6 +121,7 @@ export const initCommand = (reactor: Reactor) =>
             style: "success",
             title: "Configuration completed!",
             body: `You may now continue setup in your browser by visiting ${setupUrl}`,
+            paddingBottom: 1,
           }),
         )
       }
@@ -146,6 +148,7 @@ const doAcmeFlow = async (
         style: "error",
         title: "Let's Encrypt Service Agreement rejected",
         body: "In this preview version of Dassie, you must use Let's Encrypt to obtain a TLS certificate. Since you rejected the Let's Encrypt Service Agreement, Dassie cannot continue.",
+        paddingBottom: 1,
       }),
     )
     return

@@ -27,6 +27,8 @@ export interface TextOptions {
   title: string
   explanation?: string
   initialValue?: string
+  paddingTop?: number
+  paddingBottom?: number
 }
 
 export interface TextState {
@@ -35,7 +37,13 @@ export interface TextState {
   cursor: number
 }
 
-export const text = ({ title, explanation, initialValue }: TextOptions) =>
+export const text = ({
+  title,
+  explanation,
+  initialValue,
+  paddingTop = 1,
+  paddingBottom = 0,
+}: TextOptions) =>
   ({
     type: "interactive",
     initialState: {
@@ -153,12 +161,12 @@ export const text = ({ title, explanation, initialValue }: TextOptions) =>
       return state
     },
     render: ({ state, value, cursor }, { columns }) => [
-      "\n",
+      "\n".repeat(paddingTop),
       chalk.blueBright.inverse.bold(` ? `),
       chalk.bold(
         ` ${indentString(wrapAnsi(title, columns - 4), 4, {
           indentFirstLine: false,
-        })} `
+        })} `,
       ),
       "\n",
       explanation && state === "normal"
@@ -171,9 +179,9 @@ export const text = ({ title, explanation, initialValue }: TextOptions) =>
           : state === "cancel"
           ? chalk.dim.strikethrough(value || "(canceled)")
           : renderValueWithCursor(value, cursor).join(""),
-        4
+        4,
       ),
-      "\n",
+      "\n".repeat(1 + paddingBottom),
     ],
     result: ({ value }) => value,
-  } satisfies InteractiveTerminalComponent<TextState, string>)
+  }) satisfies InteractiveTerminalComponent<TextState, string>

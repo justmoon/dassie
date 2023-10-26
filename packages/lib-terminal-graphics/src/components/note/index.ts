@@ -11,23 +11,31 @@ export interface NoteOptions {
   style?: StepStyle
   title: string
   body?: string
+  paddingTop?: number
+  paddingBottom?: number
 }
 
-export const note = ({ title, body, style = "info" }: NoteOptions) =>
+export const note = ({
+  title,
+  body,
+  style = "info",
+  paddingTop = 1,
+  paddingBottom = 0,
+}: NoteOptions) =>
   ({
     type: "static",
     render: ({ columns, theme }) => [
-      "\n",
+      "\n".repeat(paddingTop),
       chalk[theme.stepStyles[style].color].inverse.bold(
-        ` ${maybeUnicode(theme.stepStyles[style].icon)} `
+        ` ${maybeUnicode(theme.stepStyles[style].icon)} `,
       ),
       chalk.bold(
         ` ${indentString(wrapAnsi(title, columns - 4), 4, {
           indentFirstLine: false,
-        })} `
+        })} `,
       ),
       body ? "\n" : "",
       body ? chalk.dim(indentString(wrapAnsi(body, columns - 4), 4)) : "",
-      "\n",
+      "\n".repeat(1 + paddingBottom),
     ],
-  } satisfies StaticTerminalComponent)
+  }) satisfies StaticTerminalComponent
