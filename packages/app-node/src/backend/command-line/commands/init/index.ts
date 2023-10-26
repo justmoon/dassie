@@ -101,7 +101,11 @@ export const initCommand = (reactor: Reactor) =>
       }
 
       if (!currentConfig.hasTls || forceAcme) {
-        await doAcmeFlow(flow, ipcClient, domain)
+        const hasAcmeCompleted = await doAcmeFlow(flow, ipcClient, domain)
+
+        if (!hasAcmeCompleted) {
+          return
+        }
       }
 
       if (currentConfig.hasNodeIdentity) {
@@ -132,7 +136,7 @@ const doAcmeFlow = async (
   flow: Flow,
   ipcClient: ReturnType<typeof connectIpcClient>,
   domain: string,
-) => {
+): Promise<boolean> => {
   flow.show(
     note({
       title: "Let's Encrypt Service Agreement",
@@ -151,7 +155,7 @@ const doAcmeFlow = async (
         paddingBottom: 1,
       }),
     )
-    return
+    return false
   }
 
   const email = await flow.interact(
@@ -169,7 +173,7 @@ const doAcmeFlow = async (
         title: "Canceled. Exiting...",
       }),
     )
-    return
+    return false
   }
 
   const accountKey = await acmeCrypto.createPrivateKey()
@@ -299,4 +303,6 @@ const doAcmeFlow = async (
     certificate: certificate.toString(),
     privateKey: key.toString(),
   })
+
+  return true
 }
