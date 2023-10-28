@@ -10,7 +10,7 @@ export const HandleSettlementSchemeModuleMessageActor = () =>
       ManageSettlementSchemeInstancesActor,
     )
 
-    return sig.handlers({
+    return {
       handle: ({
         message: {
           sender,
@@ -33,5 +33,5 @@ export const HandleSettlementSchemeModuleMessageActor = () =>
 
         return EMPTY_UINT8ARRAY
       },
-    })
+    }
   })

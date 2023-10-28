@@ -7,14 +7,14 @@ import {
 } from ".."
 
 const InnerActor = () =>
-  createActor((sig) => {
+  createActor(() => {
     console.info(new Error("InnerActor behavior").stack)
 
-    return sig.handlers({
+    return {
       handle: () => {
         console.info(new Error("InnerActor handler").stack)
       },
-    })
+    }
   })
 
 const SomeSet = () => createSignal(new Set([undefined]))

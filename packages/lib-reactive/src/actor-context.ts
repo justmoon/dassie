@@ -3,7 +3,7 @@ import { Promisable } from "type-fest"
 import { isObject } from "@dassie/lib-type-utils"
 
 import { FactoryNameSymbol } from "."
-import { type Actor, type ActorApiHandler, type RunOptions } from "./actor"
+import { type Actor, type RunOptions } from "./actor"
 import { Listener } from "./internal/emit-to-listener"
 import {
   ReactiveSelector,
@@ -16,15 +16,6 @@ import type { Factory, Reactor, UseOptions } from "./reactor"
 import type { ReadonlyTopic } from "./topic"
 
 export const defaultSelector = <T>(value: T) => value
-
-export const ActorApiCallbackSymbol = Symbol("das:reactive:actor-api-callback")
-
-type InferActorHandlers<THandlers extends Record<string, unknown>> = {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [K in keyof THandlers]: THandlers[K] extends (...parameters: any[]) => any
-    ? ActorApiHandler<THandlers[K]>
-    : never
-}
 
 export class ActorContext extends DisposableLifecycleScopeImplementation {
   constructor(
@@ -394,30 +385,5 @@ export class ActorContext extends DisposableLifecycleScopeImplementation {
     })
 
     return results
-  }
-
-  handlers<
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    THandlers extends { [key: string]: (...parameters: any[]) => unknown },
-  >(handlers: THandlers): InferActorHandlers<THandlers> {
-    const result = {} as Record<string, unknown>
-    for (const key of Object.keys(handlers)) {
-      const callback = handlers[key]!
-
-      if (typeof callback !== "function") {
-        throw new TypeError("Handlers must be functions")
-      }
-
-      result[key] = {
-        [ActorApiCallbackSymbol]: callback,
-        tell: (...parameters: unknown[]) => {
-          callback(...parameters)
-        },
-        ask: async (...parameters: unknown[]) => {
-          return await callback(...parameters)
-        },
-      }
-    }
-    return result as InferActorHandlers<THandlers>
   }
 }

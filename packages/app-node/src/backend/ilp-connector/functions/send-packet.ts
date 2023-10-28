@@ -1,6 +1,6 @@
 import { Promisable } from "type-fest"
 
-import { Actor, ActorApiHandler, ActorContext } from "@dassie/lib-reactive"
+import { Actor, ActorContext } from "@dassie/lib-reactive"
 
 import {
   BtpEndpointInfo,
@@ -39,12 +39,8 @@ export type ResolvedPacketParameters<TType extends EndpointInfo["type"]> =
   EndpointInfo & { type: TType } & ResolvedIlpPacketEvent
 
 export type PacketSender<TType extends EndpointInfo["type"]> = Actor<{
-  sendPrepare: ActorApiHandler<
-    (parameters: PreparedPacketParameters<TType>) => Promisable<void>
-  >
-  sendResult: ActorApiHandler<
-    (parameters: ResolvedPacketParameters<TType>) => Promisable<void>
-  >
+  sendPrepare: (parameters: PreparedPacketParameters<TType>) => Promisable<void>
+  sendResult: (parameters: ResolvedPacketParameters<TType>) => Promisable<void>
 }>
 
 type AllPacketSenders = {

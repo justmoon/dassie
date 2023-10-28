@@ -311,10 +311,10 @@ describe("createActor", () => {
     test("should be able to 'tell' API handler", async ({ expect }) => {
       const apiHandler = vi.fn()
       const Actor = () =>
-        createActor((sig) => {
-          return sig.handlers({
+        createActor(() => {
+          return {
             greet: apiHandler,
-          })
+          }
         })
 
       const RootActor = () =>
@@ -338,10 +338,10 @@ describe("createActor", () => {
     test("should be able to 'ask' API handler", async ({ expect }) => {
       const apiHandler = vi.fn(() => "hello")
       const Actor = () =>
-        createActor((sig) => {
-          return sig.handlers({
+        createActor(() => {
+          return {
             greet: apiHandler,
-          })
+          }
         })
 
       const RootActor = () =>
@@ -366,10 +366,10 @@ describe("createActor", () => {
     }) => {
       const apiHandler = vi.fn()
       const Actor = () =>
-        createActor((sig) => {
-          return sig.handlers({
+        createActor(() => {
+          return {
             greet: apiHandler,
-          })
+          }
         })
 
       const enableSignal = createSignal(false)
@@ -403,10 +403,10 @@ describe("createActor", () => {
     }) => {
       const apiHandler = vi.fn(() => "hello")
       const Actor = () =>
-        createActor((sig) => {
-          return sig.handlers({
+        createActor(() => {
+          return {
             greet: apiHandler,
-          })
+          }
         })
 
       const enableSignal = createSignal(false)

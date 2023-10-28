@@ -8,7 +8,7 @@ export const HandleLinkStateUpdateActor = () =>
   createActor((sig) => {
     const modifyNodeTableActor = sig.use(ModifyNodeTableActor)
 
-    return sig.handlers({
+    return {
       handle: ({
         message: {
           sender,
@@ -28,5 +28,5 @@ export const HandleLinkStateUpdateActor = () =>
 
         return EMPTY_UINT8ARRAY
       },
-    })
+    }
   })

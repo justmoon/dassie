@@ -12,7 +12,7 @@ export interface PeerEndpointInfo extends CommonEndpointInfo {
 
 export const SendPeerPacketsActor = () =>
   createActor((sig) => {
-    return sig.handlers({
+    return {
       sendPrepare: ({
         nodeId,
         serializedPacket,
@@ -53,5 +53,5 @@ export const SendPeerPacketsActor = () =>
           },
         })
       },
-    })
+    }
   }) satisfies PacketSender<"peer">

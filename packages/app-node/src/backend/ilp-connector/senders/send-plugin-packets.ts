@@ -13,7 +13,7 @@ export const SendPluginPacketsActor = () =>
   createActor((sig) => {
     const pluginManager = sig.use(ManagePluginsActor)
 
-    return sig.handlers({
+    return {
       sendPrepare: ({
         pluginId,
         localIlpAddressPart,
@@ -36,5 +36,5 @@ export const SendPluginPacketsActor = () =>
           serializedPacket,
         })
       },
-    })
+    }
   }) satisfies PacketSender<"plugin">

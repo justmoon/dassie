@@ -8,9 +8,9 @@ export const SignerActor = () =>
   createActor((sig) => {
     const dassieKey = sig.get(NodePrivateKeySignal)
 
-    return sig.handlers({
+    return {
       signWithDassieKey(data: Uint8Array) {
         return signAsync(data, dassieKey)
       },
-    })
+    }
   })

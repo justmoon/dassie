@@ -7,7 +7,7 @@ import { ModifyNodeTableActor } from "../modify-node-table"
 
 export const HandleRegistrationActor = () =>
   createActor((sig) => {
-    return sig.handlers({
+    return {
       handle: ({
         message: {
           content: {
@@ -34,5 +34,5 @@ export const HandleRegistrationActor = () =>
 
         return EMPTY_UINT8ARRAY
       },
-    })
+    }
   })

@@ -18,7 +18,7 @@ export const SendBtpPacketsActor = () =>
   createActor((sig) => {
     const btpBroker = sig.use(RegisterBtpHttpUpgradeActor)
 
-    return sig.handlers({
+    return {
       sendPrepare: ({
         parsedPacket,
         serializedPacket,
@@ -160,5 +160,5 @@ export const SendBtpPacketsActor = () =>
           message: btpEnvelopeSerializeResult.value,
         })
       },
-    })
+    }
   }) satisfies PacketSender<"btp">

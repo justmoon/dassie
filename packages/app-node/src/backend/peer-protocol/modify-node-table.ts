@@ -40,10 +40,10 @@ const getRetransmitDelay = (retransmit: RetransmitType) => {
 }
 
 export const ModifyNodeTableActor = (reactor: Reactor) =>
-  createActor((sig) => {
+  createActor(() => {
     const nodeTable = reactor.use(NodeTableStore)
 
-    return sig.handlers({
+    return {
       addNode: (nodeId: NodeId) => {
         nodeTable.addNode({
           nodeId,
@@ -108,5 +108,5 @@ export const ModifyNodeTableActor = (reactor: Reactor) =>
           },
         })
       },
-    })
+    }
   })

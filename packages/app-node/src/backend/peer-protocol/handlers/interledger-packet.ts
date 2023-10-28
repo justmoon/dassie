@@ -12,7 +12,7 @@ export const HandleInterledgerPacketActor = () =>
     const ilpAllocationScheme = sig.get(IlpAllocationSchemeSignal)
     const processIncomingPacketActor = sig.use(ProcessPacketActor)
 
-    return sig.handlers({
+    return {
       handle: ({
         message: {
           sender,
@@ -52,5 +52,5 @@ export const HandleInterledgerPacketActor = () =>
 
         return EMPTY_UINT8ARRAY
       },
-    })
+    }
   })

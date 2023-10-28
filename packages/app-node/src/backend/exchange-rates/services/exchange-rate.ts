@@ -90,5 +90,5 @@ export const ExchangeRateServiceActor = () =>
       },
     }
 
-    return sig.handlers(exchangeRateConverter)
+    return exchangeRateConverter
   })

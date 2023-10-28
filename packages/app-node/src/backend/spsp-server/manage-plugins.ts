@@ -25,7 +25,7 @@ export const ManagePluginsActor = () =>
     const pluginHandlerMap = new Map<number, DataHandler>()
     const outstandingRequests = new Map<number, (data: Buffer) => void>()
 
-    return sig.handlers({
+    return {
       createPlugin: (): Plugin => {
         const pluginId = nextPluginId++
         let connection: Connection = false
@@ -165,5 +165,5 @@ export const ManagePluginsActor = () =>
 
         outstandingRequests.delete(requestId)
       },
-    })
+    }
   })

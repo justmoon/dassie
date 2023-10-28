@@ -216,7 +216,7 @@ export const RegisterBtpHttpUpgradeActor = () =>
       websocketServer.close()
     })
 
-    return sig.handlers({
+    return {
       send: ({
         connectionId,
         message,
@@ -234,5 +234,5 @@ export const RegisterBtpHttpUpgradeActor = () =>
 
         socket.send(message)
       },
-    })
+    }
   })

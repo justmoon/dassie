@@ -16,9 +16,9 @@ const CustomerServiceActors = (reactor: Reactor) =>
 
       sig.onCleanup(() => console.info(`${customer} removed`))
 
-      return sig.handlers({
+      return {
         greet: () => console.info(`Hello ${customer}`),
-      })
+      }
     }),
   )
 

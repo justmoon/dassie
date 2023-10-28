@@ -37,7 +37,7 @@ export const HandleIldcpRequestsActor = () =>
       ilpRoutingTable.delete(ILDCP_ADDRESS)
     })
 
-    return sig.handlers({
+    return {
       handle: ({ sourceIlpAddress, requestId }: IldcpRequestParameters) => {
         // IL-DCP
         const ildcpSerializationResult = ildcpResponseSchema.serialize({
@@ -70,5 +70,5 @@ export const HandleIldcpRequestsActor = () =>
           requestId,
         })
       },
-    })
+    }
   })

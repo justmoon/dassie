@@ -1,9 +1,8 @@
 import type { ConditionalPick } from "type-fest"
-import { TagContainer } from "type-fest/source/opaque"
 
 import { isObject } from "@dassie/lib-type-utils"
 
-import { ActorApiCallbackSymbol, ActorContext } from "./actor-context"
+import { ActorContext } from "./actor-context"
 import { ContextBase, FactoryNameSymbol } from "./internal/context-base"
 import { makePromise } from "./internal/promise"
 import {
@@ -25,10 +24,10 @@ export type Behavior<TReturn = unknown, TProperties = unknown> = (
 
 export const ActorSymbol = Symbol("das:reactive:actor")
 
-export interface ActorApiHandler<
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  TCallback extends (...parameters: any[]) => unknown,
-> extends TagContainer<"ActorApiHandler"> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type ActorApiHandler = (...parameters: any[]) => unknown
+
+export interface ActorApiProxy<TCallback extends ActorApiHandler> {
   /**
    * Fire-and-forget message to the actor. The message will be delivered asynchronously and any return value will be ignored.
    *
@@ -47,10 +46,12 @@ export interface ActorApiHandler<
   ): Promise<Awaited<ReturnType<TCallback>>>
 }
 
-export type InferActorApi<TInstance> = ConditionalPick<
-  Awaited<TInstance>,
-  TagContainer<"ActorApiHandler">
->
+export type InferActorApi<TInstance> = {
+  [K in keyof ConditionalPick<
+    TInstance,
+    ActorApiHandler
+  >]: TInstance[K] extends ActorApiHandler ? ActorApiProxy<TInstance[K]> : never
+}
 
 class ApiProxy {
   constructor(
@@ -72,9 +73,7 @@ class ApiProxy {
 
     const actorInstance = (await this.actor.promise) as Record<
       string,
-      {
-        [ActorApiCallbackSymbol]: (...parameters: unknown[]) => unknown
-      }
+      (...parameters: unknown[]) => unknown
     >
     return actorInstance
   }
@@ -82,7 +81,7 @@ class ApiProxy {
   ask = async (...parameters: unknown[]) => {
     const actorInstance = await this.getInstance()
 
-    const handler = actorInstance[this.method]?.[ActorApiCallbackSymbol]
+    const handler = actorInstance[this.method]
 
     if (!handler) {
       throw new Error(`Actor does not expose method: ${this.method}`)
@@ -154,7 +153,7 @@ export type Actor<TInstance, TProperties = undefined> = ReactiveObserver &
      * myActor.api.myMethod.tell({ foo: "bar" })
      * ```
      */
-    api: InferActorApi<TInstance>
+    api: InferActorApi<Awaited<TInstance>>
   }
 
 interface RunSignature<TReturn, TProperties> {
@@ -380,7 +379,7 @@ class ActorImplementation<TInstance, TProperties>
 
       return new ApiProxy(target, method)
     },
-  }) as unknown as InferActorApi<TInstance>
+  }) as unknown as InferActorApi<Awaited<TInstance>>
 
   /**
    * Apply a reducer which will accept the current state and return a new state.

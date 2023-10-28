@@ -9,7 +9,7 @@ export const HandleLinkStateRequestActor = () =>
     const nodeTable = sig.use(NodeTableStore)
     const nodeId = sig.get(NodeIdSignal)
 
-    return sig.handlers({
+    return {
       handle: () => {
         const ownNodeTableEntry = nodeTable.read().get(nodeId)
 
@@ -17,5 +17,5 @@ export const HandleLinkStateRequestActor = () =>
 
         return ownNodeTableEntry.linkState.lastUpdate
       },
-    })
+    }
   })

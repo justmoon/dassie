@@ -14,7 +14,7 @@ export const HandleSettlementActor = () =>
     )
     const ledger = sig.use(ledgerStore)
 
-    return sig.handlers({
+    return {
       handle: async ({
         message: {
           sender,
@@ -76,5 +76,5 @@ export const HandleSettlementActor = () =>
 
         return EMPTY_UINT8ARRAY
       },
-    })
+    }
   })
