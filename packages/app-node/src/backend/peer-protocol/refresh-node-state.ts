@@ -4,7 +4,6 @@ import { NodeIdSignal } from "../ilp-connector/computed/node-id"
 import { peerProtocol as logger } from "../logger/instances"
 import { SendPeerMessageActor } from "./actors/send-peer-message"
 import { ModifyNodeTableActor } from "./modify-node-table"
-import { signedPeerNodeInfo } from "./peer-schema"
 import { NodeTableStore } from "./stores/node-table"
 import { NodeId } from "./types/node-id"
 
@@ -26,10 +25,6 @@ export const RefreshNodeStateActor = (reactor: Reactor) => {
         },
       },
     })
-
-    if (!response?.length) {
-      throw new Error("no/invalid response")
-    }
 
     return response
   }
@@ -62,10 +57,12 @@ export const RefreshNodeStateActor = (reactor: Reactor) => {
       // Send a link state request
       const linkState = await queryLinkState(nodeId)
 
-      const { signed } = signedPeerNodeInfo.parseOrThrow(linkState)
+      if (!linkState) return
+
+      const { signed } = linkState.value
 
       reactor.use(ModifyNodeTableActor).api.processLinkState.tell({
-        linkStateBytes: linkState,
+        linkStateBytes: linkState.bytes,
         linkState: signed,
         retransmit: "never",
         from: nodeId,

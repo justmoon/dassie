@@ -1,8 +1,11 @@
 import {
+  AnyOerType,
   type Infer,
+  boolean,
   captured,
   choice,
   digits,
+  empty,
   ia5String,
   lowercaseLetters,
   objectIdentifier,
@@ -64,8 +67,6 @@ export const peerInterledgerPacket = sequence({
   packet: octetString(),
 })
 
-export const nodeListResponse = sequenceOf(captured(signedPeerNodeInfo))
-
 export const peerMessageContent = choice({
   peeringRequest: sequence({
     settlementSchemeId: settlementSchemeIdSchema,
@@ -92,6 +93,21 @@ export const peerMessageContent = choice({
     nodeInfo: captured(signedPeerNodeInfo),
   }).tag(7),
 })
+
+export const peerMessageResponse = {
+  peeringRequest: sequence({
+    accepted: boolean(),
+  }),
+  linkStateUpdate: empty(),
+  interledgerPacket: empty(),
+  linkStateRequest: captured(signedPeerNodeInfo),
+  nodeListRequest: sequenceOf(captured(signedPeerNodeInfo)),
+  settlement: empty(),
+  settlementMessage: empty(),
+  registration: empty(),
+} as const satisfies {
+  [K in PeerMessage["content"]["value"]["type"]]: AnyOerType
+}
 
 export const peerMessage = sequence({
   version: uint8Number(),

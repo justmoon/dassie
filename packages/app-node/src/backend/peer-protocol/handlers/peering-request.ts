@@ -22,13 +22,13 @@ export const HandlePeeringRequest = ((reactor: Reactor) => {
     const { nodeId } = nodeInfo.signed
 
     if (!activeSettlementSchemesSignal.read().has(settlementSchemeId)) {
-      return new Uint8Array([0x00])
+      return { accepted: false }
     }
 
     const existingEntry = nodeTableStore.read().get(nodeId)
 
     if (!existingEntry) {
-      return new Uint8Array([0x00])
+      return { accepted: false }
     }
 
     nodeTableStore.updateNode(nodeId, {
@@ -39,6 +39,6 @@ export const HandlePeeringRequest = ((reactor: Reactor) => {
       },
     })
 
-    return new Uint8Array([0x01])
+    return { accepted: true }
   }
 }) satisfies PeerMessageHandler<"peeringRequest">

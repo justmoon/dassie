@@ -1,6 +1,5 @@
 import { Reactor } from "@dassie/lib-reactive"
 
-import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import { IlpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-scheme"
 import { ProcessPacketActor } from "../../ilp-connector/process-packet"
 import { PeerEndpointInfo } from "../../ilp-connector/senders/send-peer-packets"
@@ -23,12 +22,12 @@ export const HandleInterledgerPacket = ((reactor: Reactor) => {
   }) => {
     if (!authenticated) {
       logger.warn("received unauthenticated interledger packet, discarding")
-      return EMPTY_UINT8ARRAY
+      return
     }
 
     if (peerState?.id !== "peered") {
       logger.warn("received interledger packet from unpeered node, discarding")
-      return EMPTY_UINT8ARRAY
+      return
     }
 
     const { settlementSchemeId } = peerState
@@ -45,7 +44,5 @@ export const HandleInterledgerPacket = ((reactor: Reactor) => {
       serializedPacket: content.signed.packet,
       requestId: content.signed.requestId,
     })
-
-    return EMPTY_UINT8ARRAY
   }
 }) satisfies PeerMessageHandler<"interledgerPacket">

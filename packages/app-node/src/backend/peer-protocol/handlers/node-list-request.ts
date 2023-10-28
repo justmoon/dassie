@@ -1,7 +1,6 @@
 import { Reactor } from "@dassie/lib-reactive"
 
 import { PeerMessageHandler } from "../actors/handle-peer-message"
-import { nodeListResponse } from "../peer-schema"
 import { NodeTableStore } from "../stores/node-table"
 
 export const HandleNodeListRequest = ((reactor: Reactor) => {
@@ -18,8 +17,6 @@ export const HandleNodeListRequest = ((reactor: Reactor) => {
       }
     }
 
-    const nodeList = nodeListResponse.serializeOrThrow(nodeLinkStates)
-
-    return nodeList
+    return nodeLinkStates
   }
 }) satisfies PeerMessageHandler<"nodeListRequest">

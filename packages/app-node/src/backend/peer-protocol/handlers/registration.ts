@@ -1,6 +1,5 @@
 import { Reactor } from "@dassie/lib-reactive"
 
-import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import { peerProtocol as logger } from "../../logger/instances"
 import type { PeerMessageHandler } from "../actors/handle-peer-message"
 import { ModifyNodeTableActor } from "../modify-node-table"
@@ -29,7 +28,5 @@ export const HandleRegistration = ((reactor: Reactor) => {
       retransmit: "never",
       from: nodeId,
     })
-
-    return EMPTY_UINT8ARRAY
   }
 }) satisfies PeerMessageHandler<"registration">

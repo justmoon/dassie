@@ -1,6 +1,5 @@
 import { Reactor } from "@dassie/lib-reactive"
 
-import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import type { PeerMessageHandler } from "../actors/handle-peer-message"
 import { ModifyNodeTableActor } from "../modify-node-table"
 
@@ -24,6 +23,6 @@ export const HandleLinkStateUpdate = ((reactor: Reactor) => {
       from: sender,
     })
 
-    return EMPTY_UINT8ARRAY
+    return
   }
 }) satisfies PeerMessageHandler<"linkStateUpdate">

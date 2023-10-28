@@ -1,7 +1,7 @@
 import axios from "axios"
 import type { SetOptional } from "type-fest"
 
-import type { InferSerialize } from "@dassie/lib-oer"
+import type { Infer, InferSerialize } from "@dassie/lib-oer"
 import { createActor, createTopic } from "@dassie/lib-reactive"
 
 import { EnvironmentConfigSignal } from "../../config/environment-config"
@@ -9,9 +9,14 @@ import { NodeIdSignal } from "../../ilp-connector/computed/node-id"
 import { peerProtocol as logger } from "../../logger/instances"
 import { bufferToUint8Array } from "../../utils/buffer-to-typedarray"
 import { DASSIE_MESSAGE_CONTENT_TYPE } from "../constants/content-type"
-import { peerMessage, peerMessageContent } from "../peer-schema"
+import {
+  peerMessage,
+  peerMessageContent,
+  peerMessageResponse,
+} from "../peer-schema"
 import { NodeTableStore } from "../stores/node-table"
 import { NodeId } from "../types/node-id"
+import { PeerMessageType } from "./handle-peer-message"
 
 export type MessageWithDestination = SetOptional<
   OutgoingPeerMessageEvent,
@@ -87,7 +92,13 @@ export const SendPeerMessageActor = () =>
     }
 
     return {
-      send: async (parameters: MessageWithDestination) => {
+      send: async <const TMessageType extends PeerMessageType>(
+        parameters: MessageWithDestination & {
+          message: { type: TMessageType }
+        },
+      ): Promise<
+        Infer<(typeof peerMessageResponse)[TMessageType]> | undefined
+      > => {
         const { message, destination, asUint8Array } = parameters
 
         const serializedMessage = asUint8Array ?? serializePeerMessage(message)
@@ -136,11 +147,25 @@ export const SendPeerMessageActor = () =>
             responseType: "arraybuffer",
           })
 
-          return new Uint8Array(
+          const resultUint8Array = new Uint8Array(
             result.data.buffer,
             result.data.byteOffset,
             result.data.byteLength,
           )
+
+          const responseSchema = peerMessageResponse[message.type]
+
+          const response = responseSchema.parse(resultUint8Array)
+
+          if (!response.success) {
+            logger.warn("failed to parse response", {
+              error: response.error,
+              from: destination,
+            })
+            return
+          }
+
+          return response.value as Infer<typeof responseSchema>
         } catch (error) {
           logger.warn("failed to send message", {
             error,

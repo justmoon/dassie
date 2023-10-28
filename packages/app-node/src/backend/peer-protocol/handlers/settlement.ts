@@ -1,7 +1,6 @@
 import { Reactor } from "@dassie/lib-reactive"
 import { UnreachableCaseError, isFailure } from "@dassie/lib-type-utils"
 
-import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import { processSettlementPrepare } from "../../accounting/functions/process-settlement"
 import { LedgerStore } from "../../accounting/stores/ledger"
 import { ManageSettlementSchemeInstancesActor } from "../../settlement-schemes/manage-settlement-scheme-instances"
@@ -26,7 +25,7 @@ export const HandleSettlement = ((reactor: Reactor) => {
     const settlementSchemeActor =
       settlementSchemeManager.get(settlementSchemeId)
 
-    if (!settlementSchemeActor) return EMPTY_UINT8ARRAY
+    if (!settlementSchemeActor) return
 
     const settlementTransfer = processSettlementPrepare(
       ledgerStore,
@@ -69,7 +68,5 @@ export const HandleSettlement = ((reactor: Reactor) => {
     } else {
       ledgerStore.voidPendingTransfer(settlementTransfer)
     }
-
-    return EMPTY_UINT8ARRAY
   }
 }) satisfies PeerMessageHandler<"settlement">

@@ -1,5 +1,6 @@
 import { Promisable } from "type-fest"
 
+import { InferSerialize } from "@dassie/lib-oer"
 import { Factory, createActor, createTopic } from "@dassie/lib-reactive"
 
 import { HandleInterledgerPacket } from "../handlers/interledger-packet"
@@ -11,6 +12,7 @@ import { HandleRegistration } from "../handlers/registration"
 import { HandleSettlement } from "../handlers/settlement"
 import { HandleSettlementMessage } from "../handlers/settlement-message"
 import type { PeerMessage } from "../peer-schema"
+import { peerMessageResponse } from "../peer-schema"
 import { PeerState } from "../stores/node-table"
 
 export interface IncomingPeerMessageEvent<
@@ -25,7 +27,9 @@ export interface IncomingPeerMessageEvent<
 }
 
 export type PeerMessageHandler<TType extends PeerMessageType> = Factory<
-  (parameters: IncomingPeerMessageEvent<TType>) => Promisable<Uint8Array>
+  (
+    parameters: IncomingPeerMessageEvent<TType>,
+  ) => Promisable<InferSerialize<(typeof peerMessageResponse)[TType]>>
 >
 
 export type PeerMessageType = PeerMessage["content"]["value"]["type"]
@@ -39,9 +43,7 @@ export const IncomingPeerMessageTopic = () =>
   createTopic<IncomingPeerMessageEvent>()
 
 type PeerMessageHandlers = {
-  [K in PeerMessageType]: (
-    parameters: IncomingPeerMessageEvent<K>,
-  ) => Promisable<Uint8Array>
+  [K in PeerMessageType]: ReturnType<PeerMessageHandler<K>>
 }
 
 export const HandlePeerMessageActor = () =>
@@ -63,7 +65,10 @@ export const HandlePeerMessageActor = () =>
       ) => {
         const type: TType = parameters.message.content.value.type
 
-        return await handlers[type](parameters)
+        const result = await handlers[type](parameters)
+
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
+        return peerMessageResponse[type].serializeOrThrow(result as any)
       },
     }
   })

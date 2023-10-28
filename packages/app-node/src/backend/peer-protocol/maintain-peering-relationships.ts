@@ -93,7 +93,7 @@ export const MaintainPeeringRelationshipsActor = (reactor: Reactor) =>
         },
       })
 
-      if (response?.[0]) {
+      if (response?.accepted) {
         reactor.use(NodeTableStore).updateNode(randomNode.nodeId, {
           peerState: {
             id: "request-peering",

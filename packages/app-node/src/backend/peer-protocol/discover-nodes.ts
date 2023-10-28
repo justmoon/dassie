@@ -1,11 +1,9 @@
-import { Infer } from "@dassie/lib-oer"
 import { Reactor, createActor } from "@dassie/lib-reactive"
 
 import { EnvironmentConfigSignal } from "../config/environment-config"
 import { NodeIdSignal } from "../ilp-connector/computed/node-id"
 import { peerProtocol as logger } from "../logger/instances"
 import { SendPeerMessageActor } from "./actors/send-peer-message"
-import { nodeListResponse } from "./peer-schema"
 import { NodeTableStore } from "./stores/node-table"
 import { NodeId } from "./types/node-id"
 import { parseLinkStateEntries } from "./utils/parse-link-state-entries"
@@ -13,10 +11,8 @@ import { parseLinkStateEntries } from "./utils/parse-link-state-entries"
 const NODE_DISCOVERY_INTERVAL = 10 * 1000
 
 export const DiscoverNodesActor = (reactor: Reactor) => {
-  const loadNodeList = async (
-    sourceNodeId: NodeId,
-  ): Promise<Infer<typeof nodeListResponse>> => {
-    const response = await reactor.use(SendPeerMessageActor).api.send.ask({
+  const loadNodeList = async (sourceNodeId: NodeId) => {
+    const nodeList = await reactor.use(SendPeerMessageActor).api.send.ask({
       destination: sourceNodeId,
       message: {
         type: "nodeListRequest",
@@ -24,16 +20,7 @@ export const DiscoverNodesActor = (reactor: Reactor) => {
       },
     })
 
-    if (!response?.length) {
-      logger.warn("no/invalid response to node list request", {
-        from: sourceNodeId,
-      })
-      return []
-    }
-
-    const nodeList = nodeListResponse.parseOrThrow(response)
-
-    return nodeList
+    return nodeList ?? []
   }
 
   const registerWithNode = (targetNodeId: NodeId, ourNodeInfo: Uint8Array) => {
