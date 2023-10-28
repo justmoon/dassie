@@ -1,11 +1,11 @@
 import { Reactor, createComputed } from "@dassie/lib-reactive"
 
-import { ledgerStore } from "../stores/ledger"
+import { LedgerStore } from "../stores/ledger"
 import { PostedTransfersTopic } from "../topics/posted-transfers"
 
 export const TotalOwnerBalanceSignal = (reactor: Reactor) =>
   createComputed(reactor.lifecycle, () => {
-    const ledger = reactor.use(ledgerStore)
+    const ledger = reactor.use(LedgerStore)
 
     let balance = 0n
     for (const account of ledger.getAccounts("builtin/owner/")) {

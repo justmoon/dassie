@@ -4,7 +4,7 @@ import { createActor } from "@dassie/lib-reactive"
 import { UnreachableCaseError, isFailure } from "@dassie/lib-type-utils"
 
 import { processSettlementPrepare } from "../accounting/functions/process-settlement"
-import { Ledger, ledgerStore } from "../accounting/stores/ledger"
+import { Ledger, LedgerStore } from "../accounting/stores/ledger"
 import { settlement as logger } from "../logger/instances"
 import { SendPeerMessageActor } from "../peer-protocol/actors/send-peer-message"
 import { NodeTableStore } from "../peer-protocol/stores/node-table"
@@ -83,7 +83,7 @@ const calculateSettlementAmount = (
 
 export const SendOutgoingSettlementsActor = () =>
   createActor((sig, peerId: NodeId) => {
-    const ledger = sig.use(ledgerStore)
+    const ledger = sig.use(LedgerStore)
     const nodeTable = sig.use(NodeTableStore)
     const settlementSchemeManager = sig.use(
       ManageSettlementSchemeInstancesActor,

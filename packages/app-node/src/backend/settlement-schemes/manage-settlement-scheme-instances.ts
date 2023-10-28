@@ -1,7 +1,7 @@
 import { Reactor, createActor, createMapped } from "@dassie/lib-reactive"
 
 import { initializeCommonAccounts } from "../accounting/functions/manage-common-accounts"
-import { ledgerStore } from "../accounting/stores/ledger"
+import { LedgerStore } from "../accounting/stores/ledger"
 import { DatabaseConfigStore } from "../config/database-config"
 import { SendPeerMessageActor } from "../peer-protocol/actors/send-peer-message"
 import modules from "./modules"
@@ -32,7 +32,7 @@ export const ManageSettlementSchemeInstancesActor = (reactor: Reactor) =>
           throw new Error("Subnet module is not compatible with realm")
         }
 
-        const ledger = sig.use(ledgerStore)
+        const ledger = sig.use(LedgerStore)
         initializeCommonAccounts(ledger, settlementSchemeId)
 
         // Create a unique factory for the settlement scheme actor.

@@ -52,7 +52,7 @@ export interface CreateTransferParameters {
   pending?: boolean
 }
 
-export const ledgerStore = (reactor: Reactor) => {
+export const LedgerStore = (reactor: Reactor) => {
   const ledger = new PrefixMap<LedgerAccount>()
   const pendingTransfers = new Set<Transfer>()
 
@@ -191,4 +191,4 @@ export const ledgerStore = (reactor: Reactor) => {
   }
 }
 
-export type Ledger = ReturnType<typeof ledgerStore>
+export type Ledger = ReturnType<typeof LedgerStore>

@@ -1,7 +1,7 @@
 import { UnreachableCaseError, isFailure } from "@dassie/lib-type-utils"
 
 import { applyPacketPrepareToLedger } from "../../accounting/functions/apply-interledger-packet"
-import { Transfer, ledgerStore } from "../../accounting/stores/ledger"
+import { LedgerStore, Transfer } from "../../accounting/stores/ledger"
 import { connector as logger } from "../../logger/instances"
 import { createResolveIlpAddress } from "../../routing/functions/resolve-ilp-address"
 import { MAX_PACKET_AMOUNT } from "../constants/max-packet-amount"
@@ -18,7 +18,7 @@ import { createScheduleTimeout } from "./schedule-timeout"
 import { createTriggerRejection } from "./trigger-rejection"
 
 export interface ProcessPreparePacketEnvironment {
-  ledger: ReturnType<typeof ledgerStore>
+  ledger: ReturnType<typeof LedgerStore>
   preparedIlpPacketTopicValue: ReturnType<typeof PreparedIlpPacketTopic>
   requestIdMap: ReturnType<typeof RequestIdMapSignal>
   resolveIlpAddress: ReturnType<typeof createResolveIlpAddress>

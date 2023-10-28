@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 
-import { ledgerStore } from "../../accounting/stores/ledger"
+import { LedgerStore } from "../../accounting/stores/ledger"
 import { connector as logger } from "../../logger/instances"
 import { IlpFulfillPacket, IlpType } from "../schemas/ilp-packet-codec"
 import { RequestIdMapSignal } from "../signals/request-id-map"
@@ -11,7 +11,7 @@ import {
 import { createPacketSender } from "./send-packet"
 
 export interface ProcessFulfillPacketEnvironment {
-  ledger: ReturnType<typeof ledgerStore>
+  ledger: ReturnType<typeof LedgerStore>
   resolvedIlpPacketTopic: ReturnType<typeof ResolvedIlpPacketTopic>
   requestIdMap: ReturnType<typeof RequestIdMapSignal>
   sendPacket: ReturnType<typeof createPacketSender>

@@ -1,15 +1,15 @@
 import { Promisable } from "type-fest"
 
-import { type Actor, createActor, createTopic } from "@dassie/lib-reactive"
+import { Factory, createActor, createTopic } from "@dassie/lib-reactive"
 
-import { HandleInterledgerPacketActor } from "../handlers/interledger-packet"
-import { HandleLinkStateRequestActor } from "../handlers/link-state-request"
-import { HandleLinkStateUpdateActor } from "../handlers/link-state-update"
-import { HandleNodeListRequestActor } from "../handlers/node-list-request"
-import { HandlePeeringRequestActor } from "../handlers/peering-request"
-import { HandleRegistrationActor } from "../handlers/registration"
-import { HandleSettlementActor } from "../handlers/settlement"
-import { HandleSettlementSchemeModuleMessageActor } from "../handlers/settlement-scheme-module-message"
+import { HandleInterledgerPacket } from "../handlers/interledger-packet"
+import { HandleLinkStateRequest } from "../handlers/link-state-request"
+import { HandleLinkStateUpdate } from "../handlers/link-state-update"
+import { HandleNodeListRequest } from "../handlers/node-list-request"
+import { HandlePeeringRequest } from "../handlers/peering-request"
+import { HandleRegistration } from "../handlers/registration"
+import { HandleSettlement } from "../handlers/settlement"
+import { HandleSettlementSchemeModuleMessage } from "../handlers/settlement-scheme-module-message"
 import type { PeerMessage } from "../peer-schema"
 import { PeerState } from "../stores/node-table"
 
@@ -24,6 +24,10 @@ export interface IncomingPeerMessageEvent<
   asUint8Array: Uint8Array
 }
 
+export type PeerMessageHandler<TType extends PeerMessageType> = Factory<
+  (parameters: IncomingPeerMessageEvent<TType>) => Promisable<Uint8Array>
+>
+
 export type PeerMessageType = PeerMessage["content"]["value"]["type"]
 
 export type PeerMessageContent<T extends PeerMessageType> = Extract<
@@ -34,29 +38,25 @@ export type PeerMessageContent<T extends PeerMessageType> = Extract<
 export const IncomingPeerMessageTopic = () =>
   createTopic<IncomingPeerMessageEvent>()
 
-type AllPeerMessageHandlers = {
-  [K in PeerMessageType]: Actor<{
-    handle: (parameters: IncomingPeerMessageEvent<K>) => Promisable<Uint8Array>
-  }>
+type PeerMessageHandlers = {
+  [K in PeerMessageType]: (
+    parameters: IncomingPeerMessageEvent<K>,
+  ) => Promisable<Uint8Array>
 }
 
 export const HandlePeerMessageActor = () =>
   createActor((sig) => {
-    const handlers: AllPeerMessageHandlers = {
-      peeringRequest: sig.use(HandlePeeringRequestActor),
-      linkStateUpdate: sig.use(HandleLinkStateUpdateActor),
-      interledgerPacket: sig.use(HandleInterledgerPacketActor),
-      linkStateRequest: sig.use(HandleLinkStateRequestActor),
-      settlement: sig.use(HandleSettlementActor),
+    const handlers: PeerMessageHandlers = {
+      peeringRequest: sig.use(HandlePeeringRequest),
+      linkStateUpdate: sig.use(HandleLinkStateUpdate),
+      interledgerPacket: sig.use(HandleInterledgerPacket),
+      linkStateRequest: sig.use(HandleLinkStateRequest),
+      settlement: sig.use(HandleSettlement),
       settlementSchemeModuleMessage: sig.use(
-        HandleSettlementSchemeModuleMessageActor,
+        HandleSettlementSchemeModuleMessage,
       ),
-      registration: sig.use(HandleRegistrationActor),
-      nodeListRequest: sig.use(HandleNodeListRequestActor),
-    }
-
-    for (const handler of Object.values(handlers)) {
-      handler.run(sig.reactor, sig)
+      registration: sig.use(HandleRegistration),
+      nodeListRequest: sig.use(HandleNodeListRequest),
     }
 
     return {
@@ -65,7 +65,7 @@ export const HandlePeerMessageActor = () =>
       ) => {
         const type: TType = parameters.message.content.value.type
 
-        return await handlers[type].api.handle.ask(parameters)
+        return await handlers[type](parameters)
       },
     }
   })

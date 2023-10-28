@@ -1,7 +1,7 @@
 import { createActor } from "@dassie/lib-reactive"
 import { UnreachableCaseError } from "@dassie/lib-type-utils"
 
-import { ledgerStore } from "../accounting/stores/ledger"
+import { LedgerStore } from "../accounting/stores/ledger"
 import { IlpAllocationSchemeSignal } from "../config/computed/ilp-allocation-scheme"
 import { connector as logger } from "../logger/instances"
 import { NodeTableStore } from "../peer-protocol/stores/node-table"
@@ -28,7 +28,7 @@ export interface ProcessIncomingPacketParameters {
 
 export const ProcessPacketActor = () =>
   createActor((sig) => {
-    const ledger = sig.use(ledgerStore)
+    const ledger = sig.use(LedgerStore)
     const preparedIlpPacketTopic = sig.use(PreparedIlpPacketTopic)
     const resolvedIlpPacketTopic = sig.use(ResolvedIlpPacketTopic)
     const requestIdMap = sig.use(RequestIdMapSignal)

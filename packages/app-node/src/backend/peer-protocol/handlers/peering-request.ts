@@ -1,45 +1,44 @@
-import { createActor } from "@dassie/lib-reactive"
+import { Reactor } from "@dassie/lib-reactive"
 
 import { ActiveSettlementSchemesSignal } from "../../settlement-schemes/signals/active-settlement-schemes"
-import type { IncomingPeerMessageEvent } from "../actors/handle-peer-message"
+import type { PeerMessageHandler } from "../actors/handle-peer-message"
 import { NodeTableStore } from "../stores/node-table"
 
-export const HandlePeeringRequestActor = () =>
-  createActor((sig) => {
-    const nodeTable = sig.use(NodeTableStore)
-    const activeSubnets = sig.get(ActiveSettlementSchemesSignal)
+export const HandlePeeringRequest = ((reactor: Reactor) => {
+  const nodeTableStore = reactor.use(NodeTableStore)
+  const activeSettlementSchemesSignal = reactor.use(
+    ActiveSettlementSchemesSignal,
+  )
 
-    return {
-      handle: ({
-        message: {
-          content: {
-            value: { value: content },
-          },
-        },
-      }: IncomingPeerMessageEvent<"peeringRequest">) => {
-        const { nodeInfo, settlementSchemeId } = content
-
-        const { nodeId } = nodeInfo.signed
-
-        if (!activeSubnets.has(settlementSchemeId)) {
-          return new Uint8Array([0x00])
-        }
-
-        const existingEntry = nodeTable.read().get(nodeId)
-
-        if (!existingEntry) {
-          return new Uint8Array([0x00])
-        }
-
-        nodeTable.updateNode(nodeId, {
-          peerState: {
-            id: "peered",
-            lastSeen: Date.now(),
-            settlementSchemeId,
-          },
-        })
-
-        return new Uint8Array([0x01])
+  return ({
+    message: {
+      content: {
+        value: { value: content },
       },
+    },
+  }) => {
+    const { nodeInfo, settlementSchemeId } = content
+
+    const { nodeId } = nodeInfo.signed
+
+    if (!activeSettlementSchemesSignal.read().has(settlementSchemeId)) {
+      return new Uint8Array([0x00])
     }
-  })
+
+    const existingEntry = nodeTableStore.read().get(nodeId)
+
+    if (!existingEntry) {
+      return new Uint8Array([0x00])
+    }
+
+    nodeTableStore.updateNode(nodeId, {
+      peerState: {
+        id: "peered",
+        lastSeen: Date.now(),
+        settlementSchemeId,
+      },
+    })
+
+    return new Uint8Array([0x01])
+  }
+}) satisfies PeerMessageHandler<"peeringRequest">
