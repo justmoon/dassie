@@ -83,7 +83,7 @@ export const peerMessageContent = choice({
     amount: uint64Bigint(),
     proof: octetString(),
   }).tag(4),
-  settlementSchemeModuleMessage: sequence({
+  settlementMessage: sequence({
     settlementSchemeId: settlementSchemeIdSchema,
     message: octetString(),
   }).tag(5),

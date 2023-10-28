@@ -4,7 +4,7 @@ import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import { ManageSettlementSchemeInstancesActor } from "../../settlement-schemes/manage-settlement-scheme-instances"
 import type { PeerMessageHandler } from "../actors/handle-peer-message"
 
-export const HandleSettlementSchemeModuleMessage = ((reactor: Reactor) => {
+export const HandleSettlementMessage = ((reactor: Reactor) => {
   const settlementSchemeManager = reactor.use(
     ManageSettlementSchemeInstancesActor,
   )
@@ -31,4 +31,4 @@ export const HandleSettlementSchemeModuleMessage = ((reactor: Reactor) => {
 
     return EMPTY_UINT8ARRAY
   }
-}) satisfies PeerMessageHandler<"settlementSchemeModuleMessage">
+}) satisfies PeerMessageHandler<"settlementMessage">

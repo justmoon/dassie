@@ -9,7 +9,7 @@ import { HandleNodeListRequest } from "../handlers/node-list-request"
 import { HandlePeeringRequest } from "../handlers/peering-request"
 import { HandleRegistration } from "../handlers/registration"
 import { HandleSettlement } from "../handlers/settlement"
-import { HandleSettlementSchemeModuleMessage } from "../handlers/settlement-scheme-module-message"
+import { HandleSettlementMessage } from "../handlers/settlement-message"
 import type { PeerMessage } from "../peer-schema"
 import { PeerState } from "../stores/node-table"
 
@@ -52,9 +52,7 @@ export const HandlePeerMessageActor = () =>
       interledgerPacket: sig.use(HandleInterledgerPacket),
       linkStateRequest: sig.use(HandleLinkStateRequest),
       settlement: sig.use(HandleSettlement),
-      settlementSchemeModuleMessage: sig.use(
-        HandleSettlementSchemeModuleMessage,
-      ),
+      settlementMessage: sig.use(HandleSettlementMessage),
       registration: sig.use(HandleRegistration),
       nodeListRequest: sig.use(HandleNodeListRequest),
     }

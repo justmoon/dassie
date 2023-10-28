@@ -51,7 +51,7 @@ export const ManageSettlementSchemeInstancesActor = (reactor: Reactor) =>
             sig.use(SendPeerMessageActor).api.send.tell({
               destination: peerId,
               message: {
-                type: "settlementSchemeModuleMessage",
+                type: "settlementMessage",
                 value: {
                   settlementSchemeId,
                   message,
