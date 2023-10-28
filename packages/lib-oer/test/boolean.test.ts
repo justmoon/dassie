@@ -4,7 +4,7 @@ import { boolean } from "../src/boolean"
 import { hexToUint8Array } from "../src/utils/hex"
 import { parsedOk, serializedOk } from "./utils/result"
 
-describe("bitstring", () => {
+describe("boolean", () => {
   test("should be a function", ({ expect }) => {
     expect(boolean).toBeTypeOf("function")
   })
