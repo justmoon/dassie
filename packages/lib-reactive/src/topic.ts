@@ -11,8 +11,13 @@ import { type Factory } from "./reactor"
 
 export const TopicSymbol = Symbol("das:reactive:topic")
 
-export type InferMessageType<TTopic extends Factory<ReadonlyTopic<unknown>>> =
-  TTopic extends Factory<ReadonlyTopic<infer TMessage>> ? TMessage : never
+export type InferMessageType<
+  TTopic extends ReadonlyTopic<unknown> | Factory<ReadonlyTopic<unknown>>,
+> = TTopic extends ReadonlyTopic<infer TMessage>
+  ? TMessage
+  : TTopic extends Factory<ReadonlyTopic<infer TMessage>>
+  ? TMessage
+  : never
 
 export interface ReadonlyTopic<TMessage = never> extends ContextValue {
   /**
