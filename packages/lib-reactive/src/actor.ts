@@ -1,4 +1,4 @@
-import type { ConditionalPick } from "type-fest"
+import type { ConditionalPick, SetReturnType } from "type-fest"
 
 import { isObject } from "@dassie/lib-type-utils"
 
@@ -41,9 +41,9 @@ export interface ActorApiProxy<TCallback extends ActorApiHandler> {
    * @param message - The message to send to the actor.
    * @returns A promise that will resolve with the response from the actor.
    */
-  ask(
-    ...parameters: Parameters<TCallback>
-  ): Promise<Awaited<ReturnType<TCallback>>>
+  ask: ReturnType<TCallback> extends PromiseLike<unknown>
+    ? TCallback
+    : SetReturnType<TCallback, Promise<ReturnType<TCallback>>>
 }
 
 export type InferActorApi<TInstance> = {
