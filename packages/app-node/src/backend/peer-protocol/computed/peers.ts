@@ -1,6 +1,6 @@
 import { enableMapSet, produce } from "immer"
 
-import { Reactor, createComputed } from "@dassie/lib-reactive"
+import { Reactor, createSignal } from "@dassie/lib-reactive"
 import { UnreachableCaseError } from "@dassie/lib-type-utils"
 
 import { NodeTableStore } from "../stores/node-table"
@@ -8,24 +8,22 @@ import { NodeId } from "../types/node-id"
 
 enableMapSet()
 
-export const PeersSignal = (reactor: Reactor) =>
-  createComputed(reactor.lifecycle, () => {
-    const nodeTable = reactor.use(NodeTableStore)
+export const PeersSignal = (reactor: Reactor) => {
+  const nodeTable = reactor.use(NodeTableStore)
 
-    const initialSet = new Set<NodeId>()
+  const initialSet = new Set<NodeId>(
+    // TODO: This conversion to an array will be unnecessary once we upgrade to
+    // a Node.js version that supports iterator helpers.
+    [...nodeTable.read().values()]
+      .filter(({ peerState: { id } }) => id === "peered")
+      .map(({ nodeId }) => nodeId),
+  )
 
-    for (const node of nodeTable.read().values()) {
-      if (node.peerState.id === "peered") {
-        initialSet.add(node.nodeId)
-      }
-    }
+  const signal = createSignal(initialSet)
 
-    nodeTable.changes.on(reactor.lifecycle, ([actionId, parameters]) => {
-      const peersSignal = reactor.use(PeersSignal)
-      const peersSet = peersSignal.read()
-      const priorSize = peersSet.size
-
-      const newSet = produce(peersSet, (draft) => {
+  nodeTable.changes.on(reactor.lifecycle, ([actionId, parameters]) => {
+    signal.update(
+      produce((draft) => {
         switch (actionId) {
           case "addNode": {
             const { peerState, nodeId } = parameters[0]
@@ -48,17 +46,9 @@ export const PeersSignal = (reactor: Reactor) =>
             throw new UnreachableCaseError(actionId)
           }
         }
-      })
-
-      if (newSet.size !== priorSize) {
-        peersSignal.write(newSet)
-      }
-    })
-
-    return initialSet
+      }),
+    )
   })
 
-export const PeersArraySignal = (reactor: Reactor) =>
-  createComputed(reactor.lifecycle, (sig) => [
-    ...sig.get(reactor.use(PeersSignal)),
-  ])
+  return signal
+}
