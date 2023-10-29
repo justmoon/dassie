@@ -20,12 +20,38 @@ It's a TypeScript framework which is designed to run in both front- and backend 
 To get lib-reactive to do anything, we first need to create a reactor. A reactor is the overall context in which things happen. To create a reactor, we call `createReactor` and we pass a function that returns an actor.
 
 ```ts
-const rootActor = () => createActor(() => console.log("Hello world"))
+const RootActor = () => createActor(() => console.log("Hello world"))
 
-createReactor(rootActor)
+createReactor(RootActor)
 ```
 
 You can think of the actor as a stateful entity which can do things when it is created, destroyed, or when it receives a message.
+
+### Instances and context
+
+You may have noticed in the previous example that `RootActor` wasn't just an instance of an actor, but actually a `Factory` function that creates that type of actor. The reactor takes care of instantiating any value we ask for using the `reactor.use` method. If the value has already been instantiated, it is returned. If it hasn't been, then it is created first.
+
+By convention, variables representing factories are always camel-case (e.g. `RootActor`) and variables containing the actual instance have the same name but in mixed-case (e.g. `rootActor`).
+
+```ts
+const RootActor = () => createActor(() => console.log("Hello world"))
+
+const reactor = createReactor(RootActor)
+
+const rootActor = reactor.use(RootActor)
+```
+
+Factories don't always have to return actors, they can return any JavaScript value. We'll soon learn about some other common types of values, such as topics and signals.
+
+So why do we use factories instead of just defining our values globally? There are a number of benefits
+
+- The main benefit is that it allows each instance of the actor or the topic to be scoped to a specific `Reactor`. In other words, when we publish a message on a given topic in one reactor, the message will not appear in any other reactor. This allows us to run multiple instances of our application in the same JavaScript context such as a Node.js process or browser tab. As a result, it is much more efficient for example to run tests in parallel or simulate distributed applications.
+
+- It also means that everything is initialized lazily, i.e. the topic is only instantiated if it is actually being used.
+
+- Functions have a unique property in JavaScript: They capture their own name when they are being defined. In the example above, `RootActor.name` will be set to `"RootActor"`. We can use that feature to provide better error messages and such without any additional boilerplate like having to give things a name.
+
+- Values can be manually overridden by calling `reactor.set()`. This allows for very easy mocking during testing.
 
 ### Actor hierarchy
 
@@ -34,13 +60,13 @@ You can think of the actor as a stateful entity which can do things when it is c
 The reactor will pass an `ActorContext` to the actor as the first parameter. This is how the actor interacts with its environment. For example, we can use it to instantiate subsidiary actors with the method `run`.
 
 ```ts
-const rootActor = () => createActor((sig) =>
+const RootActor = () => createActor((sig) =>
   console.log("Hello from the root actor")
 
   sig.run(subActor)
 })
 
-const subActor = () => createActor((sig) =>
+const SubActor = () => createActor((sig) =>
   console.log("Hello from the sub actor")
 })
 
@@ -56,14 +82,14 @@ Overall, actors form a hierarchy which allows you to structure your application.
 Actors have a lifecycle - they are created and disposed. The root actor for instance is disposed when we dispose the reactor.
 
 ```ts
-const rootActor = () =>
+const RootActor = () =>
   createActor((sig) => {
     const interval = setInterval(() => console.log("tick!"), 100)
 
     sig.onCleanup(() => clearInterval(interval))
   })
 
-const reactor = createReactor(rootActor)
+const reactor = createReactor(RootActor)
 
 setTimeout(() => reactor.dispose(), 1000)
 ```
@@ -75,12 +101,12 @@ It's very common pattern that actors require some cleanup. If the actors is list
 We can actually simplify the code above by using `sig.interval` which is a built-in helper that automatically disposes the interval for us. When we are using any of the `sig.*` helper methods, the disposal is always handled for us automatically.
 
 ```ts
-const rootActor = () =>
+const RootActor = () =>
   createActor((sig) => {
     sig.interval(() => console.log("tick!"), 100)
   })
 
-const reactor = createReactor(rootActor)
+const reactor = createReactor(RootActor)
 
 setTimeout(() => reactor.dispose(), 1000)
 ```
@@ -88,12 +114,12 @@ setTimeout(() => reactor.dispose(), 1000)
 Notice that we we're still using `setTimeout` and we're not cleaning up that timeout. That's fine in this case but what if there were multiple ways for our application to finish?
 
 ```ts
-const rootActor = () =>
+const RootActor = () =>
   createActor((sig) => {
     sig.interval(() => console.log("tick!"), 100)
   })
 
-const reactor = createReactor(rootActor)
+const reactor = createReactor(RootActor)
 
 setTimeout(() => {
   console.log("exiting after one second")
@@ -109,7 +135,7 @@ setTimeout(() => {
 Here, both timeouts will eventually be called and both console.log statements will eventually be executed. This is not what we want. It's a good rule of thumb that your entire application should be contained inside of your reactor. Let's refactor that last example by moving the shutdown timers into the root actor.
 
 ```ts
-const rootActor = () =>
+const RootActor = () =>
   createActor((sig) => {
     sig.interval(() => console.log("tick!"), 100)
 
@@ -124,7 +150,7 @@ const rootActor = () =>
     }, 2000 * Math.random())
   })
 
-createReactor(rootActor)
+createReactor(RootActor)
 ```
 
 Now, when the first shutdown timer is hit, it will dispose of the reactor which will automatically clean up the other one.
@@ -136,25 +162,37 @@ Now, when the first shutdown timer is hit, it will dispose of the reactor which 
 So far, we've looked at how we can define the basic structure of our application using actors. However, currently, none of these actors can communicate with each other. Fortunately, doing so is very simple.
 
 ```ts
-const rootActor = () => createActor((sig) => {
-  // Instantiate the two actors
-  sig.run(pingActor)
-  sig.run(pongActor)
+const RootActor = () =>
+  createActor((sig) => {
+    // Instantiate the two actors
+    sig.run(PingActor)
+    sig.run(PongActor)
 
-  // Get the process started by sending a message to the ping actor
-  sig.use(pingActor).tell()
-})
+    // Get the process started by sending a message to the ping actor
+    sig.use(PingActor).api.ping.tell()
+  })
 
-const pingActor = () => createActor((sig) => {
-  return () => sig.use(pongActor).tell()
-})
+const PingActor = () =>
+  createActor((sig) => {
+    const pongActor = sig.use(PongActor)
+    return {
+      ping: () => pongActor.api.pong.tell(),
+    }
+  })
 
-const pongActor = () => createActor((sig) => {
-  return () => {
-    sig.timeout(() => {
-      sig.use(pingActor).tell()
-    }, 75)
-})
+const PongActor = () =>
+  createActor((sig) => {
+    const pingActor = sig.use(PingActor)
+    return {
+      pong: () => {
+        sig.timeout(() => {
+          pingActor.api.ping.tell()
+        }, 75)
+      },
+    }
+  })
+
+createReactor(RootActor)
 ```
 
 In this example, the root actor will instantiate two actors who will send each other messages back and forth indefinitely.
@@ -168,34 +206,26 @@ We just learned how one actor can communicate with other other actor. But someti
 To define a new Topic, we need to make a factory function that calls `createTopic`.
 
 ```ts
-const pingPongTopic = () => createTopic<string>()
+const PingPongTopic = () => createTopic<string>()
 ```
-
-You may have noticed before that we have been creating factory functions instead of just storing the return value of `createActor`/`createTopic` directly. So why are we doing this? There are several benefits to this approach:
-
-- The main benefit is that it allows each instance of the actor or the topic to be scoped to a specific `Reactor`. In other words, when we publish a message on a given topic in one reactor, the message will not appear in any other reactor. This allows us to run multiple instances of our application in the same JavaScript context such as a Node.js process or browser tab. As a result, it is much more efficient for example to run tests in parallel or simulate distributed applications.
-
-- It also means that everything is initialized lazily, i.e. the topic is only instantiated if it is actually being used.
-
-- Functions have a unique property in JavaScript: They capture their own name when they are being defined. In the example above, `pingPongTopic.name` will be set to `"pingPongTopic"`. We can use that feature to provide great debuggability without any additional boilerplate like having to give things a name.
 
 In order to `emit` a message on a topic, we first need to get an instance of the topic. In order to do that, we can call `sig.use` from inside of an actor:
 
 ```ts
-const rootActor = () =>
+const RootActor = () =>
   createActor((sig) => {
-    sig.use(pingPongTopic).emit("ping")
+    sig.use(PingPongTopic).emit("ping")
   })
 
-createReactor(rootActor)
+createReactor(RootActor)
 ```
 
 Obviously, emitting events is not very useful when nobody is listening. So let's listen using `on`.
 
 ```ts
-const rootActor = () =>
+const RootActor = () =>
   createActor((sig) => {
-    const dispose = sig.use(pingPongTopic).on((message) => {
+    const dispose = sig.on(PingPongTopic, (message) => {
       console.log(message)
     })
 
@@ -208,141 +238,239 @@ createReactor(rootActor)
 When we create listeners manually via `sig.use().on()` we also have to remember to dispose of them using `sig.onCleanup`. That could get tedious quickly. Instead, we can use the `sig.on` shorthand which will handle the cleanup for us automatically.
 
 ```ts
-const rootActor = () =>
+const RootActor = () =>
   createActor((sig) => {
-    sig.on(pingPongTopic, (message) => {
+    sig.on(PingPongTopic, (message) => {
       console.log(message)
     })
   })
 
-createReactor(rootActor)
+createReactor(RootActor)
 ```
 
 Ok, now let's put all of these pieces together and look at a complete example:
 
 ```ts
-import { EffectContext, createReactor, createTopic } from "@dassie/lib-reactive"
+import {
+  EffectContext,
+  createActor,
+  createReactor,
+  createTopic,
+} from "@dassie/lib-reactive"
 
-const pingPongTopic = () => createTopic<string>()
+const PingPongTopic = () => createTopic<string>()
 
-const pinger = () =>
+const Pinger = () =>
   createActor((sig) => {
-    sig.on(pingPongTopic, (message) => {
+    sig.on(PingPongTopic, (message) => {
       if (message === "pong") {
-        sig.emit(pingPongTopic, "ping")
+        sig.use(PingPongTopic).emit("ping")
       }
     })
   })
 
-const ponger = () =>
+const Ponger = () =>
   createActor((sig) => {
-    sig.on(pingPongTopic, (message) => {
+    sig.on(PingPongTopic, (message) => {
       if (message === "ping") {
         sig.timeout(() => {
-          sig.use(pingPongTopic).emit("pong")
+          sig.use(PingPongTopic).emit("pong")
         }, 75)
       }
     })
   })
 
-const logger = () =>
+const Logger = () =>
   createActor((sig) => {
-    sig.on(pingPongTopic, console.log)
+    sig.on(PingPongTopic, console.log)
   })
 
-const rootActor = () =>
+const RootActor = () =>
   createActor((sig) => {
-    sig.run(pinger)
-    sig.run(ponger)
-    sig.run(logger)
-    sig.emit(pingPongTopic, "ping")
+    sig.run(Pinger)
+    sig.run(Ponger)
+    sig.run(Logger)
+    sig.emit(PingPongTopic, "ping")
     sig.timeout(() => sig.reactor.dispose(), 200)
   })
 
-createReactor(rootActor)
+createReactor(RootActor)
 ```
 
-There are three actors, `pinger`, `ponger`, and `logger`. Pinger will watch the `pingPongTopic` and if it sees a `"pong"` message emit a `"ping"` message. Ponger will emit a `"pong"` message 75 milliseconds after it sees a `"ping"` message. Logger will simply log these messages to the console.
+There are three actors, `Pinger`, `Ponger`, and `Logger`. Pinger will watch the `PingPongTopic` and if it sees a `"pong"` message emit a `"ping"` message. Ponger will emit a `"pong"` message 75 milliseconds after it sees a `"ping"` message. Logger will simply log these messages to the console.
 
 ### Signals
 
 > I'll never forget this!
 
-Although actors can keep state internally, they are intended to be disposable, meaning they should be able to be torn down and recreated at any time.
+Although actors can keep state internally, they are intended to be disposable, meaning they should be able to be torn down and recreated at any time. That means we need some place to keep the state of our application.
 
-Signals are stateful topics. They provide methods `read` and `write` which allows you access and modify their internal state. You can also call `update` and pass a reducer which accepts the previous state and returns a new state. Whenever the state changes, the signal will emit the new state so you can listen to it. When creating a new signal, you can pass an `initialValue`.
+The solution is a different kind of value called a signal. Signals provide the methods `read` and `write` which allows you access and modify their internal state. You can also call `update` and pass a reducer which accepts the previous state and returns a new state. When creating a new signal, you can pass an `initialValue`.
+
+Actors can access signals using a special helper method `sig.get` which will tracked which signals the actor accessed and restart the actor if any of these signals' values change.
 
 Let's see an example.
 
 ```ts
 import {
   EffectContext,
+  createActor,
   createReactor,
   createSignal,
 } from "@dassie/lib-reactive"
 
-const counterSignal = () => createSignal(0)
+const CounterSignal = () => createSignal(0)
 
-const clock = () =>
+const Clock = () =>
   createActor((sig) => {
     sig.interval(() => {
-      sig.use(counterSignal).update((state) => state + 1)
+      sig.use(CounterSignal).update((state) => state + 1)
     }, 75)
   })
 
-const logger = () =>
+const Logger = () =>
   createActor((sig) => {
-    sig.on(counterSignal, (state) => {
-      console.log(`the counter is: ${state}`)
-    })
+    const counterValue = sig.get(CounterSignal)
+
+    console.log(`the counter is: ${counterValue}`)
   })
 
-const rootActor = () =>
+const RootActor = () =>
   createActor((sig) => {
-    sig.run(clock)
-    sig.run(logger)
+    sig.run(Clock)
+    sig.run(Logger)
     sig.timeout(() => void sig.reactor.dispose(), 400)
   })
 
-createReactor(rootActor)
+createReactor(RootActor)
 ```
 
-### Tracked access
+### Signals as topics
 
-We've seen how to listen to topics, but so far we have still had to manage these listeners manually.
+Signals also expose the topic API meaning you can subscribe to changes using `on` and `once`.
+
+That means another way we could have implemented the Logger actor from the previous example is like this:
+
+```ts
+import {
+  EffectContext,
+  createActor,
+  createReactor,
+  createSignal,
+} from "@dassie/lib-reactive"
+
+const CounterSignal = () => createSignal(0)
+
+const Logger = () =>
+  createActor((sig) => {
+    sig.on(CounterSignal, (counterValue) => {
+      console.log(`the counter is: ${counterValue}`)
+    })
+  })
+```
+
+Usually, tracked reads (using `sig.get`) are the preferred method for watching a signal. But tracked reads are only
+available in certain contexts (like in the behavior function of an actor) so it is sometimes useful to be able to treat
+signals as topics.
+
+Note that when a signal is updated multiple times in the same tick it will only emit the latest value. If you need to
+keep track of every change, publish the changes to a topic instead.
+
+### Computed values
+
+Sometimes we may have values that are computed but need to be updated whenever the underlying state changes. This can be represented using `Computed` values. These values are themselves signals which can be watched by other computed values
+as well as actors.
+
+```ts
+import {
+  EffectContext,
+  createActor,
+  createComputed,
+  createReactor,
+  createSignal,
+} from "@dassie/lib-reactive"
+
+const CounterSignal = () => createSignal(0)
+
+const DoubledComputed = (reactor: Reactor) =>
+  createComputed(reactor.lifecycle, (sig) => {
+    return sig.get(CounterSignal) * 2
+  })
+
+const Clock = () =>
+  createActor((sig) => {
+    sig.interval(() => {
+      sig.use(CounterSignal).update((state) => state + 1)
+    }, 75)
+  })
+
+const Logger = () =>
+  createActor((sig) => {
+    const counterValue = sig.get(CounterSignal)
+    const doubledValue = sig.get(DoubledComputed)
+
+    console.log(`the counter value is: ${counterValue}`)
+    console.log(`the doubled value is: ${doubledValue}`)
+  }
+
+const RootActor = () =>
+  createActor((sig) => {
+    sig.run(Clock)
+    sig.run(Logger)
+    sig.timeout(() => void sig.reactor.dispose(), 400)
+  })
+
+createReactor(RootActor))
+```
+
+Computed values are executed lazily by default, meaning they are only actually calculated when the computed value (or
+one of its dependent computed values) is actually read. There are some exceptions when computed values will become
+eagerly calculated:
+
+- When they are accessed from an actor using `sig.get`
+- When they are subscribed to as a topic using `on` or `once`
+
+### Batching
+
+When multiple signals update at the same time, any dependent values will only be recomputed once.
 
 There is a special `sig.get` helper which will retrieve the current state of a signal but also listen for changes and automatically re-run the actor with the new value. This allows us to build some very concise reactive applications.
 
 ```ts
-import { EffectContext, createReactor, createTopic } from "@dassie/lib-reactive"
+import {
+  EffectContext,
+  createActor,
+  createReactor,
+  createTopic,
+} from "@dassie/lib-reactive"
 
-const signal1 = () => createSignal(0)
-const signal2 = () => createSignal(0)
-const signal3 = () => createSignal(0)
+const Signal1 = () => createSignal(0)
+const Signal2 = () => createSignal(0)
+const Signal3 = () => createSignal(0)
 
-const logger = () =>
+const Logger = () =>
   createActor((sig) => {
-    const t1 = sig.get(signal1)
-    const t2 = sig.get(signal2)
-    const t3 = sig.get(signal3)
+    const t1 = sig.get(Signal1)
+    const t2 = sig.get(Signal2)
+    const t3 = sig.get(Signal3)
 
     console.log(`actor run with ${t1} ${t2} ${t3}`)
   })
 
-const rootEffect = () =>
+const RootActor = () =>
   createActor((sig) => {
     sig.interval(() => {
       // Even though we are triggering three state updates, the actor will only re-run once
-      sig.use(signal1).update((a) => a + 1)
-      sig.use(signal2).update((a) => a + 3)
-      sig.use(signal3).update((a) => a + 5)
+      sig.use(Signal1).update((a) => a + 1)
+      sig.use(Signal2).update((a) => a + 3)
+      sig.use(Signal3).update((a) => a + 5)
     }, 1000)
 
-    sig.run(logger)
+    sig.run(Logger)
 
     // Stop the application after 10 seconds
     sig.timeout(sig.reactor.dispose, 10_000)
   })
 
-createReactor(rootEffect)
+createReactor(RootActor)
 ```
