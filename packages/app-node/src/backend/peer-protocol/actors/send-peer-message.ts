@@ -9,6 +9,7 @@ import { NodeIdSignal } from "../../ilp-connector/computed/node-id"
 import { peerProtocol as logger } from "../../logger/instances"
 import { bufferToUint8Array } from "../../utils/buffer-to-typedarray"
 import { DASSIE_MESSAGE_CONTENT_TYPE } from "../constants/content-type"
+import { DEFAULT_NODE_COMMUNICATION_TIMEOUT } from "../constants/timings"
 import {
   peerMessage,
   peerMessageContent,
@@ -18,10 +19,11 @@ import { NodeTableStore } from "../stores/node-table"
 import { NodeId } from "../types/node-id"
 import { PeerMessageType } from "./handle-peer-message"
 
-export type MessageWithDestination = SetOptional<
-  OutgoingPeerMessageEvent,
-  "asUint8Array"
->
+export type SendPeerMessageParameters<TMessageType extends PeerMessageType> =
+  SetOptional<OutgoingPeerMessageEvent, "asUint8Array"> & {
+    message: { type: TMessageType }
+    timeout?: number | undefined
+  }
 
 export interface OutgoingPeerMessageEvent {
   message: InferSerialize<typeof peerMessageContent>
@@ -93,13 +95,11 @@ export const SendPeerMessageActor = () =>
 
     return {
       send: async <const TMessageType extends PeerMessageType>(
-        parameters: MessageWithDestination & {
-          message: { type: TMessageType }
-        },
+        parameters: SendPeerMessageParameters<TMessageType>,
       ): Promise<
         Infer<(typeof peerMessageResponse)[TMessageType]> | undefined
       > => {
-        const { message, destination, asUint8Array } = parameters
+        const { message, destination, asUint8Array, timeout } = parameters
 
         const serializedMessage = asUint8Array ?? serializePeerMessage(message)
 
@@ -145,6 +145,7 @@ export const SendPeerMessageActor = () =>
               "content-type": DASSIE_MESSAGE_CONTENT_TYPE,
             },
             responseType: "arraybuffer",
+            timeout: timeout ?? DEFAULT_NODE_COMMUNICATION_TIMEOUT,
           })
 
           const resultUint8Array = new Uint8Array(

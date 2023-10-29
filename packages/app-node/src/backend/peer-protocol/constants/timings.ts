@@ -23,3 +23,8 @@ export const LINK_STATE_MAX_UPDATE_INTERVAL = BigInt(48 * 3600 * 1000) // 48 hou
  * the node will not retransmit the update.
  */
 export const LINK_STATE_MAX_UPDATE_RETRANSMIT_DELAY = 500
+
+/**
+ * Default timeout for communicating with other nodes.
+ */
+export const DEFAULT_NODE_COMMUNICATION_TIMEOUT = 30_000 // 30 sec
