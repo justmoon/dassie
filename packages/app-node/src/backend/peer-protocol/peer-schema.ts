@@ -88,10 +88,11 @@ export const peerMessageContent = choice({
     settlementSchemeId: settlementSchemeIdSchema,
     message: octetString(),
   }).tag(5),
-  nodeListRequest: sequence({}).tag(6),
+  nodeListHashRequest: sequence({}).tag(6),
+  nodeListRequest: sequence({}).tag(7),
   registration: sequence({
     nodeInfo: captured(signedPeerNodeInfo),
-  }).tag(7),
+  }).tag(8),
 })
 
 export const peerMessageResponse = {
@@ -101,9 +102,12 @@ export const peerMessageResponse = {
   linkStateUpdate: empty(),
   interledgerPacket: empty(),
   linkStateRequest: captured(signedPeerNodeInfo),
-  nodeListRequest: sequenceOf(captured(signedPeerNodeInfo)),
   settlement: empty(),
   settlementMessage: empty(),
+  nodeListHashRequest: sequence({
+    hash: octetString(32),
+  }),
+  nodeListRequest: captured(sequenceOf(nodeIdSchema)),
   registration: empty(),
 } as const satisfies {
   [K in PeerMessage["content"]["value"]["type"]]: AnyOerType

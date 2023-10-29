@@ -45,6 +45,8 @@ export const ModifyNodeTableActor = (reactor: Reactor) =>
 
     return {
       addNode: (nodeId: NodeId) => {
+        if (nodeTable.read().has(nodeId)) return
+
         nodeTable.addNode({
           nodeId,
           linkState: undefined,

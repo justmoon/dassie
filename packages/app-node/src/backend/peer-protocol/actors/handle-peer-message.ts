@@ -6,6 +6,7 @@ import { Factory, createActor, createTopic } from "@dassie/lib-reactive"
 import { HandleInterledgerPacket } from "../handlers/interledger-packet"
 import { HandleLinkStateRequest } from "../handlers/link-state-request"
 import { HandleLinkStateUpdate } from "../handlers/link-state-update"
+import { HandleNodeListHashRequest } from "../handlers/node-list-hash-request"
 import { HandleNodeListRequest } from "../handlers/node-list-request"
 import { HandlePeeringRequest } from "../handlers/peering-request"
 import { HandleRegistration } from "../handlers/registration"
@@ -57,6 +58,7 @@ export const HandlePeerMessageActor = () =>
       settlementMessage: sig.use(HandleSettlementMessage),
       registration: sig.use(HandleRegistration),
       nodeListRequest: sig.use(HandleNodeListRequest),
+      nodeListHashRequest: sig.use(HandleNodeListHashRequest),
     }
 
     return {
