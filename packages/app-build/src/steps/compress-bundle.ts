@@ -13,7 +13,7 @@ import { getCompressedPath, getTarPath } from "../utils/bundle-name"
 export const compressBundle = async (
   version: DassieVersion,
   architecture: Architecture,
-  compression: Compression
+  compression: Compression,
 ) => {
   const tarFile = getTarPath(version, architecture)
   const compressedFile = getCompressedPath(version, architecture, compression)
@@ -28,7 +28,7 @@ export const compressBundle = async (
     }
 
     case "xz": {
-      await $`xz -f ${tarFile} -c`.pipeStdout!(compressedFile)
+      await $`xz -T 0 -f ${tarFile} -c`.pipeStdout!(compressedFile)
       break
     }
 
