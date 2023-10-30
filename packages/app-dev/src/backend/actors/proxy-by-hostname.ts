@@ -6,7 +6,6 @@ import { createActor } from "@dassie/lib-reactive"
 import { isErrorWithCode } from "@dassie/lib-type-utils"
 
 import {
-  BEACONS_START_PORT,
   DEBUG_RPC_PORT,
   DEBUG_UI_PORT,
   NODES_START_PORT,
@@ -139,7 +138,7 @@ const createProxy = async (port: number) => {
   })
 }
 
-const HOST_REGEX = /^([bn])(\d+).localhost$/
+const HOST_REGEX = /^d(\d+).localhost$/
 
 const getPortByHostname = (host: string | undefined) => {
   if (typeof host === "string") {
@@ -149,14 +148,7 @@ const getPortByHostname = (host: string | undefined) => {
 
     const match = HOST_REGEX.exec(host)
     if (match) {
-      switch (match[1]) {
-        case "b": {
-          return BEACONS_START_PORT + (Number(match[2]!) - 1)
-        }
-        case "n": {
-          return NODES_START_PORT + (Number(match[2]!) - 1)
-        }
-      }
+      return NODES_START_PORT + (Number(match[1]!) - 1)
     }
   }
 

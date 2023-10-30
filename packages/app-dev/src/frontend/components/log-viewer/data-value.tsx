@@ -24,17 +24,19 @@ type RecognizedType =
   | "null"
   | "error"
 
-const CHAR_LETTER_LOWERCASE_N = 110 // "n"
-const NODE_ID_LENGTH = 43
-const NODE_ID_REGEX = /^n\d+_[\w-]+$/
+const CHAR_LETTER_LOWERCASE_D = 100 // "d"
+const NODE_ID_MIN_LENGTH = 20
+const NODE_ID_MAX_LENGTH = 33
+const NODE_ID_REGEX = /^d\d+_[\w-]+$/
 
 const TYPES = {
   string: {
     color: ANSI_COLORS["ansi-bright-yellow"],
     formatter: (value: string) => {
       if (
-        value.length === NODE_ID_LENGTH &&
-        value.codePointAt(0) === CHAR_LETTER_LOWERCASE_N &&
+        value.codePointAt(0) === CHAR_LETTER_LOWERCASE_D &&
+        value.length <= NODE_ID_MAX_LENGTH &&
+        value.length >= NODE_ID_MIN_LENGTH &&
         NODE_ID_REGEX.test(value)
       ) {
         const nodeShortId = value.slice(0, value.indexOf("_"))

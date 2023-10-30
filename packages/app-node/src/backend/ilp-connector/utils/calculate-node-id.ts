@@ -18,5 +18,8 @@ export const calculateNodeId = (nodePublicKey: Uint8Array): NodeId => {
   const hash = createHash("sha256")
   hash.update(nodeIdHashContent)
 
-  return hash.digest("base64url") as NodeId
+  return `d${hash
+    .digest("base64url")
+    .slice(0, 32)
+    .replace(/A+$/, "")}` as NodeId
 }

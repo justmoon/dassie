@@ -1,6 +1,7 @@
 import { entropyToMnemonic, mnemonicToSeedSync } from "@scure/bip39"
 import { wordlist } from "@scure/bip39/wordlists/english"
 
+import assert from "node:assert"
 import { writeFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { createInterface } from "node:readline"
@@ -17,11 +18,11 @@ import {
 } from "../src/backend/constants/vanity-nodes"
 import { nodeIndexToFriendlyId } from "../src/backend/utils/generate-node-config"
 
-const TARGET_PATTERN = /^n([1-9]\d*)_/
+const TARGET_PATTERN = /^d([1-9]\d*)_/
 
 const OUTPUT_FILE_PATH = resolve(
   dirname(fileURLToPath(import.meta.url)),
-  "../src/backend/constants/vanity-nodes.ts"
+  "../src/backend/constants/vanity-nodes.ts",
 )
 
 const OUTPUT_FILE_HEADER = `// Generated with packages/app-dev/bin/add-testnet-vanity-addresses.ts
@@ -44,12 +45,16 @@ const SEED_SECTION_FOOTER = "}\n"
 // Don't record keys for nodes above this index, unless it's the largest we've ever found (which we'll keep for fun)
 const MAX_INDEX = 999
 
-const foundMap = new Map<number, string>()
+const foundMap = new Map<number, { seed: string; nodeId: string }>()
 const seedCache = new Map<string, Buffer>()
 
+console.info("Loading existing known vanity addresses...")
 for (const [indexAsString, key] of Object.entries(TEST_NODE_VANITY_ENTROPY)) {
   const index = Number.parseInt(indexAsString, 10)
-  foundMap.set(index, key)
+  foundMap.set(index, {
+    seed: key,
+    nodeId: getNodeIdFromEntropy(Buffer.from(key, "hex")),
+  })
 
   const seedHex = TEST_NODE_VANITY_SEEDS[index]
   if (seedHex) {
@@ -64,19 +69,18 @@ function saveResults() {
   // Discard any indices above MAX_INDEX except for the record holder
   const recordHolder = found.at(-1)
   found = found.filter(
-    ([index]) => index <= MAX_INDEX || index === recordHolder?.[0]
+    ([index]) => index <= MAX_INDEX || index === recordHolder?.[0],
   )
 
   let entropyOutput = ENTROPY_SECTION_HEADER
   let mnemonicsOutput = MNEMONIC_SECTION_HEADER
   let seedsOutput = SEED_SECTION_HEADER
-  for (const [index, key] of found) {
-    const nodeEntropy = Buffer.from(key, "hex")
-    const nodeId = getNodeIdFromEntropy(nodeEntropy)
+  for (const [index, { seed, nodeId }] of found) {
+    const nodeEntropy = Buffer.from(seed, "hex")
     const mnemonic = entropyToMnemonic(nodeEntropy, wordlist)
     const nodeSeed = getNodeSeedFromEntropy(nodeEntropy)
 
-    entropyOutput += `  ${index}: "${key}", // ${nodeId}\n`
+    entropyOutput += `  ${index}: "${seed}", // ${nodeId}\n`
     mnemonicsOutput += `  ${index}: "${mnemonic}",\n`
     seedsOutput += `  ${index}: "${nodeSeed.toString("hex")}",\n`
   }
@@ -113,20 +117,16 @@ function getNodeIdFromEntropy(entropy: Buffer) {
   return calculateNodeId(nodePublicKey)
 }
 
-function processSeed(seed: Buffer) {
-  const nodeId = getNodeIdFromEntropy(seed)
-
+function processNodeId(nodeId: string) {
   const match = nodeId.match(TARGET_PATTERN)
   if (!match) {
-    throw new Error(`Invalid address: ${seed.toString("hex")} ${nodeId}`)
+    throw new Error(`Invalid address: ${nodeId}`)
   }
 
-  return { match, seed, nodeId }
+  return { match, nodeId }
 }
 
-function countHyphensAndUnderscores(seed: Buffer): number {
-  const nodeId = getNodeIdFromEntropy(seed)
-
+function countHyphensAndUnderscores(nodeId: string): number {
   let count = 0
 
   for (const char of nodeId) {
@@ -153,19 +153,17 @@ function isLargestEver(index: number) {
  *
  * The address is new if we don't have any vanity key for the given index. It is better if it has fewer hyphens and underscores than the existing one.
  */
-function isNewOrBetter(index: number, seed: Buffer) {
+function isNewOrBetter(index: number, nodeId: string) {
   const existing = foundMap.get(index)
   if (!existing) return true
 
-  const existingHyphenCount = countHyphensAndUnderscores(
-    Buffer.from(existing, "hex")
-  )
-  const hyphenCount = countHyphensAndUnderscores(seed)
+  const existingHyphenCount = countHyphensAndUnderscores(existing.nodeId)
+  const hyphenCount = countHyphensAndUnderscores(nodeId)
 
   return hyphenCount < existingHyphenCount
 }
 
-console.info("Incorporating vanity addresses...")
+console.info("Incorporating new vanity addresses...")
 
 const rl = createInterface({
   input: process.stdin,
@@ -176,28 +174,30 @@ const rl = createInterface({
 rl.on("line", (line) => {
   if (!line || line.startsWith("#")) return
 
-  let seedHex = line.split(":")[0]!
+  if (line[1] === "x") line = line.slice(2)
 
-  if (seedHex[1] === "x") seedHex = seedHex.slice(2)
+  const [seedHex, id] = line.split(": ")
 
-  if (!seedHex) return
+  if (!seedHex || !id) return
 
   const seed = Buffer.from(seedHex, "hex")
 
-  const { match, nodeId } = processSeed(seed)
+  const { match, nodeId } = processNodeId(id)
   const index = Number.parseInt(match[1]!, 10) - 1
   const friendlyId = nodeIndexToFriendlyId(index)
 
   if (index > MAX_INDEX) {
     if (isLargestEver(index)) {
-      foundMap.set(index, seedHex)
+      assert(getNodeIdFromEntropy(seed) === nodeId)
+      foundMap.set(index, { seed: seedHex, nodeId })
       console.info(`${friendlyId} => ${nodeId} (new record!)`)
       saveResults()
     } else {
       console.info(`${friendlyId} => ${nodeId} (skipped, too large)`)
     }
-  } else if (isNewOrBetter(index, seed)) {
-    foundMap.set(index, seedHex)
+  } else if (isNewOrBetter(index, nodeId)) {
+    assert(getNodeIdFromEntropy(seed) === nodeId)
+    foundMap.set(index, { seed: seedHex, nodeId })
     console.info(`${friendlyId} => ${nodeId}`)
     saveResults()
   }

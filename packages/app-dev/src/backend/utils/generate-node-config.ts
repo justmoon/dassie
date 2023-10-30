@@ -25,7 +25,7 @@ const LOCAL_PATH = new URL("../../../../../local", import.meta.url).pathname
 
 const BOOTSTRAP_NODES = [0, 1]
 
-export const nodeIndexToFriendlyId = (index: number) => `n${index + 1}`
+export const nodeIndexToFriendlyId = (index: number) => `d${index + 1}`
 export const nodeIndexToPort = (index: number) => NODES_START_PORT + index
 export const nodeIndexToSeed = (index: number): Buffer => {
   const seedHex = TEST_NODE_VANITY_SEEDS[index]
@@ -77,7 +77,7 @@ export const nodeIndexToCoordinates = (index: number) =>
 export const nodeFriendlyIdToIndex = (id: string) => {
   const index = Number.parseInt(id.slice(1), 10) - 1
 
-  assert(`n${index + 1}` === id, `Invalid node id: ${id}`)
+  assert(`d${index + 1}` === id, `Invalid node id: ${id}`)
 
   return index
 }
