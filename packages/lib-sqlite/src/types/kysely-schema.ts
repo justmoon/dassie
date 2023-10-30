@@ -1,3 +1,5 @@
+import { Generated } from "kysely"
+
 import {
   ColumnDescription,
   ColumnDescriptionGenerics,
@@ -13,6 +15,8 @@ export type InferKyselySchema<
         [KColumn in keyof TTables[K]["columns"]]: TTables[K]["columns"][KColumn] extends ColumnDescription<ColumnDescriptionGenerics>
           ? InferColumnTypescriptType<TTables[K]["columns"][KColumn]>
           : never
+      } & {
+        rowid: Generated<bigint>
       }
     }
   : Record<string, never>
