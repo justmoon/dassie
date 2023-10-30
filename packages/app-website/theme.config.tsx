@@ -13,6 +13,11 @@ const config: DocsThemeConfig = {
   footer: {
     text: "Made with ❤️ by a team of dassies",
   },
+  useNextSeoProps() {
+    return {
+      titleTemplate: "%s – Dassie",
+    }
+  },
 }
 
 export default config
