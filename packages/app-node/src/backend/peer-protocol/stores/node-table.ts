@@ -1,7 +1,6 @@
 import { castDraft, castImmutable, enableMapSet, produce } from "immer"
 
 import { Reactor, createStore } from "@dassie/lib-reactive"
-import { InferRowSqliteType } from "@dassie/lib-sqlite"
 
 import { Database } from "../../database/open-database"
 import { NodeId } from "../types/node-id"
@@ -93,24 +92,26 @@ export interface LinkState {
 export const NodeTableStore = (reactor: Reactor) => {
   const database = reactor.use(Database)
 
-  const result = database.raw
-    .prepare(
-      `SELECT nodes.*, peers.* FROM nodes LEFT JOIN peers ON nodes.rowid = peers.node`,
-    )
-    .all() as (InferRowSqliteType<typeof database.schema.tables.nodes> &
-    Partial<InferRowSqliteType<typeof database.schema.tables.peers>>)[]
+  const { rows: result } = database.executeSync(
+    database.kysely
+      .selectFrom("nodes")
+      .selectAll()
+      .leftJoin("peers", "nodes.id", "peers.node")
+      .selectAll()
+      .compile(),
+  )
 
   const initialNodesMap = new Map<NodeId, NodeTableEntry>()
 
   for (const row of result) {
-    initialNodesMap.set(row.id as NodeId, {
-      nodeId: row.id as NodeId,
+    initialNodesMap.set(row.id, {
+      nodeId: row.id,
       linkState: undefined,
       peerState: row.node
         ? {
             id: "peered",
             lastSeen: 0,
-            settlementSchemeId: row.settlement_scheme_id! as SettlementSchemeId,
+            settlementSchemeId: row.settlement_scheme_id!,
           }
         : { id: "none" },
     })
