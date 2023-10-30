@@ -4,12 +4,12 @@ import { NodeId } from "../../peer-protocol/types/node-id"
 import { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
 import { Ledger } from "../stores/ledger"
 
-const DEFAULT_CREDIT = 1_000_000_000n
+const DEFAULT_CREDIT = 1_100_000_000n
 
 export const initializePeer = (
   ledger: Ledger,
   settlementSchemeId: SettlementSchemeId,
-  peerId: NodeId
+  peerId: NodeId,
 ) => {
   ledger.createAccount(`${settlementSchemeId}/peer/${peerId}/interledger`, {
     limit: "debits_must_not_exceed_credits",
