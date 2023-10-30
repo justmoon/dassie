@@ -76,7 +76,7 @@ export function Ledger() {
                     </TableCell>
                   </TableRow>
                 )
-              }
+              },
             )}
         </TableBody>
       </Table>

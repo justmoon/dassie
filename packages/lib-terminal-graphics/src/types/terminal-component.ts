@@ -11,7 +11,7 @@ export interface StaticTerminalComponent {
 
 export interface InteractiveTerminalComponent<
   TState extends TerminalComponentState = TerminalComponentState,
-  TResult = unknown
+  TResult = unknown,
 > {
   type: "interactive"
   initialState: TState

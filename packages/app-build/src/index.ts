@@ -48,7 +48,7 @@ export const build = async (parameters: string[]) => {
               version: "canary",
               detailedVersion: `canary-${format(
                 new Date(),
-                "yyyy-MM-dd"
+                "yyyy-MM-dd",
               )}-${await getHeadCommitShort()}`,
               isMainRelease: false,
               architectures,

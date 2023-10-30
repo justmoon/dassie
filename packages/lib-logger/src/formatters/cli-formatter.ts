@@ -250,7 +250,7 @@ const formatFilePath = (filePath: string) => {
     | null
   if (match) {
     return `${chalk.dim(`${protocolPrefix}${match[1]}/packages/`)}${chalk.cyan(
-      match[2]
+      match[2],
     )}${chalk.dim("/")}${match[3]}`
   }
 
@@ -259,7 +259,7 @@ const formatFilePath = (filePath: string) => {
 
 const colorDeterministically = (
   context: FormattingContext,
-  component: string
+  component: string,
 ) => {
   let colored = context.coloringCache.get(component)
   if (!colored) {
@@ -272,7 +272,7 @@ const colorDeterministically = (
 
 const formatError = (context: FormattingContext, error: Error): string => {
   return `${context.theme.structures.errorName(
-    `${error.name || "Error"}`
+    `${error.name || "Error"}`,
   )}${context.theme.structures.errorMessage(error.message)}${
     error.stack ? formatStack(context, error.stack) : ""
   }${isAggregateError(error) ? formatAggregateError(context, error) : ""}`
@@ -286,7 +286,7 @@ const isAggregateError = (error: Error): error is AggregateError =>
 
 const formatAggregateError = (
   context: FormattingContext,
-  error: AggregateError
+  error: AggregateError,
 ): string => {
   return `${context.theme.structures.aggregateErrorStart}${error.errors
     .map(formatError.bind(null, context))
@@ -317,7 +317,7 @@ const formatStack = (context: FormattingContext, stack: string): string => {
           return `    ${chalk.dim("at")} ${
             isNodeModules ? chalk.dim(match[1]) : match[1]
           } ${chalk.dim("(")}${formattedFilePath}${chalk.dim(
-            `:${match[3]}:${match[4]})`
+            `:${match[3]}:${match[4]})`,
           )}`
         }
       }
@@ -328,7 +328,7 @@ const formatStack = (context: FormattingContext, stack: string): string => {
         if (match) {
           const formattedFilePath = formatFilePath(match[1])
           return `    ${chalk.dim("at")} ${formattedFilePath}${chalk.dim(
-            `:${match[2]}:${match[3]}`
+            `:${match[2]}:${match[3]}`,
           )}`
         }
       }
@@ -350,7 +350,7 @@ const formatMessage = (context: FormattingContext, message: string) => {
   return componentColonPosition >= 1 &&
     componentColonPosition < component.length - 1
     ? `${colorDeterministically(context, component)} ${message.slice(
-        firstSpace + 1
+        firstSpace + 1,
       )}`
     : message
 }
@@ -376,7 +376,7 @@ const nearestPowerOfTwoBelow = (value: number) => 1 << (31 - Math.clz32(value))
 
 const formatBinaryData = (
   context: FormattingContext,
-  data: Uint8Array | Uint8ClampedArray | Buffer
+  data: Uint8Array | Uint8ClampedArray | Buffer,
 ): string => {
   const hex = [] as string[]
 
@@ -388,7 +388,7 @@ const formatBinaryData = (
     return (
       context.theme.structures.hexBytesInlineStart +
       context.theme.values.hexBytes(
-        hex.join(context.theme.structures.hexBytesInlineSeparator)
+        hex.join(context.theme.structures.hexBytesInlineSeparator),
       ) +
       context.theme.structures.hexBytesInlineEnd
     )
@@ -399,7 +399,7 @@ const formatBinaryData = (
   output.push(context.theme.structures.hexBytesMultilineStart)
 
   const bytesPerLine = nearestPowerOfTwoBelow(
-    Math.floor(context.theme.limits.maxInlineLength / 3)
+    Math.floor(context.theme.limits.maxInlineLength / 3),
   )
   for (let index = 0; index < hex.length; index += bytesPerLine) {
     output.push(
@@ -407,15 +407,15 @@ const formatBinaryData = (
         context.theme.values.hexBytes(
           hex
             .slice(index, index + bytesPerLine)
-            .join(context.theme.structures.hexBytesMultilineSeparator)
-        )
+            .join(context.theme.structures.hexBytesMultilineSeparator),
+        ),
     )
   }
 
   output.push(
     `\n${context.indent.slice(0, -1)}${
       context.theme.structures.hexBytesMultilineEnd
-    }`
+    }`,
   )
 
   return output.join("")
@@ -423,7 +423,7 @@ const formatBinaryData = (
 
 const isArrayInlineable = (
   context: FormattingContext,
-  formattedArray: string[]
+  formattedArray: string[],
 ): boolean => {
   if (formattedArray.some((item) => item.includes("\n"))) return false
 
@@ -440,7 +440,7 @@ const isArrayInlineable = (
 
 const isObjectInlineable = (
   context: FormattingContext,
-  formattedObject: readonly (readonly [string, string])[]
+  formattedObject: readonly (readonly [string, string])[],
 ): boolean => {
   if (formattedObject.some(([, value]) => value.includes("\n"))) return false
 
@@ -457,7 +457,7 @@ const isObjectInlineable = (
 
 const formatKey = (
   context: FormattingContext,
-  key: string | symbol
+  key: string | symbol,
 ): string => {
   if (typeof key === "symbol") {
     return context.theme.values.symbolKey(key)
@@ -475,7 +475,7 @@ const makeTypedArrayFormatter =
     return (
       context.theme.structures.objectConstructorWithSize(
         constructorName,
-        (value as { length: number }).length
+        (value as { length: number }).length,
       ) + formatArray(context, value as unknown[])
     )
   }
@@ -509,13 +509,13 @@ const OBJECT_FORMATTERS: Record<
       return (
         context.theme.structures.objectConstructorWithSize(
           "Map",
-          mapValue.size
+          mapValue.size,
         ) +
         context.theme.structures.mapInlineStart +
         pieces
           .map(
             ([key, value]) =>
-              `${key}${context.theme.structures.mapInlineKeySeparator}${value}`
+              `${key}${context.theme.structures.mapInlineKeySeparator}${value}`,
           )
           .join(context.theme.structures.mapInlineElementSeparator) +
         context.theme.structures.mapInlineEnd
@@ -528,10 +528,10 @@ const OBJECT_FORMATTERS: Record<
       pieces
         .map(
           ([key, value]) =>
-            `${key}${context.theme.structures.mapMultilineKeySeparator}${value}`
+            `${key}${context.theme.structures.mapMultilineKeySeparator}${value}`,
         )
         .join(
-          `${context.theme.structures.mapMultilineElementSeparator}\n${context.indent}`
+          `${context.theme.structures.mapMultilineElementSeparator}\n${context.indent}`,
         ) +
       `\n${context.indent.slice(0, -1)}` +
       context.theme.structures.mapMultilineEnd
@@ -554,7 +554,7 @@ const OBJECT_FORMATTERS: Record<
       return (
         context.theme.structures.objectConstructorWithSize(
           "Set",
-          setValue.size
+          setValue.size,
         ) +
         context.theme.structures.setInlineStart +
         pieces.join(context.theme.structures.setInlineSeparator) +
@@ -567,7 +567,7 @@ const OBJECT_FORMATTERS: Record<
       context.theme.structures.setMultilineStart +
       `\n${context.indent}` +
       pieces.join(
-        `${context.theme.structures.setMultilineSeparator}\n${context.indent}`
+        `${context.theme.structures.setMultilineSeparator}\n${context.indent}`,
       ) +
       `\n${context.indent.slice(0, -1)}` +
       context.theme.structures.setMultilineEnd
@@ -578,13 +578,13 @@ const OBJECT_FORMATTERS: Record<
   Uint8Array: (context, value) => {
     return `${context.theme.structures.objectConstructorWithSize(
       Buffer.isBuffer(value) ? "Buffer" : "Uint8Array",
-      (value as Uint8Array).byteLength
+      (value as Uint8Array).byteLength,
     )}${formatBinaryData(context, value as Uint8Array)}`
   },
   Uint8ClampedArray: (context, value) => {
     return `${context.theme.structures.objectConstructorWithSize(
       "Uint8ClampedArray",
-      (value as Uint8ClampedArray).byteLength
+      (value as Uint8ClampedArray).byteLength,
     )}${formatBinaryData(context, value as Uint8ClampedArray)}`
   },
   Int8Array: makeTypedArrayFormatter("Int8Array"),
@@ -601,7 +601,7 @@ const OBJECT_FORMATTERS: Record<
 const formatProperty = (
   context: FormattingContext,
   parent: object,
-  key: string | symbol
+  key: string | symbol,
 ): string => {
   const descriptor = Object.getOwnPropertyDescriptor(parent, key)!
 
@@ -624,7 +624,7 @@ const formatArray = (
     [index: number]: unknown
     length: number
     [Symbol.iterator](): IterableIterator<unknown>
-  }
+  },
 ): string => {
   if (value.length === 0) {
     return context.theme.values.emptyArray
@@ -648,7 +648,7 @@ const formatArray = (
   output.push(
     context.theme.structures.arrayMultilineStart,
     "\n",
-    context.indent
+    context.indent,
   )
 
   let lineLength = 0
@@ -659,7 +659,7 @@ const formatArray = (
         context.theme.structures.arrayMultilineSeparator,
         "\n",
         context.indent,
-        item
+        item,
       )
 
       lineLength = itemLength
@@ -668,7 +668,7 @@ const formatArray = (
         lineLength === 0
           ? ""
           : context.theme.structures.arrayMultilineSeparator + " ",
-        item
+        item,
       )
 
       lineLength += itemLength
@@ -678,7 +678,7 @@ const formatArray = (
   output.push(
     "\n",
     context.indent.slice(0, -1),
-    context.theme.structures.arrayMultilineEnd
+    context.theme.structures.arrayMultilineEnd,
   )
 
   return output.join("")
@@ -755,7 +755,7 @@ const formatValue = (context: FormattingContext, value: unknown): string => {
           [
             formatKey(context, key),
             formatProperty(context, value, key),
-          ] as const
+          ] as const,
       )
       if (isObjectInlineable(context, formattedObject)) {
         return (
@@ -764,7 +764,7 @@ const formatValue = (context: FormattingContext, value: unknown): string => {
           formattedObject
             .map(
               ([key, value]) =>
-                `${key}${context.theme.structures.objectInlineKeySeparator}${value}`
+                `${key}${context.theme.structures.objectInlineKeySeparator}${value}`,
             )
             .join(context.theme.structures.objectInlineElementSeparator) +
           context.theme.structures.objectInlineEnd
@@ -779,10 +779,10 @@ const formatValue = (context: FormattingContext, value: unknown): string => {
         formattedObject
           .map(
             ([key, value]) =>
-              `${key}${context.theme.structures.objectMultilineKeySeparator}${value}`
+              `${key}${context.theme.structures.objectMultilineKeySeparator}${value}`,
           )
           .join(
-            `${context.theme.structures.objectMultilineElementSeparator}\n${context.indent}`
+            `${context.theme.structures.objectMultilineElementSeparator}\n${context.indent}`,
           ) +
         `\n${context.indent.slice(0, -1)}` +
         context.theme.structures.objectMultilineEnd
@@ -797,7 +797,7 @@ const formatValue = (context: FormattingContext, value: unknown): string => {
 
 const formatParameters = (
   context: FormattingContext,
-  parameters: unknown[]
+  parameters: unknown[],
 ) => {
   if (parameters.length === 0) return ""
 
@@ -814,7 +814,7 @@ const formatParameters = (
           ([key, value]) =>
             `${context.theme.values.inlineKey(key)}${
               context.theme.structures.parameterObjectKeySeparator
-            }${formatValue(context, value)}`
+            }${formatValue(context, value)}`,
         )
         .join(context.theme.structures.parameterObjectElementSeparator) +
       context.theme.structures.parameterObjectEnd
@@ -847,7 +847,7 @@ const formatEvent = (context: FormattingContext, line: LogMessage) => {
 
   return `${levelInsert}${formatMessage(
     context,
-    line.message
+    line.message,
   )}${formatParameters(context, line.parameters)}${
     error ? "\n\n" + formatError(context, error) + "\n" : ""
   }`

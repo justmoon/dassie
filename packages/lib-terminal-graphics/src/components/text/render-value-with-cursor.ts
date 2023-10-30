@@ -4,7 +4,7 @@ import { rightGrapheme } from "../../helpers/string-offsets"
 
 export const renderValueWithCursor = (
   value: string,
-  cursor: number
+  cursor: number,
 ): string[] => {
   if (cursor >= value.length) {
     return [value, chalk.inverse(" ")]

@@ -53,7 +53,7 @@ export class OerSequenceOf<TShape extends AnyOerType> extends OerType<
 
   serializeWithContext(input: InferSerialize<TShape>[]) {
     const sizeSerializer = this.sizeOer.serializeWithContext(
-      BigInt(input.length)
+      BigInt(input.length),
     )
 
     if (sizeSerializer instanceof SerializeError) {
@@ -101,7 +101,7 @@ export class OerSequenceOf<TShape extends AnyOerType> extends OerType<
 }
 
 export const sequenceOf = <TShape extends AnyOerType>(
-  sequenceOfShape: TShape
+  sequenceOfShape: TShape,
 ) => {
   return new OerSequenceOf(sequenceOfShape)
 }

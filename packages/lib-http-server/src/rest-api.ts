@@ -27,7 +27,7 @@ export interface ApiRequest<TParameters extends ApiRouteParameters>
 
 export type ApiHandler<TParameters extends ApiRouteParameters> = (
   request: ApiRequest<TParameters>,
-  response: Response
+  response: Response,
 ) => Promisable<void>
 
 export interface ApiRouteBuilder<TParameters extends ApiRouteParameters> {
@@ -35,7 +35,7 @@ export interface ApiRouteBuilder<TParameters extends ApiRouteParameters> {
    * Provide a JSON validator for the request body.
    */
   body: <TBodySchema extends AnyZodObject>(
-    schema: TBodySchema
+    schema: TBodySchema,
   ) => ApiRouteBuilder<{
     bodySchema: TBodySchema
     querySchema: TParameters["querySchema"]
@@ -45,7 +45,7 @@ export interface ApiRouteBuilder<TParameters extends ApiRouteParameters> {
    * Provide a validator for the query string record.
    */
   query: <TQuerySchema extends AnyZodObject>(
-    schema: TQuerySchema
+    schema: TQuerySchema,
   ) => ApiRouteBuilder<{
     bodySchema: TParameters["bodySchema"]
     querySchema: TQuerySchema
@@ -60,7 +60,7 @@ export interface ApiRouteBuilder<TParameters extends ApiRouteParameters> {
    * Provide the handler for the API route.
    */
   handler: <THandler extends ApiHandler<TParameters>>(
-    handler: THandler
+    handler: THandler,
   ) => ApiRouteInstance
 }
 
@@ -85,7 +85,7 @@ export const createRestApi = (router: Router) => {
     const routeHandler = (
       request: Request,
       response: Response,
-      next: NextFunction
+      next: NextFunction,
     ) => {
       if (!userHandler) {
         throw new Error("No handler provided for API route")
@@ -141,10 +141,10 @@ export const createRestApi = (router: Router) => {
                 return (
                   layer.route?.path === path &&
                   layer.route.stack.findIndex(
-                    (sublayer) => sublayer.handle === routeHandler
+                    (sublayer) => sublayer.handle === routeHandler,
                   ) !== -1
                 )
-              }
+              },
             )
             if (routeIndex !== -1) router.stack.splice(routeIndex, 1)
           },
@@ -156,6 +156,6 @@ export const createRestApi = (router: Router) => {
   }
 
   return Object.fromEntries(
-    HTTP_METHODS.map((method) => [method, createBuilder(method)] as const)
+    HTTP_METHODS.map((method) => [method, createBuilder(method)] as const),
   ) as RestApiBuilder
 }

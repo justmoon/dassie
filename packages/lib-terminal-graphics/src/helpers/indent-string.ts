@@ -37,7 +37,7 @@ export const indentString = (
     indentEmptyLines = false,
     indentFirstLine = true,
     indentUnit = " ",
-  }: IndentStringOptions = {}
+  }: IndentStringOptions = {},
 ) => {
   if (typeof text !== "string") {
     throw new TypeError('"text" is not a string')

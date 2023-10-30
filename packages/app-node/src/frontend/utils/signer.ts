@@ -5,7 +5,7 @@ import { SeedPath } from "../../common/constants/seed-paths"
 
 export const getPrivateSeedAtPath = (
   binarySeed: Uint8Array,
-  path: SeedPath
+  path: SeedPath,
 ) => {
   const pathSegments = path.split("/")
 

@@ -4,7 +4,7 @@ import { SEED_PATH_NODE, SeedPath } from "../../../common/constants/seed-paths"
 
 export const getPrivateSeedAtPath = (
   nodePrivateKey: Uint8Array,
-  path: SeedPath
+  path: SeedPath,
 ): Buffer => {
   if (path === SEED_PATH_NODE) {
     return Buffer.from(nodePrivateKey)
@@ -12,13 +12,13 @@ export const getPrivateSeedAtPath = (
 
   if (!path.startsWith(SEED_PATH_NODE + "/")) {
     throw new Error(
-      `Unable to calculate seed values server-side unless their path starts with ${SEED_PATH_NODE}/: ${path}`
+      `Unable to calculate seed values server-side unless their path starts with ${SEED_PATH_NODE}/: ${path}`,
     )
   }
 
   return calculatePathHmac(
     Buffer.from(nodePrivateKey),
-    path.slice(SEED_PATH_NODE.length + 1)
+    path.slice(SEED_PATH_NODE.length + 1),
   )
 }
 

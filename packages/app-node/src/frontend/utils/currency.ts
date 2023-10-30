@@ -1,6 +1,6 @@
 export const parseDecimalToBigInt = (
   amountAsDecimal: string,
-  totalPrecision: number
+  totalPrecision: number,
 ): bigint => {
   const [integer, decimal] = `${amountAsDecimal}.`.split(".")
   const integerAmount = BigInt(integer!) * BigInt(10 ** totalPrecision)

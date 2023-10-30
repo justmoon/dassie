@@ -41,7 +41,7 @@ export class OerFixedIntegerNumber extends OerIntegerNumber {
           size / 8
         } bytes - end of buffer`,
         uint8Array,
-        uint8Array.byteLength
+        uint8Array.byteLength,
       )
     }
 
@@ -53,7 +53,7 @@ export class OerFixedIntegerNumber extends OerIntegerNumber {
           size / 8
         } bytes - value ${value} is less than minimum value ${range[0]}`,
         uint8Array,
-        offset
+        offset,
       )
     }
 
@@ -63,7 +63,7 @@ export class OerFixedIntegerNumber extends OerIntegerNumber {
           size / 8
         } bytes - value ${value} is greater than maximum value ${range[1]}`,
         uint8Array,
-        offset
+        offset,
       )
     }
 
@@ -96,7 +96,7 @@ export const integerAsNumber = (range: Range<number>) => {
 
   if (minimumValue == undefined || maximumValue == undefined) {
     throw new Error(
-      "When using JavaScript numbers, a minimum and maximum must be provided. If your range is unbounded, use integerAsBigint instead."
+      "When using JavaScript numbers, a minimum and maximum must be provided. If your range is unbounded, use integerAsBigint instead.",
     )
   }
 
@@ -154,7 +154,7 @@ export const integerAsNumber = (range: Range<number>) => {
   }
 
   throw new TypeError(
-    "integerAsNumber only supports up to 32 bits due to JavaScript's limitations, please use integerAsBigint instead"
+    "integerAsNumber only supports up to 32 bits due to JavaScript's limitations, please use integerAsBigint instead",
   )
 }
 

@@ -95,7 +95,7 @@ export const Send = () => {
           onSuccess() {
             setLocation(`/payment/${subpage.paymentId}`)
           },
-        }
+        },
       )
     }
   }

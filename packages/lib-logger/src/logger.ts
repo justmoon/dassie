@@ -26,7 +26,7 @@ export class Logger {
      *
      * @example "das:node:http"
      */
-    readonly component: string
+    readonly component: string,
   ) {}
 
   /**
@@ -44,7 +44,7 @@ export class Logger {
         type: "clear",
         date: Date.now(),
       },
-      this.context
+      this.context,
     )
   }
 
@@ -67,7 +67,7 @@ export class Logger {
             ? this.context.getCaller(1, new Error())
             : undefined,
         },
-        this.context
+        this.context,
       )
     }
   }
@@ -90,7 +90,7 @@ export class Logger {
           ? this.context.getCaller(1, new Error())
           : undefined,
       },
-      this.context
+      this.context,
     )
   }
 
@@ -112,7 +112,7 @@ export class Logger {
           ? this.context.getCaller(1, new Error())
           : undefined,
       },
-      this.context
+      this.context,
     )
   }
 
@@ -134,7 +134,7 @@ export class Logger {
           ? this.context.getCaller(1, new Error())
           : undefined,
       },
-      this.context
+      this.context,
     )
   }
 }
@@ -152,7 +152,7 @@ const defaultContext = getLogContext()
  */
 export const createLogger = (
   component: string,
-  { context = defaultContext }: LoggerOptions = {}
+  { context = defaultContext }: LoggerOptions = {},
 ) => {
   assert(!component.includes(" "), "Component name must not contain spaces")
 

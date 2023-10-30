@@ -41,7 +41,7 @@ export const CONFIG_DATABASE_SCALARS = {
     .name("config.enable_http_server")
     .type("INTEGER")
     .deserialize((value) =>
-      z.coerce.number().int().min(0).max(1).transform(Boolean).parse(value)
+      z.coerce.number().int().min(0).max(1).transform(Boolean).parse(value),
     )
     .serialize((value: boolean) => (value ? 1n : 0n)),
 } as const satisfies NamespacedScalars<"config">

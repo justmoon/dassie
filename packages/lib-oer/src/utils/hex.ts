@@ -1,11 +1,11 @@
 // See: https://stackoverflow.com/questions/40031688/javascript-arraybuffer-to-hex
 const byteToHex = Array.from({ length: 256 }).map((_, index) =>
-  index.toString(16).padStart(2, "0")
+  index.toString(16).padStart(2, "0"),
 )
 
 export const uint8ArrayToHex = (
   uint8Array: Uint8Array,
-  byteSeparator = " "
+  byteSeparator = " ",
 ) => {
   const hex = []
   for (const element of uint8Array) {
@@ -25,7 +25,7 @@ export const hexToUint8Array = (hexString: string) => {
   for (let index = 0; index < hexString.length; index += 2) {
     uint8Array[index / 2] = Number.parseInt(
       hexString.slice(index, index + 2),
-      16
+      16,
     )
   }
   return uint8Array

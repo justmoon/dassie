@@ -25,14 +25,14 @@ const Node = ({ nodeId, wallet, className }: NodeProperties) => {
         "border rounded-md",
         isActive ? "bg-secondary" : null,
         wallet ? "grid grid-cols-[1fr_auto]" : "grid grid-cols-1",
-        className
+        className,
       )}
     >
       <Button
         variant="ghost"
         className={combine(
           wallet ? "rounded-none rounded-l" : null,
-          "justify-start"
+          "justify-start",
         )}
         asChild
       >

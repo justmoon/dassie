@@ -20,7 +20,7 @@ export const Amount = ({
 
   const integerPart = (absoluteBalance / totalPrecisionDividend).toLocaleString(
     undefined,
-    { useGrouping: true }
+    { useGrouping: true },
   )
   const fractionalPart = (absoluteBalance % totalPrecisionDividend)
     .toString()

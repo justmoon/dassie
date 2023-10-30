@@ -25,7 +25,7 @@ const Form = FormProvider
 
 interface FormFieldContextValue<
   TFieldValues extends FieldValues = FieldValues,
-  TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>
+  TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>,
 > {
   name: TName
 }
@@ -34,7 +34,7 @@ const FormFieldContext = createContext<FormFieldContextValue | null>(null)
 
 const FormField = <
   TFieldValues extends FieldValues = FieldValues,
-  TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>
+  TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>,
 >({
   ...properties
 }: ControllerProps<TFieldValues, TName>) => {
@@ -73,7 +73,7 @@ interface FormItemContextValue {
 }
 
 const FormItemContext = createContext<FormItemContextValue>(
-  {} as FormItemContextValue
+  {} as FormItemContextValue,
 )
 
 const FormItem = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
@@ -89,7 +89,7 @@ const FormItem = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
         />
       </FormItemContext.Provider>
     )
-  }
+  },
 )
 FormItem.displayName = "FormItem"
 

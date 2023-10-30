@@ -15,7 +15,7 @@ export const downloadNodeJs = async (architecture: Architecture) => {
   const pathNode = resolve(getStagingPath(architecture), "node")
   const nodeLocalFile = resolve(
     pathNode,
-    `node-v${NODE_VERSION}-linux-${architecture}.tar.xz`
+    `node-v${NODE_VERSION}-linux-${architecture}.tar.xz`,
   )
 
   await mkdir(pathNode, { recursive: true })

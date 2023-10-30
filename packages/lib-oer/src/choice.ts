@@ -52,7 +52,7 @@ export class OerChoice<TOptions extends OptionsShape> extends OerType<
 
     // Automatic tagging is enabled if none of the values are explicitly tagged
     const isAutomaticallyTagged = Object.values(options).every(
-      (oer) => oer._tag == undefined
+      (oer) => oer._tag == undefined,
     )
     let index = 0
 
@@ -65,21 +65,21 @@ export class OerChoice<TOptions extends OptionsShape> extends OerType<
 
       if (tag == undefined) {
         throw new Error(
-          `OER choice: ${key} is not tagged and automatic tagging is disabled`
+          `OER choice: ${key} is not tagged and automatic tagging is disabled`,
         )
       }
 
       if (tag > MAX_SAFE_TAG_VALUE) {
         throw new Error(
-          `OER choice: ${key} has a tag value of ${tag} which is too large`
+          `OER choice: ${key} has a tag value of ${tag} which is too large`,
         )
       }
 
       if (this.tagToKeyMap.has(tag)) {
         throw new Error(
           `OER choice: ${key} has the same tag value as ${String(
-            this.tagToKeyMap.get(tag)
-          )}`
+            this.tagToKeyMap.get(tag),
+          )}`,
         )
       }
 
@@ -95,7 +95,7 @@ export class OerChoice<TOptions extends OptionsShape> extends OerType<
             ? ([index++, TAG_MARKER_CONTEXT] as const)
             : oer._tag,
         ]
-      })
+      }),
     )
 
     this.setHint = Object.entries(this.keyToTagMap)
@@ -120,7 +120,7 @@ export class OerChoice<TOptions extends OptionsShape> extends OerType<
       return new ParseError(
         `unable to parse choice value - tag value ${tag} is too large`,
         context.uint8Array,
-        offset
+        offset,
       )
     }
 
@@ -132,7 +132,7 @@ export class OerChoice<TOptions extends OptionsShape> extends OerType<
           tagClass
         ].toUpperCase()} ${tag} not in set ${this.setHint}`,
         context.uint8Array,
-        offset
+        offset,
       )
     }
 
@@ -157,7 +157,7 @@ export class OerChoice<TOptions extends OptionsShape> extends OerType<
 
     if (tag == undefined) {
       return new SerializeError(
-        `unable to serialize choice value - option ${type} not in set ${this.setHint}`
+        `unable to serialize choice value - option ${type} not in set ${this.setHint}`,
       )
     }
 
@@ -168,7 +168,7 @@ export class OerChoice<TOptions extends OptionsShape> extends OerType<
 
     if (oer == undefined) {
       return new SerializeError(
-        `unable to serialize choice value - option ${type} not in set ${this.setHint}`
+        `unable to serialize choice value - option ${type} not in set ${this.setHint}`,
       )
     }
 
@@ -191,7 +191,7 @@ export class OerChoice<TOptions extends OptionsShape> extends OerType<
         tagValue,
         tagClass,
         uint8Array,
-        offset
+        offset,
       )
 
       if (tagSerializeResult instanceof SerializeError) {

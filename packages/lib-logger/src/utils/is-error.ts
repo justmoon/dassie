@@ -16,7 +16,7 @@ export function isError(possibleError: unknown): possibleError is Error {
 }
 
 export const hasAggregatedErrors = (
-  error: Error
+  error: Error,
 ): error is Error & { errors: Error[] } => {
   return (
     error instanceof AggregateError ||

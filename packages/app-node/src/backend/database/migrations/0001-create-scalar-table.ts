@@ -13,7 +13,7 @@ const migration: MigrationDefinition = {
             -- Value (type is managed by the application)
             value ANY NOT NULL
           ) STRICT, WITHOUT ROWID
-        `
+        `,
       )
       .run()
   },

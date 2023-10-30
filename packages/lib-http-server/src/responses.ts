@@ -3,7 +3,7 @@ import type { ServerResponse } from "node:http"
 export const respondPlainly = (
   response: ServerResponse,
   statusCode: number,
-  message: string
+  message: string,
 ) => {
   response.writeHead(statusCode, { "Content-Type": "text/plain" })
   response.end(message)
@@ -12,7 +12,7 @@ export const respondPlainly = (
 export const respondJson = (
   response: ServerResponse,
   statusCode: number,
-  data: unknown
+  data: unknown,
 ) => {
   response.writeHead(statusCode, { "Content-Type": "application/json" })
   response.end(JSON.stringify(data))
@@ -22,7 +22,7 @@ export const respondBinary = (
   response: ServerResponse,
   statusCode: number,
   data: Uint8Array,
-  contentType = "application/octet-stream"
+  contentType = "application/octet-stream",
 ) => {
   response.writeHead(statusCode, { "Content-Type": contentType })
   response.end(data)

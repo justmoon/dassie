@@ -14,7 +14,7 @@ export type SerializeContext = BaseContext
 export type SafeUnsignedInteger = Opaque<number, "Integer in range [0, 2^53)">
 
 export const isSafeUnsignedInteger = (
-  value: number
+  value: number,
 ): value is SafeUnsignedInteger => Number.isSafeInteger(value) && value >= 0
 
 export const byteLength = (sample: SafeUnsignedInteger) =>

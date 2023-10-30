@@ -33,7 +33,7 @@ export class OerObjectIdentifier extends OerType<string> {
       return new ParseError(
         "object identifier of length zero is invalid",
         uint8Array,
-        offset
+        offset,
       )
     }
 
@@ -44,7 +44,7 @@ export class OerObjectIdentifier extends OerType<string> {
       const subidentifier = parseBase128(
         context,
         nextOffset,
-        offset + lengthOfLength + length
+        offset + lengthOfLength + length,
       )
       if (subidentifier instanceof ParseError) {
         return subidentifier
@@ -71,13 +71,13 @@ export class OerObjectIdentifier extends OerType<string> {
 
     if (objectIdentifierComponents.some((x) => x < 0n)) {
       return new SerializeError(
-        "object identifier components must be non-negative"
+        "object identifier components must be non-negative",
       )
     }
 
     if (objectIdentifierComponents.length < 2) {
       return new SerializeError(
-        "object identifier must have at least two components"
+        "object identifier must have at least two components",
       )
     }
 
@@ -86,7 +86,7 @@ export class OerObjectIdentifier extends OerType<string> {
       objectIdentifierComponents[0]! < 0
     ) {
       return new SerializeError(
-        "object identifier first component must be in the range of 0..2"
+        "object identifier first component must be in the range of 0..2",
       )
     }
 
@@ -95,7 +95,7 @@ export class OerObjectIdentifier extends OerType<string> {
       objectIdentifierComponents[1]! >= 40
     ) {
       return new SerializeError(
-        "object identifier second component must be in the range of 0..39 when first component is 0 or 1"
+        "object identifier second component must be in the range of 0..39 when first component is 0 or 1",
       )
     }
 
@@ -128,7 +128,7 @@ export class OerObjectIdentifier extends OerType<string> {
       const lengthPrefixSerializeResult = serializeLengthPrefix(
         length,
         uint8Array,
-        offset
+        offset,
       )
 
       if (lengthPrefixSerializeResult instanceof SerializeError) {
@@ -140,7 +140,7 @@ export class OerObjectIdentifier extends OerType<string> {
         const subidentifierSerializeResult = serializeBase128(
           subidentifier,
           uint8Array,
-          currentOffset
+          currentOffset,
         )
 
         if (subidentifierSerializeResult instanceof SerializeError) {

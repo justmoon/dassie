@@ -18,7 +18,7 @@ export const SubpageVerify = ({
   const mnemonicArray = useMemo(() => mnemonic.split(" "), [mnemonic])
   const chosenWordIndex = useMemo(
     () => Math.floor(Math.random() * mnemonicArray.length),
-    [mnemonicArray]
+    [mnemonicArray],
   )
   const [enteredWord, setEnteredWord] = useState("")
 

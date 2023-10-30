@@ -8,7 +8,7 @@ import { SqliteToTypescriptTypeMap } from "./types/sqlite-datatypes"
 import { identity } from "./utils/identity"
 
 const createBuilder = <T extends ScalarDescriptionGenerics>(
-  description: ScalarDescription<T>
+  description: ScalarDescription<T>,
 ): ScalarDescriptionBuilder<T> => ({
   description,
 

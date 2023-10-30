@@ -10,7 +10,7 @@ import { getBundlePath } from "../utils/dynamic-paths"
 
 export const tarBundle = async (
   version: DassieVersion,
-  architecture: Architecture
+  architecture: Architecture,
 ) => {
   const bundlePath = getBundlePath(version, architecture)
   const archivePath = getTarPath(version, architecture)
@@ -18,6 +18,6 @@ export const tarBundle = async (
   await mkdir(dirname(archivePath), { recursive: true })
 
   await $`tar -cf ${archivePath} -C ${resolve(bundlePath, "..")} ${basename(
-    bundlePath
+    bundlePath,
   )}`
 }

@@ -5,7 +5,7 @@ import { pipeline } from "node:stream/promises"
 
 export const downloadFile = async (
   url: string,
-  localDestinationPath: string
+  localDestinationPath: string,
 ) => {
   const response = await axios({
     method: "get",

@@ -1,5 +1,5 @@
 async function* splitByLine(
-  chunks: AsyncIterable<string>
+  chunks: AsyncIterable<string>,
 ): AsyncIterable<string> {
   let buffer = ""
   for await (const chunk of chunks) {

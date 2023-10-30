@@ -17,7 +17,7 @@ export const getWalletUrl = (nodeId: string) => {
   }
 
   const sessionToken = bytesToHex(
-    getPrivateSeedAtPath(hexToBytes(seed), SEED_PATH_DEV_SESSION)
+    getPrivateSeedAtPath(hexToBytes(seed), SEED_PATH_DEV_SESSION),
   )
 
   return `${walletUrlBase}/?${QUERY_PARAMETER_DEVELOPMENT_SESSION}=${sessionToken}`

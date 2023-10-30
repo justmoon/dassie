@@ -7,7 +7,7 @@ import { trpc } from "../../../utils/trpc"
 const PeeringModeToggle = () => {
   const setPeeringMode = trpc.ui.setPeeringMode.useMutation()
   const environmentSettings = useRemoteSignal(
-    trpc.ui.subscribeToEnvironmentSettings
+    trpc.ui.subscribeToEnvironmentSettings,
   )
 
   return (
@@ -20,7 +20,7 @@ const PeeringModeToggle = () => {
             "px-4 py-2 text-sm font-medium border rounded-l-lg focus:z-10 focus:ring-2 border-gray-600 text-white hover:text-white focus:ring-blue-500 focus:text-white",
             environmentSettings?.peeringMode === "autopeer"
               ? "bg-slate-600"
-              : "bg-gray-700 hover:bg-gray-600"
+              : "bg-gray-700 hover:bg-gray-600",
           )}
           onClick={() => {
             if (environmentSettings?.peeringMode !== "autopeer")
@@ -35,7 +35,7 @@ const PeeringModeToggle = () => {
             "px-4 py-2 text-sm font-medium border rounded-r-lg focus:z-10 focus:ring-2 bg-gray-700 border-gray-600 text-white hover:text-white hover:bg-gray-600 focus:ring-blue-500 focus:text-white",
             environmentSettings?.peeringMode === "fixed"
               ? "bg-slate-600"
-              : "bg-gray-700 hover:bg-gray-600"
+              : "bg-gray-700 hover:bg-gray-600",
           )}
           onClick={() => {
             if (environmentSettings?.peeringMode !== "fixed")

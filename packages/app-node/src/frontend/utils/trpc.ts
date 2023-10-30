@@ -7,7 +7,7 @@ import type { AppRouter } from "../../backend/trpc-server/app-router"
 
 const trpcReactContext = createContext<null>(null)
 export const queryClientReactContext = createContext<QueryClient | undefined>(
-  undefined
+  undefined,
 )
 
 export const trpc = createTRPCReact<AppRouter>({

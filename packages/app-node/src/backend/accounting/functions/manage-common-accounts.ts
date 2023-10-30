@@ -3,7 +3,7 @@ import { Ledger } from "../stores/ledger"
 
 export const initializeCommonAccounts = (
   ledger: Ledger,
-  settlementSchemeId: SettlementSchemeId
+  settlementSchemeId: SettlementSchemeId,
 ) => {
   ledger.createAccount(`${settlementSchemeId}/internal/connector`)
 }

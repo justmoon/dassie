@@ -11,7 +11,7 @@ const migration: MigrationDefinition = {
             key_authorization TEXT NOT NULL,
             expires TEXT
           ) STRICT
-        `
+        `,
       )
       .run()
   },

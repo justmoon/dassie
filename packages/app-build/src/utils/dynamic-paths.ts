@@ -10,5 +10,5 @@ export const getStagingPath = (architecture: Architecture) =>
 
 export const getBundlePath = (
   version: DassieVersion,
-  architecture: Architecture
+  architecture: Architecture,
 ) => resolve(PATH_DIST_CONTENTS, getBundleName(version, architecture), "dassie")

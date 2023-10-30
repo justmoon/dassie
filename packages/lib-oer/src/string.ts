@@ -13,7 +13,7 @@ export type EncodingType = "utf8" | "ascii"
 
 const convertCharacterRangeToOctetStringRange = (
   characterRange: NormalizedRange<number>,
-  encoding: EncodingType
+  encoding: EncodingType,
 ): NormalizedRange<number> =>
   encoding === "utf8"
     ? [
@@ -30,12 +30,12 @@ export class OerString extends OerType<string> {
   constructor(
     readonly length: NormalizedRange<number>,
     readonly encoding: EncodingType,
-    readonly filterArray?: boolean[]
+    readonly filterArray?: boolean[],
   ) {
     super()
 
     this.octetString = octetString(
-      convertCharacterRangeToOctetStringRange(length, encoding)
+      convertCharacterRangeToOctetStringRange(length, encoding),
     )
     this.textDecoder = new TextDecoder(encoding)
     this.textEncoder = new TextEncoder()
@@ -59,12 +59,12 @@ export class OerString extends OerType<string> {
         if (!this.filterArray[octetStringValue[index]!]) {
           return new ParseError(
             `Invalid character 0x${octetStringValue[index]!.toString(
-              16
+              16,
             ).padStart(2, "0")} in string`,
             context.uint8Array,
             // We don't know in this context if it is a fixed length string or not or how long the length prefix is.
             // However, we do know where the failed character is in relation to the end of the string.
-            offset + totalLength - octetStringValue.length + index
+            offset + totalLength - octetStringValue.length + index,
           )
         }
       }
@@ -76,7 +76,7 @@ export class OerString extends OerType<string> {
       return new ParseError(
         `String is too short, expected at least ${this.length[0]} characters, got ${decodedString.length}`,
         context.uint8Array,
-        offset
+        offset,
       )
     }
 
@@ -84,7 +84,7 @@ export class OerString extends OerType<string> {
       return new ParseError(
         `String is too long, expected at most ${this.length[1]} characters, got ${decodedString.length}`,
         context.uint8Array,
-        offset
+        offset,
       )
     }
 
@@ -94,13 +94,13 @@ export class OerString extends OerType<string> {
   serializeWithContext(value: string) {
     if (this.length[0] != undefined && value.length < this.length[0]) {
       return new SerializeError(
-        `String is too short, expected at least ${this.length[0]} characters, got ${value.length}`
+        `String is too short, expected at least ${this.length[0]} characters, got ${value.length}`,
       )
     }
 
     if (this.length[1] != undefined && value.length > this.length[1]) {
       return new SerializeError(
-        `String is too long, expected at most ${this.length[1]} characters, got ${value.length}`
+        `String is too long, expected at most ${this.length[1]} characters, got ${value.length}`,
       )
     }
     const encodedValue: Uint8Array = this.textEncoder.encode(value)
@@ -111,7 +111,7 @@ export class OerString extends OerType<string> {
     return new OerString(
       this.length,
       this.encoding,
-      alphabetToFilterArray(characters)
+      alphabetToFilterArray(characters),
     )
   }
 }
@@ -129,7 +129,7 @@ export const visibleString = (length?: Range<number>) => {
   const filterArray = Array.from<boolean>({ length: 128 }).fill(
     true,
     0x20,
-    0x7e
+    0x7e,
   )
   return new OerString(parseRange(length), "ascii", filterArray)
 }
@@ -138,7 +138,7 @@ export const numericString = (length?: Range<number>) => {
   const filterArray = Array.from<boolean>({ length: 128 }).fill(
     true,
     0x30,
-    0x39
+    0x39,
   ) // 0-9
   filterArray[0x20] = true // SPACE
   return new OerString(parseRange(length), "ascii", filterArray)
@@ -148,6 +148,6 @@ export const printableString = (length?: Range<number>) => {
   return new OerString(
     parseRange(length),
     "ascii",
-    alphabetToFilterArray(printable)
+    alphabetToFilterArray(printable),
   )
 }

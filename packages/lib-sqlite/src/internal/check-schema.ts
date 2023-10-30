@@ -22,18 +22,18 @@ interface SqliteColumnSchema {
 
 export const checkSchema = (
   database: Database.Database,
-  tables: Record<string, TableDescription>
+  tables: Record<string, TableDescription>,
 ) => {
   const actualTables = Object.fromEntries(
     (database.pragma("table_list") as SqliteTableSchema[]).map((table) => [
       table.name,
       table,
-    ])
+    ]),
   )
 
   for (const table of Object.values(tables)) {
     const actualColumns = database.pragma(
-      `table_info(${table.name})`
+      `table_info(${table.name})`,
     ) as SqliteColumnSchema[]
 
     if (actualColumns.length === 0) {
@@ -46,12 +46,12 @@ export const checkSchema = (
 
     for (const [columnName, expectedSchema] of Object.entries(table.columns)) {
       const actualSchema = actualColumns.find(
-        (schema) => schema.name === columnName
+        (schema) => schema.name === columnName,
       )
 
       if (!actualSchema) {
         throw new Error(
-          `Column "${columnName}" not found in table "${table.name}"`
+          `Column "${columnName}" not found in table "${table.name}"`,
         )
       }
 
@@ -59,7 +59,7 @@ export const checkSchema = (
         throw new Error(
           `Column "${columnName}" in table "${table.name}" has type "${
             actualSchema.type
-          }" but should be "${expectedSchema.type as string}"`
+          }" but should be "${expectedSchema.type as string}"`,
         )
       }
 
@@ -67,21 +67,21 @@ export const checkSchema = (
       const expectNotNull = expectedSchema.notNull || expectedSchema.primaryKey
       if (expectNotNull && actualSchema.notnull !== 1n) {
         throw new Error(
-          `Column "${columnName}" in table "${table.name}" should be marked NOT NULL but isn't`
+          `Column "${columnName}" in table "${table.name}" should be marked NOT NULL but isn't`,
         )
       } else if (!expectNotNull && actualSchema.notnull !== 0n) {
         throw new Error(
-          `Column "${columnName}" in table "${table.name}" should not be marked NOT NULL but is`
+          `Column "${columnName}" in table "${table.name}" should not be marked NOT NULL but is`,
         )
       }
 
       if (expectedSchema.primaryKey && actualSchema.pk !== 1n) {
         throw new Error(
-          `Column "${columnName}" in table "${table.name}" should be marked PRIMARY KEY but isn't`
+          `Column "${columnName}" in table "${table.name}" should be marked PRIMARY KEY but isn't`,
         )
       } else if (!expectedSchema.primaryKey && actualSchema.pk !== 0n) {
         throw new Error(
-          `Column "${columnName}" in table "${table.name}" should not be marked PRIMARY KEY but is`
+          `Column "${columnName}" in table "${table.name}" should not be marked PRIMARY KEY but is`,
         )
       }
     }

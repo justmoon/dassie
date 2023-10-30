@@ -4,7 +4,7 @@ import { parseLengthPrefix } from "./utils/length-prefix"
 import type { ParseContext, SerializeContext } from "./utils/parse"
 
 export class OerEnumerated<
-  TEnumeration extends Record<string, number>
+  TEnumeration extends Record<string, number>,
 > extends OerType<keyof TEnumeration> {
   /**
    * A string containing the names of the enum options and their corresponding values, separated by commas. Used for debug messages.
@@ -16,7 +16,7 @@ export class OerEnumerated<
     super()
 
     this.reverseMap = Object.fromEntries(
-      Object.entries(enumeration).map(([key, value]) => [value, key])
+      Object.entries(enumeration).map(([key, value]) => [value, key]),
     ) as Record<number, keyof TEnumeration>
 
     this.setHint = Object.entries(enumeration)
@@ -35,7 +35,7 @@ export class OerEnumerated<
       return new ParseError(
         "unable to read enumerated value - end of buffer",
         uint8Array,
-        offset
+        offset,
       )
     }
 
@@ -57,7 +57,7 @@ export class OerEnumerated<
       return new ParseError(
         `unable to read enumerated value - value ${firstByte} not in set ${this.setHint}`,
         uint8Array,
-        offset
+        offset,
       )
     }
 
@@ -69,7 +69,7 @@ export class OerEnumerated<
 
     if (value == undefined) {
       return new SerializeError(
-        `unable to serialize enumerated value - value ${input} not in set ${this.setHint}`
+        `unable to serialize enumerated value - value ${input} not in set ${this.setHint}`,
       )
     }
 
@@ -82,7 +82,7 @@ export class OerEnumerated<
 }
 
 export const enumerated = <TEnumeration extends Record<string, number>>(
-  enumeration: TEnumeration
+  enumeration: TEnumeration,
 ) => {
   return new OerEnumerated(enumeration)
 }

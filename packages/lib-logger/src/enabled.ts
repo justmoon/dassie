@@ -17,7 +17,7 @@ export function createEnableChecker(scope: string): (name: string) => boolean {
   const patterns = scope.split(/[\s,]+/).map((pattern): [RegExp, boolean] => {
     const negative = pattern.startsWith("-")
     const regex = new RegExp(
-      `^${(negative ? pattern.slice(1) : pattern).replace("*", ".*?")}$`
+      `^${(negative ? pattern.slice(1) : pattern).replace("*", ".*?")}$`,
     )
     return [regex, negative]
   })

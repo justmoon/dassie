@@ -15,7 +15,7 @@ export interface SocketLinkOptions {
 }
 
 export const socketLink = <TRouter extends AnyRouter>(
-  options: SocketLinkOptions
+  options: SocketLinkOptions,
 ): TRPCLink<TRouter> => {
   return (runtime) => {
     const { socket } = options
@@ -68,7 +68,7 @@ export const socketLink = <TRouter extends AnyRouter>(
 
           socketLineReader.addListener("line", onMessage)
           disposers.push(() =>
-            socketLineReader.removeListener("line", onMessage)
+            socketLineReader.removeListener("line", onMessage),
           )
 
           socket.write(
@@ -77,13 +77,13 @@ export const socketLink = <TRouter extends AnyRouter>(
               jsonrpc: "2.0",
               method: type,
               params: { path, input },
-            } as TRPCSocketRequest) + "\n"
+            } as TRPCSocketRequest) + "\n",
           )
         } catch (error) {
           observer.error(
             new TRPCClientError(
-              error instanceof Error ? error.message : "Unknown error"
-            )
+              error instanceof Error ? error.message : "Unknown error",
+            ),
           )
         }
 
@@ -95,7 +95,7 @@ export const socketLink = <TRouter extends AnyRouter>(
                 id,
                 jsonrpc: "2.0",
                 method: "subscription.stop",
-              } as TRPCSocketRequest) + "\n"
+              } as TRPCSocketRequest) + "\n",
             )
           }
         }

@@ -110,7 +110,7 @@ describe("integerAsBigint", () => {
           const result = schema.serialize(value)
           expect(result).toEqual(serializedOk(hex))
         })
-      }
+      },
     )
   })
 
@@ -206,7 +206,7 @@ describe("integerAsBigint", () => {
           const result = schema.serialize(value)
           expect(result).toEqual(serializedOk(hex))
         })
-      }
+      },
     )
   })
 

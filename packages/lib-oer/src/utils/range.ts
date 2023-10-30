@@ -5,16 +5,16 @@ export type Range<T extends number | bigint> =
 
 export type NormalizedRange<T extends number | bigint> = readonly [
   minimum: T | undefined,
-  maximum: T | undefined
+  maximum: T | undefined,
 ]
 
 export type FixedRange<T extends number | bigint> = readonly [
   minimum: T,
-  maximum: T
+  maximum: T,
 ]
 
 export const parseRange = <T extends number | bigint>(
-  range: Range<T>
+  range: Range<T>,
 ): NormalizedRange<T> => {
   if (typeof range === "number" || typeof range === "bigint") {
     return [range, range]

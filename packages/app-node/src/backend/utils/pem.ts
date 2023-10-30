@@ -3,7 +3,7 @@ export const privateKeyLabelRegex =
 
 export const derPreamble = Buffer.from(
   "302E020100300506032B657004220420",
-  "hex"
+  "hex",
 )
 
 const PEM_KEY_HEADER = "-----BEGIN PRIVATE KEY-----\n"
@@ -49,7 +49,7 @@ export function parseEd25519PrivateKey(source: string): Buffer {
  * @returns The PEM-encoded private key
  */
 export const serializeEd25519PrivateKey = (
-  rawDassieKeyBuffer: Buffer
+  rawDassieKeyBuffer: Buffer,
 ): string => {
   const dassieKeyBuffer = Buffer.concat([derPreamble, rawDassieKeyBuffer])
   const base64Key = dassieKeyBuffer.toString("base64")

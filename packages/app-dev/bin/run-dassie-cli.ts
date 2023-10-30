@@ -10,7 +10,7 @@ if (!nodeId || !NODE_ID_REGEX.test(nodeId)) {
   console.error("Usage: pnpm cli [nodeId] [...cli arguments]")
   console.error("")
   console.error(
-    "This is a wrapper around the Dassie CLI that allows you to make calls to each"
+    "This is a wrapper around the Dassie CLI that allows you to make calls to each",
   )
   console.error("of the Dassie instances in the development environment.")
   console.error("")

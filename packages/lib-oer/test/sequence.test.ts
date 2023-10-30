@@ -59,7 +59,7 @@ describe("sequence", () => {
     }) => {
       const result = schema.parse(hexToUint8Array("80FFFFFF"))
       expect(result).toEqual(
-        parsedOk(4, { first: true, second: true, third: true })
+        parsedOk(4, { first: true, second: true, third: true }),
       )
     })
 

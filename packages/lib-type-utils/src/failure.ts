@@ -51,6 +51,6 @@ export abstract class Failure {
  */
 export const isFailure = <T>(value: T): value is Extract<T, Failure> => {
   return Boolean(
-    (value as null | { [FAILURE_UNIQUE_KEY]?: true })?.[FAILURE_UNIQUE_KEY]
+    (value as null | { [FAILURE_UNIQUE_KEY]?: true })?.[FAILURE_UNIQUE_KEY],
   )
 }

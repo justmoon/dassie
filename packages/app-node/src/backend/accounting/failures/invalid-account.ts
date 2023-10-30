@@ -5,7 +5,7 @@ export default class InvalidAccountFailure extends Failure {
 
   constructor(
     public readonly whichAccount: "debit" | "credit",
-    public readonly accountPath: string
+    public readonly accountPath: string,
   ) {
     super()
   }

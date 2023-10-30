@@ -24,7 +24,7 @@ export const captureConsole = () => {
               context.getCaller(1, new Error())
             : undefined,
         },
-        context
+        context,
       )
     }
   }
@@ -35,7 +35,7 @@ export const captureConsole = () => {
         type: "clear",
         date: Date.now(),
       },
-      context
+      context,
     )
   }
 }

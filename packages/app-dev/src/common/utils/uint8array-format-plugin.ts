@@ -14,7 +14,7 @@ export const Uint8ArrayFormatPlugin: Plugin = {
     const currentIndent = `${indentation}${indent}`
     const hex = uint8ArrayToHex(value).replaceAll(
       /((?:[\dA-Fa-f]{2} ){24})/g,
-      `$1\n${currentIndent}`
+      `$1\n${currentIndent}`,
     )
     return `Uint8Array [\n${currentIndent}${hex}\n${indentation}]`
   },

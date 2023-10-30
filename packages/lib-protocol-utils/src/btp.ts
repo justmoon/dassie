@@ -29,7 +29,7 @@ export const protocolDataSchema = sequenceOf(
     protocolName: ia5String(),
     contentType: uint8Number(),
     data: octetString(),
-  })
+  }),
 )
 
 export const btpMessageSchema = sequence({

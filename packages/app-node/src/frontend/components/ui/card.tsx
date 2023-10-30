@@ -3,7 +3,7 @@ import { extend } from "../../utils/class-helper"
 const Card = extend(
   "Card",
   "div",
-  "rounded-lg border bg-card text-card-foreground shadow-sm"
+  "rounded-lg border bg-card text-card-foreground shadow-sm",
 )
 
 const CardHeader = extend("CardHeader", "div", "flex flex-col space-y-1.5 p-6")
@@ -11,13 +11,13 @@ const CardHeader = extend("CardHeader", "div", "flex flex-col space-y-1.5 p-6")
 const CardTitle = extend(
   "CardTitle",
   "h3",
-  "text-lg font-semibold leading-none tracking-tight"
+  "text-lg font-semibold leading-none tracking-tight",
 )
 
 const CardDescription = extend(
   "CardDescription",
   "p",
-  "text-sm text-muted-foreground"
+  "text-sm text-muted-foreground",
 )
 
 const CardContent = extend("CardContent", "div", "p-6 pt-0")

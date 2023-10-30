@@ -10,7 +10,7 @@ export const NODE_VERSION = versions.node
 export const NODE_ABI_VERSION = versions.modules
 
 const sqlitePackageJson = createRequire(PATH_PACKAGE_LIB_SQLITE)(
-  "better-sqlite3/package.json"
+  "better-sqlite3/package.json",
 ) as { version: string }
 export const BETTER_SQLITE3_VERSION = sqlitePackageJson.version
 

@@ -10,7 +10,7 @@ process.stdout.write(
     message: "Debug message",
     parameters: [],
     caller: undefined,
-  })
+  }),
 )
 
 process.stdout.write(
@@ -21,7 +21,7 @@ process.stdout.write(
     message: "Information message",
     parameters: [123.456, true, "abc", 123n],
     caller: undefined,
-  })
+  }),
 )
 
 process.stdout.write(
@@ -44,7 +44,7 @@ process.stdout.write(
       },
     ],
     caller: undefined,
-  })
+  }),
 )
 
 process.stdout.write(
@@ -55,5 +55,5 @@ process.stdout.write(
     message: "Error message",
     parameters: [{ error: new Error("Something went wrong") }],
     caller: undefined,
-  })
+  }),
 )

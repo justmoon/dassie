@@ -9,7 +9,7 @@ interface ErrnoException extends Error {
 
 export function isErrorWithCode<T extends string>(
   error: unknown,
-  code: T
+  code: T,
 ): error is ErrnoException {
   return (
     isObject(error) &&

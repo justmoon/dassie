@@ -23,11 +23,11 @@ try {
     terminalColors.set(term, colors)
   }
   console.info(
-    `Loaded color support information about ${terminalColors.size} terminals from cache`
+    `Loaded color support information about ${terminalColors.size} terminals from cache`,
   )
 } catch {
   console.info(
-    `Querying terminfo for color support for ${toeOutput.length} terminals`
+    `Querying terminfo for color support for ${toeOutput.length} terminals`,
   )
   console.info("This may take a while...")
   for (const term of toeOutput) {
@@ -45,7 +45,7 @@ try {
   await mkdir(DIST_PATH, { recursive: true })
   await writeFile(
     CACHE_FILE,
-    [...terminalColors].map(([term, colors]) => `${term},${colors}`).join("\n")
+    [...terminalColors].map(([term, colors]) => `${term},${colors}`).join("\n"),
   )
 }
 
@@ -116,12 +116,12 @@ console.info("trueNegatives:", trueNegatives.size)
 console.info(
   "falsePositives:",
   falsePositives.size,
-  [...falsePositives].join("\n")
+  [...falsePositives].join("\n"),
 )
 console.info(
   "falseNegatives:",
   falseNegatives.size,
   [...falseNegatives]
     .map((term) => `${term}=${terminalColors.get(term) ?? ""}`)
-    .join("\n")
+    .join("\n"),
 )

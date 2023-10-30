@@ -20,14 +20,14 @@ describe("enumerated", () => {
 
   test("should parse a value", ({ expect }) => {
     const value = enumerated({ red: 0, green: 1, blue: 2 }).parse(
-      hexToUint8Array("02")
+      hexToUint8Array("02"),
     )
     expect(value).toEqual(parsedOk(1, "blue"))
   })
 
   test("should fail to parse a value that is not in the set", ({ expect }) => {
     const value = enumerated({ red: 0, green: 1, blue: 2 }).parse(
-      hexToUint8Array("03")
+      hexToUint8Array("03"),
     )
     expect(value).toMatchInlineSnapshot(
       `
@@ -39,7 +39,7 @@ describe("enumerated", () => {
         "success": false,
       }
     `,
-      "error"
+      "error",
     )
   })
 
@@ -56,7 +56,7 @@ describe("enumerated", () => {
         "success": false,
       }
     `,
-      "error"
+      "error",
     )
   })
 })

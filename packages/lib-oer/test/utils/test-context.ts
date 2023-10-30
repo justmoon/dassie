@@ -9,7 +9,7 @@ export const createTestParseContext = (hex: string): ParseContext => {
     dataView: new DataView(
       uint8Array.buffer,
       uint8Array.byteOffset,
-      uint8Array.byteLength
+      uint8Array.byteLength,
     ),
     allowNoncanonical: false,
   }
@@ -23,7 +23,7 @@ export const createTestSerializeContext = (hex: string): SerializeContext => {
     dataView: new DataView(
       uint8Array.buffer,
       uint8Array.byteOffset,
-      uint8Array.byteLength
+      uint8Array.byteLength,
     ),
   }
 }

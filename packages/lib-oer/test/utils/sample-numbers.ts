@@ -65,7 +65,7 @@ export const sampleNumbers = [
 const fitsLength = (
   value: bigint,
   signed: boolean,
-  bitLengthBigInt: bigint
+  bitLengthBigInt: bigint,
 ) => {
   if (signed) {
     return value < 0n

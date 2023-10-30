@@ -11,7 +11,7 @@ import { getStagingPath } from "../utils/dynamic-paths"
 const getDownloadUrl = (
   version: string,
   nodeAbiVersion: string,
-  architecture: SqliteArchitecture
+  architecture: SqliteArchitecture,
 ) =>
   `https://github.com/WiseLibs/better-sqlite3/releases/download/v${version}/better-sqlite3-v${version}-node-v${nodeAbiVersion}-linux-${architecture}.tar.gz`
 
@@ -29,11 +29,11 @@ export const downloadBetterSqlite3 = async (architecture: Architecture) => {
   const downloadUrl = getDownloadUrl(
     BETTER_SQLITE3_VERSION,
     NODE_ABI_VERSION,
-    sqliteArchitecture
+    sqliteArchitecture,
   )
   const sqliteLocalFile = resolve(
     pathSqlite,
-    basename(new URL(downloadUrl).pathname)
+    basename(new URL(downloadUrl).pathname),
   )
 
   await mkdir(pathSqlite, { recursive: true })

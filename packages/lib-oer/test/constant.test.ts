@@ -43,8 +43,8 @@ describe("constant", () => {
           hexToUint8Array(
             ((Number.parseInt(hex.slice(0, 2), 16) + 1) % 256)
               .toString(16)
-              .padStart(2, "0") + hex.slice(2)
-          )
+              .padStart(2, "0") + hex.slice(2),
+          ),
         )
         expect(result).toMatchSnapshot()
       })

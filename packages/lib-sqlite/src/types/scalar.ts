@@ -19,7 +19,7 @@ export interface DefaultScalarDescriptionGenerics {
 }
 
 export interface ScalarDescription<
-  T extends ScalarDescriptionGenerics = ScalarDescriptionGenerics
+  T extends ScalarDescriptionGenerics = ScalarDescriptionGenerics,
 > {
   name: T["name"]
 
@@ -32,7 +32,7 @@ export interface ScalarDescription<
    */
   serialize(
     this: void,
-    value: T["writeType"]
+    value: T["writeType"],
   ): SqliteToTypescriptTypeMap[T["sqliteType"]]
 
   /**
@@ -40,21 +40,21 @@ export interface ScalarDescription<
    */
   deserialize(
     this: void,
-    value: SqliteToTypescriptTypeMap[T["sqliteType"]]
+    value: SqliteToTypescriptTypeMap[T["sqliteType"]],
   ): T["readType"]
 }
 
 export interface ScalarDescriptionBuilder<
-  T extends ScalarDescriptionGenerics = ScalarDescriptionGenerics
+  T extends ScalarDescriptionGenerics = ScalarDescriptionGenerics,
 > {
   description: ScalarDescription<T>
 
   name<TName extends string>(
-    name: TName
+    name: TName,
   ): ScalarDescriptionBuilder<Omit<T, "name"> & { name: TName }>
 
   type<TType extends SqliteDataType>(
-    type: TType
+    type: TType,
   ): ScalarDescriptionBuilder<
     Omit<T, "sqliteType" | "writeType" | "readType"> & {
       sqliteType: TType
@@ -65,8 +65,8 @@ export interface ScalarDescriptionBuilder<
 
   serialize<TWriteType extends NonNullable<unknown>>(
     serializer: (
-      value: TWriteType
-    ) => SqliteToTypescriptTypeMap[T["sqliteType"]]
+      value: TWriteType,
+    ) => SqliteToTypescriptTypeMap[T["sqliteType"]],
   ): ScalarDescriptionBuilder<
     Omit<T, "writeType"> & {
       writeType: TWriteType
@@ -75,8 +75,8 @@ export interface ScalarDescriptionBuilder<
 
   deserialize<TReadType extends NonNullable<unknown>>(
     deserializer: (
-      value: SqliteToTypescriptTypeMap[T["sqliteType"]]
-    ) => TReadType
+      value: SqliteToTypescriptTypeMap[T["sqliteType"]],
+    ) => TReadType,
   ): ScalarDescriptionBuilder<
     Omit<T, "readType"> & {
       readType: TReadType
@@ -84,7 +84,7 @@ export interface ScalarDescriptionBuilder<
   >
 
   defaultValue<TDefaultValueType>(
-    defaultValue: TDefaultValueType
+    defaultValue: TDefaultValueType,
   ): ScalarDescriptionBuilder<
     Omit<T, "defaultValueType"> & { defaultValueType: TDefaultValueType }
   >

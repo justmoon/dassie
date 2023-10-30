@@ -22,7 +22,7 @@ const migration: MigrationDefinition = {
             -- External payment ID or similar identifying information
             external_reference TEXT NOT NULL
           ) STRICT
-        `
+        `,
       )
       .run()
   },

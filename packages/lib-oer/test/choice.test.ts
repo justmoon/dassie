@@ -51,7 +51,7 @@ describe("choice", () => {
       ({ value, encoding }) => {
         const actual = schema.serialize(value)
         expect(actual).toEqual(serializedOk(encoding))
-      }
+      },
     )
 
     test.each(testVectors)("should parse $encoding", ({ value, encoding }) => {
@@ -102,7 +102,7 @@ describe("choice", () => {
       ({ value, encoding }) => {
         const actual = schema.serialize(value)
         expect(actual).toEqual(serializedOk(encoding))
-      }
+      },
     )
 
     test.each(testVectors)("should parse $encoding", ({ value, encoding }) => {

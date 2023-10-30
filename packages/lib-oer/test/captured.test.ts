@@ -18,7 +18,7 @@ describe("captured", () => {
     test("should parse and capture bytes", ({ expect }) => {
       const result = schema.parse(hexToUint8Array("FF"))
       expect(result).toEqual(
-        parsedOk(1, { value: true, bytes: hexToUint8Array("FF") })
+        parsedOk(1, { value: true, bytes: hexToUint8Array("FF") }),
       )
     })
 
@@ -50,7 +50,7 @@ describe("captured", () => {
             bytes: hexToUint8Array("FF"),
           },
           c: false,
-        })
+        }),
       )
     })
 

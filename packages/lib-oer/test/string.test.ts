@@ -23,18 +23,18 @@ describe("string", () => {
         const paddedValue = value.padEnd(13, " ")
         const paddedHex = hex.padEnd(
           hex.length + (paddedValue.length - value.length) * 2,
-          "20"
+          "20",
         )
         const paddedHexWithLengthPrefix = `${getLengthPrefixAsHex(
-          paddedHex.length / 2
+          paddedHex.length / 2,
         )}${paddedHex}`
 
         test("should parse", ({ expect }) => {
           const result = schema.parse(
-            hexToUint8Array(paddedHexWithLengthPrefix)
+            hexToUint8Array(paddedHexWithLengthPrefix),
           )
           expect(result).toEqual(
-            parsedOk(paddedHexWithLengthPrefix.length / 2, paddedValue)
+            parsedOk(paddedHexWithLengthPrefix.length / 2, paddedValue),
           )
         })
 
@@ -46,7 +46,7 @@ describe("string", () => {
 
       test("should refuse to parse a value of length 12", ({ expect }) => {
         const value = schema.parse(
-          hexToUint8Array("0c313233343536373839303132")
+          hexToUint8Array("0c313233343536373839303132"),
         )
         expect(value).toMatchInlineSnapshot(`
           {
@@ -73,7 +73,7 @@ describe("string", () => {
         expect,
       }) => {
         const value = schema.parse(
-          hexToUint8Array("0d" + "3132333435363738393031ceba")
+          hexToUint8Array("0d" + "3132333435363738393031ceba"),
         )
         expect(value).toMatchInlineSnapshot(`
           {
@@ -100,7 +100,7 @@ describe("string", () => {
 
       test("should refuse to parse a value of length 14", ({ expect }) => {
         const value = schema.parse(
-          hexToUint8Array("0e3132333435363738393031323334")
+          hexToUint8Array("0e3132333435363738393031323334"),
         )
         expect(value).toMatchInlineSnapshot(`
           {
@@ -133,13 +133,13 @@ describe("string", () => {
 
       describe.each(utf8TestValues)("with '%s' => %s", (value, hex) => {
         const hexWithLengthPrefix = `${getLengthPrefixAsHex(
-          hex.length / 2
+          hex.length / 2,
         )}${hex}`
 
         test("should parse", ({ expect }) => {
           const result = schema.parse(hexToUint8Array(hexWithLengthPrefix))
           expect(result).toEqual(
-            parsedOk(hexWithLengthPrefix.length / 2, value)
+            parsedOk(hexWithLengthPrefix.length / 2, value),
           )
         })
 

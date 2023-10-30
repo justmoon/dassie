@@ -18,7 +18,7 @@ interface BitstringOptions {
 export const parseBitstring = (
   context: ParseContext,
   offset: number,
-  size: number
+  size: number,
 ) => {
   const byteLength = Math.ceil(size / 8)
   const output = Array.from({ length: size })
@@ -39,7 +39,7 @@ export const parseBitstring = (
 export const serializeBitstring = (
   context: BaseContext,
   offset: number,
-  input: InferBitstringValue<number>
+  input: InferBitstringValue<number>,
 ) => {
   const { uint8Array } = context
   const inputAsArray = input as boolean[]
@@ -57,7 +57,7 @@ export const serializeBitstring = (
 }
 
 export class OerVariableBitstring<
-  TBitDefinition extends number
+  TBitDefinition extends number,
 > extends OerType<InferBitstringValue<TBitDefinition>> {
   constructor(readonly bits: TBitDefinition) {
     super()
@@ -83,14 +83,14 @@ export class OerVariableBitstring<
       return new ParseError(
         "unable to read bitstring - unused bits greater than 7",
         uint8Array,
-        offset + 1
+        offset + 1,
       )
     }
 
     const output = parseBitstring(
       context,
       offset + lengthOfLength + 1,
-      (length - 1) * 8 - unusedBits
+      (length - 1) * 8 - unusedBits,
     )
 
     return [
@@ -143,7 +143,7 @@ export class OerFixedBitstring<TBitDefinition extends number> extends OerType<
       return new ParseError(
         "unable to read bitstring value - end of buffer",
         context.uint8Array,
-        offset
+        offset,
       )
     }
 
@@ -156,7 +156,7 @@ export class OerFixedBitstring<TBitDefinition extends number> extends OerType<
     const inputAsArray = input as boolean[]
     if (inputAsArray.length !== this.bits) {
       return new SerializeError(
-        `unable to serialize bitstring - expected ${this.bits} bits, got ${inputAsArray.length}`
+        `unable to serialize bitstring - expected ${this.bits} bits, got ${inputAsArray.length}`,
       )
     }
 
@@ -171,7 +171,7 @@ export class OerFixedBitstring<TBitDefinition extends number> extends OerType<
 
 export const bitstring = <TBitDefinition extends number>(
   bits: TBitDefinition,
-  { variableLength = false }: BitstringOptions = {}
+  { variableLength = false }: BitstringOptions = {},
 ) => {
   return variableLength
     ? new OerVariableBitstring<TBitDefinition>(bits)

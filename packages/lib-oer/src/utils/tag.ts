@@ -30,7 +30,7 @@ export type TagMarker = (typeof tagClassMarkerMap)[TagClass]
 
 export const parseTag = (
   context: ParseContext,
-  offset: number
+  offset: number,
 ):
   | ParseError
   | readonly [tag: number, tagClass: TagMarker, lengthOfTag: number] => {
@@ -41,7 +41,7 @@ export const parseTag = (
     return new ParseError(
       "unable to read tag - end of buffer",
       uint8Array,
-      uint8Array.byteLength
+      uint8Array.byteLength,
     )
   }
 
@@ -58,7 +58,7 @@ export const parseTag = (
   const base128ParseResult = parseBase128(
     context,
     offset + 1,
-    Number.POSITIVE_INFINITY
+    Number.POSITIVE_INFINITY,
   )
 
   if (base128ParseResult instanceof ParseError) {
@@ -74,11 +74,11 @@ export const serializeTag = (
   value: number,
   tagClass: TagMarker,
   uint8Array: Uint8Array,
-  offset: number
+  offset: number,
 ) => {
   if (!isSafeUnsignedInteger(value)) {
     return new SerializeError(
-      "unable to serialize tag - value is out of bounds"
+      "unable to serialize tag - value is out of bounds",
     )
   }
 
@@ -97,7 +97,7 @@ export const serializeTag = (
 export const predictTagLength = (value: number) => {
   if (!isSafeUnsignedInteger(value)) {
     return new SerializeError(
-      "unable to serialize tag - value is out of bounds"
+      "unable to serialize tag - value is out of bounds",
     )
   }
 

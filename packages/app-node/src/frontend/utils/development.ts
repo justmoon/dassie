@@ -18,7 +18,7 @@ export const checkForDevelopmentSessionToken = async () => {
 
     if (!response.ok) {
       throw new Error(
-        `Setting development session token failed with status ${response.status}`
+        `Setting development session token failed with status ${response.status}`,
       )
     }
 

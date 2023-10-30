@@ -33,14 +33,14 @@ export const getSocketActivationState = ():
   return {
     processId: Number(LISTEN_PID),
     fileDescriptors: Object.fromEntries(
-      [...fdRecord.entries()].map(([fdName, fds]) => [fdName, fds])
+      [...fdRecord.entries()].map(([fdName, fds]) => [fdName, fds]),
     ),
   }
 }
 
 export const getSocketActivationFileDescriptors = (
   state: SocketActivationState,
-  fileDescriptorName: string
+  fileDescriptorName: string,
 ): readonly number[] => {
   return state.fileDescriptors[fileDescriptorName] ?? []
 }

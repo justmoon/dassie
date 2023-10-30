@@ -47,7 +47,7 @@ export class OerFloatNumber extends OerType<number> {
           size / 8
         } bytes - end of buffer`,
         uint8Array,
-        uint8Array.byteLength
+        uint8Array.byteLength,
       )
     }
 
@@ -82,7 +82,7 @@ export const realAsNumber = ({
     minimumMantissa < FLOAT64_MIN_MANTISSA_NUMBER
   ) {
     throw new Error(
-      `minimum mantissa must be >= ${FLOAT64_MIN_MANTISSA_NUMBER}`
+      `minimum mantissa must be >= ${FLOAT64_MIN_MANTISSA_NUMBER}`,
     )
   }
 
@@ -91,7 +91,7 @@ export const realAsNumber = ({
     maximumMantissa > FLOAT64_MAX_MANTISSA_NUMBER
   ) {
     throw new Error(
-      `maximum mantissa must be <= ${FLOAT64_MAX_MANTISSA_NUMBER}`
+      `maximum mantissa must be <= ${FLOAT64_MAX_MANTISSA_NUMBER}`,
     )
   }
 
@@ -108,7 +108,7 @@ export const realAsNumber = ({
     minimumExponent < FLOAT64_MIN_EXPONENT_NUMBER
   ) {
     throw new Error(
-      `minimum exponent must be >= ${FLOAT64_MIN_EXPONENT_NUMBER}`
+      `minimum exponent must be >= ${FLOAT64_MIN_EXPONENT_NUMBER}`,
     )
   }
 
@@ -117,7 +117,7 @@ export const realAsNumber = ({
     maximumExponent > FLOAT64_MAX_EXPONENT_NUMBER
   ) {
     throw new Error(
-      `maximum exponent must be <= ${FLOAT64_MAX_EXPONENT_NUMBER}`
+      `maximum exponent must be <= ${FLOAT64_MAX_EXPONENT_NUMBER}`,
     )
   }
 

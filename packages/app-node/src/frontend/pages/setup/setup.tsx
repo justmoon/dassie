@@ -101,7 +101,7 @@ export const Setup = ({ token }: SetupProperties) => {
           window.location.reload()
         })
     },
-    [setSubpage, token]
+    [setSubpage, token],
   )
 
   const subpageElement = (() => {

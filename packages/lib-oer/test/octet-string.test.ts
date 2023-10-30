@@ -221,7 +221,7 @@ describe("octetString", () => {
           "success": false,
         }
       `,
-        "error"
+        "error",
       )
     })
 
@@ -250,7 +250,7 @@ describe("octetString", () => {
           "success": false,
         }
       `,
-        "error"
+        "error",
       )
     })
 
@@ -432,7 +432,7 @@ describe("octetString", () => {
       sequence({
         a: uint8Number(),
         b: uint8Number(),
-      })
+      }),
     )
 
     test("should serialize a sequence", ({ expect }) => {
@@ -506,7 +506,7 @@ describe("octetString", () => {
     test("should serialize a buffer with five bytes", ({ expect }) => {
       const value = schema.serialize(sampleBuffer.slice(0, 5))
       expect(value).toEqual(
-        serializedOk(addLengthPrefix(sampleBuffer.slice(0, 5)))
+        serializedOk(addLengthPrefix(sampleBuffer.slice(0, 5))),
       )
     })
 
@@ -518,7 +518,7 @@ describe("octetString", () => {
     test("should serialize a buffer with eight bytes", ({ expect }) => {
       const value = schema.serialize(sampleBuffer.slice(0, 8))
       expect(value).toEqual(
-        serializedOk(addLengthPrefix(sampleBuffer.slice(0, 8)))
+        serializedOk(addLengthPrefix(sampleBuffer.slice(0, 8))),
       )
     })
 

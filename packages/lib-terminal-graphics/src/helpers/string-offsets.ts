@@ -60,7 +60,7 @@ export const rightCodepoint = (text: string, offset: number): number => {
     text.length,
     (text.codePointAt(offset) ?? 0) >= UTF16_SURROGATE_THRESHOLD
       ? offset + 2
-      : offset + 1
+      : offset + 1,
   )
 }
 
@@ -291,7 +291,7 @@ if (import.meta.vitest) {
       const code = 'const foo = bar("test", { foo: true })'
 
       const actual = Array.from({ length: code.length + 1 }, (_, index) =>
-        leftWord(code, index)
+        leftWord(code, index),
       )
 
       expect(actual).toEqual([
@@ -332,7 +332,7 @@ if (import.meta.vitest) {
       const code = 'const foo = bar("test", { foo: true })'
 
       const actual = Array.from({ length: code.length + 1 }, (_, index) =>
-        rightWord(code, index)
+        rightWord(code, index),
       )
 
       expect(actual).toEqual([

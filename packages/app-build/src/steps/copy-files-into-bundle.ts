@@ -12,7 +12,7 @@ import { getBundlePath, getStagingPath } from "../utils/dynamic-paths"
 
 export const copyFilesIntoBundle = async (
   version: DassieVersion,
-  architecture: Architecture
+  architecture: Architecture,
 ) => {
   const stagingPath = getStagingPath(architecture)
   const bundlePath = getBundlePath(version, architecture)
@@ -36,7 +36,7 @@ export const copyFilesIntoBundle = async (
 
     const bindingSourcePath = resolve(
       stagingPath,
-      "better-sqlite3/Release/better_sqlite3.node"
+      "better-sqlite3/Release/better_sqlite3.node",
     )
     const bindingOutputPath = resolve(libraryPath, "better_sqlite3.node")
 

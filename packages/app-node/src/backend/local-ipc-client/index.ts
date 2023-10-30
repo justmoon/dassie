@@ -10,7 +10,7 @@ import { AppRouter } from "../trpc-server/app-router"
 
 export const connectIpcClient = (lifecycle: LifecycleScope) => {
   const ipcSocket = createConnection(
-    process.env["DASSIE_IPC_SOCKET_PATH"] ?? "/run/dassie.sock"
+    process.env["DASSIE_IPC_SOCKET_PATH"] ?? "/run/dassie.sock",
   )
 
   const ipcClient = createTRPCProxyClient<AppRouter>({

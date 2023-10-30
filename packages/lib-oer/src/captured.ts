@@ -29,7 +29,7 @@ export class OerCaptured<TParseValue, TSerializeValue> extends OerType<
         bytes: new Uint8Array(
           context.uint8Array.buffer,
           context.uint8Array.byteOffset + offset,
-          subTypeLength
+          subTypeLength,
         ),
       },
       subTypeLength,
@@ -37,7 +37,7 @@ export class OerCaptured<TParseValue, TSerializeValue> extends OerType<
   }
 
   serializeWithContext(
-    input: { value: TSerializeValue } | { bytes: Uint8Array }
+    input: { value: TSerializeValue } | { bytes: Uint8Array },
   ) {
     if ("value" in input) {
       return this.subType.serializeWithContext(input.value)
@@ -52,7 +52,7 @@ export class OerCaptured<TParseValue, TSerializeValue> extends OerType<
 }
 
 export const captured = <TParseValue, TSerializeValue>(
-  subType: OerType<TParseValue, TSerializeValue>
+  subType: OerType<TParseValue, TSerializeValue>,
 ) => {
   return new OerCaptured(subType)
 }

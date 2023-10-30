@@ -14,12 +14,12 @@ export const getLengthPrefixAsHex = (byteLength: number) => {
   }
 
   throw new Error(
-    "Test data generator does not support byte lengths greater than 0xff_ff_ff_ff"
+    "Test data generator does not support byte lengths greater than 0xff_ff_ff_ff",
   )
 }
 
 export const addLengthPrefix = (buffer: Uint8Array) => {
   return hexToUint8Array(
-    `${getLengthPrefixAsHex(buffer.byteLength)} ${uint8ArrayToHex(buffer)}`
+    `${getLengthPrefixAsHex(buffer.byteLength)} ${uint8ArrayToHex(buffer)}`,
   )
 }

@@ -28,13 +28,13 @@ const NodeGraphView = ({ graphData }: NodeGraphViewProperties) => {
 
   const handleNodeClick = useCallback(
     ({ id }: NodeObject) => setLocation(`/nodes/${String(id)}`),
-    [setLocation]
+    [setLocation],
   )
 
   const generateLinkColor = useCallback(() => "#ffffff", [])
   const generateNodeColor = useCallback(
     ({ id }: NodeObject) => selectBySeed(COLORS, String(id ?? "")),
-    []
+    [],
   )
 
   trpc.ui.subscribeToPeerTraffic.useSubscription(undefined, {
@@ -47,11 +47,11 @@ const NodeGraphView = ({ graphData }: NodeGraphViewProperties) => {
             typeof source === "object" &&
             data.from === source.id &&
             typeof target === "object" &&
-            data.to === target.id
+            data.to === target.id,
         )
         if (link) forceGraphReference.current?.emitParticle(link)
       },
-      [forceGraphReference, graphData]
+      [forceGraphReference, graphData],
     ),
   })
 
@@ -80,7 +80,7 @@ const NodeGraph = () => {
   const [graphData, dispatchGraphData] = useReducer(
     (
       previousGraphData: GraphData,
-      action: { nodes: string[]; peeringState: typeof peeringState }
+      action: { nodes: string[]; peeringState: typeof peeringState },
     ) => {
       const links = Object.entries(action.peeringState ?? {}).flatMap(
         ([nodeId, peers]) =>
@@ -93,14 +93,14 @@ const NodeGraph = () => {
                   { source: peerId, target: nodeId },
                 ]
               : []
-          })
+          }),
       )
 
       return {
         nodes: action.nodes.map(
           (nodeId) =>
             previousGraphData.nodes.find(({ id }) => id === nodeId) ??
-            generateNode(nodeId)
+            generateNode(nodeId),
         ),
         links,
       }
@@ -108,7 +108,7 @@ const NodeGraph = () => {
     {
       nodes: [],
       links: [],
-    }
+    },
   )
 
   useEffect(() => {

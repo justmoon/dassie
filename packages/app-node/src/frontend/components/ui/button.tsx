@@ -29,7 +29,7 @@ const buttonVariants = cva(
       variant: "default",
       size: "default",
     },
-  }
+  },
 )
 
 export interface ButtonProperties
@@ -48,7 +48,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProperties>(
         {...properties}
       />
     )
-  }
+  },
 )
 Button.displayName = "Button"
 

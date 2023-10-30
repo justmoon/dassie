@@ -9,19 +9,19 @@ import {
 } from "./class"
 
 export type InformationObjectShape<
-  TClassDefinition extends ClassDefinitionShape
+  TClassDefinition extends ClassDefinitionShape,
 > = {
   [TKey in keyof TClassDefinition]: TClassDefinition[TKey] extends AnyOerType
     ? Infer<TClassDefinition[TKey]>
     : AnyOerType
 }
 export type InformationObjectSetShape<
-  TClassDefinition extends ClassDefinitionShape
+  TClassDefinition extends ClassDefinitionShape,
 > = readonly InformationObjectShape<TClassDefinition>[]
 
 export type InformationObjectSet<
   TClassDefinition extends ClassDefinitionShape,
-  TObjectSet extends InformationObjectSetShape<TClassDefinition>
+  TObjectSet extends InformationObjectSetShape<TClassDefinition>,
 > = {
   _class: InformationObjectClass<TClassDefinition>
   _objectSet: TObjectSet
@@ -38,7 +38,7 @@ export interface ObjectSetField<
   TClassDefinition extends ClassDefinitionShape,
   TObjectSet extends InformationObjectSetShape<TClassDefinition>,
   TField extends keyof TClassDefinition,
-  TFieldType extends TClassDefinition[TField] = TClassDefinition[TField]
+  TFieldType extends TClassDefinition[TField] = TClassDefinition[TField],
 > {
   _class: InformationObjectClass<TClassDefinition>
   _objectSet: TObjectSet
@@ -47,11 +47,11 @@ export interface ObjectSetField<
   parseWithContext: (
     context: ParseContext,
     offset: number,
-    informationObjectSetState: InformationObjectSetStateMap
+    informationObjectSetState: InformationObjectSetStateMap,
   ) => readonly [value: unknown, length: number] | ParseError
   serializeWithContext: (
     value: unknown,
-    informationObjectSetState: InformationObjectSetStateMap
+    informationObjectSetState: InformationObjectSetStateMap,
   ) => SerializeError | Serializer
 }
 
@@ -65,10 +65,10 @@ export type InformationObjectSetStateMap = Map<
 
 export const defineObjectSet = <
   TClassDefinition extends ClassDefinitionShape,
-  TObjectSet extends InformationObjectSetShape<TClassDefinition>
+  TObjectSet extends InformationObjectSetShape<TClassDefinition>,
 >(
   informationObjectClass: InformationObjectClass<TClassDefinition>,
-  objectSetShape: TObjectSet
+  objectSetShape: TObjectSet,
 ): InformationObjectSet<TClassDefinition, TObjectSet> => {
   return {
     _class: informationObjectClass,
@@ -80,9 +80,9 @@ export const defineObjectSet = <
           informationObjectClass,
           objectSetShape,
           key,
-          value as TClassDefinition[string & keyof TClassDefinition]
+          value as TClassDefinition[string & keyof TClassDefinition],
         ),
-      ])
+      ]),
     ),
   } as InformationObjectSet<TClassDefinition, TObjectSet>
 }
@@ -91,12 +91,12 @@ const defineObjectSetField = <
   TClassDefinition extends ClassDefinitionShape,
   TObjectSet extends InformationObjectSetShape<TClassDefinition>,
   TField extends string & keyof TClassDefinition,
-  TFieldType extends TClassDefinition[TField] = TClassDefinition[TField]
+  TFieldType extends TClassDefinition[TField] = TClassDefinition[TField],
 >(
   informationObjectClass: InformationObjectClass<TClassDefinition>,
   objectSetShape: TObjectSet,
   field: TField,
-  type: TFieldType
+  type: TFieldType,
 ): ObjectSetField<TClassDefinition, TObjectSet, TField, TFieldType> => {
   if (type === openType) {
     const openTypeWrapper = octetString()
@@ -113,13 +113,13 @@ const defineObjectSetField = <
           return new ParseError(
             "Cannot parse open type unless an identifier field appears before it in the same sequence",
             context.uint8Array,
-            offset
+            offset,
           )
         }
 
         const wrapperParseResult = openTypeWrapper.parseWithContext(
           context,
-          offset
+          offset,
         )
 
         if (wrapperParseResult instanceof ParseError) {
@@ -144,7 +144,7 @@ const defineObjectSetField = <
           return new ParseError(
             "extra bytes inside of open type",
             context.uint8Array,
-            offset + lengthOfLength + innerValue[1]
+            offset + lengthOfLength + innerValue[1],
           )
         }
 
@@ -155,7 +155,7 @@ const defineObjectSetField = <
 
         if (state === undefined) {
           return new SerializeError(
-            "Cannot serialize open type unless an identifier field appears before it in the same sequence"
+            "Cannot serialize open type unless an identifier field appears before it in the same sequence",
           )
         }
 
@@ -182,9 +182,9 @@ const defineObjectSetField = <
       // eslint-disable-next-line unicorn/prefer-type-error
       throw new Error(
         `Cannot define object set because the value "${String(
-          x[field]
+          x[field],
         )}" for field "${field}" failed to serialize`,
-        { cause: serializeResult }
+        { cause: serializeResult },
       )
     }
 
@@ -199,7 +199,7 @@ const defineObjectSetField = <
     parseWithContext(context, offset, informationObjectSetState) {
       const parseResult = (type as OerType<unknown>).parseWithContext(
         context,
-        offset
+        offset,
       )
 
       if (parseResult instanceof ParseError) {
@@ -209,14 +209,14 @@ const defineObjectSetField = <
       const [value, length] = parseResult
 
       const index = objectSetShape.findIndex(
-        (object) => object[field] === value
+        (object) => object[field] === value,
       )
 
       if (index === -1) {
         return new ParseError(
           `Unknown value in identifier field`,
           context.uint8Array,
-          offset
+          offset,
         )
       }
 
@@ -226,14 +226,14 @@ const defineObjectSetField = <
     },
     serializeWithContext(value, informationObjectSetState) {
       const index = objectSetShape.findIndex(
-        (object) => object[field] === value
+        (object) => object[field] === value,
       )
 
       if (index === -1) {
         return new SerializeError(
           `Cannot serialize value "${String(
-            value
-          )}" because it is not a member of the object set`
+            value,
+          )}" because it is not a member of the object set`,
         )
       }
 

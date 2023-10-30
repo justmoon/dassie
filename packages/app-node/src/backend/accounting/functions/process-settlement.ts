@@ -6,7 +6,7 @@ export const processSettlementPrepare = (
   settlementSchemeId: string,
   peerId: NodeId,
   amount: bigint,
-  direction: "incoming" | "outgoing"
+  direction: "incoming" | "outgoing",
 ) => {
   const peerPath = `${settlementSchemeId}/peer/${peerId}/interledger`
   const settlementPath = `${settlementSchemeId}/peer/${peerId}/settlement`

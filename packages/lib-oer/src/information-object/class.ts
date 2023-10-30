@@ -5,13 +5,13 @@ export const openType = Symbol("ASN.1 Open Type")
 export type ClassDefinitionShape = Record<string, AnyOerType | typeof openType>
 
 export interface InformationObjectClass<
-  TDefinition extends ClassDefinitionShape
+  TDefinition extends ClassDefinitionShape,
 > {
   _definition: TDefinition
 }
 
 export const defineClass = <TDefinition extends ClassDefinitionShape>(
-  definition: TDefinition
+  definition: TDefinition,
 ): InformationObjectClass<TDefinition> => {
   return { _definition: definition }
 }

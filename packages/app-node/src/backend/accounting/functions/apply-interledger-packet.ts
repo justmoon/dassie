@@ -6,7 +6,7 @@ export const applyPacketPrepareToLedger = (
   ledger: Ledger,
   accountPath: string,
   packet: IlpPreparePacket,
-  direction: "incoming" | "outgoing"
+  direction: "incoming" | "outgoing",
 ) => {
   const ledgerId = getLedgerIdFromPath(accountPath)
   const connectorPath = `${ledgerId}/internal/connector`

@@ -42,7 +42,7 @@ export function extend<TElement extends keyof JSX.IntrinsicElements>(
 
 export function extend<
   TComponent,
-  TProperties extends { className?: string | undefined }
+  TProperties extends { className?: string | undefined },
 >(
   displayName: string,
   type: TComponent & ComponentType<TProperties>,
@@ -52,7 +52,7 @@ export function extend<
 export function extend<
   TElement extends
     | ComponentType<{ className?: string | undefined }>
-    | keyof JSX.IntrinsicElements
+    | keyof JSX.IntrinsicElements,
 >(
   displayName: string,
   type: TElement,
@@ -62,7 +62,7 @@ export function extend<
 > {
   const Component = forwardRef(function Classed(
     { className, ...properties }: ComponentProps<TElement>,
-    reference
+    reference,
   ) {
     return createElement(type, {
       ...properties,

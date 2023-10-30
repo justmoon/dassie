@@ -18,7 +18,7 @@ export const alphabetToFilterArray = (alphabet: Alphabet): boolean[] => {
 
     if (codePoint > 127) {
       throw new Error(
-        "Restricted character sets with UTF-8 are not supported yet"
+        "Restricted character sets with UTF-8 are not supported yet",
       )
     }
 

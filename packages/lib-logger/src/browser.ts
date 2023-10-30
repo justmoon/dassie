@@ -16,7 +16,7 @@ context.output = (logEvent, context) => {
     case "error": {
       context.realConsole[logEvent.type](
         `${logEvent.namespace} ${logEvent.message}`,
-        ...logEvent.parameters
+        ...logEvent.parameters,
       )
       break
     }

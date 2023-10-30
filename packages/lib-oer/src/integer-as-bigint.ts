@@ -59,7 +59,7 @@ export class OerFixedIntegerBigint extends OerIntegerBigint {
           size / 8
         } bytes - end of buffer`,
         uint8Array,
-        uint8Array.byteLength
+        uint8Array.byteLength,
       )
     }
 
@@ -74,7 +74,7 @@ export class OerFixedIntegerBigint extends OerIntegerBigint {
           size / 8
         } bytes - value ${value} is less than minimum value ${minimumValue}`,
         uint8Array,
-        offset
+        offset,
       )
     }
 
@@ -84,7 +84,7 @@ export class OerFixedIntegerBigint extends OerIntegerBigint {
           size / 8
         } bytes - value ${value} is greater than maximum value ${maximumValue}`,
         uint8Array,
-        offset
+        offset,
       )
     }
 
@@ -135,7 +135,7 @@ export class OerVariableUnsignedInteger extends OerIntegerBigint {
       return new ParseError(
         `unable to read variable length integer - length must not be 0`,
         uint8Array,
-        offset
+        offset,
       )
     }
 
@@ -159,7 +159,7 @@ export class OerVariableUnsignedInteger extends OerIntegerBigint {
   serializeWithContext(input: bigint) {
     if (!isUnsignedBigint(input)) {
       return new SerializeError(
-        `expected unsigned bigint, got ${typeof input}: ${input}`
+        `expected unsigned bigint, got ${typeof input}: ${input}`,
       )
     }
 
@@ -175,7 +175,7 @@ export class OerVariableUnsignedInteger extends OerIntegerBigint {
       const lengthOfLengthPrefix = serializeLengthPrefix(
         length,
         uint8Array,
-        offset
+        offset,
       )
 
       if (lengthOfLengthPrefix instanceof SerializeError) {
@@ -217,7 +217,7 @@ export class OerVariableSignedInteger extends OerType<bigint> {
       return new ParseError(
         `unable to read variable length integer - length must not be 0`,
         uint8Array,
-        offset
+        offset,
       )
     }
 
@@ -250,7 +250,7 @@ export class OerVariableSignedInteger extends OerType<bigint> {
       const lengthPrefixSerializeResult = serializeLengthPrefix(
         length,
         uint8Array,
-        offset
+        offset,
       )
 
       if (lengthPrefixSerializeResult instanceof SerializeError) {

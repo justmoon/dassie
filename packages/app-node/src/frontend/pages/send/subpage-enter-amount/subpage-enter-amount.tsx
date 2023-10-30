@@ -55,7 +55,7 @@ export const SubpageEnterAmount = ({
         <Button
           onClick={() =>
             onSubmit(
-              parseDecimalToBigInt(amount, USD_SPECIFICATION.totalPrecision)
+              parseDecimalToBigInt(amount, USD_SPECIFICATION.totalPrecision),
             )
           }
         >

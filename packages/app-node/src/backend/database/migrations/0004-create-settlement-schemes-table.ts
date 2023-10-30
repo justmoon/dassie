@@ -14,7 +14,7 @@ const migration: MigrationDefinition = {
             -- The data format is specific to each settlement scheme module
             config TEXT NOT NULL
           ) STRICT
-        `
+        `,
       )
       .run()
   },

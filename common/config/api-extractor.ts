@@ -12,14 +12,14 @@ import type { EnumMemberOrder } from "@microsoft/api-extractor-model"
 const createExtractorConfig = (
   unscopedPackageName: string,
   entryPoint = "src/index",
-  dtsRollupPath = "dist/index.d.ts"
+  dtsRollupPath = "dist/index.d.ts",
 ) =>
   ExtractorConfig.prepare({
     configObjectFullPath: new URL("../../api-extractor.json", import.meta.url)
       .pathname,
     packageJsonFullPath: new URL(
       `../../packages/${unscopedPackageName}/package.json`,
-      import.meta.url
+      import.meta.url,
     ).pathname,
     configObject: {
       /**

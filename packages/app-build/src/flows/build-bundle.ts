@@ -39,7 +39,7 @@ export const buildBundle = async ({
   flow.show(header({ title: "Dassie Build" }))
 
   flow.show(
-    note({ title: `Creating Dassie bundles for version ${detailedVersion}` })
+    note({ title: `Creating Dassie bundles for version ${detailedVersion}` }),
   )
 
   await createOutputPath()
@@ -62,8 +62,8 @@ export const buildBundle = async ({
     for (const compression of SUPPORTED_COMPRESSIONS) {
       console.info(
         chalk.dim(
-          ` … ${getCompressedFilename(version, architecture, compression)}`
-        )
+          ` … ${getCompressedFilename(version, architecture, compression)}`,
+        ),
       )
       await compressBundle(version, architecture, compression)
     }

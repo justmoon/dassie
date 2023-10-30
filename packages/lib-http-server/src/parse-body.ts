@@ -4,7 +4,7 @@ import { DEFAULT_MAX_BODY_SIZE } from "./constants"
 import { PayloadTooLargeError } from "./errors"
 
 export const parseBodyBuffer = async (
-  request: IncomingMessage
+  request: IncomingMessage,
 ): Promise<Buffer> => {
   const body: Buffer[] = []
   let dataReceived = 0
@@ -14,7 +14,7 @@ export const parseBodyBuffer = async (
 
     if (dataReceived > DEFAULT_MAX_BODY_SIZE) {
       throw new PayloadTooLargeError(
-        `Payload Too Large, expected body to be less than ${DEFAULT_MAX_BODY_SIZE} bytes`
+        `Payload Too Large, expected body to be less than ${DEFAULT_MAX_BODY_SIZE} bytes`,
       )
     }
     body.push(chunk)
@@ -24,7 +24,7 @@ export const parseBodyBuffer = async (
 }
 
 export const parseBody = async (
-  request: IncomingMessage
+  request: IncomingMessage,
 ): Promise<Uint8Array> => {
   const buffer = await parseBodyBuffer(request)
 
@@ -32,7 +32,7 @@ export const parseBody = async (
 }
 
 export const parseBodyUtf8 = async (
-  request: IncomingMessage
+  request: IncomingMessage,
 ): Promise<string> => {
   const buffer = await parseBodyBuffer(request)
 

@@ -1,6 +1,6 @@
 export const compareSetOfKeys = (
   a: Map<string, unknown>,
-  b: Map<string, unknown>
+  b: Map<string, unknown>,
 ) => {
   if (a.size !== b.size) return false
 
@@ -13,7 +13,7 @@ export const compareSetOfKeys = (
 
 export const compareKeysToArray = (
   a: Map<string, unknown>,
-  b: readonly string[]
+  b: readonly string[],
 ) => {
   if (a.size !== b.length) return false
 

@@ -6,7 +6,7 @@ export class ParseError extends Error {
   constructor(
     message: string,
     readonly data: Uint8Array,
-    readonly offset: number
+    readonly offset: number,
   ) {
     const hexExcerptRange = [
       Math.max(0, offset - PARSE_ERROR_CONTEXT_BYTES),
@@ -14,7 +14,7 @@ export class ParseError extends Error {
     ] as const
 
     const hexExcerpt = uint8ArrayToHex(
-      data.slice(hexExcerptRange[0], hexExcerptRange[1])
+      data.slice(hexExcerptRange[0], hexExcerptRange[1]),
     )
 
     const formattedMessage = `${message}\n\n  ${

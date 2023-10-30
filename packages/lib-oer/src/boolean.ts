@@ -9,21 +9,21 @@ export class OerBoolean extends OerType<boolean> {
 
   parseWithContext(
     { uint8Array, allowNoncanonical }: ParseContext,
-    offset: number
+    offset: number,
   ) {
     const value = uint8Array[offset]
     if (value === undefined) {
       return new ParseError(
         "unable to read boolean value - end of buffer",
         uint8Array,
-        offset
+        offset,
       )
     }
     if (!allowNoncanonical && value !== 0 && value !== 0xff) {
       return new ParseError(
         "unable to read boolean value - non-canonical",
         uint8Array,
-        offset
+        offset,
       )
     }
     return [!!value, 1] as const

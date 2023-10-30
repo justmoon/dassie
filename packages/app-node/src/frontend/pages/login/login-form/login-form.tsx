@@ -44,7 +44,7 @@ export const LoginForm = ({
     ({ passphrase }: z.infer<typeof formSchema>) => {
       loginMutation.mutate(passphrase)
     },
-    [loginMutation]
+    [loginMutation],
   )
 
   const form = useForm<z.infer<typeof formSchema>>({

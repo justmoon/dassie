@@ -9,14 +9,14 @@ export const SOCKET_ACTIVATION_NAME_HTTPS = "dassie-https.socket"
 
 export const getListenTargets = (
   port: number,
-  secure: boolean
+  secure: boolean,
 ): readonly (number | { fd: number })[] => {
   const socketActivationState = getSocketActivationState()
 
   if (socketActivationState) {
     const fds = getSocketActivationFileDescriptors(
       socketActivationState,
-      secure ? SOCKET_ACTIVATION_NAME_HTTPS : SOCKET_ACTIVATION_NAME_HTTP
+      secure ? SOCKET_ACTIVATION_NAME_HTTPS : SOCKET_ACTIVATION_NAME_HTTP,
     )
     logger.debug("using socket activation for web server", { fds })
     return fds.map((fd) => ({ fd }))

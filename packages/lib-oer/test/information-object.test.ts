@@ -53,7 +53,7 @@ describe("information-object", () => {
       const informationObjectClass = defineClass(exampleClassDefinition)
       const objectSet = defineObjectSet(
         informationObjectClass,
-        exampleObjectSet
+        exampleObjectSet,
       )
 
       expect(objectSet).toBeTypeOf("object")
@@ -92,7 +92,7 @@ describe("information-object", () => {
           first: true,
           second: 1,
           third: hexToUint8Array("fe fb fa"),
-        })
+        }),
       )
     })
 
@@ -108,7 +108,7 @@ describe("information-object", () => {
       const value = schema.parse(
         hexToUint8Array("ff 02 05 01 02 03 04 00"),
         0,
-        { allowNoncanonical: true }
+        { allowNoncanonical: true },
       )
 
       expect(value).toEqual(
@@ -116,7 +116,7 @@ describe("information-object", () => {
           first: true,
           second: 2,
           third: 0x01_02_03_04,
-        })
+        }),
       )
     })
 
@@ -126,7 +126,7 @@ describe("information-object", () => {
       const value = schema.parse(
         hexToUint8Array("ff 02 05 01 02 03 04 00"),
         0,
-        { allowNoncanonical: false }
+        { allowNoncanonical: false },
       )
 
       expect(value).toMatchInlineSnapshot(`
@@ -145,7 +145,7 @@ describe("information-object", () => {
     const innerInformationObjectClass = defineClass(exampleClassDefinition)
     const innerObjectSet = defineObjectSet(
       innerInformationObjectClass,
-      exampleObjectSet
+      exampleObjectSet,
     )
     const innerSchema = sequence({
       first: boolean(),
@@ -183,13 +183,13 @@ describe("information-object", () => {
         },
       })
       expect(value).toEqual(
-        serializedOk("00 00 00 01 3a 98 07 ff 01 04 03 fe fb fa")
+        serializedOk("00 00 00 01 3a 98 07 ff 01 04 03 fe fb fa"),
       )
     })
 
     test("should parse a value", ({ expect }) => {
       const value = outerSchema.parse(
-        hexToUint8Array("00 00 00 01 3a 98 07 ff 01 04 03 fe fb fa")
+        hexToUint8Array("00 00 00 01 3a 98 07 ff 01 04 03 fe fb fa"),
       )
 
       expect(value).toEqual(
@@ -201,7 +201,7 @@ describe("information-object", () => {
             second: 1,
             third: hexToUint8Array("fe fb fa"),
           },
-        })
+        }),
       )
     })
   })

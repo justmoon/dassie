@@ -33,13 +33,13 @@ export interface SocketCreateContextOptions {
 export interface CreateSocketHandlerOptions<TRouter extends AnyRouter> {
   router: TRouter
   createContext?: (
-    options: SocketCreateContextOptions
+    options: SocketCreateContextOptions,
   ) => Promisable<inferRouterContext<TRouter>>
   onError?: SocketOnErrorFunction<TRouter>
 }
 
 export const createSocketHandler = <TRouter extends AnyRouter>(
-  options: CreateSocketHandlerOptions<TRouter>
+  options: CreateSocketHandlerOptions<TRouter>,
 ) => {
   const { router, createContext, onError } = options
   const { transformer } = router._def._config as {
@@ -69,7 +69,7 @@ export const createSocketHandler = <TRouter extends AnyRouter>(
             id,
             jsonrpc: "2.0",
             ...response,
-          } as TRPCSocketResponse) + "\n"
+          } as TRPCSocketResponse) + "\n",
         )
       }
 

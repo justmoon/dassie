@@ -38,6 +38,6 @@ describe("length prefix", () => {
         const result = predictLengthPrefixLength(value)
         expect(result).toEqual(hex.length / 2)
       })
-    }
+    },
   )
 })

@@ -4,7 +4,7 @@ import type { ParseContext } from "./parse"
 export const parseBase128 = (
   context: ParseContext,
   offset: number,
-  endOffset: number
+  endOffset: number,
 ): ParseError | readonly [value: bigint, lengthOfEncoding: number] => {
   const { uint8Array } = context
 
@@ -12,7 +12,7 @@ export const parseBase128 = (
     return new ParseError(
       "invalid base-128 value - must not contain unnecessary padding",
       uint8Array,
-      offset
+      offset,
     )
   }
 
@@ -25,7 +25,7 @@ export const parseBase128 = (
       return new ParseError(
         "unable to read base-128 value - value is longer than expected based on context",
         uint8Array,
-        offset + lengthOfEncoding
+        offset + lengthOfEncoding,
       )
     }
 
@@ -35,7 +35,7 @@ export const parseBase128 = (
       return new ParseError(
         `unable to read base-128 value - end of buffer after ${lengthOfEncoding} bytes`,
         uint8Array,
-        uint8Array.byteLength
+        uint8Array.byteLength,
       )
     }
 
@@ -49,7 +49,7 @@ export const parseBase128 = (
 export const serializeBase128 = (
   value: bigint,
   uint8Array: Uint8Array,
-  offset: number
+  offset: number,
 ) => {
   const length = predictBase128Length(value)
 
@@ -67,11 +67,11 @@ export const serializeBase128 = (
 }
 
 export const predictBase128Length = (
-  value: bigint
+  value: bigint,
 ): SerializeError | number => {
   if (value < 0n) {
     return new SerializeError(
-      "unable to serialize base-128 - negative integers are not permitted"
+      "unable to serialize base-128 - negative integers are not permitted",
     )
   }
 

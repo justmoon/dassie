@@ -13,12 +13,12 @@ export interface MigrationOptions {
 export const migrate = (
   database: Database,
   migrations: MigrationDefinition[],
-  options: MigrationOptions = {}
+  options: MigrationOptions = {},
 ) => {
   const currentUserVersion = Number(
     database.pragma("user_version", {
       simple: true,
-    }) as number | bigint
+    }) as number | bigint,
   )
 
   // Check integrity of migrations array
@@ -26,14 +26,14 @@ export const migrate = (
   for (const [index, migration] of migrations.entries()) {
     if (migration.version !== ++lastMigrationId) {
       throw new Error(
-        `Migration definitions are invalid. Migration at index ${index} was expected to have migration version ${lastMigrationId} but has version ${migration.version}.`
+        `Migration definitions are invalid. Migration at index ${index} was expected to have migration version ${lastMigrationId} but has version ${migration.version}.`,
       )
     }
   }
 
   if (currentUserVersion > lastMigrationId) {
     throw new Error(
-      "Database is newer than the current version of the app, cannot continue"
+      "Database is newer than the current version of the app, cannot continue",
     )
   }
 

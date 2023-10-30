@@ -9,7 +9,7 @@ import { getPrivateSeedAtPath } from "./signer"
 export const login = async (binarySeed: Uint8Array) => {
   const loginAuthorizationSignature = getPrivateSeedAtPath(
     binarySeed,
-    SEED_PATH_NODE_LOGIN
+    SEED_PATH_NODE_LOGIN,
   )
 
   const response = await fetch("/api/login", {
@@ -42,11 +42,11 @@ export const logout = async () => {
 
 export const setup = async (
   binarySeed: Uint8Array,
-  setupAuthorizationToken: string
+  setupAuthorizationToken: string,
 ) => {
   const loginAuthorizationSignature = getPrivateSeedAtPath(
     binarySeed,
-    SEED_PATH_NODE_LOGIN
+    SEED_PATH_NODE_LOGIN,
   )
 
   const response = await fetch("/api/setup", {
@@ -57,7 +57,7 @@ export const setup = async (
     body: JSON.stringify({
       setupAuthorizationToken,
       rawDassieKeyHex: bytesToHex(
-        getPrivateSeedAtPath(binarySeed, SEED_PATH_NODE)
+        getPrivateSeedAtPath(binarySeed, SEED_PATH_NODE),
       ),
       loginAuthorizationSignature: bytesToHex(loginAuthorizationSignature),
     }),

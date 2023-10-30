@@ -13,11 +13,11 @@ export const showComparison = (value: unknown, title: string) => {
       message: title,
       parameters: [{ value }],
       caller: undefined,
-    })
+    }),
   )
 
   console.log(
     "Node inspect (for comparison):\n" +
-      inspect(value, { depth: Number.POSITIVE_INFINITY, colors: true })
+      inspect(value, { depth: Number.POSITIVE_INFINITY, colors: true }),
   )
 }

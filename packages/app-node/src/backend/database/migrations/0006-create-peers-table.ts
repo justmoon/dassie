@@ -10,7 +10,7 @@ const migration: MigrationDefinition = {
             node INTEGER PRIMARY KEY NOT NULL,
             settlement_scheme_id TEXT NOT NULL
           ) STRICT
-        `
+        `,
       )
       .run()
   },

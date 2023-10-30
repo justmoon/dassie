@@ -12,7 +12,7 @@ const migration: MigrationDefinition = {
             url TEXT NOT NULL,
             alias TEXT NOT NULL
           ) STRICT
-        `
+        `,
       )
       .run()
   },

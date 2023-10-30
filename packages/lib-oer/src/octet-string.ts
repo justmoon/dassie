@@ -38,7 +38,7 @@ export class OerFixedOctetString extends OerType<
     const length = isSerializer(value) ? value.size : value.length
     if (length !== this.length) {
       return new SerializeError(
-        `Expected octet string of length ${this.length}, but got ${length}`
+        `Expected octet string of length ${this.length}, but got ${length}`,
       )
     }
 
@@ -54,7 +54,7 @@ export class OerFixedOctetString extends OerType<
   }
 
   containing<TParseValue, TSerializeValue>(
-    subType: OerType<TParseValue, TSerializeValue>
+    subType: OerType<TParseValue, TSerializeValue>,
   ) {
     return new OerOctetStringContaining(this, subType)
   }
@@ -86,7 +86,7 @@ export class OerVariableOctetString extends OerType<
       return new ParseError(
         `Expected octet string of length at least ${this.sizeRange[0]}, but got ${length}`,
         uint8Array,
-        offset
+        offset,
       )
     }
 
@@ -94,14 +94,14 @@ export class OerVariableOctetString extends OerType<
       return new ParseError(
         `Expected octet string of length at most ${this.sizeRange[1]}, but got ${length}`,
         uint8Array,
-        offset
+        offset,
       )
     }
 
     return [
       uint8Array.slice(
         offset + lengthOfLength,
-        offset + lengthOfLength + length
+        offset + lengthOfLength + length,
       ),
       lengthOfLength + length,
     ] as const
@@ -112,13 +112,13 @@ export class OerVariableOctetString extends OerType<
 
     if (this.sizeRange[0] != undefined && length < this.sizeRange[0]) {
       return new SerializeError(
-        `Expected octet string of length at least ${this.sizeRange[0]}, but got ${length}`
+        `Expected octet string of length at least ${this.sizeRange[0]}, but got ${length}`,
       )
     }
 
     if (this.sizeRange[1] != undefined && length > this.sizeRange[1]) {
       return new SerializeError(
-        `Expected octet string of length at most ${this.sizeRange[1]}, but got ${length}`
+        `Expected octet string of length at most ${this.sizeRange[1]}, but got ${length}`,
       )
     }
 
@@ -132,7 +132,7 @@ export class OerVariableOctetString extends OerType<
       const lengthOfLengthPrefix = serializeLengthPrefix(
         length,
         context.uint8Array,
-        offset
+        offset,
       )
 
       if (lengthOfLengthPrefix instanceof SerializeError) {
@@ -151,7 +151,7 @@ export class OerVariableOctetString extends OerType<
   }
 
   containing<TParseValue, TSerializeValue>(
-    subType: OerType<TParseValue, TSerializeValue>
+    subType: OerType<TParseValue, TSerializeValue>,
   ) {
     return new OerOctetStringContaining(this, subType)
   }
@@ -159,11 +159,11 @@ export class OerVariableOctetString extends OerType<
 
 export class OerOctetStringContaining<
   TParseValue,
-  TSerializeValue
+  TSerializeValue,
 > extends OerType<TParseValue, TSerializeValue | Uint8Array> {
   constructor(
     readonly octetStringType: OerFixedOctetString | OerVariableOctetString,
-    readonly subType: OerType<TParseValue, TSerializeValue>
+    readonly subType: OerType<TParseValue, TSerializeValue>,
   ) {
     super()
   }
@@ -175,7 +175,7 @@ export class OerOctetStringContaining<
   parseWithContext(context: ParseContext, offset: number) {
     const octetStringResult = this.octetStringType.parseWithContext(
       context,
-      offset
+      offset,
     )
 
     if (octetStringResult instanceof ParseError) {
@@ -187,7 +187,7 @@ export class OerOctetStringContaining<
     const subTypeResult = this.subType.parseWithContext(
       context,
       // We don't have a direct way to find out the length of the length prefix (if there is one). But we know that the subtype contents are at the end of the parsed data and we can simply take the end of the whole encoding and subtract the length of the subtype field.
-      offset + octetStringOverallLength - parsedOctetString.length
+      offset + octetStringOverallLength - parsedOctetString.length,
     )
 
     if (subTypeResult instanceof ParseError) {
@@ -237,7 +237,7 @@ export const octetString = (length?: Range<number>) => {
     minimumLength > maximumLength
   ) {
     throw new TypeError(
-      "minimumLength must be less than or equal to maximumLength"
+      "minimumLength must be less than or equal to maximumLength",
     )
   }
 

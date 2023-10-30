@@ -40,7 +40,7 @@ describe("bitstring", () => {
   test("should parse a fixed eight bit value", ({ expect }) => {
     const value = bitstring(8).parse(hexToUint8Array("2e"))
     expect(value).toEqual(
-      parsedOk(1, [false, false, true, false, true, true, true, false])
+      parsedOk(1, [false, false, true, false, true, true, true, false]),
     )
   })
 
@@ -80,13 +80,13 @@ describe("bitstring", () => {
         true,
         true,
         false,
-      ])
+      ]),
     )
   })
 
   test("should parse a variable length bitstring", ({ expect }) => {
     const value = bitstring(13, { variableLength: true }).parse(
-      hexToUint8Array("03 03 cf b0")
+      hexToUint8Array("03 03 cf b0"),
     )
     expect(value).toEqual(
       parsedOk(4, [
@@ -103,7 +103,7 @@ describe("bitstring", () => {
         true,
         true,
         false,
-      ])
+      ]),
     )
   })
 

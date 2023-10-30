@@ -9,7 +9,7 @@ const migration: MigrationDefinition = {
           CREATE TABLE sessions (
             token TEXT PRIMARY KEY NOT NULL
           ) STRICT
-        `
+        `,
       )
       .run()
   },

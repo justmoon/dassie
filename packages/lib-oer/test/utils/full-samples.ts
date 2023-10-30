@@ -15,7 +15,7 @@ export type FullSample<T> = readonly [
   label: string,
   baseType: OerType<T>,
   value: T,
-  hex: string
+  hex: string,
 ]
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
