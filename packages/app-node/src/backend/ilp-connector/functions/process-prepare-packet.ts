@@ -1,11 +1,12 @@
+import { Reactor } from "@dassie/lib-reactive"
 import { UnreachableCaseError, isFailure } from "@dassie/lib-type-utils"
 
 import { applyPacketPrepareToLedger } from "../../accounting/functions/apply-interledger-packet"
 import { LedgerStore, Transfer } from "../../accounting/stores/ledger"
 import { connector as logger } from "../../logger/instances"
-import { createResolveIlpAddress } from "../../routing/functions/resolve-ilp-address"
+import { ResolveIlpAddress } from "../../routing/functions/resolve-ilp-address"
 import { MAX_PACKET_AMOUNT } from "../constants/max-packet-amount"
-import { createPacketSender } from "../functions/send-packet"
+import { SendPacket } from "../functions/send-packet"
 import { ProcessIncomingPacketParameters } from "../process-packet"
 import { IlpErrorCode } from "../schemas/ilp-errors"
 import { IlpPreparePacket } from "../schemas/ilp-packet-codec"
@@ -14,32 +15,22 @@ import {
   PreparedIlpPacketEvent,
   PreparedIlpPacketTopic,
 } from "../topics/prepared-ilp-packet"
-import { createScheduleTimeout } from "./schedule-timeout"
-import { createTriggerRejection } from "./trigger-rejection"
-
-export interface ProcessPreparePacketEnvironment {
-  ledger: ReturnType<typeof LedgerStore>
-  preparedIlpPacketTopicValue: ReturnType<typeof PreparedIlpPacketTopic>
-  requestIdMap: ReturnType<typeof RequestIdMapSignal>
-  resolveIlpAddress: ReturnType<typeof createResolveIlpAddress>
-  sendPacket: ReturnType<typeof createPacketSender>
-  triggerRejection: ReturnType<typeof createTriggerRejection>
-  scheduleTimeout: ReturnType<typeof createScheduleTimeout>
-}
+import { ScheduleTimeout } from "./schedule-timeout"
+import { TriggerRejection } from "./trigger-rejection"
 
 export type ProcessPreparePacketParameters = ProcessIncomingPacketParameters & {
   parsedPacket: IlpPreparePacket
 }
 
-export const createProcessPreparePacket = ({
-  ledger,
-  preparedIlpPacketTopicValue,
-  requestIdMap,
-  resolveIlpAddress,
-  sendPacket,
-  triggerRejection,
-  scheduleTimeout,
-}: ProcessPreparePacketEnvironment) => {
+export const ProcessPreparePacket = (reactor: Reactor) => {
+  const ledgerStore = reactor.use(LedgerStore)
+  const preparedIlpPacketTopic = reactor.use(PreparedIlpPacketTopic)
+  const requestIdMapSignal = reactor.use(RequestIdMapSignal)
+  const resolveIlpAddress = reactor.use(ResolveIlpAddress)
+  const sendPacket = reactor.use(SendPacket)
+  const triggerRejection = reactor.use(TriggerRejection)
+  const scheduleTimeout = reactor.use(ScheduleTimeout)
+
   return ({
     sourceEndpointInfo,
     parsedPacket,
@@ -74,7 +65,7 @@ export const createProcessPreparePacket = ({
       requestId: outgoingRequestId,
     })
 
-    requestIdMap.read().set(outgoingRequestId, preparedIlpPacketEvent)
+    requestIdMapSignal.read().set(outgoingRequestId, preparedIlpPacketEvent)
 
     scheduleTimeout({ requestId: outgoingRequestId, timeoutAbort })
 
@@ -101,7 +92,7 @@ export const createProcessPreparePacket = ({
 
       {
         const result = applyPacketPrepareToLedger(
-          ledger,
+          ledgerStore,
           sourceEndpointInfo.accountPath,
           parsedPacket,
           "incoming",
@@ -144,7 +135,7 @@ export const createProcessPreparePacket = ({
 
       {
         const result = applyPacketPrepareToLedger(
-          ledger,
+          ledgerStore,
           destinationEndpointInfo.accountPath,
           parsedPacket,
           "outgoing",
@@ -188,6 +179,6 @@ export const createProcessPreparePacket = ({
     }
 
     sendPacket(destinationEndpointInfo, preparedIlpPacketEvent)
-    preparedIlpPacketTopicValue.emit(preparedIlpPacketEvent)
+    preparedIlpPacketTopic.emit(preparedIlpPacketEvent)
   }
 }

@@ -1,4 +1,4 @@
-import { createActor } from "@dassie/lib-reactive"
+import { Reactor } from "@dassie/lib-reactive"
 
 import { ManagePluginsActor } from "../../spsp-server/manage-plugins"
 import { CommonEndpointInfo, PacketSender } from "../functions/send-packet"
@@ -9,32 +9,31 @@ export interface PluginEndpointInfo extends CommonEndpointInfo {
   readonly localIlpAddressPart: string
 }
 
-export const SendPluginPacketsActor = () =>
-  createActor((sig) => {
-    const pluginManager = sig.use(ManagePluginsActor)
+export const SendPluginPackets = (reactor: Reactor): PacketSender<"plugin"> => {
+  const pluginManager = reactor.use(ManagePluginsActor)
 
-    return {
-      sendPrepare: ({
+  return {
+    sendPrepare: ({
+      pluginId,
+      localIlpAddressPart,
+      serializedPacket,
+      outgoingRequestId,
+    }) => {
+      pluginManager.api.submitPrepare.tell({
         pluginId,
         localIlpAddressPart,
         serializedPacket,
         outgoingRequestId,
-      }) => {
-        pluginManager.api.submitPrepare.tell({
-          pluginId,
-          localIlpAddressPart,
-          serializedPacket,
-          outgoingRequestId,
-        })
-      },
-      sendResult: ({
-        prepare: { incomingRequestId: requestId },
+      })
+    },
+    sendResult: ({
+      prepare: { incomingRequestId: requestId },
+      serializedPacket,
+    }) => {
+      pluginManager.api.submitResult.tell({
+        requestId,
         serializedPacket,
-      }) => {
-        pluginManager.api.submitResult.tell({
-          requestId,
-          serializedPacket,
-        })
-      },
-    }
-  }) satisfies PacketSender<"plugin">
+      })
+    },
+  }
+}

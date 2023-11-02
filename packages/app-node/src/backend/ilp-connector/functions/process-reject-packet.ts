@@ -1,3 +1,5 @@
+import { Reactor } from "@dassie/lib-reactive"
+
 import { LedgerStore } from "../../accounting/stores/ledger"
 import { connector as logger } from "../../logger/instances"
 import { IlpRejectPacket, IlpType } from "../schemas/ilp-packet-codec"
@@ -6,14 +8,7 @@ import {
   ResolvedIlpPacketEvent,
   ResolvedIlpPacketTopic,
 } from "../topics/resolved-ilp-packet"
-import { createPacketSender } from "./send-packet"
-
-export interface ProcessRejectPacketEnvironment {
-  ledger: ReturnType<typeof LedgerStore>
-  resolvedIlpPacketTopic: ReturnType<typeof ResolvedIlpPacketTopic>
-  requestIdMap: ReturnType<typeof RequestIdMapSignal>
-  sendPacket: ReturnType<typeof createPacketSender>
-}
+import { SendPacket } from "./send-packet"
 
 export interface ProcessRejectPacketParameters {
   serializedPacket: Uint8Array
@@ -21,12 +16,12 @@ export interface ProcessRejectPacketParameters {
   requestId: number
 }
 
-export const createProcessRejectPacket = ({
-  ledger,
-  resolvedIlpPacketTopic,
-  requestIdMap,
-  sendPacket,
-}: ProcessRejectPacketEnvironment) => {
+export const ProcessRejectPacket = (reactor: Reactor) => {
+  const ledgerStore = reactor.use(LedgerStore)
+  const resolvedIlpPacketTopic = reactor.use(ResolvedIlpPacketTopic)
+  const requestIdMapSignal = reactor.use(RequestIdMapSignal)
+  const sendPacket = reactor.use(SendPacket)
+
   return ({
     parsedPacket,
     serializedPacket,
@@ -36,7 +31,7 @@ export const createProcessRejectPacket = ({
       requestId,
     })
 
-    const prepare = requestIdMap.read().get(requestId)
+    const prepare = requestIdMapSignal.read().get(requestId)
 
     if (!prepare) {
       logger.warn(
@@ -46,12 +41,12 @@ export const createProcessRejectPacket = ({
       return
     }
 
-    requestIdMap.read().delete(requestId)
+    requestIdMapSignal.read().delete(requestId)
 
     prepare.timeoutAbort.abort()
 
     for (const transfer of prepare.pendingTransfers) {
-      ledger.voidPendingTransfer(transfer)
+      ledgerStore.voidPendingTransfer(transfer)
     }
 
     const resolvedIlpPacketEvent: ResolvedIlpPacketEvent = {

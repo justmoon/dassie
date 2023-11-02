@@ -1,23 +1,20 @@
 import { setTimeout } from "node:timers/promises"
 
 import { isError } from "@dassie/lib-logger"
+import { Reactor } from "@dassie/lib-reactive"
 
 import { connector as logger } from "../../logger/instances"
 import { IlpErrorCode } from "../schemas/ilp-errors"
-import { createTriggerRejection } from "./trigger-rejection"
-
-export interface ScheduleTimeoutEnvironment {
-  triggerRejection: ReturnType<typeof createTriggerRejection>
-}
+import { TriggerRejection } from "./trigger-rejection"
 
 export interface ScheduleTimeoutParameters {
   requestId: number
   timeoutAbort: AbortController
 }
 
-export const createScheduleTimeout = ({
-  triggerRejection,
-}: ScheduleTimeoutEnvironment) => {
+export const ScheduleTimeout = (reactor: Reactor) => {
+  const triggerRejection = reactor.use(TriggerRejection)
+
   return ({ requestId, timeoutAbort }: ScheduleTimeoutParameters) => {
     setTimeout(5000, undefined, { signal: timeoutAbort.signal })
       .then(() => {

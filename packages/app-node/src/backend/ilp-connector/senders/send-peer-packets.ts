@@ -1,4 +1,4 @@
-import { createActor } from "@dassie/lib-reactive"
+import { Reactor } from "@dassie/lib-reactive"
 
 import { connector as logger } from "../../logger/instances"
 import { SendPeerMessageActor } from "../../peer-protocol/actors/send-peer-message"
@@ -10,48 +10,48 @@ export interface PeerEndpointInfo extends CommonEndpointInfo {
   readonly nodeId: NodeId
 }
 
-export const SendPeerPacketsActor = () =>
-  createActor((sig) => {
-    return {
-      sendPrepare: ({
-        nodeId,
-        serializedPacket,
-        outgoingRequestId: requestId,
-      }) => {
-        logger.debug("sending ilp packet", { nextHop: nodeId })
+export const SendPeerPackets = (reactor: Reactor): PacketSender<"peer"> => {
+  const sendPeerMessageActor = reactor.use(SendPeerMessageActor)
 
-        sig.use(SendPeerMessageActor).api.send.tell({
-          destination: nodeId,
-          message: {
-            type: "interledgerPacket",
-            value: {
-              signed: {
-                requestId,
-                packet: serializedPacket,
-              },
+  return {
+    sendPrepare: ({
+      nodeId,
+      serializedPacket,
+      outgoingRequestId: requestId,
+    }) => {
+      logger.debug("sending ilp packet", { nextHop: nodeId })
+      sendPeerMessageActor.api.send.tell({
+        destination: nodeId,
+        message: {
+          type: "interledgerPacket",
+          value: {
+            signed: {
+              requestId,
+              packet: serializedPacket,
             },
           },
-        })
-      },
-      sendResult: ({
-        nodeId,
-        serializedPacket,
-        prepare: { incomingRequestId: requestId },
-      }) => {
-        logger.debug("sending ilp packet", { nextHop: nodeId })
+        },
+      })
+    },
+    sendResult: ({
+      nodeId,
+      serializedPacket,
+      prepare: { incomingRequestId: requestId },
+    }) => {
+      logger.debug("sending ilp packet", { nextHop: nodeId })
 
-        sig.use(SendPeerMessageActor).api.send.tell({
-          destination: nodeId,
-          message: {
-            type: "interledgerPacket",
-            value: {
-              signed: {
-                requestId,
-                packet: serializedPacket,
-              },
+      sendPeerMessageActor.api.send.tell({
+        destination: nodeId,
+        message: {
+          type: "interledgerPacket",
+          value: {
+            signed: {
+              requestId,
+              packet: serializedPacket,
             },
           },
-        })
-      },
-    }
-  }) satisfies PacketSender<"peer">
+        },
+      })
+    },
+  }
+}

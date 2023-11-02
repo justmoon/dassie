@@ -1,3 +1,5 @@
+import { Reactor } from "@dassie/lib-reactive"
+
 import { connector as logger } from "../../logger/instances"
 import { NodeIlpAddressSignal } from "../computed/node-ilp-address"
 import { IlpErrorCode } from "../schemas/ilp-errors"
@@ -6,12 +8,7 @@ import {
   IlpType,
   serializeIlpPacket,
 } from "../schemas/ilp-packet-codec"
-import { createProcessRejectPacket } from "./process-reject-packet"
-
-export interface RejectPacketEnvironment {
-  ownIlpAddress: ReturnType<typeof NodeIlpAddressSignal>
-  processRejectPacket: ReturnType<typeof createProcessRejectPacket>
-}
+import { ProcessRejectPacket } from "./process-reject-packet"
 
 export interface RejectPacketParameters {
   requestId: number
@@ -19,17 +16,17 @@ export interface RejectPacketParameters {
   message: string
 }
 
-export const createTriggerRejection = ({
-  ownIlpAddress,
-  processRejectPacket,
-}: RejectPacketEnvironment) => {
+export const TriggerRejection = (reactor: Reactor) => {
+  const nodeIlpAddressSignal = reactor.use(NodeIlpAddressSignal)
+  const processRejectPacket = reactor.use(ProcessRejectPacket)
+
   return ({ requestId, errorCode, message }: RejectPacketParameters) => {
     logger.info("triggering ILP rejection", { requestId, errorCode, message })
 
     const rejectPacket: IlpRejectPacket & { type: typeof IlpType.Reject } = {
       type: IlpType.Reject,
       code: errorCode,
-      triggeredBy: ownIlpAddress.read(),
+      triggeredBy: nodeIlpAddressSignal.read(),
       message,
       data: Buffer.alloc(0),
     }

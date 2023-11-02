@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto"
 
+import { Reactor } from "@dassie/lib-reactive"
+
 import { LedgerStore } from "../../accounting/stores/ledger"
 import { connector as logger } from "../../logger/instances"
 import { IlpFulfillPacket, IlpType } from "../schemas/ilp-packet-codec"
@@ -8,14 +10,7 @@ import {
   ResolvedIlpPacketEvent,
   ResolvedIlpPacketTopic,
 } from "../topics/resolved-ilp-packet"
-import { createPacketSender } from "./send-packet"
-
-export interface ProcessFulfillPacketEnvironment {
-  ledger: ReturnType<typeof LedgerStore>
-  resolvedIlpPacketTopic: ReturnType<typeof ResolvedIlpPacketTopic>
-  requestIdMap: ReturnType<typeof RequestIdMapSignal>
-  sendPacket: ReturnType<typeof createPacketSender>
-}
+import { SendPacket } from "./send-packet"
 
 export interface ProcessFulfillPacketParameters {
   serializedPacket: Uint8Array
@@ -23,12 +18,12 @@ export interface ProcessFulfillPacketParameters {
   requestId: number
 }
 
-export const createProcessFulfillPacket = ({
-  ledger,
-  resolvedIlpPacketTopic,
-  requestIdMap,
-  sendPacket,
-}: ProcessFulfillPacketEnvironment) => {
+export const ProcessFulfillPacket = (reactor: Reactor) => {
+  const ledgerStore = reactor.use(LedgerStore)
+  const resolvedIlpPacketTopic = reactor.use(ResolvedIlpPacketTopic)
+  const requestIdMapSignal = reactor.use(RequestIdMapSignal)
+  const sendPacket = reactor.use(SendPacket)
+
   return ({
     parsedPacket,
     serializedPacket,
@@ -38,7 +33,7 @@ export const createProcessFulfillPacket = ({
       requestId,
     })
 
-    const prepare = requestIdMap.read().get(requestId)
+    const prepare = requestIdMapSignal.read().get(requestId)
 
     if (!prepare) {
       logger.warn(
@@ -64,12 +59,12 @@ export const createProcessFulfillPacket = ({
       return
     }
 
-    requestIdMap.read().delete(requestId)
+    requestIdMapSignal.read().delete(requestId)
 
     prepare.timeoutAbort.abort()
 
     for (const transfer of prepare.pendingTransfers) {
-      ledger.postPendingTransfer(transfer)
+      ledgerStore.postPendingTransfer(transfer)
     }
 
     const resolvedIlpPacketEvent: ResolvedIlpPacketEvent = {

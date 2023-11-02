@@ -1,3 +1,4 @@
+import { Reactor } from "@dassie/lib-reactive"
 import { Failure, UnreachableCaseError } from "@dassie/lib-type-utils"
 
 import { IlpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-scheme"
@@ -6,23 +7,17 @@ import { PeerEndpointInfo } from "../../ilp-connector/senders/send-peer-packets"
 import { NodeTableStore } from "../../peer-protocol/stores/node-table"
 import { RoutingTableSignal } from "../signals/routing-table"
 
-export interface ResolveIlpAddressEnvironment {
-  routingTable: ReturnType<typeof RoutingTableSignal>
-  nodeTable: ReturnType<typeof NodeTableStore>
-  ilpAllocationScheme: ReturnType<typeof IlpAllocationSchemeSignal>
-}
-
 export default class NoRouteFoundFailure extends Failure {
   readonly name = "NoRouteFoundFailure"
 }
 
 export const NO_ROUTE_FOUND_FAILURE = new NoRouteFoundFailure()
 
-export const createResolveIlpAddress = ({
-  routingTable,
-  nodeTable,
-  ilpAllocationScheme,
-}: ResolveIlpAddressEnvironment) => {
+export const ResolveIlpAddress = (reactor: Reactor) => {
+  const routingTable = reactor.use(RoutingTableSignal)
+  const nodeTable = reactor.use(NodeTableStore)
+  const ilpAllocationScheme = reactor.use(IlpAllocationSchemeSignal)
+
   return (ilpAddress: string): EndpointInfo | NoRouteFoundFailure => {
     const routingInfo = routingTable.read().lookup(ilpAddress)
 
