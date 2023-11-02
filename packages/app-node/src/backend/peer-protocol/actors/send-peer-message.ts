@@ -10,6 +10,7 @@ import { peerProtocol as logger } from "../../logger/instances"
 import { bufferToUint8Array } from "../../utils/buffer-to-typedarray"
 import { DASSIE_MESSAGE_CONTENT_TYPE } from "../constants/content-type"
 import { DEFAULT_NODE_COMMUNICATION_TIMEOUT } from "../constants/timings"
+import { GenerateMessageAuthentication } from "../functions/generate-message-authentication"
 import {
   peerMessage,
   peerMessageContent,
@@ -60,6 +61,7 @@ export const SendPeerMessageActor = () =>
     const { bootstrapNodes } = sig.getKeys(EnvironmentConfigSignal, [
       "bootstrapNodes",
     ])
+    const generateMessageAuthentication = sig.use(GenerateMessageAuthentication)
 
     const getNodeContactInfo = (
       nodeId: NodeId,
@@ -117,15 +119,17 @@ export const SendPeerMessageActor = () =>
           return
         }
 
+        const authentication = generateMessageAuthentication(
+          serializedMessage,
+          message.type,
+          destination,
+          contactInfo.publicKey,
+        )
+
         const envelopeSerializationResult = peerMessage.serialize({
           version: 0,
           sender: nodeId,
-          authentication: {
-            type: "ED25519_X25519_HMAC-SHA256",
-            value: {
-              sessionPublicKey: Uint8Array.from(Buffer.alloc(32)),
-            },
-          },
+          authentication,
           content: { bytes: serializedMessage },
         })
 

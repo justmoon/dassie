@@ -117,9 +117,10 @@ export const peerMessage = sequence({
   version: uint8Number(),
   sender: nodeIdSchema,
   authentication: choice({
-    ["NONE"]: sequence({}).tag(0),
+    ["NONE"]: empty().tag(0),
     ["ED25519_X25519_HMAC-SHA256"]: sequence({
       sessionPublicKey: octetString(32),
+      messageAuthenticationCode: octetString(32),
     }).tag(1),
   }),
   content: captured(peerMessageContent),
