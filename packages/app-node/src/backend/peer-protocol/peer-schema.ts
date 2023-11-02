@@ -77,7 +77,7 @@ export const peerMessageContent = choice({
     signed: octetString().containing(peerInterledgerPacket),
   }).tag(2),
   linkStateRequest: sequence({
-    nodeId: nodeIdSchema,
+    nodeIds: sequenceOf(nodeIdSchema),
   }).tag(3),
   settlement: sequence({
     settlementSchemeId: settlementSchemeIdSchema,
@@ -101,7 +101,12 @@ export const peerMessageResponse = {
   }),
   linkStateUpdate: empty(),
   interledgerPacket: empty(),
-  linkStateRequest: captured(signedPeerNodeInfo),
+  linkStateRequest: sequenceOf(
+    choice({
+      notFound: empty().tag(0),
+      found: captured(signedPeerNodeInfo).tag(1),
+    }),
+  ),
   settlement: empty(),
   settlementMessage: empty(),
   nodeListHashRequest: sequence({

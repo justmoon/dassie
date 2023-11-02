@@ -30,12 +30,12 @@ export const RefreshNodeStateActor = (reactor: Reactor) => {
       message: {
         type: "linkStateRequest",
         value: {
-          nodeId: subjectNodeId,
+          nodeIds: [subjectNodeId],
         },
       },
     })
 
-    return response
+    return response?.[0]?.type === "found" ? response[0].value : undefined
   }
 
   return createActor((sig) => {

@@ -10,17 +10,21 @@ export const HandleLinkStateRequest = ((reactor: Reactor) => {
     message: {
       content: {
         value: {
-          value: { nodeId },
+          value: { nodeIds },
         },
       },
     },
   }) => {
-    const ownNodeTableEntry = nodeTableStore.read().get(nodeId)
+    const nodeTable = nodeTableStore.read()
 
-    if (!ownNodeTableEntry?.linkState) {
-      throw new Error("No own link state available")
-    }
-
-    return { bytes: ownNodeTableEntry.linkState.lastUpdate }
+    return nodeIds.map((nodeId) => {
+      const entry = nodeTable.get(nodeId)
+      return entry?.linkState
+        ? {
+            type: "found" as const,
+            value: { bytes: entry.linkState.lastUpdate },
+          }
+        : { type: "notFound" as const, value: undefined }
+    })
   }
 }) satisfies PeerMessageHandler<"linkStateRequest">
