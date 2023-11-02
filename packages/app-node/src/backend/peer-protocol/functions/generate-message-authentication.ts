@@ -1,10 +1,7 @@
 import { edwardsToMontgomeryPub, x25519 } from "@noble/curves/ed25519"
 
-import { createHmac } from "node:crypto"
-
 import { Reactor } from "@dassie/lib-reactive"
 
-import { bufferToUint8Array } from "../../utils/buffer-to-typedarray"
 import { PeerMessageType } from "../actors/handle-peer-message"
 import { ALLOW_ANONYMOUS_USAGE } from "../constants/anonymous-messages"
 import { PeerMessage } from "../peer-schema"
@@ -13,6 +10,7 @@ import {
   SESSION_KEY_EXPIRY,
 } from "../stores/outgoing-session-keys"
 import { NodeId } from "../types/node-id"
+import { calculateMessageHmac } from "../utils/calculate-message-hmac"
 
 const NO_AUTHENTICATION = {
   type: "NONE",
@@ -48,11 +46,10 @@ export const GenerateMessageAuthentication = (reactor: Reactor) => {
       outgoingSessionKeysSignal.addKeyEntry(destination, sessionKeysEntry)
     }
 
-    const hmac = createHmac("sha256", sessionKeysEntry.sharedSecret)
-
-    hmac.update(serializedMessage)
-
-    const messageAuthenticationCode = bufferToUint8Array(hmac.digest())
+    const messageAuthenticationCode = calculateMessageHmac(
+      serializedMessage,
+      sessionKeysEntry.sharedSecret,
+    )
 
     return {
       type: "ED25519_X25519_HMAC-SHA256" as const,

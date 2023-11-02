@@ -16,13 +16,15 @@ import {
 } from "./actors/handle-peer-message"
 import { ALLOW_ANONYMOUS_USAGE } from "./constants/anonymous-messages"
 import { DASSIE_MESSAGE_CONTENT_TYPE } from "./constants/content-type"
+import { AuthenticatePeerMessage } from "./functions/authenticate-peer-message"
 import { peerMessage as peerMessageSchema } from "./peer-schema"
 import { NodeTableStore } from "./stores/node-table"
-import { authenticatePeerMessage } from "./utils/authenticate-peer-message"
 
 export const RegisterPeerHttpHandlerActor = () =>
   createActor((sig) => {
     const router = sig.get(HttpsRouterServiceActor)
+    const authenticatePeerMessage = sig.use(AuthenticatePeerMessage)
+    const nodeTableStore = sig.use(NodeTableStore)
 
     if (!router) return
 
@@ -52,17 +54,12 @@ export const RegisterPeerHttpHandlerActor = () =>
           throw new BadRequestError(`Bad Request, unsupported version`)
         }
 
-        const senderId = parseResult.value.sender
-        const senderNode = sig.use(NodeTableStore).read().get(senderId)
+        const senderNode = nodeTableStore.read().get(parseResult.value.sender)
 
-        const isAuthenticated =
-          !!senderNode?.linkState &&
-          (senderNode.peerState.id === "peered" ||
-            senderNode.peerState.id === "request-peering") &&
-          authenticatePeerMessage(
-            senderNode.linkState.publicKey,
-            parseResult.value,
-          )
+        const isAuthenticated = authenticatePeerMessage(
+          parseResult.value,
+          senderNode,
+        )
 
         // Only certain messages are allowed to be sent anonymously
         if (
