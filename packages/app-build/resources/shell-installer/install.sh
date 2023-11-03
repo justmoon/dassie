@@ -206,7 +206,7 @@ install() {
     || error "E_SYSTEMD_DAEMON_RELOAD_FAILED" "Failed to reload systemd configuration."
 
   step "Starting systemd service..."
-  run_root systemctl restart dassie.service \
+  run_root systemctl restart dassie.service dassie-update.timer \
     || error "E_SYSTEMD_SERVICE_START_FAILED" "Failed to start systemd service."
 
   step "Cleaning up..."
