@@ -4,19 +4,19 @@ import process from "node:process"
 
 import { Reactor } from "@dassie/lib-reactive"
 
-import { daemonCommand } from "./commands/daemon"
-import { initCommand } from "./commands/init"
-import { updateCommand } from "./commands/update"
-import { verifyInstallCommand } from "./commands/verify-install"
+import { DaemonCommand } from "./commands/daemon"
+import { InitCommand } from "./commands/init"
+import { UpdateCommand } from "./commands/update"
+import { VerifyInstallCommand } from "./commands/verify-install"
 
 export const main = async (reactor: Reactor) => {
   const rootCommand = subcommands({
     name: "dassie",
     cmds: {
-      init: initCommand(reactor),
-      "verify-install": verifyInstallCommand,
-      daemon: daemonCommand,
-      update: updateCommand(reactor),
+      init: reactor.use(InitCommand),
+      "verify-install": reactor.use(VerifyInstallCommand),
+      daemon: reactor.use(DaemonCommand),
+      update: reactor.use(UpdateCommand),
     },
   })
 

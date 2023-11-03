@@ -18,7 +18,7 @@ import { isErrorWithCode } from "@dassie/lib-type-utils"
 import { EnvironmentConfigSignal } from "../../../config/environment-config"
 import { downloadFile } from "./download-file"
 
-export const updateCommand = (reactor: Reactor) =>
+export const UpdateCommand = (reactor: Reactor) =>
   command({
     name: "update",
     description:

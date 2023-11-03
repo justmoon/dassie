@@ -21,7 +21,7 @@ import { connectIpcClient } from "../../../local-ipc-client"
 const LETSENCRYPT_TOS_URL =
   "https://letsencrypt.org/documents/LE-SA-v1.3-September-21-2022.pdf"
 
-export const initCommand = (reactor: Reactor) =>
+export const InitCommand = (reactor: Reactor) =>
   command({
     name: "init",
     description:
