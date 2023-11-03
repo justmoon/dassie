@@ -10,6 +10,7 @@ import { SEED_PATH_NODE_LOGIN } from "../../../common/constants/seed-paths"
 import { NodePrivateKeySignal } from "../../crypto/computed/node-private-key"
 import { getPrivateSeedAtPath } from "../../crypto/utils/seed-paths"
 import { RestApiServiceActor } from "../../http-server/serve-rest-api"
+import { COOKIE_MAX_AGE } from "../constants/cookie-lifetime"
 import { SessionsStore } from "../database-stores/sessions"
 import { SessionToken } from "../types/session-token"
 
@@ -52,6 +53,7 @@ export const RegisterLoginRouteActor = () =>
           httpOnly: true,
           secure: true,
           sameSite: "strict",
+          expires: new Date(Date.now() + COOKIE_MAX_AGE),
         })
 
         respondJson(response, 200, {})

@@ -5,6 +5,7 @@ import { createActor } from "@dassie/lib-reactive"
 
 import { SESSION_COOKIE_NAME } from "../../../common/constants/cookie-name"
 import { RestApiServiceActor } from "../../http-server/serve-rest-api"
+import { COOKIE_MAX_AGE } from "../constants/cookie-lifetime"
 import { SessionToken } from "../types/session-token"
 
 export const RegisterDevelopmentSetSessionRouteActor = () =>
@@ -31,6 +32,7 @@ export const RegisterDevelopmentSetSessionRouteActor = () =>
           httpOnly: true,
           secure: true,
           sameSite: "strict",
+          expires: new Date(Date.now() + COOKIE_MAX_AGE),
         })
 
         respondJson(response, 200, {})

@@ -14,6 +14,7 @@ import {
 import { getPrivateSeedAtPath } from "../../crypto/utils/seed-paths"
 import { RestApiServiceActor } from "../../http-server/serve-rest-api"
 import { serializeEd25519PrivateKey } from "../../utils/pem"
+import { COOKIE_MAX_AGE } from "../constants/cookie-lifetime"
 import { SessionsStore } from "../database-stores/sessions"
 import { SetupAuthorizationTokenSignal } from "../signals/setup-authorization-token"
 import { SessionToken } from "../types/session-token"
@@ -87,6 +88,7 @@ export const RegisterSetupRouteActor = () =>
           httpOnly: true,
           secure: true,
           sameSite: "strict",
+          expires: new Date(Date.now() + COOKIE_MAX_AGE),
         })
 
         respondJson(response, 200, {})
