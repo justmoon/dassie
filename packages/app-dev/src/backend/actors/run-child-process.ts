@@ -44,6 +44,7 @@ export const RunChildProcessActor = () =>
     ) => {
       let child: ChildProcess | undefined
       const ready = pDefer<void>()
+      const timeoutAbort = new AbortController()
 
       const handleChildExit = (
         code: number | null,
@@ -55,6 +56,7 @@ export const RunChildProcessActor = () =>
           logger.error("child exited", { code, signal })
         }
         child = undefined
+        ready.reject(new Error("child exited"))
       }
 
       const handleChildMessage = (message: unknown) => {
@@ -180,12 +182,14 @@ export const RunChildProcessActor = () =>
             }, CHILD_SHUTDOWN_GRACE_PERIOD)
           })
         }
+        timeoutAbort.abort()
       })
 
       // Wait for ready message from child to indicate it is ready
       await pTimeout(ready.promise, {
         milliseconds: CHILD_READY_TIMEOUT,
         message: `Child process did not become ready within ${CHILD_READY_TIMEOUT}ms`,
+        signal: timeoutAbort.signal,
       })
     },
   )

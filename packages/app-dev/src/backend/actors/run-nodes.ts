@@ -108,6 +108,10 @@ export const RunNodesActor = () =>
             }),
         )
 
-      await sig.runMapSequential(NodeActors)
+      try {
+        await sig.runMapSequential(NodeActors)
+      } catch (error) {
+        logger.error("error starting nodes", { error })
+      }
     },
   )
