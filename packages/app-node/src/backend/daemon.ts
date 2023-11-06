@@ -42,8 +42,11 @@ export const StartNodeIdentityDependentServicesActor = () =>
     const hasNodeIdentity = sig.get(HasNodeIdentitySignal)
 
     if (!hasNodeIdentity) {
-      const setupUrl = sig.get(SetupUrlSignal)
-      logger.warn(`Node identity is not configured, visit ${setupUrl}`)
+      const hasTls = sig.use(HasTlsSignal).read()
+      if (hasTls) {
+        const setupUrl = sig.get(SetupUrlSignal)
+        logger.warn(`Node identity is not configured, visit ${setupUrl}`)
+      }
       return
     }
 
