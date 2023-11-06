@@ -1,8 +1,12 @@
+import { enableMapSet, produce } from "immer"
+
 import { Reactor, createComputed } from "@dassie/lib-reactive"
 import { UnreachableCaseError } from "@dassie/lib-type-utils"
 
 import { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
 import { SettlementSchemesStore } from "../database-stores/settlement-schemes"
+
+enableMapSet()
 
 export const ActiveSettlementSchemesSignal = (reactor: Reactor) =>
   createComputed(reactor.lifecycle, () => {
@@ -19,7 +23,10 @@ export const ActiveSettlementSchemesSignal = (reactor: Reactor) =>
         case "addSettlementScheme": {
           const [settlementSchemeId] = change[1]
 
-          activeSettlementSchemes.add(settlementSchemeId)
+          const newSet = produce(activeSettlementSchemes, (draft) => {
+            draft.add(settlementSchemeId)
+          })
+          reactor.use(ActiveSettlementSchemesSignal).write(newSet)
           break
         }
         default: {

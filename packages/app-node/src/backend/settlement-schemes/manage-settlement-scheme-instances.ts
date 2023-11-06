@@ -15,8 +15,10 @@ export interface SettlementSchemeInstance {
   actor: SettlementSchemeActor
 }
 
-export const ManageSettlementSchemeInstancesActor = (reactor: Reactor) =>
-  createMapped(
+export const ManageSettlementSchemeInstancesActor = (reactor: Reactor) => {
+  const ledgerStore = reactor.use(LedgerStore)
+
+  return createMapped(
     reactor.lifecycle,
     reactor.use(ActiveSettlementSchemesSignal),
     (settlementSchemeId) =>
@@ -32,8 +34,7 @@ export const ManageSettlementSchemeInstancesActor = (reactor: Reactor) =>
           throw new Error("Subnet module is not compatible with realm")
         }
 
-        const ledger = sig.use(LedgerStore)
-        initializeCommonAccounts(ledger, settlementSchemeId)
+        initializeCommonAccounts(ledgerStore, settlementSchemeId)
 
         // Create a unique factory for the settlement scheme actor.
         //
@@ -79,3 +80,4 @@ export const ManageSettlementSchemeInstancesActor = (reactor: Reactor) =>
         return settlementSchemeActorMethods
       }),
   )
+}
