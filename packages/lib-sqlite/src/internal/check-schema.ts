@@ -1,4 +1,4 @@
-import type Database from "better-sqlite3"
+import type SQLite from "better-sqlite3"
 
 import { TableDescription } from "../types/table"
 
@@ -21,7 +21,7 @@ interface SqliteColumnSchema {
 }
 
 export const checkSchema = (
-  database: Database.Database,
+  database: SQLite.Database,
   tables: Record<string, TableDescription>,
 ) => {
   const actualTables = Object.fromEntries(

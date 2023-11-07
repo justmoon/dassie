@@ -3,7 +3,7 @@ import { createTRPCProxyClient } from "@trpc/client"
 import { createWSClient, wsLink } from "@trpc/client/links/wsLink"
 import { AxiosError } from "axios"
 import superjson, { allowErrorProps, registerClass } from "superjson"
-import WebSocket from "ws"
+import { WebSocket } from "ws"
 
 import { createActor } from "@dassie/lib-reactive"
 
