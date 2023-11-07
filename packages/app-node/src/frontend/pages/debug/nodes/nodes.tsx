@@ -70,7 +70,7 @@ export function Nodes() {
                 <TableCell>
                   <NodeName
                     nodeId={nodeId}
-                    alias={linkState?.alias ?? "no link state"}
+                    url={linkState?.url ?? "no link state"}
                   />
                 </TableCell>
                 <TableCell>{distance}</TableCell>
@@ -96,14 +96,14 @@ export function Nodes() {
 
 interface NodeNameProperties {
   nodeId: string
-  alias?: string
+  url?: string
 }
 
-const NodeName = ({ nodeId, alias }: NodeNameProperties) => {
+const NodeName = ({ nodeId, url }: NodeNameProperties) => {
   return (
     <div>
       <p className="font-bold w-32 truncate">{nodeId}</p>
-      <p className="text-sm text-muted-foreground">{alias}</p>
+      <p className="text-sm text-muted-foreground">{url}</p>
     </div>
   )
 }
