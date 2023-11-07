@@ -26,7 +26,6 @@ export const HandleRegistration = ((reactor: Reactor) => {
       linkState: linkState.signed,
       linkStateBytes,
       retransmit: "never",
-      from: nodeId,
     })
   }
 }) satisfies PeerMessageHandler<"registration">

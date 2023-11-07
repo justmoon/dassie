@@ -3,6 +3,7 @@ import { createActor } from "@dassie/lib-reactive"
 import { HandlePeerMessageActor } from "./actors/handle-peer-message"
 import { SendPeerMessageActor } from "./actors/send-peer-message"
 import { AddMajorityNodesActor } from "./add-majority-nodes"
+import { BroadcastStateUpdatesActor } from "./broadcast-state-updates"
 import { DownloadNodeListsActor } from "./download-node-lists"
 import { ForwardLinkStateUpdateActor } from "./forward-link-state-update"
 import { MaintainOwnNodeTableEntryActor } from "./maintain-own-node-table-entry"
@@ -33,6 +34,7 @@ export const PeerProtocolActor = () =>
     await sig.run(DownloadNodeListsActor)
     sig.run(AddMajorityNodesActor)
     await sig.run(RegisterOurselvesActor)
+    sig.run(BroadcastStateUpdatesActor)
     sig.run(RefreshNodeStateActor)
 
     sig.runMap(PerPeerActors)

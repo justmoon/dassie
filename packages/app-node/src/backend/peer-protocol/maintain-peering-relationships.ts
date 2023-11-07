@@ -96,7 +96,7 @@ export const MaintainPeeringRelationshipsActor = (reactor: Reactor) =>
       if (response?.accepted) {
         reactor.use(NodeTableStore).updateNode(randomNode.nodeId, {
           peerState: {
-            id: "request-peering",
+            id: "peered",
             lastSeen: Date.now(),
             settlementSchemeId: randomNode.commonSettlementScheme,
           },

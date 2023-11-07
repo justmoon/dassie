@@ -25,10 +25,7 @@ export const AuthenticatePeerMessage = (reactor: Reactor) => {
       return false
     }
 
-    if (
-      senderNode.peerState.id !== "peered" &&
-      senderNode.peerState.id !== "request-peering"
-    ) {
+    if (senderNode.peerState.id !== "peered") {
       return false
     }
 

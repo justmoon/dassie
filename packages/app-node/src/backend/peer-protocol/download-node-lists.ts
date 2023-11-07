@@ -3,6 +3,8 @@ import pMap from "p-map"
 
 import { Reactor, createActor } from "@dassie/lib-reactive"
 
+import { EMPTY_UINT8ARRAY } from "../../common/constants/general"
+import { compareUint8Arrays } from "../utils/compare-typedarray"
 import { SendPeerMessageActor } from "./actors/send-peer-message"
 import { NODE_LIST_HASH_POLLING_INTERVAL } from "./constants/timings"
 import { BootstrapNodeListHashesSignal } from "./signals/bootstrap-node-list-hashes"
@@ -37,7 +39,11 @@ export const DownloadNodeListsActor = (reactor: Reactor) => {
       const changedHashes = [...bootstrapNodeListHashesSignal.read().entries()]
         .map(([nodeId, hash]) => ({ nodeId, hash }))
         .filter(
-          ({ nodeId, hash }) => bootstrapNodeLists.get(nodeId)?.hash !== hash,
+          ({ nodeId, hash }) =>
+            !compareUint8Arrays(
+              bootstrapNodeLists.get(nodeId)?.hash ?? EMPTY_UINT8ARRAY,
+              hash,
+            ),
         )
 
       const nodeLists = await pMap(

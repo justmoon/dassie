@@ -116,7 +116,6 @@ export const MaintainOwnNodeTableEntryActor = () =>
           entries: peerInfoEntries,
         },
         retransmit: "immediately",
-        from: nodeId,
       })
     }
   })

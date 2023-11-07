@@ -8,7 +8,6 @@ export const HandleLinkStateUpdate = ((reactor: Reactor) => {
 
   return ({
     message: {
-      sender,
       content: {
         value: { value: content },
       },
@@ -20,7 +19,6 @@ export const HandleLinkStateUpdate = ((reactor: Reactor) => {
       linkState: linkState.signed,
       linkStateBytes,
       retransmit: "scheduled",
-      from: sender,
     })
 
     return

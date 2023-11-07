@@ -3,10 +3,12 @@ import { ActorContext, createActor } from "@dassie/lib-reactive"
 import { NodeIdSignal } from "../ilp-connector/computed/node-id"
 import { SendPeerMessageActor } from "./actors/send-peer-message"
 import { PeersSignal } from "./computed/peers"
+import {
+  MAX_HEARTBEAT_INTERVAL,
+  MIN_HEARTBEAT_INTERVAL,
+} from "./constants/timings"
 import { NodeTableStore } from "./stores/node-table"
 import { NodeId } from "./types/node-id"
-
-const MAX_HEARTBEAT_INTERVAL = 20_000
 
 export const SendHeartbeatsActor = () =>
   createActor((sig) => {
@@ -31,7 +33,11 @@ export const SendHeartbeatsActor = () =>
       })
     }
 
-    sig.timeout(sig.wake, Math.random() * MAX_HEARTBEAT_INTERVAL)
+    sig.timeout(
+      sig.wake,
+      MIN_HEARTBEAT_INTERVAL +
+        Math.random() * (MAX_HEARTBEAT_INTERVAL - MIN_HEARTBEAT_INTERVAL),
+    )
   })
 
 interface HeartbeatParameters {

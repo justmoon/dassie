@@ -19,7 +19,6 @@ export interface ProcessLinkStateParameters {
     "nodeId" | "sequence" | "publicKey" | "url" | "alias" | "entries"
   >
   retransmit: RetransmitType
-  from: NodeId
 }
 
 const getRetransmitDelay = (retransmit: RetransmitType) => {
@@ -59,22 +58,12 @@ export const ModifyNodeTableActor = (reactor: Reactor) =>
         linkStateBytes,
         linkState,
         retransmit = "scheduled",
-        from,
       }: ProcessLinkStateParameters) => {
         const { nodeId, url, alias, publicKey, sequence, entries } = linkState
 
         const node = nodeTable.read().get(nodeId)
         if (!node) {
           return
-        }
-
-        if (node.peerState.id === "request-peering" && from === nodeId) {
-          nodeTable.updateNode(nodeId, {
-            peerState: {
-              ...node.peerState,
-              id: "peered",
-            },
-          })
         }
 
         if (

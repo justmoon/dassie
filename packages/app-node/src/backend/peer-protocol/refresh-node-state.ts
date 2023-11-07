@@ -101,7 +101,6 @@ export const RefreshNodeStateActor = (reactor: Reactor) => {
         linkStateBytes: linkState.bytes,
         linkState: signed,
         retransmit: "never",
-        from: oracleNodeId,
       })
     }
 

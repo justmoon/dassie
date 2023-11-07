@@ -28,11 +28,6 @@ export interface NodeTableEntry {
 export type PeerState =
   | { readonly id: "none" }
   | {
-      readonly id: "request-peering"
-      readonly lastSeen: number
-      readonly settlementSchemeId: SettlementSchemeId
-    }
-  | {
       readonly id: "peered"
       readonly lastSeen: number
       readonly settlementSchemeId: SettlementSchemeId

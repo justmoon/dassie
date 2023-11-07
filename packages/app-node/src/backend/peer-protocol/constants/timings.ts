@@ -52,3 +52,15 @@ export const DEFAULT_NODE_COMMUNICATION_TIMEOUT = 30_000 // 30 sec
  * give new link states time to propagate.
  */
 export const NODE_STATE_STALE_TIMEOUT = 3 * 3_600_000 // 3 hours
+
+/**
+ * Minimum time (in milliseconds) a node will wait before sending a heartbeat to
+ * each of its peers.
+ */
+export const MIN_HEARTBEAT_INTERVAL = 5000
+
+/**
+ * Maximum time (in milliseconds) a node will wait before sending a heartbeat to
+ * each of its peers.
+ */
+export const MAX_HEARTBEAT_INTERVAL = 20_000
