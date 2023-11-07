@@ -37,12 +37,12 @@
     "@dassie/eslint-config": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
     "react": "^18.2.0",
-    "type-fest": "^4.4.0"
+    "type-fest": "^4.6.0"
   },
   "dependencies": {
     "@dassie/lib-reactive": "workspace:^",
-    "@trpc/client": "10.40.0",
-    "@trpc/server": "10.40.0"
+    "@trpc/client": "10.43.1",
+    "@trpc/server": "10.43.1"
   },
   "peerDependencies": {
     "react": ">=18.0.0"

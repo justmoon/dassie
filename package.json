@@ -35,27 +35,27 @@
   },
   "homepage": "https://github.com/justmoon/dassie#readme",
   "dependencies": {
-    "@microsoft/api-extractor": "^7.38.0",
+    "@microsoft/api-extractor": "^7.38.2",
     "@microsoft/api-extractor-model": "^7.28.2",
-    "@trivago/prettier-plugin-sort-imports": "^4.2.0",
-    "@types/node": "^20.8.4",
-    "esbuild": "^0.19.4",
+    "@trivago/prettier-plugin-sort-imports": "^4.2.1",
+    "@types/node": "^20.8.10",
+    "esbuild": "^0.19.5",
     "prettier": "^3.0.3",
     "rimraf": "^5.0.5",
     "ts-essentials": "^9.4.1",
     "ts-node": "^10.9.1",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.2.2",
-    "vite": "^4.4.11",
+    "vite": "^4.5.0",
     "vite-node": "^0.34.6",
     "vitest": "^0.34.6",
     "zod": "^3.22.4"
   },
   "devDependencies": {
-    "@types/react": "^18.2.28",
-    "@types/react-dom": "^18.2.13",
-    "eslint": "^8.51.0",
-    "turbo": "^1.10.15"
+    "@types/react": "^18.2.36",
+    "@types/react-dom": "^18.2.14",
+    "eslint": "^8.53.0",
+    "turbo": "^1.10.16"
   },
   "pnpm": {
     "peerDependencyRules": {

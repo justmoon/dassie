@@ -26,20 +26,20 @@
     "@dassie/lib-reactive": "workspace:^",
     "@dassie/lib-terminal-graphics": "workspace:^",
     "@dassie/lib-type-utils": "workspace:*",
-    "axios": "^1.5.1",
+    "axios": "^1.6.0",
     "chalk": "^5.3.0",
     "cmd-ts": "^0.13.0",
     "date-fns": "^2.30.0",
-    "esbuild": "^0.19.4",
+    "esbuild": "^0.19.5",
     "execa": "^8.0.1",
     "http-server": "^14.1.1",
-    "vite": "^4.4.11",
+    "vite": "^4.5.0",
     "zod": "^3.22.4"
   },
   "devDependencies": {
     "@dassie/eslint-config": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
-    "type-fest": "^4.4.0",
+    "type-fest": "^4.6.0",
     "vite-node": "^0.34.6"
   }
 }

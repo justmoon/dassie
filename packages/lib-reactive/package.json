@@ -36,6 +36,6 @@
     "@dassie/eslint-config": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
     "immer": "^10.0.3",
-    "type-fest": "^4.4.0"
+    "type-fest": "^4.6.0"
   }
 }

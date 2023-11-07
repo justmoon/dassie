@@ -22,11 +22,11 @@
     "chalk": "^5.3.0",
     "is-generator-function": "^1.0.10",
     "pretty-format": "^29.7.0",
-    "string-width": "^6.1.0"
+    "string-width": "^7.0.0"
   },
   "devDependencies": {
     "@dassie/eslint-config": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
-    "@types/is-generator-function": "^1.0.1"
+    "@types/is-generator-function": "^1.0.3"
   }
 }
