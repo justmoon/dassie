@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "description": "Dassie.land website",
   "scripts": {
-    "dev": "next dev",
-    "start": "next start",
-    "build": "next build",
+    "dev": "NEXT_TELEMETRY_DISABLED=1 next dev",
+    "start": "NEXT_TELEMETRY_DISABLED=1 next start",
+    "build": "NEXT_TELEMETRY_DISABLED=1 next build",
     "lint": "eslint --color .",
     "typecheck": "tsc --pretty"
   },
