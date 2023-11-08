@@ -1,4 +1,4 @@
-import { enableMapSet, produce } from "immer"
+import { castImmutable, enableMapSet, produce } from "immer"
 
 import { Reactor, createStore } from "@dassie/lib-reactive"
 
@@ -14,7 +14,7 @@ export const SessionsStore = (reactor: Reactor) => {
     database.tables.sessions.selectAll().map(({ token }) => token),
   )
 
-  return createStore(sessionSet, {
+  return createStore(castImmutable(sessionSet), {
     addSession: (token: SessionToken) =>
       produce((draft) => {
         draft.add(token)

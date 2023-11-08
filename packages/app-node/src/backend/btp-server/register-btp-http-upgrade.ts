@@ -11,7 +11,8 @@ import {
 } from "@dassie/lib-protocol-utils"
 import { createActor } from "@dassie/lib-reactive"
 
-import { BtpTokensStore } from "../api-keys/stores/btp-tokens"
+import { BtpTokensStore } from "../api-keys/database-stores/btp-tokens"
+import { BtpToken } from "../api-keys/types/btp-token"
 import { WebsocketRoutesSignal } from "../http-server/serve-https"
 import { NodeIlpAddressSignal } from "../ilp-connector/computed/node-ilp-address"
 import { ProcessPacketActor } from "../ilp-connector/process-packet"
@@ -158,7 +159,7 @@ export const RegisterBtpHttpUpgradeActor = () =>
 
             const token = Buffer.from(tokenData.data).toString("utf8")
 
-            if (!btpTokensStore.read().has(token)) {
+            if (!btpTokensStore.read().has(token as BtpToken)) {
               logger.warn(
                 "received BTP auth packet with invalid token, closing connection",
                 { token },

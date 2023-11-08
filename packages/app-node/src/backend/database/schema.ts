@@ -2,6 +2,7 @@ import { type DatabaseSchema } from "@dassie/lib-sqlite"
 
 import { ACME_DATABASE_SCALARS } from "../acme-certificate-manager/schemas/database-scalars"
 import { acmeTokensTable } from "../acme-certificate-manager/tables/acme-tokens"
+import { btpTokensTable } from "../api-keys/database-tables/btp-tokens"
 import { sessionsTable } from "../authentication/database-tables/sessions"
 import { CONFIG_DATABASE_SCALARS } from "../config/schemas/database-scalars"
 import { incomingPaymentTable } from "../open-payments/tables/incoming-payment"
@@ -28,6 +29,7 @@ export const DASSIE_DATABASE_SCHEMA = {
     peers: peersTable,
     acmeTokens: acmeTokensTable,
     sessions: sessionsTable,
+    btpTokens: btpTokensTable,
   },
   scalars: {
     ...CONFIG_DATABASE_SCALARS,

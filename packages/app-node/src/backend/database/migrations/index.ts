@@ -6,5 +6,6 @@ import m5 from "./0005-create-nodes-table"
 import m6 from "./0006-create-peers-table"
 import m7 from "./0007-create-acme-tokens-table"
 import m8 from "./0008-create-sessions-table"
+import m9 from "./0009-create-btp-tokens-table"
 
-export default [m1, m2, m3, m4, m5, m6, m7, m8]
+export default [m1, m2, m3, m4, m5, m6, m7, m8, m9]
