@@ -16,7 +16,7 @@ export const Amount = ({
   const absoluteBalance = negative ? -value : value
 
   const totalPrecisionDividend = 10n ** BigInt(currency.totalPrecision)
-  10n ** BigInt(currency.totalPrecision - currency.precision)
+  10n ** BigInt(currency.totalPrecision - currency.displayPrecision)
 
   const integerPart = (absoluteBalance / totalPrecisionDividend).toLocaleString(
     undefined,
@@ -25,8 +25,8 @@ export const Amount = ({
   const fractionalPart = (absoluteBalance % totalPrecisionDividend)
     .toString()
     .padStart(currency.totalPrecision, "0")
-  const emphasizedPart = fractionalPart.slice(0, currency.precision)
-  const deemphasizedPart = fractionalPart.slice(currency.precision)
+  const emphasizedPart = fractionalPart.slice(0, currency.displayPrecision)
+  const deemphasizedPart = fractionalPart.slice(currency.displayPrecision)
 
   return (
     <div

@@ -20,7 +20,7 @@ export interface CurrencySpecification {
   /**
    * Number of decimal places to display.
    */
-  precision: number
+  displayPrecision: number
 
   /**
    * Location of the decimal point when expressing amounts in this currency as a bigint.
