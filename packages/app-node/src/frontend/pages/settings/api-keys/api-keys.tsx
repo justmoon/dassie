@@ -2,6 +2,7 @@ import { CheckIcon, CopyIcon, EyeIcon, EyeOffIcon, XIcon } from "lucide-react"
 import { useRef, useState } from "react"
 
 import { Button } from "../../../components/ui/button"
+import { useToast } from "../../../components/ui/toast/use-toast"
 import { trpc } from "../../../utils/trpc"
 
 interface BtpTokenAttributes {
@@ -24,6 +25,7 @@ const BtpToken = ({ token }: BtpTokenAttributes) => {
   const [isShown, setIsShown] = useState(false)
   const [isCopied, setIsCopied] = useState(false)
   const timerReference = useRef<NodeJS.Timeout | null>(null)
+  const { toast } = useToast()
 
   const basicState = trpc.general.getBasicState.useQuery()
   const currentKeysQuery = trpc.apiKeys.getCurrentKeys.useQuery()
@@ -71,8 +73,14 @@ const BtpToken = ({ token }: BtpTokenAttributes) => {
                     }, COPY_DONE_TIMEOUT)
 
                     setIsCopied(true)
+                    toast({ title: "Copied BTP URL to clipboard" })
                   })
-                  .catch(() => {})
+                  .catch(() => {
+                    toast({
+                      title: "Failed to copy BTP URL to clipboard",
+                      variant: "destructive",
+                    })
+                  })
               }}
             >
               {isCopied ? (

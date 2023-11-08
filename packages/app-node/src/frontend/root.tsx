@@ -5,6 +5,7 @@ import superjson from "superjson"
 
 import App from "./app"
 import { DarkModeProvider } from "./components/context/dark-mode"
+import { Toaster } from "./components/ui/toast/toaster"
 import { queryClientReactContext, trpc } from "./utils/trpc"
 
 const Root = () => {
@@ -34,6 +35,7 @@ const Root = () => {
           context={queryClientReactContext}
         >
           <App />
+          <Toaster />
         </QueryClientProvider>
       </trpc.Provider>
     </DarkModeProvider>
