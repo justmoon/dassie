@@ -1,6 +1,7 @@
 import { acmeRouter } from "../acme-certificate-manager/trpc-routers/acme"
 import { configAdminRouter } from "../config/trpc-routers/config-admin"
 import { tlsAdminRouter } from "../http-server/trpc-routers/tls-admin"
+import { apiKeysRouter } from "./routers/api-keys"
 import { debugRouter } from "./routers/debug"
 import { generalRouter } from "./routers/general"
 import { paymentRouter } from "./routers/payment"
@@ -13,6 +14,7 @@ export const appRouter = trpc.router({
   acme: acmeRouter,
   tls: tlsAdminRouter,
   config: configAdminRouter,
+  apiKeys: apiKeysRouter,
 })
 
 export type AppRouter = typeof appRouter

@@ -4,6 +4,7 @@ import { Button } from "../../components/ui/button"
 import { logout } from "../../utils/authentication"
 import { extend } from "../../utils/class-helper"
 import { queryClientReactContext, trpc } from "../../utils/trpc"
+import { ApiKeysSettings } from "./api-keys/api-keys"
 
 const SettingsSection = extend(
   "SettingsSection",
@@ -71,6 +72,17 @@ export const Settings = () => {
               Logout
             </Button>
           </div>
+        </SettingsSectionContent>
+      </SettingsSection>
+      <SettingsSection>
+        <SettingsSectionHeader>
+          <SettingsSectionTitle>API Keys</SettingsSectionTitle>
+          <SettingsSectionDescription>
+            Manage BTP access
+          </SettingsSectionDescription>
+        </SettingsSectionHeader>
+        <SettingsSectionContent>
+          <ApiKeysSettings />
         </SettingsSectionContent>
       </SettingsSection>
     </div>

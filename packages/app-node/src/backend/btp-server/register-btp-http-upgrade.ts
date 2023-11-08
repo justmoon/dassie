@@ -1,8 +1,9 @@
 import { nanoid } from "nanoid"
-import type { WebSocket } from "ws"
+import type { RawData, WebSocket } from "ws"
 import { WebSocketServer } from "ws"
 
 import {
+  BtpContentType,
   BtpType,
   btpEnvelopeSchema,
   btpMessageSchema,
@@ -10,6 +11,7 @@ import {
 } from "@dassie/lib-protocol-utils"
 import { createActor } from "@dassie/lib-reactive"
 
+import { BtpTokensStore } from "../api-keys/stores/btp-tokens"
 import { WebsocketRoutesSignal } from "../http-server/serve-https"
 import { NodeIlpAddressSignal } from "../ilp-connector/computed/node-ilp-address"
 import { ProcessPacketActor } from "../ilp-connector/process-packet"
@@ -26,6 +28,8 @@ export const RegisterBtpHttpUpgradeActor = () =>
     const websocketRoutes = sig.get(WebsocketRoutesSignal)
 
     const processIncomingPacketActor = sig.use(ProcessPacketActor)
+
+    const btpTokensStore = sig.use(BtpTokensStore)
 
     const socketMap = new Map<number, WebSocket>()
 
@@ -51,7 +55,145 @@ export const RegisterBtpHttpUpgradeActor = () =>
 
         logger.debug("handle BTP websocket connection", { connectionId })
 
-        socket.on("message", (messageBuffer) => {
+        const handleDataOnUnauthenticatedConnection = (
+          messageBuffer: RawData,
+        ) => {
+          try {
+            const envelopeParseResult = btpEnvelopeSchema.parse(
+              messageBuffer as Uint8Array,
+            )
+
+            if (!envelopeParseResult.success) {
+              logger.warn(
+                "received invalid BTP packet on unauthenticated connection, closing connection",
+                {
+                  error: envelopeParseResult.error,
+                },
+              )
+              socket.close()
+              return
+            }
+
+            const envelope = envelopeParseResult.value
+
+            if (envelope.messageType !== BtpType.Message) {
+              logger.warn(
+                "received non-message BTP packet on unauthenticated connection, closing connection",
+                {
+                  type: envelope.messageType,
+                },
+              )
+              socket.close()
+              return
+            }
+
+            const messageParseResult = btpMessageSchema.parse(envelope.message)
+
+            if (!messageParseResult.success) {
+              logger.warn(
+                "received invalid BTP message on unauthenticated connection, closing connection",
+                {
+                  error: messageParseResult.error,
+                },
+              )
+              socket.close()
+              return
+            }
+
+            const message = messageParseResult.value
+
+            const primaryProtocolData = message.protocolData[0]
+
+            if (primaryProtocolData?.protocolName !== "auth") {
+              logger.warn(
+                "received BTP message without auth protocol data on unauthenticated connection, closing connection",
+              )
+              socket.close()
+              return
+            }
+
+            if (
+              primaryProtocolData.contentType !==
+              BtpContentType.ApplicationOctetStream
+            ) {
+              logger.warn(
+                "received BTP auth packet with auth data entry having the wrong content type, should be application/octet-stream, closing connection",
+                { contentType: primaryProtocolData.contentType },
+              )
+              socket.close()
+              return
+            }
+
+            if (primaryProtocolData.data.length > 0) {
+              logger.warn(
+                "received BTP auth packet with auth data entry having data, should be empty, closing connection",
+                {
+                  length: primaryProtocolData.data.length,
+                },
+              )
+              socket.close()
+              return
+            }
+
+            const tokenData = message.protocolData.find(
+              ({ protocolName }) => protocolName === "auth_token",
+            )
+
+            if (!tokenData) {
+              logger.warn(
+                "received BTP auth packet without auth_token data entry, closing connection",
+              )
+              socket.close()
+              return
+            }
+
+            if (tokenData.contentType !== BtpContentType.TextPlainUtf8) {
+              logger.warn(
+                "received BTP auth packet with auth_token data having the wrong content type, should be text/plain",
+                { contentType: tokenData.contentType },
+              )
+              socket.close()
+              return
+            }
+
+            const token = Buffer.from(tokenData.data).toString("utf8")
+
+            if (!btpTokensStore.read().has(token)) {
+              logger.warn(
+                "received BTP auth packet with invalid token, closing connection",
+                { token },
+              )
+              socket.close()
+              return
+            }
+
+            logger.debug("received valid BTP auth packet")
+
+            const serializedResponse = btpMessageSchema.serializeOrThrow({
+              protocolData: [],
+            })
+            const serializedEnvelope = btpEnvelopeSchema.serializeOrThrow({
+              messageType: 1,
+              requestId: envelope.requestId,
+              message: serializedResponse,
+            })
+            socket.send(serializedEnvelope)
+
+            socket.off("message", handleDataOnUnauthenticatedConnection)
+            socket.on("message", handleDataOnAuthenticatedConnection)
+            return
+          } catch (error) {
+            logger.warn(
+              "error while processing pre-auth BTP message, closing connection",
+              { error },
+            )
+            socket.close()
+          }
+        }
+
+        const handleDataOnAuthenticatedConnection = (
+          messageBuffer: RawData,
+        ) => {
           const messageResult = btpEnvelopeSchema.parse(
             messageBuffer as Uint8Array,
           )
@@ -79,30 +221,10 @@ export const RegisterBtpHttpUpgradeActor = () =>
                     ({ protocolName }) => protocolName === "auth",
                   )
                 ) {
-                  logger.debug("received BTP auth packet")
-                  const responseSerializationResult =
-                    btpMessageSchema.serialize({
-                      protocolData: [],
-                    })
-                  if (!responseSerializationResult.success) {
-                    logger.error("error serializing BTP response message", {
-                      error: responseSerializationResult.error,
-                    })
-                    return
-                  }
-                  const envelopeSerializationResult =
-                    btpEnvelopeSchema.serialize({
-                      messageType: 1,
-                      requestId: message.requestId,
-                      message: responseSerializationResult.value,
-                    })
-                  if (!envelopeSerializationResult.success) {
-                    logger.error("error serializing BTP response", {
-                      error: envelopeSerializationResult.error,
-                    })
-                    return
-                  }
-                  socket.send(envelopeSerializationResult.value)
+                  logger.debug(
+                    "received BTP auth packet on already authenticated connection, closing connection",
+                  )
+                  socket.close()
                   return
                 }
 
@@ -183,7 +305,9 @@ export const RegisterBtpHttpUpgradeActor = () =>
               error: messageResult.error,
             })
           }
-        })
+        }
+
+        socket.on("message", handleDataOnUnauthenticatedConnection)
 
         ilpRoutingTable.read().set(`${nodeIlpAddress}.${localIlpAddressPart}`, {
           type: "fixed",
