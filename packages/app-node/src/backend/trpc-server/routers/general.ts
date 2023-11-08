@@ -4,6 +4,7 @@ import { TotalOwnerBalanceSignal } from "../../accounting/computed/total-owner-b
 import { HasNodeIdentitySignal } from "../../config/computed/has-node-identity"
 import { IlpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-scheme"
 import { DatabaseConfigStore } from "../../config/database-config"
+import { NodeIdSignal } from "../../ilp-connector/computed/node-id"
 import { NodeTableStore } from "../../peer-protocol/stores/node-table"
 import { ActiveSettlementSchemesSignal } from "../../settlement-schemes/signals/active-settlement-schemes"
 import { protectedProcedure } from "../middlewares/auth"
@@ -25,6 +26,8 @@ export const generalRouter = trpc.router({
 
     const hostname = sig.use(DatabaseConfigStore).read().hostname
 
+    const nodeId = sig.use(NodeIdSignal).read()
+
     // Please note that this is a public method that anyone can call so don't
     // return any non-public information here.
     return {
@@ -32,6 +35,7 @@ export const generalRouter = trpc.router({
       activeSettlementSchemes,
       nodeCount,
       hostname,
+      nodeId,
     } as const
   }),
   subscribeBalance: protectedProcedure.subscription(({ ctx: { sig } }) => {
