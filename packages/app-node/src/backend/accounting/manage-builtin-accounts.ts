@@ -11,4 +11,5 @@ export const ManageBuiltinAccountsActor = () =>
     initializeCommonAccounts(ledger, "builtin" as SettlementSchemeId)
     ledger.createAccount(`builtin/owner/spsp`)
     ledger.createAccount(`builtin/owner/btp`)
+    ledger.createAccount(`builtin/owner/http`)
   })

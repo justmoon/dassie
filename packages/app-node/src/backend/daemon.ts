@@ -12,6 +12,7 @@ import { ExchangeRatesActor } from "./exchange-rates"
 import { HttpServerActor } from "./http-server"
 import { IldcpServerActor } from "./ildcp-server"
 import { IlpConnectorActor } from "./ilp-connector"
+import { IlpHttpActor } from "./ilp-http"
 import { LocalRpcServerActor } from "./local-ipc-server"
 import { LoggerActor } from "./logger"
 import { daemon as logger } from "./logger/instances"
@@ -55,6 +56,7 @@ export const StartNodeIdentityDependentServicesActor = () =>
     sig.run(IlpConnectorActor)
     sig.run(BtpServerActor)
     sig.run(IldcpServerActor)
+    sig.run(IlpHttpActor)
     await sig.run(ExchangeRatesActor)
 
     sig.run(SettlementSchemesActor)

@@ -25,6 +25,7 @@ import { PostedTransfersTopic } from "../topics/posted-transfers"
 // owner/… -> Owner accounts
 // owner/spsp/<spspAccountId> -> SPSP accounts
 // owner/btp/<btpAccountId> -> BTP accounts
+// owner/http/<httpAccountId> -> ILP-HTTP accounts
 
 export interface LedgerAccount {
   path: string

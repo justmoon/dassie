@@ -5,6 +5,10 @@ import {
   IldcpEndpointInfo,
   SendIldcpPackets,
 } from "../senders/send-ildcp-packets"
+import {
+  IlpHttpEndpointInfo,
+  SendIlpHttpPackets,
+} from "../senders/send-ilp-http-packets"
 import { PeerEndpointInfo, SendPeerPackets } from "../senders/send-peer-packets"
 import {
   PluginEndpointInfo,
@@ -23,6 +27,7 @@ export type EndpointInfo =
   | IldcpEndpointInfo
   | BtpEndpointInfo
   | PluginEndpointInfo
+  | IlpHttpEndpointInfo
 
 export type PreparedPacketParameters<TType extends EndpointInfo["type"]> =
   EndpointInfo & { type: TType } & PreparedIlpPacketEvent
@@ -45,6 +50,7 @@ export const SendPacket = (reactor: Reactor) => {
     ildcp: reactor.use(SendIldcpPackets),
     btp: reactor.use(SendBtpPackets),
     plugin: reactor.use(SendPluginPackets),
+    http: reactor.use(SendIlpHttpPackets),
   }
 
   return <TType extends EndpointInfo["type"]>(
