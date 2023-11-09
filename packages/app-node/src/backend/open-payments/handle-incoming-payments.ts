@@ -1,7 +1,7 @@
 import { nanoid } from "nanoid"
 import { z } from "zod"
 
-import { respondJson } from "@dassie/lib-http-server"
+import { createJsonResponse } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
 import { DatabaseConfigStore } from "../config/database-config"
@@ -30,10 +30,10 @@ export const HandleIncomingPaymentsActor = () =>
       const { dispose } = api
         .get(`${PAYMENT_POINTER_ROOT}/incoming-payments`)
         .cors()
-        .handler((_request, response) => {
+        .handler(() => {
           const payments = database.tables.incomingPayment.selectAll()
 
-          respondJson(response, 200, {
+          return createJsonResponse({
             result: payments.map((payment) => formatIncomingPayment(payment)),
           })
         })
@@ -57,7 +57,7 @@ export const HandleIncomingPaymentsActor = () =>
             externalRef: z.string().optional(),
           }),
         )
-        .handler((request, response) => {
+        .handler((request) => {
           const { incomingAmount, externalRef } = request.body
           const id = nanoid()
           const payment = {
@@ -70,7 +70,7 @@ export const HandleIncomingPaymentsActor = () =>
 
           database.tables.incomingPayment.insertOne(payment)
 
-          respondJson(response, 200, formatIncomingPayment(payment))
+          return createJsonResponse(formatIncomingPayment(payment))
         })
       sig.onCleanup(dispose)
     }

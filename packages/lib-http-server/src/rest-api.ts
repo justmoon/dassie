@@ -1,7 +1,8 @@
-import type { NextFunction, Request, Response, Router } from "express"
+import type { Request, Response, Router } from "express"
 import { json } from "express"
-import type { Promisable } from "type-fest"
 import type { AnyZodObject, infer as inferZodType } from "zod"
+
+import { BadRequestFailure, HttpRequestHandler, createHandler } from "."
 
 export const HTTP_METHODS = [
   "get",
@@ -19,16 +20,15 @@ export type RestApiBuilder = {
   [method in HttpMethod]: (path: string) => ApiRouteBuilder<ApiRouteParameters>
 }
 
-export interface ApiRequest<TParameters extends ApiRouteParameters>
-  extends Request {
-  body: inferZodType<TParameters["bodySchema"]>
-  query: inferZodType<TParameters["querySchema"]>
-}
+export type ApiRequest<TParameters extends ApiRouteParameters> = Request<
+  object,
+  unknown,
+  inferZodType<TParameters["bodySchema"]>,
+  inferZodType<TParameters["querySchema"]>
+>
 
-export type ApiHandler<TParameters extends ApiRouteParameters> = (
-  request: ApiRequest<TParameters>,
-  response: Response,
-) => Promisable<void>
+export type ApiHandler<TParameters extends ApiRouteParameters> =
+  HttpRequestHandler<ApiRequest<TParameters>>
 
 export interface ApiRouteBuilder<TParameters extends ApiRouteParameters> {
   /**
@@ -82,11 +82,7 @@ export const createRestApi = (router: Router) => {
     let cors = false
     let userHandler: ApiHandler<ApiRouteParameters> | undefined
 
-    const routeHandler = (
-      request: Request,
-      response: Response,
-      next: NextFunction,
-    ) => {
+    const routeHandler = async (request: Request, response: Response) => {
       if (!userHandler) {
         throw new Error("No handler provided for API route")
       }
@@ -95,23 +91,21 @@ export const createRestApi = (router: Router) => {
         bodyValidator?.parse(request.body)
       } catch (error) {
         console.warn("invalid api request body", { path, error })
-        response.status(400).json(error)
-        return
+        return new BadRequestFailure("Invalid API request body")
       }
 
       try {
         queryValidator?.parse(request.query)
       } catch (error) {
         console.warn("invalid api request query string", { path, error })
-        response.status(400).json(error)
-        return
+        return new BadRequestFailure("Invalid API request query string")
       }
 
       if (cors) {
         response.setHeader("Access-Control-Allow-Origin", "*")
       }
 
-      Promise.resolve(userHandler(request, response)).then(next).catch(next)
+      return userHandler(request, response)
     }
 
     const routeDescriptor: ApiRouteBuilder<ApiRouteParameters> = {
@@ -130,13 +124,16 @@ export const createRestApi = (router: Router) => {
       handler: (handler) => {
         userHandler = handler
 
-        router[method](path, jsonHandler, routeHandler)
+        router[method](path, jsonHandler, createHandler(routeHandler))
 
         return {
           dispose: () => {
             const routeIndex = router.stack.findIndex(
               (layer: {
-                route?: { path: string; stack: { handle: () => void }[] }
+                route?: {
+                  path: string
+                  stack: { handle: HttpRequestHandler }[]
+                }
               }) => {
                 return (
                   layer.route?.path === path &&

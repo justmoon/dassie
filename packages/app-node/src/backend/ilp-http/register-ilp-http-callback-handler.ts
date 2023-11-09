@@ -1,11 +1,13 @@
 import {
-  BadRequestError,
+  BadRequestFailure,
   assertAcceptHeader,
   assertContentTypeHeader,
-  asyncHandler,
+  createHandler,
+  createPlainResponse,
   parseBody,
 } from "@dassie/lib-http-server"
 import { Reactor, createActor } from "@dassie/lib-reactive"
+import { isFailure } from "@dassie/lib-type-utils"
 
 import { HttpsRouterServiceActor } from "../http-server/serve-https"
 import { ProcessPacketActor } from "../ilp-connector/process-packet"
@@ -22,11 +24,13 @@ export const RegisterIlpHttpCallbackHandlerActor = (reactor: Reactor) => {
 
     router.post(
       "/ilp/callback",
-      asyncHandler(async (request, response) => {
+      createHandler(async (request) => {
         assertAcceptHeader(request, ILP_OVER_HTTP_CONTENT_TYPE)
         assertContentTypeHeader(request, ILP_OVER_HTTP_CONTENT_TYPE)
 
         const body = await parseBody(request)
+
+        if (isFailure(body)) return body
 
         const textualRequestIdHeader = request.headers["request-id"]
         const textualRequestId = Array.isArray(textualRequestIdHeader)
@@ -34,7 +38,7 @@ export const RegisterIlpHttpCallbackHandlerActor = (reactor: Reactor) => {
           : textualRequestIdHeader
 
         if (!textualRequestId) {
-          throw new BadRequestError("Missing required header Request-Id")
+          return new BadRequestFailure("Missing required header Request-Id")
         }
 
         // TODO: Authentication
@@ -51,8 +55,8 @@ export const RegisterIlpHttpCallbackHandlerActor = (reactor: Reactor) => {
           requestId: Number(textualRequestId),
         })
 
-        response.writeHead(202, {
-          "Content-Type": ILP_OVER_HTTP_CONTENT_TYPE,
+        return createPlainResponse("", {
+          contentType: ILP_OVER_HTTP_CONTENT_TYPE,
         })
       }),
     )

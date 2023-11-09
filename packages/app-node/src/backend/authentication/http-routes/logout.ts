@@ -1,6 +1,6 @@
 import { parse } from "cookie"
 
-import { respondJson } from "@dassie/lib-http-server"
+import { createJsonResponse } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
 import { SESSION_COOKIE_NAME } from "../../../common/constants/cookie-name"
@@ -27,6 +27,6 @@ export const RegisterLogoutRouteActor = () =>
         expires: new Date(0),
       })
 
-      respondJson(response, 200, {})
+      return createJsonResponse({})
     })
   })

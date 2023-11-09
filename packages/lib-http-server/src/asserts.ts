@@ -1,22 +1,22 @@
 import type { IncomingMessage } from "node:http"
 
-import { NotAcceptableError, UnsupportedMediaTypeError } from "./errors"
+import { NotAcceptableFailure, UnsupportedMediaTypeFailure } from "."
 
 export const assertAcceptHeader = (
   request: IncomingMessage,
   mediaType: string,
-) => {
+): NotAcceptableFailure | void => {
   if (request.headers.accept !== mediaType) {
-    throw new NotAcceptableError(`Not Acceptable, expected ${mediaType}`)
+    return new NotAcceptableFailure(`Not Acceptable, expected ${mediaType}`)
   }
 }
 
 export const assertContentTypeHeader = (
   request: IncomingMessage,
   mediaType: string,
-) => {
+): UnsupportedMediaTypeFailure | void => {
   if (request.headers["content-type"] !== mediaType) {
-    throw new UnsupportedMediaTypeError(
+    return new UnsupportedMediaTypeFailure(
       `Unsupported Media Type, expected ${mediaType}`,
     )
   }

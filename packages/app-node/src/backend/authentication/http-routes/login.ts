@@ -2,7 +2,10 @@ import { z } from "zod"
 
 import { randomBytes } from "node:crypto"
 
-import { respondJson } from "@dassie/lib-http-server"
+import {
+  UnauthorizedFailure,
+  createJsonResponse,
+} from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
 import { SESSION_COOKIE_NAME } from "../../../common/constants/cookie-name"
@@ -39,10 +42,9 @@ export const RegisterLoginRouteActor = () =>
         if (
           loginAuthorizationSignature !== expectedLoginAuthorizationSignature
         ) {
-          respondJson(response, 401, {
-            error: "Invalid login authorization signature",
-          })
-          return
+          return new UnauthorizedFailure(
+            "Invalid login authorization signature",
+          )
         }
 
         const sessionToken = randomBytes(32).toString("hex") as SessionToken
@@ -56,6 +58,6 @@ export const RegisterLoginRouteActor = () =>
           expires: new Date(Date.now() + COOKIE_MAX_AGE),
         })
 
-        respondJson(response, 200, {})
+        return createJsonResponse({})
       })
   })

@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { respondJson } from "@dassie/lib-http-server"
+import { createJsonResponse } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
 import { SESSION_COOKIE_NAME } from "../../../common/constants/cookie-name"
@@ -35,6 +35,6 @@ export const RegisterDevelopmentSetSessionRouteActor = () =>
           expires: new Date(Date.now() + COOKIE_MAX_AGE),
         })
 
-        respondJson(response, 200, {})
+        return createJsonResponse({})
       })
   })

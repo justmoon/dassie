@@ -1,4 +1,4 @@
 {
   "extends": "@dassie/meta-tsconfig/vite-isomorphic.json",
-  "include": ["src/**.ts"]
+  "include": ["src/**/*.ts"]
 }

@@ -1,11 +1,13 @@
 import {
-  BadRequestError,
+  BadRequestFailure,
   assertAcceptHeader,
   assertContentTypeHeader,
-  asyncHandler,
+  createHandler,
+  createPlainResponse,
   parseBody,
 } from "@dassie/lib-http-server"
 import { Reactor, createActor } from "@dassie/lib-reactive"
+import { isFailure } from "@dassie/lib-type-utils"
 
 import { HttpsRouterServiceActor } from "../http-server/serve-https"
 import { ProcessPacketActor } from "../ilp-connector/process-packet"
@@ -24,14 +26,16 @@ export const RegisterIlpHttpHandlerActor = (reactor: Reactor) => {
 
     router.post(
       "/ilp",
-      asyncHandler(async (request, response) => {
+      createHandler(async (request) => {
         assertAcceptHeader(request, ILP_OVER_HTTP_CONTENT_TYPE)
         assertContentTypeHeader(request, ILP_OVER_HTTP_CONTENT_TYPE)
 
         const body = await parseBody(request)
 
+        if (isFailure(body)) return body
+
         if (request.headers["prefer"] !== "respond-async") {
-          throw new BadRequestError(
+          return new BadRequestFailure(
             "This implementation only supports asynchronous mode, expected 'Prefer: respond-async'",
           )
         }
@@ -42,7 +46,7 @@ export const RegisterIlpHttpHandlerActor = (reactor: Reactor) => {
           : textualRequestIdHeader
 
         if (!textualRequestId) {
-          throw new BadRequestError("Missing required header Request-Id")
+          return new BadRequestFailure("Missing required header Request-Id")
         }
 
         const callbackUrlHeader = request.headers["callback-url"]
@@ -51,7 +55,7 @@ export const RegisterIlpHttpHandlerActor = (reactor: Reactor) => {
           : callbackUrlHeader
 
         if (!callbackUrl) {
-          throw new BadRequestError("Missing required header Callback-Url")
+          return new BadRequestFailure("Missing required header Callback-Url")
         }
 
         // TODO: Authentication
@@ -75,8 +79,9 @@ export const RegisterIlpHttpHandlerActor = (reactor: Reactor) => {
           requestId: numericRequestId,
         })
 
-        response.writeHead(202, {
-          "Content-Type": ILP_OVER_HTTP_CONTENT_TYPE,
+        return createPlainResponse("", {
+          contentType: ILP_OVER_HTTP_CONTENT_TYPE,
+          statusCode: 202,
         })
       }),
     )

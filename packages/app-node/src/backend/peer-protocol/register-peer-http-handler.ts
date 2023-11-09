@@ -1,12 +1,14 @@
 import {
-  BadRequestError,
+  BadRequestFailure,
+  UnauthorizedFailure,
   assertAcceptHeader,
   assertContentTypeHeader,
-  asyncHandler,
+  createBinaryResponse,
+  createHandler,
   parseBody,
-  respondBinary,
 } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
+import { isFailure } from "@dassie/lib-type-utils"
 
 import { HttpsRouterServiceActor } from "../http-server/serve-https"
 import { peerProtocol as logger } from "../logger/instances"
@@ -30,11 +32,13 @@ export const RegisterPeerHttpHandlerActor = () =>
 
     router.post(
       "/peer",
-      asyncHandler(async (request, response) => {
+      createHandler(async (request) => {
         assertAcceptHeader(request, DASSIE_MESSAGE_CONTENT_TYPE)
         assertContentTypeHeader(request, DASSIE_MESSAGE_CONTENT_TYPE)
 
         const body = await parseBody(request)
+
+        if (isFailure(body)) return body
 
         const parseResult = peerMessageSchema.parse(body)
 
@@ -43,7 +47,7 @@ export const RegisterPeerHttpHandlerActor = () =>
             error: parseResult.error,
             body,
           })
-          throw new BadRequestError(`Bad Request, failed to parse message`)
+          return new BadRequestFailure(`Bad Request, failed to parse message`)
         }
 
         if (parseResult.value.version !== 0) {
@@ -51,7 +55,7 @@ export const RegisterPeerHttpHandlerActor = () =>
             version: parseResult.value.version,
             body,
           })
-          throw new BadRequestError(`Bad Request, unsupported version`)
+          return new BadRequestFailure(`Bad Request, unsupported version`)
         }
 
         const senderNode = nodeTableStore.read().get(parseResult.value.sender)
@@ -73,7 +77,9 @@ export const RegisterPeerHttpHandlerActor = () =>
               body,
             },
           )
-          return
+          return new UnauthorizedFailure(
+            "Incoming Dassie message is not authenticated",
+          )
         }
 
         sig.use(IncomingPeerMessageTopic).emit({
@@ -92,12 +98,9 @@ export const RegisterPeerHttpHandlerActor = () =>
             asUint8Array: body,
           })
 
-        respondBinary(
-          response,
-          200,
-          responseMessage,
-          "application/dassie-peer-response",
-        )
+        return createBinaryResponse(responseMessage, {
+          contentType: "application/dassie-peer-response",
+        })
       }),
     )
   })

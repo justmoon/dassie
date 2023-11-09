@@ -540,6 +540,9 @@ importers:
       express:
         specifier: ^4.18.2
         version: 4.18.2
+      negotiator:
+        specifier: ^0.6.3
+        version: 0.6.3
     devDependencies:
       '@dassie/eslint-config':
         specifier: workspace:^
@@ -547,6 +550,9 @@ importers:
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
+      '@types/negotiator':
+        specifier: ^0.6.3
+        version: 0.6.3
       react:
         specifier: ^18.2.0
         version: 18.2.0
@@ -2805,6 +2811,9 @@ packages:
     resolution: {integrity: sha512-xPSg0jm4mqgEkNhowKgZFBNtwoEwF6gJ4Dhww+GFpm3IgtNseHQZ5IqdNwnquZEoANxyDAKDRAdVo4Z72VvD/g==}
     dev: false
 
+  /@types/negotiator@0.6.3:
+    resolution: {integrity: sha512-JkXTOdKs5MF086b/pt8C3+yVp3iDUwG635L7oCH6HvJvvr6lSUU5oe/gLXnPEfYRROHjJIPgCV6cuAg8gGkntQ==}
+    dev: true
   /@types/node@20.8.10:
     resolution: {integrity: sha512-TlgT8JntpcbmKUFzjhsyhGfP2fsiz1Mv56im6enJ905xG1DAYesxJaeSbGqQmAw8OWPdhyJGhGSQGKRNJ45u9w==}
     dependencies:

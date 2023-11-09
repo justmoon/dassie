@@ -2,7 +2,10 @@ import { z } from "zod"
 
 import { randomBytes } from "node:crypto"
 
-import { respondJson } from "@dassie/lib-http-server"
+import {
+  UnauthorizedFailure,
+  createJsonResponse,
+} from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
 import { SESSION_COOKIE_NAME } from "../../../common/constants/cookie-name"
@@ -41,10 +44,7 @@ export const RegisterSetupRouteActor = () =>
       )
       .handler((request, response) => {
         if (hasNodeIdentity(config.read())) {
-          respondJson(response, 401, {
-            error: "Node is already set up",
-          })
-          return
+          return new UnauthorizedFailure("Node is already set up")
         }
 
         const {
@@ -54,10 +54,7 @@ export const RegisterSetupRouteActor = () =>
         } = request.body
 
         if (setupAuthorizationToken !== expectedSetupAuthorizationToken) {
-          respondJson(response, 401, {
-            error: "Invalid setup authorization token",
-          })
-          return
+          return new UnauthorizedFailure("Invalid setup authorization token")
         }
 
         const rawDassieKeyBuffer = Buffer.from(rawDassieKeyHex, "hex")
@@ -70,10 +67,9 @@ export const RegisterSetupRouteActor = () =>
         if (
           loginAuthorizationSignature !== expectedLoginAuthorizationSignature
         ) {
-          respondJson(response, 401, {
-            error: "Invalid login authorization signature",
-          })
-          return
+          return new UnauthorizedFailure(
+            "Invalid login authorization signature",
+          )
         }
 
         const dassieKey = serializeEd25519PrivateKey(rawDassieKeyBuffer)
@@ -91,6 +87,6 @@ export const RegisterSetupRouteActor = () =>
           expires: new Date(Date.now() + COOKIE_MAX_AGE),
         })
 
-        respondJson(response, 200, {})
+        return createJsonResponse({})
       })
   })

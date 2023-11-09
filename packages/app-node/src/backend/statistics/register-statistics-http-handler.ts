@@ -1,4 +1,4 @@
-import { respondJson } from "@dassie/lib-http-server"
+import { createHandler, createJsonResponse } from "@dassie/lib-http-server"
 import { Reactor, createActor } from "@dassie/lib-reactive"
 
 import { DatabaseConfigStore } from "../config/database-config"
@@ -20,37 +20,40 @@ export const RegisterStatisticsHttpHandlerActor = (reactor: Reactor) => {
 
     if (!router) return
 
-    router.get("/stats", (_, response) => {
-      const nodeTable = nodeTableStore.read()
-      const peers = [...peersSignal.read()]
-        .map((nodeKey) => {
-          const node = nodeTable.get(nodeKey)
+    router.get(
+      "/stats",
+      createHandler(() => {
+        const nodeTable = nodeTableStore.read()
+        const peers = [...peersSignal.read()]
+          .map((nodeKey) => {
+            const node = nodeTable.get(nodeKey)
 
-          if (!node) return false
+            if (!node) return false
 
-          const { nodeId, linkState } = node
+            const { nodeId, linkState } = node
 
-          return {
-            nodeId,
-            url: linkState?.url,
-            publicKey: linkState
-              ? Buffer.from(linkState.publicKey).toString("base64url")
-              : undefined,
-          }
+            return {
+              nodeId,
+              url: linkState?.url ?? null,
+              publicKey: linkState
+                ? Buffer.from(linkState.publicKey).toString("base64url")
+                : null,
+            }
+          })
+          .filter(Boolean)
+
+        return createJsonResponse({
+          version: __DASSIE_VERSION__,
+          node: {
+            id: nodeIdSignal.read(),
+            url: databaseConfigStore.read().url,
+            publicKey: Buffer.from(nodePublicKeySignal.read()).toString(
+              "base64url",
+            ),
+          },
+          peers,
         })
-        .filter(Boolean)
-
-      respondJson(response, 200, {
-        version: __DASSIE_VERSION__,
-        node: {
-          id: nodeIdSignal.read(),
-          url: databaseConfigStore.read().url,
-          publicKey: Buffer.from(nodePublicKeySignal.read()).toString(
-            "base64url",
-          ),
-        },
-        peers,
-      })
-    })
+      }),
+    )
   })
 }

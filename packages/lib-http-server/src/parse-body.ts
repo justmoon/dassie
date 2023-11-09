@@ -1,11 +1,13 @@
 import type { IncomingMessage } from "node:http"
 
+import { isFailure } from "@dassie/lib-type-utils"
+
+import { PayloadTooLargeFailure } from "."
 import { DEFAULT_MAX_BODY_SIZE } from "./constants"
-import { PayloadTooLargeError } from "./errors"
 
 export const parseBodyBuffer = async (
   request: IncomingMessage,
-): Promise<Buffer> => {
+): Promise<PayloadTooLargeFailure | Buffer> => {
   const body: Buffer[] = []
   let dataReceived = 0
 
@@ -13,7 +15,7 @@ export const parseBodyBuffer = async (
     dataReceived += chunk.length
 
     if (dataReceived > DEFAULT_MAX_BODY_SIZE) {
-      throw new PayloadTooLargeError(
+      return new PayloadTooLargeFailure(
         `Payload Too Large, expected body to be less than ${DEFAULT_MAX_BODY_SIZE} bytes`,
       )
     }
@@ -25,16 +27,16 @@ export const parseBodyBuffer = async (
 
 export const parseBody = async (
   request: IncomingMessage,
-): Promise<Uint8Array> => {
+): Promise<PayloadTooLargeFailure | Uint8Array> => {
   const buffer = await parseBodyBuffer(request)
 
-  return new Uint8Array(buffer)
+  return isFailure(buffer) ? buffer : new Uint8Array(buffer)
 }
 
 export const parseBodyUtf8 = async (
   request: IncomingMessage,
-): Promise<string> => {
+): Promise<PayloadTooLargeFailure | string> => {
   const buffer = await parseBodyBuffer(request)
 
-  return buffer.toString("utf8")
+  return isFailure(buffer) ? buffer : buffer.toString("utf8")
 }
