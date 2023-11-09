@@ -1,5 +1,6 @@
 import { readFile, unlink } from "node:fs/promises"
 
+import { BtpToken } from "@dassie/app-node/src/backend/api-keys/types/btp-token"
 import { DASSIE_DATABASE_SCHEMA } from "@dassie/app-node/src/backend/database/schema"
 import { SettlementSchemeId } from "@dassie/app-node/src/backend/peer-protocol/types/settlement-scheme-id"
 import { createDatabase } from "@dassie/lib-sqlite"
@@ -78,6 +79,10 @@ export const prefillDatabase = async ({
 
   database.tables.sessions.insertOne({
     token: sessionToken,
+  })
+
+  database.tables.btpTokens.insertOne({
+    token: "beNrVTiQLKReCr9d-YBPjA" as BtpToken,
   })
 
   database.raw.close()
