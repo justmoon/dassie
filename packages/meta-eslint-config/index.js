@@ -12,6 +12,7 @@ module.exports = {
     "plugin:react/jsx-runtime",
     "plugin:react-hooks/recommended",
     "plugin:n/recommended-module",
+    "plugin:@dassie/recommended",
     "prettier",
   ],
 

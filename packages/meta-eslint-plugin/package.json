@@ -1,0 +1,19 @@
+{
+  "name": "@dassie/eslint-plugin",
+  "version": "1.0.0",
+  "description": "Dassie Eslint plugin for ensuring proper failure handling",
+  "author": "Stefan Thomas <justmoon@members.fsf.org>",
+  "license": "Apache-2.0",
+  "main": "./lib/index.js",
+  "scripts": {
+    "typecheck": "tsc --pretty",
+    "build": "tsc --pretty --project tsconfig.build.json"
+  },
+  "dependencies": {
+    "@dassie/meta-tsconfig": "workspace:^",
+    "@typescript-eslint/rule-tester": "^6.10.0",
+    "@typescript-eslint/types": "^6.10.0",
+    "@typescript-eslint/utils": "^6.10.0",
+    "tsutils": "^3.21.0"
+  }
+}

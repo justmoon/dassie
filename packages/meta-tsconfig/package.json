@@ -6,7 +6,6 @@
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "devDependencies": {
-    "@dassie/eslint-config": "workspace:^",
     "@tsconfig/strictest": "^2.0.2"
   }
 }

@@ -35,6 +35,7 @@
   },
   "homepage": "https://github.com/justmoon/dassie#readme",
   "dependencies": {
+    "@dassie/eslint-plugin": "workspace:^",
     "@microsoft/api-extractor": "^7.38.2",
     "@microsoft/api-extractor-model": "^7.28.2",
     "@trivago/prettier-plugin-sort-imports": "^4.2.1",

@@ -1,0 +1,4 @@
+{
+  "extends": "@dassie/meta-tsconfig/base.json",
+  "include": ["**/*.ts"]
+}
