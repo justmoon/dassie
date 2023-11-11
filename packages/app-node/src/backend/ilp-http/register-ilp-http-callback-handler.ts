@@ -25,8 +25,18 @@ export const RegisterIlpHttpCallbackHandlerActor = (reactor: Reactor) => {
     router.post(
       "/ilp/callback",
       createHandler(async (request) => {
-        assertAcceptHeader(request, ILP_OVER_HTTP_CONTENT_TYPE)
-        assertContentTypeHeader(request, ILP_OVER_HTTP_CONTENT_TYPE)
+        {
+          const result = assertAcceptHeader(request, ILP_OVER_HTTP_CONTENT_TYPE)
+          if (isFailure(result)) return result
+        }
+
+        {
+          const result = assertContentTypeHeader(
+            request,
+            ILP_OVER_HTTP_CONTENT_TYPE,
+          )
+          if (isFailure(result)) return result
+        }
 
         const body = await parseBody(request)
 

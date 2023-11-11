@@ -1,5 +1,7 @@
 import assert from "node:assert"
 
+import { isFailure } from "@dassie/lib-type-utils"
+
 import { NodeId } from "../../peer-protocol/types/node-id"
 import { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
 import { Ledger } from "../stores/ledger"
@@ -20,11 +22,15 @@ export const initializePeer = (
   })
 
   // Extend initial trust limit
-  ledger.createTransfer({
+  const result = ledger.createTransfer({
     debitAccountPath: `${settlementSchemeId}/peer/${peerId}/trust`,
     creditAccountPath: `${settlementSchemeId}/peer/${peerId}/interledger`,
     amount: DEFAULT_CREDIT,
   })
+
+  if (isFailure(result)) {
+    throw new Error(`Could not extend initial trust to peer: ${result.name}`)
+  }
 }
 
 export const cleanupPeer = (ledger: Ledger, peerId: NodeId) => {

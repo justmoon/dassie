@@ -33,8 +33,20 @@ export const RegisterPeerHttpHandlerActor = () =>
     router.post(
       "/peer",
       createHandler(async (request) => {
-        assertAcceptHeader(request, DASSIE_MESSAGE_CONTENT_TYPE)
-        assertContentTypeHeader(request, DASSIE_MESSAGE_CONTENT_TYPE)
+        {
+          const result = assertAcceptHeader(
+            request,
+            DASSIE_MESSAGE_CONTENT_TYPE,
+          )
+          if (isFailure(result)) return result
+        }
+        {
+          const result = assertContentTypeHeader(
+            request,
+            DASSIE_MESSAGE_CONTENT_TYPE,
+          )
+          if (isFailure(result)) return result
+        }
 
         const body = await parseBody(request)
 
