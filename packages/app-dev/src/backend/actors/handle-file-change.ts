@@ -8,6 +8,7 @@ import { createActor, createTopic } from "@dassie/lib-reactive"
 
 import { LogsStore } from "../../common/stores/logs"
 import { vite as logger } from "../logger/instances"
+import { PeeringStateStore } from "../stores/peering-state"
 
 export function getShortName(file: string, root: string): string {
   return file.startsWith(root + "/") ? posix.relative(root, file) : file
@@ -34,6 +35,7 @@ export const HandleFileChangeActor = () =>
 
       if (mods && mods.size > 0) {
         sig.use(LogsStore).clear()
+        sig.use(PeeringStateStore).clear()
         logger.info(`${chalk.green(`change`)} ${chalk.dim(shortFile)}`)
 
         sig.use(FileChangeTopic).emit(undefined)

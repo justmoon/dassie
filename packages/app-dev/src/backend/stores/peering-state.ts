@@ -6,4 +6,6 @@ export const PeeringStateStore = () =>
       ...state,
       [nodeId]: peers,
     }),
+    // eslint-disable-next-line unicorn/consistent-function-scoping
+    clear: () => () => ({}),
   })
