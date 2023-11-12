@@ -1,5 +1,5 @@
 import { OerType } from "./base-type"
-import { ParseError } from "./utils/errors"
+import { ParseFailure } from "./utils/failures"
 import type { ParseContext, SerializeContext } from "./utils/parse"
 import { type Range, parseRange } from "./utils/range"
 
@@ -42,7 +42,7 @@ export class OerFloatNumber extends OerType<number> {
     const { size } = this.options
 
     if (offset + size / 8 > dataView.byteLength) {
-      return new ParseError(
+      return new ParseFailure(
         `unable to read fixed length real of size ${
           size / 8
         } bytes - end of buffer`,

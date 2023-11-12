@@ -1,3 +1,5 @@
+import { isFailure } from "@dassie/lib-type-utils"
+
 import { OerType } from "./base-type"
 import { octetString } from "./octet-string"
 import {
@@ -5,7 +7,7 @@ import {
   alphabetToFilterArray,
   printable,
 } from "./utils/alphabet"
-import { ParseError, SerializeError } from "./utils/errors"
+import { ParseFailure, SerializeFailure } from "./utils/failures"
 import type { ParseContext } from "./utils/parse"
 import { type NormalizedRange, type Range, parseRange } from "./utils/range"
 
@@ -47,17 +49,14 @@ export class OerString extends OerType<string> {
 
   parseWithContext(context: ParseContext, offset: number) {
     const parseResult = this.octetString.parseWithContext(context, offset)
-
-    if (parseResult instanceof ParseError) {
-      return parseResult
-    }
+    if (isFailure(parseResult)) return parseResult
 
     const [octetStringValue, totalLength] = parseResult
 
     if (this.filterArray) {
       for (let index = 0; index < octetStringValue.length; index++) {
         if (!this.filterArray[octetStringValue[index]!]) {
-          return new ParseError(
+          return new ParseFailure(
             `Invalid character 0x${octetStringValue[index]!.toString(
               16,
             ).padStart(2, "0")} in string`,
@@ -73,7 +72,7 @@ export class OerString extends OerType<string> {
     const decodedString = this.textDecoder.decode(parseResult[0])
 
     if (this.length[0] != undefined && decodedString.length < this.length[0]) {
-      return new ParseError(
+      return new ParseFailure(
         `String is too short, expected at least ${this.length[0]} characters, got ${decodedString.length}`,
         context.uint8Array,
         offset,
@@ -81,7 +80,7 @@ export class OerString extends OerType<string> {
     }
 
     if (this.length[1] != undefined && decodedString.length > this.length[1]) {
-      return new ParseError(
+      return new ParseFailure(
         `String is too long, expected at most ${this.length[1]} characters, got ${decodedString.length}`,
         context.uint8Array,
         offset,
@@ -93,13 +92,13 @@ export class OerString extends OerType<string> {
 
   serializeWithContext(value: string) {
     if (this.length[0] != undefined && value.length < this.length[0]) {
-      return new SerializeError(
+      return new SerializeFailure(
         `String is too short, expected at least ${this.length[0]} characters, got ${value.length}`,
       )
     }
 
     if (this.length[1] != undefined && value.length > this.length[1]) {
-      return new SerializeError(
+      return new SerializeFailure(
         `String is too long, expected at most ${this.length[1]} characters, got ${value.length}`,
       )
     }

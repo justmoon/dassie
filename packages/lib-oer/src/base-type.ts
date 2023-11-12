@@ -1,5 +1,8 @@
+import { isFailure } from "@dassie/lib-type-utils"
+
 import { ensureUint8Array } from "./utils/ensure-uint8array"
 import { ParseError, SerializeError } from "./utils/errors"
+import { ParseFailure, SerializeFailure } from "./utils/failures"
 import type { ParseContext, SerializeContext } from "./utils/parse"
 import { type TagClass, type TagMarker, tagClassMarkerMap } from "./utils/tag"
 
@@ -23,7 +26,7 @@ export interface ParseOptions {
 }
 
 export interface Serializer {
-  (context: SerializeContext, offset: number): SerializeError | void
+  (context: SerializeContext, offset: number): SerializeFailure | void
   size: number
 }
 
@@ -36,38 +39,30 @@ export abstract class OerType<TParseValue, TSerializeValue = TParseValue> {
   abstract parseWithContext(
     context: ParseContext,
     offset: number,
-  ): readonly [value: TParseValue, length: number] | ParseError
+  ): readonly [value: TParseValue, length: number] | ParseFailure
   abstract serializeWithContext(
     value: TSerializeValue,
-  ): Serializer | SerializeError
+  ): Serializer | SerializeFailure
 
   parse(
     input: Uint8Array,
     offset = 0,
     options: ParseOptions = {},
-  ):
-    | { success: true; value: TParseValue; length: number }
-    | { success: false; error: ParseError } {
+  ): { success: true; value: TParseValue; length: number } | ParseFailure {
     const context: ParseContext = {
       dataView: new DataView(input.buffer, input.byteOffset, input.byteLength),
       uint8Array: ensureUint8Array(input),
       allowNoncanonical: options.allowNoncanonical ?? false,
     }
     const result = this.parseWithContext(context, offset)
-
-    if (result instanceof ParseError) {
-      return { success: false, error: result }
-    }
+    if (isFailure(result)) return result
 
     if (!context.allowNoncanonical && result[1] !== input.byteLength - offset) {
-      return {
-        success: false,
-        error: new ParseError(
-          "non-canonical encoding - additional bytes present after the expected end of data",
-          input,
-          result[1],
-        ),
-      }
+      return new ParseFailure(
+        "non-canonical encoding - additional bytes present after the expected end of data",
+        input,
+        result[1],
+      )
     }
 
     return { success: true, value: result[0], length: result[1] }
@@ -77,26 +72,16 @@ export abstract class OerType<TParseValue, TSerializeValue = TParseValue> {
     input: Uint8Array,
     offset = 0,
     options: ParseOptions = {},
-  ): TParseValue {
+  ): { success: true; value: TParseValue; length: number } {
     const result = this.parse(input, offset, options)
+    if (isFailure(result)) throw new ParseError(result)
 
-    if (result.success) {
-      return result.value
-    }
-
-    throw result.error
+    return result
   }
 
-  serialize(
-    value: TSerializeValue,
-  ):
-    | { success: true; value: Uint8Array }
-    | { success: false; error: SerializeError } {
+  serialize(value: TSerializeValue): Uint8Array | SerializeFailure {
     const serializer = this.serializeWithContext(value)
-
-    if (serializer instanceof SerializeError) {
-      return { success: false, error: serializer }
-    }
+    if (isFailure(serializer)) return serializer
 
     const uint8Array = new Uint8Array(serializer.size)
 
@@ -112,19 +97,14 @@ export abstract class OerType<TParseValue, TSerializeValue = TParseValue> {
       0,
     )
 
-    return result instanceof SerializeError
-      ? { success: false, error: result }
-      : { success: true, value: uint8Array }
+    return isFailure(result) ? result : uint8Array
   }
 
   serializeOrThrow(value: TSerializeValue): Uint8Array {
     const result = this.serialize(value)
+    if (isFailure(result)) throw new SerializeError(result)
 
-    if (result.success) {
-      return result.value
-    }
-
-    throw result.error
+    return result
   }
 
   tag(tagValue: number, tagClass: Exclude<TagClass, "universal"> = "context") {
@@ -222,11 +202,11 @@ export class OerOptional<TParseValue, TSerializeValue> extends OerType<
   parseWithContext(
     context: ParseContext,
     offset: number,
-  ): ParseError | readonly [TParseValue, number] {
+  ): ParseFailure | readonly [TParseValue, number] {
     return this.subType.parseWithContext(context, offset)
   }
 
-  serializeWithContext(value: TSerializeValue): SerializeError | Serializer {
+  serializeWithContext(value: TSerializeValue): SerializeFailure | Serializer {
     return this.subType.serializeWithContext(value)
   }
 }
@@ -246,21 +226,21 @@ export class OerConstant<TParseValue, TSerializeValue> extends OerType<
 
     const subtypeSerializeResult = subType.serialize(value)
 
-    if (!subtypeSerializeResult.success) {
+    if (isFailure(subtypeSerializeResult)) {
       throw new TypeError(
         `Failed to serialize constant OER type with value '${String(value)}'`,
-        { cause: subtypeSerializeResult.error },
+        { cause: subtypeSerializeResult },
       )
     }
 
-    this.serializedValue = subtypeSerializeResult.value
+    this.serializedValue = subtypeSerializeResult
 
     const subtypeParseResult = subType.parse(this.serializedValue)
 
-    if (!subtypeParseResult.success) {
+    if (isFailure(subtypeParseResult)) {
       throw new TypeError(
         `Failed to parse constant OER type with value '${String(value)}'`,
-        { cause: subtypeParseResult.error },
+        { cause: subtypeParseResult },
       )
     }
 
@@ -274,9 +254,9 @@ export class OerConstant<TParseValue, TSerializeValue> extends OerType<
   parseWithContext(
     context: ParseContext,
     offset: number,
-  ): ParseError | readonly [TParseValue, number] {
+  ): ParseFailure | readonly [TParseValue, number] {
     if (context.uint8Array.length < offset + this.serializedValue.length) {
-      return new ParseError(
+      return new ParseFailure(
         `unable to read constant value - end of buffer`,
         context.uint8Array,
         context.uint8Array.length,
@@ -285,7 +265,7 @@ export class OerConstant<TParseValue, TSerializeValue> extends OerType<
 
     for (let index = 0; index < this.serializedValue.length; index++) {
       if (context.uint8Array[offset + index] !== this.serializedValue[index]) {
-        return new ParseError(
+        return new ParseFailure(
           `expected constant value did not match data while parsing`,
           context.uint8Array,
           offset + index,
@@ -329,17 +309,14 @@ export class OerRefined<
   parseWithContext(
     context: ParseContext,
     offset: number,
-  ): ParseError | readonly [TNarrowedType, number] {
+  ): ParseFailure | readonly [TNarrowedType, number] {
     const result = this.subType.parseWithContext(context, offset)
-
-    if (result instanceof ParseError) {
-      return result
-    }
+    if (isFailure(result)) return result
 
     const [value, size] = result
 
     if (!this.predicate(value)) {
-      return new ParseError(
+      return new ParseFailure(
         `refinement predicate failed`,
         context.uint8Array,
         offset,
@@ -349,7 +326,7 @@ export class OerRefined<
     return [value, size]
   }
 
-  serializeWithContext(value: TNarrowedType): SerializeError | Serializer {
+  serializeWithContext(value: TNarrowedType): SerializeFailure | Serializer {
     return this.subType.serializeWithContext(value)
   }
 }

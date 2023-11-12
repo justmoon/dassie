@@ -1,5 +1,7 @@
 import type { ConditionalExcept, ConditionalPick } from "type-fest"
 
+import { isFailure } from "@dassie/lib-type-utils"
+
 import {
   type AnyOerType,
   type Infer,
@@ -17,7 +19,7 @@ import type {
   InferInformationObjectParseShape,
   InferInformationObjectSerializeShape,
 } from "./information-object/sequence"
-import { ParseError, SerializeError } from "./utils/errors"
+import { ParseFailure } from "./utils/failures"
 import {
   parseLengthPrefix,
   predictLengthPrefixLength,
@@ -141,7 +143,7 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
     if (this.isExtensible || this.rootOptionalFields.length > 0) {
       const firstByte = uint8Array[offset]
       if (firstByte == undefined) {
-        return new ParseError(
+        return new ParseFailure(
           "unable to read sequence preamble - end of buffer",
           uint8Array,
           offset,
@@ -153,7 +155,7 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
       const preambleByteLength = Math.ceil(preambleBitLength / 8)
 
       if (uint8Array.length < offset + preambleByteLength) {
-        return new ParseError(
+        return new ParseFailure(
           `unable to read sequence preamble - end of buffer`,
           uint8Array,
           uint8Array.length,
@@ -179,7 +181,7 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
           (32 - 8 + (preambleBitLength % 8)) !==
         0
       ) {
-        return new ParseError(
+        return new ParseFailure(
           "invalid sequence preamble - unused bits must be zero",
           uint8Array,
           offset + preambleByteLength - 1,
@@ -204,9 +206,8 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
         offset + cursor,
         this.informationObjectSetState,
       )
-      if (result instanceof ParseError) {
-        return result
-      }
+      if (isFailure(result)) return result
+
       resultObject[key] = result[0]
       cursor += result[1]
     }
@@ -220,7 +221,7 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
         offset + cursor,
       )
 
-      if (extensionPresenceLengthParseResult instanceof ParseError) {
+      if (isFailure(extensionPresenceLengthParseResult)) {
         return extensionPresenceLengthParseResult
       }
 
@@ -230,7 +231,7 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
       cursor += extensionPresenceLengthOfLength
 
       if (extensionPresenceLength < 2) {
-        return new ParseError(
+        return new ParseFailure(
           "invalid extension presence bitmap - expected at least two bytes",
           uint8Array,
           offset + cursor,
@@ -240,7 +241,7 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
       const unusedBits = uint8Array[offset + cursor]!
 
       if (unusedBits > 7) {
-        return new ParseError(
+        return new ParseFailure(
           "invalid extension presence bitmap - unused bits value cannot be greater than 7",
           uint8Array,
           offset + cursor,
@@ -275,7 +276,7 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
         offset + cursor,
       )
 
-      if (extensionLengthParseResult instanceof ParseError) {
+      if (isFailure(extensionLengthParseResult)) {
         return extensionLengthParseResult
       }
 
@@ -291,15 +292,12 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
           context,
           offset + cursor,
         )
-
-        if (extensionParseResult instanceof ParseError) {
-          return extensionParseResult
-        }
+        if (isFailure(extensionParseResult)) return extensionParseResult
 
         resultObject[extensionKey] = extensionParseResult[0]
 
         if (extensionParseResult[1] > extensionLength) {
-          return new ParseError(
+          return new ParseFailure(
             "extension value extends beyond extension length",
             uint8Array,
             offset + cursor + extensionLength,
@@ -307,7 +305,7 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
         }
 
         if (!allowNoncanonical && extensionLength > extensionParseResult[1]) {
-          return new ParseError(
+          return new ParseFailure(
             "extra bytes inside of extension",
             uint8Array,
             offset + cursor,
@@ -352,10 +350,7 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
           (input as Record<string, unknown>)[key],
           this.informationObjectSetState,
         )
-
-        if (serializer instanceof SerializeError) {
-          return serializer
-        }
+        if (isFailure(serializer)) return serializer
 
         totalLength += serializer.size
         serializers[index++] = serializer
@@ -384,23 +379,23 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
           extensionPresenceLength,
         )
 
-        if (extensionPresenceLengthOfLength instanceof SerializeError) {
+        if (isFailure(extensionPresenceLengthOfLength)) {
           return extensionPresenceLengthOfLength
         }
 
         totalLength += extensionPresenceLengthOfLength + extensionPresenceLength
 
-        const serializer = (context: SerializeContext, offset: number) => {
+        const serializer: Serializer = (
+          context: SerializeContext,
+          offset: number,
+        ) => {
           const { uint8Array } = context
           const lengthSerializeResult = serializeLengthPrefix(
             extensionPresenceLength,
             uint8Array,
             offset,
           )
-
-          if (lengthSerializeResult instanceof SerializeError) {
-            return lengthSerializeResult
-          }
+          if (isFailure(lengthSerializeResult)) return lengthSerializeResult
 
           // Unused bits
           uint8Array[offset + extensionPresenceLengthOfLength] =
@@ -434,33 +429,25 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
 
       if (extension instanceof OerType) {
         const innerSerializer = extension.serializeWithContext(input[key])
-
-        if (innerSerializer instanceof SerializeError) {
-          return innerSerializer
-        }
+        if (isFailure(innerSerializer)) return innerSerializer
 
         const extensionLengthOfLength = predictLengthPrefixLength(
           innerSerializer.size,
         )
+        if (isFailure(extensionLengthOfLength)) return extensionLengthOfLength
 
-        if (extensionLengthOfLength instanceof SerializeError) {
-          return extensionLengthOfLength
-        }
-
-        const serializer = (context: SerializeContext, offset: number) => {
+        const serializer: Serializer = (
+          context: SerializeContext,
+          offset: number,
+        ) => {
           const lengthSerializeResult = serializeLengthPrefix(
             innerSerializer.size,
             context.uint8Array,
             offset,
           )
+          if (isFailure(lengthSerializeResult)) return lengthSerializeResult
 
-          if (lengthSerializeResult instanceof SerializeError) {
-            return lengthSerializeResult
-          }
-
-          innerSerializer(context, offset + extensionLengthOfLength)
-
-          return
+          return innerSerializer(context, offset + extensionLengthOfLength)
         }
         serializer.size = extensionLengthOfLength + innerSerializer.size
         serializers.push(serializer)
@@ -468,7 +455,10 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
       }
     }
 
-    const serializer = (context: SerializeContext, offset: number) => {
+    const serializer: Serializer = (
+      context: SerializeContext,
+      offset: number,
+    ) => {
       const { uint8Array } = context
 
       let cursor = 0
@@ -498,9 +488,13 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
       for (const serializer of serializers) {
         if (!serializer) continue
 
-        serializer(context, offset + cursor)
+        const result = serializer(context, offset + cursor)
+        if (isFailure(result)) return result
+
         cursor += serializer.size
       }
+
+      return
     }
     serializer.size = totalLength
     return serializer

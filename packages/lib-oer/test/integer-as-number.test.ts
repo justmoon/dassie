@@ -16,6 +16,9 @@ import {
 import { hexToUint8Array } from "../src/utils/hex"
 import { parsedOk, serializedOk } from "./utils/result"
 import { getFixedLengthSamples } from "./utils/sample-numbers"
+import { enableSnapshotSerializers } from "./utils/snapshot-serializers"
+
+enableSnapshotSerializers()
 
 describe("integerAsNumber", () => {
   test("should be a function", ({ expect }) => {
@@ -94,47 +97,31 @@ describe("integerAsNumber", () => {
     test("should not parse a number that is too high", ({ expect }) => {
       const result = schema.parse(hexToUint8Array("09"))
       expect(result).toMatchInlineSnapshot(`
-        {
-          "error": [ParseError: unable to read fixed length integer of size 1 bytes - value 9 is greater than maximum value 8
+        [ParseFailure(offset 0): unable to read fixed length integer of size 1 bytes - value 9 is greater than maximum value 8
 
             09  
-            ^^],
-          "success": false,
-        }
+            ^^]
       `)
     })
 
     test("should not serialize a number that is too high", ({ expect }) => {
       const result = schema.serialize(9)
-      expect(result).toMatchInlineSnapshot(`
-        {
-          "error": [SerializeError: integer must be <= 8],
-          "success": false,
-        }
-      `)
+      expect(result).toMatchInlineSnapshot('[SerializeFailure: integer must be <= 8]')
     })
 
     test("should not parse a number that is too low", ({ expect }) => {
       const result = schema.parse(hexToUint8Array("01"))
       expect(result).toMatchInlineSnapshot(`
-        {
-          "error": [ParseError: unable to read fixed length integer of size 1 bytes - value 1 is less than minimum value 5
+        [ParseFailure(offset 0): unable to read fixed length integer of size 1 bytes - value 1 is less than minimum value 5
 
             01  
-            ^^],
-          "success": false,
-        }
+            ^^]
       `)
     })
 
     test("should not serialize a number that is too low", ({ expect }) => {
       const result = schema.serialize(1)
-      expect(result).toMatchInlineSnapshot(`
-        {
-          "error": [SerializeError: integer must be >= 5],
-          "success": false,
-        }
-      `)
+      expect(result).toMatchInlineSnapshot('[SerializeFailure: integer must be >= 5]')
     })
   })
 })

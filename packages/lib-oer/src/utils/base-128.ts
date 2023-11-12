@@ -1,15 +1,17 @@
-import { ParseError, SerializeError } from "./errors"
+import { isFailure } from "@dassie/lib-type-utils"
+
+import { ParseFailure, SerializeFailure } from "./failures"
 import type { ParseContext } from "./parse"
 
 export const parseBase128 = (
   context: ParseContext,
   offset: number,
   endOffset: number,
-): ParseError | readonly [value: bigint, lengthOfEncoding: number] => {
+): ParseFailure | readonly [value: bigint, lengthOfEncoding: number] => {
   const { uint8Array } = context
 
   if (uint8Array[offset] == 0x80) {
-    return new ParseError(
+    return new ParseFailure(
       "invalid base-128 value - must not contain unnecessary padding",
       uint8Array,
       offset,
@@ -22,7 +24,7 @@ export const parseBase128 = (
   let nextByte: number | undefined
   do {
     if (offset + lengthOfEncoding >= endOffset) {
-      return new ParseError(
+      return new ParseFailure(
         "unable to read base-128 value - value is longer than expected based on context",
         uint8Array,
         offset + lengthOfEncoding,
@@ -32,7 +34,7 @@ export const parseBase128 = (
     nextByte = uint8Array[offset + lengthOfEncoding]
 
     if (nextByte == undefined) {
-      return new ParseError(
+      return new ParseFailure(
         `unable to read base-128 value - end of buffer after ${lengthOfEncoding} bytes`,
         uint8Array,
         uint8Array.byteLength,
@@ -52,10 +54,7 @@ export const serializeBase128 = (
   offset: number,
 ) => {
   const length = predictBase128Length(value)
-
-  if (length instanceof SerializeError) {
-    return length
-  }
+  if (isFailure(length)) return length
 
   for (let index = length - 1; index >= 0; index--) {
     uint8Array[offset + index] =
@@ -68,9 +67,9 @@ export const serializeBase128 = (
 
 export const predictBase128Length = (
   value: bigint,
-): SerializeError | number => {
+): SerializeFailure | number => {
   if (value < 0n) {
-    return new SerializeError(
+    return new SerializeFailure(
       "unable to serialize base-128 - negative integers are not permitted",
     )
   }

@@ -1,3 +1,5 @@
+import { isFailure } from "@dassie/lib-type-utils"
+
 import {
   type AnyOerType,
   type Infer,
@@ -6,7 +8,6 @@ import {
   type Serializer,
 } from "./base-type"
 import { integerAsBigint } from "./integer-as-bigint"
-import { ParseError, SerializeError } from "./utils/errors"
 import type { ParseContext, SerializeContext } from "./utils/parse"
 
 export class OerSequenceOf<TShape extends AnyOerType> extends OerType<
@@ -27,10 +28,7 @@ export class OerSequenceOf<TShape extends AnyOerType> extends OerType<
 
   parseWithContext(context: ParseContext, offset: number) {
     const sizeResult = this.sizeOer.parseWithContext(context, offset)
-
-    if (sizeResult instanceof ParseError) {
-      return sizeResult
-    }
+    if (isFailure(sizeResult)) return sizeResult
 
     const [size, sizeOfSize] = sizeResult
 
@@ -40,9 +38,8 @@ export class OerSequenceOf<TShape extends AnyOerType> extends OerType<
       const elementResult = (
         this.sequenceOfShape as OerType<unknown>
       ).parseWithContext(context, offset + totalLength)
-      if (elementResult instanceof ParseError) {
-        return elementResult
-      }
+      if (isFailure(elementResult)) return elementResult
+
       const [element, elementLength] = elementResult
       result.push(element as Infer<TShape>)
       totalLength += elementLength
@@ -55,10 +52,7 @@ export class OerSequenceOf<TShape extends AnyOerType> extends OerType<
     const sizeSerializer = this.sizeOer.serializeWithContext(
       BigInt(input.length),
     )
-
-    if (sizeSerializer instanceof SerializeError) {
-      return sizeSerializer
-    }
+    if (isFailure(sizeSerializer)) return sizeSerializer
 
     let totalLength = sizeSerializer.size
     const serializers: Serializer[] = Array.from({
@@ -67,10 +61,7 @@ export class OerSequenceOf<TShape extends AnyOerType> extends OerType<
     for (const [index, element] of input.entries()) {
       const elementSerializer =
         this.sequenceOfShape.serializeWithContext(element)
-
-      if (elementSerializer instanceof SerializeError) {
-        return elementSerializer
-      }
+      if (isFailure(elementSerializer)) return elementSerializer
 
       totalLength += elementSerializer.size
       serializers[index] = elementSerializer
@@ -78,17 +69,13 @@ export class OerSequenceOf<TShape extends AnyOerType> extends OerType<
 
     const serializer = (context: SerializeContext, offset: number) => {
       const sizeSerializeResult = sizeSerializer(context, offset)
-
-      if (sizeSerializeResult instanceof SerializeError) {
-        return sizeSerializeResult
-      }
+      if (isFailure(sizeSerializeResult)) return sizeSerializeResult
 
       let totalLength = sizeSerializer.size
       for (const serializer of serializers) {
         const elementResult = serializer(context, offset + totalLength)
-        if (elementResult instanceof SerializeError) {
-          return elementResult
-        }
+        if (isFailure(elementResult)) return elementResult
+
         totalLength += serializer.size
       }
 

@@ -65,25 +65,17 @@ export const generateBtpMessage = ({
   requestId: number
   protocolData: ProtocolData
 }) => {
-  const serializationResult = btpMessageSchema.serialize({
+  const serializationResult = btpMessageSchema.serializeOrThrow({
     protocolData,
   })
 
-  if (!serializationResult.success) {
-    throw serializationResult.error
-  }
-
-  const envelopeSerializationResult = btpEnvelopeSchema.serialize({
+  const envelopeSerializationResult = btpEnvelopeSchema.serializeOrThrow({
     messageType: BtpType.Message,
     requestId,
-    message: serializationResult.value,
+    message: serializationResult,
   })
 
-  if (!envelopeSerializationResult.success) {
-    throw envelopeSerializationResult.error
-  }
-
-  return envelopeSerializationResult.value
+  return envelopeSerializationResult
 }
 
 export const generateBtpTransfer = ({
@@ -95,26 +87,18 @@ export const generateBtpTransfer = ({
   amount: bigint
   protocolData: ProtocolData
 }) => {
-  const serializationResult = btpTransferSchema.serialize({
+  const serializationResult = btpTransferSchema.serializeOrThrow({
     amount,
     protocolData,
   })
 
-  if (!serializationResult.success) {
-    throw serializationResult.error
-  }
-
-  const envelopeSerializationResult = btpEnvelopeSchema.serialize({
+  const envelopeSerializationResult = btpEnvelopeSchema.serializeOrThrow({
     messageType: BtpType.Transfer,
     requestId,
-    message: serializationResult.value,
+    message: serializationResult,
   })
 
-  if (!envelopeSerializationResult.success) {
-    throw envelopeSerializationResult.error
-  }
-
-  return envelopeSerializationResult.value
+  return envelopeSerializationResult
 }
 
 export const generateBtpResponse = ({
@@ -124,25 +108,17 @@ export const generateBtpResponse = ({
   requestId: number
   protocolData: ProtocolData
 }) => {
-  const serializationResult = btpMessageSchema.serialize({
+  const serializationResult = btpMessageSchema.serializeOrThrow({
     protocolData,
   })
 
-  if (!serializationResult.success) {
-    throw serializationResult.error
-  }
-
-  const envelopeSerializationResult = btpEnvelopeSchema.serialize({
+  const envelopeSerializationResult = btpEnvelopeSchema.serializeOrThrow({
     messageType: BtpType.Response,
     requestId,
-    message: serializationResult.value,
+    message: serializationResult,
   })
 
-  if (!envelopeSerializationResult.success) {
-    throw envelopeSerializationResult.error
-  }
-
-  return envelopeSerializationResult.value
+  return envelopeSerializationResult
 }
 
 export const generateBtpError = ({
@@ -160,7 +136,7 @@ export const generateBtpError = ({
   data: Uint8Array
   protocolData: ProtocolData
 }) => {
-  const serializationResult = btpErrorSchema.serialize({
+  const serializationResult = btpErrorSchema.serializeOrThrow({
     code,
     name,
     triggeredAt,
@@ -168,19 +144,11 @@ export const generateBtpError = ({
     protocolData,
   })
 
-  if (!serializationResult.success) {
-    throw serializationResult.error
-  }
-
-  const envelopeSerializationResult = btpEnvelopeSchema.serialize({
+  const envelopeSerializationResult = btpEnvelopeSchema.serializeOrThrow({
     messageType: BtpType.Error,
     requestId,
-    message: serializationResult.value,
+    message: serializationResult,
   })
 
-  if (!envelopeSerializationResult.success) {
-    throw envelopeSerializationResult.error
-  }
-
-  return envelopeSerializationResult.value
+  return envelopeSerializationResult
 }

@@ -1,5 +1,5 @@
 import { createActor } from "@dassie/lib-reactive"
-import { bigIntMax } from "@dassie/lib-type-utils"
+import { bigIntMax, isFailure } from "@dassie/lib-type-utils"
 
 import { DatabaseConfigStore } from "../config/database-config"
 import { NodePublicKeySignal } from "../crypto/computed/node-public-key"
@@ -66,27 +66,26 @@ export const MaintainOwnNodeTableEntryActor = () =>
         entries: peerInfoEntries,
       })
 
-      if (!peerNodeInfoResult.success) {
+      if (isFailure(peerNodeInfoResult)) {
         logger.warn("Failed to serialize link state update signed portion", {
-          error: peerNodeInfoResult.error,
+          error: peerNodeInfoResult,
         })
         return
       }
 
-      const signature = await signer.api.signWithDassieKey.ask(
-        peerNodeInfoResult.value,
-      )
+      const signature =
+        await signer.api.signWithDassieKey.ask(peerNodeInfoResult)
       const message = signedPeerNodeInfo.serialize({
-        signed: peerNodeInfoResult.value,
+        signed: peerNodeInfoResult,
         signature: {
           type: "ed25519",
           value: signature,
         },
       })
 
-      if (!message.success) {
+      if (isFailure(message)) {
         logger.warn("Failed to serialize link state update message", {
-          error: message.error,
+          error: message,
         })
         return
       }
@@ -106,7 +105,7 @@ export const MaintainOwnNodeTableEntryActor = () =>
       }
 
       modifyNodeTableActor.api.processLinkState.tell({
-        linkStateBytes: message.value,
+        linkStateBytes: message,
         linkState: {
           nodeId,
           sequence,

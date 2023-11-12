@@ -54,9 +54,9 @@ export const RegisterPeerHttpHandlerActor = () =>
 
         const parseResult = peerMessageSchema.parse(body)
 
-        if (!parseResult.success) {
+        if (isFailure(parseResult)) {
           logger.debug("error while parsing incoming dassie message", {
-            error: parseResult.error,
+            error: parseResult,
             body,
           })
           return new BadRequestFailure(`Bad Request, failed to parse message`)

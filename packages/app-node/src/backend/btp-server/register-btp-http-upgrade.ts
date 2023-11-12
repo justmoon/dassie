@@ -10,6 +10,7 @@ import {
   btpTransferSchema,
 } from "@dassie/lib-protocol-utils"
 import { createActor } from "@dassie/lib-reactive"
+import { isFailure } from "@dassie/lib-type-utils"
 
 import { BtpTokensStore } from "../api-keys/database-stores/btp-tokens"
 import { BtpToken } from "../api-keys/types/btp-token"
@@ -64,11 +65,11 @@ export const RegisterBtpHttpUpgradeActor = () =>
               messageBuffer as Uint8Array,
             )
 
-            if (!envelopeParseResult.success) {
+            if (isFailure(envelopeParseResult)) {
               logger.warn(
                 "received invalid BTP packet on unauthenticated connection, closing connection",
                 {
-                  error: envelopeParseResult.error,
+                  error: envelopeParseResult,
                 },
               )
               socket.close()
@@ -90,11 +91,11 @@ export const RegisterBtpHttpUpgradeActor = () =>
 
             const messageParseResult = btpMessageSchema.parse(envelope.message)
 
-            if (!messageParseResult.success) {
+            if (isFailure(messageParseResult)) {
               logger.warn(
                 "received invalid BTP message on unauthenticated connection, closing connection",
                 {
-                  error: messageParseResult.error,
+                  error: messageParseResult,
                 },
               )
               socket.close()
@@ -198,113 +199,112 @@ export const RegisterBtpHttpUpgradeActor = () =>
           const messageResult = btpEnvelopeSchema.parse(
             messageBuffer as Uint8Array,
           )
-          if (messageResult.success) {
-            const message = messageResult.value
-            logger.debug("received BTP message", {
-              type: message.messageType,
-            })
-
-            switch (message.messageType) {
-              case BtpType.Message: {
-                const messageParseResult = btpMessageSchema.parse(
-                  message.message,
-                )
-
-                if (!messageParseResult.success) {
-                  logger.debug("failed to parse BTP message payload", {
-                    error: messageParseResult.error,
-                  })
-                  return
-                }
-
-                if (
-                  messageParseResult.value.protocolData.some(
-                    ({ protocolName }) => protocolName === "auth",
-                  )
-                ) {
-                  logger.debug(
-                    "received BTP auth packet on already authenticated connection, closing connection",
-                  )
-                  socket.close()
-                  return
-                }
-
-                for (const protocolData of messageParseResult.value
-                  .protocolData) {
-                  if (protocolData.protocolName === "ilp") {
-                    logger.debug("received ILP packet via BTP message")
-                    processIncomingPacketActor.api.handle.tell({
-                      sourceEndpointInfo: endpointInfo,
-                      serializedPacket: protocolData.data,
-                      requestId: message.requestId,
-                    })
-                    return
-                  }
-                }
-
-                return
-              }
-
-              case BtpType.Transfer: {
-                const transferParseResult = btpTransferSchema.parse(
-                  message.message,
-                )
-
-                if (!transferParseResult.success) {
-                  logger.debug("failed to parse BTP transfer payload", {
-                    error: transferParseResult.error,
-                  })
-                  return
-                }
-
-                for (const protocolData of transferParseResult.value
-                  .protocolData) {
-                  if (protocolData.protocolName === "ilp") {
-                    logger.debug("received ILP packet via BTP transfer")
-
-                    processIncomingPacketActor.api.handle.tell({
-                      sourceEndpointInfo: endpointInfo,
-                      serializedPacket: protocolData.data,
-                      requestId: message.requestId,
-                    })
-                    return
-                  }
-                }
-                return
-              }
-
-              case BtpType.Response: {
-                const responseParseResult = btpMessageSchema.parse(
-                  message.message,
-                )
-
-                if (!responseParseResult.success) {
-                  logger.debug("failed to parse BTP response payload", {
-                    error: responseParseResult.error,
-                  })
-                  return
-                }
-
-                for (const protocolData of responseParseResult.value
-                  .protocolData) {
-                  if (protocolData.protocolName === "ilp") {
-                    logger.debug("received ILP packet via BTP response")
-                    processIncomingPacketActor.api.handle.tell({
-                      sourceEndpointInfo: endpointInfo,
-                      serializedPacket: protocolData.data,
-                      requestId: message.requestId,
-                    })
-                    return
-                  }
-                }
-              }
-            }
-          } else {
+          if (isFailure(messageResult)) {
             logger.debug("failed to parse BTP message envelope", {
               // eslint-disable-next-line @typescript-eslint/no-base-to-string
               message: messageBuffer.toString("hex"),
-              error: messageResult.error,
+              error: messageResult,
             })
+            return
+          }
+
+          const message = messageResult.value
+          logger.debug("received BTP message", {
+            type: message.messageType,
+          })
+
+          switch (message.messageType) {
+            case BtpType.Message: {
+              const messageParseResult = btpMessageSchema.parse(message.message)
+
+              if (isFailure(messageParseResult)) {
+                logger.debug("failed to parse BTP message payload", {
+                  error: messageParseResult,
+                })
+                return
+              }
+
+              if (
+                messageParseResult.value.protocolData.some(
+                  ({ protocolName }) => protocolName === "auth",
+                )
+              ) {
+                logger.debug(
+                  "received BTP auth packet on already authenticated connection, closing connection",
+                )
+                socket.close()
+                return
+              }
+
+              for (const protocolData of messageParseResult.value
+                .protocolData) {
+                if (protocolData.protocolName === "ilp") {
+                  logger.debug("received ILP packet via BTP message")
+                  processIncomingPacketActor.api.handle.tell({
+                    sourceEndpointInfo: endpointInfo,
+                    serializedPacket: protocolData.data,
+                    requestId: message.requestId,
+                  })
+                  return
+                }
+              }
+
+              return
+            }
+
+            case BtpType.Transfer: {
+              const transferParseResult = btpTransferSchema.parse(
+                message.message,
+              )
+
+              if (isFailure(transferParseResult)) {
+                logger.debug("failed to parse BTP transfer payload", {
+                  error: transferParseResult,
+                })
+                return
+              }
+
+              for (const protocolData of transferParseResult.value
+                .protocolData) {
+                if (protocolData.protocolName === "ilp") {
+                  logger.debug("received ILP packet via BTP transfer")
+
+                  processIncomingPacketActor.api.handle.tell({
+                    sourceEndpointInfo: endpointInfo,
+                    serializedPacket: protocolData.data,
+                    requestId: message.requestId,
+                  })
+                  return
+                }
+              }
+              return
+            }
+
+            case BtpType.Response: {
+              const responseParseResult = btpMessageSchema.parse(
+                message.message,
+              )
+
+              if (isFailure(responseParseResult)) {
+                logger.debug("failed to parse BTP response payload", {
+                  error: responseParseResult,
+                })
+                return
+              }
+
+              for (const protocolData of responseParseResult.value
+                .protocolData) {
+                if (protocolData.protocolName === "ilp") {
+                  logger.debug("received ILP packet via BTP response")
+                  processIncomingPacketActor.api.handle.tell({
+                    sourceEndpointInfo: endpointInfo,
+                    serializedPacket: protocolData.data,
+                    requestId: message.requestId,
+                  })
+                  return
+                }
+              }
+            }
           }
         }
 

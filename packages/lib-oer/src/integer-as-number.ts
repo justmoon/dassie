@@ -1,5 +1,5 @@
 import { OerType } from "./base-type"
-import { ParseError, SerializeError } from "./utils/errors"
+import { ParseFailure, SerializeFailure } from "./utils/failures"
 import type { ParseContext, SerializeContext } from "./utils/parse"
 import { type FixedRange, type Range, parseRange } from "./utils/range"
 
@@ -36,7 +36,7 @@ export class OerFixedIntegerNumber extends OerIntegerNumber {
     const { type, size, range } = this.options
 
     if (offset + size / 8 > dataView.byteLength) {
-      return new ParseError(
+      return new ParseFailure(
         `unable to read fixed length integer of size ${
           size / 8
         } bytes - end of buffer`,
@@ -48,7 +48,7 @@ export class OerFixedIntegerNumber extends OerIntegerNumber {
     const value = dataView[`get${type}${size}`](offset)
 
     if (value < range[0]) {
-      return new ParseError(
+      return new ParseFailure(
         `unable to read fixed length integer of size ${
           size / 8
         } bytes - value ${value} is less than minimum value ${range[0]}`,
@@ -58,7 +58,7 @@ export class OerFixedIntegerNumber extends OerIntegerNumber {
     }
 
     if (value > range[1]) {
-      return new ParseError(
+      return new ParseFailure(
         `unable to read fixed length integer of size ${
           size / 8
         } bytes - value ${value} is greater than maximum value ${range[1]}`,
@@ -75,11 +75,11 @@ export class OerFixedIntegerNumber extends OerIntegerNumber {
 
     const serializer = (context: SerializeContext, offset: number) => {
       if (value < range[0]) {
-        return new SerializeError(`integer must be >= ${range[0]}`)
+        return new SerializeFailure(`integer must be >= ${range[0]}`)
       }
 
       if (value > range[1]) {
-        return new SerializeError(`integer must be <= ${range[1]}`)
+        return new SerializeFailure(`integer must be <= ${range[1]}`)
       }
 
       context.dataView[`set${type}${size}`](offset, value)

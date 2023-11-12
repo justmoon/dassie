@@ -1,7 +1,9 @@
 import type { ReadonlyTuple } from "type-fest"
 
+import { isFailure } from "@dassie/lib-type-utils"
+
 import { OerType } from "./base-type"
-import { ParseError, SerializeError } from "./utils/errors"
+import { ParseFailure, SerializeFailure } from "./utils/failures"
 import {
   parseLengthPrefix,
   predictLengthPrefixLength,
@@ -69,18 +71,16 @@ export class OerVariableBitstring<
 
   parseWithContext(context: ParseContext, offset: number) {
     const { uint8Array } = context
-    const result = parseLengthPrefix(context, offset)
 
-    if (result instanceof ParseError) {
-      return result
-    }
+    const result = parseLengthPrefix(context, offset)
+    if (isFailure(result)) return result
 
     const [length, lengthOfLength] = result
 
     const unusedBits = uint8Array[offset + lengthOfLength]!
 
     if (unusedBits > 7) {
-      return new ParseError(
+      return new ParseFailure(
         "unable to read bitstring - unused bits greater than 7",
         uint8Array,
         offset + 1,
@@ -103,18 +103,15 @@ export class OerVariableBitstring<
     const byteLength = Math.ceil(this.bits / 8)
     const unusedBits = 8 - (this.bits % 8)
     const length = byteLength + 1
+
     const lengthOfLength = predictLengthPrefixLength(length)
-    if (lengthOfLength instanceof SerializeError) {
-      return lengthOfLength
-    }
+    if (isFailure(lengthOfLength)) return lengthOfLength
 
     const serializer = (context: SerializeContext, offset: number) => {
       const { uint8Array } = context
-      const lengthOfLength = serializeLengthPrefix(length, uint8Array, offset)
 
-      if (lengthOfLength instanceof SerializeError) {
-        return lengthOfLength
-      }
+      const lengthOfLength = serializeLengthPrefix(length, uint8Array, offset)
+      if (isFailure(lengthOfLength)) return lengthOfLength
 
       uint8Array[offset + lengthOfLength] = unusedBits
       serializeBitstring(context, offset + lengthOfLength + 1, input)
@@ -140,7 +137,7 @@ export class OerFixedBitstring<TBitDefinition extends number> extends OerType<
     const byteLength = Math.ceil(this.bits / 8)
 
     if (context.uint8Array.length - offset < byteLength) {
-      return new ParseError(
+      return new ParseFailure(
         "unable to read bitstring value - end of buffer",
         context.uint8Array,
         offset,
@@ -155,7 +152,7 @@ export class OerFixedBitstring<TBitDefinition extends number> extends OerType<
   serializeWithContext(input: InferBitstringValue<TBitDefinition>) {
     const inputAsArray = input as boolean[]
     if (inputAsArray.length !== this.bits) {
-      return new SerializeError(
+      return new SerializeFailure(
         `unable to serialize bitstring - expected ${this.bits} bits, got ${inputAsArray.length}`,
       )
     }

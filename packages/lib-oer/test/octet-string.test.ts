@@ -6,6 +6,9 @@ import { hexToUint8Array } from "../src/utils/hex"
 import { parsedOk, serializedOk } from "./utils/result"
 import { sampleBuffer } from "./utils/sample-buffer"
 import { addLengthPrefix } from "./utils/sample-length-prefix"
+import { enableSnapshotSerializers } from "./utils/snapshot-serializers"
+
+enableSnapshotSerializers()
 
 describe("octetString", () => {
   test("should be a function", ({ expect }) => {
@@ -33,12 +36,7 @@ describe("octetString", () => {
       expect,
     }) => {
       const value = schema.serialize(sampleBuffer.slice(0, 21))
-      expect(value).toMatchInlineSnapshot(`
-        {
-          "error": [SerializeError: Expected octet string of length 22, but got 21],
-          "success": false,
-        }
-      `)
+      expect(value).toMatchInlineSnapshot('[SerializeFailure: Expected octet string of length 22, but got 21]')
     })
 
     test("should return a plain Uint8Array even when parsing an input Buffer", ({
@@ -69,141 +67,17 @@ describe("octetString", () => {
     test("should serialize a buffer with 128 bytes", ({ expect }) => {
       const value = schema.serialize(sampleBuffer.slice(0, 128))
       expect(value).toMatchInlineSnapshot(`
-        {
-          "success": true,
-          "value": Uint8Array [
-            129,
-            128,
-            221,
-            141,
-            113,
-            113,
-            189,
-            198,
-            177,
-            102,
-            56,
-            3,
-            245,
-            58,
-            46,
-            29,
-            219,
-            55,
-            0,
-            75,
-            47,
-            254,
-            176,
-            89,
-            191,
-            152,
-            111,
-            13,
-            5,
-            113,
-            126,
-            140,
-            15,
-            215,
-            210,
-            250,
-            176,
-            8,
-            175,
-            109,
-            10,
-            170,
-            29,
-            202,
-            162,
-            247,
-            125,
-            8,
-            48,
-            216,
-            209,
-            143,
-            109,
-            138,
-            161,
-            102,
-            164,
-            152,
-            32,
-            38,
-            171,
-            175,
-            50,
-            167,
-            149,
-            137,
-            158,
-            66,
-            60,
-            237,
-            138,
-            9,
-            47,
-            51,
-            129,
-            11,
-            79,
-            22,
-            118,
-            75,
-            114,
-            31,
-            125,
-            205,
-            83,
-            33,
-            184,
-            237,
-            231,
-            141,
-            0,
-            230,
-            28,
-            210,
-            90,
-            132,
-            31,
-            74,
-            64,
-            76,
-            117,
-            117,
-            156,
-            73,
-            144,
-            177,
-            162,
-            43,
-            143,
-            243,
-            83,
-            39,
-            125,
-            17,
-            219,
-            156,
-            161,
-            173,
-            128,
-            68,
-            6,
-            89,
-            240,
-            138,
-            1,
-            219,
-            167,
-            146,
-            201,
-            9,
-          ],
-        }
+        Uint8Array [
+          81 80 dd 8d 71 71 bd c6 b1 66 38 03 f5 3a 2e 1d
+          db 37 00 4b 2f fe b0 59 bf 98 6f 0d 05 71 7e 8c
+          0f d7 d2 fa b0 08 af 6d 0a aa 1d ca a2 f7 7d 08
+          30 d8 d1 8f 6d 8a a1 66 a4 98 20 26 ab af 32 a7
+          95 89 9e 42 3c ed 8a 09 2f 33 81 0b 4f 16 76 4b
+          72 1f 7d cd 53 21 b8 ed e7 8d 00 e6 1c d2 5a 84
+          1f 4a 40 4c 75 75 9c 49 90 b1 a2 2b 8f f3 53 27
+          7d 11 db 9c a1 ad 80 44 06 59 f0 8a 01 db a7 92
+          c9 09
+        ]
       `)
     })
 
@@ -213,13 +87,10 @@ describe("octetString", () => {
       const value = schema.parse(hexToUint8Array("81 01 12"))
       expect(value).toMatchInlineSnapshot(
         `
-        {
-          "error": [ParseError: non-canonical encoding - length prefix is not minimal (length <= 0x7f but not encoded as a single byte)
+        [ParseFailure(offset 0): non-canonical encoding - length prefix is not minimal (length <= 0x7f but not encoded as a single byte)
 
             81 01 12  
-            ^^],
-          "success": false,
-        }
+            ^^]
       `,
         "error",
       )
@@ -242,13 +113,10 @@ describe("octetString", () => {
       const value = schema.parse(testVector)
       expect(value).toMatchInlineSnapshot(
         `
-        {
-          "error": [ParseError: non-canonical encoding - length prefix is not minimal (could be encoded in fewer bytes)
+        [ParseFailure(offset 0): non-canonical encoding - length prefix is not minimal (could be encoded in fewer bytes)
 
             82 00 80 71 bd c6 b1 66 38 03 f5 3a 2e 1d db 37 00 4b 2f fe …
-            ^^],
-          "success": false,
-        }
+            ^^]
       `,
         "error",
       )
@@ -265,134 +133,14 @@ describe("octetString", () => {
           "length": 131,
           "success": true,
           "value": Uint8Array [
-            113,
-            189,
-            198,
-            177,
-            102,
-            56,
-            3,
-            245,
-            58,
-            46,
-            29,
-            219,
-            55,
-            0,
-            75,
-            47,
-            254,
-            176,
-            89,
-            191,
-            152,
-            111,
-            13,
-            5,
-            113,
-            126,
-            140,
-            15,
-            215,
-            210,
-            250,
-            176,
-            8,
-            175,
-            109,
-            10,
-            170,
-            29,
-            202,
-            162,
-            247,
-            125,
-            8,
-            48,
-            216,
-            209,
-            143,
-            109,
-            138,
-            161,
-            102,
-            164,
-            152,
-            32,
-            38,
-            171,
-            175,
-            50,
-            167,
-            149,
-            137,
-            158,
-            66,
-            60,
-            237,
-            138,
-            9,
-            47,
-            51,
-            129,
-            11,
-            79,
-            22,
-            118,
-            75,
-            114,
-            31,
-            125,
-            205,
-            83,
-            33,
-            184,
-            237,
-            231,
-            141,
-            0,
-            230,
-            28,
-            210,
-            90,
-            132,
-            31,
-            74,
-            64,
-            76,
-            117,
-            117,
-            156,
-            73,
-            144,
-            177,
-            162,
-            43,
-            143,
-            243,
-            83,
-            39,
-            125,
-            17,
-            219,
-            156,
-            161,
-            173,
-            128,
-            68,
-            6,
-            89,
-            240,
-            138,
-            1,
-            219,
-            167,
-            146,
-            201,
-            9,
-            0,
-            0,
-            0,
+            71 bd c6 b1 66 38 03 f5 3a 2e 1d db 37 00 4b 2f
+            fe b0 59 bf 98 6f 0d 05 71 7e 8c 0f d7 d2 fa b0
+            08 af 6d 0a aa 1d ca a2 f7 7d 08 30 d8 d1 8f 6d
+            8a a1 66 a4 98 20 26 ab af 32 a7 95 89 9e 42 3c
+            ed 8a 09 2f 33 81 0b 4f 16 76 4b 72 1f 7d cd 53
+            21 b8 ed e7 8d 00 e6 1c d2 5a 84 1f 4a 40 4c 75
+            75 9c 49 90 b1 a2 2b 8f f3 53 27 7d 11 db 9c a1
+            ad 80 44 06 59 f0 8a 01 db a7 92 c9 09 00 00 00
           ],
         }
       `)
@@ -486,12 +234,7 @@ describe("octetString", () => {
       expect,
     }) => {
       const value = schema.serialize(hexToUint8Array("0001e24000"))
-      expect(value).toMatchInlineSnapshot(`
-        {
-          "error": [SerializeError: Expected octet string of length 4, but got 5],
-          "success": false,
-        }
-      `)
+      expect(value).toMatchInlineSnapshot('[SerializeFailure: Expected octet string of length 4, but got 5]')
     })
 
     test("should parse 123456", ({ expect }) => {
@@ -531,24 +274,16 @@ describe("octetString", () => {
       expect,
     }) => {
       const value = schema.serialize(sampleBuffer.slice(0, 9))
-      expect(value).toMatchInlineSnapshot(`
-        {
-          "error": [SerializeError: Expected octet string of length at most 8, but got 9],
-          "success": false,
-        }
-      `)
+      expect(value).toMatchInlineSnapshot('[SerializeFailure: Expected octet string of length at most 8, but got 9]')
     })
 
     test("should refuse to parse a buffer with nine bytes", ({ expect }) => {
       const value = schema.parse(addLengthPrefix(sampleBuffer.slice(0, 9)))
       expect(value).toMatchInlineSnapshot(`
-        {
-          "error": [ParseError: Expected octet string of length at most 8, but got 9
+        [ParseFailure(offset 0): Expected octet string of length at most 8, but got 9
 
             09 dd 8d 71 71 bd c6 b1 66 38  
-            ^^],
-          "success": false,
-        }
+            ^^]
       `)
     })
 
@@ -556,24 +291,16 @@ describe("octetString", () => {
       expect,
     }) => {
       const value = schema.serialize(sampleBuffer.slice(0, 4))
-      expect(value).toMatchInlineSnapshot(`
-        {
-          "error": [SerializeError: Expected octet string of length at least 5, but got 4],
-          "success": false,
-        }
-      `)
+      expect(value).toMatchInlineSnapshot('[SerializeFailure: Expected octet string of length at least 5, but got 4]')
     })
 
     test("should refuse to parse a buffer with four bytes", ({ expect }) => {
       const value = schema.parse(addLengthPrefix(sampleBuffer.slice(0, 4)))
       expect(value).toMatchInlineSnapshot(`
-        {
-          "error": [ParseError: Expected octet string of length at least 5, but got 4
+        [ParseFailure(offset 0): Expected octet string of length at least 5, but got 4
 
             04 dd 8d 71 71  
-            ^^],
-          "success": false,
-        }
+            ^^]
       `)
     })
   })

@@ -1,6 +1,8 @@
+import { isFailure } from "@dassie/lib-type-utils"
+
 import type { AnyOerType, Infer, OerType, Serializer } from "../base-type"
 import { octetString } from "../octet-string"
-import { ParseError, SerializeError } from "../utils/errors"
+import { ParseFailure, SerializeFailure } from "../utils/failures"
 import type { ParseContext } from "../utils/parse"
 import {
   type ClassDefinitionShape,
@@ -48,11 +50,11 @@ export interface ObjectSetField<
     context: ParseContext,
     offset: number,
     informationObjectSetState: InformationObjectSetStateMap,
-  ) => readonly [value: unknown, length: number] | ParseError
+  ) => readonly [value: unknown, length: number] | ParseFailure
   serializeWithContext: (
     value: unknown,
     informationObjectSetState: InformationObjectSetStateMap,
-  ) => SerializeError | Serializer
+  ) => SerializeFailure | Serializer
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -110,7 +112,7 @@ const defineObjectSetField = <
         const state = informationObjectSetState.get(objectSetShape)
 
         if (state === undefined) {
-          return new ParseError(
+          return new ParseFailure(
             "Cannot parse open type unless an identifier field appears before it in the same sequence",
             context.uint8Array,
             offset,
@@ -121,10 +123,7 @@ const defineObjectSetField = <
           context,
           offset,
         )
-
-        if (wrapperParseResult instanceof ParseError) {
-          return wrapperParseResult
-        }
+        if (isFailure(wrapperParseResult)) return wrapperParseResult
 
         const lengthOfLength =
           wrapperParseResult[1] - wrapperParseResult[0].byteLength
@@ -132,16 +131,13 @@ const defineObjectSetField = <
         const innerValue = (
           objectSetShape[state]![field] as AnyOerType
         ).parseWithContext(context, offset + lengthOfLength)
-
-        if (innerValue instanceof ParseError) {
-          return innerValue
-        }
+        if (isFailure(innerValue)) return innerValue
 
         if (
           !context.allowNoncanonical &&
           innerValue[1] < wrapperParseResult[0].byteLength
         ) {
-          return new ParseError(
+          return new ParseFailure(
             "extra bytes inside of open type",
             context.uint8Array,
             offset + lengthOfLength + innerValue[1],
@@ -154,7 +150,7 @@ const defineObjectSetField = <
         const state = informationObjectSetState.get(objectSetShape)
 
         if (state === undefined) {
-          return new SerializeError(
+          return new SerializeFailure(
             "Cannot serialize open type unless an identifier field appears before it in the same sequence",
           )
         }
@@ -162,10 +158,7 @@ const defineObjectSetField = <
         const innerValue = (
           objectSetShape[state]![field] as AnyOerType
         ).serializeWithContext(value)
-
-        if (innerValue instanceof SerializeError) {
-          return innerValue
-        }
+        if (isFailure(innerValue)) return innerValue
 
         return openTypeWrapper.serializeWithContext(innerValue)
       },
@@ -178,7 +171,7 @@ const defineObjectSetField = <
     }
     const serializeResult = type.serializeWithContext(x[field])
 
-    if (serializeResult instanceof SerializeError) {
+    if (isFailure(serializeResult)) {
       // eslint-disable-next-line unicorn/prefer-type-error
       throw new Error(
         `Cannot define object set because the value "${String(
@@ -201,10 +194,7 @@ const defineObjectSetField = <
         context,
         offset,
       )
-
-      if (parseResult instanceof ParseError) {
-        return parseResult
-      }
+      if (isFailure(parseResult)) return parseResult
 
       const [value, length] = parseResult
 
@@ -213,7 +203,7 @@ const defineObjectSetField = <
       )
 
       if (index === -1) {
-        return new ParseError(
+        return new ParseFailure(
           `Unknown value in identifier field`,
           context.uint8Array,
           offset,
@@ -230,7 +220,7 @@ const defineObjectSetField = <
       )
 
       if (index === -1) {
-        return new SerializeError(
+        return new SerializeFailure(
           `Cannot serialize value "${String(
             value,
           )}" because it is not a member of the object set`,

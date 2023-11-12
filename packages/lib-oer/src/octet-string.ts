@@ -1,5 +1,7 @@
+import { isFailure } from "@dassie/lib-type-utils"
+
 import { OerType, type Serializer } from "./base-type"
-import { ParseError, SerializeError } from "./utils/errors"
+import { ParseFailure, SerializeFailure } from "./utils/failures"
 import { isSerializer } from "./utils/is-serializer"
 import { isUint8Array } from "./utils/is-uint8array"
 import {
@@ -37,14 +39,14 @@ export class OerFixedOctetString extends OerType<
   serializeWithContext(value: Uint8Array | Serializer) {
     const length = isSerializer(value) ? value.size : value.length
     if (length !== this.length) {
-      return new SerializeError(
+      return new SerializeFailure(
         `Expected octet string of length ${this.length}, but got ${length}`,
       )
     }
 
     const serializer = (context: SerializeContext, offset: number) => {
       if (isSerializer(value)) {
-        value(context, offset)
+        return value(context, offset)
       } else {
         context.uint8Array.set(value, offset)
       }
@@ -74,16 +76,14 @@ export class OerVariableOctetString extends OerType<
 
   parseWithContext(context: ParseContext, offset: number) {
     const { uint8Array } = context
-    const result = parseLengthPrefix(context, offset)
 
-    if (result instanceof ParseError) {
-      return result
-    }
+    const result = parseLengthPrefix(context, offset)
+    if (isFailure(result)) return result
 
     const [length, lengthOfLength] = result
 
     if (this.sizeRange[0] != undefined && length < this.sizeRange[0]) {
-      return new ParseError(
+      return new ParseFailure(
         `Expected octet string of length at least ${this.sizeRange[0]}, but got ${length}`,
         uint8Array,
         offset,
@@ -91,7 +91,7 @@ export class OerVariableOctetString extends OerType<
     }
 
     if (this.sizeRange[1] != undefined && length > this.sizeRange[1]) {
-      return new ParseError(
+      return new ParseFailure(
         `Expected octet string of length at most ${this.sizeRange[1]}, but got ${length}`,
         uint8Array,
         offset,
@@ -111,22 +111,19 @@ export class OerVariableOctetString extends OerType<
     const length = isSerializer(input) ? input.size : input.length
 
     if (this.sizeRange[0] != undefined && length < this.sizeRange[0]) {
-      return new SerializeError(
+      return new SerializeFailure(
         `Expected octet string of length at least ${this.sizeRange[0]}, but got ${length}`,
       )
     }
 
     if (this.sizeRange[1] != undefined && length > this.sizeRange[1]) {
-      return new SerializeError(
+      return new SerializeFailure(
         `Expected octet string of length at most ${this.sizeRange[1]}, but got ${length}`,
       )
     }
 
     const lengthOfLengthPrefix = predictLengthPrefixLength(length)
-
-    if (lengthOfLengthPrefix instanceof SerializeError) {
-      return lengthOfLengthPrefix
-    }
+    if (isFailure(lengthOfLengthPrefix)) return lengthOfLengthPrefix
 
     const serializer = (context: SerializeContext, offset: number) => {
       const lengthOfLengthPrefix = serializeLengthPrefix(
@@ -134,16 +131,13 @@ export class OerVariableOctetString extends OerType<
         context.uint8Array,
         offset,
       )
-
-      if (lengthOfLengthPrefix instanceof SerializeError) {
-        return lengthOfLengthPrefix
-      }
+      if (isFailure(lengthOfLengthPrefix)) return lengthOfLengthPrefix
 
       if (isSerializer(input)) {
-        input(context, offset + lengthOfLengthPrefix)
-      } else {
-        context.uint8Array.set(input, offset + lengthOfLengthPrefix)
+        return input(context, offset + lengthOfLengthPrefix)
       }
+
+      context.uint8Array.set(input, offset + lengthOfLengthPrefix)
       return
     }
     serializer.size = lengthOfLengthPrefix + length
@@ -177,10 +171,7 @@ export class OerOctetStringContaining<
       context,
       offset,
     )
-
-    if (octetStringResult instanceof ParseError) {
-      return octetStringResult
-    }
+    if (isFailure(octetStringResult)) return octetStringResult
 
     const [parsedOctetString, octetStringOverallLength] = octetStringResult
 
@@ -189,10 +180,7 @@ export class OerOctetStringContaining<
       // We don't have a direct way to find out the length of the length prefix (if there is one). But we know that the subtype contents are at the end of the parsed data and we can simply take the end of the whole encoding and subtract the length of the subtype field.
       offset + octetStringOverallLength - parsedOctetString.length,
     )
-
-    if (subTypeResult instanceof ParseError) {
-      return subTypeResult
-    }
+    if (isFailure(subTypeResult)) return subTypeResult
 
     const [subTypeValue] = subTypeResult
 
@@ -205,10 +193,7 @@ export class OerOctetStringContaining<
     }
 
     const subtypeSerializeResult = this.subType.serializeWithContext(value)
-
-    if (subtypeSerializeResult instanceof SerializeError) {
-      return subtypeSerializeResult
-    }
+    if (isFailure(subtypeSerializeResult)) return subtypeSerializeResult
 
     return this.octetStringType.serializeWithContext(subtypeSerializeResult)
   }

@@ -1,5 +1,5 @@
 import { OerType } from "./base-type"
-import { ParseError } from "./utils/errors"
+import { ParseFailure } from "./utils/failures"
 import type { ParseContext, SerializeContext } from "./utils/parse"
 
 export class OerBoolean extends OerType<boolean> {
@@ -13,14 +13,14 @@ export class OerBoolean extends OerType<boolean> {
   ) {
     const value = uint8Array[offset]
     if (value === undefined) {
-      return new ParseError(
+      return new ParseFailure(
         "unable to read boolean value - end of buffer",
         uint8Array,
         offset,
       )
     }
     if (!allowNoncanonical && value !== 0 && value !== 0xff) {
-      return new ParseError(
+      return new ParseFailure(
         "unable to read boolean value - non-canonical",
         uint8Array,
         offset,

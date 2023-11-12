@@ -3,6 +3,7 @@ import type { SetOptional } from "type-fest"
 
 import type { Infer, InferSerialize } from "@dassie/lib-oer"
 import { createActor, createTopic } from "@dassie/lib-reactive"
+import { isFailure } from "@dassie/lib-type-utils"
 
 import { EnvironmentConfigSignal } from "../../config/environment-config"
 import { NodeIdSignal } from "../../ilp-connector/computed/node-id"
@@ -38,15 +39,9 @@ export const OutgoingPeerMessageTopic = () =>
 const serializePeerMessage = (
   message: InferSerialize<typeof peerMessageContent>,
 ) => {
-  const messageSerializeResult = peerMessageContent.serialize(message)
+  const messageSerializeResult = peerMessageContent.serializeOrThrow(message)
 
-  if (!messageSerializeResult.success) {
-    throw new Error("Failed to serialize peer message", {
-      cause: messageSerializeResult.error,
-    })
-  }
-
-  return messageSerializeResult.value
+  return messageSerializeResult
 }
 
 interface NodeContactInfo {
@@ -133,9 +128,9 @@ export const SendPeerMessageActor = () =>
           content: { bytes: serializedMessage },
         })
 
-        if (!envelopeSerializationResult.success) {
+        if (isFailure(envelopeSerializationResult)) {
           logger.warn("failed to serialize message", {
-            error: envelopeSerializationResult.error,
+            error: envelopeSerializationResult,
           })
           return
         }
@@ -143,7 +138,7 @@ export const SendPeerMessageActor = () =>
         try {
           const result = await axios<Buffer>(`${contactInfo.url}/peer`, {
             method: "POST",
-            data: envelopeSerializationResult.value,
+            data: envelopeSerializationResult,
             headers: {
               accept: DASSIE_MESSAGE_CONTENT_TYPE,
               "content-type": DASSIE_MESSAGE_CONTENT_TYPE,
@@ -162,9 +157,9 @@ export const SendPeerMessageActor = () =>
 
           const response = responseSchema.parse(resultUint8Array)
 
-          if (!response.success) {
+          if (isFailure(response)) {
             logger.warn("failed to parse response", {
-              error: response.error,
+              error: response,
               from: destination,
             })
             return

@@ -1,12 +1,14 @@
 import type { Simplify } from "type-fest"
 
+import { isFailure } from "@dassie/lib-type-utils"
+
 import {
   type AnyOerType,
   type Infer,
   type InferSerialize,
   OerType,
 } from "./base-type"
-import { ParseError, SerializeError } from "./utils/errors"
+import { ParseFailure, SerializeFailure } from "./utils/failures"
 import type { ParseContext, SerializeContext } from "./utils/parse"
 import {
   TAG_MARKER_CONTEXT,
@@ -109,15 +111,12 @@ export class OerChoice<TOptions extends OptionsShape> extends OerType<
 
   parseWithContext(context: ParseContext, offset: number) {
     const tagResult = parseTag(context, offset)
-
-    if (tagResult instanceof ParseError) {
-      return tagResult
-    }
+    if (isFailure(tagResult)) return tagResult
 
     const [tag, tagClass, tagLength] = tagResult
 
     if (tag > MAX_SAFE_TAG_VALUE) {
-      return new ParseError(
+      return new ParseFailure(
         `unable to parse choice value - tag value ${tag} is too large`,
         context.uint8Array,
         offset,
@@ -127,7 +126,7 @@ export class OerChoice<TOptions extends OptionsShape> extends OerType<
     const type = this.tagToKeyMap.get((tag << 2) | tagClass)
 
     if (type == undefined) {
-      return new ParseError(
+      return new ParseFailure(
         `unable to read choice value - tag ${tagMarkerClassMap[
           tagClass
         ].toUpperCase()} ${tag} not in set ${this.setHint}`,
@@ -139,10 +138,7 @@ export class OerChoice<TOptions extends OptionsShape> extends OerType<
     const oer = this.options[type]! as OerType<unknown>
 
     const result = oer.parseWithContext(context, offset + tagLength)
-
-    if (result instanceof ParseError) {
-      return result
-    }
+    if (isFailure(result)) return result
 
     return [
       { type, value: result[0] } as Simplify<InferOptionValues<TOptions>>,
@@ -156,7 +152,7 @@ export class OerChoice<TOptions extends OptionsShape> extends OerType<
     const tag = this.keyToTagMap.get(type)
 
     if (tag == undefined) {
-      return new SerializeError(
+      return new SerializeFailure(
         `unable to serialize choice value - option ${type} not in set ${this.setHint}`,
       )
     }
@@ -167,22 +163,16 @@ export class OerChoice<TOptions extends OptionsShape> extends OerType<
     const oer = this.options[type]
 
     if (oer == undefined) {
-      return new SerializeError(
+      return new SerializeFailure(
         `unable to serialize choice value - option ${type} not in set ${this.setHint}`,
       )
     }
 
     const tagLength = predictTagLength(tagValue)
-
-    if (tagLength instanceof SerializeError) {
-      return tagLength
-    }
+    if (isFailure(tagLength)) return tagLength
 
     const valueSerializer = oer.serializeWithContext(input.value)
-
-    if (valueSerializer instanceof SerializeError) {
-      return valueSerializer
-    }
+    if (isFailure(valueSerializer)) return valueSerializer
 
     const serializer = (context: SerializeContext, offset: number) => {
       const { uint8Array } = context
@@ -193,16 +183,10 @@ export class OerChoice<TOptions extends OptionsShape> extends OerType<
         uint8Array,
         offset,
       )
-
-      if (tagSerializeResult instanceof SerializeError) {
-        return tagSerializeResult
-      }
+      if (isFailure(tagSerializeResult)) return tagSerializeResult
 
       const serializeResult = valueSerializer(context, offset + tagLength)
-
-      if (serializeResult instanceof SerializeError) {
-        return serializeResult
-      }
+      if (isFailure(serializeResult)) return serializeResult
 
       return
     }

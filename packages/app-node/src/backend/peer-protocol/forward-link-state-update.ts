@@ -1,4 +1,5 @@
 import { createActor } from "@dassie/lib-reactive"
+import { isFailure } from "@dassie/lib-type-utils"
 
 import { peerProtocol as logger } from "../logger/instances"
 import { SendPeerMessageActor } from "./actors/send-peer-message"
@@ -35,9 +36,9 @@ export const ForwardLinkStateUpdateActor = () =>
           },
         })
 
-        if (!message.success) {
+        if (isFailure(message)) {
           throw new Error("Failed to serialize link state update message", {
-            cause: message.error,
+            cause: message,
           })
         }
 
@@ -59,7 +60,7 @@ export const ForwardLinkStateUpdateActor = () =>
                 bytes: node.linkState.lastUpdate,
               },
             },
-            asUint8Array: message.value,
+            asUint8Array: message,
           })
         }
       }

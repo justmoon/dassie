@@ -1,4 +1,4 @@
-import { assertDefined } from "@dassie/lib-type-utils"
+import { assertDefined, isFailure } from "@dassie/lib-type-utils"
 
 import { OerType } from "./base-type"
 import {
@@ -6,7 +6,7 @@ import {
   predictBase128Length,
   serializeBase128,
 } from "./utils/base-128"
-import { ParseError, SerializeError } from "./utils/errors"
+import { ParseFailure, SerializeFailure } from "./utils/failures"
 import {
   parseLengthPrefix,
   predictLengthPrefixLength,
@@ -21,16 +21,14 @@ export class OerObjectIdentifier extends OerType<string> {
 
   parseWithContext(context: ParseContext, offset: number) {
     const { uint8Array } = context
-    const result = parseLengthPrefix(context, offset)
 
-    if (result instanceof ParseError) {
-      return result
-    }
+    const result = parseLengthPrefix(context, offset)
+    if (isFailure(result)) return result
 
     const [length, lengthOfLength] = result
 
     if (length === 0) {
-      return new ParseError(
+      return new ParseFailure(
         "object identifier of length zero is invalid",
         uint8Array,
         offset,
@@ -46,9 +44,8 @@ export class OerObjectIdentifier extends OerType<string> {
         nextOffset,
         offset + lengthOfLength + length,
       )
-      if (subidentifier instanceof ParseError) {
-        return subidentifier
-      }
+      if (isFailure(subidentifier)) return subidentifier
+
       subidentifiers.push(subidentifier[0])
       nextOffset += subidentifier[1]
     }
@@ -70,13 +67,13 @@ export class OerObjectIdentifier extends OerType<string> {
     const objectIdentifierComponents = input.split(".").map(BigInt)
 
     if (objectIdentifierComponents.some((x) => x < 0n)) {
-      return new SerializeError(
+      return new SerializeFailure(
         "object identifier components must be non-negative",
       )
     }
 
     if (objectIdentifierComponents.length < 2) {
-      return new SerializeError(
+      return new SerializeFailure(
         "object identifier must have at least two components",
       )
     }
@@ -85,7 +82,7 @@ export class OerObjectIdentifier extends OerType<string> {
       objectIdentifierComponents[0]! > 2 ||
       objectIdentifierComponents[0]! < 0
     ) {
-      return new SerializeError(
+      return new SerializeFailure(
         "object identifier first component must be in the range of 0..2",
       )
     }
@@ -94,7 +91,7 @@ export class OerObjectIdentifier extends OerType<string> {
       objectIdentifierComponents[0]! < 2 &&
       objectIdentifierComponents[1]! >= 40
     ) {
-      return new SerializeError(
+      return new SerializeFailure(
         "object identifier second component must be in the range of 0..39 when first component is 0 or 1",
       )
     }
@@ -111,18 +108,13 @@ export class OerObjectIdentifier extends OerType<string> {
 
     for (const subidentifier of subidentifiers) {
       const subidentifierLength = predictBase128Length(subidentifier)
-      if (subidentifierLength instanceof SerializeError) {
-        return subidentifierLength
-      }
+      if (isFailure(subidentifierLength)) return subidentifierLength
 
       length += subidentifierLength
     }
 
     const lengthOfLengthPrefix = predictLengthPrefixLength(length)
-
-    if (lengthOfLengthPrefix instanceof SerializeError) {
-      return lengthOfLengthPrefix
-    }
+    if (isFailure(lengthOfLengthPrefix)) return lengthOfLengthPrefix
 
     const serializer = ({ uint8Array }: SerializeContext, offset: number) => {
       const lengthPrefixSerializeResult = serializeLengthPrefix(
@@ -131,9 +123,8 @@ export class OerObjectIdentifier extends OerType<string> {
         offset,
       )
 
-      if (lengthPrefixSerializeResult instanceof SerializeError) {
+      if (isFailure(lengthPrefixSerializeResult))
         return lengthPrefixSerializeResult
-      }
 
       let currentOffset = (offset = lengthOfLengthPrefix)
       for (const subidentifier of subidentifiers) {
@@ -143,9 +134,8 @@ export class OerObjectIdentifier extends OerType<string> {
           currentOffset,
         )
 
-        if (subidentifierSerializeResult instanceof SerializeError) {
+        if (isFailure(subidentifierSerializeResult))
           return subidentifierSerializeResult
-        }
 
         currentOffset += subidentifierSerializeResult
       }

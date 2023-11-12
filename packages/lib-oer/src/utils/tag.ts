@@ -1,9 +1,11 @@
+import { isFailure } from "@dassie/lib-type-utils"
+
 import {
   parseBase128,
   predictBase128Length,
   serializeBase128,
 } from "./base-128"
-import { ParseError, SerializeError } from "./errors"
+import { ParseFailure, SerializeFailure } from "./failures"
 import { type ParseContext, isSafeUnsignedInteger } from "./parse"
 
 export const TAG_MARKER_UNIVERSAL = 0b00
@@ -32,13 +34,13 @@ export const parseTag = (
   context: ParseContext,
   offset: number,
 ):
-  | ParseError
+  | ParseFailure
   | readonly [tag: number, tagClass: TagMarker, lengthOfTag: number] => {
   const { uint8Array } = context
   const tag = uint8Array[offset]
 
   if (tag == undefined) {
-    return new ParseError(
+    return new ParseFailure(
       "unable to read tag - end of buffer",
       uint8Array,
       uint8Array.byteLength,
@@ -61,7 +63,7 @@ export const parseTag = (
     Number.POSITIVE_INFINITY,
   )
 
-  if (base128ParseResult instanceof ParseError) {
+  if (isFailure(base128ParseResult)) {
     return base128ParseResult
   }
 
@@ -77,7 +79,7 @@ export const serializeTag = (
   offset: number,
 ) => {
   if (!isSafeUnsignedInteger(value)) {
-    return new SerializeError(
+    return new SerializeFailure(
       "unable to serialize tag - value is out of bounds",
     )
   }
@@ -89,14 +91,12 @@ export const serializeTag = (
 
   uint8Array[offset] = (tagClass << 6) | 0b0011_1111
 
-  serializeBase128(BigInt(value), uint8Array, offset + 1)
-
-  return
+  return serializeBase128(BigInt(value), uint8Array, offset + 1)
 }
 
 export const predictTagLength = (value: number) => {
   if (!isSafeUnsignedInteger(value)) {
-    return new SerializeError(
+    return new SerializeFailure(
       "unable to serialize tag - value is out of bounds",
     )
   }
@@ -107,7 +107,7 @@ export const predictTagLength = (value: number) => {
 
   const lengthPredictionResult = predictBase128Length(BigInt(value))
 
-  if (lengthPredictionResult instanceof SerializeError) {
+  if (isFailure(lengthPredictionResult)) {
     return lengthPredictionResult
   }
 

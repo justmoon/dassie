@@ -1,10 +1,12 @@
+import { isFailure } from "@dassie/lib-type-utils"
+
 import { OerType } from "./base-type"
 import {
   isUnsignedBigint,
   signedBigintByteLength,
   unsignedBigintByteLength,
 } from "./utils/bigint"
-import { ParseError, SerializeError } from "./utils/errors"
+import { ParseFailure, SerializeFailure } from "./utils/failures"
 import {
   parseLengthPrefix,
   predictLengthPrefixLength,
@@ -54,7 +56,7 @@ export class OerFixedIntegerBigint extends OerIntegerBigint {
   parseWithContext({ uint8Array, dataView }: ParseContext, offset: number) {
     const { type, size, minimumValue, maximumValue } = this.options
     if (offset + size / 8 > dataView.byteLength) {
-      return new ParseError(
+      return new ParseFailure(
         `unable to read fixed length integer of size ${
           size / 8
         } bytes - end of buffer`,
@@ -69,7 +71,7 @@ export class OerFixedIntegerBigint extends OerIntegerBigint {
         : BigInt(dataView[`get${type}${size}`](offset))
 
     if (value < minimumValue) {
-      return new ParseError(
+      return new ParseFailure(
         `unable to read fixed length integer of size ${
           size / 8
         } bytes - value ${value} is less than minimum value ${minimumValue}`,
@@ -79,7 +81,7 @@ export class OerFixedIntegerBigint extends OerIntegerBigint {
     }
 
     if (value > maximumValue) {
-      return new ParseError(
+      return new ParseFailure(
         `unable to read fixed length integer of size ${
           size / 8
         } bytes - value ${value} is greater than maximum value ${maximumValue}`,
@@ -96,11 +98,11 @@ export class OerFixedIntegerBigint extends OerIntegerBigint {
 
     const serializer = (context: SerializeContext, offset: number) => {
       if (value < minimumValue) {
-        return new SerializeError(`integer must be >= ${minimumValue}`)
+        return new SerializeFailure(`integer must be >= ${minimumValue}`)
       }
 
       if (value > maximumValue) {
-        return new SerializeError(`integer must be <= ${maximumValue}`)
+        return new SerializeFailure(`integer must be <= ${maximumValue}`)
       }
 
       if (size === 64) {
@@ -124,15 +126,12 @@ export class OerVariableUnsignedInteger extends OerIntegerBigint {
   parseWithContext(context: ParseContext, offset: number) {
     const { uint8Array, dataView } = context
     const result = parseLengthPrefix(context, offset)
-
-    if (result instanceof ParseError) {
-      return result
-    }
+    if (isFailure(result)) return result
 
     const [length, lengthOfLength] = result
 
     if (length === 0) {
-      return new ParseError(
+      return new ParseFailure(
         `unable to read variable length integer - length must not be 0`,
         uint8Array,
         offset,
@@ -158,17 +157,14 @@ export class OerVariableUnsignedInteger extends OerIntegerBigint {
 
   serializeWithContext(input: bigint) {
     if (!isUnsignedBigint(input)) {
-      return new SerializeError(
+      return new SerializeFailure(
         `expected unsigned bigint, got ${typeof input}: ${input}`,
       )
     }
 
     const length = unsignedBigintByteLength(input)
     const lengthOfLengthPrefix = predictLengthPrefixLength(length)
-
-    if (lengthOfLengthPrefix instanceof SerializeError) {
-      return lengthOfLengthPrefix
-    }
+    if (isFailure(lengthOfLengthPrefix)) return lengthOfLengthPrefix
 
     const serializer = ({ uint8Array }: SerializeContext, offset: number) => {
       const length = unsignedBigintByteLength(input)
@@ -177,10 +173,7 @@ export class OerVariableUnsignedInteger extends OerIntegerBigint {
         uint8Array,
         offset,
       )
-
-      if (lengthOfLengthPrefix instanceof SerializeError) {
-        return lengthOfLengthPrefix
-      }
+      if (isFailure(lengthOfLengthPrefix)) return lengthOfLengthPrefix
 
       let remainder: bigint = input
 
@@ -205,16 +198,14 @@ export class OerVariableSignedInteger extends OerType<bigint> {
 
   parseWithContext(context: ParseContext, offset: number) {
     const { uint8Array } = context
-    const result = parseLengthPrefix(context, offset)
 
-    if (result instanceof ParseError) {
-      return result
-    }
+    const result = parseLengthPrefix(context, offset)
+    if (isFailure(result)) return result
 
     const [length, lengthOfLength] = result
 
     if (length === 0) {
-      return new ParseError(
+      return new ParseFailure(
         `unable to read variable length integer - length must not be 0`,
         uint8Array,
         offset,
@@ -241,10 +232,7 @@ export class OerVariableSignedInteger extends OerType<bigint> {
   serializeWithContext(input: bigint) {
     const length = signedBigintByteLength(input)
     const lengthOfLengthPrefix = predictLengthPrefixLength(length)
-
-    if (lengthOfLengthPrefix instanceof SerializeError) {
-      return lengthOfLengthPrefix
-    }
+    if (isFailure(lengthOfLengthPrefix)) return lengthOfLengthPrefix
 
     const serializer = ({ uint8Array }: SerializeContext, offset: number) => {
       const lengthPrefixSerializeResult = serializeLengthPrefix(
@@ -253,7 +241,7 @@ export class OerVariableSignedInteger extends OerType<bigint> {
         offset,
       )
 
-      if (lengthPrefixSerializeResult instanceof SerializeError) {
+      if (isFailure(lengthPrefixSerializeResult)) {
         return lengthPrefixSerializeResult
       }
 

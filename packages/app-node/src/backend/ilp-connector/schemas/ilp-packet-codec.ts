@@ -13,6 +13,7 @@ import {
   uint64Bigint,
   utf8String,
 } from "@dassie/lib-oer"
+import { isFailure } from "@dassie/lib-type-utils"
 
 export const IlpType = {
   Prepare: 12,
@@ -79,9 +80,9 @@ export type IlpPacket =
 export const parseIlpPacket = (packet: Uint8Array): IlpPacket => {
   const parseResult = ilpPacketSchema.parse(packet)
 
-  if (!parseResult.success) {
+  if (isFailure(parseResult)) {
     throw new Error("Failed to parse ILP packet", {
-      cause: parseResult.error,
+      cause: parseResult,
     })
   }
 
@@ -113,11 +114,11 @@ export const serializeIlpPacket = ({
     data,
   } as InferSerialize<typeof ilpPacketSchema>)
 
-  if (!serializationResult.success) {
+  if (isFailure(serializationResult)) {
     throw new Error("Failed to serialize ILP packet", {
-      cause: serializationResult.error,
+      cause: serializationResult,
     })
   }
 
-  return serializationResult.value
+  return serializationResult
 }

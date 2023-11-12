@@ -3,6 +3,9 @@ import { describe, test } from "vitest"
 import { empty } from "../src/empty"
 import { hexToUint8Array } from "../src/utils/hex"
 import { parsedOk, serializedOk } from "./utils/result"
+import { enableSnapshotSerializers } from "./utils/snapshot-serializers"
+
+enableSnapshotSerializers()
 
 describe("empty", () => {
   test("should be a function", ({ expect }) => {
@@ -31,13 +34,10 @@ describe("empty", () => {
     }) => {
       const value = schema.parse(hexToUint8Array("00"))
       expect(value).toMatchInlineSnapshot(`
-        {
-          "error": [ParseError: non-canonical encoding - additional bytes present after the expected end of data
+        [ParseFailure(offset 0): non-canonical encoding - additional bytes present after the expected end of data
 
             00  
-            ^^],
-          "success": false,
-        }
+            ^^]
       `)
     })
   })

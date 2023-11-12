@@ -1,4 +1,5 @@
 import { createActor } from "@dassie/lib-reactive"
+import { isFailure } from "@dassie/lib-type-utils"
 
 import { ProcessPacketActor } from "../ilp-connector/process-packet"
 import {
@@ -46,9 +47,9 @@ export const HandleIldcpRequestsActor = () =>
           assetCode: "XRP",
         })
 
-        if (!ildcpSerializationResult.success) {
+        if (isFailure(ildcpSerializationResult)) {
           logger.debug("failed to serialize IL-DCP response", {
-            error: ildcpSerializationResult.error,
+            error: ildcpSerializationResult,
           })
           return
         }
@@ -56,7 +57,7 @@ export const HandleIldcpRequestsActor = () =>
         const responsePacket = {
           type: IlpType.Fulfill,
           fulfillment: new Uint8Array(32),
-          data: ildcpSerializationResult.value,
+          data: ildcpSerializationResult,
         }
 
         logger.debug("sending IL-DCP response", {

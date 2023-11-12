@@ -4,6 +4,7 @@ import {
   btpMessageSchema,
 } from "@dassie/lib-protocol-utils"
 import { Reactor } from "@dassie/lib-reactive"
+import { isFailure } from "@dassie/lib-type-utils"
 
 import { RegisterBtpHttpUpgradeActor } from "../../btp-server/register-btp-http-upgrade"
 import { connector as logger } from "../../logger/instances"
@@ -35,9 +36,9 @@ export const SendBtpPackets = (reactor: Reactor): PacketSender<"btp"> => {
           ],
         })
 
-        if (!btpMessageSerializeResult.success) {
+        if (isFailure(btpMessageSerializeResult)) {
           logger.error("could not serialize BTP message", {
-            error: btpMessageSerializeResult.error,
+            error: btpMessageSerializeResult,
           })
           return
         }
@@ -45,19 +46,19 @@ export const SendBtpPackets = (reactor: Reactor): PacketSender<"btp"> => {
         const btpEnvelopeSerializeResult = btpEnvelopeSchema.serialize({
           messageType: BtpType.Message,
           requestId,
-          message: btpMessageSerializeResult.value,
+          message: btpMessageSerializeResult,
         })
 
-        if (!btpEnvelopeSerializeResult.success) {
+        if (isFailure(btpEnvelopeSerializeResult)) {
           logger.error("could not serialize BTP envelope", {
-            error: btpEnvelopeSerializeResult.error,
+            error: btpEnvelopeSerializeResult,
           })
           return
         }
 
         btpBroker.api.send.tell({
           connectionId,
-          message: btpEnvelopeSerializeResult.value,
+          message: btpEnvelopeSerializeResult,
         })
 
         return
@@ -73,9 +74,9 @@ export const SendBtpPackets = (reactor: Reactor): PacketSender<"btp"> => {
         ],
       })
 
-      if (!btpMessageSerializeResult.success) {
+      if (isFailure(btpMessageSerializeResult)) {
         logger.error("could not serialize BTP message", {
-          error: btpMessageSerializeResult.error,
+          error: btpMessageSerializeResult,
         })
         return
       }
@@ -101,19 +102,19 @@ export const SendBtpPackets = (reactor: Reactor): PacketSender<"btp"> => {
       const btpEnvelopeSerializeResult = btpEnvelopeSchema.serialize({
         messageType: 6, // Message
         requestId,
-        message: btpMessageSerializeResult.value,
+        message: btpMessageSerializeResult,
       })
 
-      if (!btpEnvelopeSerializeResult.success) {
+      if (isFailure(btpEnvelopeSerializeResult)) {
         logger.error("could not serialize BTP envelope", {
-          error: btpEnvelopeSerializeResult.error,
+          error: btpEnvelopeSerializeResult,
         })
         return
       }
 
       btpBroker.api.send.tell({
         connectionId,
-        message: btpEnvelopeSerializeResult.value,
+        message: btpEnvelopeSerializeResult,
       })
 
       return
@@ -134,9 +135,9 @@ export const SendBtpPackets = (reactor: Reactor): PacketSender<"btp"> => {
         ],
       })
 
-      if (!btpMessageSerializeResult.success) {
+      if (isFailure(btpMessageSerializeResult)) {
         logger.error("could not serialize BTP message", {
-          error: btpMessageSerializeResult.error,
+          error: btpMessageSerializeResult,
         })
         return
       }
@@ -144,19 +145,19 @@ export const SendBtpPackets = (reactor: Reactor): PacketSender<"btp"> => {
       const btpEnvelopeSerializeResult = btpEnvelopeSchema.serialize({
         messageType: BtpType.Response,
         requestId,
-        message: btpMessageSerializeResult.value,
+        message: btpMessageSerializeResult,
       })
 
-      if (!btpEnvelopeSerializeResult.success) {
+      if (isFailure(btpEnvelopeSerializeResult)) {
         logger.error("could not serialize BTP envelope", {
-          error: btpEnvelopeSerializeResult.error,
+          error: btpEnvelopeSerializeResult,
         })
         return
       }
 
       btpBroker.api.send.tell({
         connectionId,
-        message: btpEnvelopeSerializeResult.value,
+        message: btpEnvelopeSerializeResult,
       })
     },
   }

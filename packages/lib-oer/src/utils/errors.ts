@@ -1,37 +1,21 @@
-import { uint8ArrayToHex } from "./hex"
-
-const PARSE_ERROR_CONTEXT_BYTES = 20
+import { ParseFailure, SerializeFailure } from "./failures"
 
 export class ParseError extends Error {
-  constructor(
-    message: string,
-    readonly data: Uint8Array,
-    readonly offset: number,
-  ) {
-    const hexExcerptRange = [
-      Math.max(0, offset - PARSE_ERROR_CONTEXT_BYTES),
-      Math.min(data.length, offset + PARSE_ERROR_CONTEXT_BYTES),
-    ] as const
+  readonly data: Uint8Array
+  readonly offset: number
 
-    const hexExcerpt = uint8ArrayToHex(
-      data.slice(hexExcerptRange[0], hexExcerptRange[1]),
-    )
-
-    const formattedMessage = `${message}\n\n  ${
-      hexExcerptRange[0] === 0 ? " " : "…"
-    } ${hexExcerpt} ${
-      hexExcerptRange[1] === data.length ? " " : "…"
-    }\n    ${"".padEnd((offset - hexExcerptRange[0]) * 3, " ")}^^`
-
-    super(formattedMessage)
+  constructor(cause: ParseFailure) {
+    super(cause.message)
 
     this.name = "ParseError"
+    this.data = cause.data
+    this.offset = cause.offset
   }
 }
 
 export class SerializeError extends Error {
-  constructor(message: string) {
-    super(message)
+  constructor(cause: SerializeFailure) {
+    super(cause.message)
 
     this.name = "SerializeError"
   }

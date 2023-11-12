@@ -3,6 +3,9 @@ import { describe, test } from "vitest"
 import { boolean } from "../src/boolean"
 import { hexToUint8Array } from "../src/utils/hex"
 import { parsedOk, serializedOk } from "./utils/result"
+import { enableSnapshotSerializers } from "./utils/snapshot-serializers"
+
+enableSnapshotSerializers()
 
 describe("boolean", () => {
   test("should be a function", ({ expect }) => {
@@ -41,13 +44,10 @@ describe("boolean", () => {
     }) => {
       const value = schema.parse(hexToUint8Array("ff00"))
       expect(value).toMatchInlineSnapshot(`
-        {
-          "error": [ParseError: non-canonical encoding - additional bytes present after the expected end of data
+        [ParseFailure(offset 1): non-canonical encoding - additional bytes present after the expected end of data
 
             ff 00  
-               ^^],
-          "success": false,
-        }
+               ^^]
       `)
     })
   })

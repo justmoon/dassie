@@ -1,5 +1,6 @@
+import { isFailure } from "@dassie/lib-type-utils"
+
 import { OerType } from "./base-type"
-import { ParseError } from "./utils/errors"
 import type { ParseContext, SerializeContext } from "./utils/parse"
 
 export class OerCaptured<TParseValue, TSerializeValue> extends OerType<
@@ -16,10 +17,7 @@ export class OerCaptured<TParseValue, TSerializeValue> extends OerType<
 
   parseWithContext(context: ParseContext, offset: number) {
     const subTypeResult = this.subType.parseWithContext(context, offset)
-
-    if (subTypeResult instanceof ParseError) {
-      return subTypeResult
-    }
+    if (isFailure(subTypeResult)) return subTypeResult
 
     const [subTypeValue, subTypeLength] = subTypeResult
 

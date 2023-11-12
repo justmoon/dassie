@@ -13,6 +13,9 @@ import {
   uint32Number,
 } from "../src"
 import { parsedOk, serializedOk } from "./utils/result"
+import { enableSnapshotSerializers } from "./utils/snapshot-serializers"
+
+enableSnapshotSerializers()
 
 const exampleClassDefinition = {
   type: uint8Number(),
@@ -130,13 +133,10 @@ describe("information-object", () => {
       )
 
       expect(value).toMatchInlineSnapshot(`
-        {
-          "error": [ParseError: extra bytes inside of open type
+        [ParseFailure(offset 7): extra bytes inside of open type
 
             ff 02 05 01 02 03 04 00  
-                                 ^^],
-          "success": false,
-        }
+                                 ^^]
       `)
     })
   })

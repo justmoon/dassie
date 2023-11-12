@@ -1,5 +1,7 @@
+import { isFailure } from "@dassie/lib-type-utils"
+
 import { OerType } from "./base-type"
-import { ParseError, SerializeError } from "./utils/errors"
+import { ParseFailure, SerializeFailure } from "./utils/failures"
 import { parseLengthPrefix } from "./utils/length-prefix"
 import type { ParseContext, SerializeContext } from "./utils/parse"
 
@@ -32,7 +34,7 @@ export class OerEnumerated<
     const { uint8Array } = context
     const firstByte = uint8Array[offset]
     if (firstByte === undefined) {
-      return new ParseError(
+      return new ParseFailure(
         "unable to read enumerated value - end of buffer",
         uint8Array,
         offset,
@@ -43,9 +45,7 @@ export class OerEnumerated<
     let length
     if (firstByte & 0x80) {
       const result = parseLengthPrefix(context, offset, true)
-      if (result instanceof ParseError) {
-        return result
-      }
+      if (isFailure(result)) return result
       ;[numericEnumValue, length] = result
     } else {
       numericEnumValue = firstByte
@@ -54,7 +54,7 @@ export class OerEnumerated<
 
     const enumValue = this.reverseMap[numericEnumValue]
     if (enumValue == undefined) {
-      return new ParseError(
+      return new ParseFailure(
         `unable to read enumerated value - value ${firstByte} not in set ${this.setHint}`,
         uint8Array,
         offset,
@@ -68,7 +68,7 @@ export class OerEnumerated<
     const value = this.enumeration[input]
 
     if (value == undefined) {
-      return new SerializeError(
+      return new SerializeFailure(
         `unable to serialize enumerated value - value ${input} not in set ${this.setHint}`,
       )
     }

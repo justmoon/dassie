@@ -3,6 +3,9 @@ import { describe, test } from "vitest"
 import { enumerated } from "../src/enumerated"
 import { hexToUint8Array } from "../src/utils/hex"
 import { parsedOk, serializedOk } from "./utils/result"
+import { enableSnapshotSerializers } from "./utils/snapshot-serializers"
+
+enableSnapshotSerializers()
 
 describe("enumerated", () => {
   test("should be a function", ({ expect }) => {
@@ -31,13 +34,10 @@ describe("enumerated", () => {
     )
     expect(value).toMatchInlineSnapshot(
       `
-      {
-        "error": [ParseError: unable to read enumerated value - value 3 not in set red(0),green(1),blue(2)
+      [ParseFailure(offset 0): unable to read enumerated value - value 3 not in set red(0),green(1),blue(2)
 
           03  
-          ^^],
-        "success": false,
-      }
+          ^^]
     `,
       "error",
     )
@@ -50,12 +50,7 @@ describe("enumerated", () => {
       // @ts-expect-error Intentionally passing a wrong value
       .serialize("yellow")
     expect(value).toMatchInlineSnapshot(
-      `
-      {
-        "error": [SerializeError: unable to serialize enumerated value - value yellow not in set red(0),green(1),blue(2)],
-        "success": false,
-      }
-    `,
+      "[SerializeFailure: unable to serialize enumerated value - value yellow not in set red(0),green(1),blue(2)]",
       "error",
     )
   })

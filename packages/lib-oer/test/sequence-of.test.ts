@@ -4,6 +4,9 @@ import { boolean } from "../src/boolean"
 import { sequenceOf } from "../src/sequence-of"
 import { hexToUint8Array } from "../src/utils/hex"
 import { parsedOk } from "./utils/result"
+import { enableSnapshotSerializers } from "./utils/snapshot-serializers"
+
+enableSnapshotSerializers()
 
 describe("sequenceOf", () => {
   test("should be a function", ({ expect }) => {
@@ -19,21 +22,7 @@ describe("sequenceOf", () => {
 
     test("should serialize a value", ({ expect }) => {
       const value = schema.serialize([true, false, true, true, false, false])
-      expect(value).toMatchInlineSnapshot(`
-        {
-          "success": true,
-          "value": Uint8Array [
-            1,
-            6,
-            255,
-            0,
-            255,
-            255,
-            0,
-            0,
-          ],
-        }
-      `)
+      expect(value).toMatchInlineSnapshot('Uint8Array [ 01 06 ff 00 ff ff 00 00 ]')
     })
 
     test("should parse a value", ({ expect }) => {

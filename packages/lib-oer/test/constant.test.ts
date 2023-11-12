@@ -4,6 +4,9 @@ import { boolean, hexToUint8Array, sequence, uint8Number } from "../src"
 import { objectIdentifier } from "../src/object-identifier"
 import { constantTests } from "./utils/full-samples"
 import { parsedOk, serializedOk } from "./utils/result"
+import { enableSnapshotSerializers } from "./utils/snapshot-serializers"
+
+enableSnapshotSerializers()
 
 describe("constant", () => {
   describe.each(constantTests)("of %s", (_, baseType, value, hex) => {
