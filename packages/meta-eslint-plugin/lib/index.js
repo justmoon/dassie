@@ -4,12 +4,14 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const recommended_js_1 = __importDefault(require("./configs/recommended.js"));
-const must_handle_failure_js_1 = __importDefault(require("./rules/must-handle-failure.js"));
+const no_floating_failures_js_1 = require("./rules/no-floating-failures.js");
+const no_misused_failures_js_1 = require("./rules/no-misused-failures.js");
 module.exports = {
     configs: {
         recommended: recommended_js_1.default,
     },
     rules: {
-        "must-handle-failure": must_handle_failure_js_1.default,
+        "no-floating-failures": no_floating_failures_js_1.rule,
+        "no-misused-failures": no_misused_failures_js_1.rule,
     },
 };

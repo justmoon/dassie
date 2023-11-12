@@ -1,11 +1,13 @@
 import recommended from "./configs/recommended.js"
-import mustHandleFailure from "./rules/must-handle-failure.js"
+import { rule as noFloatingFailures } from "./rules/no-floating-failures.js"
+import { rule as noMisusedFailures } from "./rules/no-misused-failures.js"
 
 module.exports = {
   configs: {
     recommended,
   },
   rules: {
-    "must-handle-failure": mustHandleFailure,
+    "no-floating-failures": noFloatingFailures,
+    "no-misused-failures": noMisusedFailures,
   },
 }

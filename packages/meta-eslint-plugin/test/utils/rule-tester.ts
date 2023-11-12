@@ -13,5 +13,7 @@ export const ruleTester = new RuleTester({
   parserOptions: {
     tsconfigRootDir: fixturePath,
     project: "./tsconfig.json",
+    errorOnTypeScriptSyntacticAndSemanticIssues: true,
+    errorOnUnknownASTType: true,
   },
 })
