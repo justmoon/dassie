@@ -1,5 +1,3 @@
-/* eslint-disable unicorn/no-array-reduce */
-
 /**
  * Returns the largest of a set of provided bigint values.
  *
@@ -7,12 +5,15 @@
  * @param rest - Additional bigints to compare.
  * @returns The largest of all provided bigints.
  */
-export const bigIntMax = (first: bigint, ...rest: readonly bigint[]) =>
-  rest.reduce(
-    (currentMax, nextValue) =>
-      nextValue > currentMax ? nextValue : currentMax,
-    first,
-  )
+export const bigIntMax = (first: bigint, ...rest: readonly bigint[]) => {
+  let currentMax = first
+  for (const nextValue of rest) {
+    if (nextValue > currentMax) {
+      currentMax = nextValue
+    }
+  }
+  return currentMax
+}
 
 /**
  * Returns the smallest of a set of provided bigint values.
@@ -21,9 +22,12 @@ export const bigIntMax = (first: bigint, ...rest: readonly bigint[]) =>
  * @param rest - Additional bigints to compare.
  * @returns The smallest of all provided bigints.
  */
-export const bigIntMin = (first: bigint, ...rest: readonly bigint[]) =>
-  rest.reduce(
-    (currentMin, nextValue) =>
-      nextValue < currentMin ? nextValue : currentMin,
-    first,
-  )
+export const bigIntMin = (first: bigint, ...rest: readonly bigint[]) => {
+  let currentMin = first
+  for (const nextValue of rest) {
+    if (nextValue < currentMin) {
+      currentMin = nextValue
+    }
+  }
+  return currentMin
+}
