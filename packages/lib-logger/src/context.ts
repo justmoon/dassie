@@ -1,6 +1,6 @@
+/* eslint-disable unicorn/no-negated-condition */
 import { LogEvent } from "./types/log-event"
 
-/* eslint-disable unicorn/no-negated-condition */
 export const logContextSymbol = Symbol.for("dassie.logger.context")
 
 export interface LogContext {

@@ -1,6 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment */
 import { TRPCClientError, TRPCLink } from "@trpc/client"
 import type { AnyRouter } from "@trpc/server"
 import { observable } from "@trpc/server/observable"

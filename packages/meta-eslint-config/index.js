@@ -12,6 +12,7 @@ module.exports = {
     "plugin:react/jsx-runtime",
     "plugin:react-hooks/recommended",
     "plugin:n/recommended-module",
+    "plugin:eslint-comments/recommended",
     "plugin:@dassie/recommended",
     "prettier",
   ],
@@ -47,6 +48,7 @@ module.exports = {
     "n/no-extraneous-import": "off",
     "n/shebang": "off",
     "n/no-process-exit": "off",
+    "eslint-comments/disable-enable-pair": ["error", { allowWholeFile: true }],
   },
   overrides: [
     {
