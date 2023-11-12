@@ -1,6 +1,12 @@
 export { assertDefined } from "./assert-defined"
 export { bigIntMin, bigIntMax } from "./bigint-minmax"
-export { Failure, isFailure, FAILURE_UNIQUE_KEY } from "./failure"
+export {
+  Failure,
+  isFailure,
+  findFailure,
+  FAILURE_UNIQUE_KEY,
+  type InferFindFailure,
+} from "./failure"
 export { isErrorWithCode } from "./is-error-with-code"
 export { isObject } from "./is-object"
 export { UnreachableCaseError } from "./unreachable-case-error"

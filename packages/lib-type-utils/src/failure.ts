@@ -54,3 +54,28 @@ export const isFailure = <T>(value: T): value is Extract<T, Failure> => {
     (value as null | { [FAILURE_UNIQUE_KEY]?: true })?.[FAILURE_UNIQUE_KEY],
   )
 }
+
+export type InferFindFailure<T extends readonly unknown[]> =
+  | {
+      [K in keyof T]: Exclude<T[K], Failure>
+    }
+  | {
+      [K in keyof T]: Extract<T[K], Failure>
+    }[number]
+
+/**
+ * Check if any element in an array is a failure.
+ *
+ * @remarks
+ *
+ * This is useful for checking if a list of results contains any failures. The first failure that is found is returned. If no failures are found, the original array is returned.
+ */
+export const findFailure = <T extends readonly unknown[]>(
+  values: T,
+): InferFindFailure<T> => {
+  // eslint-disable-next-line unicorn/no-array-callback-reference
+  const firstFailure = values.find(isFailure)
+  if (firstFailure !== undefined) return firstFailure
+
+  return values as InferFindFailure<T>
+}
