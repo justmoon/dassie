@@ -17,10 +17,7 @@ import { Reactor } from "./reactor"
 import { ReadonlySignal, Reducer, SignalSymbol } from "./signal"
 import { ReadonlyTopic } from "./topic"
 
-export type Behavior<TReturn = unknown, TProperties = unknown> = (
-  sig: ActorContext,
-  properties: TProperties,
-) => TReturn
+export type Behavior<TReturn = unknown> = (sig: ActorContext) => TReturn
 
 export const ActorSymbol = Symbol("das:reactive:actor")
 
@@ -56,7 +53,7 @@ export type InferActorApi<TInstance> = {
 class ApiProxy {
   constructor(
     private readonly actor: Pick<
-      Actor<unknown, unknown>,
+      Actor<unknown>,
       "isRunning" | "promise" | typeof FactoryNameSymbol
     >,
     private readonly method: string,
@@ -101,7 +98,7 @@ class ApiProxy {
   }
 }
 
-export type Actor<TInstance, TProperties = undefined> = ReactiveObserver &
+export type Actor<TInstance> = ReactiveObserver &
   ReadonlySignal<Awaited<TInstance> | undefined> & {
     /**
      * Marks this object as a value.
@@ -139,10 +136,13 @@ export type Actor<TInstance, TProperties = undefined> = ReactiveObserver &
      * @remarks
      *
      * @param lifecycle - The parent lifecycle scope. The actor will automatically be disposed when this scope is disposed.
-     * @param properties - The properties to pass to the actor.
      * @returns The return value of the actor.
      */
-    run: RunSignature<TInstance, TProperties>
+    run: (
+      reactor: Reactor,
+      lifecycle: LifecycleScope,
+      options?: RunOptions | undefined,
+    ) => TInstance | undefined
 
     /**
      * If the actor exposes a public API, you can interact with it here.
@@ -155,16 +155,6 @@ export type Actor<TInstance, TProperties = undefined> = ReactiveObserver &
      */
     api: InferActorApi<Awaited<TInstance>>
   }
-
-interface RunSignature<TReturn, TProperties> {
-  (reactor: Reactor, lifecycle: LifecycleScope): TReturn | undefined
-  (
-    reactor: Reactor,
-    lifecycle: LifecycleScope,
-    properties: TProperties,
-    options?: RunOptions | undefined,
-  ): TReturn | undefined
-}
 
 export interface RunOptions {
   /**
@@ -190,10 +180,10 @@ export interface RunOptions {
   overrideName?: string | undefined
 }
 
-class ActorImplementation<TInstance, TProperties>
+class ActorImplementation<TInstance>
   extends ContextBase
   implements
-    Omit<Actor<TInstance, TProperties>, keyof ReadonlyTopic>,
+    Omit<Actor<TInstance>, keyof ReadonlyTopic>,
     ReactiveObserver,
     ReactiveSource<Awaited<TInstance> | undefined>
 {
@@ -211,7 +201,7 @@ class ActorImplementation<TInstance, TProperties>
   private sources = new Set<ReactiveSource<unknown>>()
   private isReadingSource = false
 
-  constructor(public behavior: Behavior<TInstance, TProperties>) {
+  constructor(public behavior: Behavior<TInstance>) {
     super()
   }
 
@@ -234,7 +224,6 @@ class ActorImplementation<TInstance, TProperties>
   run(
     reactor: Reactor,
     lifecycle: LifecycleScope,
-    properties?: TProperties,
     { additionalDebugData, pathPrefix, overrideName }: RunOptions = {},
   ) {
     if (this.isRunning) {
@@ -249,13 +238,7 @@ class ActorImplementation<TInstance, TProperties>
       writable: false,
     })
 
-    void this.loop(
-      reactor,
-      actorPath,
-      properties!,
-      lifecycle,
-      additionalDebugData,
-    )
+    void this.loop(reactor, actorPath, lifecycle, additionalDebugData)
 
     return this.result
   }
@@ -274,7 +257,6 @@ class ActorImplementation<TInstance, TProperties>
   private async loop(
     reactor: Reactor,
     actorPath: string,
-    properties: TProperties,
     parentLifecycle: LifecycleScope,
     additionalDebugData: Record<string, unknown> | undefined,
   ) {
@@ -316,7 +298,7 @@ class ActorImplementation<TInstance, TProperties>
         // "ActorImplementation." from cluttering the stack trace.
         const behavior = this.behavior
 
-        const actorReturn = behavior(context, properties)
+        const actorReturn = behavior(context)
 
         // Synchronously store the result of the actor's behavior function
         this.result = actorReturn
@@ -404,21 +386,14 @@ class ActorImplementation<TInstance, TProperties>
   }
 }
 
-type CreateActorSignature = <TInstance, TProperties = undefined>(
-  behavior: Behavior<TInstance, TProperties>,
-) => Actor<TInstance, TProperties>
-
-export const createActor: CreateActorSignature = <
-  TInstance,
-  TProperties = undefined,
->(
-  behavior: Behavior<TInstance, TProperties>,
-): Actor<TInstance, TProperties> => {
+export const createActor = <TInstance>(
+  behavior: Behavior<TInstance>,
+): Actor<TInstance> => {
   const actor = new ActorImplementation(behavior)
   return Object.assign(actor, createReactiveTopic(actor))
 }
 
-export const isActor = (object: unknown): object is Actor<unknown, unknown> =>
+export const isActor = (object: unknown): object is Actor<unknown> =>
   isObject(object) && object[ActorSymbol] === true
 
 const DEBUG_ACTOR_OPTIMISTIC_CALL_TIMEOUT = 2000

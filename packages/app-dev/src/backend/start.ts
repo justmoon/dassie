@@ -1,5 +1,5 @@
 import { ViteDevServer } from "vite"
-import { ViteNodeServer } from "vite-node/server"
+import { ViteNodeServer as ViteNodeServerType } from "vite-node/server"
 
 import { createActor, createReactor } from "@dassie/lib-reactive"
 
@@ -10,22 +10,24 @@ import { RegisterReactiveLoggerActor } from "./actors/register-reactive-logger"
 import { RunNodesActor } from "./actors/run-nodes"
 import { DebugUiServerActor } from "./actors/serve-debug-ui"
 import { ListenForRpcWebSocketActor } from "./actors/serve-rpc"
+import { ViteNodeServer } from "./unconstructables/vite-node-server"
+import { ViteServer } from "./unconstructables/vite-server"
 
 export interface StartParameters {
   viteServer: ViteDevServer
-  viteNodeServer: ViteNodeServer
+  viteNodeServer: ViteNodeServerType
 }
 
 const RootActor = () =>
-  createActor(async (sig, { viteServer, viteNodeServer }: StartParameters) => {
+  createActor(async (sig) => {
     sig.run(RegisterReactiveLoggerActor)
     await sig.run(ListenForRpcWebSocketActor)
     await sig.run(DebugUiServerActor)
 
     sig.run(ProxyByHostnameActor)
 
-    sig.run(HandleFileChangeActor, { viteServer, viteNodeServer })
-    await sig.run(RunNodesActor, { viteServer, viteNodeServer })
+    sig.run(HandleFileChangeActor)
+    await sig.run(RunNodesActor)
 
     sig.run(HandleShutdownSignalsActor)
   })
@@ -35,11 +37,10 @@ const start = async ({ viteServer, viteNodeServer }: StartParameters) => {
   reactor.lifecycle.onCleanup(async () => {
     await viteServer.close()
   })
+  reactor.set(ViteServer, viteServer)
+  reactor.set(ViteNodeServer, viteNodeServer)
   const startActor = reactor.use(RootActor)
-  await startActor.run(reactor, reactor.lifecycle, {
-    viteServer,
-    viteNodeServer,
-  })
+  await startActor.run(reactor, reactor.lifecycle)
   return reactor
 }
 

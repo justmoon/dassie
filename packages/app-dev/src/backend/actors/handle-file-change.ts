@@ -1,14 +1,14 @@
 import chalk from "chalk"
-import { ViteDevServer } from "vite"
-import { ViteNodeServer } from "vite-node/server"
 
 import { posix } from "node:path"
 
-import { createActor, createTopic } from "@dassie/lib-reactive"
+import { Reactor, createActor, createTopic } from "@dassie/lib-reactive"
 
 import { LogsStore } from "../../common/stores/logs"
 import { vite as logger } from "../logger/instances"
 import { PeeringStateStore } from "../stores/peering-state"
+import { ViteNodeServer } from "../unconstructables/vite-node-server"
+import { ViteServer } from "../unconstructables/vite-server"
 
 export function getShortName(file: string, root: string): string {
   return file.startsWith(root + "/") ? posix.relative(root, file) : file
@@ -16,13 +16,11 @@ export function getShortName(file: string, root: string): string {
 
 export const FileChangeTopic = () => createTopic()
 
-export interface FileChangeParameters {
-  viteServer: ViteDevServer
-  viteNodeServer: ViteNodeServer
-}
+export const HandleFileChangeActor = (reactor: Reactor) => {
+  const viteServer = reactor.use(ViteServer)
+  const viteNodeServer = reactor.use(ViteNodeServer)
 
-export const HandleFileChangeActor = () =>
-  createActor((sig, { viteServer, viteNodeServer }: FileChangeParameters) => {
+  return createActor((sig) => {
     const onFileChange = (file: string) => {
       const { config, moduleGraph } = viteServer
       const shortFile = getShortName(file, config.root)
@@ -48,3 +46,4 @@ export const HandleFileChangeActor = () =>
       viteServer.watcher.off("change", onFileChange)
     })
   })
+}

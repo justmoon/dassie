@@ -36,17 +36,6 @@ export const ManageSettlementSchemeInstancesActor = (reactor: Reactor) => {
 
         initializeCommonAccounts(ledgerStore, settlementSchemeId)
 
-        // Create a unique factory for the settlement scheme actor.
-        //
-        // The same settlement scheme module may be used for different settlement schemes, so we are deliberately creating a unique factory for each settlement scheme.
-        const SettlementSchemeActor = () => createActor(module.behavior)
-
-        // For easier debugging, we give the settlement scheme factory a unique name as well.
-        Object.defineProperty(SettlementSchemeActor, "name", {
-          value: settlementSchemeId,
-          writable: false,
-        })
-
         const host: SettlementSchemeHostMethods = {
           sendMessage: ({ peerId, message }) => {
             sig.use(SendPeerMessageActor).api.send.tell({
@@ -62,15 +51,23 @@ export const ManageSettlementSchemeInstancesActor = (reactor: Reactor) => {
           },
         }
 
+        // Create a unique factory for the settlement scheme actor.
+        //
+        // The same settlement scheme module may be used for different settlement schemes, so we are deliberately creating a unique factory for each settlement scheme.
+        const SettlementSchemeActor = () =>
+          createActor(module.behavior(settlementSchemeId, host))
+
+        // For easier debugging, we give the settlement scheme factory a unique name as well.
+        Object.defineProperty(SettlementSchemeActor, "name", {
+          value: settlementSchemeId,
+          writable: false,
+        })
+
         // Instantiate settlement scheme module actor.
         const settlementSchemeActor = sig.use(SettlementSchemeActor)
         const settlementSchemeActorMethods = await settlementSchemeActor.run(
           sig.reactor,
           sig,
-          {
-            settlementSchemeId,
-            host,
-          },
         )
 
         if (!settlementSchemeActorMethods) {

@@ -7,6 +7,7 @@ export { createMapped, isMapped, MappedSymbol } from "./mapped"
 export { createReactor } from "./reactor"
 export { ActorContext } from "./actor-context"
 export { createLifecycleScope } from "./lifecycle"
+export { createUnconstructable } from "./unconstructable"
 export { CacheStatus } from "./internal/reactive"
 export {
   FactoryNameSymbol,

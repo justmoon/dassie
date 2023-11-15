@@ -12,7 +12,8 @@ const stub = {
   supportedVersions: [1],
   realm: "test",
 
-  behavior: () => {
+  // eslint-disable-next-line unicorn/consistent-function-scoping
+  behavior: () => () => {
     return {
       settle: ({ peerId, amount }) => {
         console.info(`Sending settlement for ${amount} units to ${peerId}`)

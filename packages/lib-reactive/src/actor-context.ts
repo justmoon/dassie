@@ -289,26 +289,16 @@ export class ActorContext extends DisposableLifecycleScopeImplementation {
    * In all cases, the actor will inherit the current actor's lifecycle, i.e. it will be disposed when the current actor is disposed.
    *
    * @param factory - Factory function of the actor to be instantiated.
-   * @param properties - Properties to be passed to the actor behavior function as the second parameter. If this is undefined, the actor will be registered in the global context.
    * @returns - Return value of the first invocation of the actor.
    */
-  run<TReturn>(factory: Factory<Actor<TReturn>>): TReturn | undefined
-  run<TReturn, TProperties>(
-    factory: Factory<Actor<TReturn, TProperties>>,
-    properties: TProperties,
+  run<TReturn>(
+    factory: Factory<Actor<TReturn>>,
     options?: RunOptions | undefined,
-  ): TReturn | undefined
-  run<TReturn, TProperties>(
-    factory: Factory<Actor<TReturn, TProperties>>,
-    properties?: TProperties | undefined,
-    options?: RunOptions | undefined,
-  ) {
-    return this.reactor
-      .use(factory, { stateless: properties !== undefined })
-      .run(this.reactor, this, properties!, {
-        pathPrefix: `${this.path}.`,
-        ...options,
-      })
+  ): TReturn | undefined {
+    return this.reactor.use(factory).run(this.reactor, this, {
+      pathPrefix: `${this.path}.`,
+      ...options,
+    })
   }
 
   /**
@@ -336,19 +326,14 @@ export class ActorContext extends DisposableLifecycleScopeImplementation {
       const actorLifecycle = new DisposableLifecycleScopeImplementation("")
       actorLifecycle.attachToParent(mapLifecycle)
       actorLifecycle.attachToParent(this)
-      results[index++] = actor.run(
-        this.reactor,
-        actorLifecycle,
-        undefined,
-        runOptions,
-      )
+      results[index++] = actor.run(this.reactor, actorLifecycle, runOptions)
     }
 
     mapped.additions.on(this, ([, actor, mapLifecycle]) => {
       const actorLifecycle = new DisposableLifecycleScopeImplementation("")
       actorLifecycle.attachToParent(mapLifecycle)
       actorLifecycle.attachToParent(this)
-      actor.run(this.reactor, actorLifecycle, undefined, runOptions)
+      actor.run(this.reactor, actorLifecycle, runOptions)
     })
 
     return results

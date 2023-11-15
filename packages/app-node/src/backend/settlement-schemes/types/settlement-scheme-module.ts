@@ -57,8 +57,7 @@ export interface SettlementSchemeActorMethods {
 }
 
 export type SettlementSchemeActor = Actor<
-  Promisable<SettlementSchemeActorMethods>,
-  SettlementSchemeProperties
+  Promisable<SettlementSchemeActorMethods>
 >
 
 export interface SettlementSchemeModule {
@@ -98,8 +97,8 @@ export interface SettlementSchemeModule {
    *
    * Use this to do things like maintaining a connection to the ledger in question.
    */
-  behavior: Behavior<
-    Promisable<SettlementSchemeActorMethods>,
-    SettlementSchemeProperties
-  >
+  behavior: (
+    schemeId: SettlementSchemeId,
+    host: SettlementSchemeHostMethods,
+  ) => Behavior<Promisable<SettlementSchemeActorMethods>>
 }

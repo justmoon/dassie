@@ -4,6 +4,7 @@ import { HandlePeerMessageActor } from "./actors/handle-peer-message"
 import { SendPeerMessageActor } from "./actors/send-peer-message"
 import { AddMajorityNodesActor } from "./add-majority-nodes"
 import { BroadcastStateUpdatesActor } from "./broadcast-state-updates"
+import { CreatePeerLedgerEntriesActor } from "./create-peer-ledger-entries"
 import { DownloadNodeListsActor } from "./download-node-lists"
 import { ForwardLinkStateUpdateActor } from "./forward-link-state-update"
 import { MaintainOwnNodeTableEntryActor } from "./maintain-own-node-table-entry"
@@ -13,7 +14,6 @@ import { PollNodeListHashesActor } from "./poll-node-list-hashes"
 import { RefreshNodeStateActor } from "./refresh-node-state"
 import { RegisterOurselvesActor } from "./register-ourselves"
 import { RegisterPeerHttpHandlerActor } from "./register-peer-http-handler"
-import { PerPeerActors } from "./run-per-peer-actors"
 import { SendHeartbeatsActor } from "./send-heartbeats"
 
 export const PeerProtocolActor = () =>
@@ -22,7 +22,6 @@ export const PeerProtocolActor = () =>
     sig.run(SendPeerMessageActor)
     sig.run(ModifyNodeTableActor)
 
-    // Handle incoming Dassie messages via HTTP
     sig.run(RegisterPeerHttpHandlerActor)
 
     await sig.run(MaintainOwnNodeTableEntryActor)
@@ -37,5 +36,5 @@ export const PeerProtocolActor = () =>
     sig.run(BroadcastStateUpdatesActor)
     sig.run(RefreshNodeStateActor)
 
-    sig.runMap(PerPeerActors)
+    sig.runMap(CreatePeerLedgerEntriesActor)
   })
