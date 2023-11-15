@@ -99,15 +99,16 @@ class ReactorImplementation implements Reactor {
         })
       }
 
-      // Tag with factory name
-      {
-        const target: unknown = result
-        if (isObject(target) && FactoryNameSymbol in target) {
-          target[FactoryNameSymbol] = factory.name
-        }
+      // Tag with factory name in debug mode
+      if (this.debug && isObject(result)) {
+        Object.defineProperty(result, FactoryNameSymbol, {
+          value: factory.name,
+          enumerable: false,
+          writable: true,
+        })
       }
 
-      // Run intialization function if there is one
+      // Run initialization function if there is one
       if (
         isObject(result) &&
         InitSymbol in result &&
