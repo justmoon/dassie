@@ -41,7 +41,7 @@ export const RegisterSetupRouteActor = () =>
           loginAuthorizationSignature: z.string(),
         }),
       )
-      .handler((request, response) => {
+      .handler(sig, (request, response) => {
         if (hasNodeIdentity(config.read())) {
           return new UnauthorizedFailure("Node is already set up")
         }

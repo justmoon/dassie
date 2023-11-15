@@ -5,6 +5,7 @@ import type { AnyZodObject, infer as inferZodType } from "zod"
 
 import { IncomingMessage } from "node:http"
 
+import type { LifecycleScope } from "@dassie/lib-reactive"
 import { Failure, isFailure } from "@dassie/lib-type-utils"
 
 import { BadRequestFailure } from "./failures/bad-request-failure"
@@ -132,14 +133,11 @@ export type ApiRouteBuilder<
    * Provide the handler for the API route.
    */
   handler: <THandler extends ApiHandler<TParameters>>(
+    lifecycle: LifecycleScope,
     handler: THandler,
-  ) => ApiRouteInstance
+  ) => void
 } & {
   [K in HttpMethod]: () => ApiRouteBuilder<TParameters>
-}
-
-export interface ApiRouteInstance {
-  dispose: () => void
 }
 
 interface RouteBuilderState {
@@ -258,7 +256,7 @@ export const createRouter = () => {
           assertions: [...state.assertions, assertion],
         })
       },
-      handler: (handler) => {
+      handler: (lifecycle, handler) => {
         const { path, method } = state
         if (!path) {
           throw new Error("No path provided for route")
@@ -276,29 +274,27 @@ export const createRouter = () => {
 
         router[method](path, createHandler(routeHandler))
 
-        return {
-          dispose: () => {
-            const routeIndex = router.stack.findIndex(
-              (layer: {
-                route?: {
-                  path: string
-                  stack: { handle: HttpRequestHandler }[]
-                }
-              }) => {
-                return (
-                  // path is always a string here because we check for it above
-                  // and while it can be changed later, it can only be changed
-                  // to another string
-                  layer.route?.path === path &&
-                  layer.route.stack.findIndex(
-                    (sublayer) => sublayer.handle === routeHandler,
-                  ) !== -1
-                )
-              },
-            )
-            if (routeIndex !== -1) router.stack.splice(routeIndex, 1)
-          },
-        }
+        lifecycle.onCleanup(() => {
+          const routeIndex = router.stack.findIndex(
+            (layer: {
+              route?: {
+                path: string
+                stack: { handle: HttpRequestHandler }[]
+              }
+            }) => {
+              return (
+                // path is always a string here because we check for it above
+                // and while it can be changed later, it can only be changed
+                // to another string
+                layer.route?.path === path &&
+                layer.route.stack.findIndex(
+                  (sublayer) => sublayer.handle === routeHandler,
+                ) !== -1
+              )
+            },
+          )
+          if (routeIndex !== -1) router.stack.splice(routeIndex, 1)
+        })
       },
     }
 

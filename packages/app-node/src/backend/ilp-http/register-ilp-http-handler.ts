@@ -25,7 +25,7 @@ export const RegisterIlpHttpHandlerActor = (reactor: Reactor) => {
       .bodyParser("uint8Array")
       .assert(createAcceptHeaderAssertion(ILP_OVER_HTTP_CONTENT_TYPE))
       .assert(createContentTypeHeaderAssertion(ILP_OVER_HTTP_CONTENT_TYPE))
-      .handler((request) => {
+      .handler(sig, (request) => {
         if (request.headers["prefer"] !== "respond-async") {
           return new BadRequestFailure(
             "This implementation only supports asynchronous mode, expected 'Prefer: respond-async'",

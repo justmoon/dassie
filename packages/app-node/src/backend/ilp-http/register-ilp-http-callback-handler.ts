@@ -23,7 +23,7 @@ export const RegisterIlpHttpCallbackHandlerActor = (reactor: Reactor) => {
       .bodyParser("uint8Array")
       .assert(createAcceptHeaderAssertion(ILP_OVER_HTTP_CONTENT_TYPE))
       .assert(createContentTypeHeaderAssertion(ILP_OVER_HTTP_CONTENT_TYPE))
-      .handler((request) => {
+      .handler(sig, (request) => {
         const textualRequestIdHeader = request.headers["request-id"]
         const textualRequestId = Array.isArray(textualRequestIdHeader)
           ? textualRequestIdHeader[0]

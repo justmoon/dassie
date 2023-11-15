@@ -26,54 +26,48 @@ export const HandleIncomingPaymentsActor = () =>
     })
 
     // List incoming payments
-    {
-      const { dispose } = http
-        .get()
-        .path(`${PAYMENT_POINTER_ROOT}/incoming-payments`)
-        .cors()
-        .handler(() => {
-          const payments = database.tables.incomingPayment.selectAll()
+    http
+      .get()
+      .path(`${PAYMENT_POINTER_ROOT}/incoming-payments`)
+      .cors()
+      .handler(sig, () => {
+        const payments = database.tables.incomingPayment.selectAll()
 
-          return createJsonResponse({
-            result: payments.map((payment) => formatIncomingPayment(payment)),
-          })
+        return createJsonResponse({
+          result: payments.map((payment) => formatIncomingPayment(payment)),
         })
-      sig.onCleanup(dispose)
-    }
+      })
 
     // Create a new incoming payment
-    {
-      const { dispose } = http
-        .post()
-        .path(`${PAYMENT_POINTER_ROOT}/incoming-payments`)
-        .cors()
-        .bodySchema(
-          z.object({
-            incomingAmount: z.object({
-              value: z.string(),
-              assetCode: z.string(),
-              assetScale: z.number(),
-            }),
-            expiresAt: z.string().optional(),
-            description: z.string().optional(),
-            externalRef: z.string().optional(),
+    http
+      .post()
+      .path(`${PAYMENT_POINTER_ROOT}/incoming-payments`)
+      .cors()
+      .bodySchema(
+        z.object({
+          incomingAmount: z.object({
+            value: z.string(),
+            assetCode: z.string(),
+            assetScale: z.number(),
           }),
-        )
-        .handler((request) => {
-          const { incomingAmount, externalRef } = request.body
-          const id = nanoid()
-          const payment = {
-            id,
-            subnet: "null",
-            total_amount: BigInt(incomingAmount.value),
-            received_amount: 0n,
-            external_reference: externalRef ?? "",
-          }
+          expiresAt: z.string().optional(),
+          description: z.string().optional(),
+          externalRef: z.string().optional(),
+        }),
+      )
+      .handler(sig, (request) => {
+        const { incomingAmount, externalRef } = request.body
+        const id = nanoid()
+        const payment = {
+          id,
+          subnet: "null",
+          total_amount: BigInt(incomingAmount.value),
+          received_amount: 0n,
+          external_reference: externalRef ?? "",
+        }
 
-          database.tables.incomingPayment.insertOne(payment)
+        database.tables.incomingPayment.insertOne(payment)
 
-          return createJsonResponse(formatIncomingPayment(payment))
-        })
-      sig.onCleanup(dispose)
-    }
+        return createJsonResponse(formatIncomingPayment(payment))
+      })
   })

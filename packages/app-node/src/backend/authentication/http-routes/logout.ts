@@ -16,7 +16,7 @@ export const RegisterLogoutRouteActor = () =>
     http
       .post()
       .path("/api/logout")
-      .handler((request, response) => {
+      .handler(sig, (request, response) => {
         const cookies = parse(request.headers.cookie ?? "")
         const currentSessionToken = cookies[SESSION_COOKIE_NAME]
         if (currentSessionToken) {

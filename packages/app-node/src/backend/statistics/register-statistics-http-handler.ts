@@ -14,14 +14,13 @@ export const RegisterStatisticsHttpHandlerActor = (reactor: Reactor) => {
   const peersSignal = reactor.use(PeersSignal)
   const nodePublicKeySignal = reactor.use(NodePublicKeySignal)
   const databaseConfigStore = reactor.use(DatabaseConfigStore)
+  const http = reactor.use(HttpsRouter)
 
   return createActor((sig) => {
-    const http = sig.use(HttpsRouter)
-
     http
       .get()
       .path("/stats")
-      .handler(() => {
+      .handler(sig, () => {
         const nodeTable = nodeTableStore.read()
         const peers = [...peersSignal.read()]
           .map((nodeKey) => {

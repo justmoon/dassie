@@ -17,7 +17,7 @@ export const HandleSpspRequestsActor = () =>
       .get()
       .path("/.well-known/pay")
       .cors()
-      .handler(() => {
+      .handler(sig, () => {
         const { destinationAccount, sharedSecret } =
           streamServer.generateAddressAndSecret()
         return createJsonResponse({

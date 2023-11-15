@@ -32,7 +32,7 @@ export const RegisterLoginRouteActor = () =>
           loginAuthorizationSignature: z.string(),
         }),
       )
-      .handler((request, response) => {
+      .handler(sig, (request, response) => {
         const { loginAuthorizationSignature } = request.body
 
         const expectedLoginAuthorizationSignature = getPrivateSeedAtPath(

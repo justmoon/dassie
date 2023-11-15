@@ -33,7 +33,7 @@ export const RegisterPeerHttpHandlerActor = () =>
       .bodyParser("uint8Array")
       .assert(createAcceptHeaderAssertion(DASSIE_MESSAGE_CONTENT_TYPE))
       .assert(createContentTypeHeaderAssertion(DASSIE_MESSAGE_CONTENT_TYPE))
-      .handler(async (request) => {
+      .handler(sig, async (request) => {
         const parseResult = peerMessageSchema.parse(request.body)
         if (isFailure(parseResult)) {
           logger.debug("error while parsing incoming dassie message", {

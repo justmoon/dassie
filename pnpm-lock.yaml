@@ -534,6 +534,9 @@ importers:
 
   packages/lib-http-server:
     dependencies:
+      '@dassie/lib-reactive':
+        specifier: workspace:^
+        version: link:../lib-reactive
       '@dassie/lib-type-utils':
         specifier: workspace:^
         version: link:../lib-type-utils
