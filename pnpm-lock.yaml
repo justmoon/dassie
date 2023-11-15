@@ -546,6 +546,9 @@ importers:
       negotiator:
         specifier: ^0.6.3
         version: 0.6.3
+      secure-json-parse:
+        specifier: ^2.7.0
+        version: 2.7.0
     devDependencies:
       '@dassie/eslint-config':
         specifier: workspace:^
@@ -8591,6 +8594,10 @@ packages:
 
   /secure-compare@3.0.1:
     resolution: {integrity: sha512-AckIIV90rPDcBcglUwXPF3kg0P0qmPsPXAj6BBEENQE1p5yA1xfmDJzfi1Tappj37Pv2mVbKpL3Z1T+Nn7k1Qw==}
+    dev: false
+
+  /secure-json-parse@2.7.0:
+    resolution: {integrity: sha512-6aU+Rwsezw7VR8/nyvKTx8QpWH9FrcYiXXlqC4z5d5XQBDRqtbfsRjnwGyqbi3gddNtWHuEk9OANUotL26qKUw==}
     dev: false
 
   /semver@5.7.2:

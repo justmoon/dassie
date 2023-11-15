@@ -1,15 +1,12 @@
 import {
   BadRequestFailure,
-  assertAcceptHeader,
-  assertContentTypeHeader,
-  createHandler,
+  createAcceptHeaderAssertion,
+  createContentTypeHeaderAssertion,
   createPlainResponse,
-  parseBody,
 } from "@dassie/lib-http-server"
 import { Reactor, createActor } from "@dassie/lib-reactive"
-import { isFailure } from "@dassie/lib-type-utils"
 
-import { HttpsRouterServiceActor } from "../http-server/serve-https"
+import { HttpsRouter } from "../http-server/serve-https"
 import { ProcessPacketActor } from "../ilp-connector/process-packet"
 import { IlpHttpEndpointInfo } from "../ilp-connector/senders/send-ilp-http-packets"
 import { ILP_OVER_HTTP_CONTENT_TYPE } from "./constants/content-type"
@@ -20,29 +17,15 @@ export const RegisterIlpHttpHandlerActor = (reactor: Reactor) => {
   const incomingRequestIdMap = reactor.use(IncomingRequestIdMap)
 
   return createActor((sig) => {
-    const router = sig.get(HttpsRouterServiceActor)
+    const http = sig.use(HttpsRouter)
 
-    if (!router) return
-
-    router.post(
-      "/ilp",
-      createHandler(async (request) => {
-        {
-          const result = assertAcceptHeader(request, ILP_OVER_HTTP_CONTENT_TYPE)
-          if (isFailure(result)) return result
-        }
-        {
-          const result = assertContentTypeHeader(
-            request,
-            ILP_OVER_HTTP_CONTENT_TYPE,
-          )
-          if (isFailure(result)) return result
-        }
-
-        const body = await parseBody(request)
-
-        if (isFailure(body)) return body
-
+    http
+      .post()
+      .path("/ilp")
+      .bodyParser("uint8Array")
+      .assert(createAcceptHeaderAssertion(ILP_OVER_HTTP_CONTENT_TYPE))
+      .assert(createContentTypeHeaderAssertion(ILP_OVER_HTTP_CONTENT_TYPE))
+      .handler((request) => {
         if (request.headers["prefer"] !== "respond-async") {
           return new BadRequestFailure(
             "This implementation only supports asynchronous mode, expected 'Prefer: respond-async'",
@@ -84,7 +67,7 @@ export const RegisterIlpHttpHandlerActor = (reactor: Reactor) => {
 
         processPacketActor.api.handle.tell({
           sourceEndpointInfo: endpointInfo,
-          serializedPacket: body,
+          serializedPacket: request.body,
           requestId: numericRequestId,
         })
 
@@ -92,7 +75,6 @@ export const RegisterIlpHttpHandlerActor = (reactor: Reactor) => {
           contentType: ILP_OVER_HTTP_CONTENT_TYPE,
           statusCode: 202,
         })
-      }),
-    )
+      })
   })
 }

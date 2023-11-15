@@ -1,8 +1,11 @@
+import { parse as secureJsonParse } from "secure-json-parse"
+import { infer as InferZodType, ZodTypeAny } from "zod"
+
 import type { IncomingMessage } from "node:http"
 
 import { isFailure } from "@dassie/lib-type-utils"
 
-import { PayloadTooLargeFailure } from "."
+import { BadRequestFailure, PayloadTooLargeFailure } from "."
 import { DEFAULT_MAX_BODY_SIZE } from "./constants"
 
 export const parseBodyBuffer = async (
@@ -25,7 +28,7 @@ export const parseBodyBuffer = async (
   return Buffer.concat(body)
 }
 
-export const parseBody = async (
+export const parseBodyUint8Array = async (
   request: IncomingMessage,
 ): Promise<PayloadTooLargeFailure | Uint8Array> => {
   const buffer = await parseBodyBuffer(request)
@@ -40,3 +43,38 @@ export const parseBodyUtf8 = async (
 
   return isFailure(buffer) ? buffer : buffer.toString("utf8")
 }
+
+export const parseJson = async (
+  request: IncomingMessage,
+  // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
+): Promise<PayloadTooLargeFailure | unknown> => {
+  const body = await parseBodyUtf8(request)
+
+  try {
+    return isFailure(body) ? body : (secureJsonParse(body) as unknown)
+  } catch (error) {
+    console.debug("request body is not valid JSON", { error })
+    return new BadRequestFailure("Invalid HTTP request body")
+  }
+}
+
+export const parseBodyZod =
+  <TSchema extends ZodTypeAny>(schema: TSchema) =>
+  async (
+    request: IncomingMessage,
+  ): Promise<InferZodType<TSchema> | BadRequestFailure> => {
+    const body = await parseJson(request)
+    if (isFailure(body)) return body
+
+    const result = schema.safeParse(body)
+
+    if (!result.success) {
+      console.debug("request body does not pass schema", {
+        error: result.error,
+      })
+      return new BadRequestFailure("Invalid HTTP request body")
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+    return result.data as InferZodType<TSchema>
+  }

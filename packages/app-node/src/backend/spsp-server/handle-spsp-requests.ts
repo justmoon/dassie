@@ -1,28 +1,28 @@
+import { createJsonResponse } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
-import { HttpsRouterServiceActor } from "../http-server/serve-https"
+import { HttpsRouter } from "../http-server/serve-https"
 import { StreamServerServiceActor } from "./stream-server"
 
 export const HandleSpspRequestsActor = () =>
   createActor((sig) => {
-    const router = sig.get(HttpsRouterServiceActor)
+    const http = sig.use(HttpsRouter)
     const streamServer = sig.get(StreamServerServiceActor)
 
-    if (!router || !streamServer) {
+    if (!streamServer) {
       return
     }
 
-    router.get("/.well-known/pay", (_request, response) => {
-      response.setHeader("Access-Control-Allow-Origin", "*")
-      response.statusCode = 200
-      response.setHeader("Content-Type", "application/json")
-      const { destinationAccount, sharedSecret } =
-        streamServer.generateAddressAndSecret()
-      response.end(
-        JSON.stringify({
+    http
+      .get()
+      .path("/.well-known/pay")
+      .cors()
+      .handler(() => {
+        const { destinationAccount, sharedSecret } =
+          streamServer.generateAddressAndSecret()
+        return createJsonResponse({
           destination_account: destinationAccount,
           shared_secret: sharedSecret.toString("base64"),
-        }),
-      )
-    })
+        })
+      })
   })

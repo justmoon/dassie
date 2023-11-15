@@ -1,16 +1,14 @@
 import {
   BadRequestFailure,
   UnauthorizedFailure,
-  assertAcceptHeader,
-  assertContentTypeHeader,
+  createAcceptHeaderAssertion,
   createBinaryResponse,
-  createHandler,
-  parseBody,
+  createContentTypeHeaderAssertion,
 } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 import { isFailure } from "@dassie/lib-type-utils"
 
-import { HttpsRouterServiceActor } from "../http-server/serve-https"
+import { HttpsRouter } from "../http-server/serve-https"
 import { peerProtocol as logger } from "../logger/instances"
 import {
   HandlePeerMessageActor,
@@ -24,40 +22,23 @@ import { NodeTableStore } from "./stores/node-table"
 
 export const RegisterPeerHttpHandlerActor = () =>
   createActor((sig) => {
-    const router = sig.get(HttpsRouterServiceActor)
     const authenticatePeerMessage = sig.use(AuthenticatePeerMessage)
     const nodeTableStore = sig.use(NodeTableStore)
 
-    if (!router) return
+    const http = sig.use(HttpsRouter)
 
-    router.post(
-      "/peer",
-      createHandler(async (request) => {
-        {
-          const result = assertAcceptHeader(
-            request,
-            DASSIE_MESSAGE_CONTENT_TYPE,
-          )
-          if (isFailure(result)) return result
-        }
-        {
-          const result = assertContentTypeHeader(
-            request,
-            DASSIE_MESSAGE_CONTENT_TYPE,
-          )
-          if (isFailure(result)) return result
-        }
-
-        const body = await parseBody(request)
-
-        if (isFailure(body)) return body
-
-        const parseResult = peerMessageSchema.parse(body)
-
+    http
+      .post()
+      .path("/peer")
+      .bodyParser("uint8Array")
+      .assert(createAcceptHeaderAssertion(DASSIE_MESSAGE_CONTENT_TYPE))
+      .assert(createContentTypeHeaderAssertion(DASSIE_MESSAGE_CONTENT_TYPE))
+      .handler(async (request) => {
+        const parseResult = peerMessageSchema.parse(request.body)
         if (isFailure(parseResult)) {
           logger.debug("error while parsing incoming dassie message", {
             error: parseResult,
-            body,
+            body: request.body,
           })
           return new BadRequestFailure(`Bad Request, failed to parse message`)
         }
@@ -65,7 +46,6 @@ export const RegisterPeerHttpHandlerActor = () =>
         if (parseResult.value.version !== 0) {
           logger.debug("incoming dassie message has unknown version", {
             version: parseResult.value.version,
-            body,
           })
           return new BadRequestFailure(`Bad Request, unsupported version`)
         }
@@ -86,7 +66,6 @@ export const RegisterPeerHttpHandlerActor = () =>
             "incoming dassie message is not authenticated, ignoring",
             {
               message: parseResult.value,
-              body,
             },
           )
           return new UnauthorizedFailure(
@@ -98,7 +77,7 @@ export const RegisterPeerHttpHandlerActor = () =>
           message: parseResult.value,
           authenticated: isAuthenticated,
           peerState: senderNode?.peerState,
-          asUint8Array: body,
+          asUint8Array: request.body,
         })
 
         const responseMessage = await sig
@@ -107,12 +86,11 @@ export const RegisterPeerHttpHandlerActor = () =>
             message: parseResult.value,
             authenticated: isAuthenticated,
             peerState: senderNode?.peerState,
-            asUint8Array: body,
+            asUint8Array: request.body,
           })
 
         return createBinaryResponse(responseMessage, {
           contentType: "application/dassie-peer-response",
         })
-      }),
-    )
+      })
   })

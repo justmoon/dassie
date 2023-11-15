@@ -1,11 +1,12 @@
 import type { NextHandleFunction } from "connect"
-import express, { Router } from "express"
+import express from "express"
 
 import assert from "node:assert"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { createServer } from "node:https"
 import type { Duplex } from "node:stream"
 
+import { createRouter } from "@dassie/lib-http-server"
 import { createActor, createSignal } from "@dassie/lib-reactive"
 
 import { DatabaseConfigStore } from "../config/database-config"
@@ -20,10 +21,7 @@ export type Handler = (
 export const AdditionalMiddlewaresSignal = () =>
   createSignal<NextHandleFunction[]>([])
 
-export const HttpsRouterServiceActor = () =>
-  createActor<Router>(() => {
-    return Router()
-  })
+export const HttpsRouter = () => createRouter()
 
 export type WebsocketHandler = (
   request: IncomingMessage,
@@ -48,14 +46,14 @@ export const HttpsServiceActor = () =>
     assert(tlsWebCert, "Web UI is not configured, missing certificate")
     assert(tlsWebKey, "Web UI is not configured, missing private key")
 
-    const router = sig.get(HttpsRouterServiceActor)
+    const router = sig.use(HttpsRouter)
     const additionalMiddlewares = sig.get(AdditionalMiddlewaresSignal)
 
     if (!router) return
 
     const app = express()
 
-    app.use(router)
+    app.use(router.middleware)
 
     for (const middleware of additionalMiddlewares) {
       app.use(middleware)
@@ -108,6 +106,5 @@ export const HttpsServiceActor = () =>
 
 export const ServeHttpsActor = () =>
   createActor((sig) => {
-    sig.run(HttpsRouterServiceActor)
     sig.run(HttpsServiceActor)
   })

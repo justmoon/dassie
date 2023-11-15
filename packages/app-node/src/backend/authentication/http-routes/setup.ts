@@ -15,7 +15,7 @@ import {
   hasNodeIdentity,
 } from "../../config/database-config"
 import { getPrivateSeedAtPath } from "../../crypto/utils/seed-paths"
-import { RestApiServiceActor } from "../../http-server/serve-rest-api"
+import { HttpsRouter } from "../../http-server/serve-https"
 import { serializeEd25519PrivateKey } from "../../utils/pem"
 import { COOKIE_MAX_AGE } from "../constants/cookie-lifetime"
 import { SessionsStore } from "../database-stores/sessions"
@@ -24,18 +24,17 @@ import { SessionToken } from "../types/session-token"
 
 export const RegisterSetupRouteActor = () =>
   createActor((sig) => {
-    const api = sig.get(RestApiServiceActor)
+    const http = sig.use(HttpsRouter)
     const sessions = sig.use(SessionsStore)
     const config = sig.use(DatabaseConfigStore)
     const expectedSetupAuthorizationToken = sig
       .use(SetupAuthorizationTokenSignal)
       .read()
 
-    if (!api) return
-
-    api
-      .post("/api/setup")
-      .body(
+    http
+      .post()
+      .path("/api/setup")
+      .bodySchema(
         z.object({
           setupAuthorizationToken: z.string(),
           rawDassieKeyHex: z.string(),

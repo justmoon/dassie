@@ -12,21 +12,22 @@ import { SESSION_COOKIE_NAME } from "../../../common/constants/cookie-name"
 import { SEED_PATH_NODE_LOGIN } from "../../../common/constants/seed-paths"
 import { NodePrivateKeySignal } from "../../crypto/computed/node-private-key"
 import { getPrivateSeedAtPath } from "../../crypto/utils/seed-paths"
-import { RestApiServiceActor } from "../../http-server/serve-rest-api"
+import { HttpsRouter } from "../../http-server/serve-https"
 import { COOKIE_MAX_AGE } from "../constants/cookie-lifetime"
 import { SessionsStore } from "../database-stores/sessions"
 import { SessionToken } from "../types/session-token"
 
 export const RegisterLoginRouteActor = () =>
   createActor((sig) => {
-    const api = sig.get(RestApiServiceActor)
+    const http = sig.use(HttpsRouter)
     const sessions = sig.use(SessionsStore)
 
-    if (!api) return
+    if (!http) return
 
-    api
-      .post("/api/login")
-      .body(
+    http
+      .post()
+      .path("/api/login")
+      .bodySchema(
         z.object({
           loginAuthorizationSignature: z.string(),
         }),

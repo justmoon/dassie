@@ -1,9 +1,9 @@
-import { createHandler, createJsonResponse } from "@dassie/lib-http-server"
+import { createJsonResponse } from "@dassie/lib-http-server"
 import { Reactor, createActor } from "@dassie/lib-reactive"
 
 import { DatabaseConfigStore } from "../config/database-config"
 import { NodePublicKeySignal } from "../crypto/computed/node-public-key"
-import { HttpsRouterServiceActor } from "../http-server/serve-https"
+import { HttpsRouter } from "../http-server/serve-https"
 import { NodeIdSignal } from "../ilp-connector/computed/node-id"
 import { PeersSignal } from "../peer-protocol/computed/peers"
 import { NodeTableStore } from "../peer-protocol/stores/node-table"
@@ -16,13 +16,12 @@ export const RegisterStatisticsHttpHandlerActor = (reactor: Reactor) => {
   const databaseConfigStore = reactor.use(DatabaseConfigStore)
 
   return createActor((sig) => {
-    const router = sig.get(HttpsRouterServiceActor)
+    const http = sig.use(HttpsRouter)
 
-    if (!router) return
-
-    router.get(
-      "/stats",
-      createHandler(() => {
+    http
+      .get()
+      .path("/stats")
+      .handler(() => {
         const nodeTable = nodeTableStore.read()
         const peers = [...peersSignal.read()]
           .map((nodeKey) => {
@@ -53,7 +52,6 @@ export const RegisterStatisticsHttpHandlerActor = (reactor: Reactor) => {
           },
           peers,
         })
-      }),
-    )
+      })
   })
 }

@@ -1,15 +1,12 @@
 import {
   BadRequestFailure,
-  assertAcceptHeader,
-  assertContentTypeHeader,
-  createHandler,
+  createAcceptHeaderAssertion,
+  createContentTypeHeaderAssertion,
   createPlainResponse,
-  parseBody,
 } from "@dassie/lib-http-server"
 import { Reactor, createActor } from "@dassie/lib-reactive"
-import { isFailure } from "@dassie/lib-type-utils"
 
-import { HttpsRouterServiceActor } from "../http-server/serve-https"
+import { HttpsRouter } from "../http-server/serve-https"
 import { ProcessPacketActor } from "../ilp-connector/process-packet"
 import { IlpHttpEndpointInfo } from "../ilp-connector/senders/send-ilp-http-packets"
 import { ILP_OVER_HTTP_CONTENT_TYPE } from "./constants/content-type"
@@ -18,30 +15,15 @@ export const RegisterIlpHttpCallbackHandlerActor = (reactor: Reactor) => {
   const processPacketActor = reactor.use(ProcessPacketActor)
 
   return createActor((sig) => {
-    const router = sig.get(HttpsRouterServiceActor)
+    const http = sig.use(HttpsRouter)
 
-    if (!router) return
-
-    router.post(
-      "/ilp/callback",
-      createHandler(async (request) => {
-        {
-          const result = assertAcceptHeader(request, ILP_OVER_HTTP_CONTENT_TYPE)
-          if (isFailure(result)) return result
-        }
-
-        {
-          const result = assertContentTypeHeader(
-            request,
-            ILP_OVER_HTTP_CONTENT_TYPE,
-          )
-          if (isFailure(result)) return result
-        }
-
-        const body = await parseBody(request)
-
-        if (isFailure(body)) return body
-
+    http
+      .post()
+      .path("/ilp/callback")
+      .bodyParser("uint8Array")
+      .assert(createAcceptHeaderAssertion(ILP_OVER_HTTP_CONTENT_TYPE))
+      .assert(createContentTypeHeaderAssertion(ILP_OVER_HTTP_CONTENT_TYPE))
+      .handler((request) => {
         const textualRequestIdHeader = request.headers["request-id"]
         const textualRequestId = Array.isArray(textualRequestIdHeader)
           ? textualRequestIdHeader[0]
@@ -61,14 +43,13 @@ export const RegisterIlpHttpCallbackHandlerActor = (reactor: Reactor) => {
 
         processPacketActor.api.handle.tell({
           sourceEndpointInfo: endpointInfo,
-          serializedPacket: body,
+          serializedPacket: request.body,
           requestId: Number(textualRequestId),
         })
 
         return createPlainResponse("", {
           contentType: ILP_OVER_HTTP_CONTENT_TYPE,
         })
-      }),
-    )
+      })
   })
 }

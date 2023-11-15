@@ -4,7 +4,7 @@ import { createJsonResponse } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
 import { SESSION_COOKIE_NAME } from "../../../common/constants/cookie-name"
-import { RestApiServiceActor } from "../../http-server/serve-rest-api"
+import { HttpsRouter } from "../../http-server/serve-https"
 import { COOKIE_MAX_AGE } from "../constants/cookie-lifetime"
 import { SessionToken } from "../types/session-token"
 
@@ -12,13 +12,12 @@ export const RegisterDevelopmentSetSessionRouteActor = () =>
   createActor((sig) => {
     if (!import.meta.env.DEV) return
 
-    const api = sig.get(RestApiServiceActor)
+    const http = sig.use(HttpsRouter)
 
-    if (!api) return
-
-    api
-      .post("/api/_dev/set-session")
-      .body(
+    http
+      .post()
+      .path("/api/_dev/set-session")
+      .bodySchema(
         z.object({
           sessionToken: z
             .string()
