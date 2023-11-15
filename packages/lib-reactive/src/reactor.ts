@@ -12,9 +12,6 @@ import {
   UseSymbol,
 } from "./internal/context-base"
 
-export type Disposer = () => void
-export type AsyncDisposer = () => Promisable<void>
-
 export interface UseOptions {
   /**
    * Custom lifecycle scope to use for this state.

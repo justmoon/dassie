@@ -40,8 +40,12 @@ export type {
 } from "./store"
 export type { Computed, ComputationContext } from "./computed"
 export type { Mapped } from "./mapped"
-export type { Reactor, Factory, Disposer, AsyncDisposer } from "./reactor"
-export type { LifecycleScope, DisposableLifecycleScope } from "./lifecycle"
+export type { Reactor, Factory } from "./reactor"
+export type {
+  LifecycleScope,
+  DisposableLifecycleScope,
+  Disposer,
+} from "./lifecycle"
 export type {
   ReactiveSource as ReactiveProvider,
   ReactiveObserver as ReactiveConsumer,

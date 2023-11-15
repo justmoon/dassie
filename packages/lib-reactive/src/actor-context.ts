@@ -324,15 +324,15 @@ export class ActorContext extends DisposableLifecycleScopeImplementation {
     let index = 0
     for (const [, actor, mapLifecycle] of mapped) {
       const actorLifecycle = new DisposableLifecycleScopeImplementation("")
-      actorLifecycle.attachToParent(mapLifecycle)
-      actorLifecycle.attachToParent(this)
+      actorLifecycle.confineTo(mapLifecycle)
+      actorLifecycle.confineTo(this)
       results[index++] = actor.run(this.reactor, actorLifecycle, runOptions)
     }
 
     mapped.additions.on(this, ([, actor, mapLifecycle]) => {
       const actorLifecycle = new DisposableLifecycleScopeImplementation("")
-      actorLifecycle.attachToParent(mapLifecycle)
-      actorLifecycle.attachToParent(this)
+      actorLifecycle.confineTo(mapLifecycle)
+      actorLifecycle.confineTo(this)
       actor.run(this.reactor, actorLifecycle, runOptions)
     })
 
@@ -356,16 +356,16 @@ export class ActorContext extends DisposableLifecycleScopeImplementation {
     let index = 0
     for (const [, actor, mapLifecycle] of mapped) {
       const actorLifecycle = new DisposableLifecycleScopeImplementation("")
-      actorLifecycle.attachToParent(mapLifecycle)
-      actorLifecycle.attachToParent(this)
+      actorLifecycle.confineTo(mapLifecycle)
+      actorLifecycle.confineTo(this)
       // eslint-disable-next-line @typescript-eslint/await-thenable
       results[index++] = await actor.run(this.reactor, actorLifecycle)
     }
 
     mapped.additions.on(this, ([, actor, mapLifecycle]) => {
       const actorLifecycle = new DisposableLifecycleScopeImplementation("")
-      actorLifecycle.attachToParent(mapLifecycle)
-      actorLifecycle.attachToParent(this)
+      actorLifecycle.confineTo(mapLifecycle)
+      actorLifecycle.confineTo(this)
       actor.run(this.reactor, actorLifecycle)
     })
 

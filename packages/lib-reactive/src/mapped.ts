@@ -148,7 +148,7 @@ class MappedImplementation<TInput, TOutput> extends Reactive<
         const lifecycle = createLifecycleScope(
           `${this[FactoryNameSymbol]} item`,
         )
-        lifecycle.attachToParent(this.parentLifecycle)
+        lifecycle.confineTo(this.parentLifecycle)
 
         const output = this.mapFunction(item, lifecycle)
 

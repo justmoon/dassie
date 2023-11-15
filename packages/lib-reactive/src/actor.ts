@@ -284,7 +284,7 @@ class ActorImplementation<TInstance>
           return value
         },
       )
-      context.attachToParent(parentLifecycle)
+      context.confineTo(parentLifecycle)
       context.onCleanup(resetActor)
 
       try {

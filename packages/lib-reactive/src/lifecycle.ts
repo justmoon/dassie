@@ -1,15 +1,15 @@
-import type { AsyncDisposer } from "./reactor"
+export type Disposer = () => void | PromiseLike<void>
 
 export interface LifecycleScope {
   name: string
   isDisposed: boolean
-  onCleanup: typeof DisposableLifecycleScopeImplementation.prototype.onCleanup
-  offCleanup: typeof DisposableLifecycleScopeImplementation.prototype.offCleanup
+  onCleanup: (cleanupHandler: Disposer) => void
+  offCleanup: (cleanupHandler: Disposer) => void
 }
 
 export interface DisposableLifecycleScope extends LifecycleScope {
-  dispose: typeof DisposableLifecycleScopeImplementation.prototype.dispose
-  attachToParent: typeof DisposableLifecycleScopeImplementation.prototype.attachToParent
+  dispose: () => Promise<void>
+  confineTo: (parent: LifecycleScope) => void
 }
 
 export class DisposableLifecycleScopeImplementation
@@ -22,7 +22,7 @@ export class DisposableLifecycleScopeImplementation
    *
    * If the scope is already disposed, this value will be undefined and the cleanup handlers will be run immediately.
    */
-  private cleanupQueue: AsyncDisposer[] | undefined = []
+  private cleanupQueue: Disposer[] | undefined = []
 
   /**
    * Register a callback that will be run when this lifecycle scope is disposed.
@@ -33,7 +33,7 @@ export class DisposableLifecycleScopeImplementation
    *
    * @param cleanupHandler - Callback that will be run when the scope is disposed.
    */
-  onCleanup = (cleanupHandler: AsyncDisposer) => {
+  onCleanup = (cleanupHandler: Disposer) => {
     if (!this.cleanupQueue) {
       // If the scope has already been disposed, run the cleanup handler immediately.
       Promise.resolve(cleanupHandler()).catch((error: unknown) => {
@@ -50,8 +50,8 @@ export class DisposableLifecycleScopeImplementation
    *
    * @param cleanupHandler - Callback to remove from the cleanup queue.
    */
-  offCleanup = (cleanupHandler: AsyncDisposer) => {
-    // TODO: This could be slow if there are a lot of cleanup handlers. Benchmark and optimize for 0, 1, small, and large numbers of handlers.
+  offCleanup = (cleanupHandler: Disposer) => {
+    // TODO: This could be slow if there are a lot of cleanup handlers.
     const index = this.cleanupQueue?.indexOf(cleanupHandler) ?? -1
     if (index !== -1) {
       this.cleanupQueue!.splice(index, 1)
@@ -90,7 +90,7 @@ export class DisposableLifecycleScopeImplementation
    *
    * This simply means that this lifecycle should be disposed automatically when the parent lifecycle is disposed.
    */
-  attachToParent = (parent: LifecycleScope) => {
+  confineTo = (parent: LifecycleScope) => {
     parent.onCleanup(this.dispose)
     this.onCleanup(() => parent.offCleanup(this.dispose))
   }
