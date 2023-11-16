@@ -1,16 +1,20 @@
+import { castImmutable } from "immer"
+
 import { isObject } from "@dassie/lib-type-utils"
 
 import type { ContextState, Reactor } from "../reactor"
-import { isSignal } from "../signal"
 
-// eslint-disable-next-line unicorn/prevent-abbreviations
-type ContextWeakRef = WeakRef<Record<keyof never, unknown>>
+export interface ContextEntry {
+  uniqueId: number
+  reference: WeakRef<Record<keyof never, unknown>>
+}
 
 class DebugTools {
-  private context = new Set<ContextWeakRef>()
-  private registry = new FinalizationRegistry<ContextWeakRef>(
-    (value: ContextWeakRef) => {
-      this.context.delete(value)
+  private static uniqueId = 0
+  private context = new Map<number, ContextEntry>()
+  private registry = new FinalizationRegistry<ContextEntry>(
+    (value: ContextEntry) => {
+      this.context.delete(value.uniqueId)
     },
   )
 
@@ -24,20 +28,21 @@ class DebugTools {
       return
     }
 
-    const weakReference = new WeakRef(value)
-    this.context.add(weakReference)
-    this.registry.register(value, weakReference)
+    const contextEntry = {
+      uniqueId: DebugTools.uniqueId++,
+      reference: new WeakRef(value),
+    }
+    this.context.set(contextEntry.uniqueId, contextEntry)
+    this.registry.register(value, contextEntry)
   }
 
   /**
-   * Retrieve the state of the reactor.
+   * Retrieve the list of all current context entries
    *
-   * @returns All currently instantiated signals in the reactor.
+   * @returns All currently instantiated values in the reactor.
    */
-  getState() {
-    return [...this.context]
-      .map((weakReference) => weakReference.deref())
-      .filter((possibleSignal) => isSignal(possibleSignal))
+  getContext() {
+    return castImmutable(this.context)
   }
 }
 

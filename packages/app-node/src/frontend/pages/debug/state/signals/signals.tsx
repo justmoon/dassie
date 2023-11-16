@@ -1,0 +1,38 @@
+import { useState } from "react"
+
+import { ScrollArea } from "../../../../components/ui/scroll-area"
+import { combine } from "../../../../utils/class-helper"
+import { StateKeys } from "../state"
+import { SignalState } from "./signal-state"
+
+interface SignalsProperties {
+  stateKeys: StateKeys
+}
+
+export function Signals({ stateKeys }: SignalsProperties) {
+  const [currentKey, setCurrentKey] = useState<number | undefined>(undefined)
+
+  return (
+    <div className="grid grid-cols-[24rem_auto] h-full min-h-0">
+      <ScrollArea>
+        <ul className="flex flex-col p-2 pr-4 space-y-2 min-h-0">
+          {stateKeys
+            .filter((tuple) => tuple[2] === "signal")
+            .map(([key, name, type]) => (
+              <li
+                key={key}
+                className={combine(
+                  "rounded-md p-2 cursor-pointer hover:bg-accent",
+                  key === currentKey && "bg-accent",
+                )}
+                onClick={() => setCurrentKey(key)}
+              >
+                {name} ({type})
+              </li>
+            ))}
+        </ul>
+      </ScrollArea>
+      {currentKey ? <SignalState id={currentKey} /> : null}
+    </div>
+  )
+}

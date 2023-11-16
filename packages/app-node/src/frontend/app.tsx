@@ -6,6 +6,7 @@ import { CreateFirstAccount } from "./pages/create-first-account/create-first-ac
 import { Ledger } from "./pages/debug/ledger/ledger"
 import { Nodes } from "./pages/debug/nodes/nodes"
 import { Routing } from "./pages/debug/routing/routing"
+import { State } from "./pages/debug/state/state"
 import { LoginPage } from "./pages/login/login"
 import { PaymentStatus } from "./pages/payment-status/payment-status"
 import { Send } from "./pages/send/send"
@@ -39,7 +40,7 @@ const App = () => {
   }
 
   return (
-    <div>
+    <div className="h-screen grid grid-rows-[auto_1fr]">
       <MainNavigation />
       <Switch>
         <Route path="/send" component={Send} />
@@ -47,6 +48,7 @@ const App = () => {
         <Route path="/debug/ledger" component={Ledger} />
         <Route path="/debug/nodes" component={Nodes} />
         <Route path="/debug/routing" component={Routing} />
+        <Route path="/debug/state" component={State} />
         <Route path="/settings" component={Settings} />
         <Route component={Account} />
       </Switch>
