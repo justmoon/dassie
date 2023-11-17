@@ -329,9 +329,9 @@ export class ActorContext extends DisposableLifecycleScopeImplementation {
       results[index++] = actor.run(this.reactor, actorLifecycle, runOptions)
     }
 
-    mapped.additions.on(this, ([, actor, mapLifecycle]) => {
+    mapped.additions.on(this, ([, actor, mapItemLifecycle]) => {
       const actorLifecycle = new DisposableLifecycleScopeImplementation("")
-      actorLifecycle.confineTo(mapLifecycle)
+      actorLifecycle.confineTo(mapItemLifecycle)
       actorLifecycle.confineTo(this)
       actor.run(this.reactor, actorLifecycle, runOptions)
     })
@@ -352,6 +352,12 @@ export class ActorContext extends DisposableLifecycleScopeImplementation {
   ): Promise<(TReturn | undefined)[]> {
     const mapped = this.use(factory)
     const results: (TReturn | undefined)[] = Array.from({ length: mapped.size })
+    let linearizationPromise = Promise.resolve()
+
+    const runOptions: RunOptions = {
+      pathPrefix: `${this.path}.`,
+      overrideName: `${mapped[FactoryNameSymbol] ?? "anonymous"}[]`,
+    }
 
     let index = 0
     for (const [, actor, mapLifecycle] of mapped) {
@@ -359,14 +365,21 @@ export class ActorContext extends DisposableLifecycleScopeImplementation {
       actorLifecycle.confineTo(mapLifecycle)
       actorLifecycle.confineTo(this)
       // eslint-disable-next-line @typescript-eslint/await-thenable
-      results[index++] = await actor.run(this.reactor, actorLifecycle)
+      results[index++] = await actor.run(
+        this.reactor,
+        actorLifecycle,
+        runOptions,
+      )
     }
 
-    mapped.additions.on(this, ([, actor, mapLifecycle]) => {
-      const actorLifecycle = new DisposableLifecycleScopeImplementation("")
-      actorLifecycle.confineTo(mapLifecycle)
-      actorLifecycle.confineTo(this)
-      actor.run(this.reactor, actorLifecycle)
+    mapped.additions.on(this, ([, actor, mapItemLifecycle]) => {
+      linearizationPromise = linearizationPromise.then(async () => {
+        const actorLifecycle = new DisposableLifecycleScopeImplementation("")
+        actorLifecycle.confineTo(mapItemLifecycle)
+        actorLifecycle.confineTo(this)
+        // eslint-disable-next-line @typescript-eslint/await-thenable
+        await actor.run(this.reactor, actorLifecycle, runOptions)
+      })
     })
 
     return results
