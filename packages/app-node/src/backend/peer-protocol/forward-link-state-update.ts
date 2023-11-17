@@ -66,5 +66,5 @@ export const ForwardLinkStateUpdateActor = () =>
       }
     }
 
-    sig.timeout(sig.wake, MAX_RETRANSMIT_CHECK_INTERVAL)
+    sig.timeout(sig.forceRestart, MAX_RETRANSMIT_CHECK_INTERVAL)
   })

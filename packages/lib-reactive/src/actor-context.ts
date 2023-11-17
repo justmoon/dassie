@@ -125,7 +125,7 @@ export interface ActorContext
   /**
    * Wake function. If called, the actor will be cleaned up and re-run.
    */
-  readonly wake: () => void
+  readonly forceRestart: () => void
 }
 
 export class ActorContextImplementation
@@ -153,7 +153,7 @@ export class ActorContextImplementation
 
     reactor: Reactor,
 
-    readonly wake: () => void,
+    readonly forceRestart: () => void,
 
     _get: <TState>(signal: ReactiveSource<TState>) => TState,
   ) {
@@ -163,7 +163,7 @@ export class ActorContextImplementation
   subscribe<TMessage>(
     topicFactory: Factory<ReadonlyTopic<TMessage>> | ReadonlyTopic<TMessage>,
   ) {
-    this.once(topicFactory, this.wake)
+    this.once(topicFactory, this.forceRestart)
   }
 
   on<TMessage>(

@@ -34,7 +34,7 @@ export const SendHeartbeatsActor = () =>
     }
 
     sig.timeout(
-      sig.wake,
+      sig.forceRestart,
       MIN_HEARTBEAT_INTERVAL +
         Math.random() * (MAX_HEARTBEAT_INTERVAL - MIN_HEARTBEAT_INTERVAL),
     )

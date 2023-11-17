@@ -56,7 +56,7 @@ export const PollNodeListHashesActor = (reactor: Reactor) => {
         )
       }
     } finally {
-      sig.timeout(sig.wake, NODE_LIST_HASH_POLLING_INTERVAL)
+      sig.timeout(sig.forceRestart, NODE_LIST_HASH_POLLING_INTERVAL)
     }
   })
 }
