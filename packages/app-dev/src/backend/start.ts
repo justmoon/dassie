@@ -34,13 +34,13 @@ const RootActor = () =>
 
 const start = async ({ viteServer, viteNodeServer }: StartParameters) => {
   const reactor = createReactor()
-  reactor.lifecycle.onCleanup(async () => {
+  reactor.onCleanup(async () => {
     await viteServer.close()
   })
   reactor.set(ViteServer, viteServer)
   reactor.set(ViteNodeServer, viteNodeServer)
   const startActor = reactor.use(RootActor)
-  await startActor.run(reactor, reactor.lifecycle)
+  await startActor.run(reactor, reactor)
   return reactor
 }
 

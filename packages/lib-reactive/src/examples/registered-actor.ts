@@ -30,7 +30,7 @@ const RootActor = (reactor: Reactor) =>
       sig.use(ConfigSignal).update((config) => ({ ...config, port: 3100 }))
     }, 1000)
 
-    sig.timeout(() => void reactor.lifecycle.dispose(), 2000)
+    sig.timeout(() => void reactor.dispose(), 2000)
   })
 
 createReactor(RootActor)

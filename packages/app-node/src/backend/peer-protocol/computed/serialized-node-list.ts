@@ -4,7 +4,7 @@ import { peerMessageResponse } from "../peer-schema"
 import { NodeSetSignal } from "./node-set"
 
 export const SerializedNodeListSignal = (reactor: Reactor) =>
-  createComputed(reactor.lifecycle, (sig) => {
+  createComputed(reactor, (sig) => {
     const nodeSet = sig.get(reactor.use(NodeSetSignal))
 
     return peerMessageResponse.nodeListRequest.serializeOrThrow({

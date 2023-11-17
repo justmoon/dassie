@@ -18,7 +18,7 @@ describe("createMapped", () => {
   test("should be able to create a mapped", ({ expect }) => {
     const reactor = createReactor()
     const signal = createSignal(new Set<void>())
-    const mapped = createMapped(reactor.lifecycle, signal, () => {})
+    const mapped = createMapped(reactor, signal, () => {})
 
     expect(mapped).toBeTypeOf("object")
   })
@@ -28,9 +28,7 @@ describe("createMapped", () => {
   }) => {
     const reactor = createReactor()
     const signal = createSignal(new Set(["A", "B", "C"]))
-    const mapped = createMapped(reactor.lifecycle, signal, (key) =>
-      key.toLowerCase(),
-    )
+    const mapped = createMapped(reactor, signal, (key) => key.toLowerCase())
 
     expect(mapped.get("A")).toBe("a")
     expect(mapped.get("B")).toBe("b")
@@ -48,9 +46,7 @@ describe("createMapped", () => {
         C: vi.fn(() => "c"),
       }
       const MappedActors = (reactor: Reactor) =>
-        createMapped(reactor.lifecycle, signal, (key) =>
-          createActor(behaviors[key]),
-        )
+        createMapped(reactor, signal, (key) => createActor(behaviors[key]))
 
       createReactor(() =>
         createActor((sig) => {
@@ -88,9 +84,7 @@ describe("createMapped", () => {
         },
       }
       const MappedActors = (reactor: Reactor) =>
-        createMapped(reactor.lifecycle, signal, (key) =>
-          createActor(behaviors[key]),
-        )
+        createMapped(reactor, signal, (key) => createActor(behaviors[key]))
 
       createReactor(() =>
         createActor((sig) => {
@@ -124,9 +118,7 @@ describe("createMapped", () => {
         D: vi.fn(() => "d"),
       }
       const MappedActors = (reactor: Reactor) =>
-        createMapped(reactor.lifecycle, signal, (key) =>
-          createActor(behaviors[key]),
-        )
+        createMapped(reactor, signal, (key) => createActor(behaviors[key]))
 
       createReactor(() =>
         createActor((sig) => {
@@ -170,9 +162,7 @@ describe("createMapped", () => {
       },
     }
     const MappedActors = (reactor: Reactor) =>
-      createMapped(reactor.lifecycle, signal, (key) =>
-        createActor(behaviors[key]),
-      )
+      createMapped(reactor, signal, (key) => createActor(behaviors[key]))
 
     createReactor(() =>
       createActor((sig) => {

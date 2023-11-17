@@ -4,7 +4,7 @@ import { DatabaseConfigStore } from "../../config/database-config"
 import { SetupAuthorizationTokenSignal } from "../signals/setup-authorization-token"
 
 export const SetupUrlSignal = (reactor: Reactor) =>
-  createComputed(reactor.lifecycle, (sig) => {
+  createComputed(reactor, (sig) => {
     const token = sig.get(reactor.use(SetupAuthorizationTokenSignal))
     const hostname = sig.get(reactor.use(DatabaseConfigStore)).hostname
 

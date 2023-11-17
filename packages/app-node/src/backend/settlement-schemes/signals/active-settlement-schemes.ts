@@ -9,7 +9,7 @@ import { SettlementSchemesStore } from "../database-stores/settlement-schemes"
 enableMapSet()
 
 export const ActiveSettlementSchemesSignal = (reactor: Reactor) =>
-  createComputed(reactor.lifecycle, () => {
+  createComputed(reactor, () => {
     const settlementSchemes = reactor.use(SettlementSchemesStore)
 
     const activeSettlementSchemes = new Set<SettlementSchemeId>()
@@ -18,7 +18,7 @@ export const ActiveSettlementSchemesSignal = (reactor: Reactor) =>
       activeSettlementSchemes.add(settlementScheme.id)
     }
 
-    settlementSchemes.changes.on(reactor.lifecycle, (change) => {
+    settlementSchemes.changes.on(reactor, (change) => {
       switch (change[0]) {
         case "addSettlementScheme": {
           const [settlementSchemeId] = change[1]

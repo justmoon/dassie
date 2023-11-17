@@ -14,7 +14,7 @@ export const CreatePeerLedgerEntriesActor = (reactor: Reactor) => {
   const ledger = reactor.use(LedgerStore)
   const nodeTable = reactor.use(NodeTableStore)
 
-  return createMapped(reactor.lifecycle, reactor.use(PeersSignal), (peerId) =>
+  return createMapped(reactor, reactor.use(PeersSignal), (peerId) =>
     createActor((sig) => {
       const peerState = nodeTable.read().get(peerId)?.peerState
 

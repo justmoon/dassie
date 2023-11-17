@@ -19,7 +19,7 @@ export const ManageSettlementSchemeInstancesActor = (reactor: Reactor) => {
   const ledgerStore = reactor.use(LedgerStore)
 
   return createMapped(
-    reactor.lifecycle,
+    reactor,
     reactor.use(ActiveSettlementSchemesSignal),
     (settlementSchemeId) =>
       createActor(async (sig) => {

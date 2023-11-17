@@ -4,7 +4,7 @@ import { LedgerStore } from "../stores/ledger"
 import { PostedTransfersTopic } from "../topics/posted-transfers"
 
 export const TotalOwnerBalanceSignal = (reactor: Reactor) =>
-  createComputed(reactor.lifecycle, () => {
+  createComputed(reactor, () => {
     const ledger = reactor.use(LedgerStore)
 
     let balance = 0n
@@ -12,7 +12,7 @@ export const TotalOwnerBalanceSignal = (reactor: Reactor) =>
       balance += account.creditsPosted - account.debitsPosted
     }
 
-    reactor.use(PostedTransfersTopic).on(reactor.lifecycle, (transfer) => {
+    reactor.use(PostedTransfersTopic).on(reactor, (transfer) => {
       let newBalance = balance
       if (transfer.creditAccount.startsWith("builtin/owner/")) {
         newBalance += transfer.amount

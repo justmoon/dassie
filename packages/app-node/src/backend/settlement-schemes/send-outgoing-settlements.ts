@@ -83,7 +83,7 @@ const calculateSettlementAmount = (
 }
 
 export const SendOutgoingSettlementsActor = (reactor: Reactor) =>
-  createMapped(reactor.lifecycle, reactor.use(PeersSignal), (peerId) =>
+  createMapped(reactor, reactor.use(PeersSignal), (peerId) =>
     createActor((sig) => {
       const ledger = sig.use(LedgerStore)
       const nodeTable = sig.use(NodeTableStore)

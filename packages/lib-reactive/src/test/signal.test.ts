@@ -39,7 +39,7 @@ describe("createSignal", () => {
 
     const reactor = createReactor()
 
-    signal.on(reactor.lifecycle, listener)
+    signal.on(reactor, listener)
 
     expect(listener).toHaveBeenCalledTimes(0)
 

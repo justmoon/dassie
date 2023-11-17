@@ -20,7 +20,7 @@ const InnerActor = () =>
 const SomeSet = () => createSignal(new Set([undefined]))
 
 const SetActors = (reactor: Reactor) =>
-  createMapped(reactor.lifecycle, reactor.use(SomeSet), () =>
+  createMapped(reactor, reactor.use(SomeSet), () =>
     createActor((sig) => {
       sig.run(InnerActor)
 

@@ -5,7 +5,7 @@ import { Reactor, createActor } from "@dassie/lib-reactive"
 export const HandleShutdownSignalsActor = (reactor: Reactor) =>
   createActor((sig) => {
     const onShutdown = () => {
-      reactor.lifecycle
+      reactor
         .dispose()
         .then(() => {
           setTimeout(() => {

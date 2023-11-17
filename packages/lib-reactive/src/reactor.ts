@@ -2,7 +2,7 @@ import type { Promisable } from "type-fest"
 
 import { isObject } from "@dassie/lib-type-utils"
 
-import { DisposableLifecycleScope, createLifecycleScope } from "."
+import { DisposableLifecycleScope } from "."
 import type { Actor } from "./actor"
 import { createDebugTools } from "./debug/debug-tools"
 import {
@@ -11,6 +11,7 @@ import {
   InitSymbol,
   UseSymbol,
 } from "./internal/context-base"
+import { DisposableLifecycleScopeImplementation } from "./lifecycle"
 
 export interface UseOptions {
   /**
@@ -33,7 +34,7 @@ export interface ContextState extends WeakMap<Factory<unknown>, unknown> {
   set<T>(key: Factory<T>, value: T): this
 }
 
-export interface Reactor {
+export interface Reactor extends DisposableLifecycleScope {
   /**
    * Retrieve a value from the context or create it if it does not yet exist.
    *
@@ -73,15 +74,19 @@ export interface Reactor {
   set<T>(factory: Factory<T>, value: T): void
 
   debug: ReturnType<typeof createDebugTools>
-
-  lifecycle: DisposableLifecycleScope
 }
 
-class ReactorImplementation implements Reactor {
-  public readonly lifecycle = createLifecycleScope("Reactor")
+class ReactorImplementation
+  extends DisposableLifecycleScopeImplementation
+  implements Reactor
+{
   private readonly contextState = new WeakMap() as ContextState
 
   public readonly debug = createDebugTools(this, this.contextState)
+
+  constructor() {
+    super("Reactor")
+  }
 
   use<TReturn>(
     factory: Factory<TReturn>,
@@ -169,14 +174,14 @@ export const createReactor = (
   const reactor: Reactor = new ReactorImplementation()
 
   if (rootActor) {
-    Promise.resolve(
-      reactor.use(rootActor).run(reactor, reactor.lifecycle),
-    ).catch((error: unknown) => {
-      console.error("error running root actor", {
-        actor: rootActor.name,
-        error,
-      })
-    })
+    Promise.resolve(reactor.use(rootActor).run(reactor, reactor)).catch(
+      (error: unknown) => {
+        console.error("error running root actor", {
+          actor: rootActor.name,
+          error,
+        })
+      },
+    )
   }
 
   return reactor

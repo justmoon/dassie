@@ -30,7 +30,7 @@ describe("createReactor", () => {
 
     expect(cleanup).toHaveBeenCalledTimes(0)
 
-    await reactor.lifecycle.dispose()
+    await reactor.dispose()
 
     expect(cleanup).toHaveBeenCalledTimes(1)
   })

@@ -18,7 +18,7 @@ const RootActor = (reactor: Reactor) =>
     sig.run(SubActor)
 
     // Stop the application after 10 seconds
-    sig.timeout(() => void reactor.lifecycle.dispose(), 10_000)
+    sig.timeout(() => void reactor.dispose(), 10_000)
   })
 
 const SubActor = () =>

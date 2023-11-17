@@ -5,7 +5,7 @@ import { Reactor, createComputed } from "@dassie/lib-reactive"
 import { SerializedNodeListSignal } from "./serialized-node-list"
 
 export const NodeListHashSignal = (reactor: Reactor) =>
-  createComputed(reactor.lifecycle, (sig) => {
+  createComputed(reactor, (sig) => {
     const nodeList = sig.get(reactor.use(SerializedNodeListSignal))
 
     const hash = createHash("sha256")

@@ -37,7 +37,7 @@ describe("createActor", () => {
       expect(actor.result).toBeUndefined()
       expect(behavior).toHaveBeenCalledTimes(0)
 
-      actor.run(reactor, reactor.lifecycle)
+      actor.run(reactor, reactor)
       expect(actor.result).toBe(3)
       expect(behavior).toHaveBeenCalledTimes(1)
 
@@ -50,7 +50,7 @@ describe("createActor", () => {
       expect(actor.result).toBe(6)
       expect(behavior).toHaveBeenCalledTimes(2)
 
-      await reactor.lifecycle.dispose()
+      await reactor.dispose()
     })
 
     test("should not re-run if a tracked signal changes but the value is the same", async ({
@@ -66,7 +66,7 @@ describe("createActor", () => {
       expect(actor.result).toBeUndefined()
       expect(behavior).toHaveBeenCalledTimes(0)
 
-      actor.run(reactor, reactor.lifecycle)
+      actor.run(reactor, reactor)
       expect(actor.result).toBe(3)
       expect(behavior).toHaveBeenCalledTimes(1)
 
@@ -79,7 +79,7 @@ describe("createActor", () => {
       expect(actor.result).toBe(3)
       expect(behavior).toHaveBeenCalledTimes(1)
 
-      await reactor.lifecycle.dispose()
+      await reactor.dispose()
     })
 
     test("should re-run if a tracked signal changes even if it changes back to the original value in the same tick", async ({
@@ -95,7 +95,7 @@ describe("createActor", () => {
       expect(actor.result).toBeUndefined()
       expect(behavior).toHaveBeenCalledTimes(0)
 
-      actor.run(reactor, reactor.lifecycle)
+      actor.run(reactor, reactor)
       expect(actor.result).toBe(3)
       expect(behavior).toHaveBeenCalledTimes(1)
 
@@ -112,7 +112,7 @@ describe("createActor", () => {
       expect(actor.result).toBe(3)
       expect(behavior).toHaveBeenCalledTimes(2)
 
-      await reactor.lifecycle.dispose()
+      await reactor.dispose()
     })
 
     test("should call cleanup handler if reactor is disposed", async ({
@@ -127,11 +127,11 @@ describe("createActor", () => {
 
       const actor = createActor(behavior)
 
-      actor.run(reactor, reactor.lifecycle)
+      actor.run(reactor, reactor)
       expect(behavior).toHaveBeenCalledTimes(1)
       expect(cleanup).toHaveBeenCalledTimes(0)
 
-      await reactor.lifecycle.dispose()
+      await reactor.dispose()
       expect(cleanup).toHaveBeenCalledTimes(1)
     })
 
@@ -148,7 +148,7 @@ describe("createActor", () => {
 
       const actor = createActor(behavior)
 
-      actor.run(reactor, reactor.lifecycle)
+      actor.run(reactor, reactor)
       expect(behavior).toHaveBeenCalledTimes(1)
       expect(cleanup).toHaveBeenCalledTimes(0)
 

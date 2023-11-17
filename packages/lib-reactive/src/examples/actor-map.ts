@@ -10,7 +10,7 @@ enableMapSet()
 const CustomersSignal = () => createSignal<Set<string>>(new Set())
 
 const CustomerServiceActors = (reactor: Reactor) =>
-  createMapped(reactor.lifecycle, reactor.use(CustomersSignal), (customer) =>
+  createMapped(reactor, reactor.use(CustomersSignal), (customer) =>
     createActor((sig) => {
       console.info(`${customer} added`)
 
@@ -56,7 +56,7 @@ const RootActor = (reactor: Reactor) =>
 
     sig.use(CustomerServiceActors).get("Alice")?.api.greet.tell()
 
-    sig.timeout(() => void reactor.lifecycle.dispose(), 300)
+    sig.timeout(() => void reactor.dispose(), 300)
   })
 
 createReactor(RootActor)

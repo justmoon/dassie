@@ -6,13 +6,13 @@ import { createSignal } from "../signal"
 const CountSignal = () => createSignal(0)
 
 const DoubledSignal = (reactor: Reactor) =>
-  createComputed(reactor.lifecycle, (sig) => {
+  createComputed(reactor, (sig) => {
     const value = sig.get(reactor.use(CountSignal))
     return value * 2
   })
 
 const QuadrupledSignal = (reactor: Reactor) =>
-  createComputed(reactor.lifecycle, (sig) => {
+  createComputed(reactor, (sig) => {
     const value = sig.get(reactor.use(DoubledSignal))
     return value * 2
   })

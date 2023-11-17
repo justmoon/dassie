@@ -33,7 +33,7 @@ describe("createActor timers", () => {
     const reactor = createReactor(actor)
 
     vi.advanceTimersByTime(99)
-    await reactor.lifecycle.dispose()
+    await reactor.dispose()
 
     vi.advanceTimersByTime(1)
     expect(timeout).toHaveBeenCalledTimes(0)
@@ -60,7 +60,7 @@ describe("createActor timers", () => {
     vi.advanceTimersByTime(1)
     expect(interval).toHaveBeenCalledTimes(2)
 
-    await reactor.lifecycle.dispose()
+    await reactor.dispose()
 
     vi.advanceTimersByTime(100)
     expect(interval).toHaveBeenCalledTimes(2)

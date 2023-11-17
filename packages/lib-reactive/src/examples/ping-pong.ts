@@ -37,7 +37,7 @@ const RootActor = (reactor: Reactor) =>
     sig.run(PongerActor)
     sig.run(LoggerActor)
     sig.use(PingPongTopic).emit("ping")
-    sig.timeout(() => void reactor.lifecycle.dispose(), 500)
+    sig.timeout(() => void reactor.dispose(), 500)
   })
 
 createReactor(RootActor)

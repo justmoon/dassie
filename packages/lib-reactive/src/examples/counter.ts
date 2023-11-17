@@ -22,7 +22,7 @@ const RootActor = (reactor: Reactor) =>
   createActor((sig) => {
     sig.run(ClockActor)
     sig.run(LoggerActor)
-    sig.timeout(() => void reactor.lifecycle.dispose(), 400)
+    sig.timeout(() => void reactor.dispose(), 400)
   })
 
 createReactor(RootActor)

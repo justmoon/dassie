@@ -393,7 +393,7 @@ import {
 const CounterSignal = () => createSignal(0)
 
 const DoubledComputed = (reactor: Reactor) =>
-  createComputed(reactor.lifecycle, (sig) => {
+  createComputed(reactor, (sig) => {
     return sig.get(CounterSignal) * 2
   })
 

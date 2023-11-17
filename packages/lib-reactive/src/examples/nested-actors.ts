@@ -58,7 +58,7 @@ const SubActor2 = (reactor: Reactor) =>
 
     if (stateCount > 4) {
       console.info("stopping")
-      void reactor.lifecycle.dispose()
+      void reactor.dispose()
     }
 
     sig.onCleanup(() => {

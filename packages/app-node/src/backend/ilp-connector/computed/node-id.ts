@@ -4,6 +4,6 @@ import { NodePublicKeySignal } from "../../crypto/computed/node-public-key"
 import { calculateNodeId } from "../utils/calculate-node-id"
 
 export const NodeIdSignal = (reactor: Reactor) =>
-  createComputed(reactor.lifecycle, (sig) =>
+  createComputed(reactor, (sig) =>
     calculateNodeId(sig.get(reactor.use(NodePublicKeySignal))),
   )

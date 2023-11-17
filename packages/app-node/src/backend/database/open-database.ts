@@ -8,7 +8,7 @@ import { EnvironmentConfigSignal } from "../config/environment-config"
 import { DASSIE_DATABASE_SCHEMA } from "./schema"
 
 export const BetterSqliteNativeBindingSignal = (reactor: Reactor) =>
-  createComputed(reactor.lifecycle, () => {
+  createComputed(reactor, () => {
     const { rootPath } = reactor.use(EnvironmentConfigSignal).read()
 
     return import.meta.env.PROD
@@ -29,7 +29,7 @@ export const Database = (reactor: Reactor) => {
     checkSchema: true,
   })
 
-  reactor.lifecycle.onCleanup(() => {
+  reactor.onCleanup(() => {
     database.raw.close()
   })
 

@@ -28,7 +28,7 @@ export const InitCommand = (reactor: Reactor) =>
       "This command assists with the initial configuration and setup",
     args: {},
     async handler() {
-      const ipcClient = connectIpcClient(reactor.lifecycle)
+      const ipcClient = connectIpcClient(reactor)
 
       const flow = createFlow()
 

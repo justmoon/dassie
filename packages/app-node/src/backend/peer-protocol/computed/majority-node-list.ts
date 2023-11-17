@@ -10,7 +10,7 @@ export const MajorityNodeListSignal = (reactor: Reactor) => {
   const environmentConfigSignal = reactor.use(EnvironmentConfigSignal)
 
   return createComputed(
-    reactor.lifecycle,
+    reactor,
     (sig) => {
       const bootstrapNodes = environmentConfigSignal
         .read()

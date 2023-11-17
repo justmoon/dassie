@@ -18,7 +18,7 @@ export const NodeSetSignal = (reactor: Reactor) => {
 
   const signal = createSignal(initialSet)
 
-  nodeTable.changes.on(reactor.lifecycle, ([actionId, parameters]) => {
+  nodeTable.changes.on(reactor, ([actionId, parameters]) => {
     signal.update(
       produce((draft) => {
         switch (actionId) {

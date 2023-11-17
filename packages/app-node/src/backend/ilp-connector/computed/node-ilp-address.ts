@@ -4,7 +4,7 @@ import { IlpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-
 import { NodeIdSignal } from "./node-id"
 
 export const NodeIlpAddressSignal = (reactor: Reactor) =>
-  createComputed(reactor.lifecycle, (sig) => {
+  createComputed(reactor, (sig) => {
     const ilpAllocationScheme = sig.get(reactor.use(IlpAllocationSchemeSignal))
 
     const nodeId = sig.get(reactor.use(NodeIdSignal))
