@@ -51,10 +51,12 @@ export class DisposableLifecycleScopeImplementation
    * @param cleanupHandler - Callback to remove from the cleanup queue.
    */
   offCleanup = (cleanupHandler: Disposer) => {
+    if (!this.cleanupQueue) return
+
     // TODO: This could be slow if there are a lot of cleanup handlers.
-    const index = this.cleanupQueue?.indexOf(cleanupHandler) ?? -1
+    const index = this.cleanupQueue.indexOf(cleanupHandler)
     if (index !== -1) {
-      this.cleanupQueue!.splice(index, 1)
+      this.cleanupQueue.splice(index, 1)
     }
   }
 
