@@ -20,7 +20,7 @@ import { trpc } from "./trpc"
 
 export const uiRpcRouter = trpc.router({
   getSecurityToken: trpc.procedure.query(({ ctx: { sig } }) =>
-    sig.reactor.use(SecurityTokenSignal).read(),
+    sig.read(SecurityTokenSignal),
   ),
   addRandomNode: trpc.procedure
     // TRPC seems to throw an error when using superjson as a transformer on a method with no parameters.

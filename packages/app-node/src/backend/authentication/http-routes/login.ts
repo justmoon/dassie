@@ -36,7 +36,7 @@ export const RegisterLoginRouteActor = () =>
         const { loginAuthorizationSignature } = request.body
 
         const expectedLoginAuthorizationSignature = getPrivateSeedAtPath(
-          sig.reactor.use(NodePrivateKeySignal).read(),
+          sig.read(NodePrivateKeySignal),
           SEED_PATH_NODE_LOGIN,
         ).toString("hex")
 

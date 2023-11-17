@@ -40,13 +40,13 @@ const getRetransmitDelay = (retransmit: RetransmitType) => {
 
 export const ModifyNodeTableActor = (reactor: Reactor) =>
   createActor(() => {
-    const nodeTable = reactor.use(NodeTableStore)
+    const nodeTableStore = reactor.use(NodeTableStore)
 
     return {
       addNode: (nodeId: NodeId) => {
-        if (nodeTable.read().has(nodeId)) return
+        if (nodeTableStore.read().has(nodeId)) return
 
-        nodeTable.addNode({
+        nodeTableStore.addNode({
           nodeId,
           linkState: undefined,
           peerState: {
@@ -61,7 +61,7 @@ export const ModifyNodeTableActor = (reactor: Reactor) =>
       }: ProcessLinkStateParameters) => {
         const { nodeId, url, alias, publicKey, sequence, entries } = linkState
 
-        const node = nodeTable.read().get(nodeId)
+        const node = nodeTableStore.read().get(nodeId)
         if (!node) {
           return
         }
@@ -70,7 +70,7 @@ export const ModifyNodeTableActor = (reactor: Reactor) =>
           sequence === node.linkState?.sequence &&
           retransmit === "scheduled"
         ) {
-          nodeTable.updateNode(nodeId, {
+          nodeTableStore.updateNode(nodeId, {
             linkState: {
               ...node.linkState,
               updateReceivedCounter: node.linkState.updateReceivedCounter + 1,
@@ -84,7 +84,7 @@ export const ModifyNodeTableActor = (reactor: Reactor) =>
 
         const { neighbors, settlementSchemes } = parseLinkStateEntries(entries)
 
-        nodeTable.updateNode(nodeId, {
+        nodeTableStore.updateNode(nodeId, {
           linkState: {
             lastUpdate: linkStateBytes,
             sequence,

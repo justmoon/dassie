@@ -12,7 +12,7 @@ import { NodeId } from "./types/node-id"
 
 export const SendHeartbeatsActor = () =>
   createActor((sig) => {
-    const ownNodeId = sig.reactor.use(NodeIdSignal).read()
+    const ownNodeId = sig.read(NodeIdSignal)
 
     // Get the current peers and re-run the actor if they change
     const peers = sig.get(PeersSignal)

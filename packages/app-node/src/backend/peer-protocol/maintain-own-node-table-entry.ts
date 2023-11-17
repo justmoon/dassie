@@ -25,8 +25,7 @@ export const MaintainOwnNodeTableEntryActor = () =>
     const nodeId = sig.get(NodeIdSignal)
     const nodePublicKey = sig.get(NodePublicKeySignal)
     const { url, alias } = sig.get(DatabaseConfigStore)
-    const oldLinkState = sig.reactor.use(NodeTableStore).read().get(nodeId)
-      ?.linkState
+    const oldLinkState = sig.read(NodeTableStore).get(nodeId)?.linkState
 
     if (
       !oldLinkState ||

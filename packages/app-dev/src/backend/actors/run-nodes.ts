@@ -94,9 +94,7 @@ export const RunNodesActor = (reactor: Reactor) => {
               DASSIE_DEV_ENTRY: node.entry,
               DASSIE_DEV_RPC_URL: `wss://dev-rpc.localhost:${DEBUG_RPC_PORT}`,
               DASSIE_DEV_NODE_ID: node.id,
-              DASSIE_DEV_SECURITY_TOKEN: reactor
-                .use(SecurityTokenSignal)
-                .read(),
+              DASSIE_DEV_SECURITY_TOKEN: sig.read(SecurityTokenSignal),
             } satisfies RunnerEnvironment,
             extraArguments: [`--inspect-port=${node.debugPort}`],
           })

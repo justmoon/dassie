@@ -82,10 +82,7 @@ export const HttpsServiceActor = () =>
 
       const { pathname } = new URL(request.url!, "http://localhost")
 
-      const handler = sig.reactor
-        .use(WebsocketRoutesSignal)
-        .read()
-        .get(pathname)
+      const handler = sig.read(WebsocketRoutesSignal).get(pathname)
 
       if (!handler) {
         socket.destroy()

@@ -12,7 +12,7 @@ import { DatabaseConfigStore } from "../database-config"
 
 export const configAdminRouter = trpc.router({
   getConfig: protectedProcedure.query(({ ctx: { sig } }) => {
-    const { hostname, dassieKey } = sig.reactor.use(DatabaseConfigStore).read()
+    const { hostname, dassieKey } = sig.read(DatabaseConfigStore)
 
     const nodeIdFields =
       dassieKey === undefined
@@ -21,21 +21,20 @@ export const configAdminRouter = trpc.router({
           }
         : {
             hasNodeIdentity: true as const,
-            nodeId: sig.reactor.use(NodeIdSignal).read(),
+            nodeId: sig.read(NodeIdSignal),
           }
 
     const result = {
       hostname,
       ...nodeIdFields,
-      hasTls: sig.reactor.use(HasTlsSignal).read(),
+      hasTls: sig.read(HasTlsSignal),
     }
 
     return result
   }),
 
   getSetupUrl: protectedProcedure.query(({ ctx: { sig } }) => {
-    const setupUrl = sig.reactor.use(SetupUrlSignal).read()
-    return setupUrl
+    return sig.read(SetupUrlSignal)
   }),
 
   setRealm: protectedProcedure

@@ -93,4 +93,15 @@ export class ReactiveContextImplementation
       },
     )
   }
+
+  read<TState>(
+    signalFactory: Factory<ReactiveSource<TState>> | ReactiveSource<TState>,
+  ): TState {
+    const signal =
+      typeof signalFactory === "function"
+        ? this.reactor.use(signalFactory)
+        : signalFactory
+
+    return signal.read()
+  }
 }

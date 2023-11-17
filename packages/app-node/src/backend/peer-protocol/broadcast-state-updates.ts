@@ -17,7 +17,7 @@ export const BroadcastStateUpdatesActor = () =>
       return
     }
 
-    const nodeIds = sig.reactor.use(NodeTableStore).read().keys()
+    const nodeIds = sig.read(NodeTableStore).keys()
 
     for (const nodeId of nodeIds) {
       sig.reactor.use(SendPeerMessageActor).api.send.tell({

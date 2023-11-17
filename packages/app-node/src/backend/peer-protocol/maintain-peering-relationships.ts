@@ -24,7 +24,7 @@ export const MaintainPeeringRelationshipsActor = (reactor: Reactor) => {
 
     const checkPeers = () => {
       try {
-        const peersSet = sig.reactor.use(PeersSignal).read()
+        const peersSet = sig.read(PeersSignal)
         if (peersSet.size >= MINIMUM_PEERS) {
           return
         }

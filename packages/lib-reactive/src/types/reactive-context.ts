@@ -38,4 +38,17 @@ export interface ReactiveContext {
     signal: Factory<ReactiveSource<TState>> | ReactiveSource<TState>,
     keys: readonly TKeys[],
   ): Pick<TState, TKeys>
+
+  /**
+   * Shorthand for reading a reactive value **without** tracking.
+   *
+   * @remarks
+   *
+   * Equivalent to `context.reactor.use(signalFactory).read()`.
+   *
+   * @param signalFactory - The signal to read.
+   */
+  read<TState>(
+    signalFactory: Factory<ReactiveSource<TState>> | ReactiveSource<TState>,
+  ): TState
 }
