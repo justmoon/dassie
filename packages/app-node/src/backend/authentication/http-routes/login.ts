@@ -19,8 +19,8 @@ import { SessionToken } from "../types/session-token"
 
 export const RegisterLoginRouteActor = () =>
   createActor((sig) => {
-    const http = sig.use(HttpsRouter)
-    const sessions = sig.use(SessionsStore)
+    const http = sig.reactor.use(HttpsRouter)
+    const sessions = sig.reactor.use(SessionsStore)
 
     if (!http) return
 
@@ -36,7 +36,7 @@ export const RegisterLoginRouteActor = () =>
         const { loginAuthorizationSignature } = request.body
 
         const expectedLoginAuthorizationSignature = getPrivateSeedAtPath(
-          sig.use(NodePrivateKeySignal).read(),
+          sig.reactor.use(NodePrivateKeySignal).read(),
           SEED_PATH_NODE_LOGIN,
         ).toString("hex")
 

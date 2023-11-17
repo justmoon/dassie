@@ -37,7 +37,7 @@ describe("createActor", () => {
       expect(actor.result).toBeUndefined()
       expect(behavior).toHaveBeenCalledTimes(0)
 
-      actor.run(reactor, reactor)
+      actor.run(reactor)
       expect(actor.result).toBe(3)
       expect(behavior).toHaveBeenCalledTimes(1)
 
@@ -66,7 +66,7 @@ describe("createActor", () => {
       expect(actor.result).toBeUndefined()
       expect(behavior).toHaveBeenCalledTimes(0)
 
-      actor.run(reactor, reactor)
+      actor.run(reactor)
       expect(actor.result).toBe(3)
       expect(behavior).toHaveBeenCalledTimes(1)
 
@@ -95,7 +95,7 @@ describe("createActor", () => {
       expect(actor.result).toBeUndefined()
       expect(behavior).toHaveBeenCalledTimes(0)
 
-      actor.run(reactor, reactor)
+      actor.run(reactor)
       expect(actor.result).toBe(3)
       expect(behavior).toHaveBeenCalledTimes(1)
 
@@ -127,7 +127,7 @@ describe("createActor", () => {
 
       const actor = createActor(behavior)
 
-      actor.run(reactor, reactor)
+      actor.run(reactor)
       expect(behavior).toHaveBeenCalledTimes(1)
       expect(cleanup).toHaveBeenCalledTimes(0)
 
@@ -148,7 +148,7 @@ describe("createActor", () => {
 
       const actor = createActor(behavior)
 
-      actor.run(reactor, reactor)
+      actor.run(reactor)
       expect(behavior).toHaveBeenCalledTimes(1)
       expect(cleanup).toHaveBeenCalledTimes(0)
 

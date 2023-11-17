@@ -5,5 +5,5 @@ import { calculateNodeId } from "../utils/calculate-node-id"
 
 export const NodeIdSignal = (reactor: Reactor) =>
   createComputed(reactor, (sig) =>
-    calculateNodeId(sig.get(reactor.use(NodePublicKeySignal))),
+    calculateNodeId(sig.get(NodePublicKeySignal)),
   )

@@ -2,7 +2,8 @@ import type { ConditionalPick, SetReturnType } from "type-fest"
 
 import { isObject } from "@dassie/lib-type-utils"
 
-import { ActorContext } from "./actor-context"
+import { StatefulContext } from "."
+import { ActorContext, ActorContextImplementation } from "./actor-context"
 import { ContextBase, FactoryNameSymbol } from "./internal/context-base"
 import { makePromise } from "./internal/promise"
 import {
@@ -13,7 +14,6 @@ import {
 } from "./internal/reactive"
 import { createReactiveTopic } from "./internal/reactive-topic"
 import { DisposableLifecycleScope, LifecycleScope } from "./lifecycle"
-import { Reactor } from "./reactor"
 import { ReadonlySignal, Reducer, SignalSymbol } from "./signal"
 import { ReadonlyTopic } from "./topic"
 
@@ -139,8 +139,7 @@ export type Actor<TInstance> = ReactiveObserver &
      * @returns The return value of the actor.
      */
     run: (
-      reactor: Reactor,
-      lifecycle: LifecycleScope,
+      parentContext: StatefulContext & LifecycleScope,
       options?: RunOptions | undefined,
     ) => TInstance | undefined
 
@@ -222,8 +221,7 @@ class ActorImplementation<TInstance>
   recompute() {}
 
   run(
-    reactor: Reactor,
-    lifecycle: LifecycleScope,
+    parentContext: StatefulContext & LifecycleScope,
     { additionalDebugData, pathPrefix, overrideName }: RunOptions = {},
   ) {
     if (this.isRunning) {
@@ -238,7 +236,7 @@ class ActorImplementation<TInstance>
       writable: false,
     })
 
-    void this.loop(reactor, actorPath, lifecycle, additionalDebugData)
+    void this.loop(parentContext, actorPath, additionalDebugData)
 
     return this.result
   }
@@ -255,9 +253,8 @@ class ActorImplementation<TInstance>
   }
 
   private async loop(
-    reactor: Reactor,
+    parentContext: StatefulContext & LifecycleScope,
     actorPath: string,
-    parentLifecycle: LifecycleScope,
     additionalDebugData: Record<string, unknown> | undefined,
   ) {
     const resetActor = this.reset.bind(this)
@@ -265,12 +262,12 @@ class ActorImplementation<TInstance>
     this.waker = makePromise()
 
     for (;;) {
-      if (parentLifecycle.isDisposed) return
+      if (parentContext.isDisposed) return
 
-      const context = new ActorContext(
+      const context = new ActorContextImplementation(
         this[FactoryNameSymbol],
         actorPath,
-        reactor,
+        parentContext.reactor,
         () => {
           this.cacheStatus = CacheStatus.Dirty
           this.waker.resolve()
@@ -284,7 +281,7 @@ class ActorImplementation<TInstance>
           return value
         },
       )
-      context.confineTo(parentLifecycle)
+      context.confineTo(parentContext)
       context.onCleanup(resetActor)
 
       try {

@@ -1,7 +1,12 @@
 import { Promisable } from "type-fest"
 
 import { InferSerialize } from "@dassie/lib-oer"
-import { Factory, createActor, createTopic } from "@dassie/lib-reactive"
+import {
+  Factory,
+  Reactor,
+  createActor,
+  createTopic,
+} from "@dassie/lib-reactive"
 
 import { HandleInterledgerPacket } from "../handlers/interledger-packet"
 import { HandleLinkStateRequest } from "../handlers/link-state-request"
@@ -47,20 +52,20 @@ type PeerMessageHandlers = {
   [K in PeerMessageType]: ReturnType<PeerMessageHandler<K>>
 }
 
-export const HandlePeerMessageActor = () =>
-  createActor((sig) => {
-    const handlers: PeerMessageHandlers = {
-      peeringRequest: sig.use(HandlePeeringRequest),
-      linkStateUpdate: sig.use(HandleLinkStateUpdate),
-      interledgerPacket: sig.use(HandleInterledgerPacket),
-      linkStateRequest: sig.use(HandleLinkStateRequest),
-      settlement: sig.use(HandleSettlement),
-      settlementMessage: sig.use(HandleSettlementMessage),
-      registration: sig.use(HandleRegistration),
-      nodeListRequest: sig.use(HandleNodeListRequest),
-      nodeListHashRequest: sig.use(HandleNodeListHashRequest),
-    }
+export const HandlePeerMessageActor = (reactor: Reactor) => {
+  const handlers: PeerMessageHandlers = {
+    peeringRequest: reactor.use(HandlePeeringRequest),
+    linkStateUpdate: reactor.use(HandleLinkStateUpdate),
+    interledgerPacket: reactor.use(HandleInterledgerPacket),
+    linkStateRequest: reactor.use(HandleLinkStateRequest),
+    settlement: reactor.use(HandleSettlement),
+    settlementMessage: reactor.use(HandleSettlementMessage),
+    registration: reactor.use(HandleRegistration),
+    nodeListRequest: reactor.use(HandleNodeListRequest),
+    nodeListHashRequest: reactor.use(HandleNodeListHashRequest),
+  }
 
+  return createActor(() => {
     return {
       handle: async <TType extends PeerMessageType>(
         parameters: IncomingPeerMessageEvent<TType>,
@@ -74,3 +79,4 @@ export const HandlePeerMessageActor = () =>
       },
     }
   })
+}

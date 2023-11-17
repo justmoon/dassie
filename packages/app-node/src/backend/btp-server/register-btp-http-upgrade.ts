@@ -9,7 +9,7 @@ import {
   btpMessageSchema,
   btpTransferSchema,
 } from "@dassie/lib-protocol-utils"
-import { createActor } from "@dassie/lib-reactive"
+import { Reactor, createActor } from "@dassie/lib-reactive"
 import { isFailure } from "@dassie/lib-type-utils"
 
 import { BtpTokensStore } from "../api-keys/database-stores/btp-tokens"
@@ -23,15 +23,14 @@ import { RoutingTableSignal } from "../routing/signals/routing-table"
 
 let unique = 0
 
-export const RegisterBtpHttpUpgradeActor = () =>
-  createActor((sig) => {
+export const RegisterBtpHttpUpgradeActor = (reactor: Reactor) => {
+  const processIncomingPacketActor = reactor.use(ProcessPacketActor)
+  const btpTokensStore = reactor.use(BtpTokensStore)
+  const routingTableSignal = reactor.use(RoutingTableSignal)
+
+  return createActor((sig) => {
     const nodeIlpAddress = sig.get(NodeIlpAddressSignal)
-
     const websocketRoutes = sig.get(WebsocketRoutesSignal)
-
-    const processIncomingPacketActor = sig.use(ProcessPacketActor)
-
-    const btpTokensStore = sig.use(BtpTokensStore)
 
     const socketMap = new Map<number, WebSocket>()
 
@@ -40,12 +39,13 @@ export const RegisterBtpHttpUpgradeActor = () =>
         const connectionId = unique++
         socketMap.set(connectionId, socket)
 
-        const ilpRoutingTable = sig.use(RoutingTableSignal)
         let localIlpAddressPart: string
         do {
           localIlpAddressPart = nanoid(6)
         } while (
-          ilpRoutingTable.read().get(`${nodeIlpAddress}.${localIlpAddressPart}`)
+          routingTableSignal
+            .read()
+            .get(`${nodeIlpAddress}.${localIlpAddressPart}`)
         )
 
         const endpointInfo: BtpEndpointInfo = {
@@ -310,13 +310,15 @@ export const RegisterBtpHttpUpgradeActor = () =>
 
         socket.on("message", handleDataOnUnauthenticatedConnection)
 
-        ilpRoutingTable.read().set(`${nodeIlpAddress}.${localIlpAddressPart}`, {
-          type: "fixed",
-          destination: endpointInfo,
-        })
+        routingTableSignal
+          .read()
+          .set(`${nodeIlpAddress}.${localIlpAddressPart}`, {
+            type: "fixed",
+            destination: endpointInfo,
+          })
 
         socket.on("close", () => {
-          ilpRoutingTable
+          routingTableSignal
             .read()
             .delete(`${nodeIlpAddress}.${localIlpAddressPart}`)
         })
@@ -361,3 +363,4 @@ export const RegisterBtpHttpUpgradeActor = () =>
       },
     }
   })
+}

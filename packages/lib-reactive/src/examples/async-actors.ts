@@ -7,7 +7,7 @@ const CounterSignal = () => createSignal(0)
 const RootActor = () =>
   createActor((sig) => {
     sig.interval(() => {
-      sig.use(CounterSignal).update((a) => a + 1)
+      sig.reactor.use(CounterSignal).update((a) => a + 1)
     }, 500)
 
     void sig.run(InnerActor)

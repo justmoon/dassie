@@ -13,7 +13,7 @@ export const tlsAdminRouter = trpc.router({
       }),
     )
     .mutation(({ input: { certificate, privateKey }, ctx: { sig } }) => {
-      const config = sig.use(DatabaseConfigStore)
+      const config = sig.reactor.use(DatabaseConfigStore)
       config.setTlsCertificates(certificate, privateKey)
 
       return true

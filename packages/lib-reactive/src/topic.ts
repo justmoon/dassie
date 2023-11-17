@@ -7,7 +7,7 @@ import {
   emitToListener,
 } from "./internal/emit-to-listener"
 import { LifecycleScope } from "./lifecycle"
-import { type Factory } from "./reactor"
+import { Factory } from "./types/factory"
 
 export const TopicSymbol = Symbol("das:reactive:topic")
 

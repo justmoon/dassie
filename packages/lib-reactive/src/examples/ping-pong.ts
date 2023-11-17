@@ -9,7 +9,7 @@ const PingerActor = () =>
     sig.on(PingPongTopic, (message) => {
       if (message === "pong") {
         sig.timeout(() => {
-          sig.use(PingPongTopic).emit("ping")
+          sig.reactor.use(PingPongTopic).emit("ping")
         }, 75)
       }
     })
@@ -20,7 +20,7 @@ const PongerActor = () =>
     sig.on(PingPongTopic, (message) => {
       if (message === "ping") {
         sig.timeout(() => {
-          sig.use(PingPongTopic).emit("pong")
+          sig.reactor.use(PingPongTopic).emit("pong")
         }, 75)
       }
     })
@@ -36,7 +36,7 @@ const RootActor = (reactor: Reactor) =>
     sig.run(PingerActor)
     sig.run(PongerActor)
     sig.run(LoggerActor)
-    sig.use(PingPongTopic).emit("ping")
+    sig.reactor.use(PingPongTopic).emit("ping")
     sig.timeout(() => void reactor.dispose(), 500)
   })
 

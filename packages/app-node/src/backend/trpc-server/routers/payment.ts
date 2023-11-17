@@ -29,7 +29,7 @@ export const paymentRouter = trpc.router({
         // TODO: Validate paymentId length
         // TODO: Verify paymentId is unique
         logger.debug("creating payment", { paymentPointer, amount })
-        const spspPaymentQueue = sig.use(SpspPaymentQueueStore)
+        const spspPaymentQueue = sig.reactor.use(SpspPaymentQueueStore)
         spspPaymentQueue.addPayment({
           id: paymentId,
           destination: paymentPointer,

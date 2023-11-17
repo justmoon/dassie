@@ -82,15 +82,15 @@ const calculateSettlementAmount = (
     : proposedSettlementAmount
 }
 
-export const SendOutgoingSettlementsActor = (reactor: Reactor) =>
-  createMapped(reactor, reactor.use(PeersSignal), (peerId) =>
-    createActor((sig) => {
-      const ledger = sig.use(LedgerStore)
-      const nodeTable = sig.use(NodeTableStore)
-      const settlementSchemeManager = sig.use(
-        ManageSettlementSchemeInstancesActor,
-      )
+export const SendOutgoingSettlementsActor = (reactor: Reactor) => {
+  const ledger = reactor.use(LedgerStore)
+  const nodeTable = reactor.use(NodeTableStore)
+  const settlementSchemeManager = reactor.use(
+    ManageSettlementSchemeInstancesActor,
+  )
 
+  return createMapped(reactor, reactor.use(PeersSignal), (peerId) =>
+    createActor((sig) => {
       sig.interval(() => {
         const peerState = nodeTable.read().get(peerId)?.peerState
 
@@ -159,7 +159,7 @@ export const SendOutgoingSettlementsActor = (reactor: Reactor) =>
             .then(({ proof }) => {
               ledger.postPendingTransfer(settlementTransfer)
 
-              sig.use(SendPeerMessageActor).api.send.tell({
+              sig.reactor.use(SendPeerMessageActor).api.send.tell({
                 destination: peerId,
                 message: {
                   type: "settlement",
@@ -178,3 +178,4 @@ export const SendOutgoingSettlementsActor = (reactor: Reactor) =>
       }, SETTLEMENT_CHECK_INTERVAL)
     }),
   )
+}

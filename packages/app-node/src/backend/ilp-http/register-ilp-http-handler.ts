@@ -17,7 +17,7 @@ export const RegisterIlpHttpHandlerActor = (reactor: Reactor) => {
   const incomingRequestIdMap = reactor.use(IncomingRequestIdMap)
 
   return createActor((sig) => {
-    const http = sig.use(HttpsRouter)
+    const http = sig.reactor.use(HttpsRouter)
 
     http
       .post()

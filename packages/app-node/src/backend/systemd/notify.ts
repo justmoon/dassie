@@ -24,7 +24,7 @@ export const NotifySystemdActor = () =>
 
     // The root actor promise will resolve when the application has finished
     // starting up. This is when we want to send the notification.
-    void sig.use(DaemonActor).promise.then(() => {
+    void sig.reactor.use(DaemonActor).promise.then(() => {
       execSync("systemd-notify --ready")
     })
   })

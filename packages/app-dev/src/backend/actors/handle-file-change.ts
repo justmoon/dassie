@@ -19,6 +19,9 @@ export const FileChangeTopic = () => createTopic()
 export const HandleFileChangeActor = (reactor: Reactor) => {
   const viteServer = reactor.use(ViteServer)
   const viteNodeServer = reactor.use(ViteNodeServer)
+  const logsStore = reactor.use(LogsStore)
+  const peeringStateStore = reactor.use(PeeringStateStore)
+  const fileChangeTopic = reactor.use(FileChangeTopic)
 
   return createActor((sig) => {
     const onFileChange = (file: string) => {
@@ -32,11 +35,10 @@ export const HandleFileChangeActor = (reactor: Reactor) => {
       const mods = moduleGraph.getModulesByFile(file)
 
       if (mods && mods.size > 0) {
-        sig.use(LogsStore).clear()
-        sig.use(PeeringStateStore).clear()
+        logsStore.clear()
+        peeringStateStore.clear()
         logger.info(`${chalk.green(`change`)} ${chalk.dim(shortFile)}`)
-
-        sig.use(FileChangeTopic).emit(undefined)
+        fileChangeTopic.emit(undefined)
       }
     }
 

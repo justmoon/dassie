@@ -10,7 +10,7 @@ import { parseEd25519PrivateKey } from "../../utils/pem"
 
 export const NodePrivateKeySignal = (reactor: Reactor) =>
   createComputed(reactor, (sig) => {
-    const config = sig.get(reactor.use(DatabaseConfigStore))
+    const config = sig.get(DatabaseConfigStore)
 
     assert(hasNodeIdentity(config), "Node identity is not configured")
 

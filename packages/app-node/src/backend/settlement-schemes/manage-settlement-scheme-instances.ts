@@ -38,7 +38,7 @@ export const ManageSettlementSchemeInstancesActor = (reactor: Reactor) => {
 
         const host: SettlementSchemeHostMethods = {
           sendMessage: ({ peerId, message }) => {
-            sig.use(SendPeerMessageActor).api.send.tell({
+            sig.reactor.use(SendPeerMessageActor).api.send.tell({
               destination: peerId,
               message: {
                 type: "settlementMessage",
@@ -64,11 +64,9 @@ export const ManageSettlementSchemeInstancesActor = (reactor: Reactor) => {
         })
 
         // Instantiate settlement scheme module actor.
-        const settlementSchemeActor = sig.use(SettlementSchemeActor)
-        const settlementSchemeActorMethods = await settlementSchemeActor.run(
-          sig.reactor,
-          sig,
-        )
+        const settlementSchemeActor = sig.reactor.use(SettlementSchemeActor)
+        const settlementSchemeActorMethods =
+          await settlementSchemeActor.run(sig)
 
         if (!settlementSchemeActorMethods) {
           throw new Error("Subnet module failed to initialize")

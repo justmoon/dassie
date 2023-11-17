@@ -6,7 +6,7 @@ import {
   UnauthorizedFailure,
   createJsonResponse,
 } from "@dassie/lib-http-server"
-import { createActor } from "@dassie/lib-reactive"
+import { Reactor, createActor } from "@dassie/lib-reactive"
 
 import { SESSION_COOKIE_NAME } from "../../../common/constants/cookie-name"
 import { SEED_PATH_NODE_LOGIN } from "../../../common/constants/seed-paths"
@@ -22,15 +22,15 @@ import { SessionsStore } from "../database-stores/sessions"
 import { SetupAuthorizationTokenSignal } from "../signals/setup-authorization-token"
 import { SessionToken } from "../types/session-token"
 
-export const RegisterSetupRouteActor = () =>
-  createActor((sig) => {
-    const http = sig.use(HttpsRouter)
-    const sessions = sig.use(SessionsStore)
-    const config = sig.use(DatabaseConfigStore)
-    const expectedSetupAuthorizationToken = sig
-      .use(SetupAuthorizationTokenSignal)
-      .read()
+export const RegisterSetupRouteActor = (reactor: Reactor) => {
+  const http = reactor.use(HttpsRouter)
+  const sessions = reactor.use(SessionsStore)
+  const config = reactor.use(DatabaseConfigStore)
+  const setupAuthorizationTokenSignal = reactor.use(
+    SetupAuthorizationTokenSignal,
+  )
 
+  return createActor((sig) => {
     http
       .post()
       .path("/api/setup")
@@ -45,6 +45,9 @@ export const RegisterSetupRouteActor = () =>
         if (hasNodeIdentity(config.read())) {
           return new UnauthorizedFailure("Node is already set up")
         }
+
+        const expectedSetupAuthorizationToken =
+          setupAuthorizationTokenSignal.read()
 
         const {
           setupAuthorizationToken,
@@ -89,3 +92,4 @@ export const RegisterSetupRouteActor = () =>
         return createJsonResponse({})
       })
   })
+}

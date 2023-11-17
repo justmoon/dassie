@@ -12,7 +12,7 @@ export const RegisterDevelopmentSetSessionRouteActor = () =>
   createActor((sig) => {
     if (!import.meta.env.DEV) return
 
-    const http = sig.use(HttpsRouter)
+    const http = sig.reactor.use(HttpsRouter)
 
     http
       .post()

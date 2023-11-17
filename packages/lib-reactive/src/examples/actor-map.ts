@@ -26,7 +26,7 @@ const RootActor = (reactor: Reactor) =>
   createActor((sig) => {
     sig.runMap(CustomerServiceActors)
 
-    const customers = sig.use(CustomersSignal)
+    const customers = sig.reactor.use(CustomersSignal)
 
     customers.update(
       produce((draft) => {
@@ -54,7 +54,7 @@ const RootActor = (reactor: Reactor) =>
       }),
     )
 
-    sig.use(CustomerServiceActors).get("Alice")?.api.greet.tell()
+    sig.reactor.use(CustomerServiceActors).get("Alice")?.api.greet.tell()
 
     sig.timeout(() => void reactor.dispose(), 300)
   })

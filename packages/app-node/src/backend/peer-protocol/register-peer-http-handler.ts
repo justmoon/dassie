@@ -5,7 +5,7 @@ import {
   createBinaryResponse,
   createContentTypeHeaderAssertion,
 } from "@dassie/lib-http-server"
-import { createActor } from "@dassie/lib-reactive"
+import { Reactor, createActor } from "@dassie/lib-reactive"
 import { isFailure } from "@dassie/lib-type-utils"
 
 import { HttpsRouter } from "../http-server/serve-https"
@@ -20,13 +20,13 @@ import { AuthenticatePeerMessage } from "./functions/authenticate-peer-message"
 import { peerMessage as peerMessageSchema } from "./peer-schema"
 import { NodeTableStore } from "./stores/node-table"
 
-export const RegisterPeerHttpHandlerActor = () =>
-  createActor((sig) => {
-    const authenticatePeerMessage = sig.use(AuthenticatePeerMessage)
-    const nodeTableStore = sig.use(NodeTableStore)
+export const RegisterPeerHttpHandlerActor = (reactor: Reactor) => {
+  const authenticatePeerMessage = reactor.use(AuthenticatePeerMessage)
+  const nodeTableStore = reactor.use(NodeTableStore)
+  const http = reactor.use(HttpsRouter)
+  const handlePeerMessageActor = reactor.use(HandlePeerMessageActor)
 
-    const http = sig.use(HttpsRouter)
-
+  return createActor((sig) => {
     http
       .post()
       .path("/peer")
@@ -73,24 +73,23 @@ export const RegisterPeerHttpHandlerActor = () =>
           )
         }
 
-        sig.use(IncomingPeerMessageTopic).emit({
+        sig.reactor.use(IncomingPeerMessageTopic).emit({
           message: parseResult.value,
           authenticated: isAuthenticated,
           peerState: senderNode?.peerState,
           asUint8Array: request.body,
         })
 
-        const responseMessage = await sig
-          .use(HandlePeerMessageActor)
-          .api.handle.ask({
-            message: parseResult.value,
-            authenticated: isAuthenticated,
-            peerState: senderNode?.peerState,
-            asUint8Array: request.body,
-          })
+        const responseMessage = await handlePeerMessageActor.api.handle.ask({
+          message: parseResult.value,
+          authenticated: isAuthenticated,
+          peerState: senderNode?.peerState,
+          asUint8Array: request.body,
+        })
 
         return createBinaryResponse(responseMessage, {
           contentType: "application/dassie-peer-response",
         })
       })
   })
+}

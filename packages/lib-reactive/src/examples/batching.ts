@@ -10,9 +10,9 @@ const RootActor = (reactor: Reactor) =>
   createActor((sig) => {
     sig.interval(() => {
       // Even though we are triggering three state updates, the actor will only re-run once
-      sig.use(Signal1).update((a) => a + 1)
-      sig.use(Signal2).update((a) => a + 3)
-      sig.use(Signal3).update((a) => a + 5)
+      reactor.use(Signal1).update((a) => a + 1)
+      reactor.use(Signal2).update((a) => a + 3)
+      reactor.use(Signal3).update((a) => a + 5)
     }, 1000)
 
     sig.run(SubActor)

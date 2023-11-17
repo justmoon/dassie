@@ -29,4 +29,4 @@ const DebugRunnerActor = () =>
   })
 
 const reactor = createReactor()
-await reactor.use(DebugRunnerActor).run(reactor, reactor)
+await reactor.use(DebugRunnerActor).run(reactor)

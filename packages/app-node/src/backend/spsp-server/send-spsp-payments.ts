@@ -25,7 +25,7 @@ export const SpspPaymentQueueStore = () =>
 
 export const SendSpspPaymentsActor = () =>
   createActor(async (sig) => {
-    const pluginManager = sig.use(ManagePluginsActor)
+    const pluginManager = sig.reactor.use(ManagePluginsActor)
     const nextPayment = sig.get(SpspPaymentQueueStore, (queue) => queue[0])
 
     if (nextPayment) {
@@ -84,7 +84,7 @@ export const SendSpspPaymentsActor = () =>
               error,
             })
           })
-          sig.use(SpspPaymentQueueStore).shift()
+          sig.reactor.use(SpspPaymentQueueStore).shift()
         }
       })
     }

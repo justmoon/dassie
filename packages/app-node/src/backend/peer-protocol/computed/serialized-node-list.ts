@@ -5,7 +5,7 @@ import { NodeSetSignal } from "./node-set"
 
 export const SerializedNodeListSignal = (reactor: Reactor) =>
   createComputed(reactor, (sig) => {
-    const nodeSet = sig.get(reactor.use(NodeSetSignal))
+    const nodeSet = sig.get(NodeSetSignal)
 
     return peerMessageResponse.nodeListRequest.serializeOrThrow({
       value: [...nodeSet],

@@ -13,7 +13,7 @@ export const acmeRouter = trpc.router({
       }),
     )
     .mutation(({ input: { accountUrl, accountKey }, ctx: { sig } }) => {
-      const database = sig.use(Database)
+      const database = sig.reactor.use(Database)
       database.scalars.acmeAccountUrl.set(accountUrl)
       database.scalars.acmeAccountKey.set(accountKey)
       return true
@@ -28,7 +28,7 @@ export const acmeRouter = trpc.router({
     )
     .mutation(
       ({ input: { token, keyAuthorization, expires }, ctx: { sig } }) => {
-        const database = sig.use(Database)
+        const database = sig.reactor.use(Database)
 
         database.tables.acmeTokens.insertOne({
           token,
@@ -44,7 +44,7 @@ export const acmeRouter = trpc.router({
       }),
     )
     .mutation(({ input: { token }, ctx: { sig } }) => {
-      const database = sig.use(Database)
+      const database = sig.reactor.use(Database)
 
       database.tables.acmeTokens.delete({
         token,

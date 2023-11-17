@@ -25,7 +25,7 @@ const SetActors = (reactor: Reactor) =>
       sig.run(InnerActor)
 
       const callHandle = async () => {
-        await sig.use(InnerActor).api.handle.ask()
+        await sig.reactor.use(InnerActor).api.handle.ask()
       }
 
       void callHandle()

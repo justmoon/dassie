@@ -45,7 +45,7 @@ const getContextKeyTuple = (id: number, item: unknown): ContextKeyTuple => {
 
 export const debugRouter = trpc.router({
   getLedger: protectedProcedure.query(({ ctx: { sig } }) => {
-    return [...sig.use(LedgerStore).getAccounts("")]
+    return [...sig.reactor.use(LedgerStore).getAccounts("")]
   }),
   subscribeConfig: protectedProcedure.subscription(({ ctx: { sig } }) => {
     return subscribeToSignal(sig, EnvironmentConfigSignal)

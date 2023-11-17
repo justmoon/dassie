@@ -6,7 +6,7 @@ import { SerializedNodeListSignal } from "./serialized-node-list"
 
 export const NodeListHashSignal = (reactor: Reactor) =>
   createComputed(reactor, (sig) => {
-    const nodeList = sig.get(reactor.use(SerializedNodeListSignal))
+    const nodeList = sig.get(SerializedNodeListSignal)
 
     const hash = createHash("sha256")
 

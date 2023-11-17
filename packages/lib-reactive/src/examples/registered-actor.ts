@@ -27,7 +27,9 @@ const RootActor = (reactor: Reactor) =>
     sig.run(HttpServiceActor)
 
     sig.timeout(() => {
-      sig.use(ConfigSignal).update((config) => ({ ...config, port: 3100 }))
+      sig.reactor
+        .use(ConfigSignal)
+        .update((config) => ({ ...config, port: 3100 }))
     }, 1000)
 
     sig.timeout(() => void reactor.dispose(), 2000)

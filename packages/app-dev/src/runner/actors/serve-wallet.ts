@@ -8,7 +8,7 @@ import { join, normalize } from "node:path"
 
 import { DatabaseConfigStore } from "@dassie/app-node/src/backend/config/database-config"
 import { AdditionalMiddlewaresSignal } from "@dassie/app-node/src/backend/http-server/serve-https"
-import { createActor } from "@dassie/lib-reactive"
+import { Reactor, createActor } from "@dassie/lib-reactive"
 
 import { runner as logger } from "../../backend/logger/instances"
 
@@ -39,8 +39,10 @@ function getHtmlFilename(url: string, server: ViteDevServer) {
     : decodeURIComponent(normalize(join(server.config.root, url.slice(1))))
 }
 
-export const ServeWalletActor = () =>
-  createActor(async (sig) => {
+export const ServeWalletActor = (reactor: Reactor) => {
+  const additionalMiddlewaresSignal = reactor.use(AdditionalMiddlewaresSignal)
+
+  return createActor(async (sig) => {
     const { httpsPort, tlsWebCert, tlsWebKey } = sig.getKeys(
       DatabaseConfigStore,
       ["httpsPort", "tlsWebCert", "tlsWebKey"],
@@ -48,8 +50,6 @@ export const ServeWalletActor = () =>
 
     assert(tlsWebCert, "Web UI is not configured, missing certificate")
     assert(tlsWebKey, "Web UI is not configured, missing private key")
-
-    const additionalMiddlewares = sig.use(AdditionalMiddlewaresSignal)
 
     const server = await createServer({
       root: walletPath,
@@ -123,7 +123,7 @@ export const ServeWalletActor = () =>
       next()
     }
 
-    additionalMiddlewares.update((state) => [
+    additionalMiddlewaresSignal.update((state) => [
       ...state,
       server.middlewares,
       historySpaFallbackMiddleware,
@@ -131,7 +131,7 @@ export const ServeWalletActor = () =>
     ])
 
     sig.onCleanup(async () => {
-      additionalMiddlewares.update((state) =>
+      additionalMiddlewaresSignal.update((state) =>
         state.filter(
           (middleware) =>
             ![
@@ -147,3 +147,4 @@ export const ServeWalletActor = () =>
 
     logger.info(`serving wallet ui`)
   })
+}

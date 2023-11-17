@@ -3,23 +3,22 @@ import {
   createCliFormatter,
   context as loggingContext,
 } from "@dassie/lib-logger"
-import { createActor } from "@dassie/lib-reactive"
+import { Reactor, createActor } from "@dassie/lib-reactive"
 
 import { LogsStore } from "../../common/stores/logs"
 
-export const RegisterReactiveLoggerActor = () =>
-  createActor((sig) => {
-    const logs = sig.use(LogsStore)
-
+export const RegisterReactiveLoggerActor = (reactor: Reactor) => {
+  const logsStore = reactor.use(LogsStore)
+  return createActor(() => {
     captureConsole()
 
     const cliFormatter = createCliFormatter()
 
     loggingContext.output = (logEvent) => {
       if (logEvent.type === "clear") {
-        logs.clear()
+        logsStore.clear()
       } else {
-        logs.addLogLine({
+        logsStore.addLogLine({
           node: "host",
           ...logEvent,
         })
@@ -35,3 +34,4 @@ export const RegisterReactiveLoggerActor = () =>
       }
     }
   })
+}

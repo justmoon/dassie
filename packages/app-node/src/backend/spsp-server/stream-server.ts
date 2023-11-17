@@ -11,7 +11,7 @@ import { ManagePluginsActor } from "./manage-plugins"
 
 export const StreamServerServiceActor = () =>
   createActor(async (sig) => {
-    const pluginManager = sig.use(ManagePluginsActor)
+    const pluginManager = sig.reactor.use(ManagePluginsActor)
 
     logger.debug("starting stream server")
 

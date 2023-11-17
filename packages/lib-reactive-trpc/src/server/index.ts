@@ -23,7 +23,7 @@ export const subscribeToTopic = <TMessage>(
   topicFactory: Factory<ReadonlyTopic<TMessage>>,
 ): Observable<TMessage, unknown> => {
   return observable<TMessage>((emit) => {
-    const topic = sig.use(topicFactory)
+    const topic = sig.reactor.use(topicFactory)
     const listener = (message: TMessage) => {
       emit.next(message)
     }
@@ -41,7 +41,7 @@ export const subscribeToSignal = <TValue>(
 ): Observable<TValue, unknown> => {
   return observable<TValue>((emit) => {
     let timer: ReturnType<typeof setImmediate> | undefined
-    const signal = sig.use(signalFactory)
+    const signal = sig.reactor.use(signalFactory)
     const listener = (value: TValue) => {
       if (batching) {
         if (!timer) {
@@ -82,7 +82,7 @@ export const subscribeToStore = <
     let timer: ReturnType<typeof setImmediate> | undefined
     const queuedChanges = new Set<InferChanges<TActions>>()
 
-    const store = sig.use(storeFactory)
+    const store = sig.reactor.use(storeFactory)
     const listener = (change: InferChanges<TActions>) => {
       if (batching) {
         if (!timer) {

@@ -21,6 +21,9 @@ const NODE_REFRESH_INTERVAL = 1000
 const INDIRECT_QUERY_PROBABILITY = 0.2
 
 export const RefreshNodeStateActor = (reactor: Reactor) => {
+  const nodeTableStore = reactor.use(NodeTableStore)
+  const modifyNodeTableActor = reactor.use(ModifyNodeTableActor)
+
   const queryLinkState = async (
     oracleNodeId: NodeId,
     subjectNodeId: NodeId,
@@ -39,7 +42,6 @@ export const RefreshNodeStateActor = (reactor: Reactor) => {
   }
 
   return createActor((sig) => {
-    const nodeTable = sig.use(NodeTableStore)
     const ownNodeId = sig.get(NodeIdSignal)
     const bootstrapNodes = sig
       .get(EnvironmentConfigSignal, (config) => config.bootstrapNodes)
@@ -63,7 +65,7 @@ export const RefreshNodeStateActor = (reactor: Reactor) => {
       const currentNodes: NodeId[] = []
       const oldNodes: NodeId[] = []
 
-      for (const node of nodeTable.read().values()) {
+      for (const node of nodeTableStore.read().values()) {
         if (node.nodeId === ownNodeId) continue
 
         if (
@@ -82,7 +84,7 @@ export const RefreshNodeStateActor = (reactor: Reactor) => {
 
       let oracleNodeId = nodeId
       if (
-        !nodeTable.read().get(nodeId)?.linkState ||
+        !nodeTableStore.read().get(nodeId)?.linkState ||
         Math.random() < INDIRECT_QUERY_PROBABILITY
       ) {
         const queryableNodes = [...currentNodes, ...bootstrapNodes]
@@ -97,7 +99,7 @@ export const RefreshNodeStateActor = (reactor: Reactor) => {
 
       const { signed } = linkState.value
 
-      reactor.use(ModifyNodeTableActor).api.processLinkState.tell({
+      modifyNodeTableActor.api.processLinkState.tell({
         linkStateBytes: linkState.bytes,
         linkState: signed,
         retransmit: "never",

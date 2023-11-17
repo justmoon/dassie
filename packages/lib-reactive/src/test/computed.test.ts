@@ -100,7 +100,7 @@ describe("createComputed", () => {
     expect(dComputation).toHaveBeenCalledTimes(2)
   })
 
-  test("should call lifecycle.onCleanup handler if reactor is disposed", async ({
+  test("should call onCleanup handler if reactor is disposed", async ({
     expect,
   }) => {
     const reactor = createReactor()
@@ -109,7 +109,7 @@ describe("createComputed", () => {
     const cleanup = vi.fn(() => {})
 
     const computation = vi.fn((sig: ComputationContext) => {
-      sig.lifecycle.onCleanup(cleanup)
+      sig.onCleanup(cleanup)
       return sig.get(signal)
     })
 
@@ -135,7 +135,7 @@ describe("createComputed", () => {
     const cleanup = vi.fn(() => {})
 
     const computation = vi.fn((sig: ComputationContext) => {
-      sig.lifecycle.onCleanup(cleanup)
+      sig.onCleanup(cleanup)
       return sig.get(signal)
     })
 

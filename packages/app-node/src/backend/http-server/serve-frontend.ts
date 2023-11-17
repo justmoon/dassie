@@ -17,7 +17,7 @@ export const ServeFrontendActor = () =>
     const { rootPath } = sig.getKeys(EnvironmentConfigSignal, ["rootPath"])
     const frontendPath = resolve(rootPath, "share/public")
 
-    const middleware = sig.use(AdditionalMiddlewaresSignal)
+    const middleware = sig.reactor.use(AdditionalMiddlewaresSignal)
     const staticMiddleware = serveStatic(frontendPath, {
       index: false,
     }) as NextHandleFunction

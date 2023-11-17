@@ -3,7 +3,7 @@ import { parse } from "cookie"
 import type { WebSocket } from "ws"
 import { WebSocketServer } from "ws"
 
-import { createActor } from "@dassie/lib-reactive"
+import { Reactor, createActor } from "@dassie/lib-reactive"
 
 import { SESSION_COOKIE_NAME } from "../../common/constants/cookie-name"
 import { DEV_SECURITY_TOKEN_LENGTH } from "../../common/constants/general"
@@ -15,10 +15,12 @@ import { appRouter } from "./app-router"
 
 export const connectionMap = new Map<string, WebSocket>()
 
-export const RegisterTrpcHttpUpgradeActor = () =>
-  createActor((sig) => {
+export const RegisterTrpcHttpUpgradeActor = (reactor: Reactor) => {
+  const environmentConfigSignal = reactor.use(EnvironmentConfigSignal)
+  const sessionsStore = reactor.use(SessionsStore)
+
+  return createActor((sig) => {
     const websocketRoutes = sig.get(WebsocketRoutesSignal)
-    const sessions = sig.use(SessionsStore)
 
     const websocketServer = new WebSocketServer({
       noServer: true,
@@ -33,7 +35,10 @@ export const RegisterTrpcHttpUpgradeActor = () =>
 
         let authenticated = false
 
-        if (sessionToken && sessions.read().has(sessionToken as SessionToken)) {
+        if (
+          sessionToken &&
+          sessionsStore.read().has(sessionToken as SessionToken)
+        ) {
           authenticated = true
         }
 
@@ -45,9 +50,7 @@ export const RegisterTrpcHttpUpgradeActor = () =>
         if (import.meta.env.DEV) {
           const parsedUrl = new URL(url!, "http://localhost")
           const providedToken = parsedUrl.searchParams.get("token")
-          const expectedToken = sig
-            .use(EnvironmentConfigSignal)
-            .read().devSecurityToken
+          const expectedToken = environmentConfigSignal.read().devSecurityToken
 
           if (
             expectedToken &&
@@ -79,3 +82,4 @@ export const RegisterTrpcHttpUpgradeActor = () =>
       websocketServer.close()
     })
   })
+}

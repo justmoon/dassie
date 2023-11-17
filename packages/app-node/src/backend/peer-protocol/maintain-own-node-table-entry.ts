@@ -16,7 +16,7 @@ import { NodeTableStore } from "./stores/node-table"
 
 export const MaintainOwnNodeTableEntryActor = () =>
   createActor(async (sig) => {
-    const signer = sig.use(SignerActor)
+    const signer = sig.reactor.use(SignerActor)
 
     // Get the current peers and re-run the actor if they change
     const peers = sig.get(PeersSignal)
@@ -25,7 +25,8 @@ export const MaintainOwnNodeTableEntryActor = () =>
     const nodeId = sig.get(NodeIdSignal)
     const nodePublicKey = sig.get(NodePublicKeySignal)
     const { url, alias } = sig.get(DatabaseConfigStore)
-    const oldLinkState = sig.use(NodeTableStore).read().get(nodeId)?.linkState
+    const oldLinkState = sig.reactor.use(NodeTableStore).read().get(nodeId)
+      ?.linkState
 
     if (
       !oldLinkState ||
@@ -99,7 +100,7 @@ export const MaintainOwnNodeTableEntryActor = () =>
           neighbors: peerIds.join(","),
         },
       )
-      const modifyNodeTableActor = sig.use(ModifyNodeTableActor)
+      const modifyNodeTableActor = sig.reactor.use(ModifyNodeTableActor)
       if (oldLinkState === undefined) {
         modifyNodeTableActor.api.addNode.tell(nodeId)
       }

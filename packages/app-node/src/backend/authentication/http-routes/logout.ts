@@ -10,8 +10,8 @@ import { SessionToken } from "../types/session-token"
 
 export const RegisterLogoutRouteActor = () =>
   createActor((sig) => {
-    const http = sig.use(HttpsRouter)
-    const sessions = sig.use(SessionsStore)
+    const http = sig.reactor.use(HttpsRouter)
+    const sessions = sig.reactor.use(SessionsStore)
 
     http
       .post()

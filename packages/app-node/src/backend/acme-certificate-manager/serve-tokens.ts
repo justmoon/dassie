@@ -6,7 +6,7 @@ import { HttpRouterServiceActor } from "../http-server/serve-http"
 export const ServeTokensActor = () =>
   createActor((sig) => {
     const httpRouter = sig.get(HttpRouterServiceActor)
-    const database = sig.use(Database)
+    const database = sig.reactor.use(Database)
 
     if (!httpRouter) return
 

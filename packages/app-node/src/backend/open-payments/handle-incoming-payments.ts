@@ -13,8 +13,8 @@ import { createIncomingPaymentFormatter } from "./utils/format-incoming-payment"
 
 export const HandleIncomingPaymentsActor = () =>
   createActor((sig) => {
-    const http = sig.use(HttpsRouter)
-    const database = sig.use(Database)
+    const http = sig.reactor.use(HttpsRouter)
+    const database = sig.reactor.use(Database)
     const streamServer = sig.get(StreamServerServiceActor)
     const { url } = sig.get(DatabaseConfigStore)
 

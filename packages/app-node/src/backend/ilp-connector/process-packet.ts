@@ -1,4 +1,4 @@
-import { createActor } from "@dassie/lib-reactive"
+import { Reactor, createActor } from "@dassie/lib-reactive"
 import { UnreachableCaseError } from "@dassie/lib-type-utils"
 
 import { connector as logger } from "../logger/instances"
@@ -15,12 +15,12 @@ export interface ProcessIncomingPacketParameters {
   requestId: number
 }
 
-export const ProcessPacketActor = () =>
-  createActor((sig) => {
-    const processPreparePacket = sig.use(ProcessPreparePacket)
-    const processFulfillPacket = sig.use(ProcessFulfillPacket)
-    const processRejectPacket = sig.use(ProcessRejectPacket)
+export const ProcessPacketActor = (reactor: Reactor) => {
+  const processPreparePacket = reactor.use(ProcessPreparePacket)
+  const processFulfillPacket = reactor.use(ProcessFulfillPacket)
+  const processRejectPacket = reactor.use(ProcessRejectPacket)
 
+  return createActor(() => {
     return {
       handle: ({
         sourceEndpointInfo,
@@ -69,3 +69,4 @@ export const ProcessPacketActor = () =>
       },
     }
   })
+}

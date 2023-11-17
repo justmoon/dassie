@@ -52,11 +52,13 @@ interface NodeContactInfo {
 export const SendPeerMessageActor = () =>
   createActor((sig) => {
     const nodeId = sig.get(NodeIdSignal)
-    const nodeTable = sig.use(NodeTableStore)
+    const nodeTable = sig.reactor.use(NodeTableStore)
     const { bootstrapNodes } = sig.getKeys(EnvironmentConfigSignal, [
       "bootstrapNodes",
     ])
-    const generateMessageAuthentication = sig.use(GenerateMessageAuthentication)
+    const generateMessageAuthentication = sig.reactor.use(
+      GenerateMessageAuthentication,
+    )
 
     const getNodeContactInfo = (
       nodeId: NodeId,
@@ -100,7 +102,7 @@ export const SendPeerMessageActor = () =>
 
         const serializedMessage = asUint8Array ?? serializePeerMessage(message)
 
-        sig.use(OutgoingPeerMessageTopic).emit({
+        sig.reactor.use(OutgoingPeerMessageTopic).emit({
           ...parameters,
           asUint8Array: serializedMessage,
         })

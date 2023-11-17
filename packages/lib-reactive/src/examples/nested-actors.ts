@@ -19,7 +19,9 @@ const RootActor = () =>
     })
 
     sig.interval(() => {
-      sig.use(Topic1).emit("hello" + String(Math.floor(Math.random() * 10)))
+      sig.reactor
+        .use(Topic1)
+        .emit("hello" + String(Math.floor(Math.random() * 10)))
     }, 1000)
 
     sig.onCleanup(() => {
@@ -38,7 +40,7 @@ const SubActor = () =>
       console.info("reacting to", message)
 
       if (message) {
-        sig.use(Signal1).update(({ states }) => ({
+        sig.reactor.use(Signal1).update(({ states }) => ({
           states: [...new Set<string>([...states, message])],
         }))
       }

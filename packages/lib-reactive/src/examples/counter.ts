@@ -7,7 +7,7 @@ const CountSignal = () => createSignal(0)
 const ClockActor = () =>
   createActor((sig) => {
     sig.interval(() => {
-      sig.use(CountSignal).update((state) => state + 1)
+      sig.reactor.use(CountSignal).update((state) => state + 1)
     }, 75)
   })
 

@@ -5,7 +5,6 @@ export { createStore, isStore, StoreSymbol } from "./store"
 export { createComputed, isComputed, ComputedSymbol } from "./computed"
 export { createMapped, isMapped, MappedSymbol } from "./mapped"
 export { createReactor } from "./reactor"
-export { ActorContext } from "./actor-context"
 export { createLifecycleScope } from "./lifecycle"
 export { createUnconstructable } from "./unconstructable"
 export { CacheStatus } from "./internal/reactive"
@@ -22,6 +21,7 @@ export type {
   ReadonlySignal,
   Reducer,
 } from "./signal"
+export type { ActorContext } from "./actor-context"
 export type {
   Actor,
   Behavior,
@@ -38,16 +38,20 @@ export type {
   InferBoundActions,
   InferChanges,
 } from "./store"
-export type { Computed, ComputationContext } from "./computed"
+export type { ComputationContext } from "./computation-context"
+export type { Computed } from "./computed"
 export type { Mapped } from "./mapped"
-export type { Reactor, Factory } from "./reactor"
+export type { Reactor } from "./reactor"
 export type {
   LifecycleScope,
   DisposableLifecycleScope,
   Disposer,
 } from "./lifecycle"
+export type { Listener } from "./internal/emit-to-listener"
 export type {
   ReactiveSource as ReactiveProvider,
   ReactiveObserver as ReactiveConsumer,
 } from "./internal/reactive"
-export type { Listener } from "./internal/emit-to-listener"
+export type { Factory } from "./types/factory"
+export type { ReactiveContext } from "./types/reactive-context"
+export type { StatefulContext } from "./types/stateful-context"

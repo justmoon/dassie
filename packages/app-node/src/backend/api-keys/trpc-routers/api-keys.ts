@@ -14,12 +14,12 @@ const btpTokenSchema = z
 
 export const apiKeysRouter = trpc.router({
   getCurrentKeys: protectedProcedure.query(({ ctx: { sig } }) => {
-    const btpTokensStore = sig.use(BtpTokensStore)
+    const btpTokensStore = sig.reactor.use(BtpTokensStore)
     return [...btpTokensStore.read()]
   }),
   addBtpToken: protectedProcedure.mutation(({ ctx: { sig } }) => {
     const token = randomBytes(16).toString("base64url") as BtpToken
-    const btpTokensStore = sig.use(BtpTokensStore)
+    const btpTokensStore = sig.reactor.use(BtpTokensStore)
     btpTokensStore.addToken(token)
 
     return token
@@ -27,7 +27,7 @@ export const apiKeysRouter = trpc.router({
   removeBtpToken: protectedProcedure
     .input(btpTokenSchema)
     .mutation(({ input: token, ctx: { sig } }) => {
-      const btpTokensStore = sig.use(BtpTokensStore)
+      const btpTokensStore = sig.reactor.use(BtpTokensStore)
       btpTokensStore.removeToken(token)
     }),
 })

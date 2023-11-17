@@ -12,7 +12,7 @@ import { NodeId } from "./types/node-id"
 
 export const SendHeartbeatsActor = () =>
   createActor((sig) => {
-    const ownNodeId = sig.use(NodeIdSignal).read()
+    const ownNodeId = sig.reactor.use(NodeIdSignal).read()
 
     // Get the current peers and re-run the actor if they change
     const peers = sig.get(PeersSignal)
@@ -49,7 +49,7 @@ const sendHeartbeat = (
   sig: ActorContext,
   { peerNodeId, lastLinkStateUpdate }: HeartbeatParameters,
 ) => {
-  sig.use(SendPeerMessageActor).api.send.tell({
+  sig.reactor.use(SendPeerMessageActor).api.send.tell({
     destination: peerNodeId,
     message: {
       type: "linkStateUpdate",

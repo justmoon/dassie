@@ -12,7 +12,7 @@ import { DatabaseConfigStore } from "../database-config"
 
 export const configAdminRouter = trpc.router({
   getConfig: protectedProcedure.query(({ ctx: { sig } }) => {
-    const { hostname, dassieKey } = sig.use(DatabaseConfigStore).read()
+    const { hostname, dassieKey } = sig.reactor.use(DatabaseConfigStore).read()
 
     const nodeIdFields =
       dassieKey === undefined
@@ -21,20 +21,20 @@ export const configAdminRouter = trpc.router({
           }
         : {
             hasNodeIdentity: true as const,
-            nodeId: sig.use(NodeIdSignal).read(),
+            nodeId: sig.reactor.use(NodeIdSignal).read(),
           }
 
     const result = {
       hostname,
       ...nodeIdFields,
-      hasTls: sig.use(HasTlsSignal).read(),
+      hasTls: sig.reactor.use(HasTlsSignal).read(),
     }
 
     return result
   }),
 
   getSetupUrl: protectedProcedure.query(({ ctx: { sig } }) => {
-    const setupUrl = sig.use(SetupUrlSignal).read()
+    const setupUrl = sig.reactor.use(SetupUrlSignal).read()
     return setupUrl
   }),
 
@@ -49,7 +49,7 @@ export const configAdminRouter = trpc.router({
         throw new Error("Livenet is not yet supported")
       }
 
-      const config = sig.use(DatabaseConfigStore)
+      const config = sig.reactor.use(DatabaseConfigStore)
 
       config.setRealm(realm)
       return true
@@ -61,7 +61,7 @@ export const configAdminRouter = trpc.router({
       }),
     )
     .mutation(({ input: { hostname }, ctx: { sig } }) => {
-      const config = sig.use(DatabaseConfigStore)
+      const config = sig.reactor.use(DatabaseConfigStore)
 
       config.setHostname(hostname)
       return true
@@ -74,6 +74,6 @@ export const configAdminRouter = trpc.router({
       }),
     )
     .mutation(({ ctx: { sig }, input: { id, config } }) => {
-      sig.use(SettlementSchemesStore).addSettlementScheme(id, config)
+      sig.reactor.use(SettlementSchemesStore).addSettlementScheme(id, config)
     }),
 })

@@ -6,7 +6,7 @@ import { NodeTableStore } from "./stores/node-table"
 
 export const BroadcastStateUpdatesActor = () =>
   createActor((sig) => {
-    const ownNodeId = sig.use(NodeIdSignal).read()
+    const ownNodeId = sig.reactor.use(NodeIdSignal).read()
 
     const linkStateUpdate = sig.get(
       NodeTableStore,
@@ -17,10 +17,10 @@ export const BroadcastStateUpdatesActor = () =>
       return
     }
 
-    const nodeIds = sig.use(NodeTableStore).read().keys()
+    const nodeIds = sig.reactor.use(NodeTableStore).read().keys()
 
     for (const nodeId of nodeIds) {
-      sig.use(SendPeerMessageActor).api.send.tell({
+      sig.reactor.use(SendPeerMessageActor).api.send.tell({
         destination: nodeId,
         message: {
           type: "linkStateUpdate",

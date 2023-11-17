@@ -27,7 +27,7 @@ const ILDCP_DESTINATION_INFO: IldcpEndpointInfo = {
 export const HandleIldcpRequestsActor = () =>
   createActor((sig) => {
     const ilpRoutingTable = sig.get(RoutingTableSignal)
-    const processIncomingPacketActor = sig.use(ProcessPacketActor)
+    const processIncomingPacketActor = sig.reactor.use(ProcessPacketActor)
 
     ilpRoutingTable.set(ILDCP_ADDRESS, {
       type: "fixed",

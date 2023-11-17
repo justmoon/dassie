@@ -6,7 +6,7 @@ import { StreamServerServiceActor } from "./stream-server"
 
 export const HandleSpspRequestsActor = () =>
   createActor((sig) => {
-    const http = sig.use(HttpsRouter)
+    const http = sig.reactor.use(HttpsRouter)
     const streamServer = sig.get(StreamServerServiceActor)
 
     if (!streamServer) {

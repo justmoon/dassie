@@ -15,7 +15,7 @@ export const RegisterIlpHttpCallbackHandlerActor = (reactor: Reactor) => {
   const processPacketActor = reactor.use(ProcessPacketActor)
 
   return createActor((sig) => {
-    const http = sig.use(HttpsRouter)
+    const http = sig.reactor.use(HttpsRouter)
 
     http
       .post()

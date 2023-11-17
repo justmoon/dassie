@@ -169,12 +169,12 @@ const RootActor = () =>
     sig.run(PongActor)
 
     // Get the process started by sending a message to the ping actor
-    sig.use(PingActor).api.ping.tell()
+    sig.reactor.use(PingActor).api.ping.tell()
   })
 
 const PingActor = () =>
   createActor((sig) => {
-    const pongActor = sig.use(PongActor)
+    const pongActor = sig.reactor.use(PongActor)
     return {
       ping: () => pongActor.api.pong.tell(),
     }
@@ -182,7 +182,7 @@ const PingActor = () =>
 
 const PongActor = () =>
   createActor((sig) => {
-    const pingActor = sig.use(PingActor)
+    const pingActor = sig.reactor.use(PingActor)
     return {
       pong: () => {
         sig.timeout(() => {
@@ -209,12 +209,12 @@ To define a new Topic, we need to make a factory function that calls `createTopi
 const PingPongTopic = () => createTopic<string>()
 ```
 
-In order to `emit` a message on a topic, we first need to get an instance of the topic. In order to do that, we can call `sig.use` from inside of an actor:
+In order to `emit` a message on a topic, we first need to get an instance of the topic. In order to do that, we can call `sig.reactor.use` from inside of an actor:
 
 ```ts
 const RootActor = () =>
   createActor((sig) => {
-    sig.use(PingPongTopic).emit("ping")
+    sig.reactor.use(PingPongTopic).emit("ping")
   })
 
 createReactor(RootActor)
@@ -235,7 +235,7 @@ const RootActor = () =>
 createReactor(rootActor)
 ```
 
-When we create listeners manually via `sig.use().on()` we also have to remember to dispose of them using `sig.onCleanup`. That could get tedious quickly. Instead, we can use the `sig.on` shorthand which will handle the cleanup for us automatically.
+When we create listeners manually via `sig.reactor.use().on()` we also have to remember to dispose of them using `sig.onCleanup`. That could get tedious quickly. Instead, we can use the `sig.on` shorthand which will handle the cleanup for us automatically.
 
 ```ts
 const RootActor = () =>
@@ -264,7 +264,7 @@ const Pinger = () =>
   createActor((sig) => {
     sig.on(PingPongTopic, (message) => {
       if (message === "pong") {
-        sig.use(PingPongTopic).emit("ping")
+        sig.reactor.use(PingPongTopic).emit("ping")
       }
     })
   })
@@ -274,7 +274,7 @@ const Ponger = () =>
     sig.on(PingPongTopic, (message) => {
       if (message === "ping") {
         sig.timeout(() => {
-          sig.use(PingPongTopic).emit("pong")
+          sig.reactor.use(PingPongTopic).emit("pong")
         }, 75)
       }
     })
@@ -324,7 +324,7 @@ const CounterSignal = () => createSignal(0)
 const Clock = () =>
   createActor((sig) => {
     sig.interval(() => {
-      sig.use(CounterSignal).update((state) => state + 1)
+      sig.reactor.use(CounterSignal).update((state) => state + 1)
     }, 75)
   })
 
@@ -400,7 +400,7 @@ const DoubledComputed = (reactor: Reactor) =>
 const Clock = () =>
   createActor((sig) => {
     sig.interval(() => {
-      sig.use(CounterSignal).update((state) => state + 1)
+      sig.reactor.use(CounterSignal).update((state) => state + 1)
     }, 75)
   })
 
@@ -461,9 +461,9 @@ const RootActor = () =>
   createActor((sig) => {
     sig.interval(() => {
       // Even though we are triggering three state updates, the actor will only re-run once
-      sig.use(Signal1).update((a) => a + 1)
-      sig.use(Signal2).update((a) => a + 3)
-      sig.use(Signal3).update((a) => a + 5)
+      sig.reactor.use(Signal1).update((a) => a + 1)
+      sig.reactor.use(Signal2).update((a) => a + 3)
+      sig.reactor.use(Signal3).update((a) => a + 5)
     }, 1000)
 
     sig.run(Logger)

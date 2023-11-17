@@ -46,7 +46,7 @@ export const HttpsServiceActor = () =>
     assert(tlsWebCert, "Web UI is not configured, missing certificate")
     assert(tlsWebKey, "Web UI is not configured, missing private key")
 
-    const router = sig.use(HttpsRouter)
+    const router = sig.reactor.use(HttpsRouter)
     const additionalMiddlewares = sig.get(AdditionalMiddlewaresSignal)
 
     if (!router) return
@@ -82,7 +82,10 @@ export const HttpsServiceActor = () =>
 
       const { pathname } = new URL(request.url!, "http://localhost")
 
-      const handler = sig.use(WebsocketRoutesSignal).read().get(pathname)
+      const handler = sig.reactor
+        .use(WebsocketRoutesSignal)
+        .read()
+        .get(pathname)
 
       if (!handler) {
         socket.destroy()

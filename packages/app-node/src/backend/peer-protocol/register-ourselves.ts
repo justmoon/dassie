@@ -23,7 +23,7 @@ export const RegisterOurselvesActor = () =>
       async ([bootstrapNodeId, nodeList]) => {
         if (nodeList.entries.includes(ourNodeId)) return
 
-        await sig.use(SendPeerMessageActor).api.send.ask({
+        await sig.reactor.use(SendPeerMessageActor).api.send.ask({
           destination: bootstrapNodeId,
           message: {
             type: "registration",

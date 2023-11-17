@@ -12,6 +12,13 @@ import {
   UseSymbol,
 } from "./internal/context-base"
 import { DisposableLifecycleScopeImplementation } from "./lifecycle"
+import { Factory } from "./types/factory"
+import { StatefulContext } from "./types/stateful-context"
+
+export interface ContextState extends WeakMap<Factory<unknown>, unknown> {
+  get<T>(key: Factory<T>): T | undefined
+  set<T>(key: Factory<T>, value: T): this
+}
 
 export interface UseOptions {
   /**
@@ -27,14 +34,7 @@ export interface UseOptions {
   stateless?: boolean | undefined
 }
 
-export type Factory<TInstance> = (reactor: Reactor) => TInstance
-
-export interface ContextState extends WeakMap<Factory<unknown>, unknown> {
-  get<T>(key: Factory<T>): T | undefined
-  set<T>(key: Factory<T>, value: T): this
-}
-
-export interface Reactor extends DisposableLifecycleScope {
+export interface Reactor extends StatefulContext, DisposableLifecycleScope {
   /**
    * Retrieve a value from the context or create it if it does not yet exist.
    *
@@ -83,6 +83,8 @@ class ReactorImplementation
   private readonly contextState = new WeakMap() as ContextState
 
   public readonly debug = createDebugTools(this, this.contextState)
+
+  public readonly reactor = this
 
   constructor() {
     super("Reactor")
@@ -174,7 +176,7 @@ export const createReactor = (
   const reactor: Reactor = new ReactorImplementation()
 
   if (rootActor) {
-    Promise.resolve(reactor.use(rootActor).run(reactor, reactor)).catch(
+    Promise.resolve(reactor.use(rootActor).run(reactor)).catch(
       (error: unknown) => {
         console.error("error running root actor", {
           actor: rootActor.name,

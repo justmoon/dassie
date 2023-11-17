@@ -20,18 +20,18 @@ import { trpc } from "./trpc"
 
 export const uiRpcRouter = trpc.router({
   getSecurityToken: trpc.procedure.query(({ ctx: { sig } }) =>
-    sig.use(SecurityTokenSignal).read(),
+    sig.reactor.use(SecurityTokenSignal).read(),
   ),
   addRandomNode: trpc.procedure
     // TRPC seems to throw an error when using superjson as a transformer on a method with no parameters.
     .input(z.object({}))
     .mutation(({ ctx: { sig } }) => {
-      sig.use(ActiveNodesStore).addNode()
+      sig.reactor.use(ActiveNodesStore).addNode()
     }),
   setPeeringMode: trpc.procedure
     .input(z.enum(VALID_PEERING_MODES))
     .mutation(({ ctx: { sig }, input }) => {
-      sig.use(EnvironmentSettingsStore).setPeeringMode(input)
+      sig.reactor.use(EnvironmentSettingsStore).setPeeringMode(input)
     }),
   subscribeToNodes: trpc.procedure.subscription(({ ctx: { sig } }) => {
     return subscribeToSignal(sig, ActiveNodesStore)

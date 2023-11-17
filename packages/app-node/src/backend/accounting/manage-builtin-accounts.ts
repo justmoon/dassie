@@ -6,7 +6,7 @@ import { LedgerStore } from "./stores/ledger"
 
 export const ManageBuiltinAccountsActor = () =>
   createActor((sig) => {
-    const ledger = sig.use(LedgerStore)
+    const ledger = sig.reactor.use(LedgerStore)
 
     initializeCommonAccounts(ledger, "builtin" as SettlementSchemeId)
     ledger.createAccount(`builtin/owner/spsp`)

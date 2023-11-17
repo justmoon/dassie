@@ -19,8 +19,8 @@ type DataHandler = (data: Buffer) => Promise<Buffer>
 export const ManagePluginsActor = () =>
   createActor((sig) => {
     const nodeIlpAddress = sig.get(NodeIlpAddressSignal)
-    const processPacketActor = sig.use(ProcessPacketActor)
-    const routingTable = sig.use(RoutingTableSignal)
+    const processPacketActor = sig.reactor.use(ProcessPacketActor)
+    const routingTable = sig.reactor.use(RoutingTableSignal)
 
     const pluginHandlerMap = new Map<number, DataHandler>()
     const outstandingRequests = new Map<number, (data: Buffer) => void>()

@@ -4,7 +4,7 @@ import { DatabaseConfigStore } from "../database-config"
 
 export const IlpAllocationSchemeSignal = (reactor: Reactor) =>
   createComputed(reactor, (sig) => {
-    const config = sig.get(reactor.use(DatabaseConfigStore))
+    const config = sig.get(DatabaseConfigStore)
 
     return config.realm === "test" ? "test" : "g"
   })

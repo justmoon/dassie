@@ -40,7 +40,7 @@ const start = async ({ viteServer, viteNodeServer }: StartParameters) => {
   reactor.set(ViteServer, viteServer)
   reactor.set(ViteNodeServer, viteNodeServer)
   const startActor = reactor.use(RootActor)
-  await startActor.run(reactor, reactor)
+  await startActor.run(reactor)
   return reactor
 }
 

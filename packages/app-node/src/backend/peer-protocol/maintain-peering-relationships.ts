@@ -16,14 +16,15 @@ function findCommonElement<T>(array: readonly T[], set: Set<T>): T | false {
   return array.find((element) => set.has(element)) ?? false
 }
 
-export const MaintainPeeringRelationshipsActor = (reactor: Reactor) =>
-  createActor((sig) => {
+export const MaintainPeeringRelationshipsActor = (reactor: Reactor) => {
+  const nodeTableStore = reactor.use(NodeTableStore)
+  return createActor((sig) => {
     const ownNodeId = sig.get(NodeIdSignal)
     const ourSubnets = sig.get(ActiveSettlementSchemesSignal)
 
     const checkPeers = () => {
       try {
-        const peersSet = sig.use(PeersSignal).read()
+        const peersSet = sig.reactor.use(PeersSignal).read()
         if (peersSet.size >= MINIMUM_PEERS) {
           return
         }
@@ -40,7 +41,7 @@ export const MaintainPeeringRelationshipsActor = (reactor: Reactor) =>
 
     const addPeer = async () => {
       // TODO: This is slow but we will optimize it later
-      const candidates = [...sig.use(NodeTableStore).read().values()]
+      const candidates = [...nodeTableStore.read().values()]
         .filter(
           (node): node is typeof node & { linkState: object } =>
             !!node.linkState,
@@ -74,24 +75,25 @@ export const MaintainPeeringRelationshipsActor = (reactor: Reactor) =>
         to: randomNode.nodeId,
       })
 
-      const ownLinkState = sig.use(NodeTableStore).read().get(ownNodeId)
-        ?.linkState
+      const ownLinkState = nodeTableStore.read().get(ownNodeId)?.linkState
 
       if (!ownLinkState) {
         logger.warn("node table does not contain own link state")
         return
       }
 
-      const response = await sig.use(SendPeerMessageActor).api.send.ask({
-        destination: randomNode.nodeId,
-        message: {
-          type: "peeringRequest",
-          value: {
-            nodeInfo: ownLinkState.lastUpdate,
-            settlementSchemeId: randomNode.commonSettlementScheme,
+      const response = await sig.reactor
+        .use(SendPeerMessageActor)
+        .api.send.ask({
+          destination: randomNode.nodeId,
+          message: {
+            type: "peeringRequest",
+            value: {
+              nodeInfo: ownLinkState.lastUpdate,
+              settlementSchemeId: randomNode.commonSettlementScheme,
+            },
           },
-        },
-      })
+        })
 
       if (response?.accepted) {
         reactor.use(NodeTableStore).updateNode(randomNode.nodeId, {
@@ -106,3 +108,4 @@ export const MaintainPeeringRelationshipsActor = (reactor: Reactor) =>
 
     checkPeers()
   })
+}

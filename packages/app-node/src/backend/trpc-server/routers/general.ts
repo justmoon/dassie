@@ -12,7 +12,7 @@ import { trpc } from "../trpc-context"
 
 export const generalRouter = trpc.router({
   getBasicState: trpc.procedure.query(({ ctx: { sig, user } }) => {
-    const hasNodeIdentity = sig.use(HasNodeIdentitySignal).read()
+    const hasNodeIdentity = sig.reactor.use(HasNodeIdentitySignal).read()
     if (!hasNodeIdentity) {
       return {
         state: "uninitialized",
@@ -20,13 +20,13 @@ export const generalRouter = trpc.router({
     }
 
     const activeSettlementSchemes = [
-      ...sig.use(ActiveSettlementSchemesSignal).read(),
+      ...sig.reactor.use(ActiveSettlementSchemesSignal).read(),
     ]
-    const nodeCount = sig.use(NodeTableStore).read().size
+    const nodeCount = sig.reactor.use(NodeTableStore).read().size
 
-    const hostname = sig.use(DatabaseConfigStore).read().hostname
+    const hostname = sig.reactor.use(DatabaseConfigStore).read().hostname
 
-    const nodeId = sig.use(NodeIdSignal).read()
+    const nodeId = sig.reactor.use(NodeIdSignal).read()
 
     // Please note that this is a public method that anyone can call so don't
     // return any non-public information here.
@@ -42,6 +42,6 @@ export const generalRouter = trpc.router({
     return subscribeToSignal(sig, TotalOwnerBalanceSignal)
   }),
   getAllocationScheme: protectedProcedure.query(({ ctx: { sig } }) => {
-    return sig.use(IlpAllocationSchemeSignal).read()
+    return sig.reactor.use(IlpAllocationSchemeSignal).read()
   }),
 })
