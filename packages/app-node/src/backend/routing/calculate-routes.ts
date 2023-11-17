@@ -19,9 +19,9 @@ interface NodeInfoEntry {
  */
 export const CalculateRoutesActor = () =>
   createActor((sig) => {
-    const ilpAllocationScheme = sig.get(IlpAllocationSchemeSignal)
-    const ownNodeId = sig.get(NodeIdSignal)
-    const nodeTable = sig.get(NodeTableStore)
+    const ilpAllocationScheme = sig.readAndTrack(IlpAllocationSchemeSignal)
+    const ownNodeId = sig.readAndTrack(NodeIdSignal)
+    const nodeTable = sig.readAndTrack(NodeTableStore)
 
     const ownNodeTableEntry = nodeTable.get(ownNodeId)
 
@@ -71,7 +71,7 @@ export const CalculateRoutesActor = () =>
       }
     }
 
-    const ilpRoutingTable = sig.get(RoutingTableSignal)
+    const ilpRoutingTable = sig.readAndTrack(RoutingTableSignal)
     for (const [nodeId, nodeInfo] of nodeInfoMap.entries()) {
       let level = nodeInfo.level
       let parents = new Set(nodeInfo.parents)

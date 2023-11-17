@@ -32,7 +32,7 @@ export const PollNodeListHashesActor = (reactor: Reactor) => {
 
   return createActor(async (sig) => {
     try {
-      const { bootstrapNodes } = sig.getKeys(EnvironmentConfigSignal, [
+      const { bootstrapNodes } = sig.readKeysAndTrack(EnvironmentConfigSignal, [
         "bootstrapNodes",
       ])
 

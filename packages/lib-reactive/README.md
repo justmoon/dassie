@@ -307,7 +307,7 @@ Although actors can keep state internally, they are intended to be disposable, m
 
 The solution is a different kind of value called a signal. Signals provide the methods `read` and `write` which allows you access and modify their internal state. You can also call `update` and pass a reducer which accepts the previous state and returns a new state. When creating a new signal, you can pass an `initialValue`.
 
-Actors can access signals using a special helper method `sig.get` which will tracked which signals the actor accessed and restart the actor if any of these signals' values change.
+Actors can access signals using a special helper method `sig.readAndTrack` which will tracked which signals the actor accessed and restart the actor if any of these signals' values change.
 
 Let's see an example.
 
@@ -330,7 +330,7 @@ const Clock = () =>
 
 const Logger = () =>
   createActor((sig) => {
-    const counterValue = sig.get(CounterSignal)
+    const counterValue = sig.readAndTrack(CounterSignal)
 
     console.log(`the counter is: ${counterValue}`)
   })
@@ -369,7 +369,7 @@ const Logger = () =>
   })
 ```
 
-Usually, tracked reads (using `sig.get`) are the preferred method for watching a signal. But tracked reads are only
+Usually, tracked reads (using `sig.readAndTrack`) are the preferred method for watching a signal. But tracked reads are only
 available in certain contexts (like in the behavior function of an actor) so it is sometimes useful to be able to treat
 signals as topics.
 
@@ -394,7 +394,7 @@ const CounterSignal = () => createSignal(0)
 
 const DoubledComputed = (reactor: Reactor) =>
   createComputed(reactor, (sig) => {
-    return sig.get(CounterSignal) * 2
+    return sig.readAndTrack(CounterSignal) * 2
   })
 
 const Clock = () =>
@@ -406,8 +406,8 @@ const Clock = () =>
 
 const Logger = () =>
   createActor((sig) => {
-    const counterValue = sig.get(CounterSignal)
-    const doubledValue = sig.get(DoubledComputed)
+    const counterValue = sig.readAndTrack(CounterSignal)
+    const doubledValue = sig.readAndTrack(DoubledComputed)
 
     console.log(`the counter value is: ${counterValue}`)
     console.log(`the doubled value is: ${doubledValue}`)
@@ -427,14 +427,14 @@ Computed values are executed lazily by default, meaning they are only actually c
 one of its dependent computed values) is actually read. There are some exceptions when computed values will become
 eagerly calculated:
 
-- When they are accessed from an actor using `sig.get`
+- When they are accessed from an actor using `sig.readAndTrack`
 - When they are subscribed to as a topic using `on` or `once`
 
 ### Batching
 
 When multiple signals update at the same time, any dependent values will only be recomputed once.
 
-There is a special `sig.get` helper which will retrieve the current state of a signal but also listen for changes and automatically re-run the actor with the new value. This allows us to build some very concise reactive applications.
+There is a special `sig.readAndTrack` helper which will retrieve the current state of a signal but also listen for changes and automatically re-run the actor with the new value. This allows us to build some very concise reactive applications.
 
 ```ts
 import {
@@ -450,9 +450,9 @@ const Signal3 = () => createSignal(0)
 
 const Logger = () =>
   createActor((sig) => {
-    const t1 = sig.get(Signal1)
-    const t2 = sig.get(Signal2)
-    const t3 = sig.get(Signal3)
+    const t1 = sig.readAndTrack(Signal1)
+    const t2 = sig.readAndTrack(Signal2)
+    const t3 = sig.readAndTrack(Signal3)
 
     console.log(`actor run with ${t1} ${t2} ${t3}`)
   })

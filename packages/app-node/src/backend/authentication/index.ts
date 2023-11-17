@@ -8,7 +8,7 @@ import { RegisterSetupRouteActor } from "./http-routes/setup"
 
 export const AuthenticationFeatureActor = () =>
   createActor((sig) => {
-    if (sig.get(HasNodeIdentitySignal)) {
+    if (sig.readAndTrack(HasNodeIdentitySignal)) {
       sig.run(RegisterLoginRouteActor)
       sig.run(RegisterLogoutRouteActor)
 

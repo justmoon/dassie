@@ -7,7 +7,7 @@ import { TrpcClientServiceActor } from "../services/trpc-client"
 export const ForwardPeerTrafficActor = () =>
   createActor((sig) => {
     sig.on(OutgoingPeerMessageTopic, async ({ destination }) => {
-      const trpcClient = sig.get(TrpcClientServiceActor)
+      const trpcClient = sig.readAndTrack(TrpcClientServiceActor)
       if (!trpcClient) return
 
       await trpcClient.runner.notifyPeerTraffic.mutate({

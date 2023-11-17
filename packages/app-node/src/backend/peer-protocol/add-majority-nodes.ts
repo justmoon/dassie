@@ -9,7 +9,7 @@ export const AddMajorityNodesActor = (reactor: Reactor) => {
   const modifyNodeTableActor = reactor.use(ModifyNodeTableActor)
 
   return createActor((sig) => {
-    const majorityNodes = sig.get(MajorityNodeListSignal)
+    const majorityNodes = sig.readAndTrack(MajorityNodeListSignal)
 
     for (const nodeId of majorityNodes) {
       if (nodeTableStore.read().has(nodeId)) {

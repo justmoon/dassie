@@ -6,7 +6,7 @@ import { NodePrivateKeySignal } from "./computed/node-private-key"
 
 export const SignerActor = () =>
   createActor((sig) => {
-    const dassieKey = sig.get(NodePrivateKeySignal)
+    const dassieKey = sig.readAndTrack(NodePrivateKeySignal)
 
     return {
       signWithDassieKey(data: Uint8Array) {

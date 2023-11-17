@@ -31,12 +31,12 @@ function handleError(error: unknown) {
 
 export const HttpServiceActor = () =>
   createActor((sig) => {
-    const { httpPort, httpsPort, enableHttpServer } = sig.getKeys(
+    const { httpPort, httpsPort, enableHttpServer } = sig.readKeysAndTrack(
       DatabaseConfigStore,
       ["httpPort", "httpsPort", "enableHttpServer"],
     )
-    const hasTls = sig.get(HasTlsSignal)
-    const router = sig.get(HttpRouterServiceActor)
+    const hasTls = sig.readAndTrack(HasTlsSignal)
+    const router = sig.readAndTrack(HttpRouterServiceActor)
 
     if (!router) return
 

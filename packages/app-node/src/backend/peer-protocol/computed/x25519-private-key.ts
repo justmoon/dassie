@@ -7,7 +7,7 @@ import { NodePrivateKeySignal } from "../../crypto/computed/node-private-key"
 export const X25519PrivateKey = (reactor: Reactor) => {
   const nodePrivateKeySignal = reactor.use(NodePrivateKeySignal)
   return createComputed(reactor, (sig) => {
-    const dassieKey = sig.get(nodePrivateKeySignal)
+    const dassieKey = sig.readAndTrack(nodePrivateKeySignal)
     return edwardsToMontgomeryPriv(dassieKey)
   })
 }

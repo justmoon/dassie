@@ -4,4 +4,6 @@ import { getPublicKey } from "../ed25519"
 import { NodePrivateKeySignal } from "./node-private-key"
 
 export const NodePublicKeySignal = (reactor: Reactor) =>
-  createComputed(reactor, (sig) => getPublicKey(sig.get(NodePrivateKeySignal)))
+  createComputed(reactor, (sig) =>
+    getPublicKey(sig.readAndTrack(NodePrivateKeySignal)),
+  )

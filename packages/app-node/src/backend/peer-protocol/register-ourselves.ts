@@ -11,10 +11,11 @@ const REGISTRATION_CONCURRENCY = 5
 
 export const RegisterOurselvesActor = () =>
   createActor(async (sig) => {
-    const bootstrapNodeLists = sig.get(BootstrapNodeListsSignal)
-    const ourNodeId = sig.get(NodeIdSignal)
-    const ourNodeInfo = sig.get(NodeTableStore, (store) => store.get(ourNodeId))
-      ?.linkState?.lastUpdate
+    const bootstrapNodeLists = sig.readAndTrack(BootstrapNodeListsSignal)
+    const ourNodeId = sig.readAndTrack(NodeIdSignal)
+    const ourNodeInfo = sig.readAndTrack(NodeTableStore, (store) =>
+      store.get(ourNodeId),
+    )?.linkState?.lastUpdate
 
     if (!ourNodeInfo) return
 

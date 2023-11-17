@@ -23,9 +23,9 @@ const RootActor = (reactor: Reactor) =>
 
 const SubActor = () =>
   createActor((sig) => {
-    const t1 = sig.get(Signal1)
-    const t2 = sig.get(Signal2)
-    const t3 = sig.get(Signal3)
+    const t1 = sig.readAndTrack(Signal1)
+    const t2 = sig.readAndTrack(Signal2)
+    const t3 = sig.readAndTrack(Signal3)
 
     console.info(`actor run with ${t1} ${t2} ${t3}`)
   })

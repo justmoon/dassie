@@ -4,6 +4,6 @@ import { DatabaseConfigStore, hasTls } from "../database-config"
 
 export const HasTlsSignal = (reactor: Reactor) =>
   createComputed(reactor, (sig) => {
-    const config = sig.get(DatabaseConfigStore)
+    const config = sig.readAndTrack(DatabaseConfigStore)
     return hasTls(config)
   })

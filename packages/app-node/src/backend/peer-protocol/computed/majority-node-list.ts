@@ -15,7 +15,7 @@ export const MajorityNodeListSignal = (reactor: Reactor) => {
       const bootstrapNodes = environmentConfigSignal
         .read()
         .bootstrapNodes.map(({ id }) => id)
-      const bootstrapNodeLists = sig.get(bootstrapNodeListsSignal)
+      const bootstrapNodeLists = sig.readAndTrack(bootstrapNodeListsSignal)
 
       const voteCount = new Map<NodeId, number>()
 

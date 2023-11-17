@@ -51,9 +51,9 @@ interface NodeContactInfo {
 
 export const SendPeerMessageActor = () =>
   createActor((sig) => {
-    const nodeId = sig.get(NodeIdSignal)
+    const nodeId = sig.readAndTrack(NodeIdSignal)
     const nodeTable = sig.reactor.use(NodeTableStore)
-    const { bootstrapNodes } = sig.getKeys(EnvironmentConfigSignal, [
+    const { bootstrapNodes } = sig.readKeysAndTrack(EnvironmentConfigSignal, [
       "bootstrapNodes",
     ])
     const generateMessageAuthentication = sig.reactor.use(

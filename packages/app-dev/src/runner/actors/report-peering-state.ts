@@ -6,9 +6,9 @@ import { TrpcClientServiceActor } from "../services/trpc-client"
 
 export const ReportPeeringStateActor = () =>
   createActor(async (sig) => {
-    const peers = sig.get(PeersSignal)
+    const peers = sig.readAndTrack(PeersSignal)
 
-    const trpcClient = sig.get(TrpcClientServiceActor)
+    const trpcClient = sig.readAndTrack(TrpcClientServiceActor)
     if (!trpcClient) return
 
     await trpcClient.runner.notifyPeerState.mutate({

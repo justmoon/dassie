@@ -5,8 +5,8 @@ import { SetupAuthorizationTokenSignal } from "../signals/setup-authorization-to
 
 export const SetupUrlSignal = (reactor: Reactor) =>
   createComputed(reactor, (sig) => {
-    const token = sig.get(SetupAuthorizationTokenSignal)
-    const hostname = sig.get(DatabaseConfigStore).hostname
+    const token = sig.readAndTrack(SetupAuthorizationTokenSignal)
+    const hostname = sig.readAndTrack(DatabaseConfigStore).hostname
 
     return `https://${hostname}/setup/${token}`
   })

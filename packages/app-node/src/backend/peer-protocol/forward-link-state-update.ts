@@ -12,8 +12,8 @@ const MAX_RETRANSMIT_CHECK_INTERVAL = 200
 
 export const ForwardLinkStateUpdateActor = () =>
   createActor((sig) => {
-    const nodes = sig.get(NodeTableStore)
-    const peers = sig.get(PeersSignal)
+    const nodes = sig.readAndTrack(NodeTableStore)
+    const peers = sig.readAndTrack(PeersSignal)
 
     for (const node of nodes.values()) {
       if (

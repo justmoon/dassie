@@ -15,9 +15,9 @@ export const SendHeartbeatsActor = () =>
     const ownNodeId = sig.read(NodeIdSignal)
 
     // Get the current peers and re-run the actor if they change
-    const peers = sig.get(PeersSignal)
+    const peers = sig.readAndTrack(PeersSignal)
 
-    const linkStateUpdate = sig.get(NodeTableStore, (nodeTable) =>
+    const linkStateUpdate = sig.readAndTrack(NodeTableStore, (nodeTable) =>
       nodeTable.get(ownNodeId),
     )?.linkState?.lastUpdate
 

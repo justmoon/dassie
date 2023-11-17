@@ -8,7 +8,7 @@ const ConfigSignal = () => createSignal({ port: 3000 })
 
 const HttpServiceActor = () =>
   createActor((sig) => {
-    const port = sig.get(ConfigSignal, ({ port }) => port)
+    const port = sig.readAndTrack(ConfigSignal, ({ port }) => port)
 
     const server = createServer()
     server.listen(port)

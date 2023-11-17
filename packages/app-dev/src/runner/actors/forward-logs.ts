@@ -5,7 +5,7 @@ import { TrpcClientServiceActor } from "../services/trpc-client"
 
 export const ForwardLogsActor = () =>
   createActor((sig) => {
-    const trpcClient = sig.get(TrpcClientServiceActor)
+    const trpcClient = sig.readAndTrack(TrpcClientServiceActor)
     if (!trpcClient) return
 
     loggingContext.output = (logEvent) => {

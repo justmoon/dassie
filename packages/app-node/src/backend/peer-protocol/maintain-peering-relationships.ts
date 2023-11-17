@@ -19,8 +19,8 @@ function findCommonElement<T>(array: readonly T[], set: Set<T>): T | false {
 export const MaintainPeeringRelationshipsActor = (reactor: Reactor) => {
   const nodeTableStore = reactor.use(NodeTableStore)
   return createActor((sig) => {
-    const ownNodeId = sig.get(NodeIdSignal)
-    const ourSubnets = sig.get(ActiveSettlementSchemesSignal)
+    const ownNodeId = sig.readAndTrack(NodeIdSignal)
+    const ourSubnets = sig.readAndTrack(ActiveSettlementSchemesSignal)
 
     const checkPeers = () => {
       try {

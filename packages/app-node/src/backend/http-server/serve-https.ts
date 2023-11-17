@@ -38,7 +38,7 @@ function handleError(error: unknown) {
 
 export const HttpsServiceActor = () =>
   createActor((sig) => {
-    const { httpsPort, url, tlsWebCert, tlsWebKey } = sig.getKeys(
+    const { httpsPort, url, tlsWebCert, tlsWebKey } = sig.readKeysAndTrack(
       DatabaseConfigStore,
       ["httpsPort", "url", "tlsWebCert", "tlsWebKey"],
     )
@@ -47,7 +47,7 @@ export const HttpsServiceActor = () =>
     assert(tlsWebKey, "Web UI is not configured, missing private key")
 
     const router = sig.reactor.use(HttpsRouter)
-    const additionalMiddlewares = sig.get(AdditionalMiddlewaresSignal)
+    const additionalMiddlewares = sig.readAndTrack(AdditionalMiddlewaresSignal)
 
     if (!router) return
 

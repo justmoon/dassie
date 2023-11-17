@@ -27,7 +27,7 @@ import { TrpcServerActor } from "./trpc-server"
 
 export const StartTlsDependentServicesActor = () =>
   createActor((sig) => {
-    const hasTls = sig.get(HasTlsSignal)
+    const hasTls = sig.readAndTrack(HasTlsSignal)
 
     if (!hasTls) {
       logger.warn("Web UI is not configured, run `dassie init`")
@@ -40,12 +40,12 @@ export const StartTlsDependentServicesActor = () =>
 
 export const StartNodeIdentityDependentServicesActor = () =>
   createActor(async (sig) => {
-    const hasNodeIdentity = sig.get(HasNodeIdentitySignal)
+    const hasNodeIdentity = sig.readAndTrack(HasNodeIdentitySignal)
 
     if (!hasNodeIdentity) {
       const hasTls = sig.read(HasTlsSignal)
       if (hasTls) {
-        const setupUrl = sig.get(SetupUrlSignal)
+        const setupUrl = sig.readAndTrack(SetupUrlSignal)
         logger.warn(`Node identity is not configured, visit ${setupUrl}`)
       }
       return

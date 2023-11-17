@@ -18,7 +18,7 @@ type DataHandler = (data: Buffer) => Promise<Buffer>
 
 export const ManagePluginsActor = () =>
   createActor((sig) => {
-    const nodeIlpAddress = sig.get(NodeIlpAddressSignal)
+    const nodeIlpAddress = sig.readAndTrack(NodeIlpAddressSignal)
     const processPacketActor = sig.reactor.use(ProcessPacketActor)
     const routingTable = sig.reactor.use(RoutingTableSignal)
 

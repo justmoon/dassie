@@ -29,8 +29,8 @@ export const RegisterBtpHttpUpgradeActor = (reactor: Reactor) => {
   const routingTableSignal = reactor.use(RoutingTableSignal)
 
   return createActor((sig) => {
-    const nodeIlpAddress = sig.get(NodeIlpAddressSignal)
-    const websocketRoutes = sig.get(WebsocketRoutesSignal)
+    const nodeIlpAddress = sig.readAndTrack(NodeIlpAddressSignal)
+    const websocketRoutes = sig.readAndTrack(WebsocketRoutesSignal)
 
     const socketMap = new Map<number, WebSocket>()
 

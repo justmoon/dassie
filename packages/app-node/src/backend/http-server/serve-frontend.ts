@@ -14,7 +14,9 @@ export const ServeFrontendActor = () =>
     // TODO: Not sure if that is still the best way to do it.
     if (process.env["NODE_ENV"] === "development") return
 
-    const { rootPath } = sig.getKeys(EnvironmentConfigSignal, ["rootPath"])
+    const { rootPath } = sig.readKeysAndTrack(EnvironmentConfigSignal, [
+      "rootPath",
+    ])
     const frontendPath = resolve(rootPath, "share/public")
 
     const middleware = sig.reactor.use(AdditionalMiddlewaresSignal)

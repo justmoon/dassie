@@ -14,10 +14,10 @@ export interface ReactiveContext {
    * @param comparator - By default, the reactor checks for strict equality (`===`) to determine whether the value has changed. This can be overridden by passing a custom comparator function.
    * @returns The current value of the signal, narrowed by the selector.
    */
-  get<TState>(
+  readAndTrack<TState>(
     signalFactory: Factory<ReactiveSource<TState>> | ReactiveSource<TState>,
   ): TState
-  get<TState, TSelection>(
+  readAndTrack<TState, TSelection>(
     signalFactory: Factory<ReactiveSource<TState>> | ReactiveSource<TState>,
     selector: (state: TState) => TSelection,
     comparator?: (oldValue: TSelection, newValue: TSelection) => boolean,
@@ -28,13 +28,13 @@ export interface ReactiveContext {
    *
    * @remarks
    *
-   * This method works like {@link get} but will automatically create the correct selector and comparator for the given keys. The actor will be re-run if any of the values for any of the keys change by strict equality.
+   * This method works like {@link readAndTrack} but will automatically create the correct selector and comparator for the given keys. The actor will be re-run if any of the values for any of the keys change by strict equality.
    *
    * @param signal - Reference to the signal that should be queried.
    * @param keys - Tuple of keys that should be extracted from the signal.
    * @returns A filtered version of the signal state containing only the requested keys.
    */
-  getKeys<TState, TKeys extends keyof TState>(
+  readKeysAndTrack<TState, TKeys extends keyof TState>(
     signal: Factory<ReactiveSource<TState>> | ReactiveSource<TState>,
     keys: readonly TKeys[],
   ): Pick<TState, TKeys>

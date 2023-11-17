@@ -20,7 +20,7 @@ export interface CurrencyDescription {
 
 export const ExchangeRateServiceActor = () =>
   createActor(async (sig) => {
-    const { exchangeRateUrl, internalAmountPrecision } = sig.getKeys(
+    const { exchangeRateUrl, internalAmountPrecision } = sig.readKeysAndTrack(
       DatabaseConfigStore,
       ["exchangeRateUrl", "internalAmountPrecision"],
     )

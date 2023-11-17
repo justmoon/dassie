@@ -23,7 +23,10 @@ describe("createComputed", () => {
   test("computed value should stay up-to-date", ({ expect }) => {
     const reactor = createReactor()
     const signal = createSignal(1)
-    const computed = createComputed(reactor, (sig) => sig.get(signal) * 3)
+    const computed = createComputed(
+      reactor,
+      (sig) => sig.readAndTrack(signal) * 3,
+    )
     expect(computed.read()).toBe(3)
     signal.write(5)
     expect(computed.read()).toBe(15)
@@ -34,7 +37,9 @@ describe("createComputed", () => {
   }) => {
     const reactor = createReactor()
     const signal = createSignal(1)
-    const computation = vi.fn((sig: ComputationContext) => sig.get(signal) * 3)
+    const computation = vi.fn(
+      (sig: ComputationContext) => sig.readAndTrack(signal) * 3,
+    )
     const computed = createComputed(reactor, computation)
 
     expect(computation).toHaveBeenCalledTimes(0)
@@ -55,20 +60,28 @@ describe("createComputed", () => {
     const reactor = createReactor()
     const a = createSignal(1)
 
-    const b1Computation = vi.fn((sig: ComputationContext) => sig.get(a) * 2)
+    const b1Computation = vi.fn(
+      (sig: ComputationContext) => sig.readAndTrack(a) * 2,
+    )
     const b1 = createComputed(reactor, b1Computation)
 
-    const b2Computation = vi.fn((sig: ComputationContext) => sig.get(a) * 3)
+    const b2Computation = vi.fn(
+      (sig: ComputationContext) => sig.readAndTrack(a) * 3,
+    )
     const b2 = createComputed(reactor, b2Computation)
 
-    const c1Computation = vi.fn((sig: ComputationContext) => sig.get(b1) + 8)
+    const c1Computation = vi.fn(
+      (sig: ComputationContext) => sig.readAndTrack(b1) + 8,
+    )
     const c1 = createComputed(reactor, c1Computation)
 
-    const c2Computation = vi.fn((sig: ComputationContext) => sig.get(b2) + 4)
+    const c2Computation = vi.fn(
+      (sig: ComputationContext) => sig.readAndTrack(b2) + 4,
+    )
     const c2 = createComputed(reactor, c2Computation)
 
     const dComputation = vi.fn(
-      (sig: ComputationContext) => sig.get(c1) - sig.get(c2),
+      (sig: ComputationContext) => sig.readAndTrack(c1) - sig.readAndTrack(c2),
     )
     const d = createComputed(reactor, dComputation)
 
@@ -110,7 +123,7 @@ describe("createComputed", () => {
 
     const computation = vi.fn((sig: ComputationContext) => {
       sig.onCleanup(cleanup)
-      return sig.get(signal)
+      return sig.readAndTrack(signal)
     })
 
     const computed = createComputed(reactor, computation)
@@ -136,7 +149,7 @@ describe("createComputed", () => {
 
     const computation = vi.fn((sig: ComputationContext) => {
       sig.onCleanup(cleanup)
-      return sig.get(signal)
+      return sig.readAndTrack(signal)
     })
 
     const computed = createComputed(reactor, computation)
@@ -158,7 +171,7 @@ describe("createComputed", () => {
     const reactor = createReactor()
     const signal = createSignal({ a: 1, b: 2 })
     const computation = vi.fn((sig: ComputationContext) => {
-      const { a } = sig.getKeys(signal, ["a"])
+      const { a } = sig.readKeysAndTrack(signal, ["a"])
       return a
     })
     const computed = createComputed(reactor, computation)

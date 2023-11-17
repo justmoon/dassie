@@ -44,7 +44,7 @@ const getListenTargets = (
 
 export const ServeLocalIpcActor = () =>
   createActor((sig) => {
-    const { ipcSocketPath } = sig.getKeys(EnvironmentConfigSignal, [
+    const { ipcSocketPath } = sig.readKeysAndTrack(EnvironmentConfigSignal, [
       "ipcSocketPath",
     ])
 

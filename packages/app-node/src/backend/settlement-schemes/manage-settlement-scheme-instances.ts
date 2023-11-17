@@ -23,7 +23,7 @@ export const ManageSettlementSchemeInstancesActor = (reactor: Reactor) => {
     reactor.use(ActiveSettlementSchemesSignal),
     (settlementSchemeId) =>
       createActor(async (sig) => {
-        const { realm } = sig.getKeys(DatabaseConfigStore, ["realm"])
+        const { realm } = sig.readKeysAndTrack(DatabaseConfigStore, ["realm"])
 
         const module = modules[settlementSchemeId]
         if (!module) {

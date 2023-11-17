@@ -42,9 +42,9 @@ export const RefreshNodeStateActor = (reactor: Reactor) => {
   }
 
   return createActor((sig) => {
-    const ownNodeId = sig.get(NodeIdSignal)
+    const ownNodeId = sig.readAndTrack(NodeIdSignal)
     const bootstrapNodes = sig
-      .get(EnvironmentConfigSignal, (config) => config.bootstrapNodes)
+      .readAndTrack(EnvironmentConfigSignal, (config) => config.bootstrapNodes)
       .map(({ id }) => id)
 
     assert(bootstrapNodes.length > 0)

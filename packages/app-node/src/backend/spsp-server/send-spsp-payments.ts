@@ -26,7 +26,10 @@ export const SpspPaymentQueueStore = () =>
 export const SendSpspPaymentsActor = () =>
   createActor(async (sig) => {
     const pluginManager = sig.reactor.use(ManagePluginsActor)
-    const nextPayment = sig.get(SpspPaymentQueueStore, (queue) => queue[0])
+    const nextPayment = sig.readAndTrack(
+      SpspPaymentQueueStore,
+      (queue) => queue[0],
+    )
 
     if (nextPayment) {
       logger.debug("initiating payment", {

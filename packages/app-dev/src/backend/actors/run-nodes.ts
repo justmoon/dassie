@@ -49,7 +49,7 @@ export const RunNodesActor = (reactor: Reactor) => {
     const NodeActorsMapped = (reactor: Reactor) =>
       createMapped(reactor, reactor.use(ActiveNodesStore), (nodeId) =>
         createActor(async (sig) => {
-          const environmentSettings = sig.get(EnvironmentSettingsStore)
+          const environmentSettings = sig.readAndTrack(EnvironmentSettingsStore)
           const node = generateNodeConfig(nodeId, environmentSettings)
 
           // Generate TLS certificates
@@ -76,7 +76,7 @@ export const RunNodesActor = (reactor: Reactor) => {
             await prefillDatabase(node)
           }
 
-          const debugScopes = sig.get(DebugScopesSignal)
+          const debugScopes = sig.readAndTrack(DebugScopesSignal)
           await runChildProcess({
             lifecycle: sig,
             nodeServer: viteNodeServer,

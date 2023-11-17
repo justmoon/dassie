@@ -15,7 +15,7 @@ const RootActor = () =>
 
 const InnerActor = () =>
   createActor(async (sig) => {
-    const counter = sig.get(CounterSignal)
+    const counter = sig.readAndTrack(CounterSignal)
 
     // This will only print every three seconds or so
     console.info(counter)

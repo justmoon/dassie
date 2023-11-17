@@ -7,7 +7,7 @@ import { ServeHttpsActor } from "./serve-https"
 
 export const HttpServerActor = () =>
   createActor((sig) => {
-    const hasTls = sig.get(HasTlsSignal)
+    const hasTls = sig.readAndTrack(HasTlsSignal)
     sig.run(ServeHttpActor)
 
     if (hasTls) {

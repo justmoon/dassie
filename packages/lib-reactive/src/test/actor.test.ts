@@ -30,7 +30,9 @@ describe("createActor", () => {
       const reactor = createReactor()
       const signal = createSignal(1)
 
-      const behavior = vi.fn((sig: ActorContext) => sig.get(signal) * 3)
+      const behavior = vi.fn(
+        (sig: ActorContext) => sig.readAndTrack(signal) * 3,
+      )
 
       const actor = createActor(behavior)
 
@@ -59,7 +61,9 @@ describe("createActor", () => {
       const reactor = createReactor()
       const signal = createSignal(1)
 
-      const behavior = vi.fn((sig: ActorContext) => sig.get(signal) * 3)
+      const behavior = vi.fn(
+        (sig: ActorContext) => sig.readAndTrack(signal) * 3,
+      )
 
       const actor = createActor(behavior)
 
@@ -88,7 +92,9 @@ describe("createActor", () => {
       const reactor = createReactor()
       const signal = createSignal(1)
 
-      const behavior = vi.fn((sig: ActorContext) => sig.get(signal) * 3)
+      const behavior = vi.fn(
+        (sig: ActorContext) => sig.readAndTrack(signal) * 3,
+      )
 
       const actor = createActor(behavior)
 
@@ -142,7 +148,7 @@ describe("createActor", () => {
       const cleanup = vi.fn(() => {})
 
       const behavior = vi.fn((sig: ActorContext) => {
-        sig.get(signal)
+        sig.readAndTrack(signal)
         sig.onCleanup(cleanup)
       })
 
@@ -164,11 +170,13 @@ describe("createActor", () => {
     }) => {
       const signal = createSignal(1)
 
-      const behaviorA = vi.fn((sig: ActorContext) => sig.get(signal) * 3)
+      const behaviorA = vi.fn(
+        (sig: ActorContext) => sig.readAndTrack(signal) * 3,
+      )
       const ActorA = () => createActor(behaviorA)
 
       const behaviorB = vi.fn((sig: ActorContext) => {
-        const value = sig.get(ActorA)
+        const value = sig.readAndTrack(ActorA)
         return value === undefined ? "foo" : value * 2
       })
       const ActorB = () => createActor(behaviorB)
@@ -206,7 +214,7 @@ describe("createActor", () => {
       const signal = createSignal({ a: 1, b: 2 })
 
       const behavior = vi.fn(
-        (sig: ActorContext) => sig.get(signal, ({ a }) => a) * 3,
+        (sig: ActorContext) => sig.readAndTrack(signal, ({ a }) => a) * 3,
       )
 
       const Actor = () => createActor(behavior)
@@ -247,7 +255,7 @@ describe("createActor", () => {
       const signal = createSignal({ a: 1, b: 2 })
 
       const behavior = vi.fn((sig: ActorContext) => {
-        const { a } = sig.getKeys(signal, ["a"])
+        const { a } = sig.readKeysAndTrack(signal, ["a"])
 
         return a * 3
       })
@@ -376,7 +384,7 @@ describe("createActor", () => {
 
       const RootActor = () =>
         createActor((sig) => {
-          if (sig.get(enableSignal)) {
+          if (sig.readAndTrack(enableSignal)) {
             sig.run(Actor)
           }
         })
@@ -413,7 +421,7 @@ describe("createActor", () => {
 
       const RootActor = () =>
         createActor((sig) => {
-          if (sig.get(enableSignal)) {
+          if (sig.readAndTrack(enableSignal)) {
             sig.run(Actor)
           }
         })

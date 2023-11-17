@@ -21,7 +21,7 @@ const DebugRunnerActor = () =>
     sig.run(ForwardPeerTrafficActor)
     await sig.run(ReportPeeringStateActor)
 
-    const hasTls = sig.get(HasTlsSignal)
+    const hasTls = sig.readAndTrack(HasTlsSignal)
     if (hasTls) {
       await sig.run(ServeWalletActor)
     }

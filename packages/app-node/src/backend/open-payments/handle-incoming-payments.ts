@@ -15,8 +15,8 @@ export const HandleIncomingPaymentsActor = () =>
   createActor((sig) => {
     const http = sig.reactor.use(HttpsRouter)
     const database = sig.reactor.use(Database)
-    const streamServer = sig.get(StreamServerServiceActor)
-    const { url } = sig.get(DatabaseConfigStore)
+    const streamServer = sig.readAndTrack(StreamServerServiceActor)
+    const { url } = sig.readAndTrack(DatabaseConfigStore)
 
     if (!streamServer) return
 

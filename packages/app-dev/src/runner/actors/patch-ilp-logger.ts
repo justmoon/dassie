@@ -6,7 +6,7 @@ import { TrpcClientServiceActor } from "../services/trpc-client"
 
 export const PatchIlpLoggerActor = () =>
   createActor((sig) => {
-    const trpcClient = sig.get(TrpcClientServiceActor)
+    const trpcClient = sig.readAndTrack(TrpcClientServiceActor)
     if (!trpcClient) return
 
     const ownRequire = createRequire(import.meta.url)

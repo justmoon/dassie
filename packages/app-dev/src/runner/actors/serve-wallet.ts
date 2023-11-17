@@ -43,7 +43,7 @@ export const ServeWalletActor = (reactor: Reactor) => {
   const additionalMiddlewaresSignal = reactor.use(AdditionalMiddlewaresSignal)
 
   return createActor(async (sig) => {
-    const { httpsPort, tlsWebCert, tlsWebKey } = sig.getKeys(
+    const { httpsPort, tlsWebCert, tlsWebKey } = sig.readKeysAndTrack(
       DatabaseConfigStore,
       ["httpsPort", "tlsWebCert", "tlsWebKey"],
     )

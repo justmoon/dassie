@@ -54,7 +54,7 @@ const SubActor = () =>
 const SubActor2 = (reactor: Reactor) =>
   createActor((sig) => {
     console.info("child actor 2 created")
-    const stateCount = sig.get(Signal1, ({ states }) => states.length)
+    const stateCount = sig.readAndTrack(Signal1, ({ states }) => states.length)
 
     console.info(stateCount)
 

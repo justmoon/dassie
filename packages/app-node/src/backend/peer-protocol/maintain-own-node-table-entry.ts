@@ -19,12 +19,12 @@ export const MaintainOwnNodeTableEntryActor = () =>
     const signer = sig.reactor.use(SignerActor)
 
     // Get the current peers and re-run the actor if they change
-    const peers = sig.get(PeersSignal)
-    const settlementSchemes = sig.get(ActiveSettlementSchemesSignal)
+    const peers = sig.readAndTrack(PeersSignal)
+    const settlementSchemes = sig.readAndTrack(ActiveSettlementSchemesSignal)
 
-    const nodeId = sig.get(NodeIdSignal)
-    const nodePublicKey = sig.get(NodePublicKeySignal)
-    const { url, alias } = sig.get(DatabaseConfigStore)
+    const nodeId = sig.readAndTrack(NodeIdSignal)
+    const nodePublicKey = sig.readAndTrack(NodePublicKeySignal)
+    const { url, alias } = sig.readAndTrack(DatabaseConfigStore)
     const oldLinkState = sig.read(NodeTableStore).get(nodeId)?.linkState
 
     if (

@@ -7,19 +7,19 @@ const CountSignal = () => createSignal(0)
 
 const DoubledSignal = (reactor: Reactor) =>
   createComputed(reactor, (sig) => {
-    const value = sig.get(CountSignal)
+    const value = sig.readAndTrack(CountSignal)
     return value * 2
   })
 
 const QuadrupledSignal = (reactor: Reactor) =>
   createComputed(reactor, (sig) => {
-    const value = sig.get(DoubledSignal)
+    const value = sig.readAndTrack(DoubledSignal)
     return value * 2
   })
 
 const LogActor = () =>
   createActor((sig) => {
-    console.info(sig.get(QuadrupledSignal))
+    console.info(sig.readAndTrack(QuadrupledSignal))
   })
 
 const IncrementActor = () =>

@@ -8,7 +8,7 @@ export const BroadcastStateUpdatesActor = () =>
   createActor((sig) => {
     const ownNodeId = sig.reactor.use(NodeIdSignal).read()
 
-    const linkStateUpdate = sig.get(
+    const linkStateUpdate = sig.readAndTrack(
       NodeTableStore,
       (nodeTable) => nodeTable.get(ownNodeId)?.linkState?.lastUpdate,
     )

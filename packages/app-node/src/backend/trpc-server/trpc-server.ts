@@ -20,7 +20,7 @@ export const RegisterTrpcHttpUpgradeActor = (reactor: Reactor) => {
   const sessionsStore = reactor.use(SessionsStore)
 
   return createActor((sig) => {
-    const websocketRoutes = sig.get(WebsocketRoutesSignal)
+    const websocketRoutes = sig.readAndTrack(WebsocketRoutesSignal)
 
     const websocketServer = new WebSocketServer({
       noServer: true,

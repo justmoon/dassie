@@ -44,7 +44,7 @@ export class ReactiveContextImplementation
     super(name)
   }
 
-  get<TState, TSelection>(
+  readAndTrack<TState, TSelection>(
     signalFactory: Factory<ReactiveSource<TState>> | ReactiveSource<TState>,
     // Based on the overloaded function signature, the selector parameter may be omitted iff TMessage equals TSelection.
     // Therefore this cast is safe.
@@ -70,11 +70,11 @@ export class ReactiveContextImplementation
     }
   }
 
-  getKeys<TState, TKeys extends keyof TState>(
+  readKeysAndTrack<TState, TKeys extends keyof TState>(
     signal: Factory<ReactiveSource<TState>> | ReactiveSource<TState>,
     keys: readonly TKeys[],
   ): Pick<TState, TKeys> {
-    return this.get(
+    return this.readAndTrack(
       signal,
       (state) => {
         const result = {} as Pick<TState, TKeys>
