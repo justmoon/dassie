@@ -15,55 +15,16 @@ export interface BtpEndpointInfo extends CommonEndpointInfo {
   readonly connectionId: number
 }
 
-export const SendBtpPackets = (reactor: Reactor): PacketSender<"btp"> => {
-  const btpBroker = reactor.use(RegisterBtpHttpUpgradeActor)
+export const SendBtpPackets = (reactor: Reactor): PacketSender<"btp"> => ({
+  sendPrepare: ({
+    parsedPacket,
+    serializedPacket,
+    outgoingRequestId: requestId,
+    connectionId,
+  }) => {
+    const btpBroker = reactor.use(RegisterBtpHttpUpgradeActor)
 
-  return {
-    sendPrepare: ({
-      parsedPacket,
-      serializedPacket,
-      outgoingRequestId: requestId,
-      connectionId,
-    }) => {
-      if (parsedPacket.amount === 0n) {
-        const btpMessageSerializeResult = btpMessageSchema.serialize({
-          protocolData: [
-            {
-              protocolName: "ilp",
-              contentType: 0,
-              data: serializedPacket,
-            },
-          ],
-        })
-
-        if (isFailure(btpMessageSerializeResult)) {
-          logger.error("could not serialize BTP message", {
-            error: btpMessageSerializeResult,
-          })
-          return
-        }
-
-        const btpEnvelopeSerializeResult = btpEnvelopeSchema.serialize({
-          messageType: BtpType.Message,
-          requestId,
-          message: btpMessageSerializeResult,
-        })
-
-        if (isFailure(btpEnvelopeSerializeResult)) {
-          logger.error("could not serialize BTP envelope", {
-            error: btpEnvelopeSerializeResult,
-          })
-          return
-        }
-
-        btpBroker.api.send.tell({
-          connectionId,
-          message: btpEnvelopeSerializeResult,
-        })
-
-        return
-      }
-
+    if (parsedPacket.amount === 0n) {
       const btpMessageSerializeResult = btpMessageSchema.serialize({
         protocolData: [
           {
@@ -81,26 +42,8 @@ export const SendBtpPackets = (reactor: Reactor): PacketSender<"btp"> => {
         return
       }
 
-      // const btpTransferSerializeResult = btpTransferSchema.serialize({
-      //   amount,
-      //   protocolData: [
-      //     {
-      //       protocolName: "ilp",
-      //       contentType: 0,
-      //       data: packet,
-      //     },
-      //   ],
-      // })
-
-      // if (!btpTransferSerializeResult.success) {
-      //   logger.error("could not serialize BTP transfer", {
-      //     error: btpTransferSerializeResult.failure,
-      //   })
-      //   return
-      // }
-
       const btpEnvelopeSerializeResult = btpEnvelopeSchema.serialize({
-        messageType: 6, // Message
+        messageType: BtpType.Message,
         requestId,
         message: btpMessageSerializeResult,
       })
@@ -118,47 +61,85 @@ export const SendBtpPackets = (reactor: Reactor): PacketSender<"btp"> => {
       })
 
       return
-    },
+    }
 
-    sendResult: ({
-      serializedPacket,
-      prepare: { incomingRequestId: requestId },
+    const btpMessageSerializeResult = btpMessageSchema.serialize({
+      protocolData: [
+        {
+          protocolName: "ilp",
+          contentType: 0,
+          data: serializedPacket,
+        },
+      ],
+    })
+
+    if (isFailure(btpMessageSerializeResult)) {
+      logger.error("could not serialize BTP message", {
+        error: btpMessageSerializeResult,
+      })
+      return
+    }
+
+    const btpEnvelopeSerializeResult = btpEnvelopeSchema.serialize({
+      messageType: 6, // Message
+      requestId,
+      message: btpMessageSerializeResult,
+    })
+
+    if (isFailure(btpEnvelopeSerializeResult)) {
+      logger.error("could not serialize BTP envelope", {
+        error: btpEnvelopeSerializeResult,
+      })
+      return
+    }
+
+    btpBroker.api.send.tell({
       connectionId,
-    }) => {
-      const btpMessageSerializeResult = btpMessageSchema.serialize({
-        protocolData: [
-          {
-            protocolName: "ilp",
-            contentType: 0,
-            data: serializedPacket,
-          },
-        ],
+      message: btpEnvelopeSerializeResult,
+    })
+
+    return
+  },
+
+  sendResult: ({
+    serializedPacket,
+    prepare: { incomingRequestId: requestId },
+    connectionId,
+  }) => {
+    const btpBroker = reactor.use(RegisterBtpHttpUpgradeActor)
+    const btpMessageSerializeResult = btpMessageSchema.serialize({
+      protocolData: [
+        {
+          protocolName: "ilp",
+          contentType: 0,
+          data: serializedPacket,
+        },
+      ],
+    })
+
+    if (isFailure(btpMessageSerializeResult)) {
+      logger.error("could not serialize BTP message", {
+        error: btpMessageSerializeResult,
       })
+      return
+    }
 
-      if (isFailure(btpMessageSerializeResult)) {
-        logger.error("could not serialize BTP message", {
-          error: btpMessageSerializeResult,
-        })
-        return
-      }
+    const btpEnvelopeSerializeResult = btpEnvelopeSchema.serialize({
+      messageType: BtpType.Response,
+      requestId,
+      message: btpMessageSerializeResult,
+    })
 
-      const btpEnvelopeSerializeResult = btpEnvelopeSchema.serialize({
-        messageType: BtpType.Response,
-        requestId,
-        message: btpMessageSerializeResult,
+    if (isFailure(btpEnvelopeSerializeResult)) {
+      logger.error("could not serialize BTP envelope", {
+        error: btpEnvelopeSerializeResult,
       })
+      return
+    }
 
-      if (isFailure(btpEnvelopeSerializeResult)) {
-        logger.error("could not serialize BTP envelope", {
-          error: btpEnvelopeSerializeResult,
-        })
-        return
-      }
-
-      btpBroker.api.send.tell({
-        connectionId,
-        message: btpEnvelopeSerializeResult,
-      })
-    },
-  }
-}
+    btpBroker.api.send.tell({
+      connectionId,
+      message: btpEnvelopeSerializeResult,
+    })
+  },
+})
