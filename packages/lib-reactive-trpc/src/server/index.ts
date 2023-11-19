@@ -14,18 +14,34 @@ import {
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 export type ReactiveContext = { reactor: Reactor }
 
-export interface SubscriptionOptions {
-  batching?: boolean
+export interface TopicSubscriptionOptions<TMessage> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  transform?: (item: TMessage) => any
 }
 
-export const subscribeToTopic = <TMessage>(
+type InferEmittedValue<TMessage, TOptions> = TOptions extends {
+  transform: (item: TMessage) => infer TOutput
+}
+  ? TOutput
+  : TMessage
+
+export const subscribeToTopic = <
+  TMessage,
+  TOptions extends TopicSubscriptionOptions<TMessage> | undefined,
+>(
   sig: ActorContext,
-  topicFactory: Factory<ReadonlyTopic<TMessage>>,
-): Observable<TMessage, unknown> => {
+  topicFactory: Factory<ReadonlyTopic<TMessage>> | ReadonlyTopic<TMessage>,
+  options?: TOptions,
+): Observable<InferEmittedValue<TMessage, TOptions>, unknown> => {
+  const topic =
+    typeof topicFactory === "function"
+      ? sig.reactor.use(topicFactory)
+      : topicFactory
+
   return observable<TMessage>((emit) => {
-    const topic = sig.reactor.use(topicFactory)
     const listener = (message: TMessage) => {
-      emit.next(message)
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+      emit.next(options?.transform ? options.transform(message) : message)
     }
     topic.on(sig, listener)
     return () => {
@@ -34,14 +50,22 @@ export const subscribeToTopic = <TMessage>(
   })
 }
 
+export interface SignalSubscriptionOptions {
+  batching?: boolean
+}
+
 export const subscribeToSignal = <TValue>(
   sig: ActorContext,
-  signalFactory: Factory<ReadonlySignal<TValue>>,
-  { batching = true }: SubscriptionOptions = {},
+  signalFactory: Factory<ReadonlySignal<TValue>> | ReadonlySignal<TValue>,
+  { batching = true }: SignalSubscriptionOptions = {},
 ): Observable<TValue, unknown> => {
+  const signal =
+    typeof signalFactory === "function"
+      ? sig.reactor.use(signalFactory)
+      : signalFactory
+
   return observable<TValue>((emit) => {
     let timer: ReturnType<typeof setImmediate> | undefined
-    const signal = sig.reactor.use(signalFactory)
     const listener = (value: TValue) => {
       if (batching) {
         if (!timer) {
@@ -75,14 +99,18 @@ export const subscribeToStore = <
   TActions extends Record<string, Action<TState>>,
 >(
   sig: ActorContext,
-  storeFactory: Factory<Store<TState, TActions>>,
-  { batching = true }: SubscriptionOptions = {},
+  storeFactory: Factory<Store<TState, TActions>> | Store<TState, TActions>,
+  { batching = true }: SignalSubscriptionOptions = {},
 ): Observable<StoreMessage<TState, TActions>, never> => {
+  const store =
+    typeof storeFactory === "function"
+      ? sig.reactor.use(storeFactory)
+      : storeFactory
+
   return observable<StoreMessage<TState, TActions>, never>((emit) => {
     let timer: ReturnType<typeof setImmediate> | undefined
     const queuedChanges = new Set<InferChanges<TActions>>()
 
-    const store = sig.reactor.use(storeFactory)
     const listener = (change: InferChanges<TActions>) => {
       if (batching) {
         if (!timer) {
