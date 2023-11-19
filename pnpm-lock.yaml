@@ -457,6 +457,9 @@ importers:
       p-map:
         specifier: ^6.0.0
         version: 6.0.0
+      pretty-format:
+        specifier: ^29.7.0
+        version: 29.7.0
       react:
         specifier: ^18.2.0
         version: 18.2.0

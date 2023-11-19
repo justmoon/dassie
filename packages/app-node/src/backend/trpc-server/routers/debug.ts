@@ -2,34 +2,55 @@ import { z } from "zod"
 
 import {
   FactoryNameSymbol,
+  Reactor,
   isActor,
+  isComputed,
   isSignal,
   isTopic,
 } from "@dassie/lib-reactive"
-import { subscribeToSignal } from "@dassie/lib-reactive-trpc/server"
+import {
+  subscribeToSignal,
+  subscribeToTopic,
+} from "@dassie/lib-reactive-trpc/server"
 import { isObject } from "@dassie/lib-type-utils"
 
 import { LedgerStore } from "../../accounting/stores/ledger"
 import { EnvironmentConfigSignal } from "../../config/environment-config"
 import { NodeTableStore } from "../../peer-protocol/stores/node-table"
 import { RoutingTableSignal } from "../../routing/signals/routing-table"
+import { prettyFormat } from "../../utils/pretty-format"
 import { protectedProcedure } from "../middlewares/auth"
 import { trpc } from "../trpc-context"
 
 export type ContextKeyTuple =
-  | [id: number, name: string, type: "actor"]
+  | [id: number, name: string, type: "actor", parent: number]
   | [id: number, name: string, type: "signal"]
+  | [id: number, name: string, type: "computed"]
   | [id: number, name: string, type: "topic"]
   | [id: number, name: string, type: "other"]
 
-const getContextKeyTuple = (id: number, item: unknown): ContextKeyTuple => {
+const getContextKeyTuple = (
+  id: number,
+  item: unknown,
+  reactor: Reactor,
+  reverseMap: Map<unknown, number>,
+): ContextKeyTuple => {
   const name =
     item && isObject(item) && typeof item[FactoryNameSymbol] === "string"
       ? item[FactoryNameSymbol]
       : "anonymous"
 
   if (isActor(item)) {
-    return [id, name, "actor"]
+    return [
+      id,
+      name,
+      "actor",
+      reverseMap.get(reactor.debug?.getActorParent(item)) ?? -1,
+    ]
+  }
+
+  if (isComputed(item)) {
+    return [id, name, "computed"]
   }
 
   if (isSignal(item)) {
@@ -58,10 +79,29 @@ export const debugRouter = trpc.router({
   }),
   getContextKeys: protectedProcedure.query(({ ctx: { sig } }) => {
     const context = sig.reactor.debug?.getContext()
+
+    if (!context) {
+      return []
+    }
+
+    const reverseMap = new Map<unknown, number>()
+
+    for (const entry of context.values()) {
+      const item = entry.reference.deref()
+      if (typeof item === "object" && item != null) {
+        reverseMap.set(item, entry.uniqueId)
+      }
+    }
+
     return context
       ? [...context.values()].map<ContextKeyTuple>((entry) => {
           const item = entry.reference.deref()
-          return getContextKeyTuple(entry.uniqueId, item)
+          return getContextKeyTuple(
+            entry.uniqueId,
+            item,
+            sig.reactor,
+            reverseMap,
+          )
         })
       : []
   }),
@@ -73,6 +113,18 @@ export const debugRouter = trpc.router({
         throw new TypeError("Item is not a signal")
       }
 
-      return { value: item.read() }
+      return { value: prettyFormat(item.read()) }
+    }),
+  subscribeToTopic: protectedProcedure
+    .input(z.number())
+    .subscription(({ ctx: { sig }, input: id }) => {
+      const item = sig.reactor.debug?.getContext()?.get(id)?.reference.deref()
+      if (!isTopic(item)) {
+        throw new TypeError("Item is not a topic")
+      }
+
+      return subscribeToTopic(sig, item, {
+        transform: (item) => prettyFormat(item),
+      })
     }),
 })

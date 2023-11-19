@@ -21,58 +21,37 @@ export const ManageSettlementSchemeInstancesActor = (reactor: Reactor) => {
   return createMapped(
     reactor,
     reactor.use(ActiveSettlementSchemesSignal),
-    (settlementSchemeId) =>
-      createActor(async (sig) => {
-        const { realm } = sig.readKeysAndTrack(DatabaseConfigStore, ["realm"])
+    (settlementSchemeId) => {
+      const { realm } = reactor.use(DatabaseConfigStore).read()
 
-        const module = modules[settlementSchemeId]
-        if (!module) {
-          throw new Error(`Unknown settlement scheme '${settlementSchemeId}'`)
-        }
+      const module = modules[settlementSchemeId]
+      if (!module) {
+        throw new Error(`Unknown settlement scheme '${settlementSchemeId}'`)
+      }
 
-        if (realm !== module.realm) {
-          throw new Error("Subnet module is not compatible with realm")
-        }
+      if (realm !== module.realm) {
+        throw new Error("Subnet module is not compatible with realm")
+      }
 
-        initializeCommonAccounts(ledgerStore, settlementSchemeId)
+      initializeCommonAccounts(ledgerStore, settlementSchemeId)
 
-        const host: SettlementSchemeHostMethods = {
-          sendMessage: ({ peerId, message }) => {
-            sig.reactor.use(SendPeerMessageActor).api.send.tell({
-              destination: peerId,
-              message: {
-                type: "settlementMessage",
-                value: {
-                  settlementSchemeId,
-                  message,
-                },
+      const host: SettlementSchemeHostMethods = {
+        sendMessage: ({ peerId, message }) => {
+          reactor.use(SendPeerMessageActor).api.send.tell({
+            destination: peerId,
+            message: {
+              type: "settlementMessage",
+              value: {
+                settlementSchemeId,
+                message,
               },
-            })
-          },
-        }
+            },
+          })
+        },
+      }
 
-        // Create a unique factory for the settlement scheme actor.
-        //
-        // The same settlement scheme module may be used for different settlement schemes, so we are deliberately creating a unique factory for each settlement scheme.
-        const SettlementSchemeActor = () =>
-          createActor(module.behavior(settlementSchemeId, host))
-
-        // For easier debugging, we give the settlement scheme factory a unique name as well.
-        Object.defineProperty(SettlementSchemeActor, "name", {
-          value: settlementSchemeId,
-          writable: false,
-        })
-
-        // Instantiate settlement scheme module actor.
-        const settlementSchemeActor = sig.reactor.use(SettlementSchemeActor)
-        const settlementSchemeActorMethods =
-          await settlementSchemeActor.run(sig)
-
-        if (!settlementSchemeActorMethods) {
-          throw new Error("Subnet module failed to initialize")
-        }
-
-        return settlementSchemeActorMethods
-      }),
+      // Instantiate settlement scheme module actor.
+      return createActor(module.behavior(settlementSchemeId, host))
+    },
   )
 }

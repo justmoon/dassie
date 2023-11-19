@@ -13,6 +13,7 @@ import {
 import { Ledger } from "@dassie/app-node/src/frontend/pages/debug/ledger/ledger"
 import { Nodes } from "@dassie/app-node/src/frontend/pages/debug/nodes/nodes"
 import { Routing } from "@dassie/app-node/src/frontend/pages/debug/routing/routing"
+import { State } from "@dassie/app-node/src/frontend/pages/debug/state/state"
 import {
   queryClientReactContext,
   trpc as trpcNode,
@@ -132,6 +133,7 @@ const NodeDetail = ({ nodeId }: BasicNodeElementProperties) => {
               <TabsTrigger value="nodes">Nodes</TabsTrigger>
               <TabsTrigger value="ledger">Ledger</TabsTrigger>
               <TabsTrigger value="routing">Routing</TabsTrigger>
+              <TabsTrigger value="state">State</TabsTrigger>
             </TabsList>
             <TabsContent value="logs" className="min-h-0">
               <NodeLogViewer nodeId={nodeId} />
@@ -139,6 +141,7 @@ const NodeDetail = ({ nodeId }: BasicNodeElementProperties) => {
             <TabsContent value="nodes">{ready && <Nodes />}</TabsContent>
             <TabsContent value="ledger">{ready && <Ledger />}</TabsContent>
             <TabsContent value="routing">{ready && <Routing />}</TabsContent>
+            <TabsContent value="state">{ready && <State />}</TabsContent>
           </Tabs>
         </div>
       </QueryClientProvider>

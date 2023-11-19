@@ -57,6 +57,7 @@
     "lucide-react": "^0.292.0",
     "nanoid": "^5.0.3",
     "p-map": "^6.0.0",
+    "pretty-format": "^29.7.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-hook-form": "^7.48.2",

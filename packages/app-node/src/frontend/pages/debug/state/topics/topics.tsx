@@ -3,13 +3,13 @@ import { useState } from "react"
 import { ScrollArea } from "../../../../components/ui/scroll-area"
 import { combine } from "../../../../utils/class-helper"
 import { StateKeys } from "../state"
-import { SignalState } from "./signal-state"
+import { TopicCapture } from "./topic-capture"
 
-interface SignalsProperties {
+interface TopicsProperties {
   stateKeys: StateKeys
 }
 
-export function Signals({ stateKeys }: SignalsProperties) {
+export function Topics({ stateKeys }: TopicsProperties) {
   const [currentKey, setCurrentKey] = useState<number | undefined>(undefined)
 
   return (
@@ -17,7 +17,7 @@ export function Signals({ stateKeys }: SignalsProperties) {
       <ScrollArea>
         <ul className="flex flex-col p-2 pr-4 space-y-2 min-h-0">
           {stateKeys
-            .filter((tuple) => ["signal", "computed"].includes(tuple[2]))
+            .filter((tuple) => tuple[2] === "topic")
             .map(([key, name, type]) => (
               <li
                 key={key}
@@ -32,7 +32,7 @@ export function Signals({ stateKeys }: SignalsProperties) {
             ))}
         </ul>
       </ScrollArea>
-      {currentKey ? <SignalState id={currentKey} /> : null}
+      {currentKey ? <TopicCapture key={currentKey} id={currentKey} /> : null}
     </div>
   )
 }
