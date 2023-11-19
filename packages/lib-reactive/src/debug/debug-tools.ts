@@ -2,12 +2,31 @@ import { castImmutable } from "immer"
 
 import { isObject } from "@dassie/lib-type-utils"
 
+import { Actor, ActorImplementation } from "../actor"
+import { ActorContext } from "../actor-context"
+import { LifecycleScope } from "../lifecycle"
+import { Mapped } from "../mapped"
 import type { ContextState, Reactor } from "../reactor"
+import { StatefulContext } from "../types/stateful-context"
 
 export interface ContextEntry {
   uniqueId: number
   reference: WeakRef<Record<keyof never, unknown>>
 }
+
+export const DebugIdSymbol = Symbol("das:reactive:debug-id")
+export const MappedOwnerSymbol = Symbol("das:reactive:mapped-owner")
+export const ActorDebugParentContextSymbol = Symbol("das:reactive:debug-parent")
+export const ActorDebugOwnerSymbol = Symbol("das:reactive:debug-owner")
+export const ActorIntermediateScopeParent = Symbol(
+  "das:reactive:debug-intermediate-scope-parent",
+)
+
+const hasIntermediateScopeParent = (
+  target: object,
+): target is {
+  [ActorIntermediateScopeParent]: StatefulContext & LifecycleScope
+} => ActorIntermediateScopeParent in target
 
 class DebugTools {
   private static uniqueId = 0
@@ -23,7 +42,7 @@ class DebugTools {
     readonly contextState: ContextState,
   ) {}
 
-  notifyOfContextInstantiation<T>(value: T) {
+  notifyOfContextInstantiation(value: unknown) {
     if (!isObject(value)) {
       return
     }
@@ -34,6 +53,35 @@ class DebugTools {
     }
     this.context.set(contextEntry.uniqueId, contextEntry)
     this.registry.register(value, contextEntry)
+
+    Object.defineProperty(value, DebugIdSymbol, {
+      value: contextEntry.uniqueId,
+      enumerable: false,
+    })
+  }
+
+  notifyOfMappedInstantiation(
+    value: unknown,
+    mapped: Mapped<unknown, unknown>,
+  ) {
+    if (!isObject(value)) {
+      return
+    }
+
+    const mappedId = (mapped as object as { [DebugIdSymbol]?: number })[
+      DebugIdSymbol
+    ]
+
+    if (mappedId === undefined) {
+      return
+    }
+
+    Object.defineProperty(value, MappedOwnerSymbol, {
+      value: mappedId,
+      enumerable: false,
+    })
+
+    this.notifyOfContextInstantiation(value)
   }
 
   /**
@@ -43,6 +91,52 @@ class DebugTools {
    */
   getContext() {
     return castImmutable(this.context)
+  }
+
+  /**
+   * Called internally by the actor to facilitate tracking the actor hierarchy.
+   *
+   * @param context - The context that should be tagged with debug information.
+   * @param actor - The actor who owns the context.
+   * @param parentContext - The parent context this actor is nested in.
+   */
+  tagActorContext(
+    context: ActorContext,
+    actor: ActorImplementation<unknown>,
+    parentContext: StatefulContext & LifecycleScope,
+  ) {
+    if (hasIntermediateScopeParent(parentContext)) {
+      parentContext = parentContext[ActorIntermediateScopeParent]
+    }
+
+    Object.defineProperty(context, ActorDebugOwnerSymbol, {
+      value: actor,
+      enumerable: false,
+    })
+    Object.defineProperty(context, ActorDebugParentContextSymbol, {
+      value: parentContext,
+      enumerable: false,
+    })
+  }
+
+  /**
+   * Called internally by the actor to facilitate tracking the actor hierarchy.
+   *
+   * @param scope - The intermediate scope that should be tagged with debug information.
+   * @param context - The actual actor context that is the parent of the intermediate scope.
+   */
+  tagIntermediateActorScope(scope: LifecycleScope, context: ActorContext) {
+    Object.defineProperty(scope, ActorIntermediateScopeParent, {
+      value: context,
+      enumerable: false,
+    })
+  }
+
+  getActorParent(actor: Actor<unknown>): Actor<unknown> | undefined {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
+    return (actor as any).currentContext?.[ActorDebugParentContextSymbol]?.[
+      ActorDebugOwnerSymbol
+    ]
   }
 }
 

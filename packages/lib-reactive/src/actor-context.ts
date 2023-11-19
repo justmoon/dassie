@@ -2,22 +2,28 @@ import { Promisable } from "type-fest"
 
 import { isObject } from "@dassie/lib-type-utils"
 
-import { FactoryNameSymbol, Reactor } from "."
 import { type Actor, type RunOptions } from "./actor"
 import { Listener } from "./internal/emit-to-listener"
 import { type ReactiveSource } from "./internal/reactive"
 import {
   DisposableLifecycleScope,
   DisposableLifecycleScopeImplementation,
+  LifecycleScope,
 } from "./lifecycle"
 import { Mapped } from "./mapped"
 import { ReactiveContextImplementation } from "./reactive-context"
-import type { ReadonlyTopic } from "./topic"
+import { Reactor } from "./reactor"
+import type { ReadonlyTopic, TopicSymbol } from "./topic"
 import { Factory } from "./types/factory"
 import { ReactiveContext } from "./types/reactive-context"
 import { StatefulContext } from "./types/stateful-context"
 
 export const defaultSelector = <T>(value: T) => value
+
+export type ActorReference = Omit<
+  Actor<unknown>,
+  typeof TopicSymbol | "on" | "once" | "off"
+>
 
 export interface ActorContext
   extends DisposableLifecycleScope,
@@ -271,6 +277,21 @@ export class ActorContextImplementation
     })
   }
 
+  private runMappedItem<TReturn>(
+    actor: Actor<TReturn>,
+    mapItemLifecycle: LifecycleScope,
+    runOptions: RunOptions,
+  ): TReturn | undefined {
+    const actorLifecycle: DisposableLifecycleScope & StatefulContext =
+      Object.assign(new DisposableLifecycleScopeImplementation(""), {
+        reactor: this.reactor,
+      })
+    actorLifecycle.confineTo(mapItemLifecycle)
+    actorLifecycle.confineTo(this)
+    this.reactor.debug?.tagIntermediateActorScope(actorLifecycle, this)
+    return actor.run(actorLifecycle, runOptions)
+  }
+
   runMap<TReturn>(
     factory: Factory<Mapped<unknown, Actor<TReturn>>>,
   ): (TReturn | undefined)[] {
@@ -279,28 +300,15 @@ export class ActorContextImplementation
 
     const runOptions: RunOptions = {
       pathPrefix: `${this.path}.`,
-      overrideName: `${mapped[FactoryNameSymbol] ?? "anonymous"}[]`,
     }
 
     let index = 0
     for (const [, actor, mapLifecycle] of mapped) {
-      const actorLifecycle: DisposableLifecycleScope & StatefulContext =
-        Object.assign(new DisposableLifecycleScopeImplementation(""), {
-          reactor: this.reactor,
-        })
-      actorLifecycle.confineTo(mapLifecycle)
-      actorLifecycle.confineTo(this)
-      results[index++] = actor.run(actorLifecycle, runOptions)
+      results[index++] = this.runMappedItem(actor, mapLifecycle, runOptions)
     }
 
     mapped.additions.on(this, ([, actor, mapItemLifecycle]) => {
-      const actorLifecycle: DisposableLifecycleScope & StatefulContext =
-        Object.assign(new DisposableLifecycleScopeImplementation(""), {
-          reactor: this.reactor,
-        })
-      actorLifecycle.confineTo(mapItemLifecycle)
-      actorLifecycle.confineTo(this)
-      actor.run(actorLifecycle, runOptions)
+      this.runMappedItem(actor, mapItemLifecycle, runOptions)
     })
 
     return results
@@ -315,31 +323,22 @@ export class ActorContextImplementation
 
     const runOptions: RunOptions = {
       pathPrefix: `${this.path}.`,
-      overrideName: `${mapped[FactoryNameSymbol] ?? "anonymous"}[]`,
     }
 
     let index = 0
     for (const [, actor, mapItemLifecycle] of mapped) {
-      const actorLifecycle: DisposableLifecycleScope & StatefulContext =
-        Object.assign(new DisposableLifecycleScopeImplementation(""), {
-          reactor: this.reactor,
-        })
-      actorLifecycle.confineTo(mapItemLifecycle)
-      actorLifecycle.confineTo(this)
       // eslint-disable-next-line @typescript-eslint/await-thenable
-      results[index++] = await actor.run(actorLifecycle, runOptions)
+      results[index++] = await this.runMappedItem(
+        actor,
+        mapItemLifecycle,
+        runOptions,
+      )
     }
 
     mapped.additions.on(this, ([, actor, mapItemLifecycle]) => {
       linearizationPromise = linearizationPromise.then(async () => {
-        const actorLifecycle: DisposableLifecycleScope & StatefulContext =
-          Object.assign(new DisposableLifecycleScopeImplementation(""), {
-            reactor: this.reactor,
-          })
-        actorLifecycle.confineTo(mapItemLifecycle)
-        actorLifecycle.confineTo(this)
         // eslint-disable-next-line @typescript-eslint/await-thenable
-        await actor.run(actorLifecycle, runOptions)
+        await this.runMappedItem(actor, mapItemLifecycle, runOptions)
       })
     })
 

@@ -54,13 +54,13 @@ class ApiProxy {
   constructor(
     private readonly actor: Pick<
       Actor<unknown>,
-      "isRunning" | "promise" | typeof FactoryNameSymbol
+      "currentContext" | "promise" | typeof FactoryNameSymbol
     >,
     private readonly method: string,
   ) {}
 
   private async getInstance() {
-    if (import.meta.env.DEV && !this.actor.isRunning) {
+    if (import.meta.env.DEV && !this.actor.currentContext) {
       debugOptimisticActorCall(
         this.actor.promise,
         this.actor[FactoryNameSymbol],
@@ -106,9 +106,9 @@ export type Actor<TInstance> = ReactiveObserver &
     [ActorSymbol]: true
 
     /**
-     * Whether the actor is currently instantiated inside of a reactor.
+     * A reference to the actor context if the actor is currently running. Otherwise undefined.
      */
-    readonly isRunning: boolean
+    readonly currentContext: ActorContext | undefined
 
     /**
      * The result of the most recent succesful execution of the actor.
@@ -179,7 +179,7 @@ export interface RunOptions {
   overrideName?: string | undefined
 }
 
-class ActorImplementation<TInstance>
+export class ActorImplementation<TInstance>
   extends ContextBase
   implements
     Omit<Actor<TInstance>, keyof ReadonlyTopic>,
@@ -189,7 +189,7 @@ class ActorImplementation<TInstance>
   [SignalSymbol] = true as const;
   [ActorSymbol] = true as const
 
-  isRunning = false
+  currentContext: ActorContext | undefined = undefined
   result: TInstance | undefined
   promise = makePromise<TInstance>()
   private waker = makePromise()
@@ -224,7 +224,7 @@ class ActorImplementation<TInstance>
     parentContext: StatefulContext & LifecycleScope,
     { additionalDebugData, pathPrefix, overrideName }: RunOptions = {},
   ) {
-    if (this.isRunning) {
+    if (this.currentContext) {
       throw new Error(`actor is already running: ${this[FactoryNameSymbol]}`)
     }
 
@@ -243,13 +243,27 @@ class ActorImplementation<TInstance>
 
   private async reset() {
     await this.promise
-    this.isRunning = false
+    this.currentContext = undefined
     this.cache = undefined
     this.promise = makePromise()
   }
 
   private setCacheStatus(newCacheStatus: CacheStatus) {
     this.cacheStatus = newCacheStatus
+  }
+
+  forceRestart = () => {
+    this.cacheStatus = CacheStatus.Dirty
+    this.waker.resolve()
+  }
+
+  private readAndTrack = <TState>(signal: ReactiveSource<TState>) => {
+    this.isReadingSource = true
+    const value = signal.read()
+    this.isReadingSource = false
+    this.sources.add(signal)
+    signal.addObserver(this)
+    return value
   }
 
   private async loop(
@@ -268,25 +282,17 @@ class ActorImplementation<TInstance>
         this[FactoryNameSymbol],
         actorPath,
         parentContext.reactor,
-        () => {
-          this.cacheStatus = CacheStatus.Dirty
-          this.waker.resolve()
-        },
-        (signal) => {
-          this.isReadingSource = true
-          const value = signal.read()
-          this.isReadingSource = false
-          this.sources.add(signal)
-          signal.addObserver(this)
-          return value
-        },
+        this.forceRestart,
+        this.readAndTrack,
       )
       context.confineTo(parentContext)
       context.onCleanup(resetActor)
 
-      try {
-        this.isRunning = true
+      parentContext.reactor.debug?.tagActorContext(context, this, parentContext)
 
+      this.currentContext = context
+
+      try {
         const previousSources = this.sources
         this.sources = new Set()
         this.setCacheStatus(CacheStatus.Clean)

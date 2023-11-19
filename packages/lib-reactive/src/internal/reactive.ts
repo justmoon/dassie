@@ -23,6 +23,8 @@ export interface ReactiveObserver {
   ): void
 }
 
+export type InferReactiveValue<T> = T extends { read(): infer U } ? U : never
+
 export const defaultComparator = (a: unknown, b: unknown): boolean => a === b
 
 export const CacheUninitialized = Symbol("das:reactive:cache-uninitialized")
