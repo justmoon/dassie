@@ -1,22 +1,10 @@
 import type { Promisable } from "type-fest"
 
-import type { Actor, Behavior } from "@dassie/lib-reactive"
+import type { ActorContext } from "@dassie/lib-reactive"
 
 import type { VALID_REALMS } from "../../constants/general"
 import { NodeId } from "../../peer-protocol/types/node-id"
 import { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
-
-export interface BalanceMap {
-  adjustBalance: (
-    settlementSchemeId: SettlementSchemeId,
-    adjustment: bigint,
-  ) => void
-}
-
-export interface SettlementSchemeProperties {
-  readonly settlementSchemeId: SettlementSchemeId
-  host: SettlementSchemeHostMethods
-}
 
 export interface OutgoingSettlementParameters {
   amount: bigint
@@ -56,9 +44,11 @@ export interface SettlementSchemeActorMethods {
   handleMessage: (parameters: PeerMessageParameters) => Promisable<void>
 }
 
-export type SettlementSchemeActor = Actor<
-  Promisable<SettlementSchemeActorMethods>
->
+export interface SettlementSchemeBehaviorParameters {
+  sig: ActorContext
+  settlementSchemeId: SettlementSchemeId
+  host: SettlementSchemeHostMethods
+}
 
 export interface SettlementSchemeModule {
   /**
@@ -98,7 +88,6 @@ export interface SettlementSchemeModule {
    * Use this to do things like maintaining a connection to the ledger in question.
    */
   behavior: (
-    schemeId: SettlementSchemeId,
-    host: SettlementSchemeHostMethods,
-  ) => Behavior<Promisable<SettlementSchemeActorMethods>>
+    parameters: SettlementSchemeBehaviorParameters,
+  ) => Promisable<SettlementSchemeActorMethods>
 }

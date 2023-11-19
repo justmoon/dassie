@@ -6,14 +6,7 @@ import { DatabaseConfigStore } from "../config/database-config"
 import { SendPeerMessageActor } from "../peer-protocol/actors/send-peer-message"
 import modules from "./modules"
 import { ActiveSettlementSchemesSignal } from "./signals/active-settlement-schemes"
-import type {
-  SettlementSchemeActor,
-  SettlementSchemeHostMethods,
-} from "./types/settlement-scheme-module"
-
-export interface SettlementSchemeInstance {
-  actor: SettlementSchemeActor
-}
+import type { SettlementSchemeHostMethods } from "./types/settlement-scheme-module"
 
 export const ManageSettlementSchemeInstancesActor = (reactor: Reactor) => {
   const ledgerStore = reactor.use(LedgerStore)
@@ -51,7 +44,9 @@ export const ManageSettlementSchemeInstancesActor = (reactor: Reactor) => {
       }
 
       // Instantiate settlement scheme module actor.
-      return createActor(module.behavior(settlementSchemeId, host))
+      return createActor((sig) =>
+        module.behavior({ sig, settlementSchemeId, host }),
+      )
     },
   )
 }
