@@ -12,6 +12,7 @@
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "dependencies": {
+    "@dassie/lib-format-utils": "workspace:^",
     "@dassie/lib-http-server": "workspace:^",
     "@dassie/lib-logger": "workspace:^",
     "@dassie/lib-oer": "workspace:^",

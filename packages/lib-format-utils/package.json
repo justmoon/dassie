@@ -1,8 +1,8 @@
 {
-  "name": "@dassie/lib-oer",
+  "name": "@dassie/lib-format-utils",
   "type": "module",
   "version": "1.0.0",
-  "description": "Simple reactive programming tools",
+  "description": "Collection of pretty-format plugins",
   "main": "./src/index.ts",
   "exports": {
     ".": {
@@ -11,6 +11,7 @@
   },
   "publishConfig": {
     "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
     "exports": {
       ".": {
         "types": "./dist/index.d.ts",
@@ -26,13 +27,11 @@
   },
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
-  "dependencies": {
-    "@dassie/lib-type-utils": "workspace:^"
-  },
   "devDependencies": {
     "@dassie/eslint-config": "workspace:^",
-    "@dassie/lib-format-utils": "workspace:^",
-    "@dassie/meta-tsconfig": "workspace:^",
-    "type-fest": "^4.6.0"
+    "@dassie/meta-tsconfig": "workspace:^"
+  },
+  "dependencies": {
+    "pretty-format": "^29.7.0"
   }
 }

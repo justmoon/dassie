@@ -322,6 +322,9 @@ importers:
 
   packages/app-node:
     dependencies:
+      '@dassie/lib-format-utils':
+        specifier: workspace:^
+        version: link:../lib-format-utils
       '@dassie/lib-http-server':
         specifier: workspace:^
         version: link:../lib-http-server
@@ -538,6 +541,19 @@ importers:
         specifier: workspace:^
         version: link:../meta-tsconfig
 
+  packages/lib-format-utils:
+    dependencies:
+      pretty-format:
+        specifier: ^29.7.0
+        version: 29.7.0
+    devDependencies:
+      '@dassie/eslint-config':
+        specifier: workspace:^
+        version: link:../meta-eslint-config
+      '@dassie/meta-tsconfig':
+        specifier: workspace:^
+        version: link:../meta-tsconfig
+
   packages/lib-http-server:
     dependencies:
       '@dassie/lib-reactive':
@@ -624,6 +640,9 @@ importers:
       '@dassie/eslint-config':
         specifier: workspace:^
         version: link:../meta-eslint-config
+      '@dassie/lib-format-utils':
+        specifier: workspace:^
+        version: link:../lib-format-utils
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
