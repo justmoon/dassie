@@ -25,7 +25,7 @@ const HostHeader = () => {
 }
 
 const HostLogViewer = () => {
-  return <LogViewer filter={({ node }) => !node.startsWith("n")} />
+  return <LogViewer filter={({ node }) => !node.startsWith("d")} />
 }
 
 const HostDetail = () => {
