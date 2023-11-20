@@ -221,7 +221,7 @@ export const ProxyByHostnameActor = () =>
     // eslint-disable-next-line no-console
     console.log(
       `  ${chalk.bold("Debug UI:")} https://localhost/ ${chalk.dim(
-        "<-- Start here",
+        "<- Start here",
       )}\n`,
     )
 
