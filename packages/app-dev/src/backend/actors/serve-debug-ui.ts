@@ -7,6 +7,7 @@ import { join } from "node:path"
 
 import { createActor } from "@dassie/lib-reactive"
 
+import { LOCALHOST } from "../constants/hosts"
 import { LOCAL_FOLDER } from "../constants/paths"
 import { DEBUG_UI_PORT } from "../constants/ports"
 import { server as logger } from "../logger/instances"
@@ -45,6 +46,7 @@ export const DebugUiServerActor = () =>
       root: debugUiPath,
       server: {
         port: DEBUG_UI_PORT,
+        host: LOCALHOST,
         https: {
           cert: readFileSync(certificatePath),
           key: readFileSync(keyPath),

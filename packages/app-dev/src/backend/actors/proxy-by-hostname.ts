@@ -5,6 +5,7 @@ import { Socket, connect, createServer } from "node:net"
 import { createActor } from "@dassie/lib-reactive"
 import { isErrorWithCode } from "@dassie/lib-type-utils"
 
+import { LOCALHOST } from "../constants/hosts"
 import {
   DEBUG_RPC_PORT,
   DEBUG_UI_PORT,
@@ -127,7 +128,7 @@ const parseServerNameIdentification = (buffer: Buffer): string | undefined => {
 }
 
 const createProxy = async (port: number) => {
-  const clientSocket = connect(port)
+  const clientSocket = connect(port, LOCALHOST)
 
   return new Promise<Socket>((resolve, reject) => {
     clientSocket.on("connect", () => {
