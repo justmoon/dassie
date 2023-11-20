@@ -5,7 +5,7 @@ import { ActiveNodesStore } from "./active-nodes"
 import { EnvironmentSettingsStore } from "./environment-settings"
 
 export const NodeConfigSignals = (reactor: Reactor) =>
-  createMapped(reactor, reactor.use(ActiveNodesStore), (nodeId) => {
+  createMapped(reactor, ActiveNodesStore, (nodeId) => {
     const environmentSettings = reactor.use(EnvironmentSettingsStore).read()
 
     return createSignal(generateNodeConfig(nodeId, environmentSettings))

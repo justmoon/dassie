@@ -10,7 +10,7 @@ enableMapSet()
 const CustomersSignal = () => createSignal<Set<string>>(new Set())
 
 const CustomerServiceActors = (reactor: Reactor) =>
-  createMapped(reactor, reactor.use(CustomersSignal), (customer) =>
+  createMapped(reactor, CustomersSignal, (customer) =>
     createActor((sig) => {
       console.info(`${customer} added`)
 

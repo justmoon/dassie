@@ -13,7 +13,7 @@ export const ManageSettlementSchemeInstancesActor = (reactor: Reactor) => {
 
   return createMapped(
     reactor,
-    reactor.use(ActiveSettlementSchemesSignal),
+    ActiveSettlementSchemesSignal,
     (settlementSchemeId) => {
       const { realm } = reactor.use(DatabaseConfigStore).read()
 

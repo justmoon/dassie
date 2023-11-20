@@ -47,7 +47,7 @@ export const RunNodesActor = (reactor: Reactor) => {
 
     // eslint-disable-next-line unicorn/consistent-function-scoping
     const NodeActorsMapped = (reactor: Reactor) =>
-      createMapped(reactor, reactor.use(ActiveNodesStore), (nodeId) =>
+      createMapped(reactor, ActiveNodesStore, (nodeId) =>
         createActor(async (sig) => {
           const environmentSettings = sig.readAndTrack(EnvironmentSettingsStore)
           const node = generateNodeConfig(nodeId, environmentSettings)

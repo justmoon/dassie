@@ -89,7 +89,7 @@ export const SendOutgoingSettlementsActor = (reactor: Reactor) => {
     ManageSettlementSchemeInstancesActor,
   )
 
-  return createMapped(reactor, reactor.use(PeersSignal), (peerId) =>
+  return createMapped(reactor, PeersSignal, (peerId) =>
     createActor((sig) => {
       sig.interval(() => {
         const peerState = nodeTable.read().get(peerId)?.peerState

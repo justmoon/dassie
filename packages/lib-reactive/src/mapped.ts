@@ -12,6 +12,7 @@ import {
   createLifecycleScope,
 } from "./lifecycle"
 import { ReadonlyTopic, createTopic } from "./topic"
+import { Factory } from "./types/factory"
 import { StatefulContext } from "./types/stateful-context"
 
 export const MappedSymbol = Symbol("das:reactive:map")
@@ -89,6 +90,7 @@ class MappedImplementation<TInput, TOutput> extends Reactive<
   [MappedSymbol] = true as const;
   [FactoryNameSymbol] = "anonymous"
 
+  private baseSet: ReactiveSource<Set<TInput>>
   private internalMap = new Map<TInput, InternalMapEntry<TOutput>>()
   public readonly additions =
     createTopic<readonly [TInput, TOutput, LifecycleScope]>()
@@ -96,7 +98,9 @@ class MappedImplementation<TInput, TOutput> extends Reactive<
 
   constructor(
     private parentContext: StatefulContext & LifecycleScope,
-    private baseSet: ReactiveSource<Set<TInput>>,
+    baseSetFactory:
+      | Factory<ReactiveSource<Set<TInput>>>
+      | ReactiveSource<Set<TInput>>,
     private mapFunction: (input: TInput, lifecycle: LifecycleScope) => TOutput,
   ) {
     super(defaultComparator, true)
@@ -104,6 +108,11 @@ class MappedImplementation<TInput, TOutput> extends Reactive<
     parentContext.onCleanup(() => {
       this.removeParentObservers()
     })
+
+    this.baseSet =
+      typeof baseSetFactory === "function"
+        ? parentContext.reactor.use(baseSetFactory)
+        : baseSetFactory
   }
 
   get(key: TInput) {
@@ -192,7 +201,7 @@ class MappedImplementation<TInput, TOutput> extends Reactive<
 
 export function createMapped<TInput, TOutput>(
   parentContext: StatefulContext & LifecycleScope,
-  baseSet: ReactiveSource<Set<TInput>>,
+  baseSet: Factory<ReactiveSource<Set<TInput>>> | ReactiveSource<Set<TInput>>,
   mapFunction: (input: TInput, lifecycle: LifecycleScope) => TOutput,
 ): Mapped<TInput, TOutput> {
   return new MappedImplementation(parentContext, baseSet, mapFunction)
