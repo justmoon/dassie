@@ -45,7 +45,8 @@ const LogViewer = ({
           for (const filterElement of keywordFilter.split(/\s+/)) {
             const isNegative = filterElement.startsWith("-")
             const keyword = isNegative ? filterElement.slice(1) : filterElement
-            const isMatching = item.message.includes(keyword)
+            const isMatching =
+              item.namespace.includes(keyword) || item.message.includes(keyword)
 
             if (isNegative == isMatching) {
               return false
