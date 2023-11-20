@@ -1,5 +1,3 @@
-import pureRand from "pure-rand"
-
 import assert from "node:assert"
 import { resolve } from "node:path"
 
@@ -16,7 +14,11 @@ import {
 
 import { NODES_DEBUG_START_PORT, NODES_START_PORT } from "../constants/ports"
 import { TEST_NODE_VANITY_SEEDS } from "../constants/vanity-nodes"
-import type { EnvironmentSettings } from "../stores/environment-settings"
+import {
+  EnvironmentSettings,
+  NodeSettings,
+  PeerSettings,
+} from "../stores/scenario"
 import { calculateHaltonLocation } from "./calculate-halton-location"
 
 const ENTRYPOINT = new URL("../../runner/launchers/node", import.meta.url)
@@ -93,13 +95,16 @@ export const nodeIndexToDataPath = (index: number) => {
 
   return `${LOCAL_PATH}/data/${friendlyId}.localhost`
 }
+export const nodeIndexToUrl = (index: number) =>
+  `https://${nodeIndexToFriendlyId(index)}.localhost:${nodeIndexToPort(index)}`
 
 export interface BaseNodeConfig {
+  index: number
   id: string
   hostname: string
   httpsPort: number
   debugPort: number
-  peers: readonly number[]
+  peers: readonly PeerSettings[]
   latitude: number
   longitude: number
   dataPath: string
@@ -109,66 +114,49 @@ export interface BaseNodeConfig {
   tlsWebKeyFile: string
   sessionToken: SessionToken
   bootstrapNodes: BootstrapNodesConfig
+  settlementMethods: readonly string[]
   url: string
   entry: string
 }
 
 export type NodeConfig = ReturnType<typeof generateNodeConfig>
 
-const MAX_PEERS = 3
-const PEER_SELECTION_BASE_SEED = 0xa3_e5_ef_27
-
-const selectPeers = (nodeIndex: number) => {
-  const generator = pureRand.xoroshiro128plus(
-    PEER_SELECTION_BASE_SEED + nodeIndex,
-  )
-
-  const peers = new Set<number>()
-
-  if (nodeIndex === 0) {
-    return []
-  }
-
-  const peerCount = pureRand.unsafeUniformIntDistribution(
-    1,
-    MAX_PEERS,
-    generator,
-  )
-
-  for (let index = 0; index < peerCount; index++) {
-    const peerIndex = pureRand.unsafeUniformIntDistribution(
-      0,
-      nodeIndex - 1,
-      generator,
-    )
-    peers.add(peerIndex)
-  }
-
-  return [...peers]
+const DEFAULT_NODE_SETTINGS: Required<NodeSettings> = {
+  peers: [],
+  settlementMethods: ["stub"],
 }
 
-export const generatePeerInfo = (peerIndex: number) => ({
-  nodeId: nodeIndexToId(peerIndex),
-  url: `https://${nodeIndexToFriendlyId(peerIndex)}.localhost:${nodeIndexToPort(
-    peerIndex,
-  )}`,
-  alias: nodeIndexToFriendlyId(peerIndex),
-  nodePublicKey: nodeIndexToPublicKey(peerIndex),
+export const generatePeerInfo = ({ index, settlement }: PeerSettings) => ({
+  index,
+  nodeId: nodeIndexToId(index),
+  url: nodeIndexToUrl(index),
+  alias: nodeIndexToFriendlyId(index),
+  nodePublicKey: nodeIndexToPublicKey(index),
+  settlement,
 })
 
-export const generateNodeConfig = ((id, environmentSettings) => {
-  const index = nodeFriendlyIdToIndex(id)
+export const generateNodeConfig = ((
+  index,
+  nodeSettings,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _environmentSettings,
+) => {
+  const completeNodeSettings: Required<NodeSettings> = {
+    ...DEFAULT_NODE_SETTINGS,
+    ...nodeSettings,
+  }
+  const id = nodeIndexToFriendlyId(index)
   const port = nodeIndexToPort(index)
   const { latitude, longitude } = nodeIndexToCoordinates(index)
-  const peers = selectPeers(index)
   const dataPath = nodeIndexToDataPath(index)
 
   return {
+    index,
     id,
     hostname: `${id}.localhost`,
     httpsPort: port,
     debugPort: NODES_DEBUG_START_PORT + index,
-    peers: environmentSettings.peeringMode === "fixed" ? peers : [],
+    peers: completeNodeSettings.peers,
     latitude,
     longitude,
     dataPath,
@@ -177,19 +165,21 @@ export const generateNodeConfig = ((id, environmentSettings) => {
     tlsWebCertFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost.pem`,
     tlsWebKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost-key.pem`,
     sessionToken: nodeIndexToSessionToken(index),
-    bootstrapNodes: BOOTSTRAP_NODES.map((peerIndex) => {
-      const peerInfo = generatePeerInfo(peerIndex)
-
+    bootstrapNodes: BOOTSTRAP_NODES.map((index) => {
       return {
-        id: peerInfo.nodeId,
-        url: peerInfo.url,
-        publicKey: Buffer.from(peerInfo.nodePublicKey).toString("base64url"),
+        id: nodeIndexToId(index),
+        url: nodeIndexToUrl(index),
+        publicKey: Buffer.from(nodeIndexToPublicKey(index)).toString(
+          "base64url",
+        ),
       }
     }),
+    settlementMethods: completeNodeSettings.settlementMethods,
     url: `https://${id}.localhost:${port}/`,
     entry: ENTRYPOINT,
   } as const
 }) satisfies (
-  id: string,
+  index: number,
+  nodeConfig: NodeSettings,
   environmentSettings: EnvironmentSettings,
 ) => BaseNodeConfig

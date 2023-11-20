@@ -61,7 +61,7 @@ const Node = ({ nodeId, wallet, className }: NodeProperties) => {
 }
 
 const NodesList = () => {
-  const nodes = [...(useRemoteSignal(trpc.ui.subscribeToNodes) ?? new Set())]
+  const nodes = useRemoteSignal(trpc.ui.subscribeToNodes) ?? []
   const addRandomNode = trpc.ui.addRandomNode.useMutation()
 
   return (

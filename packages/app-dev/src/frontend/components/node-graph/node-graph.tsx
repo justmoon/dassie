@@ -112,7 +112,7 @@ const NodeGraph = () => {
   )
 
   useEffect(() => {
-    dispatchGraphData({ nodes: [...(nodes ?? new Set())], peeringState })
+    dispatchGraphData({ nodes: nodes ?? [], peeringState })
   }, [nodes, peeringState])
 
   // return <NodeGraphView graphData={graphData} />

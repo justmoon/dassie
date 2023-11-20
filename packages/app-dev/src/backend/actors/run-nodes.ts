@@ -1,15 +1,16 @@
+import assert from "node:assert"
 import { setTimeout } from "node:timers/promises"
 
 import { Reactor, createActor, createMapped } from "@dassie/lib-reactive"
 
 import { RunnerEnvironment } from "../../common/types/runner-environment"
+import { ActiveNodesComputed } from "../computed/active-nodes"
 import { DEBUG_RPC_PORT } from "../constants/ports"
 import { RunChildProcess } from "../functions/run-child-process"
 import { children as logger } from "../logger/instances"
 import { DebugScopesSignal } from "../signals/debug-scopes"
 import { SecurityTokenSignal } from "../signals/security-token"
-import { ActiveNodesStore } from "../stores/active-nodes"
-import { EnvironmentSettingsStore } from "../stores/environment-settings"
+import { ScenarioStore } from "../stores/scenario"
 import { ViteNodeServer } from "../unconstructables/vite-node-server"
 import { ViteServer } from "../unconstructables/vite-server"
 import { generateNodeConfig } from "../utils/generate-node-config"
@@ -47,10 +48,25 @@ export const RunNodesActor = (reactor: Reactor) => {
 
     // eslint-disable-next-line unicorn/consistent-function-scoping
     const NodeActorsMapped = (reactor: Reactor) =>
-      createMapped(reactor, ActiveNodesStore, (nodeId) =>
+      createMapped(reactor, ActiveNodesComputed, (nodeIndex) =>
         createActor(async (sig) => {
-          const environmentSettings = sig.readAndTrack(EnvironmentSettingsStore)
-          const node = generateNodeConfig(nodeId, environmentSettings)
+          const { nodeSettings, environmentSettings } = sig.readAndTrack(
+            ScenarioStore,
+            ({ nodes, environment }) => ({
+              nodeSettings: nodes[nodeIndex],
+              environmentSettings: environment,
+            }),
+            (a, b) =>
+              a.nodeSettings !== b.nodeSettings ||
+              a.environmentSettings !== b.environmentSettings,
+          )
+          assert(!!nodeSettings, `Settings for node ${nodeIndex} not found`)
+
+          const node = generateNodeConfig(
+            nodeIndex,
+            nodeSettings,
+            environmentSettings,
+          )
 
           // Generate TLS certificates
           {

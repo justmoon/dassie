@@ -7,11 +7,7 @@ import { createDatabase } from "@dassie/lib-sqlite"
 import { isErrorWithCode } from "@dassie/lib-type-utils"
 
 import { DEBUG_UI_PORT } from "../constants/ports"
-import {
-  NodeConfig,
-  generatePeerInfo,
-  nodeIndexToPublicKey,
-} from "./generate-node-config"
+import { NodeConfig, generatePeerInfo } from "./generate-node-config"
 
 export const prefillDatabase = async ({
   id,
@@ -23,6 +19,7 @@ export const prefillDatabase = async ({
   tlsWebKeyFile,
   sessionToken,
   peers,
+  settlementMethods,
 }: NodeConfig) => {
   const databasePath = `${dataPath}/dassie.sqlite3`
 
@@ -55,25 +52,29 @@ export const prefillDatabase = async ({
     `https://localhost:${DEBUG_UI_PORT}/rates.json`,
   )
 
-  database.tables.settlementSchemes.insertOne({
-    id: "stub" as SettlementSchemeId,
-    config: "{}",
-  })
+  for (const method of settlementMethods) {
+    database.tables.settlementSchemes.insertOne({
+      id: method as SettlementSchemeId,
+      config: "{}",
+    })
+  }
 
   for (const peer of peers) {
     const peerInfo = generatePeerInfo(peer)
-    const publicKey = nodeIndexToPublicKey(peer)
 
     const { lastInsertRowid: nodeRowid } = database.tables.nodes.insertOne({
       id: peerInfo.nodeId,
-      public_key: Buffer.from(publicKey),
+      public_key: Buffer.from(peerInfo.nodePublicKey),
       url: peerInfo.url,
       alias: peerInfo.alias,
     })
 
     database.tables.peers.insertOne({
       node: nodeRowid,
-      settlement_scheme_id: "stub" as SettlementSchemeId,
+      settlement_scheme_id: peerInfo.settlement.settlementSchemeId,
+      settlement_scheme_state: JSON.stringify(
+        peerInfo.settlement.settlementSchemeState,
+      ),
     })
   }
 
