@@ -6,42 +6,119 @@ import type { VALID_REALMS } from "../../constants/general"
 import { NodeId } from "../../peer-protocol/types/node-id"
 import { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
 
-export interface OutgoingSettlementParameters {
-  amount: bigint
-  peerId: NodeId
-}
-
-export interface OutgoingSettlementResult {
-  proof: Uint8Array
-}
-
-export interface IncomingSettlementParameters {
-  amount: bigint
-  peerId: NodeId
-  proof: Uint8Array
-}
-
-export interface IncomingSettlementResult {
-  result: "accept" | "reject"
-}
-
-export interface PeerMessageParameters {
-  peerId: NodeId
-  message: Uint8Array
-}
-
 export interface SettlementSchemeHostMethods {
-  sendMessage: (parameters: PeerMessageParameters) => Promisable<void>
+  sendMessage: (parameters: {
+    peerId: NodeId
+    message: Uint8Array
+  }) => Promisable<void>
 }
 
-export interface SettlementSchemeActorMethods {
-  settle: (
-    parameters: OutgoingSettlementParameters,
-  ) => Promisable<OutgoingSettlementResult>
-  handleSettlement: (
-    parameters: IncomingSettlementParameters,
-  ) => Promisable<IncomingSettlementResult>
-  handleMessage: (parameters: PeerMessageParameters) => Promisable<void>
+export interface SettlementSchemeActorMethods<
+  TPeerState extends object = object,
+> {
+  /**
+   * Generate information about peering with this peer using this settlement scheme.
+   *
+   * @returns A blob of data which provides the information necessary to generate a peering request to this peer.
+   */
+  getPeeringInfo: () => Promisable<{
+    data: Uint8Array
+  }>
+
+  /**
+   * Create a blob of data which can be sent to a peer along with a peering request.
+   *
+   * @remarks
+   *
+   * Typically, this would include information that the peer could use to verify that we are indeed an account holder
+   * on the ledger that we propose as the settlement scheme. The peer may also check that we aren't blocklisted, etc.
+   *
+   * @returns A binary blob of data to include with the peering request.
+   */
+  createPeeringRequest: (parameters: {
+    peerId: NodeId
+    peeringInfo: Uint8Array
+  }) => Promisable<{
+    data: Uint8Array
+  }>
+
+  /**
+   * Process an incoming peering request.
+   *
+   * @remarks
+   *
+   * This method is called when a peer sends us a peering request. The data that the peer included is passed in via the
+   * `data` parameter. The peer's node ID is passed in via the `peerId` parameter.
+   *
+   * @returns A response providing information back to the requesting peer or false if the request should be rejected.
+   */
+  acceptPeeringRequest: (parameters: {
+    peerId: NodeId
+    data: Uint8Array
+  }) => Promisable<
+    | {
+        peeringResponseData: Uint8Array
+        peerState: TPeerState
+      }
+    | false
+  >
+
+  /**
+   * Process the response to a successful peering request we made.
+   *
+   * @remarks
+   *
+   * If the peer accepted our peering request, they have the option to send us a blob of data back. This method is
+   * called to process that data.
+   */
+  finalizePeeringRequest: (parameters: {
+    peerId: NodeId
+    peeringInfo: Uint8Array
+    data: Uint8Array
+  }) => Promisable<{
+    peerState: TPeerState
+  }>
+
+  /**
+   * Initiate a settlement.
+   *
+   * @param parameters - The amount to settle and the peer to settle with.
+   * @returns Proof of settlement which may be relayed to the peer.
+   */
+  settle: (parameters: {
+    amount: bigint
+    peerId: NodeId
+    peerState: TPeerState
+  }) => Promisable<{
+    proof: Uint8Array
+    peerState?: TPeerState | undefined
+  }>
+
+  /**
+   * Process an incoming settlement.
+   *
+   * @param parameters - The peer ID, amount, and provided proof of settlement.
+   * @returns A result indicating whether the settlement was accepted or rejected.
+   */
+  handleSettlement: (parameters: {
+    amount: bigint
+    peerId: NodeId
+    proof: Uint8Array
+    peerState: TPeerState
+  }) => Promisable<{
+    result: "accept" | "reject"
+    peerState?: TPeerState | undefined
+  }>
+
+  /**
+   * Handle an incoming message from the peer.
+   *
+   * @param parameters - The peer ID and message.
+   */
+  handleMessage: (parameters: {
+    peerId: NodeId
+    message: Uint8Array
+  }) => Promisable<void>
 }
 
 export interface SettlementSchemeBehaviorParameters {
@@ -50,7 +127,7 @@ export interface SettlementSchemeBehaviorParameters {
   host: SettlementSchemeHostMethods
 }
 
-export interface SettlementSchemeModule {
+export interface SettlementSchemeModule<TPeerState extends object = object> {
   /**
    * The unique settlement scheme identifier.
    *
@@ -89,5 +166,5 @@ export interface SettlementSchemeModule {
    */
   behavior: (
     parameters: SettlementSchemeBehaviorParameters,
-  ) => Promisable<SettlementSchemeActorMethods>
+  ) => Promisable<SettlementSchemeActorMethods<TPeerState>>
 }

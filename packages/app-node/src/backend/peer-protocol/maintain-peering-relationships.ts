@@ -2,6 +2,7 @@ import { Reactor, createActor } from "@dassie/lib-reactive"
 
 import { NodeIdSignal } from "../ilp-connector/computed/node-id"
 import { peerProtocol as logger } from "../logger/instances"
+import { ManageSettlementSchemeInstancesActor } from "../settlement-schemes/manage-settlement-scheme-instances"
 import { ActiveSettlementSchemesSignal } from "../settlement-schemes/signals/active-settlement-schemes"
 import { SendPeerMessageActor } from "./actors/send-peer-message"
 import { PeersSignal } from "./computed/peers"
@@ -71,10 +72,6 @@ export const MaintainPeeringRelationshipsActor = (reactor: Reactor) => {
         return
       }
 
-      logger.debug(`sending peering request`, {
-        to: randomNode.nodeId,
-      })
-
       const ownLinkState = nodeTableStore.read().get(ownNodeId)?.linkState
 
       if (!ownLinkState) {
@@ -82,7 +79,48 @@ export const MaintainPeeringRelationshipsActor = (reactor: Reactor) => {
         return
       }
 
-      const response = await sig.reactor
+      const settlementSchemeId = randomNode.commonSettlementScheme
+
+      const schemeActor = sig.reactor
+        .use(ManageSettlementSchemeInstancesActor)
+        .get(settlementSchemeId)
+
+      if (!schemeActor) {
+        logger.warn("settlement scheme actor not found", { settlementSchemeId })
+        return
+      }
+
+      const peeringInfoResponse = await sig.reactor
+        .use(SendPeerMessageActor)
+        .api.send.ask({
+          destination: randomNode.nodeId,
+          message: {
+            type: "peeringInfoRequest",
+            value: {
+              settlementSchemeId,
+            },
+          },
+        })
+
+      if (!peeringInfoResponse) {
+        logger.warn("peering info request failed", {
+          peer: randomNode.nodeId,
+          settlementSchemeId,
+        })
+        return
+      }
+
+      const settlementSchemeData =
+        await schemeActor.api.createPeeringRequest.ask({
+          peerId: randomNode.nodeId,
+          peeringInfo: peeringInfoResponse.settlementSchemeData,
+        })
+
+      logger.debug(`sending peering request`, {
+        to: randomNode.nodeId,
+      })
+
+      const peeringResponse = await sig.reactor
         .use(SendPeerMessageActor)
         .api.send.ask({
           destination: randomNode.nodeId,
@@ -90,20 +128,34 @@ export const MaintainPeeringRelationshipsActor = (reactor: Reactor) => {
             type: "peeringRequest",
             value: {
               nodeInfo: ownLinkState.lastUpdate,
-              settlementSchemeId: randomNode.commonSettlementScheme,
+              settlementSchemeId,
+              settlementSchemeData: settlementSchemeData.data,
             },
           },
         })
 
-      if (response?.accepted) {
-        reactor.use(NodeTableStore).updateNode(randomNode.nodeId, {
-          peerState: {
-            id: "peered",
-            lastSeen: Date.now(),
-            settlementSchemeId: randomNode.commonSettlementScheme,
-          },
+      if (!peeringResponse?.accepted) {
+        logger.debug(`peering request rejected`, {
+          to: randomNode.nodeId,
         })
+        return
       }
+
+      const finalizationResult =
+        await schemeActor.api.finalizePeeringRequest.ask({
+          peerId: randomNode.nodeId,
+          peeringInfo: peeringInfoResponse.settlementSchemeData,
+          data: peeringResponse?.data,
+        })
+
+      reactor.use(NodeTableStore).updateNode(randomNode.nodeId, {
+        peerState: {
+          id: "peered",
+          lastSeen: Date.now(),
+          settlementSchemeId: randomNode.commonSettlementScheme,
+          settlementSchemeState: finalizationResult.peerState,
+        },
+      })
     }
 
     checkPeers()

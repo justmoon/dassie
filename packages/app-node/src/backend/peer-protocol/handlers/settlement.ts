@@ -5,12 +5,14 @@ import { processSettlementPrepare } from "../../accounting/functions/process-set
 import { LedgerStore } from "../../accounting/stores/ledger"
 import { ManageSettlementSchemeInstancesActor } from "../../settlement-schemes/manage-settlement-scheme-instances"
 import type { PeerMessageHandler } from "../actors/handle-peer-message"
+import { NodeTableStore } from "../stores/node-table"
 
 export const HandleSettlement = ((reactor: Reactor) => {
   const settlementSchemeManager = reactor.use(
     ManageSettlementSchemeInstancesActor,
   )
   const ledgerStore = reactor.use(LedgerStore)
+  const nodeTableStore = reactor.use(NodeTableStore)
 
   return async ({
     message: {
@@ -57,10 +59,17 @@ export const HandleSettlement = ((reactor: Reactor) => {
       }
     }
 
+    const peerState = nodeTableStore.read().get(sender)?.peerState
+
+    if (peerState?.id !== "peered") {
+      throw new Error(`Settlement failed, peer ${sender} is not peered`)
+    }
+
     const { result } = await settlementSchemeActor.api.handleSettlement.ask({
       peerId: sender,
       amount,
       proof,
+      peerState: peerState.settlementSchemeState,
     })
 
     if (result === "accept") {

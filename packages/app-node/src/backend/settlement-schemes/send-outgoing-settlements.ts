@@ -96,7 +96,8 @@ export const SendOutgoingSettlementsActor = (reactor: Reactor) => {
 
         assert(peerState?.id === "peered", "peer state must be 'peered'")
 
-        const { settlementSchemeId: settlementSchemeId } = peerState
+        const { settlementSchemeId, settlementSchemeState: settlementState } =
+          peerState
 
         const settlementSchemeActor =
           settlementSchemeManager.get(settlementSchemeId)
@@ -152,6 +153,7 @@ export const SendOutgoingSettlementsActor = (reactor: Reactor) => {
             .ask({
               amount: settlementAmount,
               peerId,
+              peerState: settlementState,
             })
             .then((data) => {
               return data
@@ -171,7 +173,8 @@ export const SendOutgoingSettlementsActor = (reactor: Reactor) => {
                 },
               })
             })
-            .catch(() => {
+            .catch((error: unknown) => {
+              logger.warn("failed to send outbound settlement", { error })
               ledger.voidPendingTransfer(settlementTransfer)
             })
         }

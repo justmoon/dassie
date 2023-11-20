@@ -10,5 +10,6 @@ export const peersTable = table({
       .type("TEXT")
       .typescriptType<SettlementSchemeId>()
       .notNull(),
+    settlement_scheme_state: column().type("TEXT").notNull(),
   },
 })

@@ -13,6 +13,7 @@ import { HandleLinkStateRequest } from "../handlers/link-state-request"
 import { HandleLinkStateUpdate } from "../handlers/link-state-update"
 import { HandleNodeListHashRequest } from "../handlers/node-list-hash-request"
 import { HandleNodeListRequest } from "../handlers/node-list-request"
+import { HandlePeeringInfoRequest } from "../handlers/peering-info-request"
 import { HandlePeeringRequest } from "../handlers/peering-request"
 import { HandleRegistration } from "../handlers/registration"
 import { HandleSettlement } from "../handlers/settlement"
@@ -63,6 +64,7 @@ export const HandlePeerMessageActor = (reactor: Reactor) => {
     registration: reactor.use(HandleRegistration),
     nodeListRequest: reactor.use(HandleNodeListRequest),
     nodeListHashRequest: reactor.use(HandleNodeListHashRequest),
+    peeringInfoRequest: reactor.use(HandlePeeringInfoRequest),
   }
 
   return createActor(() => {

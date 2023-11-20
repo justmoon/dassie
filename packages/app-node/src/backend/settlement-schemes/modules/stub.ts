@@ -1,3 +1,4 @@
+import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import type { SettlementSchemeModule } from "../types/settlement-scheme-module"
 
 /**
@@ -15,6 +16,27 @@ const stub = {
   // eslint-disable-next-line unicorn/consistent-function-scoping
   behavior: () => {
     return {
+      getPeeringInfo: () => {
+        return {
+          data: EMPTY_UINT8ARRAY,
+        }
+      },
+      createPeeringRequest: () => {
+        return {
+          data: EMPTY_UINT8ARRAY,
+        }
+      },
+      acceptPeeringRequest: () => {
+        return {
+          peeringResponseData: EMPTY_UINT8ARRAY,
+          peerState: {},
+        }
+      },
+      finalizePeeringRequest: () => {
+        return {
+          peerState: {},
+        }
+      },
       settle: ({ peerId, amount }) => {
         console.info(`Sending settlement for ${amount} units to ${peerId}`)
         return {
@@ -32,6 +54,6 @@ const stub = {
       },
     }
   },
-} satisfies SettlementSchemeModule
+} satisfies SettlementSchemeModule<object>
 
 export default stub

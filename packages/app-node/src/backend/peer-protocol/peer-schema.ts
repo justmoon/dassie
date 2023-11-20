@@ -71,6 +71,7 @@ export const peerMessageContent = choice({
   peeringRequest: sequence({
     settlementSchemeId: settlementSchemeIdSchema,
     nodeInfo: octetString().containing(signedPeerNodeInfo),
+    settlementSchemeData: octetString(),
   }).tag(0),
   linkStateUpdate: captured(signedPeerNodeInfo).tag(1),
   interledgerPacket: sequence({
@@ -93,11 +94,15 @@ export const peerMessageContent = choice({
   registration: sequence({
     nodeInfo: captured(signedPeerNodeInfo),
   }).tag(8),
+  peeringInfoRequest: sequence({
+    settlementSchemeId: settlementSchemeIdSchema,
+  }).tag(9),
 })
 
 export const peerMessageResponse = {
   peeringRequest: sequence({
     accepted: boolean(),
+    data: octetString(),
   }),
   linkStateUpdate: empty(),
   interledgerPacket: empty(),
@@ -114,6 +119,9 @@ export const peerMessageResponse = {
   }),
   nodeListRequest: captured(sequenceOf(nodeIdSchema)),
   registration: empty(),
+  peeringInfoRequest: sequence({
+    settlementSchemeData: octetString(),
+  }),
 } as const satisfies {
   [K in PeerMessage["content"]["value"]["type"]]: AnyOerType
 }

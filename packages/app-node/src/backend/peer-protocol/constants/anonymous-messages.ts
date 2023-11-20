@@ -7,4 +7,5 @@ export const ALLOW_ANONYMOUS_USAGE: string[] = [
   "nodeListHashRequest",
   "nodeListRequest",
   "registration",
+  "peeringInfoRequest",
 ] satisfies PeerMessage["content"]["value"]["type"][]

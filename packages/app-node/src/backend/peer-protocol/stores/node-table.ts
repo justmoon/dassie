@@ -31,6 +31,7 @@ export type PeerState =
       readonly id: "peered"
       readonly lastSeen: number
       readonly settlementSchemeId: SettlementSchemeId
+      readonly settlementSchemeState: unknown
     }
 
 export interface LinkState {
@@ -90,9 +91,9 @@ export const NodeTableStore = (reactor: Reactor) => {
   const { rows: result } = database.executeSync(
     database.kysely
       .selectFrom("nodes")
-      .selectAll()
-      .leftJoin("peers", "nodes.id", "peers.node")
-      .selectAll()
+      .select("id")
+      .leftJoin("peers", "nodes.rowid", "peers.node")
+      .select(["settlement_scheme_id", "settlement_scheme_state"])
       .compile(),
   )
 
@@ -102,11 +103,14 @@ export const NodeTableStore = (reactor: Reactor) => {
     initialNodesMap.set(row.id, {
       nodeId: row.id,
       linkState: undefined,
-      peerState: row.node
+      peerState: row.settlement_scheme_id
         ? {
             id: "peered",
             lastSeen: 0,
-            settlementSchemeId: row.settlement_scheme_id!,
+            settlementSchemeId: row.settlement_scheme_id,
+            settlementSchemeState: JSON.parse(
+              row.settlement_scheme_state!,
+            ) as unknown,
           }
         : { id: "none" },
     })

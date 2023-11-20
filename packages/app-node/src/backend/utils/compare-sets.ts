@@ -44,7 +44,10 @@ export const compareArrays = (a: readonly string[], b: readonly string[]) => {
   return true
 }
 
-export const compareSets = (a: Set<string>, b: Set<string>) => {
+export const compareSets = (
+  a: Set<string | number>,
+  b: Set<string | number>,
+) => {
   if (a.size !== b.size) return false
 
   for (const key of a) {
