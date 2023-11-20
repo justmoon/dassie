@@ -189,6 +189,14 @@ export const ProxyByHostnameActor = () =>
       connections.add(socket)
 
       handleIncomingConnection(socket).catch((error: unknown) => {
+        socket.destroy()
+        if (isErrorWithCode(error, "ECONNREFUSED")) {
+          logger.warn(
+            "proxy connection refused, maybe the node is still starting up",
+            { port: (error as unknown as { port: number }).port },
+          )
+          return
+        }
         logger.error("failed to proxy incoming connection", { error })
       })
 

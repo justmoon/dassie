@@ -3,7 +3,7 @@ import type { SetOptional } from "type-fest"
 
 import type { Infer, InferSerialize } from "@dassie/lib-oer"
 import { createActor, createTopic } from "@dassie/lib-reactive"
-import { isFailure } from "@dassie/lib-type-utils"
+import { isErrorWithCode, isFailure } from "@dassie/lib-type-utils"
 
 import { EnvironmentConfigSignal } from "../../config/environment-config"
 import { NodeIdSignal } from "../../ilp-connector/computed/node-id"
@@ -169,6 +169,17 @@ export const SendPeerMessageActor = () =>
 
           return response.value as Infer<typeof responseSchema>
         } catch (error) {
+          if (isErrorWithCode(error, "ECONNREFUSED")) {
+            logger.warn(
+              "failed to send message, connection refused, the node may be offline",
+              {
+                to: destination,
+                url: contactInfo.url,
+              },
+            )
+            return
+          }
+
           logger.warn("failed to send message", {
             error,
             to: destination,
