@@ -90,64 +90,21 @@ export const ProcessPreparePacket = (reactor: Reactor) => {
         return
       }
 
-      {
-        const result = applyPacketPrepareToLedger(
-          ledgerStore,
-          sourceEndpointInfo.accountPath,
-          parsedPacket,
-          "incoming",
-        )
-        if (isFailure(result)) {
-          switch (result.name) {
-            case "InvalidAccountFailure": {
-              triggerRejection({
-                requestId: outgoingRequestId,
-                errorCode: IlpErrorCode.T00_INTERNAL_ERROR,
-                message: "Missing internal ledger account for inbound transfer",
-              })
-              return
-            }
-            case "ExceedsCreditsFailure": {
-              triggerRejection({
-                requestId: outgoingRequestId,
-                errorCode: IlpErrorCode.T04_INSUFFICIENT_LIQUIDITY,
-                message:
-                  "Insufficient liquidity (connector account credit limit exceeded)",
-              })
-              return
-            }
-            case "ExceedsDebitsFailure": {
-              triggerRejection({
-                requestId: outgoingRequestId,
-                errorCode: IlpErrorCode.T04_INSUFFICIENT_LIQUIDITY,
-                message:
-                  "Insufficient liquidity (source account debit limit exceeded)",
-              })
-              return
-            }
-            default: {
-              throw new UnreachableCaseError(result)
-            }
-          }
-        }
-        pendingTransfers.push(result)
-      }
+      const transfers = applyPacketPrepareToLedger(
+        sourceEndpointInfo.accountPath,
+        destinationEndpointInfo.accountPath,
+        parsedPacket.amount,
+      )
 
-      {
-        const result = applyPacketPrepareToLedger(
-          ledgerStore,
-          destinationEndpointInfo.accountPath,
-          parsedPacket,
-          "outgoing",
-        )
+      for (const transfer of transfers) {
+        const result = ledgerStore.createTransfer(transfer)
         if (isFailure(result)) {
           switch (result.name) {
             case "InvalidAccountFailure": {
               triggerRejection({
                 requestId: outgoingRequestId,
                 errorCode: IlpErrorCode.T00_INTERNAL_ERROR,
-                message:
-                  "Missing internal ledger account for outbound transfer",
+                message: "Missing internal ledger account",
               })
               return
             }
@@ -155,8 +112,7 @@ export const ProcessPreparePacket = (reactor: Reactor) => {
               triggerRejection({
                 requestId: outgoingRequestId,
                 errorCode: IlpErrorCode.T04_INSUFFICIENT_LIQUIDITY,
-                message:
-                  "Insufficient liquidity (destination account credit limit exceeded)",
+                message: "Insufficient liquidity",
               })
               return
             }
@@ -164,8 +120,7 @@ export const ProcessPreparePacket = (reactor: Reactor) => {
               triggerRejection({
                 requestId: outgoingRequestId,
                 errorCode: IlpErrorCode.T04_INSUFFICIENT_LIQUIDITY,
-                message:
-                  "Insufficient liquidity (connector account debit limit exceeded)",
+                message: "Insufficient liquidity",
               })
               return
             }

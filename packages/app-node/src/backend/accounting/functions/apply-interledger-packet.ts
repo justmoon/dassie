@@ -1,22 +1,39 @@
-import { IlpPreparePacket } from "../../ilp-connector/schemas/ilp-packet-codec"
-import { CreateTransferParameters, Ledger } from "../stores/ledger"
+import { CreateTransferParameters } from "../stores/ledger"
 import { getLedgerIdFromPath } from "./get-ledger-id-from-path"
 
 export const applyPacketPrepareToLedger = (
-  ledger: Ledger,
-  accountPath: string,
-  packet: IlpPreparePacket,
-  direction: "incoming" | "outgoing",
+  sourceAccountPath: string,
+  destinationAccountPath: string,
+  amount: bigint,
 ) => {
-  const ledgerId = getLedgerIdFromPath(accountPath)
-  const connectorPath = `${ledgerId}/internal/connector`
+  const transfers = []
 
-  const transfer: CreateTransferParameters = {
-    debitAccountPath: direction === "incoming" ? accountPath : connectorPath,
-    creditAccountPath: direction === "incoming" ? connectorPath : accountPath,
-    amount: packet.amount,
-    pending: true,
+  {
+    const ledgerId = getLedgerIdFromPath(sourceAccountPath)
+    const connectorPath = `${ledgerId}/internal/connector`
+
+    const transfer: CreateTransferParameters = {
+      debitAccountPath: sourceAccountPath,
+      creditAccountPath: connectorPath,
+      amount,
+      pending: true,
+    }
+
+    transfers.push(transfer)
+  }
+  {
+    const ledgerId = getLedgerIdFromPath(destinationAccountPath)
+    const connectorPath = `${ledgerId}/internal/connector`
+
+    const transfer: CreateTransferParameters = {
+      debitAccountPath: connectorPath,
+      creditAccountPath: destinationAccountPath,
+      amount,
+      pending: true,
+    }
+
+    transfers.push(transfer)
   }
 
-  return ledger.createTransfer(transfer)
+  return transfers
 }
