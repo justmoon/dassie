@@ -1,18 +1,24 @@
 import { dump } from "wtfnode"
 
-import { Reactor, createActor } from "@dassie/lib-reactive"
+import { Reactor, createActor, createTopic } from "@dassie/lib-reactive"
+
+const OPEN_HANDLES_GRACE_PERIOD = 500
+
+export const ShutdownTopic = () => createTopic<void>()
 
 export const HandleShutdownSignalsActor = (reactor: Reactor) =>
   createActor((sig) => {
     const onShutdown = () => {
+      sig.reactor.use(ShutdownTopic).emit()
+
       reactor
         .dispose()
         .then(() => {
-          setTimeout(() => {
-            if (process.env["DASSIE_DEV_OPEN_HANDLES"]) {
+          if (process.env["DASSIE_DEV_OPEN_HANDLES"]) {
+            setTimeout(() => {
               dump()
-            }
-          })
+            }, OPEN_HANDLES_GRACE_PERIOD)
+          }
         })
         .catch((error: unknown) => {
           console.error("failed to dispose reactor", { error })
