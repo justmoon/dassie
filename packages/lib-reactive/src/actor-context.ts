@@ -282,6 +282,8 @@ export class ActorContextImplementation
     mapItemLifecycle: LifecycleScope,
     runOptions: RunOptions,
   ): TReturn | undefined {
+    if (this.isDisposed) return
+
     const actorLifecycle: DisposableLifecycleScope & StatefulContext =
       Object.assign(new DisposableLifecycleScopeImplementation(""), {
         reactor: this.reactor,
