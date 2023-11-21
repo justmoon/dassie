@@ -1,10 +1,12 @@
 import chalk from "chalk"
+import { ModuleNode } from "vite"
 
 import { posix } from "node:path"
 
 import { Reactor, createActor, createTopic } from "@dassie/lib-reactive"
 
 import { LogsStore } from "../../common/stores/logs"
+import { NODE_ENTRYPOINT } from "../constants/entrypoints"
 import { vite as logger } from "../logger/instances"
 import { PeeringStateStore } from "../stores/peering-state"
 import { ViteNodeServer } from "../unconstructables/vite-node-server"
@@ -15,6 +17,28 @@ export function getShortName(file: string, root: string): string {
 }
 
 export const FileChangeTopic = () => createTopic()
+
+const isWithinBoundary = (
+  node: ModuleNode,
+  traversedModules: Set<ModuleNode>,
+  boundaryModules: Set<ModuleNode>,
+): boolean => {
+  if (traversedModules.has(node)) {
+    return false
+  }
+  traversedModules.add(node)
+
+  for (const importer of node.importers) {
+    if (boundaryModules.has(importer)) {
+      return true
+    }
+    if (isWithinBoundary(importer, traversedModules, boundaryModules)) {
+      return true
+    }
+  }
+
+  return false
+}
 
 export const HandleFileChangeActor = (reactor: Reactor) => {
   const viteServer = reactor.use(ViteServer)
@@ -32,13 +56,19 @@ export const HandleFileChangeActor = (reactor: Reactor) => {
       // It still helps a lot with performance because we are compiling the code once and then re-using it for every running process.
       viteNodeServer.fetchCache = new Map()
 
-      const mods = moduleGraph.getModulesByFile(file)
+      const boundaryModules = moduleGraph.getModulesByFile(NODE_ENTRYPOINT)
+      const changedModules = moduleGraph.getModulesByFile(file)
 
-      if (mods && mods.size > 0) {
-        logsStore.clear()
-        peeringStateStore.clear()
-        logger.info(`${chalk.green(`change`)} ${chalk.dim(shortFile)}`)
-        fileChangeTopic.emit(undefined)
+      if (!boundaryModules || !changedModules) return
+
+      const traversedModules = new Set<ModuleNode>()
+      for (const module of changedModules) {
+        if (isWithinBoundary(module, traversedModules, boundaryModules)) {
+          logsStore.clear()
+          peeringStateStore.clear()
+          logger.info(`${chalk.green(`change`)} ${chalk.dim(shortFile)}`)
+          fileChangeTopic.emit(undefined)
+        }
       }
     }
 

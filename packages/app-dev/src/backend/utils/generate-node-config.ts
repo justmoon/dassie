@@ -12,6 +12,7 @@ import {
   SEED_PATH_NODE,
 } from "@dassie/app-node/src/common/constants/seed-paths"
 
+import { NODE_ENTRYPOINT } from "../constants/entrypoints"
 import { NODES_DEBUG_START_PORT, NODES_START_PORT } from "../constants/ports"
 import { TEST_NODE_VANITY_SEEDS } from "../constants/vanity-nodes"
 import {
@@ -21,8 +22,6 @@ import {
 } from "../stores/scenario"
 import { calculateHaltonLocation } from "./calculate-halton-location"
 
-const ENTRYPOINT = new URL("../../runner/launchers/node", import.meta.url)
-  .pathname
 const LOCAL_PATH = new URL("../../../../../local", import.meta.url).pathname
 
 const BOOTSTRAP_NODES = [0, 1]
@@ -176,7 +175,7 @@ export const generateNodeConfig = ((
     }),
     settlementMethods: completeNodeSettings.settlementMethods,
     url: `https://${id}.localhost:${port}/`,
-    entry: ENTRYPOINT,
+    entry: NODE_ENTRYPOINT,
   } as const
 }) satisfies (
   index: number,
