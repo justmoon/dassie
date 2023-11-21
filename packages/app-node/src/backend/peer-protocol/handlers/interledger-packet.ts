@@ -4,6 +4,7 @@ import { IlpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-
 import { ProcessPacketActor } from "../../ilp-connector/process-packet"
 import { PeerEndpointInfo } from "../../ilp-connector/senders/send-peer-packets"
 import { peerProtocol as logger } from "../../logger/instances"
+import { getLedgerIdForSettlementScheme } from "../../settlement-schemes/utils/get-ledger-id"
 import type { PeerMessageHandler } from "../actors/handle-peer-message"
 
 export const HandleInterledgerPacket = ((reactor: Reactor) => {
@@ -32,11 +33,13 @@ export const HandleInterledgerPacket = ((reactor: Reactor) => {
 
     const { settlementSchemeId } = peerState
 
+    const ledgerId = getLedgerIdForSettlementScheme(settlementSchemeId)
+
     const endpointInfo: PeerEndpointInfo = {
       type: "peer",
       nodeId: sender,
       ilpAddress: `${ilpAllocationSchemeSignal.read()}.das.${sender}`,
-      accountPath: `${settlementSchemeId}/peer/${sender}/interledger`,
+      accountPath: `${ledgerId}:peer/${sender}/interledger`,
     }
 
     processIncomingPacketActor.api.handle.tell({

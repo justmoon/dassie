@@ -1,15 +1,16 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { SettlementSchemeId } from "../peer-protocol/types/settlement-scheme-id"
 import { initializeCommonAccounts } from "./functions/manage-common-accounts"
+import { OwnerLedgerIdSignal } from "./signals/owner-ledger-id"
 import { LedgerStore } from "./stores/ledger"
 
 export const ManageBuiltinAccountsActor = () =>
   createActor((sig) => {
     const ledger = sig.reactor.use(LedgerStore)
+    const ledgerId = sig.read(OwnerLedgerIdSignal)
 
-    initializeCommonAccounts(ledger, "builtin" as SettlementSchemeId)
-    ledger.createAccount(`builtin/owner/spsp`)
-    ledger.createAccount(`builtin/owner/btp`)
-    ledger.createAccount(`builtin/owner/http`)
+    initializeCommonAccounts(ledger, ledgerId)
+    ledger.createAccount(`${ledgerId}:owner/spsp`)
+    ledger.createAccount(`${ledgerId}:owner/btp`)
+    ledger.createAccount(`${ledgerId}:owner/http`)
   })

@@ -7,6 +7,7 @@ import {
   initializePeer,
 } from "../accounting/functions/manage-peer"
 import { LedgerStore } from "../accounting/stores/ledger"
+import { getLedgerIdForSettlementScheme } from "../settlement-schemes/utils/get-ledger-id"
 import { PeersSignal } from "./computed/peers"
 import { NodeTableStore } from "./stores/node-table"
 
@@ -22,7 +23,9 @@ export const CreatePeerLedgerEntriesActor = (reactor: Reactor) => {
 
       const { settlementSchemeId } = peerState
 
-      initializePeer(ledger, settlementSchemeId, peerId)
+      const ledgerId = getLedgerIdForSettlementScheme(settlementSchemeId)
+
+      initializePeer(ledger, ledgerId, peerId)
 
       sig.onCleanup(() => {
         cleanupPeer(ledger, peerId)

@@ -5,13 +5,14 @@ import { UnreachableCaseError, isFailure } from "@dassie/lib-type-utils"
 
 import { processSettlementPrepare } from "../accounting/functions/process-settlement"
 import { Ledger, LedgerStore } from "../accounting/stores/ledger"
+import { LedgerId } from "../accounting/types/ledger-id"
 import { settlement as logger } from "../logger/instances"
 import { SendPeerMessageActor } from "../peer-protocol/actors/send-peer-message"
 import { PeersSignal } from "../peer-protocol/computed/peers"
 import { NodeTableStore } from "../peer-protocol/stores/node-table"
 import { NodeId } from "../peer-protocol/types/node-id"
-import { SettlementSchemeId } from "../peer-protocol/types/settlement-scheme-id"
 import { ManageSettlementSchemeInstancesActor } from "./manage-settlement-scheme-instances"
+import { getLedgerIdForSettlementScheme } from "./utils/get-ledger-id"
 
 const SETTLEMENT_CHECK_INTERVAL = 4000
 const SETTLEMENT_RATIO = 0.2
@@ -35,17 +36,15 @@ const multiplyAmountWithRatio = (amount: bigint, ratio: number) => {
 
 const calculateSettlementAmount = (
   ledger: Ledger,
-  settlementSchemeId: SettlementSchemeId,
+  ledgerId: LedgerId,
   peerId: NodeId,
 ) => {
   const peerInterledgerAccount = ledger.getAccount(
-    `${settlementSchemeId}/peer/${peerId}/interledger`,
+    `${ledgerId}:peer/${peerId}/interledger`,
   )
-  const peerTrustAccount = ledger.getAccount(
-    `${settlementSchemeId}/peer/${peerId}/trust`,
-  )
+  const peerTrustAccount = ledger.getAccount(`${ledgerId}:peer/${peerId}/trust`)
   const peerSettlementAccount = ledger.getAccount(
-    `${settlementSchemeId}/peer/${peerId}/settlement`,
+    `${ledgerId}:peer/${peerId}/settlement`,
   )
 
   assert(peerInterledgerAccount, "peer interledger account not found")
@@ -112,16 +111,18 @@ export const SendOutgoingSettlementsActor = (reactor: Reactor) => {
           return
         }
 
+        const ledgerId = getLedgerIdForSettlementScheme(settlementSchemeId)
+
         const settlementAmount = calculateSettlementAmount(
           ledger,
-          settlementSchemeId,
+          ledgerId,
           peerId,
         )
 
         if (settlementAmount > 0n) {
           const settlementTransfer = processSettlementPrepare(
             ledger,
-            settlementSchemeId,
+            ledgerId,
             peerId,
             settlementAmount,
             "outgoing",

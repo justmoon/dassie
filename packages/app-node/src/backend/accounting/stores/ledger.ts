@@ -11,21 +11,7 @@ import { EXCEEDS_DEBITS_FAILURE } from "../failures/exceeds-debits"
 import InvalidAccountFailure from "../failures/invalid-account"
 import { getLedgerIdFromPath } from "../functions/get-ledger-id-from-path"
 import { PostedTransfersTopic } from "../topics/posted-transfers"
-
-// Ledger Account Structure
-// ------------------------
-//
-// internal/… -> Own accounts
-// internal/connector -> Connector account
-// peer/… -> Peer accounts
-// peer/<nodeId> -> Accounts for a specific peer
-// peer/<nodeId>/interledger -> Interledger packets
-// peer/<nodeId>/settlement -> Underlying settlement account
-// peer/<nodeId>/trust -> Trust extended or revoked
-// owner/… -> Owner accounts
-// owner/spsp/<spspAccountId> -> SPSP accounts
-// owner/btp/<btpAccountId> -> BTP accounts
-// owner/http/<httpAccountId> -> ILP-HTTP accounts
+import { AccountPath } from "../types/accounts"
 
 export interface LedgerAccount {
   path: string
@@ -41,14 +27,14 @@ export interface LedgerAccount {
 
 export interface Transfer {
   state: "pending" | "posted" | "voided"
-  debitAccount: string
-  creditAccount: string
+  debitAccount: AccountPath
+  creditAccount: AccountPath
   amount: bigint
 }
 
 export interface CreateTransferParameters {
-  debitAccountPath: string
-  creditAccountPath: string
+  debitAccountPath: AccountPath
+  creditAccountPath: AccountPath
   amount: bigint
   pending?: boolean
 }
@@ -61,7 +47,7 @@ export const LedgerStore = (reactor: Reactor) => {
 
   return {
     createAccount: (
-      path: string,
+      path: AccountPath,
       options: Simplify<
         Pick<SetOptional<LedgerAccount, keyof LedgerAccount>, "limit">
       > = {},
@@ -82,7 +68,7 @@ export const LedgerStore = (reactor: Reactor) => {
       ledger.set(path, account)
     },
 
-    getAccount: (path: string) => ledger.get(path),
+    getAccount: (path: AccountPath) => ledger.get(path),
 
     getAccounts: (filterPrefix: string) => ledger.filterPrefix(filterPrefix),
 

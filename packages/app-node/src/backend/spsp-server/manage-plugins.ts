@@ -3,6 +3,7 @@ import { nanoid } from "nanoid"
 
 import { createActor } from "@dassie/lib-reactive"
 
+import { OwnerLedgerIdSignal } from "../accounting/signals/owner-ledger-id"
 import { NodeIlpAddressSignal } from "../ilp-connector/computed/node-ilp-address"
 import { ProcessPacketActor } from "../ilp-connector/process-packet"
 import { PluginEndpointInfo } from "../ilp-connector/senders/send-plugin-packets"
@@ -21,6 +22,7 @@ export const ManagePluginsActor = () =>
     const nodeIlpAddress = sig.readAndTrack(NodeIlpAddressSignal)
     const processPacketActor = sig.reactor.use(ProcessPacketActor)
     const routingTable = sig.reactor.use(RoutingTableSignal)
+    const ownerLedgerIdSignal = sig.reactor.use(OwnerLedgerIdSignal)
 
     const pluginHandlerMap = new Map<number, DataHandler>()
     const outstandingRequests = new Map<number, (data: Buffer) => void>()
@@ -50,7 +52,7 @@ export const ManagePluginsActor = () =>
               pluginId,
               localIlpAddressPart,
               ilpAddress: `${nodeIlpAddress}.${localIlpAddressPart}`,
-              accountPath: "builtin/owner/spsp",
+              accountPath: `${ownerLedgerIdSignal.read()}:owner/spsp`,
             }
 
             routingTable
@@ -136,7 +138,7 @@ export const ManagePluginsActor = () =>
           pluginId,
           localIlpAddressPart,
           ilpAddress: `${nodeIlpAddress}.${localIlpAddressPart}`,
-          accountPath: "builtin/owner/spsp",
+          accountPath: `${ownerLedgerIdSignal.read()}:owner/spsp`,
         }
 
         processPacketActor.api.handle.tell({

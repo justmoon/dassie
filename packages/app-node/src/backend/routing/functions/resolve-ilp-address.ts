@@ -5,6 +5,7 @@ import { IlpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-
 import { EndpointInfo } from "../../ilp-connector/functions/send-packet"
 import { PeerEndpointInfo } from "../../ilp-connector/senders/send-peer-packets"
 import { NodeTableStore } from "../../peer-protocol/stores/node-table"
+import { getLedgerIdForSettlementScheme } from "../../settlement-schemes/utils/get-ledger-id"
 import { RoutingTableSignal } from "../signals/routing-table"
 
 export default class NoRouteFoundFailure extends Failure {
@@ -37,10 +38,14 @@ export const ResolveIlpAddress = (reactor: Reactor) => {
           throw new Error(`Next hop node is not actually peered ${nextHop}`)
         }
 
+        const ledgerId = getLedgerIdForSettlementScheme(
+          peerState.settlementSchemeId,
+        )
+
         const destinationInfo: PeerEndpointInfo = {
           type: "peer",
           nodeId: nextHop,
-          accountPath: `${peerState.settlementSchemeId}/peer/${nextHop}/interledger`,
+          accountPath: `${ledgerId}:peer/${nextHop}/interledger`,
           ilpAddress: `${ilpAllocationScheme.read()}.das.${nextHop}`,
         }
 

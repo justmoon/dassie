@@ -1,6 +1,7 @@
 import { createActor } from "@dassie/lib-reactive"
 import { isFailure } from "@dassie/lib-type-utils"
 
+import { AccountPath } from "../accounting/types/accounts"
 import { ProcessPacketActor } from "../ilp-connector/process-packet"
 import {
   IlpType,
@@ -18,20 +19,21 @@ export interface IldcpRequestParameters {
   requestId: number
 }
 
-const ILDCP_DESTINATION_INFO: IldcpEndpointInfo = {
-  type: "ildcp",
-  ilpAddress: ILDCP_ADDRESS,
-  accountPath: `internal/ildcp`,
-}
-
 export const HandleIldcpRequestsActor = () =>
   createActor((sig) => {
     const ilpRoutingTable = sig.readAndTrack(RoutingTableSignal)
     const processIncomingPacketActor = sig.reactor.use(ProcessPacketActor)
 
+    const ildcpDestinationInfo: IldcpEndpointInfo = {
+      type: "ildcp",
+      ilpAddress: ILDCP_ADDRESS,
+      // ILDCP cannot send or receive money so we set the account path to an impossible value
+      accountPath: "unreachable" as AccountPath,
+    }
+
     ilpRoutingTable.set(ILDCP_ADDRESS, {
       type: "fixed",
-      destination: ILDCP_DESTINATION_INFO,
+      destination: ildcpDestinationInfo,
     })
 
     sig.onCleanup(() => {
@@ -65,7 +67,7 @@ export const HandleIldcpRequestsActor = () =>
         })
 
         processIncomingPacketActor.api.handle.tell({
-          sourceEndpointInfo: ILDCP_DESTINATION_INFO,
+          sourceEndpointInfo: ildcpDestinationInfo,
           serializedPacket: serializeIlpPacket(responsePacket),
           parsedPacket: responsePacket,
           requestId,

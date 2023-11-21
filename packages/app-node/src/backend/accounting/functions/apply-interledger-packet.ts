@@ -1,16 +1,17 @@
 import { CreateTransferParameters } from "../stores/ledger"
+import { AccountPath, ConnectorAccount } from "../types/accounts"
 import { getLedgerIdFromPath } from "./get-ledger-id-from-path"
 
 export const applyPacketPrepareToLedger = (
-  sourceAccountPath: string,
-  destinationAccountPath: string,
+  sourceAccountPath: AccountPath,
+  destinationAccountPath: AccountPath,
   amount: bigint,
 ) => {
   const transfers = []
 
   {
     const ledgerId = getLedgerIdFromPath(sourceAccountPath)
-    const connectorPath = `${ledgerId}/internal/connector`
+    const connectorPath: ConnectorAccount = `${ledgerId}:internal/connector`
 
     const transfer: CreateTransferParameters = {
       debitAccountPath: sourceAccountPath,
@@ -23,7 +24,7 @@ export const applyPacketPrepareToLedger = (
   }
   {
     const ledgerId = getLedgerIdFromPath(destinationAccountPath)
-    const connectorPath = `${ledgerId}/internal/connector`
+    const connectorPath: ConnectorAccount = `${ledgerId}:internal/connector`
 
     const transfer: CreateTransferParameters = {
       debitAccountPath: connectorPath,

@@ -12,6 +12,7 @@ import {
 import { Reactor, createActor } from "@dassie/lib-reactive"
 import { isFailure } from "@dassie/lib-type-utils"
 
+import { OwnerLedgerIdSignal } from "../accounting/signals/owner-ledger-id"
 import { BtpTokensStore } from "../api-keys/database-stores/btp-tokens"
 import { BtpToken } from "../api-keys/types/btp-token"
 import { WebsocketRoutesSignal } from "../http-server/serve-https"
@@ -27,6 +28,7 @@ export const RegisterBtpHttpUpgradeActor = (reactor: Reactor) => {
   const processIncomingPacketActor = reactor.use(ProcessPacketActor)
   const btpTokensStore = reactor.use(BtpTokensStore)
   const routingTableSignal = reactor.use(RoutingTableSignal)
+  const ownerLedgerIdSignal = reactor.use(OwnerLedgerIdSignal)
 
   return createActor((sig) => {
     const nodeIlpAddress = sig.readAndTrack(NodeIlpAddressSignal)
@@ -52,7 +54,7 @@ export const RegisterBtpHttpUpgradeActor = (reactor: Reactor) => {
           type: "btp",
           connectionId,
           ilpAddress: `${nodeIlpAddress}.${localIlpAddressPart}`,
-          accountPath: "builtin/owner/btp",
+          accountPath: `${ownerLedgerIdSignal.read()}:owner/btp`,
         }
 
         logger.debug("handle BTP websocket connection", { connectionId })

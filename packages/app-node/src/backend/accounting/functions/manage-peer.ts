@@ -3,28 +3,28 @@ import assert from "node:assert"
 import { isFailure } from "@dassie/lib-type-utils"
 
 import { NodeId } from "../../peer-protocol/types/node-id"
-import { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
 import { Ledger } from "../stores/ledger"
+import { LedgerId } from "../types/ledger-id"
 
 const DEFAULT_CREDIT = 1_100_000_000n
 
 export const initializePeer = (
   ledger: Ledger,
-  settlementSchemeId: SettlementSchemeId,
+  ledgerId: LedgerId,
   peerId: NodeId,
 ) => {
-  ledger.createAccount(`${settlementSchemeId}/peer/${peerId}/interledger`, {
+  ledger.createAccount(`${ledgerId}:peer/${peerId}/interledger`, {
     limit: "debits_must_not_exceed_credits",
   })
-  ledger.createAccount(`${settlementSchemeId}/peer/${peerId}/settlement`)
-  ledger.createAccount(`${settlementSchemeId}/peer/${peerId}/trust`, {
+  ledger.createAccount(`${ledgerId}:peer/${peerId}/settlement`)
+  ledger.createAccount(`${ledgerId}:peer/${peerId}/trust`, {
     limit: "credits_must_not_exceed_debits",
   })
 
   // Extend initial trust limit
   const result = ledger.createTransfer({
-    debitAccountPath: `${settlementSchemeId}/peer/${peerId}/trust`,
-    creditAccountPath: `${settlementSchemeId}/peer/${peerId}/interledger`,
+    debitAccountPath: `${ledgerId}:peer/${peerId}/trust`,
+    creditAccountPath: `${ledgerId}:peer/${peerId}/interledger`,
     amount: DEFAULT_CREDIT,
   })
 

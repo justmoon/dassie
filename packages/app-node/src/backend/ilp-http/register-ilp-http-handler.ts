@@ -6,6 +6,7 @@ import {
 } from "@dassie/lib-http-server"
 import { Reactor, createActor } from "@dassie/lib-reactive"
 
+import { OwnerLedgerIdSignal } from "../accounting/signals/owner-ledger-id"
 import { HttpsRouter } from "../http-server/serve-https"
 import { ProcessPacketActor } from "../ilp-connector/process-packet"
 import { IlpHttpEndpointInfo } from "../ilp-connector/senders/send-ilp-http-packets"
@@ -15,6 +16,7 @@ import { IncomingRequestIdMap, nextId } from "./values/incoming-request-id-map"
 export const RegisterIlpHttpHandlerActor = (reactor: Reactor) => {
   const processPacketActor = reactor.use(ProcessPacketActor)
   const incomingRequestIdMap = reactor.use(IncomingRequestIdMap)
+  const ownerLedgerIdSignal = reactor.use(OwnerLedgerIdSignal)
 
   return createActor((sig) => {
     const http = sig.reactor.use(HttpsRouter)
@@ -54,7 +56,7 @@ export const RegisterIlpHttpHandlerActor = (reactor: Reactor) => {
 
         const endpointInfo: IlpHttpEndpointInfo = {
           type: "http",
-          accountPath: "builtin/owner/http",
+          accountPath: `${ownerLedgerIdSignal.read()}:owner/http`,
           ilpAddress: "test.not-implemented",
         }
 

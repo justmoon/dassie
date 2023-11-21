@@ -1,9 +1,12 @@
 import assert from "node:assert"
 
-export const getLedgerIdFromPath = (path: string) => {
-  const firstSlash = path.indexOf("/")
+import { AccountPath } from "../types/accounts"
+import { LedgerId } from "../types/ledger-id"
 
-  assert(firstSlash !== -1, "account paths must contain at least one slash")
+export const getLedgerIdFromPath = (path: AccountPath): LedgerId => {
+  const colonPosition = path.indexOf(":")
 
-  return path.slice(0, firstSlash)
+  assert(colonPosition !== -1, "account paths must contain a colon")
+
+  return path.slice(0, colonPosition) as LedgerId
 }

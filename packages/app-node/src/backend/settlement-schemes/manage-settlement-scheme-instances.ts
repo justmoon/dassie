@@ -7,6 +7,7 @@ import { SendPeerMessageActor } from "../peer-protocol/actors/send-peer-message"
 import modules from "./modules"
 import { ActiveSettlementSchemesSignal } from "./signals/active-settlement-schemes"
 import type { SettlementSchemeHostMethods } from "./types/settlement-scheme-module"
+import { getLedgerIdForSettlementScheme } from "./utils/get-ledger-id"
 
 export const ManageSettlementSchemeInstancesActor = (reactor: Reactor) => {
   const ledgerStore = reactor.use(LedgerStore)
@@ -26,7 +27,9 @@ export const ManageSettlementSchemeInstancesActor = (reactor: Reactor) => {
         throw new Error("Subnet module is not compatible with realm")
       }
 
-      initializeCommonAccounts(ledgerStore, settlementSchemeId)
+      const ledgerId = getLedgerIdForSettlementScheme(settlementSchemeId)
+
+      initializeCommonAccounts(ledgerStore, ledgerId)
 
       const host: SettlementSchemeHostMethods = {
         sendMessage: ({ peerId, message }) => {

@@ -1,5 +1,6 @@
 import { Reactor } from "@dassie/lib-reactive"
 
+import { AccountPath } from "../../accounting/types/accounts"
 import { BtpEndpointInfo, SendBtpPackets } from "../senders/send-btp-packets"
 import {
   IldcpEndpointInfo,
@@ -18,7 +19,7 @@ import { PreparedIlpPacketEvent } from "../topics/prepared-ilp-packet"
 import { ResolvedIlpPacketEvent } from "../topics/resolved-ilp-packet"
 
 export interface CommonEndpointInfo {
-  readonly accountPath: string
+  readonly accountPath: AccountPath
   readonly ilpAddress: string
 }
 
