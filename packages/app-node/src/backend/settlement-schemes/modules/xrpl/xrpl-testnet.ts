@@ -2,6 +2,7 @@ import { Client } from "xrpl"
 
 import { isFailure } from "@dassie/lib-type-utils"
 
+import { LedgerId } from "../../../accounting/types/ledger-id"
 import { EnvironmentConfigSignal } from "../../../config/environment-config"
 import { settlementXrpl as logger } from "../../../logger/instances"
 import { bufferToUint8Array } from "../../../utils/buffer-to-typedarray"
@@ -29,6 +30,14 @@ const xrplTestnet = {
   name: "xrpl-testnet",
   supportedVersions: [1],
   realm: "test",
+
+  ledger: {
+    id: "xrpl-testnet" as LedgerId,
+    currency: {
+      code: "XRP",
+      scale: 9,
+    },
+  },
 
   // eslint-disable-next-line unicorn/consistent-function-scoping
   behavior: async ({ sig }) => {

@@ -3,8 +3,8 @@ import { UnreachableCaseError, isFailure } from "@dassie/lib-type-utils"
 
 import { processSettlementPrepare } from "../../accounting/functions/process-settlement"
 import { LedgerStore } from "../../accounting/stores/ledger"
+import { GetLedgerIdForSettlementScheme } from "../../settlement-schemes/functions/get-ledger-id"
 import { ManageSettlementSchemeInstancesActor } from "../../settlement-schemes/manage-settlement-scheme-instances"
-import { getLedgerIdForSettlementScheme } from "../../settlement-schemes/utils/get-ledger-id"
 import type { PeerMessageHandler } from "../actors/handle-peer-message"
 import { NodeTableStore } from "../stores/node-table"
 
@@ -14,6 +14,9 @@ export const HandleSettlement = ((reactor: Reactor) => {
   )
   const ledgerStore = reactor.use(LedgerStore)
   const nodeTableStore = reactor.use(NodeTableStore)
+  const getLedgerIdForSettlementScheme = reactor.use(
+    GetLedgerIdForSettlementScheme,
+  )
 
   return async ({
     message: {

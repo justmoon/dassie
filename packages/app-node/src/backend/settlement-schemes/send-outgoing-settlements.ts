@@ -11,8 +11,8 @@ import { SendPeerMessageActor } from "../peer-protocol/actors/send-peer-message"
 import { PeersSignal } from "../peer-protocol/computed/peers"
 import { NodeTableStore } from "../peer-protocol/stores/node-table"
 import { NodeId } from "../peer-protocol/types/node-id"
+import { GetLedgerIdForSettlementScheme } from "./functions/get-ledger-id"
 import { ManageSettlementSchemeInstancesActor } from "./manage-settlement-scheme-instances"
-import { getLedgerIdForSettlementScheme } from "./utils/get-ledger-id"
 
 const SETTLEMENT_CHECK_INTERVAL = 4000
 const SETTLEMENT_RATIO = 0.2
@@ -86,6 +86,9 @@ export const SendOutgoingSettlementsActor = (reactor: Reactor) => {
   const nodeTable = reactor.use(NodeTableStore)
   const settlementSchemeManager = reactor.use(
     ManageSettlementSchemeInstancesActor,
+  )
+  const getLedgerIdForSettlementScheme = reactor.use(
+    GetLedgerIdForSettlementScheme,
   )
 
   return createMapped(reactor, PeersSignal, (peerId) =>

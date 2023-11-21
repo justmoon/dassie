@@ -4,12 +4,15 @@ import { IlpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-
 import { ProcessPacketActor } from "../../ilp-connector/process-packet"
 import { PeerEndpointInfo } from "../../ilp-connector/senders/send-peer-packets"
 import { peerProtocol as logger } from "../../logger/instances"
-import { getLedgerIdForSettlementScheme } from "../../settlement-schemes/utils/get-ledger-id"
+import { GetLedgerIdForSettlementScheme } from "../../settlement-schemes/functions/get-ledger-id"
 import type { PeerMessageHandler } from "../actors/handle-peer-message"
 
 export const HandleInterledgerPacket = ((reactor: Reactor) => {
   const ilpAllocationSchemeSignal = reactor.use(IlpAllocationSchemeSignal)
   const processIncomingPacketActor = reactor.use(ProcessPacketActor)
+  const getLedgerIdForSettlementScheme = reactor.use(
+    GetLedgerIdForSettlementScheme,
+  )
 
   return ({
     message: {

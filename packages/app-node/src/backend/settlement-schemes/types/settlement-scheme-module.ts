@@ -2,7 +2,9 @@ import type { Promisable } from "type-fest"
 
 import type { ActorContext } from "@dassie/lib-reactive"
 
+import { LedgerId } from "../../accounting/types/ledger-id"
 import type { VALID_REALMS } from "../../constants/general"
+import { CurrencyDescription } from "../../exchange-rates/services/exchange-rate"
 import { NodeId } from "../../peer-protocol/types/node-id"
 import { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
 
@@ -156,6 +158,14 @@ export interface SettlementSchemeModule<TPeerState extends object = object> {
    * This field is used to prevent a node from accidentially using both real-money settlement and virtual settlement simultaneously because doing so could enable an attacker to steal funds. Either all settlement schemes must use real-money settlement or all settlement schemes must use virtual settlement.
    */
   readonly realm: (typeof VALID_REALMS)[number]
+
+  /**
+   * Configuration for the internal ledger related to the settlement scheme.
+   */
+  readonly ledger: {
+    readonly id: LedgerId
+    readonly currency: CurrencyDescription
+  }
 
   /**
    * Behavior of the actor which will be instantiated while the node is connected to this settlement scheme.

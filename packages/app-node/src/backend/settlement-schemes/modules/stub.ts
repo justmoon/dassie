@@ -1,4 +1,5 @@
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
+import { LedgerId } from "../../accounting/types/ledger-id"
 import type { SettlementSchemeModule } from "../types/settlement-scheme-module"
 
 /**
@@ -12,6 +13,14 @@ const stub = {
   name: "stub",
   supportedVersions: [1],
   realm: "test",
+
+  ledger: {
+    id: "stub" as LedgerId,
+    currency: {
+      code: "USD",
+      scale: 9,
+    },
+  },
 
   // eslint-disable-next-line unicorn/consistent-function-scoping
   behavior: () => {

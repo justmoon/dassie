@@ -4,13 +4,16 @@ import { initializeCommonAccounts } from "../accounting/functions/manage-common-
 import { LedgerStore } from "../accounting/stores/ledger"
 import { DatabaseConfigStore } from "../config/database-config"
 import { SendPeerMessageActor } from "../peer-protocol/actors/send-peer-message"
+import { GetLedgerIdForSettlementScheme } from "./functions/get-ledger-id"
 import modules from "./modules"
 import { ActiveSettlementSchemesSignal } from "./signals/active-settlement-schemes"
 import type { SettlementSchemeHostMethods } from "./types/settlement-scheme-module"
-import { getLedgerIdForSettlementScheme } from "./utils/get-ledger-id"
 
 export const ManageSettlementSchemeInstancesActor = (reactor: Reactor) => {
   const ledgerStore = reactor.use(LedgerStore)
+  const getLedgerIdForSettlementScheme = reactor.use(
+    GetLedgerIdForSettlementScheme,
+  )
 
   return createMapped(
     reactor,
