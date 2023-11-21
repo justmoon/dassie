@@ -20,7 +20,6 @@ import {
   type CertificateInfo,
   validateCertificates,
 } from "../utils/validate-certificates"
-import { FileChangeTopic } from "./handle-file-change"
 
 // Amount of time to wait between starting each node process
 const NODE_STARTUP_INTERVAL = 500
@@ -41,10 +40,7 @@ export const RunNodesActor = (reactor: Reactor) => {
   const runChildProcess = reactor.use(RunChildProcess)
 
   return createActor(async (sig) => {
-    // Restart all nodes when a source code file changes
-    sig.subscribe(FileChangeTopic)
-
-    logger.debug("starting node processes")
+    logger.info("starting node processes")
 
     // eslint-disable-next-line unicorn/consistent-function-scoping
     const NodeActorsMapped = (reactor: Reactor) =>

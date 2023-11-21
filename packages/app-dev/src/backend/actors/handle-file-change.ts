@@ -3,9 +3,8 @@ import { ModuleNode } from "vite"
 
 import { posix } from "node:path"
 
-import { Reactor, createActor, createTopic } from "@dassie/lib-reactive"
+import { Reactor, createActor } from "@dassie/lib-reactive"
 
-import { LogsStore } from "../../common/stores/logs"
 import {
   DEVELOPMENT_SERVER_ENTRYPOINT,
   NODE_ENTRYPOINT,
@@ -15,12 +14,11 @@ import { PeeringStateStore } from "../stores/peering-state"
 import { RestartCallbackUnconstructable } from "../unconstructables/restart-callback"
 import { ViteNodeServer } from "../unconstructables/vite-node-server"
 import { ViteServer } from "../unconstructables/vite-server"
+import { RunNodesActor } from "./run-nodes"
 
 export function getShortName(file: string, root: string): string {
   return file.startsWith(root + "/") ? posix.relative(root, file) : file
 }
-
-export const FileChangeTopic = () => createTopic()
 
 const isWithinBoundary = (
   node: ModuleNode,
@@ -64,9 +62,8 @@ export const HandleFileChangeActor = (reactor: Reactor) => {
   const viteServer = reactor.use(ViteServer)
   const viteNodeServer = reactor.use(ViteNodeServer)
   const restart = reactor.use(RestartCallbackUnconstructable)
-  const logsStore = reactor.use(LogsStore)
   const peeringStateStore = reactor.use(PeeringStateStore)
-  const fileChangeTopic = reactor.use(FileChangeTopic)
+  const runNodesActor = reactor.use(RunNodesActor)
 
   return createActor((sig) => {
     const onFileChange = (file: string) => {
@@ -95,10 +92,10 @@ export const HandleFileChangeActor = (reactor: Reactor) => {
 
       const nodeBoundaryModules = moduleGraph.getModulesByFile(NODE_ENTRYPOINT)
       if (areModulesWithinBoundary(changedModules, nodeBoundaryModules)) {
-        logsStore.clear()
         peeringStateStore.clear()
+
         logger.info(`${chalk.green(`change`)} ${chalk.dim(shortFile)}`)
-        fileChangeTopic.emit(undefined)
+        runNodesActor.forceRestart()
       }
     }
 
