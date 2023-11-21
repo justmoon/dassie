@@ -53,6 +53,7 @@ export const DebugUiServerActor = () =>
         },
       },
       plugins: [devtoolsServer()],
+      clearScreen: false,
     })
     await server.listen(DEBUG_UI_PORT)
 
