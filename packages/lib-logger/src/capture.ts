@@ -8,9 +8,12 @@ export const captureConsole = () => {
 
   for (const method of methods) {
     // eslint-disable-next-line no-console
-    console[method] = (message: string, ...parameters: unknown[]) => {
+    console[method] = (...parameters: unknown[]) => {
       if (method === "debug" && !context.enableChecker(CONSOLE_NAMESPACE))
         return
+
+      const message =
+        typeof parameters[0] === "string" ? (parameters.shift() as string) : ""
 
       context.output(
         {
