@@ -1,5 +1,9 @@
+import { ReactNode } from "react"
+import reactStringReplace from "react-string-replace"
+
 import { isError } from "@dassie/lib-logger"
 
+import { TEST_NODE_VANITY_IDS } from "../../../backend/constants/vanity-nodes"
 import NodeLink from "../shared/node-link/node-link"
 import { ANSI_COLORS } from "./ansi-theme"
 
@@ -13,7 +17,7 @@ interface DataValueProperties {
 interface TypeInfo {
   color: string
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  formatter?: (value: any) => string | JSX.Element
+  formatter?: (value: any) => ReactNode
 }
 
 const typeofOperator = (value: unknown) => typeof value
@@ -24,32 +28,49 @@ type RecognizedType =
   | "null"
   | "error"
 
-const CHAR_LETTER_LOWERCASE_D = 100 // "d"
-const NODE_ID_MIN_LENGTH = 20
-const NODE_ID_MAX_LENGTH = 33
-const NODE_ID_REGEX = /^d\d+_[\w-]+$/
+const vanityNodeIdsSet = new Set(TEST_NODE_VANITY_IDS)
+
+const NODE_ID_REGEX = /(d\d{1,4}_[\w-]{25,30})/
 
 const TYPES = {
   string: {
     color: ANSI_COLORS["ansi-bright-yellow"],
     formatter: (value: string) => {
-      if (
-        value.codePointAt(0) === CHAR_LETTER_LOWERCASE_D &&
-        value.length <= NODE_ID_MAX_LENGTH &&
-        value.length >= NODE_ID_MIN_LENGTH &&
-        NODE_ID_REGEX.test(value)
-      ) {
-        const nodeShortId = value.slice(0, value.indexOf("_"))
-        return (
-          <span className="font-bold">
-            <NodeLink id={nodeShortId} />
-          </span>
-        )
+      const chunks = reactStringReplace(
+        value,
+        NODE_ID_REGEX,
+        (match, index) => {
+          if (!vanityNodeIdsSet.has(match)) {
+            return match
+          }
+
+          const nodeShortId = match.slice(0, match.indexOf("_"))
+          return (
+            <span key={index} className="font-bold">
+              <NodeLink id={nodeShortId} />
+            </span>
+          )
+        },
+      )
+
+      let totalLength = 0
+
+      for (let index = 0; index < chunks.length; index++) {
+        const chunk = chunks[index]
+
+        if (typeof chunk === "string") {
+          if (totalLength + chunk.length > MAX_STRING_LENGTH) {
+            chunks[index] =
+              chunk.slice(0, MAX_STRING_LENGTH - totalLength) + "…"
+
+            return chunks.slice(0, index + 1)
+          }
+
+          totalLength += chunk.length
+        }
       }
 
-      return value.length > MAX_STRING_LENGTH
-        ? `${value.slice(0, MAX_STRING_LENGTH)}…`
-        : value
+      return chunks
     },
   },
   number: {

@@ -42,6 +42,9 @@ const SEED_SECTION_HEADER =
   "export const TEST_NODE_VANITY_SEEDS: Record<number, string> = {\n"
 const SEED_SECTION_FOOTER = "}\n"
 
+const ID_SECTION_HEADER = "export const TEST_NODE_VANITY_IDS: string[] = [\n"
+const ID_SECTION_FOOTER = "]\n"
+
 // Don't record keys for nodes above this index, unless it's the largest we've ever found (which we'll keep for fun)
 const MAX_INDEX = 999
 
@@ -62,6 +65,8 @@ for (const [indexAsString, key] of Object.entries(TEST_NODE_VANITY_ENTROPY)) {
   }
 }
 
+saveResults()
+
 function saveResults() {
   let found = [...foundMap.entries()]
   found.sort(([a], [b]) => a - b)
@@ -75,6 +80,7 @@ function saveResults() {
   let entropyOutput = ENTROPY_SECTION_HEADER
   let mnemonicsOutput = MNEMONIC_SECTION_HEADER
   let seedsOutput = SEED_SECTION_HEADER
+  let idsOutput = ID_SECTION_HEADER
   for (const [index, { seed, nodeId }] of found) {
     const nodeEntropy = Buffer.from(seed, "hex")
     const mnemonic = entropyToMnemonic(nodeEntropy, wordlist)
@@ -83,15 +89,18 @@ function saveResults() {
     entropyOutput += `  ${index}: "${seed}", // ${nodeId}\n`
     mnemonicsOutput += `  ${index}: "${mnemonic}",\n`
     seedsOutput += `  ${index}: "${nodeSeed.toString("hex")}",\n`
+    idsOutput += `  "${nodeId}",\n`
   }
   entropyOutput += ENTROPY_SECTION_FOOTER
   mnemonicsOutput += MNEMONIC_SECTION_FOOTER
   seedsOutput += SEED_SECTION_FOOTER
+  idsOutput += ID_SECTION_FOOTER
 
   const completeOutput = `${OUTPUT_FILE_HEADER}${[
     entropyOutput,
     mnemonicsOutput,
     seedsOutput,
+    idsOutput,
   ].join("\n")}`
   writeFileSync(OUTPUT_FILE_PATH, completeOutput)
 }
