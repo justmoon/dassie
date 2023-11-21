@@ -144,6 +144,17 @@ export type Actor<TInstance> = ReactiveObserver &
     ) => TInstance | undefined
 
     /**
+     * Invalidate the actor and force it to restart at the next opportunity.
+     *
+     * @remarks
+     *
+     * Calling this method will indicate to the actor that its dependencies may have changed at it should restart. If
+     * the actor is already in the process of restarting, it will restart again once it is done. However, it will not
+     * buffer more than one restart.
+     */
+    forceRestart: () => void
+
+    /**
      * If the actor exposes a public API, you can interact with it here.
      *
      * @example
