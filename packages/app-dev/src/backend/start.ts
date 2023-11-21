@@ -4,6 +4,7 @@ import { ViteNodeServer as ViteNodeServerType } from "vite-node/server"
 import { createActor, createReactor } from "@dassie/lib-reactive"
 
 import { HandleShutdownSignalsActor } from "../common/actors/handle-shutdown-signals"
+import { ApplyDebugLoggingScopes } from "./actors/apply-debug-logging-scopes"
 import { CloseViteServerOnShutdownActor } from "./actors/close-vite-server-on-shutdown"
 import { HandleFileChangeActor } from "./actors/handle-file-change"
 import { ProxyByHostnameActor } from "./actors/proxy-by-hostname"
@@ -24,6 +25,8 @@ export interface StartParameters {
 const RootActor = () =>
   createActor(async (sig) => {
     sig.run(RegisterReactiveLoggerActor)
+    sig.run(ApplyDebugLoggingScopes)
+
     await sig.run(ListenForRpcWebSocketActor)
     await sig.run(DebugUiServerActor)
 
