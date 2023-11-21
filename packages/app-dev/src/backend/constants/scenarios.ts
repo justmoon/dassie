@@ -9,11 +9,23 @@ export const builtinScenarios = {
     environment: {},
     nodes: [
       {
-        peers: [],
         settlementMethods: ["xrpl-testnet"],
       },
       {
-        peers: [],
+        settlementMethods: ["xrpl-testnet"],
+      },
+    ],
+  },
+  crossCurrency: {
+    environment: {},
+    nodes: [
+      {
+        settlementMethods: ["stub"],
+      },
+      {
+        settlementMethods: ["stub", "xrpl-testnet"],
+      },
+      {
         settlementMethods: ["xrpl-testnet"],
       },
     ],
