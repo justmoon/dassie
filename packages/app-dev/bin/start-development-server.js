@@ -13,7 +13,18 @@ const createViteServer = async () => {
     define: {
       __DASSIE_VERSION__: '"dev"',
     },
-    server: { hmr: false },
+    server: {
+      hmr: false,
+      watch: {
+        ignored: [
+          "**/dist/**",
+          "**/.next/**",
+          "**/.turbo/**",
+          "**/.cache/**",
+          "**/.vagrant/**",
+        ],
+      },
+    },
     clearScreen: false,
   })
 
