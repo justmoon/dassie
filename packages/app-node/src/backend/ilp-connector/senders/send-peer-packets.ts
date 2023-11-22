@@ -15,7 +15,7 @@ export const SendPeerPackets = (reactor: Reactor): PacketSender<"peer"> => {
 
   return {
     sendPrepare: ({
-      nodeId,
+      destinationEndpointInfo: { nodeId },
       serializedPacket,
       outgoingRequestId: requestId,
     }) => {
@@ -34,7 +34,7 @@ export const SendPeerPackets = (reactor: Reactor): PacketSender<"peer"> => {
       })
     },
     sendResult: ({
-      nodeId,
+      destinationEndpointInfo: { nodeId },
       serializedPacket,
       prepare: { incomingRequestId: requestId },
     }) => {

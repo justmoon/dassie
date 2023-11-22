@@ -1,8 +1,8 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { ExchangeRateServiceActor } from "./services/exchange-rate"
+import { LoadExchangeRatesActor } from "./load-exchange-rates"
 
 export const ExchangeRatesActor = () =>
   createActor(async (sig) => {
-    await sig.run(ExchangeRateServiceActor)
+    await sig.run(LoadExchangeRatesActor)
   })

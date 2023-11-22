@@ -5,7 +5,8 @@ import { getLedgerIdFromPath } from "./get-ledger-id-from-path"
 export const applyPacketPrepareToLedger = (
   sourceAccountPath: AccountPath,
   destinationAccountPath: AccountPath,
-  amount: bigint,
+  incomingAmount: bigint,
+  outgoingAmount: bigint,
 ) => {
   const transfers = []
 
@@ -16,7 +17,7 @@ export const applyPacketPrepareToLedger = (
     const transfer: CreateTransferParameters = {
       debitAccountPath: sourceAccountPath,
       creditAccountPath: connectorPath,
-      amount,
+      amount: incomingAmount,
       pending: true,
     }
 
@@ -29,7 +30,7 @@ export const applyPacketPrepareToLedger = (
     const transfer: CreateTransferParameters = {
       debitAccountPath: connectorPath,
       creditAccountPath: destinationAccountPath,
-      amount,
+      amount: outgoingAmount,
       pending: true,
     }
 

@@ -53,9 +53,10 @@ export const ProcessRejectPacket = (reactor: Reactor) => {
       prepare,
       parsedPacket,
       serializedPacket,
+      destinationEndpointInfo: prepare.sourceEndpointInfo,
     }
 
-    sendPacket(prepare.sourceEndpointInfo, resolvedIlpPacketEvent)
+    sendPacket(resolvedIlpPacketEvent)
     resolvedIlpPacketTopic.emit(resolvedIlpPacketEvent)
   }
 }

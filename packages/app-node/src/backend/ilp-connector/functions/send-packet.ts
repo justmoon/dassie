@@ -1,6 +1,7 @@
 import { Reactor } from "@dassie/lib-reactive"
 
 import { AccountPath } from "../../accounting/types/accounts"
+import { IlpPacket, IlpPreparePacket } from "../schemas/ilp-packet-codec"
 import { BtpEndpointInfo, SendBtpPackets } from "../senders/send-btp-packets"
 import {
   IldcpEndpointInfo,
@@ -16,11 +17,29 @@ import {
   SendPluginPackets,
 } from "../senders/send-plugin-packets"
 import { PreparedIlpPacketEvent } from "../topics/prepared-ilp-packet"
-import { ResolvedIlpPacketEvent } from "../topics/resolved-ilp-packet"
 
 export interface CommonEndpointInfo {
   readonly accountPath: AccountPath
   readonly ilpAddress: string
+}
+
+export interface PreparedPacketParameters<
+  TType extends EndpointInfo["type"] = EndpointInfo["type"],
+> {
+  readonly serializedPacket: Uint8Array
+  readonly parsedPacket: IlpPreparePacket
+  readonly outgoingRequestId: number
+  readonly sourceEndpointInfo: EndpointInfo
+  readonly destinationEndpointInfo: EndpointInfo & { type: TType }
+}
+
+export interface ResolvedPacketParameters<
+  TType extends EndpointInfo["type"] = EndpointInfo["type"],
+> {
+  readonly prepare: PreparedIlpPacketEvent
+  readonly serializedPacket: Uint8Array
+  readonly parsedPacket: Exclude<IlpPacket, IlpPreparePacket>
+  readonly destinationEndpointInfo: EndpointInfo & { type: TType }
 }
 
 export type EndpointInfo =
@@ -29,12 +48,6 @@ export type EndpointInfo =
   | BtpEndpointInfo
   | PluginEndpointInfo
   | IlpHttpEndpointInfo
-
-export type PreparedPacketParameters<TType extends EndpointInfo["type"]> =
-  EndpointInfo & { type: TType } & PreparedIlpPacketEvent
-
-export type ResolvedPacketParameters<TType extends EndpointInfo["type"]> =
-  EndpointInfo & { type: TType } & ResolvedIlpPacketEvent
 
 export type PacketSender<TType extends EndpointInfo["type"]> = {
   sendPrepare: (parameters: PreparedPacketParameters<TType>) => void
@@ -55,21 +68,18 @@ export const SendPacket = (reactor: Reactor) => {
   }
 
   return <TType extends EndpointInfo["type"]>(
-    client: EndpointInfo & { type: TType },
-    event: PreparedIlpPacketEvent | ResolvedIlpPacketEvent,
+    parameters:
+      | PreparedPacketParameters<TType>
+      | ResolvedPacketParameters<TType>,
   ) => {
-    const sender = senders[client.type] as PacketSender<TType>
+    const sender = senders[
+      parameters.destinationEndpointInfo.type
+    ] as PacketSender<TType>
 
-    if ("prepare" in event) {
-      sender.sendResult({
-        ...client,
-        ...event,
-      })
+    if ("prepare" in parameters) {
+      sender.sendResult(parameters)
     } else {
-      sender.sendPrepare({
-        ...client,
-        ...event,
-      })
+      sender.sendPrepare(parameters)
     }
   }
 }

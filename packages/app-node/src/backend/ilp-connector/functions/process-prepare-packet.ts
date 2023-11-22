@@ -3,13 +3,19 @@ import { UnreachableCaseError, isFailure } from "@dassie/lib-type-utils"
 
 import { applyPacketPrepareToLedger } from "../../accounting/functions/apply-interledger-packet"
 import { LedgerStore, Transfer } from "../../accounting/stores/ledger"
+import { CalculateOutgoingAmount } from "../../exchange/functions/calculate-outgoing-amount"
 import { connector as logger } from "../../logger/instances"
 import { ResolveIlpAddress } from "../../routing/functions/resolve-ilp-address"
 import { MAX_PACKET_AMOUNT } from "../constants/max-packet-amount"
-import { SendPacket } from "../functions/send-packet"
+import { PreparedPacketParameters, SendPacket } from "../functions/send-packet"
 import { ProcessIncomingPacketParameters } from "../process-packet"
 import { IlpErrorCode } from "../schemas/ilp-errors"
-import { IlpPreparePacket } from "../schemas/ilp-packet-codec"
+import {
+  IlpPacket,
+  IlpPreparePacket,
+  IlpType,
+  serializeIlpPacket,
+} from "../schemas/ilp-packet-codec"
 import { RequestIdMapSignal } from "../signals/request-id-map"
 import {
   PreparedIlpPacketEvent,
@@ -30,6 +36,7 @@ export const ProcessPreparePacket = (reactor: Reactor) => {
   const sendPacket = reactor.use(SendPacket)
   const triggerRejection = reactor.use(TriggerRejection)
   const scheduleTimeout = reactor.use(ScheduleTimeout)
+  const calculateOutgoingAmount = reactor.use(CalculateOutgoingAmount)
 
   return ({
     sourceEndpointInfo,
@@ -80,6 +87,7 @@ export const ProcessPreparePacket = (reactor: Reactor) => {
       return
     }
 
+    let outgoingAmount = parsedPacket.amount
     if (parsedPacket.amount > 0n) {
       if (parsedPacket.amount > MAX_PACKET_AMOUNT) {
         triggerRejection({
@@ -90,10 +98,17 @@ export const ProcessPreparePacket = (reactor: Reactor) => {
         return
       }
 
+      outgoingAmount = calculateOutgoingAmount(
+        sourceEndpointInfo.accountPath,
+        destinationEndpointInfo.accountPath,
+        parsedPacket.amount,
+      )
+
       const transfers = applyPacketPrepareToLedger(
         sourceEndpointInfo.accountPath,
         destinationEndpointInfo.accountPath,
         parsedPacket.amount,
+        outgoingAmount,
       )
 
       for (const transfer of transfers) {
@@ -133,7 +148,25 @@ export const ProcessPreparePacket = (reactor: Reactor) => {
       }
     }
 
-    sendPacket(destinationEndpointInfo, preparedIlpPacketEvent)
+    const outgoingPacket: IlpPacket = {
+      type: IlpType.Prepare,
+      amount: outgoingAmount,
+      destination: parsedPacket.destination,
+      executionCondition: parsedPacket.executionCondition,
+      // TODO: Reduce expiry
+      expiresAt: parsedPacket.expiresAt,
+      data: parsedPacket.data,
+    }
+
+    const outgoingPacketEvent: PreparedPacketParameters = {
+      parsedPacket: outgoingPacket,
+      serializedPacket: serializeIlpPacket(outgoingPacket),
+      outgoingRequestId,
+      sourceEndpointInfo,
+      destinationEndpointInfo,
+    }
+
+    sendPacket(outgoingPacketEvent)
     preparedIlpPacketTopic.emit(preparedIlpPacketEvent)
   }
 }

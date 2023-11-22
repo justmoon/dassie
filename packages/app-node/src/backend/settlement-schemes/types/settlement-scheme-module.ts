@@ -4,7 +4,7 @@ import type { ActorContext } from "@dassie/lib-reactive"
 
 import { LedgerId } from "../../accounting/types/ledger-id"
 import type { VALID_REALMS } from "../../constants/general"
-import { CurrencyDescription } from "../../exchange-rates/services/exchange-rate"
+import { CurrencyDescription } from "../../exchange/load-exchange-rates"
 import { NodeId } from "../../peer-protocol/types/node-id"
 import { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
 

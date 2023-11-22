@@ -1,0 +1,1 @@
+export const INTERNAL_PRECISION = 15

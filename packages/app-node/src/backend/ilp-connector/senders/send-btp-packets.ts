@@ -20,7 +20,7 @@ export const SendBtpPackets = (reactor: Reactor): PacketSender<"btp"> => ({
     parsedPacket,
     serializedPacket,
     outgoingRequestId: requestId,
-    connectionId,
+    destinationEndpointInfo: { connectionId },
   }) => {
     const btpBroker = reactor.use(RegisterBtpHttpUpgradeActor)
 
@@ -104,7 +104,7 @@ export const SendBtpPackets = (reactor: Reactor): PacketSender<"btp"> => ({
   sendResult: ({
     serializedPacket,
     prepare: { incomingRequestId: requestId },
-    connectionId,
+    destinationEndpointInfo: { connectionId },
   }) => {
     const btpBroker = reactor.use(RegisterBtpHttpUpgradeActor)
     const btpMessageSerializeResult = btpMessageSchema.serialize({

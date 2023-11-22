@@ -33,10 +33,6 @@ export const CONFIG_DATABASE_SCALARS = {
   configTlsWebKey: scalar().name("config.tls_web_key").type("TEXT"),
   configDassieKey: scalar().name("config.dassie_key").type("TEXT"),
   configExchangeRateUrl: scalar().name("config.exchange_rate_url").type("TEXT"),
-  configInternalAmountPrecision: scalar()
-    .name("config.internal_amount_precision")
-    .type("INTEGER")
-    .deserialize((value) => z.number().int().min(3).parse(value)),
   configEnableHttpServer: scalar()
     .name("config.enable_http_server")
     .type("INTEGER")

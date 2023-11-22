@@ -15,7 +15,6 @@ export interface Config {
   readonly enableHttpServer: boolean
 
   readonly exchangeRateUrl: string
-  readonly internalAmountPrecision: number
 
   readonly hostname: string | undefined
   readonly tlsWebCert: string | undefined
@@ -48,8 +47,6 @@ const loadInitialConfig = (database: ReturnType<typeof Database>): Config => {
   const configTlsWebKey = database.scalars.configTlsWebKey.get()
   const configDassieKey = database.scalars.configDassieKey.get()
   const configExchangeRateUrl = database.scalars.configExchangeRateUrl.get()
-  const configInternalAmountPrecision =
-    database.scalars.configInternalAmountPrecision.get()
 
   return {
     realm: configRealm,
@@ -64,7 +61,6 @@ const loadInitialConfig = (database: ReturnType<typeof Database>): Config => {
     enableHttpServer: configEnableHttpServer,
     exchangeRateUrl:
       configExchangeRateUrl ?? "https://api.coinbase.com/v2/exchange-rates",
-    internalAmountPrecision: configInternalAmountPrecision ?? 12,
 
     tlsWebCert: configTlsWebCert,
     tlsWebKey: configTlsWebKey,

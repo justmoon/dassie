@@ -14,8 +14,7 @@ export const SendPluginPackets = (reactor: Reactor): PacketSender<"plugin"> => {
 
   return {
     sendPrepare: ({
-      pluginId,
-      localIlpAddressPart,
+      destinationEndpointInfo: { pluginId, localIlpAddressPart },
       serializedPacket,
       outgoingRequestId,
     }) => {
