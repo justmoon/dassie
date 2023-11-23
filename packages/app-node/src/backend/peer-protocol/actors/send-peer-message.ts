@@ -3,12 +3,15 @@ import type { SetOptional } from "type-fest"
 
 import type { Infer, InferSerialize } from "@dassie/lib-oer"
 import { createActor, createTopic } from "@dassie/lib-reactive"
-import { isErrorWithCode, isFailure } from "@dassie/lib-type-utils"
+import {
+  bufferToUint8Array,
+  isErrorWithCode,
+  isFailure,
+} from "@dassie/lib-type-utils"
 
 import { EnvironmentConfigSignal } from "../../config/environment-config"
 import { NodeIdSignal } from "../../ilp-connector/computed/node-id"
 import { peerProtocol as logger } from "../../logger/instances"
-import { bufferToUint8Array } from "../../utils/buffer-to-typedarray"
 import { DASSIE_MESSAGE_CONTENT_TYPE } from "../constants/content-type"
 import { DEFAULT_NODE_COMMUNICATION_TIMEOUT } from "../constants/timings"
 import { GenerateMessageAuthentication } from "../functions/generate-message-authentication"

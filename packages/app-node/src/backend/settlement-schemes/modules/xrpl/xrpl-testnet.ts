@@ -1,11 +1,10 @@
 import { Client } from "xrpl"
 
-import { isFailure } from "@dassie/lib-type-utils"
+import { bufferToUint8Array, isFailure } from "@dassie/lib-type-utils"
 
 import { LedgerId } from "../../../accounting/types/ledger-id"
 import { EnvironmentConfigSignal } from "../../../config/environment-config"
 import { settlementXrpl as logger } from "../../../logger/instances"
-import { bufferToUint8Array } from "../../../utils/buffer-to-typedarray"
 import type { SettlementSchemeModule } from "../../types/settlement-scheme-module"
 import { getAccountInfo } from "./functions/get-account-info"
 import { getTransaction } from "./functions/get-transaction"

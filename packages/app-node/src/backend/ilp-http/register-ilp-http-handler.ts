@@ -24,9 +24,9 @@ export const RegisterIlpHttpHandlerActor = (reactor: Reactor) => {
     http
       .post()
       .path("/ilp")
-      .bodyParser("uint8Array")
       .assert(createAcceptHeaderAssertion(ILP_OVER_HTTP_CONTENT_TYPE))
       .assert(createContentTypeHeaderAssertion(ILP_OVER_HTTP_CONTENT_TYPE))
+      .bodyParser("uint8Array")
       .handler(sig, (request) => {
         if (request.headers["prefer"] !== "respond-async") {
           return new BadRequestFailure(

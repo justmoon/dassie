@@ -1,5 +1,6 @@
 export { assertDefined } from "./assert-defined"
 export { bigIntMin, bigIntMax } from "./bigint-minmax"
+export { bufferToUint8Array } from "./buffer-to-typedarray"
 export {
   Failure,
   isFailure,

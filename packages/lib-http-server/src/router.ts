@@ -1,6 +1,6 @@
 import type { Request, Response } from "express"
 import { Router } from "express"
-import { Simplify } from "type-fest"
+import { Promisable, Simplify } from "type-fest"
 import type { AnyZodObject, infer as InferZodType } from "zod"
 
 import { IncomingMessage } from "node:http"
@@ -9,7 +9,7 @@ import { AnyOerType, Infer as InferOerType } from "@dassie/lib-oer"
 import type { LifecycleScope } from "@dassie/lib-reactive"
 import { Failure, isFailure } from "@dassie/lib-type-utils"
 
-import { BadRequestFailure } from "./failures/bad-request-failure"
+import { cors } from "./cors"
 import { HttpRequestHandler, createHandler } from "./handler"
 import {
   parseBodyBuffer,
@@ -19,6 +19,7 @@ import {
   parseBodyZod,
   parseJson,
 } from "./parse-body"
+import { parseQueryParameters } from "./query-parameters"
 import { HttpFailure } from "./types/http-failure"
 import { RouteParameters } from "./types/route-parameters"
 
@@ -35,7 +36,6 @@ export const HTTP_METHODS = [
 export type HttpMethod = (typeof HTTP_METHODS)[number]
 
 export const BODY_PARSERS = {
-  none: async () => {},
   json: parseJson,
   uint8Array: parseBodyUint8Array,
   utf8: parseBodyUtf8,
@@ -56,7 +56,20 @@ export type ApiHandler<TParameters extends ApiRouteParameters> =
 export type InferBodyType<TBodyParser extends BodyParser> = Exclude<
   Awaited<ReturnType<(typeof BODY_PARSERS)[TBodyParser]>>,
   Failure
->
+>["body"]
+
+export type Middleware<TInput extends object, TOutput extends object> = (
+  request: Request & TInput,
+  response: Response,
+) => Promisable<void | TOutput | HttpFailure>
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnyMiddleware = Middleware<any, object>
+
+export type ApplyMiddleware<
+  TParameters extends ApiRouteParameters,
+  TMiddleware extends AnyMiddleware,
+> = TParameters & Exclude<Awaited<ReturnType<TMiddleware>>, Failure>
 
 export type ApiRouteBuilder<
   TParameters extends ApiRouteParameters = ApiRouteParameters,
@@ -124,6 +137,10 @@ export type ApiRouteBuilder<
     }
   >
 
+  use: <TMiddleware extends Middleware<TParameters, object>>(
+    middleware: TMiddleware,
+  ) => ApiRouteBuilder<ApplyMiddleware<TParameters, TMiddleware>>
+
   /**
    * Provide a function which will be run against each request before the
    * handler and which may return a failure to be returned to the client.
@@ -151,26 +168,16 @@ export type ApiRouteBuilder<
 interface RouteBuilderState {
   readonly path: string | undefined
   readonly method: HttpMethod | undefined
-  readonly bodyParser:
-    | ((
-        request: IncomingMessage,
-        // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
-      ) => Promise<HttpFailure | unknown>)
-    | undefined
-  readonly queryValidator: AnyZodObject | undefined
-  readonly cors: boolean
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  readonly middlewares: Array<Middleware<any, object>>
   readonly userHandler: ApiHandler<ApiRouteParameters> | undefined
-  readonly assertions: Array<(request: IncomingMessage) => HttpFailure | void>
 }
 
 const initialRouteBuilderState: RouteBuilderState = {
   path: undefined,
   method: undefined,
-  bodyParser: undefined,
-  queryValidator: undefined,
-  cors: false,
   userHandler: undefined,
-  assertions: [],
+  middlewares: [],
 }
 
 const createRouteHandler =
@@ -180,25 +187,10 @@ const createRouteHandler =
       throw new Error("No handler provided for API route")
     }
 
-    if (state.bodyParser) {
-      const result = await state.bodyParser(request)
+    for (const middleware of state.middlewares) {
+      const result = await middleware(request, response)
       if (isFailure(result)) return result
-
-      request.body = result
-    }
-
-    try {
-      state.queryValidator?.parse(request.query)
-    } catch (error) {
-      console.warn("invalid api request query string", {
-        path: state.path,
-        error,
-      })
-      return new BadRequestFailure("Invalid API request query string")
-    }
-
-    if (state.cors) {
-      response.setHeader("Access-Control-Allow-Origin", "*")
+      if (result) Object.assign(request, result)
     }
 
     return state.userHandler(request, response)
@@ -237,37 +229,43 @@ export const createRouter = () => {
       bodyParser: (type: BodyParser) => {
         return createBuilder({
           ...state,
-          bodyParser: BODY_PARSERS[type],
+          middlewares: [...state.middlewares, BODY_PARSERS[type]],
         })
       },
       bodySchemaZod: (schema) => {
         return createBuilder({
           ...state,
-          bodyParser: parseBodyZod(schema),
+          middlewares: [...state.middlewares, parseBodyZod(schema)],
         })
       },
       bodySchemaOer: (schema) => {
         return createBuilder({
           ...state,
-          bodyParser: parseBodyOer(schema),
+          middlewares: [...state.middlewares, parseBodyOer(schema)],
         })
       },
       querySchema: (schema) => {
         return createBuilder({
           ...state,
-          queryValidator: schema,
+          middlewares: [...state.middlewares, parseQueryParameters(schema)],
         })
       },
       cors: () => {
         return createBuilder({
           ...state,
-          cors: true,
+          middlewares: [...state.middlewares, cors],
+        })
+      },
+      use: (middleware) => {
+        return createBuilder({
+          ...state,
+          middlewares: [...state.middlewares, middleware],
         })
       },
       assert: (assertion) => {
         return createBuilder({
           ...state,
-          assertions: [...state.assertions, assertion],
+          middlewares: [...state.middlewares, assertion],
         })
       },
       handler: (lifecycle, handler) => {

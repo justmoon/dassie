@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto"
 
-import { bufferToUint8Array } from "../../utils/buffer-to-typedarray"
+import { bufferToUint8Array } from "@dassie/lib-type-utils"
 
 export const calculateMessageHmac = (
   message: Uint8Array,

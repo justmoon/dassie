@@ -5,14 +5,14 @@ import { infer as InferZodType, ZodTypeAny } from "zod"
 import type { IncomingMessage } from "node:http"
 
 import { AnyOerType, Infer as InferOerType } from "@dassie/lib-oer"
-import { isFailure } from "@dassie/lib-type-utils"
+import { bufferToUint8Array, isFailure } from "@dassie/lib-type-utils"
 
 import { BadRequestFailure, PayloadTooLargeFailure } from "."
 import { DEFAULT_MAX_BODY_SIZE } from "./constants"
 
 export const parseBodyBuffer = async (
   request: IncomingMessage,
-): Promise<Buffer | PayloadTooLargeFailure> => {
+): Promise<{ body: Buffer } | PayloadTooLargeFailure> => {
   const body: Buffer[] = []
   let dataReceived = 0
 
@@ -27,33 +27,38 @@ export const parseBodyBuffer = async (
     body.push(chunk)
   }
 
-  return Buffer.concat(body)
+  return { body: Buffer.concat(body) }
 }
 
 export const parseBodyUint8Array = async (
   request: IncomingMessage,
-): Promise<Uint8Array | PayloadTooLargeFailure> => {
+): Promise<{ body: Uint8Array } | PayloadTooLargeFailure> => {
   const buffer = await parseBodyBuffer(request)
+  if (isFailure(buffer)) return buffer
 
-  return isFailure(buffer) ? buffer : new Uint8Array(buffer)
+  return { body: bufferToUint8Array(buffer.body) }
 }
 
 export const parseBodyUtf8 = async (
   request: IncomingMessage,
-): Promise<string | PayloadTooLargeFailure> => {
-  const buffer = await parseBodyBuffer(request)
+): Promise<{ body: string } | PayloadTooLargeFailure> => {
+  const bufferBody = await parseBodyBuffer(request)
+  if (isFailure(bufferBody)) return bufferBody
 
-  return isFailure(buffer) ? buffer : buffer.toString("utf8")
+  return { body: bufferBody.body.toString("utf8") }
 }
 
 export const parseJson = async (
   request: IncomingMessage,
   // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
-): Promise<JsonValue | PayloadTooLargeFailure | BadRequestFailure> => {
-  const body = await parseBodyUtf8(request)
+): Promise<
+  { body: JsonValue } | PayloadTooLargeFailure | BadRequestFailure
+> => {
+  const utf8Body = await parseBodyUtf8(request)
+  if (isFailure(utf8Body)) return utf8Body
 
   try {
-    return isFailure(body) ? body : (secureJsonParse(body) as JsonValue)
+    return { body: secureJsonParse(utf8Body.body) as JsonValue }
   } catch (error) {
     console.debug("request body is not valid JSON", { error })
     return new BadRequestFailure("Invalid HTTP request body")
@@ -65,12 +70,12 @@ export const parseBodyZod =
   async (
     request: IncomingMessage,
   ): Promise<
-    InferZodType<TSchema> | PayloadTooLargeFailure | BadRequestFailure
+    { body: InferZodType<TSchema> } | PayloadTooLargeFailure | BadRequestFailure
   > => {
-    const body = await parseJson(request)
-    if (isFailure(body)) return body
+    const jsonBody = await parseJson(request)
+    if (isFailure(jsonBody)) return jsonBody
 
-    const result = schema.safeParse(body)
+    const result = schema.safeParse(jsonBody.body)
 
     if (!result.success) {
       console.debug("request body does not pass schema", {
@@ -80,7 +85,7 @@ export const parseBodyZod =
     }
 
     // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-    return result.data as InferZodType<TSchema>
+    return { body: result.data as InferZodType<TSchema> }
   }
 
 export const parseBodyOer =
@@ -88,12 +93,12 @@ export const parseBodyOer =
   async (
     request: IncomingMessage,
   ): Promise<
-    InferOerType<TSchema> | PayloadTooLargeFailure | BadRequestFailure
+    { body: InferOerType<TSchema> } | PayloadTooLargeFailure | BadRequestFailure
   > => {
-    const body = await parseBodyUint8Array(request)
-    if (isFailure(body)) return body
+    const uint8ArrayBody = await parseBodyUint8Array(request)
+    if (isFailure(uint8ArrayBody)) return uint8ArrayBody
 
-    const result = schema.parse(body)
+    const result = schema.parse(uint8ArrayBody.body)
 
     if (isFailure(result)) {
       console.debug("request body does not pass schema", {
@@ -103,5 +108,5 @@ export const parseBodyOer =
     }
 
     // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-    return result.value as InferOerType<TSchema>
+    return { body: result.value as InferOerType<TSchema> }
   }
