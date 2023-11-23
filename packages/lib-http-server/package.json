@@ -27,6 +27,7 @@
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "dependencies": {
+    "@dassie/lib-oer": "workspace:^",
     "@dassie/lib-reactive": "workspace:^",
     "@dassie/lib-type-utils": "workspace:^",
     "@types/express": "^4.17.21",

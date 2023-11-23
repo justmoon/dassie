@@ -562,6 +562,9 @@ importers:
 
   packages/lib-http-server:
     dependencies:
+      '@dassie/lib-oer':
+        specifier: workspace:^
+        version: link:../lib-oer
       '@dassie/lib-reactive':
         specifier: workspace:^
         version: link:../lib-reactive

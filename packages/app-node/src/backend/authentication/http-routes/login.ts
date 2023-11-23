@@ -27,7 +27,7 @@ export const RegisterLoginRouteActor = () =>
     http
       .post()
       .path("/api/login")
-      .bodySchema(
+      .bodySchemaZod(
         z.object({
           loginAuthorizationSignature: z.string(),
         }),

@@ -43,7 +43,7 @@ export const HandleIncomingPaymentsActor = () =>
       .post()
       .path(`${PAYMENT_POINTER_ROOT}/incoming-payments`)
       .cors()
-      .bodySchema(
+      .bodySchemaZod(
         z.object({
           incomingAmount: z.object({
             value: z.string(),

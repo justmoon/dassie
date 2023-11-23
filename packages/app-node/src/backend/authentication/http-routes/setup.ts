@@ -34,7 +34,7 @@ export const RegisterSetupRouteActor = (reactor: Reactor) => {
     http
       .post()
       .path("/api/setup")
-      .bodySchema(
+      .bodySchemaZod(
         z.object({
           setupAuthorizationToken: z.string(),
           rawDassieKeyHex: z.string(),

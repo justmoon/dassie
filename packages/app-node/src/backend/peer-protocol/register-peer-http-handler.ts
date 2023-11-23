@@ -6,12 +6,12 @@ import {
   createContentTypeHeaderAssertion,
 } from "@dassie/lib-http-server"
 import { Reactor, createActor } from "@dassie/lib-reactive"
-import { isFailure } from "@dassie/lib-type-utils"
 
 import { HttpsRouter } from "../http-server/serve-https"
 import { peerProtocol as logger } from "../logger/instances"
 import {
   HandlePeerMessageActor,
+  IncomingPeerMessageEvent,
   IncomingPeerMessageTopic,
 } from "./actors/handle-peer-message"
 import { ALLOW_ANONYMOUS_USAGE } from "./constants/anonymous-messages"
@@ -30,42 +30,30 @@ export const RegisterPeerHttpHandlerActor = (reactor: Reactor) => {
     http
       .post()
       .path("/peer")
-      .bodyParser("uint8Array")
       .assert(createAcceptHeaderAssertion(DASSIE_MESSAGE_CONTENT_TYPE))
       .assert(createContentTypeHeaderAssertion(DASSIE_MESSAGE_CONTENT_TYPE))
-      .handler(sig, async (request) => {
-        const parseResult = peerMessageSchema.parse(request.body)
-        if (isFailure(parseResult)) {
-          logger.debug("error while parsing incoming dassie message", {
-            error: parseResult,
-            body: request.body,
-          })
-          return new BadRequestFailure(`Bad Request, failed to parse message`)
-        }
-
-        if (parseResult.value.version !== 0) {
+      .bodySchemaOer(peerMessageSchema)
+      .handler(sig, async ({ body }) => {
+        if (body.version !== 0) {
           logger.debug("incoming dassie message has unknown version", {
-            version: parseResult.value.version,
+            version: body.version,
           })
           return new BadRequestFailure(`Bad Request, unsupported version`)
         }
 
-        const senderNode = nodeTableStore.read().get(parseResult.value.sender)
+        const senderNode = nodeTableStore.read().get(body.sender)
 
-        const isAuthenticated = authenticatePeerMessage(
-          parseResult.value,
-          senderNode,
-        )
+        const isAuthenticated = authenticatePeerMessage(body, senderNode)
 
         // Only certain messages are allowed to be sent anonymously
         if (
           !isAuthenticated &&
-          !ALLOW_ANONYMOUS_USAGE.includes(parseResult.value.content.value.type)
+          !ALLOW_ANONYMOUS_USAGE.includes(body.content.value.type)
         ) {
           logger.debug(
             "incoming dassie message is not authenticated, ignoring",
             {
-              message: parseResult.value,
+              message: body,
             },
           )
           return new UnauthorizedFailure(
@@ -73,19 +61,16 @@ export const RegisterPeerHttpHandlerActor = (reactor: Reactor) => {
           )
         }
 
-        sig.reactor.use(IncomingPeerMessageTopic).emit({
-          message: parseResult.value,
+        const event: IncomingPeerMessageEvent = {
+          message: body,
           authenticated: isAuthenticated,
           peerState: senderNode?.peerState,
-          asUint8Array: request.body,
-        })
+        }
 
-        const responseMessage = await handlePeerMessageActor.api.handle.ask({
-          message: parseResult.value,
-          authenticated: isAuthenticated,
-          peerState: senderNode?.peerState,
-          asUint8Array: request.body,
-        })
+        sig.reactor.use(IncomingPeerMessageTopic).emit(event)
+
+        const responseMessage =
+          await handlePeerMessageActor.api.handle.ask(event)
 
         return createBinaryResponse(responseMessage, {
           contentType: "application/dassie-peer-response",

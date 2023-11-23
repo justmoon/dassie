@@ -30,7 +30,6 @@ export interface IncomingPeerMessageEvent<
   }
   authenticated: boolean
   peerState: PeerState | undefined
-  asUint8Array: Uint8Array
 }
 
 export type PeerMessageHandler<TType extends PeerMessageType> = Factory<

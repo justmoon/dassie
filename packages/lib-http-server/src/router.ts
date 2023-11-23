@@ -1,10 +1,11 @@
 import type { Request, Response } from "express"
 import { Router } from "express"
 import { Simplify } from "type-fest"
-import type { AnyZodObject, infer as inferZodType } from "zod"
+import type { AnyZodObject, infer as InferZodType } from "zod"
 
 import { IncomingMessage } from "node:http"
 
+import { AnyOerType, Infer as InferOerType } from "@dassie/lib-oer"
 import type { LifecycleScope } from "@dassie/lib-reactive"
 import { Failure, isFailure } from "@dassie/lib-type-utils"
 
@@ -12,6 +13,7 @@ import { BadRequestFailure } from "./failures/bad-request-failure"
 import { HttpRequestHandler, createHandler } from "./handler"
 import {
   parseBodyBuffer,
+  parseBodyOer,
   parseBodyUint8Array,
   parseBodyUtf8,
   parseBodyZod,
@@ -91,17 +93,23 @@ export type ApiRouteBuilder<
 
   /**
    * Provide a JSON validator for the request body.
-   *
-   * @remarks
-   *
-   * This will automatically set the body parser to `json`. If you change the
-   * body parser after calling this method, the schema will be disabled.
    */
-  bodySchema: <TBodySchema extends AnyZodObject>(
+  bodySchemaZod: <TBodySchema extends AnyZodObject>(
     schema: TBodySchema,
   ) => ApiRouteBuilder<
     TParameters & {
-      body: inferZodType<TBodySchema>
+      body: InferZodType<TBodySchema>
+    }
+  >
+
+  /**
+   * Provide an OER deserializer for the request body.
+   */
+  bodySchemaOer: <TBodySchema extends AnyOerType>(
+    schema: TBodySchema,
+  ) => ApiRouteBuilder<
+    TParameters & {
+      body: InferOerType<TBodySchema>
     }
   >
 
@@ -112,7 +120,7 @@ export type ApiRouteBuilder<
     schema: TQuerySchema,
   ) => ApiRouteBuilder<
     TParameters & {
-      query: inferZodType<TQuerySchema>
+      query: InferZodType<TQuerySchema>
     }
   >
 
@@ -232,10 +240,16 @@ export const createRouter = () => {
           bodyParser: BODY_PARSERS[type],
         })
       },
-      bodySchema: (schema) => {
+      bodySchemaZod: (schema) => {
         return createBuilder({
           ...state,
           bodyParser: parseBodyZod(schema),
+        })
+      },
+      bodySchemaOer: (schema) => {
+        return createBuilder({
+          ...state,
+          bodyParser: parseBodyOer(schema),
         })
       },
       querySchema: (schema) => {

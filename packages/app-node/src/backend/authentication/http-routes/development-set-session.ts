@@ -17,7 +17,7 @@ export const RegisterDevelopmentSetSessionRouteActor = () =>
     http
       .post()
       .path("/api/_dev/set-session")
-      .bodySchema(
+      .bodySchemaZod(
         z.object({
           sessionToken: z
             .string()
