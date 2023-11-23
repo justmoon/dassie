@@ -49,6 +49,24 @@ const xrplTestnet = {
     const wallet = await loadOrCreateWallet(xrplWalletPath, "test")
 
     const client = new Client("wss://s.altnet.rippletest.net:51233")
+
+    client.on(
+      "error",
+      (
+        errorCode: unknown,
+        errorMessage: unknown,
+        error: unknown,
+        ...otherParameters
+      ) => {
+        logger.error("xrpl client error", {
+          errorCode,
+          errorMessage,
+          error,
+          otherParameters,
+        })
+      },
+    )
+
     await client.connect()
 
     sig.onCleanup(async () => await client.disconnect())
