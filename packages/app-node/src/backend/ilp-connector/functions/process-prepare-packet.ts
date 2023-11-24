@@ -16,11 +16,11 @@ import {
   IlpType,
   serializeIlpPacket,
 } from "../schemas/ilp-packet-codec"
-import { RequestIdMapSignal } from "../signals/request-id-map"
 import {
   PreparedIlpPacketEvent,
   PreparedIlpPacketTopic,
 } from "../topics/prepared-ilp-packet"
+import { RequestIdMap } from "../values/request-id-map"
 import { ScheduleTimeout } from "./schedule-timeout"
 import { TriggerRejection } from "./trigger-rejection"
 
@@ -31,7 +31,7 @@ export type ProcessPreparePacketParameters = ProcessIncomingPacketParameters & {
 export const ProcessPreparePacket = (reactor: Reactor) => {
   const ledgerStore = reactor.use(LedgerStore)
   const preparedIlpPacketTopic = reactor.use(PreparedIlpPacketTopic)
-  const requestIdMapSignal = reactor.use(RequestIdMapSignal)
+  const requestIdMap = reactor.use(RequestIdMap)
   const resolveIlpAddress = reactor.use(ResolveIlpAddress)
   const sendPacket = reactor.use(SendPacket)
   const triggerRejection = reactor.use(TriggerRejection)
@@ -72,7 +72,7 @@ export const ProcessPreparePacket = (reactor: Reactor) => {
       requestId: outgoingRequestId,
     })
 
-    requestIdMapSignal.read().set(outgoingRequestId, preparedIlpPacketEvent)
+    requestIdMap.set(outgoingRequestId, preparedIlpPacketEvent)
 
     scheduleTimeout({ requestId: outgoingRequestId, timeoutAbort })
 

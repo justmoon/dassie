@@ -3,11 +3,11 @@ import { Reactor } from "@dassie/lib-reactive"
 import { LedgerStore } from "../../accounting/stores/ledger"
 import { connector as logger } from "../../logger/instances"
 import { IlpRejectPacket, IlpType } from "../schemas/ilp-packet-codec"
-import { RequestIdMapSignal } from "../signals/request-id-map"
 import {
   ResolvedIlpPacketEvent,
   ResolvedIlpPacketTopic,
 } from "../topics/resolved-ilp-packet"
+import { RequestIdMap } from "../values/request-id-map"
 import { SendPacket } from "./send-packet"
 
 export interface ProcessRejectPacketParameters {
@@ -19,7 +19,7 @@ export interface ProcessRejectPacketParameters {
 export const ProcessRejectPacket = (reactor: Reactor) => {
   const ledgerStore = reactor.use(LedgerStore)
   const resolvedIlpPacketTopic = reactor.use(ResolvedIlpPacketTopic)
-  const requestIdMapSignal = reactor.use(RequestIdMapSignal)
+  const requestIdMap = reactor.use(RequestIdMap)
   const sendPacket = reactor.use(SendPacket)
 
   return ({
@@ -31,7 +31,7 @@ export const ProcessRejectPacket = (reactor: Reactor) => {
       requestId,
     })
 
-    const prepare = requestIdMapSignal.read().get(requestId)
+    const prepare = requestIdMap.get(requestId)
 
     if (!prepare) {
       logger.warn(
@@ -41,7 +41,7 @@ export const ProcessRejectPacket = (reactor: Reactor) => {
       return
     }
 
-    requestIdMapSignal.read().delete(requestId)
+    requestIdMap.delete(requestId)
 
     prepare.timeoutAbort.abort()
 
