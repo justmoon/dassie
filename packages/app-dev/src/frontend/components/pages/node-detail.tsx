@@ -10,6 +10,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@dassie/app-node/src/frontend/components/ui/tabs"
+import { Database } from "@dassie/app-node/src/frontend/pages/debug/database/database"
 import { Ledger } from "@dassie/app-node/src/frontend/pages/debug/ledger/ledger"
 import { Nodes } from "@dassie/app-node/src/frontend/pages/debug/nodes/nodes"
 import { Routing } from "@dassie/app-node/src/frontend/pages/debug/routing/routing"
@@ -134,6 +135,7 @@ const NodeDetail = ({ nodeId }: BasicNodeElementProperties) => {
               <TabsTrigger value="ledger">Ledger</TabsTrigger>
               <TabsTrigger value="routing">Routing</TabsTrigger>
               <TabsTrigger value="state">State</TabsTrigger>
+              <TabsTrigger value="database">Database</TabsTrigger>
             </TabsList>
             <TabsContent value="logs" className="min-h-0">
               <NodeLogViewer nodeId={nodeId} />
@@ -142,6 +144,7 @@ const NodeDetail = ({ nodeId }: BasicNodeElementProperties) => {
             <TabsContent value="ledger">{ready && <Ledger />}</TabsContent>
             <TabsContent value="routing">{ready && <Routing />}</TabsContent>
             <TabsContent value="state">{ready && <State />}</TabsContent>
+            <TabsContent value="database">{ready && <Database />}</TabsContent>
           </Tabs>
         </div>
       </QueryClientProvider>

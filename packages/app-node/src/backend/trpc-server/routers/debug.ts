@@ -16,6 +16,8 @@ import { isObject } from "@dassie/lib-type-utils"
 
 import { LedgerStore } from "../../accounting/stores/ledger"
 import { EnvironmentConfigSignal } from "../../config/environment-config"
+import { Database } from "../../database/open-database"
+import { DATABASE_TABLE_IDS } from "../../database/schema"
 import { NodeTableStore } from "../../peer-protocol/stores/node-table"
 import { RoutingTableSignal } from "../../routing/signals/routing-table"
 import { prettyFormat } from "../../utils/pretty-format"
@@ -63,6 +65,9 @@ const getContextKeyTuple = (
 
   return [id, name, "other"]
 }
+
+const [DATABASE_FIRST_TABLE_ID, ...DATABASE_OTHER_TABLE_IDS] =
+  DATABASE_TABLE_IDS
 
 export const debugRouter = trpc.router({
   getLedger: protectedProcedure.query(({ ctx: { sig } }) => {
@@ -126,5 +131,21 @@ export const debugRouter = trpc.router({
       return subscribeToTopic(sig, item, {
         transform: (item) => prettyFormat(item),
       })
+    }),
+  getDatabaseTables: protectedProcedure.query(({ ctx: { sig } }) => {
+    const database = sig.reactor.use(Database)
+
+    return Object.entries(database.schema.tables).map(([id, table]) => ({
+      id: id as keyof typeof database.schema.tables,
+      name: table.name,
+      columns: Object.keys(table.columns),
+    }))
+  }),
+  getDatabaseTableRows: protectedProcedure
+    .input(z.enum([DATABASE_FIRST_TABLE_ID!, ...DATABASE_OTHER_TABLE_IDS]))
+    .query(({ ctx: { sig }, input: tableName }) => {
+      const database = sig.reactor.use(Database)
+
+      return database.tables[tableName].selectAll()
     }),
 })

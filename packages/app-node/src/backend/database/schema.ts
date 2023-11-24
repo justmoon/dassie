@@ -36,3 +36,16 @@ export const DASSIE_DATABASE_SCHEMA = {
     ...ACME_DATABASE_SCALARS,
   },
 } as const satisfies DatabaseSchema
+
+export type DatabaseTableId = keyof (typeof DASSIE_DATABASE_SCHEMA)["tables"]
+
+export const DATABASE_TABLE_IDS = Object.keys(
+  DASSIE_DATABASE_SCHEMA["tables"],
+) as DatabaseTableId[]
+
+export type DatabaseTableName =
+  (typeof DASSIE_DATABASE_SCHEMA)["tables"][DatabaseTableId]["name"]
+
+export const DATABASE_TABLE_NAMES = Object.values(
+  DASSIE_DATABASE_SCHEMA["tables"],
+).map((table) => table.name)
