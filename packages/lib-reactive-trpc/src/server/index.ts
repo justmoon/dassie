@@ -70,7 +70,7 @@ export const subscribeToSignal = <TValue>(
       if (batching) {
         if (!timer) {
           timer = setImmediate(() => {
-            emit.next(value)
+            emit.next(signal.read())
             timer = undefined
           })
         }
