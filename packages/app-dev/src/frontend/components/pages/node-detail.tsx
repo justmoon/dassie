@@ -4,6 +4,7 @@ import { Link } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import superjson from "superjson"
 
+import { Button } from "@dassie/app-node/src/frontend/components/ui/button"
 import {
   Tabs,
   TabsContent,
@@ -46,15 +47,12 @@ const NodeHeader = ({ nodeId }: BasicNodeElementProperties) => {
         >
           {nodeId}
         </span>
-        <a
-          href={getWalletUrl(nodeId)}
-          target="_blank"
-          className="ml-8 text-gray text-lg"
-          rel="noreferrer"
-        >
-          Wallet
-          <Link className="inline-block ml-2" />
-        </a>
+        <Button asChild variant="outline" className="ml-4">
+          <a href={getWalletUrl(nodeId)} target="_blank" rel="noreferrer">
+            <Link className="h-4 w-4 mr-2" />
+            Wallet
+          </a>
+        </Button>
       </h1>
     </header>
   )
