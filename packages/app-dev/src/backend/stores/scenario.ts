@@ -6,6 +6,8 @@ import { createStore } from "@dassie/lib-reactive"
 import { builtinScenarios } from "../constants/scenarios"
 
 export interface Scenario {
+  readonly id: string
+  readonly name: string
   readonly environment: EnvironmentSettings
   readonly nodes: readonly NodeSettings[]
 }

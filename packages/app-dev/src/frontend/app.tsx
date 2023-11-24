@@ -1,9 +1,10 @@
 import { Route } from "wouter"
 
 import Dashboard from "./components/pages/dashboard/dashboard"
-import HostDetail from "./components/pages/host-detail"
-import Logs from "./components/pages/logs"
-import NodeDetail from "./components/pages/node-detail"
+import Logs from "./components/pages/logs/logs"
+import HostDetail from "./components/pages/nodes/host-detail"
+import NodeDetail from "./components/pages/nodes/node-detail"
+import { Scenarios } from "./components/pages/scenarios/scenarios"
 import MainNavigation from "./main-navigation"
 
 const App = () => {
@@ -16,6 +17,9 @@ const App = () => {
         </Route>
         <Route path="/logs">
           <Logs />
+        </Route>
+        <Route path="/scenarios">
+          <Scenarios />
         </Route>
         <Route path="/nodes/:nodeId">
           {({ nodeId }) =>

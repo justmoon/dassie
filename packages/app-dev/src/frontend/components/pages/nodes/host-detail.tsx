@@ -6,8 +6,8 @@ import {
 } from "@dassie/app-node/src/frontend/components/ui/tabs"
 import { selectBySeed } from "@dassie/lib-logger"
 
-import { COLORS } from "../../constants/palette"
-import LogViewer from "../log-viewer/log-viewer"
+import { COLORS } from "../../../constants/palette"
+import LogViewer from "../../log-viewer/log-viewer"
 
 export const HOST_COLOR = selectBySeed(COLORS, "host")
 const HostHeader = () => {

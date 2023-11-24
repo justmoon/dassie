@@ -1,4 +1,4 @@
-import LogViewer from "../log-viewer/log-viewer"
+import LogViewer from "../../log-viewer/log-viewer"
 
 const Logs = () => {
   return (

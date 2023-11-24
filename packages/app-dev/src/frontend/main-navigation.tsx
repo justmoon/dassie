@@ -1,4 +1,4 @@
-import { Home, List } from "lucide-react"
+import { ClapperboardIcon, HomeIcon, ListIcon } from "lucide-react"
 import { Link, useRoute } from "wouter"
 
 import { Button } from "@dassie/app-node/src/frontend/components/ui/button"
@@ -38,12 +38,16 @@ const MainNavigation = () => {
       </div>
       <nav className="space-y-2 flex-1 px-3" aria-label="Sidebar">
         <NavigationItem href="/">
-          <Home className="mr-2 h-4 w-4" />
+          <HomeIcon className="mr-2 h-4 w-4" />
           <span className="">Dashboard</span>
         </NavigationItem>
         <NavigationItem href="/logs">
-          <List className="mr-2 h-4 w-4" />
+          <ListIcon className="mr-2 h-4 w-4" />
           <span>Logs</span>
+        </NavigationItem>
+        <NavigationItem href="/scenarios">
+          <ClapperboardIcon className="mr-2 h-4 w-4" />
+          <span>Scenarios</span>
         </NavigationItem>
       </nav>
       <NodesList />

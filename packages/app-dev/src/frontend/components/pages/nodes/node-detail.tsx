@@ -22,10 +22,10 @@ import {
 } from "@dassie/app-node/src/frontend/utils/trpc"
 import { selectBySeed } from "@dassie/lib-logger"
 
-import { COLORS } from "../../constants/palette"
-import { trpc as trpcDevelopment } from "../../utils/trpc"
-import { getWalletUrl } from "../../utils/wallet-url"
-import LogViewer from "../log-viewer/log-viewer"
+import { COLORS } from "../../../constants/palette"
+import { trpc as trpcDevelopment } from "../../../utils/trpc"
+import { getWalletUrl } from "../../../utils/wallet-url"
+import LogViewer from "../../log-viewer/log-viewer"
 
 interface BasicNodeElementProperties {
   nodeId: string

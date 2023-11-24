@@ -115,7 +115,6 @@ const NodeGraph = () => {
     dispatchGraphData({ nodes: nodes ?? [], peeringState })
   }, [nodes, peeringState])
 
-  // return <NodeGraphView graphData={graphData} />
   return <NodeGraphView graphData={graphData} />
 }
 
