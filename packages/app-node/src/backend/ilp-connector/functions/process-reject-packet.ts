@@ -2,36 +2,36 @@ import { Reactor } from "@dassie/lib-reactive"
 
 import { LedgerStore } from "../../accounting/stores/ledger"
 import { connector as logger } from "../../logger/instances"
-import { IlpRejectPacket, IlpType } from "../schemas/ilp-packet-codec"
+import { ProcessIncomingPacketParameters } from "../process-packet"
+import { IlpType } from "../schemas/ilp-packet-codec"
 import {
   ResolvedIlpPacketEvent,
   ResolvedIlpPacketTopic,
 } from "../topics/resolved-ilp-packet"
-import { RequestIdMap } from "../values/request-id-map"
+import {
+  PendingPacketsKey,
+  PendingPacketsMap,
+} from "../values/pending-packets-map"
 import { SendPacket } from "./send-packet"
-
-export interface ProcessRejectPacketParameters {
-  serializedPacket: Uint8Array
-  parsedPacket: { type: typeof IlpType.Reject } & IlpRejectPacket
-  requestId: number
-}
 
 export const ProcessRejectPacket = (reactor: Reactor) => {
   const ledgerStore = reactor.use(LedgerStore)
   const resolvedIlpPacketTopic = reactor.use(ResolvedIlpPacketTopic)
-  const requestIdMap = reactor.use(RequestIdMap)
+  const pendingPacketsMap = reactor.use(PendingPacketsMap)
   const sendPacket = reactor.use(SendPacket)
 
   return ({
+    sourceEndpointInfo,
     parsedPacket,
     serializedPacket,
     requestId,
-  }: ProcessRejectPacketParameters) => {
+  }: ProcessIncomingPacketParameters<typeof IlpType.Reject>) => {
     logger.debug(`received ILP reject`, {
       requestId,
     })
 
-    const prepare = requestIdMap.get(requestId)
+    const pendingPacketKey: PendingPacketsKey = `${sourceEndpointInfo.ilpAddress}#${requestId}`
+    const prepare = pendingPacketsMap.get(pendingPacketKey)
 
     if (!prepare) {
       logger.warn(
@@ -41,7 +41,7 @@ export const ProcessRejectPacket = (reactor: Reactor) => {
       return
     }
 
-    requestIdMap.delete(requestId)
+    pendingPacketsMap.delete(pendingPacketKey)
 
     prepare.timeoutAbort.abort()
 

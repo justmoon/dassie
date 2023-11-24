@@ -45,7 +45,7 @@ export const HandleInterledgerPacket = ((reactor: Reactor) => {
       accountPath: `${ledgerId}:peer/${sender}/interledger`,
     }
 
-    processIncomingPacketActor.api.handle.tell({
+    processIncomingPacketActor.api.parseAndHandle.tell({
       sourceEndpointInfo: endpointInfo,
       serializedPacket: content.signed.packet,
       requestId: content.signed.requestId,

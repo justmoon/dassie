@@ -4,36 +4,36 @@ import { Reactor } from "@dassie/lib-reactive"
 
 import { LedgerStore } from "../../accounting/stores/ledger"
 import { connector as logger } from "../../logger/instances"
-import { IlpFulfillPacket, IlpType } from "../schemas/ilp-packet-codec"
+import { ProcessIncomingPacketParameters } from "../process-packet"
+import { IlpType } from "../schemas/ilp-packet-codec"
 import {
   ResolvedIlpPacketEvent,
   ResolvedIlpPacketTopic,
 } from "../topics/resolved-ilp-packet"
-import { RequestIdMap } from "../values/request-id-map"
+import {
+  PendingPacketsKey,
+  PendingPacketsMap,
+} from "../values/pending-packets-map"
 import { SendPacket } from "./send-packet"
-
-export interface ProcessFulfillPacketParameters {
-  serializedPacket: Uint8Array
-  parsedPacket: { type: typeof IlpType.Fulfill } & IlpFulfillPacket
-  requestId: number
-}
 
 export const ProcessFulfillPacket = (reactor: Reactor) => {
   const ledgerStore = reactor.use(LedgerStore)
   const resolvedIlpPacketTopic = reactor.use(ResolvedIlpPacketTopic)
-  const requestIdMap = reactor.use(RequestIdMap)
+  const pendingPacketsMap = reactor.use(PendingPacketsMap)
   const sendPacket = reactor.use(SendPacket)
 
   return ({
+    sourceEndpointInfo,
     parsedPacket,
     serializedPacket,
     requestId,
-  }: ProcessFulfillPacketParameters) => {
+  }: ProcessIncomingPacketParameters<typeof IlpType.Fulfill>) => {
     logger.debug(`received ILP fulfill`, {
       requestId,
     })
 
-    const prepare = requestIdMap.get(requestId)
+    const pendingPacketKey: PendingPacketsKey = `${sourceEndpointInfo.ilpAddress}#${requestId}`
+    const prepare = pendingPacketsMap.get(pendingPacketKey)
 
     if (!prepare) {
       logger.warn(
@@ -44,14 +44,14 @@ export const ProcessFulfillPacket = (reactor: Reactor) => {
     }
 
     const hasher = createHash("sha256")
-    hasher.update(parsedPacket.fulfillment)
+    hasher.update(parsedPacket.data.fulfillment)
     const fulfillmentHash = hasher.digest()
 
     if (!fulfillmentHash.equals(prepare.parsedPacket.executionCondition)) {
       logger.warn(
         "discarding ILP fulfill packet whose fulfillment hash does not match the corresponding execution condition",
         {
-          fulfillment: parsedPacket.fulfillment,
+          fulfillment: parsedPacket.data.fulfillment,
           fulfillmentHash,
           executionCondition: prepare.parsedPacket.executionCondition,
         },
@@ -59,7 +59,7 @@ export const ProcessFulfillPacket = (reactor: Reactor) => {
       return
     }
 
-    requestIdMap.delete(requestId)
+    pendingPacketsMap.delete(pendingPacketKey)
 
     prepare.timeoutAbort.abort()
 

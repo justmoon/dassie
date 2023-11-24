@@ -58,8 +58,10 @@ export const HandleIldcpRequestsActor = () =>
 
         const responsePacket = {
           type: IlpType.Fulfill,
-          fulfillment: new Uint8Array(32),
-          data: ildcpSerializationResult,
+          data: {
+            fulfillment: new Uint8Array(32),
+            data: ildcpSerializationResult,
+          },
         }
 
         logger.debug("sending IL-DCP response", {

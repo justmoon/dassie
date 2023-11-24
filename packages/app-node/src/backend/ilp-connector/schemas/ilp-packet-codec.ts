@@ -2,7 +2,6 @@ import type { Simplify } from "type-fest"
 
 import {
   type Infer,
-  type InferSerialize,
   defineClass,
   defineObjectSet,
   ia5String,
@@ -72,10 +71,7 @@ export type IlpPreparePacket = Simplify<Infer<typeof ilpPrepareSchema>>
 export type IlpFulfillPacket = Simplify<Infer<typeof ilpFulfillSchema>>
 export type IlpRejectPacket = Simplify<Infer<typeof ilpRejectSchema>>
 
-export type IlpPacket =
-  | ({ type: typeof IlpType.Prepare } & IlpPreparePacket)
-  | ({ type: typeof IlpType.Fulfill } & IlpFulfillPacket)
-  | ({ type: typeof IlpType.Reject } & IlpRejectPacket)
+export type IlpPacket = Simplify<Infer<typeof ilpPacketSchema>>
 
 export const parseIlpPacket = (packet: Uint8Array): IlpPacket => {
   const parseResult = ilpPacketSchema.parse(packet)
@@ -86,33 +82,11 @@ export const parseIlpPacket = (packet: Uint8Array): IlpPacket => {
     })
   }
 
-  const { type, data } = parseResult.value
-
-  switch (type) {
-    case IlpType.Prepare: {
-      return { type, ...data }
-    }
-    case IlpType.Fulfill: {
-      return { type, ...data }
-    }
-    case IlpType.Reject: {
-      return { type, ...data }
-    }
-
-    default: {
-      throw new Error("Unknown ILP packet type")
-    }
-  }
+  return parseResult.value
 }
 
-export const serializeIlpPacket = ({
-  type,
-  ...data
-}: IlpPacket): Uint8Array => {
-  const serializationResult = ilpPacketSchema.serialize({
-    type,
-    data,
-  } as InferSerialize<typeof ilpPacketSchema>)
+export const serializeIlpPacket = (packet: IlpPacket): Uint8Array => {
+  const serializationResult = ilpPacketSchema.serialize(packet)
 
   if (isFailure(serializationResult)) {
     throw new Error("Failed to serialize ILP packet", {

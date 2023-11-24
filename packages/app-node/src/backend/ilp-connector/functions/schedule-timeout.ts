@@ -5,21 +5,28 @@ import { Reactor } from "@dassie/lib-reactive"
 
 import { connector as logger } from "../../logger/instances"
 import { IlpErrorCode } from "../schemas/ilp-errors"
-import { TriggerRejection } from "./trigger-rejection"
+import { EndpointInfo } from "./send-packet"
+import { TriggerLateRejection } from "./trigger-late-rejection"
 
 export interface ScheduleTimeoutParameters {
+  sourceEndpointInfo: EndpointInfo
   requestId: number
   timeoutAbort: AbortController
 }
 
 export const ScheduleTimeout = (reactor: Reactor) => {
-  const triggerRejection = reactor.use(TriggerRejection)
+  const triggerLateRejection = reactor.use(TriggerLateRejection)
 
-  return ({ requestId, timeoutAbort }: ScheduleTimeoutParameters) => {
+  return ({
+    sourceEndpointInfo,
+    requestId,
+    timeoutAbort,
+  }: ScheduleTimeoutParameters) => {
     setTimeout(5000, undefined, { signal: timeoutAbort.signal })
       .then(() => {
         logger.debug("ILP packet timed out", { requestId })
-        triggerRejection({
+        triggerLateRejection({
+          sourceEndpointInfo,
           requestId,
           errorCode: IlpErrorCode.R00_TRANSFER_TIMED_OUT,
           message: "Packet timed out",

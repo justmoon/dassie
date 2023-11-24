@@ -89,7 +89,7 @@ export const ManagePluginsActor = () =>
               const requestId = nextRequestId++
               outstandingRequests.set(requestId, resolve)
 
-              processPacketActor.api.handle.tell({
+              processPacketActor.api.parseAndHandle.tell({
                 sourceEndpointInfo,
                 serializedPacket: data,
                 requestId,
@@ -141,7 +141,7 @@ export const ManagePluginsActor = () =>
           accountPath: `${ownerLedgerIdSignal.read()}:owner/spsp`,
         }
 
-        processPacketActor.api.handle.tell({
+        processPacketActor.api.parseAndHandle.tell({
           sourceEndpointInfo,
           serializedPacket: response,
           requestId: outgoingRequestId,

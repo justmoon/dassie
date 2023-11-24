@@ -242,7 +242,7 @@ export const RegisterBtpHttpUpgradeActor = (reactor: Reactor) => {
                 .protocolData) {
                 if (protocolData.protocolName === "ilp") {
                   logger.debug("received ILP packet via BTP message")
-                  processIncomingPacketActor.api.handle.tell({
+                  processIncomingPacketActor.api.parseAndHandle.tell({
                     sourceEndpointInfo: endpointInfo,
                     serializedPacket: protocolData.data,
                     requestId: message.requestId,
@@ -271,7 +271,7 @@ export const RegisterBtpHttpUpgradeActor = (reactor: Reactor) => {
                 if (protocolData.protocolName === "ilp") {
                   logger.debug("received ILP packet via BTP transfer")
 
-                  processIncomingPacketActor.api.handle.tell({
+                  processIncomingPacketActor.api.parseAndHandle.tell({
                     sourceEndpointInfo: endpointInfo,
                     serializedPacket: protocolData.data,
                     requestId: message.requestId,
@@ -298,7 +298,7 @@ export const RegisterBtpHttpUpgradeActor = (reactor: Reactor) => {
                 .protocolData) {
                 if (protocolData.protocolName === "ilp") {
                   logger.debug("received ILP packet via BTP response")
-                  processIncomingPacketActor.api.handle.tell({
+                  processIncomingPacketActor.api.parseAndHandle.tell({
                     sourceEndpointInfo: endpointInfo,
                     serializedPacket: protocolData.data,
                     requestId: message.requestId,

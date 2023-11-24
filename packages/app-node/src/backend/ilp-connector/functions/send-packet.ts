@@ -1,7 +1,7 @@
 import { Reactor } from "@dassie/lib-reactive"
 
 import { AccountPath } from "../../accounting/types/accounts"
-import { IlpPacket, IlpPreparePacket } from "../schemas/ilp-packet-codec"
+import { IlpPacket, IlpType } from "../schemas/ilp-packet-codec"
 import { BtpEndpointInfo, SendBtpPackets } from "../senders/send-btp-packets"
 import {
   IldcpEndpointInfo,
@@ -17,17 +17,18 @@ import {
   SendPluginPackets,
 } from "../senders/send-plugin-packets"
 import { PreparedIlpPacketEvent } from "../topics/prepared-ilp-packet"
+import { IlpAddress } from "../types/ilp-address"
 
 export interface CommonEndpointInfo {
   readonly accountPath: AccountPath
-  readonly ilpAddress: string
+  readonly ilpAddress: IlpAddress
 }
 
 export interface PreparedPacketParameters<
   TType extends EndpointInfo["type"] = EndpointInfo["type"],
 > {
   readonly serializedPacket: Uint8Array
-  readonly parsedPacket: IlpPreparePacket
+  readonly parsedPacket: Extract<IlpPacket, { type: typeof IlpType.Prepare }>
   readonly outgoingRequestId: number
   readonly sourceEndpointInfo: EndpointInfo
   readonly destinationEndpointInfo: EndpointInfo & { type: TType }
@@ -38,7 +39,7 @@ export interface ResolvedPacketParameters<
 > {
   readonly prepare: PreparedIlpPacketEvent
   readonly serializedPacket: Uint8Array
-  readonly parsedPacket: Exclude<IlpPacket, IlpPreparePacket>
+  readonly parsedPacket: Exclude<IlpPacket, { type: typeof IlpType.Prepare }>
   readonly destinationEndpointInfo: EndpointInfo & { type: TType }
 }
 

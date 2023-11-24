@@ -1,5 +1,4 @@
 import { Reactor, createActor } from "@dassie/lib-reactive"
-import { UnreachableCaseError } from "@dassie/lib-type-utils"
 
 import { connector as logger } from "../logger/instances"
 import { ProcessFulfillPacket } from "./functions/process-fulfill-packet"
@@ -8,65 +7,52 @@ import { ProcessRejectPacket } from "./functions/process-reject-packet"
 import { EndpointInfo } from "./functions/send-packet"
 import { IlpPacket, IlpType, parseIlpPacket } from "./schemas/ilp-packet-codec"
 
-export interface ProcessIncomingPacketParameters {
+export interface ProcessIncomingPacketParameters<
+  TType extends IlpType = IlpType,
+> {
   sourceEndpointInfo: EndpointInfo
   serializedPacket: Uint8Array
-  parsedPacket?: IlpPacket | undefined
+  parsedPacket: Extract<IlpPacket, { type: TType }>
   requestId: number
 }
 
+export type IlpPacketHandler<TType extends IlpType> = (
+  parameters: ProcessIncomingPacketParameters<TType>,
+) => void
+
+export type IlpPacketHandlers = {
+  [K in IlpType]: IlpPacketHandler<K>
+}
+
 export const ProcessPacketActor = (reactor: Reactor) => {
-  const processPreparePacket = reactor.use(ProcessPreparePacket)
-  const processFulfillPacket = reactor.use(ProcessFulfillPacket)
-  const processRejectPacket = reactor.use(ProcessRejectPacket)
+  const handlers: IlpPacketHandlers = {
+    [IlpType.Prepare]: reactor.use(ProcessPreparePacket),
+    [IlpType.Fulfill]: reactor.use(ProcessFulfillPacket),
+    [IlpType.Reject]: reactor.use(ProcessRejectPacket),
+  }
 
   return createActor(() => {
-    return {
-      handle: ({
-        sourceEndpointInfo,
-        serializedPacket,
-        requestId,
-        parsedPacket: optionalParsedPacket,
-      }: ProcessIncomingPacketParameters) => {
+    const api = {
+      parseAndHandle: (
+        parameters: Omit<ProcessIncomingPacketParameters, "parsedPacket">,
+      ) => {
+        const parsedPacket = parseIlpPacket(parameters.serializedPacket)
+        return api.handle({ ...parameters, parsedPacket })
+      },
+      handle: <TType extends IlpType>(
+        parameters: ProcessIncomingPacketParameters<TType>,
+      ) => {
         logger.debug("handle interledger packet", {
-          from: sourceEndpointInfo.ilpAddress,
+          from: parameters.sourceEndpointInfo.ilpAddress,
         })
 
-        // Parse packet if not already done
-        const parsedPacket =
-          optionalParsedPacket ?? parseIlpPacket(serializedPacket)
+        const handler = handlers[
+          parameters.parsedPacket.type
+        ] as IlpPacketHandler<TType>
 
-        switch (parsedPacket.type) {
-          case IlpType.Prepare: {
-            processPreparePacket({
-              sourceEndpointInfo,
-              serializedPacket,
-              parsedPacket,
-              requestId,
-            })
-            break
-          }
-          case IlpType.Fulfill: {
-            processFulfillPacket({
-              serializedPacket,
-              parsedPacket,
-              requestId,
-            })
-            break
-          }
-          case IlpType.Reject: {
-            processRejectPacket({
-              serializedPacket,
-              parsedPacket,
-              requestId,
-            })
-            break
-          }
-          default: {
-            throw new UnreachableCaseError(parsedPacket)
-          }
-        }
+        handler(parameters)
       },
     }
+    return api
   })
 }

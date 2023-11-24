@@ -10,6 +10,7 @@ import { OwnerLedgerIdSignal } from "../accounting/signals/owner-ledger-id"
 import { HttpsRouter } from "../http-server/serve-https"
 import { ProcessPacketActor } from "../ilp-connector/process-packet"
 import { IlpHttpEndpointInfo } from "../ilp-connector/senders/send-ilp-http-packets"
+import { IlpHttpIlpAddress } from "../ilp-connector/types/ilp-address"
 import { ILP_OVER_HTTP_CONTENT_TYPE } from "./constants/content-type"
 import { IncomingRequestIdMap, nextId } from "./values/incoming-request-id-map"
 
@@ -57,7 +58,7 @@ export const RegisterIlpHttpHandlerActor = (reactor: Reactor) => {
         const endpointInfo: IlpHttpEndpointInfo = {
           type: "http",
           accountPath: `${ownerLedgerIdSignal.read()}:owner/http`,
-          ilpAddress: "test.not-implemented",
+          ilpAddress: "test.not-implemented" as IlpHttpIlpAddress,
         }
 
         const numericRequestId = nextId()
@@ -67,7 +68,7 @@ export const RegisterIlpHttpHandlerActor = (reactor: Reactor) => {
           callbackUrl,
         })
 
-        processPacketActor.api.handle.tell({
+        processPacketActor.api.parseAndHandle.tell({
           sourceEndpointInfo: endpointInfo,
           serializedPacket: request.body,
           requestId: numericRequestId,

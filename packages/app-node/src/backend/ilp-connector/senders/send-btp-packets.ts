@@ -24,7 +24,7 @@ export const SendBtpPackets = (reactor: Reactor): PacketSender<"btp"> => ({
   }) => {
     const btpBroker = reactor.use(RegisterBtpHttpUpgradeActor)
 
-    if (parsedPacket.amount === 0n) {
+    if (parsedPacket.data.amount === 0n) {
       const btpMessageSerializeResult = btpMessageSchema.serialize({
         protocolData: [
           {

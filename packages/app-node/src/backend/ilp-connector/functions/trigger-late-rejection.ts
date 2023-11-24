@@ -4,36 +4,46 @@ import { connector as logger } from "../../logger/instances"
 import { NodeIlpAddressSignal } from "../computed/node-ilp-address"
 import { IlpErrorCode } from "../schemas/ilp-errors"
 import {
-  IlpRejectPacket,
+  IlpPacket,
   IlpType,
   serializeIlpPacket,
 } from "../schemas/ilp-packet-codec"
 import { ProcessRejectPacket } from "./process-reject-packet"
+import { EndpointInfo } from "./send-packet"
 
-export interface RejectPacketParameters {
+export interface LateRejectionParameters {
+  sourceEndpointInfo: EndpointInfo
   requestId: number
   errorCode: IlpErrorCode
   message: string
 }
 
-export const TriggerRejection = (reactor: Reactor) => {
+export const TriggerLateRejection = (reactor: Reactor) => {
   const nodeIlpAddressSignal = reactor.use(NodeIlpAddressSignal)
   const processRejectPacket = reactor.use(ProcessRejectPacket)
 
-  return ({ requestId, errorCode, message }: RejectPacketParameters) => {
+  return ({
+    sourceEndpointInfo,
+    requestId,
+    errorCode,
+    message,
+  }: LateRejectionParameters) => {
     logger.info("triggering ILP rejection", { requestId, errorCode, message })
 
-    const rejectPacket: IlpRejectPacket & { type: typeof IlpType.Reject } = {
+    const rejectPacket: IlpPacket & { type: typeof IlpType.Reject } = {
       type: IlpType.Reject,
-      code: errorCode,
-      triggeredBy: nodeIlpAddressSignal.read(),
-      message,
-      data: Buffer.alloc(0),
+      data: {
+        code: errorCode,
+        triggeredBy: nodeIlpAddressSignal.read(),
+        message,
+        data: Buffer.alloc(0),
+      },
     }
 
     const serializedPacket = serializeIlpPacket(rejectPacket)
 
     processRejectPacket({
+      sourceEndpointInfo,
       parsedPacket: rejectPacket,
       serializedPacket,
       requestId,
