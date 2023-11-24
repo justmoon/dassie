@@ -6,6 +6,7 @@ export const builtinScenarios = {
     name: "Six Autopeering Nodes (Stub Settlement)",
     environment: {},
     nodes: Array.from<NodeSettings>({ length: 6 }).fill({}),
+    defaultNodeSettings: {},
   },
   twoPeerXrpl: {
     id: "twoPeerXrpl",
@@ -19,6 +20,9 @@ export const builtinScenarios = {
         settlementMethods: ["xrpl-testnet"],
       },
     ],
+    defaultNodeSettings: {
+      settlementMethods: ["xrpl-testnet"],
+    },
   },
   crossCurrency: {
     id: "crossCurrency",
@@ -35,5 +39,6 @@ export const builtinScenarios = {
         settlementMethods: ["xrpl-testnet"],
       },
     ],
+    defaultNodeSettings: {},
   },
 } as const satisfies Record<string, Scenario>

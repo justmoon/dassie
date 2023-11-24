@@ -10,6 +10,7 @@ export interface Scenario {
   readonly name: string
   readonly environment: EnvironmentSettings
   readonly nodes: readonly NodeSettings[]
+  readonly defaultNodeSettings: NodeSettings
 }
 
 export interface EnvironmentSettings {}
@@ -33,7 +34,7 @@ export const ScenarioStore = () => {
     setScenario: (scenario: Scenario) => () => scenario,
     addNode: () =>
       produce((draft) => {
-        draft.nodes.push()
+        draft.nodes.push(draft.defaultNodeSettings)
       }),
   })
 }
