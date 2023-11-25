@@ -1,7 +1,12 @@
 import { isObject } from "@dassie/lib-type-utils"
 
 import { FactoryNameSymbol } from "./internal/context-base"
-import { CacheStatus, Reactive, ReactiveSource } from "./internal/reactive"
+import {
+  CacheStatus,
+  Reactive,
+  ReactiveSource,
+  defaultComparator,
+} from "./internal/reactive"
 import { createReactiveTopic } from "./internal/reactive-topic"
 import { ReadonlyTopic } from "./topic"
 
@@ -46,13 +51,17 @@ export type Signal<TState> = ReadonlySignal<TState> & {
   update(this: void, reducer: Reducer<TState>): TState
 }
 
+export interface SignalOptions<TState> {
+  comparator?: ((oldValue: TState, newValue: TState) => boolean) | undefined
+}
+
 export class SignalImplementation<TState> extends Reactive<TState> {
   [SignalSymbol] = true as const
 
   protected override cache: TState
 
-  constructor(initialState: TState) {
-    super()
+  constructor(initialState: TState, options: SignalOptions<TState> = {}) {
+    super(options.comparator ?? defaultComparator, false)
 
     this.cache = initialState
     this.cacheStatus = CacheStatus.Clean
@@ -73,9 +82,15 @@ export class SignalImplementation<TState> extends Reactive<TState> {
 }
 
 export function createSignal<TState>(): Signal<TState | undefined>
-export function createSignal<TState>(initialState: TState): Signal<TState>
-export function createSignal<TState>(initialState?: TState): Signal<TState> {
-  const signal = new SignalImplementation(initialState as TState)
+export function createSignal<TState>(
+  initialState: TState,
+  options?: SignalOptions<TState>,
+): Signal<TState>
+export function createSignal<TState>(
+  initialState?: TState,
+  options?: SignalOptions<TState>,
+): Signal<TState> {
+  const signal = new SignalImplementation(initialState as TState, options)
 
   return Object.assign(signal, createReactiveTopic(signal))
 }
