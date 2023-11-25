@@ -1,10 +1,11 @@
 import Denque from "denque"
 
-import { createActor } from "@dassie/lib-reactive"
+import { Reactor, createActor } from "@dassie/lib-reactive"
 import { assertDefined } from "@dassie/lib-type-utils"
 
 import { IlpAllocationSchemeSignal } from "../config/computed/ilp-allocation-scheme"
 import { NodeIdSignal } from "../ilp-connector/computed/node-id"
+import { IlpAddress } from "../ilp-connector/types/ilp-address"
 import { NodeTableStore } from "../peer-protocol/stores/node-table"
 import { NodeId } from "../peer-protocol/types/node-id"
 import { RoutingTableSignal } from "./signals/routing-table"
@@ -17,8 +18,10 @@ interface NodeInfoEntry {
 /**
  * This actor generates an Even-Shiloach tree which is then condensed into a routing table. The routing table contains all possible first hops which are on one of the shortest paths to the target node.
  */
-export const CalculateRoutesActor = () =>
-  createActor((sig) => {
+export const CalculateRoutesActor = (reactor: Reactor) => {
+  const routingTableSignal = reactor.use(RoutingTableSignal)
+
+  return createActor((sig) => {
     const ilpAllocationScheme = sig.readAndTrack(IlpAllocationSchemeSignal)
     const ownNodeId = sig.readAndTrack(NodeIdSignal)
     const nodeTable = sig.readAndTrack(NodeTableStore)
@@ -71,7 +74,7 @@ export const CalculateRoutesActor = () =>
       }
     }
 
-    const ilpRoutingTable = sig.readAndTrack(RoutingTableSignal)
+    const routingTable = routingTableSignal.read()
     for (const [nodeId, nodeInfo] of nodeInfoMap.entries()) {
       let level = nodeInfo.level
       let parents = new Set(nodeInfo.parents)
@@ -86,19 +89,23 @@ export const CalculateRoutesActor = () =>
 
       const firstHopOptions = nodeInfo.level === 1 ? [nodeId] : [...parents]
 
-      const ilpAddress = `${ilpAllocationScheme}.das.${nodeId}`
+      const ilpAddress: IlpAddress = `${ilpAllocationScheme}.das.${nodeId}`
 
-      ilpRoutingTable.set(ilpAddress, {
+      routingTable.set(ilpAddress, {
         type: "peer",
         firstHopOptions,
         distance: nodeInfo.level,
       })
     }
 
+    // Notify the routing table signal that the routing table has changed
+    routingTableSignal.write(routingTable)
+
     sig.onCleanup(() => {
       for (const nodeId of nodeInfoMap.keys()) {
-        const ilpAddress = `${ilpAllocationScheme}.das.${nodeId}`
-        ilpRoutingTable.delete(ilpAddress)
+        const ilpAddress: IlpAddress = `${ilpAllocationScheme}.das.${nodeId}`
+        routingTable.delete(ilpAddress)
       }
     })
   })
+}

@@ -1,6 +1,6 @@
 import assert from "node:assert"
 
-import { AccountPath } from "../types/accounts"
+import { AccountPath } from "../types/account-paths"
 import { LedgerId } from "../types/ledger-id"
 
 export const getLedgerIdFromPath = (path: AccountPath): LedgerId => {

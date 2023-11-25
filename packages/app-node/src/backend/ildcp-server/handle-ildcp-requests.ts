@@ -1,7 +1,7 @@
 import { createActor } from "@dassie/lib-reactive"
 import { isFailure } from "@dassie/lib-type-utils"
 
-import { AccountPath } from "../accounting/types/accounts"
+import { AccountPath } from "../accounting/types/account-paths"
 import { ProcessPacketActor } from "../ilp-connector/process-packet"
 import {
   IlpType,
@@ -21,7 +21,7 @@ export interface IldcpRequestParameters {
 
 export const HandleIldcpRequestsActor = () =>
   createActor((sig) => {
-    const ilpRoutingTable = sig.readAndTrack(RoutingTableSignal)
+    const ilpRoutingTable = sig.read(RoutingTableSignal)
     const processIncomingPacketActor = sig.reactor.use(ProcessPacketActor)
 
     const ildcpDestinationInfo: IldcpEndpointInfo = {

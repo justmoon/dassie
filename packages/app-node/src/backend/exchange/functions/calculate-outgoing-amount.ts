@@ -1,7 +1,7 @@
 import { Reactor } from "@dassie/lib-reactive"
 
 import { getLedgerIdFromPath } from "../../accounting/functions/get-ledger-id-from-path"
-import { AccountPath } from "../../accounting/types/accounts"
+import { AccountPath } from "../../accounting/types/account-paths"
 import { GetCurrencyFromLedgerId } from "../../settlement-schemes/functions/get-currency-from-ledger-id"
 import { ConvertCurrencyAmounts } from "./convert"
 

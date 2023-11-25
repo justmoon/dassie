@@ -1,6 +1,6 @@
 import { Reactor } from "@dassie/lib-reactive"
 
-import { AccountPath } from "../../accounting/types/accounts"
+import { AccountPath } from "../../accounting/types/account-paths"
 import { IlpPacket, IlpType } from "../schemas/ilp-packet-codec"
 import { BtpEndpointInfo, SendBtpPackets } from "../senders/send-btp-packets"
 import {

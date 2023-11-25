@@ -40,7 +40,7 @@ export const RegisterIlpHttpCallbackHandlerActor = (reactor: Reactor) => {
 
         const endpointInfo: IlpHttpEndpointInfo = {
           type: "http",
-          accountPath: `${ownerLedgerIdSignal.read()}:owner/http`,
+          accountPath: `${ownerLedgerIdSignal.read()}:equity/owner`,
           ilpAddress: "test.not-implemented" as IlpAddress,
         }
 

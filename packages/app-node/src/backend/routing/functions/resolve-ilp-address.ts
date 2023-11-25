@@ -48,7 +48,7 @@ export const ResolveIlpAddress = (reactor: Reactor) => {
         const destinationInfo: PeerEndpointInfo = {
           type: "peer",
           nodeId: nextHop,
-          accountPath: `${ledgerId}:peer/${nextHop}/interledger`,
+          accountPath: `${ledgerId}:assets/interledger/${nextHop}`,
           ilpAddress: `${ilpAllocationScheme.read()}.das.${nextHop}`,
         }
 

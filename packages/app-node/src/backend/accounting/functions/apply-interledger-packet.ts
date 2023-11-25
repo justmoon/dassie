@@ -1,5 +1,11 @@
+import assert from "node:assert"
+
 import { CreateTransferParameters } from "../stores/ledger"
-import { AccountPath, ConnectorAccount } from "../types/accounts"
+import {
+  AccountPath,
+  ExpensesFxAccount,
+  RevenueFxAccount,
+} from "../types/account-paths"
 import { getLedgerIdFromPath } from "./get-ledger-id-from-path"
 
 export const applyPacketPrepareToLedger = (
@@ -7,35 +13,39 @@ export const applyPacketPrepareToLedger = (
   destinationAccountPath: AccountPath,
   incomingAmount: bigint,
   outgoingAmount: bigint,
-) => {
-  const transfers = []
+): CreateTransferParameters[] => {
+  const sourceLedgerId = getLedgerIdFromPath(sourceAccountPath)
+  const destinationLedgerId = getLedgerIdFromPath(destinationAccountPath)
 
-  {
-    const ledgerId = getLedgerIdFromPath(sourceAccountPath)
-    const connectorPath: ConnectorAccount = `${ledgerId}:internal/connector`
+  // Same currency
+  if (sourceLedgerId === destinationLedgerId) {
+    assert(incomingAmount === outgoingAmount)
 
-    const transfer: CreateTransferParameters = {
+    return [
+      {
+        debitAccountPath: sourceAccountPath,
+        creditAccountPath: destinationAccountPath,
+        amount: incomingAmount,
+        pending: true,
+      },
+    ]
+  }
+
+  const revenueFxPath: RevenueFxAccount = `${sourceLedgerId}:revenue/fx`
+  const expenseFxPath: ExpensesFxAccount = `${destinationLedgerId}:expenses/fx`
+
+  return [
+    {
       debitAccountPath: sourceAccountPath,
-      creditAccountPath: connectorPath,
+      creditAccountPath: revenueFxPath,
       amount: incomingAmount,
       pending: true,
-    }
-
-    transfers.push(transfer)
-  }
-  {
-    const ledgerId = getLedgerIdFromPath(destinationAccountPath)
-    const connectorPath: ConnectorAccount = `${ledgerId}:internal/connector`
-
-    const transfer: CreateTransferParameters = {
-      debitAccountPath: connectorPath,
+    },
+    {
+      debitAccountPath: expenseFxPath,
       creditAccountPath: destinationAccountPath,
       amount: outgoingAmount,
       pending: true,
-    }
-
-    transfers.push(transfer)
-  }
-
-  return transfers
+    },
+  ]
 }

@@ -1,38 +1,61 @@
 import { Reactor, createComputed } from "@dassie/lib-reactive"
 
+import { ConvertCurrencyAmounts } from "../../exchange/functions/convert"
+import { GetCurrencyFromLedgerId } from "../../settlement-schemes/functions/get-currency-from-ledger-id"
 import { OwnerLedgerIdSignal } from "../signals/owner-ledger-id"
 import { LedgerStore } from "../stores/ledger"
 import { PostedTransfersTopic } from "../topics/posted-transfers"
+import { LedgerId } from "../types/ledger-id"
 
 export const TotalOwnerBalanceSignal = (reactor: Reactor) =>
   createComputed(reactor, () => {
     const ledger = reactor.use(LedgerStore)
     const ownerLedgerIdSignal = reactor.use(OwnerLedgerIdSignal)
+    const getCurrencyFromLedgerId = reactor.use(GetCurrencyFromLedgerId)
+    const convertCurrencyAmounts = reactor.use(ConvertCurrencyAmounts)
 
-    let balance = 0n
-    for (const account of ledger.getAccounts(
-      `${ownerLedgerIdSignal.read()}:owner/`,
-    )) {
-      balance += account.creditsPosted - account.debitsPosted
+    const getLedgerBalance = (ledgerId: LedgerId) => {
+      const accounts = [
+        ...ledger.getAccounts(`${ledgerId}:assets/`),
+        ...ledger.getAccounts(`${ledgerId}:liabilities/`),
+        ...ledger.getAccounts(`${ledgerId}:contra/trust/`),
+      ]
+
+      let balance = 0n
+      for (const account of accounts) {
+        balance +=
+          account.debitsPosted - account.creditsPosted - account.creditsPending
+      }
+
+      return balance
     }
 
-    reactor.use(PostedTransfersTopic).on(reactor, (transfer) => {
-      const ownerAccountPrefix = `${ownerLedgerIdSignal.read()}:owner/`
+    const calculateOwnerBalance = () => {
+      const ownerLedgerId = ownerLedgerIdSignal.read()
+      const ownerLedgerCurrency = getCurrencyFromLedgerId(ownerLedgerId)
 
-      let newBalance = balance
-      if (transfer.creditAccount.startsWith(ownerAccountPrefix)) {
-        newBalance += transfer.amount
+      let overallBalance = 0n
+      for (const ledgerId of ledger.getLedgerIds()) {
+        const ledgerBalance = getLedgerBalance(ledgerId)
+
+        if (ledgerId === ownerLedgerId) {
+          overallBalance += ledgerBalance
+        } else {
+          const ledgerCurrency = getCurrencyFromLedgerId(ledgerId)
+          overallBalance += convertCurrencyAmounts(
+            ledgerCurrency,
+            ownerLedgerCurrency,
+            ledgerBalance,
+          )
+        }
       }
 
-      if (transfer.debitAccount.startsWith(ownerAccountPrefix)) {
-        newBalance -= transfer.amount
-      }
+      return overallBalance
+    }
 
-      if (newBalance !== balance) {
-        reactor.use(TotalOwnerBalanceSignal).write(newBalance)
-        balance = newBalance
-      }
+    reactor.use(PostedTransfersTopic).on(reactor, () => {
+      reactor.use(TotalOwnerBalanceSignal).write(calculateOwnerBalance())
     })
 
-    return balance
+    return calculateOwnerBalance()
   })

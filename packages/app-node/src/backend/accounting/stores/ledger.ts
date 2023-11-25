@@ -11,7 +11,8 @@ import { EXCEEDS_DEBITS_FAILURE } from "../failures/exceeds-debits"
 import InvalidAccountFailure from "../failures/invalid-account"
 import { getLedgerIdFromPath } from "../functions/get-ledger-id-from-path"
 import { PostedTransfersTopic } from "../topics/posted-transfers"
-import { AccountPath } from "../types/accounts"
+import { AccountPath } from "../types/account-paths"
+import { LedgerId } from "../types/ledger-id"
 
 export interface LedgerAccount {
   path: string
@@ -40,7 +41,7 @@ export interface CreateTransferParameters {
 }
 
 export const LedgerStore = (reactor: Reactor) => {
-  const ledger = new PrefixMap<LedgerAccount>()
+  const ledger = new PrefixMap<AccountPath, LedgerAccount>()
   const pendingTransfers = new Set<Transfer>()
 
   const postedTransfers = reactor.use(PostedTransfersTopic)
@@ -66,6 +67,16 @@ export const LedgerStore = (reactor: Reactor) => {
       logger.debug("create account", { path, limit: account.limit })
 
       ledger.set(path, account)
+    },
+
+    getLedgerIds: (): LedgerId[] => {
+      const ledgerIds = new Set<LedgerId>()
+
+      for (const accountPath of ledger.keys()) {
+        ledgerIds.add(getLedgerIdFromPath(accountPath))
+      }
+
+      return [...ledgerIds]
     },
 
     getAccount: (path: AccountPath) => ledger.get(path),

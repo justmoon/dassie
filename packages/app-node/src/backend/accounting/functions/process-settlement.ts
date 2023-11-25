@@ -1,9 +1,9 @@
 import { NodeId } from "../../peer-protocol/types/node-id"
 import { CreateTransferParameters, Ledger } from "../stores/ledger"
 import {
-  PeerInterledgerAccount,
-  PeerSettlementAccount,
-} from "../types/accounts"
+  AssetsInterledgerPeerAccount,
+  AssetsOnLedgerAccount,
+} from "../types/account-paths"
 import { LedgerId } from "../types/ledger-id"
 
 export const processSettlementPrepare = (
@@ -13,12 +13,12 @@ export const processSettlementPrepare = (
   amount: bigint,
   direction: "incoming" | "outgoing",
 ) => {
-  const peerPath: PeerInterledgerAccount = `${ledgerId}:peer/${peerId}/interledger`
-  const settlementPath: PeerSettlementAccount = `${ledgerId}:peer/${peerId}/settlement`
+  const peerPath: AssetsInterledgerPeerAccount = `${ledgerId}:assets/interledger/${peerId}`
+  const onLedgerPath: AssetsOnLedgerAccount = `${ledgerId}:assets/settlement`
 
   const transfer: CreateTransferParameters = {
-    debitAccountPath: direction === "incoming" ? settlementPath : peerPath,
-    creditAccountPath: direction === "incoming" ? peerPath : settlementPath,
+    debitAccountPath: direction === "incoming" ? onLedgerPath : peerPath,
+    creditAccountPath: direction === "incoming" ? peerPath : onLedgerPath,
     amount,
     pending: true,
   }

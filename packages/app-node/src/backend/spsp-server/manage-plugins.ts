@@ -52,7 +52,7 @@ export const ManagePluginsActor = () =>
               pluginId,
               localIlpAddressPart,
               ilpAddress: `${nodeIlpAddress}.${localIlpAddressPart}`,
-              accountPath: `${ownerLedgerIdSignal.read()}:owner/spsp`,
+              accountPath: `${ownerLedgerIdSignal.read()}:equity/owner`,
             }
 
             routingTable
@@ -138,7 +138,7 @@ export const ManagePluginsActor = () =>
           pluginId,
           localIlpAddressPart,
           ilpAddress: `${nodeIlpAddress}.${localIlpAddressPart}`,
-          accountPath: `${ownerLedgerIdSignal.read()}:owner/spsp`,
+          accountPath: `${ownerLedgerIdSignal.read()}:equity/owner`,
         }
 
         processPacketActor.api.parseAndHandle.tell({

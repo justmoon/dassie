@@ -1,6 +1,7 @@
 import { createSignal } from "@dassie/lib-reactive"
 
 import type { EndpointInfo } from "../../ilp-connector/functions/send-packet"
+import { IlpAddress } from "../../ilp-connector/types/ilp-address"
 import { NodeId } from "../../peer-protocol/types/node-id"
 import PrefixMap from "../utils/prefix-map"
 
@@ -18,4 +19,6 @@ export interface PeerRoutingInfo {
 }
 
 export const RoutingTableSignal = () =>
-  createSignal(new PrefixMap<RoutingInfo>())
+  createSignal(new PrefixMap<IlpAddress, RoutingInfo>(), {
+    comparator: () => false,
+  })

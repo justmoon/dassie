@@ -42,7 +42,7 @@ export const HandleInterledgerPacket = ((reactor: Reactor) => {
       type: "peer",
       nodeId: sender,
       ilpAddress: `${ilpAllocationSchemeSignal.read()}.das.${sender}`,
-      accountPath: `${ledgerId}:peer/${sender}/interledger`,
+      accountPath: `${ledgerId}:assets/interledger/${sender}`,
     }
 
     processIncomingPacketActor.api.parseAndHandle.tell({

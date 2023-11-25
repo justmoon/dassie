@@ -54,7 +54,7 @@ export const RegisterBtpHttpUpgradeActor = (reactor: Reactor) => {
           type: "btp",
           connectionId,
           ilpAddress: `${nodeIlpAddress}.${localIlpAddressPart}`,
-          accountPath: `${ownerLedgerIdSignal.read()}:owner/btp`,
+          accountPath: `${ownerLedgerIdSignal.read()}:equity/owner`,
         }
 
         logger.debug("handle BTP websocket connection", { connectionId })

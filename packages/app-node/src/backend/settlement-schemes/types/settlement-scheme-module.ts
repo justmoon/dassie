@@ -13,6 +13,11 @@ export interface SettlementSchemeHostMethods {
     peerId: NodeId
     message: Uint8Array
   }) => Promisable<void>
+
+  reportOnLedgerBalance: (parameters: {
+    ledgerId: LedgerId
+    balance: bigint
+  }) => void
 }
 
 export interface SettlementSchemeActorMethods<

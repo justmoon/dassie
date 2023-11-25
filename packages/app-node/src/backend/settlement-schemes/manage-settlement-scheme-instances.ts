@@ -1,7 +1,14 @@
+import assert from "node:assert"
+
 import { Reactor, createActor, createMapped } from "@dassie/lib-reactive"
+import { isFailure } from "@dassie/lib-type-utils"
 
 import { initializeCommonAccounts } from "../accounting/functions/manage-common-accounts"
 import { LedgerStore } from "../accounting/stores/ledger"
+import {
+  AssetsOnLedgerAccount,
+  EquitySuspenseAccount,
+} from "../accounting/types/account-paths"
 import { DatabaseConfigStore } from "../config/database-config"
 import { SendPeerMessageActor } from "../peer-protocol/actors/send-peer-message"
 import { GetLedgerIdForSettlementScheme } from "./functions/get-ledger-id"
@@ -46,6 +53,36 @@ export const ManageSettlementSchemeInstancesActor = (reactor: Reactor) => {
               },
             },
           })
+        },
+
+        reportOnLedgerBalance: ({ ledgerId, balance }) => {
+          const onLedgerPath: AssetsOnLedgerAccount = `${ledgerId}:assets/settlement`
+          const suspensePath: EquitySuspenseAccount = `${ledgerId}:equity/suspense`
+
+          const internalAccount = ledgerStore.getAccount(onLedgerPath)
+          assert(
+            internalAccount,
+            `Internal account '${onLedgerPath}' not found`,
+          )
+
+          const internalBalance =
+            internalAccount.debitsPosted -
+            internalAccount.creditsPosted -
+            internalAccount.creditsPending
+
+          if (internalBalance !== balance) {
+            const result = ledgerStore.createTransfer({
+              debitAccountPath: onLedgerPath,
+              creditAccountPath: suspensePath,
+              amount: balance - internalBalance,
+            })
+
+            if (isFailure(result)) {
+              throw new Error(
+                `Could not create suspense transfer: ${result.name}`,
+              )
+            }
+          }
         },
       }
 

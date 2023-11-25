@@ -15,8 +15,17 @@ import { peeringResponseSchema } from "./oer-schemas/peering-response-data"
 import { settlementProofSchema } from "./oer-schemas/settlement-proof"
 import { XrplPeerState } from "./types/peer-state"
 
-// This is just something used during testing to convert between USD and XRP.
-const XRP_VALUE_FACTOR = 100_000n
+const XRP_ON_LEDGER_SCALE = 6
+const XRP_INTERNAL_SCALE = 9
+const XRP_VALUE_FACTOR = 10n ** BigInt(XRP_INTERNAL_SCALE - XRP_ON_LEDGER_SCALE)
+
+const ledger = {
+  id: "xrpl-testnet" as LedgerId,
+  currency: {
+    code: "XRP",
+    scale: XRP_INTERNAL_SCALE,
+  },
+}
 
 /**
  * This module uses the XRP Ledger testnet (altnet) for settlement.
@@ -30,16 +39,10 @@ const xrplTestnet = {
   supportedVersions: [1],
   realm: "test",
 
-  ledger: {
-    id: "xrpl-testnet" as LedgerId,
-    currency: {
-      code: "XRP",
-      scale: 9,
-    },
-  },
+  ledger,
 
   // eslint-disable-next-line unicorn/consistent-function-scoping
-  behavior: async ({ sig }) => {
+  behavior: async ({ sig, host }) => {
     // TODO: This should probably be stored in the database instead?
     const { dataPath } = sig.read(EnvironmentConfigSignal)
 
@@ -77,12 +80,40 @@ const xrplTestnet = {
         address: wallet.address,
         balance: ownAccountInfo.result.account_data.Balance,
       })
+
+      const balance =
+        BigInt(ownAccountInfo.result.account_data.Balance) * XRP_VALUE_FACTOR
+
+      host.reportOnLedgerBalance({ ledgerId: ledger.id, balance })
     } else {
       logger.info("account not found, funding account using testnet faucet", {
         address: wallet.address,
       })
       await client.fundWallet(wallet)
     }
+
+    await client.request({
+      command: "subscribe",
+      accounts: [wallet.address],
+    })
+
+    client.on("transaction", (transaction) => {
+      if (transaction.meta?.AffectedNodes) {
+        for (const node of transaction.meta.AffectedNodes) {
+          if (
+            "ModifiedNode" in node &&
+            node.ModifiedNode?.LedgerEntryType === "AccountRoot" &&
+            node.ModifiedNode?.FinalFields?.["Account"] === wallet.address
+          ) {
+            const balance =
+              BigInt(node.ModifiedNode.FinalFields["Balance"] as string) *
+              XRP_VALUE_FACTOR
+
+            host.reportOnLedgerBalance({ ledgerId: ledger.id, balance })
+          }
+        }
+      }
+    })
 
     return {
       getPeeringInfo() {
@@ -144,7 +175,9 @@ const xrplTestnet = {
         const prepared = await client.autofill({
           TransactionType: "Payment" as const,
           Account: wallet.address,
-          Amount: String(1n + amount / XRP_VALUE_FACTOR),
+          // Divide by 10^3 because the XRP Ledger uses 3 less decimal places than the internal representation.
+          // We also round up to the nearest integer.
+          Amount: String((amount + XRP_VALUE_FACTOR - 1n) / XRP_VALUE_FACTOR),
           Destination: peerState.address,
         })
 

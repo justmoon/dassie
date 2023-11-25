@@ -10,7 +10,4 @@ export const ManageBuiltinAccountsActor = () =>
     const ledgerId = sig.read(OwnerLedgerIdSignal)
 
     initializeCommonAccounts(ledger, ledgerId)
-    ledger.createAccount(`${ledgerId}:owner/spsp`)
-    ledger.createAccount(`${ledgerId}:owner/btp`)
-    ledger.createAccount(`${ledgerId}:owner/http`)
   })
