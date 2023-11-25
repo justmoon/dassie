@@ -131,6 +131,8 @@ export const LedgerStore = (reactor: Reactor) => {
       } else {
         debitAccount.debitsPosted += amount
         creditAccount.creditsPosted += amount
+
+        postedTransfers.emit(transfer as Transfer & { state: "posted" })
       }
 
       return transfer
