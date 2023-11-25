@@ -12,14 +12,12 @@ import { RegisterReactiveLoggerActor } from "./actors/register-reactive-logger"
 import { RunNodesActor } from "./actors/run-nodes"
 import { DebugUiServerActor } from "./actors/serve-debug-ui"
 import { ListenForRpcWebSocketActor } from "./actors/serve-rpc"
-import { RestartCallbackUnconstructable } from "./unconstructables/restart-callback"
 import { ViteNodeServer } from "./unconstructables/vite-node-server"
 import { ViteServer } from "./unconstructables/vite-server"
 
 export interface StartParameters {
   viteServer: ViteDevServer
   viteNodeServer: ViteNodeServerType
-  restart: () => void
 }
 
 const RootActor = () =>
@@ -39,15 +37,10 @@ const RootActor = () =>
     sig.run(CloseViteServerOnShutdownActor)
   })
 
-const start = async ({
-  viteServer,
-  viteNodeServer,
-  restart,
-}: StartParameters) => {
+const start = async ({ viteServer, viteNodeServer }: StartParameters) => {
   const reactor = createReactor()
   reactor.set(ViteServer, viteServer)
   reactor.set(ViteNodeServer, viteNodeServer)
-  reactor.set(RestartCallbackUnconstructable, restart)
   const startActor = reactor.use(RootActor)
   await startActor.run(reactor)
   return reactor

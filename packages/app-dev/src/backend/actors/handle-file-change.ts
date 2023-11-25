@@ -11,7 +11,6 @@ import {
 } from "../constants/entrypoints"
 import { vite as logger } from "../logger/instances"
 import { PeeringStateStore } from "../stores/peering-state"
-import { RestartCallbackUnconstructable } from "../unconstructables/restart-callback"
 import { ViteNodeServer } from "../unconstructables/vite-node-server"
 import { ViteServer } from "../unconstructables/vite-server"
 import { RunNodesActor } from "./run-nodes"
@@ -61,7 +60,6 @@ const areModulesWithinBoundary = (
 export const HandleFileChangeActor = (reactor: Reactor) => {
   const viteServer = reactor.use(ViteServer)
   const viteNodeServer = reactor.use(ViteNodeServer)
-  const restart = reactor.use(RestartCallbackUnconstructable)
   const peeringStateStore = reactor.use(PeeringStateStore)
   const runNodesActor = reactor.use(RunNodesActor)
 
@@ -86,7 +84,6 @@ export const HandleFileChangeActor = (reactor: Reactor) => {
           developmentServerBoundaryModules,
         )
       ) {
-        restart()
         return
       }
 

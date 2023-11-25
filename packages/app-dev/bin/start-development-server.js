@@ -6,6 +6,8 @@ import { installSourcemapsSupport } from "vite-node/source-map"
 
 const log = console.info
 
+const DEVELOPMENT_SERVER_ENTRYPOINT = "packages/app-dev/src/backend/start.ts"
+
 const createViteServer = async () => {
   const viteServer = await createServer({
     logLevel: "error",
@@ -70,10 +72,33 @@ const getStartModule = async (
   /** @type import("../src/backend/start") */
   // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
   const startModule = await viteNodeRunner.executeFile(
-    "packages/app-dev/src/backend/start.ts",
+    DEVELOPMENT_SERVER_ENTRYPOINT,
   )
 
   return startModule.default
+}
+
+const isWithinBoundary = (
+  /** @type import('vite').ModuleNode */ node,
+  /** @type Set<import('vite').ModuleNode> */ traversedModules,
+  /** @type Set<import('vite').ModuleNode> */ boundaryModules,
+) => {
+  if (traversedModules.has(node)) {
+    return false
+  }
+  traversedModules.add(node)
+
+  if (boundaryModules.has(node)) {
+    return true
+  }
+
+  for (const importer of node.importers) {
+    if (isWithinBoundary(importer, traversedModules, boundaryModules)) {
+      return true
+    }
+  }
+
+  return false
 }
 
 log(chalk.bold(`  Dassie${chalk.green("//dev")}\n`))
@@ -82,8 +107,26 @@ log("  Starting development server...\n")
 const { viteServer, viteNodeServer } = await createViteServer()
 
 const start = await getStartModule(viteServer, viteNodeServer)
-let reactorPromise = start({ viteServer, viteNodeServer, restart })
+let reactorPromise = start({ viteServer, viteNodeServer })
 let isRestartInProgress = false
+
+viteServer.watcher.on("change", (/** @type string */ file) => {
+  const { moduleGraph } = viteServer
+
+  const entrypoint = `${process.cwd()}/${DEVELOPMENT_SERVER_ENTRYPOINT}`
+
+  const changedModules = moduleGraph.getModulesByFile(file)
+  const boundaryModules = moduleGraph.getModulesByFile(entrypoint)
+  if (!changedModules || !boundaryModules) return
+
+  /**@type Set<import('vite').ModuleNode> */
+  const traversedModules = new Set()
+  for (const module of changedModules) {
+    if (isWithinBoundary(module, traversedModules, boundaryModules)) {
+      restart()
+    }
+  }
+})
 
 function restart() {
   if (isRestartInProgress) return
@@ -97,9 +140,12 @@ function restart() {
     viteNodeServer.fetchCache = new Map()
 
     const start = await getStartModule(viteServer, viteNodeServer)
-    reactorPromise = start({ viteServer, viteNodeServer, restart })
-    isRestartInProgress = false
-  })().catch((/** @type unknown */ error) => {
-    console.error("error in development server", { error })
-  })
+    reactorPromise = start({ viteServer, viteNodeServer })
+  })()
+    .catch((/** @type unknown */ error) => {
+      console.error("error in development server", { error })
+    })
+    .finally(() => {
+      isRestartInProgress = false
+    })
 }
