@@ -1,4 +1,5 @@
 {
   "typescript.tsdk": "node_modules/typescript/lib",
-  "unocss.root": ["packages/app-dev", "packages/app-node/src/frontend"]
+  "unocss.root": ["packages/app-dev", "packages/app-node/src/frontend"],
+  "cSpell.words": ["Dassie", "Interledger", "Tigerbeetle"]
 }
