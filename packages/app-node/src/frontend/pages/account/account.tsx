@@ -1,3 +1,4 @@
+import { DownloadIcon, UploadIcon } from "lucide-react"
 import { Link } from "wouter"
 
 import { Amount } from "../../components/amount/amount"
@@ -35,9 +36,19 @@ export const Account = () => {
           </div>
         </CardContent>
       </Card>
-      <Link href="/send">
-        <Button>Send</Button>
-      </Link>
+      <div className="flex flex-row space-x-2">
+        <Link href="/send">
+          <Button>
+            <UploadIcon className="h-4 w-4 mr-2" />
+            Send
+          </Button>
+        </Link>
+        <Link href="/receive">
+          <Button>
+            <DownloadIcon className="h-4 w-4 mr-2" /> Receive
+          </Button>
+        </Link>
+      </div>
     </div>
   )
 }

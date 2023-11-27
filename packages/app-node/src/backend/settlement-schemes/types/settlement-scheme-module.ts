@@ -126,6 +126,11 @@ export interface SettlementSchemeActorMethods<
     peerId: NodeId
     message: Uint8Array
   }) => Promisable<void>
+
+  /**
+   * Process an incoming deposit by the owner.
+   */
+  handleDeposit: (parameters: { amount: bigint }) => Promisable<void>
 }
 
 export interface SettlementSchemeBehaviorParameters {

@@ -283,6 +283,9 @@ const xrplTestnet = {
       handleMessage: () => {
         // no-op
       },
+      handleDeposit: () => {
+        throw new Error("not implemented")
+      },
     }
   },
 } satisfies SettlementSchemeModule<XrplPeerState>

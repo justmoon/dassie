@@ -31,7 +31,11 @@ const stub = {
   behavior: ({ host }) => {
     let balance = INITIAL_BALANCE
 
-    host.reportOnLedgerBalance({ ledgerId: ledger.id, balance })
+    const reportBalance = () => {
+      host.reportOnLedgerBalance({ ledgerId: ledger.id, balance })
+    }
+
+    reportBalance()
 
     return {
       getPeeringInfo: () => {
@@ -63,6 +67,7 @@ const stub = {
         logger.info(`Sending settlement for ${amount} units to ${peerId}`)
 
         balance -= amount
+        reportBalance()
 
         return {
           proof: new Uint8Array(),
@@ -72,6 +77,7 @@ const stub = {
         logger.info(`Received settlement for ${amount} units from ${peerId}`)
 
         balance += amount
+        reportBalance()
 
         return {
           result: "accept" as const,
@@ -79,6 +85,12 @@ const stub = {
       },
       handleMessage: () => {
         // no-op
+      },
+      handleDeposit: ({ amount }) => {
+        logger.info(`Received deposit for ${amount} units`)
+
+        balance += amount
+        reportBalance()
       },
     }
   },

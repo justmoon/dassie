@@ -10,6 +10,7 @@ import { Routing } from "./pages/debug/routing/routing"
 import { State } from "./pages/debug/state/state"
 import { LoginPage } from "./pages/login/login"
 import { PaymentStatus } from "./pages/payment-status/payment-status"
+import { ReceivePage } from "./pages/receive/receive"
 import { Send } from "./pages/send/send"
 import { Settings } from "./pages/settings/settings"
 import { Setup } from "./pages/setup/setup"
@@ -45,6 +46,7 @@ const App = () => {
       <MainNavigation />
       <Switch>
         <Route path="/send" component={Send} />
+        <Route path="/receive" component={ReceivePage} />
         <Route path="/payments/:paymentId" component={PaymentStatus} />
         <Route path="/debug/ledger" component={Ledger} />
         <Route path="/debug/nodes" component={Nodes} />
