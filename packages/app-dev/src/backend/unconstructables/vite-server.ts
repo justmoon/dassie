@@ -1,5 +1,5 @@
 import { ViteDevServer } from "vite"
 
-import { createUnconstructable } from "@dassie/lib-reactive"
+import { createAbstract } from "@dassie/lib-reactive"
 
-export const ViteServer = () => createUnconstructable<ViteDevServer>()
+export const ViteServer = () => createAbstract<ViteDevServer>()

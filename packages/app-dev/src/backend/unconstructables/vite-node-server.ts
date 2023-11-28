@@ -1,5 +1,5 @@
 import type { ViteNodeServer as ViteNodeServerType } from "vite-node/server"
 
-import { createUnconstructable } from "@dassie/lib-reactive"
+import { createAbstract } from "@dassie/lib-reactive"
 
-export const ViteNodeServer = () => createUnconstructable<ViteNodeServerType>()
+export const ViteNodeServer = () => createAbstract<ViteNodeServerType>()

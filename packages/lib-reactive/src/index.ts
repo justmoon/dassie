@@ -6,7 +6,7 @@ export { createComputed, isComputed, ComputedSymbol } from "./computed"
 export { createMapped, isMapped, MappedSymbol } from "./mapped"
 export { createReactor } from "./reactor"
 export { createLifecycleScope } from "./lifecycle"
-export { createUnconstructable } from "./unconstructable"
+export { createAbstract } from "./abstract"
 export { CacheStatus } from "./internal/reactive"
 export {
   FactoryNameSymbol,
