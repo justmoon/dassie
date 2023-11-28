@@ -1,16 +1,12 @@
 import { dump } from "wtfnode"
 
-import { Reactor, createActor, createTopic } from "@dassie/lib-reactive"
+import { Reactor, createActor } from "@dassie/lib-reactive"
 
 const OPEN_HANDLES_GRACE_PERIOD = 500
-
-export const ShutdownTopic = () => createTopic<void>()
 
 export const HandleShutdownSignalsActor = (reactor: Reactor) =>
   createActor((sig) => {
     const onShutdown = () => {
-      sig.reactor.use(ShutdownTopic).emit()
-
       reactor
         .dispose()
         .then(() => {

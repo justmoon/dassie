@@ -49,12 +49,9 @@ const createViteServer = async () => {
   }
 }
 
-const getStartModule = async (
-  /** @type import("vite").ViteDevServer */
-  viteServer,
-  /** @type ViteNodeServer */
-  viteNodeServer,
-) => {
+const { viteServer, viteNodeServer } = await createViteServer()
+
+const getStartModule = async () => {
   const viteNodeRunner = new ViteNodeRunner({
     root: viteServer.config.root,
     base: viteServer.config.base,
@@ -75,7 +72,32 @@ const getStartModule = async (
     DEVELOPMENT_SERVER_ENTRYPOINT,
   )
 
-  return startModule.default
+  return startModule
+}
+
+let isRestartQueued = false
+/** @type Promise<void> | undefined */
+let startupPromise
+
+const start = async () => {
+  const { prepareReactor, RootActor } = await getStartModule()
+
+  const reactor = prepareReactor({ viteServer, viteNodeServer })
+
+  reactor.onCleanup(async () => {
+    if (!isRestartQueued) {
+      await viteServer.close()
+    }
+  })
+
+  const rootActor = reactor.use(RootActor)
+  startupPromise = rootActor
+    .run(reactor)
+    ?.catch((/** @type unknown */ error) => {
+      console.error("error running development server root actor", { error })
+    })
+
+  return reactor
 }
 
 const isWithinBoundary = (
@@ -104,11 +126,7 @@ const isWithinBoundary = (
 log(chalk.bold(`  Dassie${chalk.green("//dev")}\n`))
 log("  Starting development server...\n")
 
-const { viteServer, viteNodeServer } = await createViteServer()
-
-const start = await getStartModule(viteServer, viteNodeServer)
-let reactorPromise = start({ viteServer, viteNodeServer })
-let isRestartInProgress = false
+let reactor = await start()
 
 viteServer.watcher.on("change", (/** @type string */ file) => {
   const { moduleGraph } = viteServer
@@ -129,23 +147,22 @@ viteServer.watcher.on("change", (/** @type string */ file) => {
 })
 
 function restart() {
-  if (isRestartInProgress) return
-  isRestartInProgress = true
+  if (isRestartQueued) return
+  isRestartQueued = true
 
   log(chalk.green("\n  Restarting development server...\n"))
-  ;(async () => {
-    const reactor = await reactorPromise
-    await reactor.dispose()
+  void (async () => {
+    try {
+      await startupPromise
+      await reactor.dispose()
+    } catch (/** @type unknown */ error) {
+      console.error("error shutting down development server", { error })
+    } finally {
+      isRestartQueued = false
+    }
 
     viteNodeServer.fetchCache = new Map()
 
-    const start = await getStartModule(viteServer, viteNodeServer)
-    reactorPromise = start({ viteServer, viteNodeServer })
+    reactor = await start()
   })()
-    .catch((/** @type unknown */ error) => {
-      console.error("error in development server", { error })
-    })
-    .finally(() => {
-      isRestartInProgress = false
-    })
 }
