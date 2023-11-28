@@ -69,6 +69,12 @@ module.exports = {
         "unicorn/prevent-abbreviations": "off",
       },
     },
+    {
+      files: ["*.test.ts{,x}"],
+      rules: {
+        "unicorn/consistent-function-scoping": "off",
+      },
+    },
   ],
   settings: {
     react: {
