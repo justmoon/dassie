@@ -295,7 +295,7 @@ describe("createActor", () => {
     test("should re-run actor on subscribed topic message", async ({
       expect,
     }) => {
-      const topic = createTopic<void>()
+      const topic = createTopic()
 
       const behavior = vi.fn((sig: ActorContext) => {
         sig.subscribe(topic)

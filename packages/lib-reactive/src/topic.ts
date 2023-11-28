@@ -72,7 +72,7 @@ export type Topic<TMessage = never> = ReadonlyTopic<TMessage> & {
   emit: (this: void, trigger: TMessage) => void
 }
 
-export const createTopic = <TMessage>(): Topic<TMessage> => {
+export const createTopic = <TMessage = void>(): Topic<TMessage> => {
   /**
    * The listeners for this topic.
    *
