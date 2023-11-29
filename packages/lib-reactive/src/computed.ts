@@ -30,16 +30,19 @@ export interface ComputedOptions<TState> {
   comparator?: ((oldValue: TState, newValue: TState) => boolean) | undefined
 }
 
-class ComputedImplementation<TState> extends Reactive<TState> {
+class ComputedImplementation<
+  TState,
+  TBase extends object,
+> extends Reactive<TState> {
   [SignalSymbol] = true as const;
   [TopicSymbol] = true as const;
   [ComputedSymbol] = true as const
 
-  private context: ComputationContext
+  private context: ComputationContext<TBase>
 
   constructor(
-    parentContext: LifecycleScope & StatefulContext,
-    private readonly computation: (sig: ComputationContext) => TState,
+    parentContext: LifecycleScope & StatefulContext<TBase>,
+    private readonly computation: (sig: ComputationContext<TBase>) => TState,
     options: ComputedOptions<TState> = {},
   ) {
     super(options.comparator ?? defaultComparator, false)
@@ -63,9 +66,9 @@ class ComputedImplementation<TState> extends Reactive<TState> {
   }
 }
 
-export function createComputed<TState>(
-  parentContext: LifecycleScope & StatefulContext,
-  computation: (sig: ComputationContext) => TState,
+export function createComputed<TState, TBase extends object>(
+  parentContext: LifecycleScope & StatefulContext<TBase>,
+  computation: (sig: ComputationContext<TBase>) => TState,
   options: ComputedOptions<TState> = {},
 ): Computed<TState> {
   const computed = new ComputedImplementation(

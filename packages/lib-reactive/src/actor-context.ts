@@ -25,10 +25,16 @@ export type ActorReference = Omit<
   typeof TopicSymbol | "on" | "once" | "off"
 >
 
-export interface ActorContext
+export const ActorContextSymbol = Symbol("das:reactive:actor-context")
+
+export interface ActorContext<TBase extends object = object>
   extends DisposableLifecycleScope,
-    StatefulContext,
+    StatefulContext<TBase>,
     ReactiveContext {
+  [ActorContextSymbol]: true
+
+  base: TBase
+
   /**
    * Re-run this actor if a message is emitted on the given topic.
    *
@@ -39,7 +45,9 @@ export interface ActorContext
    * @param topic - Reference to the topic's factory function.
    */
   subscribe<TMessage>(
-    topicFactory: Factory<ReadonlyTopic<TMessage>> | ReadonlyTopic<TMessage>,
+    topicFactory:
+      | Factory<ReadonlyTopic<TMessage>, TBase>
+      | ReadonlyTopic<TMessage>,
   ): void
 
   /**
@@ -49,7 +57,9 @@ export interface ActorContext
    * @param listener - A function that will be called every time a message is emitted on the topic.
    */
   on<TMessage>(
-    topicFactory: Factory<ReadonlyTopic<TMessage>> | ReadonlyTopic<TMessage>,
+    topicFactory:
+      | Factory<ReadonlyTopic<TMessage>, TBase>
+      | ReadonlyTopic<TMessage>,
     listener: Listener<TMessage>,
   ): void
 
@@ -60,7 +70,9 @@ export interface ActorContext
    * @param listener - A function that will be called every time a message is emitted on the topic.
    */
   once<TMessage>(
-    topicFactory: Factory<ReadonlyTopic<TMessage>> | ReadonlyTopic<TMessage>,
+    topicFactory:
+      | Factory<ReadonlyTopic<TMessage>, TBase>
+      | ReadonlyTopic<TMessage>,
     listener: Listener<TMessage>,
   ): void
 
@@ -97,7 +109,7 @@ export interface ActorContext
    * @returns - Return value of the first invocation of the actor.
    */
   run<TReturn>(
-    factory: Factory<Actor<TReturn>> | Actor<TReturn>,
+    factory: Factory<Actor<TReturn, TBase>, TBase> | Actor<TReturn, TBase>,
     options?: RunOptions | undefined,
   ): TReturn | undefined
 
@@ -111,8 +123,8 @@ export interface ActorContext
    */
   runMap<TReturn>(
     factory:
-      | Factory<Mapped<unknown, Actor<TReturn>>>
-      | Mapped<unknown, Actor<TReturn>>,
+      | Factory<Mapped<unknown, Actor<TReturn, TBase>>>
+      | Mapped<unknown, Actor<TReturn, TBase>>,
   ): (TReturn | undefined)[]
 
   /**
@@ -124,20 +136,29 @@ export interface ActorContext
    */
   runMapSequential<TReturn>(
     factory:
-      | Factory<Mapped<unknown, Actor<TReturn>>>
-      | Mapped<unknown, Actor<TReturn>>,
+      | Factory<Mapped<unknown, Actor<TReturn, TBase>>>
+      | Mapped<unknown, Actor<TReturn, TBase>>,
   ): Promise<(TReturn | undefined)[]>
 
   /**
    * Wake function. If called, the actor will be cleaned up and re-run.
    */
   readonly forceRestart: () => void
+
+  /**
+   * Add something to the base context and return an augmented context.
+   */
+  withBase<TNewBase extends object>(
+    base: TNewBase,
+  ): ActorContext<TBase & TNewBase>
 }
 
-export class ActorContextImplementation
-  extends ReactiveContextImplementation
+export class ActorContextImplementation<TBase extends object = object>
+  extends ReactiveContextImplementation<TBase>
   implements ActorContext
 {
+  [ActorContextSymbol] = true as const
+
   constructor(
     /**
      * Name of the actor.
@@ -157,7 +178,7 @@ export class ActorContextImplementation
      */
     readonly path: string,
 
-    reactor: Reactor,
+    reactor: Reactor<TBase>,
 
     readonly forceRestart: () => void,
 
@@ -166,14 +187,22 @@ export class ActorContextImplementation
     super(name, reactor, _get)
   }
 
+  get base() {
+    return this.reactor.base
+  }
+
   subscribe<TMessage>(
-    topicFactory: Factory<ReadonlyTopic<TMessage>> | ReadonlyTopic<TMessage>,
+    topicFactory:
+      | Factory<ReadonlyTopic<TMessage>, TBase>
+      | ReadonlyTopic<TMessage>,
   ) {
     this.once(topicFactory, this.forceRestart)
   }
 
   on<TMessage>(
-    topicFactory: Factory<ReadonlyTopic<TMessage>> | ReadonlyTopic<TMessage>,
+    topicFactory:
+      | Factory<ReadonlyTopic<TMessage>, TBase>
+      | ReadonlyTopic<TMessage>,
     listener: Listener<TMessage>,
   ) {
     const topic =
@@ -184,7 +213,9 @@ export class ActorContextImplementation
   }
 
   once<TMessage>(
-    topicFactory: Factory<ReadonlyTopic<TMessage>> | ReadonlyTopic<TMessage>,
+    topicFactory:
+      | Factory<ReadonlyTopic<TMessage>, TBase>
+      | ReadonlyTopic<TMessage>,
     listener: Listener<TMessage>,
   ) {
     const topic =
@@ -263,7 +294,7 @@ export class ActorContextImplementation
   }
 
   run<TReturn>(
-    actorFactory: Factory<Actor<TReturn>> | Actor<TReturn>,
+    actorFactory: Factory<Actor<TReturn, TBase>, TBase> | Actor<TReturn, TBase>,
     options?: RunOptions | undefined,
   ): TReturn | undefined {
     const actor =
@@ -278,15 +309,16 @@ export class ActorContextImplementation
   }
 
   private runMappedItem<TReturn>(
-    actor: Actor<TReturn>,
+    actor: Actor<TReturn, TBase>,
     mapItemLifecycle: LifecycleScope,
     runOptions: RunOptions,
   ): TReturn | undefined {
     if (this.isDisposed) return
 
-    const actorLifecycle: DisposableLifecycleScope & StatefulContext =
+    const actorLifecycle: DisposableLifecycleScope & StatefulContext<TBase> =
       Object.assign(new DisposableLifecycleScopeImplementation(""), {
         reactor: this.reactor,
+        base: this.base,
       })
     actorLifecycle.confineTo(mapItemLifecycle)
     actorLifecycle.confineTo(this)
@@ -295,9 +327,12 @@ export class ActorContextImplementation
   }
 
   runMap<TReturn>(
-    factory: Factory<Mapped<unknown, Actor<TReturn>>>,
+    factory:
+      | Factory<Mapped<unknown, Actor<TReturn, TBase>>, TBase>
+      | Mapped<unknown, Actor<TReturn, TBase>>,
   ): (TReturn | undefined)[] {
-    const mapped = this.reactor.use(factory)
+    const mapped =
+      typeof factory === "function" ? this.reactor.use(factory) : factory
     const results: (TReturn | undefined)[] = Array.from({ length: mapped.size })
 
     const runOptions: RunOptions = {
@@ -317,9 +352,12 @@ export class ActorContextImplementation
   }
 
   async runMapSequential<TReturn>(
-    factory: Factory<Mapped<unknown, Actor<TReturn>>>,
+    factory:
+      | Factory<Mapped<unknown, Actor<TReturn, TBase>>, TBase>
+      | Mapped<unknown, Actor<TReturn, TBase>>,
   ): Promise<(TReturn | undefined)[]> {
-    const mapped = this.reactor.use(factory)
+    const mapped =
+      typeof factory === "function" ? this.reactor.use(factory) : factory
     const results: (TReturn | undefined)[] = Array.from({ length: mapped.size })
     let linearizationPromise = Promise.resolve()
 
@@ -345,5 +383,15 @@ export class ActorContextImplementation
     })
 
     return results
+  }
+
+  withBase<TNewBase extends object>(newBase: TNewBase) {
+    return new ActorContextImplementation(
+      this.name,
+      this.path,
+      this.reactor.withBase(newBase),
+      this.forceRestart,
+      this._get,
+    )
   }
 }

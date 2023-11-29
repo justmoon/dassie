@@ -5,7 +5,7 @@ import { DassieIlpAddress } from "../types/ilp-address"
 import { NodeIdSignal } from "./node-id"
 
 export const NodeIlpAddressSignal = (reactor: Reactor) =>
-  createComputed<DassieIlpAddress>(reactor, (sig) => {
+  createComputed(reactor, (sig): DassieIlpAddress => {
     const ilpAllocationScheme = sig.readAndTrack(IlpAllocationSchemeSignal)
 
     const nodeId = sig.readAndTrack(reactor.use(NodeIdSignal))

@@ -3,11 +3,11 @@ import { ReactiveContextImplementation } from "./reactive-context"
 import { ReactiveContext } from "./types/reactive-context"
 import { StatefulContext } from "./types/stateful-context"
 
-export interface ComputationContext
-  extends StatefulContext,
+export interface ComputationContext<TBase extends object = object>
+  extends StatefulContext<TBase>,
     ReactiveContext,
     LifecycleScope {}
 
-export class ComputationContextImplementation
-  extends ReactiveContextImplementation
-  implements ComputationContext {}
+export class ComputationContextImplementation<TBase extends object>
+  extends ReactiveContextImplementation<TBase>
+  implements ComputationContext<TBase> {}

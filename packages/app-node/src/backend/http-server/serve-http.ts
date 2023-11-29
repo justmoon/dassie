@@ -12,7 +12,7 @@ import { http as logger } from "../logger/instances"
 import { getListenTargets } from "./utils/listen-targets"
 
 export const HttpRouterServiceActor = () =>
-  createActor<Router>(() => {
+  createActor(() => {
     return Router()
   })
 

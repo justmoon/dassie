@@ -5,7 +5,7 @@ import { DatabaseConfigStore } from "../database-config"
 export type IlpAllocationScheme = "test" | "g"
 
 export const IlpAllocationSchemeSignal = (reactor: Reactor) =>
-  createComputed<IlpAllocationScheme>(reactor, (sig) => {
+  createComputed(reactor, (sig): IlpAllocationScheme => {
     const config = sig.readAndTrack(DatabaseConfigStore)
 
     return config.realm === "test" ? "test" : "g"

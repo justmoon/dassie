@@ -17,7 +17,9 @@ import { DisposableLifecycleScope, LifecycleScope } from "./lifecycle"
 import { ReadonlySignal, Reducer, SignalSymbol } from "./signal"
 import { ReadonlyTopic } from "./topic"
 
-export type Behavior<TReturn = unknown> = (sig: ActorContext) => TReturn
+export type Behavior<TReturn = unknown, TBase extends object = object> = (
+  sig: ActorContext<TBase>,
+) => TReturn
 
 export const ActorSymbol = Symbol("das:reactive:actor")
 
@@ -43,11 +45,11 @@ export interface ActorApiProxy<TCallback extends ActorApiHandler> {
     : SetReturnType<TCallback, Promise<ReturnType<TCallback>>>
 }
 
-export type InferActorApi<TInstance> = {
+export type InferActorApi<TReturn> = {
   [K in keyof ConditionalPick<
-    TInstance,
+    TReturn,
     ActorApiHandler
-  >]: TInstance[K] extends ActorApiHandler ? ActorApiProxy<TInstance[K]> : never
+  >]: TReturn[K] extends ActorApiHandler ? ActorApiProxy<TReturn[K]> : never
 }
 
 class ApiProxy {
@@ -98,73 +100,74 @@ class ApiProxy {
   }
 }
 
-export type Actor<TInstance> = ReactiveObserver &
-  ReadonlySignal<Awaited<TInstance> | undefined> & {
-    /**
-     * Marks this object as a value.
-     */
-    [ActorSymbol]: true
+export interface Actor<TReturn, TBase extends object = object>
+  extends ReactiveObserver,
+    ReadonlySignal<Awaited<TReturn> | undefined> {
+  /**
+   * Marks this object as a value.
+   */
+  [ActorSymbol]: true
 
-    /**
-     * A reference to the actor context if the actor is currently running. Otherwise undefined.
-     */
-    readonly currentContext: ActorContext | undefined
+  /**
+   * A reference to the actor context if the actor is currently running. Otherwise undefined.
+   */
+  readonly currentContext: ActorContext | undefined
 
-    /**
-     * The result of the most recent succesful execution of the actor.
-     *
-     * Note that this is the raw result which may be a promise. If you want to get the resolved value, use `actor.read()`.
-     *
-     * If the actor hasn't run yet, the result will be undefined.
-     * If the actor throws an error, the result will be a rejected promise which is represented by a Promise<never> type.
-     */
-    readonly result: TInstance | undefined
+  /**
+   * The result of the most recent succesful execution of the actor.
+   *
+   * Note that this is the raw result which may be a promise. If you want to get the resolved value, use `actor.read()`.
+   *
+   * If the actor hasn't run yet, the result will be undefined.
+   * If the actor throws an error, the result will be a rejected promise which is represented by a Promise<never> type.
+   */
+  readonly result: TReturn | undefined
 
-    /**
-     * A promise which will resolve with the result of the actor.
-     *
-     * @remarks
-     *
-     * If the actor is not currently running, this promise will resolve the next
-     * time the actor completes executing its behavior function.
-     */
-    readonly promise: Promise<TInstance>
+  /**
+   * A promise which will resolve with the result of the actor.
+   *
+   * @remarks
+   *
+   * If the actor is not currently running, this promise will resolve the next
+   * time the actor completes executing its behavior function.
+   */
+  readonly promise: Promise<TReturn>
 
-    /**
-     * Run the actor and return the result.
-     *
-     * @remarks
-     *
-     * @param lifecycle - The parent lifecycle scope. The actor will automatically be disposed when this scope is disposed.
-     * @returns The return value of the actor.
-     */
-    run: (
-      parentContext: StatefulContext & LifecycleScope,
-      options?: RunOptions | undefined,
-    ) => TInstance | undefined
+  /**
+   * Run the actor and return the result.
+   *
+   * @remarks
+   *
+   * @param lifecycle - The parent lifecycle scope. The actor will automatically be disposed when this scope is disposed.
+   * @returns The return value of the actor.
+   */
+  run: (
+    parentContext: StatefulContext<TBase> & LifecycleScope,
+    options?: RunOptions | undefined,
+  ) => TReturn | undefined
 
-    /**
-     * Invalidate the actor and force it to restart at the next opportunity.
-     *
-     * @remarks
-     *
-     * Calling this method will indicate to the actor that its dependencies may have changed at it should restart. If
-     * the actor is already in the process of restarting, it will restart again once it is done. However, it will not
-     * buffer more than one restart.
-     */
-    forceRestart: () => void
+  /**
+   * Invalidate the actor and force it to restart at the next opportunity.
+   *
+   * @remarks
+   *
+   * Calling this method will indicate to the actor that its dependencies may have changed at it should restart. If
+   * the actor is already in the process of restarting, it will restart again once it is done. However, it will not
+   * buffer more than one restart.
+   */
+  forceRestart: () => void
 
-    /**
-     * If the actor exposes a public API, you can interact with it here.
-     *
-     * @example
-     *
-     * ```ts
-     * myActor.api.myMethod.tell({ foo: "bar" })
-     * ```
-     */
-    api: InferActorApi<Awaited<TInstance>>
-  }
+  /**
+   * If the actor exposes a public API, you can interact with it here.
+   *
+   * @example
+   *
+   * ```ts
+   * myActor.api.myMethod.tell({ foo: "bar" })
+   * ```
+   */
+  api: InferActorApi<Awaited<TReturn>>
+}
 
 export interface RunOptions {
   /**
@@ -190,32 +193,32 @@ export interface RunOptions {
   overrideName?: string | undefined
 }
 
-export class ActorImplementation<TInstance>
+export class ActorImplementation<TReturn, TBase extends object>
   extends ContextBase
   implements
-    Omit<Actor<TInstance>, keyof ReadonlyTopic>,
+    Omit<Actor<TReturn, TBase>, keyof ReadonlyTopic>,
     ReactiveObserver,
-    ReactiveSource<Awaited<TInstance> | undefined>
+    ReactiveSource<Awaited<TReturn> | undefined>
 {
   [SignalSymbol] = true as const;
   [ActorSymbol] = true as const
 
-  currentContext: ActorContext | undefined = undefined
-  result: TInstance | undefined
-  promise = makePromise<TInstance>()
+  currentContext: ActorContext<TBase> | undefined = undefined
+  result: TReturn | undefined
+  promise = makePromise<TReturn>()
   private waker = makePromise()
 
-  private cache: Awaited<TInstance> | undefined
+  private cache: Awaited<TReturn> | undefined
   private cacheStatus: CacheStatus = CacheStatus.Clean
   private observers = new Set<ReactiveObserver>()
   private sources = new Set<ReactiveSource<unknown>>()
   private isReadingSource = false
 
-  constructor(public behavior: Behavior<TInstance>) {
+  constructor(public behavior: Behavior<TReturn, TBase>) {
     super()
   }
 
-  read(): Awaited<TInstance> | undefined {
+  read(): Awaited<TReturn> | undefined {
     return this.cache
   }
 
@@ -232,7 +235,7 @@ export class ActorImplementation<TInstance>
   recompute() {}
 
   run(
-    parentContext: StatefulContext & LifecycleScope,
+    parentContext: StatefulContext<TBase> & LifecycleScope,
     { additionalDebugData, pathPrefix, overrideName }: RunOptions = {},
   ) {
     if (this.currentContext) {
@@ -278,7 +281,7 @@ export class ActorImplementation<TInstance>
   }
 
   private async loop(
-    parentContext: StatefulContext & LifecycleScope,
+    parentContext: StatefulContext<TBase> & LifecycleScope,
     actorPath: string,
     additionalDebugData: Record<string, unknown> | undefined,
   ) {
@@ -375,7 +378,7 @@ export class ActorImplementation<TInstance>
 
       return new ApiProxy(target, method)
     },
-  }) as unknown as InferActorApi<Awaited<TInstance>>
+  }) as unknown as InferActorApi<Awaited<TReturn>>
 
   /**
    * Apply a reducer which will accept the current state and return a new state.
@@ -383,7 +386,7 @@ export class ActorImplementation<TInstance>
    * @param reducer - The reducer to apply to the state.
    * @returns The new state of the signal.
    */
-  update(reducer: Reducer<Awaited<TInstance> | undefined>) {
+  update(reducer: Reducer<Awaited<TReturn> | undefined>) {
     const newValue = reducer(
       this.cache === CacheUninitialized ? undefined : this.cache,
     )
@@ -400,9 +403,9 @@ export class ActorImplementation<TInstance>
   }
 }
 
-export const createActor = <TInstance>(
-  behavior: Behavior<TInstance>,
-): Actor<TInstance> => {
+export const createActor = <TReturn, TBase extends object>(
+  behavior: Behavior<TReturn, TBase>,
+): Actor<TReturn, TBase> => {
   const actor = new ActorImplementation(behavior)
   return Object.assign(actor, createReactiveTopic(actor))
 }

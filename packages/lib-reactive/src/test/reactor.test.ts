@@ -1,6 +1,6 @@
 import { describe, test, vi } from "vitest"
 
-import { createActor, createReactor } from ".."
+import { Reactor, createActor, createReactor } from ".."
 
 describe("createReactor", () => {
   test("should create a reactor", ({ expect }) => {
@@ -33,5 +33,25 @@ describe("createReactor", () => {
     await reactor.dispose()
 
     expect(cleanup).toHaveBeenCalledTimes(1)
+  })
+
+  test("should provide a base", ({ expect }) => {
+    const reactor = createReactor(undefined, { foo: "bar" })
+    expect(reactor.base).toEqual({ foo: "bar" })
+  })
+
+  test("should provide base to factories", ({ expect }) => {
+    const factory = vi.fn((reactor: Reactor<{ foo: string }>) => {
+      expect(reactor.base).toEqual({ foo: "bar" })
+
+      return { bar: reactor.base.foo }
+    })
+
+    const reactor = createReactor(undefined, { foo: "bar" })
+
+    const result = reactor.use(factory)
+
+    expect(factory).toHaveBeenCalledOnce()
+    expect(result).toEqual({ bar: "bar" })
   })
 })

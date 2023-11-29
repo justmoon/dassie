@@ -444,4 +444,166 @@ describe("createActor", () => {
       expect(apiHandler).toHaveBeenCalledTimes(1)
     })
   })
+
+  describe("base", () => {
+    test("should be able to access base context", ({ expect }) => {
+      const behavior = vi.fn()
+
+      const RootActor = () => createActor(behavior)
+
+      createReactor(RootActor, { foo: "bar" })
+
+      expect(behavior).toHaveBeenCalledTimes(1)
+      expect(behavior).toHaveBeenCalledWith(
+        expect.objectContaining({
+          base: { foo: "bar" },
+        }),
+      )
+    })
+
+    test("should be able to extend base context", ({ expect }) => {
+      const behavior = vi.fn()
+
+      const Actor = () => createActor(behavior)
+
+      const RootActor = () =>
+        createActor((sig) => {
+          sig.withBase({ foo: "bar" }).run(Actor)
+        })
+
+      createReactor(RootActor)
+
+      expect(behavior).toHaveBeenCalledTimes(1)
+      expect(behavior).toHaveBeenCalledWith(
+        expect.objectContaining({
+          base: { foo: "bar" },
+        }),
+      )
+    })
+
+    test("should be able to extend base context twice", ({ expect }) => {
+      const innerBehavior = vi.fn()
+      const middleBehavior = vi.fn()
+
+      const Actor = () =>
+        createActor((sig: ActorContext<{ foo: string; bar: string }>) => {
+          innerBehavior(sig)
+        })
+
+      const MiddleActor = () =>
+        createActor((sig: ActorContext<{ foo: string }>) => {
+          middleBehavior(sig)
+          sig
+            .withBase({
+              bar: "baz",
+            })
+            .run(Actor)
+        })
+
+      const RootActor = () =>
+        createActor((sig) => {
+          sig.withBase({ foo: "bar" }).run(MiddleActor)
+        })
+
+      createReactor(RootActor)
+
+      expect(middleBehavior).toHaveBeenCalledTimes(1)
+      expect(middleBehavior).toHaveBeenCalledWith(
+        expect.objectContaining({
+          base: { foo: "bar" },
+        }),
+      )
+
+      expect(innerBehavior).toHaveBeenCalledTimes(1)
+      expect(innerBehavior).toHaveBeenCalledWith(
+        expect.objectContaining({
+          base: { foo: "bar", bar: "baz" },
+        }),
+      )
+    })
+
+    test("should not modify reactor context", ({ expect }) => {
+      const behavior = vi.fn(
+        (sig: ActorContext<{ foo: string; bar: string }>) => {
+          expect(sig.base).toEqual({ foo: "bar", bar: "baz" })
+        },
+      )
+
+      const Actor = () => createActor(behavior)
+
+      const RootActor = () =>
+        createActor((sig: ActorContext<{ foo: string }>) => {
+          sig.withBase({ bar: "baz" }).run(Actor)
+        })
+
+      const reactor = createReactor(RootActor, { foo: "bar" })
+
+      expect(behavior).toHaveBeenCalledTimes(1)
+      expect(reactor.base).toEqual({ foo: "bar" })
+    })
+
+    test("should not modify own context", ({ expect }) => {
+      const checkContext = vi.fn((sig: ActorContext<{ foo: string }>) => {
+        expect(sig.base).toEqual({ foo: "bar" })
+      })
+
+      const Actor = () => createActor(() => {})
+
+      const MiddleActor = () =>
+        createActor((sig: ActorContext<{ foo: string }>) => {
+          checkContext(sig)
+          sig
+            .withBase({
+              bar: "baz",
+            })
+            .run(Actor)
+          checkContext(sig)
+        })
+
+      const RootActor = () =>
+        createActor((sig) => {
+          sig.withBase({ foo: "bar" }).run(MiddleActor)
+        })
+
+      createReactor(RootActor)
+
+      expect(checkContext).toHaveBeenCalledTimes(2)
+    })
+
+    test("should not modify own context on future runs", async ({ expect }) => {
+      const checkContext = vi.fn((sig: ActorContext<{ foo: string }>) => {
+        expect(sig.base).toEqual({ foo: "bar" })
+      })
+
+      const topic = createTopic()
+
+      const Actor = () => createActor(() => {})
+
+      const MiddleActor = () =>
+        createActor((sig: ActorContext<{ foo: string }>) => {
+          sig.subscribe(topic)
+          checkContext(sig)
+          sig
+            .withBase({
+              bar: "baz",
+            })
+            .run(Actor)
+        })
+
+      const RootActor = () =>
+        createActor((sig) => {
+          sig.withBase({ foo: "bar" }).run(MiddleActor)
+        })
+
+      createReactor(RootActor)
+
+      expect(checkContext).toHaveBeenCalledTimes(1)
+
+      topic.emit()
+
+      await setTimeout()
+
+      expect(checkContext).toHaveBeenCalledTimes(2)
+    })
+  })
 })

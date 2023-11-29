@@ -13,9 +13,9 @@ import { Factory } from "./types/factory"
 import { ReactiveContext } from "./types/reactive-context"
 import { StatefulContext } from "./types/stateful-context"
 
-export class ReactiveContextImplementation
+export class ReactiveContextImplementation<TBase extends object>
   extends DisposableLifecycleScopeImplementation
-  implements StatefulContext, ReactiveContext, DisposableLifecycleScope
+  implements StatefulContext<TBase>, ReactiveContext, DisposableLifecycleScope
 {
   constructor(
     /**
@@ -34,18 +34,20 @@ export class ReactiveContextImplementation
      *
      * If you want to pass something to an external component to allow that component to interact with the reactive system, you can use this reference.
      */
-    readonly reactor: Reactor,
+    readonly reactor: Reactor<TBase>,
 
     /**
      * A function which allows tracked reads of signals.
      */
-    private readonly _get: <TState>(signal: ReactiveSource<TState>) => TState,
+    readonly _get: <TState>(signal: ReactiveSource<TState>) => TState,
   ) {
     super(name)
   }
 
   readAndTrack<TState, TSelection>(
-    signalFactory: Factory<ReactiveSource<TState>> | ReactiveSource<TState>,
+    signalFactory:
+      | Factory<ReactiveSource<TState>, TBase>
+      | ReactiveSource<TState>,
     // Based on the overloaded function signature, the selector parameter may be omitted iff TMessage equals TSelection.
     // Therefore this cast is safe.
     selector: (state: TState) => TSelection = defaultSelector as unknown as (
@@ -71,7 +73,7 @@ export class ReactiveContextImplementation
   }
 
   readKeysAndTrack<TState, TKeys extends keyof TState>(
-    signal: Factory<ReactiveSource<TState>> | ReactiveSource<TState>,
+    signal: Factory<ReactiveSource<TState>, TBase> | ReactiveSource<TState>,
     keys: readonly TKeys[],
   ): Pick<TState, TKeys> {
     return this.readAndTrack(
@@ -95,7 +97,9 @@ export class ReactiveContextImplementation
   }
 
   read<TState>(
-    signalFactory: Factory<ReactiveSource<TState>> | ReactiveSource<TState>,
+    signalFactory:
+      | Factory<ReactiveSource<TState>, TBase>
+      | ReactiveSource<TState>,
   ): TState {
     const signal =
       typeof signalFactory === "function"

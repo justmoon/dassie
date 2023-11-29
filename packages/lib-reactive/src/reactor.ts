@@ -4,7 +4,7 @@ import { isObject } from "@dassie/lib-type-utils"
 
 import { DisposableLifecycleScope } from "."
 import type { Actor } from "./actor"
-import { createDebugTools } from "./debug/debug-tools"
+import { DebugTools, createDebugTools } from "./debug/debug-tools"
 import {
   DisposeSymbol,
   FactoryNameSymbol,
@@ -15,26 +15,24 @@ import { DisposableLifecycleScopeImplementation } from "./lifecycle"
 import { Factory } from "./types/factory"
 import { StatefulContext } from "./types/stateful-context"
 
-export interface ContextState extends WeakMap<Factory<unknown>, unknown> {
-  get<T>(key: Factory<T>): T | undefined
-  set<T>(key: Factory<T>, value: T): this
+export interface ContextState
+  extends WeakMap<Factory<unknown, never>, unknown> {
+  get<T>(key: Factory<T, never>): T | undefined
+  set<T>(key: Factory<T, never>, value: T): this
 }
 
 export interface UseOptions {
-  /**
-   * Custom lifecycle scope to use for this state.
-   *
-   * @internal
-   */
-  parentLifecycleScope?: DisposableLifecycleScope | undefined
-
   /**
    * If true, the factory will be instantiated fresh every time and will not be stored in the context.
    */
   stateless?: boolean | undefined
 }
 
-export interface Reactor extends StatefulContext, DisposableLifecycleScope {
+export interface Reactor<TBase extends object = object>
+  extends StatefulContext<TBase>,
+    DisposableLifecycleScope {
+  readonly base: TBase
+
   /**
    * Retrieve a value from the context or create it if it does not yet exist.
    *
@@ -42,7 +40,7 @@ export interface Reactor extends StatefulContext, DisposableLifecycleScope {
    * @param options - Options for this use call.
    */
   use<TReturn>(
-    factory: Factory<TReturn>,
+    factory: Factory<TReturn, TBase>,
     options?: UseOptions | undefined,
   ): TReturn
 
@@ -73,38 +71,41 @@ export interface Reactor extends StatefulContext, DisposableLifecycleScope {
    */
   set<T>(factory: Factory<T>, value: T): void
 
+  /**
+   * Add something to the base context and return a new reactor which shares the state but has the new base.
+   */
+  withBase<TNewBase extends object>(base: TNewBase): Reactor<TBase & TNewBase>
+
   debug: ReturnType<typeof createDebugTools>
 }
 
-class ReactorImplementation
+class ReactorImplementation<TBase extends object = object>
   extends DisposableLifecycleScopeImplementation
   implements Reactor
 {
-  private readonly contextState = new WeakMap() as ContextState
-
-  public readonly debug = createDebugTools(this, this.contextState)
-
   public readonly reactor = this
 
-  constructor() {
+  public readonly debug: DebugTools | undefined
+
+  constructor(
+    readonly base: TBase,
+    readonly contextState: ContextState,
+    debug?: DebugTools | undefined,
+  ) {
     super("Reactor")
+
+    this.debug = debug ?? createDebugTools(this, contextState)
   }
 
   use<TReturn>(
-    factory: Factory<TReturn>,
-    { parentLifecycleScope, stateless }: UseOptions = {},
+    factory: Factory<TReturn, TBase>,
+    { stateless }: UseOptions = {},
   ): TReturn {
     let result!: TReturn
 
     // We use has() to check if the actor is already in the context. Note that the factory's return value may be undefined, so it would not be sufficient to check if the return value of get() is undefined.
     if (stateless || !this.contextState.has(factory)) {
       result = factory(this)
-
-      if (parentLifecycleScope) {
-        parentLifecycleScope.onCleanup(() => {
-          this.delete(factory)
-        })
-      }
 
       // Tag with factory name in debug mode
       if (this.debug && isObject(result)) {
@@ -148,7 +149,7 @@ class ReactorImplementation
     return this.contextState.get(factory)
   }
 
-  delete(factory: Factory<unknown>) {
+  delete(factory: Factory<unknown, never>) {
     if (!this.contextState.has(factory)) return
 
     const result = this.contextState.get(factory)
@@ -168,12 +169,33 @@ class ReactorImplementation
   set<T>(factory: Factory<T>, value: T) {
     this.contextState.set(factory, value)
   }
+
+  withBase<TNewBase extends object>(
+    newBase: TNewBase,
+  ): Reactor<TBase & TNewBase> {
+    return new ReactorImplementation(
+      { ...this.base, ...newBase },
+      this.contextState,
+      this.debug,
+    )
+  }
 }
 
-export const createReactor = (
-  rootActor?: Factory<Actor<Promisable<void>>> | undefined,
-): Reactor => {
-  const reactor: Reactor = new ReactorImplementation()
+interface CreateReactor {
+  (rootActor?: Factory<Actor<Promisable<void>>>): Reactor
+  <TBase extends object>(
+    rootActor: Factory<Actor<Promisable<void>, TBase>> | undefined,
+    base: TBase,
+  ): Reactor<TBase>
+}
+export const createReactor: CreateReactor = <TBase extends object>(
+  rootActor?: Factory<Actor<Promisable<void>, TBase>> | undefined,
+  base?: TBase,
+): Reactor<TBase> => {
+  const reactor: Reactor<TBase> = new ReactorImplementation(
+    base ?? ({} as TBase),
+    new WeakMap() as ContextState,
+  )
 
   if (rootActor) {
     Promise.resolve(reactor.use(rootActor).run(reactor)).catch(

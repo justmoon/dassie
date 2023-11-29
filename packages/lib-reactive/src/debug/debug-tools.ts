@@ -2,8 +2,8 @@ import { castImmutable } from "immer"
 
 import { isObject } from "@dassie/lib-type-utils"
 
-import { Actor, ActorImplementation } from "../actor"
-import { ActorContext } from "../actor-context"
+import { Actor, ActorSymbol } from "../actor"
+import { ActorContextSymbol } from "../actor-context"
 import { LifecycleScope } from "../lifecycle"
 import { Mapped } from "../mapped"
 import type { ContextState, Reactor } from "../reactor"
@@ -25,10 +25,10 @@ export const ActorIntermediateScopeParent = Symbol(
 const hasIntermediateScopeParent = (
   target: object,
 ): target is {
-  [ActorIntermediateScopeParent]: StatefulContext & LifecycleScope
+  [ActorIntermediateScopeParent]: StatefulContext<object> & LifecycleScope
 } => ActorIntermediateScopeParent in target
 
-class DebugTools {
+export class DebugTools {
   private static uniqueId = 0
   private context = new Map<number, ContextEntry>()
   private registry = new FinalizationRegistry<ContextEntry>(
@@ -96,14 +96,14 @@ class DebugTools {
   /**
    * Called internally by the actor to facilitate tracking the actor hierarchy.
    *
-   * @param context - The context that should be tagged with debug information.
+   * @param context - The ActorContext that should be tagged with debug information.
    * @param actor - The actor who owns the context.
    * @param parentContext - The parent context this actor is nested in.
    */
   tagActorContext(
-    context: ActorContext,
-    actor: ActorImplementation<unknown>,
-    parentContext: StatefulContext & LifecycleScope,
+    context: { [ActorContextSymbol]: true },
+    actor: { [ActorSymbol]: true },
+    parentContext: StatefulContext<object> & LifecycleScope,
   ) {
     if (hasIntermediateScopeParent(parentContext)) {
       parentContext = parentContext[ActorIntermediateScopeParent]
@@ -125,7 +125,10 @@ class DebugTools {
    * @param scope - The intermediate scope that should be tagged with debug information.
    * @param context - The actual actor context that is the parent of the intermediate scope.
    */
-  tagIntermediateActorScope(scope: LifecycleScope, context: ActorContext) {
+  tagIntermediateActorScope(
+    scope: LifecycleScope,
+    context: { [ActorContextSymbol]: true },
+  ) {
     Object.defineProperty(scope, ActorIntermediateScopeParent, {
       value: context,
       enumerable: false,

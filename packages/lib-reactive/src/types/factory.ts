@@ -1,3 +1,5 @@
 import { Reactor } from "../reactor"
 
-export type Factory<TInstance> = (reactor: Reactor) => TInstance
+export type Factory<TInstance, TBase extends object = object> = (
+  reactor: Reactor<TBase>,
+) => TInstance

@@ -84,9 +84,11 @@ interface InternalMapEntry<TOutput> {
  */
 const MAX_DEBUG_STRING_KEY_LENGTH = 64
 
-class MappedImplementation<TInput, TOutput> extends Reactive<
-  Map<TInput, InternalMapEntry<TOutput>>
-> {
+class MappedImplementation<
+  TInput,
+  TOutput,
+  TBase extends object,
+> extends Reactive<Map<TInput, InternalMapEntry<TOutput>>> {
   [MappedSymbol] = true as const;
   [FactoryNameSymbol] = "anonymous"
 
@@ -97,9 +99,9 @@ class MappedImplementation<TInput, TOutput> extends Reactive<
   private nextUniqueId = 0
 
   constructor(
-    private parentContext: StatefulContext & LifecycleScope,
+    private parentContext: StatefulContext<TBase> & LifecycleScope,
     baseSetFactory:
-      | Factory<ReactiveSource<Set<TInput>>>
+      | Factory<ReactiveSource<Set<TInput>>, TBase>
       | ReactiveSource<Set<TInput>>,
     private mapFunction: (input: TInput, lifecycle: LifecycleScope) => TOutput,
   ) {
@@ -199,9 +201,11 @@ class MappedImplementation<TInput, TOutput> extends Reactive<
   }
 }
 
-export function createMapped<TInput, TOutput>(
-  parentContext: StatefulContext & LifecycleScope,
-  baseSet: Factory<ReactiveSource<Set<TInput>>> | ReactiveSource<Set<TInput>>,
+export function createMapped<TInput, TOutput, TBase extends object>(
+  parentContext: StatefulContext<TBase> & LifecycleScope,
+  baseSet:
+    | Factory<ReactiveSource<Set<TInput>>, TBase>
+    | ReactiveSource<Set<TInput>>,
   mapFunction: (input: TInput, lifecycle: LifecycleScope) => TOutput,
 ): Mapped<TInput, TOutput> {
   return new MappedImplementation(parentContext, baseSet, mapFunction)
