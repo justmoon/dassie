@@ -1,11 +1,10 @@
 import { Promisable } from "type-fest"
 
-import { isObject } from "@dassie/lib-type-utils"
-
 import { type Actor, type RunOptions } from "./actor"
 import { FactoryNameSymbol } from "./internal/context-base"
 import { Listener } from "./internal/emit-to-listener"
 import { type ReactiveSource } from "./internal/reactive"
+import { WrappedCallback, wrapCallback } from "./internal/wrap-callback"
 import {
   DisposableLifecycleScope,
   DisposableLifecycleScopeImplementation,
@@ -15,6 +14,7 @@ import { Mapped } from "./mapped"
 import { ReactiveContextImplementation } from "./reactive-context"
 import { Reactor } from "./reactor"
 import type { ReadonlyTopic, TopicSymbol } from "./topic"
+import { ExecutionContext } from "./types/execution-context"
 import { Factory } from "./types/factory"
 import { ReactiveContext } from "./types/reactive-context"
 import { StatefulContext } from "./types/stateful-context"
@@ -31,6 +31,7 @@ export const ActorContextSymbol = Symbol("das:reactive:actor-context")
 export interface ActorContext<TBase extends object = object>
   extends DisposableLifecycleScope,
     StatefulContext<TBase>,
+    ExecutionContext,
     ReactiveContext {
   [ActorContextSymbol]: true
 
@@ -232,31 +233,10 @@ export class ActorContextImplementation<TBase extends object = object>
   ) {
     if (this.isDisposed) return
 
-    const interval = setInterval(() => {
-      try {
-        const result = callback()
-
-        if (
-          isObject(result) &&
-          "catch" in result &&
-          typeof result["catch"] === "function"
-        ) {
-          result["catch"]((error: unknown) => {
-            console.error("error in async interval callback", {
-              actor: this.name,
-              path: this.path,
-              error,
-            })
-          })
-        }
-      } catch (error) {
-        console.error("error in interval callback", {
-          actor: this.name,
-          path: this.path,
-          error,
-        })
-      }
-    }, intervalInMilliseconds)
+    const interval = setInterval(
+      this.callback(callback),
+      intervalInMilliseconds,
+    )
     this.onCleanup(() => clearInterval(interval))
   }
 
@@ -266,31 +246,7 @@ export class ActorContextImplementation<TBase extends object = object>
   ): void {
     if (this.isDisposed) return
 
-    const timer = setTimeout(() => {
-      try {
-        const result = callback()
-
-        if (
-          isObject(result) &&
-          "catch" in result &&
-          typeof result["catch"] === "function"
-        ) {
-          result["catch"]((error: unknown) => {
-            console.error("error in async timeout callback", {
-              actor: this.name,
-              path: this.path,
-              error,
-            })
-          })
-        }
-      } catch (error) {
-        console.error("error in timeout callback", {
-          actor: this.name,
-          path: this.path,
-          error,
-        })
-      }
-    }, delayInMilliseconds)
+    const timer = setTimeout(this.callback(callback), delayInMilliseconds)
     this.onCleanup(() => clearTimeout(timer))
   }
 
@@ -392,5 +348,11 @@ export class ActorContextImplementation<TBase extends object = object>
       this.path,
       this.reactor.withBase(newBase),
     )
+  }
+
+  callback<TCallback extends (...parameters: unknown[]) => unknown>(
+    callback: TCallback,
+  ): WrappedCallback<TCallback> {
+    return wrapCallback(callback, this, this.path)
   }
 }

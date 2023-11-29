@@ -133,6 +133,21 @@ export class DebugTools {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
     return (actor as any).currentContext?.[ActorDebugParentContextSymbol]?.actor
   }
+
+  warnAboutDanglingCallback(
+    callbackName: string | undefined,
+    lifecycle: LifecycleScope,
+    path?: string | undefined,
+  ) {
+    console.warn(
+      "callback received an event after the containing scope was disposed, meaning an event handler was not cleaned up properly",
+      {
+        name: callbackName ?? "anonymous",
+        scope: lifecycle.name,
+        path,
+      },
+    )
+  }
 }
 
 export const createDebugTools = (

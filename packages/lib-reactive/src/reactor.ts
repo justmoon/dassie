@@ -11,7 +11,9 @@ import {
   InitSymbol,
   UseSymbol,
 } from "./internal/context-base"
+import { WrappedCallback, wrapCallback } from "./internal/wrap-callback"
 import { DisposableLifecycleScopeImplementation } from "./lifecycle"
+import { ExecutionContext } from "./types/execution-context"
 import { Factory } from "./types/factory"
 import { StatefulContext } from "./types/stateful-context"
 
@@ -30,6 +32,7 @@ export interface UseOptions {
 
 export interface Reactor<TBase extends object = object>
   extends StatefulContext<TBase>,
+    ExecutionContext,
     DisposableLifecycleScope {
   readonly base: TBase
 
@@ -179,6 +182,12 @@ class ReactorImplementation<TBase extends object = object>
       this.debug,
     )
   }
+
+  callback<TCallback extends (...parameters: unknown[]) => unknown>(
+    callback: TCallback,
+  ): WrappedCallback<TCallback> {
+    return wrapCallback(callback, this, "Reactor")
+  }
 }
 
 interface CreateReactor {
@@ -188,6 +197,7 @@ interface CreateReactor {
     base: TBase,
   ): Reactor<TBase>
 }
+
 export const createReactor: CreateReactor = <TBase extends object>(
   rootActor?: Factory<Actor<Promisable<void>, TBase>> | undefined,
   base?: TBase,
