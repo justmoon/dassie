@@ -1,6 +1,5 @@
 import { $ } from "execa"
 
-import assert from "node:assert"
 import { mkdir, unlink } from "node:fs/promises"
 import { dirname } from "node:path"
 
@@ -36,8 +35,8 @@ export const validateCertificates = async ({
   certificates,
 }: ValidateCertificatesProperties) => {
   for (const certificate of certificates) {
-    assert(certificate.certificatePath)
-    assert(certificate.keyPath)
+    logger.assert(!!certificate.certificatePath, "certificate path is missing")
+    logger.assert(!!certificate.keyPath, "key path is missing")
     const certificateStatus = await checkFileStatus(certificate.certificatePath)
     const keyStatus = await checkFileStatus(certificate.keyPath)
 

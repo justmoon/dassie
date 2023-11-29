@@ -1,5 +1,4 @@
-import assert from "node:assert"
-
+import { accounting as logger } from "../../logger/instances"
 import { CreateTransferParameters } from "../stores/ledger"
 import {
   AccountPath,
@@ -19,7 +18,10 @@ export const applyPacketPrepareToLedger = (
 
   // Same currency
   if (sourceLedgerId === destinationLedgerId) {
-    assert(incomingAmount === outgoingAmount)
+    logger.assert(
+      incomingAmount === outgoingAmount,
+      "incoming and outgoing amounts must match for same-currency transactions",
+    )
 
     return [
       {

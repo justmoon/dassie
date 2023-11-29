@@ -1,5 +1,3 @@
-import assert from "node:assert"
-
 import { Reactor, createActor } from "@dassie/lib-reactive"
 
 import { EnvironmentConfigSignal } from "../config/environment-config"
@@ -47,7 +45,10 @@ export const RefreshNodeStateActor = (reactor: Reactor) => {
       .readAndTrack(EnvironmentConfigSignal, (config) => config.bootstrapNodes)
       .map(({ id }) => id)
 
-    assert(bootstrapNodes.length > 0)
+    logger.assert(
+      bootstrapNodes.length > 0,
+      "expected at least one bootstrap node",
+    )
 
     const refreshNodeTick = async () => {
       try {

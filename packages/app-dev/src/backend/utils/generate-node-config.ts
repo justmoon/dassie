@@ -1,4 +1,3 @@
-import assert from "node:assert"
 import { resolve } from "node:path"
 
 import { SessionToken } from "@dassie/app-node/src/backend/authentication/types/session-token"
@@ -15,6 +14,7 @@ import {
 import { NODE_ENTRYPOINT } from "../constants/entrypoints"
 import { NODES_DEBUG_START_PORT, NODES_START_PORT } from "../constants/ports"
 import { TEST_NODE_VANITY_SEEDS } from "../constants/vanity-nodes"
+import { setup as logger } from "../logger/instances"
 import {
   EnvironmentSettings,
   NodeSettings,
@@ -78,7 +78,7 @@ export const nodeIndexToCoordinates = (index: number) =>
 export const nodeFriendlyIdToIndex = (id: string) => {
   const index = Number.parseInt(id.slice(1), 10) - 1
 
-  assert(`d${index + 1}` === id, `Invalid node id: ${id}`)
+  logger.assert(`d${index + 1}` === id, `Invalid node id: ${id}`)
 
   return index
 }

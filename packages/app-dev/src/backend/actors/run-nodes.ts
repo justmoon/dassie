@@ -1,4 +1,3 @@
-import assert from "node:assert"
 import { setTimeout } from "node:timers/promises"
 
 import { Reactor, createActor, createMapped } from "@dassie/lib-reactive"
@@ -56,7 +55,10 @@ export const RunNodesActor = (reactor: Reactor) => {
               a.nodeSettings !== b.nodeSettings ||
               a.environmentSettings !== b.environmentSettings,
           )
-          assert(!!nodeSettings, `Settings for node ${nodeIndex} not found`)
+          logger.assert(
+            !!nodeSettings,
+            `Settings for node ${nodeIndex} not found`,
+          )
 
           const node = generateNodeConfig(
             nodeIndex,

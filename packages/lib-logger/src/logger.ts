@@ -51,6 +51,19 @@ export interface Logger {
    * @param parameters - Additional relevant data to log and make available for debugging
    */
   error(message: string, ...parameters: unknown[]): void
+
+  /**
+   * Checks a condition and if the condition is not met, logs a message and throws an error.
+   *
+   * @param condition - A condition that must be met
+   * @param message - A freeform message
+   * @param parameters - Additional relevant data to log and make available for debugging
+   */
+  assert(
+    condition: boolean,
+    message: string,
+    ...parameters: unknown[]
+  ): asserts condition
 }
 
 export class LoggerImplementation implements Logger {
@@ -147,6 +160,26 @@ export class LoggerImplementation implements Logger {
       this.context,
     )
   }
+
+  assert(condition: boolean, message: string, ...parameters: unknown[]) {
+    if (condition) return
+
+    this.context.output(
+      {
+        type: "error",
+        date: Date.now(),
+        namespace: this.component,
+        message,
+        parameters,
+        caller: this.context.captureCaller
+          ? this.context.getCaller(1, new Error())
+          : undefined,
+      },
+      this.context,
+    )
+
+    throw new Error("Assertion failed: " + message)
+  }
 }
 
 export interface LoggerOptions {
@@ -163,8 +196,10 @@ const defaultContext = getLogContext()
 export const createLogger = (
   component: string,
   { context = defaultContext }: LoggerOptions = {},
-) => {
-  assert(!component.includes(" "), "Component name must not contain spaces")
+): Logger => {
+  if (component.includes(" ")) {
+    throw new Error("Component name must not contain spaces")
+  }
 
   return new LoggerImplementation(context, component)
 }

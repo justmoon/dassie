@@ -1,5 +1,3 @@
-import assert from "node:assert"
-
 import { Reactor, createActor, createMapped } from "@dassie/lib-reactive"
 
 import {
@@ -7,6 +5,7 @@ import {
   initializePeer,
 } from "../accounting/functions/manage-peer"
 import { LedgerStore } from "../accounting/stores/ledger"
+import { peerProtocol as logger } from "../logger/instances"
 import { GetLedgerIdForSettlementScheme } from "../settlement-schemes/functions/get-ledger-id"
 import { PeersSignal } from "./computed/peers"
 import { NodeTableStore } from "./stores/node-table"
@@ -22,7 +21,7 @@ export const CreatePeerLedgerEntriesActor = (reactor: Reactor) => {
     createActor((sig) => {
       const peerState = nodeTable.read().get(peerId)?.peerState
 
-      assert(peerState?.id === "peered", "peer state must be 'peered'")
+      logger.assert(peerState?.id === "peered", "peer state must be 'peered'")
 
       const { settlementSchemeId } = peerState
 

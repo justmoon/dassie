@@ -1,5 +1,3 @@
-import assert from "node:assert"
-
 import { Reactor, createActor, createMapped } from "@dassie/lib-reactive"
 import { UnreachableCaseError, isFailure } from "@dassie/lib-type-utils"
 
@@ -49,9 +47,9 @@ const calculateSettlementAmount = (
     `${ledgerId}:assets/settlement`,
   )
 
-  assert(peerInterledgerAccount, "peer interledger account not found")
-  assert(peerTrustAccount, "peer trust account not found")
-  assert(assetsOnLedgerAccount, "on ledger assets account not found")
+  logger.assert(!!peerInterledgerAccount, "peer interledger account not found")
+  logger.assert(!!peerTrustAccount, "peer trust account not found")
+  logger.assert(!!assetsOnLedgerAccount, "on ledger assets account not found")
 
   const balance =
     peerInterledgerAccount.creditsPosted -
@@ -98,7 +96,7 @@ export const SendOutgoingSettlementsActor = (reactor: Reactor) => {
       sig.interval(() => {
         const peerState = nodeTable.read().get(peerId)?.peerState
 
-        assert(peerState?.id === "peered", "peer state must be 'peered'")
+        logger.assert(peerState?.id === "peered", "peer state must be 'peered'")
 
         const { settlementSchemeId, settlementSchemeState: settlementState } =
           peerState

@@ -2,7 +2,6 @@ import type { NextHandleFunction } from "connect"
 import history from "connect-history-api-fallback"
 import { type ViteDevServer, createServer } from "vite"
 
-import assert from "node:assert"
 import { existsSync, readFileSync } from "node:fs"
 import { join, normalize } from "node:path"
 
@@ -48,8 +47,8 @@ export const ServeWalletActor = (reactor: Reactor) => {
       ["httpsPort", "tlsWebCert", "tlsWebKey"],
     )
 
-    assert(tlsWebCert, "Web UI is not configured, missing certificate")
-    assert(tlsWebKey, "Web UI is not configured, missing private key")
+    logger.assert(!!tlsWebCert, "web UI is not configured, missing certificate")
+    logger.assert(!!tlsWebKey, "web UI is not configured, missing private key")
 
     const server = await createServer({
       root: walletPath,

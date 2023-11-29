@@ -1,7 +1,5 @@
 import { SetOptional, Simplify } from "type-fest"
 
-import assert from "node:assert"
-
 import { Reactor } from "@dassie/lib-reactive"
 
 import { accounting as logger } from "../../logger/instances"
@@ -89,12 +87,12 @@ export const LedgerStore = (reactor: Reactor) => {
       const { debitAccountPath, creditAccountPath, amount, pending } =
         transferParameters
 
-      assert(
+      logger.assert(
         creditAccountPath !== debitAccountPath,
         "transfer credit and debit accounts must be different",
       )
 
-      assert(
+      logger.assert(
         getLedgerIdFromPath(debitAccountPath) ===
           getLedgerIdFromPath(creditAccountPath),
         "transfer credit and debit accounts must be in the same ledger",
@@ -150,13 +148,13 @@ export const LedgerStore = (reactor: Reactor) => {
     },
 
     postPendingTransfer: (transfer: Transfer) => {
-      assert(transfer.state === "pending")
+      logger.assert(transfer.state === "pending", "transfer must be pending")
 
       const debitAccount = ledger.get(transfer.debitAccount)
-      assert(debitAccount)
+      logger.assert(!!debitAccount, "debit account must exist")
 
       const creditAccount = ledger.get(transfer.creditAccount)
-      assert(creditAccount)
+      logger.assert(!!creditAccount, "credit account must exist")
 
       transfer.state = "posted"
 
@@ -172,13 +170,13 @@ export const LedgerStore = (reactor: Reactor) => {
     },
 
     voidPendingTransfer: (transfer: Transfer) => {
-      assert(transfer.state === "pending")
+      logger.assert(transfer.state === "pending", "transfer must be pending")
 
       const debitAccount = ledger.get(transfer.debitAccount)
-      assert(debitAccount)
+      logger.assert(!!debitAccount, "debit account must exist")
 
       const creditAccount = ledger.get(transfer.creditAccount)
-      assert(creditAccount)
+      logger.assert(!!creditAccount, "credit account must exist")
 
       transfer.state = "voided"
 

@@ -1,4 +1,4 @@
-import assert from "node:assert"
+import { systemd as logger } from "../logger/instances"
 
 const SD_LISTEN_FDS_START = 3
 
@@ -19,7 +19,10 @@ export const getSocketActivationState = ():
   const fdCount = Number(LISTEN_FDS)
   const fdNames = LISTEN_FDNAMES.split(":")
 
-  assert(fdCount === fdNames.length)
+  logger.assert(
+    fdCount === fdNames.length,
+    "LISTEN_FDS must be a number which corresponds to the number of names in LISTEN_FDNAMES",
+  )
 
   const fdRecord = new Map<string, number[]>()
   for (const [index, fdName] of fdNames.entries()) {

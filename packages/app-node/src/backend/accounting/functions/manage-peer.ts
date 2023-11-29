@@ -1,5 +1,3 @@
-import assert from "node:assert"
-
 import { isFailure } from "@dassie/lib-type-utils"
 
 import { NodeId } from "../../peer-protocol/types/node-id"
@@ -39,8 +37,6 @@ export const initializePeer = (
   }
 }
 
-export const cleanupPeer = (ledger: Ledger, peerId: NodeId) => {
+export const cleanupPeer = (_ledger: Ledger, _peerId: NodeId) => {
   // TODO: void all pending transfers?
-  assert(ledger)
-  assert(peerId)
 }

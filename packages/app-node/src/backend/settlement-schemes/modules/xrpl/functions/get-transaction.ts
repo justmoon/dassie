@@ -1,7 +1,6 @@
 import { Client } from "xrpl"
 
-import assert from "node:assert"
-
+import { settlementXrpl as logger } from "../../../../logger/instances"
 import { isRippledErrorWithId } from "../utils/is-rippled-error"
 
 export const getTransaction = async (
@@ -16,7 +15,7 @@ export const getTransaction = async (
 
     const meta = result.result.meta
 
-    assert(
+    logger.assert(
       typeof meta === "object",
       "Expected meta to be an object since we did not pass binary=true option",
     )

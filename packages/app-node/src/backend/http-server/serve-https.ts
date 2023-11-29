@@ -1,7 +1,6 @@
 import type { NextHandleFunction } from "connect"
 import express from "express"
 
-import assert from "node:assert"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { createServer } from "node:https"
 import type { Duplex } from "node:stream"
@@ -43,8 +42,8 @@ export const HttpsServiceActor = () =>
       ["httpsPort", "url", "tlsWebCert", "tlsWebKey"],
     )
 
-    assert(tlsWebCert, "Web UI is not configured, missing certificate")
-    assert(tlsWebKey, "Web UI is not configured, missing private key")
+    logger.assert(!!tlsWebCert, "Web UI is not configured, missing certificate")
+    logger.assert(!!tlsWebKey, "Web UI is not configured, missing private key")
 
     const router = sig.reactor.use(HttpsRouter)
     const additionalMiddlewares = sig.readAndTrack(AdditionalMiddlewaresSignal)

@@ -1,5 +1,3 @@
-import assert from "node:assert"
-
 import { Reactor, createActor, createMapped } from "@dassie/lib-reactive"
 import { isFailure } from "@dassie/lib-type-utils"
 
@@ -10,6 +8,7 @@ import {
   EquitySuspenseAccount,
 } from "../accounting/types/account-paths"
 import { DatabaseConfigStore } from "../config/database-config"
+import { settlement as logger } from "../logger/instances"
 import { SendPeerMessageActor } from "../peer-protocol/actors/send-peer-message"
 import { GetLedgerIdForSettlementScheme } from "./functions/get-ledger-id"
 import modules from "./modules"
@@ -60,9 +59,9 @@ export const ManageSettlementSchemeInstancesActor = (reactor: Reactor) => {
           const suspensePath: EquitySuspenseAccount = `${ledgerId}:equity/suspense`
 
           const internalAccount = ledgerStore.getAccount(onLedgerPath)
-          assert(
-            internalAccount,
-            `Internal account '${onLedgerPath}' not found`,
+          logger.assert(
+            !!internalAccount,
+            `internal account '${onLedgerPath}' not found`,
           )
 
           const internalBalance =

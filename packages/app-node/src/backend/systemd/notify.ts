@@ -1,9 +1,9 @@
-import assert from "node:assert"
 import { execSync } from "node:child_process"
 
 import { createActor } from "@dassie/lib-reactive"
 
 import { DaemonActor } from "../daemon"
+import { systemd as logger } from "../logger/instances"
 
 export const NotifySystemdActor = () =>
   createActor((sig) => {
@@ -11,11 +11,11 @@ export const NotifySystemdActor = () =>
 
     if (!notifySocket) return
 
-    assert(
+    logger.assert(
       notifySocket.startsWith("@") || notifySocket.startsWith("/"),
       "NOTIFY_SOCKET must start with @ or /",
     )
-    assert(
+    logger.assert(
       notifySocket.length >= 2,
       "NOTIFY_SOCKET must be at least 2 characters long",
     )
