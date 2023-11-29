@@ -1,8 +1,6 @@
-import { setTimeout } from "node:timers/promises"
-
 import { isError } from "@dassie/lib-logger"
-import { Reactor } from "@dassie/lib-reactive"
 
+import { DassieReactor } from "../../base/types/dassie-base"
 import { connector as logger } from "../../logger/instances"
 import { IlpErrorCode } from "../schemas/ilp-errors"
 import { EndpointInfo } from "./send-packet"
@@ -14,7 +12,7 @@ export interface ScheduleTimeoutParameters {
   timeoutAbort: AbortController
 }
 
-export const ScheduleTimeout = (reactor: Reactor) => {
+export const ScheduleTimeout = (reactor: DassieReactor) => {
   const triggerLateRejection = reactor.use(TriggerLateRejection)
 
   return ({
@@ -22,7 +20,8 @@ export const ScheduleTimeout = (reactor: Reactor) => {
     requestId,
     timeoutAbort,
   }: ScheduleTimeoutParameters) => {
-    setTimeout(5000, undefined, { signal: timeoutAbort.signal })
+    reactor.base.time
+      .timeout(5000, { signal: timeoutAbort.signal })
       .then(() => {
         logger.debug("ILP packet timed out", { requestId })
         triggerLateRejection({

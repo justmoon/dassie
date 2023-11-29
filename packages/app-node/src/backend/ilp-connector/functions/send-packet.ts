@@ -1,6 +1,5 @@
-import { Reactor } from "@dassie/lib-reactive"
-
 import { AccountPath } from "../../accounting/types/account-paths"
+import { DassieReactor } from "../../base/types/dassie-base"
 import { IlpPacket, IlpType } from "../schemas/ilp-packet-codec"
 import { BtpEndpointInfo, SendBtpPackets } from "../senders/send-btp-packets"
 import {
@@ -59,7 +58,7 @@ type AllPacketSenders = {
   [K in EndpointInfo["type"]]: PacketSender<K>
 }
 
-export const SendPacket = (reactor: Reactor) => {
+export const SendPacket = (reactor: DassieReactor) => {
   const senders: AllPacketSenders = {
     peer: reactor.use(SendPeerPackets),
     ildcp: reactor.use(SendIldcpPackets),

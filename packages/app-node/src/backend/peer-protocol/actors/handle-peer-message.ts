@@ -1,13 +1,9 @@
 import { Promisable } from "type-fest"
 
 import { InferSerialize } from "@dassie/lib-oer"
-import {
-  Factory,
-  Reactor,
-  createActor,
-  createTopic,
-} from "@dassie/lib-reactive"
+import { Factory, createActor, createTopic } from "@dassie/lib-reactive"
 
+import { DassieBase, DassieReactor } from "../../base/types/dassie-base"
 import { HandleInterledgerPacket } from "../handlers/interledger-packet"
 import { HandleLinkStateRequest } from "../handlers/link-state-request"
 import { HandleLinkStateUpdate } from "../handlers/link-state-update"
@@ -35,7 +31,8 @@ export interface IncomingPeerMessageEvent<
 export type PeerMessageHandler<TType extends PeerMessageType> = Factory<
   (
     parameters: IncomingPeerMessageEvent<TType>,
-  ) => Promisable<InferSerialize<(typeof peerMessageResponse)[TType]>>
+  ) => Promisable<InferSerialize<(typeof peerMessageResponse)[TType]>>,
+  DassieBase
 >
 
 export type PeerMessageType = PeerMessage["content"]["value"]["type"]
@@ -52,7 +49,7 @@ type PeerMessageHandlers = {
   [K in PeerMessageType]: ReturnType<PeerMessageHandler<K>>
 }
 
-export const HandlePeerMessageActor = (reactor: Reactor) => {
+export const HandlePeerMessageActor = (reactor: DassieReactor) => {
   const handlers: PeerMessageHandlers = {
     peeringRequest: reactor.use(HandlePeeringRequest),
     linkStateUpdate: reactor.use(HandleLinkStateUpdate),

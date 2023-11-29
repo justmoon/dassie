@@ -4,6 +4,7 @@ import pMap from "p-map"
 import { Reactor, createActor } from "@dassie/lib-reactive"
 
 import { EMPTY_UINT8ARRAY } from "../../common/constants/general"
+import { DassieActorContext } from "../base/types/dassie-base"
 import { compareUint8Arrays } from "../utils/compare-typedarray"
 import { SendPeerMessageActor } from "./actors/send-peer-message"
 import { NODE_LIST_HASH_POLLING_INTERVAL } from "./constants/timings"
@@ -33,7 +34,7 @@ export const DownloadNodeListsActor = (reactor: Reactor) => {
   )
   const bootstrapNodeListsSignal = reactor.use(BootstrapNodeListsSignal)
 
-  return createActor(async (sig) => {
+  return createActor(async (sig: DassieActorContext) => {
     try {
       const bootstrapNodeLists = bootstrapNodeListsSignal.read()
       const changedHashes = [...bootstrapNodeListHashesSignal.read().entries()]

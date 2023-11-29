@@ -9,12 +9,13 @@ import {
   btpMessageSchema,
   btpTransferSchema,
 } from "@dassie/lib-protocol-utils"
-import { Reactor, createActor } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 import { isFailure } from "@dassie/lib-type-utils"
 
 import { OwnerLedgerIdSignal } from "../accounting/signals/owner-ledger-id"
 import { BtpTokensStore } from "../api-keys/database-stores/btp-tokens"
 import { BtpToken } from "../api-keys/types/btp-token"
+import { DassieReactor } from "../base/types/dassie-base"
 import { WebsocketRoutesSignal } from "../http-server/serve-https"
 import { NodeIlpAddressSignal } from "../ilp-connector/computed/node-ilp-address"
 import { ProcessPacketActor } from "../ilp-connector/process-packet"
@@ -24,7 +25,7 @@ import { RoutingTableSignal } from "../routing/signals/routing-table"
 
 let unique = 0
 
-export const RegisterBtpHttpUpgradeActor = (reactor: Reactor) => {
+export const RegisterBtpHttpUpgradeActor = (reactor: DassieReactor) => {
   const processIncomingPacketActor = reactor.use(ProcessPacketActor)
   const btpTokensStore = reactor.use(BtpTokensStore)
   const routingTableSignal = reactor.use(RoutingTableSignal)

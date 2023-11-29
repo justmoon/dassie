@@ -5,8 +5,9 @@ import {
   createBinaryResponse,
   createContentTypeHeaderAssertion,
 } from "@dassie/lib-http-server"
-import { Reactor, createActor } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 
+import { DassieReactor } from "../base/types/dassie-base"
 import { HttpsRouter } from "../http-server/serve-https"
 import { peerProtocol as logger } from "../logger/instances"
 import {
@@ -20,7 +21,7 @@ import { AuthenticatePeerMessage } from "./functions/authenticate-peer-message"
 import { peerMessage as peerMessageSchema } from "./peer-schema"
 import { NodeTableStore } from "./stores/node-table"
 
-export const RegisterPeerHttpHandlerActor = (reactor: Reactor) => {
+export const RegisterPeerHttpHandlerActor = (reactor: DassieReactor) => {
   const authenticatePeerMessage = reactor.use(AuthenticatePeerMessage)
   const nodeTableStore = reactor.use(NodeTableStore)
   const http = reactor.use(HttpsRouter)

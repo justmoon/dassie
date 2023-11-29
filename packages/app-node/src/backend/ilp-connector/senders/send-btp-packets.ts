@@ -3,9 +3,9 @@ import {
   btpEnvelopeSchema,
   btpMessageSchema,
 } from "@dassie/lib-protocol-utils"
-import { Reactor } from "@dassie/lib-reactive"
 import { isFailure } from "@dassie/lib-type-utils"
 
+import { DassieReactor } from "../../base/types/dassie-base"
 import { RegisterBtpHttpUpgradeActor } from "../../btp-server/register-btp-http-upgrade"
 import { connector as logger } from "../../logger/instances"
 import { CommonEndpointInfo, PacketSender } from "../functions/send-packet"
@@ -15,7 +15,9 @@ export interface BtpEndpointInfo extends CommonEndpointInfo {
   readonly connectionId: number
 }
 
-export const SendBtpPackets = (reactor: Reactor): PacketSender<"btp"> => ({
+export const SendBtpPackets = (
+  reactor: DassieReactor,
+): PacketSender<"btp"> => ({
   sendPrepare: ({
     parsedPacket,
     serializedPacket,

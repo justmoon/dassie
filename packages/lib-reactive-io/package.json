@@ -1,0 +1,31 @@
+{
+  "name": "@dassie/lib-reactive-io",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "IO abstraction layer for Dassie",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts"
+    },
+    "./node": {
+      "import": "./src/runtime/node/index.ts"
+    }
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "eslint --color .",
+    "typecheck": "tsc --pretty"
+  },
+  "author": "Stefan Thomas <justmoon@members.fsf.org>",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@dassie/lib-type-utils": "workspace:^",
+    "@dassie/lib-reactive": "workspace:^"
+  },
+  "devDependencies": {
+    "@dassie/eslint-config": "workspace:^",
+    "@dassie/meta-tsconfig": "workspace:^",
+    "type-fest": "^4.6.0"
+  }
+}

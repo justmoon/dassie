@@ -25,6 +25,7 @@
     "@dassie/lib-logger": "workspace:^",
     "@dassie/lib-oer": "workspace:^",
     "@dassie/lib-reactive": "workspace:^",
+    "@dassie/lib-reactive-io": "workspace:^",
     "@dassie/lib-reactive-trpc": "workspace:^",
     "@dassie/lib-sqlite": "workspace:^",
     "@dassie/lib-type-utils": "workspace:*",

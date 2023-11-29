@@ -1,5 +1,6 @@
 import { Reactor, createActor } from "@dassie/lib-reactive"
 
+import { DassieActorContext } from "../base/types/dassie-base"
 import { EnvironmentConfigSignal } from "../config/environment-config"
 import { NodeIdSignal } from "../ilp-connector/computed/node-id"
 import { peerProtocol as logger } from "../logger/instances"
@@ -39,7 +40,7 @@ export const RefreshNodeStateActor = (reactor: Reactor) => {
     return response?.[0]?.type === "found" ? response[0].value : undefined
   }
 
-  return createActor((sig) => {
+  return createActor((sig: DassieActorContext) => {
     const ownNodeId = sig.readAndTrack(NodeIdSignal)
     const bootstrapNodes = sig
       .readAndTrack(EnvironmentConfigSignal, (config) => config.bootstrapNodes)

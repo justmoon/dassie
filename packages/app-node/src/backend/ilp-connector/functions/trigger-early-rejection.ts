@@ -1,5 +1,4 @@
-import { Reactor } from "@dassie/lib-reactive"
-
+import { DassieReactor } from "../../base/types/dassie-base"
 import { connector as logger } from "../../logger/instances"
 import { NodeIlpAddressSignal } from "../computed/node-ilp-address"
 import {
@@ -16,7 +15,7 @@ export interface EarlyRejectionParameters {
   failure: IlpFailure
 }
 
-export const TriggerEarlyRejection = (reactor: Reactor) => {
+export const TriggerEarlyRejection = (reactor: DassieReactor) => {
   const nodeIlpAddressSignal = reactor.use(NodeIlpAddressSignal)
   const sendPacket = reactor.use(SendPacket)
 

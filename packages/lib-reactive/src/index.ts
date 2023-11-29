@@ -52,6 +52,7 @@ export type {
   ReactiveSource as ReactiveProvider,
   ReactiveObserver as ReactiveConsumer,
 } from "./internal/reactive"
+export type { Time, TimeoutOptions } from "./types/base-modules/time"
 export type { Factory } from "./types/factory"
 export type { ReactiveContext } from "./types/reactive-context"
 export type { StatefulContext } from "./types/stateful-context"

@@ -1,6 +1,7 @@
 import { createActor } from "@dassie/lib-reactive"
 import { isFailure } from "@dassie/lib-type-utils"
 
+import { DassieActorContext } from "../base/types/dassie-base"
 import { peerProtocol as logger } from "../logger/instances"
 import { SendPeerMessageActor } from "./actors/send-peer-message"
 import { PeersSignal } from "./computed/peers"
@@ -11,7 +12,7 @@ const COUNTER_THRESHOLD = 3
 const MAX_RETRANSMIT_CHECK_INTERVAL = 200
 
 export const ForwardLinkStateUpdateActor = () =>
-  createActor((sig) => {
+  createActor((sig: DassieActorContext) => {
     const nodes = sig.readAndTrack(NodeTableStore)
     const peers = sig.readAndTrack(PeersSignal)
 

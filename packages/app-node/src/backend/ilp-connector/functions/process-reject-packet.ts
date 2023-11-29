@@ -1,6 +1,5 @@
-import { Reactor } from "@dassie/lib-reactive"
-
 import { LedgerStore } from "../../accounting/stores/ledger"
+import { DassieReactor } from "../../base/types/dassie-base"
 import { connector as logger } from "../../logger/instances"
 import { ProcessIncomingPacketParameters } from "../process-packet"
 import { IlpType } from "../schemas/ilp-packet-codec"
@@ -14,7 +13,7 @@ import {
 } from "../values/pending-packets-map"
 import { SendPacket } from "./send-packet"
 
-export const ProcessRejectPacket = (reactor: Reactor) => {
+export const ProcessRejectPacket = (reactor: DassieReactor) => {
   const ledgerStore = reactor.use(LedgerStore)
   const resolvedIlpPacketTopic = reactor.use(ResolvedIlpPacketTopic)
   const pendingPacketsMap = reactor.use(PendingPacketsMap)

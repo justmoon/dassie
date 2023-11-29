@@ -3,6 +3,7 @@ import pMap from "p-map"
 
 import { Reactor, createActor } from "@dassie/lib-reactive"
 
+import { DassieActorContext } from "../base/types/dassie-base"
 import { EnvironmentConfigSignal } from "../config/environment-config"
 import { SendPeerMessageActor } from "./actors/send-peer-message"
 import { NODE_LIST_HASH_POLLING_INTERVAL } from "./constants/timings"
@@ -30,7 +31,7 @@ export const PollNodeListHashesActor = (reactor: Reactor) => {
     BootstrapNodeListHashesSignal,
   )
 
-  return createActor(async (sig) => {
+  return createActor(async (sig: DassieActorContext) => {
     try {
       const { bootstrapNodes } = sig.readKeysAndTrack(EnvironmentConfigSignal, [
         "bootstrapNodes",

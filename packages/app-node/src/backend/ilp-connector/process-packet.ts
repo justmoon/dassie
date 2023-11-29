@@ -1,5 +1,6 @@
-import { Reactor, createActor } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 
+import { DassieReactor } from "../base/types/dassie-base"
 import { connector as logger } from "../logger/instances"
 import { ProcessFulfillPacket } from "./functions/process-fulfill-packet"
 import { ProcessPreparePacket } from "./functions/process-prepare-packet"
@@ -24,7 +25,7 @@ export type IlpPacketHandlers = {
   [K in IlpType]: IlpPacketHandler<K>
 }
 
-export const ProcessPacketActor = (reactor: Reactor) => {
+export const ProcessPacketActor = (reactor: DassieReactor) => {
   const handlers: IlpPacketHandlers = {
     [IlpType.Prepare]: reactor.use(ProcessPreparePacket),
     [IlpType.Fulfill]: reactor.use(ProcessFulfillPacket),

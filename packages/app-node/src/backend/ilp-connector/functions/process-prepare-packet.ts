@@ -1,7 +1,7 @@
-import { Reactor } from "@dassie/lib-reactive"
 import { isFailure } from "@dassie/lib-type-utils"
 
 import { Transfer } from "../../accounting/stores/ledger"
+import { DassieReactor } from "../../base/types/dassie-base"
 import { connector as logger } from "../../logger/instances"
 import { PreparedPacketParameters, SendPacket } from "../functions/send-packet"
 import { ProcessIncomingPacketParameters } from "../process-packet"
@@ -19,7 +19,7 @@ import { CalculatePreparePacketOutcome } from "./calculate-prepare-packet-outcom
 import { ScheduleTimeout } from "./schedule-timeout"
 import { TriggerEarlyRejection } from "./trigger-early-rejection"
 
-export const ProcessPreparePacket = (reactor: Reactor) => {
+export const ProcessPreparePacket = (reactor: DassieReactor) => {
   const preparedIlpPacketTopic = reactor.use(PreparedIlpPacketTopic)
   const pendingPacketsMap = reactor.use(PendingPacketsMap)
   const sendPacket = reactor.use(SendPacket)

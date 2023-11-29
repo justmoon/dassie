@@ -1,5 +1,4 @@
-import { Reactor } from "@dassie/lib-reactive"
-
+import { DassieReactor } from "../../base/types/dassie-base"
 import { connector as logger } from "../../logger/instances"
 import { NodeIlpAddressSignal } from "../computed/node-ilp-address"
 import { IlpErrorCode } from "../schemas/ilp-errors"
@@ -18,7 +17,7 @@ export interface LateRejectionParameters {
   message: string
 }
 
-export const TriggerLateRejection = (reactor: Reactor) => {
+export const TriggerLateRejection = (reactor: DassieReactor) => {
   const nodeIlpAddressSignal = reactor.use(NodeIlpAddressSignal)
   const processRejectPacket = reactor.use(ProcessRejectPacket)
 

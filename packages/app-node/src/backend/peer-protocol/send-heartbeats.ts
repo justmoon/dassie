@@ -1,5 +1,6 @@
 import { ActorContext, createActor } from "@dassie/lib-reactive"
 
+import { DassieActorContext } from "../base/types/dassie-base"
 import { NodeIdSignal } from "../ilp-connector/computed/node-id"
 import { SendPeerMessageActor } from "./actors/send-peer-message"
 import { PeersSignal } from "./computed/peers"
@@ -11,7 +12,7 @@ import { NodeTableStore } from "./stores/node-table"
 import { NodeId } from "./types/node-id"
 
 export const SendHeartbeatsActor = () =>
-  createActor((sig) => {
+  createActor((sig: DassieActorContext) => {
     const ownNodeId = sig.read(NodeIdSignal)
 
     // Get the current peers and re-run the actor if they change

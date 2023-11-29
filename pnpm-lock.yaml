@@ -147,6 +147,9 @@ importers:
       '@dassie/lib-reactive':
         specifier: workspace:^
         version: link:../lib-reactive
+      '@dassie/lib-reactive-io':
+        specifier: workspace:^
+        version: link:../lib-reactive-io
       '@dassie/lib-reactive-trpc':
         specifier: workspace:^
         version: link:../lib-reactive-trpc
@@ -343,6 +346,9 @@ importers:
       '@dassie/lib-reactive':
         specifier: workspace:^
         version: link:../lib-reactive
+      '@dassie/lib-reactive-io':
+        specifier: workspace:^
+        version: link:../lib-reactive-io
       '@dassie/lib-reactive-trpc':
         specifier: workspace:^
         version: link:../lib-reactive-trpc
@@ -690,6 +696,25 @@ importers:
       immer:
         specifier: ^10.0.3
         version: 10.0.3
+      type-fest:
+        specifier: ^4.6.0
+        version: 4.6.0
+
+  packages/lib-reactive-io:
+    dependencies:
+      '@dassie/lib-reactive':
+        specifier: workspace:^
+        version: link:../lib-reactive
+      '@dassie/lib-type-utils':
+        specifier: workspace:^
+        version: link:../lib-type-utils
+    devDependencies:
+      '@dassie/eslint-config':
+        specifier: workspace:^
+        version: link:../meta-eslint-config
+      '@dassie/meta-tsconfig':
+        specifier: workspace:^
+        version: link:../meta-tsconfig
       type-fest:
         specifier: ^4.6.0
         version: 4.6.0

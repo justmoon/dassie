@@ -4,16 +4,17 @@ import {
   createContentTypeHeaderAssertion,
   createPlainResponse,
 } from "@dassie/lib-http-server"
-import { Reactor, createActor } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 
 import { OwnerLedgerIdSignal } from "../accounting/signals/owner-ledger-id"
+import { DassieReactor } from "../base/types/dassie-base"
 import { HttpsRouter } from "../http-server/serve-https"
 import { ProcessPacketActor } from "../ilp-connector/process-packet"
 import { IlpHttpEndpointInfo } from "../ilp-connector/senders/send-ilp-http-packets"
 import { IlpAddress } from "../ilp-connector/types/ilp-address"
 import { ILP_OVER_HTTP_CONTENT_TYPE } from "./constants/content-type"
 
-export const RegisterIlpHttpCallbackHandlerActor = (reactor: Reactor) => {
+export const RegisterIlpHttpCallbackHandlerActor = (reactor: DassieReactor) => {
   const processPacketActor = reactor.use(ProcessPacketActor)
   const ownerLedgerIdSignal = reactor.use(OwnerLedgerIdSignal)
 

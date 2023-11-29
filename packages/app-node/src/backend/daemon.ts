@@ -1,9 +1,11 @@
 import { createActor, createReactor } from "@dassie/lib-reactive"
+import { createNodeRuntime } from "@dassie/lib-reactive-io/node"
 
 import { AccountingActor } from "./accounting"
 import { AcmeCertificateManagerActor } from "./acme-certificate-manager"
 import { AuthenticationFeatureActor } from "./authentication"
 import { SetupUrlSignal } from "./authentication/computed/setup-url"
+import { DassieActorContext } from "./base/types/dassie-base"
 import { BtpServerActor } from "./btp-server"
 import { HasNodeIdentitySignal } from "./config/computed/has-node-identity"
 import { HasTlsSignal } from "./config/computed/has-tls"
@@ -39,7 +41,7 @@ export const StartTlsDependentServicesActor = () =>
   })
 
 export const StartNodeIdentityDependentServicesActor = () =>
-  createActor(async (sig) => {
+  createActor(async (sig: DassieActorContext) => {
     const hasNodeIdentity = sig.readAndTrack(HasNodeIdentitySignal)
 
     if (!hasNodeIdentity) {
@@ -69,7 +71,7 @@ export const StartNodeIdentityDependentServicesActor = () =>
   })
 
 export const DaemonActor = () =>
-  createActor(async (sig) => {
+  createActor(async (sig: DassieActorContext) => {
     sig.run(LoggerActor)
     sig.run(LocalRpcServerActor)
     sig.run(SystemdActor)
@@ -80,4 +82,4 @@ export const DaemonActor = () =>
     await sig.run(StartNodeIdentityDependentServicesActor)
   })
 
-export const startDaemon = () => createReactor(DaemonActor)
+export const startDaemon = () => createReactor(DaemonActor, createNodeRuntime())

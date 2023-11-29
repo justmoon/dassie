@@ -1,6 +1,7 @@
 import { daemonActor } from "@dassie/app-node"
 import { HasTlsSignal } from "@dassie/app-node/src/backend/config/computed/has-tls"
 import { createActor, createReactor } from "@dassie/lib-reactive"
+import { createNodeRuntime } from "@dassie/lib-reactive-io/node"
 
 import { HandleShutdownSignalsActor } from "../../common/actors/handle-shutdown-signals"
 import { ForwardLogsActor } from "../actors/forward-logs"
@@ -25,7 +26,7 @@ const DebugRunnerActor = () =>
     if (hasTls) {
       await sig.run(ServeWalletActor)
     }
-    await sig.run(daemonActor)
+    await sig.withBase(createNodeRuntime()).run(daemonActor)
   })
 
 const reactor = createReactor()

@@ -1,5 +1,4 @@
-import { Reactor } from "@dassie/lib-reactive"
-
+import { DassieReactor } from "../../base/types/dassie-base"
 import { IlpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-scheme"
 import { ProcessPacketActor } from "../../ilp-connector/process-packet"
 import { PeerEndpointInfo } from "../../ilp-connector/senders/send-peer-packets"
@@ -7,7 +6,7 @@ import { peerProtocol as logger } from "../../logger/instances"
 import { GetLedgerIdForSettlementScheme } from "../../settlement-schemes/functions/get-ledger-id"
 import type { PeerMessageHandler } from "../actors/handle-peer-message"
 
-export const HandleInterledgerPacket = ((reactor: Reactor) => {
+export const HandleInterledgerPacket = ((reactor: DassieReactor) => {
   const ilpAllocationSchemeSignal = reactor.use(IlpAllocationSchemeSignal)
   const processIncomingPacketActor = reactor.use(ProcessPacketActor)
   const getLedgerIdForSettlementScheme = reactor.use(
