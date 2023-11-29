@@ -72,7 +72,10 @@ export type Topic<TMessage = never> = ReadonlyTopic<TMessage> & {
   emit: (this: void, trigger: TMessage) => void
 }
 
-export const createTopic = <TMessage = void>(): Topic<TMessage> => {
+class TopicImplementation<TMessage> {
+  [TopicSymbol] = true as const;
+  [FactoryNameSymbol] = "anonymous"
+
   /**
    * The listeners for this topic.
    *
@@ -82,24 +85,24 @@ export const createTopic = <TMessage = void>(): Topic<TMessage> => {
    *
    * This avoids allocating a new set for every topic even though the topic may only have zero or one listeners.
    */
-  let listeners: Listener<TMessage> | Set<Listener<TMessage>> | undefined
+  private listeners: Listener<TMessage> | Set<Listener<TMessage>> | undefined
 
-  const emit = (message: TMessage) => {
-    if (listeners == undefined) {
+  emit = (message: TMessage) => {
+    if (this.listeners == undefined) {
       return
     }
 
-    if (typeof listeners === "function") {
-      emitToListener(topic[FactoryNameSymbol], listeners, message)
+    if (typeof this.listeners === "function") {
+      emitToListener(this[FactoryNameSymbol], this.listeners, message)
       return
     }
 
-    for (const listener of listeners) {
-      emitToListener(topic[FactoryNameSymbol], listener, message)
+    for (const listener of this.listeners) {
+      emitToListener(this[FactoryNameSymbol], listener, message)
     }
   }
 
-  const on = (lifecycle: LifecycleScope, listener: Listener<TMessage>) => {
+  on = (lifecycle: LifecycleScope, listener: Listener<TMessage>) => {
     if (import.meta.env.DEV) {
       Object.defineProperty(listener, ListenerNameSymbol, {
         value: lifecycle.name,
@@ -107,58 +110,51 @@ export const createTopic = <TMessage = void>(): Topic<TMessage> => {
       })
     }
 
-    if (typeof listeners === "function") {
-      listeners = new Set([listeners, listener])
-    } else if (listeners == undefined) {
-      listeners = listener
+    if (typeof this.listeners === "function") {
+      this.listeners = new Set([this.listeners, listener])
+    } else if (this.listeners == undefined) {
+      this.listeners = listener
     } else {
-      listeners.add(listener)
+      this.listeners.add(listener)
     }
 
     lifecycle.onCleanup(() => {
-      off(listener)
+      this.off(listener)
     })
   }
 
-  const once = (lifecycle: LifecycleScope, listener: Listener<TMessage>) => {
+  once = (lifecycle: LifecycleScope, listener: Listener<TMessage>) => {
     const singleUseListener = (message: TMessage) => {
-      topic.off(singleUseListener)
+      this.off(singleUseListener)
       return listener(message)
     }
 
-    on(lifecycle, singleUseListener)
+    this.on(lifecycle, singleUseListener)
 
     lifecycle.onCleanup(() => {
-      off(listener)
+      this.off(listener)
     })
   }
 
-  const off = (listener: Listener<TMessage>) => {
-    if (typeof listeners === "function") {
-      if (listeners === listener) {
-        listeners = undefined
+  off = (listener: Listener<TMessage>) => {
+    if (typeof this.listeners === "function") {
+      if (this.listeners === listener) {
+        this.listeners = undefined
       }
-    } else if (listeners != undefined) {
-      listeners.delete(listener)
+    } else if (this.listeners != undefined) {
+      this.listeners.delete(listener)
 
-      if (listeners.size === 1) {
+      if (this.listeners.size === 1) {
         // Generally it's better to use an iterator to get the first element from a set because it's more performant for large sets. But in this case the size of the set is always one so it's actually faster to use the array syntax.
         // See: https://tinyurl.com/perf-set-get-sole-element
-        listeners = [...listeners][0]
+        this.listeners = [...this.listeners][0]
       }
     }
   }
+}
 
-  const topic: Topic<TMessage> = {
-    [TopicSymbol]: true,
-    [FactoryNameSymbol]: "anonymous",
-    on,
-    once,
-    off,
-    emit,
-  }
-
-  return topic
+export const createTopic = <TMessage = void>(): Topic<TMessage> => {
+  return new TopicImplementation()
 }
 
 export const isTopic = (object: unknown): object is Topic =>
