@@ -2,7 +2,7 @@ import { Promisable } from "type-fest"
 
 import { isObject } from "@dassie/lib-type-utils"
 
-import { LifecycleScope } from "../lifecycle"
+import { LifecycleContext } from "../types/lifecycle-context"
 import { StatefulContext } from "../types/stateful-context"
 
 export interface WrappedCallback<
@@ -16,15 +16,15 @@ export const wrapCallback = <
   TCallback extends (...parameters: unknown[]) => Promisable<unknown>,
 >(
   callback: TCallback,
-  lifecycle: LifecycleScope & StatefulContext<object>,
+  context: LifecycleContext & StatefulContext<object>,
   path?: string | undefined,
 ): WrappedCallback<TCallback> => {
   const wrappedCallback: WrappedCallback<TCallback> = Object.assign(
     ((...parameters) => {
-      if (lifecycle.isDisposed) {
-        lifecycle.reactor.debug?.warnAboutDanglingCallback(
+      if (context.lifecycle.isDisposed) {
+        context.reactor.debug?.warnAboutDanglingCallback(
           callback.name,
-          lifecycle,
+          context,
           path,
         )
 

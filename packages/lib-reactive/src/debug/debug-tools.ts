@@ -4,9 +4,9 @@ import { isObject } from "@dassie/lib-type-utils"
 
 import { Actor } from "../actor"
 import { ActorContextSymbol } from "../actor-context"
-import { LifecycleScope } from "../lifecycle"
 import { Mapped } from "../mapped"
 import type { ContextState, Reactor } from "../reactor"
+import { LifecycleContext } from "../types/lifecycle-context"
 import { StatefulContext } from "../types/stateful-context"
 
 export interface ContextEntry {
@@ -24,7 +24,7 @@ export const ActorIntermediateScopeParent = Symbol(
 const hasIntermediateScopeParent = (
   target: object,
 ): target is {
-  [ActorIntermediateScopeParent]: StatefulContext<object> & LifecycleScope
+  [ActorIntermediateScopeParent]: StatefulContext<object> & LifecycleContext
 } => ActorIntermediateScopeParent in target
 
 export class DebugTools {
@@ -101,7 +101,7 @@ export class DebugTools {
    */
   tagActorContext(
     context: { [ActorContextSymbol]: true },
-    parentContext: StatefulContext<object> & LifecycleScope,
+    parentContext: StatefulContext<object> & LifecycleContext,
   ) {
     if (hasIntermediateScopeParent(parentContext)) {
       parentContext = parentContext[ActorIntermediateScopeParent]
@@ -120,7 +120,7 @@ export class DebugTools {
    * @param context - The actual actor context that is the parent of the intermediate scope.
    */
   tagIntermediateActorScope(
-    scope: LifecycleScope,
+    scope: object,
     context: { [ActorContextSymbol]: true },
   ) {
     Object.defineProperty(scope, ActorIntermediateScopeParent, {
@@ -136,14 +136,14 @@ export class DebugTools {
 
   warnAboutDanglingCallback(
     callbackName: string | undefined,
-    lifecycle: LifecycleScope,
+    scope: LifecycleContext,
     path?: string | undefined,
   ) {
     console.warn(
       "callback received an event after the containing scope was disposed, meaning an event handler was not cleaned up properly",
       {
         name: callbackName ?? "anonymous",
-        scope: lifecycle.name,
+        scope: scope.lifecycle.name,
         path,
       },
     )

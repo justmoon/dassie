@@ -13,6 +13,7 @@ import {
 } from "./lifecycle"
 import { ReadonlyTopic, createTopic } from "./topic"
 import { Factory } from "./types/factory"
+import { LifecycleContext } from "./types/lifecycle-context"
 import { StatefulContext } from "./types/stateful-context"
 
 export const MappedSymbol = Symbol("das:reactive:map")
@@ -99,7 +100,7 @@ class MappedImplementation<
   private nextUniqueId = 0
 
   constructor(
-    private parentContext: StatefulContext<TBase> & LifecycleScope,
+    private parentContext: StatefulContext<TBase> & LifecycleContext,
     baseSetFactory:
       | Factory<ReactiveSource<Set<TInput>>, TBase>
       | ReactiveSource<Set<TInput>>,
@@ -107,7 +108,7 @@ class MappedImplementation<
   ) {
     super(defaultComparator, true)
 
-    parentContext.onCleanup(() => {
+    parentContext.lifecycle.onCleanup(() => {
       this.removeParentObservers()
     })
 
@@ -170,7 +171,7 @@ class MappedImplementation<
             : this.nextUniqueId++
         }]`
         const lifecycle = createLifecycleScope(itemName)
-        lifecycle.confineTo(this.parentContext)
+        lifecycle.confineTo(this.parentContext.lifecycle)
 
         const output = this.mapFunction(key, lifecycle)
 
@@ -202,7 +203,7 @@ class MappedImplementation<
 }
 
 export function createMapped<TInput, TOutput, TBase extends object>(
-  parentContext: StatefulContext<TBase> & LifecycleScope,
+  parentContext: StatefulContext<TBase> & LifecycleContext,
   baseSet:
     | Factory<ReactiveSource<Set<TInput>>, TBase>
     | ReactiveSource<Set<TInput>>,

@@ -2,7 +2,6 @@ import type { Promisable } from "type-fest"
 
 import { isObject } from "@dassie/lib-type-utils"
 
-import { DisposableLifecycleScope } from "."
 import type { Actor } from "./actor"
 import { DebugTools, createDebugTools } from "./debug/debug-tools"
 import {
@@ -12,9 +11,13 @@ import {
   UseSymbol,
 } from "./internal/context-base"
 import { WrappedCallback, wrapCallback } from "./internal/wrap-callback"
-import { DisposableLifecycleScopeImplementation } from "./lifecycle"
+import { DisposableLifecycleScope, createLifecycleScope } from "./lifecycle"
 import { ExecutionContext } from "./types/execution-context"
 import { Factory } from "./types/factory"
+import {
+  DisposableLifecycleContext,
+  DisposableLifecycleContextShortcuts,
+} from "./types/lifecycle-context"
 import { StatefulContext } from "./types/stateful-context"
 
 export interface ContextState
@@ -33,7 +36,8 @@ export interface UseOptions {
 export interface Reactor<TBase extends object = object>
   extends StatefulContext<TBase>,
     ExecutionContext,
-    DisposableLifecycleScope {
+    DisposableLifecycleContext,
+    DisposableLifecycleContextShortcuts {
   readonly base: TBase
 
   /**
@@ -82,10 +86,7 @@ export interface Reactor<TBase extends object = object>
   debug: ReturnType<typeof createDebugTools>
 }
 
-class ReactorImplementation<TBase extends object = object>
-  extends DisposableLifecycleScopeImplementation
-  implements Reactor
-{
+class ReactorImplementation<TBase extends object = object> implements Reactor {
   public readonly reactor = this
 
   public readonly debug: DebugTools | undefined
@@ -93,11 +94,30 @@ class ReactorImplementation<TBase extends object = object>
   constructor(
     readonly base: TBase,
     readonly contextState: ContextState,
+    readonly lifecycle: DisposableLifecycleScope,
     debug?: DebugTools | undefined,
   ) {
-    super("Reactor")
-
     this.debug = debug ?? createDebugTools(this, contextState)
+  }
+
+  get isDisposed() {
+    return this.lifecycle.isDisposed
+  }
+
+  get onCleanup() {
+    return this.lifecycle.onCleanup
+  }
+
+  get offCleanup() {
+    return this.lifecycle.offCleanup
+  }
+
+  get dispose() {
+    return this.lifecycle.dispose
+  }
+
+  get confineTo() {
+    return this.lifecycle.confineTo
   }
 
   use<TReturn>(
@@ -179,6 +199,7 @@ class ReactorImplementation<TBase extends object = object>
     return new ReactorImplementation(
       { ...this.base, ...newBase },
       this.contextState,
+      this.lifecycle,
       this.debug,
     )
   }
@@ -205,6 +226,7 @@ export const createReactor: CreateReactor = <TBase extends object>(
   const reactor: Reactor<TBase> = new ReactorImplementation(
     base ?? ({} as TBase),
     new WeakMap() as ContextState,
+    createLifecycleScope("Reactor"),
   )
 
   if (rootActor) {

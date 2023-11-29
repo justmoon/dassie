@@ -13,9 +13,10 @@ import {
   ReactiveSource,
 } from "./internal/reactive"
 import { createReactiveTopic } from "./internal/reactive-topic"
-import { DisposableLifecycleScope, LifecycleScope } from "./lifecycle"
+import { DisposableLifecycleScope, createLifecycleScope } from "./lifecycle"
 import { ReadonlySignal, Reducer, SignalSymbol } from "./signal"
 import { ReadonlyTopic } from "./topic"
+import { LifecycleContext } from "./types/lifecycle-context"
 
 export type Behavior<TReturn = unknown, TBase extends object = object> = (
   sig: ActorContext<TBase>,
@@ -142,7 +143,7 @@ export interface Actor<TReturn, TBase extends object = object>
    * @returns The return value of the actor.
    */
   run: (
-    parentContext: StatefulContext<TBase> & LifecycleScope,
+    parentContext: StatefulContext<TBase> & LifecycleContext,
     options?: RunOptions | undefined,
   ) => TReturn | undefined
 
@@ -235,7 +236,7 @@ export class ActorImplementation<TReturn, TBase extends object>
   recompute() {}
 
   run(
-    parentContext: StatefulContext<TBase> & LifecycleScope,
+    parentContext: StatefulContext<TBase> & LifecycleContext,
     { additionalDebugData, pathPrefix, overrideName }: RunOptions = {},
   ) {
     if (this.currentContext) {
@@ -290,7 +291,7 @@ export class ActorImplementation<TReturn, TBase extends object>
   }
 
   private async loop(
-    parentContext: StatefulContext<TBase> & LifecycleScope,
+    parentContext: StatefulContext<TBase> & LifecycleContext,
     actorPath: string,
     additionalDebugData: Record<string, unknown> | undefined,
   ) {
@@ -299,15 +300,18 @@ export class ActorImplementation<TReturn, TBase extends object>
     this.waker = makePromise()
 
     for (;;) {
-      if (parentContext.isDisposed) return
+      if (parentContext.lifecycle.isDisposed) return
+
+      const lifecycle = createLifecycleScope(this[FactoryNameSymbol])
+      lifecycle.confineTo(parentContext.lifecycle)
+      lifecycle.onCleanup(resetActor)
 
       const context = new ActorContextImplementation(
         this,
+        lifecycle,
         actorPath,
         parentContext.reactor,
       )
-      context.confineTo(parentContext)
-      context.onCleanup(resetActor)
 
       parentContext.reactor.debug?.tagActorContext(context, parentContext)
 
@@ -372,7 +376,7 @@ export class ActorImplementation<TReturn, TBase extends object>
         })
         return
       } finally {
-        await context.dispose()
+        await lifecycle.dispose()
       }
     }
   }

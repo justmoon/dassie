@@ -6,7 +6,6 @@ import { Listener } from "./internal/emit-to-listener"
 import { type ReactiveSource } from "./internal/reactive"
 import { WrappedCallback, wrapCallback } from "./internal/wrap-callback"
 import {
-  DisposableLifecycleScope,
   DisposableLifecycleScopeImplementation,
   LifecycleScope,
 } from "./lifecycle"
@@ -16,6 +15,11 @@ import { Reactor } from "./reactor"
 import type { ReadonlyTopic, TopicSymbol } from "./topic"
 import { ExecutionContext } from "./types/execution-context"
 import { Factory } from "./types/factory"
+import {
+  DisposableLifecycleContext,
+  LifecycleContext,
+  LifecycleContextShortcuts,
+} from "./types/lifecycle-context"
 import { ReactiveContext } from "./types/reactive-context"
 import { StatefulContext } from "./types/stateful-context"
 
@@ -29,7 +33,8 @@ export type ActorReference = Omit<
 export const ActorContextSymbol = Symbol("das:reactive:actor-context")
 
 export interface ActorContext<TBase extends object = object>
-  extends DisposableLifecycleScope,
+  extends LifecycleContext,
+    LifecycleContextShortcuts,
     StatefulContext<TBase>,
     ExecutionContext,
     ReactiveContext {
@@ -171,6 +176,8 @@ export class ActorContextImplementation<TBase extends object = object>
       readAndTrack: <TState>(signal: ReactiveSource<TState>) => TState
     },
 
+    readonly lifecycle: LifecycleScope,
+
     /**
      * Full path of the actor.
      *
@@ -182,7 +189,7 @@ export class ActorContextImplementation<TBase extends object = object>
 
     reactor: Reactor<TBase>,
   ) {
-    super(actor[FactoryNameSymbol], reactor, actor.readAndTrack)
+    super(reactor, actor.readAndTrack)
   }
 
   get forceRestart() {
@@ -191,6 +198,18 @@ export class ActorContextImplementation<TBase extends object = object>
 
   get base() {
     return this.reactor.base
+  }
+
+  get isDisposed() {
+    return this.lifecycle.isDisposed
+  }
+
+  get onCleanup() {
+    return this.lifecycle.onCleanup
+  }
+
+  get offCleanup() {
+    return this.lifecycle.offCleanup
   }
 
   subscribe<TMessage>(
@@ -272,13 +291,13 @@ export class ActorContextImplementation<TBase extends object = object>
   ): TReturn | undefined {
     if (this.isDisposed) return
 
-    const actorLifecycle: DisposableLifecycleScope & StatefulContext<TBase> =
-      Object.assign(new DisposableLifecycleScopeImplementation(""), {
+    const actorLifecycle: DisposableLifecycleContext & StatefulContext<TBase> =
+      {
+        lifecycle: new DisposableLifecycleScopeImplementation(""),
         reactor: this.reactor,
-        base: this.base,
-      })
-    actorLifecycle.confineTo(mapItemLifecycle)
-    actorLifecycle.confineTo(this)
+      }
+    actorLifecycle.lifecycle.confineTo(mapItemLifecycle)
+    actorLifecycle.lifecycle.confineTo(this.lifecycle)
     this.reactor.debug?.tagIntermediateActorScope(actorLifecycle, this)
     return actor.run(actorLifecycle, runOptions)
   }
@@ -345,6 +364,7 @@ export class ActorContextImplementation<TBase extends object = object>
   withBase<TNewBase extends object>(newBase: TNewBase) {
     return new ActorContextImplementation(
       this.actor,
+      this.lifecycle,
       this.path,
       this.reactor.withBase(newBase),
     )

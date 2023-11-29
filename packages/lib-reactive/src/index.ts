@@ -54,6 +54,12 @@ export type {
 } from "./internal/reactive"
 export type { Time, TimeoutOptions } from "./types/base-modules/time"
 export type { Factory } from "./types/factory"
+export type {
+  LifecycleContext,
+  DisposableLifecycleContext,
+  LifecycleContextShortcuts,
+  DisposableLifecycleContextShortcuts,
+} from "./types/lifecycle-context"
 export type { ReactiveContext } from "./types/reactive-context"
 export type { StatefulContext } from "./types/stateful-context"
 export type { ExecutionContext } from "./types/execution-context"

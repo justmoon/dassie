@@ -7,9 +7,10 @@ import {
 import { FactoryNameSymbol } from "./internal/context-base"
 import { Reactive, defaultComparator } from "./internal/reactive"
 import { createReactiveTopic } from "./internal/reactive-topic"
-import { LifecycleScope } from "./lifecycle"
+import { createLifecycleScope } from "./lifecycle"
 import { ReadonlySignal, SignalSymbol } from "./signal"
 import { TopicSymbol } from "./topic"
+import { LifecycleContext } from "./types/lifecycle-context"
 import { StatefulContext } from "./types/stateful-context"
 
 export const ComputedSymbol = Symbol("das:reactive:computed")
@@ -41,22 +42,24 @@ class ComputedImplementation<
   private context: ComputationContext<TBase>
 
   constructor(
-    parentContext: LifecycleScope & StatefulContext<TBase>,
+    parentContext: LifecycleContext & StatefulContext<TBase>,
     private readonly computation: (sig: ComputationContext<TBase>) => TState,
     options: ComputedOptions<TState> = {},
   ) {
     super(options.comparator ?? defaultComparator, false)
 
+    const lifecycle = createLifecycleScope(this[FactoryNameSymbol])
+
+    lifecycle.confineTo(parentContext.lifecycle)
+    lifecycle.onCleanup(() => {
+      this.removeParentObservers()
+    })
+
     const context = new ComputationContextImplementation(
-      this[FactoryNameSymbol],
+      lifecycle,
       parentContext.reactor,
       (signal) => this.readWithTracking(signal),
     )
-
-    context.confineTo(parentContext)
-    context.onCleanup(() => {
-      this.removeParentObservers()
-    })
 
     this.context = context
   }
@@ -67,7 +70,7 @@ class ComputedImplementation<
 }
 
 export function createComputed<TState, TBase extends object>(
-  parentContext: LifecycleScope & StatefulContext<TBase>,
+  parentContext: LifecycleContext & StatefulContext<TBase>,
   computation: (sig: ComputationContext<TBase>) => TState,
   options: ComputedOptions<TState> = {},
 ): Computed<TState> {

@@ -92,7 +92,7 @@ export const RunNodesActor = (reactor: Reactor) => {
 
           const debugScopes = sig.readAndTrack(DebugScopesSignal)
           await runChildProcess({
-            lifecycle: sig,
+            lifecycle: sig.lifecycle,
             nodeServer: viteNodeServer,
             id: node.id,
             environment: {

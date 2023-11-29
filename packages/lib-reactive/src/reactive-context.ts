@@ -4,29 +4,15 @@ import {
   ReactiveSource,
   defaultComparator,
 } from "./internal/reactive"
-import {
-  DisposableLifecycleScope,
-  DisposableLifecycleScopeImplementation,
-} from "./lifecycle"
 import { Reactor } from "./reactor"
 import { Factory } from "./types/factory"
 import { ReactiveContext } from "./types/reactive-context"
 import { StatefulContext } from "./types/stateful-context"
 
 export class ReactiveContextImplementation<TBase extends object>
-  extends DisposableLifecycleScopeImplementation
-  implements StatefulContext<TBase>, ReactiveContext, DisposableLifecycleScope
+  implements StatefulContext<TBase>, ReactiveContext
 {
   constructor(
-    /**
-     * Name of the entity this context is related to.
-     *
-     * @remarks
-     *
-     * This is automatically derived from the function name.
-     */
-    name: string,
-
     /**
      * A reference to the current reactor.
      *
@@ -40,9 +26,7 @@ export class ReactiveContextImplementation<TBase extends object>
      * A function which allows tracked reads of signals.
      */
     readonly _get: <TState>(signal: ReactiveSource<TState>) => TState,
-  ) {
-    super(name)
-  }
+  ) {}
 
   readAndTrack<TState, TSelection>(
     signalFactory:

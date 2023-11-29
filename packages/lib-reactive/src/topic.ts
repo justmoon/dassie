@@ -6,8 +6,8 @@ import {
   ListenerNameSymbol,
   emitToListener,
 } from "./internal/emit-to-listener"
-import { LifecycleScope } from "./lifecycle"
 import { Factory } from "./types/factory"
+import { LifecycleContext } from "./types/lifecycle-context"
 
 export const TopicSymbol = Symbol("das:reactive:topic")
 
@@ -39,7 +39,7 @@ export interface ReadonlyTopic<TMessage = never> extends ContextValue {
    */
   on: (
     this: void,
-    lifecycle: LifecycleScope,
+    lifecycle: LifecycleContext,
     listener: Listener<TMessage>,
   ) => void
 
@@ -51,7 +51,7 @@ export interface ReadonlyTopic<TMessage = never> extends ContextValue {
    */
   once: (
     this: void,
-    lifecycle: LifecycleScope,
+    lifecycle: LifecycleContext,
     listener: Listener<TMessage>,
   ) => void
 
@@ -102,10 +102,10 @@ class TopicImplementation<TMessage> {
     }
   }
 
-  on = (lifecycle: LifecycleScope, listener: Listener<TMessage>) => {
+  on = (context: LifecycleContext, listener: Listener<TMessage>) => {
     if (import.meta.env.DEV) {
       Object.defineProperty(listener, ListenerNameSymbol, {
-        value: lifecycle.name,
+        value: context.lifecycle.name,
         enumerable: false,
       })
     }
@@ -118,20 +118,20 @@ class TopicImplementation<TMessage> {
       this.listeners.add(listener)
     }
 
-    lifecycle.onCleanup(() => {
+    context.lifecycle.onCleanup(() => {
       this.off(listener)
     })
   }
 
-  once = (lifecycle: LifecycleScope, listener: Listener<TMessage>) => {
+  once = (context: LifecycleContext, listener: Listener<TMessage>) => {
     const singleUseListener = (message: TMessage) => {
       this.off(singleUseListener)
       return listener(message)
     }
 
-    this.on(lifecycle, singleUseListener)
+    this.on(context, singleUseListener)
 
-    lifecycle.onCleanup(() => {
+    context.lifecycle.onCleanup(() => {
       this.off(listener)
     })
   }

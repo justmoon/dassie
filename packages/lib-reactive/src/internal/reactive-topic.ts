@@ -1,5 +1,5 @@
-import { LifecycleScope } from "../lifecycle"
 import { ReadonlyTopic, TopicSymbol } from "../topic"
+import { LifecycleContext } from "../types/lifecycle-context"
 import { FactoryNameSymbol } from "./context-base"
 import {
   Listener,
@@ -49,10 +49,10 @@ export const createReactiveTopic = <T>(
     [FactoryNameSymbol]: "anonymous",
     [TopicSymbol]: true as const,
 
-    on(lifecycle: LifecycleScope, listener: Listener<T>): void {
+    on(context: LifecycleContext, listener: Listener<T>): void {
       if (import.meta.env.DEV) {
         Object.defineProperty(listener, ListenerNameSymbol, {
-          value: lifecycle.name,
+          value: context.lifecycle.name,
           enumerable: false,
         })
       }
@@ -67,20 +67,20 @@ export const createReactiveTopic = <T>(
         listeners.add(listener)
       }
 
-      lifecycle.onCleanup(() => {
+      context.lifecycle.onCleanup(() => {
         topic.off(listener)
       })
     },
 
-    once(lifecycle: LifecycleScope, listener: Listener<T>): void {
+    once(context: LifecycleContext, listener: Listener<T>): void {
       const singleUseListener = (message: T) => {
         topic.off(singleUseListener)
         return listener(message)
       }
 
-      topic.on(lifecycle, singleUseListener)
+      topic.on(context, singleUseListener)
 
-      lifecycle.onCleanup(() => {
+      context.lifecycle.onCleanup(() => {
         topic.off(listener)
       })
     },

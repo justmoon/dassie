@@ -6,7 +6,7 @@ import type { AnyZodObject, infer as InferZodType } from "zod"
 import { IncomingMessage } from "node:http"
 
 import { AnyOerType, Infer as InferOerType } from "@dassie/lib-oer"
-import type { LifecycleScope } from "@dassie/lib-reactive"
+import type { LifecycleContext } from "@dassie/lib-reactive"
 import { Failure, isFailure } from "@dassie/lib-type-utils"
 
 import { cors } from "./cors"
@@ -158,7 +158,7 @@ export type ApiRouteBuilder<
    * Provide the handler for the API route.
    */
   handler: <THandler extends ApiHandler<TParameters>>(
-    lifecycle: LifecycleScope,
+    lifecycle: LifecycleContext,
     handler: THandler,
   ) => void
 } & {
@@ -268,7 +268,7 @@ export const createRouter = () => {
           middlewares: [...state.middlewares, assertion],
         })
       },
-      handler: (lifecycle, handler) => {
+      handler: (context, handler) => {
         const { path, method } = state
         if (!path) {
           throw new Error("No path provided for route")
@@ -286,7 +286,7 @@ export const createRouter = () => {
 
         router[method](path, createHandler(routeHandler))
 
-        lifecycle.onCleanup(() => {
+        context.lifecycle.onCleanup(() => {
           const routeIndex = router.stack.findIndex(
             (layer: {
               route?: {
