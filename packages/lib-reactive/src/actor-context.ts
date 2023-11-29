@@ -3,6 +3,7 @@ import { Promisable } from "type-fest"
 import { isObject } from "@dassie/lib-type-utils"
 
 import { type Actor, type RunOptions } from "./actor"
+import { FactoryNameSymbol } from "./internal/context-base"
 import { Listener } from "./internal/emit-to-listener"
 import { type ReactiveSource } from "./internal/reactive"
 import {
@@ -143,7 +144,7 @@ export interface ActorContext<TBase extends object = object>
   /**
    * Wake function. If called, the actor will be cleaned up and re-run.
    */
-  readonly forceRestart: () => void
+  forceRestart(this: void): void
 
   /**
    * Add something to the base context and return an augmented context.
@@ -161,13 +162,13 @@ export class ActorContextImplementation<TBase extends object = object>
 
   constructor(
     /**
-     * Name of the actor.
-     *
-     * @remarks
-     *
-     * This is automatically derived from the function name.
+     * The actor that this context belongs to.
      */
-    name: string,
+    private readonly actor: {
+      [FactoryNameSymbol]: string
+      forceRestart: () => void
+      readAndTrack: <TState>(signal: ReactiveSource<TState>) => TState
+    },
 
     /**
      * Full path of the actor.
@@ -179,12 +180,12 @@ export class ActorContextImplementation<TBase extends object = object>
     readonly path: string,
 
     reactor: Reactor<TBase>,
-
-    readonly forceRestart: () => void,
-
-    _get: <TState>(signal: ReactiveSource<TState>) => TState,
   ) {
-    super(name, reactor, _get)
+    super(actor[FactoryNameSymbol], reactor, actor.readAndTrack)
+  }
+
+  get forceRestart() {
+    return this.actor.forceRestart
   }
 
   get base() {
@@ -196,7 +197,7 @@ export class ActorContextImplementation<TBase extends object = object>
       | Factory<ReadonlyTopic<TMessage>, TBase>
       | ReadonlyTopic<TMessage>,
   ) {
-    this.once(topicFactory, this.forceRestart)
+    this.once(topicFactory, this.actor.forceRestart)
   }
 
   on<TMessage>(
@@ -387,11 +388,9 @@ export class ActorContextImplementation<TBase extends object = object>
 
   withBase<TNewBase extends object>(newBase: TNewBase) {
     return new ActorContextImplementation(
-      this.name,
+      this.actor,
       this.path,
       this.reactor.withBase(newBase),
-      this.forceRestart,
-      this._get,
     )
   }
 }

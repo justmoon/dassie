@@ -271,7 +271,16 @@ export class ActorImplementation<TReturn, TBase extends object>
     this.waker.resolve()
   }
 
-  private readAndTrack = <TState>(signal: ReactiveSource<TState>) => {
+  /**
+   * Read a signal and track it as a dependency of the actor.
+   *
+   * @remarks
+   *
+   * Used internally by the actor context to track dependencies.
+   *
+   * @internal
+   */
+  readAndTrack = <TState>(signal: ReactiveSource<TState>) => {
     this.isReadingSource = true
     const value = signal.read()
     this.isReadingSource = false
@@ -293,16 +302,14 @@ export class ActorImplementation<TReturn, TBase extends object>
       if (parentContext.isDisposed) return
 
       const context = new ActorContextImplementation(
-        this[FactoryNameSymbol],
+        this,
         actorPath,
         parentContext.reactor,
-        this.forceRestart,
-        this.readAndTrack,
       )
       context.confineTo(parentContext)
       context.onCleanup(resetActor)
 
-      parentContext.reactor.debug?.tagActorContext(context, this, parentContext)
+      parentContext.reactor.debug?.tagActorContext(context, parentContext)
 
       this.currentContext = context
 

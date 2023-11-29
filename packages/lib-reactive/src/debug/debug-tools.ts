@@ -2,7 +2,7 @@ import { castImmutable } from "immer"
 
 import { isObject } from "@dassie/lib-type-utils"
 
-import { Actor, ActorSymbol } from "../actor"
+import { Actor } from "../actor"
 import { ActorContextSymbol } from "../actor-context"
 import { LifecycleScope } from "../lifecycle"
 import { Mapped } from "../mapped"
@@ -17,7 +17,6 @@ export interface ContextEntry {
 export const DebugIdSymbol = Symbol("das:reactive:debug-id")
 export const MappedOwnerSymbol = Symbol("das:reactive:mapped-owner")
 export const ActorDebugParentContextSymbol = Symbol("das:reactive:debug-parent")
-export const ActorDebugOwnerSymbol = Symbol("das:reactive:debug-owner")
 export const ActorIntermediateScopeParent = Symbol(
   "das:reactive:debug-intermediate-scope-parent",
 )
@@ -102,17 +101,12 @@ export class DebugTools {
    */
   tagActorContext(
     context: { [ActorContextSymbol]: true },
-    actor: { [ActorSymbol]: true },
     parentContext: StatefulContext<object> & LifecycleScope,
   ) {
     if (hasIntermediateScopeParent(parentContext)) {
       parentContext = parentContext[ActorIntermediateScopeParent]
     }
 
-    Object.defineProperty(context, ActorDebugOwnerSymbol, {
-      value: actor,
-      enumerable: false,
-    })
     Object.defineProperty(context, ActorDebugParentContextSymbol, {
       value: parentContext,
       enumerable: false,
@@ -137,9 +131,7 @@ export class DebugTools {
 
   getActorParent(actor: Actor<unknown>): Actor<unknown> | undefined {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
-    return (actor as any).currentContext?.[ActorDebugParentContextSymbol]?.[
-      ActorDebugOwnerSymbol
-    ]
+    return (actor as any).currentContext?.[ActorDebugParentContextSymbol]?.actor
   }
 }
 
