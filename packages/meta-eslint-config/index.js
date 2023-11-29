@@ -41,6 +41,10 @@ module.exports = {
     "tsdoc/syntax": "warn",
     "@typescript-eslint/no-non-null-assertion": "off",
     "@typescript-eslint/no-invalid-void-type": "off",
+    "@typescript-eslint/no-unused-vars": [
+      "error",
+      { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+    ],
     "object-shorthand": ["warn", "properties"],
     "import/no-unresolved": ["error", { ignore: ["^virtual:"] }],
     "n/no-missing-import": "off",
