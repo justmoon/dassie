@@ -1,6 +1,4 @@
 /* eslint-disable unicorn/error-message */
-import assert from "node:assert"
-
 import { LogContext, getLogContext } from "./context"
 
 /**
@@ -10,7 +8,52 @@ import { LogContext, getLogContext } from "./context"
  *
  * @beta
  */
-export class Logger {
+export interface Logger {
+  /**
+   * Clears the logger's output.
+   *
+   * @remarks
+   *
+   * For example, if the logger is used to log to the console, this will clear the console.
+   *
+   * @alpha
+   */
+  clear(): void
+
+  /**
+   * This will only log a message if this logger's component is part of the current debug scope.
+   *
+   * @param message - A freeform message
+   * @param parameters - Additional relevant data to log and make available for debugging
+   */
+  debug(message: string, ...parameters: unknown[]): void
+
+  /**
+   * Logs a message.
+   *
+   * @param message - A freeform message
+   * @param parameters - Additional relevant data to log and make available for debugging
+   */
+  info(message: string, ...parameters: unknown[]): void
+
+  /**
+   * Logs a message with extra emphasis.
+   *
+   * @param message - A freeform message
+   * @param parameters - Additional relevant data to log and make available for debugging
+   */
+  warn(message: string, ...parameters: unknown[]): void
+
+  /**
+   * Logs a message with the greatest possible emphasis.
+   *
+   * @param message - A freeform message
+   * @param parameters - Additional relevant data to log and make available for debugging
+   */
+  error(message: string, ...parameters: unknown[]): void
+}
+
+export class LoggerImplementation implements Logger {
   /**
    * Build a new logger object. Use {@link createLogger} instead.
    *
@@ -29,15 +72,6 @@ export class Logger {
     readonly component: string,
   ) {}
 
-  /**
-   * Clears the logger's output.
-   *
-   * @remarks
-   *
-   * For example, if the logger is used to log to the console, this will clear the console.
-   *
-   * @alpha
-   */
   clear() {
     this.context.output(
       {
@@ -48,12 +82,6 @@ export class Logger {
     )
   }
 
-  /**
-   * This will only log a message if this logger's component is part of the current debug scope.
-   *
-   * @param message - A freeform message
-   * @param parameters - Additional relevant data to log and make available for debugging
-   */
   debug(message: string, ...parameters: unknown[]) {
     if (this.context.enableChecker(this.component)) {
       this.context.output(
@@ -72,12 +100,6 @@ export class Logger {
     }
   }
 
-  /**
-   * Logs a message.
-   *
-   * @param message - A freeform message
-   * @param parameters - Additional relevant data to log and make available for debugging
-   */
   info(message: string, ...parameters: unknown[]) {
     this.context.output(
       {
@@ -94,12 +116,6 @@ export class Logger {
     )
   }
 
-  /**
-   * Logs a message with extra emphasis.
-   *
-   * @param message - A freeform message
-   * @param parameters - Additional relevant data to log and make available for debugging
-   */
   warn(message: string, ...parameters: unknown[]) {
     this.context.output(
       {
@@ -116,12 +132,6 @@ export class Logger {
     )
   }
 
-  /**
-   * Logs a message with the greatest possible emphasis.
-   *
-   * @param message - A freeform message
-   * @param parameters - Additional relevant data to log and make available for debugging
-   */
   error(message: string, ...parameters: unknown[]) {
     this.context.output(
       {
@@ -156,5 +166,5 @@ export const createLogger = (
 ) => {
   assert(!component.includes(" "), "Component name must not contain spaces")
 
-  return new Logger(context, component)
+  return new LoggerImplementation(context, component)
 }
