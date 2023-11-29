@@ -1,5 +1,7 @@
 import { enableMapSet, produce } from "immer"
 
+import { setImmediate } from "node:timers/promises"
+
 import { createActor } from "../actor"
 import { createMapped } from "../mapped"
 import { Reactor, createReactor } from "../reactor"
@@ -23,7 +25,7 @@ const CustomerServiceActors = (reactor: Reactor) =>
   )
 
 const RootActor = (reactor: Reactor) =>
-  createActor((sig) => {
+  createActor(async (sig) => {
     sig.runMap(CustomerServiceActors)
 
     const customers = sig.reactor.use(CustomersSignal)
@@ -38,6 +40,9 @@ const RootActor = (reactor: Reactor) =>
         draft.add("Bob")
       }),
     )
+
+    await setImmediate()
+
     customers.update(
       produce((draft) => {
         draft.add("Charlie")
@@ -54,9 +59,9 @@ const RootActor = (reactor: Reactor) =>
       }),
     )
 
-    sig.reactor.use(CustomerServiceActors).get("Alice")?.api.greet.tell()
+    await sig.reactor.use(CustomerServiceActors).get("Alice")?.api.greet.ask()
 
-    sig.timeout(() => void reactor.dispose(), 300)
+    void reactor.dispose()
   })
 
 createReactor(RootActor)
