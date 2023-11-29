@@ -42,7 +42,7 @@ export const LedgerStore = (reactor: Reactor) => {
   const ledger = new PrefixMap<AccountPath, LedgerAccount>()
   const pendingTransfers = new Set<Transfer>()
 
-  const postedTransfers = reactor.use(PostedTransfersTopic)
+  const postedTransfersTopic = reactor.use(PostedTransfersTopic)
 
   return {
     createAccount: (
@@ -141,7 +141,7 @@ export const LedgerStore = (reactor: Reactor) => {
         debitAccount.debitsPosted += amount
         creditAccount.creditsPosted += amount
 
-        postedTransfers.emit(transfer as Transfer & { state: "posted" })
+        postedTransfersTopic.emit(transfer as Transfer & { state: "posted" })
       }
 
       return transfer
@@ -166,7 +166,7 @@ export const LedgerStore = (reactor: Reactor) => {
 
       pendingTransfers.delete(transfer)
 
-      postedTransfers.emit(transfer as Transfer & { state: "posted" })
+      postedTransfersTopic.emit(transfer as Transfer & { state: "posted" })
     },
 
     voidPendingTransfer: (transfer: Transfer) => {
