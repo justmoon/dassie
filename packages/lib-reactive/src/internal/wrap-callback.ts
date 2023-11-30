@@ -1,6 +1,6 @@
 import { Promisable } from "type-fest"
 
-import { isObject } from "@dassie/lib-type-utils"
+import { isThenable } from "@dassie/lib-type-utils"
 
 import { LifecycleContext } from "../types/lifecycle-context"
 import { StatefulContext } from "../types/stateful-context"
@@ -34,12 +34,8 @@ export const wrapCallback = <
       try {
         const result = callback(...parameters)
 
-        if (
-          isObject(result) &&
-          "then" in result &&
-          typeof result["then"] === "function"
-        ) {
-          result["then"](undefined, (error: unknown) => {
+        if (isThenable(result)) {
+          result.then(undefined, (error: unknown) => {
             console.error("error in async callback", {
               name: callback.name ?? "anonymous",
               path,

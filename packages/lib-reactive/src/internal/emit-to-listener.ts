@@ -1,5 +1,7 @@
 import { Promisable } from "type-fest"
 
+import { isThenable } from "@dassie/lib-type-utils"
+
 export type Listener<TMessage> = (message: TMessage) => Promisable<void>
 
 export const ListenerNameSymbol = Symbol("das:reactive:listener-name")
@@ -12,7 +14,7 @@ export const emitToListener = <TMessage>(
   try {
     const result = listener(message)
 
-    if (typeof result?.then === "function") {
+    if (isThenable(result)) {
       result.then(undefined, (error: unknown) => {
         console.error("error in async listener", {
           emitter: emitterName,
