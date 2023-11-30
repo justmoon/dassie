@@ -84,9 +84,6 @@ module.exports = {
     react: {
       version: "18.0.0",
     },
-    "import/resolver": {
-      typescript: true,
-      node: true,
-    },
+    "import/resolver": "typescript",
   },
 }
