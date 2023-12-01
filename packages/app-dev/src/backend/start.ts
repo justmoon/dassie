@@ -11,6 +11,7 @@ import { RegisterReactiveLoggerActor } from "./actors/register-reactive-logger"
 import { RunNodesActor } from "./actors/run-nodes"
 import { DebugUiServerActor } from "./actors/serve-debug-ui"
 import { ListenForRpcWebSocketActor } from "./actors/serve-rpc"
+import { verifyPrerequisites } from "./functions/verify-prerequisites"
 import { ViteNodeServer } from "./unconstructables/vite-node-server"
 import { ViteServer } from "./unconstructables/vite-server"
 
@@ -23,6 +24,14 @@ export const RootActor = () =>
   createActor(async (sig) => {
     sig.run(RegisterReactiveLoggerActor)
     sig.run(ApplyDebugLoggingScopes)
+
+    const isValidEnvironment = await verifyPrerequisites()
+
+    if (!isValidEnvironment) {
+      process.exitCode = 1
+      void sig.reactor.dispose()
+      return
+    }
 
     await sig.run(ListenForRpcWebSocketActor)
     await sig.run(DebugUiServerActor)
