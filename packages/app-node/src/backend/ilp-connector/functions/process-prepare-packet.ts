@@ -76,7 +76,12 @@ export const ProcessPreparePacket = (reactor: DassieReactor) => {
       return
     }
 
-    const { destinationEndpointInfo, outgoingAmount, transfers } = packetOutcome
+    const {
+      destinationEndpointInfo,
+      outgoingAmount,
+      outgoingExpiry,
+      transfers,
+    } = packetOutcome
 
     pendingPacketsMap.set(
       `${destinationEndpointInfo.ilpAddress}#${outgoingRequestId}`,
@@ -95,10 +100,9 @@ export const ProcessPreparePacket = (reactor: DassieReactor) => {
       type: IlpType.Prepare,
       data: {
         amount: outgoingAmount,
-        destination: parsedPacket.data.destination,
+        expiresAt: outgoingExpiry,
         executionCondition: parsedPacket.data.executionCondition,
-        // TODO: Reduce expiry
-        expiresAt: parsedPacket.data.expiresAt,
+        destination: parsedPacket.data.destination,
         data: parsedPacket.data.data,
       },
     }

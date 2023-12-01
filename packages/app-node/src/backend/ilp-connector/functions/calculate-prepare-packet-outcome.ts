@@ -1,16 +1,26 @@
-import { Reactor } from "@dassie/lib-reactive"
 import { UnreachableCaseError, isFailure } from "@dassie/lib-type-utils"
 
 import { applyPacketPrepareToLedger } from "../../accounting/functions/apply-interledger-packet"
 import { LedgerStore, Transfer } from "../../accounting/stores/ledger"
+import { DassieReactor } from "../../base/types/dassie-base"
 import { CalculateOutgoingAmount } from "../../exchange/functions/calculate-outgoing-amount"
 import { ResolveIlpAddress } from "../../routing/functions/resolve-ilp-address"
+import {
+  ILP_MESSAGE_WINDOW,
+  MAXIMUM_HOLD_TIME,
+} from "../constants/expiry-constraints"
 import { MAX_PACKET_AMOUNT } from "../constants/max-packet-amount"
 import { AmountTooLargeIlpFailure } from "../failures/amount-too-large-ilp-failure"
 import { InsufficientLiquidityIlpFailure } from "../failures/insufficient-liquidity-ilp-failure"
+import { InsufficientTimeoutIlpFailure } from "../failures/insufficient-timeout-ilp-failure"
 import { InternalErrorIlpFailure } from "../failures/internal-error-ilp-failure"
+import { InvalidPacketIlpFailure } from "../failures/invalid-packet-ilp-failure"
 import { UnreachableIlpFailure } from "../failures/unreachable-ilp-failure"
 import { IlpPacket, IlpType } from "../schemas/ilp-packet-codec"
+import {
+  interledgerTimeToTimestamp,
+  timestampToInterledgerTime,
+} from "../utils/interledger-date"
 import { EndpointInfo } from "./send-packet"
 
 export interface CalculatePreparePacketOutcomeParameters {
@@ -21,10 +31,28 @@ export interface CalculatePreparePacketOutcomeParameters {
 export interface PreparePacketOutcome {
   readonly destinationEndpointInfo: EndpointInfo
   readonly outgoingAmount: bigint
+  readonly outgoingExpiry: string
   readonly transfers: Transfer[]
 }
 
-export const CalculatePreparePacketOutcome = (reactor: Reactor) => {
+// Pre-instantiated failures - saves us a memory allocation when we need to return one of the these
+const UNREACHABLE_FAILURE = new UnreachableIlpFailure(
+  "No route found for destination",
+)
+const INSUFFICIENT_TIMEOUT_FAILURE = new InsufficientTimeoutIlpFailure(
+  "Insufficient timeout",
+)
+const AMOUNT_TOO_LARGE_FAILURE = new AmountTooLargeIlpFailure(
+  "Packet amount exceeds maximum allowed amount",
+)
+const MISSING_LEDGER_ACCOUNT_FAILURE = new InternalErrorIlpFailure(
+  "Missing internal ledger account",
+)
+const INSUFFICIENT_LIQUIDITY_FAILURE = new InsufficientLiquidityIlpFailure(
+  "Insufficient liquidity",
+)
+
+export const CalculatePreparePacketOutcome = (reactor: DassieReactor) => {
   const ledgerStore = reactor.use(LedgerStore)
   const resolveIlpAddress = reactor.use(ResolveIlpAddress)
   const calculateOutgoingAmount = reactor.use(CalculateOutgoingAmount)
@@ -37,22 +65,37 @@ export const CalculatePreparePacketOutcome = (reactor: Reactor) => {
     | UnreachableIlpFailure
     | AmountTooLargeIlpFailure
     | InsufficientLiquidityIlpFailure
-    | InternalErrorIlpFailure => {
+    | InternalErrorIlpFailure
+    | InvalidPacketIlpFailure
+    | InsufficientTimeoutIlpFailure => {
     const destinationEndpointInfo = resolveIlpAddress(
       parsedPacket.data.destination,
     )
 
     if (isFailure(destinationEndpointInfo)) {
-      return new UnreachableIlpFailure("No route found for destination")
+      return UNREACHABLE_FAILURE
     }
+
+    const incomingExpiry = interledgerTimeToTimestamp(
+      parsedPacket.data.expiresAt,
+    )
+    if (isFailure(incomingExpiry)) return incomingExpiry
+
+    const now = reactor.base.time.now()
+    const delta = incomingExpiry - now - ILP_MESSAGE_WINDOW
+    if (delta < ILP_MESSAGE_WINDOW) {
+      return INSUFFICIENT_TIMEOUT_FAILURE
+    }
+
+    const outgoingExpiry = timestampToInterledgerTime(
+      now + Math.min(delta, MAXIMUM_HOLD_TIME),
+    )
 
     let outgoingAmount = parsedPacket.data.amount
     const transfers: Transfer[] = []
     if (parsedPacket.data.amount > 0n) {
       if (parsedPacket.data.amount > MAX_PACKET_AMOUNT) {
-        return new AmountTooLargeIlpFailure(
-          "Packet amount exceeds maximum allowed amount",
-        )
+        return AMOUNT_TOO_LARGE_FAILURE
       }
 
       outgoingAmount = calculateOutgoingAmount(
@@ -73,19 +116,11 @@ export const CalculatePreparePacketOutcome = (reactor: Reactor) => {
         if (isFailure(result)) {
           switch (result.name) {
             case "InvalidAccountFailure": {
-              return new InternalErrorIlpFailure(
-                "Missing internal ledger account",
-              )
+              return MISSING_LEDGER_ACCOUNT_FAILURE
             }
-            case "ExceedsCreditsFailure": {
-              return new InsufficientLiquidityIlpFailure(
-                "Insufficient liquidity",
-              )
-            }
+            case "ExceedsCreditsFailure":
             case "ExceedsDebitsFailure": {
-              return new InsufficientLiquidityIlpFailure(
-                "Insufficient liquidity",
-              )
+              return INSUFFICIENT_LIQUIDITY_FAILURE
             }
             default: {
               throw new UnreachableCaseError(result)
@@ -100,6 +135,7 @@ export const CalculatePreparePacketOutcome = (reactor: Reactor) => {
     return {
       destinationEndpointInfo,
       outgoingAmount,
+      outgoingExpiry,
       transfers,
     }
   }
