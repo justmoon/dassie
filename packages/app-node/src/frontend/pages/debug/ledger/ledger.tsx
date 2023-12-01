@@ -42,37 +42,47 @@ export function Ledger() {
                 const balance = creditsPosted - debitsPosted - debitsPending
                 return (
                   <TableRow key={path}>
-                    <TableCell className="font-medium">{path}</TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="font-medium align-top">
+                      {path}
+                    </TableCell>
+                    <TableCell className="text-right align-top">
                       <Amount value={balance} currency={USD_SPECIFICATION} />
                     </TableCell>
-                    <TableCell className="text-right">
-                      <Amount
-                        value={creditsPosted}
-                        currency={USD_SPECIFICATION}
-                        className="flex justify-end"
-                      />
-                      <div className="opacity-70">
-                        +{" "}
+                    <TableCell className="text-right align-top">
+                      {creditsPosted > 0n || creditsPending > 0n ? (
                         <Amount
-                          value={creditsPending}
+                          value={creditsPosted}
                           currency={USD_SPECIFICATION}
+                          className="flex justify-end"
                         />
-                      </div>
+                      ) : null}
+                      {creditsPending > 0n ? (
+                        <div className="opacity-70">
+                          +{" "}
+                          <Amount
+                            value={creditsPending}
+                            currency={USD_SPECIFICATION}
+                          />
+                        </div>
+                      ) : null}
                     </TableCell>
-                    <TableCell className="text-right">
-                      <Amount
-                        value={debitsPosted}
-                        currency={USD_SPECIFICATION}
-                        className="flex justify-end"
-                      />
-                      <div className="opacity-70">
-                        +{" "}
+                    <TableCell className="text-right align-top">
+                      {debitsPosted > 0n || debitsPending > 0n ? (
                         <Amount
-                          value={debitsPending}
+                          value={debitsPosted}
                           currency={USD_SPECIFICATION}
+                          className="flex justify-end"
                         />
-                      </div>
+                      ) : null}
+                      {debitsPending > 0n ? (
+                        <div className="opacity-70">
+                          +{" "}
+                          <Amount
+                            value={debitsPending}
+                            currency={USD_SPECIFICATION}
+                          />
+                        </div>
+                      ) : null}
                     </TableCell>
                   </TableRow>
                 )
