@@ -34,43 +34,49 @@ export const DownloadNodeListsActor = (reactor: Reactor) => {
   )
   const bootstrapNodeListsSignal = reactor.use(BootstrapNodeListsSignal)
 
-  return createActor(async (sig: DassieActorContext) => {
-    try {
-      const bootstrapNodeLists = bootstrapNodeListsSignal.read()
-      const changedHashes = [...bootstrapNodeListHashesSignal.read().entries()]
-        .map(([nodeId, hash]) => ({ nodeId, hash }))
-        .filter(
-          ({ nodeId, hash }) =>
-            !compareUint8Arrays(
-              bootstrapNodeLists.get(nodeId)?.hash ?? EMPTY_UINT8ARRAY,
-              hash,
-            ),
-        )
-
-      const nodeLists = await pMap(
-        changedHashes.map(({ nodeId }) => nodeId),
-        loadNodeList,
-        {
-          concurrency: NODE_LIST_POLLING_CONCURRENCY,
-        },
+  async function downloadNodeLists() {
+    const bootstrapNodeLists = bootstrapNodeListsSignal.read()
+    const changedHashes = [...bootstrapNodeListHashesSignal.read().entries()]
+      .map(([nodeId, hash]) => ({ nodeId, hash }))
+      .filter(
+        ({ nodeId, hash }) =>
+          !compareUint8Arrays(
+            bootstrapNodeLists.get(nodeId)?.hash ?? EMPTY_UINT8ARRAY,
+            hash,
+          ),
       )
 
-      for (const [nodeIndex, nodeList] of nodeLists.entries()) {
-        if (nodeList == null) {
-          continue
-        }
+    const nodeLists = await pMap(
+      changedHashes.map(({ nodeId }) => nodeId),
+      loadNodeList,
+      {
+        concurrency: NODE_LIST_POLLING_CONCURRENCY,
+      },
+    )
 
-        bootstrapNodeListsSignal.update(
-          produce((draft) => {
-            draft.set(changedHashes[nodeIndex]!.nodeId, {
-              hash: changedHashes[nodeIndex]!.hash,
-              entries: nodeList,
-            })
-          }),
-        )
+    for (const [nodeIndex, nodeList] of nodeLists.entries()) {
+      if (nodeList == null) {
+        continue
       }
-    } finally {
-      sig.timeout(sig.forceRestart, NODE_LIST_HASH_POLLING_INTERVAL)
+
+      bootstrapNodeListsSignal.update(
+        produce((draft) => {
+          draft.set(changedHashes[nodeIndex]!.nodeId, {
+            hash: changedHashes[nodeIndex]!.hash,
+            entries: nodeList,
+          })
+        }),
+      )
     }
+  }
+
+  return createActor(async (sig: DassieActorContext) => {
+    const task = sig.task({
+      handler: downloadNodeLists,
+      interval: NODE_LIST_HASH_POLLING_INTERVAL,
+    })
+
+    await task.execute()
+    task.schedule()
   })
 }

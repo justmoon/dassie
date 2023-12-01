@@ -4,6 +4,11 @@ import { type Actor, type RunOptions } from "./actor"
 import { FactoryNameSymbol } from "./internal/context-base"
 import { Listener } from "./internal/emit-to-listener"
 import { type ReactiveSource } from "./internal/reactive"
+import {
+  ScheduledTask,
+  TaskDescriptor,
+  createScheduledTask,
+} from "./internal/scheduled-task"
 import { WrappedCallback, wrapCallback } from "./internal/wrap-callback"
 import {
   DisposableLifecycleScopeImplementation,
@@ -13,6 +18,7 @@ import { Mapped } from "./mapped"
 import { ReactiveContextImplementation } from "./reactive-context"
 import { Reactor } from "./reactor"
 import type { ReadonlyTopic, TopicSymbol } from "./topic"
+import { Time } from "./types/base-modules/time"
 import { ExecutionContext } from "./types/execution-context"
 import { Factory } from "./types/factory"
 import {
@@ -98,6 +104,18 @@ export interface ActorContext<TBase extends object = object>
     callback: () => Promisable<void>,
     delayInMilliseconds?: number | undefined,
   ): void
+
+  /**
+   * Create a recurring task.
+   *
+   * @remarks
+   *
+   * Please note that the task will not be automatically scheduled. You need to call `task.schedule()` to start it.
+   *
+   * @param this - The current ActorContext must have a time module in the base.
+   * @param task - An object describing the task to be scheduled.
+   */
+  task(this: ActorContext<{ time: Time }>, task: TaskDescriptor): ScheduledTask
 
   /**
    * Instantiate an actor as a child of the current actor.
@@ -267,6 +285,13 @@ export class ActorContextImplementation<TBase extends object = object>
 
     const timer = setTimeout(this.callback(callback), delayInMilliseconds)
     this.onCleanup(() => clearTimeout(timer))
+  }
+
+  task(
+    this: ActorContext<{ time: Time }>,
+    descriptor: TaskDescriptor,
+  ): ScheduledTask {
+    return createScheduledTask(this, descriptor, this.reactor.base.time)
   }
 
   run<TReturn>(

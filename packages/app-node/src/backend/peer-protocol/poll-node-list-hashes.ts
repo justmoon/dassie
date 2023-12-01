@@ -32,11 +32,11 @@ export const PollNodeListHashesActor = (reactor: Reactor) => {
   )
 
   return createActor(async (sig: DassieActorContext) => {
-    try {
-      const { bootstrapNodes } = sig.readKeysAndTrack(EnvironmentConfigSignal, [
-        "bootstrapNodes",
-      ])
+    const { bootstrapNodes } = sig.readKeysAndTrack(EnvironmentConfigSignal, [
+      "bootstrapNodes",
+    ])
 
+    async function queryNodeListHashes() {
       const nodeListHashes = await pMap(
         bootstrapNodes.map(({ id }) => id),
         loadNodeListHash,
@@ -56,8 +56,13 @@ export const PollNodeListHashesActor = (reactor: Reactor) => {
           }),
         )
       }
-    } finally {
-      sig.timeout(sig.forceRestart, NODE_LIST_HASH_POLLING_INTERVAL)
     }
+
+    const task = sig.task({
+      handler: queryNodeListHashes,
+      interval: NODE_LIST_HASH_POLLING_INTERVAL,
+    })
+    await task.execute()
+    task.schedule()
   })
 }

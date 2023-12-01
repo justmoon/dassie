@@ -22,6 +22,7 @@ const INDIRECT_QUERY_PROBABILITY = 0.2
 export const RefreshNodeStateActor = (reactor: Reactor) => {
   const nodeTableStore = reactor.use(NodeTableStore)
   const modifyNodeTableActor = reactor.use(ModifyNodeTableActor)
+  const nodeIdSignal = reactor.use(NodeIdSignal)
 
   const queryLinkState = async (
     oracleNodeId: NodeId,
@@ -40,8 +41,7 @@ export const RefreshNodeStateActor = (reactor: Reactor) => {
     return response?.[0]?.type === "found" ? response[0].value : undefined
   }
 
-  return createActor((sig: DassieActorContext) => {
-    const ownNodeId = sig.readAndTrack(NodeIdSignal)
+  return createActor(async (sig: DassieActorContext) => {
     const bootstrapNodes = sig
       .readAndTrack(EnvironmentConfigSignal, (config) => config.bootstrapNodes)
       .map(({ id }) => id)
@@ -51,16 +51,8 @@ export const RefreshNodeStateActor = (reactor: Reactor) => {
       "expected at least one bootstrap node",
     )
 
-    const refreshNodeTick = async () => {
-      try {
-        await refreshNode()
-      } catch (error) {
-        logger.error("node link state refresh failed", { error })
-      }
-      sig.timeout(refreshNodeTick, NODE_REFRESH_INTERVAL)
-    }
-
-    const refreshNode = async () => {
+    async function refreshNode() {
+      const ownNodeId = nodeIdSignal.read()
       const oldestAcceptableSequence = BigInt(
         Date.now() - NODE_STATE_STALE_TIMEOUT,
       )
@@ -108,6 +100,11 @@ export const RefreshNodeStateActor = (reactor: Reactor) => {
       })
     }
 
-    void refreshNodeTick()
+    const task = sig.task({
+      handler: refreshNode,
+      interval: NODE_REFRESH_INTERVAL,
+    })
+    await task.execute()
+    task.schedule()
   })
 }

@@ -20,145 +20,144 @@ function findCommonElement<T>(array: readonly T[], set: Set<T>): T | false {
 
 export const MaintainPeeringRelationshipsActor = (reactor: Reactor) => {
   const nodeTableStore = reactor.use(NodeTableStore)
-  return createActor((sig: DassieActorContext) => {
-    const ownNodeId = sig.readAndTrack(NodeIdSignal)
-    const ourSubnets = sig.readAndTrack(ActiveSettlementSchemesSignal)
+  const nodeIdSignal = reactor.use(NodeIdSignal)
+  const activeSettlementSchemesSignal = reactor.use(
+    ActiveSettlementSchemesSignal,
+  )
+  const peersSignal = reactor.use(PeersSignal)
 
-    const checkPeers = () => {
-      try {
-        const peersSet = sig.read(PeersSignal)
-        if (peersSet.size >= MINIMUM_PEERS) {
-          return
-        }
-
-        addPeer().catch((error: unknown) => {
-          logger.error("failed to add peer", { error })
-        })
-      } catch (error) {
-        logger.error("peer check failed", { error })
-      }
-
-      sig.timeout(checkPeers, PEERING_CHECK_INTERVAL)
+  async function addPeersIfNecessary() {
+    const peersSet = peersSignal.read()
+    if (peersSet.size >= MINIMUM_PEERS) {
+      return
     }
 
-    const addPeer = async () => {
-      // TODO: This is slow but we will optimize it later
-      const candidates = [...nodeTableStore.read().values()]
-        .filter(
-          (node): node is typeof node & { linkState: object } =>
-            !!node.linkState,
-        )
-        .map((candidate) => ({
-          ...candidate,
-          commonSettlementScheme: findCommonElement(
-            candidate.linkState.settlementSchemes,
-            ourSubnets,
-          ),
-        }))
-        .filter(
-          (
-            node,
-          ): node is typeof node & {
-            commonSettlementScheme: SettlementSchemeId
-          } =>
-            node.nodeId !== ownNodeId &&
-            node.peerState.id === "none" &&
-            node.commonSettlementScheme !== false,
-        )
+    const ownNodeId = nodeIdSignal.read()
+    const ourSubnets = activeSettlementSchemesSignal.read()
 
-      const randomNode =
-        candidates[Math.floor(Math.random() * candidates.length)]
+    // TODO: This is slow but we will optimize it later
+    const candidates = [...nodeTableStore.read().values()]
+      .filter(
+        (node): node is typeof node & { linkState: object } => !!node.linkState,
+      )
+      .map((candidate) => ({
+        ...candidate,
+        commonSettlementScheme: findCommonElement(
+          candidate.linkState.settlementSchemes,
+          ourSubnets,
+        ),
+      }))
+      .filter(
+        (
+          node,
+        ): node is typeof node & {
+          commonSettlementScheme: SettlementSchemeId
+        } =>
+          node.nodeId !== ownNodeId &&
+          node.peerState.id === "none" &&
+          node.commonSettlementScheme !== false,
+      )
 
-      if (!randomNode) {
-        return
-      }
+    const randomNode = candidates[Math.floor(Math.random() * candidates.length)]
 
-      const ownLinkState = nodeTableStore.read().get(ownNodeId)?.linkState
+    if (!randomNode) {
+      return
+    }
 
-      if (!ownLinkState) {
-        logger.warn("node table does not contain own link state")
-        return
-      }
+    const ownLinkState = nodeTableStore.read().get(ownNodeId)?.linkState
 
-      const settlementSchemeId = randomNode.commonSettlementScheme
+    if (!ownLinkState) {
+      logger.warn("node table does not contain own link state")
+      return
+    }
 
-      const schemeActor = sig.reactor
-        .use(ManageSettlementSchemeInstancesActor)
-        .get(settlementSchemeId)
+    const settlementSchemeId = randomNode.commonSettlementScheme
 
-      if (!schemeActor) {
-        logger.warn("settlement scheme actor not found", { settlementSchemeId })
-        return
-      }
+    const schemeActor = reactor
+      .use(ManageSettlementSchemeInstancesActor)
+      .get(settlementSchemeId)
 
-      const peeringInfoResponse = await sig.reactor
-        .use(SendPeerMessageActor)
-        .api.send.ask({
-          destination: randomNode.nodeId,
-          message: {
-            type: "peeringInfoRequest",
-            value: {
-              settlementSchemeId,
-            },
+    if (!schemeActor) {
+      logger.warn("settlement scheme actor not found", { settlementSchemeId })
+      return
+    }
+
+    const peeringInfoResponse = await reactor
+      .use(SendPeerMessageActor)
+      .api.send.ask({
+        destination: randomNode.nodeId,
+        message: {
+          type: "peeringInfoRequest",
+          value: {
+            settlementSchemeId,
           },
-        })
-
-      if (!peeringInfoResponse) {
-        logger.warn("peering info request failed", {
-          peer: randomNode.nodeId,
-          settlementSchemeId,
-        })
-        return
-      }
-
-      const settlementSchemeData =
-        await schemeActor.api.createPeeringRequest.ask({
-          peerId: randomNode.nodeId,
-          peeringInfo: peeringInfoResponse.settlementSchemeData,
-        })
-
-      logger.debug(`sending peering request`, {
-        to: randomNode.nodeId,
-      })
-
-      const peeringResponse = await sig.reactor
-        .use(SendPeerMessageActor)
-        .api.send.ask({
-          destination: randomNode.nodeId,
-          message: {
-            type: "peeringRequest",
-            value: {
-              nodeInfo: ownLinkState.lastUpdate,
-              settlementSchemeId,
-              settlementSchemeData: settlementSchemeData.data,
-            },
-          },
-        })
-
-      if (!peeringResponse?.accepted) {
-        logger.debug(`peering request rejected`, {
-          to: randomNode.nodeId,
-        })
-        return
-      }
-
-      const finalizationResult =
-        await schemeActor.api.finalizePeeringRequest.ask({
-          peerId: randomNode.nodeId,
-          peeringInfo: peeringInfoResponse.settlementSchemeData,
-          data: peeringResponse?.data,
-        })
-
-      reactor.use(NodeTableStore).updateNode(randomNode.nodeId, {
-        peerState: {
-          id: "peered",
-          lastSeen: Date.now(),
-          settlementSchemeId: randomNode.commonSettlementScheme,
-          settlementSchemeState: finalizationResult.peerState,
         },
       })
+
+    if (!peeringInfoResponse) {
+      logger.warn("peering info request failed", {
+        peer: randomNode.nodeId,
+        settlementSchemeId,
+      })
+      return
     }
 
-    checkPeers()
+    const settlementSchemeData = await schemeActor.api.createPeeringRequest.ask(
+      {
+        peerId: randomNode.nodeId,
+        peeringInfo: peeringInfoResponse.settlementSchemeData,
+      },
+    )
+
+    logger.debug(`sending peering request`, {
+      to: randomNode.nodeId,
+    })
+
+    const peeringResponse = await reactor
+      .use(SendPeerMessageActor)
+      .api.send.ask({
+        destination: randomNode.nodeId,
+        message: {
+          type: "peeringRequest",
+          value: {
+            nodeInfo: ownLinkState.lastUpdate,
+            settlementSchemeId,
+            settlementSchemeData: settlementSchemeData.data,
+          },
+        },
+      })
+
+    if (!peeringResponse?.accepted) {
+      logger.debug(`peering request rejected`, {
+        to: randomNode.nodeId,
+      })
+      return
+    }
+
+    const finalizationResult = await schemeActor.api.finalizePeeringRequest.ask(
+      {
+        peerId: randomNode.nodeId,
+        peeringInfo: peeringInfoResponse.settlementSchemeData,
+        data: peeringResponse?.data,
+      },
+    )
+
+    reactor.use(NodeTableStore).updateNode(randomNode.nodeId, {
+      peerState: {
+        id: "peered",
+        lastSeen: Date.now(),
+        settlementSchemeId: randomNode.commonSettlementScheme,
+        settlementSchemeState: finalizationResult.peerState,
+      },
+    })
+  }
+
+  return createActor((sig: DassieActorContext) => {
+    sig
+      .task({
+        handler: addPeersIfNecessary,
+        interval: PEERING_CHECK_INTERVAL,
+      })
+      .schedule()
   })
 }

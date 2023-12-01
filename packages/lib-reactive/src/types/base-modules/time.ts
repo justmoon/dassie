@@ -1,9 +1,15 @@
+import { Opaque } from "type-fest"
+
 export interface TimeoutOptions {
   /**
    * An optional abort signal that will cancel the timeout.
    */
   signal?: AbortSignal
 }
+
+export type TimeoutId = Opaque<unknown, "TimeoutId">
+
+export type IntervalId = Opaque<unknown, "IntervalId">
 
 export interface Time {
   /**
@@ -14,16 +20,32 @@ export interface Time {
   now(): number
 
   /**
+   * Equivalent of JavaScript's native `setTimeout`.
+   */
+  setTimeout(callback: () => void, delay: number): TimeoutId
+
+  /**
+   * Equivalent of JavaScript's native `clearTimeout`.
+   */
+  clearTimeout(id: TimeoutId): void
+
+  /**
+   * Equivalent of JavaScript's native `setInterval`.
+   */
+  setInterval(callback: () => void, delay: number): IntervalId
+
+  /**
+   * Equivalent of JavaScript's native `clearInterval`.
+   */
+  clearInterval(id: IntervalId): void
+
+  /**
    * Returns a promise that resolves after the given delay.
-   *
-   * This is a wrapper around `setTimeout`.
    */
   timeout(delay: number, options?: TimeoutOptions): Promise<void>
 
   /**
    * Returns a promise that resolves as a new macrotask on the event loop.
-   *
-   * This is a wrapper around `setImmediate`.
    */
   immediate(): Promise<void>
 

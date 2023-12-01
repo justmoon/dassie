@@ -3,12 +3,50 @@ export type Disposer = () => void | PromiseLike<void>
 export interface LifecycleScope {
   name: string
   isDisposed: boolean
+
+  /**
+   * Register a callback that will be run when this lifecycle scope is disposed.
+   *
+   * @remarks
+   *
+   * The callback may be asynchronous.
+   *
+   * @param cleanupHandler - Callback that will be run when the scope is disposed.
+   */
   onCleanup: (cleanupHandler: Disposer) => void
+
+  /**
+   * Unregister a callback that was previously registered with {@link DisposableLifecycleScopeImplementation.onCleanup}.
+   *
+   * @param cleanupHandler - Callback to remove from the cleanup queue.
+   */
   offCleanup: (cleanupHandler: Disposer) => void
+
+  /**
+   * An AbortSignal that will be aborted when the scope is disposed.
+   */
+  abortSignal: AbortSignal
 }
 
 export interface DisposableLifecycleScope extends LifecycleScope {
+  /**
+   * Call the cleanup handlers and mark this lifecycle as disposed.
+   *
+   * @remarks
+   *
+   * This method is idempotent.
+   *
+   * @returns A promise that resolves when all cleanup handlers have been run.
+   */
   dispose: () => Promise<void>
+
+  /**
+   * Make this lifecycle exist within the confines of another lifecycle.
+   *
+   * @remarks
+   *
+   * This simply means that this lifecycle should be disposed automatically when the parent lifecycle is disposed.
+   */
   confineTo: (parent: LifecycleScope) => void
 }
 
@@ -24,15 +62,6 @@ export class DisposableLifecycleScopeImplementation
    */
   private cleanupQueue: Disposer[] | undefined = []
 
-  /**
-   * Register a callback that will be run when this lifecycle scope is disposed.
-   *
-   * @remarks
-   *
-   * The callback may be asynchronous.
-   *
-   * @param cleanupHandler - Callback that will be run when the scope is disposed.
-   */
   onCleanup = (cleanupHandler: Disposer) => {
     if (!this.cleanupQueue) {
       // If the scope has already been disposed, run the cleanup handler immediately.
@@ -45,11 +74,6 @@ export class DisposableLifecycleScopeImplementation
     this.cleanupQueue.push(cleanupHandler)
   }
 
-  /**
-   * Unregister a callback that was previously registered with {@link DisposableLifecycleScopeImplementation.onCleanup}.
-   *
-   * @param cleanupHandler - Callback to remove from the cleanup queue.
-   */
   offCleanup = (cleanupHandler: Disposer) => {
     if (!this.cleanupQueue) return
 
@@ -64,15 +88,6 @@ export class DisposableLifecycleScopeImplementation
     return this.cleanupQueue === undefined
   }
 
-  /**
-   * Call the cleanup handlers and mark this lifecycle as disposed.
-   *
-   * @remarks
-   *
-   * This method is idempotent.
-   *
-   * @returns A promise that resolves when all cleanup handlers have been run.
-   */
   dispose = async () => {
     if (!this.cleanupQueue) return
 
@@ -85,16 +100,25 @@ export class DisposableLifecycleScopeImplementation
     }
   }
 
-  /**
-   * Make this lifecycle exist within the confines of another lifecycle.
-   *
-   * @remarks
-   *
-   * This simply means that this lifecycle should be disposed automatically when the parent lifecycle is disposed.
-   */
   confineTo = (parent: LifecycleScope) => {
     parent.onCleanup(this.dispose)
     this.onCleanup(() => parent.offCleanup(this.dispose))
+  }
+
+  private cachedAbortSignal: AbortSignal | undefined
+
+  get abortSignal() {
+    if (!this.cachedAbortSignal) {
+      if (this.isDisposed) {
+        this.cachedAbortSignal = AbortSignal.abort()
+      } else {
+        const abortController = new AbortController()
+        this.onCleanup(() => abortController.abort())
+        this.cachedAbortSignal = abortController.signal
+      }
+    }
+
+    return this.cachedAbortSignal
   }
 }
 

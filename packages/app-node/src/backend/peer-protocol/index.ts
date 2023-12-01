@@ -28,14 +28,14 @@ export const PeerProtocolActor = () =>
     await sig.run(MaintainOwnNodeTableEntryActor)
     sig.run(MaintainPeeringRelationshipsActor)
 
-    sig.run(SendHeartbeatsActor)
+    await sig.run(SendHeartbeatsActor)
     sig.run(ForwardLinkStateUpdateActor)
     await sig.run(PollNodeListHashesActor)
     await sig.run(DownloadNodeListsActor)
     sig.run(AddMajorityNodesActor)
     await sig.run(RegisterOurselvesActor)
     sig.run(BroadcastStateUpdatesActor)
-    sig.run(RefreshNodeStateActor)
+    await sig.run(RefreshNodeStateActor)
 
     sig.runMap(CreatePeerLedgerEntriesActor)
   })

@@ -1,18 +1,42 @@
-import { setImmediate, setTimeout } from "node:timers/promises"
+import {
+  setImmediate as setImmediatePromise,
+  setTimeout as setTimeoutPromise,
+} from "node:timers/promises"
 
-import { Time, TimeoutOptions } from "@dassie/lib-reactive"
+import {
+  IntervalId,
+  Time,
+  TimeoutId,
+  TimeoutOptions,
+} from "@dassie/lib-reactive"
 
 export class NodeTimeImplementation implements Time {
   now(): number {
     return Date.now()
   }
 
+  setTimeout(callback: () => void, delay: number): TimeoutId {
+    return setTimeout(callback, delay) as unknown as TimeoutId
+  }
+
+  clearTimeout(id: TimeoutId): void {
+    clearTimeout(id as unknown as NodeJS.Timeout)
+  }
+
+  setInterval(callback: () => void, delay: number): IntervalId {
+    return setInterval(callback, delay) as unknown as IntervalId
+  }
+
+  clearInterval(id: IntervalId): void {
+    clearInterval(id as unknown as NodeJS.Timeout)
+  }
+
   timeout(delay: number, options: TimeoutOptions = {}): Promise<void> {
-    return setTimeout(delay, undefined, options)
+    return setTimeoutPromise(delay, undefined, options)
   }
 
   immediate(): Promise<void> {
-    return setImmediate()
+    return setImmediatePromise()
   }
 
   abortTimeout(delay: number): AbortSignal {
