@@ -1,5 +1,5 @@
 import { Plus, Wallet } from "lucide-react"
-import { Link, useRoute } from "wouter"
+import { Link, useLocation, useRoute } from "wouter"
 
 import { Button } from "@dassie/app-node/src/frontend/components/ui/button"
 import { combine } from "@dassie/app-node/src/frontend/utils/class-helper"
@@ -15,9 +15,20 @@ interface NodeProperties {
   wallet?: boolean | undefined
   className?: string | undefined
 }
+
+const NODE_LOCATION_REGEX = /^\/nodes\/([^/]+)\/debug\/([^/]+)/
+
 const Node = ({ nodeId, wallet, className }: NodeProperties) => {
-  const href = `/nodes/${nodeId}`
-  const [isActive] = useRoute(href)
+  const [location] = useLocation()
+
+  // If we are on a specific sub-page of another node, we want to link to that
+  // sub-page on this node as well.
+  const match = NODE_LOCATION_REGEX.exec(location)
+  const href =
+    nodeId !== "host" && match && match[1] !== nodeId
+      ? `/nodes/${nodeId}/debug/${match[2]}`
+      : `/nodes/${nodeId}`
+  const [isActive] = useRoute(href + "/:params*")
 
   return (
     <div

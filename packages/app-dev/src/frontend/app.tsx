@@ -21,12 +21,12 @@ const App = () => {
         <Route path="/scenarios">
           <Scenarios />
         </Route>
-        <Route path="/nodes/:nodeId">
-          {({ nodeId }) =>
+        <Route path="/nodes/:nodeId/:params*">
+          {({ nodeId, params }) =>
             nodeId === "host" ? (
               <HostDetail />
             ) : nodeId ? (
-              <NodeDetail nodeId={nodeId} />
+              <NodeDetail nodeId={nodeId} secondaryParameters={params} />
             ) : null
           }
         </Route>

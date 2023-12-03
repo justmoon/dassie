@@ -3,19 +3,15 @@ import { createWSClient, wsLink } from "@trpc/client"
 import { Link } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import superjson from "superjson"
+import { Route, Router, useLocation, useRouter } from "wouter"
 
 import { Button } from "@dassie/app-node/src/frontend/components/ui/button"
 import {
   Tabs,
-  TabsContent,
   TabsList,
   TabsTrigger,
 } from "@dassie/app-node/src/frontend/components/ui/tabs"
-import { Database } from "@dassie/app-node/src/frontend/pages/debug/database/database"
-import { Ledger } from "@dassie/app-node/src/frontend/pages/debug/ledger/ledger"
-import { Nodes } from "@dassie/app-node/src/frontend/pages/debug/nodes/nodes"
-import { Routing } from "@dassie/app-node/src/frontend/pages/debug/routing/routing"
-import { State } from "@dassie/app-node/src/frontend/pages/debug/state/state"
+import { DebugPage } from "@dassie/app-node/src/frontend/pages/debug/debug"
 import {
   queryClientReactContext,
   trpc as trpcNode,
@@ -30,6 +26,7 @@ import LogViewer from "../../log-viewer/log-viewer"
 interface BasicNodeElementProperties {
   nodeId: string
 }
+
 const NodeHeader = ({ nodeId }: BasicNodeElementProperties) => {
   const color = useMemo(() => selectBySeed(COLORS, nodeId), [nodeId])
   return (
@@ -75,14 +72,23 @@ const createNodeTrpcClients = (securityToken: string, nodeId: string) => {
   return { queryClient, wsClient, trpcClient }
 }
 
-const NodeDetail = ({ nodeId }: BasicNodeElementProperties) => {
-  const [activeTab, onTabChange] = useState("logs")
+interface NodeDetailProperties extends BasicNodeElementProperties {
+  secondaryParameters: string | undefined
+}
+
+const NodeDetail = ({ nodeId, secondaryParameters }: NodeDetailProperties) => {
+  const router = useRouter()
+  const [, setLocation] = useLocation()
+
+  const currentTab = secondaryParameters?.split("/")[1] ?? "logs"
+
+  function onTabChange(value: string) {
+    setLocation(`/nodes/${nodeId}/debug/${value}`)
+  }
 
   const [clients, setClients] = useState<
     ReturnType<typeof createNodeTrpcClients> | undefined
   >(undefined)
-
-  const [ready, setReady] = useState(false)
 
   const { data: securityToken } = trpcDevelopment.ui.getSecurityToken.useQuery()
 
@@ -93,7 +99,6 @@ const NodeDetail = ({ nodeId }: BasicNodeElementProperties) => {
     setClients(clients)
 
     const handleConnect = () => {
-      setReady(true)
       clients.wsClient
         .getConnection()
         .removeEventListener("open", handleConnect)
@@ -101,7 +106,6 @@ const NodeDetail = ({ nodeId }: BasicNodeElementProperties) => {
     clients.wsClient.getConnection().addEventListener("open", handleConnect)
 
     return () => {
-      setReady(false)
       clients.wsClient
         .getConnection()
         .removeEventListener("open", handleConnect)
@@ -112,41 +116,40 @@ const NodeDetail = ({ nodeId }: BasicNodeElementProperties) => {
   if (!clients) return null
 
   return (
-    <trpcNode.Provider
-      client={clients.trpcClient}
-      queryClient={clients.queryClient}
-    >
-      <QueryClientProvider
-        client={clients.queryClient}
-        context={queryClientReactContext}
+    <Router base={`/nodes/${nodeId}`} parent={router}>
+      <trpcNode.Provider
+        client={clients.trpcClient}
+        queryClient={clients.queryClient}
       >
-        <div className="h-screen grid grid-rows-[auto_1fr] gap-4 py-10">
-          <NodeHeader nodeId={nodeId} />
-          <Tabs
-            value={activeTab}
-            onValueChange={onTabChange}
-            className="min-h-0 grid grid-rows-[auto_1fr] px-4"
-          >
-            <TabsList className="justify-start">
-              <TabsTrigger value="logs">Logs</TabsTrigger>
-              <TabsTrigger value="nodes">Nodes</TabsTrigger>
-              <TabsTrigger value="ledger">Ledger</TabsTrigger>
-              <TabsTrigger value="routing">Routing</TabsTrigger>
-              <TabsTrigger value="state">State</TabsTrigger>
-              <TabsTrigger value="database">Database</TabsTrigger>
-            </TabsList>
-            <TabsContent value="logs" className="min-h-0">
-              <NodeLogViewer nodeId={nodeId} />
-            </TabsContent>
-            <TabsContent value="nodes">{ready && <Nodes />}</TabsContent>
-            <TabsContent value="ledger">{ready && <Ledger />}</TabsContent>
-            <TabsContent value="routing">{ready && <Routing />}</TabsContent>
-            <TabsContent value="state">{ready && <State />}</TabsContent>
-            <TabsContent value="database">{ready && <Database />}</TabsContent>
-          </Tabs>
-        </div>
-      </QueryClientProvider>
-    </trpcNode.Provider>
+        <QueryClientProvider
+          client={clients.queryClient}
+          context={queryClientReactContext}
+        >
+          <div className="h-screen grid grid-rows-[auto_1fr] gap-4 py-10">
+            <NodeHeader nodeId={nodeId} />
+            <Tabs
+              value={currentTab}
+              onValueChange={onTabChange}
+              className="min-h-0 grid grid-rows-[auto_1fr] px-4"
+            >
+              <TabsList className="justify-start mb-2">
+                <TabsTrigger value="logs">Logs</TabsTrigger>
+                <TabsTrigger value="nodes">Nodes</TabsTrigger>
+                <TabsTrigger value="ledger">Ledger</TabsTrigger>
+                <TabsTrigger value="routing">Routing</TabsTrigger>
+                <TabsTrigger value="state">State</TabsTrigger>
+                <TabsTrigger value="database">Database</TabsTrigger>
+              </TabsList>
+              <Route path="/debug/logs">
+                {() => <NodeLogViewer nodeId={nodeId} />}
+              </Route>
+              <Route path="/debug/:params*" component={DebugPage} />
+              <Route>{() => <NodeLogViewer nodeId={nodeId} />}</Route>
+            </Tabs>
+          </div>
+        </QueryClientProvider>
+      </trpcNode.Provider>
+    </Router>
   )
 }
 

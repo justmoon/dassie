@@ -3,11 +3,7 @@ import { Route, Switch, useRoute } from "wouter"
 import { MainNavigation } from "./layout/main-navigation/main-navigation"
 import { Account } from "./pages/account/account"
 import { CreateFirstAccount } from "./pages/create-first-account/create-first-account"
-import { Database } from "./pages/debug/database/database"
-import { Ledger } from "./pages/debug/ledger/ledger"
-import { Nodes } from "./pages/debug/nodes/nodes"
-import { Routing } from "./pages/debug/routing/routing"
-import { State } from "./pages/debug/state/state"
+import { DebugPage } from "./pages/debug/debug"
 import { LoginPage } from "./pages/login/login"
 import { PaymentStatus } from "./pages/payment-status/payment-status"
 import { ReceivePage } from "./pages/receive/receive"
@@ -48,11 +44,7 @@ const App = () => {
         <Route path="/send" component={Send} />
         <Route path="/receive" component={ReceivePage} />
         <Route path="/payments/:paymentId" component={PaymentStatus} />
-        <Route path="/debug/ledger" component={Ledger} />
-        <Route path="/debug/nodes" component={Nodes} />
-        <Route path="/debug/routing" component={Routing} />
-        <Route path="/debug/state" component={State} />
-        <Route path="/debug/database" component={Database} />
+        <Route path="/debug/:page*" component={DebugPage} />
         <Route path="/settings" component={Settings} />
         <Route component={Account} />
       </Switch>
