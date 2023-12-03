@@ -11,6 +11,7 @@ import { NodeTableStore } from "../peer-protocol/stores/node-table"
 import { NodeId } from "../peer-protocol/types/node-id"
 import { GetLedgerIdForSettlementScheme } from "./functions/get-ledger-id"
 import { ManageSettlementSchemeInstancesActor } from "./manage-settlement-scheme-instances"
+import { PendingSettlementsMap } from "./values/pending-settlements-map"
 
 const SETTLEMENT_CHECK_INTERVAL = 4000
 const SETTLEMENT_RATIO = 0.2
@@ -90,6 +91,7 @@ export const SendOutgoingSettlementsActor = (reactor: Reactor) => {
   const getLedgerIdForSettlementScheme = reactor.use(
     GetLedgerIdForSettlementScheme,
   )
+  const pendingSettlementsMap = reactor.use(PendingSettlementsMap)
 
   return createMapped(reactor, PeersSignal, (peerId) =>
     createActor((sig) => {
@@ -98,8 +100,7 @@ export const SendOutgoingSettlementsActor = (reactor: Reactor) => {
 
         logger.assert(peerState?.id === "peered", "peer state must be 'peered'")
 
-        const { settlementSchemeId, settlementSchemeState: settlementState } =
-          peerState
+        const { settlementSchemeId, settlementSchemeState } = peerState
 
         const settlementSchemeActor =
           settlementSchemeManager.get(settlementSchemeId)
@@ -123,47 +124,48 @@ export const SendOutgoingSettlementsActor = (reactor: Reactor) => {
         )
 
         if (settlementAmount > 0n) {
-          const settlementTransfer = processSettlementPrepare(
-            ledger,
-            ledgerId,
-            peerId,
-            settlementAmount,
-            "outgoing",
-          )
-
-          if (isFailure(settlementTransfer)) {
-            switch (settlementTransfer.name) {
-              case "InvalidAccountFailure": {
-                throw new Error(
-                  `Settlement failed, invalid ${settlementTransfer.whichAccount} account ${settlementTransfer.accountPath}`,
-                )
-              }
-
-              case "ExceedsCreditsFailure": {
-                throw new Error(`Settlement failed, exceeds credits`)
-              }
-
-              case "ExceedsDebitsFailure": {
-                throw new Error(`Settlement failed, exceeds debits`)
-              }
-
-              default: {
-                throw new UnreachableCaseError(settlementTransfer)
-              }
-            }
-          }
-
-          settlementSchemeActor.api.settle
+          settlementSchemeActor.api.prepareSettlement
             .ask({
               amount: settlementAmount,
               peerId,
-              peerState: settlementState,
+              peerState: settlementSchemeState,
             })
             .then((data) => {
               return data
             })
-            .then(({ proof }) => {
-              ledger.postPendingTransfer(settlementTransfer)
+            .then(async ({ message, settlementId, execute }) => {
+              const settlementTransfer = processSettlementPrepare(
+                ledger,
+                ledgerId,
+                peerId,
+                settlementAmount,
+                "outgoing",
+              )
+
+              if (isFailure(settlementTransfer)) {
+                switch (settlementTransfer.name) {
+                  case "InvalidAccountFailure": {
+                    throw new Error(
+                      `Settlement failed, invalid ${settlementTransfer.whichAccount} account ${settlementTransfer.accountPath}`,
+                    )
+                  }
+
+                  case "ExceedsCreditsFailure": {
+                    throw new Error(`Settlement failed, exceeds credits`)
+                  }
+
+                  case "ExceedsDebitsFailure": {
+                    throw new Error(`Settlement failed, exceeds debits`)
+                  }
+
+                  default: {
+                    throw new UnreachableCaseError(settlementTransfer)
+                  }
+                }
+              }
+
+              const settlementKey = `${settlementSchemeId}:${settlementId}`
+              pendingSettlementsMap.set(settlementKey, settlementTransfer)
 
               sig.reactor.use(SendPeerMessageActor).api.send.tell({
                 destination: peerId,
@@ -172,14 +174,19 @@ export const SendOutgoingSettlementsActor = (reactor: Reactor) => {
                   value: {
                     settlementSchemeId,
                     amount: settlementAmount,
-                    proof,
+                    settlementSchemeData: message,
                   },
                 },
               })
+
+              try {
+                await execute()
+              } catch (error: unknown) {
+                logger.warn("failed to execute outbound settlement", { error })
+              }
             })
             .catch((error: unknown) => {
-              logger.warn("failed to send outbound settlement", { error })
-              ledger.voidPendingTransfer(settlementTransfer)
+              logger.warn("failed to prepare outbound settlement", { error })
             })
         }
       }, SETTLEMENT_CHECK_INTERVAL)

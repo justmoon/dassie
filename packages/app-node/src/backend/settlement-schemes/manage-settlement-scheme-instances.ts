@@ -4,8 +4,9 @@ import { isFailure } from "@dassie/lib-type-utils"
 import { initializeCommonAccounts } from "../accounting/functions/manage-common-accounts"
 import { LedgerStore } from "../accounting/stores/ledger"
 import {
+  AssetsInterledgerPeerAccount,
   AssetsOnLedgerAccount,
-  EquitySuspenseAccount,
+  EquityOwnerAccount,
 } from "../accounting/types/account-paths"
 import { DatabaseConfigStore } from "../config/database-config"
 import { settlement as logger } from "../logger/instances"
@@ -14,12 +15,14 @@ import { GetLedgerIdForSettlementScheme } from "./functions/get-ledger-id"
 import modules from "./modules"
 import { ActiveSettlementSchemesSignal } from "./signals/active-settlement-schemes"
 import type { SettlementSchemeHostMethods } from "./types/settlement-scheme-module"
+import { PendingSettlementsMap } from "./values/pending-settlements-map"
 
 export const ManageSettlementSchemeInstancesActor = (reactor: Reactor) => {
   const ledgerStore = reactor.use(LedgerStore)
   const getLedgerIdForSettlementScheme = reactor.use(
     GetLedgerIdForSettlementScheme,
   )
+  const pendingSettlementsMap = reactor.use(PendingSettlementsMap)
 
   return createMapped(
     reactor,
@@ -54,33 +57,113 @@ export const ManageSettlementSchemeInstancesActor = (reactor: Reactor) => {
           })
         },
 
-        reportOnLedgerBalance: ({ ledgerId, balance }) => {
+        reportIncomingSettlement: ({ ledgerId, peerId, amount }) => {
+          logger.debug("reported incoming settlement", {
+            settlementSchemeId,
+            ledgerId,
+            peerId,
+            amount,
+          })
+
           const onLedgerPath: AssetsOnLedgerAccount = `${ledgerId}:assets/settlement`
-          const suspensePath: EquitySuspenseAccount = `${ledgerId}:equity/suspense`
+          const peerPath: AssetsInterledgerPeerAccount = `${ledgerId}:assets/interledger/${peerId}`
 
-          const internalAccount = ledgerStore.getAccount(onLedgerPath)
-          logger.assert(
-            !!internalAccount,
-            `internal account '${onLedgerPath}' not found`,
-          )
+          const result = ledgerStore.createTransfer({
+            debitAccountPath: onLedgerPath,
+            creditAccountPath: peerPath,
+            amount,
+          })
 
-          const internalBalance =
-            internalAccount.debitsPosted -
-            internalAccount.creditsPosted -
-            internalAccount.creditsPending
+          if (isFailure(result)) {
+            throw new Error(
+              `Could not credit settlement in internal ledger: ${result.name}`,
+            )
+          }
+        },
 
-          if (internalBalance !== balance) {
-            const result = ledgerStore.createTransfer({
-              debitAccountPath: onLedgerPath,
-              creditAccountPath: suspensePath,
-              amount: balance - internalBalance,
-            })
+        finalizeOutgoingSettlement: ({ settlementId }) => {
+          logger.debug("finalizing outgoing settlement", {
+            settlementSchemeId,
+            ledgerId,
+            settlementId,
+          })
 
-            if (isFailure(result)) {
-              throw new Error(
-                `Could not create suspense transfer: ${result.name}`,
-              )
-            }
+          const settlementKey = `${settlementSchemeId}:${settlementId}`
+          const transfer = pendingSettlementsMap.get(settlementKey)
+
+          if (!transfer) {
+            throw new Error(
+              `Could not finalize outgoing settlement: transfer not found`,
+            )
+          }
+
+          ledgerStore.postPendingTransfer(transfer)
+          pendingSettlementsMap.delete(settlementKey)
+        },
+
+        cancelOutgoingSettlement: ({ settlementId }) => {
+          logger.debug("canceling outgoing settlement", {
+            settlementSchemeId,
+            ledgerId,
+            settlementId,
+          })
+
+          const settlementKey = `${settlementSchemeId}:${settlementId}`
+          const transfer = pendingSettlementsMap.get(settlementKey)
+
+          if (!transfer) {
+            throw new Error(
+              `Could not cancel outgoing settlement: transfer not found`,
+            )
+          }
+
+          ledgerStore.voidPendingTransfer(transfer)
+          pendingSettlementsMap.delete(settlementKey)
+        },
+
+        reportDeposit: ({ ledgerId, amount }) => {
+          logger.debug("reported deposit", {
+            settlementSchemeId,
+            ledgerId,
+            amount,
+          })
+
+          const onLedgerPath: AssetsOnLedgerAccount = `${ledgerId}:assets/settlement`
+          const ownerEquityPath: EquityOwnerAccount = `${ledgerId}:equity/owner`
+
+          const result = ledgerStore.createTransfer({
+            debitAccountPath: onLedgerPath,
+            creditAccountPath: ownerEquityPath,
+            amount,
+          })
+
+          if (isFailure(result)) {
+            throw new Error(
+              `Could not credit deposit in internal ledger: ${result.name}`,
+            )
+          }
+        },
+
+        reportWithdrawal: ({ ledgerId, amount }) => {
+          logger.debug("reported withdrawal", {
+            settlementSchemeId,
+            ledgerId,
+            amount,
+          })
+
+          const onLedgerPath: AssetsOnLedgerAccount = `${ledgerId}:assets/settlement`
+          const ownerEquityPath: EquityOwnerAccount = `${ledgerId}:equity/owner`
+
+          const result = ledgerStore.createTransfer({
+            debitAccountPath: ownerEquityPath,
+            creditAccountPath: onLedgerPath,
+            amount,
+          })
+
+          if (isFailure(result)) {
+            throw new Error(
+              `Could not credit deposit in internal ledger: ${result.name}`,
+            )
           }
         },
       }

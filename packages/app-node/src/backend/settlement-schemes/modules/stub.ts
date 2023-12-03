@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto"
+
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import { LedgerId } from "../../accounting/types/ledger-id"
 import { settlementStub as logger } from "../../logger/instances"
@@ -31,11 +33,7 @@ const stub = {
   behavior: ({ host }) => {
     let balance = INITIAL_BALANCE
 
-    const reportBalance = () => {
-      host.reportOnLedgerBalance({ ledgerId: ledger.id, balance })
-    }
-
-    reportBalance()
+    host.reportDeposit({ ledgerId: ledger.id, amount: balance })
 
     return {
       getPeeringInfo: () => {
@@ -59,29 +57,39 @@ const stub = {
           peerState: {},
         }
       },
-      settle: ({ peerId, amount }) => {
-        if (amount > balance) {
-          logger.error("Insufficient balance", { amount, balance })
-          throw new Error("Insufficient balance")
-        }
-        logger.info(`Sending settlement for ${amount} units to ${peerId}`)
-
-        balance -= amount
-        reportBalance()
-
+      prepareSettlement: ({ peerId, amount }) => {
+        logger.info("preparing settlement", { to: peerId, amount })
+        const settlementId = randomBytes(16).toString("hex")
         return {
-          proof: new Uint8Array(),
+          amount,
+          message: new Uint8Array(),
+          settlementId,
+
+          execute: () => {
+            if (amount > balance) {
+              logger.error("Insufficient balance", { amount, balance })
+              throw new Error("Insufficient balance")
+            }
+            logger.info("sending settlement", { to: peerId, amount })
+
+            balance -= amount
+
+            host.finalizeOutgoingSettlement({ settlementId })
+
+            return {}
+          },
         }
       },
       handleSettlement: ({ peerId, amount }) => {
-        logger.info(`Received settlement for ${amount} units from ${peerId}`)
+        logger.info("received settlement", { from: peerId, amount })
 
         balance += amount
-        reportBalance()
 
-        return {
-          result: "accept" as const,
-        }
+        host.reportIncomingSettlement({
+          ledgerId: ledger.id,
+          peerId,
+          amount,
+        })
       },
       handleMessage: () => {
         // no-op
@@ -90,7 +98,7 @@ const stub = {
         logger.info(`Received deposit for ${amount} units`)
 
         balance += amount
-        reportBalance()
+        host.reportDeposit({ ledgerId: ledger.id, amount })
       },
     }
   },

@@ -4,10 +4,12 @@ import { bufferToUint8Array, isFailure } from "@dassie/lib-type-utils"
 
 import { LedgerId } from "../../../accounting/types/ledger-id"
 import { EnvironmentConfigSignal } from "../../../config/environment-config"
+import { NodeIdSignal } from "../../../ilp-connector/computed/node-id"
 import { settlementXrpl as logger } from "../../../logger/instances"
 import type { SettlementSchemeModule } from "../../types/settlement-scheme-module"
+import { XRP_SETTLEMENT_MEMO_TYPE } from "./constants/settlement-memo-type"
 import { getAccountInfo } from "./functions/get-account-info"
-import { getTransaction } from "./functions/get-transaction"
+import { IsSettlement } from "./functions/is-settlement"
 import { loadOrCreateWallet } from "./functions/load-wallet"
 import { peeringInfoSchema } from "./oer-schemas/peering-info-data"
 import { peeringRequestSchema } from "./oer-schemas/peering-request-data"
@@ -45,6 +47,7 @@ const xrplTestnet = {
   behavior: async ({ sig, host }) => {
     // TODO: This should probably be stored in the database instead?
     const { dataPath } = sig.read(EnvironmentConfigSignal)
+    const isSettlement = sig.reactor.use(IsSettlement)
 
     const xrplWalletPath = `${dataPath}/xrpl-wallet.json`
 
@@ -84,7 +87,7 @@ const xrplTestnet = {
       const balance =
         BigInt(ownAccountInfo.result.account_data.Balance) * XRP_VALUE_FACTOR
 
-      host.reportOnLedgerBalance({ ledgerId: ledger.id, balance })
+      host.reportDeposit({ ledgerId: ledger.id, amount: balance })
     } else {
       logger.info("account not found, funding account using testnet faucet", {
         address: wallet.address,
@@ -100,16 +103,62 @@ const xrplTestnet = {
     client.on("transaction", (transaction) => {
       if (transaction.meta?.AffectedNodes) {
         for (const node of transaction.meta.AffectedNodes) {
+          // Did this transaction affect our balance?
           if (
             "ModifiedNode" in node &&
             node.ModifiedNode?.LedgerEntryType === "AccountRoot" &&
-            node.ModifiedNode?.FinalFields?.["Account"] === wallet.address
+            node.ModifiedNode?.FinalFields?.["Account"] === wallet.address &&
+            typeof node.ModifiedNode?.FinalFields?.["Balance"] === "string" &&
+            typeof node.ModifiedNode?.PreviousFields?.["Balance"] ===
+              "string" &&
+            node.ModifiedNode?.FinalFields?.["Balance"] !==
+              node.ModifiedNode?.PreviousFields?.["Balance"]
           ) {
-            const balance =
-              BigInt(node.ModifiedNode.FinalFields["Balance"] as string) *
+            const newBalance =
+              BigInt(node.ModifiedNode.FinalFields["Balance"]) *
+              XRP_VALUE_FACTOR
+            const oldBalance =
+              BigInt(node.ModifiedNode.PreviousFields["Balance"]) *
               XRP_VALUE_FACTOR
 
-            host.reportOnLedgerBalance({ ledgerId: ledger.id, balance })
+            const isSettlementResult = isSettlement(transaction)
+
+            if (newBalance > oldBalance) {
+              // If a transaction increased our balance, it's either an incoming settlement or a deposit.
+              if (
+                isSettlementResult.isSettlement &&
+                isSettlementResult.direction === "incoming"
+              ) {
+                // If it is tagged as a settlement, process it as such
+                const amount = newBalance - oldBalance
+                host.reportIncomingSettlement({
+                  ledgerId: ledger.id,
+                  peerId: isSettlementResult.peerId,
+                  amount,
+                })
+              } else {
+                // Otherwise it's a deposit.
+                const amount = newBalance - oldBalance
+                host.reportDeposit({ ledgerId: ledger.id, amount })
+              }
+            } else {
+              // If a transaction decreased our balance, it's either an outgoing settlement or a withdrawal
+              if (
+                isSettlementResult.isSettlement &&
+                isSettlementResult.direction === "outgoing"
+              ) {
+                logger.assert(
+                  !!transaction.transaction.hash,
+                  "expected transaction hash to be present",
+                )
+                host.finalizeOutgoingSettlement({
+                  settlementId: transaction.transaction.hash,
+                })
+              } else {
+                const amount = oldBalance - newBalance
+                host.reportWithdrawal({ ledgerId: ledger.id, amount })
+              }
+            }
           }
         }
       }
@@ -169,7 +218,7 @@ const xrplTestnet = {
           },
         }
       },
-      settle: async ({ peerId, amount, peerState }) => {
+      prepareSettlement: async ({ peerId, amount, peerState }) => {
         logger.info("preparing settlement", { to: peerId, amount })
 
         const prepared = await client.autofill({
@@ -179,106 +228,50 @@ const xrplTestnet = {
           // We also round up to the nearest integer.
           Amount: String((amount + XRP_VALUE_FACTOR - 1n) / XRP_VALUE_FACTOR),
           Destination: peerState.address,
+          Memos: [
+            {
+              Memo: {
+                MemoType: XRP_SETTLEMENT_MEMO_TYPE,
+                MemoData: Buffer.from(sig.read(NodeIdSignal)).toString("hex"),
+              },
+            },
+          ],
         })
 
         const signed = wallet.sign(prepared)
-
-        logger.info("submitting settlement transaction", {
-          to: peerId,
-          amount,
-          xrplAmount: prepared.Amount,
-          hash: signed.hash,
-        })
-        const submitResult = await client.submitAndWait(signed.tx_blob)
-
-        logger.info("settlement transaction processed, notifying peer", {
-          to: peerId,
-          amount,
-          submitResult,
-        })
 
         const transactionHash = bufferToUint8Array(
           Buffer.from(signed.hash, "hex"),
         )
 
         return {
-          proof: settlementProofSchema.serializeOrThrow({
+          message: settlementProofSchema.serializeOrThrow({
             transactionHash,
           }),
+          settlementId: signed.hash,
+          execute: async () => {
+            logger.info("submitting settlement transaction", {
+              to: peerId,
+              amount,
+              xrplAmount: prepared.Amount,
+              hash: signed.hash,
+            })
+            const submitResult = await client.submitAndWait(signed.tx_blob)
+
+            logger.info("settlement transaction processed, notifying peer", {
+              to: peerId,
+              amount,
+              submitResult,
+            })
+
+            return {}
+          },
         }
       },
-      handleSettlement: async ({ peerId, amount, proof }) => {
+      handleSettlement: ({ peerId, amount }) => {
         logger.info("received settlement claim", { from: peerId, amount })
 
-        const parseResult = settlementProofSchema.parse(proof)
-
-        if (isFailure(parseResult)) {
-          logger.warn("failed to parse settlement proof", {
-            from: peerId,
-            amount,
-            error: parseResult,
-          })
-          return {
-            result: "reject",
-          }
-        }
-
-        const transactionHash = Buffer.from(
-          parseResult.value.transactionHash,
-        ).toString("hex")
-
-        const transaction = await getTransaction(client, transactionHash)
-
-        if (!transaction) {
-          logger.warn("settlement transaction not found", {
-            from: peerId,
-            amount,
-            transactionHash,
-          })
-          return {
-            result: "reject",
-          }
-        }
-
-        const deliveredAmount = transaction.meta.delivered_amount
-
-        if (typeof deliveredAmount !== "string") {
-          logger.warn(
-            "settlement transaction delivered amount is undefined or is not XRP",
-            {
-              from: peerId,
-              amount,
-              deliveredAmount,
-              transactionHash,
-            },
-          )
-          return {
-            result: "reject",
-          }
-        }
-
-        const receivedAmount = BigInt(deliveredAmount) * XRP_VALUE_FACTOR
-
-        if (receivedAmount < amount) {
-          logger.warn("settlement delivered amount was lower than claimed", {
-            from: peerId,
-            amount,
-            receivedAmount,
-          })
-          return {
-            result: "reject",
-          }
-        }
-
-        logger.info("settlement transaction verified", {
-          from: peerId,
-          amount,
-          receivedAmount,
-        })
-
-        return {
-          result: "accept",
-        }
+        // Nothing to do here because we process settlements based on the on-ledger transaction.
       },
       handleMessage: () => {
         // no-op

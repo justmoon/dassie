@@ -14,10 +14,19 @@ export interface SettlementSchemeHostMethods {
     message: Uint8Array
   }) => Promisable<void>
 
-  reportOnLedgerBalance: (parameters: {
+  reportIncomingSettlement: (parameters: {
     ledgerId: LedgerId
-    balance: bigint
+    peerId: NodeId
+    amount: bigint
   }) => void
+
+  finalizeOutgoingSettlement: (parameters: { settlementId: string }) => void
+
+  cancelOutgoingSettlement: (parameters: { settlementId: string }) => void
+
+  reportDeposit: (parameters: { ledgerId: LedgerId; amount: bigint }) => void
+
+  reportWithdrawal: (parameters: { ledgerId: LedgerId; amount: bigint }) => void
 }
 
 export interface SettlementSchemeActorMethods<
@@ -87,18 +96,33 @@ export interface SettlementSchemeActorMethods<
   }>
 
   /**
-   * Initiate a settlement.
+   * Prepare a settlement transaction.
    *
-   * @param parameters - The amount to settle and the peer to settle with.
-   * @returns Proof of settlement which may be relayed to the peer.
+   * @remarks
+   *
+   * The settlement method should prepare a settlement transaction, calculate the expected fee, and generate a unique
+   * identifier for the settlement. The settlement transaction should not be submitted to the ledger yet.
+   *
+   * The method must return an execute function which will submit the transaction to the ledger.
+   *
+   * The method must also return a unique identifier for the settlement. This identifier must be unique per settlement
+   * scheme id.
+   *
+   * When the settlement is finally executed, the settlement scheme module must call `finalizeOutgoingSettlement`. If
+   * the settlement fails, the settlement scheme module must call `cancelOutgoingSettlement` but only once the failure
+   * is guaranteed to be final. Both of these methods take the `settlementId` to identify the settlement.
    */
-  settle: (parameters: {
+  prepareSettlement: (parameters: {
     amount: bigint
     peerId: NodeId
     peerState: TPeerState
   }) => Promisable<{
-    proof: Uint8Array
+    message: Uint8Array
     peerState?: TPeerState | undefined
+    settlementId: string
+    execute: () => Promisable<{
+      peerState?: TPeerState | undefined
+    }>
   }>
 
   /**
@@ -110,12 +134,9 @@ export interface SettlementSchemeActorMethods<
   handleSettlement: (parameters: {
     amount: bigint
     peerId: NodeId
-    proof: Uint8Array
+    settlementSchemeData: Uint8Array
     peerState: TPeerState
-  }) => Promisable<{
-    result: "accept" | "reject"
-    peerState?: TPeerState | undefined
-  }>
+  }) => Promisable<void>
 
   /**
    * Handle an incoming message from the peer.
