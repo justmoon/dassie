@@ -8,7 +8,9 @@ import { EXCEEDS_CREDITS_FAILURE } from "../failures/exceeds-credits"
 import { EXCEEDS_DEBITS_FAILURE } from "../failures/exceeds-debits"
 import InvalidAccountFailure from "../failures/invalid-account"
 import { getLedgerIdFromPath } from "../functions/get-ledger-id-from-path"
+import { PendingTransfersTopic } from "../topics/pending-transfers"
 import { PostedTransfersTopic } from "../topics/posted-transfers"
+import { VoidedTransfersTopic } from "../topics/voided-transfers"
 import { AccountPath } from "../types/account-paths"
 import { LedgerId } from "../types/ledger-id"
 
@@ -29,6 +31,7 @@ export interface Transfer {
   debitAccount: AccountPath
   creditAccount: AccountPath
   amount: bigint
+  immediate: boolean
 }
 
 export interface CreateTransferParameters {
@@ -43,6 +46,8 @@ export const LedgerStore = (reactor: Reactor) => {
   const pendingTransfers = new Set<Transfer>()
 
   const postedTransfersTopic = reactor.use(PostedTransfersTopic)
+  const pendingTransfersTopic = reactor.use(PendingTransfersTopic)
+  const voidedTransfersTopic = reactor.use(VoidedTransfersTopic)
 
   return {
     createAccount: (
@@ -131,12 +136,15 @@ export const LedgerStore = (reactor: Reactor) => {
         debitAccount: debitAccountPath,
         creditAccount: creditAccountPath,
         amount,
+        immediate: !pending,
       }
 
       if (pending) {
         debitAccount.debitsPending += amount
         creditAccount.creditsPending += amount
         pendingTransfers.add(transfer)
+
+        pendingTransfersTopic.emit(transfer as Transfer & { state: "pending" })
       } else {
         debitAccount.debitsPosted += amount
         creditAccount.creditsPosted += amount
@@ -185,6 +193,8 @@ export const LedgerStore = (reactor: Reactor) => {
       creditAccount.creditsPending -= transfer.amount
 
       pendingTransfers.delete(transfer)
+
+      voidedTransfersTopic.emit(transfer as Transfer & { state: "voided" })
     },
   }
 }
