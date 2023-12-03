@@ -73,13 +73,23 @@ const calculateSettlementAmount = (
     return 0n
   }
 
-  const proposedSettlementAmount = balance - settlementMidpoint
+  let proposedSettlementAmount = balance - settlementMidpoint
 
-  return proposedSettlementAmount < 0
-    ? 0n
-    : proposedSettlementAmount > balance
-    ? balance
-    : proposedSettlementAmount
+  if (proposedSettlementAmount < 0) proposedSettlementAmount = 0n
+  if (proposedSettlementAmount > balance) proposedSettlementAmount = balance
+
+  if (proposedSettlementAmount > 0n) {
+    logger.debug("proposing settlement", {
+      balance,
+      outgoingCredit,
+      incomingCredit,
+      settlementMidpoint,
+      settlementThreshold,
+      proposedSettlementAmount,
+    })
+  }
+
+  return proposedSettlementAmount
 }
 
 export const SendOutgoingSettlementsActor = (reactor: Reactor) => {
