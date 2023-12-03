@@ -1,3 +1,5 @@
+import { Link } from "wouter"
+
 import { Amount } from "../../../components/amount/amount"
 import {
   Table,
@@ -43,7 +45,9 @@ export function Ledger() {
                 return (
                   <TableRow key={path}>
                     <TableCell className="font-medium align-top">
-                      {path}
+                      <Link href={`/ledger/${path.replace(":", "/account/")}`}>
+                        {path}
+                      </Link>
                     </TableCell>
                     <TableCell className="text-right align-top">
                       <Amount value={balance} currency={USD_SPECIFICATION} />

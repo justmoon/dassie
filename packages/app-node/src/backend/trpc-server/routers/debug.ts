@@ -1,3 +1,4 @@
+import { observable } from "@trpc/server/observable"
 import { z } from "zod"
 
 import {
@@ -14,7 +15,15 @@ import {
 } from "@dassie/lib-reactive-trpc/server"
 import { isObject } from "@dassie/lib-type-utils"
 
-import { LedgerStore } from "../../accounting/stores/ledger"
+import {
+  LedgerAccount,
+  LedgerStore,
+  Transfer,
+} from "../../accounting/stores/ledger"
+import { PendingTransfersTopic } from "../../accounting/topics/pending-transfers"
+import { PostedTransfersTopic } from "../../accounting/topics/posted-transfers"
+import { VoidedTransfersTopic } from "../../accounting/topics/voided-transfers"
+import { AccountPath } from "../../accounting/types/account-paths"
 import { EnvironmentConfigSignal } from "../../config/environment-config"
 import { Database } from "../../database/open-database"
 import { DATABASE_TABLE_IDS } from "../../database/schema"
@@ -147,5 +156,42 @@ export const debugRouter = trpc.router({
       const database = sig.reactor.use(Database)
 
       return database.tables[tableName].selectAll()
+    }),
+  subscribeToLedgerAccount: protectedProcedure
+    .input(z.string())
+    .subscription(({ ctx: { sig }, input: path }) => {
+      const ledgerStore = sig.reactor.use(LedgerStore)
+      const postedTransfersTopic = sig.reactor.use(PostedTransfersTopic)
+      const pendingTransfersTopic = sig.reactor.use(PendingTransfersTopic)
+      const voidedTransfersTopic = sig.reactor.use(VoidedTransfersTopic)
+
+      return observable<LedgerAccount | Transfer>((emit) => {
+        const account = ledgerStore.getAccount(path as AccountPath)
+
+        if (!account) {
+          throw new Error("Account does not exist")
+        }
+
+        emit.next(account)
+
+        const listener = (transfer: Transfer) => {
+          if (
+            transfer.creditAccount === path ||
+            transfer.debitAccount === path
+          ) {
+            emit.next(transfer)
+          }
+        }
+
+        postedTransfersTopic.on(sig, listener)
+        pendingTransfersTopic.on(sig, listener)
+        voidedTransfersTopic.on(sig, listener)
+
+        return () => {
+          postedTransfersTopic.off(listener)
+          pendingTransfersTopic.off(listener)
+          voidedTransfersTopic.off(listener)
+        }
+      })
     }),
 })

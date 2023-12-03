@@ -14,7 +14,10 @@ export const DebugPage = () => {
     <Router base="/debug" parent={router}>
       <Route path="/nodes" component={Nodes} />
       <Route path="/ledger" component={Ledger} />
-      <Route path="/ledger/:accountPath" component={AccountDetailPage} />
+      <Route
+        path="/ledger/:ledgerId/account/:accountPath+"
+        component={AccountDetailPage}
+      />
       <Route path="/routing" component={Routing} />
       <Route path="/state" component={State} />
       <Route path="/database" component={Database} />
