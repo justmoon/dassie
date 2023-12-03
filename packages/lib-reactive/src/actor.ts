@@ -43,7 +43,7 @@ export interface ActorApiProxy<TCallback extends ActorApiHandler> {
    */
   ask: ReturnType<TCallback> extends PromiseLike<unknown>
     ? TCallback
-    : SetReturnType<TCallback, Promise<ReturnType<TCallback>>>
+    : SetReturnType<TCallback, Promise<Awaited<ReturnType<TCallback>>>>
 }
 
 export type InferActorApi<TReturn> = {

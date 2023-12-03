@@ -130,9 +130,6 @@ export const SendOutgoingSettlementsActor = (reactor: Reactor) => {
               peerId,
               peerState: settlementSchemeState,
             })
-            .then((data) => {
-              return data
-            })
             .then(async ({ message, settlementId, execute }) => {
               const settlementTransfer = processSettlementPrepare(
                 ledger,
