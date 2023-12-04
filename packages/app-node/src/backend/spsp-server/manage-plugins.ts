@@ -6,7 +6,8 @@ import { createActor } from "@dassie/lib-reactive"
 import { OwnerLedgerIdSignal } from "../accounting/signals/owner-ledger-id"
 import { DassieActorContext } from "../base/types/dassie-base"
 import { NodeIlpAddressSignal } from "../ilp-connector/computed/node-ilp-address"
-import { ProcessPacketActor } from "../ilp-connector/process-packet"
+import { ProcessPacket } from "../ilp-connector/functions/process-packet"
+import { parseIlpPacket } from "../ilp-connector/schemas/ilp-packet-codec"
 import { PluginEndpointInfo } from "../ilp-connector/senders/send-plugin-packets"
 import { payment as logger } from "../logger/instances"
 import { RoutingTableSignal } from "../routing/signals/routing-table"
@@ -21,7 +22,7 @@ type DataHandler = (data: Buffer) => Promise<Buffer>
 export const ManagePluginsActor = () =>
   createActor((sig: DassieActorContext) => {
     const nodeIlpAddress = sig.readAndTrack(NodeIlpAddressSignal)
-    const processPacketActor = sig.reactor.use(ProcessPacketActor)
+    const processPacket = sig.reactor.use(ProcessPacket)
     const routingTable = sig.reactor.use(RoutingTableSignal)
     const ownerLedgerIdSignal = sig.reactor.use(OwnerLedgerIdSignal)
 
@@ -90,9 +91,10 @@ export const ManagePluginsActor = () =>
               const requestId = nextRequestId++
               outstandingRequests.set(requestId, resolve)
 
-              processPacketActor.api.parseAndHandle.tell({
+              processPacket({
                 sourceEndpointInfo,
                 serializedPacket: data,
+                parsedPacket: parseIlpPacket(data),
                 requestId,
               })
             })
@@ -142,9 +144,10 @@ export const ManagePluginsActor = () =>
           accountPath: `${ownerLedgerIdSignal.read()}:equity/owner`,
         }
 
-        processPacketActor.api.parseAndHandle.tell({
+        processPacket({
           sourceEndpointInfo,
           serializedPacket: response,
+          parsedPacket: parseIlpPacket(response),
           requestId: outgoingRequestId,
         })
       },

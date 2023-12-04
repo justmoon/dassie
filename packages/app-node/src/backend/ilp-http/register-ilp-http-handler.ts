@@ -9,14 +9,15 @@ import { createActor } from "@dassie/lib-reactive"
 import { OwnerLedgerIdSignal } from "../accounting/signals/owner-ledger-id"
 import { DassieReactor } from "../base/types/dassie-base"
 import { HttpsRouter } from "../http-server/serve-https"
-import { ProcessPacketActor } from "../ilp-connector/process-packet"
+import { ProcessPacket } from "../ilp-connector/functions/process-packet"
+import { parseIlpPacket } from "../ilp-connector/schemas/ilp-packet-codec"
 import { IlpHttpEndpointInfo } from "../ilp-connector/senders/send-ilp-http-packets"
 import { IlpHttpIlpAddress } from "../ilp-connector/types/ilp-address"
 import { ILP_OVER_HTTP_CONTENT_TYPE } from "./constants/content-type"
 import { IncomingRequestIdMap, nextId } from "./values/incoming-request-id-map"
 
 export const RegisterIlpHttpHandlerActor = (reactor: DassieReactor) => {
-  const processPacketActor = reactor.use(ProcessPacketActor)
+  const processPacket = reactor.use(ProcessPacket)
   const incomingRequestIdMap = reactor.use(IncomingRequestIdMap)
   const ownerLedgerIdSignal = reactor.use(OwnerLedgerIdSignal)
 
@@ -69,9 +70,10 @@ export const RegisterIlpHttpHandlerActor = (reactor: DassieReactor) => {
           callbackUrl,
         })
 
-        processPacketActor.api.parseAndHandle.tell({
+        processPacket({
           sourceEndpointInfo: endpointInfo,
           serializedPacket: request.body,
+          parsedPacket: parseIlpPacket(request.body),
           requestId: numericRequestId,
         })
 

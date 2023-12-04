@@ -3,7 +3,7 @@ import { isFailure } from "@dassie/lib-type-utils"
 
 import { AccountPath } from "../accounting/types/account-paths"
 import { DassieActorContext } from "../base/types/dassie-base"
-import { ProcessPacketActor } from "../ilp-connector/process-packet"
+import { ProcessPacket } from "../ilp-connector/functions/process-packet"
 import {
   IlpType,
   serializeIlpPacket,
@@ -23,7 +23,7 @@ export interface IldcpRequestParameters {
 export const HandleIldcpRequestsActor = () =>
   createActor((sig: DassieActorContext) => {
     const ilpRoutingTable = sig.read(RoutingTableSignal)
-    const processIncomingPacketActor = sig.reactor.use(ProcessPacketActor)
+    const processPacket = sig.reactor.use(ProcessPacket)
 
     const ildcpDestinationInfo: IldcpEndpointInfo = {
       type: "ildcp",
@@ -69,7 +69,7 @@ export const HandleIldcpRequestsActor = () =>
           destination: sourceIlpAddress,
         })
 
-        processIncomingPacketActor.api.handle.tell({
+        processPacket({
           sourceEndpointInfo: ildcpDestinationInfo,
           serializedPacket: serializeIlpPacket(responsePacket),
           parsedPacket: responsePacket,

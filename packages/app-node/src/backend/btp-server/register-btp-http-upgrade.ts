@@ -18,7 +18,8 @@ import { BtpToken } from "../api-keys/types/btp-token"
 import { DassieReactor } from "../base/types/dassie-base"
 import { WebsocketRoutesSignal } from "../http-server/serve-https"
 import { NodeIlpAddressSignal } from "../ilp-connector/computed/node-ilp-address"
-import { ProcessPacketActor } from "../ilp-connector/process-packet"
+import { ProcessPacket } from "../ilp-connector/functions/process-packet"
+import { parseIlpPacket } from "../ilp-connector/schemas/ilp-packet-codec"
 import { BtpEndpointInfo } from "../ilp-connector/senders/send-btp-packets"
 import { btp as logger } from "../logger/instances"
 import { RoutingTableSignal } from "../routing/signals/routing-table"
@@ -26,7 +27,7 @@ import { RoutingTableSignal } from "../routing/signals/routing-table"
 let unique = 0
 
 export const RegisterBtpHttpUpgradeActor = (reactor: DassieReactor) => {
-  const processIncomingPacketActor = reactor.use(ProcessPacketActor)
+  const processPacket = reactor.use(ProcessPacket)
   const btpTokensStore = reactor.use(BtpTokensStore)
   const routingTableSignal = reactor.use(RoutingTableSignal)
   const ownerLedgerIdSignal = reactor.use(OwnerLedgerIdSignal)
@@ -243,9 +244,10 @@ export const RegisterBtpHttpUpgradeActor = (reactor: DassieReactor) => {
                 .protocolData) {
                 if (protocolData.protocolName === "ilp") {
                   logger.debug("received ILP packet via BTP message")
-                  processIncomingPacketActor.api.parseAndHandle.tell({
+                  processPacket({
                     sourceEndpointInfo: endpointInfo,
                     serializedPacket: protocolData.data,
+                    parsedPacket: parseIlpPacket(protocolData.data),
                     requestId: message.requestId,
                   })
                   return
@@ -272,9 +274,10 @@ export const RegisterBtpHttpUpgradeActor = (reactor: DassieReactor) => {
                 if (protocolData.protocolName === "ilp") {
                   logger.debug("received ILP packet via BTP transfer")
 
-                  processIncomingPacketActor.api.parseAndHandle.tell({
+                  processPacket({
                     sourceEndpointInfo: endpointInfo,
                     serializedPacket: protocolData.data,
+                    parsedPacket: parseIlpPacket(protocolData.data),
                     requestId: message.requestId,
                   })
                   return
@@ -299,9 +302,10 @@ export const RegisterBtpHttpUpgradeActor = (reactor: DassieReactor) => {
                 .protocolData) {
                 if (protocolData.protocolName === "ilp") {
                   logger.debug("received ILP packet via BTP response")
-                  processIncomingPacketActor.api.parseAndHandle.tell({
+                  processPacket({
                     sourceEndpointInfo: endpointInfo,
                     serializedPacket: protocolData.data,
+                    parsedPacket: parseIlpPacket(protocolData.data),
                     requestId: message.requestId,
                   })
                   return

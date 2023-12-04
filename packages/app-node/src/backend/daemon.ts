@@ -12,7 +12,6 @@ import { HasTlsSignal } from "./config/computed/has-tls"
 import { ExchangeRatesActor } from "./exchange"
 import { HttpServerActor } from "./http-server"
 import { IldcpServerActor } from "./ildcp-server"
-import { IlpConnectorActor } from "./ilp-connector"
 import { IlpHttpActor } from "./ilp-http"
 import { LocalRpcServerActor } from "./local-ipc-server"
 import { LoggerActor } from "./logger"
@@ -53,7 +52,6 @@ export const StartNodeIdentityDependentServicesActor = () =>
     }
 
     sig.run(AccountingActor)
-    sig.run(IlpConnectorActor)
     sig.run(BtpServerActor)
     sig.run(IldcpServerActor)
     sig.run(IlpHttpActor)

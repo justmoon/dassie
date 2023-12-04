@@ -4,7 +4,6 @@ import { Transfer } from "../../accounting/stores/ledger"
 import { DassieReactor } from "../../base/types/dassie-base"
 import { connector as logger } from "../../logger/instances"
 import { PreparedPacketParameters, SendPacket } from "../functions/send-packet"
-import { ProcessIncomingPacketParameters } from "../process-packet"
 import {
   IlpPacket,
   IlpType,
@@ -16,6 +15,7 @@ import {
 } from "../topics/prepared-ilp-packet"
 import { PendingPacketsMap } from "../values/pending-packets-map"
 import { CalculatePreparePacketOutcome } from "./calculate-prepare-packet-outcome"
+import { ProcessIncomingPacketParameters } from "./process-packet"
 import { ScheduleTimeout } from "./schedule-timeout"
 import { TriggerEarlyRejection } from "./trigger-early-rejection"
 

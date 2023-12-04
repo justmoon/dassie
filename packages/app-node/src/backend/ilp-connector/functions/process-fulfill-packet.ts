@@ -3,7 +3,6 @@ import { createHash } from "node:crypto"
 import { LedgerStore } from "../../accounting/stores/ledger"
 import { DassieReactor } from "../../base/types/dassie-base"
 import { connector as logger } from "../../logger/instances"
-import { ProcessIncomingPacketParameters } from "../process-packet"
 import { IlpType } from "../schemas/ilp-packet-codec"
 import {
   ResolvedIlpPacketEvent,
@@ -13,6 +12,7 @@ import {
   PendingPacketsKey,
   PendingPacketsMap,
 } from "../values/pending-packets-map"
+import { ProcessIncomingPacketParameters } from "./process-packet"
 import { SendPacket } from "./send-packet"
 
 export const ProcessFulfillPacket = (reactor: DassieReactor) => {
