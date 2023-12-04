@@ -1,10 +1,10 @@
 import { Reactor } from "@dassie/lib-reactive"
 
 import type { PeerMessageHandler } from "../functions/handle-peer-message"
-import { ModifyNodeTableActor } from "../modify-node-table"
+import { ModifyNodeTable } from "../functions/modify-node-table"
 
 export const HandleLinkStateUpdate = ((reactor: Reactor) => {
-  const modifyNodeTableActor = reactor.use(ModifyNodeTableActor)
+  const modifyNodeTable = reactor.use(ModifyNodeTable)
 
   return ({
     message: {
@@ -15,7 +15,7 @@ export const HandleLinkStateUpdate = ((reactor: Reactor) => {
   }) => {
     const { value: linkState, bytes: linkStateBytes } = content
 
-    modifyNodeTableActor.api.processLinkState.tell({
+    modifyNodeTable.processLinkState({
       linkState: linkState.signed,
       linkStateBytes,
       retransmit: "scheduled",

@@ -10,7 +10,7 @@ import { ActiveSettlementSchemesSignal } from "../settlement-schemes/signals/act
 import { compareSetToArray } from "../utils/compare-sets"
 import { PeersSignal } from "./computed/peers"
 import { LINK_STATE_MAX_UPDATE_INTERVAL } from "./constants/timings"
-import { ModifyNodeTableActor } from "./modify-node-table"
+import { ModifyNodeTable } from "./functions/modify-node-table"
 import { peerNodeInfo, signedPeerNodeInfo } from "./peer-schema"
 import { NodeTableStore } from "./stores/node-table"
 
@@ -98,12 +98,12 @@ export const MaintainOwnNodeTableEntryActor = () =>
           neighbors: peerIds.join(","),
         },
       )
-      const modifyNodeTableActor = sig.reactor.use(ModifyNodeTableActor)
+      const modifyNodeTable = sig.reactor.use(ModifyNodeTable)
       if (oldLinkState === undefined) {
-        modifyNodeTableActor.api.addNode.tell(nodeId)
+        modifyNodeTable.addNode(nodeId)
       }
 
-      modifyNodeTableActor.api.processLinkState.tell({
+      modifyNodeTable.processLinkState({
         linkStateBytes: message,
         linkState: {
           nodeId,

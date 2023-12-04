@@ -5,8 +5,8 @@ import { EnvironmentConfigSignal } from "../config/environment-config"
 import { NodeIdSignal } from "../ilp-connector/computed/node-id"
 import { peerProtocol as logger } from "../logger/instances"
 import { NODE_STATE_STALE_TIMEOUT } from "./constants/timings"
+import { ModifyNodeTable } from "./functions/modify-node-table"
 import { SendPeerMessage } from "./functions/send-peer-message"
-import { ModifyNodeTableActor } from "./modify-node-table"
 import { NodeTableStore } from "./stores/node-table"
 import { NodeId } from "./types/node-id"
 
@@ -21,7 +21,7 @@ const INDIRECT_QUERY_PROBABILITY = 0.2
 
 export const RefreshNodeStateActor = (reactor: Reactor) => {
   const nodeTableStore = reactor.use(NodeTableStore)
-  const modifyNodeTableActor = reactor.use(ModifyNodeTableActor)
+  const modifyNodeTable = reactor.use(ModifyNodeTable)
   const nodeIdSignal = reactor.use(NodeIdSignal)
   const sendPeerMessage = reactor.use(SendPeerMessage)
 
@@ -94,7 +94,7 @@ export const RefreshNodeStateActor = (reactor: Reactor) => {
 
       const { signed } = linkState.value
 
-      modifyNodeTableActor.api.processLinkState.tell({
+      modifyNodeTable.processLinkState({
         linkStateBytes: linkState.bytes,
         linkState: signed,
         retransmit: "never",

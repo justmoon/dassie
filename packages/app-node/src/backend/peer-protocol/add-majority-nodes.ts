@@ -1,12 +1,12 @@
 import { Reactor, createActor } from "@dassie/lib-reactive"
 
 import { MajorityNodeListSignal } from "./computed/majority-node-list"
-import { ModifyNodeTableActor } from "./modify-node-table"
+import { ModifyNodeTable } from "./functions/modify-node-table"
 import { NodeTableStore } from "./stores/node-table"
 
 export const AddMajorityNodesActor = (reactor: Reactor) => {
   const nodeTableStore = reactor.use(NodeTableStore)
-  const modifyNodeTableActor = reactor.use(ModifyNodeTableActor)
+  const modifyNodeTable = reactor.use(ModifyNodeTable)
 
   return createActor((sig) => {
     const majorityNodes = sig.readAndTrack(MajorityNodeListSignal)
@@ -16,7 +16,7 @@ export const AddMajorityNodesActor = (reactor: Reactor) => {
         continue
       }
 
-      modifyNodeTableActor.api.addNode.tell(nodeId)
+      modifyNodeTable.addNode(nodeId)
     }
   })
 }

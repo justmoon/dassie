@@ -2,7 +2,7 @@ import { Reactor } from "@dassie/lib-reactive"
 
 import { peerProtocol as logger } from "../../logger/instances"
 import type { PeerMessageHandler } from "../functions/handle-peer-message"
-import { ModifyNodeTableActor } from "../modify-node-table"
+import { ModifyNodeTable } from "../functions/modify-node-table"
 
 export const HandleRegistration = ((reactor: Reactor) => {
   return ({
@@ -20,9 +20,9 @@ export const HandleRegistration = ((reactor: Reactor) => {
       sequence,
     })
 
-    const modifyNodeTableActor = reactor.use(ModifyNodeTableActor)
-    modifyNodeTableActor.api.addNode.tell(nodeId)
-    modifyNodeTableActor.api.processLinkState.tell({
+    const modifyNodeTable = reactor.use(ModifyNodeTable)
+    modifyNodeTable.addNode(nodeId)
+    modifyNodeTable.processLinkState({
       linkState: linkState.signed,
       linkStateBytes,
       retransmit: "never",
