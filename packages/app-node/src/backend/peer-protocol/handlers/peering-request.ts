@@ -3,7 +3,7 @@ import { Reactor } from "@dassie/lib-reactive"
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import { ManageSettlementSchemeInstancesActor } from "../../settlement-schemes/manage-settlement-scheme-instances"
 import { ActiveSettlementSchemesSignal } from "../../settlement-schemes/signals/active-settlement-schemes"
-import type { PeerMessageHandler } from "../actors/handle-peer-message"
+import type { PeerMessageHandler } from "../functions/handle-peer-message"
 import { NodeTableStore } from "../stores/node-table"
 
 export const HandlePeeringRequest = ((reactor: Reactor) => {

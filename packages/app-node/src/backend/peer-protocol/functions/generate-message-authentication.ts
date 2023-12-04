@@ -2,7 +2,6 @@ import { edwardsToMontgomeryPub, x25519 } from "@noble/curves/ed25519"
 
 import { Reactor } from "@dassie/lib-reactive"
 
-import { PeerMessageType } from "../actors/handle-peer-message"
 import { ALLOW_ANONYMOUS_USAGE } from "../constants/anonymous-messages"
 import { PeerMessage } from "../peer-schema"
 import {
@@ -11,6 +10,7 @@ import {
 } from "../stores/outgoing-session-keys"
 import { NodeId } from "../types/node-id"
 import { calculateMessageHmac } from "../utils/calculate-message-hmac"
+import { PeerMessageType } from "./handle-peer-message"
 
 const NO_AUTHENTICATION = {
   type: "NONE",

@@ -1,7 +1,7 @@
 import { Reactor } from "@dassie/lib-reactive"
 
 import { ManageSettlementSchemeInstancesActor } from "../../settlement-schemes/manage-settlement-scheme-instances"
-import type { PeerMessageHandler } from "../actors/handle-peer-message"
+import type { PeerMessageHandler } from "../functions/handle-peer-message"
 import { NodeTableStore } from "../stores/node-table"
 
 export const HandleSettlement = ((reactor: Reactor) => {

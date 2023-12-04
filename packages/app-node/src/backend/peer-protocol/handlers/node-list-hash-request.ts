@@ -1,7 +1,7 @@
 import { Reactor } from "@dassie/lib-reactive"
 
-import { PeerMessageHandler } from "../actors/handle-peer-message"
 import { NodeListHashSignal } from "../computed/node-list-hash"
+import { PeerMessageHandler } from "../functions/handle-peer-message"
 
 export const HandleNodeListHashRequest = ((reactor: Reactor) => {
   const nodeListHashSignal = reactor.use(NodeListHashSignal)

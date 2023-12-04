@@ -1,7 +1,6 @@
 import { createActor } from "@dassie/lib-reactive"
 
 import { DassieActorContext } from "../base/types/dassie-base"
-import { HandlePeerMessageActor } from "./actors/handle-peer-message"
 import { SendPeerMessageActor } from "./actors/send-peer-message"
 import { AddMajorityNodesActor } from "./add-majority-nodes"
 import { BroadcastStateUpdatesActor } from "./broadcast-state-updates"
@@ -19,7 +18,6 @@ import { SendHeartbeatsActor } from "./send-heartbeats"
 
 export const PeerProtocolActor = () =>
   createActor(async (sig: DassieActorContext) => {
-    sig.run(HandlePeerMessageActor)
     sig.run(SendPeerMessageActor)
     sig.run(ModifyNodeTableActor)
 

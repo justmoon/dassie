@@ -5,7 +5,7 @@ import { parseIlpPacket } from "../../ilp-connector/schemas/ilp-packet-codec"
 import { PeerEndpointInfo } from "../../ilp-connector/senders/send-peer-packets"
 import { peerProtocol as logger } from "../../logger/instances"
 import { GetLedgerIdForSettlementScheme } from "../../settlement-schemes/functions/get-ledger-id"
-import type { PeerMessageHandler } from "../actors/handle-peer-message"
+import type { PeerMessageHandler } from "../functions/handle-peer-message"
 
 export const HandleInterledgerPacket = ((reactor: DassieReactor) => {
   const ilpAllocationSchemeSignal = reactor.use(IlpAllocationSchemeSignal)

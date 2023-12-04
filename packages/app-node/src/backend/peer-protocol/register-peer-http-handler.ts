@@ -10,14 +10,14 @@ import { createActor } from "@dassie/lib-reactive"
 import { DassieReactor } from "../base/types/dassie-base"
 import { HttpsRouter } from "../http-server/serve-https"
 import { peerProtocol as logger } from "../logger/instances"
-import {
-  HandlePeerMessageActor,
-  IncomingPeerMessageEvent,
-  IncomingPeerMessageTopic,
-} from "./actors/handle-peer-message"
 import { ALLOW_ANONYMOUS_USAGE } from "./constants/anonymous-messages"
 import { DASSIE_MESSAGE_CONTENT_TYPE } from "./constants/content-type"
 import { AuthenticatePeerMessage } from "./functions/authenticate-peer-message"
+import {
+  HandlePeerMessage,
+  IncomingPeerMessageEvent,
+  IncomingPeerMessageTopic,
+} from "./functions/handle-peer-message"
 import { peerMessage as peerMessageSchema } from "./peer-schema"
 import { NodeTableStore } from "./stores/node-table"
 
@@ -25,7 +25,7 @@ export const RegisterPeerHttpHandlerActor = (reactor: DassieReactor) => {
   const authenticatePeerMessage = reactor.use(AuthenticatePeerMessage)
   const nodeTableStore = reactor.use(NodeTableStore)
   const http = reactor.use(HttpsRouter)
-  const handlePeerMessageActor = reactor.use(HandlePeerMessageActor)
+  const handlePeerMessage = reactor.use(HandlePeerMessage)
 
   return createActor((sig) => {
     http
@@ -70,8 +70,7 @@ export const RegisterPeerHttpHandlerActor = (reactor: DassieReactor) => {
 
         sig.reactor.use(IncomingPeerMessageTopic).emit(event)
 
-        const responseMessage =
-          await handlePeerMessageActor.api.handle.ask(event)
+        const responseMessage = await handlePeerMessage(event)
 
         return createBinaryResponse(responseMessage, {
           contentType: "application/dassie-peer-response",

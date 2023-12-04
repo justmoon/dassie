@@ -1,7 +1,7 @@
 import { Promisable } from "type-fest"
 
 import { InferSerialize } from "@dassie/lib-oer"
-import { Factory, createActor, createTopic } from "@dassie/lib-reactive"
+import { Factory, createTopic } from "@dassie/lib-reactive"
 
 import { DassieBase, DassieReactor } from "../../base/types/dassie-base"
 import { HandleInterledgerPacket } from "../handlers/interledger-packet"
@@ -49,7 +49,7 @@ type PeerMessageHandlers = {
   [K in PeerMessageType]: ReturnType<PeerMessageHandler<K>>
 }
 
-export const HandlePeerMessageActor = (reactor: DassieReactor) => {
+export const HandlePeerMessage = (reactor: DassieReactor) => {
   const handlers: PeerMessageHandlers = {
     peeringRequest: reactor.use(HandlePeeringRequest),
     linkStateUpdate: reactor.use(HandleLinkStateUpdate),
@@ -63,18 +63,16 @@ export const HandlePeerMessageActor = (reactor: DassieReactor) => {
     peeringInfoRequest: reactor.use(HandlePeeringInfoRequest),
   }
 
-  return createActor(() => {
-    return {
-      handle: async <TType extends PeerMessageType>(
-        parameters: IncomingPeerMessageEvent<TType>,
-      ) => {
-        const type: TType = parameters.message.content.value.type
+  async function handlePeerMessage<TType extends PeerMessageType>(
+    parameters: IncomingPeerMessageEvent<TType>,
+  ) {
+    const type: TType = parameters.message.content.value.type
 
-        const result = await handlers[type](parameters)
+    const result = await handlers[type](parameters)
 
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
-        return peerMessageResponse[type].serializeOrThrow(result as any)
-      },
-    }
-  })
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
+    return peerMessageResponse[type].serializeOrThrow(result as any)
+  }
+
+  return handlePeerMessage
 }

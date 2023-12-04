@@ -1,7 +1,7 @@
 import { Reactor } from "@dassie/lib-reactive"
 
 import { peerProtocol as logger } from "../../logger/instances"
-import type { PeerMessageHandler } from "../actors/handle-peer-message"
+import type { PeerMessageHandler } from "../functions/handle-peer-message"
 import { ModifyNodeTableActor } from "../modify-node-table"
 
 export const HandleRegistration = ((reactor: Reactor) => {

@@ -1,6 +1,6 @@
 import { Reactor } from "@dassie/lib-reactive"
 
-import type { PeerMessageHandler } from "../actors/handle-peer-message"
+import type { PeerMessageHandler } from "../functions/handle-peer-message"
 import { ModifyNodeTableActor } from "../modify-node-table"
 
 export const HandleLinkStateUpdate = ((reactor: Reactor) => {

@@ -15,6 +15,7 @@ import { peerProtocol as logger } from "../../logger/instances"
 import { DASSIE_MESSAGE_CONTENT_TYPE } from "../constants/content-type"
 import { DEFAULT_NODE_COMMUNICATION_TIMEOUT } from "../constants/timings"
 import { GenerateMessageAuthentication } from "../functions/generate-message-authentication"
+import { PeerMessageType } from "../functions/handle-peer-message"
 import {
   peerMessage,
   peerMessageContent,
@@ -22,7 +23,6 @@ import {
 } from "../peer-schema"
 import { NodeTableStore } from "../stores/node-table"
 import { NodeId } from "../types/node-id"
-import { PeerMessageType } from "./handle-peer-message"
 
 export type SendPeerMessageParameters<TMessageType extends PeerMessageType> =
   SetOptional<OutgoingPeerMessageEvent, "asUint8Array"> & {
