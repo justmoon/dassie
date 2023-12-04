@@ -9,7 +9,6 @@ import { DassieActorContext } from "./base/types/dassie-base"
 import { BtpServerActor } from "./btp-server"
 import { HasNodeIdentitySignal } from "./config/computed/has-node-identity"
 import { HasTlsSignal } from "./config/computed/has-tls"
-import { SignerActor } from "./crypto/signer"
 import { ExchangeRatesActor } from "./exchange"
 import { HttpServerActor } from "./http-server"
 import { IldcpServerActor } from "./ildcp-server"
@@ -53,7 +52,6 @@ export const StartNodeIdentityDependentServicesActor = () =>
       return
     }
 
-    sig.run(SignerActor)
     sig.run(AccountingActor)
     sig.run(IlpConnectorActor)
     sig.run(BtpServerActor)

@@ -3,7 +3,7 @@ import { bigIntMax, isFailure } from "@dassie/lib-type-utils"
 
 import { DatabaseConfigStore } from "../config/database-config"
 import { NodePublicKeySignal } from "../crypto/computed/node-public-key"
-import { SignerActor } from "../crypto/signer"
+import { SignWithDassieKey } from "../crypto/functions/sign-with-dassie-key"
 import { NodeIdSignal } from "../ilp-connector/computed/node-id"
 import { peerProtocol as logger } from "../logger/instances"
 import { ActiveSettlementSchemesSignal } from "../settlement-schemes/signals/active-settlement-schemes"
@@ -16,7 +16,7 @@ import { NodeTableStore } from "./stores/node-table"
 
 export const MaintainOwnNodeTableEntryActor = () =>
   createActor(async (sig) => {
-    const signer = sig.reactor.use(SignerActor)
+    const signWithDassieKey = sig.reactor.use(SignWithDassieKey)
 
     // Get the current peers and re-run the actor if they change
     const peers = sig.readAndTrack(PeersSignal)
@@ -73,8 +73,7 @@ export const MaintainOwnNodeTableEntryActor = () =>
         return
       }
 
-      const signature =
-        await signer.api.signWithDassieKey.ask(peerNodeInfoResult)
+      const signature = await signWithDassieKey(peerNodeInfoResult)
       const message = signedPeerNodeInfo.serialize({
         signed: peerNodeInfoResult,
         signature: {
