@@ -3,7 +3,7 @@ import { resolve } from "node:path"
 
 import { nodeIndexToDataPath } from "../src/backend/utils/generate-node-config"
 
-const NODE_ID_REGEX = /^n[1-9]\d*$/
+const NODE_ID_REGEX = /^d[1-9]\d*$/
 const nodeId = process.argv[2]
 
 if (!nodeId || !NODE_ID_REGEX.test(nodeId)) {
@@ -14,7 +14,7 @@ if (!nodeId || !NODE_ID_REGEX.test(nodeId)) {
   )
   console.error("of the Dassie instances in the development environment.")
   console.error("")
-  console.error("Example: pnpm cli n1 init")
+  console.error("Example: pnpm cli d1 init")
   process.exit(1)
 }
 
