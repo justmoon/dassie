@@ -2,6 +2,7 @@
   "name": "@dassie/root",
   "version": "1.0.0",
   "description": "Root package of the Dassie monorepo",
+  "type": "module",
   "scripts": {
     "clean": "pnpm -r clean",
     "build": "docker build --file=packages/app-build/resources/docker/builder/Dockerfile --build-arg=NODE_VERSION=$(tail -c +2 .node-version) --tag=dassie-builder:latest . && docker run --tty --rm --volume=$(pwd)/dist:/app/dist --volume=$(pwd)/.git:/app/.git:ro --network none dassie-builder",

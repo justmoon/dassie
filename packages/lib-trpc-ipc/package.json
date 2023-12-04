@@ -36,7 +36,7 @@
   "devDependencies": {
     "@dassie/eslint-config": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
-    "type-fest": "^4.6.0"
+    "type-fest": "^4.8.3"
   },
   "dependencies": {
     "@trpc/client": "10.43.1",

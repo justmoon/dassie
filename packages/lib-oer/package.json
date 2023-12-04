@@ -33,6 +33,6 @@
     "@dassie/eslint-config": "workspace:^",
     "@dassie/lib-format-utils": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
-    "type-fest": "^4.6.0"
+    "type-fest": "^4.8.3"
   }
 }

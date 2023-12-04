@@ -20,12 +20,12 @@
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "dependencies": {
-    "@dassie/lib-type-utils": "workspace:^",
-    "@dassie/lib-reactive": "workspace:^"
+    "@dassie/lib-reactive": "workspace:^",
+    "@dassie/lib-type-utils": "workspace:^"
   },
   "devDependencies": {
     "@dassie/eslint-config": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
-    "type-fest": "^4.6.0"
+    "type-fest": "^4.8.3"
   }
 }

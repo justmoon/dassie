@@ -40,6 +40,6 @@
     "@dassie/meta-tsconfig": "workspace:^",
     "@types/negotiator": "^0.6.3",
     "react": "^18.2.0",
-    "type-fest": "^4.6.0"
+    "type-fest": "^4.8.3"
   }
 }

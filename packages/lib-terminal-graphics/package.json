@@ -19,7 +19,7 @@
   "devDependencies": {
     "@dassie/eslint-config": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
-    "@types/wcwidth": "^1.0.1"
+    "@types/wcwidth": "^1.0.2"
   },
   "dependencies": {
     "chalk": "^5.3.0",

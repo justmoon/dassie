@@ -37,7 +37,7 @@
     "@dassie/eslint-config": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
     "react": "^18.2.0",
-    "type-fest": "^4.6.0"
+    "type-fest": "^4.8.3"
   },
   "dependencies": {
     "@dassie/lib-reactive": "workspace:^",
