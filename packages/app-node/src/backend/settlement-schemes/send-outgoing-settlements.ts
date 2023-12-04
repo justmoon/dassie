@@ -4,6 +4,7 @@ import { UnreachableCaseError, isFailure } from "@dassie/lib-type-utils"
 import { processSettlementPrepare } from "../accounting/functions/process-settlement"
 import { Ledger, LedgerStore } from "../accounting/stores/ledger"
 import { LedgerId } from "../accounting/types/ledger-id"
+import { DassieActorContext } from "../base/types/dassie-base"
 import { settlement as logger } from "../logger/instances"
 import { SendPeerMessageActor } from "../peer-protocol/actors/send-peer-message"
 import { PeersSignal } from "../peer-protocol/computed/peers"
@@ -104,8 +105,8 @@ export const SendOutgoingSettlementsActor = (reactor: Reactor) => {
   const pendingSettlementsMap = reactor.use(PendingSettlementsMap)
 
   return createMapped(reactor, PeersSignal, (peerId) =>
-    createActor((sig) => {
-      sig.interval(() => {
+    createActor((sig: DassieActorContext) => {
+      function sendOutgoingSettlements() {
         const peerState = nodeTable.read().get(peerId)?.peerState
 
         logger.assert(peerState?.id === "peered", "peer state must be 'peered'")
@@ -196,7 +197,14 @@ export const SendOutgoingSettlementsActor = (reactor: Reactor) => {
               logger.warn("failed to prepare outbound settlement", { error })
             })
         }
-      }, SETTLEMENT_CHECK_INTERVAL)
+      }
+
+      sig
+        .task({
+          handler: sendOutgoingSettlements,
+          interval: SETTLEMENT_CHECK_INTERVAL,
+        })
+        .schedule()
     }),
   )
 }
