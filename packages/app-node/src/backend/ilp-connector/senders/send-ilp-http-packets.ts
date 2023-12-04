@@ -1,6 +1,8 @@
 import { Reactor } from "@dassie/lib-reactive"
+import { tell } from "@dassie/lib-type-utils"
 
-import { SendIlpHttpPacketsActor } from "../../ilp-http/send-ilp-http-packets"
+import { SendAsyncPrepare } from "../../ilp-http/functions/send-async-prepare"
+import { SendAsyncResult } from "../../ilp-http/functions/send-async-result"
 import { IncomingRequestIdMap } from "../../ilp-http/values/incoming-request-id-map"
 import { CommonEndpointInfo, PacketSender } from "../functions/send-packet"
 
@@ -9,16 +11,19 @@ export interface IlpHttpEndpointInfo extends CommonEndpointInfo {
 }
 
 export const SendIlpHttpPackets = (reactor: Reactor): PacketSender<"http"> => {
-  const sendIlpHttpPacketsActor = reactor.use(SendIlpHttpPacketsActor)
+  const sendAsyncPrepare = reactor.use(SendAsyncPrepare)
+  const sendAsyncResult = reactor.use(SendAsyncResult)
   const requestIdMap = reactor.use(IncomingRequestIdMap)
 
   return {
     sendPrepare: ({ serializedPacket, outgoingRequestId: requestId }) => {
-      sendIlpHttpPacketsActor.api.sendAsyncPrepare.tell({
-        packet: serializedPacket,
-        url: "http://localhost:3002",
-        requestId: String(requestId),
-      })
+      tell(() =>
+        sendAsyncPrepare({
+          packet: serializedPacket,
+          url: "http://localhost:3002",
+          requestId: String(requestId),
+        }),
+      )
     },
 
     sendResult: ({
@@ -33,11 +38,13 @@ export const SendIlpHttpPackets = (reactor: Reactor): PacketSender<"http"> => {
 
       const { callbackUrl, requestId } = entry
 
-      sendIlpHttpPacketsActor.api.sendAsyncResult.tell({
-        packet: serializedPacket,
-        callbackUrl,
-        requestId,
-      })
+      tell(() =>
+        sendAsyncResult({
+          packet: serializedPacket,
+          callbackUrl,
+          requestId,
+        }),
+      )
     },
   }
 }
