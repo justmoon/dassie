@@ -5,8 +5,8 @@ import { Reactor, createActor } from "@dassie/lib-reactive"
 
 import { DassieActorContext } from "../base/types/dassie-base"
 import { EnvironmentConfigSignal } from "../config/environment-config"
-import { SendPeerMessageActor } from "./actors/send-peer-message"
 import { NODE_LIST_HASH_POLLING_INTERVAL } from "./constants/timings"
+import { SendPeerMessage } from "./functions/send-peer-message"
 import { BootstrapNodeListHashesSignal } from "./signals/bootstrap-node-list-hashes"
 import { NodeId } from "./types/node-id"
 
@@ -15,8 +15,10 @@ enableMapSet()
 const NODE_LIST_POLLING_CONCURRENCY = 5
 
 export const PollNodeListHashesActor = (reactor: Reactor) => {
+  const sendPeerMessage = reactor.use(SendPeerMessage)
+
   const loadNodeListHash = async (sourceNodeId: NodeId) => {
-    const response = await reactor.use(SendPeerMessageActor).api.send.ask({
+    const response = await sendPeerMessage({
       destination: sourceNodeId,
       message: {
         type: "nodeListHashRequest",

@@ -6,8 +6,8 @@ import { Reactor, createActor } from "@dassie/lib-reactive"
 import { EMPTY_UINT8ARRAY } from "../../common/constants/general"
 import { DassieActorContext } from "../base/types/dassie-base"
 import { compareUint8Arrays } from "../utils/compare-typedarray"
-import { SendPeerMessageActor } from "./actors/send-peer-message"
 import { NODE_LIST_HASH_POLLING_INTERVAL } from "./constants/timings"
+import { SendPeerMessage } from "./functions/send-peer-message"
 import { BootstrapNodeListHashesSignal } from "./signals/bootstrap-node-list-hashes"
 import { BootstrapNodeListsSignal } from "./signals/bootstrap-node-lists"
 import { NodeId } from "./types/node-id"
@@ -17,8 +17,10 @@ enableMapSet()
 const NODE_LIST_POLLING_CONCURRENCY = 5
 
 export const DownloadNodeListsActor = (reactor: Reactor) => {
+  const sendPeerMessage = reactor.use(SendPeerMessage)
+
   const loadNodeList = async (sourceNodeId: NodeId) => {
-    const response = await reactor.use(SendPeerMessageActor).api.send.ask({
+    const response = await sendPeerMessage({
       destination: sourceNodeId,
       message: {
         type: "nodeListRequest",

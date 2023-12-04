@@ -2,15 +2,18 @@ import pMap from "p-map"
 
 import { createActor } from "@dassie/lib-reactive"
 
+import { DassieReactor } from "../base/types/dassie-base"
 import { NodeIdSignal } from "../ilp-connector/computed/node-id"
-import { SendPeerMessageActor } from "./actors/send-peer-message"
+import { SendPeerMessage } from "./functions/send-peer-message"
 import { BootstrapNodeListsSignal } from "./signals/bootstrap-node-lists"
 import { NodeTableStore } from "./stores/node-table"
 
 const REGISTRATION_CONCURRENCY = 5
 
-export const RegisterOurselvesActor = () =>
-  createActor(async (sig) => {
+export const RegisterOurselvesActor = (reactor: DassieReactor) => {
+  const sendPeerMessage = reactor.use(SendPeerMessage)
+
+  return createActor(async (sig) => {
     const bootstrapNodeLists = sig.readAndTrack(BootstrapNodeListsSignal)
     const ourNodeId = sig.readAndTrack(NodeIdSignal)
     const ourNodeInfo = sig.readAndTrack(NodeTableStore, (store) =>
@@ -24,7 +27,7 @@ export const RegisterOurselvesActor = () =>
       async ([bootstrapNodeId, nodeList]) => {
         if (nodeList.entries.includes(ourNodeId)) return
 
-        await sig.reactor.use(SendPeerMessageActor).api.send.ask({
+        await sendPeerMessage({
           destination: bootstrapNodeId,
           message: {
             type: "registration",
@@ -39,3 +42,4 @@ export const RegisterOurselvesActor = () =>
       { concurrency: REGISTRATION_CONCURRENCY },
     )
   })
+}

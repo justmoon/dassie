@@ -5,8 +5,8 @@ import { NodeIdSignal } from "../ilp-connector/computed/node-id"
 import { peerProtocol as logger } from "../logger/instances"
 import { ManageSettlementSchemeInstancesActor } from "../settlement-schemes/manage-settlement-scheme-instances"
 import { ActiveSettlementSchemesSignal } from "../settlement-schemes/signals/active-settlement-schemes"
-import { SendPeerMessageActor } from "./actors/send-peer-message"
 import { PeersSignal } from "./computed/peers"
+import { SendPeerMessage } from "./functions/send-peer-message"
 import { NodeTableStore } from "./stores/node-table"
 import { SettlementSchemeId } from "./types/settlement-scheme-id"
 
@@ -25,6 +25,7 @@ export const MaintainPeeringRelationshipsActor = (reactor: Reactor) => {
     ActiveSettlementSchemesSignal,
   )
   const peersSignal = reactor.use(PeersSignal)
+  const sendPeerMessage = reactor.use(SendPeerMessage)
 
   async function addPeersIfNecessary() {
     const peersSet = peersSignal.read()
@@ -82,17 +83,15 @@ export const MaintainPeeringRelationshipsActor = (reactor: Reactor) => {
       return
     }
 
-    const peeringInfoResponse = await reactor
-      .use(SendPeerMessageActor)
-      .api.send.ask({
-        destination: randomNode.nodeId,
-        message: {
-          type: "peeringInfoRequest",
-          value: {
-            settlementSchemeId,
-          },
+    const peeringInfoResponse = await sendPeerMessage({
+      destination: randomNode.nodeId,
+      message: {
+        type: "peeringInfoRequest",
+        value: {
+          settlementSchemeId,
         },
-      })
+      },
+    })
 
     if (!peeringInfoResponse) {
       logger.warn("peering info request failed", {
@@ -113,19 +112,17 @@ export const MaintainPeeringRelationshipsActor = (reactor: Reactor) => {
       to: randomNode.nodeId,
     })
 
-    const peeringResponse = await reactor
-      .use(SendPeerMessageActor)
-      .api.send.ask({
-        destination: randomNode.nodeId,
-        message: {
-          type: "peeringRequest",
-          value: {
-            nodeInfo: ownLinkState.lastUpdate,
-            settlementSchemeId,
-            settlementSchemeData: settlementSchemeData.data,
-          },
+    const peeringResponse = await sendPeerMessage({
+      destination: randomNode.nodeId,
+      message: {
+        type: "peeringRequest",
+        value: {
+          nodeInfo: ownLinkState.lastUpdate,
+          settlementSchemeId,
+          settlementSchemeData: settlementSchemeData.data,
         },
-      })
+      },
+    })
 
     if (!peeringResponse?.accepted) {
       logger.debug(`peering request rejected`, {

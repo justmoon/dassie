@@ -1,17 +1,20 @@
 import { createActor } from "@dassie/lib-reactive"
+import { tell } from "@dassie/lib-type-utils"
 
-import { DassieActorContext } from "../base/types/dassie-base"
+import { DassieActorContext, DassieReactor } from "../base/types/dassie-base"
 import { NodeIdSignal } from "../ilp-connector/computed/node-id"
-import { SendPeerMessageActor } from "./actors/send-peer-message"
 import { PeersSignal } from "./computed/peers"
 import {
   MAX_HEARTBEAT_INTERVAL,
   MIN_HEARTBEAT_INTERVAL,
 } from "./constants/timings"
+import { SendPeerMessage } from "./functions/send-peer-message"
 import { NodeTableStore } from "./stores/node-table"
 
-export const SendHeartbeatsActor = () =>
-  createActor(async (sig: DassieActorContext) => {
+export const SendHeartbeatsActor = (reactor: DassieReactor) => {
+  const sendPeerMessage = reactor.use(SendPeerMessage)
+
+  return createActor(async (sig: DassieActorContext) => {
     const ownNodeId = sig.read(NodeIdSignal)
 
     // Get the current peers and re-run the actor if they change
@@ -28,15 +31,17 @@ export const SendHeartbeatsActor = () =>
 
     const sendHeartbeat = () => {
       for (const peer of peers) {
-        sig.reactor.use(SendPeerMessageActor).api.send.tell({
-          destination: peer,
-          message: {
-            type: "linkStateUpdate",
-            value: {
-              bytes: linkStateUpdate,
+        tell(() =>
+          sendPeerMessage({
+            destination: peer,
+            message: {
+              type: "linkStateUpdate",
+              value: {
+                bytes: linkStateUpdate,
+              },
             },
-          },
-        })
+          }),
+        )
       }
     }
 
@@ -50,3 +55,4 @@ export const SendHeartbeatsActor = () =>
     await task.execute()
     task.schedule()
   })
+}

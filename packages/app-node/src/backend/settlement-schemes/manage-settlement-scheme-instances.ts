@@ -1,5 +1,5 @@
 import { Reactor, createActor, createMapped } from "@dassie/lib-reactive"
-import { isFailure } from "@dassie/lib-type-utils"
+import { isFailure, tell } from "@dassie/lib-type-utils"
 
 import { initializeCommonAccounts } from "../accounting/functions/manage-common-accounts"
 import { LedgerStore } from "../accounting/stores/ledger"
@@ -10,7 +10,7 @@ import {
 } from "../accounting/types/account-paths"
 import { DatabaseConfigStore } from "../config/database-config"
 import { settlement as logger } from "../logger/instances"
-import { SendPeerMessageActor } from "../peer-protocol/actors/send-peer-message"
+import { SendPeerMessage } from "../peer-protocol/functions/send-peer-message"
 import { GetLedgerIdForSettlementScheme } from "./functions/get-ledger-id"
 import modules from "./modules"
 import { ActiveSettlementSchemesSignal } from "./signals/active-settlement-schemes"
@@ -23,6 +23,7 @@ export const ManageSettlementSchemeInstancesActor = (reactor: Reactor) => {
     GetLedgerIdForSettlementScheme,
   )
   const pendingSettlementsMap = reactor.use(PendingSettlementsMap)
+  const sendPeerMessage = reactor.use(SendPeerMessage)
 
   return createMapped(
     reactor,
@@ -45,16 +46,18 @@ export const ManageSettlementSchemeInstancesActor = (reactor: Reactor) => {
 
       const host: SettlementSchemeHostMethods = {
         sendMessage: ({ peerId, message }) => {
-          reactor.use(SendPeerMessageActor).api.send.tell({
-            destination: peerId,
-            message: {
-              type: "settlementMessage",
-              value: {
-                settlementSchemeId,
-                message,
+          tell(() =>
+            sendPeerMessage({
+              destination: peerId,
+              message: {
+                type: "settlementMessage",
+                value: {
+                  settlementSchemeId,
+                  message,
+                },
               },
-            },
-          })
+            }),
+          )
         },
 
         reportIncomingSettlement: ({ ledgerId, peerId, amount }) => {

@@ -4,8 +4,8 @@ import { DassieActorContext } from "../base/types/dassie-base"
 import { EnvironmentConfigSignal } from "../config/environment-config"
 import { NodeIdSignal } from "../ilp-connector/computed/node-id"
 import { peerProtocol as logger } from "../logger/instances"
-import { SendPeerMessageActor } from "./actors/send-peer-message"
 import { NODE_STATE_STALE_TIMEOUT } from "./constants/timings"
+import { SendPeerMessage } from "./functions/send-peer-message"
 import { ModifyNodeTableActor } from "./modify-node-table"
 import { NodeTableStore } from "./stores/node-table"
 import { NodeId } from "./types/node-id"
@@ -23,12 +23,13 @@ export const RefreshNodeStateActor = (reactor: Reactor) => {
   const nodeTableStore = reactor.use(NodeTableStore)
   const modifyNodeTableActor = reactor.use(ModifyNodeTableActor)
   const nodeIdSignal = reactor.use(NodeIdSignal)
+  const sendPeerMessage = reactor.use(SendPeerMessage)
 
   const queryLinkState = async (
     oracleNodeId: NodeId,
     subjectNodeId: NodeId,
   ) => {
-    const response = await reactor.use(SendPeerMessageActor).api.send.ask({
+    const response = await sendPeerMessage({
       destination: oracleNodeId,
       message: {
         type: "linkStateRequest",

@@ -1,13 +1,13 @@
 import { Reactor, createActor, createMapped } from "@dassie/lib-reactive"
-import { UnreachableCaseError, isFailure } from "@dassie/lib-type-utils"
+import { UnreachableCaseError, isFailure, tell } from "@dassie/lib-type-utils"
 
 import { processSettlementPrepare } from "../accounting/functions/process-settlement"
 import { Ledger, LedgerStore } from "../accounting/stores/ledger"
 import { LedgerId } from "../accounting/types/ledger-id"
 import { DassieActorContext } from "../base/types/dassie-base"
 import { settlement as logger } from "../logger/instances"
-import { SendPeerMessageActor } from "../peer-protocol/actors/send-peer-message"
 import { PeersSignal } from "../peer-protocol/computed/peers"
+import { SendPeerMessage } from "../peer-protocol/functions/send-peer-message"
 import { NodeTableStore } from "../peer-protocol/stores/node-table"
 import { NodeId } from "../peer-protocol/types/node-id"
 import { GetLedgerIdForSettlementScheme } from "./functions/get-ledger-id"
@@ -103,9 +103,11 @@ export const SendOutgoingSettlementsActor = (reactor: Reactor) => {
     GetLedgerIdForSettlementScheme,
   )
   const pendingSettlementsMap = reactor.use(PendingSettlementsMap)
+  const sendPeerMessage = reactor.use(SendPeerMessage)
 
   return createMapped(reactor, PeersSignal, (peerId) =>
     createActor((sig: DassieActorContext) => {
+      // eslint-disable-next-line unicorn/consistent-function-scoping
       function sendOutgoingSettlements() {
         const peerState = nodeTable.read().get(peerId)?.peerState
 
@@ -175,17 +177,19 @@ export const SendOutgoingSettlementsActor = (reactor: Reactor) => {
               const settlementKey = `${settlementSchemeId}:${settlementId}`
               pendingSettlementsMap.set(settlementKey, settlementTransfer)
 
-              sig.reactor.use(SendPeerMessageActor).api.send.tell({
-                destination: peerId,
-                message: {
-                  type: "settlement",
-                  value: {
-                    settlementSchemeId,
-                    amount: settlementAmount,
-                    settlementSchemeData: message,
+              tell(() =>
+                sendPeerMessage({
+                  destination: peerId,
+                  message: {
+                    type: "settlement",
+                    value: {
+                      settlementSchemeId,
+                      amount: settlementAmount,
+                      settlementSchemeData: message,
+                    },
                   },
-                },
-              })
+                }),
+              )
 
               try {
                 await execute()

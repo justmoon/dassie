@@ -1,10 +1,10 @@
 import { createActor } from "@dassie/lib-reactive"
-import { isFailure } from "@dassie/lib-type-utils"
+import { isFailure, tell } from "@dassie/lib-type-utils"
 
 import { DassieActorContext, DassieReactor } from "../base/types/dassie-base"
 import { peerProtocol as logger } from "../logger/instances"
-import { SendPeerMessageActor } from "./actors/send-peer-message"
 import { PeersSignal } from "./computed/peers"
+import { SendPeerMessage } from "./functions/send-peer-message"
 import { peerMessageContent } from "./peer-schema"
 import { NodeTableStore } from "./stores/node-table"
 
@@ -14,6 +14,7 @@ const MAX_RETRANSMIT_CHECK_INTERVAL = 200
 export const ForwardLinkStateUpdateActor = (reactor: DassieReactor) => {
   const nodeTableStore = reactor.use(NodeTableStore)
   const peersSignal = reactor.use(PeersSignal)
+  const sendPeerMessage = reactor.use(SendPeerMessage)
 
   return createActor((sig: DassieActorContext) => {
     function forwardLinkStateUpdates() {
@@ -57,16 +58,19 @@ export const ForwardLinkStateUpdateActor = (reactor: DassieReactor) => {
             })
 
             // Retransmit the link state update
-            sig.reactor.use(SendPeerMessageActor).api.send.tell({
-              destination: peer,
-              message: {
-                type: "linkStateUpdate",
-                value: {
-                  bytes: node.linkState.lastUpdate,
+            const linkStateUpdate = node.linkState.lastUpdate
+            tell(() =>
+              sendPeerMessage({
+                destination: peer,
+                message: {
+                  type: "linkStateUpdate",
+                  value: {
+                    bytes: linkStateUpdate,
+                  },
                 },
-              },
-              asUint8Array: message,
-            })
+                asUint8Array: message,
+              }),
+            )
           }
         }
       }

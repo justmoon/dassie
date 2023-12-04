@@ -1,12 +1,16 @@
-import { createActor } from "@dassie/lib-reactive"
+import { Reactor, createActor } from "@dassie/lib-reactive"
+import { tell } from "@dassie/lib-type-utils"
 
 import { NodeIdSignal } from "../ilp-connector/computed/node-id"
-import { SendPeerMessageActor } from "./actors/send-peer-message"
+import { SendPeerMessage } from "./functions/send-peer-message"
 import { NodeTableStore } from "./stores/node-table"
 
-export const BroadcastStateUpdatesActor = () =>
-  createActor((sig) => {
-    const ownNodeId = sig.reactor.use(NodeIdSignal).read()
+export const BroadcastStateUpdatesActor = (reactor: Reactor) => {
+  const sendPeerMessage = reactor.use(SendPeerMessage)
+  const nodeIdSignal = reactor.use(NodeIdSignal)
+
+  return createActor((sig) => {
+    const ownNodeId = nodeIdSignal.read()
 
     const linkStateUpdate = sig.readAndTrack(
       NodeTableStore,
@@ -20,14 +24,17 @@ export const BroadcastStateUpdatesActor = () =>
     const nodeIds = sig.read(NodeTableStore).keys()
 
     for (const nodeId of nodeIds) {
-      sig.reactor.use(SendPeerMessageActor).api.send.tell({
-        destination: nodeId,
-        message: {
-          type: "linkStateUpdate",
-          value: {
-            bytes: linkStateUpdate,
+      tell(() =>
+        sendPeerMessage({
+          destination: nodeId,
+          message: {
+            type: "linkStateUpdate",
+            value: {
+              bytes: linkStateUpdate,
+            },
           },
-        },
-      })
+        }),
+      )
     }
   })
+}
