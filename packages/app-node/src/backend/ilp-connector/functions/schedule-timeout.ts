@@ -15,11 +15,11 @@ export interface ScheduleTimeoutParameters {
 export const ScheduleTimeout = (reactor: DassieReactor) => {
   const triggerLateRejection = reactor.use(TriggerLateRejection)
 
-  return ({
+  function scheduleTimeout({
     sourceEndpointInfo,
     requestId,
     timeoutAbort,
-  }: ScheduleTimeoutParameters) => {
+  }: ScheduleTimeoutParameters) {
     reactor.base.time
       .timeout(5000, { signal: timeoutAbort.signal })
       .then(() => {
@@ -37,4 +37,6 @@ export const ScheduleTimeout = (reactor: DassieReactor) => {
         logger.error("error in packet timeout handler", { error })
       })
   }
+
+  return scheduleTimeout
 }

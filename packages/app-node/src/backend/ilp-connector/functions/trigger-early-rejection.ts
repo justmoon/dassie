@@ -19,7 +19,10 @@ export const TriggerEarlyRejection = (reactor: DassieReactor) => {
   const nodeIlpAddressSignal = reactor.use(NodeIlpAddressSignal)
   const sendPacket = reactor.use(SendPacket)
 
-  return ({ prepare, failure }: EarlyRejectionParameters) => {
+  function triggerEarlyRejection({
+    prepare,
+    failure,
+  }: EarlyRejectionParameters) {
     logger.info("triggering ILP rejection", {
       requestId: prepare.incomingRequestId,
       errorCode: failure.errorCode,
@@ -45,4 +48,6 @@ export const TriggerEarlyRejection = (reactor: DassieReactor) => {
       destinationEndpointInfo: prepare.sourceEndpointInfo,
     })
   }
+
+  return triggerEarlyRejection
 }

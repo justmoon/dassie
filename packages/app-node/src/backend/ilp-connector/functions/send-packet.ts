@@ -67,11 +67,11 @@ export const SendPacket = (reactor: DassieReactor) => {
     http: reactor.use(SendIlpHttpPackets),
   }
 
-  return <TType extends EndpointInfo["type"]>(
+  function sendPacket<TType extends EndpointInfo["type"]>(
     parameters:
       | PreparedPacketParameters<TType>
       | ResolvedPacketParameters<TType>,
-  ) => {
+  ) {
     const sender = senders[
       parameters.destinationEndpointInfo.type
     ] as PacketSender<TType>
@@ -82,4 +82,6 @@ export const SendPacket = (reactor: DassieReactor) => {
       sender.sendPrepare(parameters)
     }
   }
+
+  return sendPacket
 }

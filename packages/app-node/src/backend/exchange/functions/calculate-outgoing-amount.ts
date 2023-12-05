@@ -9,11 +9,11 @@ export const CalculateOutgoingAmount = (reactor: Reactor) => {
   const getCurrencyFromLedgerId = reactor.use(GetCurrencyFromLedgerId)
   const convertCurrencyAmounts = reactor.use(ConvertCurrencyAmounts)
 
-  return (
+  function calculateOutgoingAmount(
     sourceAccountPath: AccountPath,
     destinationAccountPath: AccountPath,
     incomingAmount: bigint,
-  ) => {
+  ) {
     const sourceLedger = getLedgerIdFromPath(sourceAccountPath)
     const destinationLedger = getLedgerIdFromPath(destinationAccountPath)
 
@@ -30,4 +30,6 @@ export const CalculateOutgoingAmount = (reactor: Reactor) => {
       incomingAmount,
     )
   }
+
+  return calculateOutgoingAmount
 }

@@ -21,12 +21,12 @@ export const TriggerLateRejection = (reactor: DassieReactor) => {
   const nodeIlpAddressSignal = reactor.use(NodeIlpAddressSignal)
   const processRejectPacket = reactor.use(ProcessRejectPacket)
 
-  return ({
+  function triggerLateRejection({
     sourceEndpointInfo,
     requestId,
     errorCode,
     message,
-  }: LateRejectionParameters) => {
+  }: LateRejectionParameters) {
     logger.info("triggering ILP rejection", { requestId, errorCode, message })
 
     const rejectPacket: IlpPacket & { type: typeof IlpType.Reject } = {
@@ -48,4 +48,6 @@ export const TriggerLateRejection = (reactor: DassieReactor) => {
       requestId,
     })
   }
+
+  return triggerLateRejection
 }

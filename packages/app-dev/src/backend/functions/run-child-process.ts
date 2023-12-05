@@ -34,13 +34,13 @@ interface RunNodeChildProcessProperties {
 
 export const RunChildProcess = (reactor: Reactor) => {
   const logsStore = reactor.use(LogsStore)
-  return async ({
+  async function runChildProcess({
     lifecycle,
     nodeServer,
     id,
     environment,
     extraArguments = [],
-  }: RunNodeChildProcessProperties) => {
+  }: RunNodeChildProcessProperties) {
     let child: ChildProcess | undefined
     const ready = pDefer<void>()
     const timeoutAbort = new AbortController()
@@ -191,4 +191,6 @@ export const RunChildProcess = (reactor: Reactor) => {
       signal: timeoutAbort.signal,
     })
   }
+
+  return runChildProcess
 }

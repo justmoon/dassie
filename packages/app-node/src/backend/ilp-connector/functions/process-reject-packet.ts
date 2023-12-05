@@ -19,12 +19,12 @@ export const ProcessRejectPacket = (reactor: DassieReactor) => {
   const pendingPacketsMap = reactor.use(PendingPacketsMap)
   const sendPacket = reactor.use(SendPacket)
 
-  return ({
+  function processRejectPacket({
     sourceEndpointInfo,
     parsedPacket,
     serializedPacket,
     requestId,
-  }: ProcessIncomingPacketParameters<typeof IlpType.Reject>) => {
+  }: ProcessIncomingPacketParameters<typeof IlpType.Reject>) {
     logger.debug(`received ILP reject`, {
       requestId,
     })
@@ -58,4 +58,6 @@ export const ProcessRejectPacket = (reactor: DassieReactor) => {
     sendPacket(resolvedIlpPacketEvent)
     resolvedIlpPacketTopic.emit(resolvedIlpPacketEvent)
   }
+
+  return processRejectPacket
 }

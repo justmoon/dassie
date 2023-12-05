@@ -10,14 +10,14 @@ import modules from "../modules"
  * This function is just a placeholder right now. In the future, this will check the settlement module to determine the
  * ledger ID.
  */
-export const GetLedgerIdForSettlementScheme = () => {
-  return (settlementSchemeId: SettlementSchemeId): LedgerId => {
-    const module = modules[settlementSchemeId]
+export function getLedgerIdForSettlementScheme(
+  settlementSchemeId: SettlementSchemeId,
+): LedgerId {
+  const module = modules[settlementSchemeId]
 
-    if (!module) {
-      throw new Error(`Unknown settlement scheme '${settlementSchemeId}'`)
-    }
-
-    return module.ledger.id
+  if (!module) {
+    throw new Error(`Unknown settlement scheme '${settlementSchemeId}'`)
   }
+
+  return module.ledger.id
 }

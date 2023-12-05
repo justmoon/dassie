@@ -10,7 +10,7 @@ import { PeersSignal } from "../peer-protocol/computed/peers"
 import { SendPeerMessage } from "../peer-protocol/functions/send-peer-message"
 import { NodeTableStore } from "../peer-protocol/stores/node-table"
 import { NodeId } from "../peer-protocol/types/node-id"
-import { GetLedgerIdForSettlementScheme } from "./functions/get-ledger-id"
+import { getLedgerIdForSettlementScheme } from "./functions/get-ledger-id"
 import { ManageSettlementSchemeInstancesActor } from "./manage-settlement-scheme-instances"
 import { PendingSettlementsMap } from "./values/pending-settlements-map"
 
@@ -98,9 +98,6 @@ export const SendOutgoingSettlementsActor = (reactor: Reactor) => {
   const nodeTable = reactor.use(NodeTableStore)
   const settlementSchemeManager = reactor.use(
     ManageSettlementSchemeInstancesActor,
-  )
-  const getLedgerIdForSettlementScheme = reactor.use(
-    GetLedgerIdForSettlementScheme,
   )
   const pendingSettlementsMap = reactor.use(PendingSettlementsMap)
   const sendPeerMessage = reactor.use(SendPeerMessage)

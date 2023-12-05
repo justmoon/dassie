@@ -29,12 +29,12 @@ export const ProcessPreparePacket = (reactor: DassieReactor) => {
     CalculatePreparePacketOutcome,
   )
 
-  return ({
+  function processPreparePacket({
     sourceEndpointInfo,
     parsedPacket,
     serializedPacket,
     requestId,
-  }: ProcessIncomingPacketParameters<typeof IlpType.Prepare>) => {
+  }: ProcessIncomingPacketParameters<typeof IlpType.Prepare>) {
     logger.debug("received ILP prepare", {
       from: sourceEndpointInfo.ilpAddress,
       to: parsedPacket.data.destination,
@@ -118,4 +118,6 @@ export const ProcessPreparePacket = (reactor: DassieReactor) => {
     sendPacket(outgoingPacketEvent)
     preparedIlpPacketTopic.emit(preparedIlpPacketEvent)
   }
+
+  return processPreparePacket
 }

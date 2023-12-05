@@ -11,7 +11,7 @@ import {
 import { DatabaseConfigStore } from "../config/database-config"
 import { settlement as logger } from "../logger/instances"
 import { SendPeerMessage } from "../peer-protocol/functions/send-peer-message"
-import { GetLedgerIdForSettlementScheme } from "./functions/get-ledger-id"
+import { getLedgerIdForSettlementScheme } from "./functions/get-ledger-id"
 import modules from "./modules"
 import { ActiveSettlementSchemesSignal } from "./signals/active-settlement-schemes"
 import type { SettlementSchemeHostMethods } from "./types/settlement-scheme-module"
@@ -19,9 +19,6 @@ import { PendingSettlementsMap } from "./values/pending-settlements-map"
 
 export const ManageSettlementSchemeInstancesActor = (reactor: Reactor) => {
   const ledgerStore = reactor.use(LedgerStore)
-  const getLedgerIdForSettlementScheme = reactor.use(
-    GetLedgerIdForSettlementScheme,
-  )
   const pendingSettlementsMap = reactor.use(PendingSettlementsMap)
   const sendPeerMessage = reactor.use(SendPeerMessage)
 

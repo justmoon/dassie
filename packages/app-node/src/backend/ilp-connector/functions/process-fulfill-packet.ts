@@ -21,12 +21,12 @@ export const ProcessFulfillPacket = (reactor: DassieReactor) => {
   const pendingPacketsMap = reactor.use(PendingPacketsMap)
   const sendPacket = reactor.use(SendPacket)
 
-  return ({
+  function processFulfillPacket({
     sourceEndpointInfo,
     parsedPacket,
     serializedPacket,
     requestId,
-  }: ProcessIncomingPacketParameters<typeof IlpType.Fulfill>) => {
+  }: ProcessIncomingPacketParameters<typeof IlpType.Fulfill>) {
     logger.debug(`received ILP fulfill`, {
       requestId,
     })
@@ -76,4 +76,6 @@ export const ProcessFulfillPacket = (reactor: DassieReactor) => {
     sendPacket(resolvedIlpPacketEvent)
     resolvedIlpPacketTopic.emit(resolvedIlpPacketEvent)
   }
+
+  return processFulfillPacket
 }

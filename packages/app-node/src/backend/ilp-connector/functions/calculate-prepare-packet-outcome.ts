@@ -57,7 +57,7 @@ export const CalculatePreparePacketOutcome = (reactor: DassieReactor) => {
   const resolveIlpAddress = reactor.use(ResolveIlpAddress)
   const calculateOutgoingAmount = reactor.use(CalculateOutgoingAmount)
 
-  return ({
+  function calculatePacketOutcome({
     sourceEndpointInfo,
     parsedPacket,
   }: CalculatePreparePacketOutcomeParameters):
@@ -67,7 +67,7 @@ export const CalculatePreparePacketOutcome = (reactor: DassieReactor) => {
     | InsufficientLiquidityIlpFailure
     | InternalErrorIlpFailure
     | InvalidPacketIlpFailure
-    | InsufficientTimeoutIlpFailure => {
+    | InsufficientTimeoutIlpFailure {
     const destinationEndpointInfo = resolveIlpAddress(
       parsedPacket.data.destination,
     )
@@ -139,4 +139,6 @@ export const CalculatePreparePacketOutcome = (reactor: DassieReactor) => {
       transfers,
     }
   }
+
+  return calculatePacketOutcome
 }

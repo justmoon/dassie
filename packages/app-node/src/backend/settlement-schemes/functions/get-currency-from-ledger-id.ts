@@ -8,7 +8,8 @@ export const GetCurrencyFromLedgerId = () => {
   for (const module of Object.values(modules)) {
     ledgerIdToCurrency.set(module.ledger.id, module.ledger.currency)
   }
-  return (ledgerId: LedgerId) => {
+
+  function getCurrencyFromLedgerId(ledgerId: LedgerId) {
     const currency = ledgerIdToCurrency.get(ledgerId)
 
     if (!currency) {
@@ -17,4 +18,6 @@ export const GetCurrencyFromLedgerId = () => {
 
     return currency
   }
+
+  return getCurrencyFromLedgerId
 }
