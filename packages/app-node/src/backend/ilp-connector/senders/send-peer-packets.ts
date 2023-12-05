@@ -43,6 +43,11 @@ export const SendPeerPackets = (reactor: Reactor): PacketSender<"peer"> => {
     }) => {
       logger.debug("sending ilp packet", { nextHop: nodeId })
 
+      logger.assert(
+        typeof requestId === "number",
+        "expected requestId to be a number for peer packets",
+      )
+
       tell(() =>
         sendPeerMessage({
           destination: nodeId,

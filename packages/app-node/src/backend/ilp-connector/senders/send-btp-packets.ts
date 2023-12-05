@@ -126,6 +126,11 @@ export const SendBtpPackets = (
       return
     }
 
+    logger.assert(
+      typeof requestId === "number",
+      "expected request id to be a number for BTP",
+    )
+
     const btpEnvelopeSerializeResult = btpEnvelopeSchema.serialize({
       messageType: BtpType.Response,
       requestId,

@@ -8,7 +8,7 @@ export interface PreparedIlpPacketEvent {
   readonly sourceEndpointInfo: EndpointInfo
   readonly serializedPacket: Uint8Array
   readonly parsedPacket: IlpPreparePacket
-  readonly incomingRequestId: number
+  readonly incomingRequestId: number | string
   readonly outgoingRequestId: number
   readonly pendingTransfers: readonly Transfer[]
   readonly timeoutAbort: AbortController

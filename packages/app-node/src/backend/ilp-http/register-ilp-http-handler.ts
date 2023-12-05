@@ -14,7 +14,7 @@ import { parseIlpPacket } from "../ilp-connector/schemas/ilp-packet-codec"
 import { IlpHttpEndpointInfo } from "../ilp-connector/senders/send-ilp-http-packets"
 import { IlpHttpIlpAddress } from "../ilp-connector/types/ilp-address"
 import { ILP_OVER_HTTP_CONTENT_TYPE } from "./constants/content-type"
-import { IncomingRequestIdMap, nextId } from "./values/incoming-request-id-map"
+import { IncomingRequestIdMap } from "./values/incoming-request-id-map"
 
 export const RegisterIlpHttpHandlerActor = (reactor: DassieReactor) => {
   const processPacket = reactor.use(ProcessPacket)
@@ -37,12 +37,12 @@ export const RegisterIlpHttpHandlerActor = (reactor: DassieReactor) => {
           )
         }
 
-        const textualRequestIdHeader = request.headers["request-id"]
-        const textualRequestId = Array.isArray(textualRequestIdHeader)
-          ? textualRequestIdHeader[0]
-          : textualRequestIdHeader
+        const requestIdHeader = request.headers["request-id"]
+        const requestId = Array.isArray(requestIdHeader)
+          ? requestIdHeader[0]
+          : requestIdHeader
 
-        if (!textualRequestId) {
+        if (!requestId) {
           return new BadRequestFailure("Missing required header Request-Id")
         }
 
@@ -63,10 +63,8 @@ export const RegisterIlpHttpHandlerActor = (reactor: DassieReactor) => {
           ilpAddress: "test.not-implemented" as IlpHttpIlpAddress,
         }
 
-        const numericRequestId = nextId()
-
-        incomingRequestIdMap.set(numericRequestId, {
-          requestId: textualRequestId,
+        incomingRequestIdMap.set(requestId, {
+          requestId,
           callbackUrl,
         })
 
@@ -74,7 +72,7 @@ export const RegisterIlpHttpHandlerActor = (reactor: DassieReactor) => {
           sourceEndpointInfo: endpointInfo,
           serializedPacket: request.body,
           parsedPacket: parseIlpPacket(request.body),
-          requestId: numericRequestId,
+          requestId,
         })
 
         return createPlainResponse("", {

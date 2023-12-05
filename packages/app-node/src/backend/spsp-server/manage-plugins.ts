@@ -28,7 +28,10 @@ export const ManagePluginsActor = (reactor: DassieReactor) => {
     const processPacket = reactor.use(ProcessPacket)
 
     const pluginHandlerMap = new Map<number, DataHandler>()
-    const outstandingRequests = new Map<number, (data: Buffer) => void>()
+    const outstandingRequests = new Map<
+      number | string,
+      (data: Buffer) => void
+    >()
 
     return {
       createPlugin: (): Plugin => {
@@ -156,7 +159,7 @@ export const ManagePluginsActor = (reactor: DassieReactor) => {
         requestId,
         serializedPacket,
       }: {
-        requestId: number
+        requestId: number | string
         serializedPacket: Uint8Array
       }) => {
         const resolve = outstandingRequests.get(requestId)

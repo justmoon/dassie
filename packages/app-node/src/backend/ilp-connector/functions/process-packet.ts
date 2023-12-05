@@ -12,7 +12,7 @@ export interface ProcessIncomingPacketParameters<
   sourceEndpointInfo: EndpointInfo
   serializedPacket: Uint8Array
   parsedPacket: Extract<IlpPacket, { type: TType }>
-  requestId: number
+  requestId: number | string
 }
 
 export type IlpPacketHandler<TType extends IlpType> = (
