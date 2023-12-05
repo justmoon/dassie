@@ -15,7 +15,7 @@ import { Reactor } from "@dassie/lib-reactive"
 import { createFlow, header, note } from "@dassie/lib-terminal-graphics"
 import { isErrorWithCode } from "@dassie/lib-type-utils"
 
-import { EnvironmentConfigSignal } from "../../../config/environment-config"
+import { EnvironmentConfig } from "../../../config/environment-config"
 import { downloadFile } from "./download-file"
 
 export const UpdateCommand = (reactor: Reactor) =>
@@ -39,9 +39,7 @@ export const UpdateCommand = (reactor: Reactor) =>
       }),
     },
     async handler({ force, targetVersion }) {
-      const { rootPath, temporaryPath } = reactor
-        .use(EnvironmentConfigSignal)
-        .read()
+      const { rootPath, temporaryPath } = reactor.use(EnvironmentConfig)
       const architecture = process.arch
       const sessionTemporaryPath = `${temporaryPath}/dassie-update-${Date.now()}-${
         process.pid

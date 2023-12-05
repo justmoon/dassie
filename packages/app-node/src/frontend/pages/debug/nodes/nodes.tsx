@@ -11,14 +11,13 @@ import {
 import { trpc } from "../../../utils/trpc"
 
 export function Nodes() {
-  const config = useRemoteSignal(trpc.debug.subscribeConfig)
   const nodeTable = useRemoteSignal(trpc.debug.subscribeNodeTable)
   const routingTable = useRemoteSignal(trpc.debug.subscribeRoutingTable)
 
   const { data: ilpAllocationScheme } =
     trpc.general.getAllocationScheme.useQuery(undefined)
 
-  if (!ilpAllocationScheme || !config || !nodeTable || !routingTable) {
+  if (!ilpAllocationScheme || !nodeTable || !routingTable) {
     return null
   }
 

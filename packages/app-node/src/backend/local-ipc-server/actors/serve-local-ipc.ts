@@ -5,7 +5,7 @@ import { createActor } from "@dassie/lib-reactive"
 import { createSocketHandler } from "@dassie/lib-trpc-ipc/adapter"
 import { isErrorWithCode } from "@dassie/lib-type-utils"
 
-import { EnvironmentConfigSignal } from "../../config/environment-config"
+import { EnvironmentConfig } from "../../config/environment-config"
 import { ipc as logger } from "../../logger/instances"
 import {
   getSocketActivationFileDescriptors,
@@ -44,9 +44,7 @@ const getListenTargets = (
 
 export const ServeLocalIpcActor = () =>
   createActor((sig) => {
-    const { ipcSocketPath } = sig.readKeysAndTrack(EnvironmentConfigSignal, [
-      "ipcSocketPath",
-    ])
+    const { ipcSocketPath } = sig.reactor.use(EnvironmentConfig)
 
     const handler = createSocketHandler({
       router: appRouter,

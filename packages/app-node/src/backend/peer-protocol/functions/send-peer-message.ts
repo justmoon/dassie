@@ -9,7 +9,7 @@ import {
   isFailure,
 } from "@dassie/lib-type-utils"
 
-import { EnvironmentConfigSignal } from "../../config/environment-config"
+import { EnvironmentConfig } from "../../config/environment-config"
 import { NodeIdSignal } from "../../ilp-connector/computed/node-id"
 import { peerProtocol as logger } from "../../logger/instances"
 import { DASSIE_MESSAGE_CONTENT_TYPE } from "../constants/content-type"
@@ -55,7 +55,7 @@ interface NodeContactInfo {
 export const SendPeerMessage = (reactor: Reactor) => {
   const nodeIdSignal = reactor.use(NodeIdSignal)
   const nodeTable = reactor.use(NodeTableStore)
-  const environmentConfigSignal = reactor.use(EnvironmentConfigSignal)
+  const environmentConfig = reactor.use(EnvironmentConfig)
   const generateMessageAuthentication = reactor.use(
     GenerateMessageAuthentication,
   )
@@ -76,9 +76,9 @@ export const SendPeerMessage = (reactor: Reactor) => {
 
     // If the node is a bootstrap node, we can use the URL from the config
     {
-      const node = environmentConfigSignal
-        .read()
-        .bootstrapNodes.find((node) => node.id === nodeId)
+      const node = environmentConfig.bootstrapNodes.find(
+        (node) => node.id === nodeId,
+      )
 
       if (node) {
         return {

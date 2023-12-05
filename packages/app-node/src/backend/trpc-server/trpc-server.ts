@@ -9,14 +9,14 @@ import { SESSION_COOKIE_NAME } from "../../common/constants/cookie-name"
 import { DEV_SECURITY_TOKEN_LENGTH } from "../../common/constants/general"
 import { SessionsStore } from "../authentication/database-stores/sessions"
 import { SessionToken } from "../authentication/types/session-token"
-import { EnvironmentConfigSignal } from "../config/environment-config"
+import { EnvironmentConfig } from "../config/environment-config"
 import { WebsocketRoutesSignal } from "../http-server/serve-https"
 import { appRouter } from "./app-router"
 
 export const connectionMap = new Map<string, WebSocket>()
 
 export const RegisterTrpcHttpUpgradeActor = (reactor: Reactor) => {
-  const environmentConfigSignal = reactor.use(EnvironmentConfigSignal)
+  const environmentConfig = reactor.use(EnvironmentConfig)
   const sessionsStore = reactor.use(SessionsStore)
 
   return createActor((sig) => {
@@ -50,7 +50,7 @@ export const RegisterTrpcHttpUpgradeActor = (reactor: Reactor) => {
         if (import.meta.env.DEV) {
           const parsedUrl = new URL(url!, "http://localhost")
           const providedToken = parsedUrl.searchParams.get("token")
-          const expectedToken = environmentConfigSignal.read().devSecurityToken
+          const expectedToken = environmentConfig.devSecurityToken
 
           if (
             expectedToken &&

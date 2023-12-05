@@ -1,8 +1,6 @@
 import envPaths from "env-paths"
 import { ZodTypeAny, z } from "zod"
 
-import { createSignal } from "@dassie/lib-reactive"
-
 import { DEV_SECURITY_TOKEN_LENGTH } from "../../common/constants/general"
 import { DEFAULT_BOOTSTRAP_NODES } from "../constants/bootstrap-nodes"
 import { APP_NAME, VALID_REALMS } from "../constants/general"
@@ -50,7 +48,7 @@ function parseConfigOptionWithSchema<TSchema extends ZodTypeAny>(
   return schema.parse(JSON.parse(option)) as z.infer<TSchema>
 }
 
-export function fromEnvironment(): Config {
+export function EnvironmentConfig(): Config {
   const paths = envPaths(APP_NAME)
   const environment = process.env as EnvironmentVariables
 
@@ -83,6 +81,3 @@ export function fromEnvironment(): Config {
     devSecurityToken: environment.DASSIE_DEV_SECURITY_TOKEN ?? false,
   }
 }
-
-export const EnvironmentConfigSignal = () =>
-  createSignal<Config>(fromEnvironment())
