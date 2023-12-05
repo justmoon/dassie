@@ -103,6 +103,21 @@ export interface ConnectedTable<TTable extends TableDescription> {
     row: Simplify<InferRow<TTable>>,
     conflictColumns: (keyof InferRow<TTable>)[],
   ) => BigIntRunResult
+
+  /**
+   * Iterate over all rows in the table.
+   *
+   * @example
+   *
+   * ```
+   * for (const user of database.tables.users) {
+   *   if (user.level === "admin") {
+   *     console.log(user.name)
+   *   }
+   * }
+   * ```
+   */
+  [Symbol.iterator]: () => IterableIterator<Simplify<InferRow<TTable>>>
 }
 
 export const connectTable = <TTable extends TableDescription>(
@@ -249,6 +264,11 @@ export const connectTable = <TTable extends TableDescription>(
       const query = database.prepare(querySource)
 
       return query.run(row) as BigIntRunResult
+    },
+    [Symbol.iterator]: () => {
+      const query = database.prepare(`SELECT * FROM ${name}`)
+
+      return query.iterate() as IterableIterator<Simplify<InferRow<TTable>>>
     },
   }
 }
