@@ -2,6 +2,7 @@ import { createConnection } from "ilp-protocol-stream"
 
 import { createActor, createStore } from "@dassie/lib-reactive"
 
+import { DassieActorContext } from "../base/types/dassie-base"
 import { payment as logger } from "../logger/instances"
 import { resolvePaymentPointer } from "../utils/resolve-payment-pointer"
 import { ManagePluginsActor } from "./manage-plugins"
@@ -24,7 +25,7 @@ export const SpspPaymentQueueStore = () =>
   })
 
 export const SendSpspPaymentsActor = () =>
-  createActor(async (sig) => {
+  createActor(async (sig: DassieActorContext) => {
     const pluginManager = sig.reactor.use(ManagePluginsActor)
     const nextPayment = sig.readAndTrack(
       SpspPaymentQueueStore,

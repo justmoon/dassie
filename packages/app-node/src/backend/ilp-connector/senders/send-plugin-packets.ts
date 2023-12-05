@@ -1,5 +1,4 @@
-import { Reactor } from "@dassie/lib-reactive"
-
+import { DassieReactor } from "../../base/types/dassie-base"
 import { ManagePluginsActor } from "../../spsp-server/manage-plugins"
 import { CommonEndpointInfo, PacketSender } from "../functions/send-packet"
 
@@ -9,7 +8,9 @@ export interface PluginEndpointInfo extends CommonEndpointInfo {
   readonly localIlpAddressPart: string
 }
 
-export const SendPluginPackets = (reactor: Reactor): PacketSender<"plugin"> => {
+export const SendPluginPackets = (
+  reactor: DassieReactor,
+): PacketSender<"plugin"> => {
   const pluginManager = reactor.use(ManagePluginsActor)
 
   return {

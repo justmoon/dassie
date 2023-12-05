@@ -4,7 +4,7 @@ import { nanoid } from "nanoid"
 import { createActor } from "@dassie/lib-reactive"
 
 import { OwnerLedgerIdSignal } from "../accounting/signals/owner-ledger-id"
-import { DassieActorContext } from "../base/types/dassie-base"
+import { DassieActorContext, DassieReactor } from "../base/types/dassie-base"
 import { NodeIlpAddressSignal } from "../ilp-connector/computed/node-ilp-address"
 import { ProcessPacket } from "../ilp-connector/functions/process-packet"
 import { parseIlpPacket } from "../ilp-connector/schemas/ilp-packet-codec"
@@ -12,19 +12,20 @@ import { PluginEndpointInfo } from "../ilp-connector/senders/send-plugin-packets
 import { payment as logger } from "../logger/instances"
 import { RoutingTableSignal } from "../routing/signals/routing-table"
 
-let nextRequestId = 1
-let nextPluginId = 1
-
 type Connection = PluginEndpointInfo | false
 
 type DataHandler = (data: Buffer) => Promise<Buffer>
 
-export const ManagePluginsActor = () =>
-  createActor((sig: DassieActorContext) => {
+export const ManagePluginsActor = (reactor: DassieReactor) => {
+  const routingTable = reactor.use(RoutingTableSignal)
+  const ownerLedgerIdSignal = reactor.use(OwnerLedgerIdSignal)
+
+  let nextRequestId = 1
+  let nextPluginId = 1
+
+  return createActor((sig: DassieActorContext) => {
     const nodeIlpAddress = sig.readAndTrack(NodeIlpAddressSignal)
-    const processPacket = sig.reactor.use(ProcessPacket)
-    const routingTable = sig.reactor.use(RoutingTableSignal)
-    const ownerLedgerIdSignal = sig.reactor.use(OwnerLedgerIdSignal)
+    const processPacket = reactor.use(ProcessPacket)
 
     const pluginHandlerMap = new Map<number, DataHandler>()
     const outstandingRequests = new Map<number, (data: Buffer) => void>()
@@ -173,3 +174,4 @@ export const ManagePluginsActor = () =>
       },
     }
   })
+}

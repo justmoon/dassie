@@ -6,11 +6,12 @@ import {
 
 import { createActor } from "@dassie/lib-reactive"
 
+import { DassieActorContext } from "../base/types/dassie-base"
 import { payment as logger } from "../logger/instances"
 import { ManagePluginsActor } from "./manage-plugins"
 
 export const StreamServerServiceActor = () =>
-  createActor(async (sig) => {
+  createActor(async (sig: DassieActorContext) => {
     const pluginManager = sig.reactor.use(ManagePluginsActor)
 
     logger.debug("starting stream server")
