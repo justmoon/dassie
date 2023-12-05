@@ -31,6 +31,9 @@ export type ObjectShape = Record<string, AnyOerType>
 
 export type SequenceShape = Record<string, AnyOerType | AnyObjectSetField>
 
+export const extensions = Symbol("extensions")
+export type extensions = typeof extensions
+
 // Takes the type
 export type InferObjectParseShape<TShape extends SequenceShape> = {
   [key in keyof ConditionalPick<
@@ -56,35 +59,46 @@ export type InferObjectSerializeShape<TShape extends SequenceShape> = {
 
 export type InferExtendedSequenceParseShape<
   TConfig extends ExtendedSequenceShape,
-> = InferObjectParseShape<TConfig["root"]> &
-  InferInformationObjectParseShape<TConfig["root"]> &
+> = InferObjectParseShape<TConfig> &
+  InferInformationObjectParseShape<TConfig> &
   Partial<{
-    [key in keyof TConfig["extensions"]]: TConfig["extensions"] extends OerType<
+    [key in keyof TConfig[extensions]]: TConfig[extensions] extends OerType<
       infer K,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       any
     >
       ? K
-      : InferObjectParseShape<TConfig["extensions"][key]>
+      : never
   }>
 
 export type InferExtendedSequenceSerializeShape<
   TConfig extends ExtendedSequenceShape,
-> = InferObjectSerializeShape<TConfig["root"]> &
-  InferInformationObjectSerializeShape<TConfig["root"]> & {
-    [key in keyof TConfig["extensions"]]?: TConfig["extensions"][key] extends OerType<
+> = InferObjectSerializeShape<TConfig> &
+  InferInformationObjectSerializeShape<TConfig> & {
+    [key in keyof TConfig[extensions]]?: TConfig[extensions][key] extends OerType<
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       any,
       infer K
     >
       ? K
-      : InferObjectSerializeShape<TConfig["extensions"][key]>
+      : never
   }
 
-export interface ExtendedSequenceShape {
-  root: SequenceShape
-  isExtensible: boolean
-  extensions: Record<string, ObjectShape>
+export type AddExtensionsToShape<
+  TShape extends ExtendedSequenceShape,
+  TExtensions extends ObjectShape,
+> = OerSequence<
+  {
+    [key in Exclude<keyof TShape, extensions>]: TShape[key]
+  } & {
+    [extensions]: TShape[extensions] extends ObjectShape
+      ? TShape[extensions] & TExtensions
+      : TExtensions
+  }
+>
+
+export type ExtendedSequenceShape = SequenceShape & {
+  [extensions]?: ObjectShape
 }
 
 export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
@@ -92,8 +106,7 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
   InferExtendedSequenceSerializeShape<TShape>
 > {
   private rootEntries: Map<string, AnyOerType | AnyObjectSetField>
-  private isExtensible: boolean
-  private extensions: Map<string, AnyOerType | Map<string, AnyOerType>>
+  private extensions: Map<string, AnyOerType> | undefined
 
   private rootOptionalFields: string[]
 
@@ -110,16 +123,16 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
   constructor(readonly sequenceShape: TShape) {
     super()
 
-    this.rootEntries = new Map(Object.entries(sequenceShape.root))
+    this.rootEntries = new Map(Object.entries(sequenceShape))
 
-    this.extensions = new Map(
-      Object.entries(sequenceShape.extensions).map(([key, value]) => [
-        key,
-        value instanceof OerType ? value : new Map(Object.entries(value)),
-      ]),
-    )
-
-    this.isExtensible = sequenceShape.isExtensible || this.extensions.size > 0
+    this.extensions = sequenceShape[extensions]
+      ? new Map(
+          Object.entries(sequenceShape[extensions]).map(([key, value]) => [
+            key,
+            value,
+          ]),
+        )
+      : undefined
 
     this.rootOptionalFields = [...this.rootEntries]
       .filter(([, value]) => value instanceof OerOptional)
@@ -140,7 +153,7 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
     const optionalFieldsPresence = new Map<string, boolean>()
     let extensionBit = false
 
-    if (this.isExtensible || this.rootOptionalFields.length > 0) {
+    if (this.extensions || this.rootOptionalFields.length > 0) {
       const firstByte = uint8Array[offset]
       if (firstByte == undefined) {
         return new ParseFailure(
@@ -149,9 +162,9 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
           offset,
         )
       }
-      extensionBit = this.isExtensible && Boolean(firstByte & 0b1000_0000)
+      extensionBit = !!this.extensions && Boolean(firstByte & 0b1000_0000)
       const preambleBitLength =
-        (this.isExtensible ? 1 : 0) + this.rootOptionalFields.length
+        (this.extensions ? 1 : 0) + this.rootOptionalFields.length
       const preambleByteLength = Math.ceil(preambleBitLength / 8)
 
       if (uint8Array.length < offset + preambleByteLength) {
@@ -166,7 +179,7 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
         index,
         optionalFieldName,
       ] of this.rootOptionalFields.entries()) {
-        const bitIndex = index + (this.isExtensible ? 1 : 0)
+        const bitIndex = index + (this.extensions ? 1 : 0)
         if (
           (uint8Array[offset + Math.floor(bitIndex / 8)]! >>
             (7 - (bitIndex % 8))) &
@@ -253,16 +266,18 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
       const extensionPresenceBitLength =
         (extensionPresenceLength - 1) * 8 - unusedBits
 
-      let index = 0
-      for (const extensionKey of this.extensions.keys()) {
-        if (index >= extensionPresenceBitLength) break
-        if (
-          (uint8Array[offset + Math.floor(index / 8)]! >> (7 - (index % 8))) &
-          1
-        ) {
-          extensionPresence.push(extensionKey)
+      if (this.extensions) {
+        let index = 0
+        for (const extensionKey of this.extensions.keys()) {
+          if (index >= extensionPresenceBitLength) break
+          if (
+            (uint8Array[offset + Math.floor(index / 8)]! >> (7 - (index % 8))) &
+            1
+          ) {
+            extensionPresence.push(extensionKey)
+          }
+          index++
         }
-        index++
       }
 
       cursor += extensionPresenceLength - 1
@@ -285,7 +300,7 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
 
       cursor += extensionLengthOfLength
 
-      const extension = this.extensions.get(extensionKey)
+      const extension = this.extensions?.get(extensionKey)
 
       if (extension instanceof OerType) {
         const extensionParseResult = extension.parseWithContext(
@@ -330,7 +345,7 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
 
     // --- Preamble ---
     const preambleBitLength =
-      (this.isExtensible ? 1 : 0) + this.rootOptionalFields.length
+      (this.extensions ? 1 : 0) + this.rootOptionalFields.length
     const preambleLength = Math.ceil(preambleBitLength / 8)
     totalLength += preambleLength
 
@@ -360,98 +375,104 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
     // --- Extension Presence Bitmap ---
 
     let extensionBit = false
-    {
-      let maxExtensionIndex = 0
+    const extensionsMap = this.extensions
+    if (extensionsMap) {
+      {
+        let maxExtensionIndex = 0
 
-      let index = 0
-      for (const key of this.extensions.keys()) {
-        if (key in input) {
-          extensionBit = true
-          maxExtensionIndex = index
-        }
-        index++
-      }
-
-      if (extensionBit) {
-        const extensionPresenceLength =
-          1 + Math.ceil((maxExtensionIndex + 1) / 8)
-        const extensionPresenceLengthOfLength = predictLengthPrefixLength(
-          extensionPresenceLength,
-        )
-
-        if (isFailure(extensionPresenceLengthOfLength)) {
-          return extensionPresenceLengthOfLength
+        let index = 0
+        for (const key of extensionsMap.keys()) {
+          if (key in input) {
+            extensionBit = true
+            maxExtensionIndex = index
+          }
+          index++
         }
 
-        totalLength += extensionPresenceLengthOfLength + extensionPresenceLength
-
-        const serializer: Serializer = (
-          context: SerializeContext,
-          offset: number,
-        ) => {
-          const { uint8Array } = context
-          const lengthSerializeResult = serializeLengthPrefix(
+        if (extensionBit) {
+          const extensionPresenceLength =
+            1 + Math.ceil((maxExtensionIndex + 1) / 8)
+          const extensionPresenceLengthOfLength = predictLengthPrefixLength(
             extensionPresenceLength,
-            uint8Array,
-            offset,
           )
-          if (isFailure(lengthSerializeResult)) return lengthSerializeResult
 
-          // Unused bits
-          uint8Array[offset + extensionPresenceLengthOfLength] =
-            7 - (maxExtensionIndex % 8)
-
-          let index = 0
-          const bitmapOffset = offset + extensionPresenceLengthOfLength + 1
-          for (const key of this.extensions.keys()) {
-            if (index > maxExtensionIndex) break
-
-            if (key in input) {
-              uint8Array[bitmapOffset + Math.floor(index / 8)]! |=
-                1 << (7 - (index % 8))
-            }
-            index++
+          if (isFailure(extensionPresenceLengthOfLength)) {
+            return extensionPresenceLengthOfLength
           }
 
-          return
-        }
-        serializer.size =
-          extensionPresenceLengthOfLength + extensionPresenceLength
+          totalLength +=
+            extensionPresenceLengthOfLength + extensionPresenceLength
 
-        serializers.push(serializer)
+          const serializer: Serializer = (
+            context: SerializeContext,
+            offset: number,
+          ) => {
+            const { uint8Array } = context
+            const lengthSerializeResult = serializeLengthPrefix(
+              extensionPresenceLength,
+              uint8Array,
+              offset,
+            )
+            if (isFailure(lengthSerializeResult)) return lengthSerializeResult
+
+            // Unused bits
+            uint8Array[offset + extensionPresenceLengthOfLength] =
+              7 - (maxExtensionIndex % 8)
+
+            let index = 0
+            const bitmapOffset = offset + extensionPresenceLengthOfLength + 1
+            for (const key of extensionsMap.keys()) {
+              if (index > maxExtensionIndex) break
+
+              if (key in input) {
+                uint8Array[bitmapOffset + Math.floor(index / 8)]! |=
+                  1 << (7 - (index % 8))
+              }
+              index++
+            }
+
+            return
+          }
+          serializer.size =
+            extensionPresenceLengthOfLength + extensionPresenceLength
+
+          serializers.push(serializer)
+        }
       }
-    }
 
-    // --- Extensions ---
+      // --- Extensions ---
 
-    for (const [key, extension] of this.extensions) {
-      if (!(key in input)) continue
+      for (const [key, extension] of extensionsMap) {
+        if (!(key in input)) continue
 
-      if (extension instanceof OerType) {
-        const innerSerializer = extension.serializeWithContext(input[key])
-        if (isFailure(innerSerializer)) return innerSerializer
-
-        const extensionLengthOfLength = predictLengthPrefixLength(
-          innerSerializer.size,
-        )
-        if (isFailure(extensionLengthOfLength)) return extensionLengthOfLength
-
-        const serializer: Serializer = (
-          context: SerializeContext,
-          offset: number,
-        ) => {
-          const lengthSerializeResult = serializeLengthPrefix(
-            innerSerializer.size,
-            context.uint8Array,
-            offset,
+        if (extension instanceof OerType) {
+          const innerSerializer = extension.serializeWithContext(
+            input[key as keyof typeof input],
           )
-          if (isFailure(lengthSerializeResult)) return lengthSerializeResult
+          if (isFailure(innerSerializer)) return innerSerializer
 
-          return innerSerializer(context, offset + extensionLengthOfLength)
+          const extensionLengthOfLength = predictLengthPrefixLength(
+            innerSerializer.size,
+          )
+          if (isFailure(extensionLengthOfLength)) return extensionLengthOfLength
+
+          const serializer: Serializer = (
+            context: SerializeContext,
+            offset: number,
+          ) => {
+            const lengthSerializeResult = serializeLengthPrefix(
+              innerSerializer.size,
+              context.uint8Array,
+              offset,
+            )
+            if (isFailure(lengthSerializeResult)) return lengthSerializeResult
+
+            return innerSerializer(context, offset + extensionLengthOfLength)
+          }
+          serializer.size = extensionLengthOfLength + innerSerializer.size
+          serializers.push(serializer)
+          totalLength += extensionLengthOfLength + innerSerializer.size
         }
-        serializer.size = extensionLengthOfLength + innerSerializer.size
-        serializers.push(serializer)
-        totalLength += extensionLengthOfLength + innerSerializer.size
       }
     }
 
@@ -475,7 +496,7 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
           optionalFieldName,
         ] of this.rootOptionalFields.entries()) {
           if (optionalFieldName in input) {
-            const bitIndex = (this.isExtensible ? 1 : 0) + index
+            const bitIndex = (this.extensions ? 1 : 0) + index
             uint8Array[offset + Math.floor(bitIndex / 8)]! |=
               1 << (7 - (bitIndex % 8))
           }
@@ -501,37 +522,26 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
   }
 
   extensible() {
-    this.isExtensible = true
+    this.extensions ??= new Map()
     return this
   }
 
-  extend<
-    TExtensions extends Record<string, AnyOerType | Record<string, AnyOerType>>,
-  >(
-    extensions: TExtensions,
-  ): OerSequence<{
-    root: TShape["root"]
-    isExtensible: true
-    extensions: TShape["extensions"] & TExtensions
-  }> {
+  extend<TExtensions extends Record<string, AnyOerType>>(
+    newExtensions: TExtensions,
+  ): AddExtensionsToShape<TShape, TExtensions> {
     const newSequence = new OerSequence({
-      root: this.sequenceShape.root,
-      isExtensible: true,
-      extensions: {
-        ...this.sequenceShape.extensions,
-        ...extensions,
-      } as TShape["extensions"] & TExtensions,
+      ...this.sequenceShape,
+      [extensions]: {
+        ...this.sequenceShape[extensions],
+        ...newExtensions,
+      },
     })
-    return newSequence
+    return newSequence as unknown as AddExtensionsToShape<TShape, TExtensions>
   }
 }
 
 export const sequence = <TRootShape extends SequenceShape>(
   sequenceShape: TRootShape,
 ) => {
-  return new OerSequence({
-    root: sequenceShape,
-    isExtensible: false,
-    extensions: {},
-  })
+  return new OerSequence(sequenceShape)
 }
