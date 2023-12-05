@@ -14,10 +14,7 @@ export type RetransmitType = "immediately" | "scheduled" | "never"
 
 export interface ProcessLinkStateParameters {
   linkStateBytes: Uint8Array
-  linkState: Pick<
-    Infer<typeof peerNodeInfo>,
-    "nodeId" | "sequence" | "publicKey" | "url" | "alias" | "entries"
-  >
+  linkState: Omit<Infer<typeof peerNodeInfo>, "type">
   retransmit: RetransmitType
 }
 

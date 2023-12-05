@@ -21,7 +21,7 @@ export const HandlePeeringRequest = ((reactor: Reactor) => {
   }) => {
     const { nodeInfo, settlementSchemeId, settlementSchemeData } = content
 
-    const { nodeId } = nodeInfo.signed
+    const { nodeId } = nodeInfo.signed.value
 
     if (!activeSettlementSchemesSignal.read().has(settlementSchemeId)) {
       return { accepted: false, data: EMPTY_UINT8ARRAY }

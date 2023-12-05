@@ -75,7 +75,7 @@ export const MaintainOwnNodeTableEntryActor = () =>
 
       const signature = await signWithDassieKey(peerNodeInfoResult)
       const message = signedPeerNodeInfo.serialize({
-        signed: peerNodeInfoResult,
+        signed: { bytes: peerNodeInfoResult },
         signature: {
           type: "ed25519",
           value: signature,

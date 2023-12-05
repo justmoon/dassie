@@ -182,6 +182,7 @@ export const SendPeerMessage = (reactor: Reactor) => {
         error,
         to: destination,
         url: contactInfo.url,
+        type: message.type,
       })
 
       return

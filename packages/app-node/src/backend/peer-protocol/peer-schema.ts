@@ -58,7 +58,7 @@ export const signaturePackage = choice({
 })
 
 export const signedPeerNodeInfo = sequence({
-  signed: octetString().containing(peerNodeInfo),
+  signed: octetString().containing(captured(peerNodeInfo)),
   signature: signaturePackage,
 })
 

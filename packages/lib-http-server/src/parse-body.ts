@@ -101,7 +101,7 @@ export const parseBodyOer =
     const result = schema.parse(uint8ArrayBody.body)
 
     if (isFailure(result)) {
-      console.debug("request body does not pass schema", {
+      console.info("request body does not pass schema", {
         error: result,
       })
       return new BadRequestFailure("Invalid HTTP request body")

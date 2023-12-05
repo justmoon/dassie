@@ -1,4 +1,5 @@
 import { Reactor, createActor } from "@dassie/lib-reactive"
+import { isFailure } from "@dassie/lib-type-utils"
 
 import { DassieActorContext } from "../base/types/dassie-base"
 import { EnvironmentConfig } from "../config/environment-config"
@@ -7,6 +8,7 @@ import { peerProtocol as logger } from "../logger/instances"
 import { NODE_STATE_STALE_TIMEOUT } from "./constants/timings"
 import { ModifyNodeTable } from "./functions/modify-node-table"
 import { SendPeerMessage } from "./functions/send-peer-message"
+import { verifyLinkState } from "./functions/verify-link-state"
 import { NodeTableStore } from "./stores/node-table"
 import { NodeId } from "./types/node-id"
 
@@ -92,11 +94,26 @@ export const RefreshNodeStateActor = (reactor: Reactor) => {
 
       if (!linkState) return
 
-      const { signed } = linkState.value
+      const { signed, signature } = linkState.value
+
+      const verifyResult = await verifyLinkState({
+        linkStateSignedBytes: signed.bytes,
+        linkState: signed.value,
+        signature,
+      })
+
+      if (isFailure(verifyResult)) {
+        // Ignore invalid link state
+        logger.warn("received invalid link state", {
+          from: oracleNodeId,
+          error: verifyResult,
+        })
+        return
+      }
 
       modifyNodeTable.processLinkState({
         linkStateBytes: linkState.bytes,
-        linkState: signed,
+        linkState: signed.value,
         retransmit: "never",
       })
     }
