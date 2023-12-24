@@ -1,5 +1,9 @@
 {
   "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.preferences.importModuleSpecifier": "project-relative",
+  "typescript.preferences.importModuleSpecifierEnding": "minimal",
+  "typescript.preferences.preferTypeOnlyAutoImports": true,
+  "typescript.format.semicolons": "remove",
   "unocss.root": ["packages/app-dev", "packages/app-node/src/frontend"],
   "cSpell.words": ["Dassie", "Interledger", "Tigerbeetle"]
 }
