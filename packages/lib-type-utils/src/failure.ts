@@ -14,9 +14,11 @@ export const FAILURE_UNIQUE_KEY = "dassie.failure"
  *
  * @example
  *
- * class InvalidAccountError extends Failure \{ \}
+ * ```ts
+ * class InvalidAccountFailure extends Failure { }
  *
- * const INVALID_ACCOUNT_ERROR = new InvalidAccountError()
+ * const INVALID_ACCOUNT_FAILURE = new InvalidAccountFailure()
+ * ```
  *
  */
 export abstract class Failure {
@@ -34,20 +36,22 @@ export abstract class Failure {
  *
  * @example
  *
+ * ```ts
  * const result = doSomething()
  *
- * if (isFailure(result)) \{
- *   switch (result.name) \{
- *     case "InvalidAccountError": \{
+ * if (isFailure(result)) {
+ *   switch (result.name) {
+ *     case "InvalidAccountFailure": {
  *       // handle invalid account
  *       break
- *     \}
- *     case "InvalidTransactionError": \{
+ *     }
+ *     case "InvalidTransactionFailure": {
  *       // handle invalid transaction
  *       break
- *     \}
- *   \}
- * \}
+ *     }
+ *   }
+ * }
+ * ```
  */
 export const isFailure = <T>(value: T): value is Extract<T, Failure> => {
   return Boolean(
