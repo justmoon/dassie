@@ -46,7 +46,13 @@ module.exports = {
       { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
     ],
     "object-shorthand": ["warn", "properties"],
-    "import/no-unresolved": ["error", { ignore: ["^virtual:"] }],
+
+    // Handled by TypeScript
+    "import/namespace": "off",
+    "import/default": "off",
+    "import/no-unresolved": "off",
+    "import/no-named-as-default-member": "off",
+
     "n/no-missing-import": "off",
     "n/no-unpublished-import": "off",
     "n/no-extraneous-import": "off",
