@@ -21,6 +21,7 @@ if (!DASSIE_DEV_ENTRY) {
   throw new Error("Missing required environment variable: DASSIE_DEV_ENTRY")
 }
 
+// eslint-disable-next-line @dassie/no-top-level-mutables
 let unique = 0
 /**
  * @param {string} method - RPC method name
@@ -73,7 +74,7 @@ const runner = new ViteNodeRunner({
   async resolveId(id, importer) {
     return /** @type {Promise<ViteNodeResolveId | null>} */ callRpc(
       "resolveId",
-      [id, importer]
+      [id, importer],
     )
   },
 })

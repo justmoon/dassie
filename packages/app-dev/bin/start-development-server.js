@@ -1,3 +1,4 @@
+/* eslint-disable @dassie/no-top-level-mutables */
 import chalk from "chalk"
 import { createServer } from "vite"
 import { ViteNodeRunner } from "vite-node/client"
