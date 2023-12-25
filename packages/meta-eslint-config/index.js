@@ -59,6 +59,23 @@ module.exports = {
     "n/shebang": "off",
     "n/no-process-exit": "off",
     "eslint-comments/disable-enable-pair": ["error", { allowWholeFile: true }],
+
+    "@dassie/no-top-level-side-effects": [
+      "error",
+      {
+        allowSimpleAssignments: true,
+        allowInExportlessModules: true,
+        allowedNodes: [
+          // Some libraries require global function calls for configuration
+          // - { enableMapSet } from 'immer'
+          // - { allowErrorProps, registerClass } from 'superjson'
+          "ExpressionStatement:has(CallExpression[callee.name=/^(enableMapSet|allowErrorProps|registerClass)$/])",
+
+          // Allow inline tests via vitest
+          'IfStatement:has([name="vitest"])',
+        ],
+      },
+    ],
   },
   overrides: [
     {
@@ -83,6 +100,19 @@ module.exports = {
       files: ["*.test.ts{,x}"],
       rules: {
         "unicorn/consistent-function-scoping": "off",
+        "@dassie/no-top-level-side-effects": "off",
+      },
+    },
+    {
+      files: ["**/examples/**"],
+      rules: {
+        "@dassie/no-top-level-side-effects": "off",
+      },
+    },
+    {
+      files: ["**/bin/**"],
+      rules: {
+        "@dassie/no-top-level-side-effects": "off",
       },
     },
   ],
