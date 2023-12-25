@@ -9,7 +9,7 @@ import {
   btpMessageSchema,
   btpTransferSchema,
 } from "@dassie/lib-protocol-utils"
-import { createActor } from "@dassie/lib-reactive"
+import { createActor, createSignal } from "@dassie/lib-reactive"
 import { isFailure } from "@dassie/lib-type-utils"
 
 import { OwnerLedgerIdSignal } from "../accounting/signals/owner-ledger-id"
@@ -24,13 +24,14 @@ import { BtpEndpointInfo } from "../ilp-connector/senders/send-btp-packets"
 import { btp as logger } from "../logger/instances"
 import { RoutingTableSignal } from "../routing/signals/routing-table"
 
-let unique = 0
+const NextConnectionIdSignal = () => createSignal<number>(0)
 
 export const RegisterBtpHttpUpgradeActor = (reactor: DassieReactor) => {
   const processPacket = reactor.use(ProcessPacket)
   const btpTokensStore = reactor.use(BtpTokensStore)
   const routingTableSignal = reactor.use(RoutingTableSignal)
   const ownerLedgerIdSignal = reactor.use(OwnerLedgerIdSignal)
+  const nextConnectionIdSignal = reactor.use(NextConnectionIdSignal)
 
   return createActor((sig) => {
     const nodeIlpAddress = sig.readAndTrack(NodeIlpAddressSignal)
@@ -40,7 +41,9 @@ export const RegisterBtpHttpUpgradeActor = (reactor: DassieReactor) => {
 
     const handleConnection = (socket: WebSocket) => {
       try {
-        const connectionId = unique++
+        const connectionId = nextConnectionIdSignal.read()
+        nextConnectionIdSignal.update((id) => id + 1)
+
         socketMap.set(connectionId, socket)
 
         let localIlpAddressPart: string
