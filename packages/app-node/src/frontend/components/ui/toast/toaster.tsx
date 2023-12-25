@@ -6,10 +6,10 @@ import {
   ToastTitle,
   ToastViewport,
 } from "./toast"
-import { useToast } from "./use-toast"
+import { useToastQueue } from "./toast-queue"
 
 export function Toaster() {
-  const { toasts } = useToast()
+  const toasts = useToastQueue((state) => state.toasts)
 
   return (
     <ToastProvider>

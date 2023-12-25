@@ -70,7 +70,8 @@
     "wouter": "2.12.1",
     "ws": "^8.14.2",
     "xrpl": "^2.14.0",
-    "zod": "^3.22.4"
+    "zod": "^3.22.4",
+    "zustand": "^4.4.7"
   },
   "devDependencies": {
     "@dassie/eslint-config": "workspace:^",
