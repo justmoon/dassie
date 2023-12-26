@@ -200,10 +200,19 @@ export const ProxyByHostnameActor = () =>
       handleIncomingConnection(socket).catch((error: unknown) => {
         socket.destroy()
         if (isErrorWithCode(error, "ECONNREFUSED")) {
-          logger.warn(
-            "proxy connection refused, maybe the node is still starting up",
-            { port: (error as unknown as { port: number }).port },
-          )
+          // Due to this being a development server, it's expected that the
+          // target port may not always be available. So we ignore this type of
+          // error and disconnect the client.
+          //
+          // Unfortunately, the proxy isn't totally transparent. We don't know
+          // which endpoint the client was trying to connect to until after the
+          // TCP connection is established and we get the TLS ClientHello. If
+          // the upstream server rejects the connection, we are already past
+          // that point by the time we find out. We will however fail the TLS
+          // handshake, so the client will know that something went wrong.
+          //
+          // For example, Chrome will report `ERR_CONNECTION_CLOSED` instead of
+          // `ERR_CONNECTION_REFUSED`.
           return
         }
         logger.error("failed to proxy incoming connection", { error })
