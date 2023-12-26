@@ -179,6 +179,15 @@ const handleIncomingConnection = async (socket: Socket) => {
   })
   proxy.write(firstPacket)
   socket.pipe(proxy).pipe(socket)
+
+  proxy.on("end", () => {
+    socket.unpipe(proxy)
+    proxy.unpipe(socket)
+  })
+  socket.on("end", () => {
+    socket.unpipe(proxy)
+    proxy.unpipe(socket)
+  })
 }
 
 export const ProxyByHostnameActor = () =>
