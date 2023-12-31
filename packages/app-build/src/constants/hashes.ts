@@ -29,4 +29,10 @@ export const VERIFIED_HASHES: Record<string, string> = {
     "d23d57d340b537f8351d47a66fc892d0d3300a65a3321e52b81b80b630f8b703",
   "https://github.com/WiseLibs/better-sqlite3/releases/download/v9.0.0/better-sqlite3-v9.0.0-node-v115-linux-x64.tar.gz":
     "e8d56a5064e839bc9b7ab84575eaaf16056aebcd0f08697cbdb1845c618a6e6d",
+  "https://github.com/WiseLibs/better-sqlite3/releases/download/v9.2.0/better-sqlite3-v9.2.0-node-v115-linux-arm64.tar.gz":
+    "d7f1a22c817b8eb53914a8d88dd7272ccd023c618f3f4faa159a3d0f9d96479f",
+  "https://github.com/WiseLibs/better-sqlite3/releases/download/v9.2.0/better-sqlite3-v9.2.0-node-v115-linux-arm.tar.gz":
+    "d5f9c5726b3311fcf2ec50af0f3f7bb6e85596e5c5fca0a4f737f098e1de5d1c",
+  "https://github.com/WiseLibs/better-sqlite3/releases/download/v9.2.0/better-sqlite3-v9.2.0-node-v115-linux-x64.tar.gz":
+    "7b6a881b5544d983da785df6fdfe1ece7a773cfe3af684ee2c27ebe4cedd085b",
 }
