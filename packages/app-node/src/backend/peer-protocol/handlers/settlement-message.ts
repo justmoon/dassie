@@ -1,9 +1,8 @@
-import { Reactor } from "@dassie/lib-reactive"
-
+import { DassieReactor } from "../../base/types/dassie-base"
 import { ManageSettlementSchemeInstancesActor } from "../../settlement-schemes/manage-settlement-scheme-instances"
 import type { PeerMessageHandler } from "../functions/handle-peer-message"
 
-export const HandleSettlementMessage = ((reactor: Reactor) => {
+export const HandleSettlementMessage = ((reactor: DassieReactor) => {
   const settlementSchemeManager = reactor.use(
     ManageSettlementSchemeInstancesActor,
   )

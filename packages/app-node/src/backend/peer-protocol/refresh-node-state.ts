@@ -1,7 +1,7 @@
-import { Reactor, createActor } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 import { isFailure } from "@dassie/lib-type-utils"
 
-import { DassieActorContext } from "../base/types/dassie-base"
+import { DassieActorContext, DassieReactor } from "../base/types/dassie-base"
 import { EnvironmentConfig } from "../config/environment-config"
 import { NodeIdSignal } from "../ilp-connector/computed/node-id"
 import { peerProtocol as logger } from "../logger/instances"
@@ -21,7 +21,7 @@ const NODE_REFRESH_INTERVAL = 1000
  */
 const INDIRECT_QUERY_PROBABILITY = 0.2
 
-export const RefreshNodeStateActor = (reactor: Reactor) => {
+export const RefreshNodeStateActor = (reactor: DassieReactor) => {
   const nodeTableStore = reactor.use(NodeTableStore)
   const modifyNodeTable = reactor.use(ModifyNodeTable)
   const nodeIdSignal = reactor.use(NodeIdSignal)

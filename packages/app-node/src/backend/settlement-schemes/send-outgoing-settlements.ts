@@ -1,10 +1,10 @@
-import { Reactor, createActor, createMapped } from "@dassie/lib-reactive"
+import { createActor, createMapped } from "@dassie/lib-reactive"
 import { UnreachableCaseError, isFailure, tell } from "@dassie/lib-type-utils"
 
 import { processSettlementPrepare } from "../accounting/functions/process-settlement"
 import { Ledger, LedgerStore } from "../accounting/stores/ledger"
 import { LedgerId } from "../accounting/types/ledger-id"
-import { DassieActorContext } from "../base/types/dassie-base"
+import { DassieActorContext, DassieReactor } from "../base/types/dassie-base"
 import { settlement as logger } from "../logger/instances"
 import { PeersSignal } from "../peer-protocol/computed/peers"
 import { SendPeerMessage } from "../peer-protocol/functions/send-peer-message"
@@ -93,7 +93,7 @@ const calculateSettlementAmount = (
   return proposedSettlementAmount
 }
 
-export const SendOutgoingSettlementsActor = (reactor: Reactor) => {
+export const SendOutgoingSettlementsActor = (reactor: DassieReactor) => {
   const ledger = reactor.use(LedgerStore)
   const nodeTable = reactor.use(NodeTableStore)
   const settlementSchemeManager = reactor.use(

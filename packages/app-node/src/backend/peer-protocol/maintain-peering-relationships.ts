@@ -1,6 +1,6 @@
-import { Reactor, createActor } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 
-import { DassieActorContext } from "../base/types/dassie-base"
+import { DassieActorContext, DassieReactor } from "../base/types/dassie-base"
 import { NodeIdSignal } from "../ilp-connector/computed/node-id"
 import { peerProtocol as logger } from "../logger/instances"
 import { ManageSettlementSchemeInstancesActor } from "../settlement-schemes/manage-settlement-scheme-instances"
@@ -18,7 +18,7 @@ function findCommonElement<T>(array: readonly T[], set: Set<T>): T | false {
   return array.find((element) => set.has(element)) ?? false
 }
 
-export const MaintainPeeringRelationshipsActor = (reactor: Reactor) => {
+export const MaintainPeeringRelationshipsActor = (reactor: DassieReactor) => {
   const nodeTableStore = reactor.use(NodeTableStore)
   const nodeIdSignal = reactor.use(NodeIdSignal)
   const activeSettlementSchemesSignal = reactor.use(

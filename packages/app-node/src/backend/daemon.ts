@@ -26,7 +26,7 @@ import { SystemdActor } from "./systemd"
 import { TrpcServerActor } from "./trpc-server"
 
 export const StartTlsDependentServicesActor = () =>
-  createActor((sig) => {
+  createActor((sig: DassieActorContext) => {
     const hasTls = sig.readAndTrack(HasTlsSignal)
 
     if (!hasTls) {

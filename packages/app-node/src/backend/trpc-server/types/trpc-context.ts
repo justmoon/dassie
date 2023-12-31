@@ -1,6 +1,6 @@
-import { ActorContext } from "@dassie/lib-reactive"
+import { DassieActorContext } from "../../base/types/dassie-base"
 
 export interface TrpcContext {
-  sig: ActorContext
+  sig: DassieActorContext
   user: boolean
 }

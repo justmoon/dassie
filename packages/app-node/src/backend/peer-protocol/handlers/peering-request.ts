@@ -1,12 +1,11 @@
-import { Reactor } from "@dassie/lib-reactive"
-
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
+import { DassieReactor } from "../../base/types/dassie-base"
 import { ManageSettlementSchemeInstancesActor } from "../../settlement-schemes/manage-settlement-scheme-instances"
 import { ActiveSettlementSchemesSignal } from "../../settlement-schemes/signals/active-settlement-schemes"
 import type { PeerMessageHandler } from "../functions/handle-peer-message"
 import { NodeTableStore } from "../stores/node-table"
 
-export const HandlePeeringRequest = ((reactor: Reactor) => {
+export const HandlePeeringRequest = ((reactor: DassieReactor) => {
   const nodeTableStore = reactor.use(NodeTableStore)
   const activeSettlementSchemesSignal = reactor.use(
     ActiveSettlementSchemesSignal,

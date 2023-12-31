@@ -1,9 +1,9 @@
 import { enableMapSet, produce } from "immer"
 import pMap from "p-map"
 
-import { Reactor, createActor } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 
-import { DassieActorContext } from "../base/types/dassie-base"
+import { DassieActorContext, DassieReactor } from "../base/types/dassie-base"
 import { EnvironmentConfig } from "../config/environment-config"
 import { NODE_LIST_HASH_POLLING_INTERVAL } from "./constants/timings"
 import { SendPeerMessage } from "./functions/send-peer-message"
@@ -14,7 +14,7 @@ enableMapSet()
 
 const NODE_LIST_POLLING_CONCURRENCY = 5
 
-export const PollNodeListHashesActor = (reactor: Reactor) => {
+export const PollNodeListHashesActor = (reactor: DassieReactor) => {
   const sendPeerMessage = reactor.use(SendPeerMessage)
   const { bootstrapNodes } = reactor.use(EnvironmentConfig)
 

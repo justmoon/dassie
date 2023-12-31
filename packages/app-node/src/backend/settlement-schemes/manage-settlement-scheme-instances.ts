@@ -1,4 +1,4 @@
-import { Reactor, createActor, createMapped } from "@dassie/lib-reactive"
+import { createActor, createMapped } from "@dassie/lib-reactive"
 import { isFailure, tell } from "@dassie/lib-type-utils"
 
 import { initializeCommonAccounts } from "../accounting/functions/manage-common-accounts"
@@ -8,6 +8,7 @@ import {
   AssetsOnLedgerAccount,
   EquityOwnerAccount,
 } from "../accounting/types/account-paths"
+import { DassieReactor } from "../base/types/dassie-base"
 import { DatabaseConfigStore } from "../config/database-config"
 import { settlement as logger } from "../logger/instances"
 import { SendPeerMessage } from "../peer-protocol/functions/send-peer-message"
@@ -17,7 +18,9 @@ import { ActiveSettlementSchemesSignal } from "./signals/active-settlement-schem
 import type { SettlementSchemeHostMethods } from "./types/settlement-scheme-module"
 import { PendingSettlementsMap } from "./values/pending-settlements-map"
 
-export const ManageSettlementSchemeInstancesActor = (reactor: Reactor) => {
+export const ManageSettlementSchemeInstancesActor = (
+  reactor: DassieReactor,
+) => {
   const ledgerStore = reactor.use(LedgerStore)
   const pendingSettlementsMap = reactor.use(PendingSettlementsMap)
   const sendPeerMessage = reactor.use(SendPeerMessage)

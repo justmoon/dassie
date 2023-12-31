@@ -9,6 +9,7 @@ import { SESSION_COOKIE_NAME } from "../../common/constants/cookie-name"
 import { DEV_SECURITY_TOKEN_LENGTH } from "../../common/constants/general"
 import { SessionsStore } from "../authentication/database-stores/sessions"
 import { SessionToken } from "../authentication/types/session-token"
+import { DassieActorContext } from "../base/types/dassie-base"
 import { EnvironmentConfig } from "../config/environment-config"
 import { WebsocketRoutesSignal } from "../http-server/serve-https"
 import { appRouter } from "./app-router"
@@ -19,7 +20,7 @@ export const RegisterTrpcHttpUpgradeActor = (reactor: Reactor) => {
   const environmentConfig = reactor.use(EnvironmentConfig)
   const sessionsStore = reactor.use(SessionsStore)
 
-  return createActor((sig) => {
+  return createActor((sig: DassieActorContext) => {
     const websocketRoutes = sig.readAndTrack(WebsocketRoutesSignal)
 
     const websocketServer = new WebSocketServer({

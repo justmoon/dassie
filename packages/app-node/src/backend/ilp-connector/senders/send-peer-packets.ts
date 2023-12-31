@@ -1,6 +1,6 @@
-import { Reactor } from "@dassie/lib-reactive"
 import { tell } from "@dassie/lib-type-utils"
 
+import { DassieReactor } from "../../base/types/dassie-base"
 import { connector as logger } from "../../logger/instances"
 import { SendPeerMessage } from "../../peer-protocol/functions/send-peer-message"
 import { NodeId } from "../../peer-protocol/types/node-id"
@@ -11,7 +11,9 @@ export interface PeerEndpointInfo extends CommonEndpointInfo {
   readonly nodeId: NodeId
 }
 
-export const SendPeerPackets = (reactor: Reactor): PacketSender<"peer"> => {
+export const SendPeerPackets = (
+  reactor: DassieReactor,
+): PacketSender<"peer"> => {
   const sendPeerMessage = reactor.use(SendPeerMessage)
 
   return {

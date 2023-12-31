@@ -1,11 +1,12 @@
-import { Reactor, createActor } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 import { tell } from "@dassie/lib-type-utils"
 
+import { DassieReactor } from "../base/types/dassie-base"
 import { NodeIdSignal } from "../ilp-connector/computed/node-id"
 import { SendPeerMessage } from "./functions/send-peer-message"
 import { NodeTableStore } from "./stores/node-table"
 
-export const BroadcastStateUpdatesActor = (reactor: Reactor) => {
+export const BroadcastStateUpdatesActor = (reactor: DassieReactor) => {
   const sendPeerMessage = reactor.use(SendPeerMessage)
   const nodeIdSignal = reactor.use(NodeIdSignal)
 
