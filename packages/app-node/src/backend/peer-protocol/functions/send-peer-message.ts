@@ -2,14 +2,16 @@ import axios from "axios"
 import type { SetOptional } from "type-fest"
 
 import type { Infer, InferSerialize } from "@dassie/lib-oer"
-import { Reactor, createTopic } from "@dassie/lib-reactive"
+import { createTopic } from "@dassie/lib-reactive"
 import {
   bufferToUint8Array,
   isErrorWithCode,
   isFailure,
 } from "@dassie/lib-type-utils"
 
+import { DassieReactor } from "../../base/types/dassie-base"
 import { EnvironmentConfig } from "../../config/environment-config"
+import { NodePublicKeySignal } from "../../crypto/computed/node-public-key"
 import { NodeIdSignal } from "../../ilp-connector/computed/node-id"
 import { peerProtocol as logger } from "../../logger/instances"
 import { DASSIE_MESSAGE_CONTENT_TYPE } from "../constants/content-type"
@@ -22,7 +24,12 @@ import {
 import { NodeTableStore } from "../stores/node-table"
 import { NodeId } from "../types/node-id"
 import { GenerateMessageAuthentication } from "./generate-message-authentication"
-import { PeerMessageType } from "./handle-peer-message"
+import {
+  HandlePeerMessage,
+  IncomingPeerMessageEvent,
+  IncomingPeerMessageTopic,
+  PeerMessageType,
+} from "./handle-peer-message"
 
 export type SendPeerMessageParameters<TMessageType extends PeerMessageType> =
   SetOptional<OutgoingPeerMessageEvent, "asUint8Array"> & {
@@ -48,13 +55,15 @@ const serializePeerMessage = (
 }
 
 interface NodeContactInfo {
+  internal: boolean
   url: string
   publicKey: Uint8Array
 }
 
-export const SendPeerMessage = (reactor: Reactor) => {
+export const SendPeerMessage = (reactor: DassieReactor) => {
   const nodeIdSignal = reactor.use(NodeIdSignal)
   const nodeTable = reactor.use(NodeTableStore)
+  const nodePublicKeySignal = reactor.use(NodePublicKeySignal)
   const environmentConfig = reactor.use(EnvironmentConfig)
   const generateMessageAuthentication = reactor.use(
     GenerateMessageAuthentication,
@@ -62,12 +71,24 @@ export const SendPeerMessage = (reactor: Reactor) => {
   const outgoingPeerMessageTopic = reactor.use(OutgoingPeerMessageTopic)
 
   const getNodeContactInfo = (nodeId: NodeId): NodeContactInfo | undefined => {
+    // If the node is us, we can simply send the message internally
+    {
+      if (nodeId === nodeIdSignal.read()) {
+        return {
+          internal: true,
+          url: "dassie:internal",
+          publicKey: nodePublicKeySignal.read(),
+        }
+      }
+    }
+
     // If the node is in the node table, we can use the URL from the link state
     {
       const node = nodeTable.read().get(nodeId)
 
       if (node?.linkState) {
         return {
+          internal: false,
           url: node.linkState.url,
           publicKey: node.linkState.publicKey,
         }
@@ -82,6 +103,7 @@ export const SendPeerMessage = (reactor: Reactor) => {
 
       if (node) {
         return {
+          internal: false,
           url: node.url,
           publicKey: bufferToUint8Array(
             Buffer.from(node.publicKey, "base64url"),
@@ -91,6 +113,45 @@ export const SendPeerMessage = (reactor: Reactor) => {
     }
 
     return undefined
+  }
+
+  async function submitPeerMessage(
+    message: Uint8Array,
+    contactInfo: NodeContactInfo,
+    timeout: number | undefined,
+  ): Promise<Uint8Array> {
+    if (contactInfo.internal) {
+      const event: IncomingPeerMessageEvent = {
+        message: peerMessage.parseOrThrow(message).value,
+        authenticated: true,
+        peerState: { id: "none" },
+      }
+
+      reactor.use(IncomingPeerMessageTopic).emit(event)
+
+      const responseMessage = await reactor.use(HandlePeerMessage)(event)
+
+      return responseMessage
+    }
+
+    const result = await axios<Buffer>(`${contactInfo.url}/peer`, {
+      method: "POST",
+      data: message,
+      headers: {
+        accept: DASSIE_MESSAGE_CONTENT_TYPE,
+        "content-type": DASSIE_MESSAGE_CONTENT_TYPE,
+      },
+      responseType: "arraybuffer",
+      timeout: timeout ?? DEFAULT_NODE_COMMUNICATION_TIMEOUT,
+    })
+
+    const resultUint8Array = new Uint8Array(
+      result.data.buffer,
+      result.data.byteOffset,
+      result.data.byteLength,
+    )
+
+    return resultUint8Array
   }
 
   async function sendPeerMessage<const TMessageType extends PeerMessageType>(
@@ -136,21 +197,10 @@ export const SendPeerMessage = (reactor: Reactor) => {
     }
 
     try {
-      const result = await axios<Buffer>(`${contactInfo.url}/peer`, {
-        method: "POST",
-        data: envelopeSerializationResult,
-        headers: {
-          accept: DASSIE_MESSAGE_CONTENT_TYPE,
-          "content-type": DASSIE_MESSAGE_CONTENT_TYPE,
-        },
-        responseType: "arraybuffer",
-        timeout: timeout ?? DEFAULT_NODE_COMMUNICATION_TIMEOUT,
-      })
-
-      const resultUint8Array = new Uint8Array(
-        result.data.buffer,
-        result.data.byteOffset,
-        result.data.byteLength,
+      const resultUint8Array = await submitPeerMessage(
+        envelopeSerializationResult,
+        contactInfo,
+        timeout,
       )
 
       const responseSchema = peerMessageResponse[message.type]
