@@ -11,7 +11,7 @@ export const HttpServerActor = () =>
     sig.run(ServeHttpActor)
 
     if (hasTls) {
-      sig.run(ServeHttpsActor)
       sig.run(ServeFrontendActor)
+      sig.run(ServeHttpsActor)
     }
   })
