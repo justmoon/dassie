@@ -1,8 +1,4 @@
-import {
-  Client as AcmeClient,
-  crypto as acmeCrypto,
-  directory as acmeDirectory,
-} from "acme-client"
+import { Client as AcmeClient, crypto as acmeCrypto } from "acme-client"
 import { command } from "cmd-ts"
 
 import { Reactor } from "@dassie/lib-reactive"
@@ -16,6 +12,7 @@ import {
   text,
 } from "@dassie/lib-terminal-graphics"
 
+import { ACME_DIRECTORY_URL } from "../../../acme-certificate-manager/constants/acme-service"
 import { connectIpcClient } from "../../../local-ipc-client"
 
 const LETSENCRYPT_TOS_URL =
@@ -178,9 +175,7 @@ const doAcmeFlow = async (
 
   const accountKey = await acmeCrypto.createPrivateKey()
   const client = new AcmeClient({
-    directoryUrl: import.meta.env.DEV
-      ? acmeDirectory.letsencrypt.staging
-      : acmeDirectory.letsencrypt.production,
+    directoryUrl: ACME_DIRECTORY_URL,
     accountKey,
   })
 
@@ -300,7 +295,7 @@ const doAcmeFlow = async (
   )
 
   await ipcClient.tls.setNodeTlsConfiguration.mutate({
-    certificate: certificate.toString(),
+    certificate,
     privateKey: key.toString(),
   })
 

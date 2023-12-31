@@ -6,6 +6,7 @@ import * as namespaces from "./namespaces"
 // See: https://github.com/microsoft/TypeScript/issues/36931
 
 export const accounting: Logger = createLogger(namespaces.LOGGER_ACCOUNTING)
+export const acme: Logger = createLogger(namespaces.LOGGER_ACME)
 export const btp: Logger = createLogger(namespaces.LOGGER_BTP)
 export const connector: Logger = createLogger(namespaces.LOGGER_CONNECTOR)
 export const crypto: Logger = createLogger(namespaces.LOGGER_CRYPTO)

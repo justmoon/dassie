@@ -1,4 +1,5 @@
 export const LOGGER_ACCOUNTING = "das:node:accounting"
+export const LOGGER_ACME = "das:node:acme"
 export const LOGGER_BTP = "das:node:btp"
 export const LOGGER_CONNECTOR = "das:node:connector"
 export const LOGGER_CRYPTO = "das:node:crypto"

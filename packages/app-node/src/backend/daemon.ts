@@ -72,7 +72,7 @@ export const DaemonActor = () =>
     sig.run(LocalRpcServerActor)
     sig.run(SystemdActor)
     sig.run(HttpServerActor)
-    sig.run(AcmeCertificateManagerActor)
+    await sig.run(AcmeCertificateManagerActor)
 
     sig.run(StartTlsDependentServicesActor)
     await sig.run(StartNodeIdentityDependentServicesActor)
