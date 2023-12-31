@@ -148,7 +148,7 @@ export interface ActorContext<TBase extends object = object>
    */
   runMap<TReturn>(
     factory:
-      | Factory<Mapped<unknown, Actor<TReturn, TBase>>>
+      | Factory<Mapped<unknown, Actor<TReturn, TBase>>, TBase>
       | Mapped<unknown, Actor<TReturn, TBase>>,
   ): (TReturn | undefined)[]
 
@@ -161,7 +161,7 @@ export interface ActorContext<TBase extends object = object>
    */
   runMapSequential<TReturn>(
     factory:
-      | Factory<Mapped<unknown, Actor<TReturn, TBase>>>
+      | Factory<Mapped<unknown, Actor<TReturn, TBase>>, TBase>
       | Mapped<unknown, Actor<TReturn, TBase>>,
   ): Promise<(TReturn | undefined)[]>
 
