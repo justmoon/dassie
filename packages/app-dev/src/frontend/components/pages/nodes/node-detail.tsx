@@ -3,7 +3,7 @@ import { createWSClient, wsLink } from "@trpc/client"
 import { Link } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import superjson from "superjson"
-import { Route, Router, useLocation, useRouter } from "wouter"
+import { Redirect, Route, Router, useLocation, useRouter } from "wouter"
 
 import { Button } from "@dassie/app-node/src/frontend/components/ui/button"
 import {
@@ -116,40 +116,47 @@ const NodeDetail = ({ nodeId, secondaryParameters }: NodeDetailProperties) => {
   if (!clients) return null
 
   return (
-    <Router base={`/nodes/${nodeId}`} parent={router}>
-      <trpcNode.Provider
-        client={clients.trpcClient}
-        queryClient={clients.queryClient}
+    <trpcNode.Provider
+      client={clients.trpcClient}
+      queryClient={clients.queryClient}
+    >
+      <QueryClientProvider
+        client={clients.queryClient}
+        context={queryClientReactContext}
       >
-        <QueryClientProvider
-          client={clients.queryClient}
-          context={queryClientReactContext}
-        >
-          <div className="h-screen grid grid-rows-[auto_1fr] gap-4 py-10">
-            <NodeHeader nodeId={nodeId} />
-            <Tabs
-              value={currentTab}
-              onValueChange={onTabChange}
-              className="min-h-0 grid grid-rows-[auto_1fr] px-4"
-            >
-              <TabsList className="justify-start mb-2">
-                <TabsTrigger value="logs">Logs</TabsTrigger>
-                <TabsTrigger value="nodes">Nodes</TabsTrigger>
-                <TabsTrigger value="ledger">Ledger</TabsTrigger>
-                <TabsTrigger value="routing">Routing</TabsTrigger>
-                <TabsTrigger value="state">State</TabsTrigger>
-                <TabsTrigger value="database">Database</TabsTrigger>
-              </TabsList>
-              <Route path="/debug/logs">
-                {() => <NodeLogViewer nodeId={nodeId} />}
-              </Route>
-              <Route path="/debug/:params*" component={DebugPage} />
-              <Route>{() => <NodeLogViewer nodeId={nodeId} />}</Route>
-            </Tabs>
-          </div>
-        </QueryClientProvider>
-      </trpcNode.Provider>
-    </Router>
+        <div className="h-screen grid grid-rows-[auto_1fr] gap-4 py-10">
+          <NodeHeader nodeId={nodeId} />
+          <Tabs
+            value={currentTab}
+            onValueChange={onTabChange}
+            className="min-h-0 grid grid-rows-[auto_1fr] px-4"
+          >
+            <TabsList className="justify-start mb-2">
+              <TabsTrigger value="logs">Logs</TabsTrigger>
+              <TabsTrigger value="nodes">Nodes</TabsTrigger>
+              <TabsTrigger value="ledger">Ledger</TabsTrigger>
+              <TabsTrigger value="routing">Routing</TabsTrigger>
+              <TabsTrigger value="state">State</TabsTrigger>
+              <TabsTrigger value="database">Database</TabsTrigger>
+            </TabsList>
+            <Route path={`/nodes/${nodeId}/debug/logs`}>
+              {() => <NodeLogViewer nodeId={nodeId} />}
+            </Route>
+            <Route path={`/nodes/${nodeId}/debug/:params*`}>
+              {() => (
+                // Set a router with a different base so the debug page components from the node frontend feel at home
+                <Router base={`/nodes/${nodeId}`} parent={router}>
+                  <DebugPage />
+                </Router>
+              )}
+            </Route>
+            <Route path={`/nodes/${nodeId}`}>
+              {() => <Redirect to={`/nodes/${nodeId}/debug/logs`} />}
+            </Route>
+          </Tabs>
+        </div>
+      </QueryClientProvider>
+    </trpcNode.Provider>
   )
 }
 
