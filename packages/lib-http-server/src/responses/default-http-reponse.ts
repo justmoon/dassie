@@ -1,4 +1,4 @@
-import type { Response } from "express"
+import { ServerResponse } from "node:http"
 
 import { HttpResponse } from "../types/http-response"
 
@@ -15,7 +15,10 @@ export const DEFAULT_HTTP_RESPONSE_OPTIONS = {
 export abstract class DefaultHttpResponse implements HttpResponse {
   constructor(private readonly options: HttpResponseOptions) {}
 
-  applyTo(response: Response) {
-    response.status(this.options.statusCode).type(this.options.contentType)
+  abstract applyTo(response: ServerResponse): void
+
+  applyStatusAndHeader(response: ServerResponse) {
+    response.statusCode = this.options.statusCode
+    response.setHeader("Content-Type", this.options.contentType)
   }
 }

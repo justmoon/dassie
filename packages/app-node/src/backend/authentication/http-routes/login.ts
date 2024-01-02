@@ -5,6 +5,7 @@ import { randomBytes } from "node:crypto"
 import {
   UnauthorizedFailure,
   createJsonResponse,
+  setCookie,
 } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
@@ -13,7 +14,7 @@ import { SEED_PATH_NODE_LOGIN } from "../../../common/constants/seed-paths"
 import { NodePrivateKeySignal } from "../../crypto/computed/node-private-key"
 import { getPrivateSeedAtPath } from "../../crypto/utils/seed-paths"
 import { HttpsRouter } from "../../http-server/serve-https"
-import { COOKIE_MAX_AGE } from "../constants/cookie-lifetime"
+import { COOKIE_MAX_AGE_SECONDS } from "../constants/cookie-lifetime"
 import { SessionsStore } from "../database-stores/sessions"
 import { SessionToken } from "../types/session-token"
 
@@ -52,11 +53,10 @@ export const RegisterLoginRouteActor = () =>
 
         sessions.addSession(sessionToken)
 
-        response.cookie(SESSION_COOKIE_NAME, sessionToken, {
-          httpOnly: true,
-          secure: true,
-          sameSite: "strict",
-          expires: new Date(Date.now() + COOKIE_MAX_AGE),
+        setCookie(response, {
+          name: SESSION_COOKIE_NAME,
+          value: sessionToken,
+          maxAge: COOKIE_MAX_AGE_SECONDS,
         })
 
         return createJsonResponse({})

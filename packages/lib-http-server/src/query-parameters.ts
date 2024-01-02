@@ -6,10 +6,12 @@ import { Middleware } from "./router"
 export const parseQueryParameters =
   <TSchema extends AnyZodObject>(
     schema: TSchema,
-  ): Middleware<object, { query: InferZodType<TSchema> }> =>
+  ): Middleware<{ parsedUrl: URL }, { query: InferZodType<TSchema> }> =>
   (request) => {
+    // Get query string from URL
+    const query = Object.fromEntries(request.parsedUrl.searchParams.entries())
     try {
-      return { query: schema.parse(request.query) }
+      return { query: schema.parse(query) }
     } catch (error) {
       console.warn("invalid api request query string", {
         error,

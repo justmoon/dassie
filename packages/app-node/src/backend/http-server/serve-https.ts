@@ -52,25 +52,32 @@ export const HttpsServiceActor = () =>
 
     const app = express()
 
-    app.use(router.middleware)
-
     for (const middleware of additionalMiddlewares) {
       app.use(middleware)
     }
 
-    const server = createServer(
-      {
-        cert: tlsWebCert,
-        key: tlsWebKey,
-      },
-      app,
-    )
+    const server = createServer({
+      cert: tlsWebCert,
+      key: tlsWebKey,
+    })
 
     for (const listenTarget of getListenTargets(httpsPort, true)) {
       server.listen(listenTarget)
     }
 
     logger.info(`listening on ${url}`)
+
+    function handleRequest(request: IncomingMessage, response: ServerResponse) {
+      const handler = router.match(request.method!, request.url!)
+
+      if (handler) {
+        handler(request, response)
+        return
+      }
+
+      // Anything that isn't handled by our internal router is passed to Express
+      app(request, response)
+    }
 
     function handleUpgrade(
       request: IncomingMessage,
@@ -91,10 +98,12 @@ export const HttpsServiceActor = () =>
       handler(request, socket, head)
     }
 
+    server.addListener("request", handleRequest)
     server.addListener("upgrade", handleUpgrade)
     server.addListener("error", handleError)
 
     sig.onCleanup(() => {
+      server.removeListener("request", handleRequest)
       server.removeListener("upgrade", handleUpgrade)
       server.removeListener("error", handleError)
       server.close()

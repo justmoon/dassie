@@ -1,11 +1,11 @@
 import { z } from "zod"
 
-import { createJsonResponse } from "@dassie/lib-http-server"
+import { createJsonResponse, setCookie } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
 import { SESSION_COOKIE_NAME } from "../../../common/constants/cookie-name"
 import { HttpsRouter } from "../../http-server/serve-https"
-import { COOKIE_MAX_AGE } from "../constants/cookie-lifetime"
+import { COOKIE_MAX_AGE_SECONDS } from "../constants/cookie-lifetime"
 import { SessionToken } from "../types/session-token"
 
 export const RegisterDevelopmentSetSessionRouteActor = () =>
@@ -27,11 +27,10 @@ export const RegisterDevelopmentSetSessionRouteActor = () =>
       .handler(sig, (request, response) => {
         const { sessionToken } = request.body
 
-        response.cookie(SESSION_COOKIE_NAME, sessionToken, {
-          httpOnly: true,
-          secure: true,
-          sameSite: "strict",
-          expires: new Date(Date.now() + COOKIE_MAX_AGE),
+        setCookie(response, {
+          name: SESSION_COOKIE_NAME,
+          value: sessionToken,
+          maxAge: COOKIE_MAX_AGE_SECONDS,
         })
 
         return createJsonResponse({})

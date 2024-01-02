@@ -1,4 +1,4 @@
-import type { Response } from "express"
+import { ServerResponse } from "node:http"
 
 import {
   DEFAULT_HTTP_RESPONSE_OPTIONS,
@@ -22,8 +22,8 @@ export class PlainHttpResponse extends DefaultHttpResponse {
     })
   }
 
-  override applyTo(response: Response) {
-    super.applyTo(response)
+  override applyTo(response: ServerResponse) {
+    super.applyStatusAndHeader(response)
     response.end(this.data)
   }
 }

@@ -1,4 +1,4 @@
-import type { Response } from "express"
+import { ServerResponse } from "node:http"
 
 import { Failure } from "@dassie/lib-type-utils"
 
@@ -14,7 +14,8 @@ export abstract class DefaultHttpFailure
     super()
   }
 
-  applyTo(response: Response) {
-    response.status(this.statusCode).send(this.message)
+  applyTo(response: ServerResponse) {
+    response.statusCode = this.statusCode
+    response.end(this.message)
   }
 }

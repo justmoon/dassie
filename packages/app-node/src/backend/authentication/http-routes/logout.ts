@@ -1,6 +1,6 @@
 import { parse } from "cookie"
 
-import { createJsonResponse } from "@dassie/lib-http-server"
+import { clearCookie, createJsonResponse } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
 import { SESSION_COOKIE_NAME } from "../../../common/constants/cookie-name"
@@ -22,12 +22,8 @@ export const RegisterLogoutRouteActor = () =>
         if (currentSessionToken) {
           sessions.removeSession(currentSessionToken as SessionToken)
         }
-        response.cookie(SESSION_COOKIE_NAME, "", {
-          httpOnly: true,
-          secure: true,
-          sameSite: "strict",
-          expires: new Date(0),
-        })
+
+        clearCookie(response, SESSION_COOKIE_NAME)
 
         return createJsonResponse({})
       })

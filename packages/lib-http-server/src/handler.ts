@@ -1,20 +1,19 @@
-import { Request, Response } from "express"
 import Negotiator from "negotiator"
 import { Promisable } from "type-fest"
+
+import { IncomingMessage, ServerResponse } from "node:http"
 
 import { HttpFailure } from "./types/http-failure"
 import { HttpResponse } from "./types/http-response"
 
-type EmptyRequest = Request<object, unknown, unknown>
-
 export type HttpRequestHandler<TAdditionalRequestFields = object> = (
-  request: EmptyRequest & TAdditionalRequestFields,
-  response: Response,
+  request: IncomingMessage & TAdditionalRequestFields,
+  response: ServerResponse,
 ) => Promisable<HttpFailure | HttpResponse>
 
 const handleError = (
-  request: EmptyRequest,
-  response: Response,
+  request: IncomingMessage,
+  response: ServerResponse,
   error: unknown,
 ) => {
   const negotiator = new Negotiator(request)
@@ -24,17 +23,18 @@ const handleError = (
 
   switch (mediaType) {
     case "application/json": {
-      response.status(500).json({
-        error: "Internal Server Error",
-      })
+      response.statusCode = 500
+      response.write(JSON.stringify({ error: "Internal Server Error" }))
       break
     }
     case "text/html": {
-      response.status(500).send(`<h1>Internal Server Error</h1>`)
+      response.statusCode = 500
+      response.write("<h1>Internal Server Error</h1>")
       break
     }
     default: {
-      response.status(500).send("Internal Server Error")
+      response.statusCode = 500
+      response.write("Internal Server Error")
     }
   }
 }
@@ -42,7 +42,10 @@ export const createHandler =
   <TAdditionalRequestFields = object>(
     handler: HttpRequestHandler<TAdditionalRequestFields>,
   ) =>
-  (request: EmptyRequest & TAdditionalRequestFields, response: Response) => {
+  (
+    request: IncomingMessage & TAdditionalRequestFields,
+    response: ServerResponse<IncomingMessage & TAdditionalRequestFields>,
+  ) => {
     try {
       Promise.resolve(handler(request, response))
         .then((result) => {

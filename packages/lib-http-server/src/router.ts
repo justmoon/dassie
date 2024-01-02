@@ -1,9 +1,7 @@
-import type { Request, Response } from "express"
-import { Router } from "express"
 import { Promisable, Simplify } from "type-fest"
 import type { AnyZodObject, infer as InferZodType } from "zod"
 
-import { IncomingMessage } from "node:http"
+import { IncomingMessage, RequestListener, ServerResponse } from "node:http"
 
 import { AnyOerType, Infer as InferOerType } from "@dassie/lib-oer"
 import type { LifecycleContext } from "@dassie/lib-reactive"
@@ -22,6 +20,7 @@ import {
 import { parseQueryParameters } from "./query-parameters"
 import { HttpFailure } from "./types/http-failure"
 import { RouteParameters } from "./types/route-parameters"
+import { url } from "./url"
 
 export const HTTP_METHODS = [
   "get",
@@ -59,8 +58,8 @@ export type InferBodyType<TBodyParser extends BodyParser> = Exclude<
 >["body"]
 
 export type Middleware<TInput extends object, TOutput extends object> = (
-  request: Request & TInput,
-  response: Response,
+  request: IncomingMessage & TInput,
+  response: ServerResponse<IncomingMessage & TInput>,
 ) => Promisable<void | TOutput | HttpFailure>
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -182,7 +181,7 @@ const initialRouteBuilderState: RouteBuilderState = {
 
 const createRouteHandler =
   (state: RouteBuilderState) =>
-  async (request: Request, response: Response) => {
+  async (request: IncomingMessage, response: ServerResponse) => {
     if (!state.userHandler) {
       throw new Error("No handler provided for API route")
     }
@@ -196,8 +195,13 @@ const createRouteHandler =
     return state.userHandler(request, response)
   }
 
+type RouteKey<
+  TMethod extends string = string,
+  TPath extends string = string,
+> = `${TMethod} ${TPath}`
+
 export const createRouter = () => {
-  const router = Router()
+  const routes = new Map<RouteKey, RequestListener>()
 
   const createBuilder = (state: RouteBuilderState) => {
     const routeDescriptor: ApiRouteBuilder<ApiRouteParameters> = {
@@ -247,7 +251,11 @@ export const createRouter = () => {
       querySchema: (schema) => {
         return createBuilder({
           ...state,
-          middlewares: [...state.middlewares, parseQueryParameters(schema)],
+          middlewares: [
+            ...state.middlewares,
+            url,
+            parseQueryParameters(schema),
+          ],
         })
       },
       cors: () => {
@@ -269,7 +277,7 @@ export const createRouter = () => {
         })
       },
       handler: (context, handler) => {
-        const { path, method } = state
+        const { path, method, middlewares } = state
         if (!path) {
           throw new Error("No path provided for route")
         }
@@ -279,33 +287,23 @@ export const createRouter = () => {
 
         const finalState = {
           ...state,
+
+          // Remove duplicate middlewares
+          middlewares: [...new Set(middlewares)],
+
           userHandler: handler,
         }
 
         const routeHandler = createRouteHandler(finalState)
 
-        router[method](path, createHandler(routeHandler))
+        if (routes.has(`${method} ${path}`)) {
+          throw new Error(`Route already exists for ${method} ${path}`)
+        }
+
+        routes.set(`${method} ${path}`, createHandler(routeHandler))
 
         context.lifecycle.onCleanup(() => {
-          const routeIndex = router.stack.findIndex(
-            (layer: {
-              route?: {
-                path: string
-                stack: { handle: HttpRequestHandler }[]
-              }
-            }) => {
-              return (
-                // path is always a string here because we check for it above
-                // and while it can be changed later, it can only be changed
-                // to another string
-                layer.route?.path === path &&
-                layer.route.stack.findIndex(
-                  (sublayer) => sublayer.handle === routeHandler,
-                ) !== -1
-              )
-            },
-          )
-          if (routeIndex !== -1) router.stack.splice(routeIndex, 1)
+          routes.delete(`${method} ${path}`)
         })
       },
     }
@@ -315,6 +313,8 @@ export const createRouter = () => {
 
   return {
     ...createBuilder(initialRouteBuilderState),
-    middleware: router,
+    match(method: string, path: string) {
+      return routes.get(`${method.toLowerCase()} ${path}`)
+    },
   }
 }
