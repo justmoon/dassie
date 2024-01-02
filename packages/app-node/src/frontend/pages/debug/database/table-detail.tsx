@@ -21,25 +21,27 @@ interface TableDetailParameters {
 export function TableDetail({ id, columns }: TableDetailParameters) {
   const rows = trpc.debug.getDatabaseTableRows.useQuery(id).data ?? []
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          {columns.map((column) => (
-            <TableHead key={column}>{column}</TableHead>
-          ))}
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {rows.map((row, index) => (
-          <TableRow key={index}>
+    <div>
+      <Table>
+        <TableHeader>
+          <TableRow>
             {columns.map((column) => (
-              <TableCell key={column}>
-                {row[column as keyof typeof row]}
-              </TableCell>
+              <TableHead key={column}>{column}</TableHead>
             ))}
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row, index) => (
+            <TableRow key={index}>
+              {columns.map((column) => (
+                <TableCell key={column}>
+                  {row[column as keyof typeof row]}
+                </TableCell>
+              ))}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
   )
 }
