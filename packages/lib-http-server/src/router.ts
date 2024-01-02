@@ -7,7 +7,6 @@ import { AnyOerType, Infer as InferOerType } from "@dassie/lib-oer"
 import type { LifecycleContext } from "@dassie/lib-reactive"
 import { Failure, isFailure } from "@dassie/lib-type-utils"
 
-import { cors } from "./cors"
 import { HttpRequestHandler, createHandler } from "./handler"
 import {
   parseBodyBuffer,
@@ -149,11 +148,6 @@ export type ApiRouteBuilder<
   ) => ApiRouteBuilder<TParameters>
 
   /**
-   * Enable CORS for this route.
-   */
-  cors: () => ApiRouteBuilder<TParameters>
-
-  /**
    * Provide the handler for the API route.
    */
   handler: <THandler extends ApiHandler<TParameters>>(
@@ -256,12 +250,6 @@ export const createRouter = () => {
             url,
             parseQueryParameters(schema),
           ],
-        })
-      },
-      cors: () => {
-        return createBuilder({
-          ...state,
-          middlewares: [...state.middlewares, cors],
         })
       },
       use: (middleware) => {

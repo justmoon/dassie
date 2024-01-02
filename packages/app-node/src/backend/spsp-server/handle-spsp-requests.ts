@@ -1,4 +1,4 @@
-import { createJsonResponse } from "@dassie/lib-http-server"
+import { cors, createJsonResponse } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
 import { HttpsRouter } from "../http-server/serve-https"
@@ -16,7 +16,7 @@ export const HandleSpspRequestsActor = () =>
     http
       .get()
       .path("/.well-known/pay")
-      .cors()
+      .use(cors)
       .handler(sig, () => {
         const { destinationAccount, sharedSecret } =
           streamServer.generateAddressAndSecret()

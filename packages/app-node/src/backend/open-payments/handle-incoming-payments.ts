@@ -1,7 +1,7 @@
 import { nanoid } from "nanoid"
 import { z } from "zod"
 
-import { createJsonResponse } from "@dassie/lib-http-server"
+import { cors, createJsonResponse } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
 import { DatabaseConfigStore } from "../config/database-config"
@@ -29,7 +29,7 @@ export const HandleIncomingPaymentsActor = () =>
     http
       .get()
       .path(`${PAYMENT_POINTER_ROOT}/incoming-payments`)
-      .cors()
+      .use(cors)
       .handler(sig, () => {
         const payments = database.tables.incomingPayment.selectAll()
 
@@ -42,7 +42,7 @@ export const HandleIncomingPaymentsActor = () =>
     http
       .post()
       .path(`${PAYMENT_POINTER_ROOT}/incoming-payments`)
-      .cors()
+      .use(cors)
       .bodySchemaZod(
         z.object({
           incomingAmount: z.object({
