@@ -163,7 +163,7 @@ export interface ActorContext<TBase extends object = object>
     factory:
       | Factory<Mapped<unknown, Actor<TReturn, TBase>>, TBase>
       | Mapped<unknown, Actor<TReturn, TBase>>,
-  ): Promise<(TReturn | undefined)[]>
+  ): Promise<(Awaited<TReturn> | undefined)[]>
 
   /**
    * Wake function. If called, the actor will be cleaned up and re-run.
@@ -356,10 +356,12 @@ export class ActorContextImplementation<TBase extends object = object>
     factory:
       | Factory<Mapped<unknown, Actor<TReturn, TBase>>, TBase>
       | Mapped<unknown, Actor<TReturn, TBase>>,
-  ): Promise<(TReturn | undefined)[]> {
+  ): Promise<(Awaited<TReturn> | undefined)[]> {
     const mapped =
       typeof factory === "function" ? this.reactor.use(factory) : factory
-    const results: (TReturn | undefined)[] = Array.from({ length: mapped.size })
+    const results: (Awaited<TReturn> | undefined)[] = Array.from({
+      length: mapped.size,
+    })
     let linearizationPromise = Promise.resolve()
 
     const runOptions: RunOptions = {

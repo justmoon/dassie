@@ -5,8 +5,8 @@ import { ManageSettlementSchemeInstancesActor } from "./manage-settlement-scheme
 import { SendOutgoingSettlementsActor } from "./send-outgoing-settlements"
 
 export const SettlementSchemesActor = () =>
-  createActor((sig: DassieActorContext) => {
-    sig.runMap(ManageSettlementSchemeInstancesActor)
+  createActor(async (sig: DassieActorContext) => {
+    await Promise.all(sig.runMap(ManageSettlementSchemeInstancesActor))
 
     sig.runMap(SendOutgoingSettlementsActor)
   })

@@ -425,7 +425,7 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
               if (index > maxExtensionIndex) break
 
               if (key in input) {
-                uint8Array[bitmapOffset + Math.floor(index / 8)]! |=
+                uint8Array[bitmapOffset + Math.floor(index / 8)] |=
                   1 << (7 - (index % 8))
               }
               index++
@@ -497,7 +497,7 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
         ] of this.rootOptionalFields.entries()) {
           if (optionalFieldName in input) {
             const bitIndex = (this.extensions ? 1 : 0) + index
-            uint8Array[offset + Math.floor(bitIndex / 8)]! |=
+            uint8Array[offset + Math.floor(bitIndex / 8)] |=
               1 << (7 - (bitIndex % 8))
           }
         }

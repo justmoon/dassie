@@ -57,7 +57,7 @@ export const StartNodeIdentityDependentServicesActor = () =>
     sig.run(IlpHttpActor)
     await sig.run(ExchangeRatesActor)
 
-    sig.run(SettlementSchemesActor)
+    await sig.run(SettlementSchemesActor)
     await sig.run(SpspServerActor)
     sig.run(OpenPaymentsServerActor)
     sig.run(StatisticsServerActor)
