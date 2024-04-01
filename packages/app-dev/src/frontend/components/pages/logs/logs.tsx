@@ -1,4 +1,4 @@
-import LogViewer from "../../log-viewer/log-viewer"
+import { DevelopmentLogViewer } from "../../development-log-viewer/development-log-viewer"
 
 const Logs = () => {
   return (
@@ -7,7 +7,7 @@ const Logs = () => {
         <h1 className="font-bold leading-tight text-3xl px-4">Logs</h1>
       </header>
       <div className="px-4 min-h-0">
-        <LogViewer />
+        <DevelopmentLogViewer />
       </div>
     </div>
   )

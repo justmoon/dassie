@@ -1,8 +1,7 @@
 import { Link } from "wouter"
 
+import { COLORS } from "@dassie/app-node/src/frontend/constants/palette"
 import { selectBySeed } from "@dassie/lib-logger"
-
-import { COLORS } from "../../../constants/palette"
 
 const NodeLink = ({ id }: { id: string }) => (
   <Link style={{ color: selectBySeed(COLORS, id) }} href={`/nodes/${id}`}>

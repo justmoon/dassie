@@ -4,10 +4,10 @@ import {
   TabsList,
   TabsTrigger,
 } from "@dassie/app-node/src/frontend/components/ui/tabs"
+import { COLORS } from "@dassie/app-node/src/frontend/constants/palette"
 import { selectBySeed } from "@dassie/lib-logger"
 
-import { COLORS } from "../../../constants/palette"
-import LogViewer from "../../log-viewer/log-viewer"
+import { DevelopmentLogViewer } from "../../development-log-viewer/development-log-viewer"
 
 export const HOST_COLOR = selectBySeed(COLORS, "host")
 const HostHeader = () => {
@@ -25,7 +25,7 @@ const HostHeader = () => {
 }
 
 const HostLogViewer = () => {
-  return <LogViewer filter={({ node }) => !node.startsWith("d")} />
+  return <DevelopmentLogViewer filter={({ node }) => !node.startsWith("d")} />
 }
 
 const HostDetail = () => {

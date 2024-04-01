@@ -1,9 +1,8 @@
-import cx from "classnames"
-
 import { hasAggregatedErrors } from "@dassie/lib-logger"
 
-import { trpc } from "../../utils/trpc"
+import { combine } from "../../utils/class-helper"
 import { DataValue } from "./data-value"
+import { useLogViewerContext } from "./log-viewer"
 
 export interface PrimaryErrorProperties {
   error: Error
@@ -22,7 +21,7 @@ const FilePathStackFrame = ({
   row,
   column,
 }: FilePathStackFrameProperties) => {
-  const openFileMutation = trpc.ui.openFile.useMutation()
+  const { openFile } = useLogViewerContext()
   const isNode = path.startsWith("node:")
   const isNodeModules = path.includes("node_modules")
   const fileLink = isNode ? (
@@ -32,13 +31,13 @@ const FilePathStackFrame = ({
   ) : (
     <span
       className="text-blue-300 hover:underline cursor-pointer"
-      onClick={() => openFileMutation.mutate(`${path}:${row}:${column}`)}
+      onClick={openFile && (() => openFile(`${path}:${row}:${column}`))}
     >
       {path}:{row}:{column}
     </span>
   )
   return (
-    <span className={cx({ "text-gray-400": isNode || isNodeModules })}>
+    <span className={combine({ "text-gray-400": isNode || isNodeModules })}>
       <span className="text-gray-400">{"  at "}</span>
       {name ? (
         <span>

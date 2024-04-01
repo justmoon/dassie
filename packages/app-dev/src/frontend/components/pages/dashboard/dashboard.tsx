@@ -1,4 +1,4 @@
-import LogViewer from "../../log-viewer/log-viewer"
+import { DevelopmentLogViewer } from "../../development-log-viewer/development-log-viewer"
 import NodeGraph from "../../node-graph/node-graph"
 
 const Dashboard = () => {
@@ -13,7 +13,7 @@ const Dashboard = () => {
             <NodeGraph />
           </div>
           <div className="min-h-0 col-span-2">
-            <LogViewer />
+            <DevelopmentLogViewer />
           </div>
         </div>
       </main>

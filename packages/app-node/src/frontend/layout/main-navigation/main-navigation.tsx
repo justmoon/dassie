@@ -19,7 +19,7 @@ export function MainNavigation() {
     <NavigationMenu className="p-2">
       <NavigationMenuList>
         <NavigationMenuItem>
-          <Link href="/dashboard">
+          <Link href="/dashboard" asChild>
             <NavigationMenuLink className={navigationMenuTriggerStyle()}>
               Dashboard
             </NavigationMenuLink>
@@ -29,6 +29,7 @@ export function MainNavigation() {
           <NavigationMenuTrigger>Debug</NavigationMenuTrigger>
           <NavigationMenuContent>
             <ul className="grid gap-3 p-6 md:w-[400px] lg:w-[500px]">
+              <ListItem href="/debug/logs" title="Logs" />
               <ListItem href="/debug/nodes" title="Nodes" />
               <ListItem href="/debug/ledger" title="Ledger" />
               <ListItem href="/debug/routing" title="Routing" />
@@ -39,14 +40,14 @@ export function MainNavigation() {
       <div className="flex-1" />
       <NavigationMenuList>
         <NavigationMenuItem>
-          <Link href="/debug/nodes">
+          <Link href="/debug/nodes" asChild>
             <NavigationMenuLink className={navigationMenuTriggerStyle()}>
               <NetworkStatus />
             </NavigationMenuLink>
           </Link>
         </NavigationMenuItem>
         <NavigationMenuItem>
-          <Link href="/settings">
+          <Link href="/settings" asChild>
             <NavigationMenuLink className={navigationMenuTriggerStyle()}>
               <SettingsIcon className="w-4 h-4 md:mr-2 inline-block" />
               <span className="hidden md:inline">Settings</span>

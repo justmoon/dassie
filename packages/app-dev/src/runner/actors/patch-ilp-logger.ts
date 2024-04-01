@@ -1,11 +1,14 @@
 import { createRequire } from "node:module"
 
-import { createActor } from "@dassie/lib-reactive"
+import { LogsStore } from "@dassie/app-node/src/common/stores/logs"
+import { type Reactor, createActor } from "@dassie/lib-reactive"
 
 import { TrpcClientServiceActor } from "../services/trpc-client"
 
-export const PatchIlpLoggerActor = () =>
-  createActor((sig) => {
+export const PatchIlpLoggerActor = (reactor: Reactor) => {
+  const logsStore = reactor.use(LogsStore)
+
+  return createActor((sig) => {
     const trpcClient = sig.readAndTrack(TrpcClientServiceActor)
     if (!trpcClient) return
 
@@ -24,15 +27,15 @@ export const PatchIlpLoggerActor = () =>
       const namespace =
         firstSpace === -1 ? "debug" : message.slice(0, firstSpace)
 
-      void trpcClient.runner.notifyLogLine.mutate([
-        process.env["DASSIE_DEV_NODE_ID"] ?? "unknown",
-        {
-          type: "debug",
-          namespace,
-          date: Date.now(),
-          message: firstSpace === -1 ? message : message.slice(firstSpace + 1),
-          parameters,
-        },
-      ])
+      logsStore.addLogLine({
+        type: "debug",
+        namespace,
+        node: process.env["DASSIE_DEV_NODE_ID"] ?? "unknown",
+        date: Date.now(),
+        message: firstSpace === -1 ? message : message.slice(firstSpace + 1),
+        parameters,
+        caller: undefined,
+      })
     }
   })
+}

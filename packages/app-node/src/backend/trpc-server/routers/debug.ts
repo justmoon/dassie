@@ -11,10 +11,12 @@ import {
 } from "@dassie/lib-reactive"
 import {
   subscribeToSignal,
+  subscribeToStore,
   subscribeToTopic,
 } from "@dassie/lib-reactive-trpc/server"
 import { isObject } from "@dassie/lib-type-utils"
 
+import { LogsStore } from "../../../common/stores/logs"
 import {
   LedgerAccount,
   LedgerStore,
@@ -80,6 +82,9 @@ const [DATABASE_FIRST_TABLE_ID, ...DATABASE_OTHER_TABLE_IDS] =
 export const debugRouter = trpc.router({
   getLedger: protectedProcedure.query(({ ctx: { sig } }) => {
     return [...sig.reactor.use(LedgerStore).getAccounts("")]
+  }),
+  subscribeToLogs: trpc.procedure.subscription(({ ctx: { sig } }) => {
+    return subscribeToStore(sig, LogsStore)
   }),
   subscribeNodeTable: protectedProcedure.subscription(({ ctx: { sig } }) => {
     return subscribeToSignal(sig, NodeTableStore)

@@ -1,17 +1,19 @@
-import { context as loggingContext } from "@dassie/lib-logger"
-import { createActor } from "@dassie/lib-reactive"
+import { LogsStore } from "@dassie/app-node/src/common/stores/logs"
+import { type Reactor, createActor } from "@dassie/lib-reactive"
 
 import { TrpcClientServiceActor } from "../services/trpc-client"
 
-export const ForwardLogsActor = () =>
-  createActor((sig) => {
+export const ForwardLogsActor = (reactor: Reactor) => {
+  const logsStore = reactor.use(LogsStore)
+
+  return createActor((sig) => {
     const trpcClient = sig.readAndTrack(TrpcClientServiceActor)
     if (!trpcClient) return
 
-    loggingContext.output = (logEvent) => {
-      void trpcClient.runner.notifyLogLine.mutate([
-        process.env["DASSIE_DEV_NODE_ID"] ?? "unknown",
-        logEvent,
-      ])
-    }
+    sig.on(logsStore.changes, ([action, parameters]) => {
+      if (action === "addLogLine") {
+        void trpcClient.runner.notifyLogLine.mutate(parameters[0])
+      }
+    })
   })
+}

@@ -3,6 +3,7 @@ import { z } from "zod"
 import { LogsStore } from "../../common/stores/logs"
 import { PeeringStateStore } from "../stores/peering-state"
 import { PeerTrafficTopic } from "../topics/peer-traffic"
+import { shortenNodeId } from "../utils/shorten-node-id"
 import { trpc } from "./trpc"
 
 export const runnerRpcRouter = trpc.router({
@@ -18,38 +19,27 @@ export const runnerRpcRouter = trpc.router({
     }),
   notifyLogLine: trpc.procedure
     .input(
-      z.tuple([
-        z.string(),
-        z.union([
-          z.object({
-            type: z.union([
-              z.literal("debug"),
-              z.literal("info"),
-              z.literal("warn"),
-              z.literal("error"),
-            ]),
-            namespace: z.string(),
-            date: z.number(),
-            message: z.string(),
-            parameters: z.array(z.unknown()),
-            caller: z.union([z.string(), z.undefined()]),
-          }),
-          z.object({
-            type: z.literal("clear"),
-            date: z.number(),
-          }),
+      z.object({
+        type: z.union([
+          z.literal("debug"),
+          z.literal("info"),
+          z.literal("warn"),
+          z.literal("error"),
         ]),
-      ]),
+        namespace: z.string(),
+        node: z.string(),
+        date: z.number(),
+        message: z.string(),
+        parameters: z.array(z.unknown()),
+        caller: z.union([z.string(), z.undefined()]),
+      }),
     )
-    .mutation(({ input: [nodeId, logEvent], ctx: { reactor } }) => {
+    .mutation(({ input: logEvent, ctx: { reactor } }) => {
       const logs = reactor.use(LogsStore)
-      if (logEvent.type === "clear") {
-        logs.clear()
-        return
-      }
+
+      logEvent.node = shortenNodeId(logEvent.node)
 
       logs.addLogLine({
-        node: nodeId,
         ...logEvent,
         caller: logEvent.caller ?? undefined,
       })

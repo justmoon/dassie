@@ -11,6 +11,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@dassie/app-node/src/frontend/components/ui/tabs"
+import { COLORS } from "@dassie/app-node/src/frontend/constants/palette"
 import { DebugPage } from "@dassie/app-node/src/frontend/pages/debug/debug"
 import {
   queryClientReactContext,
@@ -18,10 +19,9 @@ import {
 } from "@dassie/app-node/src/frontend/utils/trpc"
 import { selectBySeed } from "@dassie/lib-logger"
 
-import { COLORS } from "../../../constants/palette"
 import { trpc as trpcDevelopment } from "../../../utils/trpc"
 import { getWalletUrl } from "../../../utils/wallet-url"
-import LogViewer from "../../log-viewer/log-viewer"
+import { DevelopmentLogProvider } from "../../development-log-viewer/development-log-viewer"
 
 interface BasicNodeElementProperties {
   nodeId: string
@@ -53,10 +53,6 @@ const NodeHeader = ({ nodeId }: BasicNodeElementProperties) => {
       </h1>
     </header>
   )
-}
-
-const NodeLogViewer = ({ nodeId }: BasicNodeElementProperties) => {
-  return <LogViewer filter={({ node }) => node === nodeId} />
 }
 
 const createNodeTrpcClients = (securityToken: string, nodeId: string) => {
@@ -120,28 +116,27 @@ const NodeDetail = ({ nodeId }: NodeDetailProperties) => {
         client={clients.queryClient}
         context={queryClientReactContext}
       >
-        <div className="h-screen grid grid-rows-[auto_1fr] gap-4 py-10">
-          <NodeHeader nodeId={nodeId} />
-          <Tabs
-            value={currentTab}
-            onValueChange={onTabChange}
-            className="min-h-0 grid grid-rows-[auto_1fr] px-4"
-          >
-            <TabsList className="justify-start mb-2">
-              <TabsTrigger value="logs">Logs</TabsTrigger>
-              <TabsTrigger value="nodes">Nodes</TabsTrigger>
-              <TabsTrigger value="ledger">Ledger</TabsTrigger>
-              <TabsTrigger value="routing">Routing</TabsTrigger>
-              <TabsTrigger value="state">State</TabsTrigger>
-              <TabsTrigger value="database">Database</TabsTrigger>
-            </TabsList>
-            <Route path={`/debug/logs`}>
-              {() => <NodeLogViewer nodeId={nodeId} />}
-            </Route>
-            <DebugPage />
-            <Route path={`/`}>{() => <Redirect to={`/debug/logs`} />}</Route>
-          </Tabs>
-        </div>
+        <DevelopmentLogProvider>
+          <div className="h-screen grid grid-rows-[auto_1fr] gap-4 py-10">
+            <NodeHeader nodeId={nodeId} />
+            <Tabs
+              value={currentTab}
+              onValueChange={onTabChange}
+              className="min-h-0 grid grid-rows-[auto_1fr] px-4"
+            >
+              <TabsList className="justify-start mb-2">
+                <TabsTrigger value="logs">Logs</TabsTrigger>
+                <TabsTrigger value="nodes">Nodes</TabsTrigger>
+                <TabsTrigger value="ledger">Ledger</TabsTrigger>
+                <TabsTrigger value="routing">Routing</TabsTrigger>
+                <TabsTrigger value="state">State</TabsTrigger>
+                <TabsTrigger value="database">Database</TabsTrigger>
+              </TabsList>
+              <DebugPage />
+              <Route path={`/`}>{() => <Redirect to={`/debug/logs`} />}</Route>
+            </Tabs>
+          </div>
+        </DevelopmentLogProvider>
       </QueryClientProvider>
     </trpcNode.Provider>
   )

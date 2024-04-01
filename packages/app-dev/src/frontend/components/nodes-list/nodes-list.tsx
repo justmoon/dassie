@@ -2,11 +2,11 @@ import { Plus, Wallet } from "lucide-react"
 import { Link, useLocation, useRoute } from "wouter"
 
 import { Button } from "@dassie/app-node/src/frontend/components/ui/button"
+import { COLORS } from "@dassie/app-node/src/frontend/constants/palette"
 import { combine } from "@dassie/app-node/src/frontend/utils/class-helper"
 import { selectBySeed } from "@dassie/lib-logger"
 import { useRemoteSignal } from "@dassie/lib-reactive-trpc/client"
 
-import { COLORS } from "../../constants/palette"
 import { trpc } from "../../utils/trpc"
 import { getWalletUrl } from "../../utils/wallet-url"
 

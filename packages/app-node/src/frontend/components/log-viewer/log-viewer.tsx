@@ -1,6 +1,9 @@
 import { useVirtualizer } from "@tanstack/react-virtual"
 import {
+  type ReactNode,
+  createContext,
   startTransition,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -8,25 +11,46 @@ import {
   useState,
 } from "react"
 
-import {
-  Card,
-  CardContent,
-  CardHeader,
-} from "@dassie/app-node/src/frontend/components/ui/card"
-import { Input } from "@dassie/app-node/src/frontend/components/ui/input"
-import { combine } from "@dassie/app-node/src/frontend/utils/class-helper"
-import { useRemoteStore } from "@dassie/lib-reactive-trpc/client"
-
-import { type IndexedLogLine, LogsStore } from "../../../common/stores/logs"
-import { trpc } from "../../utils/trpc"
+import { type IndexedLogLine } from "../../../common/stores/logs"
+import { combine } from "../../utils/class-helper"
+import { Card, CardContent, CardHeader } from "../ui/card"
+import { Input } from "../ui/input"
+import { DEFAULT_FORMAT, type FormatDefinition } from "./default-format"
 import LogLine from "./log-line"
 
+interface LogViewerContextValue {
+  openFile: ((path: string) => void) | undefined
+  renderNodeColumn: ((log: IndexedLogLine) => ReactNode) | undefined
+  format: FormatDefinition
+}
+
+const DEFAULT_CONTEXT = {
+  openFile: undefined,
+  renderNodeColumn: undefined,
+  format: DEFAULT_FORMAT,
+}
+
+const LogViewerContext = createContext<LogViewerContextValue>(DEFAULT_CONTEXT)
+
+export const useLogViewerContext = () => useContext(LogViewerContext)
+
+export const LogViewerProvider = ({
+  children,
+  ...value
+}: Partial<LogViewerContextValue> & { children: ReactNode }) => (
+  <LogViewerContext.Provider value={{ ...DEFAULT_CONTEXT, ...value }}>
+    {children}
+  </LogViewerContext.Provider>
+)
+
 export interface LogViewerProperties {
-  filter?: (line: IndexedLogLine) => boolean
+  logs: IndexedLogLine[]
+  filter?: ((line: IndexedLogLine) => boolean) | undefined
   className?: string | undefined
 }
 
 const LogViewer = ({
+  logs,
   filter: externalFilter,
   className,
 }: LogViewerProperties) => {
@@ -34,7 +58,6 @@ const LogViewer = ({
   const [shouldStick, setShouldStick] = useState(true)
   const scrollPositionReference = useRef<number | undefined>(undefined)
   const [keywordFilter, setKeywordFilter] = useState("")
-  const { logs } = useRemoteStore(trpc.ui.subscribeToLogs, LogsStore)
   const latestLogLine = logs.at(-1)
   const filteredLogs = useMemo(
     () =>

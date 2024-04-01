@@ -1,11 +1,20 @@
 import { produce } from "immer"
 import type { SetOptional } from "type-fest"
 
-import type { IndexedLogLine } from "@dassie/app-node/src/common/stores/logs"
+import type { LogMessage } from "@dassie/lib-logger"
 import { createStore } from "@dassie/lib-reactive"
 
-export const LOGS_SOFT_LIMIT = 10_000
-export const LOGS_HARD_LIMIT = 10_100
+export const LOGS_SOFT_LIMIT = 100
+export const LOGS_HARD_LIMIT = 120
+
+export type NodeLogLine = LogMessage & {
+  node: string
+}
+
+export type IndexedLogLine = NodeLogLine & {
+  index: number
+  relativeTime: number
+}
 
 export interface LogsStoreState {
   logs: IndexedLogLine[]

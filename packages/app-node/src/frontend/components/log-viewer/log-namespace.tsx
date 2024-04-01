@@ -1,7 +1,7 @@
 import { selectBySeed } from "@dassie/lib-logger"
 
 import { COLORS } from "../../constants/palette"
-import { trpc } from "../../utils/trpc"
+import { useLogViewerContext } from "./log-viewer"
 
 export interface LogNamespaceProperties {
   namespace: string
@@ -9,7 +9,8 @@ export interface LogNamespaceProperties {
 }
 
 export const LogNamespace = ({ namespace, caller }: LogNamespaceProperties) => {
-  const openFileMutation = trpc.ui.openFile.useMutation()
+  const { openFile } = useLogViewerContext()
+
   return (
     <span
       className={caller ? "hover:underline cursor-pointer" : ""}
@@ -17,7 +18,7 @@ export const LogNamespace = ({ namespace, caller }: LogNamespaceProperties) => {
       onClick={
         caller
           ? () => {
-              openFileMutation.mutate(caller)
+              openFile?.(caller)
             }
           : undefined
       }

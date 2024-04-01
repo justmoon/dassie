@@ -7,11 +7,11 @@ import ReactForceGraph2d, {
 } from "react-force-graph-2d"
 import { useLocation } from "wouter"
 
+import { COLORS } from "@dassie/app-node/src/frontend/constants/palette"
 import { selectBySeed } from "@dassie/lib-logger"
 import { useRemoteSignal } from "@dassie/lib-reactive-trpc/client"
 
 import type { PeerMessageMetadata } from "../../../backend/topics/peer-traffic"
-import { COLORS } from "../../constants/palette"
 import { trpc } from "../../utils/trpc"
 
 interface NodeGraphViewProperties {

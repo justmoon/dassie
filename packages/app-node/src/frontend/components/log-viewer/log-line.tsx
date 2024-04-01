@@ -1,7 +1,7 @@
 import type { IndexedLogLine } from "../../../common/stores/logs"
-import NodeLink from "../shared/node-link/node-link"
 import { LogMessage } from "./log-message"
 import { LogNamespace } from "./log-namespace"
+import { useLogViewerContext } from "./log-viewer"
 
 interface LogLineProperties {
   log: IndexedLogLine
@@ -15,6 +15,7 @@ const LOG_LEVEL_COLORS = {
 } as const
 
 const LogLine = ({ log }: LogLineProperties) => {
+  const { renderNodeColumn } = useLogViewerContext()
   return (
     <div
       className="text-xs whitespace-pre-wrap pl-42"
@@ -30,10 +31,7 @@ const LogLine = ({ log }: LogLineProperties) => {
         {" "}
         {log.type}
       </span>
-      <span className="inline-block font-bold flex-shrink-0 w-9 mr-1">
-        {" "}
-        <NodeLink id={log.node} />{" "}
-      </span>
+      {renderNodeColumn?.(log)}
       <span className="font-mono">
         <LogNamespace namespace={log.namespace} caller={log.caller} />{" "}
         <LogMessage message={log.message} parameters={log.parameters} />
