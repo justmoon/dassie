@@ -7,9 +7,9 @@
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "dependencies": {
-    "@unocss/preset-mini": "^0.58.0",
-    "@unocss/reset": "^0.58.0",
-    "@unocss/transformer-directives": "^0.58.0",
-    "unocss": "^0.58.0"
+    "@unocss/preset-mini": "0.59.0-beta.1",
+    "@unocss/reset": "0.59.0-beta.1",
+    "@unocss/transformer-directives": "0.59.0-beta.1",
+    "unocss": "0.59.0-beta.1"
   }
 }

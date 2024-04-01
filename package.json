@@ -40,10 +40,10 @@
     "@microsoft/api-extractor": "^7.43.0",
     "@microsoft/api-extractor-model": "^7.28.13",
     "@trivago/prettier-plugin-sort-imports": "^4.3.0",
-    "@types/node": "^20.11.30",
+    "@types/node": "^20.12.2",
     "prettier": "^3.2.5",
     "typescript": "^5.4.3",
-    "vite": "^5.2.6",
+    "vite": "^5.2.7",
     "vite-node": "^1.4.0",
     "vitest": "^1.4.0"
   },
