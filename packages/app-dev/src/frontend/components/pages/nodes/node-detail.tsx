@@ -3,7 +3,7 @@ import { createWSClient, wsLink } from "@trpc/client"
 import { Link } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import superjson from "superjson"
-import { Redirect, Route, Router, useLocation, useRouter } from "wouter"
+import { Redirect, Route, useLocation } from "wouter"
 
 import { Button } from "@dassie/app-node/src/frontend/components/ui/button"
 import {
@@ -72,18 +72,14 @@ const createNodeTrpcClients = (securityToken: string, nodeId: string) => {
   return { queryClient, wsClient, trpcClient }
 }
 
-interface NodeDetailProperties extends BasicNodeElementProperties {
-  secondaryParameters: string | undefined
-}
+interface NodeDetailProperties extends BasicNodeElementProperties {}
 
-const NodeDetail = ({ nodeId, secondaryParameters }: NodeDetailProperties) => {
-  const router = useRouter()
-  const [, setLocation] = useLocation()
-
-  const currentTab = secondaryParameters?.split("/")[1] ?? "logs"
+const NodeDetail = ({ nodeId }: NodeDetailProperties) => {
+  const [location, setLocation] = useLocation()
+  const currentTab = /^\/debug\/(.*)$/.exec(location)?.[1] ?? "logs"
 
   function onTabChange(value: string) {
-    setLocation(`/nodes/${nodeId}/debug/${value}`)
+    setLocation(`/debug/${value}`)
   }
 
   const [clients, setClients] = useState<
@@ -139,20 +135,11 @@ const NodeDetail = ({ nodeId, secondaryParameters }: NodeDetailProperties) => {
               <TabsTrigger value="state">State</TabsTrigger>
               <TabsTrigger value="database">Database</TabsTrigger>
             </TabsList>
-            <Route path={`/nodes/${nodeId}/debug/logs`}>
+            <Route path={`/debug/logs`}>
               {() => <NodeLogViewer nodeId={nodeId} />}
             </Route>
-            <Route path={`/nodes/${nodeId}/debug/:params*`}>
-              {() => (
-                // Set a router with a different base so the debug page components from the node frontend feel at home
-                <Router base={`/nodes/${nodeId}`} parent={router}>
-                  <DebugPage />
-                </Router>
-              )}
-            </Route>
-            <Route path={`/nodes/${nodeId}`}>
-              {() => <Redirect to={`/nodes/${nodeId}/debug/logs`} />}
-            </Route>
+            <DebugPage />
+            <Route path={`/`}>{() => <Redirect to={`/debug/logs`} />}</Route>
           </Tabs>
         </div>
       </QueryClientProvider>

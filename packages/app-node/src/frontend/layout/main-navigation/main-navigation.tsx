@@ -1,5 +1,6 @@
 import { SettingsIcon } from "lucide-react"
-import { Link, LinkProps } from "wouter"
+import type { ComponentPropsWithoutRef } from "react"
+import { Link } from "wouter"
 
 import {
   NavigationMenu,
@@ -57,22 +58,30 @@ export function MainNavigation() {
   )
 }
 
-const ListItem = ({ className, title, children, ...properties }: LinkProps) => {
+const ListItem = ({
+  href,
+  className,
+  title,
+  children,
+  ...properties
+}: { href: string } & ComponentPropsWithoutRef<"a">) => {
   return (
     <li>
       <NavigationMenuLink asChild>
-        <Link
-          title={title}
-          className={combine(
-            "block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground",
-            className,
-          )}
-          {...properties}
-        >
-          <div className="text-sm font-medium leading-none">{title}</div>
-          <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">
-            {children}
-          </p>
+        <Link href={href} asChild>
+          <a
+            title={title}
+            className={combine(
+              "block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground",
+              className,
+            )}
+            {...properties}
+          >
+            <div className="text-sm font-medium leading-none">{title}</div>
+            <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">
+              {children}
+            </p>
+          </a>
         </Link>
       </NavigationMenuLink>
     </li>

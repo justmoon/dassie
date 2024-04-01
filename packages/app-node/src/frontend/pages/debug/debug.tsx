@@ -1,4 +1,4 @@
-import { Route, Router, useRouter } from "wouter"
+import { Route } from "wouter"
 
 import { Database } from "./database/database"
 import { AccountDetailPage } from "./ledger/account-detail"
@@ -8,10 +8,8 @@ import { Routing } from "./routing/routing"
 import { State } from "./state/state"
 
 export const DebugPage = () => {
-  const router = useRouter()
-
   return (
-    <Router base="/debug" parent={router}>
+    <Route path="/debug" nest>
       <Route path="/nodes" component={Nodes} />
       <Route path="/ledger" component={Ledger} />
       <Route
@@ -21,6 +19,6 @@ export const DebugPage = () => {
       <Route path="/routing" component={Routing} />
       <Route path="/state" component={State} />
       <Route path="/database" component={Database} />
-    </Router>
+    </Route>
   )
 }
