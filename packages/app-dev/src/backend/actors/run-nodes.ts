@@ -110,7 +110,11 @@ export const RunNodesActor = (reactor: Reactor) => {
               DASSIE_DEV_NODE_ID: node.id,
               DASSIE_DEV_SECURITY_TOKEN: sig.read(SecurityTokenSignal),
             } satisfies RunnerEnvironment,
-            extraArguments: [`--inspect-port=${node.debugPort}`],
+            extraArguments: [
+              "--stack-trace-limit=64",
+              "--trace-deprecation",
+              `--inspect-port=${node.debugPort}`,
+            ],
           })
 
           await setTimeout(NODE_STARTUP_INTERVAL)
