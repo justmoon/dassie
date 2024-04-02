@@ -140,7 +140,9 @@ const NodeDetail = ({ nodeId }: NodeDetailProperties) => {
               ) : (
                 <DebugPage />
               )}
-              <Route path={`/`}>{() => <Redirect to={`/debug/logs`} />}</Route>
+              <Route path={`/`}>
+                {() => <Redirect to={`/debug/logs`} replace />}
+              </Route>
             </Tabs>
           </div>
         </DevelopmentLogProvider>
