@@ -11,7 +11,7 @@ import { StatefulContext } from "./types/stateful-context"
 
 export interface ComputationContext<TBase extends object = object>
   extends StatefulContext<TBase>,
-    ReactiveContext,
+    ReactiveContext<TBase>,
     LifecycleContext,
     LifecycleContextShortcuts {}
 

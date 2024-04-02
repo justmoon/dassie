@@ -1,7 +1,7 @@
 import { ReactiveSource } from "../internal/reactive"
 import { Factory } from "./factory"
 
-export interface ReactiveContext {
+export interface ReactiveContext<TBase extends object> {
   /**
    * Read the current value from a signal but recompute if the value changes.
    *
@@ -15,10 +15,14 @@ export interface ReactiveContext {
    * @returns The current value of the signal, narrowed by the selector.
    */
   readAndTrack<TState>(
-    signalFactory: Factory<ReactiveSource<TState>> | ReactiveSource<TState>,
+    signalFactory:
+      | Factory<ReactiveSource<TState>, TBase>
+      | ReactiveSource<TState>,
   ): TState
   readAndTrack<TState, TSelection>(
-    signalFactory: Factory<ReactiveSource<TState>> | ReactiveSource<TState>,
+    signalFactory:
+      | Factory<ReactiveSource<TState>, TBase>
+      | ReactiveSource<TState>,
     selector: (state: TState) => TSelection,
     comparator?: (oldValue: TSelection, newValue: TSelection) => boolean,
   ): TSelection
@@ -34,8 +38,8 @@ export interface ReactiveContext {
    * @param keys - Tuple of keys that should be extracted from the signal.
    * @returns A filtered version of the signal state containing only the requested keys.
    */
-  readKeysAndTrack<TState, TKeys extends keyof TState>(
-    signal: Factory<ReactiveSource<TState>> | ReactiveSource<TState>,
+  readKeysAndTrack<TState extends object, TKeys extends keyof TState>(
+    signal: Factory<ReactiveSource<TState>, TBase> | ReactiveSource<TState>,
     keys: readonly TKeys[],
   ): Pick<TState, TKeys>
 
@@ -49,6 +53,8 @@ export interface ReactiveContext {
    * @param signalFactory - The signal to read.
    */
   read<TState>(
-    signalFactory: Factory<ReactiveSource<TState>> | ReactiveSource<TState>,
+    signalFactory:
+      | Factory<ReactiveSource<TState>, TBase>
+      | ReactiveSource<TState>,
   ): TState
 }

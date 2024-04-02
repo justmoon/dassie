@@ -10,7 +10,7 @@ import { ReactiveContext } from "./types/reactive-context"
 import { StatefulContext } from "./types/stateful-context"
 
 export class ReactiveContextImplementation<TBase extends object>
-  implements StatefulContext<TBase>, ReactiveContext
+  implements StatefulContext<TBase>, ReactiveContext<TBase>
 {
   constructor(
     /**
@@ -56,7 +56,7 @@ export class ReactiveContextImplementation<TBase extends object>
     }
   }
 
-  readKeysAndTrack<TState, TKeys extends keyof TState>(
+  readKeysAndTrack<TState extends object, TKeys extends keyof TState>(
     signal: Factory<ReactiveSource<TState>, TBase> | ReactiveSource<TState>,
     keys: readonly TKeys[],
   ): Pick<TState, TKeys> {

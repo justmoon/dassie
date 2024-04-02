@@ -43,7 +43,7 @@ export interface ActorContext<TBase extends object = object>
     LifecycleContextShortcuts,
     StatefulContext<TBase>,
     ExecutionContext,
-    ReactiveContext {
+    ReactiveContext<TBase> {
   [ActorContextSymbol]: true
 
   base: TBase
