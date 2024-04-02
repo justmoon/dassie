@@ -21,7 +21,10 @@ import { selectBySeed } from "@dassie/lib-logger"
 
 import { trpc as trpcDevelopment } from "../../../utils/trpc"
 import { getWalletUrl } from "../../../utils/wallet-url"
-import { DevelopmentLogProvider } from "../../development-log-viewer/development-log-viewer"
+import {
+  DevelopmentLogProvider,
+  DevelopmentLogViewer,
+} from "../../development-log-viewer/development-log-viewer"
 
 interface BasicNodeElementProperties {
   nodeId: string
@@ -132,7 +135,11 @@ const NodeDetail = ({ nodeId }: NodeDetailProperties) => {
                 <TabsTrigger value="state">State</TabsTrigger>
                 <TabsTrigger value="database">Database</TabsTrigger>
               </TabsList>
-              <DebugPage />
+              {currentTab === "logs" ? (
+                <DevelopmentLogViewer filter={({ node }) => node === nodeId} />
+              ) : (
+                <DebugPage />
+              )}
               <Route path={`/`}>{() => <Redirect to={`/debug/logs`} />}</Route>
             </Tabs>
           </div>
