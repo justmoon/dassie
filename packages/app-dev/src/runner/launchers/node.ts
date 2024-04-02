@@ -22,11 +22,12 @@ const DebugRunnerActor = () =>
     sig.run(ForwardPeerTrafficActor)
     await sig.run(ReportPeeringStateActor)
 
+    await sig.withBase(createNodeRuntime()).run(daemonActor)
+
     const hasTls = sig.readAndTrack(HasTlsSignal)
     if (hasTls) {
       await sig.run(ServeWalletActor)
     }
-    await sig.withBase(createNodeRuntime()).run(daemonActor)
   })
 
 const reactor = createReactor()
