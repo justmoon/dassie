@@ -5,7 +5,7 @@ import { IlpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-
 import { EndpointInfo } from "../../ilp-connector/functions/send-packet"
 import { PeerEndpointInfo } from "../../ilp-connector/senders/send-peer-packets"
 import { NodeTableStore } from "../../peer-protocol/stores/node-table"
-import { getLedgerIdForSettlementScheme } from "../../settlement-schemes/functions/get-ledger-id"
+import { GetLedgerIdForSettlementScheme } from "../../settlement-schemes/functions/get-ledger-id"
 import { RoutingTableSignal } from "../signals/routing-table"
 
 export default class NoRouteFoundFailure extends Failure {
@@ -18,6 +18,9 @@ export const ResolveIlpAddress = (reactor: Reactor) => {
   const routingTable = reactor.use(RoutingTableSignal)
   const nodeTable = reactor.use(NodeTableStore)
   const ilpAllocationScheme = reactor.use(IlpAllocationSchemeSignal)
+  const getLedgerIdForSettlementScheme = reactor.use(
+    GetLedgerIdForSettlementScheme,
+  )
 
   return (ilpAddress: string): EndpointInfo | NoRouteFoundFailure => {
     const routingInfo = routingTable.read().lookup(ilpAddress)

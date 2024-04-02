@@ -1,13 +1,23 @@
+import type { Reactor } from "@dassie/lib-reactive"
+
 import { LedgerId } from "../../accounting/types/ledger-id"
 import { CurrencyDescription } from "../../exchange/load-exchange-rates"
-import modules from "../modules"
+import { LoadedSettlementModulesStore } from "../stores/loaded-settlement-modules"
 
-export const GetCurrencyFromLedgerId = () => {
+export const GetCurrencyFromLedgerId = (reactor: Reactor) => {
+  const loadedSettlementModulesStore = reactor.use(LoadedSettlementModulesStore)
   const ledgerIdToCurrency = new Map<LedgerId, CurrencyDescription>()
 
-  for (const module of Object.values(modules)) {
+  for (const module of loadedSettlementModulesStore.read().values()) {
     ledgerIdToCurrency.set(module.ledger.id, module.ledger.currency)
   }
+
+  loadedSettlementModulesStore.changes.on(reactor, ([action, change]) => {
+    if (action === "loadModule") {
+      const [, module] = change
+      ledgerIdToCurrency.set(module.ledger.id, module.ledger.currency)
+    }
+  })
 
   function getCurrencyFromLedgerId(ledgerId: LedgerId) {
     const currency = ledgerIdToCurrency.get(ledgerId)

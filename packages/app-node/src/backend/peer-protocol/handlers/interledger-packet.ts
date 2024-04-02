@@ -4,12 +4,15 @@ import { ProcessPacket } from "../../ilp-connector/functions/process-packet"
 import { parseIlpPacket } from "../../ilp-connector/schemas/ilp-packet-codec"
 import { PeerEndpointInfo } from "../../ilp-connector/senders/send-peer-packets"
 import { peerProtocol as logger } from "../../logger/instances"
-import { getLedgerIdForSettlementScheme } from "../../settlement-schemes/functions/get-ledger-id"
+import { GetLedgerIdForSettlementScheme } from "../../settlement-schemes/functions/get-ledger-id"
 import type { PeerMessageHandler } from "../functions/handle-peer-message"
 
 export const HandleInterledgerPacket = ((reactor: DassieReactor) => {
   const ilpAllocationSchemeSignal = reactor.use(IlpAllocationSchemeSignal)
   const processPacket = reactor.use(ProcessPacket)
+  const getLedgerIdForSettlementScheme = reactor.use(
+    GetLedgerIdForSettlementScheme,
+  )
 
   return ({
     message: {

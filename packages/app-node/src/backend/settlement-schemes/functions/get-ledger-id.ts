@@ -1,6 +1,8 @@
+import type { Reactor } from "@dassie/lib-reactive"
+
 import { LedgerId } from "../../accounting/types/ledger-id"
 import { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
-import modules from "../modules"
+import { LoadedSettlementModulesStore } from "../stores/loaded-settlement-modules"
 
 /**
  * Get the ledger ID for a settlement scheme.
@@ -10,14 +12,18 @@ import modules from "../modules"
  * This function is just a placeholder right now. In the future, this will check the settlement module to determine the
  * ledger ID.
  */
-export function getLedgerIdForSettlementScheme(
-  settlementSchemeId: SettlementSchemeId,
-): LedgerId {
-  const module = modules[settlementSchemeId]
+export const GetLedgerIdForSettlementScheme = (reactor: Reactor) => {
+  const loadedSettlementModulesStore = reactor.use(LoadedSettlementModulesStore)
 
-  if (!module) {
-    throw new Error(`Unknown settlement scheme '${settlementSchemeId}'`)
+  return function getLedgerIdForSettlementScheme(
+    settlementSchemeId: SettlementSchemeId,
+  ): LedgerId {
+    const module = loadedSettlementModulesStore.read().get(settlementSchemeId)
+
+    if (!module) {
+      throw new Error(`Unknown settlement scheme '${settlementSchemeId}'`)
+    }
+
+    return module.ledger.id
   }
-
-  return module.ledger.id
 }

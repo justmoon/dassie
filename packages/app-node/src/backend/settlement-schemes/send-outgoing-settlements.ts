@@ -10,7 +10,7 @@ import { PeersSignal } from "../peer-protocol/computed/peers"
 import { SendPeerMessage } from "../peer-protocol/functions/send-peer-message"
 import { NodeTableStore } from "../peer-protocol/stores/node-table"
 import { NodeId } from "../peer-protocol/types/node-id"
-import { getLedgerIdForSettlementScheme } from "./functions/get-ledger-id"
+import { GetLedgerIdForSettlementScheme } from "./functions/get-ledger-id"
 import { ManageSettlementSchemeInstancesActor } from "./manage-settlement-scheme-instances"
 import { PendingSettlementsMap } from "./values/pending-settlements-map"
 
@@ -101,6 +101,9 @@ export const SendOutgoingSettlementsActor = (reactor: DassieReactor) => {
   )
   const pendingSettlementsMap = reactor.use(PendingSettlementsMap)
   const sendPeerMessage = reactor.use(SendPeerMessage)
+  const getLedgerIdForSettlementScheme = reactor.use(
+    GetLedgerIdForSettlementScheme,
+  )
 
   return createMapped(reactor, PeersSignal, (peerId) =>
     createActor((sig: DassieActorContext) => {

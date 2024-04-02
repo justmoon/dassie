@@ -1,11 +1,12 @@
 import type { SettlementSchemeModule } from "../types/settlement-scheme-module"
-import stub from "./stub"
-import xrplTestnet from "./xrpl/xrpl-testnet"
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const modules: Record<string, SettlementSchemeModule<any>> = {
-  stub,
-  "xrpl-testnet": xrplTestnet,
+const modules: Record<
+  string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  () => Promise<{ default: SettlementSchemeModule<any> }>
+> = {
+  stub: () => import("./stub"),
+  "xrpl-testnet": () => import("./xrpl/xrpl-testnet"),
 }
 
 export default modules

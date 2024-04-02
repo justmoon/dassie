@@ -31,7 +31,7 @@ export type PeerState =
       readonly id: "peered"
       readonly lastSeen: number
       readonly settlementSchemeId: SettlementSchemeId
-      readonly settlementSchemeState: unknown
+      readonly settlementSchemeState: object
     }
 
 export interface LinkState {
@@ -100,6 +100,14 @@ export const NodeTableStore = (reactor: Reactor) => {
   const initialNodesMap = new Map<NodeId, NodeTableEntry>()
 
   for (const row of result) {
+    const settlementSchemeState = JSON.parse(
+      row.settlement_scheme_state!,
+    ) as unknown
+
+    if (!settlementSchemeState || typeof settlementSchemeState !== "object") {
+      throw new Error("Invalid settlement scheme state")
+    }
+
     initialNodesMap.set(row.id, {
       nodeId: row.id,
       linkState: undefined,
@@ -108,9 +116,7 @@ export const NodeTableStore = (reactor: Reactor) => {
             id: "peered",
             lastSeen: 0,
             settlementSchemeId: row.settlement_scheme_id,
-            settlementSchemeState: JSON.parse(
-              row.settlement_scheme_state!,
-            ) as unknown,
+            settlementSchemeState,
           }
         : { id: "none" },
     })
