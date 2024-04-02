@@ -1,19 +1,18 @@
-import type { IncomingMessage } from "node:http"
-
 import { NotAcceptableFailure, UnsupportedMediaTypeFailure } from "."
+import type { RequestContext } from "./context"
 
 export const createAcceptHeaderAssertion =
   (mediaType: string) =>
-  (request: IncomingMessage): NotAcceptableFailure | void => {
-    if (request.headers.accept !== mediaType) {
+  ({ request }: RequestContext): NotAcceptableFailure | void => {
+    if (request.headers.get("accept") !== mediaType) {
       return new NotAcceptableFailure(`Not Acceptable, expected ${mediaType}`)
     }
   }
 
 export const createContentTypeHeaderAssertion =
   (mediaType: string) =>
-  (request: IncomingMessage): UnsupportedMediaTypeFailure | void => {
-    if (request.headers["content-type"] !== mediaType) {
+  ({ request }: RequestContext): UnsupportedMediaTypeFailure | void => {
+    if (request.headers.get("content-type") !== mediaType) {
       return new UnsupportedMediaTypeFailure(
         `Unsupported Media Type, expected ${mediaType}`,
       )

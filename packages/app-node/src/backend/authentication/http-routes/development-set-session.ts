@@ -24,10 +24,10 @@ export const RegisterDevelopmentSetSessionRouteActor = () =>
             .refine((_token): _token is SessionToken => true),
         }),
       )
-      .handler(sig, (request, response) => {
-        const { sessionToken } = request.body
+      .handler(sig, ({ body, headers }) => {
+        const { sessionToken } = body
 
-        setCookie(response, {
+        setCookie(headers, {
           name: SESSION_COOKIE_NAME,
           value: sessionToken,
           maxAge: COOKIE_MAX_AGE_SECONDS,

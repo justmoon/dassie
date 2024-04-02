@@ -30,8 +30,9 @@
     "@dassie/lib-oer": "workspace:^",
     "@dassie/lib-reactive": "workspace:^",
     "@dassie/lib-type-utils": "workspace:^",
-    "negotiator": "^0.6.3",
+    "@fastify/accept-negotiator": "^1.1.0",
     "secure-json-parse": "^2.7.0",
+    "uint8array-extras": "^1.1.0",
     "zod": "^3.22.4"
   },
   "devDependencies": {

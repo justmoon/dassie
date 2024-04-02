@@ -1,5 +1,4 @@
-import { ServerResponse } from "node:http"
-
+import type { RequestContext } from "../context"
 import {
   DEFAULT_HTTP_RESPONSE_OPTIONS,
   DefaultHttpResponse,
@@ -22,9 +21,8 @@ export class BinaryHttpResponse extends DefaultHttpResponse {
     })
   }
 
-  override applyTo(response: ServerResponse) {
-    super.applyStatusAndHeader(response)
-    response.end(this.data)
+  override asResponse(context: RequestContext) {
+    return new Response(this.data, this.getStatusAndHeaders(context))
   }
 }
 

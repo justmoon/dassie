@@ -43,7 +43,7 @@ export const RegisterSetupRouteActor = (reactor: DassieReactor) => {
           loginAuthorizationSignature: z.string(),
         }),
       )
-      .handler(sig, (request, response) => {
+      .handler(sig, ({ body, headers }) => {
         if (hasNodeIdentity(config.read())) {
           return new UnauthorizedFailure("Node is already set up")
         }
@@ -55,7 +55,7 @@ export const RegisterSetupRouteActor = (reactor: DassieReactor) => {
           setupAuthorizationToken,
           rawDassieKeyHex,
           loginAuthorizationSignature,
-        } = request.body
+        } = body
 
         if (setupAuthorizationToken !== expectedSetupAuthorizationToken) {
           return new UnauthorizedFailure("Invalid setup authorization token")
@@ -86,7 +86,7 @@ export const RegisterSetupRouteActor = (reactor: DassieReactor) => {
 
         sessions.addSession(sessionToken)
 
-        setCookie(response, {
+        setCookie(headers, {
           name: SESSION_COOKIE_NAME,
           value: sessionToken,
           maxAge: COOKIE_MAX_AGE_SECONDS,

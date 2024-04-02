@@ -35,8 +35,8 @@ export const RegisterLoginRouteActor = (reactor: DassieReactor) => {
           loginAuthorizationSignature: z.string(),
         }),
       )
-      .handler(sig, (request, response) => {
-        const { loginAuthorizationSignature } = request.body
+      .handler(sig, ({ body, headers }) => {
+        const { loginAuthorizationSignature } = body
 
         const expectedLoginAuthorizationSignature = getPrivateSeedAtPath(
           sig.read(NodePrivateKeySignal),
@@ -57,7 +57,7 @@ export const RegisterLoginRouteActor = (reactor: DassieReactor) => {
 
         sessions.addSession(sessionToken)
 
-        setCookie(response, {
+        setCookie(headers, {
           name: SESSION_COOKIE_NAME,
           value: sessionToken,
           maxAge: COOKIE_MAX_AGE_SECONDS,

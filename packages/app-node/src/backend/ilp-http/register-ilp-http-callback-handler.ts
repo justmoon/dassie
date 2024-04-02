@@ -28,11 +28,8 @@ export const RegisterIlpHttpCallbackHandlerActor = (reactor: DassieReactor) => {
       .assert(createAcceptHeaderAssertion(ILP_OVER_HTTP_CONTENT_TYPE))
       .assert(createContentTypeHeaderAssertion(ILP_OVER_HTTP_CONTENT_TYPE))
       .bodyParser("uint8Array")
-      .handler(sig, (request) => {
-        const textualRequestIdHeader = request.headers["request-id"]
-        const textualRequestId = Array.isArray(textualRequestIdHeader)
-          ? textualRequestIdHeader[0]
-          : textualRequestIdHeader
+      .handler(sig, ({ request, body }) => {
+        const textualRequestId = request.headers.get("request-id")
 
         if (!textualRequestId) {
           return new BadRequestFailure("Missing required header Request-Id")
@@ -48,8 +45,8 @@ export const RegisterIlpHttpCallbackHandlerActor = (reactor: DassieReactor) => {
 
         processPacket({
           sourceEndpointInfo: endpointInfo,
-          serializedPacket: request.body,
-          parsedPacket: parseIlpPacket(request.body),
+          serializedPacket: body,
+          parsedPacket: parseIlpPacket(body),
           requestId: Number(textualRequestId),
         })
 

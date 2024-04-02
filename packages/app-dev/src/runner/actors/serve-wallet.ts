@@ -1,4 +1,3 @@
-import type { NextHandleFunction } from "connect"
 import history from "connect-history-api-fallback"
 import { type ViteDevServer, createServer } from "vite"
 
@@ -6,7 +5,10 @@ import { existsSync, readFileSync } from "node:fs"
 import { join, normalize } from "node:path"
 
 import { DatabaseConfigStore } from "@dassie/app-node/src/backend/config/database-config"
-import { AdditionalMiddlewaresSignal } from "@dassie/app-node/src/backend/http-server/serve-https"
+import {
+  AdditionalMiddlewaresSignal,
+  type ExpressMiddleware,
+} from "@dassie/app-node/src/backend/http-server/serve-https"
 import { Reactor, createActor } from "@dassie/lib-reactive"
 
 import { runner as logger } from "../../backend/logger/instances"
@@ -85,10 +87,10 @@ export const ServeWalletActor = (reactor: Reactor) => {
           },
         },
       ],
-    }) as NextHandleFunction
+    }) as ExpressMiddleware
 
     // eslint-disable-next-line @typescript-eslint/no-misused-promises
-    const serveIndexHtml: NextHandleFunction = async (
+    const serveIndexHtml: ExpressMiddleware = async (
       request,
       response,
       next,
@@ -101,7 +103,7 @@ export const ServeWalletActor = (reactor: Reactor) => {
       // spa-fallback always redirects to /index.html
       if (
         url?.endsWith(".html") &&
-        request.headers["sec-fetch-dest"] !== "script"
+        request.header("sec-fetch-dest") !== "script"
       ) {
         const filename = getHtmlFilename(url, server)
         if (existsSync(filename)) {

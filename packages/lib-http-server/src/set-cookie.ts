@@ -1,5 +1,3 @@
-import { ServerResponse } from "node:http"
-
 export interface CookieOptions {
   name: string
   value: string
@@ -7,7 +5,7 @@ export interface CookieOptions {
   partitioned?: boolean | undefined
 }
 
-export const setCookie = (response: ServerResponse, cookie: CookieOptions) => {
+export const setCookie = (headers: Headers, cookie: CookieOptions) => {
   if (!cookie.name.startsWith("__Host-")) {
     throw new Error(
       `Cookie name must start with "__Host-". Search online for "cookie prefixes" to learn more. Received "${cookie.name}"`,
@@ -30,19 +28,11 @@ export const setCookie = (response: ServerResponse, cookie: CookieOptions) => {
     cookieHeader += `; Partitioned`
   }
 
-  const existingCookies = response.getHeader("Set-Cookie")
-
-  if (typeof existingCookies === "string") {
-    response.setHeader("Set-Cookie", [existingCookies, cookieHeader])
-  } else if (Array.isArray(existingCookies)) {
-    response.setHeader("Set-Cookie", [...existingCookies, cookieHeader])
-  } else {
-    response.setHeader("Set-Cookie", cookieHeader)
-  }
+  headers.append("Set-Cookie", cookieHeader)
 }
 
-export const clearCookie = (response: ServerResponse, name: string) => {
-  setCookie(response, {
+export const clearCookie = (headers: Headers, name: string) => {
+  setCookie(headers, {
     name,
     value: "",
     maxAge: 0,

@@ -30,26 +30,20 @@ export const RegisterIlpHttpHandlerActor = (reactor: DassieReactor) => {
       .assert(createAcceptHeaderAssertion(ILP_OVER_HTTP_CONTENT_TYPE))
       .assert(createContentTypeHeaderAssertion(ILP_OVER_HTTP_CONTENT_TYPE))
       .bodyParser("uint8Array")
-      .handler(sig, (request) => {
-        if (request.headers["prefer"] !== "respond-async") {
+      .handler(sig, ({ request, body }) => {
+        if (request.headers.get("prefer") !== "respond-async") {
           return new BadRequestFailure(
             "This implementation only supports asynchronous mode, expected 'Prefer: respond-async'",
           )
         }
 
-        const requestIdHeader = request.headers["request-id"]
-        const requestId = Array.isArray(requestIdHeader)
-          ? requestIdHeader[0]
-          : requestIdHeader
+        const requestId = request.headers.get("request-id")
 
         if (!requestId) {
           return new BadRequestFailure("Missing required header Request-Id")
         }
 
-        const callbackUrlHeader = request.headers["callback-url"]
-        const callbackUrl = Array.isArray(callbackUrlHeader)
-          ? callbackUrlHeader[0]
-          : callbackUrlHeader
+        const callbackUrl = request.headers.get("callback-url")
 
         if (!callbackUrl) {
           return new BadRequestFailure("Missing required header Callback-Url")
@@ -70,8 +64,8 @@ export const RegisterIlpHttpHandlerActor = (reactor: DassieReactor) => {
 
         processPacket({
           sourceEndpointInfo: endpointInfo,
-          serializedPacket: request.body,
-          parsedPacket: parseIlpPacket(request.body),
+          serializedPacket: body,
+          parsedPacket: parseIlpPacket(body),
           requestId,
         })
 

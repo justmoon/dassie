@@ -1,5 +1,4 @@
-import { ServerResponse } from "node:http"
-
+import type { RequestContext } from "../context"
 import { HttpResponse } from "../types/http-response"
 
 export interface HttpResponseOptions {
@@ -15,10 +14,16 @@ export const DEFAULT_HTTP_RESPONSE_OPTIONS = {
 export abstract class DefaultHttpResponse implements HttpResponse {
   constructor(private readonly options: HttpResponseOptions) {}
 
-  abstract applyTo(response: ServerResponse): void
+  abstract asResponse(context: RequestContext): Response
 
-  applyStatusAndHeader(response: ServerResponse) {
-    response.statusCode = this.options.statusCode
-    response.setHeader("Content-Type", this.options.contentType)
+  getStatusAndHeaders({ headers }: RequestContext) {
+    if (!headers.has("Content-Type")) {
+      headers.set("Content-Type", this.options.contentType)
+    }
+
+    return {
+      status: this.options.statusCode,
+      headers,
+    } satisfies ResponseInit
   }
 }

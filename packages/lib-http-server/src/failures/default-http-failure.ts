@@ -1,7 +1,6 @@
-import { ServerResponse } from "node:http"
-
 import { Failure } from "@dassie/lib-type-utils"
 
+import type { RequestContext } from "../context"
 import { HttpFailure } from "../types/http-failure"
 
 export abstract class DefaultHttpFailure
@@ -14,8 +13,10 @@ export abstract class DefaultHttpFailure
     super()
   }
 
-  applyTo(response: ServerResponse) {
-    response.statusCode = this.statusCode
-    response.end(this.message)
+  asResponse({ headers }: RequestContext) {
+    return new Response(this.message, {
+      status: this.statusCode,
+      headers,
+    })
   }
 }

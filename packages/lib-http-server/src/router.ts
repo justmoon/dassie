@@ -1,13 +1,12 @@
-import { Promisable, Simplify } from "type-fest"
+import type { Promisable, SetNonNullable, Simplify } from "type-fest"
 import type { AnyZodObject, infer as InferZodType } from "zod"
-
-import { IncomingMessage, RequestListener, ServerResponse } from "node:http"
 
 import { AnyOerType, Infer as InferOerType } from "@dassie/lib-oer"
 import type { LifecycleContext } from "@dassie/lib-reactive"
 import { Failure, isFailure } from "@dassie/lib-type-utils"
 
-import { HttpRequestHandler, createHandler } from "./handler"
+import { type RequestContext, createContext } from "./context"
+import { handleError } from "./handle-error"
 import {
   parseBodyBuffer,
   parseBodyOer,
@@ -18,8 +17,8 @@ import {
 } from "./parse-body"
 import { parseQueryParameters } from "./query-parameters"
 import { HttpFailure } from "./types/http-failure"
+import type { HttpResponse } from "./types/http-response"
 import { RouteParameters } from "./types/route-parameters"
-import { url } from "./url"
 
 export const HTTP_METHODS = [
   "get",
@@ -32,6 +31,12 @@ export const HTTP_METHODS = [
 ] as const
 
 export type HttpMethod = (typeof HTTP_METHODS)[number]
+
+export type HttpRequestHandler<
+  TAdditionalRequestFields extends object = object,
+> = (
+  context: RequestContext<TAdditionalRequestFields>,
+) => Promisable<HttpFailure | HttpResponse>
 
 export const BODY_PARSERS = {
   json: parseJson,
@@ -57,8 +62,7 @@ export type InferBodyType<TBodyParser extends BodyParser> = Exclude<
 >["body"]
 
 export type Middleware<TInput extends object, TOutput extends object> = (
-  request: IncomingMessage & TInput,
-  response: ServerResponse<IncomingMessage & TInput>,
+  context: RequestContext<TInput>,
 ) => Promisable<void | TOutput | HttpFailure>
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -144,7 +148,7 @@ export type ApiRouteBuilder<
    * handler and which may return a failure to be returned to the client.
    */
   assert: (
-    assertion: (request: IncomingMessage) => HttpFailure | void,
+    assertion: (context: RequestContext) => HttpFailure | void,
   ) => ApiRouteBuilder<TParameters>
 
   /**
@@ -173,20 +177,20 @@ const initialRouteBuilderState: RouteBuilderState = {
   middlewares: [],
 }
 
+type RouteHandler = (
+  context: RequestContext,
+) => Promise<HttpFailure | HttpResponse>
+
 const createRouteHandler =
-  (state: RouteBuilderState) =>
-  async (request: IncomingMessage, response: ServerResponse) => {
-    if (!state.userHandler) {
-      throw new Error("No handler provided for API route")
-    }
-
+  (state: SetNonNullable<RouteBuilderState, "userHandler">): RouteHandler =>
+  async (context) => {
     for (const middleware of state.middlewares) {
-      const result = await middleware(request, response)
+      const result = await middleware(context)
       if (isFailure(result)) return result
-      if (result) Object.assign(request, result)
+      if (result) Object.assign(context, result)
     }
 
-    return state.userHandler(request, response)
+    return await state.userHandler(context)
   }
 
 type RouteKey<
@@ -195,7 +199,7 @@ type RouteKey<
 > = `${TMethod} ${TPath}`
 
 export const createRouter = () => {
-  const routes = new Map<RouteKey, RequestListener>()
+  const routes = new Map<RouteKey, RouteHandler>()
 
   const createBuilder = (state: RouteBuilderState) => {
     const routeDescriptor: ApiRouteBuilder<ApiRouteParameters> = {
@@ -245,11 +249,7 @@ export const createRouter = () => {
       querySchema: (schema) => {
         return createBuilder({
           ...state,
-          middlewares: [
-            ...state.middlewares,
-            url,
-            parseQueryParameters(schema),
-          ],
+          middlewares: [...state.middlewares, parseQueryParameters(schema)],
         })
       },
       use: (middleware) => {
@@ -288,7 +288,7 @@ export const createRouter = () => {
           throw new Error(`Route already exists for ${method} ${path}`)
         }
 
-        routes.set(`${method} ${path}`, createHandler(routeHandler))
+        routes.set(`${method} ${path}`, routeHandler)
 
         context.lifecycle.onCleanup(() => {
           routes.delete(`${method} ${path}`)
@@ -299,10 +299,30 @@ export const createRouter = () => {
     return routeDescriptor
   }
 
+  function match(method: string, path: string) {
+    return routes.get(`${method.toLowerCase()} ${path}`)
+  }
+
   return {
     ...createBuilder(initialRouteBuilderState),
-    match(method: string, path: string) {
-      return routes.get(`${method.toLowerCase()} ${path}`)
+    match,
+    handle: async (request: Request) => {
+      const context = createContext(request)
+
+      try {
+        const handler =
+          match(request.method, context.url.pathname) ??
+          match(request.method, "*")
+
+        if (!handler) {
+          return new Response("Not Found", { status: 404 })
+        }
+
+        const result = await handler(context)
+        return result.asResponse(context)
+      } catch (error: unknown) {
+        return handleError(context, error)
+      }
     },
   }
 }

@@ -1,7 +1,6 @@
 import { JsonValue } from "type-fest"
 
-import { ServerResponse } from "node:http"
-
+import type { RequestContext } from "../context"
 import {
   DEFAULT_HTTP_RESPONSE_OPTIONS,
   DefaultHttpResponse,
@@ -24,9 +23,11 @@ export class JsonHttpResponse extends DefaultHttpResponse {
     })
   }
 
-  override applyTo(response: ServerResponse) {
-    super.applyStatusAndHeader(response)
-    response.end(JSON.stringify(this.data))
+  override asResponse(context: RequestContext) {
+    return new Response(
+      JSON.stringify(this.data),
+      this.getStatusAndHeaders(context),
+    )
   }
 }
 

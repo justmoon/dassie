@@ -16,14 +16,14 @@ export const RegisterLogoutRouteActor = () =>
     http
       .post()
       .path("/api/logout")
-      .handler(sig, (request, response) => {
-        const cookies = parse(request.headers.cookie ?? "")
+      .handler(sig, ({ request, headers }) => {
+        const cookies = parse(request.headers.get("cookie") ?? "")
         const currentSessionToken = cookies[SESSION_COOKIE_NAME]
         if (currentSessionToken) {
           sessions.removeSession(currentSessionToken as SessionToken)
         }
 
-        clearCookie(response, SESSION_COOKIE_NAME)
+        clearCookie(headers, SESSION_COOKIE_NAME)
 
         return createJsonResponse({})
       })

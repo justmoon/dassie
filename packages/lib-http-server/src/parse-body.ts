@@ -1,60 +1,61 @@
 import { parse as secureJsonParse } from "secure-json-parse"
 import { JsonValue } from "type-fest"
+import { concatUint8Arrays, uint8ArrayToString } from "uint8array-extras"
 import { infer as InferZodType, ZodTypeAny } from "zod"
 
-import type { IncomingMessage } from "node:http"
-
 import { AnyOerType, Infer as InferOerType } from "@dassie/lib-oer"
-import { bufferToUint8Array, isFailure } from "@dassie/lib-type-utils"
+import { isFailure } from "@dassie/lib-type-utils"
 
-import { BadRequestFailure, PayloadTooLargeFailure } from "."
 import { DEFAULT_MAX_BODY_SIZE } from "./constants"
+import { BadRequestFailure } from "./failures/bad-request-failure"
+import { PayloadTooLargeFailure } from "./failures/payload-too-large-failure"
+import type { Middleware } from "./router"
 
-export const parseBodyBuffer = async (
-  request: IncomingMessage,
-): Promise<{ body: Buffer } | PayloadTooLargeFailure> => {
-  const body: Buffer[] = []
+export const parseBodyUint8Array = (async ({ request }) => {
+  const body: Uint8Array[] = []
   let dataReceived = 0
 
-  for await (const chunk of request as AsyncIterable<Buffer>) {
+  if (!request.body) {
+    return { body: new Uint8Array() }
+  }
+
+  const reader = request.body.getReader()
+
+  let result = await reader.read()
+  while (!result.done) {
+    const chunk = result.value
     dataReceived += chunk.length
 
     if (dataReceived > DEFAULT_MAX_BODY_SIZE) {
+      await reader.cancel()
+
       return new PayloadTooLargeFailure(
         `Payload Too Large, expected body to be less than ${DEFAULT_MAX_BODY_SIZE} bytes`,
       )
     }
-    body.push(chunk)
+    body.push(result.value)
+    result = await reader.read()
   }
 
-  return { body: Buffer.concat(body) }
-}
+  return { body: concatUint8Arrays(body) }
+}) satisfies Middleware<object, { body: Uint8Array } | PayloadTooLargeFailure>
 
-export const parseBodyUint8Array = async (
-  request: IncomingMessage,
-): Promise<{ body: Uint8Array } | PayloadTooLargeFailure> => {
-  const buffer = await parseBodyBuffer(request)
-  if (isFailure(buffer)) return buffer
+export const parseBodyBuffer = (async (context) => {
+  const uint8ArrayBody = await parseBodyUint8Array(context)
+  if (isFailure(uint8ArrayBody)) return uint8ArrayBody
 
-  return { body: bufferToUint8Array(buffer.body) }
-}
+  return { body: Buffer.from(uint8ArrayBody.body) }
+}) satisfies Middleware<object, { body: Buffer } | PayloadTooLargeFailure>
 
-export const parseBodyUtf8 = async (
-  request: IncomingMessage,
-): Promise<{ body: string } | PayloadTooLargeFailure> => {
-  const bufferBody = await parseBodyBuffer(request)
-  if (isFailure(bufferBody)) return bufferBody
+export const parseBodyUtf8 = (async (context) => {
+  const uint8ArrayBody = await parseBodyUint8Array(context)
+  if (isFailure(uint8ArrayBody)) return uint8ArrayBody
 
-  return { body: bufferBody.body.toString("utf8") }
-}
+  return { body: uint8ArrayToString(uint8ArrayBody.body) }
+}) satisfies Middleware<object, { body: string } | PayloadTooLargeFailure>
 
-export const parseJson = async (
-  request: IncomingMessage,
-  // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
-): Promise<
-  { body: JsonValue } | PayloadTooLargeFailure | BadRequestFailure
-> => {
-  const utf8Body = await parseBodyUtf8(request)
+export const parseJson = (async (context) => {
+  const utf8Body = await parseBodyUtf8(context)
   if (isFailure(utf8Body)) return utf8Body
 
   try {
@@ -63,16 +64,17 @@ export const parseJson = async (
     console.debug("request body is not valid JSON", { error })
     return new BadRequestFailure("Invalid HTTP request body")
   }
-}
+}) satisfies Middleware<object, { body: JsonValue } | PayloadTooLargeFailure>
 
 export const parseBodyZod =
-  <TSchema extends ZodTypeAny>(schema: TSchema) =>
-  async (
-    request: IncomingMessage,
-  ): Promise<
+  <TSchema extends ZodTypeAny>(
+    schema: TSchema,
+  ): Middleware<
+    object,
     { body: InferZodType<TSchema> } | PayloadTooLargeFailure | BadRequestFailure
-  > => {
-    const jsonBody = await parseJson(request)
+  > =>
+  async (context) => {
+    const jsonBody = await parseJson(context)
     if (isFailure(jsonBody)) return jsonBody
 
     const result = schema.safeParse(jsonBody.body)
@@ -89,13 +91,14 @@ export const parseBodyZod =
   }
 
 export const parseBodyOer =
-  <TSchema extends AnyOerType>(schema: TSchema) =>
-  async (
-    request: IncomingMessage,
-  ): Promise<
+  <TSchema extends AnyOerType>(
+    schema: TSchema,
+  ): Middleware<
+    object,
     { body: InferOerType<TSchema> } | PayloadTooLargeFailure | BadRequestFailure
-  > => {
-    const uint8ArrayBody = await parseBodyUint8Array(request)
+  > =>
+  async (context) => {
+    const uint8ArrayBody = await parseBodyUint8Array(context)
     if (isFailure(uint8ArrayBody)) return uint8ArrayBody
 
     const result = schema.parse(uint8ArrayBody.body)

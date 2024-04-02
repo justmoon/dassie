@@ -1,6 +1,4 @@
 /* eslint-disable unicorn/no-hex-escape, unicorn/better-regex -- In this case, the regex is actually more readable without these rules.*/
-import { IncomingMessage } from "node:http"
-
 import { Middleware } from "./router"
 
 export type Cookies = Record<string, string>
@@ -11,12 +9,10 @@ export const COOKIE_TOKEN_REGEX =
 export const COOKIE_VALUE_REGEX =
   /^[\x21\x23-\x2B\x2D-\x3A\x3C-\x5B\x5D-\x7E]*$/
 
-export const cookie = ((request: {
-  headers: { cookie?: IncomingMessage["headers"]["cookie"] }
-}) => {
+export const cookie = (({ request }: { request: Request }) => {
   const cookies: Cookies = {}
 
-  const cookieHeader = request.headers.cookie
+  const cookieHeader = request.headers.get("cookie")
   if (cookieHeader) {
     for (const cookie of cookieHeader.split(";")) {
       const parts = cookie.split("=").map((part) => part.trim()) as

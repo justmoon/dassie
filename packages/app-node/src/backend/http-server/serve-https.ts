@@ -1,11 +1,14 @@
-import type { NextHandleFunction } from "connect"
-import express from "express"
+import express, { type RequestHandler } from "express"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { createServer } from "node:https"
 import type { Duplex } from "node:stream"
 
-import { createRouter } from "@dassie/lib-http-server"
+import {
+  convertFromNodejsRequest,
+  createRouter,
+  writeToNodejsResponse,
+} from "@dassie/lib-http-server"
 import { createActor, createSignal } from "@dassie/lib-reactive"
 
 import { DatabaseConfigStore } from "../config/database-config"
@@ -17,8 +20,10 @@ export type Handler = (
   response: ServerResponse,
 ) => void
 
+export type ExpressMiddleware = RequestHandler
+
 export const AdditionalMiddlewaresSignal = () =>
-  createSignal<NextHandleFunction[]>([])
+  createSignal<Array<ExpressMiddleware>>([])
 
 export const HttpsRouter = () => createRouter()
 
@@ -67,16 +72,26 @@ export const HttpsServiceActor = () =>
 
     logger.info(`listening on ${url}`)
 
-    function handleRequest(request: IncomingMessage, response: ServerResponse) {
-      const handler = router.match(request.method!, request.url!)
+    function handleRequest(
+      nodeRequest: IncomingMessage,
+      nodeResponse: ServerResponse<IncomingMessage>,
+    ) {
+      ;(async () => {
+        const request = convertFromNodejsRequest(nodeRequest, {
+          hostname: "0.0.0.0",
+          protocol: "https",
+        })
+        const response = await router.handle(request)
 
-      if (handler) {
-        handler(request, response)
-        return
-      }
-
-      // Anything that isn't handled by our internal router is passed to Express
-      app(request, response)
+        if (response.status === 404) {
+          // Anything that isn't handled by our internal router is passed to Express
+          app(nodeRequest, nodeResponse)
+        } else {
+          await writeToNodejsResponse(response, nodeResponse)
+        }
+      })().catch((error: unknown) => {
+        logger.error("https server request error", { error })
+      })
     }
 
     function handleUpgrade(

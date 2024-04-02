@@ -1,5 +1,5 @@
-import { ServerResponse } from "node:http"
+import type { RequestContext } from "../context"
 
 export interface HttpResult {
-  applyTo: (response: ServerResponse) => void
+  asResponse: (context: RequestContext) => Response
 }
