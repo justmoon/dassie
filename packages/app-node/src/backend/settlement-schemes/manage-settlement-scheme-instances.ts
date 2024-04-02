@@ -8,7 +8,10 @@ import {
   AssetsOnLedgerAccount,
   EquityOwnerAccount,
 } from "../accounting/types/account-paths"
-import { DassieReactor } from "../base/types/dassie-base"
+import {
+  type DassieActorContext,
+  DassieReactor,
+} from "../base/types/dassie-base"
 import { DatabaseConfigStore } from "../config/database-config"
 import { settlement as logger } from "../logger/instances"
 import { SendPeerMessage } from "../peer-protocol/functions/send-peer-message"
@@ -172,7 +175,7 @@ export const ManageSettlementSchemeInstancesActor = (
       }
 
       // Instantiate settlement scheme module actor.
-      return createActor((sig) =>
+      return createActor((sig: DassieActorContext) =>
         module.behavior({ sig, settlementSchemeId, host }),
       )
     },

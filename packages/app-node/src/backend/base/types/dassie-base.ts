@@ -1,7 +1,8 @@
 import { ActorContext, Reactor } from "@dassie/lib-reactive"
-import type { Time } from "@dassie/lib-reactive"
+import type { Random, Time } from "@dassie/lib-reactive"
 
 export interface DassieBase {
+  random: Random
   time: Time
 }
 

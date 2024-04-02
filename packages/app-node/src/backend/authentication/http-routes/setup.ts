@@ -1,16 +1,16 @@
+import { uint8ArrayToHex } from "uint8array-extras"
 import { z } from "zod"
-
-import { randomBytes } from "node:crypto"
 
 import {
   UnauthorizedFailure,
   createJsonResponse,
   setCookie,
 } from "@dassie/lib-http-server"
-import { Reactor, createActor } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 
 import { SESSION_COOKIE_NAME } from "../../../common/constants/cookie-name"
 import { SEED_PATH_NODE_LOGIN } from "../../../common/constants/seed-paths"
+import type { DassieReactor } from "../../base/types/dassie-base"
 import {
   DatabaseConfigStore,
   hasNodeIdentity,
@@ -23,7 +23,8 @@ import { SessionsStore } from "../database-stores/sessions"
 import { SetupAuthorizationTokenSignal } from "../signals/setup-authorization-token"
 import { SessionToken } from "../types/session-token"
 
-export const RegisterSetupRouteActor = (reactor: Reactor) => {
+export const RegisterSetupRouteActor = (reactor: DassieReactor) => {
+  const { random } = reactor.base
   const http = reactor.use(HttpsRouter)
   const sessions = reactor.use(SessionsStore)
   const config = reactor.use(DatabaseConfigStore)
@@ -79,7 +80,9 @@ export const RegisterSetupRouteActor = (reactor: Reactor) => {
 
         config.setNodeIdentity(dassieKey)
 
-        const sessionToken = randomBytes(32).toString("hex") as SessionToken
+        const sessionToken = uint8ArrayToHex(
+          random.randomBytes(32),
+        ) as SessionToken
 
         sessions.addSession(sessionToken)
 

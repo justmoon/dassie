@@ -52,6 +52,7 @@ export type {
   ReactiveSource as ReactiveProvider,
   ReactiveObserver as ReactiveConsumer,
 } from "./internal/reactive"
+export type { Random } from "./types/base-modules/random"
 export type {
   Time,
   TimeoutOptions,

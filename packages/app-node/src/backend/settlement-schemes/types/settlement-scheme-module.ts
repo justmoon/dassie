@@ -1,8 +1,7 @@
 import type { Promisable } from "type-fest"
 
-import type { ActorContext } from "@dassie/lib-reactive"
-
 import { LedgerId } from "../../accounting/types/ledger-id"
+import type { DassieActorContext } from "../../base/types/dassie-base"
 import type { VALID_REALMS } from "../../constants/general"
 import { CurrencyDescription } from "../../exchange/load-exchange-rates"
 import { NodeId } from "../../peer-protocol/types/node-id"
@@ -155,7 +154,7 @@ export interface SettlementSchemeActorMethods<
 }
 
 export interface SettlementSchemeBehaviorParameters {
-  sig: ActorContext
+  sig: DassieActorContext
   settlementSchemeId: SettlementSchemeId
   host: SettlementSchemeHostMethods
 }

@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto"
+import { uint8ArrayToHex } from "uint8array-extras"
 
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
 import { LedgerId } from "../../accounting/types/ledger-id"
@@ -30,7 +30,9 @@ const stub = {
   ledger,
 
   // eslint-disable-next-line unicorn/consistent-function-scoping
-  behavior: ({ host }) => {
+  behavior: ({ sig, host }) => {
+    const { random } = sig.reactor.base
+
     let balance = INITIAL_BALANCE
 
     host.reportDeposit({ ledgerId: ledger.id, amount: balance })
@@ -59,7 +61,7 @@ const stub = {
       },
       prepareSettlement: ({ peerId, amount }) => {
         logger.info("preparing settlement", { to: peerId, amount })
-        const settlementId = randomBytes(16).toString("hex")
+        const settlementId = uint8ArrayToHex(random.randomBytes(16))
         return {
           amount,
           message: new Uint8Array(),

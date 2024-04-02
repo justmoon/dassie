@@ -448,6 +448,9 @@ importers:
       tailwind-merge:
         specifier: ^2.1.0
         version: 2.2.2
+      uint8array-extras:
+        specifier: ^1.1.0
+        version: 1.1.0
       unocss:
         specifier: 0.59.0-beta.1
         version: 0.59.0-beta.1(postcss@8.4.38)(vite@5.2.7)
@@ -9970,6 +9973,11 @@ packages:
 
   /ufo@1.5.3:
     resolution: {integrity: sha512-Y7HYmWaFwPUmkoQCUIAYpKqkOf+SbVj/2fJJZ4RJMCfZp0rTGwRbzQD+HghfnhKOjL9E01okqz+ncJskGYfBNw==}
+    dev: false
+
+  /uint8array-extras@1.1.0:
+    resolution: {integrity: sha512-CVaBSyOmGoFHu+zOVPbetXEXykOd8KHVBHLlqvmaMWpwcq3rewj18xVNbU5uzf48hclnNQhfNaNany2cMHFK/g==}
+    engines: {node: '>=18'}
     dev: false
 
   /unbox-primitive@1.0.2:

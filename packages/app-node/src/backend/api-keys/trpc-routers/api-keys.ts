@@ -1,6 +1,5 @@
+import { uint8ArrayToBase64 } from "uint8array-extras"
 import { z } from "zod"
-
-import { randomBytes } from "node:crypto"
 
 import { protectedProcedure } from "../../trpc-server/middlewares/auth"
 import { trpc } from "../../trpc-server/trpc-context"
@@ -17,7 +16,10 @@ export const apiKeysRouter = trpc.router({
     return [...sig.read(BtpTokensStore)]
   }),
   addBtpToken: protectedProcedure.mutation(({ ctx: { sig } }) => {
-    const token = randomBytes(16).toString("base64url") as BtpToken
+    const { random } = sig.reactor.base
+    const token = uint8ArrayToBase64(random.randomBytes(16), {
+      urlSafe: true,
+    }) as BtpToken
     const btpTokensStore = sig.reactor.use(BtpTokensStore)
     btpTokensStore.addToken(token)
 
