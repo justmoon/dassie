@@ -1,10 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { createWSClient, wsLink } from "@trpc/client"
 import { Link } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { useMemo } from "react"
 import superjson from "superjson"
 import { Redirect, Route, useLocation } from "wouter"
 
+import type { AppRouter } from "@dassie/app-node/src/backend/rpc-server/app-router"
 import { Button } from "@dassie/app-node/src/frontend/components/ui/button"
 import {
   Tabs,
@@ -13,13 +13,11 @@ import {
 } from "@dassie/app-node/src/frontend/components/ui/tabs"
 import { COLORS } from "@dassie/app-node/src/frontend/constants/palette"
 import { DebugPage } from "@dassie/app-node/src/frontend/pages/debug/debug"
-import {
-  queryClientReactContext,
-  trpc as trpcNode,
-} from "@dassie/app-node/src/frontend/utils/trpc"
+import { RpcProvider as NodeRpcProvider } from "@dassie/app-node/src/frontend/utils/rpc"
 import { selectBySeed } from "@dassie/lib-logger"
+import { createClient, createWebSocketLink } from "@dassie/lib-rpc/client"
 
-import { trpc as trpcDevelopment } from "../../../utils/trpc"
+import { rpc as rpcDevelopment } from "../../../utils/rpc"
 import { getWalletUrl } from "../../../utils/wallet-url"
 import {
   DevelopmentLogProvider,
@@ -58,17 +56,17 @@ const NodeHeader = ({ nodeId }: BasicNodeElementProperties) => {
   )
 }
 
-const createNodeTrpcClients = (securityToken: string, nodeId: string) => {
+const createNodeRpcClients = (securityToken: string, nodeId: string) => {
   const queryClient = new QueryClient()
-  const wsClient = createWSClient({
-    url: `wss://${nodeId}.localhost/trpc?token=${securityToken}`,
-  })
-  const trpcClient = trpcNode.createClient({
-    links: [wsLink({ client: wsClient })],
+  const websocket = new WebSocket(
+    `wss://${nodeId}.localhost/trpc?token=${securityToken}`,
+  )
+  const rpcClient = createClient<AppRouter>({
+    connection: createWebSocketLink(websocket),
     transformer: superjson,
   })
 
-  return { queryClient, wsClient, trpcClient }
+  return { queryClient, rpcClient }
 }
 
 interface NodeDetailProperties extends BasicNodeElementProperties {}
@@ -81,44 +79,21 @@ const NodeDetail = ({ nodeId }: NodeDetailProperties) => {
     setLocation(`/debug/${value}`)
   }
 
-  const [clients, setClients] = useState<
-    ReturnType<typeof createNodeTrpcClients> | undefined
-  >(undefined)
+  const { data: securityToken } = rpcDevelopment.ui.getSecurityToken.useQuery()
 
-  const { data: securityToken } = trpcDevelopment.ui.getSecurityToken.useQuery()
-
-  useEffect(() => {
-    if (!securityToken) return
-
-    const clients = createNodeTrpcClients(securityToken, nodeId)
-    setClients(clients)
-
-    const handleConnect = () => {
-      clients.wsClient
-        .getConnection()
-        .removeEventListener("open", handleConnect)
-    }
-    clients.wsClient.getConnection().addEventListener("open", handleConnect)
-
-    return () => {
-      clients.wsClient
-        .getConnection()
-        .removeEventListener("open", handleConnect)
-      clients.wsClient.close()
-    }
-  }, [securityToken, nodeId])
+  const clients = useMemo(
+    () => securityToken && createNodeRpcClients(securityToken, nodeId),
+    [securityToken, nodeId],
+  )
 
   if (!clients) return null
 
   return (
-    <trpcNode.Provider
-      client={clients.trpcClient}
+    <NodeRpcProvider
+      rpcClient={clients.rpcClient}
       queryClient={clients.queryClient}
     >
-      <QueryClientProvider
-        client={clients.queryClient}
-        context={queryClientReactContext}
-      >
+      <QueryClientProvider client={clients.queryClient}>
         <DevelopmentLogProvider>
           <div className="h-screen grid grid-rows-[auto_1fr] gap-4 py-10">
             <NodeHeader nodeId={nodeId} />
@@ -138,7 +113,7 @@ const NodeDetail = ({ nodeId }: NodeDetailProperties) => {
               {currentTab === "logs" ? (
                 <DevelopmentLogViewer filter={({ node }) => node === nodeId} />
               ) : (
-                <DebugPage />
+                <DebugPage key={nodeId} />
               )}
               <Route path={`/`}>
                 {() => <Redirect to={`/debug/logs`} replace />}
@@ -147,7 +122,7 @@ const NodeDetail = ({ nodeId }: NodeDetailProperties) => {
           </div>
         </DevelopmentLogProvider>
       </QueryClientProvider>
-    </trpcNode.Provider>
+    </NodeRpcProvider>
   )
 }
 

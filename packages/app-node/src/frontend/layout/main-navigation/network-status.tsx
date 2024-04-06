@@ -1,5 +1,5 @@
 import { combine } from "../../utils/class-helper"
-import { trpc } from "../../utils/trpc"
+import { rpc } from "../../utils/rpc"
 
 export interface NetworkStatusAppearanceProperties {
   state: "unknown" | "connected"
@@ -20,7 +20,7 @@ export const NetworkStatusAppearance = ({
 }
 
 export const NetworkStatus = () => {
-  const basicState = trpc.general.getBasicState.useQuery(undefined, {
+  const basicState = rpc.general.getBasicState.useQuery(undefined, {
     refetchInterval: 1000,
   })
 

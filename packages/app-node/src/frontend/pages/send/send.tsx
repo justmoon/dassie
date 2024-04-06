@@ -3,7 +3,7 @@ import { useState } from "react"
 import { useLocation } from "wouter"
 
 import { Card, CardHeader, CardTitle } from "../../components/ui/card"
-import { trpc } from "../../utils/trpc"
+import { rpc } from "../../utils/rpc"
 import { SubpageEnterAmount } from "./subpage-enter-amount/subpage-enter-amount"
 import { SubpageEnterPaymentPointer } from "./subpage-enter-payment-pointer/subpage-enter-payment-pointer"
 import { SubpageReview } from "./subpage-review/subpage-review"
@@ -44,7 +44,7 @@ export const Send = () => {
   })
   const [, setLocation] = useLocation()
 
-  const createPayment = trpc.payment.createPayment.useMutation()
+  const createPayment = rpc.payment.createPayment.useMutation()
 
   const onBack =
     subpage.subpage === "enterAmount"
@@ -54,15 +54,15 @@ export const Send = () => {
             paymentId: subpage.paymentId,
           })
       : subpage.subpage === "review"
-      ? () =>
-          setSubpage({
-            subpage: "enterAmount",
-            paymentId: subpage.paymentId,
-            paymentPointer: subpage.paymentPointer,
-          })
-      : () => {
-          setLocation("/")
-        }
+        ? () =>
+            setSubpage({
+              subpage: "enterAmount",
+              paymentId: subpage.paymentId,
+              paymentPointer: subpage.paymentPointer,
+            })
+        : () => {
+            setLocation("/")
+          }
 
   const onSubmitPaymentPointer = (paymentPointer: string) => {
     setSubpage({

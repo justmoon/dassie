@@ -1,24 +1,19 @@
-import { createTRPCProxyClient } from "@trpc/client"
 import superjson from "superjson"
 
 import { createConnection } from "node:net"
 
 import { LifecycleContext } from "@dassie/lib-reactive"
-import { socketLink } from "@dassie/lib-trpc-ipc/link"
+import { createClient, createNodejsSocketLink } from "@dassie/lib-rpc/client"
 
-import { AppRouter } from "../trpc-server/app-router"
+import { AppRouter } from "../rpc-server/app-router"
 
 export const connectIpcClient = (context: LifecycleContext) => {
   const ipcSocket = createConnection(
     process.env["DASSIE_IPC_SOCKET_PATH"] ?? "/run/dassie.sock",
   )
 
-  const ipcClient = createTRPCProxyClient<AppRouter>({
-    links: [
-      socketLink({
-        socket: ipcSocket,
-      }),
-    ],
+  const rpcClient = createClient<AppRouter>({
+    connection: createNodejsSocketLink(ipcSocket),
     transformer: superjson,
   })
 
@@ -26,5 +21,5 @@ export const connectIpcClient = (context: LifecycleContext) => {
     ipcSocket.end()
   })
 
-  return ipcClient
+  return rpcClient.rpc
 }

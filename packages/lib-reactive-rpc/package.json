@@ -1,0 +1,50 @@
+{
+  "name": "@dassie/lib-reactive-rpc",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Read and subscribe to reactive values remotely via TRPC",
+  "exports": {
+    "./server": {
+      "import": "./src/server/index.ts"
+    },
+    "./client": {
+      "import": "./src/client/index.tsx"
+    }
+  },
+  "publishConfig": {
+    "main": "./dist/server.js",
+    "exports": {
+      "./server": {
+        "types": "./dist/server.d.ts",
+        "require": "./dist/server.cjs",
+        "import": "./dist/server.js"
+      },
+      "./client": {
+        "types": "./dist/client.d.ts",
+        "require": "./dist/client.cjs",
+        "import": "./dist/client.js"
+      }
+    }
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "eslint --color .",
+    "typecheck": "tsc --pretty"
+  },
+  "author": "Stefan Thomas <justmoon@members.fsf.org>",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@dassie/eslint-config": "workspace:^",
+    "@dassie/meta-tsconfig": "workspace:^",
+    "react": "^18.2.0",
+    "type-fest": "^4.8.3"
+  },
+  "dependencies": {
+    "@dassie/lib-reactive": "workspace:^",
+    "@dassie/lib-rpc": "workspace:^",
+    "@dassie/lib-rpc-react": "workspace:^"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0"
+  }
+}

@@ -5,9 +5,9 @@ import { Button } from "@dassie/app-node/src/frontend/components/ui/button"
 import { COLORS } from "@dassie/app-node/src/frontend/constants/palette"
 import { combine } from "@dassie/app-node/src/frontend/utils/class-helper"
 import { selectBySeed } from "@dassie/lib-logger"
-import { useRemoteSignal } from "@dassie/lib-reactive-trpc/client"
+import { useRemoteSignal } from "@dassie/lib-reactive-rpc/client"
 
-import { trpc } from "../../utils/trpc"
+import { rpc } from "../../utils/rpc"
 import { getWalletUrl } from "../../utils/wallet-url"
 
 interface NodeProperties {
@@ -72,8 +72,8 @@ const Node = ({ nodeId, wallet, className }: NodeProperties) => {
 }
 
 const NodesList = () => {
-  const nodes = useRemoteSignal(trpc.ui.subscribeToNodes) ?? []
-  const addRandomNode = trpc.ui.addRandomNode.useMutation()
+  const nodes = useRemoteSignal(rpc.ui.subscribeToNodes) ?? []
+  const addRandomNode = rpc.ui.addRandomNode.useMutation()
 
   return (
     <div className="px-3">

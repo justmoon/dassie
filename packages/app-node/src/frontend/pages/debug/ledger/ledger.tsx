@@ -10,10 +10,10 @@ import {
   TableRow,
 } from "../../../components/ui/table"
 import { USD_SPECIFICATION } from "../../../constants/currency"
-import { trpc } from "../../../utils/trpc"
+import { rpc } from "../../../utils/rpc"
 
 export function Ledger() {
-  const ledger = trpc.debug.getLedger.useQuery().data ?? []
+  const ledger = rpc.debug.getLedger.useQuery().data ?? []
 
   return (
     <div>

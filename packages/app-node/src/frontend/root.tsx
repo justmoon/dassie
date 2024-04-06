@@ -1,12 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { createWSClient, wsLink as createWSLink } from "@trpc/react-query"
 import { useState } from "react"
-import superjson from "superjson"
 
 import App from "./app"
 import { DarkModeProvider } from "./components/context/dark-mode"
 import { Toaster } from "./components/ui/toast/toaster"
-import { queryClientReactContext, trpc } from "./utils/trpc"
+import { RpcProvider, clientOptions, useWebSocketClient } from "./utils/rpc"
 
 const Root = () => {
   const wsUrl = new URL("/", location.href)
@@ -14,30 +12,19 @@ const Root = () => {
   wsUrl.pathname = "/trpc"
 
   const [queryClient] = useState(() => new QueryClient())
-  const [wsLink] = useState(() => {
-    const wsClient = createWSClient({
-      url: wsUrl.toString(),
-    })
-    return createWSLink({ client: wsClient })
-  })
-  const [trpcClient] = useState(() => {
-    return trpc.createClient({
-      links: [wsLink],
-      transformer: superjson,
-    })
+  const rpcClient = useWebSocketClient({
+    url: wsUrl.toString(),
+    clientOptions,
   })
 
   return (
     <DarkModeProvider>
-      <trpc.Provider client={trpcClient} queryClient={queryClient}>
-        <QueryClientProvider
-          client={queryClient}
-          context={queryClientReactContext}
-        >
+      <RpcProvider rpcClient={rpcClient}>
+        <QueryClientProvider client={queryClient}>
           <App />
           <Toaster />
         </QueryClientProvider>
-      </trpc.Provider>
+      </RpcProvider>
     </DarkModeProvider>
   )
 }

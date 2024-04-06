@@ -9,10 +9,10 @@ import { useLocation } from "wouter"
 
 import { COLORS } from "@dassie/app-node/src/frontend/constants/palette"
 import { selectBySeed } from "@dassie/lib-logger"
-import { useRemoteSignal } from "@dassie/lib-reactive-trpc/client"
+import { useRemoteSignal } from "@dassie/lib-reactive-rpc/client"
 
 import type { PeerMessageMetadata } from "../../../backend/topics/peer-traffic"
-import { trpc } from "../../utils/trpc"
+import { rpc } from "../../utils/rpc"
 
 interface NodeGraphViewProperties {
   graphData: GraphData
@@ -37,7 +37,7 @@ const NodeGraphView = ({ graphData }: NodeGraphViewProperties) => {
     [],
   )
 
-  trpc.ui.subscribeToPeerTraffic.useSubscription(undefined, {
+  rpc.ui.subscribeToPeerTraffic.useSubscription(undefined, {
     onData: useCallback(
       (data: PeerMessageMetadata | undefined) => {
         if (!data) return
@@ -75,8 +75,7 @@ const NodeGraphView = ({ graphData }: NodeGraphViewProperties) => {
 }
 
 const NodeGraph = () => {
-  const nodes = useRemoteSignal(trpc.ui.subscribeToNodes)
-  const peeringState = useRemoteSignal(trpc.ui.subscribeToPeeringState)
+  const peeringState = useRemoteSignal(rpc.ui.subscribeToPeeringState)
   const [graphData, dispatchGraphData] = useReducer(
     (
       previousGraphData: GraphData,
@@ -112,8 +111,10 @@ const NodeGraph = () => {
   )
 
   useEffect(() => {
-    dispatchGraphData({ nodes: nodes ?? [], peeringState })
-  }, [nodes, peeringState])
+    if (!peeringState) return
+
+    dispatchGraphData({ nodes: Object.keys(peeringState), peeringState })
+  }, [peeringState])
 
   return <NodeGraphView graphData={graphData} />
 }

@@ -19,7 +19,6 @@ import {
 import { Input } from "../../../components/ui/input"
 import { login } from "../../../utils/authentication"
 import { combine } from "../../../utils/class-helper"
-import { queryClientReactContext } from "../../../utils/trpc"
 
 const formSchema = z.object({
   passphrase: z.string(),
@@ -37,7 +36,6 @@ export const LoginForm = ({
     onSuccess: () => {
       window.location.reload()
     },
-    context: queryClientReactContext,
   })
 
   const onSubmit = useCallback(
@@ -80,7 +78,7 @@ export const LoginForm = ({
                         autoCapitalize="none"
                         autoCorrect="off"
                         autoComplete="off"
-                        disabled={loginMutation.isLoading}
+                        disabled={loginMutation.isPending}
                         {...field}
                       />
                     </FormControl>
@@ -89,8 +87,8 @@ export const LoginForm = ({
                 )}
               />
             </div>
-            <Button disabled={loginMutation.isLoading}>
-              {loginMutation.isLoading && (
+            <Button disabled={loginMutation.isPending}>
+              {loginMutation.isPending && (
                 <Loader className="mr-2 h-4 w-4 animate-spin" />
               )}
               Reconnect

@@ -11,10 +11,10 @@ import { Send } from "./pages/send/send"
 import { Settings } from "./pages/settings/settings"
 import { Setup } from "./pages/setup/setup"
 import { SetupInfoPage } from "./pages/setup/setup-info"
-import { trpc } from "./utils/trpc"
+import { rpc } from "./utils/rpc"
 
 const App = () => {
-  const { data: basicState } = trpc.general.getBasicState.useQuery()
+  const { data: basicState } = rpc.general.getBasicState.useQuery()
   const [isSetupRoute, setupRouteParameters] = useRoute("/setup/:token")
 
   if (!basicState) {

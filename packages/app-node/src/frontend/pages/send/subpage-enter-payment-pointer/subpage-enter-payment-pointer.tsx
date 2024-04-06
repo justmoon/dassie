@@ -2,7 +2,7 @@ import { useState } from "react"
 
 import { Button } from "../../../components/ui/button"
 import { CardContent, CardFooter } from "../../../components/ui/card"
-import { trpc } from "../../../utils/trpc"
+import { rpc } from "../../../utils/rpc"
 
 interface SubpageEnterPaymentPointerProperties {
   onSubmit: (paymentPointer: string) => void
@@ -16,7 +16,7 @@ export const SubpageEnterPaymentPointer = ({
   const [paymentPointer, setPaymentPointer] = useState(
     import.meta.env.DEV ? "$d2.localhost" : "",
   )
-  const paymentPointerInfo = trpc.payment.resolvePaymentPointer.useQuery({
+  const paymentPointerInfo = rpc.payment.resolvePaymentPointer.useQuery({
     paymentPointer,
   })
 
@@ -38,7 +38,7 @@ export const SubpageEnterPaymentPointer = ({
           value={paymentPointer}
           onChange={(event) => setPaymentPointer(event.target.value)}
         />
-        {paymentPointerInfo.status === "loading" && <div>Loading...</div>}
+        {paymentPointerInfo.status === "pending" && <div>Loading...</div>}
         {paymentPointerInfo.status === "error" && (
           <div>Error: {paymentPointerInfo.error.message}</div>
         )}

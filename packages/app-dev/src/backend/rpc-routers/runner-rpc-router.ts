@@ -1,23 +1,25 @@
 import { z } from "zod"
 
+import { createRouter } from "@dassie/lib-rpc/server"
+
 import { LogsStore } from "../../common/stores/logs"
 import { PeeringStateStore } from "../stores/peering-state"
 import { PeerTrafficTopic } from "../topics/peer-traffic"
 import { shortenNodeId } from "../utils/shorten-node-id"
-import { trpc } from "./trpc"
+import { baseRoute } from "./route-types/base"
 
-export const runnerRpcRouter = trpc.router({
-  notifyPeerTraffic: trpc.procedure
+export const runnerRpcRouter = createRouter({
+  notifyPeerTraffic: baseRoute
     .input(
       z.object({
         from: z.string(),
         to: z.string(),
       }),
     )
-    .mutation(({ input: peerMessageMetadata, ctx: { reactor } }) => {
+    .mutation(({ input: peerMessageMetadata, context: { reactor } }) => {
       reactor.use(PeerTrafficTopic).emit(peerMessageMetadata)
     }),
-  notifyLogLine: trpc.procedure
+  notifyLogLine: baseRoute
     .input(
       z.object({
         type: z.union([
@@ -34,7 +36,7 @@ export const runnerRpcRouter = trpc.router({
         caller: z.union([z.string(), z.undefined()]),
       }),
     )
-    .mutation(({ input: logEvent, ctx: { reactor } }) => {
+    .mutation(({ input: logEvent, context: { reactor } }) => {
       const logs = reactor.use(LogsStore)
 
       logEvent.node = shortenNodeId(logEvent.node)
@@ -44,14 +46,14 @@ export const runnerRpcRouter = trpc.router({
         caller: logEvent.caller ?? undefined,
       })
     }),
-  notifyPeerState: trpc.procedure
+  notifyPeerState: baseRoute
     .input(
       z.object({
         nodeId: z.string(),
         peers: z.array(z.string()),
       }),
     )
-    .mutation(({ input: { nodeId, peers }, ctx: { reactor } }) => {
+    .mutation(({ input: { nodeId, peers }, context: { reactor } }) => {
       const peeringState = reactor.use(PeeringStateStore)
       peeringState.updateNodePeers(nodeId, peers)
     }),

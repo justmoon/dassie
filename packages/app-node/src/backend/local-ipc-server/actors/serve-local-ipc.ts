@@ -2,17 +2,20 @@ import { unlinkSync } from "node:fs"
 import { createServer } from "node:net"
 
 import { createActor } from "@dassie/lib-reactive"
-import { createSocketHandler } from "@dassie/lib-trpc-ipc/adapter"
+import {
+  createNodejsSocketAdapter,
+  createServer as createRpcServer,
+} from "@dassie/lib-rpc/server"
 import { isErrorWithCode } from "@dassie/lib-type-utils"
 
 import { DassieActorContext } from "../../base/types/dassie-base"
 import { EnvironmentConfig } from "../../config/environment-config"
 import { ipc as logger } from "../../logger/instances"
+import { appRouter } from "../../rpc-server/app-router"
 import {
   getSocketActivationFileDescriptors,
   getSocketActivationState,
 } from "../../systemd/socket-activation"
-import { appRouter } from "../../trpc-server/app-router"
 
 const SOCKET_ACTIVATION_NAME_IPC = "dassie-ipc.socket"
 
@@ -47,15 +50,19 @@ export const ServeLocalIpcActor = () =>
   createActor((sig: DassieActorContext) => {
     const { ipcSocketPath } = sig.reactor.use(EnvironmentConfig)
 
-    const handler = createSocketHandler({
-      router: appRouter,
-      createContext: () => ({
-        sig,
-        user: true,
-      }),
+    const server = createServer((socket) => {
+      rpcServer.handleConnection({
+        connection: createNodejsSocketAdapter(socket),
+        context: {
+          sig,
+          isAuthenticated: true,
+        },
+      })
     })
 
-    const server = createServer(handler)
+    const rpcServer = createRpcServer({
+      router: appRouter,
+    })
 
     server.addListener("error", (error) => {
       logger.error("local ipc server error", { error })

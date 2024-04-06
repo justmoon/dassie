@@ -1,17 +1,18 @@
 import { z } from "zod"
 
+import { createRouter } from "@dassie/lib-rpc/server"
+
 import { SetupUrlSignal } from "../../authentication/computed/setup-url"
 import { VALID_REALMS } from "../../constants/general"
 import { NodeIdSignal } from "../../ilp-connector/computed/node-id"
-import { trpc } from "../../local-ipc-server/trpc-context"
 import { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
+import { protectedRoute } from "../../rpc-server/route-types/protected"
 import { SettlementSchemesStore } from "../../settlement-schemes/database-stores/settlement-schemes"
-import { protectedProcedure } from "../../trpc-server/middlewares/auth"
 import { HasTlsSignal } from "../computed/has-tls"
 import { DatabaseConfigStore } from "../database-config"
 
-export const configAdminRouter = trpc.router({
-  getConfig: protectedProcedure.query(({ ctx: { sig } }) => {
+export const configAdminRouter = createRouter({
+  getConfig: protectedRoute.query(({ context: { sig } }) => {
     const { hostname, dassieKey } = sig.read(DatabaseConfigStore)
 
     const nodeIdFields =
@@ -33,17 +34,17 @@ export const configAdminRouter = trpc.router({
     return result
   }),
 
-  getSetupUrl: protectedProcedure.query(({ ctx: { sig } }) => {
+  getSetupUrl: protectedRoute.query(({ context: { sig } }) => {
     return sig.read(SetupUrlSignal)
   }),
 
-  setRealm: protectedProcedure
+  setRealm: protectedRoute
     .input(
       z.object({
         realm: z.enum(VALID_REALMS),
       }),
     )
-    .mutation(({ input: { realm }, ctx: { sig } }) => {
+    .mutation(({ input: { realm }, context: { sig } }) => {
       if (realm === "live") {
         throw new Error("Livenet is not yet supported")
       }
@@ -53,26 +54,26 @@ export const configAdminRouter = trpc.router({
       config.setRealm(realm)
       return true
     }),
-  setHostname: protectedProcedure
+  setHostname: protectedRoute
     .input(
       z.object({
         hostname: z.string(),
       }),
     )
-    .mutation(({ input: { hostname }, ctx: { sig } }) => {
+    .mutation(({ input: { hostname }, context: { sig } }) => {
       const config = sig.reactor.use(DatabaseConfigStore)
 
       config.setHostname(hostname)
       return true
     }),
-  addSettlementScheme: protectedProcedure
+  addSettlementScheme: protectedRoute
     .input(
       z.object({
         id: z.string().transform((id) => id as SettlementSchemeId),
         config: z.object({}),
       }),
     )
-    .mutation(({ ctx: { sig }, input: { id, config } }) => {
+    .mutation(({ context: { sig }, input: { id, config } }) => {
       sig.reactor.use(SettlementSchemesStore).addSettlementScheme(id, config)
     }),
 })

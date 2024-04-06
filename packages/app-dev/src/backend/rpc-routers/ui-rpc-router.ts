@@ -5,7 +5,8 @@ import {
   subscribeToSignal,
   subscribeToStore,
   subscribeToTopic,
-} from "@dassie/lib-reactive-trpc/server"
+} from "@dassie/lib-reactive-rpc/server"
+import { createRouter } from "@dassie/lib-rpc/server"
 
 import { LogsStore } from "../../common/stores/logs"
 import { RunNodesActor } from "../actors/run-nodes"
@@ -14,39 +15,39 @@ import { SecurityTokenSignal } from "../signals/security-token"
 import { PeeringStateStore } from "../stores/peering-state"
 import { Scenario, ScenarioStore } from "../stores/scenario"
 import { PeerTrafficTopic } from "../topics/peer-traffic"
-import { trpc } from "./trpc"
+import { baseRoute } from "./route-types/base"
 
-export const uiRpcRouter = trpc.router({
-  getSecurityToken: trpc.procedure.query(({ ctx: { sig } }) =>
+export const uiRpcRouter = createRouter({
+  getSecurityToken: baseRoute.query(({ context: { sig } }) =>
     sig.read(SecurityTokenSignal),
   ),
-  addRandomNode: trpc.procedure
+  addRandomNode: baseRoute
     // TRPC seems to throw an error when using superjson as a transformer on a method with no parameters.
     .input(z.object({}))
-    .mutation(({ ctx: { sig } }) => {
+    .mutation(({ context: { sig } }) => {
       sig.reactor.use(ScenarioStore).addNode()
     }),
-  subscribeToNodes: trpc.procedure.subscription(({ ctx: { sig } }) => {
+  subscribeToNodes: baseRoute.subscription(({ context: { sig } }) => {
     return subscribeToSignal(sig, ActiveNodeIdsComputed)
   }),
-  openFile: trpc.procedure.input(z.string()).mutation(({ input }) => {
+  openFile: baseRoute.input(z.string()).mutation(({ input }) => {
     launchEditor(input)
   }),
-  subscribeToLogs: trpc.procedure.subscription(({ ctx: { sig } }) => {
+  subscribeToLogs: baseRoute.subscription(({ context: { sig } }) => {
     return subscribeToStore(sig, LogsStore)
   }),
-  subscribeToPeerTraffic: trpc.procedure.subscription(({ ctx: { sig } }) => {
+  subscribeToPeerTraffic: baseRoute.subscription(({ context: { sig } }) => {
     return subscribeToTopic(sig, PeerTrafficTopic)
   }),
-  subscribeToPeeringState: trpc.procedure.subscription(({ ctx: { sig } }) => {
+  subscribeToPeeringState: baseRoute.subscription(({ context: { sig } }) => {
     return subscribeToSignal(sig, PeeringStateStore)
   }),
-  subscribeToScenario: trpc.procedure.subscription(({ ctx: { sig } }) => {
+  subscribeToScenario: baseRoute.subscription(({ context: { sig } }) => {
     return subscribeToSignal(sig, ScenarioStore)
   }),
-  setScenario: trpc.procedure
+  setScenario: baseRoute
     .input(z.unknown().transform((value) => value as Scenario))
-    .mutation(({ ctx: { sig }, input: scenario }) => {
+    .mutation(({ context: { sig }, input: scenario }) => {
       sig.reactor.use(PeeringStateStore).clear()
       sig.reactor.use(ScenarioStore).setScenario(scenario)
       sig.reactor.use(RunNodesActor).forceRestart()

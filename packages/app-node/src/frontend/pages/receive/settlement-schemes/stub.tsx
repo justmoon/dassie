@@ -1,10 +1,10 @@
 import { useLocation } from "wouter"
 
 import { Button } from "../../../components/ui/button"
-import { trpc } from "../../../utils/trpc"
+import { rpc } from "../../../utils/rpc"
 
 export default function StubDeposit() {
-  const stubDepositMutation = trpc.settlement.stubDeposit.useMutation()
+  const stubDepositMutation = rpc.settlement.stubDeposit.useMutation()
   const [, setLocation] = useLocation()
 
   return (

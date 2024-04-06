@@ -3,7 +3,7 @@ import { useMutation } from "@tanstack/react-query"
 import { Button } from "../../components/ui/button"
 import { logout } from "../../utils/authentication"
 import { extend } from "../../utils/class-helper"
-import { queryClientReactContext, trpc } from "../../utils/trpc"
+import { rpc } from "../../utils/rpc"
 import { ApiKeysSettings } from "./api-keys/api-keys"
 
 const SettingsSection = extend(
@@ -37,13 +37,12 @@ const SettingsSectionContent = extend(
 )
 
 export const Settings = () => {
-  const basicState = trpc.general.getBasicState.useQuery()
+  const basicState = rpc.general.getBasicState.useQuery()
   const logoutMutation = useMutation({
     mutationFn: logout,
     onSuccess: () => {
       window.location.reload()
     },
-    context: queryClientReactContext,
   })
 
   return (

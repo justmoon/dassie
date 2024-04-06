@@ -1,24 +1,25 @@
 import { z } from "zod"
 
-import { Database } from "../../database/open-database"
-import { trpc } from "../../local-ipc-server/trpc-context"
-import { protectedProcedure } from "../../trpc-server/middlewares/auth"
+import { createRouter } from "@dassie/lib-rpc/server"
 
-export const acmeRouter = trpc.router({
-  setAcmeCredentials: protectedProcedure
+import { Database } from "../../database/open-database"
+import { protectedRoute } from "../../rpc-server/route-types/protected"
+
+export const acmeRouter = createRouter({
+  setAcmeCredentials: protectedRoute
     .input(
       z.object({
         accountUrl: z.string(),
         accountKey: z.string(),
       }),
     )
-    .mutation(({ input: { accountUrl, accountKey }, ctx: { sig } }) => {
+    .mutation(({ input: { accountUrl, accountKey }, context: { sig } }) => {
       const database = sig.reactor.use(Database)
       database.scalars.acmeAccountUrl.set(accountUrl)
       database.scalars.acmeAccountKey.set(accountKey)
       return true
     }),
-  registerToken: protectedProcedure
+  registerToken: protectedRoute
     .input(
       z.object({
         token: z.string(),
@@ -27,7 +28,7 @@ export const acmeRouter = trpc.router({
       }),
     )
     .mutation(
-      ({ input: { token, keyAuthorization, expires }, ctx: { sig } }) => {
+      ({ input: { token, keyAuthorization, expires }, context: { sig } }) => {
         const database = sig.reactor.use(Database)
 
         database.tables.acmeTokens.insertOne({
@@ -37,13 +38,13 @@ export const acmeRouter = trpc.router({
         })
       },
     ),
-  deregisterToken: protectedProcedure
+  deregisterToken: protectedRoute
     .input(
       z.object({
         token: z.string(),
       }),
     )
-    .mutation(({ input: { token }, ctx: { sig } }) => {
+    .mutation(({ input: { token }, context: { sig } }) => {
       const database = sig.reactor.use(Database)
 
       database.tables.acmeTokens.delete({

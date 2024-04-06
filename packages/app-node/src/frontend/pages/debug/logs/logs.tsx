@@ -1,11 +1,11 @@
-import { useRemoteStore } from "@dassie/lib-reactive-trpc/client"
+import { useRemoteStore } from "@dassie/lib-reactive-rpc/client"
 
 import { LogsStore } from "../../../../common/stores/logs"
 import LogViewer from "../../../components/log-viewer/log-viewer"
-import { trpc } from "../../../utils/trpc"
+import { rpc } from "../../../utils/rpc"
 
 export function Logs() {
-  const { logs } = useRemoteStore(trpc.debug.subscribeToLogs, LogsStore)
+  const { logs } = useRemoteStore(rpc.debug.subscribeToLogs, LogsStore)
 
   return <LogViewer logs={logs} />
 }

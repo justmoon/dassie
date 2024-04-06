@@ -16,7 +16,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "../../components/ui/tabs"
-import { trpc } from "../../utils/trpc"
+import { rpc } from "../../utils/rpc"
 
 const SCHEME_DEPOSIT_NAME_MAP: Record<SettlementSchemeId, string> = {
   ["stub" as SettlementSchemeId]: "Stub",
@@ -32,7 +32,7 @@ const SCHEME_DEPOSIT_UI_MAP: Record<
 }
 
 export function ReceivePage() {
-  const basicState = trpc.general.getBasicState.useQuery()
+  const basicState = rpc.general.getBasicState.useQuery()
 
   const activeSettlementSchemes = basicState.data?.activeSettlementSchemes ?? []
 

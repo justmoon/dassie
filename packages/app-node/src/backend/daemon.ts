@@ -19,11 +19,11 @@ import { daemon as logger } from "./logger/instances"
 import { OpenPaymentsServerActor } from "./open-payments"
 import { PeerProtocolActor } from "./peer-protocol"
 import { RoutingActor } from "./routing"
+import { TrpcServerActor } from "./rpc-server"
 import { SettlementSchemesActor } from "./settlement-schemes"
 import { SpspServerActor } from "./spsp-server"
 import { StatisticsServerActor } from "./statistics"
 import { SystemdActor } from "./systemd"
-import { TrpcServerActor } from "./trpc-server"
 
 export const StartTlsDependentServicesActor = () =>
   createActor((sig: DassieActorContext) => {

@@ -132,9 +132,15 @@ importers:
       '@dassie/lib-reactive-io':
         specifier: workspace:^
         version: link:../lib-reactive-io
-      '@dassie/lib-reactive-trpc':
+      '@dassie/lib-reactive-rpc':
         specifier: workspace:^
-        version: link:../lib-reactive-trpc
+        version: link:../lib-reactive-rpc
+      '@dassie/lib-rpc':
+        specifier: workspace:^
+        version: link:../lib-rpc
+      '@dassie/lib-rpc-react':
+        specifier: workspace:^
+        version: link:../lib-rpc-react
       '@dassie/lib-sqlite':
         specifier: workspace:^
         version: link:../lib-sqlite
@@ -154,17 +160,8 @@ importers:
         specifier: ^1.2.1
         version: 1.3.0
       '@tanstack/react-query':
-        specifier: ^4.36.1
-        version: 4.36.1(react-dom@18.2.0)(react@18.2.0)
-      '@trpc/client':
-        specifier: 10.43.1
-        version: 10.43.1(@trpc/server@10.43.1)
-      '@trpc/react-query':
-        specifier: 10.43.1
-        version: 10.43.1(@tanstack/react-query@4.36.1)(@trpc/client@10.43.1)(@trpc/server@10.43.1)(react-dom@18.2.0)(react@18.2.0)
-      '@trpc/server':
-        specifier: 10.43.1
-        version: 10.43.1
+        specifier: ^5.28.14
+        version: 5.28.14(react@18.2.0)
       '@types/wtfnode':
         specifier: ^0.7.3
         version: 0.7.3
@@ -301,18 +298,21 @@ importers:
       '@dassie/lib-reactive-io':
         specifier: workspace:^
         version: link:../lib-reactive-io
-      '@dassie/lib-reactive-trpc':
+      '@dassie/lib-reactive-rpc':
         specifier: workspace:^
-        version: link:../lib-reactive-trpc
+        version: link:../lib-reactive-rpc
+      '@dassie/lib-rpc':
+        specifier: workspace:^
+        version: link:../lib-rpc
+      '@dassie/lib-rpc-react':
+        specifier: workspace:^
+        version: link:../lib-rpc-react
       '@dassie/lib-sqlite':
         specifier: workspace:^
         version: link:../lib-sqlite
       '@dassie/lib-terminal-graphics':
         specifier: workspace:^
         version: link:../lib-terminal-graphics
-      '@dassie/lib-trpc-ipc':
-        specifier: workspace:^
-        version: link:../lib-trpc-ipc
       '@dassie/lib-type-utils':
         specifier: workspace:^
         version: link:../lib-type-utils
@@ -356,20 +356,11 @@ importers:
         specifier: ^1.2.1
         version: 1.3.0
       '@tanstack/react-query':
-        specifier: ^4.36.1
-        version: 4.36.1(react-dom@18.2.0)(react@18.2.0)
+        specifier: ^5.28.14
+        version: 5.28.14(react@18.2.0)
       '@tanstack/react-virtual':
         specifier: ^3.0.0
         version: 3.2.0(react-dom@18.2.0)(react@18.2.0)
-      '@trpc/client':
-        specifier: 10.43.1
-        version: 10.43.1(@trpc/server@10.43.1)
-      '@trpc/react-query':
-        specifier: 10.43.1
-        version: 10.43.1(@tanstack/react-query@4.36.1)(@trpc/client@10.43.1)(@trpc/server@10.43.1)(react-dom@18.2.0)(react@18.2.0)
-      '@trpc/server':
-        specifier: 10.43.1
-        version: 10.43.1
       '@types/connect':
         specifier: ^3.4.38
         version: 3.4.38
@@ -680,17 +671,17 @@ importers:
         specifier: ^4.8.3
         version: 4.14.0
 
-  packages/lib-reactive-trpc:
+  packages/lib-reactive-rpc:
     dependencies:
       '@dassie/lib-reactive':
         specifier: workspace:^
         version: link:../lib-reactive
-      '@trpc/client':
-        specifier: 10.43.1
-        version: 10.43.1(@trpc/server@10.43.1)
-      '@trpc/server':
-        specifier: 10.43.1
-        version: 10.43.1
+      '@dassie/lib-rpc':
+        specifier: workspace:^
+        version: link:../lib-rpc
+      '@dassie/lib-rpc-react':
+        specifier: workspace:^
+        version: link:../lib-rpc-react
     devDependencies:
       '@dassie/eslint-config':
         specifier: workspace:^
@@ -701,6 +692,53 @@ importers:
       react:
         specifier: ^18.2.0
         version: 18.2.0
+      type-fest:
+        specifier: ^4.8.3
+        version: 4.14.0
+
+  packages/lib-rpc:
+    dependencies:
+      '@dassie/lib-reactive':
+        specifier: workspace:^
+        version: link:../lib-reactive
+      '@dassie/lib-type-utils':
+        specifier: workspace:^
+        version: link:../lib-type-utils
+      zod:
+        specifier: ^3.22.4
+        version: 3.22.4
+    devDependencies:
+      '@dassie/eslint-config':
+        specifier: workspace:^
+        version: link:../meta-eslint-config
+      '@dassie/meta-tsconfig':
+        specifier: workspace:^
+        version: link:../meta-tsconfig
+      type-fest:
+        specifier: ^4.8.3
+        version: 4.14.0
+
+  packages/lib-rpc-react:
+    dependencies:
+      '@dassie/lib-reactive':
+        specifier: workspace:^
+        version: link:../lib-reactive
+      '@dassie/lib-rpc':
+        specifier: workspace:^
+        version: link:../lib-rpc
+      '@dassie/lib-type-utils':
+        specifier: workspace:^
+        version: link:../lib-type-utils
+      '@tanstack/react-query':
+        specifier: ^5.28.14
+        version: 5.28.14(react@18.2.0)
+    devDependencies:
+      '@dassie/eslint-config':
+        specifier: workspace:^
+        version: link:../meta-eslint-config
+      '@dassie/meta-tsconfig':
+        specifier: workspace:^
+        version: link:../meta-tsconfig
       type-fest:
         specifier: ^4.8.3
         version: 4.14.0
@@ -760,25 +798,6 @@ importers:
       '@types/wcwidth':
         specifier: ^1.0.2
         version: 1.0.2
-
-  packages/lib-trpc-ipc:
-    dependencies:
-      '@trpc/client':
-        specifier: 10.43.1
-        version: 10.43.1(@trpc/server@10.43.1)
-      '@trpc/server':
-        specifier: 10.43.1
-        version: 10.43.1
-    devDependencies:
-      '@dassie/eslint-config':
-        specifier: workspace:^
-        version: link:../meta-eslint-config
-      '@dassie/meta-tsconfig':
-        specifier: workspace:^
-        version: link:../meta-tsconfig
-      type-fest:
-        specifier: ^4.8.3
-        version: 4.14.0
 
   packages/lib-type-utils:
     devDependencies:
@@ -866,7 +885,7 @@ importers:
         version: 0.59.0-beta.1
       unocss:
         specifier: 0.59.0-beta.1
-        version: 0.59.0-beta.1(postcss@8.4.38)(vite@5.2.7)
+        version: 0.59.0-beta.1(postcss@8.4.38)(vite@5.2.8)
 
 packages:
 
@@ -2772,11 +2791,27 @@ packages:
     requiresBuild: true
     optional: true
 
+  /@rollup/rollup-android-arm-eabi@4.14.0:
+    resolution: {integrity: sha512-jwXtxYbRt1V+CdQSy6Z+uZti7JF5irRKF8hlKfEnF/xJpcNGuuiZMBvuoYM+x9sr9iWGnzrlM0+9hvQ1kgkf1w==}
+    cpu: [arm]
+    os: [android]
+    requiresBuild: true
+    dev: false
+    optional: true
+
   /@rollup/rollup-android-arm64@4.13.2:
     resolution: {integrity: sha512-GdxxXbAuM7Y/YQM9/TwwP+L0omeE/lJAR1J+olu36c3LqqZEBdsIWeQ91KBe6nxwOnb06Xh7JS2U5ooWU5/LgQ==}
     cpu: [arm64]
     os: [android]
     requiresBuild: true
+    optional: true
+
+  /@rollup/rollup-android-arm64@4.14.0:
+    resolution: {integrity: sha512-fI9nduZhCccjzlsA/OuAwtFGWocxA4gqXGTLvOyiF8d+8o0fZUeSztixkYjcGq1fGZY3Tkq4yRvHPFxU+jdZ9Q==}
+    cpu: [arm64]
+    os: [android]
+    requiresBuild: true
+    dev: false
     optional: true
 
   /@rollup/rollup-darwin-arm64@4.13.2:
@@ -2786,11 +2821,27 @@ packages:
     requiresBuild: true
     optional: true
 
+  /@rollup/rollup-darwin-arm64@4.14.0:
+    resolution: {integrity: sha512-BcnSPRM76/cD2gQC+rQNGBN6GStBs2pl/FpweW8JYuz5J/IEa0Fr4AtrPv766DB/6b2MZ/AfSIOSGw3nEIP8SA==}
+    cpu: [arm64]
+    os: [darwin]
+    requiresBuild: true
+    dev: false
+    optional: true
+
   /@rollup/rollup-darwin-x64@4.13.2:
     resolution: {integrity: sha512-yUoEvnH0FBef/NbB1u6d3HNGyruAKnN74LrPAfDQL3O32e3k3OSfLrPgSJmgb3PJrBZWfPyt6m4ZhAFa2nZp2A==}
     cpu: [x64]
     os: [darwin]
     requiresBuild: true
+    optional: true
+
+  /@rollup/rollup-darwin-x64@4.14.0:
+    resolution: {integrity: sha512-LDyFB9GRolGN7XI6955aFeI3wCdCUszFWumWU0deHA8VpR3nWRrjG6GtGjBrQxQKFevnUTHKCfPR4IvrW3kCgQ==}
+    cpu: [x64]
+    os: [darwin]
+    requiresBuild: true
+    dev: false
     optional: true
 
   /@rollup/rollup-linux-arm-gnueabihf@4.13.2:
@@ -2800,11 +2851,27 @@ packages:
     requiresBuild: true
     optional: true
 
+  /@rollup/rollup-linux-arm-gnueabihf@4.14.0:
+    resolution: {integrity: sha512-ygrGVhQP47mRh0AAD0zl6QqCbNsf0eTo+vgwkY6LunBcg0f2Jv365GXlDUECIyoXp1kKwL5WW6rsO429DBY/bA==}
+    cpu: [arm]
+    os: [linux]
+    requiresBuild: true
+    dev: false
+    optional: true
+
   /@rollup/rollup-linux-arm64-gnu@4.13.2:
     resolution: {integrity: sha512-L1+D8/wqGnKQIlh4Zre9i4R4b4noxzH5DDciyahX4oOz62CphY7WDWqJoQ66zNR4oScLNOqQJfNSIAe/6TPUmQ==}
     cpu: [arm64]
     os: [linux]
     requiresBuild: true
+    optional: true
+
+  /@rollup/rollup-linux-arm64-gnu@4.14.0:
+    resolution: {integrity: sha512-x+uJ6MAYRlHGe9wi4HQjxpaKHPM3d3JjqqCkeC5gpnnI6OWovLdXTpfa8trjxPLnWKyBsSi5kne+146GAxFt4A==}
+    cpu: [arm64]
+    os: [linux]
+    requiresBuild: true
+    dev: false
     optional: true
 
   /@rollup/rollup-linux-arm64-musl@4.13.2:
@@ -2814,11 +2881,27 @@ packages:
     requiresBuild: true
     optional: true
 
+  /@rollup/rollup-linux-arm64-musl@4.14.0:
+    resolution: {integrity: sha512-nrRw8ZTQKg6+Lttwqo6a2VxR9tOroa2m91XbdQ2sUUzHoedXlsyvY1fN4xWdqz8PKmf4orDwejxXHjh7YBGUCA==}
+    cpu: [arm64]
+    os: [linux]
+    requiresBuild: true
+    dev: false
+    optional: true
+
   /@rollup/rollup-linux-powerpc64le-gnu@4.13.2:
     resolution: {integrity: sha512-zvXvAUGGEYi6tYhcDmb9wlOckVbuD+7z3mzInCSTACJ4DQrdSLPNUeDIcAQW39M3q6PDquqLWu7pnO39uSMRzQ==}
     cpu: [ppc64le]
     os: [linux]
     requiresBuild: true
+    optional: true
+
+  /@rollup/rollup-linux-powerpc64le-gnu@4.14.0:
+    resolution: {integrity: sha512-xV0d5jDb4aFu84XKr+lcUJ9y3qpIWhttO3Qev97z8DKLXR62LC3cXT/bMZXrjLF9X+P5oSmJTzAhqwUbY96PnA==}
+    cpu: [ppc64le]
+    os: [linux]
+    requiresBuild: true
+    dev: false
     optional: true
 
   /@rollup/rollup-linux-riscv64-gnu@4.13.2:
@@ -2828,11 +2911,27 @@ packages:
     requiresBuild: true
     optional: true
 
+  /@rollup/rollup-linux-riscv64-gnu@4.14.0:
+    resolution: {integrity: sha512-SDDhBQwZX6LPRoPYjAZWyL27LbcBo7WdBFWJi5PI9RPCzU8ijzkQn7tt8NXiXRiFMJCVpkuMkBf4OxSxVMizAw==}
+    cpu: [riscv64]
+    os: [linux]
+    requiresBuild: true
+    dev: false
+    optional: true
+
   /@rollup/rollup-linux-s390x-gnu@4.13.2:
     resolution: {integrity: sha512-l4U0KDFwzD36j7HdfJ5/TveEQ1fUTjFFQP5qIt9gBqBgu1G8/kCaq5Ok05kd5TG9F8Lltf3MoYsUMw3rNlJ0Yg==}
     cpu: [s390x]
     os: [linux]
     requiresBuild: true
+    optional: true
+
+  /@rollup/rollup-linux-s390x-gnu@4.14.0:
+    resolution: {integrity: sha512-RxB/qez8zIDshNJDufYlTT0ZTVut5eCpAZ3bdXDU9yTxBzui3KhbGjROK2OYTTor7alM7XBhssgoO3CZ0XD3qA==}
+    cpu: [s390x]
+    os: [linux]
+    requiresBuild: true
+    dev: false
     optional: true
 
   /@rollup/rollup-linux-x64-gnu@4.13.2:
@@ -2842,11 +2941,27 @@ packages:
     requiresBuild: true
     optional: true
 
+  /@rollup/rollup-linux-x64-gnu@4.14.0:
+    resolution: {integrity: sha512-C6y6z2eCNCfhZxT9u+jAM2Fup89ZjiG5pIzZIDycs1IwESviLxwkQcFRGLjnDrP+PT+v5i4YFvlcfAs+LnreXg==}
+    cpu: [x64]
+    os: [linux]
+    requiresBuild: true
+    dev: false
+    optional: true
+
   /@rollup/rollup-linux-x64-musl@4.13.2:
     resolution: {integrity: sha512-M/JYAWickafUijWPai4ehrjzVPKRCyDb1SLuO+ZyPfoXgeCEAlgPkNXewFZx0zcnoIe3ay4UjXIMdXQXOZXWqA==}
     cpu: [x64]
     os: [linux]
     requiresBuild: true
+    optional: true
+
+  /@rollup/rollup-linux-x64-musl@4.14.0:
+    resolution: {integrity: sha512-i0QwbHYfnOMYsBEyjxcwGu5SMIi9sImDVjDg087hpzXqhBSosxkE7gyIYFHgfFl4mr7RrXksIBZ4DoLoP4FhJg==}
+    cpu: [x64]
+    os: [linux]
+    requiresBuild: true
+    dev: false
     optional: true
 
   /@rollup/rollup-win32-arm64-msvc@4.13.2:
@@ -2856,6 +2971,14 @@ packages:
     requiresBuild: true
     optional: true
 
+  /@rollup/rollup-win32-arm64-msvc@4.14.0:
+    resolution: {integrity: sha512-Fq52EYb0riNHLBTAcL0cun+rRwyZ10S9vKzhGKKgeD+XbwunszSY0rVMco5KbOsTlwovP2rTOkiII/fQ4ih/zQ==}
+    cpu: [arm64]
+    os: [win32]
+    requiresBuild: true
+    dev: false
+    optional: true
+
   /@rollup/rollup-win32-ia32-msvc@4.13.2:
     resolution: {integrity: sha512-2FSsE9aQ6OWD20E498NYKEQLneShWes0NGMPQwxWOdws35qQXH+FplabOSP5zEe1pVjurSDOGEVCE2agFwSEsw==}
     cpu: [ia32]
@@ -2863,11 +2986,27 @@ packages:
     requiresBuild: true
     optional: true
 
+  /@rollup/rollup-win32-ia32-msvc@4.14.0:
+    resolution: {integrity: sha512-e/PBHxPdJ00O9p5Ui43+vixSgVf4NlLsmV6QneGERJ3lnjIua/kim6PRFe3iDueT1rQcgSkYP8ZBBXa/h4iPvw==}
+    cpu: [ia32]
+    os: [win32]
+    requiresBuild: true
+    dev: false
+    optional: true
+
   /@rollup/rollup-win32-x64-msvc@4.13.2:
     resolution: {integrity: sha512-7h7J2nokcdPePdKykd8wtc8QqqkqxIrUz7MHj6aNr8waBRU//NLDVnNjQnqQO6fqtjrtCdftpbTuOKAyrAQETQ==}
     cpu: [x64]
     os: [win32]
     requiresBuild: true
+    optional: true
+
+  /@rollup/rollup-win32-x64-msvc@4.14.0:
+    resolution: {integrity: sha512-aGg7iToJjdklmxlUlJh/PaPNa4PmqHfyRMLunbL3eaMO0gp656+q1zOKkpJ/CVe9CryJv6tAN1HDoR8cNGzkag==}
+    cpu: [x64]
+    os: [win32]
+    requiresBuild: true
+    dev: false
     optional: true
 
   /@rushstack/eslint-patch@1.10.0:
@@ -2951,26 +3090,17 @@ packages:
       tslib: 2.6.2
     dev: false
 
-  /@tanstack/query-core@4.36.1:
-    resolution: {integrity: sha512-DJSilV5+ytBP1FbFcEJovv4rnnm/CokuVvrBEtW/Va9DvuJ3HksbXUJEpI0aV1KtuL4ZoO9AVE6PyNLzF7tLeA==}
+  /@tanstack/query-core@5.28.13:
+    resolution: {integrity: sha512-C3+CCOcza+mrZ7LglQbjeYEOTEC3LV0VN0eYaIN6GvqAZ8Foegdgch7n6QYPtT4FuLae5ALy+m+ZMEKpD6tMCQ==}
     dev: false
 
-  /@tanstack/react-query@4.36.1(react-dom@18.2.0)(react@18.2.0):
-    resolution: {integrity: sha512-y7ySVHFyyQblPl3J3eQBWpXZkliroki3ARnBKsdJchlgt7yJLRDUcf4B8soufgiYt3pEQIkBWBx1N9/ZPIeUWw==}
+  /@tanstack/react-query@5.28.14(react@18.2.0):
+    resolution: {integrity: sha512-cZqt03Igb3I9tM72qNX5TAAmeYl75Z+k4Mv92VkXIXc2hCrv0fIywd7GN3JV1BBJl4mr7Cc+OOKKOPy8sNVOkA==}
     peerDependencies:
-      react: ^16.8.0 || ^17.0.0 || ^18.0.0
-      react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0
-      react-native: '*'
-    peerDependenciesMeta:
-      react-dom:
-        optional: true
-      react-native:
-        optional: true
+      react: ^18.0.0
     dependencies:
-      '@tanstack/query-core': 4.36.1
+      '@tanstack/query-core': 5.28.13
       react: 18.2.0
-      react-dom: 18.2.0(react@18.2.0)
-      use-sync-external-store: 1.2.0(react@18.2.0)
     dev: false
 
   /@tanstack/react-virtual@3.2.0(react-dom@18.2.0)(react@18.2.0):
@@ -3025,35 +3155,6 @@ packages:
       prettier: 3.2.5
     transitivePeerDependencies:
       - supports-color
-    dev: false
-
-  /@trpc/client@10.43.1(@trpc/server@10.43.1):
-    resolution: {integrity: sha512-pkPtbDS0ck/2WZo2cWaPV11NFMII2I/nzse1Ggs5Cr0YczsZk3Z0DM77Sfb9FTSjmccYfkEtumHqxfTj6fRbbg==}
-    peerDependencies:
-      '@trpc/server': 10.43.1
-    dependencies:
-      '@trpc/server': 10.43.1
-    dev: false
-
-  /@trpc/react-query@10.43.1(@tanstack/react-query@4.36.1)(@trpc/client@10.43.1)(@trpc/server@10.43.1)(react-dom@18.2.0)(react@18.2.0):
-    resolution: {integrity: sha512-H7icpfXRYdD8K7EFDozKxtTEkMyQNu4+KLHNiCHq5yan4le3dyhtDYJa+1ZR/0sZWV95siVa+CqcUQHs1Nwu+g==}
-    peerDependencies:
-      '@tanstack/react-query': ^4.18.0
-      '@trpc/client': 10.43.1
-      '@trpc/server': 10.43.1
-      react: '>=16.8.0'
-      react-dom: '>=16.8.0'
-    dependencies:
-      '@tanstack/react-query': 4.36.1(react-dom@18.2.0)(react@18.2.0)
-      '@trpc/client': 10.43.1(@trpc/server@10.43.1)
-      '@trpc/server': 10.43.1
-      react: 18.2.0
-      react-dom: 18.2.0(react@18.2.0)
-    dev: false
-
-  /@trpc/server@10.43.1:
-    resolution: {integrity: sha512-rKOSCpJOb1MdTyJFqdf3QNNESDfPkbP+yBOZBM2x6iIOS4VlCfJqxsaSrb3uLPR6s8Ni7DhTu+cu/q1r0xOGcw==}
-    engines: {node: '>=18.0.0'}
     dev: false
 
   /@tsconfig/strictest@2.0.5:
@@ -3583,6 +3684,22 @@ packages:
       - rollup
     dev: false
 
+  /@unocss/astro@0.59.0-beta.1(vite@5.2.8):
+    resolution: {integrity: sha512-RAtk3vd6a27CVCxJfbSl1k2ZsSb8hj0bV8+wF2hrp6T/Ptwx5v0vlhbu40P9XawN13ZIcaRpB6D/C9x3k89roQ==}
+    peerDependencies:
+      vite: ^2.9.0 || ^3.0.0-0 || ^4.0.0 || ^5.0.0-0
+    peerDependenciesMeta:
+      vite:
+        optional: true
+    dependencies:
+      '@unocss/core': 0.59.0-beta.1
+      '@unocss/reset': 0.59.0-beta.1
+      '@unocss/vite': 0.59.0-beta.1(vite@5.2.8)
+      vite: 5.2.8(@types/node@20.12.3)
+    transitivePeerDependencies:
+      - rollup
+    dev: false
+
   /@unocss/cli@0.59.0-beta.1:
     resolution: {integrity: sha512-Zm0gYt7srqHh3HfVsKOxDFGMOHvJc+ewvogE6DIGXnONpewsgTJP3SVuWk9oiq2E0R3MraXDdtMyhtAKkD5Kzw==}
     engines: {node: '>=14'}
@@ -3777,6 +3894,26 @@ packages:
       fast-glob: 3.3.2
       magic-string: 0.30.8
       vite: 5.2.7(@types/node@20.12.3)
+    transitivePeerDependencies:
+      - rollup
+    dev: false
+
+  /@unocss/vite@0.59.0-beta.1(vite@5.2.8):
+    resolution: {integrity: sha512-WMGYHDauJd+ioYgjHhrjc4yIqzOjWqMg+knYO4K1Cn8kb3as/1/UhwBWhsrAvkRksrT1xuKPPDMNiZAgn6YsKQ==}
+    peerDependencies:
+      vite: ^2.9.0 || ^3.0.0-0 || ^4.0.0 || ^5.0.0-0
+    dependencies:
+      '@ampproject/remapping': 2.3.0
+      '@rollup/pluginutils': 5.1.0
+      '@unocss/config': 0.59.0-beta.1
+      '@unocss/core': 0.59.0-beta.1
+      '@unocss/inspector': 0.59.0-beta.1
+      '@unocss/scope': 0.59.0-beta.1
+      '@unocss/transformer-directives': 0.59.0-beta.1
+      chokidar: 3.6.0
+      fast-glob: 3.3.2
+      magic-string: 0.30.8
+      vite: 5.2.8(@types/node@20.12.3)
     transitivePeerDependencies:
       - rollup
     dev: false
@@ -9197,6 +9334,31 @@ packages:
       '@rollup/rollup-win32-x64-msvc': 4.13.2
       fsevents: 2.3.3
 
+  /rollup@4.14.0:
+    resolution: {integrity: sha512-Qe7w62TyawbDzB4yt32R0+AbIo6m1/sqO7UPzFS8Z/ksL5mrfhA0v4CavfdmFav3D+ub4QeAgsGEe84DoWe/nQ==}
+    engines: {node: '>=18.0.0', npm: '>=8.0.0'}
+    hasBin: true
+    dependencies:
+      '@types/estree': 1.0.5
+    optionalDependencies:
+      '@rollup/rollup-android-arm-eabi': 4.14.0
+      '@rollup/rollup-android-arm64': 4.14.0
+      '@rollup/rollup-darwin-arm64': 4.14.0
+      '@rollup/rollup-darwin-x64': 4.14.0
+      '@rollup/rollup-linux-arm-gnueabihf': 4.14.0
+      '@rollup/rollup-linux-arm64-gnu': 4.14.0
+      '@rollup/rollup-linux-arm64-musl': 4.14.0
+      '@rollup/rollup-linux-powerpc64le-gnu': 4.14.0
+      '@rollup/rollup-linux-riscv64-gnu': 4.14.0
+      '@rollup/rollup-linux-s390x-gnu': 4.14.0
+      '@rollup/rollup-linux-x64-gnu': 4.14.0
+      '@rollup/rollup-linux-x64-musl': 4.14.0
+      '@rollup/rollup-win32-arm64-msvc': 4.14.0
+      '@rollup/rollup-win32-ia32-msvc': 4.14.0
+      '@rollup/rollup-win32-x64-msvc': 4.14.0
+      fsevents: 2.3.3
+    dev: false
+
   /run-parallel@1.2.0:
     resolution: {integrity: sha512-5l4VyZR86LZ/lDxZTR6jqL8AFE2S0IFLMP26AbjsLVADxHdhB/c0GUsH+y39UfCi3dzz8OlQuPmnaJOMoDHQBA==}
     dependencies:
@@ -10230,6 +10392,45 @@ packages:
       - supports-color
     dev: false
 
+  /unocss@0.59.0-beta.1(postcss@8.4.38)(vite@5.2.8):
+    resolution: {integrity: sha512-7cyKiysWrYIQzitp5K6Y8w65kp1hylwWyJ0++RjyG6X5ZwjRxAsIb4zKUeoW6aZxtgIwdKSC4qNeNXbrWO/LIg==}
+    engines: {node: '>=14'}
+    peerDependencies:
+      '@unocss/webpack': 0.59.0-beta.1
+      vite: ^2.9.0 || ^3.0.0-0 || ^4.0.0 || ^5.0.0-0
+    peerDependenciesMeta:
+      '@unocss/webpack':
+        optional: true
+      vite:
+        optional: true
+    dependencies:
+      '@unocss/astro': 0.59.0-beta.1(vite@5.2.8)
+      '@unocss/cli': 0.59.0-beta.1
+      '@unocss/core': 0.59.0-beta.1
+      '@unocss/extractor-arbitrary-variants': 0.59.0-beta.1
+      '@unocss/postcss': 0.59.0-beta.1(postcss@8.4.38)
+      '@unocss/preset-attributify': 0.59.0-beta.1
+      '@unocss/preset-icons': 0.59.0-beta.1
+      '@unocss/preset-mini': 0.59.0-beta.1
+      '@unocss/preset-tagify': 0.59.0-beta.1
+      '@unocss/preset-typography': 0.59.0-beta.1
+      '@unocss/preset-uno': 0.59.0-beta.1
+      '@unocss/preset-web-fonts': 0.59.0-beta.1
+      '@unocss/preset-wind': 0.59.0-beta.1
+      '@unocss/reset': 0.59.0-beta.1
+      '@unocss/transformer-attributify-jsx': 0.59.0-beta.1
+      '@unocss/transformer-attributify-jsx-babel': 0.59.0-beta.1
+      '@unocss/transformer-compile-class': 0.59.0-beta.1
+      '@unocss/transformer-directives': 0.59.0-beta.1
+      '@unocss/transformer-variant-group': 0.59.0-beta.1
+      '@unocss/vite': 0.59.0-beta.1(vite@5.2.8)
+      vite: 5.2.8(@types/node@20.12.3)
+    transitivePeerDependencies:
+      - postcss
+      - rollup
+      - supports-color
+    dev: false
+
   /unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
     engines: {node: '>= 0.8'}
@@ -10440,6 +10641,42 @@ packages:
       rollup: 4.13.2
     optionalDependencies:
       fsevents: 2.3.3
+
+  /vite@5.2.8(@types/node@20.12.3):
+    resolution: {integrity: sha512-OyZR+c1CE8yeHw5V5t59aXsUPPVTHMDjEZz8MgguLL/Q7NblxhZUlTu9xSPqlsUO/y+X7dlU05jdhvyycD55DA==}
+    engines: {node: ^18.0.0 || >=20.0.0}
+    hasBin: true
+    peerDependencies:
+      '@types/node': ^18.0.0 || >=20.0.0
+      less: '*'
+      lightningcss: ^1.21.0
+      sass: '*'
+      stylus: '*'
+      sugarss: '*'
+      terser: ^5.4.0
+    peerDependenciesMeta:
+      '@types/node':
+        optional: true
+      less:
+        optional: true
+      lightningcss:
+        optional: true
+      sass:
+        optional: true
+      stylus:
+        optional: true
+      sugarss:
+        optional: true
+      terser:
+        optional: true
+    dependencies:
+      '@types/node': 20.12.3
+      esbuild: 0.20.2
+      postcss: 8.4.38
+      rollup: 4.14.0
+    optionalDependencies:
+      fsevents: 2.3.3
+    dev: false
 
   /vitest@1.4.0(@types/node@20.12.3):
     resolution: {integrity: sha512-gujzn0g7fmwf83/WzrDTnncZt2UiXP41mHuFYFrdwaLRVQ6JYQEiME2IfEjU3vcFL3VKa75XhI3lFgn+hfVsQw==}

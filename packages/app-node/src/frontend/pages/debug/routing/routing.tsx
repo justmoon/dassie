@@ -1,4 +1,4 @@
-import { useRemoteSignal } from "@dassie/lib-reactive-trpc/client"
+import { useRemoteSignal } from "@dassie/lib-reactive-rpc/client"
 
 import {
   Table,
@@ -8,11 +8,11 @@ import {
   TableHeader,
   TableRow,
 } from "../../../components/ui/table"
-import { trpc } from "../../../utils/trpc"
+import { rpc } from "../../../utils/rpc"
 import { PeerRoutingDetail } from "./detail/peer"
 
 export function Routing() {
-  const routingTable = useRemoteSignal(trpc.debug.subscribeRoutingTable)
+  const routingTable = useRemoteSignal(rpc.debug.subscribeRoutingTable)
 
   if (!routingTable) return null
 

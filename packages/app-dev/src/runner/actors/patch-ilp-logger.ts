@@ -3,13 +3,13 @@ import { createRequire } from "node:module"
 import { LogsStore } from "@dassie/app-node/src/common/stores/logs"
 import { type Reactor, createActor } from "@dassie/lib-reactive"
 
-import { TrpcClientServiceActor } from "../services/trpc-client"
+import { RpcClientServiceActor } from "../services/rpc-client"
 
 export const PatchIlpLoggerActor = (reactor: Reactor) => {
   const logsStore = reactor.use(LogsStore)
 
   return createActor((sig) => {
-    const trpcClient = sig.readAndTrack(TrpcClientServiceActor)
+    const trpcClient = sig.readAndTrack(RpcClientServiceActor)
     if (!trpcClient) return
 
     const ownRequire = createRequire(import.meta.url)

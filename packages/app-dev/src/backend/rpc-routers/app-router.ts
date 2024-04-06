@@ -1,8 +1,9 @@
+import { createRouter } from "@dassie/lib-rpc/server"
+
 import { runnerRpcRouter } from "./runner-rpc-router"
-import { trpc } from "./trpc"
 import { uiRpcRouter } from "./ui-rpc-router"
 
-export const appRouter = trpc.router({
+export const appRouter = createRouter({
   ui: uiRpcRouter,
   runner: runnerRpcRouter,
 })

@@ -2,12 +2,12 @@ import { OutgoingPeerMessageTopic } from "@dassie/app-node/src/backend/peer-prot
 import { createActor } from "@dassie/lib-reactive"
 
 import { convertVanityNodeIdToFriendly } from "../../common/utils/vanity-node-id-to-friendly"
-import { TrpcClientServiceActor } from "../services/trpc-client"
+import { RpcClientServiceActor } from "../services/rpc-client"
 
 export const ForwardPeerTrafficActor = () =>
   createActor((sig) => {
     sig.on(OutgoingPeerMessageTopic, async ({ destination }) => {
-      const trpcClient = sig.readAndTrack(TrpcClientServiceActor)
+      const trpcClient = sig.readAndTrack(RpcClientServiceActor)
       if (!trpcClient) return
 
       await trpcClient.runner.notifyPeerTraffic.mutate({

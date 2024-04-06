@@ -1,0 +1,28 @@
+{
+  "name": "@dassie/lib-rpc-react",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "React hooks for @dassie/lib-rpc",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "lint": "eslint --color .",
+    "typecheck": "tsc --pretty"
+  },
+  "author": "Stefan Thomas <justmoon@members.fsf.org>",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@dassie/eslint-config": "workspace:^",
+    "@dassie/meta-tsconfig": "workspace:^",
+    "type-fest": "^4.8.3"
+  },
+  "dependencies": {
+    "@dassie/lib-reactive": "workspace:^",
+    "@dassie/lib-rpc": "workspace:^",
+    "@dassie/lib-type-utils": "workspace:^",
+    "@tanstack/react-query": "^5.28.14"
+  }
+}

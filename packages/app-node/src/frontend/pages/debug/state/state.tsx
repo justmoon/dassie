@@ -1,11 +1,11 @@
-import type { ContextKeyTuple } from "../../../../backend/trpc-server/routers/debug"
+import type { ContextKeyTuple } from "../../../../backend/rpc-server/routers/debug"
 import {
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
 } from "../../../components/ui/tabs"
-import { trpc } from "../../../utils/trpc"
+import { rpc } from "../../../utils/rpc"
 import { Actors } from "./actors/actors"
 import { Signals } from "./signals/signals"
 import { Topics } from "./topics/topics"
@@ -13,7 +13,7 @@ import { Topics } from "./topics/topics"
 export type StateKeys = ContextKeyTuple[]
 
 export function State() {
-  const stateKeys = trpc.debug.getContextKeys.useQuery().data ?? []
+  const stateKeys = rpc.debug.getContextKeys.useQuery().data ?? []
 
   return (
     <div className="h-full min-h-0">

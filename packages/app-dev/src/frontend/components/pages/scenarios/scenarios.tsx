@@ -1,14 +1,14 @@
 import { useLocation } from "wouter"
 
 import { combine } from "@dassie/app-node/src/frontend/utils/class-helper"
-import { useRemoteSignal } from "@dassie/lib-reactive-trpc/client"
+import { useRemoteSignal } from "@dassie/lib-reactive-rpc/client"
 
 import { builtinScenarios } from "../../../../backend/constants/scenarios"
-import { trpc } from "../../../utils/trpc"
+import { rpc } from "../../../utils/rpc"
 
 export function Scenarios() {
-  const currentScenario = useRemoteSignal(trpc.ui.subscribeToScenario)
-  const setScenario = trpc.ui.setScenario.useMutation()
+  const currentScenario = useRemoteSignal(rpc.ui.subscribeToScenario)
+  const setScenario = rpc.ui.setScenario.useMutation()
   const [, setLocation] = useLocation()
 
   if (!currentScenario) return <div>Loading...</div>

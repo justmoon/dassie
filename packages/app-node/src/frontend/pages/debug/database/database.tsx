@@ -2,11 +2,11 @@ import { useState } from "react"
 
 import { ScrollArea } from "../../../components/ui/scroll-area"
 import { combine } from "../../../utils/class-helper"
-import { trpc } from "../../../utils/trpc"
+import { rpc } from "../../../utils/rpc"
 import { TableDetail } from "./table-detail"
 
 export function Database() {
-  const tables = trpc.debug.getDatabaseTables.useQuery().data ?? []
+  const tables = rpc.debug.getDatabaseTables.useQuery().data ?? []
   const [currentTable, setCurrentTable] = useState<
     (typeof tables)[number] | undefined
   >(undefined)

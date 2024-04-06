@@ -1,18 +1,19 @@
 import { z } from "zod"
 
-import { DatabaseConfigStore } from "../../config/database-config"
-import { trpc } from "../../local-ipc-server/trpc-context"
-import { protectedProcedure } from "../../trpc-server/middlewares/auth"
+import { createRouter } from "@dassie/lib-rpc/server"
 
-export const tlsAdminRouter = trpc.router({
-  setNodeTlsConfiguration: protectedProcedure
+import { DatabaseConfigStore } from "../../config/database-config"
+import { protectedRoute } from "../../rpc-server/route-types/protected"
+
+export const tlsAdminRouter = createRouter({
+  setNodeTlsConfiguration: protectedRoute
     .input(
       z.object({
         certificate: z.string(),
         privateKey: z.string(),
       }),
     )
-    .mutation(({ input: { certificate, privateKey }, ctx: { sig } }) => {
+    .mutation(({ input: { certificate, privateKey }, context: { sig } }) => {
       const config = sig.reactor.use(DatabaseConfigStore)
       config.setTlsCertificates(certificate, privateKey)
 

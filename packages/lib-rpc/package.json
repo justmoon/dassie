@@ -1,0 +1,31 @@
+{
+  "name": "@dassie/lib-rpc",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "RPC library for communicating between TypeScript processes",
+  "exports": {
+    "./server": {
+      "import": "./src/server/index.ts"
+    },
+    "./client": {
+      "import": "./src/client/index.ts"
+    }
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "eslint --color .",
+    "typecheck": "tsc --pretty"
+  },
+  "author": "Stefan Thomas <justmoon@members.fsf.org>",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@dassie/eslint-config": "workspace:^",
+    "@dassie/meta-tsconfig": "workspace:^",
+    "type-fest": "^4.8.3"
+  },
+  "dependencies": {
+    "@dassie/lib-reactive": "workspace:^",
+    "@dassie/lib-type-utils": "workspace:^",
+    "zod": "^3.22.4"
+  }
+}

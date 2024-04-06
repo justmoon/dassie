@@ -8,11 +8,11 @@ import {
 import LogViewer, {
   LogViewerProvider,
 } from "@dassie/app-node/src/frontend/components/log-viewer/log-viewer"
-import { useRemoteStore } from "@dassie/lib-reactive-trpc/client"
+import { useRemoteStore } from "@dassie/lib-reactive-rpc/client"
 
 import { shortenNodeId } from "../../../backend/utils/shorten-node-id"
 import { LogsStore } from "../../../common/stores/logs"
-import { trpc } from "../../utils/trpc"
+import { rpc } from "../../utils/rpc"
 import NodeLink from "../shared/node-link/node-link"
 import { formatString } from "./format-string"
 
@@ -25,7 +25,7 @@ export const DevelopmentLogProvider = ({
 }: {
   children: ReactNode
 }) => {
-  const openFileMutation = trpc.ui.openFile.useMutation()
+  const openFileMutation = rpc.ui.openFile.useMutation()
 
   const format: FormatDefinition = {
     ...DEFAULT_FORMAT,
@@ -58,7 +58,7 @@ export const DevelopmentLogProvider = ({
 export function DevelopmentLogViewer({
   filter,
 }: DevelopmentLogViewerProperties) {
-  const { logs } = useRemoteStore(trpc.ui.subscribeToLogs, LogsStore)
+  const { logs } = useRemoteStore(rpc.ui.subscribeToLogs, LogsStore)
 
   return (
     <DevelopmentLogProvider>

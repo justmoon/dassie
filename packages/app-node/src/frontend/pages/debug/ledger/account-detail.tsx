@@ -20,7 +20,7 @@ import {
   TableRow,
 } from "../../../components/ui/table"
 import { combine } from "../../../utils/class-helper"
-import { trpc } from "../../../utils/trpc"
+import { rpc } from "../../../utils/rpc"
 
 export interface AccountDetailPageProperties {
   readonly params: { readonly ledgerId: string; readonly accountPath: string }
@@ -31,7 +31,7 @@ export const AccountDetailPage = ({
 }: AccountDetailPageProperties) => {
   const fullAccountPath = `${ledgerId}:${accountPath}`
 
-  trpc.debug.subscribeToLedgerAccount.useSubscription(fullAccountPath, {
+  rpc.debug.subscribeToLedgerAccount.useSubscription(fullAccountPath, {
     onData: (data) => {
       if ("path" in data) {
         setInitialAccountState(data)

@@ -1,12 +1,13 @@
 import { CheckIcon, CopyIcon, EyeIcon, EyeOffIcon, XIcon } from "lucide-react"
 import { useRef, useState } from "react"
 
+import type { BtpToken } from "../../../../backend/api-keys/types/btp-token"
 import { Button } from "../../../components/ui/button"
 import { useToast } from "../../../components/ui/toast/use-toast"
-import { trpc } from "../../../utils/trpc"
+import { rpc } from "../../../utils/rpc"
 
 interface BtpTokenAttributes {
-  token: string
+  token: BtpToken
 }
 
 const COPY_DONE_TIMEOUT = 1000
@@ -27,9 +28,9 @@ const BtpToken = ({ token }: BtpTokenAttributes) => {
   const timerReference = useRef<NodeJS.Timeout | null>(null)
   const { toast } = useToast()
 
-  const basicState = trpc.general.getBasicState.useQuery()
-  const currentKeysQuery = trpc.apiKeys.getCurrentKeys.useQuery()
-  const deleteTokenMutation = trpc.apiKeys.removeBtpToken.useMutation({
+  const basicState = rpc.general.getBasicState.useQuery()
+  const currentKeysQuery = rpc.apiKeys.getCurrentKeys.useQuery()
+  const deleteTokenMutation = rpc.apiKeys.removeBtpToken.useMutation({
     onSuccess: async () => {
       await currentKeysQuery.refetch()
     },
@@ -106,14 +107,14 @@ const BtpToken = ({ token }: BtpTokenAttributes) => {
 }
 
 export const ApiKeysSettings = () => {
-  const currentKeysQuery = trpc.apiKeys.getCurrentKeys.useQuery()
-  const addBtpToken = trpc.apiKeys.addBtpToken.useMutation({
+  const currentKeysQuery = rpc.apiKeys.getCurrentKeys.useQuery()
+  const addBtpToken = rpc.apiKeys.addBtpToken.useMutation({
     onSuccess: async () => {
       await currentKeysQuery.refetch()
     },
   })
 
-  if (currentKeysQuery.isLoading) {
+  if (currentKeysQuery.isPending) {
     return <div>Loading...</div>
   }
 
@@ -134,7 +135,7 @@ export const ApiKeysSettings = () => {
       )}
       <Button
         onClick={() => addBtpToken.mutate()}
-        disabled={addBtpToken.isLoading}
+        disabled={addBtpToken.isPending}
       >
         Create BTP Token
       </Button>

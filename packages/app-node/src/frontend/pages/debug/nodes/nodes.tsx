@@ -1,4 +1,4 @@
-import { useRemoteSignal } from "@dassie/lib-reactive-trpc/client"
+import { useRemoteSignal } from "@dassie/lib-reactive-rpc/client"
 
 import {
   Table,
@@ -8,14 +8,14 @@ import {
   TableHeader,
   TableRow,
 } from "../../../components/ui/table"
-import { trpc } from "../../../utils/trpc"
+import { rpc } from "../../../utils/rpc"
 
 export function Nodes() {
-  const nodeTable = useRemoteSignal(trpc.debug.subscribeNodeTable)
-  const routingTable = useRemoteSignal(trpc.debug.subscribeRoutingTable)
+  const nodeTable = useRemoteSignal(rpc.debug.subscribeNodeTable)
+  const routingTable = useRemoteSignal(rpc.debug.subscribeRoutingTable)
 
   const { data: ilpAllocationScheme } =
-    trpc.general.getAllocationScheme.useQuery(undefined)
+    rpc.general.getAllocationScheme.useQuery(undefined)
 
   if (!ilpAllocationScheme || !nodeTable || !routingTable) {
     return null

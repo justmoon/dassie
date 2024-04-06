@@ -1,14 +1,15 @@
 import { z } from "zod"
 
-import { trpc } from "../../local-ipc-server/trpc-context"
+import { createRouter } from "@dassie/lib-rpc/server"
+
 import { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
-import { protectedProcedure } from "../../trpc-server/middlewares/auth"
+import { protectedRoute } from "../../rpc-server/route-types/protected"
 import { ManageSettlementSchemeInstancesActor } from "../manage-settlement-scheme-instances"
 
-export const settlementRouter = trpc.router({
-  stubDeposit: protectedProcedure
+export const settlementRouter = createRouter({
+  stubDeposit: protectedRoute
     .input(z.string())
-    .mutation(async ({ input: amount, ctx: { sig } }) => {
+    .mutation(async ({ input: amount, context: { sig } }) => {
       const manageSettlementSchemeInstancesActor = sig.reactor.use(
         ManageSettlementSchemeInstancesActor,
       )

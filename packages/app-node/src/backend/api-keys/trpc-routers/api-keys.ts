@@ -1,8 +1,9 @@
 import { uint8ArrayToBase64 } from "uint8array-extras"
 import { z } from "zod"
 
-import { protectedProcedure } from "../../trpc-server/middlewares/auth"
-import { trpc } from "../../trpc-server/trpc-context"
+import { createRouter } from "@dassie/lib-rpc/server"
+
+import { protectedRoute } from "../../rpc-server/route-types/protected"
 import { BtpTokensStore } from "../database-stores/btp-tokens"
 import { BtpToken } from "../types/btp-token"
 
@@ -11,11 +12,11 @@ const btpTokenSchema = z
   .length(22)
   .transform((token) => token as BtpToken)
 
-export const apiKeysRouter = trpc.router({
-  getCurrentKeys: protectedProcedure.query(({ ctx: { sig } }) => {
+export const apiKeysRouter = createRouter({
+  getCurrentKeys: protectedRoute.query(({ context: { sig } }) => {
     return [...sig.read(BtpTokensStore)]
   }),
-  addBtpToken: protectedProcedure.mutation(({ ctx: { sig } }) => {
+  addBtpToken: protectedRoute.mutation(({ context: { sig } }) => {
     const { random } = sig.reactor.base
     const token = uint8ArrayToBase64(random.randomBytes(16), {
       urlSafe: true,
@@ -25,9 +26,9 @@ export const apiKeysRouter = trpc.router({
 
     return token
   }),
-  removeBtpToken: protectedProcedure
+  removeBtpToken: protectedRoute
     .input(btpTokenSchema)
-    .mutation(({ input: token, ctx: { sig } }) => {
+    .mutation(({ input: token, context: { sig } }) => {
       const btpTokensStore = sig.reactor.use(BtpTokensStore)
       btpTokensStore.removeToken(token)
     }),

@@ -1,11 +1,11 @@
-import { trpc } from "../../../../utils/trpc"
+import { rpc } from "../../../../utils/rpc"
 
 interface SignalStateProperties {
   id: number
 }
 
 export function SignalState({ id }: SignalStateProperties) {
-  const signalState = trpc.debug.getSignalState.useQuery(id)
+  const signalState = rpc.debug.getSignalState.useQuery(id)
 
   return (
     <div>

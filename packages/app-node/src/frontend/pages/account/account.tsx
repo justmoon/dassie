@@ -10,11 +10,11 @@ import {
   CardTitle,
 } from "../../components/ui/card"
 import { useAccount } from "../../hooks/use-account"
-import { trpc } from "../../utils/trpc"
+import { rpc } from "../../utils/rpc"
 
 export const Account = () => {
   const account = useAccount()
-  const { data: basicState } = trpc.general.getBasicState.useQuery()
+  const { data: basicState } = rpc.general.getBasicState.useQuery()
 
   return (
     <div className="flex flex-col items-center gap-4 p-4">

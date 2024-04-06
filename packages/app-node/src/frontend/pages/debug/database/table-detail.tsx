@@ -10,7 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "../../../components/ui/table"
-import { trpc } from "../../../utils/trpc"
+import { rpc } from "../../../utils/rpc"
 
 interface TableDetailParameters {
   id: DatabaseTableId
@@ -19,7 +19,7 @@ interface TableDetailParameters {
 }
 
 export function TableDetail({ id, columns }: TableDetailParameters) {
-  const rows = trpc.debug.getDatabaseTableRows.useQuery(id).data ?? []
+  const rows = rpc.debug.getDatabaseTableRows.useQuery(id).data ?? []
   return (
     <div>
       <Table>

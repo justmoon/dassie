@@ -1,6 +1,7 @@
 import { ArrowRight, CircleSlash, TestTube2Icon } from "lucide-react"
 import { useCallback } from "react"
 
+import type { SettlementSchemeId } from "../../../backend/peer-protocol/types/settlement-scheme-id"
 import { Alert, AlertDescription, AlertTitle } from "../../components/ui/alert"
 import { Button } from "../../components/ui/button"
 import {
@@ -9,10 +10,10 @@ import {
   CardHeader,
   CardTitle,
 } from "../../components/ui/card"
-import { trpc } from "../../utils/trpc"
+import { rpc } from "../../utils/rpc"
 
 export const CreateFirstAccount = () => {
-  const addSettlementScheme = trpc.config.addSettlementScheme.useMutation({
+  const addSettlementScheme = rpc.config.addSettlementScheme.useMutation({
     onSuccess: () => {
       window.location.reload()
     },
@@ -20,7 +21,7 @@ export const CreateFirstAccount = () => {
 
   const onSelectStubSettlement = useCallback(() => {
     addSettlementScheme.mutate({
-      id: "stub",
+      id: "stub" as SettlementSchemeId,
       config: {},
     })
   }, [addSettlementScheme])
@@ -56,7 +57,7 @@ export const CreateFirstAccount = () => {
             </p>
             <Button
               onClick={onSelectStubSettlement}
-              disabled={addSettlementScheme.isLoading}
+              disabled={addSettlementScheme.isPending}
             >
               Select{" "}
               <ArrowRight className="ml-2 -mr-1 w-5 h-5" aria-hidden="true" />

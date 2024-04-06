@@ -1,6 +1,6 @@
 import { useState } from "react"
 
-import { trpc } from "../../../../utils/trpc"
+import { rpc } from "../../../../utils/rpc"
 
 interface TopicCaptureProperties {
   id: number
@@ -8,7 +8,7 @@ interface TopicCaptureProperties {
 
 export function TopicCapture({ id }: TopicCaptureProperties) {
   const [events, setEvents] = useState<string[]>([])
-  trpc.debug.subscribeToTopic.useSubscription(id, {
+  rpc.debug.subscribeToTopic.useSubscription(id, {
     onData: (data) => {
       setEvents((events) => [...events, data])
     },

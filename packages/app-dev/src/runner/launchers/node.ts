@@ -10,11 +10,11 @@ import { HandleDisconnectActor } from "../actors/handle-disconnect"
 import { PatchIlpLoggerActor } from "../actors/patch-ilp-logger"
 import { ReportPeeringStateActor } from "../actors/report-peering-state"
 import { ServeWalletActor } from "../actors/serve-wallet"
-import { TrpcClientServiceActor } from "../services/trpc-client"
+import { RpcClientServiceActor } from "../services/rpc-client"
 
 const DebugRunnerActor = () =>
   createActor(async (sig) => {
-    sig.run(TrpcClientServiceActor)
+    sig.run(RpcClientServiceActor)
     sig.run(HandleShutdownSignalsActor)
     sig.run(HandleDisconnectActor)
     sig.run(ForwardLogsActor)

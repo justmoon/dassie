@@ -1,15 +1,24 @@
-import { applyWSSHandler } from "@trpc/server/adapters/ws"
+import { AxiosError } from "axios"
+import {
+  allowErrorProps,
+  registerClass,
+  SuperJSON as superjson,
+} from "superjson"
 import { WebSocketServer } from "ws"
 
 import { readFileSync } from "node:fs"
-import { createServer } from "node:https"
+import { createServer as createHttpsServer } from "node:https"
 import { join } from "node:path"
 
 import { Reactor, createActor } from "@dassie/lib-reactive"
+import {
+  createServer as createRpcServer,
+  createWebSocketAdapter,
+} from "@dassie/lib-rpc/server"
 
 import { LOCAL_FOLDER } from "../constants/paths"
 import { DEBUG_RPC_PORT } from "../constants/ports"
-import { type AppRouter, appRouter } from "../rpc-routers/app-router"
+import { appRouter } from "../rpc-routers/app-router"
 import { validateCertificates } from "../utils/validate-certificates"
 
 const certificatePath = join(
@@ -36,23 +45,36 @@ export const ListenForRpcWebSocketActor = (reactor: Reactor) =>
       ],
     })
 
-    const httpsServer = createServer({
+    allowErrorProps("stack", "cause")
+    registerClass(AggregateError, {
+      allowProps: ["errors", "message", "stack", "cause"],
+    })
+    registerClass(AxiosError, {
+      allowProps: ["code", "errors", "message", "name", "config", "cause"],
+    })
+
+    const httpsServer = createHttpsServer({
       cert: readFileSync(certificatePath),
       key: readFileSync(keyPath),
     })
 
     const wss = new WebSocketServer({ server: httpsServer })
-    const { broadcastReconnectNotification } = applyWSSHandler<AppRouter>({
-      wss,
+
+    const rpcServer = createRpcServer({
       router: appRouter,
-      createContext: () => ({ sig, reactor }),
+      transformer: superjson,
+    })
+
+    wss.on("connection", (websocket) => {
+      rpcServer.handleConnection({
+        connection: createWebSocketAdapter(websocket),
+        context: { sig, reactor },
+      })
     })
 
     httpsServer.listen(DEBUG_RPC_PORT)
 
     sig.onCleanup(async () => {
-      broadcastReconnectNotification()
-
       await Promise.all(
         [...wss.clients].map((client) => {
           return new Promise<void>((resolve, reject) => {
