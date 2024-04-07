@@ -1,4 +1,9 @@
 {
   "extends": "@dassie/meta-tsconfig/base.json",
-  "include": ["**/*.ts"]
+  "include": [
+    "**/*.ts"
+  ],
+  "compilerOptions": {
+    "outDir": "dist"
+  }
 }

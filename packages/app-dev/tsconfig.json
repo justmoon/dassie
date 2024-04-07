@@ -1,4 +1,11 @@
 {
   "extends": "@dassie/meta-tsconfig/vite-react.json",
-  "include": ["**/*.js", "**/*.ts", "**/*.tsx"]
+  "include": [
+    "**/*.js",
+    "**/*.ts",
+    "**/*.tsx"
+  ],
+  "compilerOptions": {
+    "outDir": "dist"
+  }
 }

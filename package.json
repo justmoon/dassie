@@ -9,11 +9,11 @@
     "build:web": "pnpm --filter=app-website build",
     "start": "which mkcert >/dev/null && : \"${NODE_EXTRA_CA_CERTS:=$(mkcert -CAROOT 2>/dev/null)/rootCA.pem}\" ; export NODE_EXTRA_CA_CERTS ; node packages/app-dev/bin/start-development-server.js",
     "dev": "pnpm start",
-    "check": "turbo typecheck lint && pnpm test -- --run",
+    "check": "pnpm typecheck && pnpm lint && pnpm test -- --run && pnpm meta-updater --test",
     "test": "vitest",
     "prettier": "prettier --config .prettierrc.json --write \"packages/*/{src,test}/**/*.ts\"",
     "lint": "turbo lint",
-    "typecheck": "turbo typecheck",
+    "typecheck": "tsc --build",
     "api": "extract-apis",
     "web": "pnpm --filter=app-website dev",
     "cli": "vite-node --config packages/app-dev/vite.backend.config.js packages/app-dev/bin/run-dassie-cli.ts --"
@@ -31,7 +31,7 @@
     "p2p",
     "money"
   ],
-  "author": "Stefan Thomas <stefan@interledger.org>",
+  "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "bugs": {
     "url": "https://github.com/justmoon/dassie/issues"
@@ -40,6 +40,7 @@
   "devDependencies": {
     "@dassie/eslint-plugin": "workspace:^",
     "@dassie/meta-api-extractor": "workspace:^",
+    "@pnpm/meta-updater": "^1.0.0",
     "@trivago/prettier-plugin-sort-imports": "^4.3.0",
     "@types/node": "^20.12.3",
     "@types/react": "^18.2.73",

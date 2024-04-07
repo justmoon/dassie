@@ -1,4 +1,10 @@
 {
   "extends": "@dassie/meta-tsconfig/vite-isomorphic.json",
-  "include": [".eslintrc.cjs", "src/**/*.ts"]
+  "include": [
+    ".eslintrc.cjs",
+    "src/**/*.ts"
+  ],
+  "compilerOptions": {
+    "outDir": "dist"
+  }
 }

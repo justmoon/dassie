@@ -1,0 +1,62 @@
+{
+  "include": [],
+  "references": [
+    {
+      "path": "./packages/app-build/tsconfig.json"
+    },
+    {
+      "path": "./packages/app-dev/tsconfig.json"
+    },
+    {
+      "path": "./packages/app-node/tsconfig.json"
+    },
+    {
+      "path": "./packages/app-website/tsconfig.json"
+    },
+    {
+      "path": "./packages/lib-format-utils/tsconfig.json"
+    },
+    {
+      "path": "./packages/lib-http-server/tsconfig.json"
+    },
+    {
+      "path": "./packages/lib-itergen-utils/tsconfig.json"
+    },
+    {
+      "path": "./packages/lib-logger/tsconfig.json"
+    },
+    {
+      "path": "./packages/lib-oer/tsconfig.json"
+    },
+    {
+      "path": "./packages/lib-protocol-utils/tsconfig.json"
+    },
+    {
+      "path": "./packages/lib-reactive/tsconfig.json"
+    },
+    {
+      "path": "./packages/lib-reactive-io/tsconfig.json"
+    },
+    {
+      "path": "./packages/lib-reactive-rpc/tsconfig.json"
+    },
+    {
+      "path": "./packages/lib-rpc/tsconfig.json"
+    },
+    {
+      "path": "./packages/lib-rpc-react/tsconfig.json"
+    },
+    {
+      "path": "./packages/lib-sqlite/tsconfig.json"
+    },
+    {
+      "path": "./packages/lib-terminal-graphics/tsconfig.json"
+    },
+    {
+      "path": "./packages/lib-type-utils/tsconfig.json"
+    },
+    {
+      "path": "./packages/meta-eslint-plugin/tsconfig.json"
+    }
+  ]
+}
