@@ -1,12 +1,12 @@
 import { isObject } from "@dassie/lib-type-utils"
 
+import { createDeferred } from "./deferred"
 import { ContextValue, FactoryNameSymbol } from "./internal/context-base"
 import {
   Listener,
   ListenerNameSymbol,
   emitToListener,
 } from "./internal/emit-to-listener"
-import { makePromise } from "./internal/promise"
 import { createLifecycleScope } from "./lifecycle"
 import { Factory } from "./types/factory"
 import { LifecycleContext } from "./types/lifecycle-context"
@@ -166,7 +166,7 @@ export class TopicImplementation<TMessage> {
 
   [Symbol.asyncIterator] = (): AsyncIterator<TMessage> => {
     const queue: TMessage[] = []
-    let promise = makePromise()
+    let promise = createDeferred()
 
     const lifecycle = createLifecycleScope("topic-async-iterator")
 
@@ -183,7 +183,7 @@ export class TopicImplementation<TMessage> {
 
         while (queue.length === 0) {
           await promise
-          promise = makePromise()
+          promise = createDeferred()
         }
 
         const value = queue.shift()!

@@ -4,6 +4,7 @@ export { createActor, isActor, ActorSymbol } from "./actor"
 export { createStore, isStore, StoreSymbol } from "./store"
 export { createComputed, isComputed, ComputedSymbol } from "./computed"
 export { createMapped, isMapped, MappedSymbol } from "./mapped"
+export { createDeferred } from "./deferred"
 export { createReactor } from "./reactor"
 export { createLifecycleScope } from "./lifecycle"
 export { createAbstract } from "./abstract"
@@ -47,6 +48,7 @@ export type {
   DisposableLifecycleScope,
   Disposer,
 } from "./lifecycle"
+export type { Deferred } from "./deferred"
 export type { Listener } from "./internal/emit-to-listener"
 export type {
   ReactiveSource as ReactiveProvider,

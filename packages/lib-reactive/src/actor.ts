@@ -4,8 +4,8 @@ import { isObject } from "@dassie/lib-type-utils"
 
 import { StatefulContext } from "."
 import { ActorContext, ActorContextImplementation } from "./actor-context"
+import { createDeferred } from "./deferred"
 import { ContextBase, FactoryNameSymbol } from "./internal/context-base"
-import { makePromise } from "./internal/promise"
 import {
   CacheStatus,
   CacheUninitialized,
@@ -206,8 +206,8 @@ export class ActorImplementation<TReturn, TBase extends object>
 
   currentContext: ActorContext<TBase> | undefined = undefined
   result: TReturn | undefined
-  promise = makePromise<TReturn>()
-  private waker = makePromise()
+  promise = createDeferred<TReturn>()
+  private waker = createDeferred()
 
   private cache: Awaited<TReturn> | undefined
   private cacheStatus: CacheStatus = CacheStatus.Clean
@@ -260,7 +260,7 @@ export class ActorImplementation<TReturn, TBase extends object>
     await this.promise
     this.currentContext = undefined
     this.cache = undefined
-    this.promise = makePromise()
+    this.promise = createDeferred()
   }
 
   private setCacheStatus(newCacheStatus: CacheStatus) {
@@ -297,7 +297,7 @@ export class ActorImplementation<TReturn, TBase extends object>
   ) {
     const resetActor = this.reset.bind(this)
 
-    this.waker = makePromise()
+    this.waker = createDeferred()
 
     for (;;) {
       if (parentContext.lifecycle.isDisposed) return
@@ -365,7 +365,7 @@ export class ActorImplementation<TReturn, TBase extends object>
             this.setCacheStatus(CacheStatus.Clean)
           }
 
-          this.waker = makePromise()
+          this.waker = createDeferred()
         } while (this.cacheStatus !== CacheStatus.Dirty)
       } catch (error: unknown) {
         console.error("error in actor", {

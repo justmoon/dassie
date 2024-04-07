@@ -1,8 +1,8 @@
-export interface SettablePromise<T> extends Promise<T> {
+export interface Deferred<T> extends Promise<T> {
   resolve(this: void, value: T): void
 }
 
-export const makePromise = <T = void>(): SettablePromise<T> => {
+export const createDeferred = <T = void>(): Deferred<T> => {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((_resolve) => {
     resolve = _resolve
