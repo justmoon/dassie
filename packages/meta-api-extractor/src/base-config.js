@@ -1,6 +1,4 @@
 import { ExtractorConfig } from "@microsoft/api-extractor"
-import type { ExtractorLogLevel } from "@microsoft/api-extractor"
-import type { EnumMemberOrder } from "@microsoft/api-extractor-model"
 
 /**
  * Config file for API Extractor.  For more info, please visit: https://api-extractor.com
@@ -10,15 +8,15 @@ import type { EnumMemberOrder } from "@microsoft/api-extractor-model"
  * @param exportPath - The filename of the exported type rollup. Path relative to the package root with no leading slash.
  */
 const createExtractorConfig = (
-  unscopedPackageName: string,
+  unscopedPackageName,
   entryPoint = "src/index",
   dtsRollupPath = "dist/index.d.ts",
 ) =>
   ExtractorConfig.prepare({
-    configObjectFullPath: new URL("../../api-extractor.json", import.meta.url)
+    configObjectFullPath: new URL("../api-extractor.json", import.meta.url)
       .pathname,
     packageJsonFullPath: new URL(
-      `../../packages/${unscopedPackageName}/package.json`,
+      `../../../packages/${unscopedPackageName}/package.json`,
       import.meta.url,
     ).pathname,
     configObject: {
@@ -50,7 +48,7 @@ const createExtractorConfig = (
        * SUPPORTED TOKENS: <lookup>
        * DEFAULT VALUE: "<lookup>"
        */
-      projectFolder: new URL("../..", import.meta.url).pathname,
+      projectFolder: new URL("../../..", import.meta.url).pathname,
 
       /**
        * (REQUIRED) Specifies the .d.ts file to be used as the starting point for analysis.  API Extractor
@@ -63,7 +61,7 @@ const createExtractorConfig = (
        *
        * SUPPORTED TOKENS: <projectFolder>, <packageName>, <unscopedPackageName>
        */
-      mainEntryPointFilePath: `<projectFolder>/dist/packages/${unscopedPackageName}/${entryPoint}.d.ts`,
+      mainEntryPointFilePath: `<projectFolder>/packages/${unscopedPackageName}/dist/${entryPoint}.d.ts`,
 
       /**
        * A list of NPM package names whose exports should be treated as part of this package.
@@ -80,7 +78,7 @@ const createExtractorConfig = (
        */
       bundledPackages: [],
 
-      enumMemberOrder: "preserve" as EnumMemberOrder,
+      enumMemberOrder: "preserve",
 
       /**
        * Determines how the TypeScript compiler engine will be invoked by API Extractor.
@@ -155,7 +153,7 @@ const createExtractorConfig = (
          * SUPPORTED TOKENS: <projectFolder>, <packageName>, <unscopedPackageName>
          * DEFAULT VALUE: "<projectFolder>/temp/"
          */
-        reportFolder: "<projectFolder>/common/review/api/",
+        reportFolder: "<projectFolder>/review/api/",
 
         /**
          * Specifies the folder where the temporary report file is written.  The file name portion is determined by
@@ -332,7 +330,7 @@ const createExtractorConfig = (
              *
              * DEFAULT VALUE: "warning"
              */
-            logLevel: "warning" as ExtractorLogLevel,
+            logLevel: "warning",
 
             /**
              * When addToApiReportFile is true:  If API Extractor is configured to write an API report file (.api.md),
@@ -361,12 +359,12 @@ const createExtractorConfig = (
          */
         extractorMessageReporting: {
           default: {
-            logLevel: "warning" as ExtractorLogLevel,
+            logLevel: "warning",
             // "addToApiReportFile": false
           },
 
           "ae-missing-release-tag": {
-            logLevel: "none" as ExtractorLogLevel,
+            logLevel: "none",
           },
           // "ae-extra-release-tag": {
           //   "logLevel": "warning",
@@ -385,7 +383,7 @@ const createExtractorConfig = (
          */
         tsdocMessageReporting: {
           default: {
-            logLevel: "warning" as ExtractorLogLevel,
+            logLevel: "warning",
             // "addToApiReportFile": false
           },
 

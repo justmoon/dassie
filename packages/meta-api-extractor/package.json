@@ -1,0 +1,15 @@
+{
+  "name": "@dassie/meta-api-extractor",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "API Extractor based utilities to check and document the API surface of library packages",
+  "author": "Stefan Thomas <justmoon@members.fsf.org>",
+  "license": "Apache-2.0",
+  "bin": {
+    "extract-apis": "./scripts/extract-apis.js"
+  },
+  "devDependencies": {
+    "@microsoft/api-extractor": "^7.43.0",
+    "@microsoft/api-extractor-model": "^7.28.13"
+  }
+}

@@ -1,17 +1,19 @@
 #!/usr/bin/env node
-import { Extractor, ExtractorResult } from "@microsoft/api-extractor"
+import { Extractor } from "@microsoft/api-extractor"
 
-import createExtractorConfig from "../common/config/api-extractor"
+import createExtractorConfig from "../src/base-config.js"
 
-const extractApi = (module: string) => {
+const extractApi = (module) => {
   const extractorConfig = createExtractorConfig(module)
 
-  const extractorResult: ExtractorResult = Extractor.invoke(extractorConfig, {
+  const extractorResult = Extractor.invoke(extractorConfig, {
     // Equivalent to the "--local" command-line parameter
     localBuild: true,
 
     // Equivalent to the "--verbose" command-line parameter
     showVerboseMessages: true,
+
+    typescriptCompilerFolder: "node_modules/typescript",
   })
 
   if (extractorResult.succeeded) {
