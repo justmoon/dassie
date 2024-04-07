@@ -6,6 +6,8 @@ import {
   ListenerNameSymbol,
   emitToListener,
 } from "./internal/emit-to-listener"
+import { makePromise } from "./internal/promise"
+import { createLifecycleScope } from "./lifecycle"
 import { Factory } from "./types/factory"
 import { LifecycleContext } from "./types/lifecycle-context"
 
@@ -13,11 +15,12 @@ export const TopicSymbol = Symbol("das:reactive:topic")
 
 export type InferMessageType<
   TTopic extends ReadonlyTopic<unknown> | Factory<ReadonlyTopic<unknown>>,
-> = TTopic extends ReadonlyTopic<infer TMessage>
-  ? TMessage
-  : TTopic extends Factory<ReadonlyTopic<infer TMessage>>
-  ? TMessage
-  : never
+> =
+  TTopic extends ReadonlyTopic<infer TMessage>
+    ? TMessage
+    : TTopic extends Factory<ReadonlyTopic<infer TMessage>>
+      ? TMessage
+      : never
 
 export interface ReadonlyTopic<TMessage = never> extends ContextValue {
   /**
@@ -61,6 +64,13 @@ export interface ReadonlyTopic<TMessage = never> extends ContextValue {
    * @param listener - The listener to remove.
    */
   off: (this: void, listener: Listener<TMessage>) => void
+
+  /**
+   * Return an async iterable for this topic.
+   *
+   * @returns An async iterable that will yield messages as they are emitted.
+   */
+  [Symbol.asyncIterator]: () => AsyncIterator<TMessage>
 }
 
 export type Topic<TMessage = never> = ReadonlyTopic<TMessage> & {
@@ -151,6 +161,38 @@ export class TopicImplementation<TMessage> {
         // See: https://tinyurl.com/perf-set-get-sole-element
         this.listeners = [...this.listeners][0]
       }
+    }
+  };
+
+  [Symbol.asyncIterator] = (): AsyncIterator<TMessage> => {
+    const queue: TMessage[] = []
+    let promise = makePromise()
+
+    const lifecycle = createLifecycleScope("topic-async-iterator")
+
+    this.on({ lifecycle }, (message) => {
+      queue.push(message)
+      promise.resolve()
+    })
+
+    return {
+      next: async () => {
+        if (lifecycle.isDisposed) {
+          return { done: true, value: undefined }
+        }
+
+        while (queue.length === 0) {
+          await promise
+          promise = makePromise()
+        }
+
+        const value = queue.shift()!
+        return { done: false, value }
+      },
+      return: async () => {
+        await lifecycle.dispose()
+        return { done: true, value: undefined }
+      },
     }
   }
 
