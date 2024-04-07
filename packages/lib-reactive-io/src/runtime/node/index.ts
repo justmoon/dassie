@@ -3,7 +3,7 @@ import type { Random, Time } from "@dassie/lib-reactive"
 import { NodeRandomImplementation } from "./random"
 import { NodeTimeImplementation } from "./time"
 
-interface NodeRuntime {
+export interface NodeRuntime {
   random: Random
   time: Time
 }

@@ -17,11 +17,7 @@ export {
 } from "./internal/context-base"
 
 export type { Topic, ReadonlyTopic, InferMessageType } from "./topic"
-export type {
-  SignalImplementation as Signal,
-  ReadonlySignal,
-  Reducer,
-} from "./signal"
+export type { Signal, ReadonlySignal, Reducer } from "./signal"
 export type { ActorContext } from "./actor-context"
 export type {
   Actor,

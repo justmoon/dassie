@@ -4,14 +4,19 @@ import type { IncomingMessage } from "node:http"
 import { createServer } from "node:http"
 import type { Duplex } from "node:stream"
 
-import { createActor, createSignal } from "@dassie/lib-reactive"
+import {
+  type Actor,
+  type Factory,
+  createActor,
+  createSignal,
+} from "@dassie/lib-reactive"
 
 import { HasTlsSignal } from "../config/computed/has-tls"
 import { DatabaseConfigStore } from "../config/database-config"
 import { http as logger } from "../logger/instances"
 import { getListenTargets } from "./utils/listen-targets"
 
-export const HttpRouterServiceActor = () =>
+export const HttpRouterServiceActor: Factory<Actor<Router>> = () =>
   createActor(() => {
     return Router()
   })
