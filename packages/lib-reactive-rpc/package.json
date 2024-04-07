@@ -11,21 +11,6 @@
       "import": "./src/client/index.tsx"
     }
   },
-  "publishConfig": {
-    "main": "./dist/server.js",
-    "exports": {
-      "./server": {
-        "types": "./dist/server.d.ts",
-        "require": "./dist/server.cjs",
-        "import": "./dist/server.js"
-      },
-      "./client": {
-        "types": "./dist/client.d.ts",
-        "require": "./dist/client.cjs",
-        "import": "./dist/client.js"
-      }
-    }
-  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "lint": "eslint --color .",

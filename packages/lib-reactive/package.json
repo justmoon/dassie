@@ -12,16 +12,6 @@
       "import": "./global.ts"
     }
   },
-  "publishConfig": {
-    "main": "./dist/index.js",
-    "exports": {
-      ".": {
-        "types": "./dist/index.d.ts",
-        "require": "./dist/index.cjs",
-        "import": "./dist/index.js"
-      }
-    }
-  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "lint": "eslint --color .",
