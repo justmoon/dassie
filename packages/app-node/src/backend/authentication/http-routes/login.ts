@@ -35,7 +35,7 @@ export const RegisterLoginRouteActor = (reactor: DassieReactor) => {
           loginAuthorizationSignature: z.string(),
         }),
       )
-      .handler(sig, ({ body, headers }) => {
+      .handler(sig, ({ body, response: { headers } }) => {
         const { loginAuthorizationSignature } = body
 
         const expectedLoginAuthorizationSignature = getPrivateSeedAtPath(

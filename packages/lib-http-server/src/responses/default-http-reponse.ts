@@ -1,5 +1,6 @@
-import type { RequestContext } from "../context"
+import type { RequestContext } from "../types/context"
 import { HttpResponse } from "../types/http-response"
+import { getResponseOptionsFromContext } from "../utils/get-response-from-context"
 
 export interface HttpResponseOptions {
   statusCode: number
@@ -16,14 +17,14 @@ export abstract class DefaultHttpResponse implements HttpResponse {
 
   abstract asResponse(context: RequestContext): Response
 
-  getStatusAndHeaders({ headers }: RequestContext) {
-    if (!headers.has("Content-Type")) {
-      headers.set("Content-Type", this.options.contentType)
+  getStatusAndHeaders(context: RequestContext) {
+    const { response } = context
+    if (!response.headers.has("Content-Type")) {
+      response.headers.set("Content-Type", this.options.contentType)
     }
 
-    return {
-      status: this.options.statusCode,
-      headers,
-    } satisfies ResponseInit
+    const responseInit = getResponseOptionsFromContext(context)
+
+    return responseInit
   }
 }

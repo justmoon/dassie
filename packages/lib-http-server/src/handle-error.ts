@@ -1,6 +1,6 @@
 import { negotiate } from "@fastify/accept-negotiator"
 
-import type { RequestContext } from "./context"
+import type { RequestContext } from "./types/context"
 
 export const handleError = (
   { request }: Pick<RequestContext, "request">,

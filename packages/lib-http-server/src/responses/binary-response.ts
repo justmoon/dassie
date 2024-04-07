@@ -1,4 +1,4 @@
-import type { RequestContext } from "../context"
+import type { RequestContext } from "../types/context"
 import {
   DEFAULT_HTTP_RESPONSE_OPTIONS,
   DefaultHttpResponse,

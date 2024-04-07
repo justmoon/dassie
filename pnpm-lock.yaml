@@ -447,9 +447,6 @@ importers:
       wouter:
         specifier: 3.1.0
         version: 3.1.0(react@18.2.0)
-      ws:
-        specifier: ^8.14.2
-        version: 8.16.0
       xrpl:
         specifier: ^3.0.0
         version: 3.0.0
@@ -540,6 +537,9 @@ importers:
       uint8array-extras:
         specifier: ^1.1.0
         version: 1.1.0
+      ws:
+        specifier: ^8.14.2
+        version: 8.16.0
       zod:
         specifier: ^3.22.4
         version: 3.22.4
@@ -553,6 +553,9 @@ importers:
       '@types/negotiator':
         specifier: ^0.6.3
         version: 0.6.3
+      '@types/ws':
+        specifier: ^8.5.10
+        version: 8.5.10
       react:
         specifier: ^18.2.0
         version: 18.2.0

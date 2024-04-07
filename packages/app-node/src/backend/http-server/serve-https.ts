@@ -2,12 +2,11 @@ import express, { type RequestHandler } from "express"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { createServer } from "node:https"
-import type { Duplex } from "node:stream"
 
 import {
-  convertFromNodejsRequest,
+  createNodejsHttpHandlers,
   createRouter,
-  writeToNodejsResponse,
+  createWebSocketRouter,
 } from "@dassie/lib-http-server"
 import { createActor, createSignal } from "@dassie/lib-reactive"
 
@@ -26,15 +25,7 @@ export const AdditionalMiddlewaresSignal = () =>
   createSignal<Array<ExpressMiddleware>>([])
 
 export const HttpsRouter = () => createRouter()
-
-export type WebsocketHandler = (
-  request: IncomingMessage,
-  socket: Duplex,
-  head: Buffer,
-) => void
-
-export const WebsocketRoutesSignal = () =>
-  createSignal(new Map<string, WebsocketHandler>())
+export const HttpsWebSocketRouter = () => createWebSocketRouter()
 
 function handleError(error: unknown) {
   logger.error("https server error", { error })
@@ -51,6 +42,7 @@ export const HttpsServiceActor = () =>
     logger.assert(!!tlsWebKey, "Web UI is not configured, missing private key")
 
     const router = sig.reactor.use(HttpsRouter)
+    const websocketRouter = sig.reactor.use(HttpsWebSocketRouter)
     const additionalMiddlewares = sig.readAndTrack(AdditionalMiddlewaresSignal)
 
     if (!router) return
@@ -72,55 +64,31 @@ export const HttpsServiceActor = () =>
 
     logger.info(`listening on ${url}`)
 
+    const nodejsHandlers = createNodejsHttpHandlers({
+      onRequest: async (context) => router.handle(context),
+      onUpgrade: async (context) => websocketRouter.handle(context),
+      onError: handleError,
+    })
+
     function handleRequest(
       nodeRequest: IncomingMessage,
       nodeResponse: ServerResponse<IncomingMessage>,
     ) {
-      ;(async () => {
-        const request = convertFromNodejsRequest(nodeRequest, {
-          hostname: "0.0.0.0",
-          protocol: "https",
-        })
-        const response = await router.handle(request)
-
-        if (response.status === 404) {
-          // Anything that isn't handled by our internal router is passed to Express
-          app(nodeRequest, nodeResponse)
-        } else {
-          await writeToNodejsResponse(response, nodeResponse)
-        }
-      })().catch((error: unknown) => {
-        logger.error("https server request error", { error })
-      })
-    }
-
-    function handleUpgrade(
-      request: IncomingMessage,
-      socket: Duplex,
-      head: Buffer,
-    ) {
-      logger.debug("websocket upgrade request", { url: request.url })
-
-      const { pathname } = new URL(request.url!, "http://localhost")
-
-      const handler = sig.read(WebsocketRoutesSignal).get(pathname)
-
-      if (!handler) {
-        socket.destroy()
-        return
+      if (router.match(nodeRequest.method!, nodeRequest.url!)) {
+        nodejsHandlers.handleRequest(nodeRequest, nodeResponse)
+      } else {
+        app(nodeRequest, nodeResponse)
       }
-
-      handler(request, socket, head)
     }
 
     server.addListener("request", handleRequest)
-    server.addListener("upgrade", handleUpgrade)
-    server.addListener("error", handleError)
+    server.addListener("upgrade", nodejsHandlers.handleUpgrade)
+    server.addListener("error", nodejsHandlers.handleError)
 
     sig.onCleanup(() => {
       server.removeListener("request", handleRequest)
-      server.removeListener("upgrade", handleUpgrade)
-      server.removeListener("error", handleError)
+      server.removeListener("upgrade", nodejsHandlers.handleUpgrade)
+      server.removeListener("error", nodejsHandlers.handleError)
       server.close()
     })
 

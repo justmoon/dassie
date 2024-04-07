@@ -1,5 +1,5 @@
 import { NotAcceptableFailure, UnsupportedMediaTypeFailure } from "."
-import type { RequestContext } from "./context"
+import type { RequestContext } from "./types/context"
 
 export const createAcceptHeaderAssertion =
   (mediaType: string) =>

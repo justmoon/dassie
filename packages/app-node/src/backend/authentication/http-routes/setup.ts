@@ -43,7 +43,7 @@ export const RegisterSetupRouteActor = (reactor: DassieReactor) => {
           loginAuthorizationSignature: z.string(),
         }),
       )
-      .handler(sig, ({ body, headers }) => {
+      .handler(sig, ({ body, response: { headers } }) => {
         if (hasNodeIdentity(config.read())) {
           return new UnauthorizedFailure("Node is already set up")
         }

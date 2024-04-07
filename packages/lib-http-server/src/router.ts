@@ -5,7 +5,6 @@ import { AnyOerType, Infer as InferOerType } from "@dassie/lib-oer"
 import type { LifecycleContext } from "@dassie/lib-reactive"
 import { Failure, isFailure } from "@dassie/lib-type-utils"
 
-import { type RequestContext, createContext } from "./context"
 import { handleError } from "./handle-error"
 import {
   parseBodyBuffer,
@@ -16,9 +15,11 @@ import {
   parseJson,
 } from "./parse-body"
 import { parseQueryParameters } from "./query-parameters"
+import { type RequestContext } from "./types/context"
 import { HttpFailure } from "./types/http-failure"
 import type { HttpResponse } from "./types/http-response"
 import { RouteParameters } from "./types/route-parameters"
+import type { WebSocketRequestContext } from "./types/websocket"
 
 export const HTTP_METHODS = [
   "get",
@@ -162,28 +163,29 @@ export type ApiRouteBuilder<
   [K in HttpMethod]: () => ApiRouteBuilder<TParameters>
 }
 
-interface RouteBuilderState {
+interface RouteBuilderState<TInitialContext extends object> {
   readonly path: string | undefined
   readonly method: HttpMethod | undefined
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly middlewares: Array<Middleware<any, object>>
-  readonly userHandler: ApiHandler<ApiRouteParameters> | undefined
+  readonly userHandler: ApiHandler<TInitialContext> | undefined
 }
 
-const initialRouteBuilderState: RouteBuilderState = {
+const initialRouteBuilderState: RouteBuilderState<never> = {
   path: undefined,
   method: undefined,
   userHandler: undefined,
   middlewares: [],
 }
 
-type RouteHandler = (
-  context: RequestContext,
+type RouteHandler<TInitialContext extends object> = (
+  context: RequestContext & TInitialContext,
 ) => Promise<HttpFailure | HttpResponse>
 
-const createRouteHandler =
-  (state: SetNonNullable<RouteBuilderState, "userHandler">): RouteHandler =>
-  async (context) => {
+function createRouteHandler<TInitialContext extends object>(
+  state: SetNonNullable<RouteBuilderState<TInitialContext>, "userHandler">,
+): RouteHandler<TInitialContext> {
+  return async (context) => {
     for (const middleware of state.middlewares) {
       const result = await middleware(context)
       if (isFailure(result)) return result
@@ -192,17 +194,18 @@ const createRouteHandler =
 
     return await state.userHandler(context)
   }
+}
 
 type RouteKey<
   TMethod extends string = string,
   TPath extends string = string,
 > = `${TMethod} ${TPath}`
 
-export const createRouter = () => {
-  const routes = new Map<RouteKey, RouteHandler>()
+export function createRouter<TInitialContext extends object = object>() {
+  const routes = new Map<RouteKey, RouteHandler<TInitialContext>>()
 
-  const createBuilder = (state: RouteBuilderState) => {
-    const routeDescriptor: ApiRouteBuilder<ApiRouteParameters> = {
+  function createBuilder(state: RouteBuilderState<TInitialContext>) {
+    const routeDescriptor: ApiRouteBuilder<TInitialContext> = {
       path: (value) => {
         return createBuilder({
           ...state,
@@ -282,7 +285,7 @@ export const createRouter = () => {
           userHandler: handler,
         }
 
-        const routeHandler = createRouteHandler(finalState)
+        const routeHandler = createRouteHandler<TInitialContext>(finalState)
 
         if (routes.has(`${method} ${path}`)) {
           throw new Error(`Route already exists for ${method} ${path}`)
@@ -304,15 +307,17 @@ export const createRouter = () => {
   }
 
   return {
-    ...createBuilder(initialRouteBuilderState),
+    ...createBuilder(
+      initialRouteBuilderState as RouteBuilderState<TInitialContext>,
+    ),
     match,
-    handle: async (request: Request) => {
-      const context = createContext(request)
-
+    handle: async (
+      context: RequestContext & TInitialContext,
+    ): Promise<Response> => {
       try {
         const handler =
-          match(request.method, context.url.pathname) ??
-          match(request.method, "*")
+          match(context.request.method, context.url.pathname) ??
+          match(context.request.method, "*")
 
         if (!handler) {
           return new Response("Not Found", { status: 404 })
@@ -325,4 +330,8 @@ export const createRouter = () => {
       }
     },
   }
+}
+
+export const createWebSocketRouter = () => {
+  return createRouter<WebSocketRequestContext>()
 }

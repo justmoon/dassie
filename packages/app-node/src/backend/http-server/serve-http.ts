@@ -1,15 +1,8 @@
 import express, { Router } from "express"
 
-import type { IncomingMessage } from "node:http"
 import { createServer } from "node:http"
-import type { Duplex } from "node:stream"
 
-import {
-  type Actor,
-  type Factory,
-  createActor,
-  createSignal,
-} from "@dassie/lib-reactive"
+import { type Actor, type Factory, createActor } from "@dassie/lib-reactive"
 
 import { HasTlsSignal } from "../config/computed/has-tls"
 import { DatabaseConfigStore } from "../config/database-config"
@@ -20,15 +13,6 @@ export const HttpRouterServiceActor: Factory<Actor<Router>> = () =>
   createActor(() => {
     return Router()
   })
-
-export type WebsocketHandler = (
-  request: IncomingMessage,
-  socket: Duplex,
-  head: Buffer,
-) => void
-
-export const WebsocketRoutesSignal = () =>
-  createSignal(new Map<string, WebsocketHandler>())
 
 function handleError(error: unknown) {
   logger.error("http server error", { error })

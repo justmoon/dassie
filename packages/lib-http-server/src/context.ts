@@ -1,8 +1,4 @@
-export type RequestContext<T extends object = object> = {
-  url: URL
-  request: Request
-  headers: Headers
-} & T
+import { RequestContext } from "./types/context"
 
 export function createContext(request: Request): RequestContext {
   let url: URL | undefined
@@ -13,7 +9,11 @@ export function createContext(request: Request): RequestContext {
       return url
     },
     request,
-    headers: new Headers(),
+    response: {
+      status: undefined,
+      statusText: undefined,
+      headers: new Headers(),
+    },
   }
 
   return context

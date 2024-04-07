@@ -24,7 +24,7 @@ export const RegisterDevelopmentSetSessionRouteActor = () =>
             .refine((_token): _token is SessionToken => true),
         }),
       )
-      .handler(sig, ({ body, headers }) => {
+      .handler(sig, ({ body, response: { headers } }) => {
         const { sessionToken } = body
 
         setCookie(headers, {

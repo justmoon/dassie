@@ -1,7 +1,5 @@
 import { parse } from "cookie"
 import { SuperJSON as superjson } from "superjson"
-import type { WebSocket } from "ws"
-import { WebSocketServer } from "ws"
 
 import { Reactor, createActor } from "@dassie/lib-reactive"
 import { createServer, createWebSocketAdapter } from "@dassie/lib-rpc/server"
@@ -12,30 +10,25 @@ import { SessionsStore } from "../authentication/database-stores/sessions"
 import { SessionToken } from "../authentication/types/session-token"
 import { DassieActorContext } from "../base/types/dassie-base"
 import { EnvironmentConfig } from "../config/environment-config"
-import { WebsocketRoutesSignal } from "../http-server/serve-https"
+import { HttpsWebSocketRouter } from "../http-server/serve-https"
 import { appRouter } from "./app-router"
-
-export const connectionMap = new Map<string, WebSocket>()
 
 export const RegisterTrpcHttpUpgradeActor = (reactor: Reactor) => {
   const environmentConfig = reactor.use(EnvironmentConfig)
   const sessionsStore = reactor.use(SessionsStore)
+  const httpsWebSocketRouter = reactor.use(HttpsWebSocketRouter)
 
   return createActor((sig: DassieActorContext) => {
-    const websocketRoutes = sig.readAndTrack(WebsocketRoutesSignal)
-
     const rpcServer = createServer({
       router: appRouter,
       transformer: superjson,
     })
 
-    const websocketServer = new WebSocketServer({
-      noServer: true,
-    })
-
-    websocketRoutes.set("/trpc", (request, socket, head) => {
-      websocketServer.handleUpgrade(request, socket, head, (websocket) => {
-        const cookies = parse(request.headers.cookie ?? "")
+    httpsWebSocketRouter
+      .get()
+      .path("/trpc")
+      .handler(sig, ({ request, upgrade, url }) => {
+        const cookies = parse(request.headers.get("cookie") ?? "")
         const sessionToken = cookies[SESSION_COOKIE_NAME]
 
         let authenticated = false
@@ -53,8 +46,7 @@ export const RegisterTrpcHttpUpgradeActor = (reactor: Reactor) => {
         // impossible to exploit because the expected token has to be provided
         // as an environment variable.
         if (import.meta.env.DEV) {
-          const parsedUrl = new URL(request.url!, "http://localhost")
-          const providedToken = parsedUrl.searchParams.get("token")
+          const providedToken = url.searchParams.get("token")
           const expectedToken = environmentConfig.devSecurityToken
 
           if (
@@ -73,16 +65,12 @@ export const RegisterTrpcHttpUpgradeActor = (reactor: Reactor) => {
           isAuthenticated: authenticated,
         }
 
-        rpcServer.handleConnection({
-          connection: createWebSocketAdapter(websocket),
-          context,
+        return upgrade((websocket) => {
+          rpcServer.handleConnection({
+            connection: createWebSocketAdapter(websocket),
+            context,
+          })
         })
       })
-    })
-
-    sig.onCleanup(() => {
-      websocketRoutes.delete("/trpc")
-      websocketServer.close()
-    })
   })
 }
