@@ -72,7 +72,7 @@ export type Topic<TMessage = never> = ReadonlyTopic<TMessage> & {
   emit: (this: void, trigger: TMessage) => void
 }
 
-class TopicImplementation<TMessage> {
+export class TopicImplementation<TMessage> {
   [TopicSymbol] = true as const;
   [FactoryNameSymbol] = "anonymous"
 
@@ -113,6 +113,7 @@ class TopicImplementation<TMessage> {
     if (typeof this.listeners === "function") {
       this.listeners = new Set([this.listeners, listener])
     } else if (this.listeners == undefined) {
+      this.enable?.()
       this.listeners = listener
     } else {
       this.listeners.add(listener)
@@ -140,6 +141,7 @@ class TopicImplementation<TMessage> {
     if (typeof this.listeners === "function") {
       if (this.listeners === listener) {
         this.listeners = undefined
+        this.disable?.()
       }
     } else if (this.listeners != undefined) {
       this.listeners.delete(listener)
@@ -151,6 +153,20 @@ class TopicImplementation<TMessage> {
       }
     }
   }
+
+  /**
+   * Method that will be called when a listener is added when there were none.
+   *
+   * Can be used to implement subclasses which only do work when there are listeners.
+   */
+  protected enable?(): void
+
+  /**
+   * Method that will be called when the last listener is removed.
+   *
+   * Can be used to implement subclasses which only do work when there are listeners.
+   */
+  protected disable?(): void
 }
 
 export const createTopic = <TMessage = void>(): Topic<TMessage> => {
