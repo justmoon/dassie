@@ -79,7 +79,7 @@ const NodeDetail = ({ nodeId }: NodeDetailProperties) => {
     setLocation(`/debug/${value}`)
   }
 
-  const { data: securityToken } = rpcDevelopment.ui.getSecurityToken.useQuery()
+  const { data: securityToken } = rpcDevelopment.getSecurityToken.useQuery()
 
   const clients = useMemo(
     () => securityToken && createNodeRpcClients(securityToken, nodeId),

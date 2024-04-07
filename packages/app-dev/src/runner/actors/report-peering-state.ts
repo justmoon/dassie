@@ -8,10 +8,10 @@ export const ReportPeeringStateActor = () =>
   createActor(async (sig) => {
     const peers = sig.readAndTrack(PeersSignal)
 
-    const trpcClient = sig.readAndTrack(RpcClientServiceActor)
-    if (!trpcClient) return
+    const rpcClient = sig.readAndTrack(RpcClientServiceActor)
+    if (!rpcClient) return
 
-    await trpcClient.runner.notifyPeerState.mutate({
+    await rpcClient.notifyPeerState.mutate({
       nodeId: process.env["DASSIE_DEV_NODE_ID"] ?? "unknown",
       peers: [...peers].map((peer) => convertVanityNodeIdToFriendly(peer)),
     })

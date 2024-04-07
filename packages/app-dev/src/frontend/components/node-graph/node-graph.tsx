@@ -37,7 +37,7 @@ const NodeGraphView = ({ graphData }: NodeGraphViewProperties) => {
     [],
   )
 
-  rpc.ui.subscribeToPeerTraffic.useSubscription(undefined, {
+  rpc.subscribeToPeerTraffic.useSubscription(undefined, {
     onData: useCallback(
       (data: PeerMessageMetadata | undefined) => {
         if (!data) return
@@ -75,7 +75,7 @@ const NodeGraphView = ({ graphData }: NodeGraphViewProperties) => {
 }
 
 const NodeGraph = () => {
-  const peeringState = useRemoteSignal(rpc.ui.subscribeToPeeringState)
+  const peeringState = useRemoteSignal(rpc.subscribeToPeeringState)
   const [graphData, dispatchGraphData] = useReducer(
     (
       previousGraphData: GraphData,

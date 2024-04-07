@@ -72,8 +72,8 @@ const Node = ({ nodeId, wallet, className }: NodeProperties) => {
 }
 
 const NodesList = () => {
-  const nodes = useRemoteSignal(rpc.ui.subscribeToNodes) ?? []
-  const addRandomNode = rpc.ui.addRandomNode.useMutation()
+  const nodes = useRemoteSignal(rpc.subscribeToNodes) ?? []
+  const addRandomNode = rpc.addRandomNode.useMutation()
 
   return (
     <div className="px-3">

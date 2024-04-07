@@ -1,28 +1,21 @@
-import { AxiosError } from "axios"
-import superjson, { allowErrorProps, registerClass } from "superjson"
-import { WebSocket } from "ws"
+import { createConnection } from "node:net"
 
 import { createActor } from "@dassie/lib-reactive"
-import { createClient, createWebSocketLink } from "@dassie/lib-rpc/client"
+import { createClient, createNodejsSocketLink } from "@dassie/lib-rpc/client"
 
-import type { AppRouter } from "../../backend/rpc-routers/app-router"
+import { DEBUG_RUNNER_RPC_PORT } from "../../backend/constants/ports"
+import type { RunnerRpcRouter } from "../../backend/rpc-routers/runner-rpc-router"
+import { transformer } from "../../common/utils/transformer"
 
 export const RpcClientServiceActor = () =>
   createActor((sig) => {
-    allowErrorProps("stack", "cause")
-    registerClass(AggregateError, {
-      allowProps: ["errors", "message", "stack", "cause"],
-    })
-    registerClass(AxiosError, {
-      allowProps: ["code", "errors", "message", "name", "config", "cause"],
+    const socket = createConnection({
+      port: DEBUG_RUNNER_RPC_PORT,
     })
 
-    const rpcClient = createClient<AppRouter>({
-      connection: createWebSocketLink({
-        url: process.env["DASSIE_DEV_RPC_URL"]!,
-        WebSocket,
-      }),
-      transformer: superjson,
+    const rpcClient = createClient<RunnerRpcRouter>({
+      connection: createNodejsSocketLink(socket),
+      transformer,
     })
 
     sig.onCleanup(() => {

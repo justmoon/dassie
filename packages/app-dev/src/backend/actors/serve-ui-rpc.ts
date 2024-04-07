@@ -1,9 +1,3 @@
-import { AxiosError } from "axios"
-import {
-  allowErrorProps,
-  registerClass,
-  SuperJSON as superjson,
-} from "superjson"
 import { WebSocketServer } from "ws"
 
 import { readFileSync } from "node:fs"
@@ -16,9 +10,10 @@ import {
   createWebSocketAdapter,
 } from "@dassie/lib-rpc/server"
 
+import { transformer } from "../../common/utils/transformer"
 import { LOCAL_FOLDER } from "../constants/paths"
-import { DEBUG_RPC_PORT } from "../constants/ports"
-import { appRouter } from "../rpc-routers/app-router"
+import { DEBUG_UI_RPC_PORT } from "../constants/ports"
+import { uiRpcRouter } from "../rpc-routers/ui-rpc-router"
 import { validateCertificates } from "../utils/validate-certificates"
 
 const certificatePath = join(
@@ -32,7 +27,7 @@ const keyPath = join(
 
 const CONNECTION_CLOSE_TIMEOUT = 250
 
-export const ListenForRpcWebSocketActor = (reactor: Reactor) =>
+export const ServeUiRpcActor = (reactor: Reactor) =>
   createActor(async (sig) => {
     await validateCertificates({
       id: "dev",
@@ -45,14 +40,6 @@ export const ListenForRpcWebSocketActor = (reactor: Reactor) =>
       ],
     })
 
-    allowErrorProps("stack", "cause")
-    registerClass(AggregateError, {
-      allowProps: ["errors", "message", "stack", "cause"],
-    })
-    registerClass(AxiosError, {
-      allowProps: ["code", "errors", "message", "name", "config", "cause"],
-    })
-
     const httpsServer = createHttpsServer({
       cert: readFileSync(certificatePath),
       key: readFileSync(keyPath),
@@ -61,8 +48,8 @@ export const ListenForRpcWebSocketActor = (reactor: Reactor) =>
     const wss = new WebSocketServer({ server: httpsServer })
 
     const rpcServer = createRpcServer({
-      router: appRouter,
-      transformer: superjson,
+      router: uiRpcRouter,
+      transformer,
     })
 
     wss.on("connection", (websocket) => {
@@ -72,7 +59,7 @@ export const ListenForRpcWebSocketActor = (reactor: Reactor) =>
       })
     })
 
-    httpsServer.listen(DEBUG_RPC_PORT)
+    httpsServer.listen(DEBUG_UI_RPC_PORT)
 
     sig.onCleanup(async () => {
       await Promise.all(

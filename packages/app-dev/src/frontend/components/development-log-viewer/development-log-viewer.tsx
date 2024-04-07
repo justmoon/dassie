@@ -25,7 +25,7 @@ export const DevelopmentLogProvider = ({
 }: {
   children: ReactNode
 }) => {
-  const openFileMutation = rpc.ui.openFile.useMutation()
+  const openFileMutation = rpc.openFile.useMutation()
 
   const format: FormatDefinition = {
     ...DEFAULT_FORMAT,
@@ -58,7 +58,7 @@ export const DevelopmentLogProvider = ({
 export function DevelopmentLogViewer({
   filter,
 }: DevelopmentLogViewerProperties) {
-  const { logs } = useRemoteStore(rpc.ui.subscribeToLogs, LogsStore)
+  const { logs } = useRemoteStore(rpc.subscribeToLogs, LogsStore)
 
   return (
     <DevelopmentLogProvider>

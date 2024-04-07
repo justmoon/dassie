@@ -10,7 +10,8 @@ import { ProxyByHostnameActor } from "./actors/proxy-by-hostname"
 import { RegisterReactiveLoggerActor } from "./actors/register-reactive-logger"
 import { RunNodesActor } from "./actors/run-nodes"
 import { DebugUiServerActor } from "./actors/serve-debug-ui"
-import { ListenForRpcWebSocketActor } from "./actors/serve-rpc"
+import { ServeRunnerRpcActor } from "./actors/serve-runner-rpc"
+import { ServeUiRpcActor } from "./actors/serve-ui-rpc"
 import { verifyPrerequisites } from "./functions/verify-prerequisites"
 import { ViteNodeServer } from "./unconstructables/vite-node-server"
 import { ViteServer } from "./unconstructables/vite-server"
@@ -33,7 +34,8 @@ export const RootActor = () =>
       return
     }
 
-    await sig.run(ListenForRpcWebSocketActor)
+    await sig.run(ServeUiRpcActor)
+    sig.run(ServeRunnerRpcActor)
     await sig.run(DebugUiServerActor)
 
     sig.run(ProxyByHostnameActor)

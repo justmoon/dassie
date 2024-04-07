@@ -7,8 +7,8 @@ import { builtinScenarios } from "../../../../backend/constants/scenarios"
 import { rpc } from "../../../utils/rpc"
 
 export function Scenarios() {
-  const currentScenario = useRemoteSignal(rpc.ui.subscribeToScenario)
-  const setScenario = rpc.ui.setScenario.useMutation()
+  const currentScenario = useRemoteSignal(rpc.subscribeToScenario)
+  const setScenario = rpc.setScenario.useMutation()
   const [, setLocation] = useLocation()
 
   if (!currentScenario) return <div>Loading...</div>

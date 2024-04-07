@@ -7,10 +7,10 @@ import { RpcClientServiceActor } from "../services/rpc-client"
 export const ForwardPeerTrafficActor = () =>
   createActor((sig) => {
     sig.on(OutgoingPeerMessageTopic, async ({ destination }) => {
-      const trpcClient = sig.readAndTrack(RpcClientServiceActor)
-      if (!trpcClient) return
+      const rpcClient = sig.readAndTrack(RpcClientServiceActor)
+      if (!rpcClient) return
 
-      await trpcClient.runner.notifyPeerTraffic.mutate({
+      await rpcClient.notifyPeerTraffic.mutate({
         from: process.env["DASSIE_DEV_NODE_ID"] ?? "unknown",
         to: convertVanityNodeIdToFriendly(destination),
       })

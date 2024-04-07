@@ -7,12 +7,12 @@ export const ForwardLogsActor = (reactor: Reactor) => {
   const logsStore = reactor.use(LogsStore)
 
   return createActor((sig) => {
-    const trpcClient = sig.readAndTrack(RpcClientServiceActor)
-    if (!trpcClient) return
+    const rpcClient = sig.readAndTrack(RpcClientServiceActor)
+    if (!rpcClient) return
 
     sig.on(logsStore.changes, ([action, parameters]) => {
       if (action === "addLogLine") {
-        void trpcClient.runner.notifyLogLine.mutate(parameters[0])
+        void rpcClient.notifyLogLine.mutate(parameters[0])
       }
     })
   })

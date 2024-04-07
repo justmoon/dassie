@@ -4,7 +4,7 @@ import { Reactor, createActor, createMapped } from "@dassie/lib-reactive"
 
 import { RunnerEnvironment } from "../../common/types/runner-environment"
 import { ActiveNodesComputed } from "../computed/active-nodes"
-import { DEBUG_RPC_PORT } from "../constants/ports"
+import { DEBUG_UI_RPC_PORT } from "../constants/ports"
 import { RunChildProcess } from "../functions/run-child-process"
 import { children as logger } from "../logger/instances"
 import { DebugScopesSignal } from "../signals/debug-scopes"
@@ -106,7 +106,7 @@ export const RunNodesActor = (reactor: Reactor) => {
               DASSIE_DEV_ROOT: viteServer.config.root,
               DASSIE_DEV_BASE: viteServer.config.base,
               DASSIE_DEV_ENTRY: node.entry,
-              DASSIE_DEV_RPC_URL: `wss://dev-rpc.localhost:${DEBUG_RPC_PORT}`,
+              DASSIE_DEV_RPC_URL: `wss://dev-rpc.localhost:${DEBUG_UI_RPC_PORT}`,
               DASSIE_DEV_NODE_ID: node.id,
               DASSIE_DEV_SECURITY_TOKEN: sig.read(SecurityTokenSignal),
             } satisfies RunnerEnvironment,

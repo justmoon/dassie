@@ -6,7 +6,7 @@ import {
   createRpcReact,
 } from "@dassie/lib-rpc-react"
 
-import type { AppRouter } from "../../backend/rpc-routers/app-router"
+import type { UiRpcRouter } from "../../backend/rpc-routers/ui-rpc-router"
 
 registerClass(AggregateError, {
   allowProps: ["errors", "message", "stack", "cause"],
@@ -16,7 +16,7 @@ registerClass(AxiosError, {
 })
 
 export const { rpc, RpcProvider, useWebSocketClient } =
-  createRpcReact<AppRouter>()
+  createRpcReact<UiRpcRouter>()
 
 export const clientOptions: UseWebSocketClientOptions["clientOptions"] = {
   transformer: superjson,

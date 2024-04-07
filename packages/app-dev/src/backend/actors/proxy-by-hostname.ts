@@ -7,8 +7,8 @@ import { isErrorWithCode } from "@dassie/lib-type-utils"
 
 import { LOCALHOST } from "../constants/hosts"
 import {
-  DEBUG_RPC_PORT,
   DEBUG_UI_PORT,
+  DEBUG_UI_RPC_PORT,
   NODES_START_PORT,
   SNI_PROXY_PORT,
 } from "../constants/ports"
@@ -144,7 +144,7 @@ const HOST_REGEX = /^d(\d+).localhost$/
 const getPortByHostname = (host: string | undefined) => {
   if (typeof host === "string") {
     if (host === "dev-rpc.localhost") {
-      return DEBUG_RPC_PORT
+      return DEBUG_UI_RPC_PORT
     }
 
     const match = HOST_REGEX.exec(host)
