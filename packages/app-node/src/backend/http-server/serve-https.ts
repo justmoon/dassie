@@ -31,7 +31,7 @@ function handleError(error: unknown) {
   logger.error("https server error", { error })
 }
 
-export const HttpsServiceActor = () =>
+export const ServeHttpsActor = () =>
   createActor((sig) => {
     const { httpsPort, url, tlsWebCert, tlsWebKey } = sig.readKeysAndTrack(
       DatabaseConfigStore,
@@ -93,9 +93,4 @@ export const HttpsServiceActor = () =>
     })
 
     return server
-  })
-
-export const ServeHttpsActor = () =>
-  createActor((sig) => {
-    sig.run(HttpsServiceActor)
   })

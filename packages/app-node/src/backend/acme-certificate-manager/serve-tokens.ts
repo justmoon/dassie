@@ -1,35 +1,36 @@
-import { createActor } from "@dassie/lib-reactive"
+import {
+  BadRequestFailure,
+  NotFoundFailure,
+  PlainHttpResponse,
+} from "@dassie/lib-http-server"
+import { type Reactor, createActor } from "@dassie/lib-reactive"
 
 import { Database } from "../database/open-database"
-import { HttpRouterServiceActor } from "../http-server/serve-http"
+import { HttpRouter } from "../http-server/serve-http"
 
-export const ServeTokensActor = () =>
-  createActor((sig) => {
-    const httpRouter = sig.readAndTrack(HttpRouterServiceActor)
+export const ServeTokensActor = (reactor: Reactor) => {
+  const httpRouter = reactor.use(HttpRouter)
+
+  return createActor((sig) => {
     const database = sig.reactor.use(Database)
 
-    if (!httpRouter) return
-
-    httpRouter.get(
-      "/.well-known/acme-challenge/:token",
-      (request, response) => {
-        const { token } = request.params
-
+    httpRouter
+      .get()
+      .path("/.well-known/acme-challenge/:token")
+      .handler(sig, ({ parameters: { token } }) => {
         if (!token) {
-          response.status(400).send("Bad Request")
-          return
+          return new BadRequestFailure("Bad Request")
         }
 
         const tokenRow = database.tables.acmeTokens.selectFirst({ token })
 
         if (!tokenRow) {
-          response.status(404).send("Not Found")
-          return
+          return new NotFoundFailure("Not Found")
         }
 
         const keyAuthorization = tokenRow.key_authorization
 
-        response.send(keyAuthorization)
-      },
-    )
+        return new PlainHttpResponse(keyAuthorization)
+      })
   })
+}

@@ -1,69 +1,73 @@
-import express, { Router } from "express"
-
 import { createServer } from "node:http"
 
-import { type Actor, type Factory, createActor } from "@dassie/lib-reactive"
+import {
+  NotFoundFailure,
+  RedirectResponse,
+  createNodejsHttpHandlers,
+  createRouter,
+} from "@dassie/lib-http-server"
+import { type Reactor, createActor } from "@dassie/lib-reactive"
 
 import { HasTlsSignal } from "../config/computed/has-tls"
 import { DatabaseConfigStore } from "../config/database-config"
 import { http as logger } from "../logger/instances"
 import { getListenTargets } from "./utils/listen-targets"
 
-export const HttpRouterServiceActor: Factory<Actor<Router>> = () =>
-  createActor(() => {
-    return Router()
-  })
+export const HttpRouter = () => createRouter()
 
 function handleError(error: unknown) {
   logger.error("http server error", { error })
 }
 
-export const HttpServiceActor = () =>
-  createActor((sig) => {
+export const ServeHttpActor = (reactor: Reactor) => {
+  const router = reactor.use(HttpRouter)
+
+  return createActor((sig) => {
     const { httpPort, httpsPort, enableHttpServer } = sig.readKeysAndTrack(
       DatabaseConfigStore,
       ["httpPort", "httpsPort", "enableHttpServer"],
     )
     const hasTls = sig.readAndTrack(HasTlsSignal)
-    const router = sig.readAndTrack(HttpRouterServiceActor)
-
-    if (!router) return
 
     if (!enableHttpServer) return
 
-    const app = express()
-
-    app.use(router)
-
     // TODO: Maybe show some helpful message if TLS is not yet set up
-    if (hasTls) {
-      app.use("*", (request, response) => {
-        response.redirect(
-          `https://${request.hostname}${
-            httpsPort === 443 ? "" : `:${httpsPort}`
-          }${request.originalUrl}`,
-        )
-      })
-    }
+    router
+      .get()
+      .path("*")
+      .handler(sig, ({ url }) => {
+        if (hasTls) {
+          // Redirect to HTTPS
+          return new RedirectResponse(
+            `https://${url.hostname}${
+              httpsPort === 443 ? "" : `:${httpsPort}`
+            }${url.pathname}`,
+            301,
+          )
+        }
 
-    const server = createServer({}, app)
+        return new NotFoundFailure("Not Found")
+      })
+
+    const nodejsHandlers = createNodejsHttpHandlers({
+      onRequest: async (context) => router.handle(context),
+      onError: handleError,
+    })
+    const server = createServer({})
 
     for (const listenTarget of getListenTargets(httpPort, false)) {
       server.listen(listenTarget)
     }
 
-    server.addListener("error", handleError)
+    server.addListener("request", nodejsHandlers.handleRequest)
+    server.addListener("error", nodejsHandlers.handleError)
 
     sig.onCleanup(() => {
-      server.removeListener("error", handleError)
+      server.removeListener("request", nodejsHandlers.handleRequest)
+      server.removeListener("error", nodejsHandlers.handleError)
       server.close()
     })
 
     return server
   })
-
-export const ServeHttpActor = () =>
-  createActor((sig) => {
-    sig.run(HttpRouterServiceActor)
-    sig.run(HttpServiceActor)
-  })
+}
