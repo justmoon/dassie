@@ -6,10 +6,10 @@ import { infer as InferZodType, ZodTypeAny } from "zod"
 import { AnyOerType, Infer as InferOerType } from "@dassie/lib-oer"
 import { isFailure } from "@dassie/lib-type-utils"
 
-import { DEFAULT_MAX_BODY_SIZE } from "./constants"
-import { BadRequestFailure } from "./failures/bad-request-failure"
-import { PayloadTooLargeFailure } from "./failures/payload-too-large-failure"
-import type { Middleware } from "./router"
+import { DEFAULT_MAX_BODY_SIZE } from "../constants"
+import { BadRequestFailure } from "../failures/bad-request-failure"
+import { PayloadTooLargeFailure } from "../failures/payload-too-large-failure"
+import type { Middleware } from "../router"
 
 export const parseBodyUint8Array = (async ({ request }) => {
   const body: Uint8Array[] = []

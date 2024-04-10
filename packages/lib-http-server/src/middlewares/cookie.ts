@@ -1,5 +1,5 @@
 /* eslint-disable unicorn/no-hex-escape, unicorn/better-regex -- In this case, the regex is actually more readable without these rules.*/
-import { Middleware } from "./router"
+import { Middleware } from "../router"
 
 export type Cookies = Record<string, string>
 

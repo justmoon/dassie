@@ -13,8 +13,8 @@ import {
   parseBodyUtf8,
   parseBodyZod,
   parseJson,
-} from "./parse-body"
-import { parseQueryParameters } from "./query-parameters"
+} from "./middlewares/parse-body"
+import { parseQueryParameters } from "./middlewares/query-parameters"
 import { PREFIX_WILDCARD, SEGMENT_WILDCARD, Trie } from "./trie/trie"
 import { type RequestContext } from "./types/context"
 import { HttpFailure } from "./types/http-failure"

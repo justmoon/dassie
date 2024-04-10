@@ -1,7 +1,7 @@
 import { AnyZodObject, infer as InferZodType } from "zod"
 
-import { BadRequestFailure } from "./failures/bad-request-failure"
-import { Middleware } from "./router"
+import { BadRequestFailure } from "../failures/bad-request-failure"
+import { Middleware } from "../router"
 
 export const parseQueryParameters =
   <TSchema extends AnyZodObject>(
