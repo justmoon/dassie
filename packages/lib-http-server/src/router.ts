@@ -15,11 +15,15 @@ import {
   parseJson,
 } from "./parse-body"
 import { parseQueryParameters } from "./query-parameters"
+import { PREFIX_WILDCARD, SEGMENT_WILDCARD, Trie } from "./trie/trie"
 import { type RequestContext } from "./types/context"
 import { HttpFailure } from "./types/http-failure"
 import type { HttpResponse } from "./types/http-response"
 import { RouteParameters } from "./types/route-parameters"
 import type { WebSocketRequestContext } from "./types/websocket"
+import { isDynamicPath } from "./utils/is-dynamic-path"
+import { normalizePath } from "./utils/normalize-path"
+import { parseParameters } from "./utils/parse-parameters"
 
 export const HTTP_METHODS = [
   "get",
@@ -80,13 +84,12 @@ export type ApiRouteBuilder<
   /**
    * Provide a JSON validator for the request body.
    */
-  path: <TPath extends string>(
+  path: <const TPath extends string>(
     path: TPath,
   ) => ApiRouteBuilder<
-    // Only add a parameters type to the object if there are actual parameters
-    object extends RouteParameters<TPath>
+    TPath extends `${string}:${string}`
       ? TParameters & {
-          params: RouteParameters<TPath>
+          parameters: Simplify<RouteParameters<TPath>>
         }
       : TParameters
   >
@@ -196,13 +199,17 @@ function createRouteHandler<TInitialContext extends object>(
   }
 }
 
-type RouteKey<
+type StaticRouteKey<
   TMethod extends string = string,
   TPath extends string = string,
 > = `${TMethod} ${TPath}`
 
 export function createRouter<TInitialContext extends object = object>() {
-  const routes = new Map<RouteKey, RouteHandler<TInitialContext>>()
+  const staticRoutes = new Map<StaticRouteKey, RouteHandler<TInitialContext>>()
+  const dynamicRoutes = new Map<
+    HttpMethod,
+    Trie<RouteHandler<TInitialContext>>
+  >()
 
   function createBuilder(state: RouteBuilderState<TInitialContext>) {
     const routeDescriptor: ApiRouteBuilder<TInitialContext> = {
@@ -282,19 +289,102 @@ export function createRouter<TInitialContext extends object = object>() {
           // Remove duplicate middlewares
           middlewares: [...new Set(middlewares)],
 
+          // Set the user handler
           userHandler: handler,
         }
 
-        const routeHandler = createRouteHandler<TInitialContext>(finalState)
+        const normalizedPath = normalizePath(path)
+        const isDynamicRoute = isDynamicPath(normalizedPath)
 
-        if (routes.has(`${method} ${path}`)) {
-          throw new Error(`Route already exists for ${method} ${path}`)
+        if (!isDynamicRoute) {
+          const routeHandler = createRouteHandler<TInitialContext>(finalState)
+
+          const staticRouteKey: StaticRouteKey = `${method} ${path}`
+          if (staticRoutes.has(staticRouteKey)) {
+            throw new Error(`Route already exists for ${method} ${path}`)
+          }
+
+          staticRoutes.set(staticRouteKey, routeHandler)
+
+          context.lifecycle.onCleanup(() => {
+            staticRoutes.delete(staticRouteKey)
+          })
+          return
         }
 
-        routes.set(`${method} ${path}`, routeHandler)
+        const prefixWildcardIndex = normalizedPath.indexOf("*")
+
+        if (
+          prefixWildcardIndex !== -1 &&
+          prefixWildcardIndex !== normalizedPath.length - 1
+        ) {
+          throw new Error("Prefix wildcard must be at the end of the path")
+        }
+
+        const parameterMap: string[] = []
+
+        // Remove the parameter names from the path since the trie doesn't
+        // need them. We keep track of the parameter names so that we can
+        // later map them back.
+        const anonymizedPath = normalizedPath.map((segment) => {
+          if (segment.startsWith(":")) {
+            let wildcardType = SEGMENT_WILDCARD
+            if (segment.endsWith("*")) {
+              wildcardType = PREFIX_WILDCARD
+              segment = segment.slice(0, -1)
+            }
+            const parameterName = segment.slice(1)
+
+            if (!parameterName) {
+              throw new Error("Parameter name must not be empty")
+            }
+
+            parameterMap.push(parameterName)
+
+            return wildcardType
+          }
+
+          if (segment.includes("*") || segment.includes("?")) {
+            throw new Error("URL must not include * or ? characters")
+          }
+
+          return segment
+        })
+
+        const parameterParserMiddleware = (context: RequestContext) => {
+          return {
+            parameters: parseParameters(
+              context.url.pathname,
+              anonymizedPath,
+              parameterMap,
+            ),
+          }
+        }
+
+        finalState.middlewares.unshift(parameterParserMiddleware)
+
+        let trie = dynamicRoutes.get(method)
+
+        if (!trie) {
+          trie = new Trie()
+          dynamicRoutes.set(method, trie)
+        }
+
+        const result = trie.insert(
+          anonymizedPath,
+          createRouteHandler<TInitialContext>(finalState),
+        )
+
+        if (isFailure(result)) {
+          throw new Error("Route already exists for path")
+        }
 
         context.lifecycle.onCleanup(() => {
-          routes.delete(`${method} ${path}`)
+          trie.remove(anonymizedPath)
+
+          if (trie.root.size === 0) {
+            dynamicRoutes.delete(method)
+          }
         })
       },
     }
@@ -303,7 +393,20 @@ export function createRouter<TInitialContext extends object = object>() {
   }
 
   function match(method: string, path: string) {
-    return routes.get(`${method.toLowerCase()} ${path}`)
+    const staticRoute = staticRoutes.get(`${method.toLowerCase()} ${path}`)
+    if (staticRoute) return staticRoute
+
+    const trie = dynamicRoutes.get(method.toLowerCase() as HttpMethod)
+
+    if (!trie) return undefined
+
+    const normalizedPath = normalizePath(path)
+
+    const dynamicRoute = trie.get(normalizedPath)
+
+    if (!dynamicRoute) return undefined
+
+    return dynamicRoute
   }
 
   return {
@@ -315,16 +418,14 @@ export function createRouter<TInitialContext extends object = object>() {
       context: RequestContext & TInitialContext,
     ): Promise<Response> => {
       try {
-        const handler =
-          match(context.request.method, context.url.pathname) ??
-          match(context.request.method, "*")
+        const handler = match(context.request.method, context.url.pathname)
 
-        if (!handler) {
-          return new Response("Not Found", { status: 404 })
+        if (handler) {
+          const result = await handler(context)
+          return result.asResponse(context)
         }
 
-        const result = await handler(context)
-        return result.asResponse(context)
+        return new Response("Not Found", { status: 404 })
       } catch (error: unknown) {
         return handleError(context, error)
       }
