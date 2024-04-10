@@ -1,6 +1,6 @@
 import { command } from "cmd-ts"
 
-import { startDaemon } from "../../../daemon"
+import { startDaemon } from "../../../backend/daemon"
 
 export const DaemonCommand = () =>
   command({

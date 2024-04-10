@@ -1,6 +1,6 @@
 import { createReactor } from "@dassie/lib-reactive"
 
-import { main } from "./command-line"
+import { main } from "."
 
 const reactor = createReactor()
 await main(reactor)

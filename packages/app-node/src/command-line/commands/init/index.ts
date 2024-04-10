@@ -12,8 +12,8 @@ import {
   text,
 } from "@dassie/lib-terminal-graphics"
 
-import { ACME_DIRECTORY_URL } from "../../../acme-certificate-manager/constants/acme-service"
-import { connectIpcClient } from "../../../local-ipc-client"
+import { ACME_DIRECTORY_URL } from "../../../backend/acme-certificate-manager/constants/acme-service"
+import { connectIpcClient } from "../../../backend/local-ipc-client"
 
 const LETSENCRYPT_TOS_URL =
   "https://letsencrypt.org/documents/LE-SA-v1.3-September-21-2022.pdf"

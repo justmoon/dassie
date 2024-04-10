@@ -33,7 +33,7 @@ await (async () => {
 
 export const buildBackend = async (detailedVersion: string) => {
   await build({
-    entryPoints: [resolve(PATH_PACKAGE_APP_NODE, "src/backend/entry.ts")],
+    entryPoints: [resolve(PATH_PACKAGE_APP_NODE, "src/command-line/entry.ts")],
     outfile: resolve(PATH_DIST_STAGING_SHARED, "backend.mjs"),
     bundle: true,
     platform: "node",

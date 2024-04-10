@@ -15,7 +15,7 @@ import { Reactor } from "@dassie/lib-reactive"
 import { createFlow, header, note } from "@dassie/lib-terminal-graphics"
 import { isErrorWithCode } from "@dassie/lib-type-utils"
 
-import { EnvironmentConfig } from "../../../config/environment-config"
+import { EnvironmentConfig } from "../../../backend/config/environment-config"
 import { downloadFile } from "./download-file"
 
 export const UpdateCommand = (reactor: Reactor) =>
