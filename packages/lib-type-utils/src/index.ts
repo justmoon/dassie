@@ -1,3 +1,4 @@
+export { arrayEquals } from "./array-equals"
 export { assertDefined } from "./assert-defined"
 export { bigIntMin, bigIntMax } from "./bigint-minmax"
 export { bufferToUint8Array } from "./buffer-to-typedarray"
