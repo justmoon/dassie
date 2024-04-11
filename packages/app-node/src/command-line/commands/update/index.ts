@@ -22,7 +22,7 @@ export const UpdateCommand = (reactor: Reactor) =>
   command({
     name: "update",
     description:
-      "This command assists with the initial configuration and setup",
+      "Update Dassie to the latest version or a specific target version",
     args: {
       force: flag({
         long: "force",
