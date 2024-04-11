@@ -29,6 +29,11 @@ export function createNodejsSocketAdapter(
     }
   })
 
+  nodejsSocket.on("error", (error) => {
+    console.warn("inbound socket error; closing connection", { error })
+    nodejsSocket.end()
+  })
+
   const closed = new Promise<void>((resolve) => {
     nodejsSocket.on("close", resolve)
   })
