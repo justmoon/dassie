@@ -45,6 +45,17 @@ module.exports = {
       "error",
       { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
     ],
+    // When writing certain types of generics, the {} type is often the best
+    // choice. It creates too much clutter to continously turn of this rule.
+    "@typescript-eslint/ban-types": [
+      "error",
+      {
+        extendDefaults: true,
+        types: {
+          "{}": false,
+        },
+      },
+    ],
     "object-shorthand": ["warn", "properties"],
 
     // Handled by TypeScript
