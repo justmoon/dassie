@@ -2,11 +2,12 @@ import { AnyZodObject, infer as InferZodType } from "zod"
 
 import { BadRequestFailure } from "../failures/bad-request-failure"
 import { Middleware } from "../router"
+import type { BaseRequestContext } from "../types/context"
 
 export const parseQueryParameters =
   <TSchema extends AnyZodObject>(
     schema: TSchema,
-  ): Middleware<object, { query: InferZodType<TSchema> }> =>
+  ): Middleware<BaseRequestContext, { query: InferZodType<TSchema> }> =>
   (request) => {
     // Get query string from URL
     const query = Object.fromEntries(request.url.searchParams.entries())

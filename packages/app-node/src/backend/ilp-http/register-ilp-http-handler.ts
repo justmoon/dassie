@@ -3,6 +3,7 @@ import {
   createAcceptHeaderAssertion,
   createContentTypeHeaderAssertion,
   createPlainResponse,
+  parseBodyUint8Array,
 } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
@@ -29,7 +30,7 @@ export const RegisterIlpHttpHandlerActor = (reactor: DassieReactor) => {
       .path("/ilp")
       .assert(createAcceptHeaderAssertion(ILP_OVER_HTTP_CONTENT_TYPE))
       .assert(createContentTypeHeaderAssertion(ILP_OVER_HTTP_CONTENT_TYPE))
-      .bodyParser("uint8Array")
+      .use(parseBodyUint8Array)
       .handler(sig, ({ request, body }) => {
         if (request.headers.get("prefer") !== "respond-async") {
           return new BadRequestFailure(

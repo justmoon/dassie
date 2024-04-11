@@ -3,6 +3,7 @@ import {
   createAcceptHeaderAssertion,
   createContentTypeHeaderAssertion,
   createPlainResponse,
+  parseBodyUint8Array,
 } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
@@ -27,7 +28,7 @@ export const RegisterIlpHttpCallbackHandlerActor = (reactor: DassieReactor) => {
       .path("/ilp/callback")
       .assert(createAcceptHeaderAssertion(ILP_OVER_HTTP_CONTENT_TYPE))
       .assert(createContentTypeHeaderAssertion(ILP_OVER_HTTP_CONTENT_TYPE))
-      .bodyParser("uint8Array")
+      .use(parseBodyUint8Array)
       .handler(sig, ({ request, body }) => {
         const textualRequestId = request.headers.get("request-id")
 

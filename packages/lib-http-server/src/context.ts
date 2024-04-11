@@ -1,6 +1,6 @@
-import { RequestContext } from "./types/context"
+import { BaseRequestContext } from "./types/context"
 
-export function createContext(request: Request): RequestContext {
+export function createContext(request: Request): BaseRequestContext {
   let url: URL | undefined
   const context = {
     get url() {

@@ -1,4 +1,4 @@
-import type { RequestContext } from "../types/context"
+import type { BaseRequestContext } from "../types/context"
 import {
   DEFAULT_HTTP_RESPONSE_OPTIONS,
   DefaultHttpResponse,
@@ -21,7 +21,7 @@ export class PlainHttpResponse extends DefaultHttpResponse {
     })
   }
 
-  override asResponse(context: RequestContext) {
+  override asResponse(context: BaseRequestContext) {
     return new Response(this.data, this.getStatusAndHeaders(context))
   }
 }

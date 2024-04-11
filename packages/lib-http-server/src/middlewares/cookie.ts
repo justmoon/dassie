@@ -38,4 +38,4 @@ export const cookie = (({ request }: { request: Request }) => {
   }
 
   return { cookies }
-}) satisfies Middleware<object, { cookies: Cookies }>
+}) satisfies Middleware<{}, { cookies: Cookies }>

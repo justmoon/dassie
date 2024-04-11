@@ -1,7 +1,7 @@
-import type { RequestContext } from "../types/context"
+import type { BaseRequestContext } from "../types/context"
 
 export function getResponseOptionsFromContext(
-  context: RequestContext,
+  context: BaseRequestContext,
 ): ResponseInit {
   const responseInit: ResponseInit = {
     headers: context.response.headers,

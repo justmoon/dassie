@@ -1,5 +1,5 @@
-import type { RequestContext } from "./context"
+import type { BaseRequestContext } from "./context"
 
 export interface HttpResult {
-  asResponse: (context: RequestContext) => Response
+  asResponse: (context: BaseRequestContext) => Response
 }

@@ -3,8 +3,9 @@ export interface DraftResponse {
   statusText: string | undefined
   headers: Headers
 }
-export type RequestContext<T extends object = object> = {
+
+export interface BaseRequestContext {
   url: URL
   request: Request
   response: DraftResponse
-} & T
+}

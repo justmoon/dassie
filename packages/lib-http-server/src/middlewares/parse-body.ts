@@ -38,21 +38,21 @@ export const parseBodyUint8Array = (async ({ request }) => {
   }
 
   return { body: concatUint8Arrays(body) }
-}) satisfies Middleware<object, { body: Uint8Array } | PayloadTooLargeFailure>
+}) satisfies Middleware<{}, { body: Uint8Array } | PayloadTooLargeFailure>
 
 export const parseBodyBuffer = (async (context) => {
   const uint8ArrayBody = await parseBodyUint8Array(context)
   if (isFailure(uint8ArrayBody)) return uint8ArrayBody
 
   return { body: Buffer.from(uint8ArrayBody.body) }
-}) satisfies Middleware<object, { body: Buffer } | PayloadTooLargeFailure>
+}) satisfies Middleware<{}, { body: Buffer } | PayloadTooLargeFailure>
 
 export const parseBodyUtf8 = (async (context) => {
   const uint8ArrayBody = await parseBodyUint8Array(context)
   if (isFailure(uint8ArrayBody)) return uint8ArrayBody
 
   return { body: uint8ArrayToString(uint8ArrayBody.body) }
-}) satisfies Middleware<object, { body: string } | PayloadTooLargeFailure>
+}) satisfies Middleware<{}, { body: string } | PayloadTooLargeFailure>
 
 export const parseJson = (async (context) => {
   const utf8Body = await parseBodyUtf8(context)
@@ -64,13 +64,13 @@ export const parseJson = (async (context) => {
     console.debug("request body is not valid JSON", { error })
     return new BadRequestFailure("Invalid HTTP request body")
   }
-}) satisfies Middleware<object, { body: JsonValue } | PayloadTooLargeFailure>
+}) satisfies Middleware<{}, { body: JsonValue } | PayloadTooLargeFailure>
 
 export const parseBodyZod =
   <TSchema extends ZodTypeAny>(
     schema: TSchema,
   ): Middleware<
-    object,
+    {},
     { body: InferZodType<TSchema> } | PayloadTooLargeFailure | BadRequestFailure
   > =>
   async (context) => {
@@ -94,7 +94,7 @@ export const parseBodyOer =
   <TSchema extends AnyOerType>(
     schema: TSchema,
   ): Middleware<
-    object,
+    {},
     { body: InferOerType<TSchema> } | PayloadTooLargeFailure | BadRequestFailure
   > =>
   async (context) => {

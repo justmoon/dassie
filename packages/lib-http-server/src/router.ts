@@ -1,22 +1,11 @@
 import type { Promisable, SetNonNullable, Simplify } from "type-fest"
-import type { AnyZodObject, infer as InferZodType } from "zod"
 
-import { AnyOerType, Infer as InferOerType } from "@dassie/lib-oer"
 import type { LifecycleContext } from "@dassie/lib-reactive"
 import { Failure, isFailure } from "@dassie/lib-type-utils"
 
 import { handleError } from "./handle-error"
-import {
-  parseBodyBuffer,
-  parseBodyOer,
-  parseBodyUint8Array,
-  parseBodyUtf8,
-  parseBodyZod,
-  parseJson,
-} from "./middlewares/parse-body"
-import { parseQueryParameters } from "./middlewares/query-parameters"
 import { PREFIX_WILDCARD, SEGMENT_WILDCARD, Trie } from "./trie/trie"
-import { type RequestContext } from "./types/context"
+import type { BaseRequestContext } from "./types/context"
 import { HttpFailure } from "./types/http-failure"
 import type { HttpResponse } from "./types/http-response"
 import { RouteParameters } from "./types/route-parameters"
@@ -38,164 +27,140 @@ export const HTTP_METHODS = [
 export type HttpMethod = (typeof HTTP_METHODS)[number]
 
 export type HttpRequestHandler<
-  TAdditionalRequestFields extends object = object,
-> = (
-  context: RequestContext<TAdditionalRequestFields>,
-) => Promisable<HttpFailure | HttpResponse>
+  TContext extends BaseRequestContext = BaseRequestContext,
+> = (context: TContext) => Promisable<HttpFailure | HttpResponse>
 
-export const BODY_PARSERS = {
-  json: parseJson,
-  uint8Array: parseBodyUint8Array,
-  utf8: parseBodyUtf8,
-  buffer: parseBodyBuffer,
-} as const
-
-export type BodyParser = keyof typeof BODY_PARSERS
-
-export type RestApiBuilder = {
-  [method in HttpMethod]: () => ApiRouteBuilder
+export type MethodShortcuts = {
+  [method in HttpMethod]: () => AnyRouteBuilder
 }
 
-export type ApiRouteParameters = object
+export type UserRouteHandler<TParameters extends {}> = (
+  context: TParameters,
+) => Promisable<HttpFailure | HttpResponse>
 
-export type ApiHandler<TParameters extends ApiRouteParameters> =
-  HttpRequestHandler<Simplify<TParameters>>
-
-export type InferBodyType<TBodyParser extends BodyParser> = Exclude<
-  Awaited<ReturnType<(typeof BODY_PARSERS)[TBodyParser]>>,
-  Failure
->["body"]
-
-export type Middleware<TInput extends object, TOutput extends object> = (
-  context: RequestContext<TInput>,
+export type Middleware<TInput extends {}, TOutput extends {}> = (
+  context: BaseRequestContext & TInput,
 ) => Promisable<void | TOutput | HttpFailure>
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AnyMiddleware = Middleware<any, object>
+export type AnyMiddleware = Middleware<any, {}>
 
 export type ApplyMiddleware<
-  TParameters extends ApiRouteParameters,
+  TParameters extends {},
   TMiddleware extends AnyMiddleware,
-> = TParameters & Exclude<Awaited<ReturnType<TMiddleware>>, Failure>
+> = TParameters & Exclude<Awaited<ReturnType<TMiddleware>>, void | Failure>
 
-export type ApiRouteBuilder<
-  TParameters extends ApiRouteParameters = ApiRouteParameters,
-> = {
+export type RouteBuilder<TParameters extends { route: RouteContext }> = {
   /**
    * Provide a JSON validator for the request body.
    */
   path: <const TPath extends string>(
     path: TPath,
-  ) => ApiRouteBuilder<
-    TPath extends `${string}:${string}`
-      ? TParameters & {
-          parameters: Simplify<RouteParameters<TPath>>
-        }
-      : TParameters
+  ) => RouteBuilder<
+    Simplify<
+      Omit<TParameters, "parameters" | "route"> & {
+        parameters: TPath extends `${string}:${string}`
+          ? Simplify<RouteParameters<TPath>>
+          : {}
+
+        route: TParameters["route"] extends RouteContext<infer TMethod, string>
+          ? RouteContext<TMethod, TPath>
+          : never
+      }
+    >
   >
 
   /**
    * Set HTTP method.
    */
-  method: (method: HttpMethod) => ApiRouteBuilder<TParameters>
-
-  /**
-   * Retrieve the request body and put it into the body property on the request object.
-   */
-  bodyParser: <TBodyParser extends BodyParser>(
-    type: TBodyParser,
-  ) => ApiRouteBuilder<
-    TParameters & {
-      body: InferBodyType<TBodyParser>
-    }
-  >
-
-  /**
-   * Provide a JSON validator for the request body.
-   */
-  bodySchemaZod: <TBodySchema extends AnyZodObject>(
-    schema: TBodySchema,
-  ) => ApiRouteBuilder<
-    TParameters & {
-      body: InferZodType<TBodySchema>
-    }
-  >
-
-  /**
-   * Provide an OER deserializer for the request body.
-   */
-  bodySchemaOer: <TBodySchema extends AnyOerType>(
-    schema: TBodySchema,
-  ) => ApiRouteBuilder<
-    TParameters & {
-      body: InferOerType<TBodySchema>
-    }
-  >
-
-  /**
-   * Provide a validator for the query string record.
-   */
-  querySchema: <TQuerySchema extends AnyZodObject>(
-    schema: TQuerySchema,
-  ) => ApiRouteBuilder<
-    TParameters & {
-      query: InferZodType<TQuerySchema>
-    }
+  method: <const TMethod extends HttpMethod>(
+    method: TMethod,
+  ) => RouteBuilder<
+    Simplify<
+      Omit<TParameters, "route"> & {
+        route: TParameters["route"] extends RouteContext<
+          HttpMethod,
+          infer TPath
+        >
+          ? RouteContext<TMethod, TPath>
+          : never
+      }
+    >
   >
 
   use: <TMiddleware extends Middleware<TParameters, object>>(
     middleware: TMiddleware,
-  ) => ApiRouteBuilder<ApplyMiddleware<TParameters, TMiddleware>>
+  ) => RouteBuilder<ApplyMiddleware<TParameters, TMiddleware>>
 
   /**
    * Provide a function which will be run against each request before the
    * handler and which may return a failure to be returned to the client.
    */
   assert: (
-    assertion: (context: RequestContext) => HttpFailure | void,
-  ) => ApiRouteBuilder<TParameters>
+    assertion: (
+      context: BaseRequestContext & TParameters,
+    ) => HttpFailure | void,
+  ) => RouteBuilder<TParameters>
 
   /**
    * Provide the handler for the API route.
    */
-  handler: <THandler extends ApiHandler<TParameters>>(
+  handler: <
+    THandler extends UserRouteHandler<BaseRequestContext & TParameters>,
+  >(
     lifecycle: LifecycleContext,
     handler: THandler,
   ) => void
 } & {
-  [K in HttpMethod]: () => ApiRouteBuilder<TParameters>
+  [K in HttpMethod]: () => RouteBuilder<
+    TParameters & {
+      route: TParameters["route"] extends RouteContext<HttpMethod, infer TPath>
+        ? RouteContext<K, TPath>
+        : never
+    }
+  >
 }
 
-interface RouteBuilderState<TInitialContext extends object> {
+interface RouteBuilderState {
   readonly path: string | undefined
   readonly method: HttpMethod | undefined
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly middlewares: Array<Middleware<any, object>>
-  readonly userHandler: ApiHandler<TInitialContext> | undefined
+  readonly userHandler: UserRouteHandler<Record<string, unknown>> | undefined
 }
 
-const initialRouteBuilderState: RouteBuilderState<never> = {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyRouteBuilder = RouteBuilder<any>
+
+const initialRouteBuilderState: RouteBuilderState = {
   path: undefined,
   method: undefined,
   userHandler: undefined,
   middlewares: [],
 }
 
-type RouteHandler<TInitialContext extends object> = (
-  context: RequestContext & TInitialContext,
+type InternalRouteHandler<TContext extends object> = (
+  context: TContext,
 ) => Promise<HttpFailure | HttpResponse>
 
-function createRouteHandler<TInitialContext extends object>(
-  state: SetNonNullable<RouteBuilderState<TInitialContext>, "userHandler">,
-): RouteHandler<TInitialContext> {
+function createRouteHandler<TContext extends object>(
+  state: SetNonNullable<RouteBuilderState, "path" | "method" | "userHandler">,
+): InternalRouteHandler<TContext> {
   return async (context) => {
+    const routeContext = Object.assign(context, {
+      route: {
+        method: state.method,
+        path: state.path,
+      },
+    })
+
     for (const middleware of state.middlewares) {
       const result = await middleware(context)
       if (isFailure(result)) return result
       if (result) Object.assign(context, result)
     }
 
-    return await state.userHandler(context)
+    return await state.userHandler(routeContext)
   }
 }
 
@@ -204,15 +169,28 @@ type StaticRouteKey<
   TPath extends string = string,
 > = `${TMethod} ${TPath}`
 
-export function createRouter<TInitialContext extends object = object>() {
-  const staticRoutes = new Map<StaticRouteKey, RouteHandler<TInitialContext>>()
+export interface RouteContext<
+  TMethod extends HttpMethod = HttpMethod,
+  TPath extends string = string,
+> {
+  route: {
+    method: TMethod
+    path: TPath
+  }
+}
+
+export function createRouter<TInitialContext extends {} = {}>() {
+  const staticRoutes = new Map<
+    StaticRouteKey,
+    InternalRouteHandler<TInitialContext>
+  >()
   const dynamicRoutes = new Map<
     HttpMethod,
-    Trie<RouteHandler<TInitialContext>>
+    Trie<InternalRouteHandler<TInitialContext>>
   >()
 
-  function createBuilder(state: RouteBuilderState<TInitialContext>) {
-    const routeDescriptor: ApiRouteBuilder<TInitialContext> = {
+  function createBuilder(state: RouteBuilderState): AnyRouteBuilder {
+    return {
       path: (value) => {
         return createBuilder({
           ...state,
@@ -237,31 +215,7 @@ export function createRouter<TInitialContext extends object = object>() {
                 }),
             ] as const,
         ),
-      ) as RestApiBuilder),
-      bodyParser: (type: BodyParser) => {
-        return createBuilder({
-          ...state,
-          middlewares: [...state.middlewares, BODY_PARSERS[type]],
-        })
-      },
-      bodySchemaZod: (schema) => {
-        return createBuilder({
-          ...state,
-          middlewares: [...state.middlewares, parseBodyZod(schema)],
-        })
-      },
-      bodySchemaOer: (schema) => {
-        return createBuilder({
-          ...state,
-          middlewares: [...state.middlewares, parseBodyOer(schema)],
-        })
-      },
-      querySchema: (schema) => {
-        return createBuilder({
-          ...state,
-          middlewares: [...state.middlewares, parseQueryParameters(schema)],
-        })
-      },
+      ) as MethodShortcuts),
       use: (middleware) => {
         return createBuilder({
           ...state,
@@ -284,13 +238,14 @@ export function createRouter<TInitialContext extends object = object>() {
         }
 
         const finalState = {
-          ...state,
+          path,
+          method,
 
           // Remove duplicate middlewares
           middlewares: [...new Set(middlewares)],
 
           // Set the user handler
-          userHandler: handler,
+          userHandler: handler as UserRouteHandler<Record<string, unknown>>,
         }
 
         const normalizedPath = normalizePath(path)
@@ -351,7 +306,7 @@ export function createRouter<TInitialContext extends object = object>() {
           return segment
         })
 
-        const parameterParserMiddleware = (context: RequestContext) => {
+        const parameterParserMiddleware = (context: BaseRequestContext) => {
           return {
             parameters: parseParameters(
               context.url.pathname,
@@ -387,9 +342,7 @@ export function createRouter<TInitialContext extends object = object>() {
           }
         })
       },
-    }
-
-    return routeDescriptor
+    } as AnyRouteBuilder
   }
 
   function match(method: string, path: string) {
@@ -410,12 +363,12 @@ export function createRouter<TInitialContext extends object = object>() {
   }
 
   return {
-    ...createBuilder(
-      initialRouteBuilderState as RouteBuilderState<TInitialContext>,
-    ),
+    ...(createBuilder(initialRouteBuilderState) as RouteBuilder<
+      TInitialContext & { route: RouteContext }
+    >),
     match,
     handle: async (
-      context: RequestContext & TInitialContext,
+      context: BaseRequestContext & TInitialContext,
     ): Promise<Response> => {
       try {
         const handler = match(context.request.method, context.url.pathname)

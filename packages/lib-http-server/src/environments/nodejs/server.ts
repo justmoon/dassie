@@ -2,16 +2,18 @@ import type { IncomingMessage, ServerResponse } from "node:http"
 import type { Socket } from "node:net"
 
 import { createContext } from "../../context"
-import type { RequestContext } from "../../types/context"
+import type { BaseRequestContext } from "../../types/context"
 import type { WebSocketRequestContext } from "../../types/websocket"
 import { convertFromNodejsRequest, writeToNodejsResponse } from "./wrap-request"
 import { createNodejsWebSocketServer } from "./wrap-websocket"
 
 export interface NodejsWrapperOptions {
   hostname?: string | undefined
-  onRequest?: ((context: RequestContext) => Promise<Response>) | undefined
+  onRequest?: ((context: BaseRequestContext) => Promise<Response>) | undefined
   onUpgrade?:
-    | ((context: RequestContext & WebSocketRequestContext) => Promise<Response>)
+    | ((
+        context: BaseRequestContext & WebSocketRequestContext,
+      ) => Promise<Response>)
     | undefined
   onError?: ((error: unknown) => void) | undefined
 }

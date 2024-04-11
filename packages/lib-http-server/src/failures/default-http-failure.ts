@@ -1,6 +1,6 @@
 import { Failure } from "@dassie/lib-type-utils"
 
-import type { RequestContext } from "../types/context"
+import type { BaseRequestContext } from "../types/context"
 import { HttpFailure } from "../types/http-failure"
 import { getResponseOptionsFromContext } from "../utils/get-response-from-context"
 
@@ -14,7 +14,7 @@ export abstract class DefaultHttpFailure
     super()
   }
 
-  asResponse(context: RequestContext) {
+  asResponse(context: BaseRequestContext) {
     const responseInit = getResponseOptionsFromContext(context)
 
     if (!responseInit.status) {

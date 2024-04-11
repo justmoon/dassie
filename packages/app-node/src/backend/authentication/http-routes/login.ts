@@ -4,6 +4,7 @@ import { z } from "zod"
 import {
   UnauthorizedFailure,
   createJsonResponse,
+  parseBodyZod,
   setCookie,
 } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
@@ -30,10 +31,12 @@ export const RegisterLoginRouteActor = (reactor: DassieReactor) => {
     http
       .post()
       .path("/api/login")
-      .bodySchemaZod(
-        z.object({
-          loginAuthorizationSignature: z.string(),
-        }),
+      .use(
+        parseBodyZod(
+          z.object({
+            loginAuthorizationSignature: z.string(),
+          }),
+        ),
       )
       .handler(sig, ({ body, response: { headers } }) => {
         const { loginAuthorizationSignature } = body

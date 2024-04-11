@@ -1,9 +1,9 @@
 import { NotAcceptableFailure, UnsupportedMediaTypeFailure } from "."
-import type { RequestContext } from "./types/context"
+import type { BaseRequestContext } from "./types/context"
 
 export const createAcceptHeaderAssertion =
   (mediaType: string) =>
-  ({ request }: RequestContext): NotAcceptableFailure | void => {
+  ({ request }: BaseRequestContext): NotAcceptableFailure | void => {
     if (request.headers.get("accept") !== mediaType) {
       return new NotAcceptableFailure(`Not Acceptable, expected ${mediaType}`)
     }
@@ -11,7 +11,7 @@ export const createAcceptHeaderAssertion =
 
 export const createContentTypeHeaderAssertion =
   (mediaType: string) =>
-  ({ request }: RequestContext): UnsupportedMediaTypeFailure | void => {
+  ({ request }: BaseRequestContext): UnsupportedMediaTypeFailure | void => {
     if (request.headers.get("content-type") !== mediaType) {
       return new UnsupportedMediaTypeFailure(
         `Unsupported Media Type, expected ${mediaType}`,

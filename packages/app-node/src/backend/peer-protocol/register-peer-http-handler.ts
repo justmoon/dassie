@@ -4,6 +4,7 @@ import {
   createAcceptHeaderAssertion,
   createBinaryResponse,
   createContentTypeHeaderAssertion,
+  parseBodyOer,
 } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
@@ -33,7 +34,7 @@ export const RegisterPeerHttpHandlerActor = (reactor: DassieReactor) => {
       .path("/peer")
       .assert(createAcceptHeaderAssertion(DASSIE_MESSAGE_CONTENT_TYPE))
       .assert(createContentTypeHeaderAssertion(DASSIE_MESSAGE_CONTENT_TYPE))
-      .bodySchemaOer(peerMessageSchema)
+      .use(parseBodyOer(peerMessageSchema))
       .handler(sig, async ({ body }) => {
         if (body.version !== 0) {
           logger.debug("incoming dassie message has unknown version", {

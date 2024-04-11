@@ -1,6 +1,10 @@
 import { z } from "zod"
 
-import { createJsonResponse, setCookie } from "@dassie/lib-http-server"
+import {
+  createJsonResponse,
+  parseBodyZod,
+  setCookie,
+} from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
 import { SESSION_COOKIE_NAME } from "../../../common/constants/cookie-name"
@@ -17,12 +21,14 @@ export const RegisterDevelopmentSetSessionRouteActor = () =>
     http
       .post()
       .path("/api/_dev/set-session")
-      .bodySchemaZod(
-        z.object({
-          sessionToken: z
-            .string()
-            .refine((_token): _token is SessionToken => true),
-        }),
+      .use(
+        parseBodyZod(
+          z.object({
+            sessionToken: z
+              .string()
+              .refine((_token): _token is SessionToken => true),
+          }),
+        ),
       )
       .handler(sig, ({ body, response: { headers } }) => {
         const { sessionToken } = body

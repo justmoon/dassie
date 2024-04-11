@@ -1,4 +1,4 @@
-import type { RequestContext } from "../types/context"
+import type { BaseRequestContext } from "../types/context"
 import type { HttpResponse } from "../types/http-response"
 import { getResponseOptionsFromContext } from "../utils/get-response-from-context"
 
@@ -8,7 +8,7 @@ export class RedirectResponse implements HttpResponse {
     private readonly statusCode: number = 302,
   ) {}
 
-  asResponse(context: RequestContext) {
+  asResponse(context: BaseRequestContext) {
     const { response } = context
 
     response.headers.set("Location", this.location)

@@ -1,9 +1,9 @@
 import { negotiate } from "@fastify/accept-negotiator"
 
-import type { RequestContext } from "./types/context"
+import type { BaseRequestContext } from "./types/context"
 
 export const handleError = (
-  { request }: Pick<RequestContext, "request">,
+  { request }: Pick<BaseRequestContext, "request">,
   error: unknown,
 ): Response => {
   const mediaType = negotiate(request.headers.get("accept") ?? "", [
