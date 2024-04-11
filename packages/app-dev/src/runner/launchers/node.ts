@@ -14,13 +14,20 @@ import { RpcClientServiceActor } from "../services/rpc-client"
 
 const DebugRunnerActor = () =>
   createActor(async (sig) => {
-    sig.run(RpcClientServiceActor)
+    const rpcClient = sig.run(RpcClientServiceActor)
+
+    if (!rpcClient) {
+      throw new Error("Failed to set up RPC client")
+    }
+
+    const rpcReactor = sig.withBase({ rpc: rpcClient.rpc })
+
+    rpcReactor.run(ForwardLogsActor)
     sig.run(HandleShutdownSignalsActor)
     sig.run(HandleDisconnectActor)
-    sig.run(ForwardLogsActor)
     sig.run(PatchIlpLoggerActor)
-    sig.run(ForwardPeerTrafficActor)
-    await sig.run(ReportPeeringStateActor)
+    rpcReactor.run(ForwardPeerTrafficActor)
+    await rpcReactor.run(ReportPeeringStateActor)
 
     await sig.withBase(createNodeRuntime()).run(daemonActor)
 
