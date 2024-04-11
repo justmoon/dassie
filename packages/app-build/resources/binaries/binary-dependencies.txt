@@ -1,6 +1,6 @@
-https://nodejs.org/dist/v20.8.1/node-v20.8.1-linux-arm64.tar.xz fec6edefa7ff959b29c7887735582ff2a2211b36a65a539da0f37db6797b7cff 
-https://nodejs.org/dist/v20.8.1/node-v20.8.1-linux-armv7l.tar.xz f8370aaecd2cc2f26f8571aed7ffcf8efb6dc884a9a5e8e7a5e225e5ccfe6b74 
-https://nodejs.org/dist/v20.8.1/node-v20.8.1-linux-x64.tar.xz 44096f6276cf735f3b25f47ffaaa1629b0abad4d9932c3a77d9dcdc743a3ff92 
-https://github.com/WiseLibs/better-sqlite3/releases/download/v9.2.0/better-sqlite3-v9.2.0-node-v115-linux-arm64.tar.gz d7f1a22c817b8eb53914a8d88dd7272ccd023c618f3f4faa159a3d0f9d96479f
-https://github.com/WiseLibs/better-sqlite3/releases/download/v9.2.0/better-sqlite3-v9.2.0-node-v115-linux-arm.tar.gz  d5f9c5726b3311fcf2ec50af0f3f7bb6e85596e5c5fca0a4f737f098e1de5d1c
-https://github.com/WiseLibs/better-sqlite3/releases/download/v9.2.0/better-sqlite3-v9.2.0-node-v115-linux-x64.tar.gz 7b6a881b5544d983da785df6fdfe1ece7a773cfe3af684ee2c27ebe4cedd085b
+https://nodejs.org/dist/v21.7.1/node-v21.7.1-linux-arm64.tar.xz d384c843621ccb80f1367fdff85d4e3870bc934ffe37ed48eb320ebebba8ddbb 
+https://nodejs.org/dist/v21.7.1/node-v21.7.1-linux-armv7l.tar.xz e375b24d57c8126d58ae31b807c91df6532c52e3441e22d2b3cde5116553c8fb 
+https://nodejs.org/dist/v21.7.1/node-v21.7.1-linux-x64.tar.xz cb25d7a4aa57d15f280ce45cd72f95e9d2020702b7ca75c7fe632444f7c0452c 
+https://github.com/WiseLibs/better-sqlite3/releases/download/v9.4.3/better-sqlite3-v9.4.3-node-v120-linux-arm64.tar.gz 517bbac30c3c6b0fef5b04b3cee03ba623f27922cc53f270eead5e4a8782121a 
+https://github.com/WiseLibs/better-sqlite3/releases/download/v9.4.3/better-sqlite3-v9.4.3-node-v120-linux-arm.tar.gz 2f90c1999c443b6f06ba99763be72cff19314a3f262b58b314b3f33b032967a0
+https://github.com/WiseLibs/better-sqlite3/releases/download/v9.4.3/better-sqlite3-v9.4.3-node-v120-linux-x64.tar.gz bc9d065b456bc1c2353c350da0255aef03b760dae36514e7193ee9fc9f77b363
