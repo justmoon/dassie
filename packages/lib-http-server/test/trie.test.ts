@@ -300,4 +300,16 @@ describe("Trie", (test) => {
     expect(result2).toBeUndefined()
     expect(result).toEqual(2)
   })
+
+  test("should not match an empty segment to a segment wildcard", ({
+    expect,
+  }) => {
+    const trie = new Trie<number>()
+    const result = trie.insert(["a", "b", "?"], 1)
+
+    const resultWildcard = trie.get(["a", "b"])
+
+    expect(result).toBeUndefined()
+    expect(resultWildcard).toBeUndefined()
+  })
 })
