@@ -137,21 +137,25 @@ install() {
       || error "E_VERSION_FETCH_FAILED" "Failed to determine latest Dassie version."
   fi
 
-  # Create a temporary directory to store the downloaded files
-  TEMP_DIRECTORY="$(mktemp -d -t dassie-installer-XXXXXXXXXX)"
 
   # Make sure we clean up the temp directory, even if the script exits prematurely
-  trap 'rm -rf "$TEMP_DIRECTORY"' EXIT
+  PREVIOUS_DIRECTORY="$(pwd)"
+  trap 'cd "$PREVIOUS_DIRECTORY"; rm -rf "$TEMP_DIRECTORY"' EXIT
 
   DASSIE_BUNDLE_NAME="dassie-${DASSIE_VERSION}-${DASSIE_OS}-${DASSIE_ARCHITECTURE}.tar.xz"
   DASSIE_BUNDLE_URL="${DASSIE_MIRROR_URL}/${DASSIE_VERSION}/${DASSIE_BUNDLE_NAME}"
 
+  step "Creating temporary directory..."
+  TEMP_DIRECTORY="$(run mktemp -d -t dassie-installer-XXXXXXXXXX)"
+  run cd "$TEMP_DIRECTORY" \
+    || error "E_TEMP_DIRECTORY_FAILED" "Failed to set up temporary directory."
+
   step "Downloading ${DASSIE_BUNDLE_NAME}..."
-  download "$DASSIE_BUNDLE_URL" "${TEMP_DIRECTORY}/${DASSIE_BUNDLE_NAME}" \
+  download "$DASSIE_BUNDLE_URL" "${DASSIE_BUNDLE_NAME}" \
     || error "E_BUNDLE_DOWNLOAD_FAILED" "Failed to download ${DASSIE_BUNDLE_URL}"
 
   step "Extracting ${DASSIE_BUNDLE_NAME}..."
-  run tar -xf "${TEMP_DIRECTORY}/${DASSIE_BUNDLE_NAME}" -C "$TEMP_DIRECTORY" \
+  run tar -xf "${DASSIE_BUNDLE_NAME}" -C . \
     || error "E_BUNDLE_EXTRACTION_FAILED" "Failed to extract ${DASSIE_BUNDLE_NAME}"
 
   step "Installing Dassie to /opt/dassie..."
@@ -161,7 +165,7 @@ install() {
     run_root rm -rf "/opt/dassie/${DASSIE_VERSION}" \
       || error "E_BUNDLE_INSTALL_FAILED" "Failed to remove existing Dassie installation at /opt/dassie/${DASSIE_VERSION}."
   fi
-  run_root cp -r "${TEMP_DIRECTORY}/dassie" "/opt/dassie/${DASSIE_VERSION}" \
+  run_root cp -r "dassie" "/opt/dassie/${DASSIE_VERSION}" \
     || error "E_BUNDLE_INSTALL_FAILED" "Failed to install Dassie to /opt/dassie/${DASSIE_VERSION}."
   if [ -L "/opt/dassie/current" ]; then
     run_root rm "/opt/dassie/current" \
@@ -194,7 +198,7 @@ install() {
   fi
 
   step "Installing systemd units..."
-  run_root cp "${TEMP_DIRECTORY}"/dassie/share/systemd/* /etc/systemd/system/ \
+  run_root cp dassie/share/systemd/* /etc/systemd/system/ \
     || error "E_SYSTEMD_SERVICE_INSTALL_FAILED" "Failed to install systemd units."
 
   step "Enabling systemd service..."
@@ -210,6 +214,7 @@ install() {
     || error "E_SYSTEMD_SERVICE_START_FAILED" "Failed to start systemd service."
 
   step "Cleaning up..."
+  run cd "$PREVIOUS_DIRECTORY"
   run rm -rf "$TEMP_DIRECTORY" \
     || error "E_CLEANUP_FAILED" "Failed to remove temporary directory."
 
