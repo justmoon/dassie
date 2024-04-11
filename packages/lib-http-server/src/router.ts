@@ -297,6 +297,11 @@ export function createRouter<TInitialContext extends {} = {}>() {
             parameterMap.push(parameterName)
 
             return wildcardType
+          } else if (segment === "*") {
+            // anonymous wildcard path
+            parameterMap.push("*")
+
+            return PREFIX_WILDCARD
           }
 
           if (segment.includes("*") || segment.includes("?")) {
