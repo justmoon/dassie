@@ -1,5 +1,4 @@
-import { createActor, createReactor } from "@dassie/lib-reactive"
-import { createNodeRuntime } from "@dassie/lib-reactive-io/node"
+import { createActor } from "@dassie/lib-reactive"
 
 import { AccountingActor } from "./accounting"
 import { AcmeCertificateManagerActor } from "./acme-certificate-manager"
@@ -23,7 +22,6 @@ import { TrpcServerActor } from "./rpc-server"
 import { SettlementSchemesActor } from "./settlement-schemes"
 import { SpspServerActor } from "./spsp-server"
 import { StatisticsServerActor } from "./statistics"
-import { SystemdActor } from "./systemd"
 
 export const StartTlsDependentServicesActor = () =>
   createActor((sig: DassieActorContext) => {
@@ -70,12 +68,9 @@ export const DaemonActor = () =>
   createActor(async (sig: DassieActorContext) => {
     sig.run(LoggerActor)
     sig.run(LocalRpcServerActor)
-    sig.run(SystemdActor)
     sig.run(HttpServerActor)
     await sig.run(AcmeCertificateManagerActor)
 
     sig.run(StartTlsDependentServicesActor)
     await sig.run(StartNodeIdentityDependentServicesActor)
   })
-
-export const startDaemon = () => createReactor(DaemonActor, createNodeRuntime())

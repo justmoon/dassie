@@ -1,7 +1,7 @@
 import { cors, createJsonResponse } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
-import { HttpsRouter } from "../http-server/serve-https"
+import { HttpsRouter } from "../http-server/values/https-router"
 import { StreamServerServiceActor } from "./stream-server"
 
 export const HandleSpspRequestsActor = () =>

@@ -17,7 +17,7 @@ import {
   hasNodeIdentity,
 } from "../../config/database-config"
 import { getPrivateSeedAtPath } from "../../crypto/utils/seed-paths"
-import { HttpsRouter } from "../../http-server/serve-https"
+import { HttpsRouter } from "../../http-server/values/https-router"
 import { serializeEd25519PrivateKey } from "../../utils/pem"
 import { COOKIE_MAX_AGE_SECONDS } from "../constants/cookie-lifetime"
 import { SessionsStore } from "../database-stores/sessions"

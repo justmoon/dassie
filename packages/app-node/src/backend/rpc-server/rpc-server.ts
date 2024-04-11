@@ -10,7 +10,7 @@ import { SessionsStore } from "../authentication/database-stores/sessions"
 import { SessionToken } from "../authentication/types/session-token"
 import { DassieActorContext } from "../base/types/dassie-base"
 import { EnvironmentConfig } from "../config/environment-config"
-import { HttpsWebSocketRouter } from "../http-server/serve-https"
+import { HttpsWebSocketRouter } from "../http-server/values/https-websocket-router"
 import { appRouter } from "./app-router"
 
 export const RegisterTrpcHttpUpgradeActor = (reactor: Reactor) => {

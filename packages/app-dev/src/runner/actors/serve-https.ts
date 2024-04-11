@@ -3,29 +3,17 @@ import express, { type RequestHandler } from "express"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { createServer } from "node:https"
 
-import {
-  createNodejsHttpHandlers,
-  createRouter,
-  createWebSocketRouter,
-} from "@dassie/lib-http-server"
+import { DatabaseConfigStore } from "@dassie/app-node/src/backend/config/database-config"
+import { HttpsRouter } from "@dassie/app-node/src/backend/http-server/values/https-router"
+import { HttpsWebSocketRouter } from "@dassie/app-node/src/backend/http-server/values/https-websocket-router"
+import { http as logger } from "@dassie/app-node/src/backend/logger/instances"
+import { createNodejsHttpHandlers } from "@dassie/lib-http-server"
 import { createActor, createSignal } from "@dassie/lib-reactive"
-
-import { DatabaseConfigStore } from "../config/database-config"
-import { http as logger } from "../logger/instances"
-import { getListenTargets } from "./utils/listen-targets"
-
-export type Handler = (
-  request: IncomingMessage,
-  response: ServerResponse,
-) => void
 
 export type ExpressMiddleware = RequestHandler
 
 export const AdditionalMiddlewaresSignal = () =>
   createSignal<Array<ExpressMiddleware>>([])
-
-export const HttpsRouter = () => createRouter()
-export const HttpsWebSocketRouter = () => createWebSocketRouter()
 
 function handleError(error: unknown) {
   logger.error("https server error", { error })
@@ -58,9 +46,7 @@ export const ServeHttpsActor = () =>
       key: tlsWebKey,
     })
 
-    for (const listenTarget of getListenTargets(httpsPort, true)) {
-      server.listen(listenTarget)
-    }
+    server.listen(httpsPort)
 
     logger.info(`listening on ${url}`)
 

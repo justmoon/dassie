@@ -6,7 +6,7 @@ import { createActor } from "@dassie/lib-reactive"
 
 import { DatabaseConfigStore } from "../config/database-config"
 import { Database } from "../database/open-database"
-import { HttpsRouter } from "../http-server/serve-https"
+import { HttpsRouter } from "../http-server/values/https-router"
 import { StreamServerServiceActor } from "../spsp-server/stream-server"
 import { PAYMENT_POINTER_ROOT } from "./constants/payment-pointer"
 import { createIncomingPaymentFormatter } from "./utils/format-incoming-payment"

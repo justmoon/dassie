@@ -7,7 +7,7 @@ Requires=dassie-ipc.socket dassie-https.socket dassie-http.socket
 
 [Service]
 Type=notify
-ExecStart=/opt/dassie/current/bin/dassie daemon
+ExecStart=/opt/dassie/current/bin/dassie daemon --runtime=nodejs-systemd
 NotifyAccess=all
 TimeoutStartSec=infinity
 WorkingDirectory=/opt/dassie/current

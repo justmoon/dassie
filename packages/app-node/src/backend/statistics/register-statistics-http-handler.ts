@@ -3,7 +3,7 @@ import { Reactor, createActor } from "@dassie/lib-reactive"
 
 import { DatabaseConfigStore } from "../config/database-config"
 import { NodePublicKeySignal } from "../crypto/computed/node-public-key"
-import { HttpsRouter } from "../http-server/serve-https"
+import { HttpsRouter } from "../http-server/values/https-router"
 import { NodeIdSignal } from "../ilp-connector/computed/node-id"
 import { PeersSignal } from "../peer-protocol/computed/peers"
 import { NodeTableStore } from "../peer-protocol/stores/node-table"

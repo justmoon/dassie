@@ -29,6 +29,6 @@ process.env["DASSIE_IPC_SOCKET_PATH"] = socketPath
 ;(global as unknown as { __DASSIE_VERSION__: string }).__DASSIE_VERSION__ =
   "dev"
 
-await import("@dassie/app-node/src/backend/entry")
+await import("@dassie/app-node/src/command-line/entry")
 
 export {}

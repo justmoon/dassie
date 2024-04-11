@@ -1,42 +1,66 @@
-import type { NextHandleFunction } from "connect"
-import { type Request, type Response, static as serveStatic } from "express"
-
+import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
+import { type HttpResponse, createPlainResponse } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
+import type { DassieReactor } from "../base/types/dassie-base"
 import { EnvironmentConfig } from "../config/environment-config"
-import { AdditionalMiddlewaresSignal } from "./serve-https"
+import { HttpsRouter } from "./values/https-router"
 
-export const ServeFrontendActor = () =>
-  createActor((sig) => {
+const ASSETS_REGEX = /^\/assets\/([\da-z]+-[\w-]{8}\.([a-z]{2,3}))$/
+
+const MIME_TYPES_BY_EXTENSION: Record<string, string> = {
+  ico: "image/x-icon",
+  css: "text/css",
+  js: "text/javascript",
+}
+
+export const ServeFrontendActor = (reactor: DassieReactor) => {
+  const httpsRouter = reactor.use(HttpsRouter)
+  const { rootPath } = reactor.use(EnvironmentConfig)
+
+  const frontendPath = resolve(rootPath, "share/public")
+  const indexHtmlPath = resolve(frontendPath, "index.html")
+
+  function serveAsset(pathname: string): HttpResponse | undefined {
+    const match = ASSETS_REGEX.exec(pathname)
+    if (match) {
+      const [, filename, extension] = match
+
+      const contentType = MIME_TYPES_BY_EXTENSION[extension!]
+      if (!contentType) return undefined
+
+      const assetPath = resolve(frontendPath, "assets", filename!)
+
+      try {
+        return createPlainResponse(readFileSync(assetPath, "utf8"), {
+          contentType,
+        })
+      } catch {
+        return undefined
+      }
+    }
+
+    return undefined
+  }
+
+  return createActor((sig) => {
     // In development, the frontend is injected by the runner.
     // TODO: Not sure if that is still the best way to do it.
     if (process.env["NODE_ENV"] === "development") return
 
-    const { rootPath } = sig.reactor.use(EnvironmentConfig)
-    const frontendPath = resolve(rootPath, "share/public")
+    httpsRouter
+      // .get()
+      .method("get")
+      .path("*")
+      .handler(sig, ({ url }) => {
+        const assetResponse = serveAsset(url.pathname)
+        if (assetResponse) return assetResponse
 
-    const middleware = sig.reactor.use(AdditionalMiddlewaresSignal)
-    const staticMiddleware = serveStatic(frontendPath, {
-      index: false,
-    }) as NextHandleFunction
-    const indexMiddleware = ((_request: Request, response: Response) => {
-      response.sendFile(resolve(frontendPath, "index.html"))
-    }) as unknown as NextHandleFunction
-
-    middleware.update((middlewares) => [
-      ...middlewares,
-      staticMiddleware,
-      indexMiddleware,
-    ])
-
-    sig.onCleanup(() => {
-      middleware.update((middlewares) =>
-        middlewares.filter(
-          (middleware) =>
-            middleware !== staticMiddleware && middleware !== indexMiddleware,
-        ),
-      )
-    })
+        return createPlainResponse(readFileSync(indexHtmlPath, "utf8"), {
+          contentType: "text/html",
+        })
+      })
   })
+}

@@ -9,7 +9,7 @@ import {
 import { createActor } from "@dassie/lib-reactive"
 
 import { DassieReactor } from "../base/types/dassie-base"
-import { HttpsRouter } from "../http-server/serve-https"
+import { HttpsRouter } from "../http-server/values/https-router"
 import { peerProtocol as logger } from "../logger/instances"
 import { ALLOW_ANONYMOUS_USAGE } from "./constants/anonymous-messages"
 import { DASSIE_MESSAGE_CONTENT_TYPE } from "./constants/content-type"

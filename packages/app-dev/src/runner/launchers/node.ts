@@ -1,4 +1,4 @@
-import { daemonActor } from "@dassie/app-node"
+import { DaemonActor } from "@dassie/app-node"
 import { HasTlsSignal } from "@dassie/app-node/src/backend/config/computed/has-tls"
 import { createActor, createReactor } from "@dassie/lib-reactive"
 import { createNodeRuntime } from "@dassie/lib-reactive-io/node"
@@ -9,6 +9,7 @@ import { ForwardPeerTrafficActor } from "../actors/forward-peer-traffic"
 import { HandleDisconnectActor } from "../actors/handle-disconnect"
 import { PatchIlpLoggerActor } from "../actors/patch-ilp-logger"
 import { ReportPeeringStateActor } from "../actors/report-peering-state"
+import { ServeHttpsActor } from "../actors/serve-https"
 import { ServeWalletActor } from "../actors/serve-wallet"
 import { RpcClientServiceActor } from "../services/rpc-client"
 
@@ -29,11 +30,12 @@ const DebugRunnerActor = () =>
     rpcReactor.run(ForwardPeerTrafficActor)
     await rpcReactor.run(ReportPeeringStateActor)
 
-    await sig.withBase(createNodeRuntime()).run(daemonActor)
+    await sig.withBase(createNodeRuntime()).run(DaemonActor)
 
     const hasTls = sig.readAndTrack(HasTlsSignal)
     if (hasTls) {
       await sig.run(ServeWalletActor)
+      sig.run(ServeHttpsActor)
     }
   })
 

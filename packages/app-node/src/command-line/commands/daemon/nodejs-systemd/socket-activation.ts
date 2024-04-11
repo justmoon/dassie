@@ -1,4 +1,4 @@
-import { systemd as logger } from "../logger/instances"
+import { systemd as logger } from "../../../../backend/logger/instances"
 
 const SD_LISTEN_FDS_START = 3
 

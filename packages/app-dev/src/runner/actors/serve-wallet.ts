@@ -5,13 +5,13 @@ import { existsSync, readFileSync } from "node:fs"
 import { join, normalize } from "node:path"
 
 import { DatabaseConfigStore } from "@dassie/app-node/src/backend/config/database-config"
-import {
-  AdditionalMiddlewaresSignal,
-  type ExpressMiddleware,
-} from "@dassie/app-node/src/backend/http-server/serve-https"
 import { Reactor, createActor } from "@dassie/lib-reactive"
 
 import { runner as logger } from "../../backend/logger/instances"
+import {
+  AdditionalMiddlewaresSignal,
+  type ExpressMiddleware,
+} from "./serve-https"
 
 const walletPath = new URL("../../../../app-node/src/frontend", import.meta.url)
   .pathname

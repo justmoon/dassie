@@ -9,7 +9,7 @@ import { createActor } from "@dassie/lib-reactive"
 
 import { OwnerLedgerIdSignal } from "../accounting/signals/owner-ledger-id"
 import { DassieReactor } from "../base/types/dassie-base"
-import { HttpsRouter } from "../http-server/serve-https"
+import { HttpsRouter } from "../http-server/values/https-router"
 import { ProcessPacket } from "../ilp-connector/functions/process-packet"
 import { parseIlpPacket } from "../ilp-connector/schemas/ilp-packet-codec"
 import { IlpHttpEndpointInfo } from "../ilp-connector/senders/send-ilp-http-packets"

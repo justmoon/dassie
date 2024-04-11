@@ -1,17 +1,16 @@
 import { createActor } from "@dassie/lib-reactive"
 
+import type { DassieActorContext } from "../base/types/dassie-base"
 import { HasTlsSignal } from "../config/computed/has-tls"
+import { RedirectToHttpsActor } from "./redirect-to-https"
 import { ServeFrontendActor } from "./serve-frontend"
-import { ServeHttpActor } from "./serve-http"
-import { ServeHttpsActor } from "./serve-https"
 
 export const HttpServerActor = () =>
-  createActor((sig) => {
+  createActor((sig: DassieActorContext) => {
     const hasTls = sig.readAndTrack(HasTlsSignal)
-    sig.run(ServeHttpActor)
+    sig.run(RedirectToHttpsActor)
 
     if (hasTls) {
       sig.run(ServeFrontendActor)
-      sig.run(ServeHttpsActor)
     }
   })

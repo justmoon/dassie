@@ -6,7 +6,7 @@ import {
 import { type Reactor, createActor } from "@dassie/lib-reactive"
 
 import { Database } from "../database/open-database"
-import { HttpRouter } from "../http-server/serve-http"
+import { HttpRouter } from "../http-server/values/http-router"
 
 export const ServeTokensActor = (reactor: Reactor) => {
   const httpRouter = reactor.use(HttpRouter)
