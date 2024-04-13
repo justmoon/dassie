@@ -175,6 +175,13 @@ export interface RunOptions {
    * A string that will be used to prefix the debug log messages related to this actor.
    */
   pathPrefix?: string | undefined
+
+  /**
+   * By default, {@link Actor#run} will throw an error if the actor is already
+   * running. If `ignoreRunning` is true, any calls to {@link Actor#run} while
+   * the actor is already running will be ignored instead.
+   */
+  ignoreRunning?: boolean | undefined
 }
 
 export class ActorImplementation<TReturn, TBase extends object>
@@ -220,9 +227,11 @@ export class ActorImplementation<TReturn, TBase extends object>
 
   run(
     parentContext: StatefulContext<TBase> & LifecycleContext,
-    { pathPrefix }: RunOptions = {},
+    { pathPrefix, ignoreRunning }: RunOptions = {},
   ) {
     if (this.currentContext) {
+      if (ignoreRunning) return
+
       throw new Error(`actor is already running: ${this[FactoryNameSymbol]}`)
     }
 
