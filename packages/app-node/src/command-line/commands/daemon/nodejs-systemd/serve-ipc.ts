@@ -9,33 +9,43 @@ import { ipc as logger } from "../../../../backend/logger/instances"
 import { getSocketActivationFileDescriptors } from "./socket-activation"
 
 export const SOCKET_ACTIVATION_NAME_IPC = "dassie-ipc.socket"
+
+function handleError(error: unknown) {
+  logger.error("local ipc server error", { error })
+}
+
 export const ServeIpcSocketActor = (reactor: SystemdReactor) => {
   const serveLocalIpcActor = reactor.use(ServeLocalIpcActor)
 
-  return createActor((sig) => {
-    const server = createServer((socket) => {
-      serveLocalIpcActor.api.handleConnection.tell(
-        createNodejsSocketAdapter(socket),
-      )
-    })
+  const server = createServer()
 
-    server.addListener("error", (error) => {
-      logger.error("local ipc server error", { error })
-    })
+  const fileDescriptors = getSocketActivationFileDescriptors(
+    reactor.base.socketActivationState,
+    SOCKET_ACTIVATION_NAME_IPC,
+  )
+  logger.debug("using socket activation to create ipc socket", {
+    fileDescriptors,
+  })
 
-    const fileDescriptors = getSocketActivationFileDescriptors(
-      reactor.base.socketActivationState,
-      SOCKET_ACTIVATION_NAME_IPC,
+  // socket activation can only be done once per process, which is why the call
+  // to `server.listen` is outside of the createActor function
+  for (const fd of fileDescriptors) {
+    server.listen({ fd })
+  }
+
+  function handleConnection(socket: NodeJS.Socket) {
+    serveLocalIpcActor.api.handleConnection.tell(
+      createNodejsSocketAdapter(socket),
     )
-    logger.debug("using socket activation to create ipc socket", {
-      fileDescriptors,
-    })
+  }
 
-    for (const fd of fileDescriptors) {
-      server.listen({ fd })
-    }
+  return createActor((sig) => {
+    server.addListener("connection", handleConnection)
+    server.addListener("error", handleError)
 
     sig.onCleanup(() => {
+      server.removeListener("connection", handleConnection)
+      server.removeListener("error", handleError)
       server.close()
     })
   })

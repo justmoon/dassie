@@ -20,32 +20,40 @@ export const ServeHttpsActor = (reactor: SystemdReactor) => {
   const httpsRouter = reactor.use(HttpsRouter)
   const websocketRouter = reactor.use(HttpsWebSocketRouter)
 
+  const server = createServer()
+
+  const fileDescriptors = getSocketActivationFileDescriptors(
+    reactor.base.socketActivationState,
+    SOCKET_ACTIVATION_NAME_HTTPS,
+  )
+
+  logger.debug("using socket activation for https server", {
+    fileDescriptors,
+  })
+
+  // socket activation can only be done once per process, which is why the call
+  // to `server.listen` is outside of the createActor function
+  for (const fd of fileDescriptors) {
+    server.listen({ fd })
+  }
+
   return createActor((sig) => {
     const { url, tlsWebCert, tlsWebKey } = sig.readKeysAndTrack(
       DatabaseConfigStore,
       ["url", "tlsWebCert", "tlsWebKey"],
     )
 
-    // logger.assert(!!tlsWebCert, "Web UI is not configured, missing certificate")
-    // logger.assert(!!tlsWebKey, "Web UI is not configured, missing private key")
+    if (!tlsWebCert || !tlsWebKey) {
+      logger.debug(
+        "certificate is not yet available, unable to handle https requests",
+      )
+      return
+    }
 
-    const server = createServer({
+    server.setSecureContext({
       cert: tlsWebCert,
       key: tlsWebKey,
     })
-
-    const fileDescriptors = getSocketActivationFileDescriptors(
-      reactor.base.socketActivationState,
-      SOCKET_ACTIVATION_NAME_HTTPS,
-    )
-
-    logger.debug("using socket activation for https server", {
-      fileDescriptors,
-    })
-
-    for (const fd of fileDescriptors) {
-      server.listen({ fd })
-    }
 
     logger.info(`listening on ${url}`)
 
