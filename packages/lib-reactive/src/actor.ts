@@ -13,7 +13,7 @@ import {
   ReactiveSource,
 } from "./internal/reactive"
 import { createReactiveTopic } from "./internal/reactive-topic"
-import { DisposableLifecycleScope, createLifecycleScope } from "./lifecycle"
+import { createLifecycleScope } from "./lifecycle"
 import { ReadonlySignal, Reducer, SignalSymbol } from "./signal"
 import { ReadonlyTopic } from "./topic"
 import { LifecycleContext } from "./types/lifecycle-context"
@@ -172,26 +172,9 @@ export interface Actor<TReturn, TBase extends object = object>
 
 export interface RunOptions {
   /**
-   * Object with additional debug information that will be merged into the debug log data related to the actor.
-   */
-  additionalDebugData?: Record<string, unknown> | undefined
-
-  /**
-   * Custom lifecycle scope to use for this actor.
-   *
-   * @internal
-   */
-  parentLifecycleScope?: DisposableLifecycleScope | undefined
-
-  /**
    * A string that will be used to prefix the debug log messages related to this actor.
    */
   pathPrefix?: string | undefined
-
-  /**
-   * An alternative name to use for the Actor in the debug log messages.
-   */
-  overrideName?: string | undefined
 }
 
 export class ActorImplementation<TReturn, TBase extends object>
@@ -237,13 +220,13 @@ export class ActorImplementation<TReturn, TBase extends object>
 
   run(
     parentContext: StatefulContext<TBase> & LifecycleContext,
-    { additionalDebugData, pathPrefix, overrideName }: RunOptions = {},
+    { pathPrefix }: RunOptions = {},
   ) {
     if (this.currentContext) {
       throw new Error(`actor is already running: ${this[FactoryNameSymbol]}`)
     }
 
-    const actorName = overrideName ?? this[FactoryNameSymbol] ?? "Anonymous"
+    const actorName = this[FactoryNameSymbol] ?? "Anonymous"
     const actorPath = pathPrefix ? `${pathPrefix}${actorName}` : actorName
 
     Object.defineProperty(this.behavior, "name", {
@@ -251,7 +234,7 @@ export class ActorImplementation<TReturn, TBase extends object>
       writable: false,
     })
 
-    void this.loop(parentContext, actorPath, additionalDebugData)
+    void this.loop(parentContext, actorPath)
 
     return this.result
   }
@@ -293,7 +276,6 @@ export class ActorImplementation<TReturn, TBase extends object>
   private async loop(
     parentContext: StatefulContext<TBase> & LifecycleContext,
     actorPath: string,
-    additionalDebugData: Record<string, unknown> | undefined,
   ) {
     const resetActor = this.reset.bind(this)
 
@@ -372,7 +354,6 @@ export class ActorImplementation<TReturn, TBase extends object>
           actor: this[FactoryNameSymbol],
           path: actorPath,
           error,
-          ...additionalDebugData,
         })
         return
       } finally {
