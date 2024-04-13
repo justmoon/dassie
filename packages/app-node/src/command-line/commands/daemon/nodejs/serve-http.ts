@@ -18,12 +18,7 @@ export const ServeHttpActor = (reactor: Reactor) => {
   const router = reactor.use(HttpRouter)
 
   return createActor((sig) => {
-    const { httpPort, enableHttpServer } = sig.readKeysAndTrack(
-      DatabaseConfigStore,
-      ["httpPort", "enableHttpServer"],
-    )
-
-    if (!enableHttpServer) return
+    const { httpPort } = sig.readKeysAndTrack(DatabaseConfigStore, ["httpPort"])
 
     const nodejsHandlers = createNodejsHttpHandlers({
       onRequest: async (context) => router.handle(context),

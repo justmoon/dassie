@@ -12,7 +12,6 @@ export interface Config {
   readonly httpsPort: number
   readonly alias: string
   readonly url: string
-  readonly enableHttpServer: boolean
 
   readonly exchangeRateUrl: string
 
@@ -41,8 +40,6 @@ const loadInitialConfig = (database: ReturnType<typeof Database>): Config => {
   const configHttpPort = database.scalars.configHttpPort.get() ?? 80
   const configHttpsPort = database.scalars.configHttpsPort.get() ?? 443
   const configAlias = database.scalars.configAlias.get() ?? ""
-  const configEnableHttpServer =
-    database.scalars.configEnableHttpServer.get() ?? true
   const configTlsWebCert = database.scalars.configTlsWebCert.get()
   const configTlsWebKey = database.scalars.configTlsWebKey.get()
   const configDassieKey = database.scalars.configDassieKey.get()
@@ -58,7 +55,6 @@ const loadInitialConfig = (database: ReturnType<typeof Database>): Config => {
     url: `https://${configHostname}${
       configHttpsPort === 443 ? "" : `:${configHttpsPort}`
     }`,
-    enableHttpServer: configEnableHttpServer,
     exchangeRateUrl:
       configExchangeRateUrl ?? "https://api.coinbase.com/v2/exchange-rates",
 

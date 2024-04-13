@@ -9,13 +9,10 @@ export const RedirectToHttpsActor = (reactor: Reactor) => {
   const router = reactor.use(HttpRouter)
 
   return createActor((sig) => {
-    const { httpsPort, enableHttpServer } = sig.readKeysAndTrack(
-      DatabaseConfigStore,
-      ["httpsPort", "enableHttpServer"],
-    )
+    const { httpsPort } = sig.readKeysAndTrack(DatabaseConfigStore, [
+      "httpsPort",
+    ])
     const hasTls = sig.readAndTrack(HasTlsSignal)
-
-    if (!enableHttpServer) return
 
     // TODO: Maybe show some helpful message if TLS is not yet set up
     router

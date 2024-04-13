@@ -4,7 +4,6 @@ import { createNodejsHttpHandlers, createRouter } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
 import type { SystemdReactor } from "."
-import { DatabaseConfigStore } from "../../../../backend/config/database-config"
 import { http as logger } from "../../../../backend/logger/instances"
 import { getSocketActivationFileDescriptors } from "./socket-activation"
 
@@ -20,12 +19,6 @@ export const ServeHttpActor = (reactor: SystemdReactor) => {
   const router = reactor.use(HttpRouter)
 
   return createActor((sig) => {
-    const { enableHttpServer } = sig.readKeysAndTrack(DatabaseConfigStore, [
-      "enableHttpServer",
-    ])
-
-    if (!enableHttpServer) return
-
     const nodejsHandlers = createNodejsHttpHandlers({
       onRequest: async (context) => router.handle(context),
       onError: handleError,
