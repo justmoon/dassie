@@ -29,7 +29,7 @@ export const build = async (parameters: string[]) => {
     },
     handler: async ({ targets, architectures }) => {
       if (targets.length === 0) {
-        targets = ["release"]
+        targets = ["canary"]
       }
 
       for (const target of targets) {
