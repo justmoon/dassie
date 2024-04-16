@@ -1,5 +1,6 @@
 export type { LogEventFormatter, Formatter } from "./types/formatter"
 export type { LogMessage, LogClear, LogEvent } from "./types/log-event"
+export type { LogLevel } from "./types/log-level"
 
 export {
   type CliFormatterOptions,
@@ -18,6 +19,7 @@ export { createEnableChecker } from "./enabled"
 export { logContextSymbol, getLogContext as getLoggingContext } from "./context"
 export { createLogger } from "./logger"
 export { captureConsole } from "./capture"
+export { compareLogLevel } from "./utils/compare-level"
 export { selectBySeed } from "./utils/select-by-seed"
 export { isError, hasAggregatedErrors } from "./utils/is-error"
 

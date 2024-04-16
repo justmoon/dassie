@@ -103,6 +103,7 @@ export const RunNodesActor = (reactor: Reactor) => {
               DASSIE_BOOTSTRAP_NODES: JSON.stringify(node.bootstrapNodes),
               DASSIE_STATE_DIRECTORY: node.dataPath,
               DASSIE_IPC_SOCKET_PATH: node.ipcSocketPath,
+              DASSIE_LOG_LEVEL: "none",
               DASSIE_DEV_ROOT: viteServer.config.root,
               DASSIE_DEV_BASE: viteServer.config.base,
               DASSIE_DEV_ENTRY: node.entry,

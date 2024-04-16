@@ -1,5 +1,7 @@
+import type { LogLevel } from "./log-level"
+
 export interface LogMessage {
-  type: "debug" | "info" | "warn" | "error"
+  type: LogLevel
   namespace: string
   date: number
   message: string

@@ -4,6 +4,7 @@ import { ZodTypeAny, z } from "zod"
 import { DEV_SECURITY_TOKEN_LENGTH } from "../../common/constants/general"
 import { DEFAULT_BOOTSTRAP_NODES } from "../constants/bootstrap-nodes"
 import { APP_NAME, VALID_REALMS } from "../constants/general"
+import type { LogLevelOption } from "../logger/signals/stdout-log-level"
 import { nodeIdSchema } from "./schemas/node-id"
 import { EnvironmentVariables } from "./types/environment-variables"
 
@@ -17,6 +18,7 @@ export interface Config {
   ipcSocketPath: string
   bootstrapNodes: BootstrapNodesConfig
   devSecurityToken: string | false
+  logLevel: LogLevelOption
 }
 
 export const bootstrapNodesSchema = z.array(
@@ -33,6 +35,7 @@ function parseConfigOptionWithSchema<TSchema extends ZodTypeAny>(
   optionName: keyof EnvironmentVariables,
   schema: TSchema,
   defaultValue?: z.infer<TSchema>,
+  { json = true }: { json?: boolean | undefined } = {},
 ): z.infer<TSchema> {
   const option = process.env[optionName]
   if (option === undefined && defaultValue !== undefined) {
@@ -45,7 +48,7 @@ function parseConfigOptionWithSchema<TSchema extends ZodTypeAny>(
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-  return schema.parse(JSON.parse(option)) as z.infer<TSchema>
+  return schema.parse(json ? JSON.parse(option) : option) as z.infer<TSchema>
 }
 
 export function EnvironmentConfig(): Config {
@@ -79,5 +82,11 @@ export function EnvironmentConfig(): Config {
       DEFAULT_BOOTSTRAP_NODES,
     ),
     devSecurityToken: environment.DASSIE_DEV_SECURITY_TOKEN ?? false,
+    logLevel: parseConfigOptionWithSchema(
+      "DASSIE_LOG_LEVEL",
+      z.enum(["debug", "info", "warn", "error", "none"]),
+      "info",
+      { json: false },
+    ),
   }
 }
