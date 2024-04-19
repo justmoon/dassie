@@ -12,7 +12,7 @@
     "check": "pnpm typecheck && pnpm lint && pnpm test -- --run && pnpm meta-updater --test",
     "test": "vitest",
     "prettier": "prettier --config .prettierrc.json --write \"packages/*/{src,test}/**/*.ts\"",
-    "lint": "turbo lint",
+    "lint": "turbo --no-daemon lint",
     "typecheck": "tsc --build",
     "api": "extract-apis",
     "web": "pnpm --filter=app-website dev",
