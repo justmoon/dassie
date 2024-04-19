@@ -1,13 +1,30 @@
-export const privateKeyLabelRegex =
-  /-{5}BEGIN PRIVATE KEY-{5}\n([\d\n+/A-Za-z]+?)\n-{5}END PRIVATE KEY-{5}/
+import {
+  areUint8ArraysEqual,
+  base64ToUint8Array,
+  concatUint8Arrays,
+  hexToUint8Array,
+  uint8ArrayToBase64,
+} from "uint8array-extras"
 
-export const derPreamble = Buffer.from(
-  "302E020100300506032B657004220420",
-  "hex",
-)
+export type KeyType = "private" | "public"
 
-const PEM_KEY_HEADER = "-----BEGIN PRIVATE KEY-----\n"
-const PEM_KEY_FOOTER = "\n-----END PRIVATE KEY-----"
+export const pemLabelRegex =
+  /-{5}BEGIN (PRIVATE|PUBLIC) KEY-{5}\n([\d\n+/A-Za-z]+?)\n-{5}END (PRIVATE|PUBLIC) KEY-{5}/
+
+const PREAMBLE: Record<KeyType, Uint8Array> = {
+  private: hexToUint8Array("302E020100300506032B657004220420"),
+  public: hexToUint8Array("302A300506032B65700321"),
+}
+
+const EXPECTED_LENGTH: Record<KeyType, number> = {
+  private: 48,
+  public: 44,
+}
+
+const getPemKeyHeader = (type: KeyType) =>
+  `-----BEGIN ${type.toUpperCase()} KEY-----\n`
+const getPemKeyFooter = (type: KeyType) =>
+  `\n-----END ${type.toUpperCase()} KEY-----`
 
 /**
  * Parse a PEM-encoded Ed25519 private key.
@@ -18,28 +35,41 @@ const PEM_KEY_FOOTER = "\n-----END PRIVATE KEY-----"
  * @returns The raw Ed25519 private key
  * @see https://datatracker.ietf.org/doc/html/rfc7468#section-10
  */
-export function parseEd25519PrivateKey(source: string): Buffer {
+export function parseEd25519Key(source: string, type: KeyType): Uint8Array {
   if (source.includes("-----BEGIN ENCRYPTED PRIVATE KEY-----")) {
     throw new Error("Parsing of encrypted private keys is not supported")
   }
 
-  const match = privateKeyLabelRegex.exec(source) as [string, string] | null
+  const match = pemLabelRegex.exec(source) as
+    | [string, string, string, string]
+    | null
 
   if (!match) {
-    throw new Error("No ed25519 private key found in PEM file")
+    throw new Error(`No ed25519 ${type} key found in PEM file`)
   }
 
-  const derEncoding = Buffer.from(match[1].replaceAll("\n", ""), "base64")
+  const [_fullMatch, headerTag, base64Chunks, footerTag] = match
 
-  if (derEncoding.length !== 48) {
-    throw new Error("Invalid length for DER-encoded ed25519 private key")
+  if (headerTag !== type.toUpperCase() || footerTag !== type.toUpperCase()) {
+    throw new Error("Unexpected key type in PEM file")
   }
 
-  if (!derPreamble.equals(derEncoding.subarray(0, derPreamble.length))) {
-    throw new Error("Unexpected data in DER-encoded ed25519 private key")
+  const derEncoding = base64ToUint8Array(base64Chunks.replaceAll("\n", ""))
+
+  if (derEncoding.length !== EXPECTED_LENGTH[type]) {
+    throw new Error(`Invalid length for DER-encoded ed25519 ${type} key`)
   }
 
-  return derEncoding.subarray(derPreamble.length)
+  if (
+    !areUint8ArraysEqual(
+      PREAMBLE[type],
+      derEncoding.subarray(0, PREAMBLE[type].length),
+    )
+  ) {
+    throw new Error(`Unexpected data in DER-encoded ed25519 ${type} key`)
+  }
+
+  return derEncoding.subarray(PREAMBLE[type].length)
 }
 
 /**
@@ -48,15 +78,19 @@ export function parseEd25519PrivateKey(source: string): Buffer {
  * @param rawDassieKeyBuffer - The 32-byte raw Ed25519 private key
  * @returns The PEM-encoded private key
  */
-export const serializeEd25519PrivateKey = (
-  rawDassieKeyBuffer: Buffer,
+export const serializeEd25519Key = (
+  rawDassieKeyBuffer: Uint8Array,
+  type: KeyType,
 ): string => {
-  const dassieKeyBuffer = Buffer.concat([derPreamble, rawDassieKeyBuffer])
-  const base64Key = dassieKeyBuffer.toString("base64")
+  const dassieKeyBuffer = concatUint8Arrays([
+    PREAMBLE[type],
+    rawDassieKeyBuffer,
+  ])
+  const base64Key = uint8ArrayToBase64(dassieKeyBuffer)
 
   // Split the base64 into chunks of 64 characters per line for PEM formatting
   const base64Chunks = base64Key.match(/.{1,64}/g) ?? []
   const body = base64Chunks.join("\n")
 
-  return PEM_KEY_HEADER + body + PEM_KEY_FOOTER
+  return getPemKeyHeader(type) + body + getPemKeyFooter(type)
 }

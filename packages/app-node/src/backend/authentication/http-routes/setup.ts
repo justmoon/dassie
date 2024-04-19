@@ -18,7 +18,7 @@ import {
 } from "../../config/database-config"
 import { getPrivateSeedAtPath } from "../../crypto/utils/seed-paths"
 import { HttpsRouter } from "../../http-server/values/https-router"
-import { serializeEd25519PrivateKey } from "../../utils/pem"
+import { serializeEd25519Key } from "../../utils/pem"
 import { COOKIE_MAX_AGE_SECONDS } from "../constants/cookie-lifetime"
 import { SessionsStore } from "../database-stores/sessions"
 import { SetupAuthorizationTokenSignal } from "../signals/setup-authorization-token"
@@ -79,7 +79,7 @@ export const RegisterSetupRouteActor = (reactor: DassieReactor) => {
           )
         }
 
-        const dassieKey = serializeEd25519PrivateKey(rawDassieKeyBuffer)
+        const dassieKey = serializeEd25519Key(rawDassieKeyBuffer, "private")
 
         config.setNodeIdentity(dassieKey)
 

@@ -5,7 +5,7 @@ import {
   hasNodeIdentity,
 } from "../../config/database-config"
 import { crypto as logger } from "../../logger/instances"
-import { parseEd25519PrivateKey } from "../../utils/pem"
+import { parseEd25519Key } from "../../utils/pem"
 
 export const NodePrivateKeySignal = (reactor: Reactor) =>
   createComputed(reactor, (sig) => {
@@ -13,5 +13,5 @@ export const NodePrivateKeySignal = (reactor: Reactor) =>
 
     logger.assert(hasNodeIdentity(config), "node identity is not configured")
 
-    return parseEd25519PrivateKey(config.dassieKey)
+    return parseEd25519Key(config.dassieKey, "private")
   })
