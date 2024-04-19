@@ -5,7 +5,6 @@ import { BootstrapNodesConfig } from "@dassie/app-node/src/backend/config/enviro
 import { getPublicKey } from "@dassie/app-node/src/backend/crypto/ed25519"
 import { calculatePathHmac } from "@dassie/app-node/src/backend/crypto/utils/seed-paths"
 import { calculateNodeId } from "@dassie/app-node/src/backend/ilp-connector/utils/calculate-node-id"
-import { derPreamble } from "@dassie/app-node/src/backend/utils/pem"
 import {
   SEED_PATH_DEV_SESSION,
   SEED_PATH_NODE,
@@ -42,28 +41,6 @@ export const nodeIndexToPrivateKey = (index: number) => {
   return calculatePathHmac(seed, SEED_PATH_NODE)
 }
 
-const PRIVATE_KEY_HEADER = "-----BEGIN PRIVATE KEY-----\n"
-const PRIVATE_KEY_FOOTER = "\n-----END PRIVATE KEY-----\n"
-const OPENSSL_ASCII_CHUNK_SIZE = 64
-
-function splitStringIntoChunks(input: string, chunkSize: number): string[] {
-  const chunks: string[] = []
-  for (let index = 0; index < input.length; index += chunkSize) {
-    chunks.push(input.slice(index, index + chunkSize))
-  }
-  return chunks
-}
-export const nodeIndexToPrivateKeyPem = (index: number) => {
-  const key = nodeIndexToPrivateKey(index)
-  return (
-    PRIVATE_KEY_HEADER +
-    splitStringIntoChunks(
-      Buffer.concat([derPreamble, key]).toString("base64"),
-      OPENSSL_ASCII_CHUNK_SIZE,
-    ).join("\n") +
-    PRIVATE_KEY_FOOTER
-  )
-}
 export const nodeIndexToPublicKey = (index: number) => {
   const nodePrivateKey = nodeIndexToPrivateKey(index)
   return getPublicKey(nodePrivateKey)
@@ -108,7 +85,7 @@ export interface BaseNodeConfig {
   longitude: number
   dataPath: string
   ipcSocketPath: string
-  dassieNodeKey: string
+  dassieNodeKey: Uint8Array
   tlsWebCertFile: string
   tlsWebKeyFile: string
   sessionToken: SessionToken
@@ -160,7 +137,7 @@ export const generateNodeConfig = ((
     longitude,
     dataPath,
     ipcSocketPath: resolve(dataPath, "dassie.sock"),
-    dassieNodeKey: nodeIndexToPrivateKeyPem(index),
+    dassieNodeKey: nodeIndexToPrivateKey(index),
     tlsWebCertFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost.pem`,
     tlsWebKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost-key.pem`,
     sessionToken: nodeIndexToSessionToken(index),

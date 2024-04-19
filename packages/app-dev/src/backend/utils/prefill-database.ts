@@ -3,6 +3,7 @@ import { readFile, unlink } from "node:fs/promises"
 import { BtpToken } from "@dassie/app-node/src/backend/api-keys/types/btp-token"
 import { DASSIE_DATABASE_SCHEMA } from "@dassie/app-node/src/backend/database/schema"
 import { SettlementSchemeId } from "@dassie/app-node/src/backend/peer-protocol/types/settlement-scheme-id"
+import { serializeEd25519Key } from "@dassie/app-node/src/backend/utils/pem"
 import { createDatabase } from "@dassie/lib-sqlite"
 import { isErrorWithCode } from "@dassie/lib-type-utils"
 
@@ -45,7 +46,9 @@ export const prefillDatabase = async ({
 
   database.scalars.configAlias.set(id)
 
-  database.scalars.configDassieKey.set(dassieNodeKey)
+  database.scalars.configDassieKey.set(
+    serializeEd25519Key(dassieNodeKey, "private"),
+  )
   database.scalars.configTlsWebCert.set(await readFile(tlsWebCertFile, "utf8"))
   database.scalars.configTlsWebKey.set(await readFile(tlsWebKeyFile, "utf8"))
   database.scalars.configExchangeRateUrl.set(
