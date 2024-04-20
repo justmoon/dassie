@@ -35,17 +35,22 @@ export const DataValue = ({ keyName, content }: DataValueProperties) => {
 
   return keyName ? (
     <span
+      className="cursor-pointer inline-block hover:bg-gray-8 rounded"
       onClick={onClick}
-      className={`bg-dark-100 rounded-1 text-xs px-1 inline-block cursor-pointer`}
     >
       <span className="font-sans text-gray-3">{keyName}=</span>
-      <span style={{ color: typeFormatter.color }}>{value}</span>
+      <span
+        className={"text-xs inline-block"}
+        style={{ color: typeFormatter.color }}
+      >
+        {value}
+      </span>
     </span>
   ) : (
     <span
       onClick={onClick}
       style={{ color: typeFormatter.color }}
-      className={`bg-dark-100 rounded-1 text-xs px-1 inline-block cursor-pointer`}
+      className={"text-xs inline-block cursor-pointer hover:bg-gray-8 rounded"}
     >
       {value}
     </span>
