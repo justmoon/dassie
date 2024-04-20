@@ -2,6 +2,7 @@ import type { Reactor } from "@dassie/lib-reactive"
 
 import { LedgerId } from "../../accounting/types/ledger-id"
 import { CurrencyDescription } from "../../exchange/load-exchange-rates"
+import { settlement as logger } from "../../logger/instances"
 import { LoadedSettlementModulesStore } from "../stores/loaded-settlement-modules"
 
 export const GetCurrencyFromLedgerId = (reactor: Reactor) => {
@@ -23,6 +24,7 @@ export const GetCurrencyFromLedgerId = (reactor: Reactor) => {
     const currency = ledgerIdToCurrency.get(ledgerId)
 
     if (!currency) {
+      logger.error("failed to map ledger ID to currency", { ledgerId })
       throw new Error("Failed to map ledger ID to currency")
     }
 
