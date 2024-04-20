@@ -14,10 +14,10 @@ export const builtinScenarios = {
     environment: {},
     nodes: [
       {
-        settlementMethods: ["xrpl-testnet"],
+        settlementMethods: ["stub", "xrpl-testnet"],
       },
       {
-        settlementMethods: ["xrpl-testnet"],
+        settlementMethods: ["stub", "xrpl-testnet"],
       },
     ],
     defaultNodeSettings: {
@@ -36,7 +36,7 @@ export const builtinScenarios = {
         settlementMethods: ["stub", "xrpl-testnet"],
       },
       {
-        settlementMethods: ["xrpl-testnet"],
+        settlementMethods: ["stub", "xrpl-testnet"],
       },
     ],
     defaultNodeSettings: {},
