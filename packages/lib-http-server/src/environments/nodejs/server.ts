@@ -4,7 +4,11 @@ import type { Socket } from "node:net"
 import { createContext } from "../../context"
 import type { BaseRequestContext } from "../../types/context"
 import type { WebSocketRequestContext } from "../../types/websocket"
-import { convertFromNodejsRequest, writeToNodejsResponse } from "./wrap-request"
+import {
+  convertFromNodejsRequest,
+  writeToNodejsResponse,
+  writeToSocketResponse,
+} from "./wrap-request"
 import { createNodejsWebSocketServer } from "./wrap-websocket"
 
 export interface NodejsWrapperOptions {
@@ -13,7 +17,7 @@ export interface NodejsWrapperOptions {
   onUpgrade?:
     | ((
         context: BaseRequestContext & WebSocketRequestContext,
-      ) => Promise<Response>)
+      ) => Promise<Response | void>)
     | undefined
   onError?: ((error: unknown) => void) | undefined
 }
@@ -70,7 +74,11 @@ export function createNodejsHttpHandlers({
           createNodejsWebSocketContext(nodeRequest, socket, head),
         )
 
-        await onUpgrade(context)
+        const response = await onUpgrade(context)
+
+        if (response) {
+          await writeToSocketResponse(response, socket)
+        }
       } else {
         socket.destroy()
       }

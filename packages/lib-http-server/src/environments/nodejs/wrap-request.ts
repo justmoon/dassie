@@ -1,4 +1,9 @@
-import type { IncomingMessage, ServerResponse } from "node:http"
+import {
+  type IncomingMessage,
+  STATUS_CODES,
+  type ServerResponse,
+} from "node:http"
+import type { Socket } from "node:net"
 import { ReadableStream as NodeReadableStream } from "node:stream/web"
 
 export interface NodejsWrapperOptions extends RequestOptions {
@@ -130,6 +135,35 @@ function convertToNodejsResponseHeaders(
   }
 
   return result
+}
+
+export async function writeToSocketResponse(
+  response: Response,
+  socket: Socket,
+) {
+  const { status, headers, body } = response
+
+  socket.write(`HTTP/1.1 ${status} ${STATUS_CODES[status]}\r\n`)
+  for (const [key, value] of headers.entries()) {
+    socket.write(`${key}: ${value}\r\n`)
+  }
+
+  socket.write("\r\n")
+
+  if (!body) {
+    socket.end()
+    return
+  }
+
+  const reader = body.getReader()
+
+  let result = await reader.read()
+  while (!result.done) {
+    socket.write(result.value)
+    result = await reader.read()
+  }
+
+  socket.end()
 }
 
 function handleErrorDefault(error: unknown) {

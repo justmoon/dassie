@@ -13,6 +13,7 @@ import type { WebSocketRequestContext } from "./types/websocket"
 import { isDynamicPath } from "./utils/is-dynamic-path"
 import { normalizePath } from "./utils/normalize-path"
 import { parseParameters } from "./utils/parse-parameters"
+import { WebSocketResponse } from "./websocket/websocket-response"
 
 export const HTTP_METHODS = [
   "get",
@@ -179,7 +180,7 @@ export interface RouteContext<
   }
 }
 
-export function createRouter<TInitialContext extends {} = {}>() {
+export function createRouteMatcher<TInitialContext extends {} = {}>() {
   const staticRoutes = new Map<
     StaticRouteKey,
     InternalRouteHandler<TInitialContext>
@@ -372,11 +373,20 @@ export function createRouter<TInitialContext extends {} = {}>() {
       TInitialContext & { route: RouteContext }
     >),
     match,
-    handle: async (
-      context: BaseRequestContext & TInitialContext,
-    ): Promise<Response> => {
+  }
+}
+
+export function createRouter() {
+  const matcher = createRouteMatcher()
+  return {
+    ...matcher,
+
+    handle: async (context: BaseRequestContext): Promise<Response> => {
       try {
-        const handler = match(context.request.method, context.url.pathname)
+        const handler = matcher.match(
+          context.request.method,
+          context.url.pathname,
+        )
 
         if (handler) {
           const result = await handler(context)
@@ -391,6 +401,30 @@ export function createRouter<TInitialContext extends {} = {}>() {
   }
 }
 
-export const createWebSocketRouter = () => {
-  return createRouter<WebSocketRequestContext>()
+export function createWebSocketRouter() {
+  const matcher = createRouteMatcher<WebSocketRequestContext>()
+  return {
+    ...matcher,
+
+    handle: async (
+      context: BaseRequestContext & WebSocketRequestContext,
+    ): Promise<Response | void> => {
+      try {
+        const handler = matcher.match(
+          context.request.method,
+          context.url.pathname,
+        )
+
+        if (handler) {
+          const result = await handler(context)
+
+          if (!(result instanceof WebSocketResponse)) {
+            return result.asResponse(context)
+          }
+        }
+      } catch (error: unknown) {
+        return handleError(context, error)
+      }
+    },
+  }
 }
