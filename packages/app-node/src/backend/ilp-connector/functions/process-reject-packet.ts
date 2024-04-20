@@ -27,6 +27,8 @@ export const ProcessRejectPacket = (reactor: DassieReactor) => {
   }: ProcessIncomingPacketParameters<typeof IlpType.Reject>) {
     logger.debug(`received ILP reject`, {
       requestId,
+      code: parsedPacket.data.code,
+      message: parsedPacket.data.message,
     })
 
     const pendingPacketKey: PendingPacketsKey = `${sourceEndpointInfo.ilpAddress}#${requestId}`

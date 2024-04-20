@@ -35,12 +35,6 @@ export const ProcessPreparePacket = (reactor: DassieReactor) => {
     serializedPacket,
     requestId,
   }: ProcessIncomingPacketParameters<typeof IlpType.Prepare>) {
-    logger.debug("received ILP prepare", {
-      from: sourceEndpointInfo.ilpAddress,
-      to: parsedPacket.data.destination,
-      amount: parsedPacket.data.amount,
-    })
-
     const outgoingRequestId = Math.trunc(Math.random() * 0xff_ff_ff_ff)
 
     const pendingTransfers: Transfer[] = []
@@ -57,9 +51,10 @@ export const ProcessPreparePacket = (reactor: DassieReactor) => {
       timeoutAbort,
     }
 
-    logger.debug("forwarding ILP prepare", {
-      source: sourceEndpointInfo.ilpAddress,
-      destination: parsedPacket.data.destination,
+    logger.debug("processing ILP prepare", {
+      from: sourceEndpointInfo.ilpAddress,
+      to: parsedPacket.data.destination,
+      amount: parsedPacket.data.amount,
       requestId: outgoingRequestId,
     })
 
@@ -82,6 +77,14 @@ export const ProcessPreparePacket = (reactor: DassieReactor) => {
       outgoingExpiry,
       transfers,
     } = packetOutcome
+
+    logger.debug("forwarding ILP prepare", {
+      from: sourceEndpointInfo.ilpAddress,
+      to: parsedPacket.data.destination,
+      amount: parsedPacket.data.amount,
+      requestId: outgoingRequestId,
+      nextHop: destinationEndpointInfo.ilpAddress,
+    })
 
     pendingPacketsMap.set(
       `${destinationEndpointInfo.ilpAddress}#${outgoingRequestId}`,
