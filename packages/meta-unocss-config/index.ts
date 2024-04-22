@@ -1,5 +1,3 @@
-import presetShadcn from "./preset.shadcn"
-import config from "./uno.config"
+export { default, default as config } from "./uno.config"
 
-export default config
-export { config, presetShadcn }
+export { default as presetShadcn } from "./preset.shadcn"

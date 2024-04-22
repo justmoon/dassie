@@ -1,0 +1,14 @@
+{
+  "name": "@dassie/meta-incremental-check",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Use TypeScript to check for changed files and run ESLint on them",
+  "author": "Stefan Thomas <justmoon@members.fsf.org>",
+  "license": "Apache-2.0",
+  "bin": {
+    "incremental-check": "./scripts/check.js"
+  },
+  "dependencies": {
+    "ignore": "^5.3.1"
+  }
+}

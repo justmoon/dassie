@@ -57,6 +57,12 @@
     },
     {
       "path": "./packages/meta-eslint-plugin/tsconfig.json"
+    },
+    {
+      "path": "./packages/meta-incremental-check/tsconfig.json"
+    },
+    {
+      "path": "./packages/meta-unocss-config/tsconfig.json"
     }
   ]
 }

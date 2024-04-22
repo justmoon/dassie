@@ -14,6 +14,9 @@ importers:
       '@dassie/meta-api-extractor':
         specifier: workspace:^
         version: link:packages/meta-api-extractor
+      '@dassie/meta-incremental-check':
+        specifier: workspace:^
+        version: link:packages/meta-incremental-check
       '@pnpm/lockfile-file':
         specifier: ^9.0.1
         version: 9.0.1(@pnpm/logger@5.0.0)
@@ -883,6 +886,12 @@ importers:
         specifier: ^3.21.0
         version: 3.21.0(typescript@5.4.3)
 
+  packages/meta-incremental-check:
+    dependencies:
+      ignore:
+        specifier: ^5.3.1
+        version: 5.3.1
+
   packages/meta-tsconfig:
     devDependencies:
       '@tsconfig/strictest':
@@ -903,6 +912,13 @@ importers:
       unocss:
         specifier: 0.59.0-beta.1
         version: 0.59.0-beta.1(postcss@8.4.38)(vite@5.2.8)
+    devDependencies:
+      '@dassie/eslint-config':
+        specifier: workspace:^
+        version: link:../meta-eslint-config
+      '@dassie/meta-tsconfig':
+        specifier: workspace:^
+        version: link:../meta-tsconfig
 
 packages:
 

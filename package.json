@@ -9,7 +9,7 @@
     "build:web": "pnpm --filter=app-website build",
     "start": "which mkcert >/dev/null && : \"${NODE_EXTRA_CA_CERTS:=$(mkcert -CAROOT 2>/dev/null)/rootCA.pem}\" ; export NODE_EXTRA_CA_CERTS ; node packages/app-dev/bin/start-development-server.js",
     "dev": "pnpm start",
-    "check": "pnpm typecheck && pnpm lint && pnpm test -- --run && pnpm meta-updater --test",
+    "check": "incremental-check && vitest --run && pnpm meta-updater --test",
     "test": "vitest",
     "prettier": "prettier --config .prettierrc.json --write \"packages/*/{src,test}/**/*.ts\"",
     "lint": "turbo --no-daemon lint",
@@ -40,6 +40,7 @@
   "devDependencies": {
     "@dassie/eslint-plugin": "workspace:^",
     "@dassie/meta-api-extractor": "workspace:^",
+    "@dassie/meta-incremental-check": "workspace:^",
     "@pnpm/lockfile-file": "^9.0.1",
     "@pnpm/meta-updater": "^1.0.0",
     "@trivago/prettier-plugin-sort-imports": "^4.3.0",

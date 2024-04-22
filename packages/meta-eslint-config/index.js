@@ -28,8 +28,6 @@ module.exports = {
     ".eslintrc.cjs",
     "next.config.js",
     "rollup.config.js",
-    "vite.config.js",
-    "vite.*.config.js",
   ],
   rules: {
     "no-console": [

@@ -47,6 +47,9 @@
     },
     {
       "path": "../lib-type-utils"
+    },
+    {
+      "path": "../meta-unocss-config"
     }
   ]
 }

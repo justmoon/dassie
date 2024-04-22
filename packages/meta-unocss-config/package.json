@@ -11,5 +11,9 @@
     "@unocss/reset": "0.59.0-beta.1",
     "@unocss/transformer-directives": "0.59.0-beta.1",
     "unocss": "0.59.0-beta.1"
+  },
+  "devDependencies": {
+    "@dassie/eslint-config": "workspace:^",
+    "@dassie/meta-tsconfig": "workspace:^"
   }
 }
