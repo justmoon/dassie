@@ -22,7 +22,7 @@ export const SendPeerPackets = (
       serializedPacket,
       outgoingRequestId: requestId,
     }) => {
-      logger.debug("sending ilp packet", { nextHop: nodeId })
+      logger.debug?.("sending ilp packet", { nextHop: nodeId })
       tell(() =>
         sendPeerMessage({
           destination: nodeId,
@@ -43,7 +43,7 @@ export const SendPeerPackets = (
       serializedPacket,
       prepare: { incomingRequestId: requestId },
     }) => {
-      logger.debug("sending ilp packet", { nextHop: nodeId })
+      logger.debug?.("sending ilp packet", { nextHop: nodeId })
 
       logger.assert(
         typeof requestId === "number",

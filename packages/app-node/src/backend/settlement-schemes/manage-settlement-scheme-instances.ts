@@ -86,7 +86,7 @@ export const ManageSettlementSchemeInstancesActor = (
           },
 
           reportIncomingSettlement: ({ ledgerId, peerId, amount }) => {
-            logger.debug("reported incoming settlement", {
+            logger.debug?.("reported incoming settlement", {
               settlementSchemeId,
               ledgerId,
               peerId,
@@ -110,7 +110,7 @@ export const ManageSettlementSchemeInstancesActor = (
           },
 
           finalizeOutgoingSettlement: ({ settlementId }) => {
-            logger.debug("finalizing outgoing settlement", {
+            logger.debug?.("finalizing outgoing settlement", {
               settlementSchemeId,
               ledgerId,
               settlementId,
@@ -130,7 +130,7 @@ export const ManageSettlementSchemeInstancesActor = (
           },
 
           cancelOutgoingSettlement: ({ settlementId }) => {
-            logger.debug("canceling outgoing settlement", {
+            logger.debug?.("canceling outgoing settlement", {
               settlementSchemeId,
               ledgerId,
               settlementId,
@@ -150,7 +150,7 @@ export const ManageSettlementSchemeInstancesActor = (
           },
 
           reportDeposit: ({ ledgerId, amount }) => {
-            logger.debug("reported deposit", {
+            logger.debug?.("reported deposit", {
               settlementSchemeId,
               ledgerId,
               amount,
@@ -173,7 +173,7 @@ export const ManageSettlementSchemeInstancesActor = (
           },
 
           reportWithdrawal: ({ ledgerId, amount }) => {
-            logger.debug("reported withdrawal", {
+            logger.debug?.("reported withdrawal", {
               settlementSchemeId,
               ledgerId,
               amount,

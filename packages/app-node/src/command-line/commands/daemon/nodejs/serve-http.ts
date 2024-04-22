@@ -26,7 +26,7 @@ export const ServeHttpActor = (reactor: Reactor) => {
     })
     const server = createServer({})
 
-    logger.debug("http server listening", { port: httpPort })
+    logger.debug?.("http server listening", { port: httpPort })
 
     server.listen(httpPort)
 

@@ -51,7 +51,7 @@ export const ForwardLinkStateUpdateActor = (reactor: DassieReactor) => {
           for (const peer of peers) {
             if (peer === node.nodeId) continue
 
-            logger.debug("retransmit link state update", {
+            logger.debug?.("retransmit link state update", {
               from: node.nodeId,
               to: peer,
               sequence: node.linkState.sequence,

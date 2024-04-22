@@ -41,7 +41,7 @@ export const migrate = (
     currentUserVersion === lastMigrationId &&
     options.dangerouslyRedoLastMigration
   ) {
-    logger.debug("reapplying last migration", { lastMigrationId })
+    logger.debug?.("reapplying last migration", { lastMigrationId })
     // Re-apply last migration
     database.transaction(() => {
       migrations[currentUserVersion - 1]!.down(database)
@@ -50,7 +50,10 @@ export const migrate = (
   }
 
   if (currentUserVersion < lastMigrationId) {
-    logger.debug("applying migrations", { currentUserVersion, lastMigrationId })
+    logger.debug?.("applying migrations", {
+      currentUserVersion,
+      lastMigrationId,
+    })
 
     // Migrate up
     for (
@@ -60,7 +63,7 @@ export const migrate = (
     ) {
       const migration = migrations[currentMigrationId - 1]!
       database.transaction(() => {
-        logger.debug("applying migration", { version: migration.version })
+        logger.debug?.("applying migration", { version: migration.version })
 
         migration.up(database)
         database.pragma(`user_version = ${migration.version}`)

@@ -16,7 +16,7 @@ export const ServeLocalIpcActor = () =>
 
     return {
       handleConnection: (connection: InboundConnection) => {
-        logger.debug("received ipc rpc server connection")
+        logger.debug?.("received ipc rpc server connection")
 
         rpcServer.handleConnection({
           connection,

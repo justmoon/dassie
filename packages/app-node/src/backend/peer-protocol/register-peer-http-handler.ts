@@ -37,7 +37,7 @@ export const RegisterPeerHttpHandlerActor = (reactor: DassieReactor) => {
       .use(parseBodyOer(peerMessageSchema))
       .handler(sig, async ({ body }) => {
         if (body.version !== 0) {
-          logger.debug("incoming dassie message has unknown version", {
+          logger.debug?.("incoming dassie message has unknown version", {
             version: body.version,
           })
           return new BadRequestFailure(`Bad Request, unsupported version`)
@@ -52,7 +52,7 @@ export const RegisterPeerHttpHandlerActor = (reactor: DassieReactor) => {
           !isAuthenticated &&
           !ALLOW_ANONYMOUS_USAGE.includes(body.content.value.type)
         ) {
-          logger.debug(
+          logger.debug?.(
             "incoming dassie message is not authenticated, ignoring",
             {
               message: body,

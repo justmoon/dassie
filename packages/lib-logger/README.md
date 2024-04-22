@@ -9,7 +9,7 @@ import { createLogger } from "@dassie/lib-logger"
 
 const logger = createLogger("foo:example:http-server")
 
-logger.debug("This will print depending on the debug scope")
+logger.debug?.("This will print depending on the debug scope")
 logger.info("This will always print")
 logger.warn("This will print with some emphasis")
 logger.error("This will print with maximum emphasis")

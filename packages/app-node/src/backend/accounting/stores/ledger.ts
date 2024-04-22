@@ -67,7 +67,7 @@ export const LedgerStore = (reactor: Reactor) => {
         limit: limit ?? "no_limit",
       }
 
-      logger.debug("create account", { path, limit: account.limit })
+      logger.debug?.("create account", { path, limit: account.limit })
 
       ledger.set(path, account)
     },

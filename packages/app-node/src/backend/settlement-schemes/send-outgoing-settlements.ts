@@ -80,7 +80,7 @@ const calculateSettlementAmount = (
   if (proposedSettlementAmount > balance) proposedSettlementAmount = balance
 
   if (proposedSettlementAmount > 0n) {
-    logger.debug("proposing settlement", {
+    logger.debug?.("proposing settlement", {
       balance,
       outgoingCredit,
       incomingCredit,

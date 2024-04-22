@@ -51,7 +51,7 @@ export const HandleIldcpRequestsActor = () =>
         })
 
         if (isFailure(ildcpSerializationResult)) {
-          logger.debug("failed to serialize IL-DCP response", {
+          logger.debug?.("failed to serialize IL-DCP response", {
             error: ildcpSerializationResult,
           })
           return
@@ -65,7 +65,7 @@ export const HandleIldcpRequestsActor = () =>
           },
         }
 
-        logger.debug("sending IL-DCP response", {
+        logger.debug?.("sending IL-DCP response", {
           destination: sourceIlpAddress,
         })
 

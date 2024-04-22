@@ -27,7 +27,7 @@ export const ProcessFulfillPacket = (reactor: DassieReactor) => {
     serializedPacket,
     requestId,
   }: ProcessIncomingPacketParameters<typeof IlpType.Fulfill>) {
-    logger.debug(`received ILP fulfill`, {
+    logger.debug?.(`received ILP fulfill`, {
       requestId,
     })
 

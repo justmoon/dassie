@@ -51,7 +51,7 @@ export const ProcessPreparePacket = (reactor: DassieReactor) => {
       timeoutAbort,
     }
 
-    logger.debug("processing ILP prepare", {
+    logger.debug?.("processing ILP prepare", {
       from: sourceEndpointInfo.ilpAddress,
       to: parsedPacket.data.destination,
       amount: parsedPacket.data.amount,
@@ -78,7 +78,7 @@ export const ProcessPreparePacket = (reactor: DassieReactor) => {
       transfers,
     } = packetOutcome
 
-    logger.debug("forwarding ILP prepare", {
+    logger.debug?.("forwarding ILP prepare", {
       from: sourceEndpointInfo.ilpAddress,
       to: parsedPacket.data.destination,
       amount: parsedPacket.data.amount,

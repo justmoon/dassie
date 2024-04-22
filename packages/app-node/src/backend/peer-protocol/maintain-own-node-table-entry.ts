@@ -89,7 +89,7 @@ export const MaintainOwnNodeTableEntryActor = () =>
         return
       }
 
-      logger.debug(
+      logger.debug?.(
         oldLinkState
           ? "updating own node table entry"
           : "creating own node table entry",

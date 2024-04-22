@@ -33,7 +33,7 @@ export const SendSpspPaymentsActor = () =>
     )
 
     if (nextPayment) {
-      logger.debug("initiating payment", {
+      logger.debug?.("initiating payment", {
         id: nextPayment.id,
         to: nextPayment.destination,
         totalAmount: nextPayment.totalAmount,
@@ -44,7 +44,7 @@ export const SendSpspPaymentsActor = () =>
         shared_secret: sharedSecret,
       } = await resolvePaymentPointer(nextPayment.destination)
 
-      logger.debug("resolved payment pointer", {
+      logger.debug?.("resolved payment pointer", {
         id: nextPayment.id,
         destinationAccount,
       })
@@ -57,7 +57,7 @@ export const SendSpspPaymentsActor = () =>
         sharedSecret: Buffer.from(sharedSecret, "base64"),
       })
 
-      logger.debug("created STREAM connection", {
+      logger.debug?.("created STREAM connection", {
         id: nextPayment.id,
       })
 
@@ -73,7 +73,7 @@ export const SendSpspPaymentsActor = () =>
         // TODO: Mutating this object doesn't seem like the best way to handle this?
         nextPayment.sentAmount += amount
 
-        logger.debug("sent money", {
+        logger.debug?.("sent money", {
           id: nextPayment.id,
           newlySentAmount: amount,
           sentAmount: nextPayment.sentAmount,
@@ -81,7 +81,7 @@ export const SendSpspPaymentsActor = () =>
         })
 
         if (nextPayment.sentAmount + amount >= nextPayment.totalAmount) {
-          logger.debug("payment complete", { id: nextPayment.id })
+          logger.debug?.("payment complete", { id: nextPayment.id })
           connection.end().catch((error: unknown) => {
             logger.error("error ending connection", {
               id: nextPayment.id,

@@ -25,7 +25,7 @@ export const ProcessRejectPacket = (reactor: DassieReactor) => {
     serializedPacket,
     requestId,
   }: ProcessIncomingPacketParameters<typeof IlpType.Reject>) {
-    logger.debug(`received ILP reject`, {
+    logger.debug?.(`received ILP reject`, {
       requestId,
       code: parsedPacket.data.code,
       message: parsedPacket.data.message,

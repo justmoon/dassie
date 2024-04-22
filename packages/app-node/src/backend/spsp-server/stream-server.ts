@@ -14,7 +14,7 @@ export const StreamServerServiceActor = () =>
   createActor(async (sig: DassieActorContext) => {
     const pluginManager = sig.reactor.use(ManagePluginsActor)
 
-    logger.debug("starting stream server")
+    logger.debug?.("starting stream server")
 
     const plugin = await pluginManager.api.createPlugin.ask()
 
@@ -26,10 +26,10 @@ export const StreamServerServiceActor = () =>
       connection.on("stream", (stream: DataAndMoneyStream) => {
         stream.setReceiveMax(Number.POSITIVE_INFINITY)
         stream.on("money", (amount: string) => {
-          logger.debug("got money", { amount, stream: stream.id })
+          logger.debug?.("got money", { amount, stream: stream.id })
         })
         stream.on("end", () => {
-          logger.debug("stream closed", { stream: stream.id })
+          logger.debug?.("stream closed", { stream: stream.id })
         })
       })
     })

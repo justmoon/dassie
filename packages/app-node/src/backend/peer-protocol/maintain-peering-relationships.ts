@@ -108,7 +108,7 @@ export const MaintainPeeringRelationshipsActor = (reactor: DassieReactor) => {
       },
     )
 
-    logger.debug(`sending peering request`, {
+    logger.debug?.(`sending peering request`, {
       to: randomNode.nodeId,
     })
 
@@ -125,7 +125,7 @@ export const MaintainPeeringRelationshipsActor = (reactor: DassieReactor) => {
     })
 
     if (!peeringResponse?.accepted) {
-      logger.debug(`peering request rejected`, {
+      logger.debug?.(`peering request rejected`, {
         to: randomNode.nodeId,
       })
       return

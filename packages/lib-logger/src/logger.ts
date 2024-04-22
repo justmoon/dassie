@@ -26,7 +26,7 @@ export interface Logger {
    * @param message - A freeform message
    * @param parameters - Additional relevant data to log and make available for debugging
    */
-  debug(message: string, ...parameters: unknown[]): void
+  debug: ((message: string, ...parameters: unknown[]) => void) | undefined
 
   /**
    * Logs a message.
@@ -67,6 +67,10 @@ export interface Logger {
 }
 
 export class LoggerImplementation implements Logger {
+  private enableCache:
+    | [state: boolean, checker: (component: string) => boolean]
+    | undefined
+
   /**
    * Build a new logger object. Use {@link createLogger} instead.
    *
@@ -95,22 +99,30 @@ export class LoggerImplementation implements Logger {
     )
   }
 
-  debug(message: string, ...parameters: unknown[]) {
-    if (this.context.enableChecker(this.component)) {
-      this.context.output(
-        {
-          type: "debug",
-          date: Date.now(),
-          namespace: this.component,
-          message,
-          parameters,
-          caller: this.context.captureCaller
-            ? this.context.getCaller(1, new Error())
-            : undefined,
-        },
-        this.context,
-      )
+  get debug() {
+    if (this.enableCache?.[1] !== this.context.enableChecker) {
+      this.enableCache = [
+        this.context.enableChecker(this.component),
+        this.context.enableChecker,
+      ]
     }
+    return this.enableCache[0]
+      ? (message: string, ...parameters: unknown[]) => {
+          this.context.output(
+            {
+              type: "debug",
+              date: Date.now(),
+              namespace: this.component,
+              message,
+              parameters,
+              caller: this.context.captureCaller
+                ? this.context.getCaller(1, new Error())
+                : undefined,
+            },
+            this.context,
+          )
+        }
+      : undefined
   }
 
   info(message: string, ...parameters: unknown[]) {

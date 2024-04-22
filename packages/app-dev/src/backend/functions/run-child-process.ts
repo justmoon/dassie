@@ -139,7 +139,7 @@ export const RunChildProcess = (reactor: Reactor) => {
       throw new Error(`${RUNNER_MODULE} not resolvable`)
     }
 
-    logger.debug("launching child...", { node: id })
+    logger.debug?.("launching child...", { node: id })
     child = fork(resolvedEntryPoint.id, [], {
       detached: false,
       silent: true,

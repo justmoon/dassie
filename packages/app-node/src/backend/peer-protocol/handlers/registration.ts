@@ -19,7 +19,7 @@ export const HandleRegistration = ((reactor: Reactor) => {
     const { value: linkState, bytes: linkStateBytes } = content.nodeInfo
     const { nodeId, sequence } = linkState.signed.value
 
-    logger.debug("received registration", {
+    logger.debug?.("received registration", {
       from: nodeId,
       sequence,
     })

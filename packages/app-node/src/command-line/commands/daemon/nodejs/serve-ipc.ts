@@ -25,7 +25,7 @@ export const ServeIpcSocketActor = (reactor: Reactor) => {
       logger.error("local ipc server error", { error })
     })
 
-    logger.debug("listening on ipc socket", {
+    logger.debug?.("listening on ipc socket", {
       path: ipcSocketPath,
     })
 

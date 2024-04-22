@@ -24,7 +24,7 @@ export const ServeHttpActor = (reactor: SystemdReactor) => {
     reactor.base.socketActivationState,
     SOCKET_ACTIVATION_NAME_HTTP,
   )
-  logger.debug("using socket activation for http server", { fds })
+  logger.debug?.("using socket activation for http server", { fds })
 
   // socket activation can only be done once per process, which is why the call
   // to `server.listen` is outside of the createActor function

@@ -23,7 +23,7 @@ export const ServeIpcSocketActor = (reactor: SystemdReactor) => {
     reactor.base.socketActivationState,
     SOCKET_ACTIVATION_NAME_IPC,
   )
-  logger.debug("using socket activation to create ipc socket", {
+  logger.debug?.("using socket activation to create ipc socket", {
     fileDescriptors,
   })
 

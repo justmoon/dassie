@@ -33,7 +33,7 @@ export const ProcessPacket = (reactor: DassieReactor) => {
   function processPacket<TType extends IlpType>(
     parameters: ProcessIncomingPacketParameters<TType>,
   ) {
-    logger.debug("handle interledger packet", {
+    logger.debug?.("handle interledger packet", {
       from: parameters.sourceEndpointInfo.ilpAddress,
     })
 

@@ -20,7 +20,7 @@ async function sendAsyncResult({
   callbackUrl,
   requestId,
 }: IlpHttpAsyncResponseParameters) {
-  logger.debug("send ilp-http result", { packet })
+  logger.debug?.("send ilp-http result", { packet })
   await axios<Buffer>(callbackUrl, {
     method: "POST",
     data: packet,

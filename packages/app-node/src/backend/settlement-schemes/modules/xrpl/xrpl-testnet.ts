@@ -183,7 +183,7 @@ const xrplTestnet = {
         const parseResult = peeringRequestSchema.parse(data)
 
         if (isFailure(parseResult)) {
-          logger.debug("failed to parse peering request data", {
+          logger.debug?.("failed to parse peering request data", {
             peer: peerId,
           })
           return false
@@ -192,7 +192,7 @@ const xrplTestnet = {
         const { address } = parseResult.value
 
         if (!(await getAccountInfo(client, address))) {
-          logger.debug("peer account not found", {
+          logger.debug?.("peer account not found", {
             peer: peerId,
             address,
           })

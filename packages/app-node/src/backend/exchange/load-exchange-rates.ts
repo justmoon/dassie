@@ -30,7 +30,7 @@ export const LoadExchangeRatesActor = () =>
 
     const rates = exchangeRateSchema.parse(rateRequest.data)
 
-    logger.debug("loaded rates", {
+    logger.debug?.("loaded rates", {
       baseCurrency: rates.data.currency,
       currencyCount: Object.keys(rates.data.rates).length,
     })

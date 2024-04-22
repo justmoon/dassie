@@ -26,7 +26,7 @@ export const SendAsyncPrepare = (reactor: Reactor) => {
     url,
     requestId,
   }: IlpHttpAsyncRequestParameters) {
-    logger.debug("send ilp-http prepare", { packet })
+    logger.debug?.("send ilp-http prepare", { packet })
     await axios<Buffer>(url, {
       method: "POST",
       data: packet,

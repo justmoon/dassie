@@ -29,7 +29,7 @@ export const paymentRouter = createRouter({
       ({ input: { paymentId, paymentPointer, amount }, context: { sig } }) => {
         // TODO: Validate paymentId length
         // TODO: Verify paymentId is unique
-        logger.debug("creating payment", { paymentPointer, amount })
+        logger.debug?.("creating payment", { paymentPointer, amount })
         const spspPaymentQueue = sig.reactor.use(SpspPaymentQueueStore)
         spspPaymentQueue.addPayment({
           id: paymentId,

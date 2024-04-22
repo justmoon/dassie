@@ -66,7 +66,7 @@ export const RegisterBtpHttpUpgradeActor = (reactor: DassieReactor) => {
             accountPath: `${ownerLedgerIdSignal.read()}:equity/owner`,
           }
 
-          logger.debug("handle BTP websocket connection", { connectionId })
+          logger.debug?.("handle BTP websocket connection", { connectionId })
 
           const handleDataOnUnauthenticatedConnection = (
             message: Uint8Array,
@@ -180,7 +180,7 @@ export const RegisterBtpHttpUpgradeActor = (reactor: DassieReactor) => {
                 return
               }
 
-              logger.debug("received valid BTP auth packet")
+              logger.debug?.("received valid BTP auth packet")
 
               const serializedResponse = btpMessageSchema.serializeOrThrow({
                 protocolData: [],
@@ -207,7 +207,7 @@ export const RegisterBtpHttpUpgradeActor = (reactor: DassieReactor) => {
           const handleDataOnAuthenticatedConnection = (message: Uint8Array) => {
             const messageResult = btpEnvelopeSchema.parse(message)
             if (isFailure(messageResult)) {
-              logger.debug("failed to parse BTP message envelope", {
+              logger.debug?.("failed to parse BTP message envelope", {
                 // eslint-disable-next-line @typescript-eslint/no-base-to-string
                 message: uint8ArrayToHex(message),
                 error: messageResult,
@@ -216,7 +216,7 @@ export const RegisterBtpHttpUpgradeActor = (reactor: DassieReactor) => {
             }
 
             const btpMessage = messageResult.value
-            logger.debug("received BTP message", {
+            logger.debug?.("received BTP message", {
               type: btpMessage.messageType,
             })
 
@@ -227,7 +227,7 @@ export const RegisterBtpHttpUpgradeActor = (reactor: DassieReactor) => {
                 )
 
                 if (isFailure(messageParseResult)) {
-                  logger.debug("failed to parse BTP message payload", {
+                  logger.debug?.("failed to parse BTP message payload", {
                     error: messageParseResult,
                   })
                   return
@@ -238,7 +238,7 @@ export const RegisterBtpHttpUpgradeActor = (reactor: DassieReactor) => {
                     ({ protocolName }) => protocolName === "auth",
                   )
                 ) {
-                  logger.debug(
+                  logger.debug?.(
                     "received BTP auth packet on already authenticated connection, closing connection",
                   )
                   websocket.close()
@@ -248,7 +248,7 @@ export const RegisterBtpHttpUpgradeActor = (reactor: DassieReactor) => {
                 for (const protocolData of messageParseResult.value
                   .protocolData) {
                   if (protocolData.protocolName === "ilp") {
-                    logger.debug("received ILP packet via BTP message")
+                    logger.debug?.("received ILP packet via BTP message")
                     processPacket({
                       sourceEndpointInfo: endpointInfo,
                       serializedPacket: protocolData.data,
@@ -268,7 +268,7 @@ export const RegisterBtpHttpUpgradeActor = (reactor: DassieReactor) => {
                 )
 
                 if (isFailure(transferParseResult)) {
-                  logger.debug("failed to parse BTP transfer payload", {
+                  logger.debug?.("failed to parse BTP transfer payload", {
                     error: transferParseResult,
                   })
                   return
@@ -277,7 +277,7 @@ export const RegisterBtpHttpUpgradeActor = (reactor: DassieReactor) => {
                 for (const protocolData of transferParseResult.value
                   .protocolData) {
                   if (protocolData.protocolName === "ilp") {
-                    logger.debug("received ILP packet via BTP transfer")
+                    logger.debug?.("received ILP packet via BTP transfer")
 
                     processPacket({
                       sourceEndpointInfo: endpointInfo,
@@ -297,7 +297,7 @@ export const RegisterBtpHttpUpgradeActor = (reactor: DassieReactor) => {
                 )
 
                 if (isFailure(responseParseResult)) {
-                  logger.debug("failed to parse BTP response payload", {
+                  logger.debug?.("failed to parse BTP response payload", {
                     error: responseParseResult,
                   })
                   return
@@ -306,7 +306,7 @@ export const RegisterBtpHttpUpgradeActor = (reactor: DassieReactor) => {
                 for (const protocolData of responseParseResult.value
                   .protocolData) {
                   if (protocolData.protocolName === "ilp") {
-                    logger.debug("received ILP packet via BTP response")
+                    logger.debug?.("received ILP packet via BTP response")
                     processPacket({
                       sourceEndpointInfo: endpointInfo,
                       serializedPacket: protocolData.data,

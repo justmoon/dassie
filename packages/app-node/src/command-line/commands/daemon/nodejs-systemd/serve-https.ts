@@ -27,7 +27,7 @@ export const ServeHttpsActor = (reactor: SystemdReactor) => {
     SOCKET_ACTIVATION_NAME_HTTPS,
   )
 
-  logger.debug("using socket activation for https server", {
+  logger.debug?.("using socket activation for https server", {
     fileDescriptors,
   })
 
@@ -44,7 +44,7 @@ export const ServeHttpsActor = (reactor: SystemdReactor) => {
     )
 
     if (!tlsWebCert || !tlsWebKey) {
-      logger.debug(
+      logger.debug?.(
         "certificate is not yet available, unable to handle https requests",
       )
       return

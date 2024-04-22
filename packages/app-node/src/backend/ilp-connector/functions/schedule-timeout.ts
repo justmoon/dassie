@@ -23,7 +23,7 @@ export const ScheduleTimeout = (reactor: DassieReactor) => {
     reactor.base.time
       .timeout(5000, { signal: timeoutAbort.signal })
       .then(() => {
-        logger.debug("ILP packet timed out", { requestId })
+        logger.debug?.("ILP packet timed out", { requestId })
         triggerLateRejection({
           sourceEndpointInfo,
           requestId,
