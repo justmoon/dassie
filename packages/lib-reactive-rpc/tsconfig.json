@@ -6,5 +6,16 @@
   ],
   "compilerOptions": {
     "outDir": "dist"
-  }
+  },
+  "references": [
+    {
+      "path": "../lib-reactive"
+    },
+    {
+      "path": "../lib-rpc"
+    },
+    {
+      "path": "../lib-rpc-react"
+    }
+  ]
 }

@@ -1,8 +1,16 @@
 {
   "extends": "@dassie/meta-tsconfig/nextjs.json",
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
-  "exclude": ["next.config.js", "dist"],
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx"
+  ],
+  "exclude": [
+    "next.config.js",
+    "dist"
+  ],
   "compilerOptions": {
     "outDir": "dist"
-  }
+  },
+  "references": []
 }

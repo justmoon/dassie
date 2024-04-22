@@ -5,5 +5,13 @@
   ],
   "compilerOptions": {
     "outDir": "dist"
-  }
+  },
+  "references": [
+    {
+      "path": "../lib-reactive"
+    },
+    {
+      "path": "../lib-type-utils"
+    }
+  ]
 }

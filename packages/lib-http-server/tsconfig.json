@@ -5,5 +5,16 @@
   ],
   "compilerOptions": {
     "outDir": "dist"
-  }
+  },
+  "references": [
+    {
+      "path": "../lib-oer"
+    },
+    {
+      "path": "../lib-reactive"
+    },
+    {
+      "path": "../lib-type-utils"
+    }
+  ]
 }

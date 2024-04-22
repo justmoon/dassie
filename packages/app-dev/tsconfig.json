@@ -7,5 +7,43 @@
   ],
   "compilerOptions": {
     "outDir": "dist"
-  }
+  },
+  "references": [
+    {
+      "path": "../app-node"
+    },
+    {
+      "path": "../lib-http-server"
+    },
+    {
+      "path": "../lib-itergen-utils"
+    },
+    {
+      "path": "../lib-logger"
+    },
+    {
+      "path": "../lib-oer"
+    },
+    {
+      "path": "../lib-reactive"
+    },
+    {
+      "path": "../lib-reactive-io"
+    },
+    {
+      "path": "../lib-reactive-rpc"
+    },
+    {
+      "path": "../lib-rpc"
+    },
+    {
+      "path": "../lib-rpc-react"
+    },
+    {
+      "path": "../lib-sqlite"
+    },
+    {
+      "path": "../lib-type-utils"
+    }
+  ]
 }
