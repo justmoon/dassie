@@ -22,6 +22,7 @@ export interface PromptTheme {
     checked: UnicodeWithFallback
     unchecked: UnicodeWithFallback
   }
+  spinner: UnicodeWithFallback[]
 }
 
 export const DEFAULT_THEME = {
@@ -51,4 +52,5 @@ export const DEFAULT_THEME = {
     checked: ["☑", "[x]"],
     unchecked: ["☐", "[ ]"],
   },
+  spinner: ["⣏", "⡟", "⠿", "⢻", "⣹", "⣼", "⣶", "⣧"],
 } as const satisfies PromptTheme

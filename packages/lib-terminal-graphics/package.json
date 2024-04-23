@@ -22,8 +22,10 @@
     "@types/wcwidth": "^1.0.2"
   },
   "dependencies": {
+    "@dassie/lib-reactive": "workspace:^",
     "chalk": "^5.3.0",
     "cli-cursor": "^4.0.0",
+    "immer": "^10.0.3",
     "is-unicode-supported": "^2.0.0",
     "strip-ansi": "^7.1.0",
     "wcwidth": "^1.0.1",

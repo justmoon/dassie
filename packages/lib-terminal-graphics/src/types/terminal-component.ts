@@ -1,5 +1,7 @@
 import { Key } from "node:readline"
 
+import type { ReadonlySignal } from "@dassie/lib-reactive"
+
 import { RenderEnvironment } from "./render-environment"
 
 export type TerminalComponentState = object
@@ -7,6 +9,20 @@ export type TerminalComponentState = object
 export interface StaticTerminalComponent {
   type: "static"
   render(environment: RenderEnvironment): string[]
+}
+
+export interface DynamicTerminalComponent<
+  TState extends TerminalComponentState = TerminalComponentState,
+  TSignal extends ReadonlySignal<TState> = ReadonlySignal<TState>,
+> {
+  type: "dynamic"
+  state: TSignal
+  refreshInterval: number
+  render(
+    state: TState,
+    isFinal: boolean,
+    environment: RenderEnvironment,
+  ): string[]
 }
 
 export interface InteractiveTerminalComponent<
@@ -23,6 +39,7 @@ export interface InteractiveTerminalComponent<
 
 export type TerminalComponent =
   | StaticTerminalComponent
+  | DynamicTerminalComponent
   | InteractiveTerminalComponent
 
 export type InferComponentResult<TComponent extends TerminalComponent> =

@@ -1,8 +1,14 @@
 {
   "extends": "@dassie/meta-tsconfig/vite-node.json",
-  "include": ["src/**/*.ts"],
+  "include": [
+    "src/**/*.ts"
+  ],
   "compilerOptions": {
     "outDir": "dist"
   },
-  "references": []
+  "references": [
+    {
+      "path": "../lib-reactive"
+    }
+  ]
 }

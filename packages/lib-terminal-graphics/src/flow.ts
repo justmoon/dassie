@@ -3,11 +3,14 @@ import cursor from "cli-cursor"
 import process, { stdin, stdout } from "node:process"
 import { ReadStream, WriteStream } from "node:tty"
 
+import { createLifecycleScope } from "@dassie/lib-reactive"
+
 import { Canceled } from "./canceled"
 import { countLines } from "./functions/count-lines"
 import { createInputReader } from "./input-reader"
 import { DEFAULT_THEME, PromptTheme } from "./theme"
 import {
+  type DynamicTerminalComponent,
   InferComponentResult,
   InteractiveTerminalComponent,
   StaticTerminalComponent,
@@ -54,11 +57,56 @@ export const createFlow = ({
     show(component: StaticTerminalComponent): void {
       if (previousOutput) {
         throw new Error(
-          "Cannot render a static component while an interactive component is active",
+          "Cannot render a new component while an interactive or dynamic component is active",
         )
       }
 
       render(component.render(getRenderEnvironment()))
+      previousOutput = undefined
+    },
+
+    async attach<TComponent extends DynamicTerminalComponent>(
+      component: TComponent,
+      activity: (state: TComponent["state"]) => Promise<void>,
+    ): Promise<void> {
+      if (previousOutput) {
+        throw new Error(
+          "Cannot render another interactive component until the previous one is finished",
+        )
+      }
+
+      let isFinal = false
+
+      function update() {
+        render(
+          component.render(
+            component.state.read(),
+            isFinal,
+            getRenderEnvironment(),
+          ),
+        )
+      }
+
+      const lifecycle = createLifecycleScope("dynamic step")
+
+      component.state.on({ lifecycle }, update)
+
+      const interval =
+        component.refreshInterval > 0
+          ? setInterval(update, component.refreshInterval)
+          : undefined
+
+      update()
+      await activity(component.state)
+
+      await lifecycle.dispose()
+
+      if (interval) clearInterval(interval)
+
+      isFinal = true
+      update()
+
+      cursor.show(outputStream)
       previousOutput = undefined
     },
 
