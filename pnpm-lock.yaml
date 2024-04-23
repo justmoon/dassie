@@ -891,9 +891,22 @@ importers:
 
   packages/meta-incremental-check:
     dependencies:
+      '@dassie/lib-terminal-graphics':
+        specifier: workspace:^
+        version: link:../lib-terminal-graphics
       ignore:
         specifier: ^5.3.1
         version: 5.3.1
+    devDependencies:
+      '@dassie/eslint-config':
+        specifier: workspace:^
+        version: link:../meta-eslint-config
+      '@dassie/meta-tsconfig':
+        specifier: workspace:^
+        version: link:../meta-tsconfig
+      '@types/eslint':
+        specifier: ^8.56.10
+        version: 8.56.10
 
   packages/meta-tsconfig:
     devDependencies:
@@ -3786,6 +3799,13 @@ packages:
     dependencies:
       '@types/ms': 0.7.34
     dev: false
+
+  /@types/eslint@8.56.10:
+    resolution: {integrity: sha512-Shavhk87gCtY2fhXDctcfS3e6FdxWkCx1iUZ9eEUbh7rTqlZT0/IzOkCOVt0fCjcFuZ9FPYfuezTBImfHCDBGQ==}
+    dependencies:
+      '@types/estree': 1.0.5
+      '@types/json-schema': 7.0.15
+    dev: true
 
   /@types/estree-jsx@1.0.5:
     resolution: {integrity: sha512-52CcUVNFyfb1A2ALocQw/Dd1BQFNmSdkuC3BkZ6iqhdMfQz7JWOFRuJFloOzjk+6WijU56m9oKXFAXc7o3Towg==}

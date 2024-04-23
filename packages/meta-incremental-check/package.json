@@ -6,9 +6,19 @@
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "bin": {
-    "incremental-check": "./scripts/check.js"
+    "incremental-check": "./src/scripts/check.ts"
+  },
+  "scripts": {
+    "lint": "eslint --color .",
+    "typecheck": "tsc --pretty"
   },
   "dependencies": {
+    "@dassie/lib-terminal-graphics": "workspace:^",
     "ignore": "^5.3.1"
+  },
+  "devDependencies": {
+    "@dassie/eslint-config": "workspace:^",
+    "@dassie/meta-tsconfig": "workspace:^",
+    "@types/eslint": "^8.56.10"
   }
 }

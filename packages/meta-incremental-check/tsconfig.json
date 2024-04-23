@@ -1,0 +1,14 @@
+{
+  "extends": "@dassie/meta-tsconfig/vite-node.json",
+  "include": [
+    "src/**/*.ts"
+  ],
+  "compilerOptions": {
+    "outDir": "dist"
+  },
+  "references": [
+    {
+      "path": "../lib-terminal-graphics"
+    }
+  ]
+}
