@@ -54,11 +54,17 @@ export const createFlow = ({
   })
 
   return {
-    show(component: StaticTerminalComponent): void {
+    show(component: StaticTerminalComponent | string): void {
       if (previousOutput) {
         throw new Error(
           "Cannot render a new component while an interactive or dynamic component is active",
         )
+      }
+
+      if (typeof component === "string") {
+        render([component])
+        previousOutput = undefined
+        return
       }
 
       render(component.render(getRenderEnvironment()))
