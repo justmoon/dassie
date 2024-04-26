@@ -24,14 +24,20 @@ export interface FlowOptions {
 
 export type Flow = ReturnType<typeof createFlow>
 
+interface ActiveComponent {
+  render: () => void
+  clear: () => void
+}
+
 export const createFlow = ({
   inputStream = stdin,
   outputStream = stdout,
   theme = DEFAULT_THEME,
 }: FlowOptions = {}) => {
-  let previousOutput: string | undefined
-  const render = (chunks: readonly string[]) => {
-    if (previousOutput && outputStream.isTTY) {
+  let activeComponent: ActiveComponent | undefined
+
+  const clear = (previousOutput: string) => {
+    if (outputStream.isTTY) {
       outputStream.cursorTo(0)
       const previousLines = countLines(previousOutput, outputStream.columns)
       for (let index = 0; index < previousLines; index++) {
@@ -41,11 +47,13 @@ export const createFlow = ({
         outputStream.clearLine(0)
       }
     }
+  }
 
+  const render = (chunks: readonly string[]) => {
     const concatenatedOutput = chunks.join("")
     outputStream.write(concatenatedOutput)
 
-    previousOutput = concatenatedOutput
+    return concatenatedOutput
   }
 
   const getRenderEnvironment = () => ({
@@ -55,42 +63,53 @@ export const createFlow = ({
 
   return {
     show(component: StaticTerminalComponent | string): void {
-      if (previousOutput) {
-        throw new Error(
-          "Cannot render a new component while an interactive or dynamic component is active",
-        )
-      }
+      activeComponent?.clear()
 
       if (typeof component === "string") {
         render([component])
-        previousOutput = undefined
         return
       }
 
       render(component.render(getRenderEnvironment()))
-      previousOutput = undefined
+      activeComponent?.render()
     },
 
     async attach<TComponent extends DynamicTerminalComponent>(
       component: TComponent,
       activity: (state: TComponent["state"]) => Promise<void>,
     ): Promise<void> {
-      if (previousOutput) {
+      if (activeComponent) {
         throw new Error(
           "Cannot render another interactive component until the previous one is finished",
         )
       }
 
       let isFinal = false
+      let previousOutput: string | undefined
 
-      function update() {
-        render(
+      function renderComponent() {
+        previousOutput = render(
           component.render(
             component.state.read(),
             isFinal,
             getRenderEnvironment(),
           ),
         )
+      }
+
+      function clearComponent() {
+        if (previousOutput) clear(previousOutput)
+        previousOutput = undefined
+      }
+
+      activeComponent = {
+        render: renderComponent,
+        clear: clearComponent,
+      }
+
+      function update() {
+        clearComponent()
+        renderComponent()
       }
 
       const lifecycle = createLifecycleScope("dynamic step")
@@ -113,24 +132,41 @@ export const createFlow = ({
       update()
 
       cursor.show(outputStream)
-      previousOutput = undefined
+      activeComponent = undefined
     },
 
     async interact<TComponent extends InteractiveTerminalComponent>(
       component: TComponent,
     ): Promise<InferComponentResult<TComponent> | Canceled> {
-      if (previousOutput) {
+      if (activeComponent) {
         throw new Error(
           "Cannot render another interactive component until the previous one is finished",
         )
       }
 
       let state = component.initialState
-
-      render(component.render(state, getRenderEnvironment()))
+      let previousOutput: string | undefined
 
       if (component.isFinal(state)) {
         return component.result(state) as InferComponentResult<TComponent>
+      }
+
+      function renderComponent() {
+        previousOutput = render(component.render(state, getRenderEnvironment()))
+      }
+
+      function clearComponent() {
+        if (previousOutput) clear(previousOutput)
+      }
+
+      activeComponent = {
+        render: renderComponent,
+        clear: clearComponent,
+      }
+
+      function update() {
+        clearComponent()
+        renderComponent()
       }
 
       cursor.hide(outputStream)
@@ -157,7 +193,7 @@ export const createFlow = ({
           }
 
           state = component.update(state, key)
-          render(component.render(state, getRenderEnvironment()))
+          update()
 
           // We handle the cancel key after we have sent it to the component in
           // case the component wants to change its state in response to it.
@@ -172,19 +208,16 @@ export const createFlow = ({
         cursor.show(outputStream)
       }
 
-      previousOutput = undefined
+      activeComponent = undefined
       return component.result(state) as InferComponentResult<TComponent>
     },
 
     emptyLine(count: number = 1) {
-      if (previousOutput) {
-        throw new Error(
-          "Cannot render an empty line until the current interactive component is finished",
-        )
-      }
+      activeComponent?.clear()
 
       render(["\n".repeat(count)])
-      previousOutput = undefined
+
+      activeComponent?.render()
     },
   }
 }
