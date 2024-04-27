@@ -24,57 +24,50 @@ await flow.attach(tasklist({}), async (state) => {
     progress: "indeterminate",
   })
   await setTimeout(1000)
-  state.updateTask("go-to-work", (task) => ({
-    ...task,
+  state.updateTask("go-to-work", {
     progress: "done",
-  }))
+  })
   state.addTask("drink-coffee", {
     description: "Drink coffee",
     progress: "indeterminate",
   })
   await setTimeout(1000)
-  state.updateTask("drink-coffee", (task) => ({
-    ...task,
+  state.updateTask("drink-coffee", {
     progress: "done",
-  }))
-  state.updateTask("think-coffee", (task) => ({
-    ...task,
+  })
+  state.updateTask("think-coffee", {
     progress: "done",
-  }))
+  })
   state.addTask("eat-lunch", {
     description: "Eat lunch",
     progress: "indeterminate",
   })
   await setTimeout(1000)
-  state.updateTask("eat-lunch", (task) => ({
-    ...task,
+  state.updateTask("eat-lunch", {
     progress: "done",
-  }))
+  })
   state.addTask("go-home", {
     description: "Go home",
     progress: "indeterminate",
   })
   await setTimeout(1000)
-  state.updateTask("go-home", (task) => ({
-    ...task,
+  state.updateTask("go-home", {
     progress: "done",
-  }))
+  })
   state.addTask("eat-dinner", {
     description: "Eat dinner",
     progress: "indeterminate",
   })
   await setTimeout(1000)
-  state.updateTask("eat-dinner", (task) => ({
-    ...task,
+  state.updateTask("eat-dinner", {
     progress: "done",
-  }))
+  })
   state.addTask("go-bed", {
     description: "Go to bed",
     progress: "indeterminate",
   })
   await setTimeout(1000)
-  state.updateTask("go-bed", (task) => ({
-    ...task,
+  state.updateTask("go-bed", {
     progress: "done",
-  }))
+  })
 })

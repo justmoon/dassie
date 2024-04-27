@@ -40,11 +40,19 @@ export const tasklist = ({
       produce((draft) => {
         draft.tasks.set(taskId, initialState)
       }),
-    updateTask: (taskId: string, update: (state: TaskState) => TaskState) =>
+    updateTask: (
+      taskId: string,
+      update: Partial<TaskState> | ((state: TaskState) => TaskState),
+    ) =>
       produce((draft) => {
         const task = draft.tasks.get(taskId)
         if (task) {
-          draft.tasks.set(taskId, update(task))
+          draft.tasks.set(
+            taskId,
+            typeof update === "function"
+              ? update(task)
+              : { ...task, ...update },
+          )
         }
       }),
   })

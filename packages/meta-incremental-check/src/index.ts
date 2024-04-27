@@ -76,10 +76,9 @@ export async function runChecks() {
                 progress: "indeterminate",
               })
             } else {
-              state.updateTask(packageName, (task) => ({
-                ...task,
+              state.updateTask(packageName, {
                 progress: status === "error" ? "error" : "done",
-              }))
+              })
             }
             break
           }
@@ -121,10 +120,9 @@ export async function runChecks() {
                   progress: "indeterminate",
                 })
               } else {
-                state.updateTask(packageName, (task) => ({
-                  ...task,
+                state.updateTask(packageName, {
                   progress: status === "error" ? "error" : "done",
-                }))
+                })
               }
               break
             }
