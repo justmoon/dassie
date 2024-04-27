@@ -1,4 +1,3 @@
-import axios from "axios"
 import { command, flag, option, string } from "cmd-ts"
 import { $ } from "execa"
 
@@ -94,10 +93,8 @@ export const UpdateCommand = (reactor: Reactor) =>
 
           const metaLatestUrl = `${mirrorUrl}/meta/latest`
 
-          const metaLatestResponse = await axios.get<string>(metaLatestUrl, {
-            responseType: "text",
-          })
-          targetVersion = metaLatestResponse.data
+          const metaLatestResponse = await fetch(metaLatestUrl)
+          targetVersion = await metaLatestResponse.text()
         }
 
         const newVersionPath = resolve(superRootPath, targetVersion)

@@ -26,7 +26,6 @@
     "@dassie/lib-reactive": "workspace:^",
     "@dassie/lib-terminal-graphics": "workspace:^",
     "@dassie/lib-type-utils": "workspace:*",
-    "axios": "^1.6.2",
     "chalk": "^5.3.0",
     "cmd-ts": "^0.13.0",
     "date-fns": "^3.6.0",

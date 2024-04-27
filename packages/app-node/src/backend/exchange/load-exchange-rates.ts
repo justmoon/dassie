@@ -1,4 +1,3 @@
-import axios from "axios"
 import { z } from "zod"
 
 import { createActor } from "@dassie/lib-reactive"
@@ -26,9 +25,9 @@ export const LoadExchangeRatesActor = () =>
       "exchangeRateUrl",
     ])
 
-    const rateRequest = await axios(exchangeRateUrl)
+    const rateRequest = await fetch(exchangeRateUrl)
 
-    const rates = exchangeRateSchema.parse(rateRequest.data)
+    const rates = exchangeRateSchema.parse(await rateRequest.json())
 
     logger.debug?.("loaded rates", {
       baseCurrency: rates.data.currency,

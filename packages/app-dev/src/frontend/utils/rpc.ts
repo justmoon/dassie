@@ -1,4 +1,3 @@
-import { AxiosError } from "axios"
 import superjson, { registerClass } from "superjson"
 
 import {
@@ -8,11 +7,11 @@ import {
 
 import type { UiRpcRouter } from "../../backend/rpc-routers/ui-rpc-router"
 
+registerClass(TypeError, {
+  allowProps: ["message", "stack", "cause"],
+})
 registerClass(AggregateError, {
   allowProps: ["errors", "message", "stack", "cause"],
-})
-registerClass(AxiosError, {
-  allowProps: ["code", "errors", "message", "name", "config", "cause"],
 })
 
 export const { rpc, RpcProvider, useWebSocketClient } =

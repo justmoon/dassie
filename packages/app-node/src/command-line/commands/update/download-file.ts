@@ -1,19 +1,19 @@
-import axios from "axios"
-
 import { createWriteStream } from "node:fs"
+import { Readable } from "node:stream"
 import { pipeline } from "node:stream/promises"
+import type { ReadableStream } from "node:stream/web"
 
 export const downloadFile = async (
   url: string,
   localDestinationPath: string,
 ) => {
-  const response = await axios({
-    method: "get",
-    url,
-    responseType: "stream",
-  })
+  const response = await fetch(url)
 
-  const writer = createWriteStream(localDestinationPath)
+  const writeStream = createWriteStream(localDestinationPath)
 
-  await pipeline(response.data, writer)
+  if (!response.body) {
+    throw new Error("Response body is empty")
+  }
+
+  await pipeline(Readable.fromWeb(response.body as ReadableStream), writeStream)
 }

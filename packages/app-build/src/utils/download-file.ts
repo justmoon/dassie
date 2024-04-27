@@ -1,10 +1,10 @@
-import axios from "axios"
-
 import { createHash } from "node:crypto"
 import { createReadStream, createWriteStream } from "node:fs"
 import { copyFile, mkdir, unlink } from "node:fs/promises"
 import { basename, resolve } from "node:path"
+import { Readable } from "node:stream"
 import { pipeline } from "node:stream/promises"
+import type { ReadableStream } from "node:stream/web"
 
 import { VERIFIED_HASHES } from "../constants/hashes"
 import { PATH_CACHE } from "../constants/paths"
@@ -53,15 +53,15 @@ export const downloadFile = async (
     // Ignore errors
   }
 
-  const response = await axios({
-    method: "get",
-    url,
-    responseType: "stream",
-  })
+  const response = await fetch(url)
 
   const writer = createWriteStream(cacheFilePath)
 
-  await pipeline(response.data, writer)
+  if (!response.body) {
+    throw new Error("Response body is empty")
+  }
+
+  await pipeline(Readable.fromWeb(response.body as ReadableStream), writer)
 
   {
     const hasher = createHash("sha256")

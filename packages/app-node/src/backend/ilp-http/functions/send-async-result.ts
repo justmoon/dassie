@@ -1,5 +1,3 @@
-import axios from "axios"
-
 import { ilpHttp as logger } from "../../logger/instances"
 import { ILP_OVER_HTTP_CONTENT_TYPE } from "../constants/content-type"
 
@@ -21,15 +19,14 @@ async function sendAsyncResult({
   requestId,
 }: IlpHttpAsyncResponseParameters) {
   logger.debug?.("send ilp-http result", { packet })
-  await axios<Buffer>(callbackUrl, {
+  await fetch(callbackUrl, {
     method: "POST",
-    data: packet,
+    body: packet,
     headers: {
       accept: ILP_OVER_HTTP_CONTENT_TYPE,
       "content-type": ILP_OVER_HTTP_CONTENT_TYPE,
       "request-id": requestId,
     },
-    responseType: "arraybuffer",
   })
 }
 

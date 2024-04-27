@@ -44,7 +44,6 @@
     "@types/ws": "^8.5.10",
     "acme-client": "^5.0.0",
     "anser": "^2.1.1",
-    "axios": "^1.6.2",
     "better-sqlite3": "^9.2.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",

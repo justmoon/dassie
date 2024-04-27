@@ -1,5 +1,3 @@
-import axios from "axios"
-
 import { Reactor } from "@dassie/lib-reactive"
 
 import { DatabaseConfigStore } from "../../config/database-config"
@@ -27,9 +25,9 @@ export const SendAsyncPrepare = (reactor: Reactor) => {
     requestId,
   }: IlpHttpAsyncRequestParameters) {
     logger.debug?.("send ilp-http prepare", { packet })
-    await axios<Buffer>(url, {
+    await fetch(url, {
       method: "POST",
-      data: packet,
+      body: packet,
       headers: {
         accept: ILP_OVER_HTTP_CONTENT_TYPE,
         "content-type": ILP_OVER_HTTP_CONTENT_TYPE,
@@ -40,7 +38,6 @@ export const SendAsyncPrepare = (reactor: Reactor) => {
         }/ilp/callback}`,
         authorization: "Bearer test-USD",
       },
-      responseType: "arraybuffer",
     })
   }
 

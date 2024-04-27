@@ -71,9 +71,6 @@ importers:
       '@dassie/lib-type-utils':
         specifier: workspace:*
         version: link:../lib-type-utils
-      axios:
-        specifier: ^1.6.2
-        version: 1.6.8(debug@4.3.4)
       chalk:
         specifier: ^5.3.0
         version: 5.3.0
@@ -173,9 +170,6 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^4.2.0
         version: 4.2.1(vite@5.2.7)
-      axios:
-        specifier: ^1.6.2
-        version: 1.6.8(debug@4.3.4)
       chalk:
         specifier: ^5.3.0
         version: 5.3.0
@@ -384,9 +378,6 @@ importers:
       anser:
         specifier: ^2.1.1
         version: 2.1.1
-      axios:
-        specifier: ^1.6.2
-        version: 1.6.8(debug@4.3.4)
       better-sqlite3:
         specifier: ^9.2.0
         version: 9.4.3

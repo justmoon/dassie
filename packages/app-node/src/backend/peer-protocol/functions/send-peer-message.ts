@@ -1,13 +1,8 @@
-import axios from "axios"
 import type { SetOptional } from "type-fest"
 
 import type { Infer, InferSerialize } from "@dassie/lib-oer"
 import { createTopic } from "@dassie/lib-reactive"
-import {
-  bufferToUint8Array,
-  isErrorWithCode,
-  isFailure,
-} from "@dassie/lib-type-utils"
+import { bufferToUint8Array, isFailure } from "@dassie/lib-type-utils"
 
 import { DassieReactor } from "../../base/types/dassie-base"
 import { EnvironmentConfig } from "../../config/environment-config"
@@ -23,6 +18,7 @@ import {
 } from "../peer-schema"
 import { NodeTableStore } from "../stores/node-table"
 import { NodeId } from "../types/node-id"
+import { isConnectionRefusedError } from "../utils/is-connection-refused-error"
 import { GenerateMessageAuthentication } from "./generate-message-authentication"
 import {
   HandlePeerMessage,
@@ -134,24 +130,25 @@ export const SendPeerMessage = (reactor: DassieReactor) => {
       return responseMessage
     }
 
-    const result = await axios<Buffer>(`${contactInfo.url}/peer`, {
+    const controller = new AbortController()
+    const timeoutTimer = reactor.base.time.setTimeout(
+      () => controller.abort(),
+      timeout ?? DEFAULT_NODE_COMMUNICATION_TIMEOUT,
+    )
+
+    const result = await fetch(`${contactInfo.url}/peer`, {
       method: "POST",
-      data: message,
+      body: message,
       headers: {
         accept: DASSIE_MESSAGE_CONTENT_TYPE,
         "content-type": DASSIE_MESSAGE_CONTENT_TYPE,
       },
-      responseType: "arraybuffer",
-      timeout: timeout ?? DEFAULT_NODE_COMMUNICATION_TIMEOUT,
+      signal: controller.signal,
     })
 
-    const resultUint8Array = new Uint8Array(
-      result.data.buffer,
-      result.data.byteOffset,
-      result.data.byteLength,
-    )
+    reactor.base.time.clearTimeout(timeoutTimer)
 
-    return resultUint8Array
+    return new Uint8Array(await result.arrayBuffer())
   }
 
   async function sendPeerMessage<const TMessageType extends PeerMessageType>(
@@ -217,7 +214,7 @@ export const SendPeerMessage = (reactor: DassieReactor) => {
 
       return response.value as Infer<typeof responseSchema>
     } catch (error) {
-      if (isErrorWithCode(error, "ECONNREFUSED")) {
+      if (isConnectionRefusedError(error)) {
         logger.warn(
           "failed to send message, connection refused, the node may be offline",
           {
