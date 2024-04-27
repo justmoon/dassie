@@ -1,6 +1,9 @@
-import chalk from "chalk"
-
-import { createFlow, header, note } from "@dassie/lib-terminal-graphics"
+import {
+  createFlow,
+  header,
+  note,
+  tasklist,
+} from "@dassie/lib-terminal-graphics"
 
 import {
   Architecture,
@@ -53,20 +56,44 @@ export const buildBundle = async ({
 
   for (const architecture of architectures) {
     flow.show(note({ title: `Building bundles for ${architecture}` }))
-    console.info(chalk.dim(` … ${getTarFilename(version, architecture)}`))
-    await downloadNodeJs(architecture)
-    await downloadBetterSqlite3(architecture)
-    await copyFilesIntoBundle(version, architecture)
-    await tarBundle(version, architecture)
 
-    for (const compression of SUPPORTED_COMPRESSIONS) {
-      console.info(
-        chalk.dim(
-          ` … ${getCompressedFilename(version, architecture, compression)}`,
-        ),
-      )
-      await compressBundle(version, architecture, compression)
-    }
+    await flow.attach(tasklist({}), async (state) => {
+      {
+        const filename = getTarFilename(version, architecture)
+        state.addTask(filename, {
+          description: filename,
+          progress: "indeterminate",
+        })
+
+        await downloadNodeJs(architecture)
+        await downloadBetterSqlite3(architecture)
+        await copyFilesIntoBundle(version, architecture)
+        await tarBundle(version, architecture)
+
+        state.updateTask(filename, {
+          progress: "done",
+        })
+      }
+
+      for (const compression of SUPPORTED_COMPRESSIONS) {
+        const filename = getCompressedFilename(
+          version,
+          architecture,
+          compression,
+        )
+
+        state.addTask(filename, {
+          description: filename,
+          progress: "indeterminate",
+        })
+
+        await compressBundle(version, architecture, compression)
+
+        state.updateTask(filename, {
+          progress: "done",
+        })
+      }
+    })
   }
 
   flow.show(note({ title: "Copying install script" }))
