@@ -1,4 +1,4 @@
-import { hasAggregatedErrors } from "@dassie/lib-logger"
+import { hasAggregatedErrors, isError } from "@dassie/lib-logger"
 
 import { combine } from "../../utils/class-helper"
 import { DataValue } from "./data-value"
@@ -117,9 +117,12 @@ export const PrimaryError = ({ error }: PrimaryErrorProperties) => {
       {"cause" in error &&
         error.cause &&
         error !== error.cause &&
-        !hasAggregatedErrors(error) && (
+        !hasAggregatedErrors(error) &&
+        (isError(error.cause) ? (
+          <PrimaryError error={error.cause} />
+        ) : (
           <DataValue keyName="cause" content={error.cause} />
-        )}
+        ))}
       {hasAggregatedErrors(error) &&
         error.errors.map((error, index) => (
           <PrimaryError key={index} error={error} />
