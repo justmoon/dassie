@@ -151,7 +151,7 @@ export const generateNodeConfig = ((
       }
     }),
     settlementMethods: completeNodeSettings.settlementMethods,
-    url: `https://${id}.localhost:${port}/`,
+    url: nodeIndexToUrl(index),
     entry: NODE_ENTRYPOINT,
   } as const
 }) satisfies (
