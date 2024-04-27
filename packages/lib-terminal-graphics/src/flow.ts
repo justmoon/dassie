@@ -6,7 +6,12 @@ import { ReadStream, WriteStream } from "node:tty"
 import { createLifecycleScope } from "@dassie/lib-reactive"
 
 import { Canceled } from "./canceled"
+import {
+  CLEAR_REST_OF_SCREEN,
+  CLEAR_TO_END_OF_LINE,
+} from "./constants/ansi-codes"
 import { countLines } from "./functions/count-lines"
+import { commonPrefixLines } from "./helpers/common-prefix-lines"
 import { createInputReader } from "./input-reader"
 import { DEFAULT_THEME, PromptTheme } from "./theme"
 import {
@@ -25,8 +30,8 @@ export interface FlowOptions {
 export type Flow = ReturnType<typeof createFlow>
 
 interface ActiveComponent {
-  render: () => void
-  clear: () => void
+  clear(): string | undefined
+  render(): string
 }
 
 export const createFlow = ({
@@ -36,24 +41,32 @@ export const createFlow = ({
 }: FlowOptions = {}) => {
   let activeComponent: ActiveComponent | undefined
 
-  const clear = (previousOutput: string) => {
-    if (outputStream.isTTY) {
-      outputStream.cursorTo(0)
-      const previousLines = countLines(previousOutput, outputStream.columns)
-      for (let index = 0; index < previousLines; index++) {
-        if (index > 0) {
-          outputStream.moveCursor(0, -1)
-        }
-        outputStream.clearLine(0)
-      }
+  const replace = (
+    previousOutput: string | undefined,
+    newOutput: string,
+  ): void => {
+    if (!outputStream.isTTY || previousOutput === undefined) {
+      outputStream.write(newOutput)
+      return
     }
-  }
 
-  const render = (chunks: readonly string[]) => {
-    const concatenatedOutput = chunks.join("")
-    outputStream.write(concatenatedOutput)
+    const commonLineIndex = commonPrefixLines(previousOutput, newOutput)
 
-    return concatenatedOutput
+    previousOutput = previousOutput.slice(commonLineIndex)
+    newOutput = newOutput.slice(commonLineIndex)
+
+    const previousLineCount = countLines(previousOutput, outputStream.columns)
+
+    outputStream.cursorTo(0)
+    outputStream.moveCursor(0, -previousLineCount + 1)
+
+    const outputLines = newOutput.split("\n")
+    for (const [index, line] of outputLines.entries()) {
+      outputStream.write(line + CLEAR_TO_END_OF_LINE)
+
+      if (index < outputLines.length - 1) outputStream.write("\n")
+    }
+    outputStream.write(CLEAR_REST_OF_SCREEN)
   }
 
   const getRenderEnvironment = () => ({
@@ -61,18 +74,20 @@ export const createFlow = ({
     theme,
   })
 
+  function show(component: StaticTerminalComponent | string): void {
+    const previousOutput = activeComponent?.clear()
+
+    const newOutput =
+      typeof component === "string"
+        ? component
+        : component.render(getRenderEnvironment()).join("") +
+          (activeComponent?.render() ?? "")
+
+    replace(previousOutput, newOutput)
+  }
+
   return {
-    show(component: StaticTerminalComponent | string): void {
-      activeComponent?.clear()
-
-      if (typeof component === "string") {
-        render([component])
-        return
-      }
-
-      render(component.render(getRenderEnvironment()))
-      activeComponent?.render()
-    },
+    show,
 
     async attach<TComponent extends DynamicTerminalComponent>(
       component: TComponent,
@@ -88,18 +103,15 @@ export const createFlow = ({
       let previousOutput: string | undefined
 
       function renderComponent() {
-        previousOutput = render(
-          component.render(
-            component.state.read(),
-            isFinal,
-            getRenderEnvironment(),
-          ),
-        )
+        return (previousOutput = component
+          .render(component.state.read(), isFinal, getRenderEnvironment())
+          .join(""))
       }
 
       function clearComponent() {
-        if (previousOutput) clear(previousOutput)
+        const previousOutputCache = previousOutput
         previousOutput = undefined
+        return previousOutputCache
       }
 
       activeComponent = {
@@ -108,8 +120,7 @@ export const createFlow = ({
       }
 
       function update() {
-        clearComponent()
-        renderComponent()
+        replace(clearComponent(), renderComponent())
       }
 
       const lifecycle = createLifecycleScope("dynamic step")
@@ -152,11 +163,15 @@ export const createFlow = ({
       }
 
       function renderComponent() {
-        previousOutput = render(component.render(state, getRenderEnvironment()))
+        return (previousOutput = component
+          .render(state, getRenderEnvironment())
+          .join(""))
       }
 
       function clearComponent() {
-        if (previousOutput) clear(previousOutput)
+        const previousOutputCache = previousOutput
+        previousOutput = undefined
+        return previousOutputCache
       }
 
       activeComponent = {
@@ -165,8 +180,7 @@ export const createFlow = ({
       }
 
       function update() {
-        clearComponent()
-        renderComponent()
+        replace(clearComponent(), renderComponent())
       }
 
       cursor.hide(outputStream)
@@ -181,7 +195,7 @@ export const createFlow = ({
               cursor.hide(outputStream)
               inputStream.setRawMode(true)
               inputStream.resume()
-              render(component.render(state, getRenderEnvironment()))
+              replace(undefined, renderComponent())
             })
 
             inputStream.setRawMode(false)
@@ -213,11 +227,7 @@ export const createFlow = ({
     },
 
     emptyLine(count: number = 1) {
-      activeComponent?.clear()
-
-      render(["\n".repeat(count)])
-
-      activeComponent?.render()
+      show("\n".repeat(count))
     },
   }
 }
