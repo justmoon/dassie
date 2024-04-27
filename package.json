@@ -14,6 +14,7 @@
     "prettier": "prettier --config .prettierrc.json --write \"packages/*/{src,test}/**/*.ts\"",
     "lint": "pnpm -r lint",
     "typecheck": "tsc --build",
+    "metacheck": "meta-updater --test",
     "api": "extract-apis",
     "web": "pnpm --filter=app-website dev",
     "cli": "vite-node --config packages/app-dev/vite.backend.config.js packages/app-dev/bin/run-dassie-cli.ts --"
