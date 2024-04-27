@@ -1,12 +1,13 @@
 {
   "extends": "@dassie/meta-tsconfig/vite-node.json",
-  "include": [
-    "src/**/*.ts"
-  ],
+  "include": ["**/*.js", "**/*.ts"],
   "compilerOptions": {
     "outDir": "dist"
   },
   "references": [
+    {
+      "path": "../lib-rpc"
+    },
     {
       "path": "../lib-terminal-graphics"
     }

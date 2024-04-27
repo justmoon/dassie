@@ -4,13 +4,7 @@ import ts from "typescript"
 import { readFileSync } from "node:fs"
 import { relative, resolve } from "node:path"
 
-import type { StatusReporter } from "./types/status-reporter"
-
-export type PackagesToBeLinted = Array<{
-  packagePath: string
-  packageName: string
-  sourceFiles: string[]
-}>
+import { printToConsole, reportPackageStatus } from "./utils/report-status"
 
 const PackagePathSymbol = Symbol("PackagePath")
 const PackageNameSymbol = Symbol("PackageName")
@@ -22,6 +16,11 @@ const ignore = createIgnore().add(
   readFileSync(resolve(projectRoot, ".gitignore")).toString(),
 )
 
+const typescriptSystem = {
+  ...ts.sys,
+  write: printToConsole,
+}
+
 declare module "typescript" {
   interface Program {
     [PackagePathSymbol]?: string
@@ -29,17 +28,9 @@ declare module "typescript" {
   }
 }
 
-export function runTypeScriptCompiler(
-  projectPath: string,
-  reportPackage: StatusReporter,
-  print: (message: string) => void,
-) {
-  const typescriptSystem = {
-    ...ts.sys,
-    write: print,
-  }
-
-  const packagesToBeLinted: PackagesToBeLinted = []
+export function runTypeScriptCompiler(projectPath: string) {
+  const packagesToBeLinted: import("./types/packages-to-be-linted").PackagesToBeLinted =
+    []
 
   const host = createCustomSolutionBuilderHost()
   const builder = ts.createSolutionBuilder(host, [projectPath], {
@@ -48,13 +39,14 @@ export function runTypeScriptCompiler(
   })
 
   const buildResult = builder.build()
-  process.exitCode = buildResult
 
   function createCustomSolutionBuilderHost() {
     const host = ts.createSolutionBuilderHost(
       typescriptSystem,
       undefined,
-      ts.createBuilderStatusReporter(typescriptSystem, true),
+      // @ts-expect-error createDiagnosticReporter is not exported for some reason
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call
+      ts.createDiagnosticReporter(typescriptSystem, true),
     )
 
     const originalCreateProgram = host.createProgram
@@ -81,7 +73,7 @@ export function runTypeScriptCompiler(
       program[PackagePathSymbol] = packagePath
       program[PackageNameSymbol] = packageName
 
-      reportPackage(packageName, "start")
+      reportPackageStatus(packageName, "start")
 
       return builderProgram
     }
@@ -97,11 +89,11 @@ export function runTypeScriptCompiler(
       const diagnostics = ts.getPreEmitDiagnostics(program)
 
       if (diagnostics.length > 0) {
-        reportPackage(packageName, "error")
+        reportPackageStatus(packageName, "error")
         return
       }
 
-      reportPackage(packageName, "success")
+      reportPackageStatus(packageName, "success")
 
       const sourceFiles = program
         .getSourceFiles()
@@ -130,5 +122,5 @@ export function runTypeScriptCompiler(
     return host
   }
 
-  return packagesToBeLinted
+  return { packagesToBeLinted, buildResult }
 }
