@@ -10,6 +10,7 @@ export {
   type WebSocketLinkOptions,
 } from "../client/links/websocket"
 export { createNodejsSocketLink } from "../client/links/nodejs-socket"
+export { createNodejsMessagePortLink } from "./links/nodejs-messageport"
 export { createSubscription, type Subscription } from "../common/subscription"
 export type {
   ClientRoute,
