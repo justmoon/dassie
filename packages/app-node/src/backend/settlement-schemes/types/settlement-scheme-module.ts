@@ -26,6 +26,8 @@ export interface SettlementSchemeHostMethods {
   reportDeposit: (parameters: { ledgerId: LedgerId; amount: bigint }) => void
 
   reportWithdrawal: (parameters: { ledgerId: LedgerId; amount: bigint }) => void
+
+  getEntropy: (parameters: { path: string }) => Uint8Array
 }
 
 export interface SettlementSchemeActorMethods<

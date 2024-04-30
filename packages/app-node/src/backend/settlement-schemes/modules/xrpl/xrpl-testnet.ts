@@ -3,7 +3,6 @@ import { Client } from "xrpl"
 import { bufferToUint8Array, isFailure } from "@dassie/lib-type-utils"
 
 import { LedgerId } from "../../../accounting/types/ledger-id"
-import { EnvironmentConfig } from "../../../config/environment-config"
 import { NodeIdSignal } from "../../../ilp-connector/computed/node-id"
 import { settlementXrpl as logger } from "../../../logger/instances"
 import type { SettlementSchemeModule } from "../../types/settlement-scheme-module"
@@ -45,13 +44,11 @@ const xrplTestnet = {
 
   // eslint-disable-next-line unicorn/consistent-function-scoping
   behavior: async ({ sig, host }) => {
-    // TODO: This should probably be stored in the database instead?
-    const { dataPath } = sig.reactor.use(EnvironmentConfig)
     const isSettlement = sig.reactor.use(IsSettlement)
 
-    const xrplWalletPath = `${dataPath}/xrpl-wallet.json`
+    const seed = host.getEntropy({ path: "seed" }).subarray(0, 16)
 
-    const wallet = await loadOrCreateWallet(xrplWalletPath, "test")
+    const wallet = loadOrCreateWallet(seed, "test")
 
     const client = new Client("wss://s.altnet.rippletest.net:51233")
 

@@ -1,6 +1,10 @@
 import { createActor, createMapped } from "@dassie/lib-reactive"
-import { isFailure, tell } from "@dassie/lib-type-utils"
+import { bufferToUint8Array, isFailure, tell } from "@dassie/lib-type-utils"
 
+import {
+  SEED_PATH_SETTLEMENT_MODULE,
+  type SeedPath,
+} from "../../common/constants/seed-paths"
 import { initializeCommonAccounts } from "../accounting/functions/manage-common-accounts"
 import { LedgerStore } from "../accounting/stores/ledger"
 import {
@@ -13,6 +17,8 @@ import {
   DassieReactor,
 } from "../base/types/dassie-base"
 import { DatabaseConfigStore } from "../config/database-config"
+import { NodePrivateKeySignal } from "../crypto/computed/node-private-key"
+import { getPrivateSeedAtPath } from "../crypto/utils/seed-paths"
 import { settlement as logger } from "../logger/instances"
 import { SendPeerMessage } from "../peer-protocol/functions/send-peer-message"
 import { GetLedgerIdForSettlementScheme } from "./functions/get-ledger-id"
@@ -193,6 +199,19 @@ export const ManageSettlementSchemeInstancesActor = (
                 `Could not credit deposit in internal ledger: ${result.name}`,
               )
             }
+          },
+
+          getEntropy: ({ path }) => {
+            if (!path) {
+              throw new Error("Path is required")
+            }
+
+            return bufferToUint8Array(
+              getPrivateSeedAtPath(
+                sig.read(NodePrivateKeySignal),
+                `${SEED_PATH_SETTLEMENT_MODULE}/${settlementSchemeId}/${path}` as SeedPath,
+              ),
+            )
           },
         }
         return module.behavior({ sig, settlementSchemeId, host })

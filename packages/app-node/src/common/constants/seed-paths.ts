@@ -16,3 +16,8 @@ export const SEED_PATH_NODE_LOGIN = "node/login" as SeedPath
  * Deterministic session token used for auto-login during development.
  */
 export const SEED_PATH_DEV_SESSION = "dev/session" as SeedPath
+
+/**
+ * Entropy for settlement methods.
+ */
+export const SEED_PATH_SETTLEMENT_MODULE = "node/settlement-module" as SeedPath
