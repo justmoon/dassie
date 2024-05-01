@@ -17,11 +17,11 @@ import { LoggerActor } from "./logger"
 import { daemon as logger } from "./logger/instances"
 import { OpenPaymentsServerActor } from "./open-payments"
 import { PeerProtocolActor } from "./peer-protocol"
+import { PublicApiServerActor } from "./public-api-server"
 import { RoutingActor } from "./routing"
 import { TrpcServerActor } from "./rpc-server"
 import { SettlementSchemesActor } from "./settlement-schemes"
 import { SpspServerActor } from "./spsp-server"
-import { StatisticsServerActor } from "./statistics"
 
 export const StartTlsDependentServicesActor = () =>
   createActor((sig: DassieActorContext) => {
@@ -58,7 +58,7 @@ export const StartNodeIdentityDependentServicesActor = () =>
     await sig.run(SettlementSchemesActor)
     await sig.run(SpspServerActor)
     sig.run(OpenPaymentsServerActor)
-    sig.run(StatisticsServerActor)
+    sig.run(PublicApiServerActor)
 
     await sig.run(PeerProtocolActor)
     sig.run(RoutingActor)
