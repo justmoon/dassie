@@ -184,6 +184,7 @@ export const createFlow = ({
       }
 
       cursor.hide(outputStream)
+      update()
 
       try {
         const reader = createInputReader({ inputStream })
