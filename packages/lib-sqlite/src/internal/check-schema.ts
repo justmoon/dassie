@@ -24,6 +24,9 @@ export const checkSchema = (
   database: SQLite.Database,
   tables: Record<string, TableDescription>,
 ) => {
+  const escapeValue = (value: unknown): string =>
+    database.prepare("SELECT CAST(? AS TEXT)").pluck().get(value) as string
+
   const actualTables = Object.fromEntries(
     (database.pragma("table_list") as SqliteTableSchema[]).map((table) => [
       table.name,
@@ -82,6 +85,19 @@ export const checkSchema = (
       } else if (!expectedSchema.primaryKey && actualSchema.pk !== 0n) {
         throw new Error(
           `Column "${columnName}" in table "${table.name}" should not be marked PRIMARY KEY but is`,
+        )
+      }
+
+      if (expectedSchema.hasDefault && actualSchema.dflt_value === null) {
+        throw new Error(
+          `Column "${columnName}" in table "${table.name}" should have a default value but doesn't`,
+        )
+      } else if (
+        expectedSchema.hasDefault &&
+        actualSchema.dflt_value !== escapeValue(expectedSchema.defaultValue)
+      ) {
+        throw new Error(
+          `Column "${columnName}" in table "${table.name}" should have a default value of "${escapeValue(expectedSchema.defaultValue)}" but has "${actualSchema.dflt_value}"`,
         )
       }
     }

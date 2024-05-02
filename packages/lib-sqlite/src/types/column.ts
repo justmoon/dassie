@@ -6,6 +6,7 @@ export interface ColumnDescriptionGenerics {
   typescriptType: NonNullable<unknown>
   notNull: boolean
   primaryKey: boolean
+  hasDefault: boolean
 }
 
 export interface DefaultColumnDescriptionGenerics {
@@ -13,6 +14,7 @@ export interface DefaultColumnDescriptionGenerics {
   typescriptType: string
   notNull: false
   primaryKey: false
+  hasDefault: false
 }
 
 export interface ColumnDescription<
@@ -29,6 +31,12 @@ export interface ColumnDescription<
    * Equivalent to `PRIMARY KEY`.
    */
   primaryKey: T["primaryKey"]
+
+  /**
+   * Equivalent to `DEFAULT`.
+   */
+  hasDefault: T["hasDefault"]
+  defaultValue: T["hasDefault"] extends true ? T["typescriptType"] : undefined
 }
 
 export interface ColumnDescriptionBuilder<
@@ -64,6 +72,12 @@ export interface ColumnDescriptionBuilder<
       primaryKey: true
     }
   >
+
+  default(defaultValue: T["typescriptType"]): ColumnDescriptionBuilder<
+    Omit<T, "hasDefault"> & {
+      hasDefault: true
+    }
+  >
 }
 
 export type InferColumnTypescriptType<T extends ColumnDescription> =
@@ -77,6 +91,17 @@ export type InferColumnSqliteType<T extends ColumnDescription> =
         | SqliteToTypescriptTypeMap[TGenerics["sqliteType"]]
         | InferColumnNullable<T>
     : never
+
+export type InferColumnRequired<T extends ColumnDescription> =
+  T extends ColumnDescription<infer TGenerics>
+    ? TGenerics["hasDefault"] extends true
+      ? false
+      : TGenerics["notNull"] extends false
+        ? TGenerics["primaryKey"] extends false
+          ? false
+          : true
+        : true
+    : true
 
 export type InferColumnNullable<T extends ColumnDescription> =
   T extends ColumnDescription<infer TGenerics>

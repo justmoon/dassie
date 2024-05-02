@@ -4,6 +4,7 @@ import { SqliteToTypescriptTypeMap } from ".."
 import {
   AnyColumnDescription,
   ColumnDescription,
+  type InferColumnRequired,
   InferColumnTypescriptType,
 } from "./column"
 
@@ -31,6 +32,16 @@ export interface InferTableDescription<T extends TableOptions = TableOptions>
 
 export type InferRow<T extends TableDescription> = {
   [K in keyof T["columns"]]: InferColumnTypescriptType<T["columns"][K]>
+}
+
+export type InferInsertRow<T extends TableDescription> = {
+  [K in keyof T["columns"] as InferColumnRequired<T["columns"][K]> extends false
+    ? never
+    : K]: InferColumnTypescriptType<T["columns"][K]>
+} & {
+  [K in keyof T["columns"] as InferColumnRequired<T["columns"][K]> extends false
+    ? K
+    : never]?: InferColumnTypescriptType<T["columns"][K]>
 }
 
 export type InferRowSqliteType<T extends TableDescription> = {

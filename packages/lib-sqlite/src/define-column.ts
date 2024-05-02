@@ -12,6 +12,10 @@ const createBuilder = <T extends ColumnDescriptionGenerics>(
   description,
 
   type(type) {
+    if (description.hasDefault) {
+      throw new Error("Cannot change column type after setting a default value")
+    }
+
     const newDescription: ColumnDescription<
       Omit<T, "sqliteType" | "typescriptType"> & {
         sqliteType: typeof type
@@ -20,6 +24,8 @@ const createBuilder = <T extends ColumnDescriptionGenerics>(
     > = {
       ...description,
       type,
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-explicit-any
+      defaultValue: undefined as any,
     }
 
     return createBuilder(newDescription)
@@ -45,6 +51,17 @@ const createBuilder = <T extends ColumnDescriptionGenerics>(
     return createBuilder(newDescription)
   },
 
+  default(value: T["typescriptType"]) {
+    const newDescription: ColumnDescription<
+      Omit<T, "hasDefault"> & { hasDefault: true }
+    > = {
+      ...description,
+      hasDefault: true,
+      defaultValue: value,
+    }
+    return createBuilder(newDescription)
+  },
+
   typescriptType() {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-explicit-any
     return createBuilder(description) as any
@@ -57,5 +74,7 @@ export const column =
       type: "TEXT",
       notNull: false,
       primaryKey: false,
+      hasDefault: false,
+      defaultValue: undefined,
     })
   }

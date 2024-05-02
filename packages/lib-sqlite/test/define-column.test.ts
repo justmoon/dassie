@@ -9,6 +9,8 @@ describe("column schema builder", () => {
 
     expect(example.description).toMatchInlineSnapshot(`
       {
+        "defaultValue": undefined,
+        "hasDefault": false,
         "notNull": false,
         "primaryKey": false,
         "type": "TEXT",
@@ -21,6 +23,8 @@ describe("column schema builder", () => {
 
     expect(example.description).toMatchInlineSnapshot(`
       {
+        "defaultValue": undefined,
+        "hasDefault": false,
         "notNull": false,
         "primaryKey": false,
         "type": "INTEGER",
@@ -33,6 +37,8 @@ describe("column schema builder", () => {
 
     expect(example.description).toMatchInlineSnapshot(`
       {
+        "defaultValue": undefined,
+        "hasDefault": false,
         "notNull": true,
         "primaryKey": false,
         "type": "TEXT",
@@ -45,6 +51,8 @@ describe("column schema builder", () => {
 
     expect(example.description).toMatchInlineSnapshot(`
       {
+        "defaultValue": undefined,
+        "hasDefault": false,
         "notNull": false,
         "primaryKey": true,
         "type": "TEXT",
@@ -57,6 +65,8 @@ describe("column schema builder", () => {
 
     expect(example.description).toMatchInlineSnapshot(`
       {
+        "defaultValue": undefined,
+        "hasDefault": false,
         "notNull": false,
         "primaryKey": false,
         "type": "TEXT",
@@ -71,6 +81,8 @@ describe("column schema builder", () => {
 
     expect(example.description).toMatchInlineSnapshot(`
       {
+        "defaultValue": undefined,
+        "hasDefault": false,
         "notNull": true,
         "primaryKey": true,
         "type": "INTEGER",
@@ -95,11 +107,14 @@ describe("column schema builder", () => {
         typescriptType: BrandedInteger
         notNull: true
         primaryKey: true
+        hasDefault: false
       }>
     >(example)
 
     expect(example.description).toMatchInlineSnapshot(`
       {
+        "defaultValue": undefined,
+        "hasDefault": false,
         "notNull": true,
         "primaryKey": true,
         "type": "INTEGER",

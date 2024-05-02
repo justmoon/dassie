@@ -1,7 +1,7 @@
 import type { Database, RunResult } from "better-sqlite3"
 import { Simplify } from "type-fest"
 
-import type { InferRow, TableDescription } from "../types/table"
+import type { InferInsertRow, InferRow, TableDescription } from "../types/table"
 
 export type BigIntRunResult = RunResult & {
   lastInsertRowid: bigint
@@ -63,7 +63,7 @@ export interface ConnectedTable<TTable extends TableDescription> {
    *
    * @param row - The row to insert.
    */
-  insertOne: (row: Simplify<InferRow<TTable>>) => BigIntRunResult
+  insertOne: (row: Simplify<InferInsertRow<TTable>>) => BigIntRunResult
 
   /**
    * Insert multiple rows into the database.
@@ -74,7 +74,7 @@ export interface ConnectedTable<TTable extends TableDescription> {
    *
    * @param rows - The rows to insert.
    */
-  insertMany: (rows: InferRow<TTable>[]) => InsertManyResult
+  insertMany: (rows: InferInsertRow<TTable>[]) => InsertManyResult
 
   /**
    * Delete rows matching a set of fields.
@@ -127,13 +127,6 @@ export const connectTable = <TTable extends TableDescription>(
   const { name, columns } = tableDescription
 
   const selectAllQuery = database.prepare(`SELECT * FROM ${name}`)
-  const insertQuery = database.prepare(
-    `INSERT INTO ${name} (${Object.keys(columns).join(
-      ", ",
-    )}) VALUES (${Object.keys(columns)
-      .map((key) => `@${key}`)
-      .join(", ")})`,
-  )
 
   const createWhereClause = (
     row: Partial<InferRow<TTable>>,
@@ -164,6 +157,13 @@ export const connectTable = <TTable extends TableDescription>(
       .map((key) => `${key} = @${prefix}${key}`)
       .join(", ")
   }
+
+  const createInsertQuery = (columns: string[]) =>
+    database.prepare(
+      `INSERT INTO ${name} (${columns.join(", ")}) VALUES (${columns
+        .map((key) => `@${key}`)
+        .join(", ")})`,
+    )
 
   /**
    * Prefix all keys in the given record with a given string prefix.
@@ -219,9 +219,15 @@ export const connectTable = <TTable extends TableDescription>(
       return query.run(newValues) as BigIntRunResult
     },
     insertOne: (row) => {
+      const insertQuery = createInsertQuery(Object.keys(row))
       return insertQuery.run(row) as BigIntRunResult
     },
     insertMany: (rows) => {
+      if (rows.length === 0) {
+        return { changes: 0, rowids: [] }
+      }
+
+      const insertQuery = createInsertQuery(Object.keys(rows[0]!))
       const results = database.transaction<(_rows: typeof rows) => RunResult[]>(
         (rows) => {
           return rows.map((row) => insertQuery.run(row))
