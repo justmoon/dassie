@@ -1,5 +1,6 @@
 import { type DatabaseSchema } from "@dassie/lib-sqlite"
 
+import { accountsTable } from "../accounting/database-tables/accounts"
 import { ACME_DATABASE_SCALARS } from "../acme-certificate-manager/schemas/database-scalars"
 import { acmeTokensTable } from "../acme-certificate-manager/tables/acme-tokens"
 import { btpTokensTable } from "../api-keys/database-tables/btp-tokens"
@@ -23,6 +24,7 @@ export const DASSIE_DATABASE_SCHEMA = {
   applicationId: DASSIE_SQLITE_APPLICATION_ID,
   migrations,
   tables: {
+    accounts: accountsTable,
     incomingPayment: incomingPaymentTable,
     settlementSchemes: settlementSchemesTable,
     nodes: nodesTable,

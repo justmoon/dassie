@@ -2,6 +2,7 @@ import { SetOptional, Simplify } from "type-fest"
 
 import { Reactor } from "@dassie/lib-reactive"
 
+import { Database } from "../../database/open-database"
 import { accounting as logger } from "../../logger/instances"
 import PrefixMap from "../../routing/utils/prefix-map"
 import { EXCEEDS_CREDITS_FAILURE } from "../failures/exceeds-credits"
@@ -45,9 +46,43 @@ export const LedgerStore = (reactor: Reactor) => {
   const ledger = new PrefixMap<AccountPath, LedgerAccount>()
   const pendingTransfers = new Set<Transfer>()
 
+  const database = reactor.use(Database)
   const postedTransfersTopic = reactor.use(PostedTransfersTopic)
   const pendingTransfersTopic = reactor.use(PendingTransfersTopic)
   const voidedTransfersTopic = reactor.use(VoidedTransfersTopic)
+
+  function persistPostedTransfer({
+    debitAccount,
+    creditAccount,
+    amount,
+  }: Transfer) {
+    logger.info("persist posted transfer", {
+      debitAccount,
+      creditAccount,
+      amount,
+    })
+    database.transaction(() => {
+      database.executeSync(
+        database.kysely
+          .updateTable("accounts")
+          .where("path", "=", debitAccount)
+          .set((eb) => ({
+            debits_posted: eb("debits_posted", "+", amount),
+          }))
+          .compile(),
+      )
+
+      database.executeSync(
+        database.kysely
+          .updateTable("accounts")
+          .where("path", "=", creditAccount)
+          .set((eb) => ({
+            credits_posted: eb("credits_posted", "+", amount),
+          }))
+          .compile(),
+      )
+    })
+  }
 
   return {
     createAccount: (
@@ -58,16 +93,27 @@ export const LedgerStore = (reactor: Reactor) => {
     ) => {
       const { limit } = options
 
+      const databaseRow = database.tables.accounts.selectFirst({ path })
+
       const account = {
         path,
         debitsPending: 0n,
-        debitsPosted: 0n,
+        debitsPosted: databaseRow?.debits_posted ?? 0n,
         creditsPending: 0n,
-        creditsPosted: 0n,
+        creditsPosted: databaseRow?.credits_posted ?? 0n,
         limit: limit ?? "no_limit",
       }
 
-      logger.debug?.("create account", { path, limit: account.limit })
+      if (!databaseRow) {
+        database.tables.accounts.insertOne({ path })
+      }
+
+      logger.debug?.(databaseRow ? "load account" : "create account", {
+        path,
+        limit: account.limit,
+        debits: account.debitsPosted,
+        credits: account.creditsPosted,
+      })
 
       ledger.set(path, account)
     },
@@ -150,6 +196,8 @@ export const LedgerStore = (reactor: Reactor) => {
         creditAccount.creditsPosted += amount
 
         postedTransfersTopic.emit(transfer as Transfer & { state: "posted" })
+
+        persistPostedTransfer(transfer)
       }
 
       return transfer
@@ -173,6 +221,8 @@ export const LedgerStore = (reactor: Reactor) => {
       creditAccount.creditsPosted += transfer.amount
 
       pendingTransfers.delete(transfer)
+
+      persistPostedTransfer(transfer)
 
       postedTransfersTopic.emit(transfer as Transfer & { state: "posted" })
     },
