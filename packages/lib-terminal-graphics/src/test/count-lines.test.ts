@@ -105,7 +105,7 @@ describe("countLines", (test) => {
   })
 
   test("should correctly measure determinate progress bar", ({ expect }) => {
-    const test = generateDeterminateProgressBar(0.75, 80)
+    const test = generateDeterminateProgressBar(0, 0.75, 80)
     const result = countLines(test, 80)
     expect(result).toBe(1)
   })

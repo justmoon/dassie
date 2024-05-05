@@ -8,10 +8,12 @@ import { indentString } from "../../helpers/indent-string"
 import {
   generateDeterminateProgressBar,
   generateIndeterminateProgressBar,
+  getTick,
 } from "../../helpers/progress-bar"
 import { maybeUnicode } from "../../helpers/unicode-fallback"
 import { StepStyle } from "../../theme"
 import { type DynamicTerminalComponent } from "../../types/terminal-component"
+import { foregroundToBackgroundColor } from "../../utils/foreground-to-background-color"
 
 export interface ProgressOptions {
   style?: StepStyle
@@ -64,14 +66,22 @@ export const progress = ({
         : [
             "\n",
             "\n",
-            chalk[theme.stepStyles[style].color].bgGray(
-              progress === undefined
-                ? generateIndeterminateProgressBar(
-                    Math.floor(Date.now() / 10),
+            progress === undefined
+              ? chalk[
+                  foregroundToBackgroundColor(theme.stepStyles[style].color)
+                ].black(
+                  generateIndeterminateProgressBar(
+                    getTick(Date.now(), refreshInterval),
                     columns,
-                  )
-                : generateDeterminateProgressBar(progress, columns),
-            ),
+                  ),
+                )
+              : chalk[theme.stepStyles[style].color].bgGray(
+                  generateDeterminateProgressBar(
+                    getTick(Date.now(), refreshInterval),
+                    progress,
+                    columns,
+                  ),
+                ),
             "\n",
           ]),
       "\n".repeat(1 + paddingBottom),

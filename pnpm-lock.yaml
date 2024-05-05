@@ -784,6 +784,9 @@ importers:
       is-unicode-supported:
         specifier: ^2.0.0
         version: 2.0.0
+      string-width:
+        specifier: ^7.0.0
+        version: 7.1.0
       strip-ansi:
         specifier: ^7.1.0
         version: 7.1.0

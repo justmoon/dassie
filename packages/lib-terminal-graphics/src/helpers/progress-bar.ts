@@ -1,28 +1,17 @@
 import chalk from "chalk"
 
-import { interpolateBetweenStops } from "../utils/interpolate"
-
-type RgbColor = [r: number, g: number, b: number]
-
-const DEFAULT_GRADIENT: RgbColor[] = [
-  [255, 255, 128],
-  [255, 128, 191],
-  [149, 128, 255],
-]
-const DEFAULT_INDETERMINATE_GRADIENT: RgbColor[] = [
-  [255, 255, 128],
-  [255, 128, 191],
-  [255, 255, 128],
-]
-
 const LEFT_BLOCKS = ["▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"]
-
-function getColorizer(gradient: RgbColor[], relativePosition: number) {
-  let color = interpolateBetweenStops<RgbColor>(gradient, relativePosition)
-  color = color.map((value) => Math.round(value)) as RgbColor
-
-  return chalk.rgb(...color)
-}
+const PULSE = [
+  " ",
+  chalk.dim("╌"),
+  "╌",
+  "╍",
+  chalk.bold("╍"),
+  "╍",
+  "╌",
+  chalk.dim("╌"),
+]
+const TARGET_TICK_INTERVAL = 100
 
 function getLeftBlock(fraction: number) {
   if (fraction < 0) {
@@ -38,36 +27,44 @@ function getLeftBlock(fraction: number) {
   return LEFT_BLOCKS[index]!
 }
 
-export function generateIndeterminateProgressBar(tick: number, width: number) {
-  return generateProgressBar(
+function getPulse(index: number) {
+  return PULSE[index % PULSE.length]!
+}
+
+export function getTick(timestamp: number, refreshInterval: number) {
+  // Find an interval which is a multiple of the refresh interval but as close
+  // as possible to the target interval.
+  const tickInterval = Math.max(
     1,
-    width,
-    DEFAULT_INDETERMINATE_GRADIENT,
-    Number.MAX_SAFE_INTEGER - tick,
+    Math.round(TARGET_TICK_INTERVAL / refreshInterval) * refreshInterval,
   )
+
+  return Math.floor(timestamp / tickInterval)
+}
+
+export function generateIndeterminateProgressBar(tick: number, width: number) {
+  return generateProgressBar(0, width, tick)
 }
 
 export function generateDeterminateProgressBar(
+  tick: number,
   progress: number,
   width: number,
 ) {
-  return generateProgressBar(progress, width)
+  return generateProgressBar(progress, width, tick)
 }
 
 export function generateProgressBar(
   progress: number,
   width: number,
-  gradient: RgbColor[] = DEFAULT_GRADIENT,
-  gradientOffset: number = 0,
+  tick: number = 0,
 ) {
   const bar = Array.from({ length: width }).map((_, index) => {
-    const colorize = getColorizer(
-      gradient,
-      ((gradientOffset + index) % width) / width,
-    )
     return index < progress * width
-      ? colorize(getLeftBlock(progress * width - index))
-      : " "
+      ? getLeftBlock(progress * width - index)
+      : index === 0 || index === width - 1
+        ? " "
+        : getPulse(Math.abs(-tick + index))
   })
 
   return bar.join("")

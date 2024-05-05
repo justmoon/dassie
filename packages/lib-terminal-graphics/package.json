@@ -27,6 +27,7 @@
     "cli-cursor": "^4.0.0",
     "immer": "^10.0.3",
     "is-unicode-supported": "^2.0.0",
+    "string-width": "^7.0.0",
     "strip-ansi": "^7.1.0",
     "wcwidth": "^1.0.1",
     "wrap-ansi": "^9.0.0"
