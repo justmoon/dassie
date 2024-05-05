@@ -148,12 +148,28 @@ export const createDatabase = <TOptions extends DatabaseOptions>(
 
   const kysely = new Kysely<InferKyselySchema<TOptions["schema"]["tables"]>>({
     dialect,
+    log: (event) => {
+      switch (event.level) {
+        case "query": {
+          logger.debug?.("query", {
+            sql: event.query.sql,
+            parameters: event.query.parameters,
+            duration: event.queryDurationMillis,
+          })
+        }
+      }
+    },
   })
 
   const executeSync: DatabaseInstance["executeSync"] = <TResult>(
     query: CompiledQuery<TResult>,
   ) => {
     const statement = database.prepare(query.sql)
+
+    logger.debug?.("query", {
+      sql: query.sql,
+      parameters: query.parameters,
+    })
 
     if (statement.reader) {
       return { rows: statement.all(...query.parameters) as TResult[] }
@@ -170,7 +186,9 @@ export const createDatabase = <TOptions extends DatabaseOptions>(
 
   const transaction: DatabaseInstance["transaction"] = (callback) => {
     database.transaction(() => {
+      logger.debug?.("transaction start")
       callback()
+      logger.debug?.("transaction end")
     })()
   }
 
