@@ -1,7 +1,7 @@
 import SQLite from "better-sqlite3"
 import { CompiledQuery, Kysely, SqliteDialect } from "kysely"
 
-import { createLogger } from "@dassie/lib-logger"
+import { type Logger, createLogger } from "@dassie/lib-logger"
 
 import { checkSchema } from "./internal/check-schema"
 import { type ConnectedTable, connectTable } from "./internal/connect-table"
@@ -15,8 +15,6 @@ import type { MigrationDefinition } from "./types/migration"
 import { ScalarDescriptionBuilder } from "./types/scalar"
 import type { TableDescription } from "./types/table"
 import { migrate } from "./utils/migrate"
-
-const logger = createLogger("das:sqlite:database")
 
 export interface DatabaseSchema {
   /**
@@ -62,6 +60,8 @@ export interface DatabaseOptions {
    * Whether to check that the database schema matches the schema defined in the code.
    */
   checkSchema?: boolean | undefined
+
+  logger?: Logger | undefined
 }
 
 export interface DatabaseGenerics {
@@ -82,6 +82,7 @@ export interface DatabaseInstance<
     rows: TResult[]
   }
   transaction: (callback: () => void) => void
+  logger: Logger
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -104,6 +105,8 @@ export type InferScalarAccessors<TOptions extends DatabaseGenerics> =
 export const createDatabase = <TOptions extends DatabaseOptions>(
   databaseOptions: TOptions,
 ): DatabaseInstance<TOptions> => {
+  const logger = databaseOptions.logger ?? createLogger("das:sqlite:database")
+
   const database = new SQLite(databaseOptions.path, {
     nativeBinding: databaseOptions.nativeBinding,
   })
@@ -130,7 +133,7 @@ export const createDatabase = <TOptions extends DatabaseOptions>(
     )
   }
 
-  migrate(database, databaseOptions.schema.migrations)
+  migrate(database, databaseOptions.schema.migrations, { logger })
 
   if (databaseOptions.checkSchema) {
     checkSchema(database, {
@@ -188,5 +191,6 @@ export const createDatabase = <TOptions extends DatabaseOptions>(
     kysely,
     executeSync,
     transaction,
+    logger,
   }
 }

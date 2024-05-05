@@ -1,13 +1,12 @@
 import type { Database } from "better-sqlite3"
 
-import { createLogger } from "@dassie/lib-logger"
+import { type Logger, createLogger } from "@dassie/lib-logger"
 
 import type { MigrationDefinition } from "../types/migration"
 
-const logger = createLogger("das:sqlite:migrate")
-
 export interface MigrationOptions {
   dangerouslyRedoLastMigration?: boolean | undefined
+  logger?: Logger | undefined
 }
 
 export const migrate = (
@@ -15,6 +14,8 @@ export const migrate = (
   migrations: MigrationDefinition[],
   options: MigrationOptions = {},
 ) => {
+  const logger = options.logger ?? createLogger("das:sqlite:migrate")
+
   const currentUserVersion = Number(
     database.pragma("user_version", {
       simple: true,
