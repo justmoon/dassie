@@ -81,6 +81,7 @@ export interface DatabaseInstance<
     insertId?: bigint
     rows: TResult[]
   }
+  transaction: (callback: () => void) => void
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -164,6 +165,12 @@ export const createDatabase = <TOptions extends DatabaseOptions>(
     }
   }
 
+  const transaction: DatabaseInstance["transaction"] = (callback) => {
+    database.transaction(() => {
+      callback()
+    })()
+  }
+
   return {
     tables: (databaseOptions.schema.tables
       ? Object.fromEntries(
@@ -180,5 +187,6 @@ export const createDatabase = <TOptions extends DatabaseOptions>(
 
     kysely,
     executeSync,
+    transaction,
   }
 }
