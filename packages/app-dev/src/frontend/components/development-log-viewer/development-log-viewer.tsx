@@ -1,6 +1,5 @@
 import type { ReactNode } from "react"
 
-import { type IndexedLogLine } from "@dassie/app-node/src/common/stores/logs"
 import {
   DEFAULT_FORMAT,
   type FormatDefinition,
@@ -11,13 +10,16 @@ import LogViewer, {
 import { useRemoteStore } from "@dassie/lib-reactive-rpc/client"
 
 import { shortenNodeId } from "../../../backend/utils/shorten-node-id"
-import { LogsStore } from "../../../common/stores/logs"
+import {
+  type DevelopmentServerLogLine,
+  LogsStore,
+} from "../../../common/stores/logs"
 import { rpc } from "../../utils/rpc"
 import NodeLink from "../shared/node-link/node-link"
 import { formatString } from "./format-string"
 
 interface DevelopmentLogViewerProperties {
-  filter?: (line: IndexedLogLine) => boolean
+  filter?: (line: DevelopmentServerLogLine) => boolean
 }
 
 export const DevelopmentLogProvider = ({
@@ -43,9 +45,13 @@ export const DevelopmentLogProvider = ({
       renderNodeColumn={(log) => (
         <span className="inline-block font-bold flex-shrink-0 w-9 mr-1">
           {" "}
-          <NodeLink
-            id={log.node.length > 10 ? shortenNodeId(log.node) : log.node}
-          />{" "}
+          {log.node ? (
+            <NodeLink
+              id={log.node.length > 10 ? shortenNodeId(log.node) : log.node}
+            />
+          ) : (
+            "unknown"
+          )}{" "}
         </span>
       )}
       format={format}

@@ -7,11 +7,7 @@ import { createStore } from "@dassie/lib-reactive"
 export const LOGS_SOFT_LIMIT = 100
 export const LOGS_HARD_LIMIT = 120
 
-export type NodeLogLine = LogMessage & {
-  node: string
-}
-
-export type IndexedLogLine = NodeLogLine & {
+export type IndexedLogLine = LogMessage & {
   index: number
   relativeTime: number
 }

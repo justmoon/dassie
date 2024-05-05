@@ -9,7 +9,10 @@ export const ForwardLogsActor = (reactor: RpcReactor) => {
   return createActor((sig) => {
     sig.on(logsStore.changes, ([action, parameters]) => {
       if (action === "addLogLine") {
-        void reactor.base.rpc.notifyLogLine.mutate(parameters[0])
+        void reactor.base.rpc.notifyLogLine.mutate({
+          ...parameters[0],
+          node: process.env["DASSIE_DEV_NODE_ID"] ?? "unknown",
+        })
       }
     })
   })

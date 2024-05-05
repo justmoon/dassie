@@ -8,11 +8,18 @@ export const LOGS_SOFT_LIMIT = 10_000
 export const LOGS_HARD_LIMIT = 10_100
 
 export interface LogsStoreState {
-  logs: IndexedLogLine[]
+  logs: DevelopmentServerLogLine[]
   startTime: number
 }
 
-type NewLogLine = SetOptional<IndexedLogLine, "index" | "relativeTime">
+export interface DevelopmentServerLogLine extends IndexedLogLine {
+  node: string
+}
+
+type NewLogLine = SetOptional<
+  DevelopmentServerLogLine,
+  "index" | "relativeTime"
+>
 
 export const LogsStore = () => {
   return createStore(

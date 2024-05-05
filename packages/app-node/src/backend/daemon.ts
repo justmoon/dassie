@@ -13,7 +13,6 @@ import { HttpServerActor } from "./http-server"
 import { IldcpServerActor } from "./ildcp-server"
 import { IlpHttpActor } from "./ilp-http"
 import { LocalRpcServerActor } from "./local-ipc-server"
-import { LoggerActor } from "./logger"
 import { daemon as logger } from "./logger/instances"
 import { OpenPaymentsServerActor } from "./open-payments"
 import { PeerProtocolActor } from "./peer-protocol"
@@ -66,7 +65,6 @@ export const StartNodeIdentityDependentServicesActor = () =>
 
 export const DaemonActor = () =>
   createActor(async (sig: DassieActorContext) => {
-    sig.run(LoggerActor)
     sig.run(LocalRpcServerActor)
     sig.run(HttpServerActor)
     await sig.run(AcmeCertificateManagerActor)

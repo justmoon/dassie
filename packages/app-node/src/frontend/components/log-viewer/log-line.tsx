@@ -4,7 +4,11 @@ import { LogNamespace } from "./log-namespace"
 import { useLogViewerContext } from "./log-viewer"
 
 interface LogLineProperties {
-  log: IndexedLogLine
+  log: ViewableLogLine
+}
+
+export interface ViewableLogLine extends IndexedLogLine {
+  node?: string
 }
 
 const LOG_LEVEL_COLORS = {

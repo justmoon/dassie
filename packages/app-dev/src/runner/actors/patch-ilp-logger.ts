@@ -25,7 +25,6 @@ export const PatchIlpLoggerActor = (reactor: Reactor) => {
       logsStore.addLogLine({
         type: "debug",
         namespace,
-        node: process.env["DASSIE_DEV_NODE_ID"] ?? "unknown",
         date: Date.now(),
         message: firstSpace === -1 ? message : message.slice(firstSpace + 1),
         parameters,

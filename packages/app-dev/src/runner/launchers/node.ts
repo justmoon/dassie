@@ -1,4 +1,4 @@
-import { DaemonActor } from "@dassie/app-node"
+import { AttachLogger, DaemonActor } from "@dassie/app-node"
 import { HasTlsSignal } from "@dassie/app-node/src/backend/config/computed/has-tls"
 import { createActor, createReactor } from "@dassie/lib-reactive"
 import { createNodeRuntime } from "@dassie/lib-reactive-io/node"
@@ -15,6 +15,9 @@ import { RpcClientServiceActor } from "../services/rpc-client"
 
 const DebugRunnerActor = () =>
   createActor(async (sig) => {
+    const attachLogger = sig.reactor.use(AttachLogger)
+    attachLogger()
+
     const rpcClient = sig.run(RpcClientServiceActor)
 
     if (!rpcClient) {

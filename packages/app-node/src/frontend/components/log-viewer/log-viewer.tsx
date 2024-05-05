@@ -11,16 +11,15 @@ import {
   useState,
 } from "react"
 
-import { type IndexedLogLine } from "../../../common/stores/logs"
 import { combine } from "../../utils/class-helper"
 import { Card, CardContent, CardHeader } from "../ui/card"
 import { Input } from "../ui/input"
 import { DEFAULT_FORMAT, type FormatDefinition } from "./default-format"
-import LogLine from "./log-line"
+import LogLine, { type ViewableLogLine } from "./log-line"
 
 interface LogViewerContextValue {
   openFile: ((path: string) => void) | undefined
-  renderNodeColumn: ((log: IndexedLogLine) => ReactNode) | undefined
+  renderNodeColumn: ((log: ViewableLogLine) => ReactNode) | undefined
   format: FormatDefinition
 }
 
@@ -43,17 +42,17 @@ export const LogViewerProvider = ({
   </LogViewerContext.Provider>
 )
 
-export interface LogViewerProperties {
-  logs: IndexedLogLine[]
-  filter?: ((line: IndexedLogLine) => boolean) | undefined
+export interface LogViewerProperties<TLogLine extends ViewableLogLine> {
+  logs: TLogLine[]
+  filter?: ((line: TLogLine) => boolean) | undefined
   className?: string | undefined
 }
 
-const LogViewer = ({
+const LogViewer = <TLogLine extends ViewableLogLine>({
   logs,
   filter: externalFilter,
   className,
-}: LogViewerProperties) => {
+}: LogViewerProperties<TLogLine>) => {
   const outerReference = useRef<HTMLDivElement>(null)
   const [shouldStick, setShouldStick] = useState(true)
   const scrollPositionReference = useRef<number | undefined>(undefined)
