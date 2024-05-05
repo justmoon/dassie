@@ -1,10 +1,10 @@
 import { NodeId } from "../../peer-protocol/types/node-id"
+import { LedgerId } from "../constants/ledgers"
 import { CreateTransferParameters, Ledger } from "../stores/ledger"
 import {
   AssetsInterledgerPeerAccount,
   AssetsOnLedgerAccount,
 } from "../types/account-paths"
-import { LedgerId } from "../types/ledger-id"
 
 export const processSettlementPrepare = (
   ledger: Ledger,

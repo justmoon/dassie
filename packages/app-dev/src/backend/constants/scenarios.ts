@@ -14,14 +14,14 @@ export const builtinScenarios = {
     environment: {},
     nodes: [
       {
-        settlementMethods: ["xrpl-testnet", "stub"],
+        settlementMethods: ["xrpl-testnet"],
       },
       {
-        settlementMethods: ["xrpl-testnet", "stub"],
+        settlementMethods: ["xrpl-testnet"],
       },
     ],
     defaultNodeSettings: {
-      settlementMethods: ["xrpl-testnet", "stub"],
+      settlementMethods: ["xrpl-testnet"],
     },
   },
   crossCurrency: {
@@ -36,7 +36,7 @@ export const builtinScenarios = {
         settlementMethods: ["stub", "xrpl-testnet"],
       },
       {
-        settlementMethods: ["stub", "xrpl-testnet"],
+        settlementMethods: ["xrpl-testnet"],
       },
     ],
     defaultNodeSettings: {},

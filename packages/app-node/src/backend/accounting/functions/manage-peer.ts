@@ -1,12 +1,12 @@
 import { isFailure } from "@dassie/lib-type-utils"
 
 import { NodeId } from "../../peer-protocol/types/node-id"
+import { LedgerId } from "../constants/ledgers"
 import { Ledger } from "../stores/ledger"
 import {
   AssetsInterledgerPeerAccount,
   ContraTrustPeerAccount,
 } from "../types/account-paths"
-import { LedgerId } from "../types/ledger-id"
 
 const DEFAULT_CREDIT = 1_100_000_000n
 

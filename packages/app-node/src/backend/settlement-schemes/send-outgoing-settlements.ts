@@ -1,9 +1,9 @@
 import { createActor, createMapped } from "@dassie/lib-reactive"
 import { UnreachableCaseError, isFailure, tell } from "@dassie/lib-type-utils"
 
+import { LedgerId } from "../accounting/constants/ledgers"
 import { processSettlementPrepare } from "../accounting/functions/process-settlement"
 import { Ledger, LedgerStore } from "../accounting/stores/ledger"
-import { LedgerId } from "../accounting/types/ledger-id"
 import { DassieActorContext, DassieReactor } from "../base/types/dassie-base"
 import { settlement as logger } from "../logger/instances"
 import { PeersSignal } from "../peer-protocol/computed/peers"

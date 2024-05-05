@@ -2,7 +2,7 @@ import { Client } from "xrpl"
 
 import { bufferToUint8Array, isFailure } from "@dassie/lib-type-utils"
 
-import { LedgerId } from "../../../accounting/types/ledger-id"
+import { castLedgerId } from "../../../accounting/utils/cast-ledger-id"
 import { NodeIdSignal } from "../../../ilp-connector/computed/node-id"
 import { settlementXrpl as logger } from "../../../logger/instances"
 import type { SettlementSchemeModule } from "../../types/settlement-scheme-module"
@@ -20,13 +20,7 @@ const XRP_ON_LEDGER_SCALE = 6
 const XRP_INTERNAL_SCALE = 9
 const XRP_VALUE_FACTOR = 10n ** BigInt(XRP_INTERNAL_SCALE - XRP_ON_LEDGER_SCALE)
 
-const ledger = {
-  id: "xrpl-testnet" as LedgerId,
-  currency: {
-    code: "XRP",
-    scale: XRP_INTERNAL_SCALE,
-  },
-}
+const LEDGER_ID = castLedgerId("xrpl-testnet+xrp")
 
 /**
  * This module uses the XRP Ledger testnet (altnet) for settlement.
@@ -40,7 +34,7 @@ const xrplTestnet = {
   supportedVersions: [1],
   realm: "test",
 
-  ledger,
+  ledger: LEDGER_ID,
 
   // eslint-disable-next-line unicorn/consistent-function-scoping
   behavior: async ({ sig, host }) => {
@@ -84,7 +78,7 @@ const xrplTestnet = {
       const balance =
         BigInt(ownAccountInfo.result.account_data.Balance) * XRP_VALUE_FACTOR
 
-      host.reportDeposit({ ledgerId: ledger.id, amount: balance })
+      host.reportDeposit({ ledgerId: LEDGER_ID, amount: balance })
     } else {
       logger.info("account not found, funding account using testnet faucet", {
         address: wallet.address,
@@ -129,14 +123,14 @@ const xrplTestnet = {
                 // If it is tagged as a settlement, process it as such
                 const amount = newBalance - oldBalance
                 host.reportIncomingSettlement({
-                  ledgerId: ledger.id,
+                  ledgerId: LEDGER_ID,
                   peerId: isSettlementResult.peerId,
                   amount,
                 })
               } else {
                 // Otherwise it's a deposit.
                 const amount = newBalance - oldBalance
-                host.reportDeposit({ ledgerId: ledger.id, amount })
+                host.reportDeposit({ ledgerId: LEDGER_ID, amount })
               }
             } else {
               // If a transaction decreased our balance, it's either an outgoing settlement or a withdrawal
@@ -153,7 +147,7 @@ const xrplTestnet = {
                 })
               } else {
                 const amount = oldBalance - newBalance
-                host.reportWithdrawal({ ledgerId: ledger.id, amount })
+                host.reportWithdrawal({ ledgerId: LEDGER_ID, amount })
               }
             }
           }

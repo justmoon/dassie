@@ -1,6 +1,6 @@
 import type { Reactor } from "@dassie/lib-reactive"
 
-import { LedgerId } from "../../accounting/types/ledger-id"
+import { LedgerId } from "../../accounting/constants/ledgers"
 import { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
 import { LoadedSettlementModulesStore } from "../stores/loaded-settlement-modules"
 
@@ -24,6 +24,6 @@ export const GetLedgerIdForSettlementScheme = (reactor: Reactor) => {
       throw new Error(`Unknown settlement scheme '${settlementSchemeId}'`)
     }
 
-    return module.ledger.id
+    return module.ledger
   }
 }

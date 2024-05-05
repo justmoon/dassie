@@ -1,5 +1,5 @@
+import { LedgerId } from "../constants/ledgers"
 import { Ledger } from "../stores/ledger"
-import { LedgerId } from "../types/ledger-id"
 
 export const initializeCommonAccounts = (
   ledger: Ledger,

@@ -1,11 +1,11 @@
 import { Reactor, createComputed } from "@dassie/lib-reactive"
 
 import { ConvertCurrencyAmounts } from "../../exchange/functions/convert"
-import { GetCurrencyFromLedgerId } from "../../settlement-schemes/functions/get-currency-from-ledger-id"
+import { LedgerId } from "../constants/ledgers"
+import { GetCurrencyFromLedgerId } from "../functions/get-currency-from-ledger-id"
 import { OwnerLedgerIdSignal } from "../signals/owner-ledger-id"
 import { LedgerStore } from "../stores/ledger"
 import { PostedTransfersTopic } from "../topics/posted-transfers"
-import { LedgerId } from "../types/ledger-id"
 
 export const TotalOwnerBalanceSignal = (reactor: Reactor) =>
   createComputed(reactor, () => {

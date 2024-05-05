@@ -1,19 +1,13 @@
 import { uint8ArrayToHex } from "uint8array-extras"
 
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
-import { LedgerId } from "../../accounting/types/ledger-id"
+import { castLedgerId } from "../../accounting/utils/cast-ledger-id"
 import { settlementStub as logger } from "../../logger/instances"
 import type { SettlementSchemeModule } from "../types/settlement-scheme-module"
 
 const INITIAL_BALANCE = 100_000_000_000n
 
-const ledger = {
-  id: "stub" as LedgerId,
-  currency: {
-    code: "USD",
-    scale: 9,
-  },
-}
+const LEDGER_ID = castLedgerId("stub+usd")
 
 /**
  * The stub settlement scheme pretends to settle but does not actually do anything.
@@ -27,7 +21,7 @@ const stub = {
   supportedVersions: [1],
   realm: "test",
 
-  ledger,
+  ledger: LEDGER_ID,
 
   // eslint-disable-next-line unicorn/consistent-function-scoping
   behavior: ({ sig, host }) => {
@@ -35,7 +29,7 @@ const stub = {
 
     let balance = INITIAL_BALANCE
 
-    host.reportDeposit({ ledgerId: ledger.id, amount: balance })
+    host.reportDeposit({ ledgerId: LEDGER_ID, amount: balance })
 
     return {
       getPeeringInfo: () => {
@@ -88,7 +82,7 @@ const stub = {
         balance += amount
 
         host.reportIncomingSettlement({
-          ledgerId: ledger.id,
+          ledgerId: LEDGER_ID,
           peerId,
           amount,
         })
@@ -100,7 +94,7 @@ const stub = {
         logger.info(`Received deposit for ${amount} units`)
 
         balance += amount
-        host.reportDeposit({ ledgerId: ledger.id, amount })
+        host.reportDeposit({ ledgerId: LEDGER_ID, amount })
       },
     }
   },

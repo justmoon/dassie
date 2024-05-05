@@ -1,9 +1,8 @@
 import type { Promisable } from "type-fest"
 
-import { LedgerId } from "../../accounting/types/ledger-id"
+import { LedgerId } from "../../accounting/constants/ledgers"
 import type { DassieActorContext } from "../../base/types/dassie-base"
 import type { VALID_REALMS } from "../../constants/general"
-import { CurrencyDescription } from "../../exchange/load-exchange-rates"
 import { NodeId } from "../../peer-protocol/types/node-id"
 import { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
 
@@ -192,12 +191,9 @@ export interface SettlementSchemeModule<TPeerState extends object = object> {
   readonly realm: (typeof VALID_REALMS)[number]
 
   /**
-   * Configuration for the internal ledger related to the settlement scheme.
+   * Reference to the internal ledger that should be used for this settlement scheme.
    */
-  readonly ledger: {
-    readonly id: LedgerId
-    readonly currency: CurrencyDescription
-  }
+  readonly ledger: LedgerId
 
   /**
    * Behavior of the actor which will be instantiated while the node is connected to this settlement scheme.

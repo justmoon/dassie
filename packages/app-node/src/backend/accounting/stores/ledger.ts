@@ -5,6 +5,7 @@ import { Reactor } from "@dassie/lib-reactive"
 import { Database } from "../../database/open-database"
 import { accounting as logger } from "../../logger/instances"
 import PrefixMap from "../../routing/utils/prefix-map"
+import { LedgerId } from "../constants/ledgers"
 import { EXCEEDS_CREDITS_FAILURE } from "../failures/exceeds-credits"
 import { EXCEEDS_DEBITS_FAILURE } from "../failures/exceeds-debits"
 import InvalidAccountFailure from "../failures/invalid-account"
@@ -13,7 +14,6 @@ import { PendingTransfersTopic } from "../topics/pending-transfers"
 import { PostedTransfersTopic } from "../topics/posted-transfers"
 import { VoidedTransfersTopic } from "../topics/voided-transfers"
 import { AccountPath } from "../types/account-paths"
-import { LedgerId } from "../types/ledger-id"
 
 export interface LedgerAccount {
   path: string
