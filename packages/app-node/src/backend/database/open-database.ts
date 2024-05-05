@@ -5,6 +5,7 @@ import { type Reactor, createComputed } from "@dassie/lib-reactive"
 import { createDatabase } from "@dassie/lib-sqlite"
 
 import { EnvironmentConfig } from "../config/environment-config"
+import { database as logger } from "../logger/instances"
 import { DASSIE_DATABASE_SCHEMA } from "./schema"
 
 export const BetterSqliteNativeBindingSignal = (reactor: Reactor) =>
@@ -27,6 +28,7 @@ export const Database = (reactor: Reactor) => {
     schema: DASSIE_DATABASE_SCHEMA,
     nativeBinding,
     checkSchema: true,
+    logger,
   })
 
   reactor.onCleanup(() => {

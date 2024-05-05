@@ -8,6 +8,7 @@ import { createDatabase } from "@dassie/lib-sqlite"
 import { isErrorWithCode } from "@dassie/lib-type-utils"
 
 import { DEBUG_UI_PORT } from "../constants/ports"
+import { setup as logger } from "../logger/instances"
 import { NodeConfig, generatePeerInfo } from "./generate-node-config"
 
 export const prefillDatabase = async ({
@@ -36,6 +37,7 @@ export const prefillDatabase = async ({
   const database = createDatabase({
     path: databasePath,
     schema: DASSIE_DATABASE_SCHEMA,
+    logger,
   })
 
   database.scalars.configRealm.set("test")
