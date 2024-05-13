@@ -106,8 +106,8 @@ export class LoggerImplementation implements Logger {
         this.context.enableChecker,
       ]
     }
-    return this.enableCache[0]
-      ? (message: string, ...parameters: unknown[]) => {
+    return this.enableCache[0] ?
+        (message: string, ...parameters: unknown[]) => {
           this.context.output(
             {
               type: "debug",
@@ -115,8 +115,9 @@ export class LoggerImplementation implements Logger {
               namespace: this.component,
               message,
               parameters,
-              caller: this.context.captureCaller
-                ? this.context.getCaller(1, new Error())
+              caller:
+                this.context.captureCaller ?
+                  this.context.getCaller(1, new Error())
                 : undefined,
             },
             this.context,
@@ -133,8 +134,9 @@ export class LoggerImplementation implements Logger {
         namespace: this.component,
         message,
         parameters,
-        caller: this.context.captureCaller
-          ? this.context.getCaller(1, new Error())
+        caller:
+          this.context.captureCaller ?
+            this.context.getCaller(1, new Error())
           : undefined,
       },
       this.context,
@@ -149,8 +151,9 @@ export class LoggerImplementation implements Logger {
         namespace: this.component,
         message,
         parameters,
-        caller: this.context.captureCaller
-          ? this.context.getCaller(1, new Error())
+        caller:
+          this.context.captureCaller ?
+            this.context.getCaller(1, new Error())
           : undefined,
       },
       this.context,
@@ -165,8 +168,9 @@ export class LoggerImplementation implements Logger {
         namespace: this.component,
         message,
         parameters,
-        caller: this.context.captureCaller
-          ? this.context.getCaller(1, new Error())
+        caller:
+          this.context.captureCaller ?
+            this.context.getCaller(1, new Error())
           : undefined,
       },
       this.context,
@@ -183,8 +187,9 @@ export class LoggerImplementation implements Logger {
         namespace: this.component,
         message,
         parameters,
-        caller: this.context.captureCaller
-          ? this.context.getCaller(1, new Error())
+        caller:
+          this.context.captureCaller ?
+            this.context.getCaller(1, new Error())
           : undefined,
       },
       this.context,

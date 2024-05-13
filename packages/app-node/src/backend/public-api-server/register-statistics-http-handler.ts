@@ -33,8 +33,9 @@ export const RegisterStatisticsHttpHandlerActor = (reactor: Reactor) => {
             return {
               nodeId,
               url: linkState?.url ?? null,
-              publicKey: linkState
-                ? Buffer.from(linkState.publicKey).toString("base64url")
+              publicKey:
+                linkState ?
+                  Buffer.from(linkState.publicKey).toString("base64url")
                 : null,
             }
           })

@@ -60,11 +60,11 @@ export function generateProgressBar(
   tick: number = 0,
 ) {
   const bar = Array.from({ length: width }).map((_, index) => {
-    return index < progress * width
-      ? getLeftBlock(progress * width - index)
-      : index === 0 || index === width - 1
-        ? " "
-        : getPulse(Math.abs(-tick + index))
+    return (
+      index < progress * width ? getLeftBlock(progress * width - index)
+      : index === 0 || index === width - 1 ? " "
+      : getPulse(Math.abs(-tick + index))
+    )
   })
 
   return bar.join("")

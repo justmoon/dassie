@@ -52,8 +52,8 @@ export const formatTypedArrayPlugin = {
         indentation + config.indent,
       )
 
-      return value.length > 16
-        ? `${tag} [\n${indentation}${config.indent}${hex}\n${indentation}]`
+      return value.length > 16 ?
+          `${tag} [\n${indentation}${config.indent}${hex}\n${indentation}]`
         : `${tag} [ ${hex} ]`
     }
 

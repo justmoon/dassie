@@ -6,9 +6,8 @@ export const checkFileStatus = async (filePath: string) => {
     await access(filePath, constants.R_OK)
     return "ok"
   } catch (error) {
-    const code = isNativeError(error)
-      ? (error as NodeJS.ErrnoException).code
-      : undefined
+    const code =
+      isNativeError(error) ? (error as NodeJS.ErrnoException).code : undefined
     switch (code) {
       case "ENOENT": {
         return "missing"

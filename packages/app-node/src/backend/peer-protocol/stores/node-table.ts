@@ -111,8 +111,9 @@ export const NodeTableStore = (reactor: Reactor) => {
     initialNodesMap.set(row.id, {
       nodeId: row.id,
       linkState: undefined,
-      peerState: row.settlement_scheme_id
-        ? {
+      peerState:
+        row.settlement_scheme_id ?
+          {
             id: "peered",
             lastSeen: 0,
             settlementSchemeId: row.settlement_scheme_id,

@@ -70,8 +70,9 @@ export const UpdateAcmeCertificateActor = (reactor: Reactor) => {
       database.tables.acmeTokens.insertOne({
         token: challenge.token,
         key_authorization: keyAuthorization,
-        expires: authorization.expires
-          ? new Date(authorization.expires).toISOString()
+        expires:
+          authorization.expires ?
+            new Date(authorization.expires).toISOString()
           : null,
       })
 

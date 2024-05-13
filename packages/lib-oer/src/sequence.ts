@@ -36,10 +36,11 @@ export type extensions = typeof extensions
 
 // Takes the type
 export type InferObjectParseShape<TShape extends SequenceShape> = {
-  [key in keyof ConditionalPick<
-    TShape,
+  [key in keyof ConditionalPick<TShape, AnyOerType>]: TShape[key] extends (
     AnyOerType
-  >]: TShape[key] extends AnyOerType ? Infer<TShape[key]> : never
+  ) ?
+    Infer<TShape[key]>
+  : never
 }
 
 export type InferObjectSerializeShape<TShape extends SequenceShape> = {
@@ -62,26 +63,30 @@ export type InferExtendedSequenceParseShape<
 > = InferObjectParseShape<TConfig> &
   InferInformationObjectParseShape<TConfig> &
   Partial<{
-    [key in keyof TConfig[extensions]]: TConfig[extensions] extends OerType<
-      infer K,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      any
-    >
-      ? K
-      : never
+    [key in keyof TConfig[extensions]]: TConfig[extensions] extends (
+      OerType<
+        infer K,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        any
+      >
+    ) ?
+      K
+    : never
   }>
 
 export type InferExtendedSequenceSerializeShape<
   TConfig extends ExtendedSequenceShape,
 > = InferObjectSerializeShape<TConfig> &
   InferInformationObjectSerializeShape<TConfig> & {
-    [key in keyof TConfig[extensions]]?: TConfig[extensions][key] extends OerType<
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      any,
-      infer K
-    >
-      ? K
-      : never
+    [key in keyof TConfig[extensions]]?: TConfig[extensions][key] extends (
+      OerType<
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        any,
+        infer K
+      >
+    ) ?
+      K
+    : never
   }
 
 export type AddExtensionsToShape<
@@ -91,9 +96,9 @@ export type AddExtensionsToShape<
   {
     [key in Exclude<keyof TShape, extensions>]: TShape[key]
   } & {
-    [extensions]: TShape[extensions] extends ObjectShape
-      ? TShape[extensions] & TExtensions
-      : TExtensions
+    [extensions]: TShape[extensions] extends ObjectShape ?
+      TShape[extensions] & TExtensions
+    : TExtensions
   }
 >
 
@@ -125,8 +130,9 @@ export class OerSequence<TShape extends ExtendedSequenceShape> extends OerType<
 
     this.rootEntries = new Map(Object.entries(sequenceShape))
 
-    this.extensions = sequenceShape[extensions]
-      ? new Map(
+    this.extensions =
+      sequenceShape[extensions] ?
+        new Map(
           Object.entries(sequenceShape[extensions]).map(([key, value]) => [
             key,
             value,

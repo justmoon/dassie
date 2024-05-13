@@ -26,8 +26,8 @@ function fsPathFromId(id: string): string {
   const fsPath = normalize(
     id.startsWith(FS_PREFIX) ? id.slice(FS_PREFIX.length) : id,
   )
-  return fsPath.startsWith("/") || VOLUME_RE.test(fsPath)
-    ? fsPath
+  return fsPath.startsWith("/") || VOLUME_RE.test(fsPath) ?
+      fsPath
     : `/${fsPath}`
 }
 
@@ -35,8 +35,8 @@ const cleanUrl = (url: string): string =>
   url.replace(hashRE, "").replace(queryRE, "")
 
 function getHtmlFilename(url: string, server: ViteDevServer) {
-  return url.startsWith(FS_PREFIX)
-    ? decodeURIComponent(fsPathFromId(url))
+  return url.startsWith(FS_PREFIX) ?
+      decodeURIComponent(fsPathFromId(url))
     : decodeURIComponent(normalize(join(server.config.root, url.slice(1))))
 }
 
@@ -81,9 +81,9 @@ export const ServeWalletActor = (reactor: Reactor) => {
             const rewritten =
               decodeURIComponent(parsedUrl.pathname!) + "index.html"
 
-            return existsSync(join(walletPath, rewritten))
-              ? rewritten
-              : `/index.html`
+            return existsSync(join(walletPath, rewritten)) ? rewritten : (
+                `/index.html`
+              )
           },
         },
       ],

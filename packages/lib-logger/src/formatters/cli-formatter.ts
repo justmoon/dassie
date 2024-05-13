@@ -310,9 +310,8 @@ const formatStack = (context: FormattingContext, stack: string): string => {
             return chalk.dim(line)
           }
           const isNodeModules = match[2].includes("node_modules")
-          const formattedFilePath = isNodeModules
-            ? chalk.dim(match[2])
-            : formatFilePath(match[2])
+          const formattedFilePath =
+            isNodeModules ? chalk.dim(match[2]) : formatFilePath(match[2])
 
           return `    ${chalk.dim("at")} ${
             isNodeModules ? chalk.dim(match[1]) : match[1]
@@ -347,9 +346,11 @@ const formatMessage = (context: FormattingContext, message: string) => {
   const component = message.slice(0, firstSpace === -1 ? 0 : firstSpace)
   const componentColonPosition = component.indexOf(":")
 
-  return componentColonPosition >= 1 &&
-    componentColonPosition < component.length - 1
-    ? `${colorDeterministically(context, component)} ${message.slice(
+  return (
+      componentColonPosition >= 1 &&
+        componentColonPosition < component.length - 1
+    ) ?
+      `${colorDeterministically(context, component)} ${message.slice(
         firstSpace + 1,
       )}`
     : message
@@ -665,9 +666,9 @@ const formatArray = (
       lineLength = itemLength
     } else {
       output.push(
-        lineLength === 0
-          ? ""
-          : context.theme.structures.arrayMultilineSeparator + " ",
+        lineLength === 0 ? "" : (
+          context.theme.structures.arrayMultilineSeparator + " "
+        ),
         item,
       )
 
@@ -717,10 +718,9 @@ const formatValue = (context: FormattingContext, value: unknown): string => {
     } else if (typeof value === "symbol") {
       return context.theme.values.symbol(value)
     } else if (typeof value === "function") {
-      const type = isAsyncFunction(value)
-        ? "AsyncFunction"
-        : isGeneratorFunction(value)
-        ? "GeneratorFunction"
+      const type =
+        isAsyncFunction(value) ? "AsyncFunction"
+        : isGeneratorFunction(value) ? "GeneratorFunction"
         : "Function"
       const name = value.name || context.theme.values.anonymousFunctionName
       return context.theme.values.function(type, name)
@@ -737,9 +737,9 @@ const formatValue = (context: FormattingContext, value: unknown): string => {
       }
 
       const formattedConstructor =
-        objectConstructor === "Object"
-          ? ""
-          : context.theme.structures.objectConstructor(objectConstructor)
+        objectConstructor === "Object" ? "" : (
+          context.theme.structures.objectConstructor(objectConstructor)
+        )
 
       const keys = [
         ...Object.getOwnPropertyNames(value),
@@ -837,9 +837,9 @@ const formatEvent = (context: FormattingContext, line: LogMessage) => {
     line = {
       ...line,
       parameters: [
-        ...(Object.keys(primaryObjectWithoutError).length > 0
-          ? [primaryObjectWithoutError]
-          : []),
+        ...(Object.keys(primaryObjectWithoutError).length > 0 ?
+          [primaryObjectWithoutError]
+        : []),
         ...line.parameters.slice(1),
       ],
     }

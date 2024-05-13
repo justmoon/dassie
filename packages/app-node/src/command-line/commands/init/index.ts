@@ -226,9 +226,8 @@ const doAcmeFlow = async (
     await ipcClient.acme.registerToken.mutate({
       token: challenge.token,
       keyAuthorization,
-      expires: authorization.expires
-        ? new Date(authorization.expires)
-        : undefined,
+      expires:
+        authorization.expires ? new Date(authorization.expires) : undefined,
     })
 
     try {

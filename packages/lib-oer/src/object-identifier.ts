@@ -53,9 +53,9 @@ export class OerObjectIdentifier extends OerType<string> {
     assertDefined(subidentifiers[0])
 
     const firstTwo =
-      subidentifiers[0] >= 80
-        ? ([2, subidentifiers[0] - 80n] as const)
-        : ([subidentifiers[0] / 40n, subidentifiers[0] % 40n] as const)
+      subidentifiers[0] >= 80 ?
+        ([2, subidentifiers[0] - 80n] as const)
+      : ([subidentifiers[0] / 40n, subidentifiers[0] % 40n] as const)
 
     return [
       [...firstTwo, ...subidentifiers.slice(1)].join("."),

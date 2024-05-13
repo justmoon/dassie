@@ -169,16 +169,14 @@ export const text = ({
         })} `,
       ),
       "\n",
-      explanation && state === "normal"
-        ? chalk.dim(indentString(wrapAnsi(explanation, columns - 4), 4))
-        : "",
+      explanation && state === "normal" ?
+        chalk.dim(indentString(wrapAnsi(explanation, columns - 4), 4))
+      : "",
       explanation && state === "normal" ? "\n" : "",
       indentString(
-        state === "confirm"
-          ? chalk.dim(value)
-          : state === "cancel"
-          ? chalk.dim.strikethrough(value || "(canceled)")
-          : renderValueWithCursor(value, cursor).join(""),
+        state === "confirm" ? chalk.dim(value)
+        : state === "cancel" ? chalk.dim.strikethrough(value || "(canceled)")
+        : renderValueWithCursor(value, cursor).join(""),
         4,
       ),
       "\n".repeat(1 + paddingBottom),

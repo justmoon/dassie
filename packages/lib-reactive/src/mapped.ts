@@ -113,9 +113,9 @@ class MappedImplementation<
     })
 
     this.baseSet =
-      typeof baseSetFactory === "function"
-        ? parentContext.reactor.use(baseSetFactory)
-        : baseSetFactory
+      typeof baseSetFactory === "function" ?
+        parentContext.reactor.use(baseSetFactory)
+      : baseSetFactory
   }
 
   get(key: TInput) {
@@ -126,8 +126,8 @@ class MappedImplementation<
   getWithLifecycle(key: TInput) {
     this.read()
     const item = this.internalMap.get(key)
-    return item
-      ? ([item.output, item.lifecycle] as const)
+    return item ?
+        ([item.output, item.lifecycle] as const)
       : ([undefined, undefined] as const)
   }
 
@@ -166,9 +166,9 @@ class MappedImplementation<
     for (const key of newSet) {
       if (!this.internalMap.has(key)) {
         const itemName = `${this[FactoryNameSymbol]}[${
-          typeof key === "string" && key.length < MAX_DEBUG_STRING_KEY_LENGTH
-            ? key
-            : this.nextUniqueId++
+          typeof key === "string" && key.length < MAX_DEBUG_STRING_KEY_LENGTH ?
+            key
+          : this.nextUniqueId++
         }]`
         const lifecycle = createLifecycleScope(itemName)
         lifecycle.confineTo(this.parentContext.lifecycle)

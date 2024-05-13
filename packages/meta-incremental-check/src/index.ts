@@ -45,12 +45,12 @@ export async function runChecks() {
 
     function markStalePackagesDone() {
       state.updateTask("meta/search-stale", (task) =>
-        task.progress === "done"
-          ? task
-          : {
-              ...task,
-              progress: "done",
-            },
+        task.progress === "done" ?
+          task
+        : {
+            ...task,
+            progress: "done",
+          },
       )
     }
 

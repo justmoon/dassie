@@ -66,9 +66,9 @@ export class OerFixedIntegerBigint extends OerIntegerBigint {
     }
 
     const value =
-      size === 64
-        ? dataView[`getBig${type}${size}`](offset)
-        : BigInt(dataView[`get${type}${size}`](offset))
+      size === 64 ?
+        dataView[`getBig${type}${size}`](offset)
+      : BigInt(dataView[`get${type}${size}`](offset))
 
     if (value < minimumValue) {
       return new ParseFailure(
@@ -332,8 +332,8 @@ export const integerAsBigint = (range?: Range<bigint>) => {
   }
 
   // Variable size integer encodings
-  return minimumValue != undefined && minimumValue >= UINT_MIN
-    ? new OerVariableUnsignedInteger()
+  return minimumValue != undefined && minimumValue >= UINT_MIN ?
+      new OerVariableUnsignedInteger()
     : new OerVariableSignedInteger()
 }
 

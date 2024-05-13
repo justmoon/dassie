@@ -19,8 +19,8 @@ export const HandleLinkStateRequest = ((reactor: Reactor) => {
 
     return nodeIds.map((nodeId) => {
       const entry = nodeTable.get(nodeId)
-      return entry?.linkState
-        ? {
+      return entry?.linkState ?
+          {
             type: "found" as const,
             value: { bytes: entry.linkState.lastUpdate },
           }

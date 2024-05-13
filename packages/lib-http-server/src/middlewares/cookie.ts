@@ -23,9 +23,9 @@ export const cookie = (({ request }: { request: Request }) => {
 
       const name = parts[0]
       const value =
-        parts[1].startsWith('"') && parts[1].endsWith('"')
-          ? parts[1].slice(1, -1)
-          : parts[1]
+        parts[1].startsWith('"') && parts[1].endsWith('"') ?
+          parts[1].slice(1, -1)
+        : parts[1]
 
       if (
         COOKIE_TOKEN_REGEX.test(name) &&

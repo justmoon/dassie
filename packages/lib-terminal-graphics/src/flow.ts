@@ -78,10 +78,10 @@ export const createFlow = ({
     const previousOutput = activeComponent?.clear()
 
     const newOutput =
-      typeof component === "string"
-        ? component
-        : component.render(getRenderEnvironment()).join("") +
-          (activeComponent?.render() ?? "")
+      typeof component === "string" ? component : (
+        component.render(getRenderEnvironment()).join("") +
+        (activeComponent?.render() ?? "")
+      )
 
     replace(previousOutput, newOutput)
   }
@@ -128,9 +128,9 @@ export const createFlow = ({
       component.state.on({ lifecycle }, update)
 
       const interval =
-        component.refreshInterval > 0
-          ? setInterval(update, component.refreshInterval)
-          : undefined
+        component.refreshInterval > 0 ?
+          setInterval(update, component.refreshInterval)
+        : undefined
 
       update()
       await activity(component.state)

@@ -17,12 +17,12 @@ const convertCharacterRangeToOctetStringRange = (
   characterRange: NormalizedRange<number>,
   encoding: EncodingType,
 ): NormalizedRange<number> =>
-  encoding === "utf8"
-    ? [
-        characterRange[0],
-        characterRange[1] == undefined ? undefined : characterRange[1] * 4,
-      ]
-    : characterRange
+  encoding === "utf8" ?
+    [
+      characterRange[0],
+      characterRange[1] == undefined ? undefined : characterRange[1] * 4,
+    ]
+  : characterRange
 
 export class OerString extends OerType<string> {
   private octetString: OerType<Uint8Array>

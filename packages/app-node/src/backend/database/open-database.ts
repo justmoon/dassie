@@ -12,8 +12,8 @@ export const BetterSqliteNativeBindingSignal = (reactor: Reactor) =>
   createComputed(reactor, () => {
     const { rootPath } = reactor.use(EnvironmentConfig)
 
-    return import.meta.env.PROD
-      ? resolve(rootPath, "lib/better_sqlite3.node")
+    return import.meta.env.PROD ?
+        resolve(rootPath, "lib/better_sqlite3.node")
       : undefined
   })
 

@@ -106,7 +106,9 @@ describe("integerAsNumber", () => {
 
     test("should not serialize a number that is too high", ({ expect }) => {
       const result = schema.serialize(9)
-      expect(result).toMatchInlineSnapshot('[SerializeFailure: integer must be <= 8]')
+      expect(result).toMatchInlineSnapshot(
+        "[SerializeFailure: integer must be <= 8]",
+      )
     })
 
     test("should not parse a number that is too low", ({ expect }) => {
@@ -121,7 +123,9 @@ describe("integerAsNumber", () => {
 
     test("should not serialize a number that is too low", ({ expect }) => {
       const result = schema.serialize(1)
-      expect(result).toMatchInlineSnapshot('[SerializeFailure: integer must be >= 5]')
+      expect(result).toMatchInlineSnapshot(
+        "[SerializeFailure: integer must be >= 5]",
+      )
     })
   })
 })

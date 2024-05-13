@@ -52,14 +52,14 @@ export function convertFromNodejsRequest(
   const requestOptions = {
     method,
     headers: convertFromNodejsRequestHeaders(nodeRequest.headers),
-    ...(hasBody
-      ? {
-          body: NodeReadableStream.from<Uint8Array>(
-            nodeRequest,
-          ) as ReadableStream<Uint8Array>,
-          duplex: "half",
-        }
-      : { body: null }),
+    ...(hasBody ?
+      {
+        body: NodeReadableStream.from<Uint8Array>(
+          nodeRequest,
+        ) as ReadableStream<Uint8Array>,
+        duplex: "half",
+      }
+    : { body: null }),
   }
 
   return new Request(url, requestOptions)

@@ -75,9 +75,9 @@ export const rule = createRule<Options, MessageId>({
     }
 
     const constructSelector = (nodeType: string) =>
-      allowedNodes.length
-        ? `${nodeType}:not(:matches(${allowedNodes.join(",")}))`
-        : nodeType
+      allowedNodes.length ?
+        `${nodeType}:not(:matches(${allowedNodes.join(",")}))`
+      : nodeType
 
     return {
       [constructSelector("ExpressionStatement")]: checkForTopLevelSideEffect,

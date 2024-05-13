@@ -42,17 +42,13 @@ describe("progress bar", (test) => {
     expect,
   }) => {
     const result = generateDeterminateProgressBar(0, 0.375, 4)
-    expect(result).toMatchInlineSnapshot(
-      `"█▋╌ "`,
-    )
+    expect(result).toMatchInlineSnapshot(`"█▋╌ "`)
   })
 
   test("should render four full bars out of four when progress is 100%", ({
     expect,
   }) => {
     const result = generateDeterminateProgressBar(0, 1, 4)
-    expect(result).toMatchInlineSnapshot(
-      `"████"`,
-    )
+    expect(result).toMatchInlineSnapshot(`"████"`)
   })
 })

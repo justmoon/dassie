@@ -91,19 +91,18 @@ export interface ScalarDescriptionBuilder<
 }
 
 export type InferScalarReadType<T extends ScalarDescriptionBuilder> =
-  T extends ScalarDescriptionBuilder<infer TGenerics>
-    ? TGenerics["readType"] | TGenerics["defaultValueType"]
-    : never
+  T extends ScalarDescriptionBuilder<infer TGenerics> ?
+    TGenerics["readType"] | TGenerics["defaultValueType"]
+  : never
 
 export type InferScalarWriteType<T extends ScalarDescriptionBuilder> =
-  T extends ScalarDescriptionBuilder<infer TGenerics>
-    ? TGenerics["writeType"]
-    : never
+  T extends ScalarDescriptionBuilder<infer TGenerics> ? TGenerics["writeType"]
+  : never
 
 export type InferScalarSqliteType<T extends ScalarDescriptionBuilder> =
-  T extends ScalarDescriptionBuilder<infer TGenerics>
-    ? SqliteToTypescriptTypeMap[TGenerics["sqliteType"]] | undefined
-    : never
+  T extends ScalarDescriptionBuilder<infer TGenerics> ?
+    SqliteToTypescriptTypeMap[TGenerics["sqliteType"]] | undefined
+  : never
 
 /**
  * Helper type to ensure that a set of scalars are properly namespaced.

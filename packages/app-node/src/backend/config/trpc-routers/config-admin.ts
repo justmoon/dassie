@@ -16,14 +16,14 @@ export const configAdminRouter = createRouter({
     const { hostname, dassieKey } = sig.read(DatabaseConfigStore)
 
     const nodeIdFields =
-      dassieKey === undefined
-        ? {
-            hasNodeIdentity: false as const,
-          }
-        : {
-            hasNodeIdentity: true as const,
-            nodeId: sig.read(NodeIdSignal),
-          }
+      dassieKey === undefined ?
+        {
+          hasNodeIdentity: false as const,
+        }
+      : {
+          hasNodeIdentity: true as const,
+          nodeId: sig.read(NodeIdSignal),
+        }
 
     const result = {
       hostname,

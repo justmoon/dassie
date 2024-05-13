@@ -9,12 +9,15 @@ import { type TagClass, type TagMarker, tagClassMarkerMap } from "./utils/tag"
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyOerType = OerType<any>
 
-export type Infer<TOerType extends AnyOerType> = TOerType extends OerType<
-  infer T,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  any
->
-  ? T
+export type Infer<TOerType extends AnyOerType> =
+  TOerType extends (
+    OerType<
+      infer T,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      any
+    >
+  ) ?
+    T
   : never
 
 export type InferSerialize<TOerType extends AnyOerType> =

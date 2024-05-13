@@ -26,8 +26,8 @@ const renderOptions = (
 ) => {
   switch (state) {
     case "normal": {
-      return value
-        ? [
+      return value ?
+          [
             chalk.green(maybeUnicode(theme.radio.checked)),
             " ",
             chalk.underline("Y"),

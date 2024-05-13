@@ -165,8 +165,9 @@ export const rule = createRule<Options, MessageId>({
 
     checksVoidReturn = parseChecksVoidReturn(checksVoidReturn)
 
-    const voidReturnChecks: TSESLint.RuleListener = checksVoidReturn
-      ? {
+    const voidReturnChecks: TSESLint.RuleListener =
+      checksVoidReturn ?
+        {
           ...(checksVoidReturn.arguments && {
             CallExpression: checkArguments,
             NewExpression: checkArguments,
@@ -484,8 +485,9 @@ function voidFunctionArguments(
 
   for (const subType of unionTypeParts(type)) {
     // Standard function calls and `new` have two different types of signatures
-    const signatures = isCallExpression(node)
-      ? subType.getCallSignatures()
+    const signatures =
+      isCallExpression(node) ?
+        subType.getCallSignatures()
       : subType.getConstructSignatures()
     for (const signature of signatures) {
       for (const [index, parameter] of signature.parameters.entries()) {

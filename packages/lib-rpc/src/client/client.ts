@@ -169,11 +169,9 @@ export function createClient<TRouter extends AnyRouter>({
       )
     }
 
-    return await (routeType === "subscription"
-      ? createSubscription((onData) =>
-          subscribe(path, parameters[0], { onData }),
-        )
-      : call(path, routeType, parameters[0]))
+    return await (routeType === "subscription" ?
+      createSubscription((onData) => subscribe(path, parameters[0], { onData }))
+    : call(path, routeType, parameters[0]))
   }
 
   ;(async () => {

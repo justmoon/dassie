@@ -47,9 +47,9 @@ const getContextKeyTuple = (
   reverseMap: Map<unknown, number>,
 ): ContextKeyTuple => {
   const name =
-    item && isObject(item) && typeof item[FactoryNameSymbol] === "string"
-      ? item[FactoryNameSymbol]
-      : "anonymous"
+    item && isObject(item) && typeof item[FactoryNameSymbol] === "string" ?
+      item[FactoryNameSymbol]
+    : "anonymous"
 
   if (isActor(item)) {
     return [
@@ -107,8 +107,8 @@ export const debugRouter = createRouter({
       }
     }
 
-    return context
-      ? [...context.values()].map<ContextKeyTuple>((entry) => {
+    return context ?
+        [...context.values()].map<ContextKeyTuple>((entry) => {
           const item = entry.reference.deref()
           return getContextKeyTuple(
             entry.uniqueId,

@@ -13,9 +13,9 @@ import {
 export type InformationObjectShape<
   TClassDefinition extends ClassDefinitionShape,
 > = {
-  [TKey in keyof TClassDefinition]: TClassDefinition[TKey] extends AnyOerType
-    ? Infer<TClassDefinition[TKey]>
-    : AnyOerType
+  [TKey in keyof TClassDefinition]: TClassDefinition[TKey] extends AnyOerType ?
+    Infer<TClassDefinition[TKey]>
+  : AnyOerType
 }
 export type InformationObjectSetShape<
   TClassDefinition extends ClassDefinitionShape,

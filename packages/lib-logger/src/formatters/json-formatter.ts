@@ -24,15 +24,15 @@ export const createJsonFormatter = ({
 }: JsonFormatterOptions = {}): LogEventFormatter => {
   const log: LogEventFormatter = (line) => {
     const serializedLine: SerializableLogEvent =
-      line.type === "clear"
-        ? {
-            type: "clear",
-            date: new Date(line.date).toISOString(),
-          }
-        : {
-            ...line,
-            date: new Date(line.date).toISOString(),
-          }
+      line.type === "clear" ?
+        {
+          type: "clear",
+          date: new Date(line.date).toISOString(),
+        }
+      : {
+          ...line,
+          date: new Date(line.date).toISOString(),
+        }
     return serializationFunction(serializedLine)
   }
 

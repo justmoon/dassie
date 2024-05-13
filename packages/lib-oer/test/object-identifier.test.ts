@@ -50,21 +50,27 @@ describe("objectIdentifier", () => {
       expect,
     }) => {
       const result = schema.serialize("3.0")
-      expect(result).toMatchInlineSnapshot('[SerializeFailure: object identifier first component must be in the range of 0..2]')
+      expect(result).toMatchInlineSnapshot(
+        "[SerializeFailure: object identifier first component must be in the range of 0..2]",
+      )
     })
 
     test("should refuse to serialize an object identifier with a second segment greater than 39 when the first segment is 0", ({
       expect,
     }) => {
       const result = schema.serialize("1.40")
-      expect(result).toMatchInlineSnapshot('[SerializeFailure: object identifier second component must be in the range of 0..39 when first component is 0 or 1]')
+      expect(result).toMatchInlineSnapshot(
+        "[SerializeFailure: object identifier second component must be in the range of 0..39 when first component is 0 or 1]",
+      )
     })
 
     test("should refuse to serialize an object identifier with a second segment greater than 39 when the first segment is 1", ({
       expect,
     }) => {
       const result = schema.serialize("1.40")
-      expect(result).toMatchInlineSnapshot('[SerializeFailure: object identifier second component must be in the range of 0..39 when first component is 0 or 1]')
+      expect(result).toMatchInlineSnapshot(
+        "[SerializeFailure: object identifier second component must be in the range of 0..39 when first component is 0 or 1]",
+      )
     })
 
     test("should refuse to parse an object identifier with a length prefix of 3 that is only two bytes long", ({

@@ -18,9 +18,9 @@ export const subscribeToTopic = <TMessage>(
   topicFactory: Factory<ReadonlyTopic<TMessage>> | ReadonlyTopic<TMessage>,
 ): Subscription<TMessage> => {
   const topic =
-    typeof topicFactory === "function"
-      ? sig.reactor.use(topicFactory)
-      : topicFactory
+    typeof topicFactory === "function" ?
+      sig.reactor.use(topicFactory)
+    : topicFactory
 
   return createSubscription<TMessage>((onData) => {
     const listener = (message: TMessage) => {
@@ -40,9 +40,9 @@ export const subscribeToSignal = <TMessage>(
   signalFactory: Factory<ReadonlySignal<TMessage>> | ReadonlySignal<TMessage>,
 ): Subscription<TMessage> => {
   const signal =
-    typeof signalFactory === "function"
-      ? sig.reactor.use(signalFactory)
-      : signalFactory
+    typeof signalFactory === "function" ?
+      sig.reactor.use(signalFactory)
+    : signalFactory
 
   return createSubscription<TMessage>((onData) => {
     const listener = (message: TMessage) => {
@@ -74,9 +74,9 @@ export const subscribeToStore = <
   storeFactory: Factory<Store<TState, TActions>> | Store<TState, TActions>,
 ): Subscription<StoreMessage<TState, TActions>> => {
   const store =
-    typeof storeFactory === "function"
-      ? sig.reactor.use(storeFactory)
-      : storeFactory
+    typeof storeFactory === "function" ?
+      sig.reactor.use(storeFactory)
+    : storeFactory
 
   return createSubscription<StoreMessage<TState, TActions>>((onData) => {
     const listener = (message: InferChanges<TActions>) => {

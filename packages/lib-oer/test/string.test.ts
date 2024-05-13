@@ -61,7 +61,9 @@ describe("string", () => {
 
       test("should refuse to serialize a value of length 12", ({ expect }) => {
         const value = schema.serialize("123456789012")
-        expect(value).toMatchInlineSnapshot('[SerializeFailure: String is too short, expected at least 13 characters, got 12]')
+        expect(value).toMatchInlineSnapshot(
+          "[SerializeFailure: String is too short, expected at least 13 characters, got 12]",
+        )
       })
 
       test("should refuse to parse a value of character length 12 but byte length of 13", ({
@@ -82,7 +84,9 @@ describe("string", () => {
         expect,
       }) => {
         const value = schema.serialize("12345678901κ")
-        expect(value).toMatchInlineSnapshot('[SerializeFailure: String is too short, expected at least 13 characters, got 12]')
+        expect(value).toMatchInlineSnapshot(
+          "[SerializeFailure: String is too short, expected at least 13 characters, got 12]",
+        )
       })
 
       test("should refuse to parse a value of length 14", ({ expect }) => {
@@ -99,7 +103,9 @@ describe("string", () => {
 
       test("should refuse to serialize a value of length 14", ({ expect }) => {
         const value = schema.serialize("12345678901234")
-        expect(value).toMatchInlineSnapshot('[SerializeFailure: String is too long, expected at most 13 characters, got 14]')
+        expect(value).toMatchInlineSnapshot(
+          "[SerializeFailure: String is too long, expected at most 13 characters, got 14]",
+        )
       })
     })
 

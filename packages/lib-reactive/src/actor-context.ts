@@ -245,9 +245,9 @@ export class ActorContextImplementation<TBase extends object = object>
     listener: Listener<TMessage>,
   ) {
     const topic =
-      typeof topicFactory === "function"
-        ? this.reactor.use(topicFactory)
-        : topicFactory
+      typeof topicFactory === "function" ?
+        this.reactor.use(topicFactory)
+      : topicFactory
     topic.on(this, listener)
   }
 
@@ -258,9 +258,9 @@ export class ActorContextImplementation<TBase extends object = object>
     listener: Listener<TMessage>,
   ) {
     const topic =
-      typeof topicFactory === "function"
-        ? this.reactor.use(topicFactory)
-        : topicFactory
+      typeof topicFactory === "function" ?
+        this.reactor.use(topicFactory)
+      : topicFactory
     topic.once(this, listener)
   }
 
@@ -299,9 +299,9 @@ export class ActorContextImplementation<TBase extends object = object>
     options?: RunOptions | undefined,
   ): TReturn | undefined {
     const actor =
-      typeof actorFactory === "function"
-        ? this.reactor.use(actorFactory)
-        : actorFactory
+      typeof actorFactory === "function" ?
+        this.reactor.use(actorFactory)
+      : actorFactory
 
     return actor.run(this, {
       pathPrefix: `${this.path}.`,

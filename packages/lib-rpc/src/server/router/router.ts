@@ -30,11 +30,11 @@ export interface RouterCallParameters<TContext extends object> {
 export type DeriveContextFromRoutes<TRoutes extends RouteDefinition> =
   UnionToIntersection<
     {
-      [K in keyof TRoutes]: TRoutes[K] extends AnyRoute
-        ? Parameters<TRoutes[K]>[0]["context"]
-        : TRoutes[K] extends Router<infer TSubroutes>
-          ? DeriveContextFromRoutes<TSubroutes>
-          : never
+      [K in keyof TRoutes]: TRoutes[K] extends AnyRoute ?
+        Parameters<TRoutes[K]>[0]["context"]
+      : TRoutes[K] extends Router<infer TSubroutes> ?
+        DeriveContextFromRoutes<TSubroutes>
+      : never
     }[keyof TRoutes]
     // eslint-disable-next-line @typescript-eslint/ban-types
   > & {}

@@ -28,8 +28,9 @@ export const LINK_STATE_MAX_UPDATE_RETRANSMIT_DELAY = 500 // 500 ms
  * How often (in milliseconds) a node will query its bootstrap nodes for their
  * latest node list hash.
  */
-export const NODE_LIST_HASH_POLLING_INTERVAL = import.meta.env.DEV
-  ? 1000 // 1 sec during development
+export const NODE_LIST_HASH_POLLING_INTERVAL =
+  import.meta.env.DEV ?
+    1000 // 1 sec during development
   : 60 * 1000 // 1 min in production
 
 /**

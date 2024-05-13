@@ -58,9 +58,9 @@ export const leftCodepoint = (text: string, offset: number): number => {
 export const rightCodepoint = (text: string, offset: number): number => {
   return Math.min(
     text.length,
-    (text.codePointAt(offset) ?? 0) >= UTF16_SURROGATE_THRESHOLD
-      ? offset + 2
-      : offset + 1,
+    (text.codePointAt(offset) ?? 0) >= UTF16_SURROGATE_THRESHOLD ?
+      offset + 2
+    : offset + 1,
   )
 }
 

@@ -16,11 +16,9 @@ export const TopicSymbol = Symbol("das:reactive:topic")
 export type InferMessageType<
   TTopic extends ReadonlyTopic<unknown> | Factory<ReadonlyTopic<unknown>>,
 > =
-  TTopic extends ReadonlyTopic<infer TMessage>
-    ? TMessage
-    : TTopic extends Factory<ReadonlyTopic<infer TMessage>>
-      ? TMessage
-      : never
+  TTopic extends ReadonlyTopic<infer TMessage> ? TMessage
+  : TTopic extends Factory<ReadonlyTopic<infer TMessage>> ? TMessage
+  : never
 
 export interface ReadonlyTopic<TMessage = never> extends ContextValue {
   /**

@@ -29,11 +29,9 @@ export function createWebSocketLink({
   const resets = createTopic<void>()
 
   const calculateExponentialBackoff =
-    typeof reconnectDelay === "number"
-      ? () => reconnectDelay
-      : typeof reconnectDelay === "function"
-        ? reconnectDelay
-        : createExponentialBackoffCalculator(reconnectDelay)
+    typeof reconnectDelay === "number" ? () => reconnectDelay
+    : typeof reconnectDelay === "function" ? reconnectDelay
+    : createExponentialBackoffCalculator(reconnectDelay)
 
   let currentSocket: WebSocketImplementation | undefined
   const sendQueue: string[] = []

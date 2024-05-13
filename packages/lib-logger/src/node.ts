@@ -19,9 +19,9 @@ const WORKING_DIRECTORY = `${process.cwd()}/`
 // the end. Stack frames without a name are just "    at " followed by the
 // callsite.
 const getCallsite = (stackLine: string) =>
-  stackLine.endsWith(")")
-    ? stackLine.match(/\((.*)\)$/)?.[1]
-    : stackLine.match(/^\s*at\s+(.+)$/)?.[1]
+  stackLine.endsWith(")") ?
+    stackLine.match(/\((.*)\)$/)?.[1]
+  : stackLine.match(/^\s*at\s+(.+)$/)?.[1]
 
 context.getCaller = (depth, error) => {
   const stackLine = error.stack

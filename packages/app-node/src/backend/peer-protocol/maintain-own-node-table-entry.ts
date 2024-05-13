@@ -90,9 +90,9 @@ export const MaintainOwnNodeTableEntryActor = () =>
       }
 
       logger.debug?.(
-        oldLinkState
-          ? "updating own node table entry"
-          : "creating own node table entry",
+        oldLinkState ?
+          "updating own node table entry"
+        : "creating own node table entry",
         {
           sequence,
           neighbors: peerIds.join(","),

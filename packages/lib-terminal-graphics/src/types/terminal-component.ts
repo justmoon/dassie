@@ -44,6 +44,5 @@ export type TerminalComponent =
 
 export type InferComponentResult<TComponent extends TerminalComponent> =
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  TComponent extends InteractiveTerminalComponent<any, infer TResult>
-    ? TResult
-    : void
+  TComponent extends InteractiveTerminalComponent<any, infer TResult> ? TResult
+  : void

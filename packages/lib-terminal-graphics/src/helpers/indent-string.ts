@@ -51,12 +51,11 @@ export const indentString = (
     return text
   }
 
-  const regex = indentEmptyLines
-    ? indentFirstLine
-      ? REGEX_ALL_LINES
+  const regex =
+    indentEmptyLines ?
+      indentFirstLine ? REGEX_ALL_LINES
       : REGEX_NON_FIRST_LINES
-    : indentFirstLine
-    ? REGEX_NON_EMPTY_LINES
+    : indentFirstLine ? REGEX_NON_EMPTY_LINES
     : REGEX_NON_EMPTY_OR_FIRST_LINES
 
   return text.replace(regex, indentUnit.repeat(count))

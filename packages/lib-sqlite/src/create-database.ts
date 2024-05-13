@@ -89,18 +89,20 @@ export interface DatabaseInstance<
 export type AnyDatabase = DatabaseInstance<any>
 
 export type InferTableAccessors<TOptions extends DatabaseGenerics> =
-  TOptions["schema"]["tables"] extends Record<string, TableDescription>
-    ? {
-        [K in keyof TOptions["schema"]["tables"]]: ConnectedTable<
-          TOptions["schema"]["tables"][K]
-        >
-      }
-    : undefined
+  TOptions["schema"]["tables"] extends Record<string, TableDescription> ?
+    {
+      [K in keyof TOptions["schema"]["tables"]]: ConnectedTable<
+        TOptions["schema"]["tables"][K]
+      >
+    }
+  : undefined
 
 export type InferScalarAccessors<TOptions extends DatabaseGenerics> =
-  TOptions["schema"]["scalars"] extends Record<string, ScalarDescriptionBuilder>
-    ? ScalarStore<TOptions["schema"]["scalars"]>
-    : undefined
+  TOptions["schema"]["scalars"] extends (
+    Record<string, ScalarDescriptionBuilder>
+  ) ?
+    ScalarStore<TOptions["schema"]["scalars"]>
+  : undefined
 
 export const createDatabase = <TOptions extends DatabaseOptions>(
   databaseOptions: TOptions,
@@ -193,16 +195,16 @@ export const createDatabase = <TOptions extends DatabaseOptions>(
   }
 
   return {
-    tables: (databaseOptions.schema.tables
-      ? Object.fromEntries(
-          Object.entries(databaseOptions.schema.tables).map(
-            ([tableName, table]) => [tableName, connectTable(table, database)],
-          ),
-        )
-      : undefined) as InferTableAccessors<TOptions>,
-    scalars: (databaseOptions.schema.scalars
-      ? createScalarStore(databaseOptions.schema.scalars, database)
-      : undefined) as InferScalarAccessors<TOptions>,
+    tables: (databaseOptions.schema.tables ?
+      Object.fromEntries(
+        Object.entries(databaseOptions.schema.tables).map(
+          ([tableName, table]) => [tableName, connectTable(table, database)],
+        ),
+      )
+    : undefined) as InferTableAccessors<TOptions>,
+    scalars: (databaseOptions.schema.scalars ?
+      createScalarStore(databaseOptions.schema.scalars, database)
+    : undefined) as InferScalarAccessors<TOptions>,
     raw: database,
     schema: databaseOptions.schema,
 

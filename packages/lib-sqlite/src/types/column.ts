@@ -81,36 +81,33 @@ export interface ColumnDescriptionBuilder<
 }
 
 export type InferColumnTypescriptType<T extends ColumnDescription> =
-  T extends ColumnDescription<infer TGenerics>
-    ? TGenerics["typescriptType"] | InferColumnNullable<T>
-    : never
+  T extends ColumnDescription<infer TGenerics> ?
+    TGenerics["typescriptType"] | InferColumnNullable<T>
+  : never
 
 export type InferColumnSqliteType<T extends ColumnDescription> =
-  T extends ColumnDescription<infer TGenerics>
-    ?
-        | SqliteToTypescriptTypeMap[TGenerics["sqliteType"]]
-        | InferColumnNullable<T>
-    : never
+  T extends ColumnDescription<infer TGenerics> ?
+    SqliteToTypescriptTypeMap[TGenerics["sqliteType"]] | InferColumnNullable<T>
+  : never
 
 export type InferColumnRequired<T extends ColumnDescription> =
-  T extends ColumnDescription<infer TGenerics>
-    ? TGenerics["hasDefault"] extends true
-      ? false
-      : TGenerics["notNull"] extends false
-        ? TGenerics["primaryKey"] extends false
-          ? false
-          : true
-        : true
+  T extends ColumnDescription<infer TGenerics> ?
+    TGenerics["hasDefault"] extends true ? false
+    : TGenerics["notNull"] extends false ?
+      TGenerics["primaryKey"] extends false ?
+        false
+      : true
     : true
+  : true
 
 export type InferColumnNullable<T extends ColumnDescription> =
-  T extends ColumnDescription<infer TGenerics>
-    ? TGenerics["notNull"] extends false
-      ? TGenerics["primaryKey"] extends false
-        ? null
-        : never
+  T extends ColumnDescription<infer TGenerics> ?
+    TGenerics["notNull"] extends false ?
+      TGenerics["primaryKey"] extends false ?
+        null
       : never
     : never
+  : never
 
 export type AnyColumnDescription = ColumnDescription<any>
 export type AnyColumnDescriptionBuilder = ColumnDescriptionBuilder<any>

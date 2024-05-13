@@ -41,16 +41,16 @@ export interface ActorApiProxy<TCallback extends ActorApiHandler> {
    * @param message - The message to send to the actor.
    * @returns A promise that will resolve with the response from the actor.
    */
-  ask: ReturnType<TCallback> extends PromiseLike<unknown>
-    ? TCallback
-    : SetReturnType<TCallback, Promise<Awaited<ReturnType<TCallback>>>>
+  ask: ReturnType<TCallback> extends PromiseLike<unknown> ? TCallback
+  : SetReturnType<TCallback, Promise<Awaited<ReturnType<TCallback>>>>
 }
 
 export type InferActorApi<TReturn> = {
-  [K in keyof ConditionalPick<
-    TReturn,
+  [K in keyof ConditionalPick<TReturn, ActorApiHandler>]: TReturn[K] extends (
     ActorApiHandler
-  >]: TReturn[K] extends ActorApiHandler ? ActorApiProxy<TReturn[K]> : never
+  ) ?
+    ActorApiProxy<TReturn[K]>
+  : never
 }
 
 class ApiProxy {

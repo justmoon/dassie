@@ -59,9 +59,9 @@ export const tasklist = ({
         if (task) {
           draft.tasks.set(
             taskId,
-            typeof update === "function"
-              ? update(task)
-              : { ...task, ...update },
+            typeof update === "function" ?
+              update(task)
+            : { ...task, ...update },
           )
         }
       }),
@@ -77,30 +77,27 @@ export const tasklist = ({
         ...[...tasks.values()].flatMap(({ description, progress }) => {
           const descriptionWidth = stringWidth(description)
           const progressBarWidth =
-            descriptionWidth > maxDescriptionWidth
-              ? 0
-              : Math.max(
-                  0,
-                  columns - SPACE_FOR_BULLET - maxDescriptionWidth - 1,
-                )
+            descriptionWidth > maxDescriptionWidth ? 0 : (
+              Math.max(0, columns - SPACE_FOR_BULLET - maxDescriptionWidth - 1)
+            )
           const descriptionPadding =
             Math.max(0, maxDescriptionWidth - descriptionWidth) + 1
           return [
             " ",
-            progress === "done"
-              ? chalk.bold[theme.stepStyles.success.color](
-                  maybeUnicode(theme.stepStyles.success.icon),
-                )
-              : progress === "error"
-                ? chalk.bold[theme.stepStyles.error.color](
-                    maybeUnicode(theme.stepStyles.error.icon),
-                  )
-                : maybeUnicode(
-                    theme.spinner[
-                      Math.floor(Date.now() / refreshInterval) %
-                        theme.spinner.length
-                    ]!,
-                  ),
+            progress === "done" ?
+              chalk.bold[theme.stepStyles.success.color](
+                maybeUnicode(theme.stepStyles.success.icon),
+              )
+            : progress === "error" ?
+              chalk.bold[theme.stepStyles.error.color](
+                maybeUnicode(theme.stepStyles.error.icon),
+              )
+            : maybeUnicode(
+                theme.spinner[
+                  Math.floor(Date.now() / refreshInterval) %
+                    theme.spinner.length
+                ]!,
+              ),
 
             " ",
             chalk.dim(
@@ -109,20 +106,22 @@ export const tasklist = ({
               }),
             ),
 
-            ...(isFinal ||
-            !progressBarWidth ||
-            progress === "done" ||
-            progress === "error"
-              ? []
-              : [
-                  " ".repeat(descriptionPadding),
-                  chalk[theme.stepStyles[style].color].bgGray(
-                    generateIndeterminateProgressBar(
-                      Math.floor(Date.now() / refreshInterval),
-                      progressBarWidth,
-                    ),
+            ...((
+              isFinal ||
+              !progressBarWidth ||
+              progress === "done" ||
+              progress === "error"
+            ) ?
+              []
+            : [
+                " ".repeat(descriptionPadding),
+                chalk[theme.stepStyles[style].color].bgGray(
+                  generateIndeterminateProgressBar(
+                    Math.floor(Date.now() / refreshInterval),
+                    progressBarWidth,
                   ),
-                ]),
+                ),
+              ]),
             "\n".repeat(1 + paddingBottom),
           ]
         }),

@@ -60,13 +60,15 @@ export type RouteBuilder<TParameters extends { route: RouteContext }> = {
   ) => RouteBuilder<
     Simplify<
       Omit<TParameters, "parameters" | "route"> & {
-        parameters: TPath extends `${string}:${string}`
-          ? Simplify<RouteParameters<TPath>>
-          : {}
+        parameters: TPath extends `${string}:${string}` ?
+          Simplify<RouteParameters<TPath>>
+        : {}
 
-        route: TParameters["route"] extends RouteContext<infer TMethod, string>
-          ? RouteContext<TMethod, TPath>
-          : never
+        route: TParameters["route"] extends (
+          RouteContext<infer TMethod, string>
+        ) ?
+          RouteContext<TMethod, TPath>
+        : never
       }
     >
   >
@@ -79,12 +81,11 @@ export type RouteBuilder<TParameters extends { route: RouteContext }> = {
   ) => RouteBuilder<
     Simplify<
       Omit<TParameters, "route"> & {
-        route: TParameters["route"] extends RouteContext<
-          HttpMethod,
-          infer TPath
-        >
-          ? RouteContext<TMethod, TPath>
-          : never
+        route: TParameters["route"] extends (
+          RouteContext<HttpMethod, infer TPath>
+        ) ?
+          RouteContext<TMethod, TPath>
+        : never
       }
     >
   >
@@ -115,9 +116,11 @@ export type RouteBuilder<TParameters extends { route: RouteContext }> = {
 } & {
   [K in HttpMethod]: () => RouteBuilder<
     TParameters & {
-      route: TParameters["route"] extends RouteContext<HttpMethod, infer TPath>
-        ? RouteContext<K, TPath>
-        : never
+      route: TParameters["route"] extends (
+        RouteContext<HttpMethod, infer TPath>
+      ) ?
+        RouteContext<K, TPath>
+      : never
     }
   >
 }

@@ -22,8 +22,9 @@ export const captureConsole = () => {
           namespace: CONSOLE_NAMESPACE,
           message,
           parameters,
-          caller: context.captureCaller
-            ? // eslint-disable-next-line unicorn/error-message
+          caller:
+            context.captureCaller ?
+              // eslint-disable-next-line unicorn/error-message
               context.getCaller(1, new Error())
             : undefined,
         },

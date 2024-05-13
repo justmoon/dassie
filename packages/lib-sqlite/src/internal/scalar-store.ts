@@ -92,11 +92,9 @@ const createConnectedScalar = <
         TScalars[typeof key]
       >
       const value =
-        rawValue === undefined
-          ? description.defaultValue
-          : description.deserialize === identity
-          ? rawValue
-          : description.deserialize(rawValue)
+        rawValue === undefined ? description.defaultValue
+        : description.deserialize === identity ? rawValue
+        : description.deserialize(rawValue)
 
       return value as InferScalarReadType<TScalars[typeof key]>
     },
@@ -104,9 +102,9 @@ const createConnectedScalar = <
     set(value) {
       driver.set(
         key,
-        description.serialize === identity
-          ? value
-          : description.serialize(value),
+        description.serialize === identity ?
+          value
+        : description.serialize(value),
       )
     },
 

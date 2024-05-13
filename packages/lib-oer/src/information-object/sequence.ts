@@ -9,37 +9,37 @@ export type InferInformationObjectParseShape<TShape extends SequenceShape> =
     TShape,
     AnyObjectSetField
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  >] extends ObjectSetField<any, infer TObjectSet, string>
-    ? {
-        [TElement in keyof TObjectSet]: {
-          [TKey in keyof ConditionalPick<
-            TShape,
-            AnyObjectSetField
-          >]: TShape[TKey] extends AnyObjectSetField
-            ? TObjectSet[TElement][TShape[TKey]["_field"]] extends AnyOerType
-              ? Infer<TObjectSet[TElement][TShape[TKey]["_field"]]>
-              : TObjectSet[TElement][TShape[TKey]["_field"]]
-            : never
-        }
-      }[number]
-    : never
+  >] extends ObjectSetField<any, infer TObjectSet, string> ?
+    {
+      [TElement in keyof TObjectSet]: {
+        [TKey in keyof ConditionalPick<
+          TShape,
+          AnyObjectSetField
+        >]: TShape[TKey] extends AnyObjectSetField ?
+          TObjectSet[TElement][TShape[TKey]["_field"]] extends AnyOerType ?
+            Infer<TObjectSet[TElement][TShape[TKey]["_field"]]>
+          : TObjectSet[TElement][TShape[TKey]["_field"]]
+        : never
+      }
+    }[number]
+  : never
 
 export type InferInformationObjectSerializeShape<TShape extends SequenceShape> =
   TShape[keyof ConditionalPick<
     TShape,
     AnyObjectSetField
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  >] extends ObjectSetField<any, infer TObjectSet, string>
-    ? {
-        [TElement in keyof TObjectSet]: {
-          [TKey in keyof ConditionalPick<
-            TShape,
-            AnyObjectSetField
-          >]: TShape[TKey] extends AnyObjectSetField
-            ? TObjectSet[TElement][TShape[TKey]["_field"]] extends AnyOerType
-              ? InferSerialize<TObjectSet[TElement][TShape[TKey]["_field"]]>
-              : TObjectSet[TElement][TShape[TKey]["_field"]]
-            : never
-        }
-      }[number]
-    : never
+  >] extends ObjectSetField<any, infer TObjectSet, string> ?
+    {
+      [TElement in keyof TObjectSet]: {
+        [TKey in keyof ConditionalPick<
+          TShape,
+          AnyObjectSetField
+        >]: TShape[TKey] extends AnyObjectSetField ?
+          TObjectSet[TElement][TShape[TKey]["_field"]] extends AnyOerType ?
+            InferSerialize<TObjectSet[TElement][TShape[TKey]["_field"]]>
+          : TObjectSet[TElement][TShape[TKey]["_field"]]
+        : never
+      }
+    }[number]
+  : never

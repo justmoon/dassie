@@ -12,11 +12,8 @@ export type Action<
 
 export type Change = [actionId: string, parameters: unknown[]]
 
-export type InferBoundAction<TAction> = TAction extends Action<
-  infer S,
-  infer P extends unknown[]
->
-  ? BoundAction<S, P>
+export type InferBoundAction<TAction> =
+  TAction extends Action<infer S, infer P extends unknown[]> ? BoundAction<S, P>
   : never
 
 export type InferBoundActions<TActions> = {
@@ -25,9 +22,9 @@ export type InferBoundActions<TActions> = {
 
 export type InferChanges<TActions> = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key in keyof TActions & string]: TActions[key] extends Action<any, any[]>
-    ? [key, Parameters<TActions[key]>]
-    : never
+  [key in keyof TActions & string]: TActions[key] extends Action<any, any[]> ?
+    [key, Parameters<TActions[key]>]
+  : never
 }[keyof TActions & string]
 
 export type BoundAction<TState, TParameters extends unknown[]> = (

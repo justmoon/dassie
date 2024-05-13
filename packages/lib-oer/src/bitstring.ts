@@ -170,7 +170,7 @@ export const bitstring = <TBitDefinition extends number>(
   bits: TBitDefinition,
   { variableLength = false }: BitstringOptions = {},
 ) => {
-  return variableLength
-    ? new OerVariableBitstring<TBitDefinition>(bits)
+  return variableLength ?
+      new OerVariableBitstring<TBitDefinition>(bits)
     : new OerFixedBitstring<TBitDefinition>(bits)
 }

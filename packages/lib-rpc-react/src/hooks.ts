@@ -24,15 +24,15 @@ export type DeriveHooksRouter<TRouter extends AnyRouter> = {
   [K in keyof TRouter["routes"]]: DeriveHooksRoute<TRouter["routes"][K]>
 }
 
-export type DeriveHooksRoute<TRoute> = TRoute extends AnyRoute
-  ? HooksRoute<{
+export type DeriveHooksRoute<TRoute> =
+  TRoute extends AnyRoute ?
+    HooksRoute<{
       type: TRoute["type"]
       input: Parameters<TRoute>[0]["input"]
       output: Awaited<ReturnType<TRoute>>
     }>
-  : TRoute extends AnyRouter
-    ? DeriveHooksRouter<TRoute>
-    : never
+  : TRoute extends AnyRouter ? DeriveHooksRouter<TRoute>
+  : never
 
 export function createRpcReact<TRouter extends AnyRouter>(): RpcHooks<TRouter> {
   const { RpcProvider, useRpcContext: useRpcContext } =
@@ -64,9 +64,9 @@ export function createRpcReact<TRouter extends AnyRouter>(): RpcHooks<TRouter> {
       }
       default: {
         throw new Error(
-          hookName
-            ? `Invalid hook name: ${hookName}`
-            : "You cannot call the root of the RPC object",
+          hookName ?
+            `Invalid hook name: ${hookName}`
+          : "You cannot call the root of the RPC object",
         )
       }
     }

@@ -68,8 +68,8 @@ const fitsLength = (
   bitLengthBigInt: bigint,
 ) => {
   if (signed) {
-    return value < 0n
-      ? value >= -(2n ** (bitLengthBigInt - 1n))
+    return value < 0n ?
+        value >= -(2n ** (bitLengthBigInt - 1n))
       : value < 2n ** (bitLengthBigInt - 1n)
   } else {
     return value < 0n ? false : value < 2n ** bitLengthBigInt
@@ -78,8 +78,8 @@ const fitsLength = (
 
 const getValueAsHex = (value: bigint, byteLength: number) => {
   const bitLengthBigInt = BigInt(byteLength) * 8n
-  return value < 0n
-    ? // Calculate two's complement
+  return value < 0n ?
+      // Calculate two's complement
       (2n ** bitLengthBigInt + value).toString(16)
     : value.toString(16).padStart(byteLength * 2, "0")
 }

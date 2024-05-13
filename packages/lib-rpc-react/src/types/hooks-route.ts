@@ -9,16 +9,16 @@ export interface HooksRouteSettings {
 }
 
 export type HooksRoute<TRouteSettings extends HooksRouteSettings> =
-  TRouteSettings["type"] extends "query"
-    ? {
-        useQuery: UseQueryHook<TRouteSettings>
-      }
-    : TRouteSettings["type"] extends "mutation"
-      ? {
-          useMutation: UseMutationHook<TRouteSettings>
-        }
-      : TRouteSettings["type"] extends "subscription"
-        ? {
-            useSubscription: UseSubscriptionHook<TRouteSettings>
-          }
-        : never
+  TRouteSettings["type"] extends "query" ?
+    {
+      useQuery: UseQueryHook<TRouteSettings>
+    }
+  : TRouteSettings["type"] extends "mutation" ?
+    {
+      useMutation: UseMutationHook<TRouteSettings>
+    }
+  : TRouteSettings["type"] extends "subscription" ?
+    {
+      useSubscription: UseSubscriptionHook<TRouteSettings>
+    }
+  : never

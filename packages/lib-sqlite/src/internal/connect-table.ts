@@ -190,8 +190,9 @@ export const connectTable = <TTable extends TableDescription>(
       return selectAllQuery.all() as Simplify<InferRow<TTable>>[]
     },
     selectFirst: (row) => {
-      const query = row
-        ? database.prepare(
+      const query =
+        row ?
+          database.prepare(
             `SELECT * FROM ${name} WHERE ${createWhereClause(row)}`,
           )
         : selectAllQuery

@@ -44,15 +44,15 @@ export const progress = ({
     refreshInterval,
     render: ({ progress }, isFinal, { theme, columns }) => [
       "\n".repeat(paddingTop),
-      isFinal
-        ? chalk.bold[theme.stepStyles.success.color](
-            maybeUnicode(theme.stepStyles.success.icon),
-          )
-        : maybeUnicode(
-            theme.spinner[
-              Math.floor(Date.now() / refreshInterval) % theme.spinner.length
-            ]!,
-          ),
+      isFinal ?
+        chalk.bold[theme.stepStyles.success.color](
+          maybeUnicode(theme.stepStyles.success.icon),
+        )
+      : maybeUnicode(
+          theme.spinner[
+            Math.floor(Date.now() / refreshInterval) % theme.spinner.length
+          ]!,
+        ),
 
       " ",
       chalk.dim(
@@ -61,29 +61,29 @@ export const progress = ({
         }),
       ),
 
-      ...(isFinal
-        ? []
-        : [
-            "\n",
-            "\n",
-            progress === undefined
-              ? chalk[
-                  foregroundToBackgroundColor(theme.stepStyles[style].color)
-                ].black(
-                  generateIndeterminateProgressBar(
-                    getTick(Date.now(), refreshInterval),
-                    columns,
-                  ),
-                )
-              : chalk[theme.stepStyles[style].color].bgGray(
-                  generateDeterminateProgressBar(
-                    getTick(Date.now(), refreshInterval),
-                    progress,
-                    columns,
-                  ),
-                ),
-            "\n",
-          ]),
+      ...(isFinal ?
+        []
+      : [
+          "\n",
+          "\n",
+          progress === undefined ?
+            chalk[
+              foregroundToBackgroundColor(theme.stepStyles[style].color)
+            ].black(
+              generateIndeterminateProgressBar(
+                getTick(Date.now(), refreshInterval),
+                columns,
+              ),
+            )
+          : chalk[theme.stepStyles[style].color].bgGray(
+              generateDeterminateProgressBar(
+                getTick(Date.now(), refreshInterval),
+                progress,
+                columns,
+              ),
+            ),
+          "\n",
+        ]),
       "\n".repeat(1 + paddingBottom),
     ],
   } satisfies DynamicTerminalComponent<ProgressState>

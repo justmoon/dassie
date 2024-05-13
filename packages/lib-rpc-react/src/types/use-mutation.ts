@@ -14,19 +14,15 @@ export type UseMutationHook<TRouteSettings extends HooksRouteSettings> = (
   UseMutationResult<TRouteSettings["output"], Error, TRouteSettings["input"]>,
   {
     mutate: (
-      ...parameters: TRouteSettings["input"] extends undefined
-        ? [
-            input?: TRouteSettings["input"],
-            options?:
-              | MutateOptions<TRouteSettings["output"], Error>
-              | undefined,
-          ]
-        : [
-            input: TRouteSettings["input"],
-            options?:
-              | MutateOptions<TRouteSettings["output"], Error>
-              | undefined,
-          ]
+      ...parameters: TRouteSettings["input"] extends undefined ?
+        [
+          input?: TRouteSettings["input"],
+          options?: MutateOptions<TRouteSettings["output"], Error> | undefined,
+        ]
+      : [
+          input: TRouteSettings["input"],
+          options?: MutateOptions<TRouteSettings["output"], Error> | undefined,
+        ]
     ) => void
   }
 >

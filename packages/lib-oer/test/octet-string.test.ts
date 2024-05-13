@@ -36,7 +36,9 @@ describe("octetString", () => {
       expect,
     }) => {
       const value = schema.serialize(sampleBuffer.slice(0, 21))
-      expect(value).toMatchInlineSnapshot('[SerializeFailure: Expected octet string of length 22, but got 21]')
+      expect(value).toMatchInlineSnapshot(
+        "[SerializeFailure: Expected octet string of length 22, but got 21]",
+      )
     })
 
     test("should return a plain Uint8Array even when parsing an input Buffer", ({
@@ -234,7 +236,9 @@ describe("octetString", () => {
       expect,
     }) => {
       const value = schema.serialize(hexToUint8Array("0001e24000"))
-      expect(value).toMatchInlineSnapshot('[SerializeFailure: Expected octet string of length 4, but got 5]')
+      expect(value).toMatchInlineSnapshot(
+        "[SerializeFailure: Expected octet string of length 4, but got 5]",
+      )
     })
 
     test("should parse 123456", ({ expect }) => {
@@ -274,7 +278,9 @@ describe("octetString", () => {
       expect,
     }) => {
       const value = schema.serialize(sampleBuffer.slice(0, 9))
-      expect(value).toMatchInlineSnapshot('[SerializeFailure: Expected octet string of length at most 8, but got 9]')
+      expect(value).toMatchInlineSnapshot(
+        "[SerializeFailure: Expected octet string of length at most 8, but got 9]",
+      )
     })
 
     test("should refuse to parse a buffer with nine bytes", ({ expect }) => {
@@ -291,7 +297,9 @@ describe("octetString", () => {
       expect,
     }) => {
       const value = schema.serialize(sampleBuffer.slice(0, 4))
-      expect(value).toMatchInlineSnapshot('[SerializeFailure: Expected octet string of length at least 5, but got 4]')
+      expect(value).toMatchInlineSnapshot(
+        "[SerializeFailure: Expected octet string of length at least 5, but got 4]",
+      )
     })
 
     test("should refuse to parse a buffer with four bytes", ({ expect }) => {

@@ -40,9 +40,9 @@ export class ReactiveContextImplementation<TBase extends object>
     comparator: (a: TSelection, b: TSelection) => boolean = defaultComparator,
   ) {
     const signal =
-      typeof signalFactory === "function"
-        ? this.reactor.use(signalFactory)
-        : signalFactory
+      typeof signalFactory === "function" ?
+        this.reactor.use(signalFactory)
+      : signalFactory
 
     if (selector === defaultSelector && comparator === defaultComparator) {
       return this._get(signal)
@@ -86,9 +86,9 @@ export class ReactiveContextImplementation<TBase extends object>
       | ReactiveSource<TState>,
   ): TState {
     const signal =
-      typeof signalFactory === "function"
-        ? this.reactor.use(signalFactory)
-        : signalFactory
+      typeof signalFactory === "function" ?
+        this.reactor.use(signalFactory)
+      : signalFactory
 
     return signal.read()
   }

@@ -22,11 +22,11 @@ export interface InferTableDescription<T extends TableOptions = TableOptions>
   extends TableDescription {
   name: T["name"]
   columns: {
-    [K in keyof T["columns"]]: T["columns"][K]["description"] extends ColumnDescription<
-      infer T
-    >
-      ? ColumnDescription<Simplify<T>>
-      : never
+    [K in keyof T["columns"]]: T["columns"][K]["description"] extends (
+      ColumnDescription<infer T>
+    ) ?
+      ColumnDescription<Simplify<T>>
+    : never
   }
 }
 
@@ -35,13 +35,17 @@ export type InferRow<T extends TableDescription> = {
 }
 
 export type InferInsertRow<T extends TableDescription> = {
-  [K in keyof T["columns"] as InferColumnRequired<T["columns"][K]> extends false
-    ? never
-    : K]: InferColumnTypescriptType<T["columns"][K]>
+  [K in keyof T["columns"] as InferColumnRequired<T["columns"][K]> extends (
+    false
+  ) ?
+    never
+  : K]: InferColumnTypescriptType<T["columns"][K]>
 } & {
-  [K in keyof T["columns"] as InferColumnRequired<T["columns"][K]> extends false
-    ? K
-    : never]?: InferColumnTypescriptType<T["columns"][K]>
+  [K in keyof T["columns"] as InferColumnRequired<T["columns"][K]> extends (
+    false
+  ) ?
+    K
+  : never]?: InferColumnTypescriptType<T["columns"][K]>
 }
 
 export type InferRowSqliteType<T extends TableDescription> = {

@@ -131,11 +131,13 @@ export const realAsNumber = ({
   }
 
   // Fixed size integer encodings
-  return minimumMantissa >= FLOAT32_MIN_MANTISSA_NUMBER &&
-    maximumMantissa <= FLOAT32_MAX_MANTISSA_NUMBER &&
-    minimumExponent >= FLOAT32_MIN_EXPONENT_NUMBER &&
-    maximumExponent <= FLOAT32_MAX_EXPONENT_NUMBER
-    ? new OerFloatNumber({ ...fixedOptions, size: 32 })
+  return (
+      minimumMantissa >= FLOAT32_MIN_MANTISSA_NUMBER &&
+        maximumMantissa <= FLOAT32_MAX_MANTISSA_NUMBER &&
+        minimumExponent >= FLOAT32_MIN_EXPONENT_NUMBER &&
+        maximumExponent <= FLOAT32_MAX_EXPONENT_NUMBER
+    ) ?
+      new OerFloatNumber({ ...fixedOptions, size: 32 })
     : new OerFloatNumber({ ...fixedOptions, size: 64 })
 }
 
