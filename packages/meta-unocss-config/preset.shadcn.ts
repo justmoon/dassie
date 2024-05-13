@@ -136,5 +136,3 @@ export function presetShadcn(): Preset<Theme> {
     ],
   }
 }
-
-export default presetShadcn

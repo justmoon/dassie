@@ -9,7 +9,6 @@
     "extract-apis": "./scripts/extract-apis.js"
   },
   "devDependencies": {
-    "@microsoft/api-extractor": "^7.43.4",
-    "@microsoft/api-extractor-model": "^7.28.16"
+    "@microsoft/api-extractor": "^7.43.4"
   }
 }

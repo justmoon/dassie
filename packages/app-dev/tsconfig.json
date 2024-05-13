@@ -22,9 +22,6 @@
       "path": "../lib-logger"
     },
     {
-      "path": "../lib-oer"
-    },
-    {
       "path": "../lib-reactive"
     },
     {

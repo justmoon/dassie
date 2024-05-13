@@ -8,15 +8,6 @@
   },
   "references": [
     {
-      "path": "../app-node"
-    },
-    {
-      "path": "../lib-logger"
-    },
-    {
-      "path": "../lib-reactive"
-    },
-    {
       "path": "../lib-terminal-graphics"
     },
     {

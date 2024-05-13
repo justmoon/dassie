@@ -8,9 +8,6 @@ importers:
 
   .:
     devDependencies:
-      '@dassie/eslint-plugin':
-        specifier: workspace:^
-        version: link:packages/meta-eslint-plugin
       '@dassie/meta-api-extractor':
         specifier: workspace:^
         version: link:packages/meta-api-extractor
@@ -59,24 +56,12 @@ importers:
 
   packages/app-build:
     dependencies:
-      '@dassie/app-node':
-        specifier: workspace:*
-        version: link:../app-node
-      '@dassie/lib-logger':
-        specifier: workspace:^
-        version: link:../lib-logger
-      '@dassie/lib-reactive':
-        specifier: workspace:^
-        version: link:../lib-reactive
       '@dassie/lib-terminal-graphics':
         specifier: workspace:^
         version: link:../lib-terminal-graphics
       '@dassie/lib-type-utils':
         specifier: workspace:*
         version: link:../lib-type-utils
-      chalk:
-        specifier: ^5.3.0
-        version: 5.3.0
       cmd-ts:
         specifier: ^0.13.0
         version: 0.13.0
@@ -105,9 +90,6 @@ importers:
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
-      type-fest:
-        specifier: ^4.18.2
-        version: 4.18.2
       vite-node:
         specifier: ^1.6.0
         version: 1.6.0(@types/node@20.12.11)
@@ -128,9 +110,6 @@ importers:
       '@dassie/lib-logger':
         specifier: workspace:^
         version: link:../lib-logger
-      '@dassie/lib-oer':
-        specifier: workspace:^
-        version: link:../lib-oer
       '@dassie/lib-reactive':
         specifier: workspace:^
         version: link:../lib-reactive
@@ -176,18 +155,12 @@ importers:
       chalk:
         specifier: ^5.3.0
         version: 5.3.0
-      classnames:
-        specifier: ^2.3.2
-        version: 2.5.1
       connect-history-api-fallback:
         specifier: ^2.0.0
         version: 2.0.0
       execa:
         specifier: ^9.0.2
         version: 9.0.2
-      force-graph:
-        specifier: ^1.43.4
-        version: 1.43.5
       immer:
         specifier: ^10.1.1
         version: 10.1.1
@@ -203,9 +176,6 @@ importers:
       p-timeout:
         specifier: ^6.1.2
         version: 6.1.2
-      pretty-format:
-        specifier: ^29.7.0
-        version: 29.7.0
       pure-rand:
         specifier: ^6.0.4
         version: 6.1.0
@@ -249,9 +219,6 @@ importers:
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
-      '@types/connect':
-        specifier: ^3.4.38
-        version: 3.4.38
       '@types/connect-history-api-fallback':
         specifier: ^1.5.4
         version: 1.5.4
@@ -369,21 +336,12 @@ importers:
       '@tanstack/react-virtual':
         specifier: ^3.5.0
         version: 3.5.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@types/connect':
-        specifier: ^3.4.38
-        version: 3.4.38
-      '@types/ws':
-        specifier: ^8.5.10
-        version: 8.5.10
       acme-client:
         specifier: ^5.0.0
         version: 5.3.0
       anser:
         specifier: ^2.1.1
         version: 2.1.1
-      better-sqlite3:
-        specifier: ^9.2.0
-        version: 9.4.3
       class-variance-authority:
         specifier: ^0.7.0
         version: 0.7.0
@@ -550,15 +508,9 @@ importers:
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
-      '@types/negotiator':
-        specifier: ^0.6.3
-        version: 0.6.3
       '@types/ws':
         specifier: ^8.5.10
         version: 8.5.10
-      react:
-        specifier: ^18.3.1
-        version: 18.3.1
       type-fest:
         specifier: ^4.18.2
         version: 4.18.2
@@ -586,9 +538,6 @@ importers:
       is-generator-function:
         specifier: ^1.0.10
         version: 1.0.10
-      pretty-format:
-        specifier: ^29.7.0
-        version: 29.7.0
       string-width:
         specifier: ^7.0.0
         version: 7.1.0
@@ -659,9 +608,6 @@ importers:
       '@dassie/lib-reactive':
         specifier: workspace:^
         version: link:../lib-reactive
-      '@dassie/lib-type-utils':
-        specifier: workspace:^
-        version: link:../lib-type-utils
     devDependencies:
       '@dassie/eslint-config':
         specifier: workspace:^
@@ -669,9 +615,6 @@ importers:
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
-      type-fest:
-        specifier: ^4.18.2
-        version: 4.18.2
 
   packages/lib-reactive-rpc:
     dependencies:
@@ -694,9 +637,6 @@ importers:
       react:
         specifier: ^18.3.1
         version: 18.3.1
-      type-fest:
-        specifier: ^4.18.2
-        version: 4.18.2
 
   packages/lib-rpc:
     dependencies:
@@ -728,9 +668,6 @@ importers:
       '@dassie/lib-rpc':
         specifier: workspace:^
         version: link:../lib-rpc
-      '@dassie/lib-type-utils':
-        specifier: workspace:^
-        version: link:../lib-type-utils
       '@tanstack/react-query':
         specifier: ^5.36.0
         version: 5.36.0(react@18.3.1)
@@ -824,18 +761,21 @@ importers:
       '@microsoft/api-extractor':
         specifier: ^7.43.4
         version: 7.43.4(@types/node@20.12.11)
-      '@microsoft/api-extractor-model':
-        specifier: ^7.28.16
-        version: 7.28.16(@types/node@20.12.11)
 
   packages/meta-eslint-config:
-    dependencies:
+    devDependencies:
       '@dassie/eslint-plugin':
         specifier: workspace:^
         version: link:../meta-eslint-plugin
+      '@typescript-eslint/eslint-plugin':
+        specifier: ^7.8.0
+        version: 7.8.0(@typescript-eslint/parser@7.8.0(eslint@9.2.0)(typescript@5.4.5))(eslint@9.2.0)(typescript@5.4.5)
       eslint-config-next:
         specifier: ^14.2.3
         version: 14.2.3(eslint@9.2.0)(typescript@5.4.5)
+      eslint-config-prettier:
+        specifier: ^9.1.0
+        version: 9.1.0(eslint@9.2.0)
       eslint-import-resolver-typescript:
         specifier: ^3.6.1
         version: 3.6.1(@typescript-eslint/parser@7.8.0(eslint@9.2.0)(typescript@5.4.5))(eslint-plugin-import@2.29.1)(eslint@9.2.0)
@@ -848,13 +788,6 @@ importers:
       eslint-plugin-n:
         specifier: ^17.6.0
         version: 17.6.0(eslint@9.2.0)
-    devDependencies:
-      '@typescript-eslint/eslint-plugin':
-        specifier: ^7.8.0
-        version: 7.8.0(@typescript-eslint/parser@7.8.0(eslint@9.2.0)(typescript@5.4.5))(eslint@9.2.0)(typescript@5.4.5)
-      eslint-config-prettier:
-        specifier: ^9.1.0
-        version: 9.1.0(eslint@9.2.0)
       eslint-plugin-react:
         specifier: ^7.33.2
         version: 7.34.1(eslint@9.2.0)
@@ -2729,9 +2662,6 @@ packages:
   '@types/ms@0.7.34':
     resolution: {integrity: sha512-nG96G3Wp6acyAgJqGasjODb+acrI7KltPiRxzHPXnP3NgI28bpQDRv53olbqGXbfcgF5aiiHmO3xpwEpS5Ld9g==}
 
-  '@types/negotiator@0.6.3':
-    resolution: {integrity: sha512-JkXTOdKs5MF086b/pt8C3+yVp3iDUwG635L7oCH6HvJvvr6lSUU5oe/gLXnPEfYRROHjJIPgCV6cuAg8gGkntQ==}
-
   '@types/node@20.12.11':
     resolution: {integrity: sha512-vDg9PZ/zi+Nqp6boSOT7plNuthRugEKixDv5sFTIpkE89MmNtEArAShI4mxuX2+UrLEe9pxC1vm2cjm9YlWbJw==}
 
@@ -3391,9 +3321,6 @@ packages:
 
   class-variance-authority@0.7.0:
     resolution: {integrity: sha512-jFI8IQw4hczaL4ALINxqLEXQbWcNjoSkloa4IaufXCJr6QawJyw7tuRysRsrE8w2p/4gGaxKIt/hX3qz/IbD1A==}
-
-  classnames@2.5.1:
-    resolution: {integrity: sha512-saHYOzhIQs6wy2sVxTM6bUDsQO4F50V9RQ22qBpEdCW+I+/Wmke2HOl6lS6dTpdxVhb88/I6+Hs+438c3lfUow==}
 
   clean-regexp@1.0.0:
     resolution: {integrity: sha512-GfisEZEJvzKrmGWkvfhgzcz/BllN1USeqD2V6tg14OAOgaCD2Z/PUEuxnAZ/nPvmaHRG7a8y77p1T/IRQ4D1Hw==}
@@ -9280,8 +9207,6 @@ snapshots:
 
   '@types/ms@0.7.34': {}
 
-  '@types/negotiator@0.6.3': {}
-
   '@types/node@20.12.11':
     dependencies:
       undici-types: 5.26.5
@@ -10143,8 +10068,6 @@ snapshots:
   class-variance-authority@0.7.0:
     dependencies:
       clsx: 2.0.0
-
-  classnames@2.5.1: {}
 
   clean-regexp@1.0.0:
     dependencies:

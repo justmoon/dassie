@@ -22,7 +22,6 @@
   "dependencies": {
     "@dassie/lib-reactive": "workspace:^",
     "@dassie/lib-rpc": "workspace:^",
-    "@dassie/lib-type-utils": "workspace:^",
     "@tanstack/react-query": "^5.36.0"
   }
 }
