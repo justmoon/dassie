@@ -44,7 +44,7 @@ const App = () => {
         <Route path="/send" component={Send} />
         <Route path="/receive" component={ReceivePage} />
         <Route path="/payments/:paymentId" component={PaymentStatus} />
-        <Route path="/debug/:page*" component={DebugPage} />
+        <Route path="/debug" component={DebugPage} nest />
         <Route path="/settings" component={Settings} />
         <Route component={Account} />
       </Switch>

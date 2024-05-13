@@ -113,7 +113,9 @@ const NodeDetail = ({ nodeId }: NodeDetailProperties) => {
               {currentTab === "logs" ? (
                 <DevelopmentLogViewer filter={({ node }) => node === nodeId} />
               ) : (
-                <DebugPage key={nodeId} />
+                <Route path={`/debug`} nest>
+                  <DebugPage key={nodeId} />
+                </Route>
               )}
               <Route path={`/`}>
                 {() => <Redirect to={`/debug/logs`} replace />}

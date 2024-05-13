@@ -23,11 +23,11 @@ import { combine } from "../../../utils/class-helper"
 import { rpc } from "../../../utils/rpc"
 
 export interface AccountDetailPageProperties {
-  readonly params: { readonly ledgerId: string; readonly accountPath: string }
+  readonly params: { readonly ledgerId: string; readonly "*": string }
 }
 
 export const AccountDetailPage = ({
-  params: { ledgerId, accountPath },
+  params: { ledgerId, "*": accountPath },
 }: AccountDetailPageProperties) => {
   const fullAccountPath = `${ledgerId}:${accountPath}`
 

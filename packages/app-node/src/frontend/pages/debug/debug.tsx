@@ -10,17 +10,14 @@ import { State } from "./state/state"
 
 export const DebugPage = () => {
   return (
-    <Route path="/debug" nest>
+    <>
       <Route path="/logs" component={Logs} />
       <Route path="/nodes" component={Nodes} />
       <Route path="/ledger" component={Ledger} />
-      <Route
-        path="/ledger/:ledgerId/account/:accountPath+"
-        component={AccountDetailPage}
-      />
+      <Route path="/ledger/:ledgerId/account/*" component={AccountDetailPage} />
       <Route path="/routing" component={Routing} />
       <Route path="/state" component={State} />
       <Route path="/database" component={Database} />
-    </Route>
+    </>
   )
 }
