@@ -1,6 +1,6 @@
-import { Opaque } from "type-fest"
+import { Tagged } from "type-fest"
 
-export type SeedPath = Opaque<string, "SeedPath">
+export type SeedPath = Tagged<string, "SeedPath">
 
 /**
  * Node private Ed25519 key.

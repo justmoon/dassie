@@ -1,12 +1,12 @@
-import { Opaque } from "type-fest"
+import { Tagged } from "type-fest"
 
 import { defaultSelector } from "../actor-context"
 import { ContextBase } from "./context-base"
 
 export const CacheStatus = {
-  Clean: 0 as Opaque<0, "StatusClean">,
-  Check: 1 as Opaque<1, "StatusCheck">,
-  Dirty: 2 as Opaque<2, "StatusDirty">,
+  Clean: 0 as Tagged<0, "StatusClean">,
+  Check: 1 as Tagged<1, "StatusCheck">,
+  Dirty: 2 as Tagged<2, "StatusDirty">,
 } as const
 
 export type CacheStatus = (typeof CacheStatus)[keyof typeof CacheStatus]

@@ -1,3 +1,3 @@
-import { Opaque } from "type-fest"
+import { Tagged } from "type-fest"
 
-export type SessionToken = Opaque<string, "SessionToken">
+export type SessionToken = Tagged<string, "SessionToken">

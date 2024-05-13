@@ -1,4 +1,4 @@
-import { Opaque } from "type-fest"
+import { Tagged } from "type-fest"
 import { assertType, describe, test } from "vitest"
 
 import { ColumnDescriptionBuilder, column } from "../src"
@@ -93,7 +93,7 @@ describe("column schema builder", () => {
   test("should allow setting the type, required flag, primary key flag, serialize function, and deserialize function", ({
     expect,
   }) => {
-    type BrandedInteger = Opaque<bigint, "BrandedInteger">
+    type BrandedInteger = Tagged<bigint, "BrandedInteger">
 
     const example = column()
       .type("INTEGER")

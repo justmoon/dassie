@@ -1,3 +1,3 @@
-import { Opaque } from "type-fest"
+import { Tagged } from "type-fest"
 
-export type NodeId = Opaque<string, "NodeId">
+export type NodeId = Tagged<string, "NodeId">

@@ -1,4 +1,4 @@
-import { Opaque } from "type-fest"
+import { Tagged } from "type-fest"
 
 export interface TimeoutOptions {
   /**
@@ -7,9 +7,9 @@ export interface TimeoutOptions {
   signal?: AbortSignal
 }
 
-export type TimeoutId = Opaque<unknown, "TimeoutId">
+export type TimeoutId = Tagged<unknown, "TimeoutId">
 
-export type IntervalId = Opaque<unknown, "IntervalId">
+export type IntervalId = Tagged<unknown, "IntervalId">
 
 export interface Time {
   /**
