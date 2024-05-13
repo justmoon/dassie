@@ -17,7 +17,8 @@
     "metacheck": "meta-updater --test",
     "api": "extract-apis",
     "web": "pnpm --filter=app-website dev",
-    "cli": "vite-node --config packages/app-dev/vite.backend.config.js packages/app-dev/bin/run-dassie-cli.ts --"
+    "cli": "vite-node --config packages/app-dev/vite.backend.config.js packages/app-dev/bin/run-dassie-cli.ts --",
+    "unused": "knip"
   },
   "repository": {
     "type": "git",
@@ -49,6 +50,7 @@
     "@types/react": "^18.3.2",
     "@types/react-dom": "^18.3.0",
     "eslint": "^8.57.0",
+    "knip": "^5.15.1",
     "prettier": "^3.2.5",
     "typescript": "^5.4.5",
     "vite": "^5.2.11",

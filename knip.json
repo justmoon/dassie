@@ -1,0 +1,48 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": [".meta-updater/main.mjs"]
+    },
+    "packages/*": {
+      "entry": ["src/examples/**/*.{js,ts}"]
+    },
+    "packages/app-dev": {
+      "entry": [
+        "uno.config.ts",
+        "bin/*.ts",
+        "src/runner/runner.js",
+        "src/runner/launchers/*.ts"
+      ],
+      "vite": {
+        "entry": "src/frontend/index.tsx"
+      },
+      "ignoreDependencies": ["virtual:uno.css", "virtual:unocss-devtools"]
+    },
+    "packages/app-node": {
+      "entry": ["src/frontend/uno.config.ts"],
+      "vite": {
+        "entry": "src/frontend/index.tsx",
+        "config": "src/frontend/vite.config.ts"
+      },
+      "ignoreDependencies": ["virtual:uno.css"]
+    },
+    "packages/meta-eslint-config": {
+      "eslint": {
+        "config": ["index.js", "next.js"]
+      }
+    },
+    "packages/meta-eslint-plugin": {
+      "entry": ["src/index.ts"],
+      "ignore": ["lib/**", "test/fixture/*.{js,ts}{,x}"]
+    },
+    "packages/meta-incremental-check": {
+      "entry": ["src/entry/*.ts"]
+    },
+    "packages/meta-tsconfig": {
+      "typescript": {
+        "config": ["*.json", "!package.json"]
+      }
+    }
+  }
+}
