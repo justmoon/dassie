@@ -3,5 +3,6 @@
   "importOrder": ["^node:", "^@dassie/", "^[./]"],
   "importOrderSeparation": true,
   "importOrderSortSpecifiers": true,
-  "semi": false
+  "semi": false,
+  "experimentalTernaries": true
 }
