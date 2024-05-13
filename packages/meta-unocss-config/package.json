@@ -7,10 +7,10 @@
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "dependencies": {
-    "@unocss/preset-mini": "0.59.0-beta.1",
-    "@unocss/reset": "0.59.0-beta.1",
-    "@unocss/transformer-directives": "0.59.0-beta.1",
-    "unocss": "0.59.0-beta.1"
+    "@unocss/preset-mini": "0.60.2",
+    "@unocss/reset": "0.60.2",
+    "@unocss/transformer-directives": "0.60.2",
+    "unocss": "0.60.2"
   },
   "devDependencies": {
     "@dassie/eslint-config": "workspace:^",

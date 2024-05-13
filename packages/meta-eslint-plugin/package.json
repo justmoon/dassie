@@ -11,9 +11,9 @@
   },
   "dependencies": {
     "@dassie/meta-tsconfig": "workspace:^",
-    "@typescript-eslint/rule-tester": "^7.4.0",
-    "@typescript-eslint/types": "^7.4.0",
-    "@typescript-eslint/utils": "^7.4.0",
+    "@typescript-eslint/rule-tester": "^7.8.0",
+    "@typescript-eslint/types": "^7.8.0",
+    "@typescript-eslint/utils": "^7.8.0",
     "tsutils": "^3.21.0"
   }
 }
