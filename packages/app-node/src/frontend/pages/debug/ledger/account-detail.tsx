@@ -124,7 +124,11 @@ export const AccountDetailPage = ({
             )
           })}
           {transfers.length === 0 ? (
-            <p className="p-4">Waiting for transfers to occur...</p>
+            <TableRow>
+              <TableCell className="p-4" colSpan={4}>
+                Waiting for transfers to occur...
+              </TableCell>
+            </TableRow>
           ) : null}
         </TableBody>
       </Table>
