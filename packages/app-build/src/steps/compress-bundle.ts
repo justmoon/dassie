@@ -23,12 +23,14 @@ export const compressBundle = async (
 
   switch (compression) {
     case "gz": {
-      await $`gzip -f ${tarFile} -c`.pipeStdout!(compressedFile)
+      await $({ stdout: { file: compressedFile } })`gzip -f ${tarFile} -c`
       break
     }
 
     case "xz": {
-      await $`xz -T 0 -f ${tarFile} -c`.pipeStdout!(compressedFile)
+      await $({
+        stdout: { file: compressedFile },
+      })`xz -T 0 -f ${tarFile} -c`
       break
     }
 
