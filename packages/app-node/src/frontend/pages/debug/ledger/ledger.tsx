@@ -20,7 +20,7 @@ export function Ledger() {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="w-[100px]">Account</TableHead>
+            <TableHead className="w-full">Account</TableHead>
             <TableHead className="text-right">Balance</TableHead>
             <TableHead className="text-right">
               Credits<div className="opacity-70">+ Pending</div>
