@@ -31,5 +31,8 @@
     "strip-ansi": "^7.1.0",
     "wcwidth": "^1.0.1",
     "wrap-ansi": "^9.0.0"
+  },
+  "engines": {
+    "node": "=21.7.1"
   }
 }

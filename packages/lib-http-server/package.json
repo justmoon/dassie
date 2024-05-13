@@ -31,5 +31,8 @@
     "@dassie/meta-tsconfig": "workspace:^",
     "@types/ws": "^8.5.10",
     "type-fest": "^4.18.2"
+  },
+  "engines": {
+    "node": "=21.7.1"
   }
 }

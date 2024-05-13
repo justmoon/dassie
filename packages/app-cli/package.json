@@ -11,5 +11,8 @@
     "dassie"
   ],
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "engines": {
+    "node": "=21.7.1"
+  }
 }

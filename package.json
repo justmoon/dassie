@@ -62,5 +62,8 @@
         "@vue/compiler-sfc"
       ]
     }
+  },
+  "engines": {
+    "node": "=21.7.1"
   }
 }

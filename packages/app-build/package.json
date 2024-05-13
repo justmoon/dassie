@@ -35,5 +35,8 @@
     "@dassie/eslint-config": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
     "vite-node": "^1.6.0"
+  },
+  "engines": {
+    "node": "=21.7.1"
   }
 }

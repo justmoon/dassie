@@ -23,5 +23,8 @@
     "@dassie/lib-reactive": "workspace:^",
     "@dassie/lib-rpc": "workspace:^",
     "@tanstack/react-query": "^5.36.0"
+  },
+  "engines": {
+    "node": "=21.7.1"
   }
 }

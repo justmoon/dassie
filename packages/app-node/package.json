@@ -75,5 +75,8 @@
     "@vitejs/plugin-react": "^4.2.0",
     "type-fest": "^4.18.2",
     "vite": "^5.2.11"
+  },
+  "engines": {
+    "node": "=21.7.1"
   }
 }

@@ -24,5 +24,8 @@
     "@dassie/lib-format-utils": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
     "type-fest": "^4.18.2"
+  },
+  "engines": {
+    "node": "=21.7.1"
   }
 }

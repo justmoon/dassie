@@ -29,5 +29,8 @@
   "devDependencies": {
     "@dassie/eslint-config": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^"
+  },
+  "engines": {
+    "node": "=21.7.1"
   }
 }

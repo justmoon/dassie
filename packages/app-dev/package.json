@@ -72,5 +72,8 @@
     "serve-static": "^1.15.0",
     "type-fest": "^4.18.2",
     "vite-node": "^1.6.0"
+  },
+  "engines": {
+    "node": "=21.7.1"
   }
 }

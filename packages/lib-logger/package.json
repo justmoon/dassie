@@ -27,5 +27,8 @@
     "@dassie/eslint-config": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
     "@types/is-generator-function": "^1.0.3"
+  },
+  "engines": {
+    "node": "=21.7.1"
   }
 }

@@ -1,7 +1,7 @@
 import { readWantedLockfile } from "@pnpm/lockfile-file"
 import { createUpdateOptions } from "@pnpm/meta-updater"
 
-import { existsSync, readdirSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { join, relative, resolve } from "node:path"
 
 export default createUpdateOptions(async (workspaceDir) => {
@@ -12,11 +12,16 @@ export default createUpdateOptions(async (workspaceDir) => {
     throw new Error("no lockfile found")
   }
 
+  const NODE_VERSION = readFileSync(join(workspaceDir, ".node-version"), "utf8")
+    .trim()
+    .slice(1)
+
   return {
     "package.json": (manifest, dir) => {
       return {
         ...manifest,
         author: "Stefan Thomas <justmoon@members.fsf.org>",
+        engines: { node: `=${NODE_VERSION}` },
       }
     },
     "tsconfig.json": (tsConfig, { manifest, dir }) => {
