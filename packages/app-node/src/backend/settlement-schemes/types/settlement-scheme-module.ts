@@ -166,9 +166,9 @@ export interface SettlementSchemeModule<TPeerState extends object = object> {
    *
    * @remarks
    *
-   * The settlement scheme identifier is the third segment in the node's ILP address (following `g.das`) and should be unique for each settlement scheme.
+   * The settlement scheme identifier should be unique for each settlement scheme.
    *
-   * Per convention, the settlement scheme identifier consists of up to three segments, separated by hyphens. The first segment is the name of the root (layer-1) ledger. The second segment is the name of any overlay technology (such as a layer-2 protocol). The third segment is the settlement currency. When there is an obvious default choice (such as using the ledger's native token as the currency), or when a segment doesn't apply (such as no overlay technology being used), the corresponding segment can be omitted.
+   * Per convention, the settlement scheme identifier can consist of multiple elements separated by plus (+) characters. The first element should be the most general, such as the type of settlement scheme, followed by more specific elements such as the specific ledger instance, overlay network (layer-2+) technology, and settlement currency. For example, `btc+taproot+usd` could refer to a settlement scheme which uses the Bitcoin blockchain and the Taproot overlay network to settle payments in the US Dollar.
    */
   readonly name: string
 
