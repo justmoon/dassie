@@ -31,6 +31,6 @@
     "@dassie/lib-logger": "workspace:^1.0.0"
   },
   "engines": {
-    "node": "=21.7.1"
+    "node": "=22.1.0"
   }
 }

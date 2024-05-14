@@ -24,6 +24,6 @@
     "pretty-format": "^29.7.0"
   },
   "engines": {
-    "node": "=21.7.1"
+    "node": "=22.1.0"
   }
 }

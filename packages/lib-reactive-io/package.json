@@ -27,6 +27,6 @@
     "@dassie/meta-tsconfig": "workspace:^"
   },
   "engines": {
-    "node": "=21.7.1"
+    "node": "=22.1.0"
   }
 }
