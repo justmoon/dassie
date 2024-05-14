@@ -2,7 +2,7 @@ import { WebSocketServer } from "ws"
 
 import { readFileSync } from "node:fs"
 import { createServer as createHttpsServer } from "node:https"
-import { join } from "node:path"
+import path from "node:path"
 
 import { Reactor, createActor } from "@dassie/lib-reactive"
 import {
@@ -16,11 +16,11 @@ import { DEBUG_UI_RPC_PORT } from "../constants/ports"
 import { uiRpcRouter } from "../rpc-routers/ui-rpc-router"
 import { validateCertificates } from "../utils/validate-certificates"
 
-const certificatePath = join(
+const certificatePath = path.join(
   LOCAL_FOLDER,
   "tls/dev-rpc.localhost/web-dev-rpc.localhost.pem",
 )
-const keyPath = join(
+const keyPath = path.join(
   LOCAL_FOLDER,
   "tls/dev-rpc.localhost/web-dev-rpc.localhost-key.pem",
 )

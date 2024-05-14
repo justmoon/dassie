@@ -1,4 +1,4 @@
-import { resolve } from "node:path"
+import path from "node:path"
 
 import { Architecture } from "../constants/architectures"
 import { PATH_DIST_STAGING, PATH_DIST_UPLOAD } from "../constants/paths"
@@ -17,7 +17,7 @@ export const getTarFilename = (
 export const getTarPath = (
   version: DassieVersion,
   architecture: Architecture,
-) => resolve(PATH_DIST_STAGING, `${getTarFilename(version, architecture)}`)
+) => path.resolve(PATH_DIST_STAGING, `${getTarFilename(version, architecture)}`)
 
 export const getCompressedFilename = (
   version: DassieVersion,
@@ -30,7 +30,7 @@ export const getCompressedPath = (
   architecture: Architecture,
   compression: string,
 ) =>
-  resolve(
+  path.resolve(
     PATH_DIST_UPLOAD,
     version,
     `${getCompressedFilename(version, architecture, compression)}`,

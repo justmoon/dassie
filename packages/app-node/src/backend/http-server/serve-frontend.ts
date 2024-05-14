@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs"
-import { resolve } from "node:path"
+import path from "node:path"
 
 import { type HttpResponse, createPlainResponse } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
@@ -20,8 +20,8 @@ export const ServeFrontendActor = (reactor: DassieReactor) => {
   const httpsRouter = reactor.use(HttpsRouter)
   const { rootPath } = reactor.use(EnvironmentConfig)
 
-  const frontendPath = resolve(rootPath, "share/public")
-  const indexHtmlPath = resolve(frontendPath, "index.html")
+  const frontendPath = path.resolve(rootPath, "share/public")
+  const indexHtmlPath = path.resolve(frontendPath, "index.html")
 
   function serveAsset(pathname: string): HttpResponse | undefined {
     const match = ASSETS_REGEX.exec(pathname)
@@ -31,7 +31,7 @@ export const ServeFrontendActor = (reactor: DassieReactor) => {
       const contentType = MIME_TYPES_BY_EXTENSION[extension!]
       if (!contentType) return undefined
 
-      const assetPath = resolve(frontendPath, "assets", filename!)
+      const assetPath = path.resolve(frontendPath, "assets", filename!)
 
       try {
         return createPlainResponse(readFileSync(assetPath, "utf8"), {

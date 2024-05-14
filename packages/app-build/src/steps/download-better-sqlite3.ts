@@ -1,7 +1,7 @@
 import { $ } from "execa"
 
 import { mkdir } from "node:fs/promises"
-import { basename, resolve } from "node:path"
+import path from "node:path"
 
 import { Architecture } from "../constants/architectures"
 import { BETTER_SQLITE3_VERSION, NODE_ABI_VERSION } from "../constants/version"
@@ -25,15 +25,18 @@ const ARCHITECTURE_MAP: { [key in Architecture]: SqliteArchitecture } = {
 
 export const downloadBetterSqlite3 = async (architecture: Architecture) => {
   const sqliteArchitecture = ARCHITECTURE_MAP[architecture]
-  const pathSqlite = resolve(getStagingPath(architecture), "better-sqlite3")
+  const pathSqlite = path.resolve(
+    getStagingPath(architecture),
+    "better-sqlite3",
+  )
   const downloadUrl = getDownloadUrl(
     BETTER_SQLITE3_VERSION,
     NODE_ABI_VERSION,
     sqliteArchitecture,
   )
-  const sqliteLocalFile = resolve(
+  const sqliteLocalFile = path.resolve(
     pathSqlite,
-    basename(new URL(downloadUrl).pathname),
+    path.basename(new URL(downloadUrl).pathname),
   )
 
   await mkdir(pathSqlite, { recursive: true })

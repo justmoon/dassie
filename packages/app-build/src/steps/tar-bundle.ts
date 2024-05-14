@@ -1,7 +1,7 @@
 import { $ } from "execa"
 
 import { mkdir } from "node:fs/promises"
-import { basename, dirname, resolve } from "node:path"
+import path from "node:path"
 
 import { Architecture } from "../constants/architectures"
 import { DassieVersion } from "../constants/version"
@@ -15,9 +15,9 @@ export const tarBundle = async (
   const bundlePath = getBundlePath(version, architecture)
   const archivePath = getTarPath(version, architecture)
 
-  await mkdir(dirname(archivePath), { recursive: true })
+  await mkdir(path.dirname(archivePath), { recursive: true })
 
-  await $`tar -cf ${archivePath} -C ${resolve(bundlePath, "..")} ${basename(
+  await $`tar -cf ${archivePath} -C ${path.resolve(bundlePath, "..")} ${path.basename(
     bundlePath,
   )}`
 }

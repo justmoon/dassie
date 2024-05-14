@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { createReadStream, createWriteStream } from "node:fs"
 import { copyFile, mkdir, unlink } from "node:fs/promises"
-import { basename, resolve } from "node:path"
+import path from "node:path"
 import { Readable } from "node:stream"
 import { pipeline } from "node:stream/promises"
 import type { ReadableStream } from "node:stream/web"
@@ -21,7 +21,10 @@ export const downloadFile = async (
 
   const predownloadPath = process.env["DASSIE_BUILD_BINARY_DEPENDENCIES_PATH"]
   if (predownloadPath) {
-    const predownloadFilePath = resolve(predownloadPath, basename(url))
+    const predownloadFilePath = path.resolve(
+      predownloadPath,
+      path.basename(url),
+    )
 
     try {
       const hasher = createHash("sha256")
@@ -39,7 +42,7 @@ export const downloadFile = async (
 
   await mkdir(PATH_CACHE, { recursive: true })
 
-  const cacheFilePath = resolve(PATH_CACHE, hash)
+  const cacheFilePath = path.resolve(PATH_CACHE, hash)
   try {
     const hasher = createHash("sha256")
     await pipeline(createReadStream(cacheFilePath), hasher)

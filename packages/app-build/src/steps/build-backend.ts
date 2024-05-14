@@ -1,6 +1,6 @@
 import { build } from "esbuild"
 
-import { resolve } from "node:path"
+import path from "node:path"
 
 import {
   PATH_DIST_STAGING_SHARED,
@@ -33,8 +33,10 @@ await (async () => {
 
 export const buildBackend = async (detailedVersion: string) => {
   await build({
-    entryPoints: [resolve(PATH_PACKAGE_APP_NODE, "src/command-line/entry.ts")],
-    outfile: resolve(PATH_DIST_STAGING_SHARED, "backend.mjs"),
+    entryPoints: [
+      path.resolve(PATH_PACKAGE_APP_NODE, "src/command-line/entry.ts"),
+    ],
+    outfile: path.resolve(PATH_DIST_STAGING_SHARED, "backend.mjs"),
     bundle: true,
     platform: "node",
     format: "esm",

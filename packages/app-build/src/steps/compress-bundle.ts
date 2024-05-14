@@ -1,7 +1,7 @@
 import { $ } from "execa"
 
 import { mkdir } from "node:fs/promises"
-import { dirname } from "node:path"
+import path from "node:path"
 
 import { UnreachableCaseError } from "@dassie/lib-type-utils"
 
@@ -19,7 +19,7 @@ export const compressBundle = async (
   const compressedFile = getCompressedPath(version, architecture, compression)
 
   // Make directory for compressed file
-  await mkdir(dirname(compressedFile), { recursive: true })
+  await mkdir(path.dirname(compressedFile), { recursive: true })
 
   switch (compression) {
     case "gz": {

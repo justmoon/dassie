@@ -1,7 +1,7 @@
 import { $ } from "execa"
 
 import { mkdir } from "node:fs/promises"
-import { resolve } from "node:path"
+import path from "node:path"
 
 import { Architecture } from "../constants/architectures"
 import { NODE_VERSION } from "../constants/version"
@@ -12,8 +12,8 @@ const getNodeUrl = (version: string, architecture: Architecture) =>
   `https://nodejs.org/dist/v${version}/node-v${version}-linux-${architecture}.tar.xz`
 
 export const downloadNodeJs = async (architecture: Architecture) => {
-  const pathNode = resolve(getStagingPath(architecture), "node")
-  const nodeLocalFile = resolve(
+  const pathNode = path.resolve(getStagingPath(architecture), "node")
+  const nodeLocalFile = path.resolve(
     pathNode,
     `node-v${NODE_VERSION}-linux-${architecture}.tar.xz`,
   )

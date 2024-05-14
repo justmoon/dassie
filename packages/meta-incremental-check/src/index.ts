@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { resolve } from "node:path"
+import path from "node:path"
 import { MessageChannel, Worker } from "node:worker_threads"
 
 import {
@@ -19,7 +19,7 @@ import type { ProgressMessage } from "./utils/report-status"
 
 export async function runChecks() {
   const worker = new Worker(
-    resolve(new URL(import.meta.url).pathname, "../scripts/check.js"),
+    path.resolve(new URL(import.meta.url).pathname, "../scripts/check.js"),
   )
 
   const rpcChannel = new MessageChannel()

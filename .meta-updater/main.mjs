@@ -2,7 +2,7 @@ import { readWantedLockfile } from "@pnpm/lockfile-file"
 import { createUpdateOptions } from "@pnpm/meta-updater"
 
 import { existsSync, readFileSync, readdirSync } from "node:fs"
-import { join, relative, resolve } from "node:path"
+import path from "node:path"
 
 export default createUpdateOptions(async (workspaceDir) => {
   const lockfile = await readWantedLockfile(workspaceDir, {
@@ -12,7 +12,10 @@ export default createUpdateOptions(async (workspaceDir) => {
     throw new Error("no lockfile found")
   }
 
-  const NODE_VERSION = readFileSync(join(workspaceDir, ".node-version"), "utf8")
+  const NODE_VERSION = readFileSync(
+    path.join(workspaceDir, ".node-version"),
+    "utf8",
+  )
     .trim()
     .slice(1)
 
@@ -28,10 +31,10 @@ export default createUpdateOptions(async (workspaceDir) => {
       if (!tsConfig) return tsConfig
 
       if (manifest.name === "@dassie/root") {
-        const packages = readdirSync(join(dir, "packages"))
+        const packages = readdirSync(path.join(dir, "packages"))
 
         const packagesWithTsconfig = packages.filter((packageName) => {
-          const tsConfigPath = join(
+          const tsConfigPath = path.join(
             dir,
             "packages",
             packageName,
@@ -48,7 +51,7 @@ export default createUpdateOptions(async (workspaceDir) => {
         }
       }
 
-      const relativePath = relative(workspaceDir, dir)
+      const relativePath = path.relative(workspaceDir, dir)
 
       const importer = lockfile.importers[relativePath]
       if (!importer) return tsConfig
@@ -62,9 +65,10 @@ export default createUpdateOptions(async (workspaceDir) => {
       for (const [depName, spec] of Object.entries(deps)) {
         if (!spec.startsWith("link:") || spec.length === 5) continue
         const relativePath = spec.slice(5)
-        const linkedPkgDir = join(dir, relativePath)
-        if (!existsSync(join(linkedPkgDir, "tsconfig.json"))) continue
-        if (!resolve(linkedPkgDir).startsWith(resolve(workspaceDir))) continue
+        const linkedPkgDir = path.join(dir, relativePath)
+        if (!existsSync(path.join(linkedPkgDir, "tsconfig.json"))) continue
+        if (!path.resolve(linkedPkgDir).startsWith(path.resolve(workspaceDir)))
+          continue
         references.push({ path: relativePath })
       }
 

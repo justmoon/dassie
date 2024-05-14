@@ -3,7 +3,7 @@ import { wordlist } from "@scure/bip39/wordlists/english"
 
 import assert from "node:assert"
 import { writeFileSync } from "node:fs"
-import { dirname, resolve } from "node:path"
+import path from "node:path"
 import { createInterface } from "node:readline"
 import { fileURLToPath } from "node:url"
 
@@ -20,8 +20,8 @@ import { nodeIndexToFriendlyId } from "../src/backend/utils/generate-node-config
 
 const TARGET_PATTERN = /^d([1-9]\d*)_/
 
-const OUTPUT_FILE_PATH = resolve(
-  dirname(fileURLToPath(import.meta.url)),
+const OUTPUT_FILE_PATH = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
   "../src/backend/constants/vanity-nodes.ts",
 )
 

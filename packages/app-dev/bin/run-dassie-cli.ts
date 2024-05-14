@@ -1,5 +1,5 @@
 /* eslint-disable unicorn/no-process-exit */
-import { resolve } from "node:path"
+import path from "node:path"
 
 import { nodeIndexToDataPath } from "../src/backend/utils/generate-node-config"
 
@@ -23,7 +23,7 @@ process.argv.splice(2, 1)
 const nodeIndex = Number.parseInt(nodeId.slice(1), 10) - 1
 
 const nodePath = nodeIndexToDataPath(nodeIndex)
-const socketPath = resolve(nodePath, "dassie.sock")
+const socketPath = path.resolve(nodePath, "dassie.sock")
 
 process.env["DASSIE_IPC_SOCKET_PATH"] = socketPath
 ;(global as unknown as { __DASSIE_VERSION__: string }).__DASSIE_VERSION__ =

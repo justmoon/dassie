@@ -2,7 +2,7 @@ import history from "connect-history-api-fallback"
 import { type ViteDevServer, createServer } from "vite"
 
 import { existsSync, readFileSync } from "node:fs"
-import { join, normalize } from "node:path"
+import path from "node:path"
 
 import { DatabaseConfigStore } from "@dassie/app-node/src/backend/config/database-config"
 import { Reactor, createActor } from "@dassie/lib-reactive"
@@ -23,7 +23,7 @@ const queryRE = /\?.*$/s
 const hashRE = /#.*$/s
 
 function fsPathFromId(id: string): string {
-  const fsPath = normalize(
+  const fsPath = path.normalize(
     id.startsWith(FS_PREFIX) ? id.slice(FS_PREFIX.length) : id,
   )
   return fsPath.startsWith("/") || VOLUME_RE.test(fsPath) ?
@@ -37,7 +37,9 @@ const cleanUrl = (url: string): string =>
 function getHtmlFilename(url: string, server: ViteDevServer) {
   return url.startsWith(FS_PREFIX) ?
       decodeURIComponent(fsPathFromId(url))
-    : decodeURIComponent(normalize(join(server.config.root, url.slice(1))))
+    : decodeURIComponent(
+        path.normalize(path.join(server.config.root, url.slice(1))),
+      )
 }
 
 export const ServeWalletActor = (reactor: Reactor) => {
@@ -81,7 +83,7 @@ export const ServeWalletActor = (reactor: Reactor) => {
             const rewritten =
               decodeURIComponent(parsedUrl.pathname!) + "index.html"
 
-            return existsSync(join(walletPath, rewritten)) ? rewritten : (
+            return existsSync(path.join(walletPath, rewritten)) ? rewritten : (
                 `/index.html`
               )
           },

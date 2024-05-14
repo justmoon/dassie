@@ -1,7 +1,7 @@
 import chalk from "chalk"
 import { ModuleNode } from "vite"
 
-import { posix } from "node:path"
+import path from "node:path"
 
 import { Reactor, createActor } from "@dassie/lib-reactive"
 
@@ -16,7 +16,7 @@ import { ViteServer } from "../unconstructables/vite-server"
 import { RunNodesActor } from "./run-nodes"
 
 export function getShortName(file: string, root: string): string {
-  return file.startsWith(root + "/") ? posix.relative(root, file) : file
+  return file.startsWith(root + "/") ? path.posix.relative(root, file) : file
 }
 
 const isWithinBoundary = (

@@ -2,7 +2,7 @@ import createIgnore from "ignore"
 import ts from "typescript"
 
 import { readFileSync } from "node:fs"
-import { relative, resolve } from "node:path"
+import path from "node:path"
 
 import { printToConsole, reportPackageStatus } from "./utils/report-status"
 
@@ -10,10 +10,10 @@ const PackagePathSymbol = Symbol("PackagePath")
 const PackageNameSymbol = Symbol("PackageName")
 
 const currentFilePath = new URL(import.meta.url).pathname
-const projectRoot = resolve(currentFilePath, "../../../../")
+const projectRoot = path.resolve(currentFilePath, "../../../../")
 
 const ignore = createIgnore().add(
-  readFileSync(resolve(projectRoot, ".gitignore")).toString(),
+  readFileSync(path.resolve(projectRoot, ".gitignore")).toString(),
 )
 
 const typescriptSystem = {
@@ -62,8 +62,8 @@ export function runTypeScriptCompiler(projectPath: string) {
         throw new TypeError("Expected options.configFilePath to be a string")
       }
 
-      const packagePath = resolve(options["configFilePath"], "../")
-      const packageJsonPath = resolve(packagePath, "package.json")
+      const packagePath = path.resolve(options["configFilePath"], "../")
+      const packageJsonPath = path.resolve(packagePath, "package.json")
       const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as {
         name: string
       }
@@ -101,7 +101,7 @@ export function runTypeScriptCompiler(projectPath: string) {
         .filter(
           (fileName) =>
             fileName.startsWith(packagePath) &&
-            !ignore.ignores(relative(projectRoot, fileName)),
+            !ignore.ignores(path.relative(projectRoot, fileName)),
         )
 
       if (packageName === "@dassie/eslint-plugin") {

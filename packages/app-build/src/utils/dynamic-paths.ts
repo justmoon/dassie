@@ -1,4 +1,4 @@
-import { resolve } from "node:path"
+import path from "node:path"
 
 import { Architecture } from "../constants/architectures"
 import { PATH_DIST_CONTENTS, PATH_DIST_STAGING } from "../constants/paths"
@@ -6,9 +6,14 @@ import { DassieVersion } from "../constants/version"
 import { getBundleName } from "./bundle-name"
 
 export const getStagingPath = (architecture: Architecture) =>
-  resolve(PATH_DIST_STAGING, architecture)
+  path.resolve(PATH_DIST_STAGING, architecture)
 
 export const getBundlePath = (
   version: DassieVersion,
   architecture: Architecture,
-) => resolve(PATH_DIST_CONTENTS, getBundleName(version, architecture), "dassie")
+) =>
+  path.resolve(
+    PATH_DIST_CONTENTS,
+    getBundleName(version, architecture),
+    "dassie",
+  )

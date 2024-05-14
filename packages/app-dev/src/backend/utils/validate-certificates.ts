@@ -1,7 +1,7 @@
 import { $ } from "execa"
 
 import { mkdir, unlink } from "node:fs/promises"
-import { dirname } from "node:path"
+import path from "node:path"
 
 import { setup as logger } from "../logger/instances"
 import { checkFileStatus } from "./check-file-status"
@@ -61,7 +61,9 @@ export const validateCertificates = async ({
         id,
         name: certificate.commonName,
       })
-      await mkdir(dirname(certificate.certificatePath), { recursive: true })
+      await mkdir(path.dirname(certificate.certificatePath), {
+        recursive: true,
+      })
     }
 
     if (keyStatus === "missing" && certificateStatus === "ok") {

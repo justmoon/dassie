@@ -1,4 +1,4 @@
-import { resolve } from "node:path"
+import path from "node:path"
 
 import { SessionToken } from "@dassie/app-node/src/backend/authentication/types/session-token"
 import { BootstrapNodesConfig } from "@dassie/app-node/src/backend/config/environment-config"
@@ -136,7 +136,7 @@ export const generateNodeConfig = ((
     latitude,
     longitude,
     dataPath,
-    ipcSocketPath: resolve(dataPath, "dassie.sock"),
+    ipcSocketPath: path.resolve(dataPath, "dassie.sock"),
     dassieNodeKey: nodeIndexToPrivateKey(index),
     tlsWebCertFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost.pem`,
     tlsWebKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost-key.pem`,

@@ -3,7 +3,7 @@ import { createServer } from "vite"
 import type { ViteDevServer } from "vite"
 
 import { readFileSync } from "node:fs"
-import { join } from "node:path"
+import path from "node:path"
 
 import { createActor } from "@dassie/lib-reactive"
 
@@ -14,8 +14,11 @@ import { server as logger } from "../logger/instances"
 import { validateCertificates } from "../utils/validate-certificates"
 
 const debugUiPath = new URL("../../../", import.meta.url).pathname
-const certificatePath = join(LOCAL_FOLDER, "tls/localhost/web-localhost.pem")
-const keyPath = join(LOCAL_FOLDER, "tls/localhost/web-localhost-key.pem")
+const certificatePath = path.join(
+  LOCAL_FOLDER,
+  "tls/localhost/web-localhost.pem",
+)
+const keyPath = path.join(LOCAL_FOLDER, "tls/localhost/web-localhost-key.pem")
 
 const devtoolsServer = () => ({
   name: "html-ext-fallback",

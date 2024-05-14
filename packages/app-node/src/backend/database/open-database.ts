@@ -1,5 +1,5 @@
 import { mkdirSync } from "node:fs"
-import { resolve } from "node:path"
+import path from "node:path"
 
 import { type Reactor, createComputed } from "@dassie/lib-reactive"
 import { createDatabase } from "@dassie/lib-sqlite"
@@ -13,7 +13,7 @@ export const BetterSqliteNativeBindingSignal = (reactor: Reactor) =>
     const { rootPath } = reactor.use(EnvironmentConfig)
 
     return import.meta.env.PROD ?
-        resolve(rootPath, "lib/better_sqlite3.node")
+        path.resolve(rootPath, "lib/better_sqlite3.node")
       : undefined
   })
 

@@ -8,7 +8,7 @@ import {
   mkdir,
   rm,
 } from "node:fs/promises"
-import { dirname, resolve } from "node:path"
+import path from "node:path"
 
 import { Reactor } from "@dassie/lib-reactive"
 import { createFlow, header, note } from "@dassie/lib-terminal-graphics"
@@ -54,9 +54,9 @@ export const UpdateCommand = (reactor: Reactor) =>
           )
         }
 
-        const superRootPath = dirname(rootPath)
-        const currentSymlinkPath = resolve(superRootPath, "current")
-        const oldVersionPath = resolve(superRootPath, __DASSIE_VERSION__)
+        const superRootPath = path.dirname(rootPath)
+        const currentSymlinkPath = path.resolve(superRootPath, "current")
+        const oldVersionPath = path.resolve(superRootPath, __DASSIE_VERSION__)
 
         const flow = createFlow()
 
@@ -97,7 +97,7 @@ export const UpdateCommand = (reactor: Reactor) =>
           targetVersion = await metaLatestResponse.text()
         }
 
-        const newVersionPath = resolve(superRootPath, targetVersion)
+        const newVersionPath = path.resolve(superRootPath, targetVersion)
 
         if (!force && targetVersion === __DASSIE_VERSION__) {
           flow.show(note({ title: `Already up to date (${targetVersion})` }))
