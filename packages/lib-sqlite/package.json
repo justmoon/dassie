@@ -18,7 +18,7 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@types/better-sqlite3": "^7.6.10",
-    "better-sqlite3": "^9.2.0",
+    "better-sqlite3": "^10.0.0",
     "kysely": "^0.27.3"
   },
   "devDependencies": {
