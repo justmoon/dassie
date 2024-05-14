@@ -48,7 +48,7 @@
     "cookie": "^0.6.0",
     "denque": "^2.1.0",
     "env-paths": "^3.0.0",
-    "execa": "^9.0.2",
+    "execa": "^9.1.0",
     "ilp-protocol-stream": "2.7.2-alpha.2",
     "immer": "^10.1.1",
     "lucide-react": "^0.378.0",
