@@ -3,7 +3,7 @@ import { $ } from "execa"
 
 import {
   access,
-  cp,
+  cp, // eslint-disable-line n/no-unsupported-features/node-builtins
   constants as fsConstants,
   mkdir,
   rm,

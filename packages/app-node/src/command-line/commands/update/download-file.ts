@@ -15,5 +15,6 @@ export const downloadFile = async (
     throw new Error("Response body is empty")
   }
 
+  // eslint-disable-next-line n/no-unsupported-features/node-builtins
   await pipeline(Readable.fromWeb(response.body as ReadableStream), writeStream)
 }

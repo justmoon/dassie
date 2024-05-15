@@ -58,6 +58,7 @@ const NodeHeader = ({ nodeId }: BasicNodeElementProperties) => {
 
 const createNodeRpcClients = (securityToken: string, nodeId: string) => {
   const queryClient = new QueryClient()
+  // eslint-disable-next-line n/no-unsupported-features/node-builtins
   const websocket = new WebSocket(
     `wss://${nodeId}.localhost/trpc?token=${securityToken}`,
   )
@@ -110,13 +111,12 @@ const NodeDetail = ({ nodeId }: NodeDetailProperties) => {
                 <TabsTrigger value="state">State</TabsTrigger>
                 <TabsTrigger value="database">Database</TabsTrigger>
               </TabsList>
-              {currentTab === "logs" ? (
+              {currentTab === "logs" ?
                 <DevelopmentLogViewer filter={({ node }) => node === nodeId} />
-              ) : (
-                <Route path={`/debug`} nest>
+              : <Route path={`/debug`} nest>
                   <DebugPage key={nodeId} />
                 </Route>
-              )}
+              }
               <Route path={`/`}>
                 {() => <Redirect to={`/debug/logs`} replace />}
               </Route>

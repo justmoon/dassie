@@ -1,3 +1,4 @@
+// eslint-disable-next-line n/no-unsupported-features/node-builtins
 import { chmod, copyFile, cp, mkdir } from "node:fs/promises"
 import path from "node:path"
 

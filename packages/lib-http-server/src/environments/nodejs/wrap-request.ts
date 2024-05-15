@@ -56,6 +56,7 @@ export function convertFromNodejsRequest(
       {
         body: NodeReadableStream.from<Uint8Array>(
           nodeRequest,
+          // eslint-disable-next-line n/no-unsupported-features/node-builtins
         ) as ReadableStream<Uint8Array>,
         duplex: "half",
       }
