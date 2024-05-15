@@ -18,7 +18,9 @@ RUN set -xe \
 
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
-RUN corepack enable && corepack prepare pnpm@8.6.8 --activate
+
+ADD package.json .
+RUN corepack enable && corepack prepare --activate
 
 FROM base
 
