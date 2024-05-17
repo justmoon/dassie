@@ -67,14 +67,18 @@ export const UpdateAcmeCertificateActor = (reactor: Reactor) => {
       const keyAuthorization =
         await client.getChallengeKeyAuthorization(challenge)
 
-      database.tables.acmeTokens.insertOne({
-        token: challenge.token,
-        key_authorization: keyAuthorization,
-        expires:
-          authorization.expires ?
-            new Date(authorization.expires).toISOString()
-          : null,
-      })
+      logger.info("registered challenge token", { token: challenge.token })
+      database.tables.acmeTokens.upsert(
+        {
+          token: challenge.token,
+          key_authorization: keyAuthorization,
+          expires:
+            authorization.expires ?
+              new Date(authorization.expires).toISOString()
+            : null,
+        },
+        ["token"],
+      )
 
       try {
         await client.verifyChallenge(authorization, challenge)
@@ -82,12 +86,17 @@ export const UpdateAcmeCertificateActor = (reactor: Reactor) => {
         await client.completeChallenge(challenge)
 
         await client.waitForValidStatus(challenge)
+      } catch (error: unknown) {
+        logger.warn("failed to complete ACME challenge", { error })
+        return
       } finally {
         database.tables.acmeTokens.delete({
           token: challenge.token,
         })
       }
     }
+
+    logger.info("creating certificate signing request")
 
     const [key, csr] = await acmeCrypto.createCsr({
       commonName: hostname,
