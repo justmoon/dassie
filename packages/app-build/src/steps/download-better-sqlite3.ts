@@ -20,8 +20,8 @@ type SqliteArchitecture = "x64" | "arm" | "arm64"
 export const SQLITE_ARCHITECTURE_MAP: {
   [key in Architecture]: SqliteArchitecture
 } = {
-  armv7l: "arm",
-  arm64: "arm64",
+  // armv7l: "arm",
+  // arm64: "arm64",
   x64: "x64",
 }
 
