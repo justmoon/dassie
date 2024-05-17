@@ -17,12 +17,14 @@ In order to develop a peer-to-peer application, it is very useful to quickly spi
 - [mkcert](https://github.com/FiloSottile/mkcert)
   1. Run `mkcert -install` to create the private CA and register it in your OS and browser.
   2. Add `export NODE_EXTRA_CA_CERTS="$(mkcert -CAROOT)/rootCA.pem"` to your `.bashrc`, `.zshrc`, or similar.
+- [Docker](https://docs.docker.com/get-docker/) (only required if you want to build Dassie binaries)
 
 ### Setting up the development environment
 
-Install package dependencies.
+Enable corepack so that the pnpm package manager can be used, then call `pnpm install` to install package dependencies.
 
 ```sh
+corepack enable
 pnpm install
 ```
 
@@ -34,17 +36,9 @@ Run the development environment.
 pnpm start
 ```
 
-## Dassie Production Builds
+### Building Dassie binaries
 
 You generally won't need to build Dassie images locally as this job is normally done by our CI. However, there are a few situations where you may want create custom Dassie binaries.
-
-### Prerequisites
-
-- Node.js
-- PNPM (`npm install -g pnpm`)
-- Docker
-
-### Building
 
 To initiate a build, simply run:
 
@@ -57,5 +51,5 @@ This will first create a "builder" Docker image and then call this image with an
 For example, you can pass in a different build target:
 
 ```sh
-pnpm build canary
+pnpm build release
 ```
