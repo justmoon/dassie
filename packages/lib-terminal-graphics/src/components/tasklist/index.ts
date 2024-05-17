@@ -7,7 +7,10 @@ import wrapAnsi from "wrap-ansi"
 import { createStore } from "@dassie/lib-reactive"
 
 import { indentString } from "../../helpers/indent-string"
-import { generateIndeterminateProgressBar } from "../../helpers/progress-bar"
+import {
+  generateDeterminateProgressBar,
+  generateIndeterminateProgressBar,
+} from "../../helpers/progress-bar"
 import { maybeUnicode } from "../../helpers/unicode-fallback"
 import { StepStyle } from "../../theme"
 import { type DynamicTerminalComponent } from "../../types/terminal-component"
@@ -17,6 +20,7 @@ enableMapSet()
 export interface TasklistOptions {
   style?: StepStyle
   paddingTop?: number
+  paddingBetweenTasks?: number
   paddingBottom?: number
   refreshInterval?: number
   maxDescriptionWidth?: number
@@ -41,7 +45,8 @@ const SPACE_FOR_BULLET = 4
 export const tasklist = ({
   style = "info",
   paddingTop = 1,
-  paddingBottom = 0,
+  paddingBetweenTasks = 0,
+  paddingBottom = 1,
   refreshInterval = 80,
   maxDescriptionWidth = DEFAULT_MAX_DESCRIPTION_WIDTH,
 }: TasklistOptions) => {
@@ -116,15 +121,22 @@ export const tasklist = ({
             : [
                 " ".repeat(descriptionPadding),
                 chalk[theme.stepStyles[style].color].bgGray(
-                  generateIndeterminateProgressBar(
-                    Math.floor(Date.now() / refreshInterval),
-                    progressBarWidth,
-                  ),
+                  progress === "indeterminate" ?
+                    generateIndeterminateProgressBar(
+                      Math.floor(Date.now() / refreshInterval),
+                      progressBarWidth,
+                    )
+                  : generateDeterminateProgressBar(
+                      Math.floor(Date.now() / refreshInterval),
+                      progress,
+                      progressBarWidth,
+                    ),
                 ),
               ]),
-            "\n".repeat(1 + paddingBottom),
+            "\n".repeat(1 + paddingBetweenTasks),
           ]
         }),
+        "\n".repeat(paddingBottom),
       ]
     },
   } satisfies DynamicTerminalComponent<TasklistState>
