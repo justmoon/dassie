@@ -8,8 +8,8 @@ import { NODE_VERSION } from "../constants/version"
 import { downloadFile } from "../utils/download-file"
 import { getStagingPath } from "../utils/dynamic-paths"
 
-const getNodeUrl = (version: string, architecture: Architecture) =>
-  `https://nodejs.org/dist/v${version}/node-v${version}-linux-${architecture}.tar.xz`
+const getNodeUrl = (architecture: Architecture) =>
+  `https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${architecture}.tar.xz`
 
 export const downloadNodeJs = async (architecture: Architecture) => {
   const pathNode = path.resolve(getStagingPath(architecture), "node")
@@ -20,7 +20,7 @@ export const downloadNodeJs = async (architecture: Architecture) => {
 
   await mkdir(pathNode, { recursive: true })
 
-  await downloadFile(getNodeUrl(NODE_VERSION, architecture), nodeLocalFile)
+  await downloadFile(getNodeUrl(architecture), nodeLocalFile)
 
   await $`tar -xJf ${nodeLocalFile} -C ${pathNode} --strip-components=1`
 }

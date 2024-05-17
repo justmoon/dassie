@@ -8,7 +8,7 @@ import { BETTER_SQLITE3_VERSION, NODE_ABI_VERSION } from "../constants/version"
 import { downloadFile } from "../utils/download-file"
 import { getStagingPath } from "../utils/dynamic-paths"
 
-const getDownloadUrl = (
+export const getBetterSqliteDownloadUrl = (
   version: string,
   nodeAbiVersion: string,
   architecture: SqliteArchitecture,
@@ -17,19 +17,21 @@ const getDownloadUrl = (
 
 type SqliteArchitecture = "x64" | "arm" | "arm64"
 
-const ARCHITECTURE_MAP: { [key in Architecture]: SqliteArchitecture } = {
+export const SQLITE_ARCHITECTURE_MAP: {
+  [key in Architecture]: SqliteArchitecture
+} = {
   armv7l: "arm",
   arm64: "arm64",
   x64: "x64",
 }
 
 export const downloadBetterSqlite3 = async (architecture: Architecture) => {
-  const sqliteArchitecture = ARCHITECTURE_MAP[architecture]
+  const sqliteArchitecture = SQLITE_ARCHITECTURE_MAP[architecture]
   const pathSqlite = path.resolve(
     getStagingPath(architecture),
     "better-sqlite3",
   )
-  const downloadUrl = getDownloadUrl(
+  const downloadUrl = getBetterSqliteDownloadUrl(
     BETTER_SQLITE3_VERSION,
     NODE_ABI_VERSION,
     sqliteArchitecture,
