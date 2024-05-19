@@ -1,16 +1,6 @@
 import chalk from "chalk"
 
 const LEFT_BLOCKS = ["▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"]
-const PULSE = [
-  " ",
-  chalk.dim("╌"),
-  "╌",
-  "╍",
-  chalk.bold("╍"),
-  "╍",
-  "╌",
-  chalk.dim("╌"),
-]
 const TARGET_TICK_INTERVAL = 100
 
 function getLeftBlock(fraction: number) {
@@ -28,6 +18,17 @@ function getLeftBlock(fraction: number) {
 }
 
 function getPulse(index: number) {
+  const PULSE = [
+    " ",
+    chalk.dim("╌"),
+    "╌",
+    "╍",
+    chalk.bold("╍"),
+    "╍",
+    "╌",
+    chalk.dim("╌"),
+  ]
+
   return PULSE[index % PULSE.length]!
 }
 

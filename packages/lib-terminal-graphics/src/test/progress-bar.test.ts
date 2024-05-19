@@ -1,8 +1,13 @@
-import { describe } from "vitest"
+import chalk from "chalk"
+import { beforeAll, describe } from "vitest"
 
 import { generateDeterminateProgressBar } from "../helpers/progress-bar"
 
 describe("progress bar", (test) => {
+  beforeAll(() => {
+    chalk.level = 1
+  })
+
   test("should render a single bar out of 4 when progress is 25%", ({
     expect,
   }) => {
