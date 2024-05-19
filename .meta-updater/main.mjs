@@ -21,10 +21,16 @@ export default createUpdateOptions(async (workspaceDir) => {
 
   return {
     "package.json": (manifest, dir) => {
+      console.log({ manifest })
       return {
         ...manifest,
         author: "Stefan Thomas <justmoon@members.fsf.org>",
-        engines: { node: `=${NODE_VERSION}` },
+        engines: {
+          node:
+            manifest.name === "@dassie/app-website" ?
+              "18.x"
+            : `=${NODE_VERSION}`,
+        },
       }
     },
     "tsconfig.json": (tsConfig, { manifest, dir }) => {
