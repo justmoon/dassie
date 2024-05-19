@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@dassie/eslint-plugin':
+        specifier: workspace:^
+        version: link:packages/meta-eslint-plugin
       '@dassie/meta-api-extractor':
         specifier: workspace:^
         version: link:packages/meta-api-extractor

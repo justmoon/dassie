@@ -40,6 +40,7 @@
   },
   "homepage": "https://github.com/justmoon/dassie#readme",
   "devDependencies": {
+    "@dassie/eslint-plugin": "workspace:^",
     "@dassie/meta-api-extractor": "workspace:^",
     "@dassie/meta-incremental-check": "workspace:^",
     "@pnpm/lockfile-file": "^9.0.5",

@@ -2,7 +2,8 @@
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "workspaces": {
     ".": {
-      "entry": [".meta-updater/main.mjs"]
+      "entry": [".meta-updater/main.mjs"],
+      "ignoreDependencies": ["@dassie/eslint-plugin"]
     },
     "packages/*": {
       "entry": ["src/examples/**/*.{js,ts}"]
