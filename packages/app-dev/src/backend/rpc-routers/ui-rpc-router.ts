@@ -9,11 +9,17 @@ import {
 import { createRouter } from "@dassie/lib-rpc/server"
 
 import { LogsStore } from "../../common/stores/logs"
-import { RunNodesActor } from "../actors/run-nodes"
+import { RunAdditionalNodesActor } from "../actors/run-additional-nodes"
 import { ActiveNodeIdsComputed } from "../computed/active-node-ids"
+import { scenarios } from "../scenarios"
+import { ScenarioSignal } from "../signals/scenario"
 import { SecurityTokenSignal } from "../signals/security-token"
+import { AdditionalNodesStore } from "../stores/additional-nodes"
+import {
+  DEFAULT_ADDITIONAL_NODE_START_INDEX,
+  EnvironmentStore,
+} from "../stores/environment"
 import { PeeringStateStore } from "../stores/peering-state"
-import { Scenario, ScenarioStore } from "../stores/scenario"
 import { PeerTrafficTopic } from "../topics/peer-traffic"
 import { baseRoute } from "./route-types/base"
 
@@ -25,8 +31,22 @@ export const uiRpcRouter = createRouter({
     // TRPC seems to throw an error when using superjson as a transformer on a method with no parameters.
     .input(z.object({}))
     .mutation(({ context: { sig } }) => {
-      sig.reactor.use(ScenarioStore).addNode()
+      const environmentStore = sig.reactor.use(EnvironmentStore)
+      const additionalNodesStore = sig.reactor.use(AdditionalNodesStore)
+      const startIndex =
+        environmentStore.read().additionalNodeStartIndex ??
+        DEFAULT_ADDITIONAL_NODE_START_INDEX
+      additionalNodesStore.addNode(
+        startIndex + additionalNodesStore.read().size,
+      )
     }),
+  getBuiltinScenarios: baseRoute.query(() => {
+    return Object.entries(scenarios).map(([id, { name, description }]) => ({
+      id: id as keyof typeof scenarios,
+      name,
+      description,
+    }))
+  }),
   subscribeToNodes: baseRoute.subscription(({ context: { sig } }) => {
     return subscribeToSignal(sig, ActiveNodeIdsComputed)
   }),
@@ -43,14 +63,28 @@ export const uiRpcRouter = createRouter({
     return subscribeToSignal(sig, PeeringStateStore)
   }),
   subscribeToScenario: baseRoute.subscription(({ context: { sig } }) => {
-    return subscribeToSignal(sig, ScenarioStore)
+    return subscribeToSignal(sig, ScenarioSignal)
   }),
   setScenario: baseRoute
-    .input(z.unknown().transform((value) => value as Scenario))
+    .input(
+      z.string().transform((scenario, context) => {
+        if (!Object.hasOwn(scenarios, scenario)) {
+          context.addIssue({
+            code: "invalid_enum_value",
+            received: scenario,
+            options: Object.keys(scenarios),
+          })
+          return z.NEVER
+        }
+
+        return scenario as keyof typeof scenarios
+      }),
+    )
     .mutation(({ context: { sig }, input: scenario }) => {
+      sig.reactor.use(ScenarioSignal).write(scenario)
       sig.reactor.use(PeeringStateStore).clear()
-      sig.reactor.use(ScenarioStore).setScenario(scenario)
-      sig.reactor.use(RunNodesActor).forceRestart()
+      sig.reactor.use(AdditionalNodesStore).clear()
+      sig.reactor.use(RunAdditionalNodesActor).forceRestart()
     }),
 })
 

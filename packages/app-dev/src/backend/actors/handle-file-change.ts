@@ -13,7 +13,7 @@ import { vite as logger } from "../logger/instances"
 import { PeeringStateStore } from "../stores/peering-state"
 import { ViteNodeServer } from "../unconstructables/vite-node-server"
 import { ViteServer } from "../unconstructables/vite-server"
-import { RunNodesActor } from "./run-nodes"
+import { RunScenarioActor } from "./run-scenario"
 
 export function getShortName(file: string, root: string): string {
   return file.startsWith(root + "/") ? path.posix.relative(root, file) : file
@@ -61,7 +61,7 @@ export const HandleFileChangeActor = (reactor: Reactor) => {
   const viteServer = reactor.use(ViteServer)
   const viteNodeServer = reactor.use(ViteNodeServer)
   const peeringStateStore = reactor.use(PeeringStateStore)
-  const runNodesActor = reactor.use(RunNodesActor)
+  const runScenarioActor = reactor.use(RunScenarioActor)
 
   return createActor((sig) => {
     const onFileChange = (file: string) => {
@@ -92,7 +92,7 @@ export const HandleFileChangeActor = (reactor: Reactor) => {
         peeringStateStore.clear()
 
         logger.info(`${chalk.green(`change`)} ${chalk.dim(shortFile)}`)
-        runNodesActor.forceRestart()
+        runScenarioActor.forceRestart()
       }
     }
 

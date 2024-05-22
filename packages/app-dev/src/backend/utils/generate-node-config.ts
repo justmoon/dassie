@@ -5,6 +5,7 @@ import { BootstrapNodesConfig } from "@dassie/app-node/src/backend/config/enviro
 import { getPublicKey } from "@dassie/app-node/src/backend/crypto/ed25519"
 import { calculatePathHmac } from "@dassie/app-node/src/backend/crypto/utils/seed-paths"
 import { calculateNodeId } from "@dassie/app-node/src/backend/ilp-connector/utils/calculate-node-id"
+import type { SettlementSchemeId } from "@dassie/app-node/src/backend/peer-protocol/types/settlement-scheme-id"
 import {
   SEED_PATH_DEV_SESSION,
   SEED_PATH_NODE,
@@ -14,11 +15,7 @@ import { NODE_ENTRYPOINT } from "../constants/entrypoints"
 import { NODES_DEBUG_START_PORT, NODES_START_PORT } from "../constants/ports"
 import { TEST_NODE_VANITY_SEEDS } from "../constants/vanity-nodes"
 import { setup as logger } from "../logger/instances"
-import {
-  EnvironmentSettings,
-  NodeSettings,
-  PeerSettings,
-} from "../stores/scenario"
+import type { EnvironmentSettings } from "../stores/environment"
 import { calculateHaltonLocation } from "./calculate-halton-location"
 
 const LOCAL_PATH = new URL("../../../../../local", import.meta.url).pathname
@@ -95,6 +92,19 @@ export interface BaseNodeConfig {
   entry: string
 }
 
+export interface PeerSettings {
+  readonly index: number
+  readonly settlement: {
+    readonly settlementSchemeId: SettlementSchemeId
+    readonly settlementSchemeState: object
+  }
+}
+
+export interface NodeSettings {
+  readonly peers?: readonly PeerSettings[]
+  readonly settlementMethods?: readonly string[]
+}
+
 export type NodeConfig = ReturnType<typeof generateNodeConfig>
 
 const DEFAULT_NODE_SETTINGS: Required<NodeSettings> = {
@@ -114,11 +124,11 @@ export const generatePeerInfo = ({ index, settlement }: PeerSettings) => ({
 export const generateNodeConfig = ((
   index,
   nodeSettings,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _environmentSettings,
+  environmentSettings,
 ) => {
   const completeNodeSettings: Required<NodeSettings> = {
     ...DEFAULT_NODE_SETTINGS,
+    ...environmentSettings.defaultNodeSettings,
     ...nodeSettings,
   }
   const id = nodeIndexToFriendlyId(index)
