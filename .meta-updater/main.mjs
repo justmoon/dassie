@@ -21,7 +21,6 @@ export default createUpdateOptions(async (workspaceDir) => {
 
   return {
     "package.json": (manifest, dir) => {
-      console.log({ manifest })
       return {
         ...manifest,
         author: "Stefan Thomas <justmoon@members.fsf.org>",
