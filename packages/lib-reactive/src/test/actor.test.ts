@@ -208,7 +208,7 @@ describe("createActor", () => {
       expect(reactor.use(ActorB).result).toBe(12)
     })
 
-    test("should only re-run actor if they selected data changes", async ({
+    test("should only re-run actor if its selected data changes", async ({
       expect,
     }) => {
       const signal = createSignal({ a: 1, b: 2 })

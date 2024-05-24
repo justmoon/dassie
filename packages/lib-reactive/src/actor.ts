@@ -1,4 +1,4 @@
-import type { ConditionalPick, SetReturnType } from "type-fest"
+import type { ConditionalPick, SetReturnType, Tagged } from "type-fest"
 
 import { isObject } from "@dassie/lib-type-utils"
 
@@ -23,6 +23,15 @@ export type Behavior<TReturn = unknown, TBase extends object = object> = (
 ) => TReturn
 
 export const ActorSymbol = Symbol("das:reactive:actor")
+
+export const ActorState = {
+  Stopped: 0 as Tagged<0, "ActorStateStopped">,
+  Starting: 1 as Tagged<1, "ActorStateStarting">,
+  Started: 2 as Tagged<2, "ActorStateStarted">,
+  Stopping: 3 as Tagged<3, "ActorStateStopping">,
+} as const
+
+export type ActorState = (typeof ActorState)[keyof typeof ActorState]
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type ActorApiHandler = (...parameters: any[]) => unknown
@@ -110,6 +119,11 @@ export interface Actor<TReturn, TBase extends object = object>
   [ActorSymbol]: true
 
   /**
+   * The current phase of the actor's lifecycle.
+   */
+  readonly state: ActorState
+
+  /**
    * A reference to the actor context if the actor is currently running. Otherwise undefined.
    */
   readonly currentContext: ActorContext | undefined
@@ -194,6 +208,7 @@ export class ActorImplementation<TReturn, TBase extends object>
   [SignalSymbol] = true as const;
   [ActorSymbol] = true as const
 
+  state: ActorState = ActorState.Stopped
   currentContext: ActorContext<TBase> | undefined = undefined
   result: TReturn | undefined
   promise = createDeferred<TReturn>()
@@ -215,15 +230,37 @@ export class ActorImplementation<TReturn, TBase extends object>
 
   stale(newCacheStatus: CacheStatus) {
     if (!this.isReadingSource && this.cacheStatus < newCacheStatus) {
-      if (this.cacheStatus === CacheStatus.Clean) {
+      if (newCacheStatus === CacheStatus.Dirty) {
         this.waker.resolve()
+      } else if (
+        newCacheStatus === CacheStatus.Check &&
+        this.state === ActorState.Started
+      ) {
+        void Promise.resolve().then(() => {
+          this.revalidateSources()
+        })
       }
 
       this.cacheStatus = newCacheStatus
     }
   }
 
-  recompute() {}
+  revalidateSources() {
+    if (this.cacheStatus === CacheStatus.Check) {
+      for (const source of this.sources) {
+        source.read()
+      }
+    }
+
+    // If any of the sources had changed, they would have marked us dirty
+    if (this.cacheStatus === CacheStatus.Check) {
+      this.setCacheStatus(CacheStatus.Clean)
+    }
+
+    if (this.cacheStatus === CacheStatus.Dirty) {
+      this.waker.resolve()
+    }
+  }
 
   run(
     parentContext: StatefulContext<TBase> & LifecycleContext,
@@ -288,10 +325,12 @@ export class ActorImplementation<TReturn, TBase extends object>
   ) {
     const resetActor = this.reset.bind(this)
 
-    this.waker = createDeferred()
-
     for (;;) {
-      if (parentContext.lifecycle.isDisposed) return
+      this.waker = createDeferred()
+
+      if (parentContext.lifecycle.isDisposed) break
+
+      this.state = ActorState.Starting
 
       const lifecycle = createLifecycleScope(this[FactoryNameSymbol])
       lifecycle.confineTo(parentContext.lifecycle)
@@ -342,22 +381,11 @@ export class ActorImplementation<TReturn, TBase extends object>
           }
         }
 
-        do {
-          await this.waker
+        this.state = ActorState.Started
 
-          if (this.cacheStatus === CacheStatus.Check) {
-            for (const source of this.sources) {
-              source.read()
-            }
-          }
+        this.revalidateSources()
 
-          // If any of the sources had changed, they would have marked us dirty
-          if (this.cacheStatus === CacheStatus.Check) {
-            this.setCacheStatus(CacheStatus.Clean)
-          }
-
-          this.waker = createDeferred()
-        } while (this.cacheStatus !== CacheStatus.Dirty)
+        await this.waker
       } catch (error: unknown) {
         console.error("error in actor", {
           actor: this[FactoryNameSymbol],
@@ -366,9 +394,12 @@ export class ActorImplementation<TReturn, TBase extends object>
         })
         return
       } finally {
+        this.state = ActorState.Stopping
         await lifecycle.dispose()
       }
     }
+
+    this.state = ActorState.Stopped
   }
 
   api = new Proxy(this, {
