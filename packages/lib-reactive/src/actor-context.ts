@@ -18,6 +18,7 @@ import { Mapped } from "./mapped"
 import { ReactiveContextImplementation } from "./reactive-context"
 import { Reactor } from "./reactor"
 import type { ReadonlyTopic, TopicSymbol } from "./topic"
+import type { AbortContext } from "./types/abort-context"
 import { Time } from "./types/base-modules/time"
 import { ExecutionContext } from "./types/execution-context"
 import { Factory } from "./types/factory"
@@ -43,7 +44,8 @@ export interface ActorContext<TBase extends object = object>
     LifecycleContextShortcuts,
     StatefulContext<TBase>,
     ExecutionContext,
-    ReactiveContext<TBase> {
+    ReactiveContext<TBase>,
+    AbortContext {
   [ActorContextSymbol]: true
 
   base: TBase
@@ -192,6 +194,7 @@ export class ActorContextImplementation<TBase extends object = object>
       [FactoryNameSymbol]: string
       forceRestart: () => void
       readAndTrack: <TState>(signal: ReactiveSource<TState>) => TState
+      getAbortSignal: () => AbortSignal
     },
 
     readonly lifecycle: LifecycleScope,
@@ -228,6 +231,10 @@ export class ActorContextImplementation<TBase extends object = object>
 
   get offCleanup() {
     return this.lifecycle.offCleanup
+  }
+
+  get abortSignal() {
+    return this.actor.getAbortSignal()
   }
 
   subscribe<TMessage>(

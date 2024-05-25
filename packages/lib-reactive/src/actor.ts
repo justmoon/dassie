@@ -214,6 +214,7 @@ export class ActorImplementation<TReturn, TBase extends object>
   promise = createDeferred<TReturn>()
   private waker = createDeferred()
 
+  private abortController: AbortController | undefined
   private cache: Awaited<TReturn> | undefined
   private cacheStatus: CacheStatus = CacheStatus.Clean
   private observers = new Set<ReactiveObserver>()
@@ -230,16 +231,9 @@ export class ActorImplementation<TReturn, TBase extends object>
 
   stale(newCacheStatus: CacheStatus) {
     if (!this.isReadingSource && this.cacheStatus < newCacheStatus) {
-      if (newCacheStatus === CacheStatus.Dirty) {
-        this.waker.resolve()
-      } else if (
-        newCacheStatus === CacheStatus.Check &&
-        this.state === ActorState.Started
-      ) {
-        void Promise.resolve().then(() => {
-          this.revalidateSources()
-        })
-      }
+      void Promise.resolve().then(() => {
+        this.revalidateSources()
+      })
 
       this.cacheStatus = newCacheStatus
     }
@@ -258,6 +252,9 @@ export class ActorImplementation<TReturn, TBase extends object>
     }
 
     if (this.cacheStatus === CacheStatus.Dirty) {
+      this.abortController?.abort(
+        new Error("Operation aborted due to actor inputs stale"),
+      )
       this.waker.resolve()
     }
   }
@@ -286,7 +283,11 @@ export class ActorImplementation<TReturn, TBase extends object>
   }
 
   private async reset() {
+    this.abortController?.abort(
+      new Error("Operation aborted due to actor lifecycle disposal"),
+    )
     await this.promise
+    this.abortController = undefined
     this.currentContext = undefined
     this.cache = undefined
     this.promise = createDeferred()
@@ -298,6 +299,9 @@ export class ActorImplementation<TReturn, TBase extends object>
 
   forceRestart = () => {
     this.cacheStatus = CacheStatus.Dirty
+    this.abortController?.abort(
+      new Error("Operation aborted due to actor force restart"),
+    )
     this.waker.resolve()
   }
 
@@ -336,6 +340,8 @@ export class ActorImplementation<TReturn, TBase extends object>
       lifecycle.confineTo(parentContext.lifecycle)
       lifecycle.onCleanup(resetActor)
 
+      this.abortController = new AbortController()
+
       const context = new ActorContextImplementation(
         this,
         lifecycle,
@@ -364,6 +370,8 @@ export class ActorImplementation<TReturn, TBase extends object>
         // Wait in case the actor is asynchronous.
         // eslint-disable-next-line @typescript-eslint/await-thenable
         const actorResult = await actorReturn
+
+        this.abortController = undefined
 
         if (this.cache !== actorResult) {
           if (this.observers.size > 0) {
@@ -432,6 +440,16 @@ export class ActorImplementation<TReturn, TBase extends object>
 
   public removeObserver(observer: ReactiveObserver) {
     this.observers.delete(observer)
+  }
+
+  public getAbortSignal() {
+    if (!this.abortController) {
+      throw new Error(
+        "Abort signal should only be accessed during execution of actor behavior function",
+      )
+    }
+
+    return this.abortController.signal
   }
 }
 

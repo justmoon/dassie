@@ -67,3 +67,4 @@ export type {
 export type { ReactiveContext } from "./types/reactive-context"
 export type { StatefulContext } from "./types/stateful-context"
 export type { ExecutionContext } from "./types/execution-context"
+export type { AbortContext } from "./types/abort-context"
