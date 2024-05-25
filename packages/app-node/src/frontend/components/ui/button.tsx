@@ -1,10 +1,10 @@
 import { Slot } from "@radix-ui/react-slot"
-import { VariantProps, cva } from "class-variance-authority"
+import { VariantProps } from "class-variance-authority"
 import { ButtonHTMLAttributes, forwardRef } from "react"
 
-import { combine } from "../../utils/class-helper"
+import { combineVariants } from "../../utils/class-helper"
 
-const buttonVariants = cva(
+const buttonVariants = combineVariants(
   "inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none ring-offset-background",
   {
     variants: {
@@ -44,7 +44,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProperties>(
     const Component = asChild ? Slot : "button"
     return (
       <Component
-        className={combine(buttonVariants({ variant, size, className }))}
+        className={buttonVariants({ variant, size, className })}
         ref={reference}
         {...properties}
       />

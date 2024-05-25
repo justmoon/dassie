@@ -1,3 +1,4 @@
+import { cva } from "class-variance-authority"
 import { type ClassValue, clsx } from "clsx"
 import {
   ComponentProps,
@@ -14,6 +15,11 @@ import { twMerge } from "tailwind-merge"
 
 export function combine(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
+}
+
+export const combineVariants: typeof cva = (...inputs) => {
+  const variants = cva(...inputs)
+  return (properties) => combine(variants(properties))
 }
 
 /**
