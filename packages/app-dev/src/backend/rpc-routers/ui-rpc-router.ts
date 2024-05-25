@@ -9,7 +9,6 @@ import {
 import { createRouter } from "@dassie/lib-rpc/server"
 
 import { LogsStore } from "../../common/stores/logs"
-import { RunAdditionalNodesActor } from "../actors/run-additional-nodes"
 import { ActiveNodeIdsComputed } from "../computed/active-node-ids"
 import { scenarios } from "../scenarios"
 import { ScenarioSignal } from "../signals/scenario"
@@ -82,9 +81,7 @@ export const uiRpcRouter = createRouter({
     )
     .mutation(({ context: { sig }, input: scenario }) => {
       sig.reactor.use(ScenarioSignal).write(scenario)
-      sig.reactor.use(PeeringStateStore).clear()
       sig.reactor.use(AdditionalNodesStore).clear()
-      sig.reactor.use(RunAdditionalNodesActor).forceRestart()
     }),
 })
 

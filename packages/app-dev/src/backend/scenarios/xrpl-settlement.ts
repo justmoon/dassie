@@ -18,7 +18,7 @@ export const StartScenario = (reactor: Reactor) => {
     additionalNodeStartIndex: 2,
   }
 
-  return async ({ lifecycle }: StartScenarioParameters) => {
+  return async ({ context }: StartScenarioParameters) => {
     const node1 = generateNodeConfig(
       0,
       {
@@ -26,7 +26,7 @@ export const StartScenario = (reactor: Reactor) => {
       },
       ENVIRONMENT,
     )
-    await startNode({ lifecycle, node: node1 })
+    await startNode({ context, node: node1 })
 
     const node2 = generateNodeConfig(
       1,
@@ -35,6 +35,6 @@ export const StartScenario = (reactor: Reactor) => {
       },
       ENVIRONMENT,
     )
-    await startNode({ lifecycle, node: node2 })
+    await startNode({ context, node: node2 })
   }
 }

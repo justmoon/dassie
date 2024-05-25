@@ -35,7 +35,7 @@ export const RunAdditionalNodesActor = (reactor: Reactor) => {
 
           const node = generateNodeConfig(nodeIndex, {}, environmentSettings)
 
-          await startNode({ node, lifecycle: sig.lifecycle })
+          await startNode({ node, context: sig })
 
           await setTimeout(NODE_STARTUP_INTERVAL)
         }),

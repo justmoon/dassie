@@ -17,10 +17,10 @@ export const StartScenario = (reactor: Reactor) => {
     additionalNodeStartIndex: NODE_COUNT,
   }
 
-  return async ({ lifecycle }: StartScenarioParameters) => {
+  return async ({ context }: StartScenarioParameters) => {
     for (let index = 0; index < 6; index++) {
       const node = generateNodeConfig(index, {}, ENVIRONMENT)
-      await startNode({ lifecycle, node })
+      await startNode({ context, node })
     }
   }
 }
