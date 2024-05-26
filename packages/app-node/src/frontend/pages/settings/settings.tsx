@@ -5,6 +5,7 @@ import { logout } from "../../utils/authentication"
 import { extend } from "../../utils/class-helper"
 import { rpc } from "../../utils/rpc"
 import { ApiKeysSettings } from "./api-keys/api-keys"
+import { RegistrationSettings } from "./registration/registration"
 
 const SettingsSection = extend(
   "SettingsSection",
@@ -71,6 +72,17 @@ export const Settings = () => {
               Logout
             </Button>
           </div>
+        </SettingsSectionContent>
+      </SettingsSection>
+      <SettingsSection>
+        <SettingsSectionHeader>
+          <SettingsSectionTitle>Registration</SettingsSectionTitle>
+          <SettingsSectionDescription>
+            Register your node as a tier-1 node
+          </SettingsSectionDescription>
+        </SettingsSectionHeader>
+        <SettingsSectionContent>
+          <RegistrationSettings />
         </SettingsSectionContent>
       </SettingsSection>
       <SettingsSection>

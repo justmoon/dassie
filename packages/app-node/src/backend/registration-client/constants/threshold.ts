@@ -1,0 +1,1 @@
+export const TARGET_REGISTRATION_THRESHOLD = 4 / 5

@@ -4,6 +4,7 @@ import { acmeRouter } from "../acme-certificate-manager/trpc-routers/acme"
 import { apiKeysRouter } from "../api-keys/trpc-routers/api-keys"
 import { configAdminRouter } from "../config/trpc-routers/config-admin"
 import { tlsAdminRouter } from "../http-server/trpc-routers/tls-admin"
+import { registrationClientRouter } from "../registration-client/rpc-router/registration-client"
 import { settlementRouter } from "../settlement-schemes/trpc-routers/settlement"
 import { debugRouter } from "./routers/debug"
 import { generalRouter } from "./routers/general"
@@ -17,6 +18,7 @@ export const appRouter = createRouter({
   tls: tlsAdminRouter,
   config: configAdminRouter,
   apiKeys: apiKeysRouter,
+  registrationClient: registrationClientRouter,
   settlement: settlementRouter,
 })
 
