@@ -69,6 +69,13 @@ export interface ReadonlyTopic<TMessage = never> extends ContextValue {
    * @returns An async iterable that will yield messages as they are emitted.
    */
   [Symbol.asyncIterator]: () => AsyncIterator<TMessage>
+
+  /**
+   * Return a promise which will resolve to the next value in the topic.
+   *
+   * @returns A promise which will resolve to the next value in the topic.
+   */
+  next: () => Promise<TMessage>
 }
 
 export type Topic<TMessage = never> = ReadonlyTopic<TMessage> & {
@@ -192,6 +199,12 @@ export class TopicImplementation<TMessage> {
         return { done: true, value: undefined }
       },
     }
+  }
+
+  next = () => {
+    return new Promise<TMessage>((resolve) => {
+      this.once({ lifecycle: createLifecycleScope("topic-next") }, resolve)
+    })
   }
 
   /**
