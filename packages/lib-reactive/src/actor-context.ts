@@ -1,6 +1,7 @@
 import { Promisable } from "type-fest"
 
 import { type Actor, type RunOptions } from "./actor"
+import type { Cancellable } from "./cancellation"
 import { FactoryNameSymbol } from "./internal/context-base"
 import { Listener } from "./internal/emit-to-listener"
 import { type ReactiveSource } from "./internal/reactive"
@@ -18,8 +19,8 @@ import { Mapped } from "./mapped"
 import { ReactiveContextImplementation } from "./reactive-context"
 import { Reactor } from "./reactor"
 import type { ReadonlyTopic, TopicSymbol } from "./topic"
-import type { AbortContext } from "./types/abort-context"
 import { Time } from "./types/base-modules/time"
+import type { CancelableContext } from "./types/cancelable-context"
 import { ExecutionContext } from "./types/execution-context"
 import { Factory } from "./types/factory"
 import {
@@ -45,7 +46,7 @@ export interface ActorContext<TBase extends object = object>
     StatefulContext<TBase>,
     ExecutionContext,
     ReactiveContext<TBase>,
-    AbortContext {
+    CancelableContext {
   [ActorContextSymbol]: true
 
   base: TBase
@@ -194,10 +195,10 @@ export class ActorContextImplementation<TBase extends object = object>
       [FactoryNameSymbol]: string
       forceRestart: () => void
       readAndTrack: <TState>(signal: ReactiveSource<TState>) => TState
-      getAbortSignal: () => AbortSignal
     },
 
     readonly lifecycle: LifecycleScope,
+    readonly cancellable: Cancellable,
 
     /**
      * Full path of the actor.
@@ -234,7 +235,7 @@ export class ActorContextImplementation<TBase extends object = object>
   }
 
   get abortSignal() {
-    return this.actor.getAbortSignal()
+    return this.cancellable.abortSignal
   }
 
   subscribe<TMessage>(
@@ -399,6 +400,7 @@ export class ActorContextImplementation<TBase extends object = object>
     return new ActorContextImplementation(
       this.actor,
       this.lifecycle,
+      this.cancellable,
       this.path,
       this.reactor.withBase(newBase),
     )

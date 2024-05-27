@@ -34,7 +34,7 @@ export const StartNode = (reactor: Reactor) => {
   const activeNodesStore = reactor.use(ActiveNodesStore)
 
   return async ({ node, context }: StartNodeParameters) => {
-    if (context.lifecycle.isDisposed || context.abortSignal.aborted) {
+    if (context.lifecycle.isDisposed || context.cancellable.isCancelled) {
       return
     }
 

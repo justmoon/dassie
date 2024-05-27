@@ -4,6 +4,11 @@ export { createActor, isActor, ActorSymbol } from "./actor"
 export { createStore, isStore, StoreSymbol } from "./store"
 export { createComputed, isComputed, ComputedSymbol } from "./computed"
 export { createMapped, isMapped, MappedSymbol } from "./mapped"
+export {
+  createCancellable,
+  isCancellation,
+  CancellationSymbol,
+} from "./cancellation"
 export { createDeferred } from "./deferred"
 export { createReactor } from "./reactor"
 export { createLifecycleScope } from "./lifecycle"
@@ -44,6 +49,7 @@ export type {
   DisposableLifecycleScope,
   Disposer,
 } from "./lifecycle"
+export type { Cancellable as Cancellation } from "./cancellation"
 export type { Deferred } from "./deferred"
 export type { Listener } from "./internal/emit-to-listener"
 export type {
@@ -67,4 +73,4 @@ export type {
 export type { ReactiveContext } from "./types/reactive-context"
 export type { StatefulContext } from "./types/stateful-context"
 export type { ExecutionContext } from "./types/execution-context"
-export type { AbortContext } from "./types/abort-context"
+export type { CancelableContext as AbortContext } from "./types/cancelable-context"
