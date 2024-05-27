@@ -26,7 +26,7 @@ Within each feature, you may find various subfolders containing different types 
 - **signals/** - Stateful signals using `createSignal` from `@dassie/lib-reactive`
 - **stores/** - State stores using `createStore` from `@dassie/lib-reactive`
 - **topics/** - Any publish/subscribe topics using `createTopic` from `@dassie/lib-reactive`
-- **trpc-routers/** - Any APIs that are exposed to the frontend or the CLI
+- **rpc-routers/** - Any APIs that are exposed to the frontend or the CLI
 - **types/** - TypeScript type definitions that are relevant to this feature
 - **utils/** - Stateless utility functions
 

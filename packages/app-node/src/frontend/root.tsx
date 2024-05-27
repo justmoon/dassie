@@ -9,7 +9,7 @@ import { RpcProvider, clientOptions, useWebSocketClient } from "./utils/rpc"
 const Root = () => {
   const wsUrl = new URL("/", location.href)
   wsUrl.protocol = "wss:"
-  wsUrl.pathname = "/trpc"
+  wsUrl.pathname = "/rpc"
 
   const [queryClient] = useState(() => new QueryClient())
   const rpcClient = useWebSocketClient({

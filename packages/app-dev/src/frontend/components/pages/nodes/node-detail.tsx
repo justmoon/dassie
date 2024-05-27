@@ -60,7 +60,7 @@ const createNodeRpcClients = (securityToken: string, nodeId: string) => {
   const queryClient = new QueryClient()
   // eslint-disable-next-line n/no-unsupported-features/node-builtins
   const websocket = new WebSocket(
-    `wss://${nodeId}.localhost/trpc?token=${securityToken}`,
+    `wss://${nodeId}.localhost/rpc?token=${securityToken}`,
   )
   const rpcClient = createClient<AppRouter>({
     connection: createWebSocketLink(websocket),

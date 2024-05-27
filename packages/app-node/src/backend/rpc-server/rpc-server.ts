@@ -26,7 +26,7 @@ export const RegisterTrpcHttpUpgradeActor = (reactor: Reactor) => {
 
     httpsWebSocketRouter
       .get()
-      .path("/trpc")
+      .path("/rpc")
       .handler(sig, ({ request, upgrade, url }) => {
         const cookies = parse(request.headers.get("cookie") ?? "")
         const sessionToken = cookies[SESSION_COOKIE_NAME]
