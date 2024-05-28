@@ -60,7 +60,7 @@ export const ManageSettlementSchemeInstancesActor = (
 
           module = moduleImport.default
 
-          loadedSettlementModules.loadModule(settlementSchemeId, module)
+          loadedSettlementModules.act.loadModule(settlementSchemeId, module)
         }
 
         if (!module) {

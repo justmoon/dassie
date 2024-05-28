@@ -1,5 +1,5 @@
 import {
-  type InferMessageType,
+  type InferSignalType,
   type Reactor,
   createComputed,
 } from "@dassie/lib-reactive"
@@ -42,6 +42,6 @@ export const RegistrationStatusSignal = (reactor: Reactor) => {
   })
 }
 
-export type RegistrationStatus = InferMessageType<
+export type RegistrationStatus = InferSignalType<
   typeof RegistrationStatusSignal
 >

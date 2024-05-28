@@ -10,7 +10,7 @@ export const RunScenarioActor = (reactor: Reactor) => {
   return createActor(async (sig) => {
     const scenarioId = sig.readAndTrack(ScenarioSignal)
     try {
-      reactor.use(PeeringStateStore).clear()
+      reactor.use(PeeringStateStore).act.clear()
       await reactor.use(scenarios[scenarioId].StartScenario)({ context: sig })
     } catch (error) {
       logger.error("error starting scenario", { error, scenario: scenarioId })

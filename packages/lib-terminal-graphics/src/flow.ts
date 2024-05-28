@@ -125,7 +125,7 @@ export const createFlow = ({
 
       const lifecycle = createLifecycleScope("dynamic step")
 
-      component.state.on({ lifecycle }, update)
+      component.state.values.on({ lifecycle }, update)
 
       const interval =
         component.refreshInterval > 0 ?

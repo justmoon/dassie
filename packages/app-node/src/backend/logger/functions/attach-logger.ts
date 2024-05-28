@@ -20,11 +20,11 @@ export const AttachLogger = (reactor: Reactor) => {
 
     loggingContext.output = (logEvent) => {
       if (logEvent.type === "clear") {
-        logsStore.clear()
+        logsStore.act.clear()
         return
       }
 
-      logsStore.addLogLine(logEvent)
+      logsStore.act.addLogLine(logEvent)
 
       const currentLogLevel = stdoutLogLevel.read()
       if (

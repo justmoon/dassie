@@ -121,7 +121,7 @@ export const RunChildProcess = (reactor: Reactor) => {
         )
           continue
 
-        logsStore.addLogLine({
+        logsStore.act.addLogLine({
           node: id,
           type: inputName === "stdout" ? "info" : "warn",
           namespace: inputName,

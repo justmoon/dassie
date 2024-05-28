@@ -13,7 +13,7 @@ import { LifecycleContext } from "./types/lifecycle-context"
 
 export const TopicSymbol = Symbol("das:reactive:topic")
 
-export type InferMessageType<
+export type InferTopicType<
   TTopic extends ReadonlyTopic<unknown> | Factory<ReadonlyTopic<unknown>>,
 > =
   TTopic extends ReadonlyTopic<infer TMessage> ? TMessage

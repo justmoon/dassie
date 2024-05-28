@@ -43,7 +43,7 @@ export const GenerateMessageAuthentication = (reactor: Reactor) => {
         ),
         createdAt: new Date(),
       }
-      outgoingSessionKeysSignal.addKeyEntry(destination, sessionKeysEntry)
+      outgoingSessionKeysSignal.act.addKeyEntry(destination, sessionKeysEntry)
     }
 
     const messageAuthenticationCode = calculateMessageHmac(

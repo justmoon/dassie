@@ -14,7 +14,7 @@ export interface OutgoingSessionKeyEntry {
   createdAt: Date
 }
 export const OutgoingSessionKeysStore = () =>
-  createStore(new Map<NodeId, OutgoingSessionKeyEntry>(), {
+  createStore(new Map<NodeId, OutgoingSessionKeyEntry>()).actions({
     addKeyEntry: (destination: NodeId, entry: OutgoingSessionKeyEntry) =>
       produce((draft) => {
         draft.set(destination, entry)

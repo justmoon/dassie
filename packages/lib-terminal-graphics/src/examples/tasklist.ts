@@ -12,62 +12,62 @@ flow.show(header({ title: "Example: Tasklist" }))
 flow.show(note({ title: `Living life...` }))
 
 await flow.attach(tasklist({}), async (state) => {
-  state.addTask("wake-up", { description: "Wake up", progress: "done" })
+  state.act.addTask("wake-up", { description: "Wake up", progress: "done" })
   await setTimeout(200)
-  state.addTask("think-coffee", {
+  state.act.addTask("think-coffee", {
     description: "Think about coffee",
     progress: "indeterminate",
   })
   await setTimeout(1000)
-  state.addTask("go-to-work", {
+  state.act.addTask("go-to-work", {
     description: "Go to work",
     progress: "indeterminate",
   })
   await setTimeout(1000)
-  state.updateTask("go-to-work", {
+  state.act.updateTask("go-to-work", {
     progress: "done",
   })
-  state.addTask("drink-coffee", {
+  state.act.addTask("drink-coffee", {
     description: "Drink coffee",
     progress: "indeterminate",
   })
   await setTimeout(1000)
-  state.updateTask("drink-coffee", {
+  state.act.updateTask("drink-coffee", {
     progress: "done",
   })
-  state.updateTask("think-coffee", {
+  state.act.updateTask("think-coffee", {
     progress: "done",
   })
-  state.addTask("eat-lunch", {
+  state.act.addTask("eat-lunch", {
     description: "Eat lunch",
     progress: "indeterminate",
   })
   await setTimeout(1000)
-  state.updateTask("eat-lunch", {
+  state.act.updateTask("eat-lunch", {
     progress: "done",
   })
-  state.addTask("go-home", {
+  state.act.addTask("go-home", {
     description: "Go home",
     progress: "indeterminate",
   })
   await setTimeout(1000)
-  state.updateTask("go-home", {
+  state.act.updateTask("go-home", {
     progress: "done",
   })
-  state.addTask("eat-dinner", {
+  state.act.addTask("eat-dinner", {
     description: "Eat dinner",
     progress: "indeterminate",
   })
   await setTimeout(1000)
-  state.updateTask("eat-dinner", {
+  state.act.updateTask("eat-dinner", {
     progress: "done",
   })
-  state.addTask("go-bed", {
+  state.act.addTask("go-bed", {
     description: "Go to bed",
     progress: "indeterminate",
   })
   await setTimeout(1000)
-  state.updateTask("go-bed", {
+  state.act.updateTask("go-bed", {
     progress: "done",
   })
 })

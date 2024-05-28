@@ -50,7 +50,7 @@ export const tasklist = ({
   refreshInterval = 80,
   maxDescriptionWidth = DEFAULT_MAX_DESCRIPTION_WIDTH,
 }: TasklistOptions) => {
-  const store = createStore({ tasks: new Map() } as TasklistState, {
+  const store = createStore({ tasks: new Map() } as TasklistState).actions({
     addTask: (taskId: string, initialState: TaskState) =>
       produce((draft) => {
         draft.tasks.set(taskId, initialState)

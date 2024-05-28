@@ -64,9 +64,9 @@ export const StartNode = (reactor: Reactor) => {
 
     const debugScopes = debugScopesSignal.read()
 
-    activeNodesStore.addNode(node)
+    activeNodesStore.act.addNode(node)
     context.lifecycle.onCleanup(() => {
-      activeNodesStore.removeNode(node)
+      activeNodesStore.act.removeNode(node)
     })
 
     await runChildProcess({

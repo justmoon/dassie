@@ -44,7 +44,7 @@ export const HandlePeeringRequest = ((reactor: DassieReactor) => {
       return { accepted: false, data: EMPTY_UINT8ARRAY }
     }
 
-    nodeTableStore.updateNode(nodeId, {
+    nodeTableStore.act.updateNode(nodeId, {
       peerState: {
         id: "peered",
         lastSeen: Date.now(),

@@ -22,7 +22,7 @@ export const apiKeysRouter = createRouter({
       urlSafe: true,
     }) as BtpToken
     const btpTokensStore = sig.reactor.use(BtpTokensStore)
-    btpTokensStore.addToken(token)
+    btpTokensStore.act.addToken(token)
 
     return token
   }),
@@ -30,6 +30,6 @@ export const apiKeysRouter = createRouter({
     .input(btpTokenSchema)
     .mutation(({ input: token, context: { sig } }) => {
       const btpTokensStore = sig.reactor.use(BtpTokensStore)
-      btpTokensStore.removeToken(token)
+      btpTokensStore.act.removeToken(token)
     }),
 })

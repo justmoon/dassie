@@ -21,8 +21,8 @@ export {
   DisposeSymbol,
 } from "./internal/context-base"
 
-export type { Topic, ReadonlyTopic, InferMessageType } from "./topic"
-export type { Signal, ReadonlySignal, Reducer } from "./signal"
+export type { Topic, ReadonlyTopic, InferTopicType } from "./topic"
+export type { Signal, ReadonlySignal, Reducer, InferSignalType } from "./signal"
 export type { ActorContext } from "./actor-context"
 export type {
   Actor,

@@ -51,7 +51,7 @@ export const configAdminRouter = createRouter({
 
       const config = sig.reactor.use(DatabaseConfigStore)
 
-      config.setRealm(realm)
+      config.act.setRealm(realm)
       return true
     }),
   setHostname: protectedRoute
@@ -63,7 +63,7 @@ export const configAdminRouter = createRouter({
     .mutation(({ input: { hostname }, context: { sig } }) => {
       const config = sig.reactor.use(DatabaseConfigStore)
 
-      config.setHostname(hostname)
+      config.act.setHostname(hostname)
       return true
     }),
   addSettlementScheme: protectedRoute
@@ -74,6 +74,8 @@ export const configAdminRouter = createRouter({
       }),
     )
     .mutation(({ context: { sig }, input: { id, config } }) => {
-      sig.reactor.use(SettlementSchemesStore).addSettlementScheme(id, config)
+      sig.reactor
+        .use(SettlementSchemesStore)
+        .act.addSettlementScheme(id, config)
     }),
 })

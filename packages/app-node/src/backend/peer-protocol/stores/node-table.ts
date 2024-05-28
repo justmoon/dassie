@@ -123,7 +123,7 @@ export const NodeTableStore = (reactor: Reactor) => {
     })
   }
 
-  return createStore(castImmutable(initialNodesMap), {
+  return createStore(castImmutable(initialNodesMap)).actions({
     addNode: (entry: NodeTableEntry) =>
       produce((draft) => {
         draft.set(

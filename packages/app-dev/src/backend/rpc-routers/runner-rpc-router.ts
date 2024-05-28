@@ -41,7 +41,7 @@ export const runnerRpcRouter = createRouter({
 
       logEvent.node = shortenNodeId(logEvent.node)
 
-      logs.addLogLine({
+      logs.act.addLogLine({
         ...logEvent,
         caller: logEvent.caller ?? undefined,
       })
@@ -55,7 +55,7 @@ export const runnerRpcRouter = createRouter({
     )
     .mutation(({ input: { nodeId, peers }, context: { reactor } }) => {
       const peeringState = reactor.use(PeeringStateStore)
-      peeringState.updateNodePeers(nodeId, peers)
+      peeringState.act.updateNodePeers(nodeId, peers)
     }),
 })
 

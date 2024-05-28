@@ -18,6 +18,7 @@ import {
 import { Mapped } from "./mapped"
 import { ReactiveContextImplementation } from "./reactive-context"
 import { Reactor } from "./reactor"
+import { type ReadonlySignal, SignalSymbol } from "./signal"
 import type { ReadonlyTopic, TopicSymbol } from "./topic"
 import { Time } from "./types/base-modules/time"
 import type { CancelableContext } from "./types/cancelable-context"
@@ -62,8 +63,9 @@ export interface ActorContext<TBase extends object = object>
    */
   subscribe<TMessage>(
     topicFactory:
-      | Factory<ReadonlyTopic<TMessage>, TBase>
-      | ReadonlyTopic<TMessage>,
+      | Factory<ReadonlyTopic<TMessage> | ReadonlySignal<TMessage>, TBase>
+      | ReadonlyTopic<TMessage>
+      | ReadonlySignal<TMessage>,
   ): void
 
   /**
@@ -74,8 +76,9 @@ export interface ActorContext<TBase extends object = object>
    */
   on<TMessage>(
     topicFactory:
-      | Factory<ReadonlyTopic<TMessage>, TBase>
-      | ReadonlyTopic<TMessage>,
+      | Factory<ReadonlyTopic<TMessage> | ReadonlySignal<TMessage>, TBase>
+      | ReadonlyTopic<TMessage>
+      | ReadonlySignal<TMessage>,
     listener: Listener<TMessage>,
   ): void
 
@@ -87,8 +90,9 @@ export interface ActorContext<TBase extends object = object>
    */
   once<TMessage>(
     topicFactory:
-      | Factory<ReadonlyTopic<TMessage>, TBase>
-      | ReadonlyTopic<TMessage>,
+      | Factory<ReadonlyTopic<TMessage> | ReadonlySignal<TMessage>, TBase>
+      | ReadonlyTopic<TMessage>
+      | ReadonlySignal<TMessage>,
     listener: Listener<TMessage>,
   ): void
 
@@ -240,36 +244,40 @@ export class ActorContextImplementation<TBase extends object = object>
 
   subscribe<TMessage>(
     topicFactory:
-      | Factory<ReadonlyTopic<TMessage>, TBase>
-      | ReadonlyTopic<TMessage>,
+      | Factory<ReadonlyTopic<TMessage> | ReadonlySignal<TMessage>, TBase>
+      | ReadonlyTopic<TMessage>
+      | ReadonlySignal<TMessage>,
   ) {
     this.once(topicFactory, this.actor.forceRestart)
   }
 
   on<TMessage>(
     topicFactory:
-      | Factory<ReadonlyTopic<TMessage>, TBase>
-      | ReadonlyTopic<TMessage>,
+      | Factory<ReadonlyTopic<TMessage> | ReadonlySignal<TMessage>, TBase>
+      | ReadonlyTopic<TMessage>
+      | ReadonlySignal<TMessage>,
     listener: Listener<TMessage>,
   ) {
     const topic =
       typeof topicFactory === "function" ?
         this.reactor.use(topicFactory)
       : topicFactory
-    topic.on(this, listener)
+
+    ;(SignalSymbol in topic ? topic.values : topic).on(this, listener)
   }
 
   once<TMessage>(
     topicFactory:
-      | Factory<ReadonlyTopic<TMessage>, TBase>
-      | ReadonlyTopic<TMessage>,
+      | Factory<ReadonlyTopic<TMessage> | ReadonlySignal<TMessage>, TBase>
+      | ReadonlyTopic<TMessage>
+      | ReadonlySignal<TMessage>,
     listener: Listener<TMessage>,
   ) {
     const topic =
       typeof topicFactory === "function" ?
         this.reactor.use(topicFactory)
       : topicFactory
-    topic.once(this, listener)
+    ;(SignalSymbol in topic ? topic.values : topic).once(this, listener)
   }
 
   interval(

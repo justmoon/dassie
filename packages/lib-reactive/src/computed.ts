@@ -9,7 +9,7 @@ import { Reactive, defaultComparator } from "./internal/reactive"
 import { createReactiveTopic } from "./internal/reactive-topic"
 import { createLifecycleScope } from "./lifecycle"
 import { ReadonlySignal, SignalSymbol } from "./signal"
-import { TopicSymbol } from "./topic"
+import { type ReadonlyTopic, TopicSymbol } from "./topic"
 import { LifecycleContext } from "./types/lifecycle-context"
 import { StatefulContext } from "./types/stateful-context"
 
@@ -41,6 +41,8 @@ class ComputedImplementation<
 
   private context: ComputationContext<TBase>
 
+  values: ReadonlyTopic<TState>
+
   constructor(
     parentContext: LifecycleContext & StatefulContext<TBase>,
     private readonly computation: (sig: ComputationContext<TBase>) => TState,
@@ -62,6 +64,7 @@ class ComputedImplementation<
     )
 
     this.context = context
+    this.values = createReactiveTopic(this)
   }
 
   protected recompute() {
@@ -74,13 +77,7 @@ export function createComputed<TState, TBase extends object>(
   computation: (sig: ComputationContext<TBase>) => TState,
   options: ComputedOptions<TState> = {},
 ): Computed<TState> {
-  const computed = new ComputedImplementation(
-    parentContext,
-    computation,
-    options,
-  )
-
-  return Object.assign(computed, createReactiveTopic(computed))
+  return new ComputedImplementation(parentContext, computation, options)
 }
 
 export const isComputed = (object: unknown): object is Computed<unknown> =>

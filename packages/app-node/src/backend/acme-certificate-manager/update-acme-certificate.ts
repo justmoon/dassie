@@ -106,7 +106,7 @@ export const UpdateAcmeCertificateActor = (reactor: Reactor) => {
 
     const certificate = await client.getCertificate(finalizedOrder)
 
-    databaseConfigStore.setTlsCertificates(
+    databaseConfigStore.act.setTlsCertificates(
       certificate.toString(),
       key.toString(),
     )

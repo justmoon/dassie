@@ -22,7 +22,7 @@ export const PatchIlpLoggerActor = (reactor: Reactor) => {
       const namespace =
         firstSpace === -1 ? "debug" : message.slice(0, firstSpace)
 
-      logsStore.addLogLine({
+      logsStore.act.addLogLine({
         type: "debug",
         namespace,
         date: Date.now(),

@@ -139,7 +139,7 @@ export const MaintainPeeringRelationshipsActor = (reactor: DassieReactor) => {
       },
     )
 
-    reactor.use(NodeTableStore).updateNode(randomNode.nodeId, {
+    reactor.use(NodeTableStore).act.updateNode(randomNode.nodeId, {
       peerState: {
         id: "peered",
         lastSeen: Date.now(),

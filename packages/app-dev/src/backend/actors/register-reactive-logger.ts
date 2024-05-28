@@ -16,9 +16,9 @@ export const RegisterReactiveLoggerActor = (reactor: Reactor) => {
 
     loggingContext.output = (logEvent) => {
       if (logEvent.type === "clear") {
-        logsStore.clear()
+        logsStore.act.clear()
       } else {
-        logsStore.addLogLine({
+        logsStore.act.addLogLine({
           node: "host",
           ...logEvent,
         })

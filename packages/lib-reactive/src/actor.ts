@@ -202,7 +202,7 @@ export interface RunOptions {
 export class ActorImplementation<TReturn, TBase extends object>
   extends ContextBase
   implements
-    Omit<Actor<TReturn, TBase>, keyof ReadonlyTopic>,
+    Actor<TReturn, TBase>,
     ReactiveObserver,
     ReactiveSource<Awaited<TReturn> | undefined>
 {
@@ -221,9 +221,12 @@ export class ActorImplementation<TReturn, TBase extends object>
   private observers = new Set<ReactiveObserver>()
   private sources = new Set<ReactiveSource<unknown>>()
   private isReadingSource = false
+  values: ReadonlyTopic<Awaited<TReturn> | undefined>
 
   constructor(public behavior: Behavior<TReturn, TBase>) {
     super()
+
+    this.values = createReactiveTopic(this)
   }
 
   read(): Awaited<TReturn> | undefined {
@@ -445,8 +448,7 @@ export class ActorImplementation<TReturn, TBase extends object>
 export const createActor = <TReturn, TBase extends object>(
   behavior: Behavior<TReturn, TBase>,
 ): Actor<TReturn, TBase> => {
-  const actor = new ActorImplementation(behavior)
-  return Object.assign(actor, createReactiveTopic(actor))
+  return new ActorImplementation(behavior)
 }
 
 export const isActor = (object: unknown): object is Actor<unknown> =>

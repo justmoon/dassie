@@ -28,7 +28,7 @@ export const ForwardLinkStateUpdateActor = (reactor: DassieReactor) => {
           node.linkState.scheduledRetransmitTime < Date.now()
         ) {
           // Set scheduled retransmit time to be infinitely far in the future so we don't retransmit the same update again.
-          sig.reactor.use(NodeTableStore).updateNode(node.nodeId, {
+          sig.reactor.use(NodeTableStore).act.updateNode(node.nodeId, {
             linkState: {
               ...node.linkState,
               scheduledRetransmitTime: Number.POSITIVE_INFINITY,

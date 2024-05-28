@@ -81,13 +81,13 @@ export const RegisterSetupRouteActor = (reactor: DassieReactor) => {
 
         const dassieKey = serializeEd25519Key(rawDassieKeyBuffer, "private")
 
-        config.setNodeIdentity(dassieKey)
+        config.act.setNodeIdentity(dassieKey)
 
         const sessionToken = uint8ArrayToHex(
           random.randomBytes(32),
         ) as SessionToken
 
-        sessions.addSession(sessionToken)
+        sessions.act.addSession(sessionToken)
 
         setCookie(headers, {
           name: SESSION_COOKIE_NAME,

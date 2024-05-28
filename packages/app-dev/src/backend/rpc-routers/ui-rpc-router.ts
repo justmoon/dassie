@@ -35,7 +35,7 @@ export const uiRpcRouter = createRouter({
       const startIndex =
         environmentStore.read().additionalNodeStartIndex ??
         DEFAULT_ADDITIONAL_NODE_START_INDEX
-      additionalNodesStore.addNode(
+      additionalNodesStore.act.addNode(
         startIndex + additionalNodesStore.read().size,
       )
     }),
@@ -81,7 +81,7 @@ export const uiRpcRouter = createRouter({
     )
     .mutation(({ context: { sig }, input: scenario }) => {
       sig.reactor.use(ScenarioSignal).write(scenario)
-      sig.reactor.use(AdditionalNodesStore).clear()
+      sig.reactor.use(AdditionalNodesStore).act.clear()
     }),
 })
 

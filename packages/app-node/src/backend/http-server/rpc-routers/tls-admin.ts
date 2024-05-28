@@ -15,7 +15,7 @@ export const tlsAdminRouter = createRouter({
     )
     .mutation(({ input: { certificate, privateKey }, context: { sig } }) => {
       const config = sig.reactor.use(DatabaseConfigStore)
-      config.setTlsCertificates(certificate, privateKey)
+      config.act.setTlsCertificates(certificate, privateKey)
 
       return true
     }),

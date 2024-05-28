@@ -33,13 +33,13 @@ describe("createSignal", () => {
     expect(signal.read()).toBe("foobar")
   })
 
-  test("should be able to subscribe to changes", async ({ expect }) => {
+  test("should be able to subscribe to new values", async ({ expect }) => {
     const listener = vi.fn()
     const signal = createSignal("foo")
 
     const reactor = createReactor()
 
-    signal.on(reactor, listener)
+    signal.values.on(reactor, listener)
 
     expect(listener).toHaveBeenCalledTimes(0)
 

@@ -37,13 +37,13 @@ export async function runChecks() {
 
   let packagesToBeLinted!: PackagesToBeLinted
   await flow.attach(tasklist({}), async (state) => {
-    state.addTask("meta/search-stale", {
+    state.act.addTask("meta/search-stale", {
       description: "Searching for stale packages",
       progress: "indeterminate",
     })
 
     function markStalePackagesDone() {
-      state.updateTask("meta/search-stale", (task) =>
+      state.act.updateTask("meta/search-stale", (task) =>
         task.progress === "done" ?
           task
         : {
@@ -70,12 +70,12 @@ export async function runChecks() {
             markStalePackagesDone()
 
             if (status === "start") {
-              state.addTask(packageName, {
+              state.act.addTask(packageName, {
                 description: `Compiling ${packageName}`,
                 progress: "indeterminate",
               })
             } else {
-              state.updateTask(packageName, {
+              state.act.updateTask(packageName, {
                 progress: status === "error" ? "error" : "done",
               })
             }
@@ -114,12 +114,12 @@ export async function runChecks() {
               const [, packageName, status] = progressMessage
 
               if (status === "start") {
-                state.addTask(packageName, {
+                state.act.addTask(packageName, {
                   description: `Linting ${packageName}`,
                   progress: "indeterminate",
                 })
               } else {
-                state.updateTask(packageName, {
+                state.act.updateTask(packageName, {
                   progress: status === "error" ? "error" : "done",
                 })
               }

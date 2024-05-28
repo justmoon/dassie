@@ -27,7 +27,7 @@ for (let index = 0; index < 3; index++) {
     progress({ description: `Toaster ${index + 1}` }),
     async (state) => {
       for (let progress = 0; progress <= 1; progress += 1 / 150) {
-        state.setProgress(progress)
+        state.act.setProgress(progress)
         await setTimeout(20)
       }
     },

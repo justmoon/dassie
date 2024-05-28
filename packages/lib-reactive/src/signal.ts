@@ -9,30 +9,42 @@ import {
 } from "./internal/reactive"
 import { createReactiveTopic } from "./internal/reactive-topic"
 import { ReadonlyTopic } from "./topic"
+import type { Factory } from "./types/factory"
 
 export type Reducer<TState> = (previousState: TState) => TState
 
 export const SignalSymbol = Symbol("das:reactive:signal")
 
-export type ReadonlySignal<TState> = ReadonlyTopic<TState> &
-  ReactiveSource<TState> & {
-    /**
-     * Marks this object as a signal.
-     */
-    [SignalSymbol]: true
+export type InferSignalType<
+  TTopic extends ReadonlySignal<unknown> | Factory<ReadonlySignal<unknown>>,
+> =
+  TTopic extends ReadonlySignal<infer TMessage> ? TMessage
+  : TTopic extends Factory<ReadonlySignal<infer TMessage>> ? TMessage
+  : never
 
-    /**
-     * Name of the factory function that created this signal.
-     *
-     * @see {@link FactoryNameSymbol}
-     */
-    [FactoryNameSymbol]: string
+export interface ReadonlySignal<TState> extends ReactiveSource<TState> {
+  /**
+   * Marks this object as a signal.
+   */
+  [SignalSymbol]: true
 
-    /**
-     * Get the current state of the signal.
-     */
-    read(): TState
-  }
+  /**
+   * Name of the factory function that created this signal.
+   *
+   * @see {@link FactoryNameSymbol}
+   */
+  [FactoryNameSymbol]: string
+
+  /**
+   * Get the current state of the signal.
+   */
+  read(): TState
+
+  /**
+   * A topic that will emit each new value of the signal.
+   */
+  values: ReadonlyTopic<TState>
+}
 
 export type Signal<TState> = ReadonlySignal<TState> & {
   /**
@@ -60,11 +72,15 @@ export class SignalImplementation<TState> extends Reactive<TState> {
 
   protected override cache: TState
 
+  values: ReadonlyTopic<TState>
+
   constructor(initialState: TState, options: SignalOptions<TState> = {}) {
     super(options.comparator ?? defaultComparator, false)
 
     this.cache = initialState
     this.cacheStatus = CacheStatus.Clean
+
+    this.values = createReactiveTopic(this)
   }
 
   recompute() {}
@@ -90,12 +106,8 @@ export function createSignal<TState>(
   initialState?: TState,
   options?: SignalOptions<TState>,
 ): Signal<TState> {
-  const signal = new SignalImplementation(initialState as TState, options)
-
-  return Object.assign(signal, createReactiveTopic(signal))
+  return new SignalImplementation(initialState as TState, options)
 }
 
-export const isSignal = (
-  object: unknown,
-): object is SignalImplementation<unknown> =>
+export const isSignal = (object: unknown): object is Signal<unknown> =>
   isObject(object) && object[SignalSymbol] === true

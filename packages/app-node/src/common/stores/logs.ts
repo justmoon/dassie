@@ -20,31 +20,28 @@ export interface LogsStoreState {
 type NewLogLine = SetOptional<IndexedLogLine, "index" | "relativeTime">
 
 export const LogsStore = () => {
-  return createStore(
-    {
-      logs: [],
-      startTime: Date.now(),
-    } as LogsStoreState,
-    {
-      // eslint-disable-next-line unicorn/consistent-function-scoping
-      clear: () =>
-        produce((draft) => {
-          draft.logs = []
-        }),
-      addLogLine: (logLine: NewLogLine) =>
-        produce(({ logs, startTime }) => {
-          const lastIndex = logs.at(-1)?.index ?? -1
+  return createStore({
+    logs: [],
+    startTime: Date.now(),
+  } as LogsStoreState).actions({
+    // eslint-disable-next-line unicorn/consistent-function-scoping
+    clear: () =>
+      produce((draft) => {
+        draft.logs = []
+      }),
+    addLogLine: (logLine: NewLogLine) =>
+      produce(({ logs, startTime }) => {
+        const lastIndex = logs.at(-1)?.index ?? -1
 
-          logs.push({
-            index: lastIndex + 1,
-            relativeTime: logLine.date - startTime,
-            ...logLine,
-          })
+        logs.push({
+          index: lastIndex + 1,
+          relativeTime: logLine.date - startTime,
+          ...logLine,
+        })
 
-          if (logs.length > LOGS_HARD_LIMIT) {
-            logs.splice(0, logs.length - LOGS_SOFT_LIMIT)
-          }
-        }),
-    } as const,
-  )
+        if (logs.length > LOGS_HARD_LIMIT) {
+          logs.splice(0, logs.length - LOGS_SOFT_LIMIT)
+        }
+      }),
+  } as const)
 }

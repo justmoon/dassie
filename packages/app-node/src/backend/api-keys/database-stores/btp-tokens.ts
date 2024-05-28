@@ -14,7 +14,7 @@ export const BtpTokensStore = (reactor: Reactor) => {
     database.tables.btpTokens.selectAll().map(({ token }) => token),
   )
 
-  return createStore(castImmutable(btpTokenSet), {
+  return createStore(castImmutable(btpTokenSet)).actions({
     addToken: (token: BtpToken) =>
       produce((draft) => {
         draft.add(token)

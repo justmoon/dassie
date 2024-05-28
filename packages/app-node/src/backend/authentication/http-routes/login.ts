@@ -58,7 +58,7 @@ export const RegisterLoginRouteActor = (reactor: DassieReactor) => {
           random.randomBytes(32),
         ) as SessionToken
 
-        sessions.addSession(sessionToken)
+        sessions.act.addSession(sessionToken)
 
         setCookie(headers, {
           name: SESSION_COOKIE_NAME,

@@ -15,7 +15,7 @@ export interface OutgoingSpspPayment {
 }
 
 export const SpspPaymentQueueStore = () =>
-  createStore([] as OutgoingSpspPayment[], {
+  createStore([] as OutgoingSpspPayment[]).actions({
     addPayment: (payment: OutgoingSpspPayment) => (state) => [
       ...state,
       payment,
@@ -88,7 +88,7 @@ export const SendSpspPaymentsActor = () =>
               error,
             })
           })
-          sig.reactor.use(SpspPaymentQueueStore).shift()
+          sig.reactor.use(SpspPaymentQueueStore).act.shift()
         }
       })
     }

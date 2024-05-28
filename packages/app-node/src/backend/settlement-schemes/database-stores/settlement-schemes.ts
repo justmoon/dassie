@@ -15,7 +15,7 @@ export const SettlementSchemesStore = (reactor: Reactor) => {
       config: JSON.parse(config) as object,
     }))
 
-  return createStore(settlementSchemeRows, {
+  return createStore(settlementSchemeRows).actions({
     addSettlementScheme: (
       settlementSchemeId: SettlementSchemeId,
       config: object,

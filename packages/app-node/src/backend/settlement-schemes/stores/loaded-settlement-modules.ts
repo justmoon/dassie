@@ -6,7 +6,7 @@ import type { SettlementSchemeId } from "../../peer-protocol/types/settlement-sc
 import type { SettlementSchemeModule } from "../types/settlement-scheme-module"
 
 export const LoadedSettlementModulesStore = () =>
-  createStore(new Map<string, SettlementSchemeModule>(), {
+  createStore(new Map<string, SettlementSchemeModule>()).actions({
     loadModule: (
       settlementSchemeId: SettlementSchemeId,
       module: SettlementSchemeModule,

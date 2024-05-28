@@ -5,7 +5,7 @@ import { createStore } from "@dassie/lib-reactive"
 enableMapSet()
 
 export const AdditionalNodesStore = () =>
-  createStore(new Set<number>(), {
+  createStore(new Set<number>()).actions({
     addNode: (nodeIndex: number) =>
       produce((draft) => {
         draft.add(nodeIndex)

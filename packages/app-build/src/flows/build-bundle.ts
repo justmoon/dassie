@@ -59,7 +59,7 @@ export const buildBundle = async ({
     await flow.attach(tasklist({}), async (state) => {
       {
         const filename = getTarFilename(version, architecture)
-        state.addTask(filename, {
+        state.act.addTask(filename, {
           description: filename,
           progress: "indeterminate",
         })
@@ -69,7 +69,7 @@ export const buildBundle = async ({
         await copyFilesIntoBundle(version, architecture)
         await tarBundle(version, architecture)
 
-        state.updateTask(filename, {
+        state.act.updateTask(filename, {
           progress: "done",
         })
       }
@@ -81,14 +81,14 @@ export const buildBundle = async ({
           compression,
         )
 
-        state.addTask(filename, {
+        state.act.addTask(filename, {
           description: filename,
           progress: "indeterminate",
         })
 
         await compressBundle(version, architecture, compression)
 
-        state.updateTask(filename, {
+        state.act.updateTask(filename, {
           progress: "done",
         })
       }

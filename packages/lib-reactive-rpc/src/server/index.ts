@@ -49,12 +49,12 @@ export const subscribeToSignal = <TMessage>(
       onData(message)
     }
 
-    signal.on(sig, listener)
+    signal.values.on(sig, listener)
 
     onData(signal.read())
 
     return () => {
-      signal.off(listener)
+      signal.values.off(listener)
     }
   })
 }

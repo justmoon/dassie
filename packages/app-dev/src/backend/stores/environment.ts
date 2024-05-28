@@ -24,7 +24,7 @@ export const DEFAULT_ADDITIONAL_NODE_START_INDEX = 10
 export const EnvironmentStore = () => {
   const initialEnvironment: EnvironmentSettings = {}
 
-  return createStore(initialEnvironment, {
+  return createStore(initialEnvironment).actions({
     setEnvironment: (environment: EnvironmentSettings) => () => environment,
   })
 }

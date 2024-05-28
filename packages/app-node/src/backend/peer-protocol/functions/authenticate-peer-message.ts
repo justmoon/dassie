@@ -61,7 +61,7 @@ export const AuthenticatePeerMessage = (reactor: Reactor) => {
     )
 
     if (isValid && !wasSessionKeyCached) {
-      incomingSessionKeysStore.addKeyEntry(
+      incomingSessionKeysStore.act.addKeyEntry(
         sessionPublicKeyBase64,
         sessionKeysEntry,
       )

@@ -42,7 +42,7 @@ export const ModifyNodeTable = (reactor: Reactor) => {
     addNode: (nodeId: NodeId) => {
       if (nodeTableStore.read().has(nodeId)) return
 
-      nodeTableStore.addNode({
+      nodeTableStore.act.addNode({
         nodeId,
         linkState: undefined,
         peerState: {
@@ -63,7 +63,7 @@ export const ModifyNodeTable = (reactor: Reactor) => {
       }
 
       if (sequence === node.linkState?.sequence && retransmit === "scheduled") {
-        nodeTableStore.updateNode(nodeId, {
+        nodeTableStore.act.updateNode(nodeId, {
           linkState: {
             ...node.linkState,
             updateReceivedCounter: node.linkState.updateReceivedCounter + 1,
@@ -77,7 +77,7 @@ export const ModifyNodeTable = (reactor: Reactor) => {
 
       const { neighbors, settlementSchemes } = parseLinkStateEntries(entries)
 
-      nodeTableStore.updateNode(nodeId, {
+      nodeTableStore.act.updateNode(nodeId, {
         linkState: {
           lastUpdate: linkStateBytes,
           sequence,

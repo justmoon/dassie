@@ -33,7 +33,7 @@ flow.show(header({ title: "Generate Binary Dependencies" }))
 const shasumsMap = new Map<string, string>()
 
 await flow.attach(tasklist({}), async (state) => {
-  state.addTask("fetch-nodejs-signer-keys", {
+  state.act.addTask("fetch-nodejs-signer-keys", {
     description: "Fetching Node.js signer keys",
     progress: 0,
   })
@@ -44,16 +44,16 @@ await flow.attach(tasklist({}), async (state) => {
     await $`gpg --no-default-keyring --keyring ${temporaryKeyringPath} --keyserver ${NODEJS_SIGNERS_KEYSERVER} --recv-keys ${key}`
 
     keysFetched++
-    state.updateTask("fetch-nodejs-signer-keys", {
+    state.act.updateTask("fetch-nodejs-signer-keys", {
       progress: keysFetched / NODEJS_SIGNERS.length,
     })
   }
 
-  state.updateTask("fetch-nodejs-signer-keys", {
+  state.act.updateTask("fetch-nodejs-signer-keys", {
     progress: "done",
   })
 
-  state.addTask("fetch-nodejs-release-shasums", {
+  state.act.addTask("fetch-nodejs-release-shasums", {
     description: "Fetching Node.js release SHASUMS256.txt.asc",
     progress: "indeterminate",
   })
@@ -61,11 +61,11 @@ await flow.attach(tasklist({}), async (state) => {
   const result = await fetch(`${NODE_BASE_URL}/SHASUMS256.txt.asc`)
   const signedShasums = await result.text()
 
-  state.updateTask("fetch-nodejs-release-shasums", {
+  state.act.updateTask("fetch-nodejs-release-shasums", {
     progress: "done",
   })
 
-  state.addTask("verify-nodejs-release-signature", {
+  state.act.addTask("verify-nodejs-release-signature", {
     description: "Verifying Node.js release signature",
     progress: "indeterminate",
   })
@@ -81,11 +81,11 @@ await flow.attach(tasklist({}), async (state) => {
     shasumsMap.set(file, hash)
   }
 
-  state.updateTask("verify-nodejs-release-signature", {
+  state.act.updateTask("verify-nodejs-release-signature", {
     progress: "done",
   })
 
-  state.addTask("download-better-sqlite3", {
+  state.act.addTask("download-better-sqlite3", {
     description: "Downloading better-sqlite3 binaries to calculate checksums",
     progress: 0,
   })
@@ -112,7 +112,7 @@ await flow.attach(tasklist({}), async (state) => {
     shasumsMap.set(filename, hash)
   }
 
-  state.updateTask("download-better-sqlite3", {
+  state.act.updateTask("download-better-sqlite3", {
     progress: "done",
   })
 })

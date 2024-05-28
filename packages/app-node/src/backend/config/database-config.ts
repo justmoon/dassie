@@ -68,7 +68,7 @@ const loadInitialConfig = (database: ReturnType<typeof Database>): Config => {
 export const DatabaseConfigStore = (reactor: Reactor) => {
   const database = reactor.use(Database)
 
-  return createStore(loadInitialConfig(database), {
+  return createStore(loadInitialConfig(database)).actions({
     setRealm: (realm: (typeof VALID_REALMS)[number]) =>
       produce((draft) => {
         database.scalars.configRealm.set(realm)

@@ -10,7 +10,7 @@ export interface IncomingSessionKeyEntry {
 }
 
 export const IncomingSessionKeysStore = () =>
-  createStore(new Map<string, IncomingSessionKeyEntry>(), {
+  createStore(new Map<string, IncomingSessionKeyEntry>()).actions({
     addKeyEntry: (
       sessionPublicKeyBase64: string,
       entry: IncomingSessionKeyEntry,

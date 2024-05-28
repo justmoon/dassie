@@ -79,7 +79,7 @@ const createReactiveHooks = () => {
           store.write(data.value)
         } else {
           const [actionName, parameters] = data.value
-          const action = store[actionName] as
+          const action = store.act[actionName] as
             | BoundAction<unknown, unknown[]>
             | undefined
 

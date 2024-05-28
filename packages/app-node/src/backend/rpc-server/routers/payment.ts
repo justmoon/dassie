@@ -31,7 +31,7 @@ export const paymentRouter = createRouter({
         // TODO: Verify paymentId is unique
         logger.debug?.("creating payment", { paymentPointer, amount })
         const spspPaymentQueue = sig.reactor.use(SpspPaymentQueueStore)
-        spspPaymentQueue.addPayment({
+        spspPaymentQueue.act.addPayment({
           id: paymentId,
           destination: paymentPointer,
           totalAmount: BigInt(amount),

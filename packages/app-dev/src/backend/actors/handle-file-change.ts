@@ -89,7 +89,7 @@ export const HandleFileChangeActor = (reactor: Reactor) => {
 
       const nodeBoundaryModules = moduleGraph.getModulesByFile(NODE_ENTRYPOINT)
       if (areModulesWithinBoundary(changedModules, nodeBoundaryModules)) {
-        peeringStateStore.clear()
+        peeringStateStore.act.clear()
 
         logger.info(`${chalk.green(`change`)} ${chalk.dim(shortFile)}`)
         runScenarioActor.forceRestart()

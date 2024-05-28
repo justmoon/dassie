@@ -34,7 +34,7 @@ export const progress = ({
   paddingBottom = 0,
   refreshInterval = 80,
 }: ProgressOptions) => {
-  const store = createStore({ progress: undefined } as ProgressState, {
+  const store = createStore({ progress: undefined } as ProgressState).actions({
     setProgress: (progress: number) => (state) => ({ ...state, progress }),
   })
 

@@ -1,7 +1,7 @@
 import { createStore } from "@dassie/lib-reactive"
 
 export const PeeringStateStore = () =>
-  createStore({} as Record<string, string[]>, {
+  createStore({} as Record<string, string[]>).actions({
     updateNodePeers: (nodeId: string, peers: string[]) => (state) => ({
       ...state,
       [nodeId]: peers,
