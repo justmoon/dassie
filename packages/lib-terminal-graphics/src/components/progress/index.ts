@@ -13,7 +13,6 @@ import {
 import { maybeUnicode } from "../../helpers/unicode-fallback"
 import { StepStyle } from "../../theme"
 import { type DynamicTerminalComponent } from "../../types/terminal-component"
-import { foregroundToBackgroundColor } from "../../utils/foreground-to-background-color"
 
 export interface ProgressOptions {
   style?: StepStyle
@@ -67,9 +66,7 @@ export const progress = ({
           "\n",
           "\n",
           progress === undefined ?
-            chalk[
-              foregroundToBackgroundColor(theme.stepStyles[style].color)
-            ].black(
+            chalk[theme.stepStyles[style].color].bgGray(
               generateIndeterminateProgressBar(
                 getTick(Date.now(), refreshInterval),
                 columns,
