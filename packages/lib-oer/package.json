@@ -23,7 +23,7 @@
     "@dassie/eslint-config": "workspace:^",
     "@dassie/lib-format-utils": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
-    "type-fest": "^4.18.2"
+    "type-fest": "^4.25.0"
   },
   "engines": {
     "node": "=22.1.0"

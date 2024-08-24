@@ -17,12 +17,12 @@
   "devDependencies": {
     "@dassie/eslint-config": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
-    "type-fest": "^4.18.2"
+    "type-fest": "^4.25.0"
   },
   "dependencies": {
     "@dassie/lib-reactive": "workspace:^",
     "@dassie/lib-rpc": "workspace:^",
-    "@tanstack/react-query": "^5.36.0"
+    "@tanstack/react-query": "^5.52.1"
   },
   "engines": {
     "node": "=22.1.0"

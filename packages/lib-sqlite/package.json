@@ -17,15 +17,15 @@
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "dependencies": {
-    "@types/better-sqlite3": "^7.6.10",
-    "better-sqlite3": "^10.0.0",
-    "kysely": "^0.27.3"
+    "@types/better-sqlite3": "^7.6.11",
+    "better-sqlite3": "^11.2.1",
+    "kysely": "^0.27.4"
   },
   "devDependencies": {
     "@dassie/eslint-config": "workspace:^",
     "@dassie/lib-logger": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
-    "type-fest": "^4.18.2"
+    "type-fest": "^4.25.0"
   },
   "peerDependencies": {
     "@dassie/lib-logger": "workspace:^1.0.0"

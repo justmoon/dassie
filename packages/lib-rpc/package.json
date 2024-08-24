@@ -21,7 +21,7 @@
   "devDependencies": {
     "@dassie/eslint-config": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
-    "type-fest": "^4.18.2"
+    "type-fest": "^4.25.0"
   },
   "dependencies": {
     "@dassie/lib-reactive": "workspace:^",
