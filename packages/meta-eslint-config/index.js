@@ -5,14 +5,10 @@ module.exports = {
     "plugin:@typescript-eslint/recommended",
     "plugin:@typescript-eslint/recommended-requiring-type-checking",
     "plugin:@typescript-eslint/strict",
-    "plugin:import/recommended",
-    "plugin:import/typescript",
     "plugin:unicorn/recommended",
     "plugin:react/recommended",
     "plugin:react/jsx-runtime",
-    "plugin:react-hooks/recommended",
     "plugin:n/recommended-module",
-    "plugin:eslint-comments/recommended",
     "plugin:@dassie/recommended",
     "prettier",
   ],
@@ -55,12 +51,6 @@ module.exports = {
       },
     ],
     "object-shorthand": ["warn", "properties"],
-
-    // Handled by TypeScript
-    "import/namespace": "off",
-    "import/default": "off",
-    "import/no-unresolved": "off",
-    "import/no-named-as-default-member": "off",
 
     "n/no-missing-import": "off",
     "n/no-unpublished-import": "off",
@@ -129,6 +119,5 @@ module.exports = {
     react: {
       version: "18.0.0",
     },
-    "import/resolver": "typescript",
   },
 }

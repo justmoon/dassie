@@ -8,14 +8,9 @@
   "devDependencies": {
     "@dassie/eslint-plugin": "workspace:^",
     "@typescript-eslint/eslint-plugin": "^8.2.0",
-    "eslint-config-next": "^14.2.6",
     "eslint-config-prettier": "^9.1.0",
-    "eslint-import-resolver-typescript": "^3.6.1",
-    "eslint-plugin-eslint-comments": "^3.2.0",
-    "eslint-plugin-import": "^2.29.0",
     "eslint-plugin-n": "^17.10.2",
     "eslint-plugin-react": "^7.35.0",
-    "eslint-plugin-react-hooks": "^4.6.2",
     "eslint-plugin-tsdoc": "^0.3.0",
     "eslint-plugin-unicorn": "^55.0.0"
   },
