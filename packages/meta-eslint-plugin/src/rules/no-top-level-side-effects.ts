@@ -18,7 +18,6 @@ export const rule = createRule<Options, MessageId>({
     docs: {
       description:
         "There should be no side effects outside of functions. Note that this rule only checks for some types of side effects and ignores others, most notably function calls that happen in variable declarations. The reason is that many variable declarations may legitimately contain pure functions used for initialization and it would be too noisy to report on all of them.",
-      recommended: "recommended",
     },
     messages: {
       noTopLevelSideEffect: "Your modules should not have any side effects",

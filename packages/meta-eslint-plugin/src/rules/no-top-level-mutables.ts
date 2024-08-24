@@ -9,7 +9,6 @@ export const rule = createRule<Options, MessageId>({
   meta: {
     docs: {
       description: "There should be no mutable state outside of functions.",
-      recommended: "recommended",
     },
     messages: {
       noTopLevelMutable:

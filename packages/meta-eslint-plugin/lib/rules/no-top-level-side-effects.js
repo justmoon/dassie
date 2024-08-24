@@ -8,7 +8,6 @@ exports.rule = (0, create_rule_1.createRule)({
     meta: {
         docs: {
             description: "There should be no side effects outside of functions. Note that this rule only checks for some types of side effects and ignores others, most notably function calls that happen in variable declarations. The reason is that many variable declarations may legitimately contain pure functions used for initialization and it would be too noisy to report on all of them.",
-            recommended: "recommended",
         },
         messages: {
             noTopLevelSideEffect: "Your modules should not have any side effects",
@@ -54,8 +53,8 @@ exports.rule = (0, create_rule_1.createRule)({
         if (option.allowInExportlessModules) {
             allowedNodes.push("Program:not(:has(ExportNamedDeclaration)) *");
         }
-        const constructSelector = (nodeType) => allowedNodes.length
-            ? `${nodeType}:not(:matches(${allowedNodes.join(",")}))`
+        const constructSelector = (nodeType) => allowedNodes.length ?
+            `${nodeType}:not(:matches(${allowedNodes.join(",")}))`
             : nodeType;
         return {
             [constructSelector("ExpressionStatement")]: checkForTopLevelSideEffect,

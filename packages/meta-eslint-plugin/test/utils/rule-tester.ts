@@ -9,11 +9,13 @@ RuleTester.describe = describe
 const fixturePath = new URL("../fixture", import.meta.url).pathname
 
 export const ruleTester = new RuleTester({
-  parser: "@typescript-eslint/parser",
-  parserOptions: {
-    tsconfigRootDir: fixturePath,
-    project: "./tsconfig.json",
-    errorOnTypeScriptSyntacticAndSemanticIssues: true,
-    errorOnUnknownASTType: true,
+  languageOptions: {
+    parserOptions: {
+      tsconfigRootDir: fixturePath,
+      project: "./tsconfig.json",
+      projectService: false,
+      errorOnTypeScriptSyntacticAndSemanticIssues: true,
+      errorOnUnknownASTType: true,
+    },
   },
 })

@@ -8,7 +8,6 @@ exports.rule = (0, create_rule_1.createRule)({
     meta: {
         docs: {
             description: "There should be no mutable state outside of functions.",
-            recommended: "recommended",
         },
         messages: {
             noTopLevelMutable: "Using {{clause}} at the top level creates global, mutable state. Wrap your state in a factory function so that it is scoped to a specific instance of your code.",

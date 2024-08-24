@@ -251,6 +251,20 @@ const runCode = () => {
         {
           messageId: "noFloatingFailures",
           line: 6,
+
+          suggestions: [
+            {
+              messageId: "floatingFixVoid",
+              output: `
+import { Failure } from './failure'
+declare const fail: Failure
+
+const runCode = () => {
+  void (fail)
+}
+`,
+            },
+          ],
         },
       ],
     },
@@ -268,6 +282,20 @@ const runCode = () => {
         {
           messageId: "noFloatingFailures",
           line: 6,
+
+          suggestions: [
+            {
+              messageId: "floatingFixVoid",
+              output: `
+import { Failure } from './failure'
+declare const fail: Failure | number
+
+const runCode = () => {
+  void (fail)
+}
+`,
+            },
+          ],
         },
       ],
     },
@@ -285,6 +313,20 @@ const runCode = () => {
         {
           messageId: "noFloatingFailures",
           line: 6,
+
+          suggestions: [
+            {
+              messageId: "floatingFixVoid",
+              output: `
+import { Failure } from './failure'
+declare const fail: Failure & number
+
+const runCode = () => {
+  void (fail)
+}
+`,
+            },
+          ],
         },
       ],
     },
@@ -305,6 +347,23 @@ const runCode = () => {
         {
           messageId: "noFloatingFailures",
           line: 9,
+
+          suggestions: [
+            {
+              messageId: "floatingFixVoid",
+              output: `
+import { Failure } from './failure'
+class MyFailure extends Failure {
+  name = "MyFailure" as const
+}
+declare const fail: MyFailure
+
+const runCode = () => {
+  void (fail)
+}
+`,
+            },
+          ],
         },
       ],
     },
@@ -322,6 +381,20 @@ const runCode = () => {
         {
           messageId: "noFloatingFailures",
           line: 6,
+
+          suggestions: [
+            {
+              messageId: "floatingFixVoid",
+              output: `
+import { Failure } from './failure'
+declare const doSomething: () => Failure
+
+const runCode = () => {
+  void (doSomething())
+}
+`,
+            },
+          ],
         },
       ],
     },
@@ -339,6 +412,20 @@ const runCode = () => {
         {
           messageId: "noFloatingFailures",
           line: 6,
+
+          suggestions: [
+            {
+              messageId: "floatingFixVoid",
+              output: `
+import { Failure } from './failure'
+declare const doSomething: () => Failure | number
+
+const runCode = () => {
+  void (doSomething())
+}
+`,
+            },
+          ],
         },
       ],
     },
@@ -356,6 +443,20 @@ const runCode = () => {
         {
           messageId: "noFloatingFailures",
           line: 6,
+
+          suggestions: [
+            {
+              messageId: "floatingFixVoid",
+              output: `
+import { Failure } from './failure'
+declare const doSomething: () => Failure & number
+
+const runCode = () => {
+  void (doSomething())
+}
+`,
+            },
+          ],
         },
       ],
     },
@@ -376,13 +477,30 @@ const runCode = () => {
         {
           messageId: "noFloatingFailures",
           line: 9,
+
+          suggestions: [
+            {
+              messageId: "floatingFixVoid",
+              output: `
+import { Failure } from './failure'
+class MyFailure extends Failure {
+  name = "MyFailure" as const
+}
+declare const doSomething: () => MyFailure
+
+const runCode = () => {
+  void (doSomething())
+}
+`,
+            },
+          ],
         },
       ],
     },
     {
       name: "should detect unhandled async failure",
       code: `
-import { Failure, isFailure } from './failure'
+import { Failure } from './failure'
 declare const doSomethingAsync: () => Promise<Failure | number>
 
 const runCode = async () => {
@@ -393,6 +511,20 @@ const runCode = async () => {
         {
           messageId: "noFloatingFailures",
           line: 6,
+
+          suggestions: [
+            {
+              messageId: "floatingFixVoid",
+              output: `
+import { Failure } from './failure'
+declare const doSomethingAsync: () => Promise<Failure | number>
+
+const runCode = async () => {
+  void (await doSomethingAsync())
+}
+`,
+            },
+          ],
         },
       ],
     },
@@ -412,14 +544,62 @@ const runCode = () => {
         {
           messageId: "noFloatingFailures",
           line: 6,
+
+          suggestions: [
+            {
+              messageId: "floatingFixVoid",
+              output: `
+import { Failure, isFailure } from './failure'
+declare const fail: Failure
+
+const runCode = () => {
+  void (fail, 123)
+  123, fail
+  123, fail, 123
+}
+`,
+            },
+          ],
         },
         {
           messageId: "noFloatingFailures",
           line: 7,
+
+          suggestions: [
+            {
+              messageId: "floatingFixVoid",
+              output: `
+import { Failure, isFailure } from './failure'
+declare const fail: Failure
+
+const runCode = () => {
+  fail, 123
+  void (123, fail)
+  123, fail, 123
+}
+`,
+            },
+          ],
         },
         {
           messageId: "noFloatingFailures",
           line: 8,
+
+          suggestions: [
+            {
+              messageId: "floatingFixVoid",
+              output: `
+import { Failure, isFailure } from './failure'
+declare const fail: Failure
+
+const runCode = () => {
+  fail, 123
+  123, fail
+  void (123, fail, 123)
+}
+`,
+            },
+          ],
         },
       ],
     },
@@ -448,35 +628,245 @@ const doSomething = (
 };
 
 doSomething();
-      `,
+`,
       errors: [
         {
           line: 13,
           messageId: "noFloatingFailures",
+
+          suggestions: [
+            {
+              messageId: "floatingFixVoid",
+              output: `
+import { Failure } from './failure'
+
+const doSomething = (
+  obj1: { a?: { b?: { c?: () => Failure } } },
+  obj2: { a?: { b?: { c: () => Failure } } },
+  obj3: { a?: { b: { c?: () => Failure } } },
+  obj4: { a: { b: { c?: () => Failure } } },
+  obj5: { a?: () => { b?: { c?: () => Failure } } },
+  obj6?: { a: { b: { c?: () => Failure } } },
+  callback?: () => Failure,
+): void => {
+  void (obj1.a?.b?.c?.());
+  obj2.a?.b?.c();
+  obj3.a?.b.c?.();
+  obj4.a.b.c?.();
+  obj5.a?.().b?.c?.();
+  obj6?.a.b.c?.();
+
+  callback?.();
+};
+
+doSomething();
+`,
+            },
+          ],
         },
         {
           line: 14,
           messageId: "noFloatingFailures",
+
+          suggestions: [
+            {
+              messageId: "floatingFixVoid",
+              output: `
+import { Failure } from './failure'
+
+const doSomething = (
+  obj1: { a?: { b?: { c?: () => Failure } } },
+  obj2: { a?: { b?: { c: () => Failure } } },
+  obj3: { a?: { b: { c?: () => Failure } } },
+  obj4: { a: { b: { c?: () => Failure } } },
+  obj5: { a?: () => { b?: { c?: () => Failure } } },
+  obj6?: { a: { b: { c?: () => Failure } } },
+  callback?: () => Failure,
+): void => {
+  obj1.a?.b?.c?.();
+  void (obj2.a?.b?.c());
+  obj3.a?.b.c?.();
+  obj4.a.b.c?.();
+  obj5.a?.().b?.c?.();
+  obj6?.a.b.c?.();
+
+  callback?.();
+};
+
+doSomething();
+`,
+            },
+          ],
         },
         {
           line: 15,
           messageId: "noFloatingFailures",
+
+          suggestions: [
+            {
+              messageId: "floatingFixVoid",
+              output: `
+import { Failure } from './failure'
+
+const doSomething = (
+  obj1: { a?: { b?: { c?: () => Failure } } },
+  obj2: { a?: { b?: { c: () => Failure } } },
+  obj3: { a?: { b: { c?: () => Failure } } },
+  obj4: { a: { b: { c?: () => Failure } } },
+  obj5: { a?: () => { b?: { c?: () => Failure } } },
+  obj6?: { a: { b: { c?: () => Failure } } },
+  callback?: () => Failure,
+): void => {
+  obj1.a?.b?.c?.();
+  obj2.a?.b?.c();
+  void (obj3.a?.b.c?.());
+  obj4.a.b.c?.();
+  obj5.a?.().b?.c?.();
+  obj6?.a.b.c?.();
+
+  callback?.();
+};
+
+doSomething();
+`,
+            },
+          ],
         },
         {
           line: 16,
           messageId: "noFloatingFailures",
+
+          suggestions: [
+            {
+              messageId: "floatingFixVoid",
+              output: `
+import { Failure } from './failure'
+
+const doSomething = (
+  obj1: { a?: { b?: { c?: () => Failure } } },
+  obj2: { a?: { b?: { c: () => Failure } } },
+  obj3: { a?: { b: { c?: () => Failure } } },
+  obj4: { a: { b: { c?: () => Failure } } },
+  obj5: { a?: () => { b?: { c?: () => Failure } } },
+  obj6?: { a: { b: { c?: () => Failure } } },
+  callback?: () => Failure,
+): void => {
+  obj1.a?.b?.c?.();
+  obj2.a?.b?.c();
+  obj3.a?.b.c?.();
+  void (obj4.a.b.c?.());
+  obj5.a?.().b?.c?.();
+  obj6?.a.b.c?.();
+
+  callback?.();
+};
+
+doSomething();
+`,
+            },
+          ],
         },
         {
           line: 17,
           messageId: "noFloatingFailures",
+
+          suggestions: [
+            {
+              messageId: "floatingFixVoid",
+              output: `
+import { Failure } from './failure'
+
+const doSomething = (
+  obj1: { a?: { b?: { c?: () => Failure } } },
+  obj2: { a?: { b?: { c: () => Failure } } },
+  obj3: { a?: { b: { c?: () => Failure } } },
+  obj4: { a: { b: { c?: () => Failure } } },
+  obj5: { a?: () => { b?: { c?: () => Failure } } },
+  obj6?: { a: { b: { c?: () => Failure } } },
+  callback?: () => Failure,
+): void => {
+  obj1.a?.b?.c?.();
+  obj2.a?.b?.c();
+  obj3.a?.b.c?.();
+  obj4.a.b.c?.();
+  void (obj5.a?.().b?.c?.());
+  obj6?.a.b.c?.();
+
+  callback?.();
+};
+
+doSomething();
+`,
+            },
+          ],
         },
         {
           line: 18,
           messageId: "noFloatingFailures",
+
+          suggestions: [
+            {
+              messageId: "floatingFixVoid",
+              output: `
+import { Failure } from './failure'
+
+const doSomething = (
+  obj1: { a?: { b?: { c?: () => Failure } } },
+  obj2: { a?: { b?: { c: () => Failure } } },
+  obj3: { a?: { b: { c?: () => Failure } } },
+  obj4: { a: { b: { c?: () => Failure } } },
+  obj5: { a?: () => { b?: { c?: () => Failure } } },
+  obj6?: { a: { b: { c?: () => Failure } } },
+  callback?: () => Failure,
+): void => {
+  obj1.a?.b?.c?.();
+  obj2.a?.b?.c();
+  obj3.a?.b.c?.();
+  obj4.a.b.c?.();
+  obj5.a?.().b?.c?.();
+  void (obj6?.a.b.c?.());
+
+  callback?.();
+};
+
+doSomething();
+`,
+            },
+          ],
         },
         {
           line: 20,
           messageId: "noFloatingFailures",
+
+          suggestions: [
+            {
+              messageId: "floatingFixVoid",
+              output: `
+import { Failure } from './failure'
+
+const doSomething = (
+  obj1: { a?: { b?: { c?: () => Failure } } },
+  obj2: { a?: { b?: { c: () => Failure } } },
+  obj3: { a?: { b: { c?: () => Failure } } },
+  obj4: { a: { b: { c?: () => Failure } } },
+  obj5: { a?: () => { b?: { c?: () => Failure } } },
+  obj6?: { a: { b: { c?: () => Failure } } },
+  callback?: () => Failure,
+): void => {
+  obj1.a?.b?.c?.();
+  obj2.a?.b?.c();
+  obj3.a?.b.c?.();
+  obj4.a.b.c?.();
+  obj5.a?.().b?.c?.();
+  obj6?.a.b.c?.();
+
+  void (callback?.());
+};
+
+doSomething();
+`,
+            },
+          ],
         },
       ],
     },
@@ -489,11 +879,25 @@ declare const fail: Failure
 function test() {
   (() => fail)();
 }
-      `,
+`,
       errors: [
         {
           line: 6,
           messageId: "noFloatingFailures",
+
+          suggestions: [
+            {
+              messageId: "floatingFixVoid",
+              output: `
+import { Failure, isFailure } from './failure'
+declare const fail: Failure
+
+function test() {
+  void ((() => fail)());
+}
+`,
+            },
+          ],
         },
       ],
     },
@@ -508,11 +912,27 @@ function test() {
 
   returnsFailure();
 }
-      `,
+`,
       errors: [
         {
           line: 8,
           messageId: "noFloatingFailures",
+
+          suggestions: [
+            {
+              messageId: "floatingFixVoid",
+              output: `
+import { Failure, isFailure } from './failure'
+declare const fail: Failure
+
+function test() {
+  function returnsFailure() { return fail }
+
+  void (returnsFailure());
+}
+`,
+            },
+          ],
         },
       ],
     },
@@ -526,15 +946,45 @@ function test() {
   Math.random() > 0.5 ? fail : null
   Math.random() > 0.5 ? null : fail
 }
-      `,
+`,
       errors: [
         {
           line: 6,
           messageId: "noFloatingFailures",
+
+          suggestions: [
+            {
+              messageId: "floatingFixVoid",
+              output: `
+import { Failure, isFailure } from './failure'
+declare const fail: Failure
+
+function test() {
+  void (Math.random() > 0.5 ? fail : null)
+  Math.random() > 0.5 ? null : fail
+}
+`,
+            },
+          ],
         },
         {
           line: 7,
           messageId: "noFloatingFailures",
+
+          suggestions: [
+            {
+              messageId: "floatingFixVoid",
+              output: `
+import { Failure, isFailure } from './failure'
+declare const fail: Failure
+
+function test() {
+  Math.random() > 0.5 ? fail : null
+  void (Math.random() > 0.5 ? null : fail)
+}
+`,
+            },
+          ],
         },
       ],
     },
@@ -548,11 +998,26 @@ async function test() {
   const obj = { foo: fail };
   obj.foo;
 }
-      `,
+`,
       errors: [
         {
           line: 7,
           messageId: "noFloatingFailures",
+
+          suggestions: [
+            {
+              messageId: "floatingFixVoid",
+              output: `
+import { Failure } from './failure'
+declare const fail: Failure
+
+async function test() {
+  const obj = { foo: fail };
+  void (obj.foo);
+}
+`,
+            },
+          ],
         },
       ],
     },
@@ -566,11 +1031,26 @@ class MyFailure extends Failure {
 async function test() {
   new MyFailure();
 }
-      `,
+`,
       errors: [
         {
           line: 7,
           messageId: "noFloatingFailures",
+
+          suggestions: [
+            {
+              messageId: "floatingFixVoid",
+              output: `
+import { Failure } from './failure'
+class MyFailure extends Failure {
+  name = "MyFailure" as const
+}
+async function test() {
+  void (new MyFailure());
+}
+`,
+            },
+          ],
         },
       ],
     },

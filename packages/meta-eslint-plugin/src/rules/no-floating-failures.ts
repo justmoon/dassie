@@ -18,8 +18,6 @@ export const rule = createRule<Options, MessageId>({
     docs: {
       description:
         "Not handling Failure return values is a possible error because failures could remain unhandled.",
-      recommended: "recommended",
-      requiresTypeChecking: true,
     },
     hasSuggestions: true,
     messages: {

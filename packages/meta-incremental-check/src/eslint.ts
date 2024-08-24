@@ -7,16 +7,18 @@ import type { PackagesToBeLinted } from "./types/packages-to-be-linted"
 import { printToConsole, reportPackageStatus } from "./utils/report-status"
 
 export async function runEslint(packagesToBeLinted: PackagesToBeLinted) {
-  const eslint = new ESLint()
-
   let anyPackageHasErrors = false
   for (const { packagePath, packageName } of packagesToBeLinted) {
     reportPackageStatus(packageName, "start")
 
+    const eslint = new ESLint({ cwd: packagePath })
     const results = await eslint.lintFiles(packagePath)
 
     const formatter = await eslint.loadFormatter("stylish")
-    const resultText = await formatter.format(results)
+    const resultText = await formatter.format(results, {
+      cwd: packagePath,
+      rulesMeta: {},
+    })
 
     printToConsole(resultText)
 

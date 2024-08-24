@@ -4,14 +4,18 @@ import { rule as noMisusedFailures } from "./rules/no-misused-failures.js"
 import { rule as noTopLevelMutables } from "./rules/no-top-level-mutables.js"
 import { rule as noTopLevelSideEffects } from "./rules/no-top-level-side-effects.js"
 
-module.exports = {
-  configs: {
-    recommended,
-  },
+const plugin = {
   rules: {
     "no-floating-failures": noFloatingFailures,
     "no-misused-failures": noMisusedFailures,
     "no-top-level-mutables": noTopLevelMutables,
     "no-top-level-side-effects": noTopLevelSideEffects,
+  },
+}
+
+module.exports = {
+  ...plugin,
+  configs: {
+    recommended: { plugins: { "@dassie": plugin }, ...recommended },
   },
 }

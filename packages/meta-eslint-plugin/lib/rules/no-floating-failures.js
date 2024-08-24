@@ -9,8 +9,6 @@ exports.rule = (0, create_rule_1.createRule)({
     meta: {
         docs: {
             description: "Not handling Failure return values is a possible error because failures could remain unhandled.",
-            recommended: "recommended",
-            requiresTypeChecking: true,
         },
         hasSuggestions: true,
         messages: {

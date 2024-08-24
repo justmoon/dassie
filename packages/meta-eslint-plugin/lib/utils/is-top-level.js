@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.isTopLevel = void 0;
+exports.isTopLevel = isTopLevel;
 function isTopLevel(node) {
     let scope = node.parent;
     while (scope?.type === "BlockStatement") {
@@ -8,4 +8,3 @@ function isTopLevel(node) {
     }
     return scope?.type === "Program";
 }
-exports.isTopLevel = isTopLevel;

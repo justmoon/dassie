@@ -87,8 +87,6 @@ export const rule = createRule<Options, MessageId>({
     docs: {
       description:
         "Disallow Failure values in places not designed to handle them",
-      recommended: "recommended",
-      requiresTypeChecking: true,
     },
     messages: {
       voidReturnArgument:

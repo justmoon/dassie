@@ -34,8 +34,6 @@ exports.rule = (0, create_rule_1.createRule)({
     meta: {
         docs: {
             description: "Disallow Failure values in places not designed to handle them",
-            recommended: "recommended",
-            requiresTypeChecking: true,
         },
         messages: {
             voidReturnArgument: "Failure returned in function argument where a void return was expected.",
@@ -101,8 +99,8 @@ exports.rule = (0, create_rule_1.createRule)({
             WhileStatement: checkTestConditional,
         };
         checksVoidReturn = parseChecksVoidReturn(checksVoidReturn);
-        const voidReturnChecks = checksVoidReturn
-            ? {
+        const voidReturnChecks = checksVoidReturn ?
+            {
                 ...(checksVoidReturn.arguments && {
                     CallExpression: checkArguments,
                     NewExpression: checkArguments,
@@ -346,8 +344,8 @@ function voidFunctionArguments(checker, node) {
     // See https://github.com/microsoft/TypeScript/issues/48077
     for (const subType of (0, tsutils_1.unionTypeParts)(type)) {
         // Standard function calls and `new` have two different types of signatures
-        const signatures = (0, typescript_1.isCallExpression)(node)
-            ? subType.getCallSignatures()
+        const signatures = (0, typescript_1.isCallExpression)(node) ?
+            subType.getCallSignatures()
             : subType.getConstructSignatures();
         for (const signature of signatures) {
             for (const [index, parameter] of signature.parameters.entries()) {

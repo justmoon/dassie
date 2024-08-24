@@ -7,6 +7,8 @@
     "allowImportingTsExtensions": false,
     "noEmit": false,
     "noEmitOnError": false,
+    "emitDeclarationOnly": false,
+    "rootDir": "src",
     "outDir": "lib"
   }
 }

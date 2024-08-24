@@ -434,9 +434,11 @@ type O = {
 const Component = (obj: O) => null;
 <Component bool func={() => fail} />;
 `,
-      parserOptions: {
-        ecmaFeatures: {
-          jsx: true,
+      languageOptions: {
+        parserOptions: {
+          ecmaFeatures: {
+            jsx: true,
+          },
         },
       },
     },
@@ -449,9 +451,11 @@ declare const fail: Failure
 const Component: any = () => null;
 <Component func={() => fail} />;
 `,
-      parserOptions: {
-        ecmaFeatures: {
-          jsx: true,
+      languageOptions: {
+        parserOptions: {
+          ecmaFeatures: {
+            jsx: true,
+          },
         },
       },
     },
@@ -537,9 +541,11 @@ declare function Component(props: Props): any;
 
 const _ = <Component onEvent={() => fail} />;
 `,
-      parserOptions: {
-        ecmaFeatures: {
-          jsx: true,
+      languageOptions: {
+        parserOptions: {
+          ecmaFeatures: {
+            jsx: true,
+          },
         },
       },
     },
