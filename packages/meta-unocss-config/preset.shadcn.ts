@@ -3,9 +3,8 @@ import { h } from "@unocss/preset-mini/utils"
 import type { Preset } from "unocss"
 
 const handleMatchNumber = (value: string, defaultValue = "0") =>
-  h.bracket.cssvar.global.auto.fraction
-    .number(value || defaultValue)
-    ?.replace("%", "")
+  h.bracket.cssvar.global.auto.fraction.number(value || defaultValue)
+
 const handleMatchRem = (value: string, defaultValue = "full") =>
   h.bracket.cssvar.global.auto.fraction.rem(value || defaultValue)
 
