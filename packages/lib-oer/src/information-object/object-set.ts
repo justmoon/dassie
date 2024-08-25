@@ -172,7 +172,6 @@ const defineObjectSetField = <
     const serializeResult = type.serializeWithContext(x[field])
 
     if (isFailure(serializeResult)) {
-      // eslint-disable-next-line unicorn/prefer-type-error
       throw new Error(
         `Cannot define object set because the value "${String(
           x[field],

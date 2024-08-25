@@ -290,7 +290,9 @@ export class ActorContextImplementation<TBase extends object = object>
       this.callback(callback),
       intervalInMilliseconds,
     )
-    this.onCleanup(() => clearInterval(interval))
+    this.onCleanup(() => {
+      clearInterval(interval)
+    })
   }
 
   timeout(
@@ -300,7 +302,9 @@ export class ActorContextImplementation<TBase extends object = object>
     if (this.isDisposed) return
 
     const timer = setTimeout(this.callback(callback), delayInMilliseconds)
-    this.onCleanup(() => clearTimeout(timer))
+    this.onCleanup(() => {
+      clearTimeout(timer)
+    })
   }
 
   task(

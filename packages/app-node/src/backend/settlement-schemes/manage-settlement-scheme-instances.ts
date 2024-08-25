@@ -63,6 +63,7 @@ export const ManageSettlementSchemeInstancesActor = (
           loadedSettlementModules.act.loadModule(settlementSchemeId, module)
         }
 
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
         if (!module) {
           throw new Error(`Unknown settlement scheme '${settlementSchemeId}'`)
         }

@@ -24,7 +24,12 @@ export const SubpageReview = ({
         </div>
       </CardContent>
       <CardFooter className="justify-between space-x-2">
-        <Button variant="ghost" onClick={() => onBack()}>
+        <Button
+          variant="ghost"
+          onClick={() => {
+            onBack()
+          }}
+        >
           Back
         </Button>
         <Button onClick={onSubmit}>Confirm</Button>

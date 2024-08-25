@@ -1,6 +1,8 @@
 import { OerType } from "./base-type"
 
-const serializer = () => {}
+const serializer = () => {
+  // no-op
+}
 serializer.size = 0
 
 export class OerEmpty extends OerType<void> {

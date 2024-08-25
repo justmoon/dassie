@@ -44,11 +44,7 @@ export function generateDeterminateProgressBar(
   return generateProgressBar(progress, width, tick)
 }
 
-export function generateProgressBar(
-  progress: number,
-  width: number,
-  tick: number = 0,
-) {
+export function generateProgressBar(progress: number, width: number, tick = 0) {
   const bar = Array.from({ length: width }).map((_, index) => {
     return (
       index < progress * width ? getLeftBlock(progress * width - index)

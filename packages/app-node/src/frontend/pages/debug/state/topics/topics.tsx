@@ -25,14 +25,18 @@ export function Topics({ stateKeys }: TopicsProperties) {
                   "rounded-md p-2 cursor-pointer hover:bg-accent",
                   key === currentKey && "bg-accent",
                 )}
-                onClick={() => setCurrentKey(key)}
+                onClick={() => {
+                  setCurrentKey(key)
+                }}
               >
                 {name} ({type})
               </li>
             ))}
         </ul>
       </ScrollArea>
-      {currentKey ? <TopicCapture key={currentKey} id={currentKey} /> : null}
+      {currentKey ?
+        <TopicCapture key={currentKey} id={currentKey} />
+      : null}
     </div>
   )
 }

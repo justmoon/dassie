@@ -121,7 +121,7 @@ const FormControl = forwardRef<
       ref={reference}
       id={formItemId}
       aria-describedby={
-        error ? `${formDescriptionId} ${formMessageId}` : `${formDescriptionId}`
+        error ? `${formDescriptionId} ${formMessageId}` : formDescriptionId
       }
       aria-invalid={!!error}
       {...properties}

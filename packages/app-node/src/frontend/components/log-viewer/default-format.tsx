@@ -12,7 +12,7 @@ export type FormatDefinition = {
       symbol: symbol
       undefined: undefined
       object: object
-      // eslint-disable-next-line @typescript-eslint/ban-types
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
       function: Function
       array: unknown[]
       null: null
@@ -23,14 +23,13 @@ export type FormatDefinition = {
 
 export interface TypeInfo<T = unknown> {
   color: string
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   formatter?: (value: T) => ReactNode
 }
 
-const typeofOperator = (value: unknown) => typeof value
+const _typeofOperator = (value: unknown) => typeof value
 
 export type RecognizedType =
-  | ReturnType<typeof typeofOperator>
+  | ReturnType<typeof _typeofOperator>
   | "array"
   | "null"
   | "error"

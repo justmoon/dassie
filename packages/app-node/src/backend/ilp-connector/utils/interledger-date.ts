@@ -1,13 +1,13 @@
 import { InvalidPacketIlpFailure } from "../failures/invalid-packet-ilp-failure"
 
 function pad(n: number) {
-  return n < 10 ? "0" + n : String(n)
+  return n < 10 ? "0" + String(n) : String(n)
 }
 
 export const timestampToInterledgerTime = (timestamp: number) => {
   const date = new Date(timestamp)
   return (
-    date.getUTCFullYear() +
+    String(date.getUTCFullYear()) +
     pad(date.getUTCMonth() + 1) +
     pad(date.getUTCDate()) +
     pad(date.getUTCHours()) +

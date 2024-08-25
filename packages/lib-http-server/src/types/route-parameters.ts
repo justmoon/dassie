@@ -1,6 +1,4 @@
-export interface ParametersDictionary {
-  [key: string]: string
-}
+export type ParametersDictionary = Record<string, string>
 
 type RemoveTail<S extends string, Tail extends string> =
   S extends `${infer P}${Tail}` ? P : S

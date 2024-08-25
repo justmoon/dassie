@@ -25,6 +25,7 @@ export async function verifyLinkState({
   const publicKey = linkState.publicKey
 
   logger.assert(
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     signature.type === "ed25519",
     "only ed25519 signatures are supported at the moment",
   )

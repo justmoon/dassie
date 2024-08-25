@@ -1,7 +1,6 @@
 import { showComparison } from "./util/compare"
 
 const functions = {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   func: (_foo: number, _bar: string) => {
     // no-op
   },

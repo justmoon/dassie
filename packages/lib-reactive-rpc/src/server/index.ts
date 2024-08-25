@@ -10,7 +10,6 @@ import {
 } from "@dassie/lib-reactive"
 import { type Subscription, createSubscription } from "@dassie/lib-rpc/server"
 
-// eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 export type ReactiveContext = { reactor: Reactor }
 
 export const subscribeToTopic = <TMessage>(

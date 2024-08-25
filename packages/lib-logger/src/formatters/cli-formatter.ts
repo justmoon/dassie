@@ -140,7 +140,7 @@ export const defaultAnsiTheme: Theme = {
     bigint: (value) => chalk.cyan(value.toString()) + chalk.dim("n"),
     boolean: chalk.magenta,
     symbol: (value) => chalk.magenta(value.toString()),
-    function: (type, name) => `${chalk.cyan(`[${type}: ${name}]`)}`,
+    function: (type, name) => chalk.cyan(`[${type}: ${name}]`),
 
     undefined: chalk.dim("undefined"),
     null: chalk.dim("null"),
@@ -150,8 +150,8 @@ export const defaultAnsiTheme: Theme = {
 
     date: chalk.green,
     regexp: chalk.red,
-    emptyArray: `${chalk.dim("[]")}`,
-    emptyObject: `${chalk.dim("{}")}`,
+    emptyArray: chalk.dim("[]"),
+    emptyObject: chalk.dim("{}"),
     emptyMap: `Map${chalk.dim("(0) {}")}`,
     emptySet: `Set${chalk.dim("(0) {}")}`,
     weakMap: `WeakMap { ${chalk.cyan("<items unknown>")} }`,
@@ -160,7 +160,7 @@ export const defaultAnsiTheme: Theme = {
     truncatedString: ({ short, original }) =>
       chalk.dim('"') +
       chalk.yellow(short) +
-      chalk.dim(`\u2026" (${original.length} chars)`),
+      chalk.dim(`\u2026" (${String(original.length)} chars)`),
 
     key: chalk.italic,
     symbolKey: (symbol) => `[${chalk.magenta(symbol.toString())}]`,
@@ -224,7 +224,7 @@ export const defaultAnsiTheme: Theme = {
     hexBytesMultilineEnd: chalk.dim(">"),
 
     errorName: (name) => chalk.red.bold(`${name}: `),
-    errorMessage: (message) => `${chalk.red(message)}`,
+    errorMessage: (message) => chalk.red(message),
 
     aggregateErrorStart: "\n\n",
     aggregateErrorSeparator: "\n\n",
@@ -245,7 +245,7 @@ const formatFilePath = (filePath: string) => {
     filePath = filePath.slice(7)
   }
 
-  const match = filePath.match(/^(.*)\/packages\/([\da-z-]+)\/(.*)$/) as
+  const match = /^(.*)\/packages\/([\da-z-]+)\/(.*)$/.exec(filePath) as
     | [string, string, string, string]
     | null
   if (match) {
@@ -272,7 +272,7 @@ const colorDeterministically = (
 
 const formatError = (context: FormattingContext, error: Error): string => {
   return `${context.theme.structures.errorName(
-    `${error.name || "Error"}`,
+    error.name || "Error",
   )}${context.theme.structures.errorMessage(error.message)}${
     error.stack ? formatStack(context, error.stack) : ""
   }${isAggregateError(error) ? formatAggregateError(context, error) : ""}`
@@ -302,7 +302,7 @@ const formatStack = (context: FormattingContext, stack: string): string => {
     .slice(1)
     .map((line) => {
       {
-        const match = line.match(/^ {4}at (.*) \((.*):(\d+):(\d+)\)$/) as
+        const match = /^ {4}at (.*) \((.*):(\d+):(\d+)\)$/.exec(line) as
           | [string, string, string, string, string]
           | null
         if (match) {
@@ -321,7 +321,7 @@ const formatStack = (context: FormattingContext, stack: string): string => {
         }
       }
       {
-        const match = line.match(/^ {4}at (.*):(\d+):(\d+)$/) as
+        const match = /^ {4}at (.*):(\d+):(\d+)$/.exec(line) as
           | [string, string, string, string]
           | null
         if (match) {

@@ -41,12 +41,13 @@ export const useToastQueue = create<ToastQueue>((set, get) => ({
 
     return newToast
   },
-  updateToast: (toast: Partial<ToasterToast>) =>
+  updateToast: (toast: Partial<ToasterToast>) => {
     set((state) => ({
       toasts: state.toasts.map((staleToast) =>
         staleToast.id === toast.id ? { ...staleToast, ...toast } : staleToast,
       ),
-    })),
+    }))
+  },
   dismissToast: (toastId: ToasterToast["id"]) => {
     const toast = get().toasts.find((t) => t.id === toastId)
 
@@ -64,8 +65,9 @@ export const useToastQueue = create<ToastQueue>((set, get) => ({
       ),
     }))
   },
-  removeToast: (toastId: ToasterToast["id"]) =>
+  removeToast: (toastId: ToasterToast["id"]) => {
     set((state) => ({
       toasts: state.toasts.filter((staleToast) => staleToast.id !== toastId),
-    })),
+    }))
+  },
 }))

@@ -17,7 +17,7 @@ export function createUseMutationHook({
   return function useRpcMutation({
     queryClient: queryClientOptions,
     ...options
-  }: UseMutationHookOptions<HooksRouteSettings> = {}) {
+  }: UseMutationHookOptions = {}) {
     const { rpcClient, queryClient: queryClientContext } = useRpcContext()
     return useMutation(
       {

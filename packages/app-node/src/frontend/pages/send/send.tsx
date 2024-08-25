@@ -47,22 +47,24 @@ export const Send = () => {
   const createPayment = rpc.payment.createPayment.useMutation()
 
   const onBack =
-    subpage.subpage === "enterAmount"
-      ? () =>
-          setSubpage({
-            subpage: "enterPaymentPointer",
-            paymentId: subpage.paymentId,
-          })
-      : subpage.subpage === "review"
-        ? () =>
-            setSubpage({
-              subpage: "enterAmount",
-              paymentId: subpage.paymentId,
-              paymentPointer: subpage.paymentPointer,
-            })
-        : () => {
-            setLocation("/")
-          }
+    subpage.subpage === "enterAmount" ?
+      () => {
+        setSubpage({
+          subpage: "enterPaymentPointer",
+          paymentId: subpage.paymentId,
+        })
+      }
+    : subpage.subpage === "review" ?
+      () => {
+        setSubpage({
+          subpage: "enterAmount",
+          paymentId: subpage.paymentId,
+          paymentPointer: subpage.paymentPointer,
+        })
+      }
+    : () => {
+        setLocation("/")
+      }
 
   const onSubmitPaymentPointer = (paymentPointer: string) => {
     setSubpage({

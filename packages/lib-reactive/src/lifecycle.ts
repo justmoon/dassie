@@ -102,7 +102,9 @@ export class DisposableLifecycleScopeImplementation
 
   confineTo = (parent: LifecycleScope) => {
     parent.onCleanup(this.dispose)
-    this.onCleanup(() => parent.offCleanup(this.dispose))
+    this.onCleanup(() => {
+      parent.offCleanup(this.dispose)
+    })
   }
 
   private cachedAbortSignal: AbortSignal | undefined
@@ -113,7 +115,9 @@ export class DisposableLifecycleScopeImplementation
         this.cachedAbortSignal = AbortSignal.abort()
       } else {
         const abortController = new AbortController()
-        this.onCleanup(() => abortController.abort())
+        this.onCleanup(() => {
+          abortController.abort()
+        })
         this.cachedAbortSignal = abortController.signal
       }
     }

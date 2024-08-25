@@ -45,19 +45,26 @@ export const SubpageEnterAmount = ({
           valueIsNumericString={true}
           thousandsGroupStyle="thousand"
           thousandSeparator=","
-          onValueChange={({ value }) => setAmount(value)}
+          onValueChange={({ value }) => {
+            setAmount(value)
+          }}
         />
       </CardContent>
       <CardFooter className="justify-between space-x-2">
-        <Button variant="ghost" onClick={() => onBack()}>
+        <Button
+          variant="ghost"
+          onClick={() => {
+            onBack()
+          }}
+        >
           Back
         </Button>
         <Button
-          onClick={() =>
+          onClick={() => {
             onSubmit(
               parseDecimalToBigInt(amount, USD_SPECIFICATION.totalPrecision),
             )
-          }
+          }}
         >
           Review
         </Button>

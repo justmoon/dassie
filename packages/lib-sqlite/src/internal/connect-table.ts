@@ -128,10 +128,7 @@ export const connectTable = <TTable extends TableDescription>(
 
   const selectAllQuery = database.prepare(`SELECT * FROM ${name}`)
 
-  const createWhereClause = (
-    row: Partial<InferRow<TTable>>,
-    prefix: string = "",
-  ) => {
+  const createWhereClause = (row: Partial<InferRow<TTable>>, prefix = "") => {
     const keys = Object.keys(row)
 
     if (keys.length === 0) {
@@ -143,10 +140,7 @@ export const connectTable = <TTable extends TableDescription>(
       .join(" AND ")
   }
 
-  const createUpdateClause = (
-    row: Partial<InferRow<TTable>>,
-    prefix: string = "",
-  ) => {
+  const createUpdateClause = (row: Partial<InferRow<TTable>>, prefix = "") => {
     const keys = Object.keys(row)
 
     if (keys.length === 0) {

@@ -17,11 +17,11 @@ export type UseMutationHook<TRouteSettings extends HooksRouteSettings> = (
       ...parameters: TRouteSettings["input"] extends undefined ?
         [
           input?: TRouteSettings["input"],
-          options?: MutateOptions<TRouteSettings["output"], Error> | undefined,
+          options?: MutateOptions<TRouteSettings["output"]> | undefined,
         ]
       : [
           input: TRouteSettings["input"],
-          options?: MutateOptions<TRouteSettings["output"], Error> | undefined,
+          options?: MutateOptions<TRouteSettings["output"]> | undefined,
         ]
     ) => void
   }
@@ -31,7 +31,7 @@ export type UseMutationHookOptions<
   TRouteSettings extends HooksRouteSettings = HooksRouteSettings,
 > = Merge<
   Omit<
-    UseMutationOptions<TRouteSettings["output"], Error>,
+    UseMutationOptions<TRouteSettings["output"]>,
     "mutationKey" | "mutationFn"
   >,
   {

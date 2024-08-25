@@ -24,28 +24,27 @@ const FilePathStackFrame = ({
   const { openFile } = useLogViewerContext()
   const isNode = path.startsWith("node:")
   const isNodeModules = path.includes("node_modules")
-  const fileLink = isNode ? (
-    <span>
-      {path}:{row}:{column}
-    </span>
-  ) : (
-    <span
-      className="text-blue-300 hover:underline cursor-pointer"
-      onClick={openFile && (() => openFile(`${path}:${row}:${column}`))}
-    >
-      {path}:{row}:{column}
-    </span>
-  )
+  const fileLink =
+    isNode ?
+      <span>
+        {path}:{row}:{column}
+      </span>
+    : <span
+        className="text-blue-300 hover:underline cursor-pointer"
+        onClick={() => {
+          openFile?.(`${path}:${row}:${column}`)
+        }}
+      >
+        {path}:{row}:{column}
+      </span>
   return (
     <span className={combine({ "text-gray-400": isNode || isNodeModules })}>
       <span className="text-gray-400">{"  at "}</span>
-      {name ? (
+      {name ?
         <span>
           {name} ({fileLink})
         </span>
-      ) : (
-        <span>{fileLink}</span>
-      )}
+      : <span>{fileLink}</span>}
     </span>
   )
 }
@@ -66,7 +65,7 @@ export const PrimaryError = ({ error }: PrimaryErrorProperties) => {
   const formattedCallsites = stack
     .map((line) => {
       {
-        const match = line.match(/^ {4}at (.*) \((.*):(\d+):(\d+)\)$/) as
+        const match = /^ {4}at (.*) \((.*):(\d+):(\d+)\)$/.exec(line) as
           | [string, string, string, string, string]
           | null
         if (match) {
@@ -81,7 +80,7 @@ export const PrimaryError = ({ error }: PrimaryErrorProperties) => {
         }
       }
       {
-        const match = line.match(/^ {4}at (.*):(\d+):(\d+)$/) as
+        const match = /^ {4}at (.*):(\d+):(\d+)$/.exec(line) as
           | [string, string, string, string]
           | null
         if (match) {
@@ -118,11 +117,9 @@ export const PrimaryError = ({ error }: PrimaryErrorProperties) => {
         error.cause &&
         error !== error.cause &&
         !hasAggregatedErrors(error) &&
-        (isError(error.cause) ? (
+        (isError(error.cause) ?
           <PrimaryError error={error.cause} />
-        ) : (
-          <DataValue keyName="cause" content={error.cause} />
-        ))}
+        : <DataValue keyName="cause" content={error.cause} />)}
       {hasAggregatedErrors(error) &&
         error.errors.map((error, index) => (
           <PrimaryError key={index} error={error} />

@@ -131,10 +131,9 @@ export const SendPeerMessage = (reactor: DassieReactor) => {
     }
 
     const controller = new AbortController()
-    const timeoutTimer = reactor.base.time.setTimeout(
-      () => controller.abort(),
-      timeout ?? DEFAULT_NODE_COMMUNICATION_TIMEOUT,
-    )
+    const timeoutTimer = reactor.base.time.setTimeout(() => {
+      controller.abort()
+    }, timeout ?? DEFAULT_NODE_COMMUNICATION_TIMEOUT)
 
     const result = await fetch(`${contactInfo.url}/peer`, {
       method: "POST",

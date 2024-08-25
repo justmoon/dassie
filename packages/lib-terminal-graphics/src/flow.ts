@@ -227,7 +227,7 @@ export const createFlow = ({
       return component.result(state) as InferComponentResult<TComponent>
     },
 
-    emptyLine(count: number = 1) {
+    emptyLine(count = 1) {
       show("\n".repeat(count))
     },
   }

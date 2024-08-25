@@ -36,7 +36,7 @@ export function createNodejsHttpHandlers({
 
   function handleRequest(
     nodeRequest: IncomingMessage,
-    nodeResponse: ServerResponse<IncomingMessage>,
+    nodeResponse: ServerResponse,
   ) {
     ;(async () => {
       const socket = nodeRequest.socket

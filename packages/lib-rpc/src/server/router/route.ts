@@ -15,7 +15,7 @@ export type AnyRoute = Route<{
   _output: unknown
   type: RouteType
   inputSchema: ZodTypeAny
-  // eslint-disable-next-line @typescript-eslint/ban-types
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
   middlewares: Function[]
 }>
 
@@ -30,13 +30,12 @@ export type Route<TRouteSettings extends RouteSettings> = {
 }
 
 interface RouteSettings {
-  // eslint-disable-next-line @typescript-eslint/ban-types
   _context: {}
   _input: unknown
   _output: unknown
   type: RouteType
   inputSchema: ZodTypeAny
-  // eslint-disable-next-line @typescript-eslint/ban-types
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
   middlewares: Function[]
 }
 

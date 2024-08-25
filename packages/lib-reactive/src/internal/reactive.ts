@@ -45,7 +45,7 @@ export abstract class Reactive<T>
 
   constructor(
     private readonly equals: (a: T, b: T) => boolean = defaultComparator,
-    private readonly hasSideEffects: boolean = false,
+    private readonly hasSideEffects = false,
   ) {
     super()
   }

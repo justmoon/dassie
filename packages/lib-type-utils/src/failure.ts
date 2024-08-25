@@ -77,8 +77,10 @@ export type InferFindFailure<T extends readonly unknown[]> =
 export const findFailure = <T extends readonly unknown[]>(
   values: T,
 ): InferFindFailure<T> => {
-  // eslint-disable-next-line unicorn/no-array-callback-reference
-  const firstFailure = values.find(isFailure)
+  const firstFailure = values.find(
+    // eslint-disable-next-line unicorn/no-array-callback-reference
+    isFailure as (value: unknown) => value is InferFindFailure<T>,
+  )
   if (firstFailure !== undefined) return firstFailure
 
   return values as InferFindFailure<T>

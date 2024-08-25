@@ -25,14 +25,18 @@ export function Signals({ stateKeys }: SignalsProperties) {
                   "rounded-md p-2 cursor-pointer hover:bg-accent",
                   key === currentKey && "bg-accent",
                 )}
-                onClick={() => setCurrentKey(key)}
+                onClick={() => {
+                  setCurrentKey(key)
+                }}
               >
                 {name} ({type})
               </li>
             ))}
         </ul>
       </ScrollArea>
-      {currentKey ? <SignalState id={currentKey} /> : null}
+      {currentKey ?
+        <SignalState id={currentKey} />
+      : null}
     </div>
   )
 }

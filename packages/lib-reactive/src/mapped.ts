@@ -188,7 +188,7 @@ class MappedImplementation<
             writable: true,
           })
 
-          this.parentContext.reactor.debug?.notifyOfMappedInstantiation(
+          this.parentContext.reactor.debug.notifyOfMappedInstantiation(
             output,
             this,
           )

@@ -49,7 +49,9 @@ export const SubpageVerify = ({
             id="word"
             placeholder=""
             value={enteredWord}
-            onChange={(event) => setEnteredWord(event.target.value)}
+            onChange={(event) => {
+              setEnteredWord(event.target.value)
+            }}
             required
           />
         </div>

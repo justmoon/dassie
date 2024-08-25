@@ -1,10 +1,6 @@
 import { Generated } from "kysely"
 
-import {
-  ColumnDescription,
-  ColumnDescriptionGenerics,
-  InferColumnTypescriptType,
-} from "./column"
+import { ColumnDescription, InferColumnTypescriptType } from "./column"
 import { TableDescription } from "./table"
 
 export type InferKyselySchema<
@@ -14,7 +10,7 @@ export type InferKyselySchema<
     {
       [K in keyof TTables as TTables[K]["name"]]: {
         [KColumn in keyof TTables[K]["columns"]]: TTables[K]["columns"][KColumn] extends (
-          ColumnDescription<ColumnDescriptionGenerics>
+          ColumnDescription
         ) ?
           InferColumnTypescriptType<TTables[K]["columns"][KColumn]>
         : never

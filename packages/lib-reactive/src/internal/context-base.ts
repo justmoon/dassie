@@ -43,7 +43,7 @@ export interface ContextValue {
    *
    * @see {@link FactoryNameSymbol}
    */
-  [FactoryNameSymbol]: string
+  [FactoryNameSymbol]: string | undefined
 
   [InitSymbol]?(reactor: Reactor): void
   [UseSymbol]?(reactor: Reactor): void

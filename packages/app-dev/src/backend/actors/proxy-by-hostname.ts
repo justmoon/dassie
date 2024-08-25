@@ -250,6 +250,7 @@ export const ProxyByHostnameActor = () =>
         }
 
         server.close((error: unknown) => {
+          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
           if (error) reject(error)
           else resolve()
         })

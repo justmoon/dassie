@@ -16,10 +16,7 @@ export function wrapHandlerForNodejs(
     errorHandler = handleErrorDefault,
     ...requestOptions
   }: NodejsWrapperOptions,
-): (
-  nodeRequest: IncomingMessage,
-  nodeResponse: ServerResponse<IncomingMessage>,
-) => void {
+): (nodeRequest: IncomingMessage, nodeResponse: ServerResponse) => void {
   return (nodeRequest, nodeResponse) => {
     ;(async () => {
       const request = convertFromNodejsRequest(nodeRequest, requestOptions)
@@ -90,7 +87,7 @@ function convertFromNodejsRequestHeaders(
 
 export async function writeToNodejsResponse(
   response: Response,
-  nodeResponse: ServerResponse<IncomingMessage>,
+  nodeResponse: ServerResponse,
 ) {
   const { status, headers, body } = response
   nodeResponse.writeHead(status, convertToNodejsResponseHeaders(headers))
@@ -103,7 +100,7 @@ export async function writeToNodejsResponse(
   try {
     const reader = body.getReader()
     nodeResponse.on("close", () => {
-      reader.cancel().catch((error) => {
+      reader.cancel().catch((error: unknown) => {
         console.error(
           `uncaught error while rendering ${nodeResponse.req.url}`,
           error,

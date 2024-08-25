@@ -7,6 +7,7 @@ import { LEDGERS, type LedgerId } from "../constants/ledgers"
 function getCurrencyFromLedgerId(ledgerId: LedgerId) {
   const ledger = LEDGERS[ledgerId as UnwrapTagged<LedgerId>]
 
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   if (!ledger) {
     logger.error("failed to map ledger ID to currency - unknown ledger", {
       ledger: ledgerId,
@@ -16,6 +17,7 @@ function getCurrencyFromLedgerId(ledgerId: LedgerId) {
 
   const currency = CURRENCIES[ledger.currency]
 
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   if (!currency) {
     logger.error("failed to map ledger ID to currency - unknown currency", {
       ledger: ledgerId,

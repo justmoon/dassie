@@ -38,7 +38,9 @@ export const SubpageRecover = ({
             id="word"
             placeholder="Enter your passphrase"
             value={mnemonic}
-            onChange={(event) => setMnemonic(event.target.value)}
+            onChange={(event) => {
+              setMnemonic(event.target.value)
+            }}
             required
           />
         </div>

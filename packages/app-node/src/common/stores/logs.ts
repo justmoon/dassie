@@ -24,7 +24,6 @@ export const LogsStore = () => {
     logs: [],
     startTime: Date.now(),
   } as LogsStoreState).actions({
-    // eslint-disable-next-line unicorn/consistent-function-scoping
     clear: () =>
       produce((draft) => {
         draft.logs = []

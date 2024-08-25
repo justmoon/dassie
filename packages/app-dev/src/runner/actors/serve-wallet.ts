@@ -98,13 +98,14 @@ export const ServeWalletActor = (reactor: Reactor) => {
       next,
     ) => {
       if (response.writableEnded) {
-        return next()
+        next()
+        return
       }
 
       const url = request.url && cleanUrl(request.url)
       // spa-fallback always redirects to /index.html
       if (
-        url?.endsWith(".html") &&
+        url.endsWith(".html") &&
         request.header("sec-fetch-dest") !== "script"
       ) {
         const filename = getHtmlFilename(url, server)
@@ -119,7 +120,8 @@ export const ServeWalletActor = (reactor: Reactor) => {
             response.writeHead(200, { "Content-Type": "text/html" })
             response.end(html)
           } catch (error: unknown) {
-            return next(error)
+            next(error)
+            return
           }
         }
       }

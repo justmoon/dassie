@@ -78,7 +78,6 @@ const LogViewer = <TLogLine extends ViewableLogLine>({
 
         return true
       }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [keywordFilter, externalFilter, logs, latestLogLine],
   )
 

@@ -13,6 +13,4 @@ export interface MessageEvent {
   data: string | Uint8Array | ArrayBuffer | Buffer[]
 }
 
-export interface WebSocketConstructor {
-  new (url: string): WebSocketImplementation
-}
+export type WebSocketConstructor = new (url: string) => WebSocketImplementation

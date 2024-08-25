@@ -76,7 +76,7 @@ class ApiProxy {
     if (import.meta.env.DEV && !this.actor.currentContext) {
       debugOptimisticActorCall(
         this.actor.promise,
-        this.actor[FactoryNameSymbol],
+        this.actor[FactoryNameSymbol] ?? "Anonymous",
         this.method,
       )
     }
@@ -271,7 +271,7 @@ export class ActorImplementation<TReturn, TBase extends object>
       throw new Error(`actor is already running: ${this[FactoryNameSymbol]}`)
     }
 
-    const actorName = this[FactoryNameSymbol] ?? "Anonymous"
+    const actorName = this[FactoryNameSymbol] // ?? "Anonymous"
     const actorPath = pathPrefix ? `${pathPrefix}${actorName}` : actorName
 
     Object.defineProperty(this.behavior, "name", {
@@ -467,5 +467,7 @@ const debugOptimisticActorCall = (
     })
   }, DEBUG_ACTOR_OPTIMISTIC_CALL_TIMEOUT)
 
-  void actorPromise.finally(() => clearTimeout(timeout))
+  void actorPromise.finally(() => {
+    clearTimeout(timeout)
+  })
 }

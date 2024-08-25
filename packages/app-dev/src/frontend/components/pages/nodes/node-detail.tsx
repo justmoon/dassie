@@ -70,9 +70,7 @@ const createNodeRpcClients = (securityToken: string, nodeId: string) => {
   return { queryClient, rpcClient }
 }
 
-interface NodeDetailProperties extends BasicNodeElementProperties {}
-
-const NodeDetail = ({ nodeId }: NodeDetailProperties) => {
+const NodeDetail = ({ nodeId }: BasicNodeElementProperties) => {
   const [location, setLocation] = useLocation()
   const currentTab = /^\/debug\/(.*)$/.exec(location)?.[1] ?? "logs"
 

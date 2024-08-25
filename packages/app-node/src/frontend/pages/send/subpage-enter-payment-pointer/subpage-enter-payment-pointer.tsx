@@ -36,7 +36,9 @@ export const SubpageEnterPaymentPointer = ({
           placeholder="$example.com"
           required
           value={paymentPointer}
-          onChange={(event) => setPaymentPointer(event.target.value)}
+          onChange={(event) => {
+            setPaymentPointer(event.target.value)
+          }}
         />
         {paymentPointerInfo.status === "pending" && <div>Loading...</div>}
         {paymentPointerInfo.status === "error" && (
@@ -44,11 +46,22 @@ export const SubpageEnterPaymentPointer = ({
         )}
       </CardContent>
       <CardFooter className="justify-between space-x-2">
-        <Button variant="ghost" onClick={() => onBack()}>
+        <Button
+          variant="ghost"
+          onClick={() => {
+            onBack()
+          }}
+        >
           Cancel
         </Button>
         {paymentPointerInfo.status === "success" && (
-          <Button onClick={() => onSubmit(paymentPointer)}>Continue</Button>
+          <Button
+            onClick={() => {
+              onSubmit(paymentPointer)
+            }}
+          >
+            Continue
+          </Button>
         )}
       </CardFooter>
     </>

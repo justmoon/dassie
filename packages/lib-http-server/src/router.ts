@@ -64,9 +64,7 @@ export type RouteBuilder<TParameters extends { route: RouteContext }> = {
           Simplify<RouteParameters<TPath>>
         : {}
 
-        route: TParameters["route"] extends (
-          RouteContext<infer TMethod, string>
-        ) ?
+        route: TParameters["route"] extends RouteContext<infer TMethod> ?
           RouteContext<TMethod, TPath>
         : never
       }

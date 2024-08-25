@@ -153,12 +153,12 @@ export const RunChildProcess = (reactor: Reactor) => {
     assertDefined(child.stdout)
     assertDefined(child.stderr)
 
-    processLog(child.stdout, "stdout").catch((error: unknown) =>
-      logger.error("error processing child stdout", { node: id, error }),
-    )
-    processLog(child.stderr, "stderr").catch((error: unknown) =>
-      logger.error("error processing child stdout", { node: id, error }),
-    )
+    processLog(child.stdout, "stdout").catch((error: unknown) => {
+      logger.error("error processing child stdout", { node: id, error })
+    })
+    processLog(child.stderr, "stderr").catch((error: unknown) => {
+      logger.error("error processing child stdout", { node: id, error })
+    })
 
     lifecycle.onCleanup((): Promisable<void> => {
       if (child) {

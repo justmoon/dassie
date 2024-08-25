@@ -27,7 +27,9 @@ const NodeGraphView = ({ graphData }: NodeGraphViewProperties) => {
   const [, setLocation] = useLocation()
 
   const handleNodeClick = useCallback(
-    ({ id }: NodeObject) => setLocation(`/nodes/${String(id)}`),
+    ({ id }: NodeObject) => {
+      setLocation(`/nodes/${String(id)}`)
+    },
     [setLocation],
   )
 
@@ -84,10 +86,12 @@ const NodeGraph = () => {
       const links = Object.entries(action.peeringState ?? {}).flatMap(
         ([nodeId, peers]) =>
           peers.flatMap((peerId) => {
-            return peerId &&
-              peerId > nodeId &&
-              action.peeringState?.[peerId]?.includes(nodeId)
-              ? [
+            return (
+                peerId &&
+                  peerId > nodeId &&
+                  action.peeringState?.[peerId]?.includes(nodeId)
+              ) ?
+                [
                   { source: nodeId, target: peerId },
                   { source: peerId, target: nodeId },
                 ]

@@ -23,7 +23,6 @@ const stub = {
 
   ledger: LEDGER_ID,
 
-  // eslint-disable-next-line unicorn/consistent-function-scoping
   behavior: ({ sig, host }) => {
     const { random } = sig.reactor.base
 
@@ -98,6 +97,6 @@ const stub = {
       },
     }
   },
-} satisfies SettlementSchemeModule<object>
+} satisfies SettlementSchemeModule
 
 export default stub

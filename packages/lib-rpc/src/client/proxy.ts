@@ -9,7 +9,9 @@ export interface ProxyCallbackOptions {
 }
 export type ProxyCallback = (options: ProxyCallbackOptions) => unknown
 
-function RpcProxy() {}
+function RpcProxy() {
+  // no-op
+}
 
 function createInnerProxy(callback: ProxyCallback, path: string[]) {
   const proxy: unknown = new Proxy(RpcProxy, {
@@ -27,7 +29,10 @@ function createInnerProxy(callback: ProxyCallback, path: string[]) {
     apply(_1, _2, parameters: unknown[]) {
       const isApply = path.at(-1) === "apply"
       return callback({
-        parameters: isApply ? (parameters[1] as unknown[]) ?? [] : parameters,
+        parameters:
+          isApply ?
+            ((parameters[1] as unknown[] | undefined) ?? [])
+          : parameters,
         path: isApply ? path.slice(0, -1) : path,
       })
     },

@@ -26,8 +26,6 @@ export const RegisterLoginRouteActor = (reactor: DassieReactor) => {
     const http = sig.reactor.use(HttpsRouter)
     const sessions = sig.reactor.use(SessionsStore)
 
-    if (!http) return
-
     http
       .post()
       .path("/api/login")

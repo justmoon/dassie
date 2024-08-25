@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query"
 
 import type { RpcContextValue } from "./context"
 import { getQueryKey } from "./query-key"
-import type { HooksRouteSettings } from "./types/hooks-route"
 import type { UseQueryHookOptions } from "./types/use-query"
 
 export interface CreateUseQueryHookParameters {
@@ -15,10 +14,7 @@ export function createUseQueryHook({
 }: CreateUseQueryHookParameters) {
   return function useRpcQuery(
     input: unknown,
-    {
-      queryClient: queryClientOptions,
-      ...options
-    }: UseQueryHookOptions<HooksRouteSettings> = {},
+    { queryClient: queryClientOptions, ...options }: UseQueryHookOptions = {},
   ) {
     const { rpcClient, queryClient: queryClientRpcContext } = useRpcContext()
 

@@ -16,7 +16,6 @@ export const Amount = ({
   const absoluteBalance = negative ? -value : value
 
   const totalPrecisionDividend = 10n ** BigInt(currency.totalPrecision)
-  10n ** BigInt(currency.totalPrecision - currency.displayPrecision)
 
   const integerPart = (absoluteBalance / totalPrecisionDividend).toLocaleString(
     undefined,
@@ -33,7 +32,9 @@ export const Amount = ({
       className={combine("inline-flex items-baseline", className)}
       {...remainingProperties}
     >
-      {negative ? <div>&minus;&#x2009;</div> : null}
+      {negative ?
+        <div>&minus;&#x2009;</div>
+      : null}
       <div>{currency.symbol}&#x2009;</div>
       <div>{integerPart}</div>
       <div>.</div>

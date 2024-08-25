@@ -27,7 +27,7 @@ export function createWebSocketLink({
   reconnectDelay,
 }: WebSocketLinkOptions): OutboundConnection {
   const received = createTopic<string>()
-  const resets = createTopic<void>()
+  const resets = createTopic()
 
   const calculateExponentialBackoff =
     typeof reconnectDelay === "number" ? () => reconnectDelay

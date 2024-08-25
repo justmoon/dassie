@@ -36,11 +36,13 @@ const parseAnsi = (key: number, content: string): JSX.Element[] => {
     <span
       key={`${key}-${index}`}
       style={{
-        color: span.fg
-          ? ANSI_COLORS[span.fg as keyof typeof ANSI_COLORS]
+        color:
+          span.fg ?
+            ANSI_COLORS[span.fg as keyof typeof ANSI_COLORS]
           : undefined,
-        backgroundColor: span.bg
-          ? ANSI_COLORS[span.bg as keyof typeof ANSI_COLORS]
+        backgroundColor:
+          span.bg ?
+            ANSI_COLORS[span.bg as keyof typeof ANSI_COLORS]
           : undefined,
       }}
       className={span.decorations
@@ -99,7 +101,7 @@ export const LogMessage = ({ message, parameters }: ParseLogParameters) => {
     }
 
     elements.push(
-      ...parseAnsi(unique++, message.slice(lastChunkEnd, message.length)),
+      ...parseAnsi(unique++, message.slice(lastChunkEnd)),
       ...Object.entries(primaryObject).map(([key, value]) => (
         <Fragment key={key}>
           {" "}
@@ -114,7 +116,7 @@ export const LogMessage = ({ message, parameters }: ParseLogParameters) => {
   } else {
     // Remaining log message and parameters
     elements.push(
-      ...parseAnsi(unique++, message.slice(lastChunkEnd, message.length)),
+      ...parseAnsi(unique++, message.slice(lastChunkEnd)),
       ...remainingParameters.map((parameter) => (
         <Fragment key={unique++}>
           {" "}

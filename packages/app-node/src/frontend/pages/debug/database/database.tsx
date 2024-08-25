@@ -22,21 +22,23 @@ export function Database() {
                 "rounded-md p-2 cursor-pointer hover:bg-accent",
                 table.id === currentTable?.id && "bg-accent",
               )}
-              onClick={() => setCurrentTable(table)}
+              onClick={() => {
+                setCurrentTable(table)
+              }}
             >
               {table.name}
             </li>
           ))}
         </ul>
       </ScrollArea>
-      {currentTable ? (
+      {currentTable ?
         <TableDetail
           key={currentTable.id}
           id={currentTable.id}
           name={currentTable.name}
           columns={currentTable.columns}
         />
-      ) : null}
+      : null}
     </div>
   )
 }

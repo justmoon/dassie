@@ -45,7 +45,7 @@ function formatTypedArrayContentsAsHex(
 export const formatTypedArrayPlugin = {
   serialize(value, config, indentation, depth, references, printer) {
     if (isTypedArray(value)) {
-      const tag = value?.[Symbol.toStringTag] ?? "Unknown"
+      const tag = value[Symbol.toStringTag]
 
       const hex = formatTypedArrayContentsAsHex(
         value,

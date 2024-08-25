@@ -36,7 +36,6 @@ export type DeriveContextFromRoutes<TRoutes extends RouteDefinition> =
         DeriveContextFromRoutes<TSubroutes>
       : never
     }[keyof TRoutes]
-    // eslint-disable-next-line @typescript-eslint/ban-types
   > & {}
 
 export type DeriveContextFromRouter<TRouter extends AnyRouter> = Parameters<
@@ -112,7 +111,7 @@ export function createRouter<TRoutes extends RouteDefinition>(
 
         const input = inputSchema.safeParse(parameters.input)
 
-        if (input.success === false) {
+        if (!input.success) {
           return new RpcFailure(
             `Invalid input: ${input.error.errors.map((error) => error.message).join(", ")}`,
           )

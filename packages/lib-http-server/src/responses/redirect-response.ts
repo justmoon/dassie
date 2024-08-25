@@ -5,7 +5,7 @@ import { getResponseOptionsFromContext } from "../utils/get-response-from-contex
 export class RedirectResponse implements HttpResponse {
   constructor(
     private readonly location: string,
-    private readonly statusCode: number = 302,
+    private readonly statusCode = 302,
   ) {}
 
   asResponse(context: BaseRequestContext) {

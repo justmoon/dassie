@@ -37,7 +37,7 @@ export const wrapCallback = <
         if (isThenable(result)) {
           result.then(undefined, (error: unknown) => {
             console.error("error in async callback", {
-              name: callback.name ?? "anonymous",
+              name: callback.name || "anonymous",
               path,
               error,
             })
@@ -45,7 +45,7 @@ export const wrapCallback = <
         }
       } catch (error) {
         console.error("error in callback", {
-          name: callback.name ?? "anonymous",
+          name: callback.name || "anonymous",
           path,
           error,
         })

@@ -33,8 +33,6 @@ export const ServeHttpsActor = () =>
     const websocketRouter = sig.reactor.use(HttpsWebSocketRouter)
     const additionalMiddlewares = sig.readAndTrack(AdditionalMiddlewaresSignal)
 
-    if (!router) return
-
     const app = express()
 
     for (const middleware of additionalMiddlewares) {
@@ -58,7 +56,7 @@ export const ServeHttpsActor = () =>
 
     function handleRequest(
       nodeRequest: IncomingMessage,
-      nodeResponse: ServerResponse<IncomingMessage>,
+      nodeResponse: ServerResponse,
     ) {
       if (router.match(nodeRequest.method!, nodeRequest.url!)) {
         nodejsHandlers.handleRequest(nodeRequest, nodeResponse)

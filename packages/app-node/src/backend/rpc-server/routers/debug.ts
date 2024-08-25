@@ -102,27 +102,20 @@ export const debugRouter = createRouter({
 
     for (const entry of context.values()) {
       const item = entry.reference.deref()
-      if (typeof item === "object" && item != null) {
+      if (item != null && typeof item === "object") {
         reverseMap.set(item, entry.uniqueId)
       }
     }
 
-    return context ?
-        [...context.values()].map<ContextKeyTuple>((entry) => {
-          const item = entry.reference.deref()
-          return getContextKeyTuple(
-            entry.uniqueId,
-            item,
-            sig.reactor,
-            reverseMap,
-          )
-        })
-      : []
+    return [...context.values()].map<ContextKeyTuple>((entry) => {
+      const item = entry.reference.deref()
+      return getContextKeyTuple(entry.uniqueId, item, sig.reactor, reverseMap)
+    })
   }),
   getSignalState: protectedRoute
     .input(z.number())
     .query(({ context: { sig }, input: id }) => {
-      const item = sig.reactor.debug?.getContext()?.get(id)?.reference.deref()
+      const item = sig.reactor.debug?.getContext().get(id)?.reference.deref()
       if (!isSignal(item)) {
         throw new TypeError("Item is not a signal")
       }
@@ -132,7 +125,7 @@ export const debugRouter = createRouter({
   subscribeToTopic: protectedRoute
     .input(z.number())
     .subscription(({ context: { sig }, input: id }) => {
-      const item = sig.reactor.debug?.getContext()?.get(id)?.reference.deref()
+      const item = sig.reactor.debug?.getContext().get(id)?.reference.deref()
       if (!isTopic(item)) {
         throw new TypeError("Item is not a topic")
       }

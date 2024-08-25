@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unnecessary-condition, n/no-unsupported-features/node-builtins */
 import { CheckIcon, CopyIcon, EyeIcon, EyeOffIcon, XIcon } from "lucide-react"
 import { useRef, useState } from "react"
 
@@ -48,13 +49,13 @@ const BtpToken = ({ token }: BtpTokenAttributes) => {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => setIsShown((state) => !state)}
+          onClick={() => {
+            setIsShown((state) => !state)
+          }}
         >
-          {isShown ? (
+          {isShown ?
             <EyeIcon className="w-4 h-4" />
-          ) : (
-            <EyeOffIcon className="w-4 h-4" />
-          )}
+          : <EyeOffIcon className="w-4 h-4" />}
         </Button>
         {navigator.clipboard && (
           <div>
@@ -84,11 +85,9 @@ const BtpToken = ({ token }: BtpTokenAttributes) => {
                   })
               }}
             >
-              {isCopied ? (
+              {isCopied ?
                 <CheckIcon className="w-4 h-4" />
-              ) : (
-                <CopyIcon className="w-4 h-4" />
-              )}
+              : <CopyIcon className="w-4 h-4" />}
             </Button>
           </div>
         )}
@@ -97,7 +96,9 @@ const BtpToken = ({ token }: BtpTokenAttributes) => {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => deleteTokenMutation.mutate(token)}
+          onClick={() => {
+            deleteTokenMutation.mutate(token)
+          }}
         >
           <XIcon className="w-4 h-4 text-red" />
         </Button>
@@ -124,17 +125,18 @@ export const ApiKeysSettings = () => {
 
   return (
     <div>
-      {currentKeysQuery.data.length === 0 ? (
+      {currentKeysQuery.data.length === 0 ?
         <div className="pb-4">No API keys created yet. Add one below.</div>
-      ) : (
-        <div className="flex flex-col space-y-2 pb-4">
+      : <div className="flex flex-col space-y-2 pb-4">
           {currentKeysQuery.data.map((key) => (
             <BtpToken key={key} token={key} />
           ))}
         </div>
-      )}
+      }
       <Button
-        onClick={() => addBtpToken.mutate()}
+        onClick={() => {
+          addBtpToken.mutate()
+        }}
         disabled={addBtpToken.isPending}
       >
         Create BTP Token

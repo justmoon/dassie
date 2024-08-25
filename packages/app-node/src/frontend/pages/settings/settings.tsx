@@ -67,7 +67,9 @@ export const Settings = () => {
           <div className="pt-4">
             <Button
               variant="destructive"
-              onClick={() => logoutMutation.mutate()}
+              onClick={() => {
+                logoutMutation.mutate()
+              }}
             >
               Logout
             </Button>

@@ -26,7 +26,7 @@ let unique = 0
 /**
  * @param {string} method - RPC method name
  * @param {unknown[]} parameters - RPC method parameters
- * @returns
+ * @returns {Promise<unknown>}
  */
 const callRpc = (method, parameters) => {
   const id = unique++
@@ -49,7 +49,7 @@ const callRpc = (method, parameters) => {
         if ("result" in message) {
           resolve(message["result"])
         } else {
-          reject(message["error"])
+          reject(new Error(/** @type {string} */ (message["error"])))
         }
       }
     }
@@ -69,12 +69,11 @@ const runner = new ViteNodeRunner({
   base: DASSIE_DEV_BASE,
   moduleCache,
   async fetchModule(id) {
-    return /** @type {Promise<FetchResult>} */ callRpc("fetchModule", [id])
+    return /** @type {Promise<FetchResult>} */ (callRpc("fetchModule", [id]))
   },
   async resolveId(id, importer) {
-    return /** @type {Promise<ViteNodeResolveId | null>} */ callRpc(
-      "resolveId",
-      [id, importer],
+    return /** @type {Promise<ViteNodeResolveId | null>} */ (
+      callRpc("resolveId", [id, importer])
     )
   },
 })

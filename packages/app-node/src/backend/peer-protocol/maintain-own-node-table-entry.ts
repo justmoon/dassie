@@ -29,11 +29,8 @@ export const MaintainOwnNodeTableEntryActor = () =>
 
     if (
       !oldLinkState ||
-      !compareSetToArray(peers, oldLinkState.neighbors ?? []) ||
-      !compareSetToArray(
-        settlementSchemes,
-        oldLinkState.settlementSchemes ?? [],
-      ) ||
+      !compareSetToArray(peers, oldLinkState.neighbors) ||
+      !compareSetToArray(settlementSchemes, oldLinkState.settlementSchemes) ||
       oldLinkState.sequence <
         BigInt(Date.now()) - LINK_STATE_MAX_UPDATE_INTERVAL
     ) {

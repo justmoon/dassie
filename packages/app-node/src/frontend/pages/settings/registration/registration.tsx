@@ -28,7 +28,9 @@ export const RegistrationSettings = () => {
         <Button
           variant="default"
           size="sm"
-          onClick={() => setAdvancedOpen((state) => !state)}
+          onClick={() => {
+            setAdvancedOpen((state) => !state)
+          }}
         >
           Advanced
           <ChevronDownIcon

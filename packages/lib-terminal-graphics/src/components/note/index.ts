@@ -1,4 +1,3 @@
-// eslint-disable-next-line unicorn/import-style
 import chalk from "chalk"
 import wrapAnsi from "wrap-ansi"
 

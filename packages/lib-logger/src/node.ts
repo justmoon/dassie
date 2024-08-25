@@ -20,8 +20,8 @@ const WORKING_DIRECTORY = `${process.cwd()}/`
 // callsite.
 const getCallsite = (stackLine: string) =>
   stackLine.endsWith(")") ?
-    stackLine.match(/\((.*)\)$/)?.[1]
-  : stackLine.match(/^\s*at\s+(.+)$/)?.[1]
+    /\((.*)\)$/.exec(stackLine)?.[1]
+  : /^\s*at\s+(.+)$/.exec(stackLine)?.[1]
 
 context.getCaller = (depth, error) => {
   const stackLine = error.stack

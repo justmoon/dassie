@@ -7,9 +7,9 @@ interface ErrnoException extends Error {
   syscall?: string | undefined
 }
 
-export function isErrorWithCode<T extends string>(
+export function isErrorWithCode(
   error: unknown,
-  code: T,
+  code: string,
 ): error is ErrnoException {
   return (
     isObject(error) &&

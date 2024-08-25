@@ -33,7 +33,7 @@ export interface ReadonlySignal<TState> extends ReactiveSource<TState> {
    *
    * @see {@link FactoryNameSymbol}
    */
-  [FactoryNameSymbol]: string
+  [FactoryNameSymbol]: string | undefined
 
   /**
    * Get the current state of the signal.
@@ -83,7 +83,9 @@ export class SignalImplementation<TState> extends Reactive<TState> {
     this.values = createReactiveTopic(this)
   }
 
-  recompute() {}
+  recompute() {
+    // no-op
+  }
 
   /**
    * Apply a reducer which will accept the current state and return a new state.

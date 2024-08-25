@@ -127,7 +127,7 @@ function getNodeIdFromEntropy(entropy: Buffer) {
 }
 
 function processNodeId(nodeId: string) {
-  const match = nodeId.match(TARGET_PATTERN)
+  const match = TARGET_PATTERN.exec(nodeId)
   if (!match) {
     throw new Error(`Invalid address: ${nodeId}`)
   }

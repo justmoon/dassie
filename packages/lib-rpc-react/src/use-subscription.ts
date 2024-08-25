@@ -40,7 +40,7 @@ export function createUseSubscriptionHook({
 
     const handleEvent = useCallback(
       (data: unknown) => {
-        onData?.(data)
+        onData(data)
       },
       [onData],
     )

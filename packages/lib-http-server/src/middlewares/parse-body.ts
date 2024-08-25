@@ -61,7 +61,7 @@ export const parseJson = (async (context) => {
   try {
     return { body: secureJsonParse(utf8Body.body) as JsonValue }
   } catch (error) {
-    console.debug?.("request body is not valid JSON", { error })
+    console.debug("request body is not valid JSON", { error })
     return new BadRequestFailure("Invalid HTTP request body")
   }
 }) satisfies Middleware<{}, { body: JsonValue } | PayloadTooLargeFailure>
@@ -80,13 +80,12 @@ export const parseBodyZod =
     const result = schema.safeParse(jsonBody.body)
 
     if (!result.success) {
-      console.debug?.("request body does not pass schema", {
+      console.debug("request body does not pass schema", {
         error: result.error,
       })
       return new BadRequestFailure("Invalid HTTP request body")
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
     return { body: result.data as InferZodType<TSchema> }
   }
 
@@ -110,6 +109,5 @@ export const parseBodyOer =
       return new BadRequestFailure("Invalid HTTP request body")
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
     return { body: result.value as InferOerType<TSchema> }
   }

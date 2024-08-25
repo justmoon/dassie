@@ -1,5 +1,7 @@
 import { dump } from "wtfnode"
 
+import process from "node:process"
+
 import { Reactor, createActor } from "@dassie/lib-reactive"
 
 const OPEN_HANDLES_GRACE_PERIOD = 500
@@ -23,7 +25,7 @@ export const HandleShutdownSignalsActor = (reactor: Reactor) =>
 
     process.on("SIGTERM", onShutdown)
     process.on("SIGINT", onShutdown)
-    if (process.report) process.report.reportOnSignal = true
+    process.report.reportOnSignal = true
 
     sig.onCleanup(() => {
       process.off("SIGTERM", onShutdown)

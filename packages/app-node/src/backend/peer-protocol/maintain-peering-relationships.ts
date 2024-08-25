@@ -135,7 +135,7 @@ export const MaintainPeeringRelationshipsActor = (reactor: DassieReactor) => {
       {
         peerId: randomNode.nodeId,
         peeringInfo: peeringInfoResponse.settlementSchemeData,
-        data: peeringResponse?.data,
+        data: peeringResponse.data,
       },
     )
 

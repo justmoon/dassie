@@ -36,7 +36,6 @@ const xrplTestnet = {
 
   ledger: LEDGER_ID,
 
-  // eslint-disable-next-line unicorn/consistent-function-scoping
   behavior: async ({ sig, host }) => {
     const isSettlement = sig.reactor.use(IsSettlement)
 
@@ -65,7 +64,9 @@ const xrplTestnet = {
 
     await client.connect()
 
-    sig.onCleanup(async () => await client.disconnect())
+    sig.onCleanup(async () => {
+      await client.disconnect()
+    })
 
     // Ensure account exists and otherwise create it using the testnet faucet.
     const ownAccountInfo = await getAccountInfo(client, wallet.address)
@@ -97,13 +98,12 @@ const xrplTestnet = {
           // Did this transaction affect our balance?
           if (
             "ModifiedNode" in node &&
-            node.ModifiedNode?.LedgerEntryType === "AccountRoot" &&
-            node.ModifiedNode?.FinalFields?.["Account"] === wallet.address &&
-            typeof node.ModifiedNode?.FinalFields?.["Balance"] === "string" &&
-            typeof node.ModifiedNode?.PreviousFields?.["Balance"] ===
-              "string" &&
-            node.ModifiedNode?.FinalFields?.["Balance"] !==
-              node.ModifiedNode?.PreviousFields?.["Balance"]
+            node.ModifiedNode.LedgerEntryType === "AccountRoot" &&
+            node.ModifiedNode.FinalFields?.["Account"] === wallet.address &&
+            typeof node.ModifiedNode.FinalFields["Balance"] === "string" &&
+            typeof node.ModifiedNode.PreviousFields?.["Balance"] === "string" &&
+            node.ModifiedNode.FinalFields["Balance"] !==
+              node.ModifiedNode.PreviousFields["Balance"]
           ) {
             const newBalance =
               BigInt(node.ModifiedNode.FinalFields["Balance"]) *

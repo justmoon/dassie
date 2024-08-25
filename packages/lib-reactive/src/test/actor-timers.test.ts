@@ -12,7 +12,10 @@ describe("createActor timers", () => {
   test("should run a timeout after the specified time", ({ expect }) => {
     const timeout = vi.fn()
 
-    const actor = () => createActor((sig) => sig.timeout(timeout, 100))
+    const actor = () =>
+      createActor((sig) => {
+        sig.timeout(timeout, 100)
+      })
 
     createReactor(actor)
 
@@ -28,7 +31,10 @@ describe("createActor timers", () => {
   }) => {
     const timeout = vi.fn()
 
-    const actor = () => createActor((sig) => sig.timeout(timeout, 100))
+    const actor = () =>
+      createActor((sig) => {
+        sig.timeout(timeout, 100)
+      })
 
     const reactor = createReactor(actor)
 
@@ -44,7 +50,10 @@ describe("createActor timers", () => {
   }) => {
     const interval = vi.fn()
 
-    const actor = () => createActor((sig) => sig.interval(interval, 100))
+    const actor = () =>
+      createActor((sig) => {
+        sig.interval(interval, 100)
+      })
 
     const reactor = createReactor(actor)
 

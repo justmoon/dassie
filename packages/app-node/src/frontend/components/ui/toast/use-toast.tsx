@@ -12,9 +12,12 @@ function toast(newToast: NewToast) {
     },
   })
 
-  const update = (properties: Partial<ToasterToast>) =>
+  const update = (properties: Partial<ToasterToast>) => {
     updateToast({ ...properties, id })
-  const dismiss = () => dismissToast(id)
+  }
+  const dismiss = () => {
+    dismissToast(id)
+  }
 
   return {
     id,

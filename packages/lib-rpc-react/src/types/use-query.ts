@@ -17,15 +17,12 @@ export type UseQueryHook<TRouteSettings extends HooksRouteSettings> = (
       input: TRouteSettings["input"],
       options?: UseQueryHookOptions<TRouteSettings> | undefined,
     ]
-) => UseQueryResult<TRouteSettings["output"], Error>
+) => UseQueryResult<TRouteSettings["output"]>
 
 export type UseQueryHookOptions<
   TRouteSettings extends HooksRouteSettings = HooksRouteSettings,
 > = Merge<
-  Omit<
-    UseQueryOptions<TRouteSettings["output"], Error>,
-    "queryKey" | "queryFn"
-  >,
+  Omit<UseQueryOptions<TRouteSettings["output"]>, "queryKey" | "queryFn">,
   {
     queryClient?: QueryClient | undefined
   }

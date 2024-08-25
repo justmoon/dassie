@@ -214,6 +214,7 @@ export function createClient<TRouter extends AnyRouter>({
             } catch (error) {
               // Error will be undefined if the stream was closed with no
               // "abort reason", which is normal.
+              // eslint-disable-next-line @typescript-eslint/only-throw-error
               if (error !== undefined) throw error
             }
           } else {
@@ -237,7 +238,9 @@ export function createClient<TRouter extends AnyRouter>({
     ;(async () => {
       for await (const _ of resets) {
         for (const entry of subscriptions.values()) {
-          callbacks.set(entry.request.id, () => {})
+          callbacks.set(entry.request.id, () => {
+            // no-op
+          })
           await sendEnvelope(entry.request)
         }
       }

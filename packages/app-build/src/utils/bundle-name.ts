@@ -17,7 +17,7 @@ export const getTarFilename = (
 export const getTarPath = (
   version: DassieVersion,
   architecture: Architecture,
-) => path.resolve(PATH_DIST_STAGING, `${getTarFilename(version, architecture)}`)
+) => path.resolve(PATH_DIST_STAGING, getTarFilename(version, architecture))
 
 export const getCompressedFilename = (
   version: DassieVersion,
@@ -33,5 +33,5 @@ export const getCompressedPath = (
   path.resolve(
     PATH_DIST_UPLOAD,
     version,
-    `${getCompressedFilename(version, architecture, compression)}`,
+    getCompressedFilename(version, architecture, compression),
   )

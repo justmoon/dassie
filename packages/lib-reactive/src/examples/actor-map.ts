@@ -16,10 +16,14 @@ const CustomerServiceActors = (reactor: Reactor) =>
     createActor((sig) => {
       console.info(`${customer} added`)
 
-      sig.onCleanup(() => console.info(`${customer} removed`))
+      sig.onCleanup(() => {
+        console.info(`${customer} removed`)
+      })
 
       return {
-        greet: () => console.info(`Hello ${customer}`),
+        greet: () => {
+          console.info(`Hello ${customer}`)
+        },
       }
     }),
   )

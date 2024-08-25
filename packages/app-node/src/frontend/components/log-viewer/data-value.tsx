@@ -23,36 +23,38 @@ export const DataValue = ({ keyName, content }: DataValueProperties) => {
     }
   }
 
-  const typeFormatter = format[typeIdentifier] as TypeInfo<unknown>
+  const typeFormatter = format[typeIdentifier] as TypeInfo
 
   const value =
-    "formatter" in typeFormatter
-      ? typeFormatter.formatter(content)
-      : String(content)
+    "formatter" in typeFormatter ?
+      typeFormatter.formatter(content)
+    : String(content)
 
-  // eslint-disable-next-line no-console
-  const onClick = () => console.log(content)
+  const onClick = () => {
+    // eslint-disable-next-line no-console
+    console.log(content)
+  }
 
-  return keyName ? (
-    <span
-      className="cursor-pointer inline-block hover:bg-gray-8 rounded"
-      onClick={onClick}
-    >
-      <span className="font-sans text-gray-3">{keyName}=</span>
+  return keyName ?
       <span
-        className={"text-xs inline-block"}
+        className="cursor-pointer inline-block hover:bg-gray-8 rounded"
+        onClick={onClick}
+      >
+        <span className="font-sans text-gray-3">{keyName}=</span>
+        <span
+          className={"text-xs inline-block"}
+          style={{ color: typeFormatter.color }}
+        >
+          {value}
+        </span>
+      </span>
+    : <span
+        onClick={onClick}
         style={{ color: typeFormatter.color }}
+        className={
+          "text-xs inline-block cursor-pointer hover:bg-gray-8 rounded"
+        }
       >
         {value}
       </span>
-    </span>
-  ) : (
-    <span
-      onClick={onClick}
-      style={{ color: typeFormatter.color }}
-      className={"text-xs inline-block cursor-pointer hover:bg-gray-8 rounded"}
-    >
-      {value}
-    </span>
-  )
 }

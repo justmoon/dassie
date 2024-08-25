@@ -84,12 +84,12 @@ export interface ScheduledTask {
 }
 
 class ScheduledTaskImplementation implements ScheduledTask {
-  private readonly instances: Set<ExecutionInstance> = new Set()
+  private readonly instances = new Set<ExecutionInstance>()
 
   /**
    * Number of executions that are buffered behind the current one.
    */
-  private buffer: number = 0
+  private buffer = 0
 
   private timer: TimeoutId | undefined
 

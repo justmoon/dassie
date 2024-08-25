@@ -208,7 +208,6 @@ export const RegisterBtpHttpUpgradeActor = (reactor: DassieReactor) => {
             const messageResult = btpEnvelopeSchema.parse(message)
             if (isFailure(messageResult)) {
               logger.debug?.("failed to parse BTP message envelope", {
-                // eslint-disable-next-line @typescript-eslint/no-base-to-string
                 message: uint8ArrayToHex(message),
                 error: messageResult,
               })
