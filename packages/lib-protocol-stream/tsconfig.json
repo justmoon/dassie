@@ -1,0 +1,15 @@
+{
+  "extends": "@dassie/meta-tsconfig/vite-isomorphic.json",
+  "include": ["src/**/*.ts"],
+  "compilerOptions": {
+    "outDir": "dist"
+  },
+  "references": [
+    {
+      "path": "../lib-oer"
+    },
+    {
+      "path": "../lib-type-utils"
+    }
+  ]
+}

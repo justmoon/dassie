@@ -574,6 +574,28 @@ importers:
         specifier: ^4.25.0
         version: 4.25.0
 
+  packages/lib-protocol-stream:
+    dependencies:
+      '@dassie/lib-type-utils':
+        specifier: workspace:^
+        version: link:../lib-type-utils
+      uint8array-extras:
+        specifier: ^1.4.0
+        version: 1.4.0
+    devDependencies:
+      '@dassie/eslint-config':
+        specifier: workspace:^
+        version: link:../meta-eslint-config
+      '@dassie/lib-oer':
+        specifier: workspace:^
+        version: link:../lib-oer
+      '@dassie/meta-tsconfig':
+        specifier: workspace:^
+        version: link:../meta-tsconfig
+      type-fest:
+        specifier: ^4.25.0
+        version: 4.25.0
+
   packages/lib-protocol-utils:
     dependencies:
       '@dassie/lib-oer':
