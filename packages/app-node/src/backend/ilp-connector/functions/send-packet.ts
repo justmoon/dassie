@@ -1,6 +1,7 @@
+import { IlpPacket, IlpType } from "@dassie/lib-protocol-ilp"
+
 import { AccountPath } from "../../accounting/types/account-paths"
 import { DassieReactor } from "../../base/types/dassie-base"
-import { IlpPacket, IlpType } from "../schemas/ilp-packet-codec"
 import { BtpEndpointInfo, SendBtpPackets } from "../senders/send-btp-packets"
 import {
   IldcpEndpointInfo,

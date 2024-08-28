@@ -22,13 +22,13 @@ export const IlpType = {
 
 export type IlpType = (typeof IlpType)[keyof typeof IlpType]
 
-export const ilpAddress = ia5String([1, 1023])
+export const ilpAddressSchema = ia5String([1, 1023])
 
 export const ilpPrepareSchema = sequence({
   amount: uint64Bigint(),
   expiresAt: ia5String(17),
   executionCondition: octetString(32),
-  destination: ilpAddress,
+  destination: ilpAddressSchema,
   data: octetString([0, 32_767]),
 })
 
@@ -39,7 +39,7 @@ export const ilpFulfillSchema = sequence({
 
 export const ilpRejectSchema = sequence({
   code: ia5String(3),
-  triggeredBy: ilpAddress,
+  triggeredBy: ilpAddressSchema,
   message: utf8String([0, 8191]),
   data: octetString([0, 32_767]),
 })

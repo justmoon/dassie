@@ -1,0 +1,32 @@
+{
+  "name": "@dassie/lib-protocol-ilp",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Implementation of the STREAM transport protocol",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "eslint --color .",
+    "typecheck": "tsc --pretty"
+  },
+  "author": "Stefan Thomas <justmoon@members.fsf.org>",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@dassie/eslint-config": "workspace:^",
+    "@dassie/lib-oer": "workspace:^",
+    "@dassie/meta-tsconfig": "workspace:^",
+    "type-fest": "^4.25.0"
+  },
+  "dependencies": {
+    "@dassie/lib-type-utils": "workspace:^",
+    "uint8array-extras": "^1.4.0"
+  },
+  "engines": {
+    "node": "=22.1.0"
+  }
+}

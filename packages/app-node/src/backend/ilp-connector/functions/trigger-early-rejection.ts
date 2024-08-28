@@ -1,11 +1,12 @@
-import { DassieReactor } from "../../base/types/dassie-base"
-import { connector as logger } from "../../logger/instances"
-import { NodeIlpAddressSignal } from "../computed/node-ilp-address"
 import {
   IlpPacket,
   IlpType,
   serializeIlpPacket,
-} from "../schemas/ilp-packet-codec"
+} from "@dassie/lib-protocol-ilp"
+
+import { DassieReactor } from "../../base/types/dassie-base"
+import { connector as logger } from "../../logger/instances"
+import { NodeIlpAddressSignal } from "../computed/node-ilp-address"
 import { PreparedIlpPacketEvent } from "../topics/prepared-ilp-packet"
 import { IlpFailure } from "../types/ilp-failure"
 import { SendPacket } from "./send-packet"

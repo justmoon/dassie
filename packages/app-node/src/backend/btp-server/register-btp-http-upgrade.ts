@@ -2,6 +2,7 @@ import { nanoid } from "nanoid"
 import { uint8ArrayToHex } from "uint8array-extras"
 
 import type { ServerWebSocket } from "@dassie/lib-http-server"
+import { parseIlpPacket } from "@dassie/lib-protocol-ilp"
 import {
   BtpContentType,
   BtpType,
@@ -19,7 +20,6 @@ import { DassieReactor } from "../base/types/dassie-base"
 import { HttpsWebSocketRouter } from "../http-server/values/https-websocket-router"
 import { NodeIlpAddressSignal } from "../ilp-connector/computed/node-ilp-address"
 import { ProcessPacket } from "../ilp-connector/functions/process-packet"
-import { parseIlpPacket } from "../ilp-connector/schemas/ilp-packet-codec"
 import { BtpEndpointInfo } from "../ilp-connector/senders/send-btp-packets"
 import { btp as logger } from "../logger/instances"
 import { RoutingTableSignal } from "../routing/signals/routing-table"

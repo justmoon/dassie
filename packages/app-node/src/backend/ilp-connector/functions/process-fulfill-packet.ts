@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto"
 
+import { IlpType } from "@dassie/lib-protocol-ilp"
+
 import { LedgerStore } from "../../accounting/stores/ledger"
 import { DassieReactor } from "../../base/types/dassie-base"
 import { connector as logger } from "../../logger/instances"
-import { IlpType } from "../schemas/ilp-packet-codec"
 import {
   ResolvedIlpPacketEvent,
   ResolvedIlpPacketTopic,

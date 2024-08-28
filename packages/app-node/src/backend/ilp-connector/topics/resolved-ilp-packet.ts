@@ -1,7 +1,7 @@
+import { IlpPacket, IlpType } from "@dassie/lib-protocol-ilp"
 import { createTopic } from "@dassie/lib-reactive"
 
 import { EndpointInfo } from "../functions/send-packet"
-import { IlpPacket, IlpType } from "../schemas/ilp-packet-codec"
 import { PreparedIlpPacketEvent } from "./prepared-ilp-packet"
 
 export interface ResolvedIlpPacketEvent {

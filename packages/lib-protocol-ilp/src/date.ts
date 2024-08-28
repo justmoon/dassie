@@ -1,5 +1,3 @@
-import { InvalidPacketIlpFailure } from "../failures/invalid-packet-ilp-failure"
-
 function pad(n: number) {
   return n < 10 ? "0" + String(n) : String(n)
 }
@@ -19,15 +17,9 @@ export const timestampToInterledgerTime = (timestamp: number) => {
 
 export const INTERLEDGER_TIME_LENGTH = 17
 
-const INVALID_INTERLEDGER_TIME = new InvalidPacketIlpFailure(
-  "invalid interledger time",
-)
-
-export const interledgerTimeToTimestamp = (
-  interledgerTime: string,
-): number | InvalidPacketIlpFailure => {
+export const interledgerTimeToTimestamp = (interledgerTime: string): number => {
   if (interledgerTime.length !== INTERLEDGER_TIME_LENGTH) {
-    return INVALID_INTERLEDGER_TIME
+    throw new Error("Invalid interledger time")
   }
 
   const date = Date.UTC(

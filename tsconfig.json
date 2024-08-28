@@ -29,6 +29,9 @@
       "path": "./packages/lib-oer/tsconfig.json"
     },
     {
+      "path": "./packages/lib-protocol-ilp/tsconfig.json"
+    },
+    {
       "path": "./packages/lib-protocol-stream/tsconfig.json"
     },
     {

@@ -1,3 +1,9 @@
+import {
+  IlpPacket,
+  IlpType,
+  interledgerTimeToTimestamp,
+  timestampToInterledgerTime,
+} from "@dassie/lib-protocol-ilp"
 import { UnreachableCaseError, isFailure } from "@dassie/lib-type-utils"
 
 import { applyPacketPrepareToLedger } from "../../accounting/functions/apply-interledger-packet"
@@ -16,11 +22,6 @@ import { InsufficientTimeoutIlpFailure } from "../failures/insufficient-timeout-
 import { InternalErrorIlpFailure } from "../failures/internal-error-ilp-failure"
 import { InvalidPacketIlpFailure } from "../failures/invalid-packet-ilp-failure"
 import { UnreachableIlpFailure } from "../failures/unreachable-ilp-failure"
-import { IlpPacket, IlpType } from "../schemas/ilp-packet-codec"
-import {
-  interledgerTimeToTimestamp,
-  timestampToInterledgerTime,
-} from "../utils/interledger-date"
 import { EndpointInfo } from "./send-packet"
 
 export interface CalculatePreparePacketOutcomeParameters {

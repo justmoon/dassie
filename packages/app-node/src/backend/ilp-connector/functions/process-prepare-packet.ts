@@ -1,14 +1,14 @@
+import {
+  IlpPacket,
+  IlpType,
+  serializeIlpPacket,
+} from "@dassie/lib-protocol-ilp"
 import { isFailure } from "@dassie/lib-type-utils"
 
 import { Transfer } from "../../accounting/stores/ledger"
 import { DassieReactor } from "../../base/types/dassie-base"
 import { connector as logger } from "../../logger/instances"
 import { PreparedPacketParameters, SendPacket } from "../functions/send-packet"
-import {
-  IlpPacket,
-  IlpType,
-  serializeIlpPacket,
-} from "../schemas/ilp-packet-codec"
 import {
   PreparedIlpPacketEvent,
   PreparedIlpPacketTopic,

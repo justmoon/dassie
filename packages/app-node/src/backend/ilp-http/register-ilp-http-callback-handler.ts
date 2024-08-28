@@ -5,13 +5,13 @@ import {
   createPlainResponse,
   parseBodyUint8Array,
 } from "@dassie/lib-http-server"
+import { parseIlpPacket } from "@dassie/lib-protocol-ilp"
 import { createActor } from "@dassie/lib-reactive"
 
 import { OwnerLedgerIdSignal } from "../accounting/signals/owner-ledger-id"
 import { DassieReactor } from "../base/types/dassie-base"
 import { HttpsRouter } from "../http-server/values/https-router"
 import { ProcessPacket } from "../ilp-connector/functions/process-packet"
-import { parseIlpPacket } from "../ilp-connector/schemas/ilp-packet-codec"
 import { IlpHttpEndpointInfo } from "../ilp-connector/senders/send-ilp-http-packets"
 import { IlpAddress } from "../ilp-connector/types/ilp-address"
 import { ILP_OVER_HTTP_CONTENT_TYPE } from "./constants/content-type"

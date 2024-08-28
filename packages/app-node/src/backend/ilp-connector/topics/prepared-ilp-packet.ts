@@ -1,8 +1,8 @@
+import { IlpPreparePacket } from "@dassie/lib-protocol-ilp"
 import { createTopic } from "@dassie/lib-reactive"
 
 import { Transfer } from "../../accounting/stores/ledger"
 import { EndpointInfo } from "../functions/send-packet"
-import { IlpPreparePacket } from "../schemas/ilp-packet-codec"
 
 export interface PreparedIlpPacketEvent {
   readonly sourceEndpointInfo: EndpointInfo

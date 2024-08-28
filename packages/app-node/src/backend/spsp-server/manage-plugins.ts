@@ -1,13 +1,13 @@
 import type { Plugin } from "ilp-protocol-stream/dist/src/util/plugin-interface"
 import { nanoid } from "nanoid"
 
+import { parseIlpPacket } from "@dassie/lib-protocol-ilp"
 import { createActor } from "@dassie/lib-reactive"
 
 import { OwnerLedgerIdSignal } from "../accounting/signals/owner-ledger-id"
 import { DassieActorContext, DassieReactor } from "../base/types/dassie-base"
 import { NodeIlpAddressSignal } from "../ilp-connector/computed/node-ilp-address"
 import { ProcessPacket } from "../ilp-connector/functions/process-packet"
-import { parseIlpPacket } from "../ilp-connector/schemas/ilp-packet-codec"
 import { PluginEndpointInfo } from "../ilp-connector/senders/send-plugin-packets"
 import { payment as logger } from "../logger/instances"
 import { RoutingTableSignal } from "../routing/signals/routing-table"

@@ -9,9 +9,6 @@
       "path": "../lib-oer"
     },
     {
-      "path": "../lib-protocol-ilp"
-    },
-    {
       "path": "../lib-type-utils"
     }
   ]
