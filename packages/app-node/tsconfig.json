@@ -22,6 +22,9 @@
       "path": "../lib-oer"
     },
     {
+      "path": "../lib-protocol-ildcp"
+    },
+    {
       "path": "../lib-protocol-ilp"
     },
     {

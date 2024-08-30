@@ -1,23 +1,12 @@
 {
   "extends": "@dassie/meta-tsconfig/vite-isomorphic.json",
-  "include": [
-    "src/**/*.ts"
-  ],
+  "include": ["src/**/*.ts"],
   "compilerOptions": {
     "outDir": "dist"
   },
   "references": [
     {
-      "path": "../lib-logger"
-    },
-    {
       "path": "../lib-oer"
-    },
-    {
-      "path": "../lib-protocol-ildcp"
-    },
-    {
-      "path": "../lib-protocol-ilp"
     },
     {
       "path": "../lib-type-utils"

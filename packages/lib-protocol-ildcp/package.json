@@ -1,8 +1,8 @@
 {
-  "name": "@dassie/lib-protocol-stream",
+  "name": "@dassie/lib-protocol-ildcp",
   "type": "module",
   "version": "1.0.0",
-  "description": "Implementation of the STREAM transport protocol",
+  "description": "Implementation of the IL-DCP automatic configuration protocol",
   "main": "./src/index.ts",
   "exports": {
     ".": {
@@ -18,15 +18,11 @@
   "license": "Apache-2.0",
   "devDependencies": {
     "@dassie/eslint-config": "workspace:^",
-    "@dassie/lib-logger": "workspace:^",
+    "@dassie/lib-oer": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
-    "ilp-protocol-stream": "2.7.2-alpha.2",
     "type-fest": "^4.25.0"
   },
   "dependencies": {
-    "@dassie/lib-oer": "workspace:^",
-    "@dassie/lib-protocol-ildcp": "workspace:^",
-    "@dassie/lib-protocol-ilp": "workspace:^",
     "@dassie/lib-type-utils": "workspace:^",
     "uint8array-extras": "^1.4.0"
   },

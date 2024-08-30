@@ -16,6 +16,7 @@
     "@dassie/lib-http-server": "workspace:^",
     "@dassie/lib-logger": "workspace:^",
     "@dassie/lib-oer": "workspace:^",
+    "@dassie/lib-protocol-ildcp": "workspace:^",
     "@dassie/lib-protocol-ilp": "workspace:^",
     "@dassie/lib-protocol-utils": "workspace:^",
     "@dassie/lib-reactive": "workspace:^",

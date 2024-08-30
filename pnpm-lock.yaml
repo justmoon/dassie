@@ -270,6 +270,9 @@ importers:
       '@dassie/lib-oer':
         specifier: workspace:^
         version: link:../lib-oer
+      '@dassie/lib-protocol-ildcp':
+        specifier: workspace:^
+        version: link:../lib-protocol-ildcp
       '@dassie/lib-protocol-ilp':
         specifier: workspace:^
         version: link:../lib-protocol-ilp
@@ -577,6 +580,28 @@ importers:
         specifier: ^4.25.0
         version: 4.25.0
 
+  packages/lib-protocol-ildcp:
+    dependencies:
+      '@dassie/lib-type-utils':
+        specifier: workspace:^
+        version: link:../lib-type-utils
+      uint8array-extras:
+        specifier: ^1.4.0
+        version: 1.4.0
+    devDependencies:
+      '@dassie/eslint-config':
+        specifier: workspace:^
+        version: link:../meta-eslint-config
+      '@dassie/lib-oer':
+        specifier: workspace:^
+        version: link:../lib-oer
+      '@dassie/meta-tsconfig':
+        specifier: workspace:^
+        version: link:../meta-tsconfig
+      type-fest:
+        specifier: ^4.25.0
+        version: 4.25.0
+
   packages/lib-protocol-ilp:
     dependencies:
       '@dassie/lib-type-utils':
@@ -604,6 +629,9 @@ importers:
       '@dassie/lib-oer':
         specifier: workspace:^
         version: link:../lib-oer
+      '@dassie/lib-protocol-ildcp':
+        specifier: workspace:^
+        version: link:../lib-protocol-ildcp
       '@dassie/lib-protocol-ilp':
         specifier: workspace:^
         version: link:../lib-protocol-ilp

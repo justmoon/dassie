@@ -1,3 +1,4 @@
+import { ILDCP_ADDRESS, ildcpResponseSchema } from "@dassie/lib-protocol-ildcp"
 import { IlpType, serializeIlpPacket } from "@dassie/lib-protocol-ilp"
 import { createActor } from "@dassie/lib-reactive"
 import { isFailure } from "@dassie/lib-type-utils"
@@ -8,9 +9,6 @@ import { ProcessPacket } from "../ilp-connector/functions/process-packet"
 import { IldcpEndpointInfo } from "../ilp-connector/senders/send-ildcp-packets"
 import { ildcp as logger } from "../logger/instances"
 import { RoutingTableSignal } from "../routing/signals/routing-table"
-import { ildcpResponseSchema } from "./ildcp-packet-codec"
-
-export const ILDCP_ADDRESS = "peer.config"
 
 export interface IldcpRequestParameters {
   sourceIlpAddress: string

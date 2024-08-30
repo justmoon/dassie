@@ -1,5 +1,6 @@
 import { createServer } from "ilp-protocol-stream"
 
+import { serializeIldcpResponse } from "@dassie/lib-protocol-ildcp"
 import {
   type IlpPreparePacket,
   IlpType,
@@ -7,8 +8,6 @@ import {
   serializeIlpPacket,
 } from "@dassie/lib-protocol-ilp"
 import { bufferToUint8Array } from "@dassie/lib-type-utils"
-
-import { ildcpResponseSchema } from "./ildcp"
 
 export async function createCompatibilityServer() {
   let connected = false
@@ -31,7 +30,7 @@ export async function createCompatibilityServer() {
           packet.type === IlpType.Prepare &&
           packet.data.destination === "peer.config"
         ) {
-          const ildcpResponse = ildcpResponseSchema.serializeOrThrow({
+          const ildcpResponse = serializeIldcpResponse({
             address: "test.dummy",
             assetScale: 9,
             assetCode: "XRP",
