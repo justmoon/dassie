@@ -79,3 +79,5 @@ export function getPskEnvironment(context: CryptoContext, secret: Uint8Array) {
     },
   }
 }
+
+export type PskEnvironment = ReturnType<typeof getPskEnvironment>

@@ -6,6 +6,9 @@
   },
   "references": [
     {
+      "path": "../lib-logger"
+    },
+    {
       "path": "../lib-oer"
     },
     {
