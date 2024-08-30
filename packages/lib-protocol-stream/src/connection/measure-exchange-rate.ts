@@ -38,13 +38,17 @@ export async function measureExchangeRate({
   // TODO: Handle retries
   const results = await Promise.all(
     PROBE_PACKET_AMOUNTS.map(async (amount) => {
-      const responseStreamPacket = await sendPacket({ state, amount })
+      const response = await sendPacket({ state, amount })
 
-      if (isFailure(responseStreamPacket)) {
-        return responseStreamPacket
+      if (isFailure(response)) {
+        return response
       }
 
-      const exchangeRate: Ratio = [responseStreamPacket.value.amount, amount]
+      if (isFailure(response.stream)) {
+        return response.stream
+      }
+
+      const exchangeRate: Ratio = [response.stream.value.amount, amount]
       const digits = Math.log10(Number(amount))
 
       return { exchangeRate, digits }

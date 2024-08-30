@@ -2,7 +2,7 @@ import { IlpType, timestampToInterledgerTime } from "@dassie/lib-protocol-ilp"
 import { isFailure } from "@dassie/lib-type-utils"
 
 import { generateRandomCondition } from "../crypto/functions"
-import { streamPacketSchema } from "../packets/schema"
+import { type StreamFrame, streamPacketSchema } from "../packets/schema"
 import { NO_REMOTE_ADDRESS_FAILURE } from "./failures/no-remote-address-failure"
 import type { ConnectionState } from "./state"
 
@@ -14,11 +14,15 @@ interface GenerateProbePacketsOptions {
     "context" | "pskEnvironment" | "nextSequence" | "remoteAddress"
   >
   readonly amount: bigint
+  readonly fulfillable?: boolean | undefined
+  readonly frames?: StreamFrame[] | undefined
 }
 
 export async function sendPacket({
   state,
   amount,
+  fulfillable = false,
+  frames = [],
 }: GenerateProbePacketsOptions) {
   const { context, remoteAddress } = state
 
@@ -32,7 +36,7 @@ export async function sendPacket({
     packetType: IlpType.Prepare,
     sequence: BigInt(state.nextSequence++),
     amount,
-    frames: [],
+    frames,
   })
 
   const streamPacketEncrypted = await state.pskEnvironment.encrypt(streamPacket)
@@ -43,7 +47,12 @@ export async function sendPacket({
     expiresAt: timestampToInterledgerTime(
       context.getDateNow() + DEFAULT_PACKET_TIMEOUT,
     ),
-    executionCondition: generateRandomCondition(context.crypto),
+    executionCondition:
+      fulfillable ?
+        await context.crypto.hash(
+          await state.pskEnvironment.getFulfillment(streamPacketEncrypted),
+        )
+      : generateRandomCondition(context.crypto),
     data: streamPacketEncrypted,
   })
 
@@ -54,8 +63,8 @@ export async function sendPacket({
   const responseStreamPacket = streamPacketSchema.parse(streamPacketDecrypted)
 
   if (isFailure(responseStreamPacket)) {
-    return responseStreamPacket
+    return { ilp: result, stream: responseStreamPacket }
   }
 
-  return responseStreamPacket
+  return { ilp: result, stream: responseStreamPacket }
 }

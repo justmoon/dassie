@@ -182,10 +182,12 @@ const streamFrameObjectSet = defineObjectSet(
   streamFrameObjectSetDefinition,
 )
 
-const streamFrameSchema = sequence({
+export const streamFrameSchema = sequence({
   type: streamFrameObjectSet.type,
   data: streamFrameObjectSet.data,
 })
+
+export type StreamFrame = Infer<typeof streamFrameSchema>
 
 export const streamPacketSchema = sequence({
   version: uint8Number().constant(1),
