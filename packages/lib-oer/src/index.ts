@@ -27,3 +27,4 @@ export * from "./information-object/object-set"
 export * from "./utils/alphabet"
 
 export { uint8ArrayToHex, hexToUint8Array } from "./utils/hex"
+export { ParseFailure, SerializeFailure } from "./utils/failures"
