@@ -40,7 +40,7 @@ export interface ReadonlyTopic<TMessage = never> extends ContextValue {
    */
   on: (
     this: void,
-    lifecycle: LifecycleContext,
+    lifecycle: LifecycleContext | undefined,
     listener: Listener<TMessage>,
   ) => void
 
@@ -52,7 +52,7 @@ export interface ReadonlyTopic<TMessage = never> extends ContextValue {
    */
   once: (
     this: void,
-    lifecycle: LifecycleContext,
+    lifecycle: LifecycleContext | undefined,
     listener: Listener<TMessage>,
   ) => void
 
@@ -117,8 +117,11 @@ export class TopicImplementation<TMessage> {
     }
   }
 
-  on = (context: LifecycleContext, listener: Listener<TMessage>) => {
-    if (import.meta.env.DEV) {
+  on = (
+    context: LifecycleContext | undefined,
+    listener: Listener<TMessage>,
+  ) => {
+    if (import.meta.env.DEV && context) {
       Object.defineProperty(listener, ListenerNameSymbol, {
         value: context.lifecycle.name,
         enumerable: false,
@@ -134,12 +137,15 @@ export class TopicImplementation<TMessage> {
       this.listeners.add(listener)
     }
 
-    context.lifecycle.onCleanup(() => {
+    context?.lifecycle.onCleanup(() => {
       this.off(listener)
     })
   }
 
-  once = (context: LifecycleContext, listener: Listener<TMessage>) => {
+  once = (
+    context: LifecycleContext | undefined,
+    listener: Listener<TMessage>,
+  ) => {
     const singleUseListener = (message: TMessage) => {
       this.off(singleUseListener)
       return listener(message)
@@ -147,7 +153,7 @@ export class TopicImplementation<TMessage> {
 
     this.on(context, singleUseListener)
 
-    context.lifecycle.onCleanup(() => {
+    context?.lifecycle.onCleanup(() => {
       this.off(listener)
     })
   }
