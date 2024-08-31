@@ -6,6 +6,7 @@ export {
   Failure,
   isFailure,
   findFailure,
+  unwrapFailure,
   FAILURE_UNIQUE_KEY,
   type InferFindFailure,
 } from "./failure"

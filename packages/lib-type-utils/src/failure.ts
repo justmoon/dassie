@@ -85,3 +85,18 @@ export const findFailure = <T extends readonly unknown[]>(
 
   return values as InferFindFailure<T>
 }
+
+/**
+ * Unwrap a value which may be a failure.
+ *
+ * @remarks
+ *
+ * This function will throw an error if the value is a failure.
+ */
+export const unwrapFailure = <T>(value: T): Exclude<T, Failure> => {
+  if (isFailure(value)) {
+    throw new Error("Unexpected failure", { cause: value })
+  }
+
+  return value as Exclude<T, Failure>
+}
