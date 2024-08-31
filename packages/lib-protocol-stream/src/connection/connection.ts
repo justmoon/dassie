@@ -84,4 +84,8 @@ export class Connection {
       }
     }
   }
+
+  on(eventType: "stream", handler: (connection: Stream) => void) {
+    this.state.topics[eventType].on(undefined, handler)
+  }
 }

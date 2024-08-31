@@ -1,41 +1,28 @@
-import { UINT64_MAX } from "@dassie/lib-oer"
+import { isFailure } from "@dassie/lib-type-utils"
 
-import { getPskEnvironment } from "../crypto/functions"
+import type { StreamProtocolContext } from "../context/context"
+import { queryIldcp } from "../server/query-ildcp"
 import { Connection } from "./connection"
-import type { ConnectionContext } from "./context"
-import type { ConnectionState } from "./state"
+import { createInitialConnectionState } from "./initial-state"
 
 interface ClientOptions {
-  context: ConnectionContext
-  destination: string
+  context: StreamProtocolContext
+  remoteAddress: string
   secret: Uint8Array
 }
 
-const DEFAULT_MAXIMUM_PACKET_AMOUNT = UINT64_MAX
+export async function createClient(options: ClientOptions) {
+  const configuration = await queryIldcp(options.context)
 
-export const createInitialClientState = ({
-  context,
-  destination,
-  secret,
-}: ClientOptions): ConnectionState => {
-  return {
-    context,
-    remoteAddress: destination,
-    pskEnvironment: getPskEnvironment(context.crypto, secret),
-    exchangeRate: undefined,
-    nextSequence: 0,
-    // Stream IDs are odd for clients and even for servers
-    nextStreamId: 1,
-    streams: new Map(),
-    maximumPacketAmount: DEFAULT_MAXIMUM_PACKET_AMOUNT,
+  if (isFailure(configuration)) {
+    return configuration
   }
-}
 
-export const createClient = ({
-  context,
-  destination,
-  secret,
-}: ClientOptions): Connection => {
-  const state = createInitialClientState({ context, destination, secret })
+  const state = createInitialConnectionState({
+    ...options,
+    configuration,
+    side: "client",
+  })
+
   return new Connection(state)
 }

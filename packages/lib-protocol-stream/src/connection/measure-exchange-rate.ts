@@ -1,6 +1,6 @@
 import { isFailure } from "@dassie/lib-type-utils"
 
-import type { Ratio } from "../types/ratio"
+import type { Ratio } from "../math/ratio"
 import { NO_REMOTE_ADDRESS_FAILURE } from "./failures/no-remote-address-failure"
 import { PROBING_UNSUCCESSFUL_FAILURE } from "./failures/probing-unsuccessful-failure"
 import { sendPacket } from "./send-packet"

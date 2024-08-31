@@ -18,3 +18,4 @@ export {
   parseIlpPacket,
   serializeIlpPacket,
 } from "./schema"
+export type { IlpEndpoint, IlpPacketHandler } from "./io"

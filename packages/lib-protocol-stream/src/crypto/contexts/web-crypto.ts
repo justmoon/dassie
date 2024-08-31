@@ -90,11 +90,12 @@ export function createAesCryptor(
       const keyObject = await keyObjectPromise
 
       // Extract the IV and move the tag to the end of the ciphertext
-      const iv = ciphertext.slice(0, IV_LENGTH)
-      const tag = ciphertext.slice(IV_LENGTH, IV_LENGTH + AUTH_TAG_BYTES)
-      ciphertext.copyWithin(0, IV_LENGTH + AUTH_TAG_BYTES)
-      ciphertext.set(tag, ciphertext.byteLength - AUTH_TAG_BYTES - IV_LENGTH)
-      ciphertext = ciphertext.subarray(0, ciphertext.byteLength - IV_LENGTH)
+      const iv = ciphertext.subarray(0, IV_LENGTH)
+      const tag = ciphertext.subarray(IV_LENGTH, IV_LENGTH + AUTH_TAG_BYTES)
+      const encryptedBlocks = ciphertext.subarray(IV_LENGTH + AUTH_TAG_BYTES)
+      ciphertext = new Uint8Array(encryptedBlocks.byteLength + AUTH_TAG_BYTES)
+      ciphertext.set(encryptedBlocks)
+      ciphertext.set(tag, encryptedBlocks.byteLength)
 
       const plaintext = await crypto.subtle.decrypt(
         {

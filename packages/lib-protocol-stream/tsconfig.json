@@ -20,6 +20,9 @@
       "path": "../lib-protocol-ilp"
     },
     {
+      "path": "../lib-reactive"
+    },
+    {
       "path": "../lib-type-utils"
     }
   ]

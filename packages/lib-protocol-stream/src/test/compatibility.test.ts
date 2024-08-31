@@ -1,31 +1,35 @@
 import type { Connection, DataAndMoneyStream } from "ilp-protocol-stream"
 import { describe, test } from "vitest"
 
-import { bufferToUint8Array } from "@dassie/lib-type-utils"
+import { setTimeout } from "node:timers/promises"
+
+import { bufferToUint8Array, unwrapFailure } from "@dassie/lib-type-utils"
 
 import { createClient } from "../connection/client"
-import { createCompatibilityServer } from "./mocks/compatibility"
-import { createMockCryptoContext } from "./mocks/crypto-context"
+import { createServer } from "../server/create"
+import {
+  createCompatibilityClient,
+  createCompatibilityServer,
+} from "./mocks/compatibility"
+import { createTestEnvironment } from "./mocks/test-environment"
 
 describe("Client Compatibility", () => {
   test("should be able to measure 1:1 exchange rate", async ({ expect }) => {
-    const server = await createCompatibilityServer()
+    const environment = createTestEnvironment()
+    const server = await createCompatibilityServer(
+      environment.createContext({ name: "server" }),
+    )
 
     const { destinationAccount, sharedSecret } =
-      server.server.generateAddressAndSecret()
+      server.generateAddressAndSecret()
 
-    const client = createClient({
-      context: {
-        crypto: createMockCryptoContext(),
-        logger: console,
-        sendPacket: server.sendPacket,
-        getDateNow() {
-          return new Date("2024-08-29T10:44:29.380Z").valueOf()
-        },
-      },
-      destination: destinationAccount,
-      secret: bufferToUint8Array(sharedSecret),
-    })
+    const client = unwrapFailure(
+      await createClient({
+        context: environment.createContext({ name: "client" }),
+        remoteAddress: destinationAccount,
+        secret: bufferToUint8Array(sharedSecret),
+      }),
+    )
 
     const exchangeRate = await client.measureExchangeRate()
 
@@ -35,29 +39,29 @@ describe("Client Compatibility", () => {
         1n,
       ]
     `)
+
+    await environment.dispose()
   })
 
   test("should be able to send money", async ({ expect }) => {
-    const server = await createCompatibilityServer()
+    const environment = createTestEnvironment()
+    const server = await createCompatibilityServer(
+      environment.createContext({ name: "server" }),
+    )
 
     const { destinationAccount, sharedSecret } =
-      server.server.generateAddressAndSecret()
+      server.generateAddressAndSecret()
 
-    const client = createClient({
-      context: {
-        crypto: createMockCryptoContext(),
-        logger: console,
-        sendPacket: server.sendPacket,
-        getDateNow() {
-          return new Date("2024-08-29T10:44:29.380Z").valueOf()
-        },
-      },
-      destination: destinationAccount,
-      secret: bufferToUint8Array(sharedSecret),
-    })
+    const client = unwrapFailure(
+      await createClient({
+        context: environment.createContext({ name: "client" }),
+        remoteAddress: destinationAccount,
+        secret: bufferToUint8Array(sharedSecret),
+      }),
+    )
 
     let moneyReceived = 0
-    server.server.on("connection", (connection: Connection) => {
+    server.on("connection", (connection: Connection) => {
       connection.on("stream", (stream: DataAndMoneyStream) => {
         stream.setReceiveMax(1000)
 
@@ -74,5 +78,50 @@ describe("Client Compatibility", () => {
     await client.flush()
 
     expect(moneyReceived).toBe(1000)
+
+    await environment.dispose()
+  })
+})
+
+describe("Server Compatibility", () => {
+  test("should be able to receive money", async ({ expect }) => {
+    const environment = createTestEnvironment()
+
+    const server = unwrapFailure(
+      await createServer({
+        context: environment.createContext({ name: "server" }),
+      }),
+    )
+
+    let moneyReceived = 0n
+    server.on("connection", (connection) => {
+      connection.on("stream", (stream) => {
+        stream.receive(1000n)
+
+        stream.on("money", (amount) => {
+          moneyReceived += amount
+        })
+      })
+    })
+
+    const credentials = server.generateCredentials()
+
+    const client = await createCompatibilityClient(
+      environment.createContext({ name: "client" }),
+      {
+        destinationAccount: credentials.destination,
+        sharedSecret: Buffer.from(credentials.secret),
+      },
+    )
+
+    const stream = client.createStream()
+
+    stream.setSendMax(1000)
+
+    await setTimeout(100)
+
+    await environment.dispose()
+
+    expect(moneyReceived).toBe(1000n)
   })
 })

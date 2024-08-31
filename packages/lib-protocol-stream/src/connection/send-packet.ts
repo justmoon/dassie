@@ -1,12 +1,11 @@
-import { IlpType, timestampToInterledgerTime } from "@dassie/lib-protocol-ilp"
+import { IlpType } from "@dassie/lib-protocol-ilp"
 import { isFailure } from "@dassie/lib-type-utils"
 
 import { generateRandomCondition } from "../crypto/functions"
+import { getPacketExpiry } from "../packets/expiry"
 import { type StreamFrame, streamPacketSchema } from "../packets/schema"
 import { NO_REMOTE_ADDRESS_FAILURE } from "./failures/no-remote-address-failure"
 import type { ConnectionState } from "./state"
-
-const DEFAULT_PACKET_TIMEOUT = 30_000
 
 interface GenerateProbePacketsOptions {
   readonly state: Pick<
@@ -41,12 +40,10 @@ export async function sendPacket({
 
   const streamPacketEncrypted = await state.pskEnvironment.encrypt(streamPacket)
 
-  const result = await context.sendPacket({
+  const result = await context.endpoint.sendPacket({
     destination: remoteAddress,
     amount,
-    expiresAt: timestampToInterledgerTime(
-      context.getDateNow() + DEFAULT_PACKET_TIMEOUT,
-    ),
+    expiresAt: getPacketExpiry(context),
     executionCondition:
       fulfillable ?
         await context.crypto.hash(

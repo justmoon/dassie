@@ -1,89 +1,97 @@
-import { createServer } from "ilp-protocol-stream"
+import { createConnection, createServer } from "ilp-protocol-stream"
 
-import { serializeIldcpResponse } from "@dassie/lib-protocol-ildcp"
 import {
-  type IlpPreparePacket,
   IlpType,
   parseIlpPacket,
   serializeIlpPacket,
 } from "@dassie/lib-protocol-ilp"
 import { bufferToUint8Array } from "@dassie/lib-type-utils"
 
-export async function createCompatibilityServer() {
+import type { StreamProtocolContext } from "../../context/context"
+
+export function createCompatibilityPlugin(context: StreamProtocolContext) {
   let connected = false
-  let handler: ((data: Buffer) => Promise<Buffer>) | undefined
+  let deregisterHandler: (() => void) | undefined
 
-  const server = await createServer({
-    plugin: {
-      connect: () => {
-        connected = true
-        return Promise.resolve()
-      },
-      disconnect: () => {
-        connected = false
-        return Promise.resolve()
-      },
-      isConnected: () => connected,
-      sendData(data) {
-        const packet = parseIlpPacket(bufferToUint8Array(data))
-        if (
-          packet.type === IlpType.Prepare &&
-          packet.data.destination === "peer.config"
-        ) {
-          const ildcpResponse = serializeIldcpResponse({
-            address: "test.dummy",
-            assetScale: 9,
-            assetCode: "XRP",
-          })
+  return {
+    connect: () => {
+      connected = true
+      return Promise.resolve()
+    },
+    disconnect: () => {
+      connected = false
+      return Promise.resolve()
+    },
+    isConnected: () => connected,
+    async sendData(data: Buffer) {
+      const packet = parseIlpPacket(bufferToUint8Array(data))
 
-          return Promise.resolve(
-            Buffer.from(
-              serializeIlpPacket({
-                type: IlpType.Fulfill,
-                data: {
-                  fulfillment: Buffer.alloc(32),
-                  data: ildcpResponse,
-                },
-              }),
-            ),
-          )
+      if (packet.type !== IlpType.Prepare) {
+        throw new Error("unexpected packet type")
+      }
+
+      const result = await context.endpoint.sendPacket(packet.data)
+
+      const serializedResult = serializeIlpPacket(result)
+
+      return Buffer.from(serializedResult)
+    },
+    registerDataHandler(newHandler: (data: Buffer) => Promise<Buffer>) {
+      deregisterHandler = context.endpoint.handlePackets(async (packet) => {
+        const data = serializeIlpPacket({
+          type: IlpType.Prepare,
+          data: packet,
+        })
+        const dataBuffer = Buffer.from(data)
+
+        const resultData = bufferToUint8Array(await newHandler(dataBuffer))
+
+        const resultPacket = parseIlpPacket(resultData)
+
+        if (resultPacket.type === IlpType.Prepare) {
+          throw new Error("Unexpected packet type")
         }
 
-        throw new Error("not implemented")
-      },
-      registerDataHandler(newHandler) {
-        handler = newHandler
-      },
-      deregisterDataHandler() {
-        handler = undefined
-      },
+        return resultPacket
+      })
     },
+    deregisterDataHandler() {
+      deregisterHandler?.()
+    },
+  }
+}
+
+export async function createCompatibilityServer(
+  context: StreamProtocolContext,
+) {
+  const plugin = createCompatibilityPlugin(context)
+
+  const server = await createServer({
+    plugin,
     serverSecret: Buffer.alloc(32),
   })
 
-  return {
-    server,
+  context.scope.onCleanup(async () => {
+    await server.close()
+  })
 
-    sendPacket: async (packet: IlpPreparePacket) => {
-      const data = serializeIlpPacket({
-        type: IlpType.Prepare,
-        data: packet,
-      })
-      const dataBuffer = Buffer.from(data)
+  return server
+}
 
-      if (!handler) {
-        throw new Error("no handler registered")
-      }
+export async function createCompatibilityClient(
+  context: StreamProtocolContext,
+  connectionOptions: Omit<Parameters<typeof createConnection>[0], "plugin">,
+) {
+  const plugin = createCompatibilityPlugin(context)
 
-      const resultData = bufferToUint8Array(await handler(dataBuffer))
+  const connection = await createConnection({
+    ...connectionOptions,
+    plugin,
+  })
 
-      const resultPacket = parseIlpPacket(resultData)
+  context.scope.onCleanup(async () => {
+    await connection.end()
+  })
 
-      if (resultPacket.type === IlpType.Prepare) {
-        throw new Error("Unexpected packet type")
-      }
-
-      return resultPacket
-    },
-  }
+  return connection
 }

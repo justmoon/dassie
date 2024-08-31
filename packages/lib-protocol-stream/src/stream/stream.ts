@@ -2,11 +2,19 @@ import type { StreamState } from "./state"
 
 export class Stream {
   constructor(
-    private readonly streamState: StreamState,
+    private readonly state: StreamState,
     public readonly id: number,
   ) {}
 
   send(amount: bigint) {
-    this.streamState.sendMaximum += amount
+    this.state.sendMaximum += amount
+  }
+
+  receive(amount: bigint) {
+    this.state.receiveMaximum += amount
+  }
+
+  on(eventType: "money", handler: (amount: bigint) => void) {
+    this.state.topics[eventType].on(undefined, handler)
   }
 }
