@@ -1,11 +1,11 @@
 export type Disposer = () => void | PromiseLike<void>
 
-export interface LifecycleScope {
+export interface Scope {
   name: string
   isDisposed: boolean
 
   /**
-   * Register a callback that will be run when this lifecycle scope is disposed.
+   * Register a callback that will be run when this scope is disposed.
    *
    * @remarks
    *
@@ -16,7 +16,7 @@ export interface LifecycleScope {
   onCleanup: (cleanupHandler: Disposer) => void
 
   /**
-   * Unregister a callback that was previously registered with {@link DisposableLifecycleScopeImplementation.onCleanup}.
+   * Unregister a callback that was previously registered with {@link DisposableScopeImplementation.onCleanup}.
    *
    * @param cleanupHandler - Callback to remove from the cleanup queue.
    */
@@ -28,9 +28,9 @@ export interface LifecycleScope {
   abortSignal: AbortSignal
 }
 
-export interface DisposableLifecycleScope extends LifecycleScope {
+export interface Disposable {
   /**
-   * Call the cleanup handlers and mark this lifecycle as disposed.
+   * Dispose of this object. Calls cleanup handlers and marks the object as disposed.
    *
    * @remarks
    *
@@ -39,20 +39,11 @@ export interface DisposableLifecycleScope extends LifecycleScope {
    * @returns A promise that resolves when all cleanup handlers have been run.
    */
   dispose: () => Promise<void>
-
-  /**
-   * Make this lifecycle exist within the confines of another lifecycle.
-   *
-   * @remarks
-   *
-   * This simply means that this lifecycle should be disposed automatically when the parent lifecycle is disposed.
-   */
-  confineTo: (parent: LifecycleScope) => void
 }
 
-export class DisposableLifecycleScopeImplementation
-  implements DisposableLifecycleScope
-{
+export interface DisposableScope extends Scope, Disposable {}
+
+export class DisposableScopeImplementation implements DisposableScope {
   constructor(public readonly name: string) {}
 
   /**
@@ -100,13 +91,6 @@ export class DisposableLifecycleScopeImplementation
     }
   }
 
-  confineTo = (parent: LifecycleScope) => {
-    parent.onCleanup(this.dispose)
-    this.onCleanup(() => {
-      parent.offCleanup(this.dispose)
-    })
-  }
-
   private cachedAbortSignal: AbortSignal | undefined
 
   get abortSignal() {
@@ -126,5 +110,20 @@ export class DisposableLifecycleScopeImplementation
   }
 }
 
-export const createLifecycleScope = (name: string) =>
-  new DisposableLifecycleScopeImplementation(name)
+export const createScope = (name: string) =>
+  new DisposableScopeImplementation(name)
+
+/**
+ * Make a scope within the confines of another scope.
+ *
+ * @remarks
+ *
+ * This simply means that the inner scope should be disposed automatically when
+ * the outer scope is disposed.
+ */
+export const confineScope = (inner: DisposableScope, outer: Scope) => {
+  outer.onCleanup(inner.dispose)
+  inner.onCleanup(() => {
+    outer.offCleanup(inner.dispose)
+  })
+}

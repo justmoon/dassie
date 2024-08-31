@@ -1,11 +1,7 @@
-import type {
-  AbortContext,
-  Factory,
-  LifecycleContext,
-} from "@dassie/lib-reactive"
+import type { AbortContext, Factory, ScopeContext } from "@dassie/lib-reactive"
 
 export interface StartScenarioParameters {
-  context: LifecycleContext & AbortContext
+  context: ScopeContext & AbortContext
 }
 
 export interface Scenario {

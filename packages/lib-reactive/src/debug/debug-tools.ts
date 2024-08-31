@@ -6,7 +6,7 @@ import { Actor } from "../actor"
 import { ActorContextSymbol } from "../actor-context"
 import { Mapped } from "../mapped"
 import type { ContextState, Reactor } from "../reactor"
-import { LifecycleContext } from "../types/lifecycle-context"
+import { ScopeContext } from "../types/scope-context"
 import { StatefulContext } from "../types/stateful-context"
 
 export interface ContextEntry {
@@ -24,7 +24,7 @@ export const ActorIntermediateScopeParent = Symbol(
 const hasIntermediateScopeParent = (
   target: object,
 ): target is {
-  [ActorIntermediateScopeParent]: StatefulContext<object> & LifecycleContext
+  [ActorIntermediateScopeParent]: StatefulContext<object> & ScopeContext
 } => ActorIntermediateScopeParent in target
 
 export class DebugTools {
@@ -101,7 +101,7 @@ export class DebugTools {
    */
   tagActorContext(
     context: { [ActorContextSymbol]: true },
-    parentContext: StatefulContext<object> & LifecycleContext,
+    parentContext: StatefulContext<object> & ScopeContext,
   ) {
     if (hasIntermediateScopeParent(parentContext)) {
       parentContext = parentContext[ActorIntermediateScopeParent]
@@ -136,14 +136,14 @@ export class DebugTools {
 
   warnAboutDanglingCallback(
     callbackName: string | undefined,
-    scope: LifecycleContext,
+    scope: ScopeContext,
     path?: string | undefined,
   ) {
     console.warn(
       "callback received an event after the containing scope was disposed, meaning an event handler was not cleaned up properly",
       {
         name: callbackName ?? "anonymous",
-        scope: scope.lifecycle.name,
+        scope: scope.scope.name,
         path,
       },
     )

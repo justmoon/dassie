@@ -1,8 +1,4 @@
-import type {
-  AbortContext,
-  LifecycleContext,
-  Reactor,
-} from "@dassie/lib-reactive"
+import type { AbortContext, Reactor, ScopeContext } from "@dassie/lib-reactive"
 
 import type { RunnerEnvironment } from "../../common/types/runner-environment"
 import { DEBUG_UI_RPC_PORT } from "../constants/ports"
@@ -22,7 +18,7 @@ import { RunChildProcess } from "./run-child-process"
 
 export interface StartNodeParameters {
   node: NodeConfig
-  context: LifecycleContext & AbortContext
+  context: ScopeContext & AbortContext
 }
 
 export const StartNode = (reactor: Reactor) => {
@@ -34,7 +30,7 @@ export const StartNode = (reactor: Reactor) => {
   const activeNodesStore = reactor.use(ActiveNodesStore)
 
   return async ({ node, context }: StartNodeParameters) => {
-    if (context.lifecycle.isDisposed || context.cancellable.isCancelled) {
+    if (context.scope.isDisposed || context.cancellable.isCancelled) {
       return
     }
 
@@ -65,12 +61,12 @@ export const StartNode = (reactor: Reactor) => {
     const debugScopes = debugScopesSignal.read()
 
     activeNodesStore.act.addNode(node)
-    context.lifecycle.onCleanup(() => {
+    context.scope.onCleanup(() => {
       activeNodesStore.act.removeNode(node)
     })
 
     await runChildProcess({
-      lifecycle: context.lifecycle,
+      scope: context.scope,
       nodeServer: viteNodeServer,
       id: node.id,
       environment: {

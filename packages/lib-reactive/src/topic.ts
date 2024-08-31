@@ -7,9 +7,9 @@ import {
   ListenerNameSymbol,
   emitToListener,
 } from "./internal/emit-to-listener"
-import { createLifecycleScope } from "./lifecycle"
+import { type Scope, createScope } from "./scope"
 import { Factory } from "./types/factory"
-import { LifecycleContext } from "./types/lifecycle-context"
+import { ScopeContext } from "./types/scope-context"
 
 export const TopicSymbol = Symbol("das:reactive:topic")
 
@@ -40,7 +40,7 @@ export interface ReadonlyTopic<TMessage = never> extends ContextValue {
    */
   on: (
     this: void,
-    lifecycle: LifecycleContext | undefined,
+    scope: ScopeContext | Scope | undefined,
     listener: Listener<TMessage>,
   ) => void
 
@@ -52,7 +52,7 @@ export interface ReadonlyTopic<TMessage = never> extends ContextValue {
    */
   once: (
     this: void,
-    lifecycle: LifecycleContext | undefined,
+    scope: ScopeContext | Scope | undefined,
     listener: Listener<TMessage>,
   ) => void
 
@@ -118,12 +118,14 @@ export class TopicImplementation<TMessage> {
   }
 
   on = (
-    context: LifecycleContext | undefined,
+    context: ScopeContext | Scope | undefined,
     listener: Listener<TMessage>,
   ) => {
-    if (import.meta.env.DEV && context) {
+    const scope = context && "scope" in context ? context.scope : context
+
+    if (import.meta.env.DEV && scope) {
       Object.defineProperty(listener, ListenerNameSymbol, {
-        value: context.lifecycle.name,
+        value: scope.name,
         enumerable: false,
       })
     }
@@ -137,13 +139,13 @@ export class TopicImplementation<TMessage> {
       this.listeners.add(listener)
     }
 
-    context?.lifecycle.onCleanup(() => {
+    scope?.onCleanup(() => {
       this.off(listener)
     })
   }
 
   once = (
-    context: LifecycleContext | undefined,
+    context: ScopeContext | Scope | undefined,
     listener: Listener<TMessage>,
   ) => {
     const singleUseListener = (message: TMessage) => {
@@ -153,7 +155,8 @@ export class TopicImplementation<TMessage> {
 
     this.on(context, singleUseListener)
 
-    context?.lifecycle.onCleanup(() => {
+    const scope = context && "scope" in context ? context.scope : context
+    scope?.onCleanup(() => {
       this.off(listener)
     })
   }
@@ -179,16 +182,16 @@ export class TopicImplementation<TMessage> {
     const queue: TMessage[] = []
     let promise = createDeferred()
 
-    const lifecycle = createLifecycleScope("topic-async-iterator")
+    const scope = createScope("topic-async-iterator")
 
-    this.on({ lifecycle }, (message) => {
+    this.on({ scope }, (message) => {
       queue.push(message)
       promise.resolve()
     })
 
     return {
       next: async () => {
-        if (lifecycle.isDisposed) {
+        if (scope.isDisposed) {
           return { done: true, value: undefined }
         }
 
@@ -201,7 +204,7 @@ export class TopicImplementation<TMessage> {
         return { done: false, value }
       },
       return: async () => {
-        await lifecycle.dispose()
+        await scope.dispose()
         return { done: true, value: undefined }
       },
     }
@@ -209,7 +212,7 @@ export class TopicImplementation<TMessage> {
 
   next = () => {
     return new Promise<TMessage>((resolve) => {
-      this.once({ lifecycle: createLifecycleScope("topic-next") }, resolve)
+      this.once({ scope: createScope("topic-next") }, resolve)
     })
   }
 

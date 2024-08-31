@@ -13,10 +13,10 @@ import {
   ReactiveSource,
 } from "./internal/reactive"
 import { createReactiveTopic } from "./internal/reactive-topic"
-import { createLifecycleScope } from "./lifecycle"
+import { confineScope, createScope } from "./scope"
 import { ReadonlySignal, Reducer, SignalSymbol } from "./signal"
 import { ReadonlyTopic } from "./topic"
-import { LifecycleContext } from "./types/lifecycle-context"
+import { ScopeContext } from "./types/scope-context"
 import type { StatefulContext } from "./types/stateful-context"
 
 export type Behavior<TReturn = unknown, TBase extends object = object> = (
@@ -154,11 +154,11 @@ export interface Actor<TReturn, TBase extends object = object>
    *
    * @remarks
    *
-   * @param lifecycle - The parent lifecycle scope. The actor will automatically be disposed when this scope is disposed.
+   * @param parentContext - The parent scope. The actor will automatically be disposed when this scope is disposed.
    * @returns The return value of the actor.
    */
   run: (
-    parentContext: StatefulContext<TBase> & LifecycleContext,
+    parentContext: StatefulContext<TBase> & ScopeContext,
     options?: RunOptions | undefined,
   ) => TReturn | undefined
 
@@ -262,7 +262,7 @@ export class ActorImplementation<TReturn, TBase extends object>
   }
 
   run(
-    parentContext: StatefulContext<TBase> & LifecycleContext,
+    parentContext: StatefulContext<TBase> & ScopeContext,
     { pathPrefix, ignoreRunning }: RunOptions = {},
   ) {
     if (this.currentContext) {
@@ -285,9 +285,7 @@ export class ActorImplementation<TReturn, TBase extends object>
   }
 
   private async reset() {
-    this.cancellable?.cancel(
-      "Operation aborted due to actor lifecycle disposal",
-    )
+    this.cancellable?.cancel("Operation aborted due to actor scope disposal")
     await this.promise
     this.cancellable = undefined
     this.currentContext = undefined
@@ -324,7 +322,7 @@ export class ActorImplementation<TReturn, TBase extends object>
   }
 
   private async loop(
-    parentContext: StatefulContext<TBase> & LifecycleContext,
+    parentContext: StatefulContext<TBase> & ScopeContext,
     actorPath: string,
   ) {
     const resetActor = this.reset.bind(this)
@@ -332,20 +330,20 @@ export class ActorImplementation<TReturn, TBase extends object>
     for (;;) {
       this.waker = createDeferred()
 
-      if (parentContext.lifecycle.isDisposed) break
+      if (parentContext.scope.isDisposed) break
 
       this.state = ActorState.Starting
 
-      const lifecycle = createLifecycleScope(this[FactoryNameSymbol])
-      lifecycle.confineTo(parentContext.lifecycle)
-      lifecycle.onCleanup(resetActor)
+      const scope = createScope(this[FactoryNameSymbol])
+      confineScope(scope, parentContext.scope)
+      scope.onCleanup(resetActor)
 
       const cancellable = createCancellable()
       this.cancellable = cancellable
 
       const context = new ActorContextImplementation(
         this,
-        lifecycle,
+        scope,
         cancellable,
         actorPath,
         parentContext.reactor,
@@ -405,7 +403,7 @@ export class ActorImplementation<TReturn, TBase extends object>
         return
       } finally {
         this.state = ActorState.Stopping
-        await lifecycle.dispose()
+        await scope.dispose()
       }
     }
 

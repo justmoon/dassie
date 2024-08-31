@@ -11,25 +11,22 @@ import {
   createScheduledTask,
 } from "./internal/scheduled-task"
 import { WrappedCallback, wrapCallback } from "./internal/wrap-callback"
-import {
-  DisposableLifecycleScopeImplementation,
-  LifecycleScope,
-} from "./lifecycle"
 import { Mapped } from "./mapped"
 import { ReactiveContextImplementation } from "./reactive-context"
 import { Reactor } from "./reactor"
+import { DisposableScopeImplementation, Scope, confineScope } from "./scope"
 import { type ReadonlySignal, SignalSymbol } from "./signal"
 import type { ReadonlyTopic, TopicSymbol } from "./topic"
 import { Time } from "./types/base-modules/time"
 import type { CancelableContext } from "./types/cancelable-context"
 import { ExecutionContext } from "./types/execution-context"
 import { Factory } from "./types/factory"
-import {
-  DisposableLifecycleContext,
-  LifecycleContext,
-  LifecycleContextShortcuts,
-} from "./types/lifecycle-context"
 import { ReactiveContext } from "./types/reactive-context"
+import {
+  DisposableScopeContext,
+  ScopeContext,
+  ScopeContextShortcuts,
+} from "./types/scope-context"
 import { StatefulContext } from "./types/stateful-context"
 
 export const defaultSelector = <T>(value: T) => value
@@ -42,8 +39,8 @@ export type ActorReference = Omit<
 export const ActorContextSymbol = Symbol("das:reactive:actor-context")
 
 export interface ActorContext<TBase extends object = object>
-  extends LifecycleContext,
-    LifecycleContextShortcuts,
+  extends ScopeContext,
+    ScopeContextShortcuts,
     StatefulContext<TBase>,
     ExecutionContext,
     ReactiveContext<TBase>,
@@ -135,7 +132,7 @@ export interface ActorContext<TBase extends object = object>
    *
    * If you want to pass properties to an actor, but still register it in the global context, you can use `sig.reactor.use(actorFactory).run(sig, properties)`.
    *
-   * In all cases, the actor will inherit the current actor's lifecycle, i.e. it will be disposed when the current actor is disposed.
+   * In all cases, the actor will inherit the current actor's scope, i.e. it will be disposed when the current actor is disposed.
    *
    * @param factory - Factory function of the actor to be instantiated.
    * @returns - Return value of the first invocation of the actor.
@@ -201,7 +198,7 @@ export class ActorContextImplementation<TBase extends object = object>
       readAndTrack: <TState>(signal: ReactiveSource<TState>) => TState
     },
 
-    readonly lifecycle: LifecycleScope,
+    readonly scope: Scope,
     readonly cancellable: Cancellable,
 
     /**
@@ -227,15 +224,15 @@ export class ActorContextImplementation<TBase extends object = object>
   }
 
   get isDisposed() {
-    return this.lifecycle.isDisposed
+    return this.scope.isDisposed
   }
 
   get onCleanup() {
-    return this.lifecycle.onCleanup
+    return this.scope.onCleanup
   }
 
   get offCleanup() {
-    return this.lifecycle.offCleanup
+    return this.scope.offCleanup
   }
 
   get abortSignal() {
@@ -331,20 +328,19 @@ export class ActorContextImplementation<TBase extends object = object>
 
   private runMappedItem<TReturn>(
     actor: Actor<TReturn, TBase>,
-    mapItemLifecycle: LifecycleScope,
+    mapItemScope: Scope,
     runOptions: RunOptions,
   ): TReturn | undefined {
     if (this.isDisposed) return
 
-    const actorLifecycle: DisposableLifecycleContext & StatefulContext<TBase> =
-      {
-        lifecycle: new DisposableLifecycleScopeImplementation(""),
-        reactor: this.reactor,
-      }
-    actorLifecycle.lifecycle.confineTo(mapItemLifecycle)
-    actorLifecycle.lifecycle.confineTo(this.lifecycle)
-    this.reactor.debug?.tagIntermediateActorScope(actorLifecycle, this)
-    return actor.run(actorLifecycle, runOptions)
+    const actorScope: DisposableScopeContext & StatefulContext<TBase> = {
+      scope: new DisposableScopeImplementation(""),
+      reactor: this.reactor,
+    }
+    confineScope(actorScope.scope, mapItemScope)
+    confineScope(actorScope.scope, this.scope)
+    this.reactor.debug?.tagIntermediateActorScope(actorScope, this)
+    return actor.run(actorScope, runOptions)
   }
 
   runMap<TReturn>(
@@ -361,12 +357,12 @@ export class ActorContextImplementation<TBase extends object = object>
     }
 
     let index = 0
-    for (const [, actor, mapLifecycle] of mapped) {
-      results[index++] = this.runMappedItem(actor, mapLifecycle, runOptions)
+    for (const [, actor, mapScope] of mapped) {
+      results[index++] = this.runMappedItem(actor, mapScope, runOptions)
     }
 
-    mapped.additions.on(this, ([, actor, mapItemLifecycle]) => {
-      this.runMappedItem(actor, mapItemLifecycle, runOptions)
+    mapped.additions.on(this, ([, actor, mapItemScope]) => {
+      this.runMappedItem(actor, mapItemScope, runOptions)
     })
 
     return results
@@ -389,19 +385,19 @@ export class ActorContextImplementation<TBase extends object = object>
     }
 
     let index = 0
-    for (const [, actor, mapItemLifecycle] of mapped) {
+    for (const [, actor, mapItemScope] of mapped) {
       // eslint-disable-next-line @typescript-eslint/await-thenable
       results[index++] = await this.runMappedItem(
         actor,
-        mapItemLifecycle,
+        mapItemScope,
         runOptions,
       )
     }
 
-    mapped.additions.on(this, ([, actor, mapItemLifecycle]) => {
+    mapped.additions.on(this, ([, actor, mapItemScope]) => {
       linearizationPromise = linearizationPromise.then(async () => {
         // eslint-disable-next-line @typescript-eslint/await-thenable
-        await this.runMappedItem(actor, mapItemLifecycle, runOptions)
+        await this.runMappedItem(actor, mapItemScope, runOptions)
       })
     })
 
@@ -411,7 +407,7 @@ export class ActorContextImplementation<TBase extends object = object>
   withBase<TNewBase extends object>(newBase: TNewBase) {
     return new ActorContextImplementation(
       this.actor,
-      this.lifecycle,
+      this.scope,
       this.cancellable,
       this.path,
       this.reactor.withBase(newBase),

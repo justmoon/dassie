@@ -11,13 +11,13 @@ import {
   UseSymbol,
 } from "./internal/context-base"
 import { WrappedCallback, wrapCallback } from "./internal/wrap-callback"
-import { DisposableLifecycleScope, createLifecycleScope } from "./lifecycle"
+import { DisposableScope, createScope } from "./scope"
 import { ExecutionContext } from "./types/execution-context"
 import { Factory } from "./types/factory"
 import {
-  DisposableLifecycleContext,
-  DisposableLifecycleContextShortcuts,
-} from "./types/lifecycle-context"
+  DisposableScopeContext,
+  DisposableScopeContextShortcuts,
+} from "./types/scope-context"
 import { StatefulContext } from "./types/stateful-context"
 
 export interface ContextState
@@ -36,8 +36,8 @@ export interface UseOptions {
 export interface Reactor<TBase extends object = object>
   extends StatefulContext<TBase>,
     ExecutionContext,
-    DisposableLifecycleContext,
-    DisposableLifecycleContextShortcuts {
+    DisposableScopeContext,
+    DisposableScopeContextShortcuts {
   readonly base: TBase
 
   /**
@@ -94,30 +94,26 @@ class ReactorImplementation<TBase extends object = object> implements Reactor {
   constructor(
     readonly base: TBase,
     readonly contextState: ContextState,
-    readonly lifecycle: DisposableLifecycleScope,
+    readonly scope: DisposableScope,
     debug?: DebugTools | undefined,
   ) {
     this.debug = debug ?? createDebugTools(this, contextState)
   }
 
   get isDisposed() {
-    return this.lifecycle.isDisposed
+    return this.scope.isDisposed
   }
 
   get onCleanup() {
-    return this.lifecycle.onCleanup
+    return this.scope.onCleanup
   }
 
   get offCleanup() {
-    return this.lifecycle.offCleanup
+    return this.scope.offCleanup
   }
 
   get dispose() {
-    return this.lifecycle.dispose
-  }
-
-  get confineTo() {
-    return this.lifecycle.confineTo
+    return this.scope.dispose
   }
 
   use<TReturn>(
@@ -199,7 +195,7 @@ class ReactorImplementation<TBase extends object = object> implements Reactor {
     return new ReactorImplementation(
       { ...this.base, ...newBase },
       this.contextState,
-      this.lifecycle,
+      this.scope,
       this.debug,
     )
   }
@@ -226,7 +222,7 @@ export const createReactor: CreateReactor = <TBase extends object>(
   const reactor: Reactor<TBase> = new ReactorImplementation(
     base ?? ({} as TBase),
     new WeakMap() as ContextState,
-    createLifecycleScope("Reactor"),
+    createScope("Reactor"),
   )
 
   if (rootActor) {

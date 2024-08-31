@@ -2,12 +2,12 @@ import superjson from "superjson"
 
 import { createConnection } from "node:net"
 
-import { LifecycleContext } from "@dassie/lib-reactive"
+import { ScopeContext } from "@dassie/lib-reactive"
 import { createClient, createNodejsSocketLink } from "@dassie/lib-rpc/client"
 
 import { AppRouter } from "../rpc-server/app-router"
 
-export const connectIpcClient = (context: LifecycleContext) => {
+export const connectIpcClient = (context: ScopeContext) => {
   const ipcSocket = createConnection(
     process.env["DASSIE_IPC_SOCKET_PATH"] ?? "/run/dassie.sock",
   )
@@ -17,7 +17,7 @@ export const connectIpcClient = (context: LifecycleContext) => {
     transformer: superjson,
   })
 
-  context.lifecycle.onCleanup(() => {
+  context.scope.onCleanup(() => {
     ipcSocket.end()
   })
 

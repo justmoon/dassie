@@ -139,7 +139,7 @@ describe("createComputed", () => {
     expect(cleanup).toHaveBeenCalledTimes(1)
   })
 
-  test("should not call lifecycle.onCleanup handler even if computed re-runs", ({
+  test("should not call scope.onCleanup handler even if computed re-runs", ({
     expect,
   }) => {
     const reactor = createReactor()

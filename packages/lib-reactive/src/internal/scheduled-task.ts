@@ -3,7 +3,7 @@ import { Promisable } from "type-fest"
 import { UnreachableCaseError, isThenable } from "@dassie/lib-type-utils"
 
 import { Time, TimeoutId } from "../types/base-modules/time"
-import { LifecycleContext } from "../types/lifecycle-context"
+import { ScopeContext } from "../types/scope-context"
 
 /**
  * Description of a task that should be executed periodically.
@@ -94,7 +94,7 @@ class ScheduledTaskImplementation implements ScheduledTask {
   private timer: TimeoutId | undefined
 
   constructor(
-    private readonly context: LifecycleContext,
+    private readonly context: ScopeContext,
     private readonly descriptor: TaskDescriptor,
     private readonly time: Time,
   ) {}
@@ -123,7 +123,7 @@ class ScheduledTaskImplementation implements ScheduledTask {
       this.instances.delete(executionInstance)
 
       if (!this.timer && this.instances.size === 0) {
-        this.context.lifecycle.offCleanup(this.cancelAndAbort)
+        this.context.scope.offCleanup(this.cancelAndAbort)
       }
     } catch (error: unknown) {
       console.error("error in scheduled task", { error })
@@ -147,7 +147,7 @@ class ScheduledTaskImplementation implements ScheduledTask {
     const delay = interval + Math.random() * (jitter ?? 0)
     this.timer = this.time.setTimeout(() => void this.tick(), delay)
 
-    this.context.lifecycle.onCleanup(this.cancelAndAbort)
+    this.context.scope.onCleanup(this.cancelAndAbort)
   }
 
   cancel() {
@@ -156,7 +156,7 @@ class ScheduledTaskImplementation implements ScheduledTask {
       this.timer = undefined
 
       if (this.instances.size === 0) {
-        this.context.lifecycle.offCleanup(this.cancelAndAbort)
+        this.context.scope.offCleanup(this.cancelAndAbort)
       }
     }
   }
@@ -212,7 +212,7 @@ class ScheduledTaskImplementation implements ScheduledTask {
 }
 
 export const createScheduledTask = (
-  context: LifecycleContext,
+  context: ScopeContext,
   descriptor: TaskDescriptor,
   time: Time,
 ): ScheduledTask => new ScheduledTaskImplementation(context, descriptor, time)

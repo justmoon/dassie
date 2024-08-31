@@ -2,11 +2,11 @@ import { describe, test } from "vitest"
 
 import { setTimeout } from "node:timers/promises"
 
-import { createLifecycleScope } from "../lifecycle"
+import { createScope } from "../scope"
 
-describe("Lifecycle", () => {
+describe("Scope", () => {
   test("should clean up on dispose in reverse order", async ({ expect }) => {
-    const scope = createLifecycleScope("test")
+    const scope = createScope("test")
     const cleanups: string[] = []
 
     scope.onCleanup(() => {

@@ -4,7 +4,7 @@ import {
   serializeIldcpResponse,
 } from "@dassie/lib-protocol-ildcp"
 import { type IlpEndpoint, IlpType } from "@dassie/lib-protocol-ilp"
-import { createLifecycleScope } from "@dassie/lib-reactive"
+import { createScope } from "@dassie/lib-reactive"
 
 import type { StreamProtocolContext } from "../../context/context"
 import { createMockCryptoContext } from "./crypto-context"
@@ -22,7 +22,7 @@ interface TestRoute {
  */
 export function createTestEnvironment() {
   const routes = new Map<string, TestRoute>()
-  const scope = createLifecycleScope("test-environment")
+  const scope = createScope("test-environment")
 
   return {
     createContext: ({ name }: ContextOptions): StreamProtocolContext => {

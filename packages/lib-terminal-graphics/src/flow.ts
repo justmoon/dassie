@@ -3,7 +3,7 @@ import cursor from "cli-cursor"
 import process, { stdin, stdout } from "node:process"
 import { ReadStream, WriteStream } from "node:tty"
 
-import { createLifecycleScope } from "@dassie/lib-reactive"
+import { createScope } from "@dassie/lib-reactive"
 
 import { Canceled } from "./canceled"
 import {
@@ -123,9 +123,9 @@ export const createFlow = ({
         replace(clearComponent(), renderComponent())
       }
 
-      const lifecycle = createLifecycleScope("dynamic step")
+      const scope = createScope("dynamic step")
 
-      component.state.values.on({ lifecycle }, update)
+      component.state.values.on(scope, update)
 
       const interval =
         component.refreshInterval > 0 ?
@@ -135,7 +135,7 @@ export const createFlow = ({
       update()
       await activity(component.state)
 
-      await lifecycle.dispose()
+      await scope.dispose()
 
       if (interval) clearInterval(interval)
 

@@ -75,7 +75,7 @@ createReactor(rootActor)
 
 Overall, actors form a hierarchy which allows you to structure your application. This is a very common pattern, so you're probably familiar with it. Frontend frameworks like React for example structure applications using a hierarchy of components.
 
-### First encounter with lifecycles
+### First encounter with scope
 
 > All good things must come to an end!
 

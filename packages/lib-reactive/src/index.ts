@@ -11,7 +11,7 @@ export {
 } from "./cancellation"
 export { createDeferred } from "./deferred"
 export { createReactor } from "./reactor"
-export { createLifecycleScope } from "./lifecycle"
+export { createScope, confineScope } from "./scope"
 export { createAbstract } from "./abstract"
 export { CacheStatus } from "./internal/reactive"
 export {
@@ -44,11 +44,7 @@ export type { ComputationContext } from "./computation-context"
 export type { Computed } from "./computed"
 export type { Mapped } from "./mapped"
 export type { Reactor } from "./reactor"
-export type {
-  LifecycleScope,
-  DisposableLifecycleScope,
-  Disposer,
-} from "./lifecycle"
+export type { Scope, Disposable, DisposableScope, Disposer } from "./scope"
 export type { Cancellable as Cancellation } from "./cancellation"
 export type { Deferred } from "./deferred"
 export type { Listener } from "./internal/emit-to-listener"
@@ -65,11 +61,11 @@ export type {
 } from "./types/base-modules/time"
 export type { Factory } from "./types/factory"
 export type {
-  LifecycleContext,
-  DisposableLifecycleContext,
-  LifecycleContextShortcuts,
-  DisposableLifecycleContextShortcuts,
-} from "./types/lifecycle-context"
+  ScopeContext,
+  DisposableScopeContext,
+  ScopeContextShortcuts,
+  DisposableScopeContextShortcuts,
+} from "./types/scope-context"
 export type { ReactiveContext } from "./types/reactive-context"
 export type { StatefulContext } from "./types/stateful-context"
 export type { ExecutionContext } from "./types/execution-context"

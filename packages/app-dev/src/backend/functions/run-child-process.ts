@@ -8,7 +8,7 @@ import { ChildProcess, fork } from "node:child_process"
 import type { Readable } from "node:stream"
 
 import { byLine } from "@dassie/lib-itergen-utils"
-import { LifecycleScope, Reactor } from "@dassie/lib-reactive"
+import { Reactor, Scope } from "@dassie/lib-reactive"
 import { assertDefined, isObject } from "@dassie/lib-type-utils"
 
 import { LogsStore } from "../../common/stores/logs"
@@ -25,7 +25,7 @@ const handleChildError = (error: Error) => {
 }
 
 interface RunNodeChildProcessProperties {
-  lifecycle: LifecycleScope
+  scope: Scope
   nodeServer: ViteNodeServer
   id: string
   environment: Record<string, string> & NodeJS.ProcessEnv
@@ -35,7 +35,7 @@ interface RunNodeChildProcessProperties {
 export const RunChildProcess = (reactor: Reactor) => {
   const logsStore = reactor.use(LogsStore)
   async function runChildProcess({
-    lifecycle,
+    scope,
     nodeServer,
     id,
     environment,
@@ -160,7 +160,7 @@ export const RunChildProcess = (reactor: Reactor) => {
       logger.error("error processing child stdout", { node: id, error })
     })
 
-    lifecycle.onCleanup((): Promisable<void> => {
+    scope.onCleanup((): Promisable<void> => {
       if (child) {
         child.removeListener("exit", handleChildExit)
         child.removeListener("message", handleChildMessage)

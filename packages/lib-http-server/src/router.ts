@@ -1,6 +1,6 @@
 import type { Promisable, SetNonNullable, Simplify } from "type-fest"
 
-import type { LifecycleContext } from "@dassie/lib-reactive"
+import type { ScopeContext } from "@dassie/lib-reactive"
 import { Failure, isFailure } from "@dassie/lib-type-utils"
 
 import { handleError } from "./handle-error"
@@ -108,7 +108,7 @@ export type RouteBuilder<TParameters extends { route: RouteContext }> = {
   handler: <
     THandler extends UserRouteHandler<BaseRequestContext & TParameters>,
   >(
-    lifecycle: LifecycleContext,
+    scope: ScopeContext,
     handler: THandler,
   ) => void
 } & {
@@ -263,7 +263,7 @@ export function createRouteMatcher<TInitialContext extends {} = {}>() {
 
           staticRoutes.set(staticRouteKey, routeHandler)
 
-          context.lifecycle.onCleanup(() => {
+          context.scope.onCleanup(() => {
             staticRoutes.delete(staticRouteKey)
           })
           return
@@ -341,7 +341,7 @@ export function createRouteMatcher<TInitialContext extends {} = {}>() {
           throw new Error("Route already exists for path")
         }
 
-        context.lifecycle.onCleanup(() => {
+        context.scope.onCleanup(() => {
           trie.remove(anonymizedPath)
 
           if (trie.root.size === 0) {

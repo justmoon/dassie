@@ -6,14 +6,10 @@ import {
   ReactiveSource,
   defaultComparator,
 } from "./internal/reactive"
-import {
-  DisposableLifecycleScope,
-  LifecycleScope,
-  createLifecycleScope,
-} from "./lifecycle"
+import { DisposableScope, Scope, confineScope, createScope } from "./scope"
 import { ReadonlyTopic, createTopic } from "./topic"
 import { Factory } from "./types/factory"
-import { LifecycleContext } from "./types/lifecycle-context"
+import { ScopeContext } from "./types/scope-context"
 import { StatefulContext } from "./types/stateful-context"
 
 export const MappedSymbol = Symbol("das:reactive:map")
@@ -39,17 +35,17 @@ export interface Mapped<TInput, TOutput> {
   get(key: TInput): TOutput | undefined
 
   /**
-   * Retrieve an item from the map along with its lifecycle based on the key.
+   * Retrieve an item from the map along with its scope based on the key.
    *
    * @remarks
    *
-   * If the item is not currently present in the map, return undefined for both the item and the lifecycle.
+   * If the item is not currently present in the map, return undefined for both the item and the scope.
    *
-   * @returns A tuple consisting of the item and its lifecycle.
+   * @returns A tuple consisting of the item and its scope.
    */
-  getWithLifecycle(
+  getWithScope(
     key: TInput,
-  ): readonly [TOutput, LifecycleScope] | readonly [undefined, undefined]
+  ): readonly [TOutput, Scope] | readonly [undefined, undefined]
 
   /**
    * Check if the map contains an item with the given key.
@@ -59,14 +55,12 @@ export interface Mapped<TInput, TOutput> {
   /**
    * A topic tracking new additions to the map.
    */
-  additions: ReadonlyTopic<readonly [TInput, TOutput, LifecycleScope]>
+  additions: ReadonlyTopic<readonly [TInput, TOutput, Scope]>
 
   /**
-   * You can iterate over the map. The iterator returns a tuple consisting of the key, the item and its lifecycle.
+   * You can iterate over the map. The iterator returns a tuple consisting of the key, the item and its scope.
    */
-  [Symbol.iterator]: () => IterableIterator<
-    readonly [TInput, TOutput, LifecycleScope]
-  >
+  [Symbol.iterator]: () => IterableIterator<readonly [TInput, TOutput, Scope]>
 
   /**
    * The number of items in the map.
@@ -76,7 +70,7 @@ export interface Mapped<TInput, TOutput> {
 
 interface InternalMapEntry<TOutput> {
   output: TOutput
-  lifecycle: DisposableLifecycleScope
+  scope: DisposableScope
 }
 
 /**
@@ -95,20 +89,19 @@ class MappedImplementation<
 
   private baseSet: ReactiveSource<Set<TInput>>
   private internalMap = new Map<TInput, InternalMapEntry<TOutput>>()
-  public readonly additions =
-    createTopic<readonly [TInput, TOutput, LifecycleScope]>()
+  public readonly additions = createTopic<readonly [TInput, TOutput, Scope]>()
   private nextUniqueId = 0
 
   constructor(
-    private parentContext: StatefulContext<TBase> & LifecycleContext,
+    private parentContext: StatefulContext<TBase> & ScopeContext,
     baseSetFactory:
       | Factory<ReactiveSource<Set<TInput>>, TBase>
       | ReactiveSource<Set<TInput>>,
-    private mapFunction: (input: TInput, lifecycle: LifecycleScope) => TOutput,
+    private mapFunction: (input: TInput, scope: Scope) => TOutput,
   ) {
     super(defaultComparator, true)
 
-    parentContext.lifecycle.onCleanup(() => {
+    parentContext.scope.onCleanup(() => {
       this.removeParentObservers()
     })
 
@@ -123,11 +116,11 @@ class MappedImplementation<
     return this.internalMap.get(key)?.output
   }
 
-  getWithLifecycle(key: TInput) {
+  getWithScope(key: TInput) {
     this.read()
     const item = this.internalMap.get(key)
     return item ?
-        ([item.output, item.lifecycle] as const)
+        ([item.output, item.scope] as const)
       : ([undefined, undefined] as const)
   }
 
@@ -139,7 +132,7 @@ class MappedImplementation<
   *[Symbol.iterator]() {
     this.read()
     for (const [key, item] of this.internalMap) {
-      yield [key, item.output, item.lifecycle] as const
+      yield [key, item.output, item.scope] as const
     }
   }
 
@@ -153,7 +146,7 @@ class MappedImplementation<
 
     for (const [key, item] of this.internalMap) {
       if (!newSet.has(key)) {
-        item.lifecycle.dispose().catch((error: unknown) => {
+        item.scope.dispose().catch((error: unknown) => {
           console.error("error in map item disposer", {
             map: this[FactoryNameSymbol],
             error,
@@ -170,14 +163,14 @@ class MappedImplementation<
             key
           : this.nextUniqueId++
         }]`
-        const lifecycle = createLifecycleScope(itemName)
-        lifecycle.confineTo(this.parentContext.lifecycle)
+        const scope = createScope(itemName)
+        confineScope(scope, this.parentContext.scope)
 
-        const output = this.mapFunction(key, lifecycle)
+        const output = this.mapFunction(key, scope)
 
         this.internalMap.set(key, {
           output,
-          lifecycle,
+          scope,
         })
 
         // Tag with factory name in debug mode
@@ -194,7 +187,7 @@ class MappedImplementation<
           )
         }
 
-        this.additions.emit([key, output, lifecycle])
+        this.additions.emit([key, output, scope])
       }
     }
 
@@ -203,11 +196,11 @@ class MappedImplementation<
 }
 
 export function createMapped<TInput, TOutput, TBase extends object>(
-  parentContext: StatefulContext<TBase> & LifecycleContext,
+  parentContext: StatefulContext<TBase> & ScopeContext,
   baseSet:
     | Factory<ReactiveSource<Set<TInput>>, TBase>
     | ReactiveSource<Set<TInput>>,
-  mapFunction: (input: TInput, lifecycle: LifecycleScope) => TOutput,
+  mapFunction: (input: TInput, scope: Scope) => TOutput,
 ): Mapped<TInput, TOutput> {
   return new MappedImplementation(parentContext, baseSet, mapFunction)
 }
