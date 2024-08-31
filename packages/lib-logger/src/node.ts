@@ -10,8 +10,8 @@ export const context = getLogContext()
 
 context.enableChecker = createEnableChecker(process.env["DEBUG"] ?? "")
 context.output = (logEvent) => {
-  process.stdout.write(cliFormatter(logEvent))
-  process.stdout.write("\n")
+  // eslint-disable-next-line no-console
+  console.log(cliFormatter(logEvent))
 }
 
 const WORKING_DIRECTORY = `${process.cwd()}/`
