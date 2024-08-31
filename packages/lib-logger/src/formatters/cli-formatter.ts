@@ -121,10 +121,10 @@ export interface Theme {
 
 export const defaultAnsiTheme: Theme = {
   levelPrefixes: {
-    debug: chalk.dim("· "),
-    info: chalk.blue.bold("i "),
-    warn: chalk.yellow.bold("! "),
-    error: chalk.red.bold("‼ "),
+    debug: chalk.gray.bold("debug "),
+    info: chalk.blue.bold("info "),
+    warn: chalk.yellow.bold("warn "),
+    error: chalk.red.bold("error "),
   },
   colors: [
     chalk.red,
@@ -165,7 +165,7 @@ export const defaultAnsiTheme: Theme = {
     key: chalk.italic,
     symbolKey: (symbol) => `[${chalk.magenta(symbol.toString())}]`,
     quotedKey: (value) => chalk.dim('"') + chalk.yellow(value) + chalk.dim('"'),
-    inlineKey: chalk.italic,
+    inlineKey: chalk.italic.dim,
 
     accessor: (type) => chalk.cyan(`[${type}]`),
     anonymousFunctionName: "(anonymous)",
@@ -340,6 +340,9 @@ const formatStack = (context: FormattingContext, stack: string): string => {
     formattedCallsites.length > 0 ? `\n${context.indent}` : ""
   }${formattedCallsites.join(`\n${context.indent}`)}`
 }
+
+const formatNamespace = (context: FormattingContext, namespace: string) =>
+  colorDeterministically(context, namespace)
 
 const formatMessage = (context: FormattingContext, message: string) => {
   const firstSpace = message.indexOf(" ")
@@ -845,7 +848,7 @@ const formatEvent = (context: FormattingContext, line: LogMessage) => {
     }
   }
 
-  return `${levelInsert}${formatMessage(
+  return `  ${formatNamespace(context, line.namespace)} ${levelInsert}${formatMessage(
     context,
     line.message,
   )}${formatParameters(context, line.parameters)}${
