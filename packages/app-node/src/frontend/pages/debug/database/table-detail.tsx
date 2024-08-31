@@ -18,6 +18,12 @@ interface TableDetailParameters {
   columns: readonly string[]
 }
 
+function formatValue(value: unknown) {
+  if (typeof value === "bigint") return value.toString()
+
+  return String(value)
+}
+
 export function TableDetail({ id, columns }: TableDetailParameters) {
   const rows = rpc.debug.getDatabaseTableRows.useQuery(id).data ?? []
   return (
@@ -35,7 +41,7 @@ export function TableDetail({ id, columns }: TableDetailParameters) {
             <TableRow key={index}>
               {columns.map((column) => (
                 <TableCell key={column}>
-                  {row[column as keyof typeof row]}
+                  {formatValue(row[column as keyof typeof row])}
                 </TableCell>
               ))}
             </TableRow>

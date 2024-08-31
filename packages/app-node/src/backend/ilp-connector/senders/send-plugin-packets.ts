@@ -1,5 +1,5 @@
 import { DassieReactor } from "../../base/types/dassie-base"
-import { ManagePluginsActor } from "../../spsp-server/manage-plugins"
+import { ManagePluginsActor } from "../../open-payments/manage-plugins"
 import { CommonEndpointInfo, PacketSender } from "../functions/send-packet"
 
 export interface PluginEndpointInfo extends CommonEndpointInfo {

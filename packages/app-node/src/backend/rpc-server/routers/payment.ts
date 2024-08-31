@@ -3,7 +3,7 @@ import { z } from "zod"
 import { createRouter } from "@dassie/lib-rpc/server"
 
 import { payment as logger } from "../../logger/instances"
-import { SpspPaymentQueueStore } from "../../spsp-server/send-spsp-payments"
+import { MakePayment } from "../../open-payments/functions/make-payment"
 import { resolvePaymentPointer } from "../../utils/resolve-payment-pointer"
 import { protectedRoute } from "../route-types/protected"
 
@@ -26,16 +26,19 @@ export const paymentRouter = createRouter({
       }),
     )
     .mutation(
-      ({ input: { paymentId, paymentPointer, amount }, context: { sig } }) => {
+      async ({
+        input: { paymentId, paymentPointer, amount },
+        context: { sig },
+      }) => {
         // TODO: Validate paymentId length
         // TODO: Verify paymentId is unique
         logger.debug?.("creating payment", { paymentPointer, amount })
-        const spspPaymentQueue = sig.reactor.use(SpspPaymentQueueStore)
-        spspPaymentQueue.act.addPayment({
+
+        const makePayment = sig.reactor.use(MakePayment)
+        await makePayment({
           id: paymentId,
           destination: paymentPointer,
-          totalAmount: BigInt(amount),
-          sentAmount: BigInt(0),
+          amount: BigInt(amount),
         })
       },
     ),

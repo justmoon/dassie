@@ -1,13 +1,15 @@
 import { cors, createJsonResponse } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
+import { DatabaseConfigStore } from "../config/database-config"
 import { HttpsRouter } from "../http-server/values/https-router"
 import { StreamServerServiceActor } from "./stream-server"
 
-export const HandleSpspRequestsActor = () =>
+export const HandleWalletRequestsActor = () =>
   createActor((sig) => {
     const http = sig.reactor.use(HttpsRouter)
     const streamServer = sig.readAndTrack(StreamServerServiceActor)
+    const { hostname } = sig.readKeysAndTrack(DatabaseConfigStore, ["hostname"])
 
     if (!streamServer) {
       return
@@ -18,11 +20,12 @@ export const HandleSpspRequestsActor = () =>
       .path("/.well-known/pay")
       .use(cors)
       .handler(sig, () => {
-        const { destinationAccount, sharedSecret } =
-          streamServer.generateAddressAndSecret()
         return createJsonResponse({
-          destination_account: destinationAccount,
-          shared_secret: sharedSecret.toString("base64"),
+          id: `https://${hostname}/.well-known/pay`,
+          assetCode: "USD",
+          assetScale: 9,
+          authServer: "https://not-available",
+          resourceServer: `https://${hostname}`,
         })
       })
   })

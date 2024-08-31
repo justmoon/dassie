@@ -4,11 +4,11 @@ import { z } from "zod"
 import { cors, createJsonResponse, parseBodyZod } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
+import { OwnerLedgerIdSignal } from "../accounting/signals/owner-ledger-id"
 import { DatabaseConfigStore } from "../config/database-config"
 import { Database } from "../database/open-database"
 import { HttpsRouter } from "../http-server/values/https-router"
-import { StreamServerServiceActor } from "../spsp-server/stream-server"
-import { PAYMENT_POINTER_ROOT } from "./constants/payment-pointer"
+import { StreamServerServiceActor } from "./stream-server"
 import { createIncomingPaymentFormatter } from "./utils/format-incoming-payment"
 
 export const HandleIncomingPaymentsActor = () =>
@@ -17,6 +17,7 @@ export const HandleIncomingPaymentsActor = () =>
     const database = sig.reactor.use(Database)
     const streamServer = sig.readAndTrack(StreamServerServiceActor)
     const { url } = sig.readAndTrack(DatabaseConfigStore)
+    const ownerLedgerIdSignal = sig.reactor.use(OwnerLedgerIdSignal)
 
     if (!streamServer) return
 
@@ -28,7 +29,7 @@ export const HandleIncomingPaymentsActor = () =>
     // List incoming payments
     http
       .get()
-      .path(`${PAYMENT_POINTER_ROOT}/incoming-payments`)
+      .path(`/incoming-payments`)
       .use(cors)
       .handler(sig, () => {
         const payments = database.tables.incomingPayment.selectAll()
@@ -41,31 +42,30 @@ export const HandleIncomingPaymentsActor = () =>
     // Create a new incoming payment
     http
       .post()
-      .path(`${PAYMENT_POINTER_ROOT}/incoming-payments`)
+      .path(`/incoming-payments`)
       .use(cors)
       .use(
         parseBodyZod(
           z.object({
+            walletAddress: z.string(),
             incomingAmount: z.object({
               value: z.string(),
               assetCode: z.string(),
-              assetScale: z.number(),
+              assetScale: z.number().int().gte(0).lte(255),
             }),
             expiresAt: z.string().optional(),
-            description: z.string().optional(),
-            externalRef: z.string().optional(),
+            metadata: z.object({}).passthrough().optional(),
           }),
         ),
       )
       .handler(sig, (request) => {
-        const { incomingAmount, externalRef } = request.body
+        const { incomingAmount, metadata } = request.body
         const id = nanoid()
         const payment = {
           id,
-          subnet: "null",
+          ledger: ownerLedgerIdSignal.read(),
           total_amount: BigInt(incomingAmount.value),
-          received_amount: 0n,
-          external_reference: externalRef ?? "",
+          metadata: JSON.stringify(metadata ?? {}),
         }
 
         database.tables.incomingPayment.insertOne(payment)

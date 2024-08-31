@@ -1,6 +1,6 @@
 import type { Server as StreamServer } from "ilp-protocol-stream"
 
-import { PAYMENT_POINTER_ROOT } from "../constants/payment-pointer"
+import { PAYMENT_POINTER_PATH } from "../constants/payment-pointer"
 import type { IncomingPaymentRow } from "../tables/incoming-payment"
 
 export interface IncomingPaymentFormatterOptions {
@@ -18,25 +18,30 @@ export const createIncomingPaymentFormatter =
         connectionTag: payment.id,
       })
 
+    // TODO: Received amount should not be hardcoded, but should be calculated
+    // from the ledger
+
     return {
-      id: `${url}${PAYMENT_POINTER_ROOT}/incoming-payments/${payment.id}`,
+      id: `${url}/incoming-payments/${payment.id}`,
+      walletAddress: `${url}${PAYMENT_POINTER_PATH}`,
+      completed: false,
       incomingAmount: {
         value: payment.total_amount.toString(),
         assetCode: "USD",
         assetScale: 2,
       },
       receivedAmount: {
-        value: payment.received_amount.toString(),
+        value: "0",
         assetCode: "USD",
         assetScale: 2,
       },
-      ilpStreamConnection: {
-        id: `${url}${PAYMENT_POINTER_ROOT}/connections/${payment.id}`,
-        ilpAddress: destinationAccount,
-        sharedSecret: sharedSecret.toString("base64url"),
-        assetCode: "USD",
-        assetScale: 2,
-      },
+      methods: [
+        {
+          type: "ilp",
+          ilpAddress: destinationAccount,
+          sharedSecret: sharedSecret.toString("base64url"),
+        },
+      ],
       createdAt,
       updatedAt: createdAt,
     }

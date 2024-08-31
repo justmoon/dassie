@@ -20,7 +20,6 @@ import { PublicApiServerActor } from "./public-api-server"
 import { RoutingActor } from "./routing"
 import { TrpcServerActor } from "./rpc-server"
 import { SettlementSchemesActor } from "./settlement-schemes"
-import { SpspServerActor } from "./spsp-server"
 
 export const StartTlsDependentServicesActor = () =>
   createActor((sig: DassieActorContext) => {
@@ -55,8 +54,7 @@ export const StartNodeIdentityDependentServicesActor = () =>
     await sig.run(ExchangeRatesActor)
 
     await sig.run(SettlementSchemesActor)
-    await sig.run(SpspServerActor)
-    sig.run(OpenPaymentsServerActor)
+    await sig.run(OpenPaymentsServerActor)
     sig.run(PublicApiServerActor)
 
     await sig.run(PeerProtocolActor)

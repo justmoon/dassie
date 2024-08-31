@@ -1,1 +1,1 @@
-export const PAYMENT_POINTER_ROOT = "/.well-known/pay"
+export const PAYMENT_POINTER_PATH = "/.well-known/pay"
