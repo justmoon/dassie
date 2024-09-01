@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { Link } from "lucide-react"
 import { useMemo } from "react"
 import superjson from "superjson"
-import { Redirect, Route, useLocation } from "wouter"
+import { Redirect, Route, useLocation, useParams } from "wouter"
 
 import type { AppRouter } from "@dassie/app-node/src/backend/rpc-server/app-router"
 import { Button } from "@dassie/app-node/src/frontend/components/ui/button"
@@ -70,7 +70,10 @@ const createNodeRpcClients = (securityToken: string, nodeId: string) => {
   return { queryClient, rpcClient }
 }
 
-const NodeDetail = ({ nodeId }: BasicNodeElementProperties) => {
+const NodeDetail = () => {
+  const { nodeId } = useParams()
+  if (!nodeId) throw new Error("Node ID is required")
+
   const [location, setLocation] = useLocation()
   const currentTab = /^\/debug\/(.*)$/.exec(location)?.[1] ?? "logs"
 
