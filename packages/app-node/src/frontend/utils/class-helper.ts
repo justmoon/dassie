@@ -35,12 +35,12 @@ export const combineVariants: typeof cva = (...inputs) => {
  *
  * @param displayName - A name for the component which can be used for debugging purposes
  * @param type - The base component, either a string for a DOM element or a React component
- * @param addtionalClassNames - Additional class names to be added to the component
+ * @param additionalClassNames - Additional class names to be added to the component
  */
 export function extend<TElement extends keyof JSX.IntrinsicElements>(
   displayName: string,
   type: TElement,
-  ...addtionalClassNames: ClassValue[]
+  ...additionalClassNames: ClassValue[]
 ): ForwardRefExoticComponent<
   PropsWithoutRef<ComponentProps<TElement>> &
     RefAttributes<ElementRef<TElement>>
@@ -52,30 +52,30 @@ export function extend<
 >(
   displayName: string,
   type: TComponent & ComponentType<TProperties>,
-  ...addtionalClassNames: ClassValue[]
+  ...additionalClassNames: ClassValue[]
 ): ForwardRefExoticComponent<TProperties>
 
 export function extend<
   TElement extends
     | ComponentType<{ className?: string | undefined }>
     | keyof JSX.IntrinsicElements,
+  TProperties extends ComponentProps<TElement> = ComponentProps<TElement>,
 >(
   displayName: string,
   type: TElement,
-  ...addtionalClassNames: ClassValue[]
+  ...additionalClassNames: ClassValue[]
 ): ForwardRefExoticComponent<
-  PropsWithoutRef<ComponentProps<TElement>> & RefAttributes<unknown>
+  PropsWithoutRef<TProperties> & RefAttributes<ElementRef<TElement>>
 > {
-  const Component = forwardRef(function Classed(
-    { className, ...properties }: ComponentProps<TElement>,
-    reference,
-  ) {
-    return createElement(type, {
-      ...properties,
-      ref: reference,
-      className: combine(...addtionalClassNames, className),
-    })
-  })
+  const Component = forwardRef<ElementRef<TElement>, TProperties>(
+    function Classed({ className, ...properties }, reference) {
+      return createElement(type, {
+        ...properties,
+        ref: reference,
+        className: combine(...additionalClassNames, className),
+      })
+    },
+  )
 
   Component.displayName = displayName
 
