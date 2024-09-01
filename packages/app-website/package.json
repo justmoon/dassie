@@ -1,34 +1,24 @@
 {
   "name": "@dassie/app-website",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "Dassie.land website",
+  "type": "module",
   "scripts": {
-    "dev": "NEXT_TELEMETRY_DISABLED=1 next dev",
-    "start": "NEXT_TELEMETRY_DISABLED=1 next start",
-    "build": "NEXT_TELEMETRY_DISABLED=1 next build",
-    "typecheck": "tsc --pretty"
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro check && astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/check": "^0.9.3",
+    "@astrojs/starlight": "^0.26.1",
+    "astro": "4.10.2",
+    "sharp": "^0.33.5",
+    "typescript": "^5.5.4"
   },
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
-  "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/justmoon/dassie.git"
-  },
-  "bugs": {
-    "url": "https://github.com/justmoon/dassie/issues"
-  },
-  "homepage": "https://dassie.land",
-  "dependencies": {
-    "next": "^14.2.6",
-    "nextra": "^2.13.2",
-    "nextra-theme-docs": "^2.13.2",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
-  },
-  "devDependencies": {
-    "@dassie/meta-tsconfig": "workspace:^"
-  },
   "engines": {
-    "node": "18.x"
+    "node": ">=20.x <=22.1.0"
   }
 }

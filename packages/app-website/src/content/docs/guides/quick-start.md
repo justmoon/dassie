@@ -1,4 +1,7 @@
-# Quick Start
+---
+title: Quick Start
+description: Get up and running quickly with Dassie.
+---
 
 So you want to try out Dassie. First, let me congratulate you on your bravery. Second, let me warn you that Dassie is still in the early stages of development and is not yet ready for production use. If you're still interested, read on.
 
@@ -6,13 +9,13 @@ So you want to try out Dassie. First, let me congratulate you on your bravery. S
 
 You will need a server (or virtual machine) with the following:
 
-* Linux
-  * Must be a recent distribution (we did all our testing on Debian Bullseye)
-  * Must use systemd
-* Curl
-* A publicly accessible IP address
-* A domain name that points to that IP address
-* TCP ports 80 and 443 open to the world
+- Linux
+  - Must be a recent distribution (we did all our testing on Debian Bullseye)
+  - Must use systemd
+- Curl
+- A publicly accessible IP address
+- A domain name that points to that IP address
+- TCP ports 80 and 443 open to the world
 
 ## Installation
 
@@ -51,7 +54,6 @@ To manually trigger an update, run the following command on your server:
 ```sh
 sudo dassie update
 ```
-
 
 ## Deinstallation
 

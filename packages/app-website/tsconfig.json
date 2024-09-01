@@ -1,16 +1,7 @@
 {
-  "extends": "@dassie/meta-tsconfig/nextjs.json",
-  "include": [
-    "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx"
-  ],
-  "exclude": [
-    "next.config.js",
-    "dist"
-  ],
+  "extends": "astro/tsconfigs/strictest",
+  "references": [],
   "compilerOptions": {
     "outDir": "dist"
-  },
-  "references": []
+  }
 }

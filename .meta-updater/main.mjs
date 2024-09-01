@@ -27,7 +27,7 @@ export default createUpdateOptions(async (workspaceDir) => {
         engines: {
           node:
             manifest.name === "@dassie/app-website" ?
-              "18.x"
+              `>=20 <=${NODE_VERSION}`
             : `=${NODE_VERSION}`,
         },
       }

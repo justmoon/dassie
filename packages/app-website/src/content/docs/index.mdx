@@ -1,0 +1,41 @@
+---
+title: What is Dassie?
+description: Get started building your docs site with Starlight.
+template: splash
+hero:
+  tagline: A peer-to-peer network which can transfer tiny amounts of money quickly and cheaply.
+
+  image:
+    file: ../../assets/dassie.webp
+  actions:
+    - text: Get Started
+      link: /guides/quick-start/
+      icon: right-arrow
+    - text: See the code
+      link: https://github.com/justmoon/dassie
+      icon: external
+      variant: minimal
+---
+
+import { Aside, Card, CardGrid } from '@astrojs/starlight/components';
+
+<Aside type="tip">
+Dassie is not a blockchain - payments are routed like packets through the network and are not stored. The only shared state is the link state used for routing.
+</Aside>
+
+## Next steps
+
+<CardGrid stagger>
+	<Card title="Scalable" icon="rocket">
+		Dassie can handle very large amounts of very small payments and scales horizontally meaning its throughput capacity increases as more nodes join the network.
+	</Card>
+	<Card title="Currency-neutral" icon="seti:shell">
+		Dassie automatically handles currency exchange and routing. You can use any (supported) currency you like and still transact with everyone else on the Dassie network.
+	</Card>
+	<Card title="Ledger-neutral" icon="document">
+		The current implementation uses various cryptocurrencies as the underlying value transfer systems, but Dassie is based on [Interledger](https://interledger.org/), which means that it can be used with any payments system with an open API.
+	</Card>
+	<Card title="Under development" icon="setting">
+		Dassie is still in the early stages of development and is not yet ready for production use. If you're still interested, [give it a try](/guides/quick-start/).
+	</Card>
+</CardGrid>
