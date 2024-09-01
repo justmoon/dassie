@@ -26,7 +26,9 @@ export const IsSettlement = (reactor: Reactor) => {
   const nodeTableStore = reactor.use(NodeTableStore)
   const nodeIdSignal = reactor.use(NodeIdSignal)
 
-  return (transaction: TransactionStream): IsSettlementResult => {
+  return function isSettlement(
+    transaction: TransactionStream,
+  ): IsSettlementResult {
     if (transaction.transaction.TransactionType !== "Payment") {
       return { isSettlement: false }
     }

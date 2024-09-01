@@ -6,6 +6,9 @@ export const LEDGERS = {
   "stub+usd": {
     currency: "USD",
   },
+  "xrpl+xrp": {
+    currency: "XRP",
+  },
   "xrpl-testnet+xrp": {
     currency: "XRP",
   },

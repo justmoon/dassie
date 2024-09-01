@@ -3,39 +3,37 @@ import { Client } from "xrpl"
 import { castLedgerId } from "../../../accounting/utils/cast-ledger-id"
 import { settlementXrpl as logger } from "../../../logger/instances"
 import type { SettlementSchemeModule } from "../../types/settlement-scheme-module"
+import { XRP_VALUE_FACTOR } from "./constants/asset-scale"
 import { CreateSettlementEngine } from "./functions/create-settlement-engine"
 import { getAccountInfo } from "./functions/get-account-info"
 import { loadOrCreateWallet } from "./functions/load-wallet"
 import { XrplPeerState } from "./types/peer-state"
 
-const XRP_ON_LEDGER_SCALE = 6
-const XRP_INTERNAL_SCALE = 9
-const XRP_VALUE_FACTOR = 10n ** BigInt(XRP_INTERNAL_SCALE - XRP_ON_LEDGER_SCALE)
-
-const LEDGER_ID = castLedgerId("xrpl-testnet+xrp")
+const LEDGER_ID = castLedgerId("xrpl+xrp")
 
 /**
- * This module uses the XRP Ledger testnet (altnet) for settlement.
+ * This module uses the XRP Ledger (mainnet) for settlement.
  *
  * @remarks
  *
- * **WARNING** This module is intended for testing and development. You **must not** use this module in a real node otherwise anyone will be able to take your funds.
+ * This module uses real money. USE AT YOUR OWN RISK. This software is
+ * provided under the terms of the Apache License 2.0. See the LICENSE file
+ * for more information.
  */
-const xrplTestnet = {
-  name: "xrpl-testnet",
+const xrpl = {
+  name: "xrpl",
   supportedVersions: [1],
-  realm: "test",
+  realm: "live",
 
   ledger: LEDGER_ID,
 
   behavior: async ({ sig, host }) => {
     const createSettlementEngine = sig.reactor.use(CreateSettlementEngine)
-
-    const seed = host.getEntropy({ path: "seed-testnet" }).subarray(0, 16)
+    const seed = host.getEntropy({ path: "seed-mainnet" }).subarray(0, 16)
 
     const wallet = loadOrCreateWallet(seed)
 
-    const client = new Client("wss://s.altnet.rippletest.net:51233")
+    const client = new Client("wss://s1.ripple.com/")
 
     client.on(
       "error",
@@ -72,22 +70,6 @@ const xrplTestnet = {
         BigInt(ownAccountInfo.result.account_data.Balance) * XRP_VALUE_FACTOR
 
       host.reportDeposit({ ledgerId: LEDGER_ID, amount: balance })
-    } else {
-      logger.info("account not found, funding account using testnet faucet", {
-        address: wallet.address,
-      })
-      await client.fundWallet(wallet)
-
-      const ownAccountInfo = await getAccountInfo(client, wallet.address)
-
-      if (!ownAccountInfo) {
-        throw new Error("Account not found after funding")
-      }
-
-      const balance =
-        BigInt(ownAccountInfo.result.account_data.Balance) * XRP_VALUE_FACTOR
-
-      host.reportDeposit({ ledgerId: LEDGER_ID, amount: balance })
     }
 
     return await createSettlementEngine({
@@ -99,4 +81,4 @@ const xrplTestnet = {
   },
 } satisfies SettlementSchemeModule<XrplPeerState>
 
-export default xrplTestnet
+export default xrpl

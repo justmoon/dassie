@@ -1,0 +1,4 @@
+export const XRP_ON_LEDGER_SCALE = 6
+export const XRP_INTERNAL_SCALE = 9
+export const XRP_VALUE_FACTOR =
+  10n ** BigInt(XRP_INTERNAL_SCALE - XRP_ON_LEDGER_SCALE)
