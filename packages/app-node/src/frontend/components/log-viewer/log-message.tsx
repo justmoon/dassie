@@ -1,6 +1,6 @@
 /* eslint-disable unicorn/prefer-code-point */
 import Anser from "anser"
-import { Fragment } from "react"
+import { Fragment, type JSX } from "react"
 
 import { isError } from "@dassie/lib-logger"
 import { isObject } from "@dassie/lib-type-utils"
