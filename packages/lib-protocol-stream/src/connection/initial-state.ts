@@ -25,12 +25,14 @@ export const createInitialConnectionState = ({
 }: ConnectionStateOptions): ConnectionState => {
   return {
     context,
+    side,
     configuration,
     remoteAddress,
     pskEnvironment: getPskEnvironment(context.crypto, secret),
     nextSequence: 0,
     // Stream IDs are odd for clients and even for servers
     nextStreamId: side === "client" ? 1 : 2,
+    maximumStreamId: side === "client" ? 2 : 1,
     streams: new Map(),
     maximumPacketAmount: DEFAULT_MAXIMUM_PACKET_AMOUNT,
     topics: {

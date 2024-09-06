@@ -10,6 +10,10 @@ This module provides an implementation of the STREAM transport protocol of the I
 
 - This implementation uses BigInt for all numeric values. This means that numbers larger than uint64 will be correctly handled unlike ilp-protocol-stream which truncates them to uint64.
 
+- This implementation returns `Failure` values for expected failure cases such as trying to parse an invalid packet instead of throwing errors.
+
+- Most functionality in this implementation is broken down into plain functions to make it easy to understand and test.
+
 ## Attribution
 
 Implemented using [ilp-protocol-stream](https://github.com/interledgerjs/interledgerjs/tree/master/packages/ilp-protocol-stream) as the main reference. Credit to the original authors.

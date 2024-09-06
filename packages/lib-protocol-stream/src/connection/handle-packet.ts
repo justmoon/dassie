@@ -11,13 +11,9 @@ import {
   type StreamReceiveListEntry,
   allocateAmounts,
 } from "../math/allocate-amounts"
-import {
-  FrameType,
-  type StreamFrame,
-  streamPacketSchema,
-} from "../packets/schema"
-import { createInitialStreamState } from "../stream/initialize"
-import { Stream } from "../stream/stream"
+import { FrameType, streamPacketSchema } from "../packets/schema"
+import { createResponseBuilder } from "./create-response"
+import { handleNewStream } from "./handle-new-stream"
 import type { ConnectionState } from "./state"
 
 export async function handleConnectionPacket(
@@ -51,72 +47,34 @@ export async function handleConnectionPacket(
     packet.executionCondition,
   )
 
-  const responseFrames: StreamFrame[] = []
-
-  async function serializeAndEncryptStreamResponse(
-    type: typeof IlpType.Fulfill | typeof IlpType.Reject,
-  ) {
-    const responseStreamPacket = streamPacketSchema.serializeOrThrow({
-      packetType: type,
-      sequence: streamPacket.sequence,
-      amount: packet.amount,
-      frames: responseFrames,
-    })
-
-    return await state.pskEnvironment.encrypt(responseStreamPacket)
-  }
-
-  async function tryFulfill() {
-    if (!isFulfillable) return reject("Condition did not match")
-
-    const encryptedResponse = await serializeAndEncryptStreamResponse(
-      IlpType.Fulfill,
-    )
-
-    return {
-      type: IlpType.Fulfill,
-      data: {
-        fulfillment,
-        data: encryptedResponse,
-      },
-    }
-  }
-
-  async function reject(message: string) {
-    const encryptedResponse = await serializeAndEncryptStreamResponse(
-      IlpType.Reject,
-    )
-
-    return {
-      type: IlpType.Reject,
-      data: {
-        code: IlpErrorCode.F99_APPLICATION_ERROR,
-        message,
-        triggeredBy: state.configuration.address,
-        data: encryptedResponse,
-      },
-    }
-  }
+  const responseBuilder = createResponseBuilder({
+    state,
+    fulfillment: isFulfillable ? fulfillment : false,
+    amount: packet.amount,
+    sequence: streamPacket.sequence,
+  })
 
   let totalShares = 0n
   const streamReceiveList: StreamReceiveListEntry[] = []
 
   for (const frame of streamPacket.frames) {
     if (frame.type === FrameType.StreamMoney) {
-      if (frame.data.shares === 0n) {
-        return reject("StreamMoney frame with zero shares")
-      }
+      // Skip zero-valued frames
+      if (frame.data.shares === 0n) continue
 
       totalShares += frame.data.shares
 
       const streamId = Number(frame.data.streamId)
 
-      let streamState = state.streams.get(streamId)
-      if (!streamState) {
-        streamState = createInitialStreamState()
-        state.streams.set(streamId, streamState)
-
-        state.topics.stream.emit(new Stream(streamState, streamId))
+      const streamState =
+        state.streams.get(streamId) ?? handleNewStream({ state, streamId })
+      if (isFailure(streamState)) {
+        responseBuilder.setStreamClose(
+          streamId,
+          streamState.errorCode,
+          streamState.reason,
+        )
+        continue
       }
 
       streamReceiveList.push({
@@ -134,7 +92,7 @@ export async function handleConnectionPacket(
   )
 
   if (isFailure(allocatedAmounts)) {
-    return reject("Amount exceeds maximum receive amount")
+    return responseBuilder.reject("Amount exceeds maximum receive amount")
   }
 
   for (const { streamId, amount } of allocatedAmounts) {
@@ -148,5 +106,5 @@ export async function handleConnectionPacket(
     streamState.topics.money.emit(amount)
   }
 
-  return tryFulfill()
+  return responseBuilder.tryFulfill()
 }

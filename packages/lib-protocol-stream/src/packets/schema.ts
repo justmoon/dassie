@@ -34,6 +34,20 @@ export const FrameType = {
 
 export type FrameType = (typeof FrameType)[keyof typeof FrameType]
 
+export const ErrorCode = {
+  NoError: 0x01,
+  InternalError: 0x02,
+  EndpointBusy: 0x03,
+  FlowControlError: 0x04,
+  StreamIdError: 0x05,
+  StreamStateError: 0x06,
+  FrameFormatError: 0x07,
+  ProtocolViolation: 0x08,
+  ApplicationError: 0x09,
+} as const
+
+export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]
+
 export const frameConnectionCloseSchema = sequence({
   errorCode: uint8Number(),
   errorMessage: utf8String(),
