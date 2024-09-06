@@ -1,3 +1,5 @@
+import { assert } from "@dassie/lib-logger"
+
 import { systemd as logger } from "../../../../backend/logger/instances"
 
 const SD_LISTEN_FDS_START = 3
@@ -19,7 +21,8 @@ export const getSocketActivationState = ():
   const fdCount = Number(LISTEN_FDS)
   const fdNames = LISTEN_FDNAMES.split(":")
 
-  logger.assert(
+  assert(
+    logger,
     fdCount === fdNames.length,
     "LISTEN_FDS must be a number which corresponds to the number of names in LISTEN_FDNAMES",
   )

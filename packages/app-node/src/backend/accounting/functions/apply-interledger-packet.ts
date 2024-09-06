@@ -1,3 +1,5 @@
+import { assert } from "@dassie/lib-logger"
+
 import { accounting as logger } from "../../logger/instances"
 import { CreateTransferParameters } from "../stores/ledger"
 import {
@@ -18,7 +20,8 @@ export const applyPacketPrepareToLedger = (
 
   // Same currency
   if (sourceLedgerId === destinationLedgerId) {
-    logger.assert(
+    assert(
+      logger,
       incomingAmount === outgoingAmount,
       "incoming and outgoing amounts must match for same-currency transactions",
     )

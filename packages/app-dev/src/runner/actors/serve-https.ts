@@ -8,6 +8,7 @@ import { HttpsRouter } from "@dassie/app-node/src/backend/http-server/values/htt
 import { HttpsWebSocketRouter } from "@dassie/app-node/src/backend/http-server/values/https-websocket-router"
 import { http as logger } from "@dassie/app-node/src/backend/logger/instances"
 import { createNodejsHttpHandlers } from "@dassie/lib-http-server"
+import { assert } from "@dassie/lib-logger"
 import { createActor, createSignal } from "@dassie/lib-reactive"
 
 export type ExpressMiddleware = RequestHandler
@@ -26,8 +27,12 @@ export const ServeHttpsActor = () =>
       ["httpsPort", "url", "tlsWebCert", "tlsWebKey"],
     )
 
-    logger.assert(!!tlsWebCert, "Web UI is not configured, missing certificate")
-    logger.assert(!!tlsWebKey, "Web UI is not configured, missing private key")
+    assert(
+      logger,
+      !!tlsWebCert,
+      "Web UI is not configured, missing certificate",
+    )
+    assert(logger, !!tlsWebKey, "Web UI is not configured, missing private key")
 
     const router = sig.reactor.use(HttpsRouter)
     const websocketRouter = sig.reactor.use(HttpsWebSocketRouter)

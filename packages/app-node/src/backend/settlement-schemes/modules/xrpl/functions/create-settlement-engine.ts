@@ -1,5 +1,6 @@
 import type { Client, Wallet } from "xrpl"
 
+import { assert } from "@dassie/lib-logger"
 import type { Reactor } from "@dassie/lib-reactive"
 import { bufferToUint8Array, isFailure } from "@dassie/lib-type-utils"
 
@@ -88,7 +89,8 @@ export const CreateSettlementEngine = (reactor: Reactor) => {
                 isSettlementResult.isSettlement &&
                 isSettlementResult.direction === "outgoing"
               ) {
-                logger.assert(
+                assert(
+                  logger,
                   !!transaction.transaction.hash,
                   "expected transaction hash to be present",
                 )

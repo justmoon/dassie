@@ -1,5 +1,7 @@
 import { execSync } from "node:child_process"
 
+import { assert } from "@dassie/lib-logger"
+
 import { systemd as logger } from "../../../../backend/logger/instances"
 
 export function notifySystemdReady() {
@@ -7,11 +9,13 @@ export function notifySystemdReady() {
 
   if (!notifySocket) return
 
-  logger.assert(
+  assert(
+    logger,
     notifySocket.startsWith("@") || notifySocket.startsWith("/"),
     "NOTIFY_SOCKET must start with @ or /",
   )
-  logger.assert(
+  assert(
+    logger,
     notifySocket.length >= 2,
     "NOTIFY_SOCKET must be at least 2 characters long",
   )

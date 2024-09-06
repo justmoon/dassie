@@ -1,3 +1,4 @@
+import { assert } from "@dassie/lib-logger"
 import { Reactor, createActor, createMapped } from "@dassie/lib-reactive"
 
 import {
@@ -21,7 +22,7 @@ export const CreatePeerLedgerEntriesActor = (reactor: Reactor) => {
     createActor((sig) => {
       const peerState = nodeTable.read().get(peerId)?.peerState
 
-      logger.assert(peerState?.id === "peered", "peer state must be 'peered'")
+      assert(logger, peerState?.id === "peered", "peer state must be 'peered'")
 
       const { settlementSchemeId } = peerState
 

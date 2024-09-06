@@ -10,6 +10,7 @@ import {
   SEED_PATH_DEV_SESSION,
   SEED_PATH_NODE,
 } from "@dassie/app-node/src/common/constants/seed-paths"
+import { assert } from "@dassie/lib-logger"
 
 import { NODE_ENTRYPOINT } from "../constants/entrypoints"
 import { NODES_DEBUG_START_PORT, NODES_START_PORT } from "../constants/ports"
@@ -52,7 +53,7 @@ export const nodeIndexToCoordinates = (index: number) =>
 export const nodeFriendlyIdToIndex = (id: string) => {
   const index = Number.parseInt(id.slice(1), 10) - 1
 
-  logger.assert(`d${index + 1}` === id, `Invalid node id: ${id}`)
+  assert(logger, `d${index + 1}` === id, `Invalid node id: ${id}`)
 
   return index
 }

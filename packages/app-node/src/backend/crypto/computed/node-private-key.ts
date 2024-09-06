@@ -1,3 +1,4 @@
+import { assert } from "@dassie/lib-logger"
 import { Reactor, createComputed } from "@dassie/lib-reactive"
 
 import {
@@ -11,7 +12,7 @@ export const NodePrivateKeySignal = (reactor: Reactor) =>
   createComputed(reactor, (sig) => {
     const config = sig.readAndTrack(DatabaseConfigStore)
 
-    logger.assert(hasNodeIdentity(config), "node identity is not configured")
+    assert(logger, hasNodeIdentity(config), "node identity is not configured")
 
     return parseEd25519Key(config.dassieKey, "private")
   })

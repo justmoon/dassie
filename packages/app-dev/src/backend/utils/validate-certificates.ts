@@ -3,6 +3,8 @@ import { $ } from "execa"
 import { mkdir, unlink } from "node:fs/promises"
 import path from "node:path"
 
+import { assert } from "@dassie/lib-logger"
+
 import { setup as logger } from "../logger/instances"
 import { checkFileStatus } from "./check-file-status"
 
@@ -35,8 +37,8 @@ export const validateCertificates = async ({
   certificates,
 }: ValidateCertificatesProperties) => {
   for (const certificate of certificates) {
-    logger.assert(!!certificate.certificatePath, "certificate path is missing")
-    logger.assert(!!certificate.keyPath, "key path is missing")
+    assert(logger, !!certificate.certificatePath, "certificate path is missing")
+    assert(logger, !!certificate.keyPath, "key path is missing")
     const certificateStatus = await checkFileStatus(certificate.certificatePath)
     const keyStatus = await checkFileStatus(certificate.keyPath)
 

@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from "node:fs"
 import path from "node:path"
 
 import { DatabaseConfigStore } from "@dassie/app-node/src/backend/config/database-config"
+import { assert } from "@dassie/lib-logger"
 import { Reactor, createActor } from "@dassie/lib-reactive"
 
 import { runner as logger } from "../../backend/logger/instances"
@@ -51,8 +52,12 @@ export const ServeWalletActor = (reactor: Reactor) => {
       ["httpsPort", "tlsWebCert", "tlsWebKey"],
     )
 
-    logger.assert(!!tlsWebCert, "web UI is not configured, missing certificate")
-    logger.assert(!!tlsWebKey, "web UI is not configured, missing private key")
+    assert(
+      logger,
+      !!tlsWebCert,
+      "web UI is not configured, missing certificate",
+    )
+    assert(logger, !!tlsWebKey, "web UI is not configured, missing private key")
 
     const server = await createServer({
       root: walletPath,

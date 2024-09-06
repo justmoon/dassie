@@ -1,3 +1,4 @@
+import { assert } from "@dassie/lib-logger"
 import { tell } from "@dassie/lib-type-utils"
 
 import { DassieReactor } from "../../base/types/dassie-base"
@@ -45,7 +46,8 @@ export const SendPeerPackets = (
     }) => {
       logger.debug?.("sending ilp packet", { nextHop: nodeId })
 
-      logger.assert(
+      assert(
+        logger,
         typeof requestId === "number",
         "expected requestId to be a number for peer packets",
       )

@@ -1,5 +1,6 @@
 import { SetOptional, Simplify } from "type-fest"
 
+import { assert } from "@dassie/lib-logger"
 import { Reactor } from "@dassie/lib-reactive"
 
 import { Database } from "../../database/open-database"
@@ -138,12 +139,14 @@ export const LedgerStore = (reactor: Reactor) => {
       const { debitAccountPath, creditAccountPath, amount, pending } =
         transferParameters
 
-      logger.assert(
+      assert(
+        logger,
         creditAccountPath !== debitAccountPath,
         "transfer credit and debit accounts must be different",
       )
 
-      logger.assert(
+      assert(
+        logger,
         getLedgerIdFromPath(debitAccountPath) ===
           getLedgerIdFromPath(creditAccountPath),
         "transfer credit and debit accounts must be in the same ledger",
@@ -204,13 +207,13 @@ export const LedgerStore = (reactor: Reactor) => {
     },
 
     postPendingTransfer: (transfer: Transfer) => {
-      logger.assert(transfer.state === "pending", "transfer must be pending")
+      assert(logger, transfer.state === "pending", "transfer must be pending")
 
       const debitAccount = ledger.get(transfer.debitAccount)
-      logger.assert(!!debitAccount, "debit account must exist")
+      assert(logger, !!debitAccount, "debit account must exist")
 
       const creditAccount = ledger.get(transfer.creditAccount)
-      logger.assert(!!creditAccount, "credit account must exist")
+      assert(logger, !!creditAccount, "credit account must exist")
 
       transfer.state = "posted"
 
@@ -228,13 +231,13 @@ export const LedgerStore = (reactor: Reactor) => {
     },
 
     voidPendingTransfer: (transfer: Transfer) => {
-      logger.assert(transfer.state === "pending", "transfer must be pending")
+      assert(logger, transfer.state === "pending", "transfer must be pending")
 
       const debitAccount = ledger.get(transfer.debitAccount)
-      logger.assert(!!debitAccount, "debit account must exist")
+      assert(logger, !!debitAccount, "debit account must exist")
 
       const creditAccount = ledger.get(transfer.creditAccount)
-      logger.assert(!!creditAccount, "credit account must exist")
+      assert(logger, !!creditAccount, "credit account must exist")
 
       transfer.state = "voided"
 

@@ -1,5 +1,6 @@
 import { verifyAsync } from "@noble/ed25519"
 
+import { assert } from "@dassie/lib-logger"
 import { Infer } from "@dassie/lib-oer"
 
 import { calculateNodeId } from "../../ilp-connector/utils/calculate-node-id"
@@ -24,7 +25,8 @@ export async function verifyLinkState({
 }: VerifyLinkStateParameters): Promise<void | InvalidLinkStateFailure> {
   const publicKey = linkState.publicKey
 
-  logger.assert(
+  assert(
+    logger,
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     signature.type === "ed25519",
     "only ed25519 signatures are supported at the moment",

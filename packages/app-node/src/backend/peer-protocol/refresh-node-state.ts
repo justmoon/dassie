@@ -1,3 +1,4 @@
+import { assert } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 import { isFailure } from "@dassie/lib-type-utils"
 
@@ -49,7 +50,8 @@ export const RefreshNodeStateActor = (reactor: DassieReactor) => {
       .use(EnvironmentConfig)
       .bootstrapNodes.map(({ id }) => id)
 
-    logger.assert(
+    assert(
+      logger,
       bootstrapNodes.length > 0,
       "expected at least one bootstrap node",
     )

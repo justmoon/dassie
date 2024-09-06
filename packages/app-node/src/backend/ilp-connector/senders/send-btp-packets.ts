@@ -1,3 +1,4 @@
+import { assert } from "@dassie/lib-logger"
 import {
   BtpType,
   btpEnvelopeSchema,
@@ -126,7 +127,8 @@ export const SendBtpPackets = (
       return
     }
 
-    logger.assert(
+    assert(
+      logger,
       typeof requestId === "number",
       "expected request id to be a number for BTP",
     )

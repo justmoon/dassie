@@ -24,8 +24,8 @@ export const ServeHttpsActor = (reactor: Reactor) => {
       ["httpsPort", "url", "tlsWebCert", "tlsWebKey"],
     )
 
-    // logger.assert(!!tlsWebCert, "Web UI is not configured, missing certificate")
-    // logger.assert(!!tlsWebKey, "Web UI is not configured, missing private key")
+    // assert(logger, !!tlsWebCert, "Web UI is not configured, missing certificate")
+    // assert(logger, !!tlsWebKey, "Web UI is not configured, missing private key")
 
     const server = createServer({
       cert: tlsWebCert,
