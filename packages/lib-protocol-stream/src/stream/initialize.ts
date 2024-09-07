@@ -13,6 +13,7 @@ export function createInitialStreamState(): StreamState {
 
     topics: {
       money: createTopic(),
+      moneySent: createTopic(),
     },
   }
 }

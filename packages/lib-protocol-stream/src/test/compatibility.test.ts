@@ -77,9 +77,7 @@ describe("Client Compatibility", () => {
 
     const stream = client.createStream()
 
-    stream.send(1000n)
-
-    await client.flush()
+    unwrapFailure(await stream.send({ amount: 1000n }))
 
     expect(moneyReceived).toBe(1000)
 
@@ -100,7 +98,7 @@ describe("Server Compatibility", () => {
     let moneyReceived = 0n
     server.on("connection", (connection) => {
       connection.on("stream", (stream) => {
-        stream.receive(1000n)
+        stream.addReceiveAmount(1000n)
 
         stream.on("money", (amount) => {
           moneyReceived += amount

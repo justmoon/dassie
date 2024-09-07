@@ -22,4 +22,5 @@ export interface ConnectionState {
   maximumStreamId: number
   readonly streams: Map<number, StreamState>
   readonly topics: InferTopics<ConnectionEvents>
+  isSending: boolean
 }

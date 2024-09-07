@@ -60,7 +60,7 @@ export function handleNewStream({
   const streamState = createInitialStreamState()
   streams.set(streamId, streamState)
 
-  topics.stream.emit(new Stream(streamState, streamId))
+  topics.stream.emit(new Stream(state, streamState, streamId))
 
   return streamState
 }

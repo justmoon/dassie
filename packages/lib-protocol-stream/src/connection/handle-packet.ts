@@ -20,6 +20,12 @@ export async function handleConnectionPacket(
   state: ConnectionState,
   packet: IlpPreparePacket,
 ) {
+  const logger = state.context.logger
+
+  logger.debug?.("received packet", {
+    packet,
+  })
+
   const decryptedData = await state.pskEnvironment.decrypt(packet.data)
 
   if (isFailure(decryptedData)) {
@@ -102,6 +108,10 @@ export async function handleConnectionPacket(
     packet.amount,
     streamReceiveList,
   )
+
+  state.context.logger.debug?.("allocated amounts", {
+    amounts: allocatedAmounts,
+  })
 
   if (isFailure(allocatedAmounts)) {
     return responseBuilder.reject("Amount exceeds maximum receive amount")

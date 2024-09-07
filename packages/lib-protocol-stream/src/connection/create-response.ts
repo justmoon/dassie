@@ -52,6 +52,7 @@ export function createResponseBuilder({
   }
 
   async function tryFulfill() {
+    state.context.logger.debug?.("trying to fulfill")
     if (!fulfillment) {
       return reject("Condition did not match")
     }
@@ -70,6 +71,9 @@ export function createResponseBuilder({
   }
 
   async function reject(message: string) {
+    state.context.logger.debug?.("rejecting", {
+      message,
+    })
     const encryptedResponse = await serializeAndEncryptStreamResponse(
       IlpType.Reject,
     )

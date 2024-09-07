@@ -38,5 +38,6 @@ export const createInitialConnectionState = ({
     topics: {
       stream: createTopic(),
     },
+    isSending: false,
   }
 }

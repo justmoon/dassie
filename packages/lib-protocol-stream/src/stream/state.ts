@@ -2,6 +2,7 @@ import type { InferTopics } from "../types/infer-topics"
 
 export type StreamEvents = {
   money: bigint
+  moneySent: bigint
 }
 
 export interface StreamState {

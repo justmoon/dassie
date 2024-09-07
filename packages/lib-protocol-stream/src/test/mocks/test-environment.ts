@@ -1,4 +1,4 @@
-import { createLogger } from "@dassie/lib-logger"
+import { type Logger, createLogger } from "@dassie/lib-logger"
 import { UINT64_MAX } from "@dassie/lib-oer"
 import {
   ILDCP_ADDRESS,
@@ -17,6 +17,7 @@ import { createMockCryptoContext } from "./crypto-context"
 
 interface EnvironmentOptions {
   maxPacketAmount?: bigint
+  logger?: Logger | undefined
 }
 
 interface ContextOptions {
@@ -32,9 +33,12 @@ interface TestRoute {
  */
 export function createTestEnvironment({
   maxPacketAmount = UINT64_MAX,
+  logger = createLogger("das:test:stream"),
 }: EnvironmentOptions = {}) {
   const routes = new Map<string, TestRoute>()
   const scope = createScope("test-environment")
+
+  logger.debug?.("initializing test environment")
 
   return {
     createContext: ({ name }: ContextOptions): StreamProtocolContext => {
@@ -79,6 +83,9 @@ export function createTestEnvironment({
 
           for (const [address, route] of routes.entries()) {
             if (packet.destination.startsWith(address)) {
+              logger.debug?.("routing packet to destination", {
+                destination: packet.destination,
+              })
               return route.handler(packet)
             }
           }
@@ -100,7 +107,7 @@ export function createTestEnvironment({
 
       return {
         crypto: createMockCryptoContext(),
-        logger: createLogger("das:test:stream"),
+        logger,
         endpoint,
         scope,
         getDateNow() {

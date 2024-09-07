@@ -28,6 +28,8 @@ export function fulfillSend(streamState: StreamState, amount: bigint) {
 
   streamState.sentAmount += amount
   streamState.sendHoldAmount -= amount
+
+  streamState.topics.moneySent.emit(amount)
 }
 
 export function rejectSend(streamState: StreamState, amount: bigint) {
