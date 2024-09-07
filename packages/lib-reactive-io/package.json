@@ -6,10 +6,14 @@
   "main": "./src/index.ts",
   "exports": {
     ".": {
-      "import": "./src/index.ts"
+      "node": "./src/node/index.ts",
+      "import": "./src/browser/index.ts"
     },
     "./node": {
-      "import": "./src/runtime/node/index.ts"
+      "import": "./src/node/index.ts"
+    },
+    "./browser": {
+      "import": "./src/browser/index.ts"
     }
   },
   "scripts": {

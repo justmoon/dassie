@@ -1,5 +1,5 @@
 import { type Reactor, createActor } from "@dassie/lib-reactive"
-import { createNodeRuntime } from "@dassie/lib-reactive-io/node"
+import { createRuntime } from "@dassie/lib-reactive-io/node"
 import { tell } from "@dassie/lib-type-utils"
 
 import { DaemonActor } from "../../../../backend/daemon"
@@ -41,7 +41,7 @@ export const NodejsSystemdDaemonActor = (reactor: Reactor) =>
     systemdReactor.run(ServeIpcSocketActor)
     systemdReactor.run(ServeHttpsActor)
 
-    await sig.withBase(createNodeRuntime()).run(DaemonActor)
+    await sig.withBase(createRuntime()).run(DaemonActor)
 
     notifySystemdReady()
   })

@@ -1,5 +1,5 @@
 import { createActor } from "@dassie/lib-reactive"
-import { createNodeRuntime } from "@dassie/lib-reactive-io/node"
+import { createRuntime } from "@dassie/lib-reactive-io/node"
 
 import { DaemonActor } from "../../../../backend/daemon"
 import { LogToConsoleActor } from "./log-to-console"
@@ -11,7 +11,7 @@ export const NodejsDaemonActor = () =>
   createActor(async (sig) => {
     sig.run(LogToConsoleActor)
 
-    await sig.withBase(createNodeRuntime()).run(DaemonActor)
+    await sig.withBase(createRuntime()).run(DaemonActor)
 
     sig.run(ServeHttpActor)
     sig.run(ServeIpcSocketActor)

@@ -1,7 +1,7 @@
 import { AttachLogger, DaemonActor } from "@dassie/app-node"
 import { HasTlsSignal } from "@dassie/app-node/src/backend/config/computed/has-tls"
 import { createActor, createReactor } from "@dassie/lib-reactive"
-import { createNodeRuntime } from "@dassie/lib-reactive-io/node"
+import { createRuntime } from "@dassie/lib-reactive-io/node"
 
 import { HandleShutdownSignalsActor } from "../../common/actors/handle-shutdown-signals"
 import { ForwardLogsActor } from "../actors/forward-logs"
@@ -33,7 +33,7 @@ const DebugRunnerActor = () =>
     rpcReactor.run(ForwardPeerTrafficActor)
     await rpcReactor.run(ReportPeeringStateActor)
 
-    await sig.withBase(createNodeRuntime()).run(DaemonActor)
+    await sig.withBase(createRuntime()).run(DaemonActor)
 
     const hasTls = sig.readAndTrack(HasTlsSignal)
     if (hasTls) {

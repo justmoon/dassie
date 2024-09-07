@@ -8,3 +8,7 @@ export class NodeRandomImplementation implements Random {
     return bufferToUint8Array(randomBytes(length))
   }
 }
+
+export function createRandom(): Random {
+  return new NodeRandomImplementation()
+}
