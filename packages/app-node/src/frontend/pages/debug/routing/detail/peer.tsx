@@ -1,4 +1,4 @@
-import { PeerRoutingInfo } from "../../../../../backend/routing/signals/routing-table"
+import type { PeerRoutingInfo } from "../../../../../backend/routing/signals/routing-table"
 
 export const PeerRoutingDetail = ({
   firstHopOptions,

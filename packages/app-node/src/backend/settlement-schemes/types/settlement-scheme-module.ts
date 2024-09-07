@@ -1,10 +1,10 @@
 import type { Promisable } from "type-fest"
 
-import { LedgerId } from "../../accounting/constants/ledgers"
+import type { LedgerId } from "../../accounting/constants/ledgers"
 import type { DassieActorContext } from "../../base/types/dassie-base"
 import type { VALID_REALMS } from "../../constants/general"
-import { NodeId } from "../../peer-protocol/types/node-id"
-import { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
+import type { NodeId } from "../../peer-protocol/types/node-id"
+import type { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
 
 export interface SettlementSchemeHostMethods {
   sendMessage: (parameters: {

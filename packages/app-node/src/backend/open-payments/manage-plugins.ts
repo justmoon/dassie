@@ -5,10 +5,13 @@ import { parseIlpPacket } from "@dassie/lib-protocol-ilp"
 import { createActor } from "@dassie/lib-reactive"
 
 import { OwnerLedgerIdSignal } from "../accounting/signals/owner-ledger-id"
-import { DassieActorContext, DassieReactor } from "../base/types/dassie-base"
+import type {
+  DassieActorContext,
+  DassieReactor,
+} from "../base/types/dassie-base"
 import { NodeIlpAddressSignal } from "../ilp-connector/computed/node-ilp-address"
 import { ProcessPacket } from "../ilp-connector/functions/process-packet"
-import { PluginEndpointInfo } from "../ilp-connector/senders/send-plugin-packets"
+import type { PluginEndpointInfo } from "../ilp-connector/senders/send-plugin-packets"
 import { payment as logger } from "../logger/instances"
 import { RoutingTableSignal } from "../routing/signals/routing-table"
 

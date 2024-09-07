@@ -1,6 +1,6 @@
 import { setTimeout } from "node:timers/promises"
 
-import { Reactor, createActor, createMapped } from "@dassie/lib-reactive"
+import { type Reactor, createActor, createMapped } from "@dassie/lib-reactive"
 
 import { StartNode } from "../functions/start-node"
 import { children as logger } from "../logger/instances"

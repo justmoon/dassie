@@ -1,13 +1,13 @@
 import { defaultSelector } from "./actor-context"
 import {
   ReactiveSelector,
-  ReactiveSource,
+  type ReactiveSource,
   defaultComparator,
 } from "./internal/reactive"
-import { Reactor } from "./reactor"
-import { Factory } from "./types/factory"
-import { ReactiveContext } from "./types/reactive-context"
-import { StatefulContext } from "./types/stateful-context"
+import type { Reactor } from "./reactor"
+import type { Factory } from "./types/factory"
+import type { ReactiveContext } from "./types/reactive-context"
+import type { StatefulContext } from "./types/stateful-context"
 
 export class ReactiveContextImplementation<TBase extends object>
   implements StatefulContext<TBase>, ReactiveContext<TBase>

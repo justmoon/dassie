@@ -1,9 +1,9 @@
-import { Reactor } from "@dassie/lib-reactive"
+import type { Reactor } from "@dassie/lib-reactive"
 import { Failure, UnreachableCaseError } from "@dassie/lib-type-utils"
 
 import { IlpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-scheme"
-import { EndpointInfo } from "../../ilp-connector/functions/send-packet"
-import { PeerEndpointInfo } from "../../ilp-connector/senders/send-peer-packets"
+import type { EndpointInfo } from "../../ilp-connector/functions/send-packet"
+import type { PeerEndpointInfo } from "../../ilp-connector/senders/send-peer-packets"
 import { NodeTableStore } from "../../peer-protocol/stores/node-table"
 import { GetLedgerIdForSettlementScheme } from "../../settlement-schemes/functions/get-ledger-id"
 import { RoutingTableSignal } from "../signals/routing-table"

@@ -1,9 +1,9 @@
-import { Promisable } from "type-fest"
+import type { Promisable } from "type-fest"
 
-import { InferSerialize } from "@dassie/lib-oer"
-import { Factory, createTopic } from "@dassie/lib-reactive"
+import type { InferSerialize } from "@dassie/lib-oer"
+import { type Factory, createTopic } from "@dassie/lib-reactive"
 
-import { DassieBase, DassieReactor } from "../../base/types/dassie-base"
+import type { DassieBase, DassieReactor } from "../../base/types/dassie-base"
 import { HandleInterledgerPacket } from "../handlers/interledger-packet"
 import { HandleLinkStateRequest } from "../handlers/link-state-request"
 import { HandleLinkStateUpdate } from "../handlers/link-state-update"
@@ -16,7 +16,7 @@ import { HandleSettlement } from "../handlers/settlement"
 import { HandleSettlementMessage } from "../handlers/settlement-message"
 import type { PeerMessage } from "../peer-schema"
 import { peerMessageResponse } from "../peer-schema"
-import { PeerState } from "../stores/node-table"
+import type { PeerState } from "../stores/node-table"
 
 export interface IncomingPeerMessageEvent<
   TType extends PeerMessageType = PeerMessageType,

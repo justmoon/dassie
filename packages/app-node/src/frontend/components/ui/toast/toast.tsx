@@ -2,9 +2,9 @@ import * as ToastPrimitives from "@radix-ui/react-toast"
 import { type VariantProps, cva } from "class-variance-authority"
 import { XIcon } from "lucide-react"
 import {
-  ComponentPropsWithoutRef,
-  ElementRef,
-  ReactElement,
+  type ComponentPropsWithoutRef,
+  type ElementRef,
+  type ReactElement,
   forwardRef,
 } from "react"
 

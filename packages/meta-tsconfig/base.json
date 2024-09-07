@@ -9,6 +9,7 @@
     "allowImportingTsExtensions": true,
     "allowSyntheticDefaultImports": true,
     "isolatedModules": true,
+    "verbatimModuleSyntax": true,
     "composite": true,
     "declaration": true,
     "emitDeclarationOnly": true,

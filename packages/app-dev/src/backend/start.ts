@@ -1,4 +1,4 @@
-import { ViteDevServer } from "vite"
+import type { ViteDevServer } from "vite"
 import { ViteNodeServer as ViteNodeServerType } from "vite-node/server"
 
 import { createActor, createReactor } from "@dassie/lib-reactive"

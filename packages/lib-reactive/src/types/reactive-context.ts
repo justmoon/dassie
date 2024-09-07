@@ -1,5 +1,5 @@
-import { ReactiveSource } from "../internal/reactive"
-import { Factory } from "./factory"
+import type { ReactiveSource } from "../internal/reactive"
+import type { Factory } from "./factory"
 
 export interface ReactiveContext<TBase extends object> {
   /**

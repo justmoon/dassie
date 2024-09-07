@@ -1,9 +1,9 @@
 import { Client as AcmeClient, crypto as acmeCrypto } from "acme-client"
 import { command } from "cmd-ts"
 
-import { Reactor } from "@dassie/lib-reactive"
+import type { Reactor } from "@dassie/lib-reactive"
 import {
-  Flow,
+  type Flow,
   confirm,
   createFlow,
   header,

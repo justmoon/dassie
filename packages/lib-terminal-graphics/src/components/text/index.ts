@@ -2,7 +2,7 @@ import chalk from "chalk"
 import wrapAnsi from "wrap-ansi"
 
 import { indentString } from "../../helpers/indent-string"
-import { InteractiveTerminalComponent } from "../../types/terminal-component"
+import type { InteractiveTerminalComponent } from "../../types/terminal-component"
 import { cancel, submit } from "../common/actions/finalizations"
 import {
   cursorEnd,

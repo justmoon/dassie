@@ -6,7 +6,7 @@ import path from "node:path"
 
 import { DatabaseConfigStore } from "@dassie/app-node/src/backend/config/database-config"
 import { assert } from "@dassie/lib-logger"
-import { Reactor, createActor } from "@dassie/lib-reactive"
+import { type Reactor, createActor } from "@dassie/lib-reactive"
 
 import { runner as logger } from "../../backend/logger/instances"
 import {

@@ -1,16 +1,16 @@
 import { edwardsToMontgomeryPub, x25519 } from "@noble/curves/ed25519"
 
-import { Reactor } from "@dassie/lib-reactive"
+import type { Reactor } from "@dassie/lib-reactive"
 
 import { ALLOW_ANONYMOUS_USAGE } from "../constants/anonymous-messages"
-import { PeerMessage } from "../peer-schema"
+import type { PeerMessage } from "../peer-schema"
 import {
   OutgoingSessionKeysStore,
   SESSION_KEY_EXPIRY,
 } from "../stores/outgoing-session-keys"
-import { NodeId } from "../types/node-id"
+import type { NodeId } from "../types/node-id"
 import { calculateMessageHmac } from "../utils/calculate-message-hmac"
-import { PeerMessageType } from "./handle-peer-message"
+import type { PeerMessageType } from "./handle-peer-message"
 
 const NO_AUTHENTICATION = {
   type: "NONE",

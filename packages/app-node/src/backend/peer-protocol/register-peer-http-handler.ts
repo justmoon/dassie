@@ -8,7 +8,7 @@ import {
 } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
-import { DassieReactor } from "../base/types/dassie-base"
+import type { DassieReactor } from "../base/types/dassie-base"
 import { HttpsRouter } from "../http-server/values/https-router"
 import { peerProtocol as logger } from "../logger/instances"
 import { ALLOW_ANONYMOUS_USAGE } from "./constants/anonymous-messages"
@@ -16,7 +16,7 @@ import { DASSIE_MESSAGE_CONTENT_TYPE } from "./constants/content-type"
 import { AuthenticatePeerMessage } from "./functions/authenticate-peer-message"
 import {
   HandlePeerMessage,
-  IncomingPeerMessageEvent,
+  type IncomingPeerMessageEvent,
   IncomingPeerMessageTopic,
 } from "./functions/handle-peer-message"
 import { peerMessage as peerMessageSchema } from "./peer-schema"

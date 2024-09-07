@@ -1,6 +1,6 @@
 import { createActor } from "../actor"
 import { createComputed } from "../computed"
-import { Reactor, createReactor } from "../reactor"
+import { type Reactor, createReactor } from "../reactor"
 import { createSignal } from "../signal"
 
 const CountSignal = () => createSignal(0)

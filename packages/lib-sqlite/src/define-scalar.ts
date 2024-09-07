@@ -1,10 +1,10 @@
-import {
+import type {
   DefaultScalarDescriptionGenerics,
   ScalarDescription,
   ScalarDescriptionBuilder,
   ScalarDescriptionGenerics,
 } from "./types/scalar"
-import { SqliteToTypescriptTypeMap } from "./types/sqlite-datatypes"
+import type { SqliteToTypescriptTypeMap } from "./types/sqlite-datatypes"
 import { identity } from "./utils/identity"
 
 const createBuilder = <T extends ScalarDescriptionGenerics>(

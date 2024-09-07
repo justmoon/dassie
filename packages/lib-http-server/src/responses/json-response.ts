@@ -1,10 +1,10 @@
-import { JsonValue } from "type-fest"
+import type { JsonValue } from "type-fest"
 
 import type { BaseRequestContext } from "../types/context"
 import {
   DEFAULT_HTTP_RESPONSE_OPTIONS,
   DefaultHttpResponse,
-  HttpResponseOptions,
+  type HttpResponseOptions,
 } from "./default-http-reponse"
 
 const DEFAULT_JSON_OPTIONS = {

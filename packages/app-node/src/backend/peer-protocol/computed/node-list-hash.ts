@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 
-import { Reactor, createComputed } from "@dassie/lib-reactive"
+import { type Reactor, createComputed } from "@dassie/lib-reactive"
 
 import { SerializedNodeListSignal } from "./serialized-node-list"
 

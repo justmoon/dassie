@@ -11,7 +11,7 @@ import {
   generateIndeterminateProgressBar,
 } from "../../helpers/progress-bar"
 import { maybeUnicode } from "../../helpers/unicode-fallback"
-import { StepStyle } from "../../theme"
+import type { StepStyle } from "../../theme"
 import { type DynamicTerminalComponent } from "../../types/terminal-component"
 
 enableMapSet()

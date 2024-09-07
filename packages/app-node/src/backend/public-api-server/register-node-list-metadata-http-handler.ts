@@ -1,5 +1,5 @@
 import { createJsonResponse } from "@dassie/lib-http-server"
-import { Reactor, createActor } from "@dassie/lib-reactive"
+import { type Reactor, createActor } from "@dassie/lib-reactive"
 
 import { HttpsRouter } from "../http-server/values/https-router"
 import { NodeListHashSignal } from "../peer-protocol/computed/node-list-hash"

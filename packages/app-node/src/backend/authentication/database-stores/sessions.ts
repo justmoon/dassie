@@ -1,9 +1,9 @@
 import { castImmutable, enableMapSet, produce } from "immer"
 
-import { Reactor, createStore } from "@dassie/lib-reactive"
+import { type Reactor, createStore } from "@dassie/lib-reactive"
 
 import { Database } from "../../database/open-database"
-import { SessionToken } from "../types/session-token"
+import type { SessionToken } from "../types/session-token"
 
 enableMapSet()
 

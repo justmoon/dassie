@@ -1,6 +1,6 @@
 import { type ReactNode, createContext, useContext, useState } from "react"
 
-import {
+import type {
   Action,
   BoundAction,
   Factory,

@@ -1,7 +1,7 @@
-import { Tagged } from "type-fest"
+import type { Tagged } from "type-fest"
 import { assertType, describe, test } from "vitest"
 
-import { ColumnDescriptionBuilder, column } from "../src"
+import { type ColumnDescriptionBuilder, column } from "../src"
 
 describe("column schema builder", () => {
   test("should start with a default column definition", ({ expect }) => {

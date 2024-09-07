@@ -1,4 +1,4 @@
-import { AccountInfoResponse, Client } from "xrpl"
+import { type AccountInfoResponse, Client } from "xrpl"
 
 import { isRippledErrorWithId } from "../utils/is-rippled-error"
 

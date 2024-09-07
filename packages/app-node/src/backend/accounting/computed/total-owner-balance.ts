@@ -1,7 +1,7 @@
-import { Reactor, createComputed } from "@dassie/lib-reactive"
+import { type Reactor, createComputed } from "@dassie/lib-reactive"
 
 import { ConvertCurrencyAmounts } from "../../exchange/functions/convert"
-import { LedgerId } from "../constants/ledgers"
+import type { LedgerId } from "../constants/ledgers"
 import { GetCurrencyFromLedgerId } from "../functions/get-currency-from-ledger-id"
 import { OwnerLedgerIdSignal } from "../signals/owner-ledger-id"
 import { LedgerStore } from "../stores/ledger"

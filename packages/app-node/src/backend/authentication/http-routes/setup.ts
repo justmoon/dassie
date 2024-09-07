@@ -22,7 +22,7 @@ import { serializeEd25519Key } from "../../utils/pem"
 import { COOKIE_MAX_AGE_SECONDS } from "../constants/cookie-lifetime"
 import { SessionsStore } from "../database-stores/sessions"
 import { SetupAuthorizationTokenSignal } from "../signals/setup-authorization-token"
-import { SessionToken } from "../types/session-token"
+import type { SessionToken } from "../types/session-token"
 
 export const RegisterSetupRouteActor = (reactor: DassieReactor) => {
   const { random } = reactor.base

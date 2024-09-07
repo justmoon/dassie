@@ -1,6 +1,6 @@
 import { column, table } from "@dassie/lib-sqlite"
 
-import { BtpToken } from "../types/btp-token"
+import type { BtpToken } from "../types/btp-token"
 
 export const btpTokensTable = table({
   name: "btp_tokens",

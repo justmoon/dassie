@@ -1,4 +1,4 @@
-import { Logger, createLogger } from "@dassie/lib-logger"
+import { type Logger, createLogger } from "@dassie/lib-logger"
 
 import * as namespaces from "./namespaces"
 

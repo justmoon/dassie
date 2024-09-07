@@ -1,12 +1,12 @@
-import { SetOptional, Simplify } from "type-fest"
+import type { SetOptional, Simplify } from "type-fest"
 
 import { assert } from "@dassie/lib-logger"
-import { Reactor } from "@dassie/lib-reactive"
+import type { Reactor } from "@dassie/lib-reactive"
 
 import { Database } from "../../database/open-database"
 import { accounting as logger } from "../../logger/instances"
 import PrefixMap from "../../routing/utils/prefix-map"
-import { LedgerId } from "../constants/ledgers"
+import type { LedgerId } from "../constants/ledgers"
 import { EXCEEDS_CREDITS_FAILURE } from "../failures/exceeds-credits"
 import { EXCEEDS_DEBITS_FAILURE } from "../failures/exceeds-debits"
 import InvalidAccountFailure from "../failures/invalid-account"
@@ -14,7 +14,7 @@ import { getLedgerIdFromPath } from "../functions/get-ledger-id-from-path"
 import { PendingTransfersTopic } from "../topics/pending-transfers"
 import { PostedTransfersTopic } from "../topics/posted-transfers"
 import { VoidedTransfersTopic } from "../topics/voided-transfers"
-import { AccountPath } from "../types/account-paths"
+import type { AccountPath } from "../types/account-paths"
 
 export interface LedgerAccount {
   path: string

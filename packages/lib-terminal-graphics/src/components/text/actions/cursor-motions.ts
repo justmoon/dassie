@@ -1,4 +1,4 @@
-import { TextState } from ".."
+import type { TextState } from ".."
 import {
   leftGrapheme,
   leftWord,

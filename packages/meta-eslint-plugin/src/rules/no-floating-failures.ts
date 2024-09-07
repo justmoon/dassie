@@ -4,7 +4,7 @@ import {
   ESLintUtils,
   type TSESLint,
 } from "@typescript-eslint/utils"
-import { TypeChecker } from "typescript"
+import type { TypeChecker } from "typescript"
 
 import { createRule } from "../utils/create-rule"
 import { isSometimesFailureLike } from "../utils/is-failure-like"

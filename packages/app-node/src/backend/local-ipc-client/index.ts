@@ -2,10 +2,10 @@ import superjson from "superjson"
 
 import { createConnection } from "node:net"
 
-import { ScopeContext } from "@dassie/lib-reactive"
+import type { ScopeContext } from "@dassie/lib-reactive"
 import { createClient, createNodejsSocketLink } from "@dassie/lib-rpc/client"
 
-import { AppRouter } from "../rpc-server/app-router"
+import type { AppRouter } from "../rpc-server/app-router"
 
 export const connectIpcClient = (context: ScopeContext) => {
   const ipcSocket = createConnection(

@@ -2,21 +2,21 @@ import type { ConditionalPick, SetReturnType, Tagged } from "type-fest"
 
 import { isObject } from "@dassie/lib-type-utils"
 
-import { ActorContext, ActorContextImplementation } from "./actor-context"
+import { type ActorContext, ActorContextImplementation } from "./actor-context"
 import { type Cancellable, createCancellable } from "./cancellation"
 import { createDeferred } from "./deferred"
 import { ContextBase, FactoryNameSymbol } from "./internal/context-base"
 import {
   CacheStatus,
   CacheUninitialized,
-  ReactiveObserver,
-  ReactiveSource,
+  type ReactiveObserver,
+  type ReactiveSource,
 } from "./internal/reactive"
 import { createReactiveTopic } from "./internal/reactive-topic"
 import { confineScope, createScope } from "./scope"
-import { ReadonlySignal, Reducer, SignalSymbol } from "./signal"
-import { ReadonlyTopic } from "./topic"
-import { ScopeContext } from "./types/scope-context"
+import { type ReadonlySignal, type Reducer, SignalSymbol } from "./signal"
+import type { ReadonlyTopic } from "./topic"
+import type { ScopeContext } from "./types/scope-context"
 import type { StatefulContext } from "./types/stateful-context"
 
 export type Behavior<TReturn = unknown, TBase extends object = object> = (

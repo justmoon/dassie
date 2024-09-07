@@ -1,7 +1,7 @@
-import { NodeId } from "../../peer-protocol/types/node-id"
-import { LedgerId } from "../constants/ledgers"
-import { CreateTransferParameters, Ledger } from "../stores/ledger"
-import {
+import type { NodeId } from "../../peer-protocol/types/node-id"
+import type { LedgerId } from "../constants/ledgers"
+import type { CreateTransferParameters, Ledger } from "../stores/ledger"
+import type {
   AssetsInterledgerPeerAccount,
   AssetsOnLedgerAccount,
 } from "../types/account-paths"

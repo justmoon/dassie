@@ -1,7 +1,7 @@
 import { ScrollArea } from "@radix-ui/react-scroll-area"
 import { useMemo } from "react"
 
-import { StateKeys } from "../state"
+import type { StateKeys } from "../state"
 import { ActorNode } from "./actor-node"
 
 interface ActorsProperties {

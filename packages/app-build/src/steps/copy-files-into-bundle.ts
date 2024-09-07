@@ -2,13 +2,13 @@
 import { chmod, copyFile, cp, mkdir } from "node:fs/promises"
 import path from "node:path"
 
-import { Architecture } from "../constants/architectures"
+import type { Architecture } from "../constants/architectures"
 import {
   PATH_DIST_STAGING_SHARED,
   PATH_RESOURCES_LAUNCHER,
   PATH_RESOURCES_SYSTEMD,
 } from "../constants/paths"
-import { DassieVersion } from "../constants/version"
+import type { DassieVersion } from "../constants/version"
 import { getBundlePath, getStagingPath } from "../utils/dynamic-paths"
 
 export const copyFilesIntoBundle = async (

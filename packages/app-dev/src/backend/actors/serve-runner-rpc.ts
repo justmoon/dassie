@@ -1,6 +1,6 @@
 import { createServer } from "node:net"
 
-import { Reactor, createActor } from "@dassie/lib-reactive"
+import { type Reactor, createActor } from "@dassie/lib-reactive"
 import {
   createNodejsSocketAdapter,
   createServer as createRpcServer,

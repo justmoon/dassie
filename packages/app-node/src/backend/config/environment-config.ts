@@ -1,12 +1,12 @@
 import envPaths from "env-paths"
-import { ZodTypeAny, z } from "zod"
+import { type ZodTypeAny, z } from "zod"
 
 import { DEV_SECURITY_TOKEN_LENGTH } from "../../common/constants/general"
 import { DEFAULT_BOOTSTRAP_NODES } from "../constants/bootstrap-nodes"
 import { APP_NAME, VALID_REALMS } from "../constants/general"
 import type { LogLevelOption } from "../logger/signals/stdout-log-level"
 import { nodeIdSchema } from "./schemas/node-id"
-import { EnvironmentVariables } from "./types/environment-variables"
+import type { EnvironmentVariables } from "./types/environment-variables"
 
 export type RealmType = (typeof VALID_REALMS)[number]
 

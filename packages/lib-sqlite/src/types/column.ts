@@ -1,5 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { SqliteDataType, SqliteToTypescriptTypeMap } from "./sqlite-datatypes"
+import type {
+  SqliteDataType,
+  SqliteToTypescriptTypeMap,
+} from "./sqlite-datatypes"
 
 export interface ColumnDescriptionGenerics {
   sqliteType: SqliteDataType

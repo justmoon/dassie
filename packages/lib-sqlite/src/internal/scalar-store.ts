@@ -2,7 +2,7 @@ import type { Database } from "better-sqlite3"
 
 import { column } from "../define-column"
 import { table } from "../define-table"
-import {
+import type {
   InferScalarReadType,
   InferScalarSqliteType,
   InferScalarWriteType,

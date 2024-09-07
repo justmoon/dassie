@@ -1,4 +1,4 @@
-import { Reactor } from "@dassie/lib-reactive"
+import type { Reactor } from "@dassie/lib-reactive"
 
 import { DatabaseConfigStore } from "../../config/database-config"
 import { ilpHttp as logger } from "../../logger/instances"

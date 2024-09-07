@@ -1,5 +1,9 @@
 import * as TabsPrimitive from "@radix-ui/react-tabs"
-import { ComponentPropsWithoutRef, ElementRef, forwardRef } from "react"
+import {
+  type ComponentPropsWithoutRef,
+  type ElementRef,
+  forwardRef,
+} from "react"
 
 import { combine } from "../../utils/class-helper"
 

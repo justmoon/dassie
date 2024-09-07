@@ -3,7 +3,7 @@ import {
   createCliFormatter,
   context as loggingContext,
 } from "@dassie/lib-logger"
-import { Reactor, createActor } from "@dassie/lib-reactive"
+import { type Reactor, createActor } from "@dassie/lib-reactive"
 
 import { LogsStore } from "../../common/stores/logs"
 

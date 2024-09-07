@@ -1,4 +1,4 @@
-import { ActorContext, Reactor } from "@dassie/lib-reactive"
+import type { ActorContext, Reactor } from "@dassie/lib-reactive"
 import type { Random, Time } from "@dassie/lib-reactive"
 
 export interface DassieBase {

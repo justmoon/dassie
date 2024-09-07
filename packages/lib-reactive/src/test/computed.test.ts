@@ -1,7 +1,7 @@
 import { describe, test, vi } from "vitest"
 
 import {
-  ComputationContext,
+  type ComputationContext,
   createComputed,
   createReactor,
   createSignal,

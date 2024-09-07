@@ -1,9 +1,9 @@
 import { castImmutable, enableMapSet, produce } from "immer"
 
-import { Reactor, createStore } from "@dassie/lib-reactive"
+import { type Reactor, createStore } from "@dassie/lib-reactive"
 
 import { Database } from "../../database/open-database"
-import { BtpToken } from "../types/btp-token"
+import type { BtpToken } from "../types/btp-token"
 
 enableMapSet()
 

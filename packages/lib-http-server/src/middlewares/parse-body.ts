@@ -1,9 +1,9 @@
 import { parse as secureJsonParse } from "secure-json-parse"
-import { JsonValue } from "type-fest"
+import type { JsonValue } from "type-fest"
 import { concatUint8Arrays, uint8ArrayToString } from "uint8array-extras"
-import { infer as InferZodType, ZodTypeAny } from "zod"
+import type { infer as InferZodType, ZodTypeAny } from "zod"
 
-import { AnyOerType, Infer as InferOerType } from "@dassie/lib-oer"
+import type { AnyOerType, Infer as InferOerType } from "@dassie/lib-oer"
 import { isFailure } from "@dassie/lib-type-utils"
 
 import { DEFAULT_MAX_BODY_SIZE } from "../constants"

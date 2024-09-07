@@ -1,5 +1,5 @@
-import { ReadonlyTopic, TopicImplementation } from "../topic"
-import { Reactive, ReactiveSource, defaultComparator } from "./reactive"
+import { type ReadonlyTopic, TopicImplementation } from "../topic"
+import { Reactive, type ReactiveSource, defaultComparator } from "./reactive"
 
 class ReactiveProxy<T> extends Reactive<T> {
   constructor(

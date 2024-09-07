@@ -1,6 +1,9 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { DassieActorContext, DassieReactor } from "../base/types/dassie-base"
+import type {
+  DassieActorContext,
+  DassieReactor,
+} from "../base/types/dassie-base"
 import { NodeIdSignal } from "../ilp-connector/computed/node-id"
 import { peerProtocol as logger } from "../logger/instances"
 import { ManageSettlementSchemeInstancesActor } from "../settlement-schemes/manage-settlement-scheme-instances"
@@ -8,7 +11,7 @@ import { ActiveSettlementSchemesSignal } from "../settlement-schemes/signals/act
 import { PeersSignal } from "./computed/peers"
 import { SendPeerMessage } from "./functions/send-peer-message"
 import { NodeTableStore } from "./stores/node-table"
-import { SettlementSchemeId } from "./types/settlement-scheme-id"
+import type { SettlementSchemeId } from "./types/settlement-scheme-id"
 
 const PEERING_CHECK_INTERVAL = 1000
 

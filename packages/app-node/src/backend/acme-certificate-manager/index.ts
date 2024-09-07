@@ -1,6 +1,6 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { DassieActorContext } from "../base/types/dassie-base"
+import type { DassieActorContext } from "../base/types/dassie-base"
 import { ServeTokensActor } from "./serve-tokens"
 import { UpdateAcmeCertificateActor } from "./update-acme-certificate"
 

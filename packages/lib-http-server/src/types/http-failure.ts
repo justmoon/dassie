@@ -1,6 +1,6 @@
 import { Failure } from "@dassie/lib-type-utils"
 
-import { HttpResult } from "./http-result"
+import type { HttpResult } from "./http-result"
 
 export interface HttpFailure extends Failure, HttpResult {
   readonly statusCode: number

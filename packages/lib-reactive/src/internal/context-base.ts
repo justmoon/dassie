@@ -1,4 +1,4 @@
-import { Reactor } from "../reactor"
+import type { Reactor } from "../reactor"
 
 /**
  * The reactor will automatically set this property on each instantiated object.

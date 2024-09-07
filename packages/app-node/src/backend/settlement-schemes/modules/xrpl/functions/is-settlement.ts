@@ -1,11 +1,11 @@
-import { TransactionStream } from "xrpl"
+import type { TransactionStream } from "xrpl"
 
-import { Reactor } from "@dassie/lib-reactive"
+import type { Reactor } from "@dassie/lib-reactive"
 
 import { NodeIdSignal } from "../../../../ilp-connector/computed/node-id"
 import { settlementXrpl as logger } from "../../../../logger/instances"
 import { NodeTableStore } from "../../../../peer-protocol/stores/node-table"
-import { NodeId } from "../../../../peer-protocol/types/node-id"
+import type { NodeId } from "../../../../peer-protocol/types/node-id"
 import { XRP_SETTLEMENT_MEMO_TYPE } from "../constants/settlement-memo-type"
 
 type IsSettlementResult =

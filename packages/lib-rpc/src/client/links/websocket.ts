@@ -1,7 +1,7 @@
 import { createTopic } from "@dassie/lib-reactive"
 
 import type { WebSocketImplementation } from "../../common/types/websocket"
-import { WebSocketConstructor } from "../../common/types/websocket"
+import type { WebSocketConstructor } from "../../common/types/websocket"
 import {
   type ExponentialBackoffParameters,
   createExponentialBackoffCalculator,

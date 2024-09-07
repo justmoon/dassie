@@ -3,8 +3,8 @@ import wrapAnsi from "wrap-ansi"
 
 import { indentString } from "../../helpers/indent-string"
 import { maybeUnicode } from "../../helpers/unicode-fallback"
-import { StepStyle } from "../../theme"
-import { StaticTerminalComponent } from "../../types/terminal-component"
+import type { StepStyle } from "../../theme"
+import type { StaticTerminalComponent } from "../../types/terminal-component"
 
 export interface NoteOptions {
   style?: StepStyle

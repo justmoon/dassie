@@ -1,11 +1,11 @@
-import { IlpPacket, IlpType } from "@dassie/lib-protocol-ilp"
+import { type IlpPacket, IlpType } from "@dassie/lib-protocol-ilp"
 
-import { DassieReactor } from "../../base/types/dassie-base"
+import type { DassieReactor } from "../../base/types/dassie-base"
 import { connector as logger } from "../../logger/instances"
 import { ProcessFulfillPacket } from "./process-fulfill-packet"
 import { ProcessPreparePacket } from "./process-prepare-packet"
 import { ProcessRejectPacket } from "./process-reject-packet"
-import { EndpointInfo } from "./send-packet"
+import type { EndpointInfo } from "./send-packet"
 
 export interface ProcessIncomingPacketParameters<
   TType extends IlpType = IlpType,

@@ -1,7 +1,10 @@
 import { createActor } from "@dassie/lib-reactive"
 import { isFailure, tell } from "@dassie/lib-type-utils"
 
-import { DassieActorContext, DassieReactor } from "../base/types/dassie-base"
+import type {
+  DassieActorContext,
+  DassieReactor,
+} from "../base/types/dassie-base"
 import { peerProtocol as logger } from "../logger/instances"
 import { PeersSignal } from "./computed/peers"
 import { SendPeerMessage } from "./functions/send-peer-message"

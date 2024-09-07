@@ -1,9 +1,9 @@
 import { isError } from "@dassie/lib-logger"
 import { IlpErrorCode } from "@dassie/lib-protocol-ilp"
 
-import { DassieReactor } from "../../base/types/dassie-base"
+import type { DassieReactor } from "../../base/types/dassie-base"
 import { connector as logger } from "../../logger/instances"
-import { EndpointInfo } from "./send-packet"
+import type { EndpointInfo } from "./send-packet"
 import { TriggerLateRejection } from "./trigger-late-rejection"
 
 export interface ScheduleTimeoutParameters {

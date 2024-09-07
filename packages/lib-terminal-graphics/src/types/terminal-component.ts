@@ -1,8 +1,8 @@
-import { Key } from "node:readline"
+import type { Key } from "node:readline"
 
 import type { ReadonlySignal } from "@dassie/lib-reactive"
 
-import { RenderEnvironment } from "./render-environment"
+import type { RenderEnvironment } from "./render-environment"
 
 export type TerminalComponentState = object
 

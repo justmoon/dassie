@@ -1,6 +1,9 @@
 import { createHmac } from "node:crypto"
 
-import { SEED_PATH_NODE, SeedPath } from "../../../common/constants/seed-paths"
+import {
+  SEED_PATH_NODE,
+  type SeedPath,
+} from "../../../common/constants/seed-paths"
 
 export const getPrivateSeedAtPath = (
   nodePrivateKey: Uint8Array,

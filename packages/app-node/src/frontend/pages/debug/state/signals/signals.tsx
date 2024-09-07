@@ -2,7 +2,7 @@ import { useState } from "react"
 
 import { ScrollArea } from "../../../../components/ui/scroll-area"
 import { combine } from "../../../../utils/class-helper"
-import { StateKeys } from "../state"
+import type { StateKeys } from "../state"
 import { SignalState } from "./signal-state"
 
 interface SignalsProperties {

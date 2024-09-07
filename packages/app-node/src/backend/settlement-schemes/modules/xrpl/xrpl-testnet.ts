@@ -6,7 +6,7 @@ import type { SettlementSchemeModule } from "../../types/settlement-scheme-modul
 import { CreateSettlementEngine } from "./functions/create-settlement-engine"
 import { getAccountInfo } from "./functions/get-account-info"
 import { loadOrCreateWallet } from "./functions/load-wallet"
-import { XrplPeerState } from "./types/peer-state"
+import type { XrplPeerState } from "./types/peer-state"
 
 const XRP_ON_LEDGER_SCALE = 6
 const XRP_INTERNAL_SCALE = 9

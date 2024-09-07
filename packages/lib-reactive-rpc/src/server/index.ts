@@ -1,11 +1,11 @@
-import {
+import type {
   Action,
   ActorContext,
-  type Factory,
+  Factory,
   InferChanges,
-  type Reactor,
+  Reactor,
   ReadonlySignal,
-  type ReadonlyTopic,
+  ReadonlyTopic,
   Store,
 } from "@dassie/lib-reactive"
 import { type Subscription, createSubscription } from "@dassie/lib-rpc/server"

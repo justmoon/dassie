@@ -1,4 +1,4 @@
-import { EnvironmentVariables } from "@dassie/app-node/src/backend/config/types/environment-variables"
+import type { EnvironmentVariables } from "@dassie/app-node/src/backend/config/types/environment-variables"
 
 export interface RunnerEnvironment extends EnvironmentVariables {
   readonly DASSIE_DEV_ROOT?: string

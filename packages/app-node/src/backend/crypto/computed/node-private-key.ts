@@ -1,5 +1,5 @@
 import { assert } from "@dassie/lib-logger"
-import { Reactor, createComputed } from "@dassie/lib-reactive"
+import { type Reactor, createComputed } from "@dassie/lib-reactive"
 
 import {
   DatabaseConfigStore,

@@ -3,14 +3,19 @@ import { isObject } from "@dassie/lib-type-utils"
 import { FactoryNameSymbol } from "./internal/context-base"
 import {
   Reactive,
-  ReactiveSource,
+  type ReactiveSource,
   defaultComparator,
 } from "./internal/reactive"
-import { DisposableScope, Scope, confineScope, createScope } from "./scope"
-import { ReadonlyTopic, createTopic } from "./topic"
-import { Factory } from "./types/factory"
-import { ScopeContext } from "./types/scope-context"
-import { StatefulContext } from "./types/stateful-context"
+import {
+  type DisposableScope,
+  type Scope,
+  confineScope,
+  createScope,
+} from "./scope"
+import { type ReadonlyTopic, createTopic } from "./topic"
+import type { Factory } from "./types/factory"
+import type { ScopeContext } from "./types/scope-context"
+import type { StatefulContext } from "./types/stateful-context"
 
 export const MappedSymbol = Symbol("das:reactive:map")
 

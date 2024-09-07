@@ -5,9 +5,9 @@ import path from "node:path"
 
 import { UnreachableCaseError } from "@dassie/lib-type-utils"
 
-import { Architecture } from "../constants/architectures"
-import { Compression } from "../constants/compression"
-import { DassieVersion } from "../constants/version"
+import type { Architecture } from "../constants/architectures"
+import type { Compression } from "../constants/compression"
+import type { DassieVersion } from "../constants/version"
 import { getCompressedPath, getTarPath } from "../utils/bundle-name"
 
 export const compressBundle = async (

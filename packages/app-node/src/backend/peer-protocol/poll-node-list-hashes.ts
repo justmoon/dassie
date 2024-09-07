@@ -3,12 +3,15 @@ import pMap from "p-map"
 
 import { createActor } from "@dassie/lib-reactive"
 
-import { DassieActorContext, DassieReactor } from "../base/types/dassie-base"
+import type {
+  DassieActorContext,
+  DassieReactor,
+} from "../base/types/dassie-base"
 import { EnvironmentConfig } from "../config/environment-config"
 import { NODE_LIST_HASH_POLLING_INTERVAL } from "./constants/timings"
 import { SendPeerMessage } from "./functions/send-peer-message"
 import { BootstrapNodeListHashesSignal } from "./signals/bootstrap-node-list-hashes"
-import { NodeId } from "./types/node-id"
+import type { NodeId } from "./types/node-id"
 
 enableMapSet()
 

@@ -1,7 +1,7 @@
-import { Tagged } from "type-fest"
+import type { Tagged } from "type-fest"
 
-import { IlpAllocationScheme } from "../../config/computed/ilp-allocation-scheme"
-import { NodeId } from "../../peer-protocol/types/node-id"
+import type { IlpAllocationScheme } from "../../config/computed/ilp-allocation-scheme"
+import type { NodeId } from "../../peer-protocol/types/node-id"
 
 export type IlpAddress = DassieIlpAddress | IldcpIlpAddress | IlpHttpIlpAddress
 

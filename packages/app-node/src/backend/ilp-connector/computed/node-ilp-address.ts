@@ -1,7 +1,7 @@
-import { Reactor, createComputed } from "@dassie/lib-reactive"
+import { type Reactor, createComputed } from "@dassie/lib-reactive"
 
 import { IlpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-scheme"
-import { DassieIlpAddress } from "../types/ilp-address"
+import type { DassieIlpAddress } from "../types/ilp-address"
 import { NodeIdSignal } from "./node-id"
 
 export const NodeIlpAddressSignal = (reactor: Reactor) =>

@@ -1,9 +1,9 @@
 import { z } from "zod"
 
-import { NamespacedScalars, scalar } from "@dassie/lib-sqlite"
+import { type NamespacedScalars, scalar } from "@dassie/lib-sqlite"
 
 import { VALID_REALMS } from "../../constants/general"
-import { RealmType } from "../environment-config"
+import type { RealmType } from "../environment-config"
 
 export const portSchema = z.coerce.number().int().min(1).max(65_535)
 

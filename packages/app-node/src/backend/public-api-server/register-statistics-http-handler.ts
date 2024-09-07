@@ -1,5 +1,5 @@
 import { createJsonResponse } from "@dassie/lib-http-server"
-import { Reactor, createActor } from "@dassie/lib-reactive"
+import { type Reactor, createActor } from "@dassie/lib-reactive"
 
 import { DatabaseConfigStore } from "../config/database-config"
 import { NodePublicKeySignal } from "../crypto/computed/node-public-key"

@@ -1,6 +1,6 @@
 import { describe, test, vi } from "vitest"
 
-import { Reactor, createActor, createReactor } from ".."
+import { type Reactor, createActor, createReactor } from ".."
 
 describe("createReactor", () => {
   test("should create a reactor", ({ expect }) => {

@@ -1,33 +1,37 @@
-import { Promisable } from "type-fest"
+import type { Promisable } from "type-fest"
 
 import { type Actor, type RunOptions } from "./actor"
 import type { Cancellable } from "./cancellation"
 import { FactoryNameSymbol } from "./internal/context-base"
-import { Listener } from "./internal/emit-to-listener"
+import type { Listener } from "./internal/emit-to-listener"
 import { type ReactiveSource } from "./internal/reactive"
 import {
-  ScheduledTask,
-  TaskDescriptor,
+  type ScheduledTask,
+  type TaskDescriptor,
   createScheduledTask,
 } from "./internal/scheduled-task"
-import { WrappedCallback, wrapCallback } from "./internal/wrap-callback"
-import { Mapped } from "./mapped"
+import { type WrappedCallback, wrapCallback } from "./internal/wrap-callback"
+import type { Mapped } from "./mapped"
 import { ReactiveContextImplementation } from "./reactive-context"
-import { Reactor } from "./reactor"
-import { DisposableScopeImplementation, Scope, confineScope } from "./scope"
+import type { Reactor } from "./reactor"
+import {
+  DisposableScopeImplementation,
+  type Scope,
+  confineScope,
+} from "./scope"
 import { type ReadonlySignal, SignalSymbol } from "./signal"
 import type { ReadonlyTopic, TopicSymbol } from "./topic"
-import { Time } from "./types/base-modules/time"
+import type { Time } from "./types/base-modules/time"
 import type { CancelableContext } from "./types/cancelable-context"
-import { ExecutionContext } from "./types/execution-context"
-import { Factory } from "./types/factory"
-import { ReactiveContext } from "./types/reactive-context"
-import {
+import type { ExecutionContext } from "./types/execution-context"
+import type { Factory } from "./types/factory"
+import type { ReactiveContext } from "./types/reactive-context"
+import type {
   DisposableScopeContext,
   ScopeContext,
   ScopeContextShortcuts,
 } from "./types/scope-context"
-import { StatefulContext } from "./types/stateful-context"
+import type { StatefulContext } from "./types/stateful-context"
 
 export const defaultSelector = <T>(value: T) => value
 

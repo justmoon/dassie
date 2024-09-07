@@ -1,4 +1,8 @@
-import { ComponentPropsWithoutRef, ElementRef, forwardRef } from "react"
+import {
+  type ComponentPropsWithoutRef,
+  type ElementRef,
+  forwardRef,
+} from "react"
 
 export const Logo = forwardRef<
   ElementRef<"svg">,

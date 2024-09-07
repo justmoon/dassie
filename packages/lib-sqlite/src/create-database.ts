@@ -10,9 +10,9 @@ import {
   createScalarStore,
   scalarTable,
 } from "./internal/scalar-store"
-import { InferKyselySchema } from "./types/kysely-schema"
+import type { InferKyselySchema } from "./types/kysely-schema"
 import type { MigrationDefinition } from "./types/migration"
-import { ScalarDescriptionBuilder } from "./types/scalar"
+import type { ScalarDescriptionBuilder } from "./types/scalar"
 import type { TableDescription } from "./types/table"
 import { migrate } from "./utils/migrate"
 

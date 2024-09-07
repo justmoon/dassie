@@ -1,15 +1,15 @@
 import {
   IlpErrorCode,
-  IlpPacket,
+  type IlpPacket,
   IlpType,
   serializeIlpPacket,
 } from "@dassie/lib-protocol-ilp"
 
-import { DassieReactor } from "../../base/types/dassie-base"
+import type { DassieReactor } from "../../base/types/dassie-base"
 import { connector as logger } from "../../logger/instances"
 import { NodeIlpAddressSignal } from "../computed/node-ilp-address"
 import { ProcessRejectPacket } from "./process-reject-packet"
-import { EndpointInfo } from "./send-packet"
+import type { EndpointInfo } from "./send-packet"
 
 export interface LateRejectionParameters {
   sourceEndpointInfo: EndpointInfo

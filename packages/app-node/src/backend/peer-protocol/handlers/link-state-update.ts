@@ -1,4 +1,4 @@
-import { Reactor } from "@dassie/lib-reactive"
+import type { Reactor } from "@dassie/lib-reactive"
 import { isFailure } from "@dassie/lib-type-utils"
 
 import { peerProtocol as logger } from "../../logger/instances"

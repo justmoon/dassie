@@ -3,7 +3,7 @@ import superjson from "superjson"
 import { createActor } from "@dassie/lib-reactive"
 import { type InboundConnection, createServer } from "@dassie/lib-rpc/server"
 
-import { DassieActorContext } from "../../base/types/dassie-base"
+import type { DassieActorContext } from "../../base/types/dassie-base"
 import { ipc as logger } from "../../logger/instances"
 import { appRouter } from "../../rpc-server/app-router"
 

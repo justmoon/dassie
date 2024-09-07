@@ -1,4 +1,4 @@
-import { Reactor, createComputed } from "@dassie/lib-reactive"
+import { type Reactor, createComputed } from "@dassie/lib-reactive"
 
 import { peerMessageResponse } from "../peer-schema"
 import { NodeSetSignal } from "./node-set"

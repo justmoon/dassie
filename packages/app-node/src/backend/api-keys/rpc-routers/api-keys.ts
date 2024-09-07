@@ -5,7 +5,7 @@ import { createRouter } from "@dassie/lib-rpc/server"
 
 import { protectedRoute } from "../../rpc-server/route-types/protected"
 import { BtpTokensStore } from "../database-stores/btp-tokens"
-import { BtpToken } from "../types/btp-token"
+import type { BtpToken } from "../types/btp-token"
 
 const btpTokenSchema = z
   .string()

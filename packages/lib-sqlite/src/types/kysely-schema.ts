@@ -1,7 +1,7 @@
-import { Generated } from "kysely"
+import type { Generated } from "kysely"
 
-import { ColumnDescription, InferColumnTypescriptType } from "./column"
-import { TableDescription } from "./table"
+import type { ColumnDescription, InferColumnTypescriptType } from "./column"
+import type { TableDescription } from "./table"
 
 export type InferKyselySchema<
   TTables extends Record<string, TableDescription> | undefined,

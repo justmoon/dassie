@@ -1,7 +1,7 @@
 import { createServer } from "node:http"
 
 import { createActor } from "../actor"
-import { Reactor, createReactor } from "../reactor"
+import { type Reactor, createReactor } from "../reactor"
 import { createSignal } from "../signal"
 
 const ConfigSignal = () => createSignal({ port: 3000 })

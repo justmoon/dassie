@@ -1,7 +1,7 @@
 import type { Reactor } from "@dassie/lib-reactive"
 
-import { LedgerId } from "../../accounting/constants/ledgers"
-import { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
+import type { LedgerId } from "../../accounting/constants/ledgers"
+import type { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
 import { LoadedSettlementModulesStore } from "../stores/loaded-settlement-modules"
 
 /**

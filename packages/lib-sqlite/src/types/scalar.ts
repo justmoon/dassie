@@ -1,6 +1,9 @@
-import { CamelCase, SnakeCase } from "type-fest"
+import type { CamelCase, SnakeCase } from "type-fest"
 
-import { SqliteDataType, SqliteToTypescriptTypeMap } from "./sqlite-datatypes"
+import type {
+  SqliteDataType,
+  SqliteToTypescriptTypeMap,
+} from "./sqlite-datatypes"
 
 export interface ScalarDescriptionGenerics {
   name: string | undefined

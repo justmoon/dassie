@@ -1,6 +1,6 @@
-import { InferRow, column, table } from "@dassie/lib-sqlite"
+import { type InferRow, column, table } from "@dassie/lib-sqlite"
 
-import { LedgerId } from "../../accounting/constants/ledgers"
+import type { LedgerId } from "../../accounting/constants/ledgers"
 
 export const outgoingPaymentTable = table({
   name: "outgoing_payment",

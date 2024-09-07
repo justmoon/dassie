@@ -2,7 +2,7 @@ import { binary, run, subcommands } from "cmd-ts"
 
 import process from "node:process"
 
-import { Reactor } from "@dassie/lib-reactive"
+import type { Reactor } from "@dassie/lib-reactive"
 
 import { DaemonCommand } from "./commands/daemon"
 import { InitCommand } from "./commands/init"

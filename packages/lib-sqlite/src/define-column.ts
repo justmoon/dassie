@@ -1,10 +1,10 @@
-import {
+import type {
   ColumnDescription,
   ColumnDescriptionBuilder,
   ColumnDescriptionGenerics,
   DefaultColumnDescriptionGenerics,
 } from "./types/column"
-import { SqliteToTypescriptTypeMap } from "./types/sqlite-datatypes"
+import type { SqliteToTypescriptTypeMap } from "./types/sqlite-datatypes"
 
 const createBuilder = <T extends ColumnDescriptionGenerics>(
   description: ColumnDescription<T>,

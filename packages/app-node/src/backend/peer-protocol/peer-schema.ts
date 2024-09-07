@@ -1,5 +1,5 @@
 import {
-  AnyOerType,
+  type AnyOerType,
   type Infer,
   boolean,
   captured,
@@ -21,8 +21,8 @@ import {
 } from "@dassie/lib-oer"
 
 import { dassiePeerNodeInfoId } from "../constants/object-identifiers"
-import { NodeId } from "./types/node-id"
-import { SettlementSchemeId } from "./types/settlement-scheme-id"
+import type { NodeId } from "./types/node-id"
+import type { SettlementSchemeId } from "./types/settlement-scheme-id"
 
 export type PeerMessage = Infer<typeof peerMessage>
 

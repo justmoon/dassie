@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { NodeId } from "../../peer-protocol/types/node-id"
+import type { NodeId } from "../../peer-protocol/types/node-id"
 
 // TODO: Enforce valid characters
 export const nodeIdSchema = z

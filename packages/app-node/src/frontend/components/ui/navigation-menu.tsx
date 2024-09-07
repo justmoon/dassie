@@ -1,7 +1,11 @@
 import * as NavigationMenuPrimitive from "@radix-ui/react-navigation-menu"
 import { cva } from "class-variance-authority"
 import { ChevronDown } from "lucide-react"
-import { ComponentPropsWithoutRef, ElementRef, forwardRef } from "react"
+import {
+  type ComponentPropsWithoutRef,
+  type ElementRef,
+  forwardRef,
+} from "react"
 
 import { combine as cn } from "../../utils/class-helper"
 

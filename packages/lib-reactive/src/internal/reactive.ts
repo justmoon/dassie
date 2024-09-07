@@ -1,4 +1,4 @@
-import { Tagged } from "type-fest"
+import type { Tagged } from "type-fest"
 
 import { defaultSelector } from "../actor-context"
 import { ContextBase } from "./context-base"

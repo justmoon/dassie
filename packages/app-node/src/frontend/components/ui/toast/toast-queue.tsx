@@ -1,7 +1,7 @@
-import { ReactNode } from "react"
+import type { ReactNode } from "react"
 import { create } from "zustand"
 
-import { ToastActionElement, ToastProperties } from "./toast"
+import type { ToastActionElement, ToastProperties } from "./toast"
 
 const TOAST_LIMIT = 5
 const TOAST_REMOVE_DELAY = 1_000_000

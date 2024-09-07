@@ -4,7 +4,7 @@ import { setImmediate } from "node:timers/promises"
 
 import { createActor } from "../actor"
 import { createMapped } from "../mapped"
-import { Reactor, createReactor } from "../reactor"
+import { type Reactor, createReactor } from "../reactor"
 import { createSignal } from "../signal"
 
 enableMapSet()

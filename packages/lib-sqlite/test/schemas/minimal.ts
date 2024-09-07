@@ -1,4 +1,4 @@
-import { DatabaseSchema, column, table } from "../../src"
+import { type DatabaseSchema, column, table } from "../../src"
 
 export default {
   applicationId: 0x0e_ef_be_ef,

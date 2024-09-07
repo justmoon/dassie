@@ -1,4 +1,4 @@
-import { NewToast, ToasterToast, useToastQueue } from "./toast-queue"
+import { type NewToast, type ToasterToast, useToastQueue } from "./toast-queue"
 
 function toast(newToast: NewToast) {
   const { addToast, updateToast, dismissToast } = useToastQueue.getState()

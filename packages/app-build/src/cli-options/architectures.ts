@@ -1,8 +1,8 @@
-import { Type } from "cmd-ts"
+import type { Type } from "cmd-ts"
 import { z } from "zod"
 
 import {
-  Architecture,
+  type Architecture,
   SUPPORTED_ARCHITECTURES,
 } from "../constants/architectures"
 

@@ -1,9 +1,9 @@
 import { enableMapSet, produce } from "immer"
 
-import { Reactor, createComputed } from "@dassie/lib-reactive"
+import { type Reactor, createComputed } from "@dassie/lib-reactive"
 import { UnreachableCaseError } from "@dassie/lib-type-utils"
 
-import { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
+import type { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
 import { SettlementSchemesStore } from "../database-stores/settlement-schemes"
 
 enableMapSet()

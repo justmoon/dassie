@@ -1,7 +1,7 @@
 import { IlpType } from "@dassie/lib-protocol-ilp"
 import { isFailure } from "@dassie/lib-type-utils"
 
-import { FrameType, StreamFrame } from "../packets/schema"
+import { FrameType, type StreamFrame } from "../packets/schema"
 import { createInitialStreamState } from "../stream/initialize"
 import {
   fulfillSend,

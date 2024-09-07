@@ -1,6 +1,6 @@
 import type SQLite from "better-sqlite3"
 
-import { TableDescription } from "../types/table"
+import type { TableDescription } from "../types/table"
 
 interface SqliteTableSchema {
   schema: string

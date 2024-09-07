@@ -1,13 +1,13 @@
 import { cva } from "class-variance-authority"
 import { type ClassValue, clsx } from "clsx"
 import {
-  ComponentProps,
-  ComponentType,
-  ElementRef,
-  ForwardRefExoticComponent,
+  type ComponentProps,
+  type ComponentType,
+  type ElementRef,
+  type ForwardRefExoticComponent,
   type JSX,
-  PropsWithoutRef,
-  RefAttributes,
+  type PropsWithoutRef,
+  type RefAttributes,
   createElement,
   forwardRef,
 } from "react"

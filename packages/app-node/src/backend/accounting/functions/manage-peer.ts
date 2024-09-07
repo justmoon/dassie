@@ -1,9 +1,9 @@
 import { isFailure } from "@dassie/lib-type-utils"
 
-import { NodeId } from "../../peer-protocol/types/node-id"
-import { LedgerId } from "../constants/ledgers"
-import { Ledger } from "../stores/ledger"
-import {
+import type { NodeId } from "../../peer-protocol/types/node-id"
+import type { LedgerId } from "../constants/ledgers"
+import type { Ledger } from "../stores/ledger"
+import type {
   AssetsInterledgerPeerAccount,
   ContraTrustPeerAccount,
 } from "../types/account-paths"

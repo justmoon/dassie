@@ -1,5 +1,9 @@
 import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area"
-import { ComponentPropsWithoutRef, ElementRef, forwardRef } from "react"
+import {
+  type ComponentPropsWithoutRef,
+  type ElementRef,
+  forwardRef,
+} from "react"
 
 import { combine } from "../../utils/class-helper"
 

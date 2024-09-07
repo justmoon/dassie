@@ -1,7 +1,7 @@
 import { Failure } from "@dassie/lib-type-utils"
 
 import type { BaseRequestContext } from "../types/context"
-import { HttpFailure } from "../types/http-failure"
+import type { HttpFailure } from "../types/http-failure"
 import { getResponseOptionsFromContext } from "../utils/get-response-from-context"
 
 export abstract class DefaultHttpFailure

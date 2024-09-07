@@ -1,4 +1,4 @@
-import { ActorContext, createActor, createReactor } from ".."
+import { type ActorContext, createActor, createReactor } from ".."
 
 interface Io {
   read(): string

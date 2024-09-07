@@ -1,6 +1,6 @@
 import { on } from "node:events"
 import { stdin } from "node:process"
-import { Key, emitKeypressEvents } from "node:readline"
+import { type Key, emitKeypressEvents } from "node:readline"
 import { ReadStream } from "node:tty"
 
 interface InputReaderOptions {

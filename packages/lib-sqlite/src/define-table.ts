@@ -1,6 +1,6 @@
 import type { Simplify } from "type-fest"
 
-import { InferTableDescription, TableOptions } from "./types/table"
+import type { InferTableDescription, TableOptions } from "./types/table"
 
 export const table = <const TOptions extends TableOptions>(
   table: TOptions,

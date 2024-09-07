@@ -1,6 +1,6 @@
 import { produce } from "immer"
 
-import { Reactor, createStore } from "@dassie/lib-reactive"
+import { type Reactor, createStore } from "@dassie/lib-reactive"
 
 import type { VALID_REALMS } from "../constants/general"
 import { Database } from "../database/open-database"

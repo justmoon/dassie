@@ -1,7 +1,7 @@
-import { Reactor } from "@dassie/lib-reactive"
+import type { Reactor } from "@dassie/lib-reactive"
 
 import { INTERNAL_PRECISION } from "../constants/internal-precision"
-import { CurrencyDescription } from "../load-exchange-rates"
+import type { CurrencyDescription } from "../load-exchange-rates"
 import { ExchangeRatesSignal } from "../signals/exchange-rates"
 
 export const ConvertCurrencyAmounts = (reactor: Reactor) => {

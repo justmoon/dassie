@@ -1,4 +1,4 @@
-import { LogLevel } from "@dassie/lib-logger"
+import type { LogLevel } from "@dassie/lib-logger"
 import { type Reactor, createSignal } from "@dassie/lib-reactive"
 
 import { EnvironmentConfig } from "../../config/environment-config"

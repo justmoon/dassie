@@ -3,7 +3,7 @@ import { createHash } from "node:crypto"
 import { objectIdentifier, octetString, sequence } from "@dassie/lib-oer"
 
 import { dassieNodeFingerprintV1Id } from "../../constants/object-identifiers"
-import { NodeId } from "../../peer-protocol/types/node-id"
+import type { NodeId } from "../../peer-protocol/types/node-id"
 
 const nodeIdHashContentSchema = sequence({
   versionPrefix: objectIdentifier().constant(dassieNodeFingerprintV1Id),

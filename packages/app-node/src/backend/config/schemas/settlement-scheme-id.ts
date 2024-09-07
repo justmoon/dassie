@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
+import type { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
 
 // TODO: Enforce valid characters
 export const settlementSchemeIdSchema = z

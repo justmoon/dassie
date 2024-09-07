@@ -2,7 +2,7 @@ import { dump } from "wtfnode"
 
 import process from "node:process"
 
-import { Reactor, createActor } from "@dassie/lib-reactive"
+import { type Reactor, createActor } from "@dassie/lib-reactive"
 
 const OPEN_HANDLES_GRACE_PERIOD = 500
 

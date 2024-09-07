@@ -4,11 +4,11 @@ import { FactoryNameSymbol } from "./internal/context-base"
 import {
   CacheStatus,
   Reactive,
-  ReactiveSource,
+  type ReactiveSource,
   defaultComparator,
 } from "./internal/reactive"
 import { createReactiveTopic } from "./internal/reactive-topic"
-import { ReadonlyTopic } from "./topic"
+import type { ReadonlyTopic } from "./topic"
 import type { Factory } from "./types/factory"
 
 export type Reducer<TState> = (previousState: TState) => TState

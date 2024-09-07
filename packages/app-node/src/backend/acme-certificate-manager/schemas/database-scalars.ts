@@ -1,4 +1,4 @@
-import { NamespacedScalars, scalar } from "@dassie/lib-sqlite"
+import { type NamespacedScalars, scalar } from "@dassie/lib-sqlite"
 
 /**
  * This defines all the scalar values that are stored in the database which will

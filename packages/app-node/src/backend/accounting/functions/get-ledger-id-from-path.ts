@@ -1,8 +1,8 @@
 import { assert } from "@dassie/lib-logger"
 
 import { accounting as logger } from "../../logger/instances"
-import { LedgerId } from "../constants/ledgers"
-import { AccountPath } from "../types/account-paths"
+import type { LedgerId } from "../constants/ledgers"
+import type { AccountPath } from "../types/account-paths"
 
 export const getLedgerIdFromPath = (path: AccountPath): LedgerId => {
   const colonPosition = path.indexOf(":")

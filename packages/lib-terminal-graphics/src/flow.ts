@@ -13,9 +13,9 @@ import {
 import { countLines } from "./functions/count-lines"
 import { commonPrefixLines } from "./helpers/common-prefix-lines"
 import { createInputReader } from "./input-reader"
-import { DEFAULT_THEME, PromptTheme } from "./theme"
-import {
-  type DynamicTerminalComponent,
+import { DEFAULT_THEME, type PromptTheme } from "./theme"
+import type {
+  DynamicTerminalComponent,
   InferComponentResult,
   InteractiveTerminalComponent,
   StaticTerminalComponent,

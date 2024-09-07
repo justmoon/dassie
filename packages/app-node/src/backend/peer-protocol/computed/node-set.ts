@@ -1,10 +1,10 @@
 import { enableMapSet, produce } from "immer"
 
-import { Reactor, createSignal } from "@dassie/lib-reactive"
+import { type Reactor, createSignal } from "@dassie/lib-reactive"
 import { UnreachableCaseError } from "@dassie/lib-type-utils"
 
 import { NodeTableStore } from "../stores/node-table"
-import { NodeId } from "../types/node-id"
+import type { NodeId } from "../types/node-id"
 
 enableMapSet()
 

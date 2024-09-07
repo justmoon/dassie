@@ -1,6 +1,6 @@
 import { column, table } from "@dassie/lib-sqlite"
 
-import { SettlementSchemeId } from "../types/settlement-scheme-id"
+import type { SettlementSchemeId } from "../types/settlement-scheme-id"
 
 export const peersTable = table({
   name: "peers",

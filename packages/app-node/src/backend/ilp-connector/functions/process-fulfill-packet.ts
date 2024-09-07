@@ -3,17 +3,17 @@ import { createHash } from "node:crypto"
 import { IlpType } from "@dassie/lib-protocol-ilp"
 
 import { LedgerStore } from "../../accounting/stores/ledger"
-import { DassieReactor } from "../../base/types/dassie-base"
+import type { DassieReactor } from "../../base/types/dassie-base"
 import { connector as logger } from "../../logger/instances"
 import {
-  ResolvedIlpPacketEvent,
+  type ResolvedIlpPacketEvent,
   ResolvedIlpPacketTopic,
 } from "../topics/resolved-ilp-packet"
 import {
-  PendingPacketsKey,
+  type PendingPacketsKey,
   PendingPacketsMap,
 } from "../values/pending-packets-map"
-import { ProcessIncomingPacketParameters } from "./process-packet"
+import type { ProcessIncomingPacketParameters } from "./process-packet"
 import { SendPacket } from "./send-packet"
 
 export const ProcessFulfillPacket = (reactor: DassieReactor) => {

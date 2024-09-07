@@ -1,8 +1,8 @@
 import path from "node:path"
 
-import { Architecture } from "../constants/architectures"
+import type { Architecture } from "../constants/architectures"
 import { PATH_DIST_STAGING, PATH_DIST_UPLOAD } from "../constants/paths"
-import { DassieVersion } from "../constants/version"
+import type { DassieVersion } from "../constants/version"
 
 export const getBundleName = (
   version: DassieVersion,

@@ -1,8 +1,8 @@
 import { createSignal } from "@dassie/lib-reactive"
 
 import type { EndpointInfo } from "../../ilp-connector/functions/send-packet"
-import { IlpAddress } from "../../ilp-connector/types/ilp-address"
-import { NodeId } from "../../peer-protocol/types/node-id"
+import type { IlpAddress } from "../../ilp-connector/types/ilp-address"
+import type { NodeId } from "../../peer-protocol/types/node-id"
 import PrefixMap from "../utils/prefix-map"
 
 export type RoutingInfo = FixedDestinationRoutingInfo | PeerRoutingInfo

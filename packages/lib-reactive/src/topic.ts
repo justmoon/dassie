@@ -1,15 +1,15 @@
 import { isObject } from "@dassie/lib-type-utils"
 
 import { createDeferred } from "./deferred"
-import { ContextValue, FactoryNameSymbol } from "./internal/context-base"
+import { type ContextValue, FactoryNameSymbol } from "./internal/context-base"
 import {
-  Listener,
+  type Listener,
   ListenerNameSymbol,
   emitToListener,
 } from "./internal/emit-to-listener"
 import { type Scope, createScope } from "./scope"
-import { Factory } from "./types/factory"
-import { ScopeContext } from "./types/scope-context"
+import type { Factory } from "./types/factory"
+import type { ScopeContext } from "./types/scope-context"
 
 export const TopicSymbol = Symbol("das:reactive:topic")
 

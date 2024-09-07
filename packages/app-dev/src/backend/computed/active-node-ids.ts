@@ -1,4 +1,4 @@
-import { Reactor, createComputed } from "@dassie/lib-reactive"
+import { type Reactor, createComputed } from "@dassie/lib-reactive"
 
 import { ActiveNodesStore } from "../stores/active-nodes"
 import { nodeIndexToFriendlyId } from "../utils/generate-node-config"

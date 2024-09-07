@@ -1,6 +1,6 @@
 import { createSignal } from "@dassie/lib-reactive"
 
-import { NodeId } from "../types/node-id"
+import type { NodeId } from "../types/node-id"
 
 interface NodeListEntry {
   entries: NodeId[]

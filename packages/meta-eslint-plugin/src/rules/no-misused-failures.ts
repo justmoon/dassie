@@ -6,12 +6,12 @@ import {
 } from "@typescript-eslint/utils"
 import { isTypeFlagSet, unionTypeParts } from "tsutils"
 import {
-  CallExpression,
-  NewExpression,
-  Type,
-  TypeChecker,
+  type CallExpression,
+  type NewExpression,
+  type Type,
+  type TypeChecker,
   TypeFlags,
-  TypeReference,
+  type TypeReference,
   isCallExpression,
   isComputedPropertyName,
   isMethodDeclaration,

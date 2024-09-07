@@ -2,12 +2,12 @@ import { castImmutable } from "immer"
 
 import { isObject } from "@dassie/lib-type-utils"
 
-import { Actor } from "../actor"
+import type { Actor } from "../actor"
 import { ActorContextSymbol } from "../actor-context"
-import { Mapped } from "../mapped"
+import type { Mapped } from "../mapped"
 import type { ContextState, Reactor } from "../reactor"
-import { ScopeContext } from "../types/scope-context"
-import { StatefulContext } from "../types/stateful-context"
+import type { ScopeContext } from "../types/scope-context"
+import type { StatefulContext } from "../types/stateful-context"
 
 export interface ContextEntry {
   uniqueId: number

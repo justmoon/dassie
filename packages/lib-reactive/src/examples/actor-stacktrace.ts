@@ -1,5 +1,5 @@
 import {
-  Reactor,
+  type Reactor,
   createActor,
   createMapped,
   createReactor,

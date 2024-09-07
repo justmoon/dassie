@@ -2,7 +2,7 @@ import { z } from "zod"
 
 import {
   FactoryNameSymbol,
-  Reactor,
+  type Reactor,
   isActor,
   isComputed,
   isSignal,
@@ -18,14 +18,14 @@ import { isObject } from "@dassie/lib-type-utils"
 
 import { LogsStore } from "../../../common/stores/logs"
 import {
-  LedgerAccount,
+  type LedgerAccount,
   LedgerStore,
-  Transfer,
+  type Transfer,
 } from "../../accounting/stores/ledger"
 import { PendingTransfersTopic } from "../../accounting/topics/pending-transfers"
 import { PostedTransfersTopic } from "../../accounting/topics/posted-transfers"
 import { VoidedTransfersTopic } from "../../accounting/topics/voided-transfers"
-import { AccountPath } from "../../accounting/types/account-paths"
+import type { AccountPath } from "../../accounting/types/account-paths"
 import { Database } from "../../database/open-database"
 import { DATABASE_TABLE_IDS } from "../../database/schema"
 import { NodeTableStore } from "../../peer-protocol/stores/node-table"

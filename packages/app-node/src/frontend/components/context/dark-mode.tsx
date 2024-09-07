@@ -1,5 +1,5 @@
 import {
-  ReactNode,
+  type ReactNode,
   createContext,
   useContext,
   useEffect,
@@ -29,9 +29,8 @@ export const useDarkMode = () => {
 }
 
 export const DarkModeProvider = ({ children }: { children: ReactNode }) => {
-  const systemDarkMode = useMediaQuery(SYSTEM_DARK_MODE_QUERY)
-    ? "dark"
-    : "light"
+  const systemDarkMode =
+    useMediaQuery(SYSTEM_DARK_MODE_QUERY) ? "dark" : "light"
   const [darkModeSetting, setDarkModeSetting] =
     useState<DarkModeSetting>("system")
 

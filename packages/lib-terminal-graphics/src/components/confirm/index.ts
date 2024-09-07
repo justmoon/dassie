@@ -3,8 +3,8 @@ import wrapAnsi from "wrap-ansi"
 
 import { indentString } from "../../helpers/indent-string"
 import { maybeUnicode } from "../../helpers/unicode-fallback"
-import { PromptTheme } from "../../theme"
-import { InteractiveTerminalComponent } from "../../types/terminal-component"
+import type { PromptTheme } from "../../theme"
+import type { InteractiveTerminalComponent } from "../../types/terminal-component"
 import { cancel } from "../common/actions/finalizations"
 
 export interface ConfirmOptions {

@@ -3,7 +3,7 @@ import { $ } from "execa"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
 
-import { Architecture } from "../constants/architectures"
+import type { Architecture } from "../constants/architectures"
 import { NODE_VERSION } from "../constants/version"
 import { downloadFile } from "../utils/download-file"
 import { getStagingPath } from "../utils/dynamic-paths"

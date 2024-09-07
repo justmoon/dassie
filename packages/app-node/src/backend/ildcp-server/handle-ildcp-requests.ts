@@ -3,10 +3,10 @@ import { IlpType, serializeIlpPacket } from "@dassie/lib-protocol-ilp"
 import { createActor } from "@dassie/lib-reactive"
 import { isFailure } from "@dassie/lib-type-utils"
 
-import { AccountPath } from "../accounting/types/account-paths"
-import { DassieActorContext } from "../base/types/dassie-base"
+import type { AccountPath } from "../accounting/types/account-paths"
+import type { DassieActorContext } from "../base/types/dassie-base"
 import { ProcessPacket } from "../ilp-connector/functions/process-packet"
-import { IldcpEndpointInfo } from "../ilp-connector/senders/send-ildcp-packets"
+import type { IldcpEndpointInfo } from "../ilp-connector/senders/send-ildcp-packets"
 import { ildcp as logger } from "../logger/instances"
 import { RoutingTableSignal } from "../routing/signals/routing-table"
 

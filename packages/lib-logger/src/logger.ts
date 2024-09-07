@@ -1,5 +1,5 @@
 /* eslint-disable unicorn/error-message */
-import { LogContext, getLogContext } from "./context"
+import { type LogContext, getLogContext } from "./context"
 
 /**
  * Loggers are used to log messages related to a specific component.

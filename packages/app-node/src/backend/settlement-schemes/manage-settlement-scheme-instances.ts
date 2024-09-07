@@ -7,13 +7,13 @@ import {
 } from "../../common/constants/seed-paths"
 import { initializeCommonAccounts } from "../accounting/functions/manage-common-accounts"
 import { LedgerStore } from "../accounting/stores/ledger"
-import {
+import type {
   AssetsInterledgerPeerAccount,
   AssetsOnLedgerAccount,
   EquityOwnerAccount,
 } from "../accounting/types/account-paths"
-import {
-  type DassieActorContext,
+import type {
+  DassieActorContext,
   DassieReactor,
 } from "../base/types/dassie-base"
 import { DatabaseConfigStore } from "../config/database-config"

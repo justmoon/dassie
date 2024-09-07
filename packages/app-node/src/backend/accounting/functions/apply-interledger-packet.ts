@@ -1,8 +1,8 @@
 import { assert } from "@dassie/lib-logger"
 
 import { accounting as logger } from "../../logger/instances"
-import { CreateTransferParameters } from "../stores/ledger"
-import {
+import type { CreateTransferParameters } from "../stores/ledger"
+import type {
   AccountPath,
   ExpensesFxAccount,
   RevenueFxAccount,

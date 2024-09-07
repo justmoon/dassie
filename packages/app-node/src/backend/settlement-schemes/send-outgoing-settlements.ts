@@ -2,15 +2,18 @@ import { assert } from "@dassie/lib-logger"
 import { createActor, createMapped } from "@dassie/lib-reactive"
 import { UnreachableCaseError, isFailure, tell } from "@dassie/lib-type-utils"
 
-import { LedgerId } from "../accounting/constants/ledgers"
+import type { LedgerId } from "../accounting/constants/ledgers"
 import { processSettlementPrepare } from "../accounting/functions/process-settlement"
-import { Ledger, LedgerStore } from "../accounting/stores/ledger"
-import { DassieActorContext, DassieReactor } from "../base/types/dassie-base"
+import { type Ledger, LedgerStore } from "../accounting/stores/ledger"
+import type {
+  DassieActorContext,
+  DassieReactor,
+} from "../base/types/dassie-base"
 import { settlement as logger } from "../logger/instances"
 import { PeersSignal } from "../peer-protocol/computed/peers"
 import { SendPeerMessage } from "../peer-protocol/functions/send-peer-message"
 import { NodeTableStore } from "../peer-protocol/stores/node-table"
-import { NodeId } from "../peer-protocol/types/node-id"
+import type { NodeId } from "../peer-protocol/types/node-id"
 import { GetLedgerIdForSettlementScheme } from "./functions/get-ledger-id"
 import { ManageSettlementSchemeInstancesActor } from "./manage-settlement-scheme-instances"
 import { PendingSettlementsMap } from "./values/pending-settlements-map"

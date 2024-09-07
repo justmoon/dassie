@@ -2,7 +2,7 @@ import { enableMapSet, produce } from "immer"
 
 import { createStore } from "@dassie/lib-reactive"
 
-import { NodeId } from "../types/node-id"
+import type { NodeId } from "../types/node-id"
 
 enableMapSet()
 

@@ -6,11 +6,11 @@ import {
 } from "@dassie/lib-terminal-graphics"
 
 import {
-  Architecture,
+  type Architecture,
   SUPPORTED_ARCHITECTURES,
 } from "../constants/architectures"
 import { SUPPORTED_COMPRESSIONS } from "../constants/compression"
-import { DassieDetailedVersion, DassieVersion } from "../constants/version"
+import type { DassieDetailedVersion, DassieVersion } from "../constants/version"
 import { buildBackend } from "../steps/build-backend"
 import { buildFrontend } from "../steps/build-frontend"
 import { clearOutputPath } from "../steps/clear-output-path"

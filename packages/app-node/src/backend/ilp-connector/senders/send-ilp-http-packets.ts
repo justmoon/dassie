@@ -1,10 +1,10 @@
-import { Reactor } from "@dassie/lib-reactive"
+import type { Reactor } from "@dassie/lib-reactive"
 import { tell } from "@dassie/lib-type-utils"
 
 import { SendAsyncPrepare } from "../../ilp-http/functions/send-async-prepare"
 import { SendAsyncResult } from "../../ilp-http/functions/send-async-result"
 import { IncomingRequestIdMap } from "../../ilp-http/values/incoming-request-id-map"
-import { CommonEndpointInfo, PacketSender } from "../functions/send-packet"
+import type { CommonEndpointInfo, PacketSender } from "../functions/send-packet"
 
 export interface IlpHttpEndpointInfo extends CommonEndpointInfo {
   readonly type: "http"

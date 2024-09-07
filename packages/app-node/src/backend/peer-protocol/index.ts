@@ -1,6 +1,6 @@
 import { createActor } from "@dassie/lib-reactive"
 
-import { DassieActorContext } from "../base/types/dassie-base"
+import type { DassieActorContext } from "../base/types/dassie-base"
 import { AddMajorityNodesActor } from "./add-majority-nodes"
 import { BroadcastStateUpdatesActor } from "./broadcast-state-updates"
 import { CreatePeerLedgerEntriesActor } from "./create-peer-ledger-entries"

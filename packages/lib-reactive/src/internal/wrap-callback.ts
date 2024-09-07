@@ -1,9 +1,9 @@
-import { Promisable } from "type-fest"
+import type { Promisable } from "type-fest"
 
 import { isThenable } from "@dassie/lib-type-utils"
 
-import { ScopeContext } from "../types/scope-context"
-import { StatefulContext } from "../types/stateful-context"
+import type { ScopeContext } from "../types/scope-context"
+import type { StatefulContext } from "../types/stateful-context"
 
 export interface WrappedCallback<
   TCallback extends (...parameters: unknown[]) => Promisable<unknown>,

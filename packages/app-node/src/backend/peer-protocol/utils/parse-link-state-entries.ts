@@ -1,4 +1,4 @@
-import { Infer } from "@dassie/lib-oer"
+import type { Infer } from "@dassie/lib-oer"
 import { UnreachableCaseError } from "@dassie/lib-type-utils"
 
 import { nodeInfoEntry } from "../peer-schema"

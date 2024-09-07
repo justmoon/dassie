@@ -1,7 +1,7 @@
-import { AnyZodObject, infer as InferZodType } from "zod"
+import type { AnyZodObject, infer as InferZodType } from "zod"
 
 import { BadRequestFailure } from "../failures/bad-request-failure"
-import { Middleware } from "../router"
+import type { Middleware } from "../router"
 import type { BaseRequestContext } from "../types/context"
 
 export const parseQueryParameters =

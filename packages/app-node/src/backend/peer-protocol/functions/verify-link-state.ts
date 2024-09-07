@@ -1,7 +1,7 @@
 import { verifyAsync } from "@noble/ed25519"
 
 import { assert } from "@dassie/lib-logger"
-import { Infer } from "@dassie/lib-oer"
+import type { Infer } from "@dassie/lib-oer"
 
 import { calculateNodeId } from "../../ilp-connector/utils/calculate-node-id"
 import { peerProtocol as logger } from "../../logger/instances"

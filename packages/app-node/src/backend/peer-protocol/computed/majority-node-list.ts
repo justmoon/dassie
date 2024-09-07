@@ -1,9 +1,9 @@
-import { Reactor, createComputed } from "@dassie/lib-reactive"
+import { type Reactor, createComputed } from "@dassie/lib-reactive"
 
 import { EnvironmentConfig } from "../../config/environment-config"
 import { compareSets } from "../../utils/compare-sets"
 import { BootstrapNodeListsSignal } from "../signals/bootstrap-node-lists"
-import { NodeId } from "../types/node-id"
+import type { NodeId } from "../types/node-id"
 
 export const MajorityNodeListSignal = (reactor: Reactor) => {
   const bootstrapNodeListsSignal = reactor.use(BootstrapNodeListsSignal)

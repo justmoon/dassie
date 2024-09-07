@@ -2,9 +2,9 @@ import { Client as AcmeClient, crypto as acmeCrypto } from "acme-client"
 
 import { X509Certificate } from "node:crypto"
 
-import { Reactor, createActor } from "@dassie/lib-reactive"
+import { type Reactor, createActor } from "@dassie/lib-reactive"
 
-import { DassieActorContext } from "../base/types/dassie-base"
+import type { DassieActorContext } from "../base/types/dassie-base"
 import { DatabaseConfigStore } from "../config/database-config"
 import { Database } from "../database/open-database"
 import { acme as logger } from "../logger/instances"

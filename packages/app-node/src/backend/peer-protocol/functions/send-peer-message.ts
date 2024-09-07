@@ -4,7 +4,7 @@ import type { Infer, InferSerialize } from "@dassie/lib-oer"
 import { createTopic } from "@dassie/lib-reactive"
 import { bufferToUint8Array, isFailure } from "@dassie/lib-type-utils"
 
-import { DassieReactor } from "../../base/types/dassie-base"
+import type { DassieReactor } from "../../base/types/dassie-base"
 import { EnvironmentConfig } from "../../config/environment-config"
 import { NodePublicKeySignal } from "../../crypto/computed/node-public-key"
 import { NodeIdSignal } from "../../ilp-connector/computed/node-id"
@@ -17,14 +17,14 @@ import {
   peerMessageResponse,
 } from "../peer-schema"
 import { NodeTableStore } from "../stores/node-table"
-import { NodeId } from "../types/node-id"
+import type { NodeId } from "../types/node-id"
 import { isConnectionRefusedError } from "../utils/is-connection-refused-error"
 import { GenerateMessageAuthentication } from "./generate-message-authentication"
 import {
   HandlePeerMessage,
-  IncomingPeerMessageEvent,
+  type IncomingPeerMessageEvent,
   IncomingPeerMessageTopic,
-  PeerMessageType,
+  type PeerMessageType,
 } from "./handle-peer-message"
 
 export type SendPeerMessageParameters<TMessageType extends PeerMessageType> =

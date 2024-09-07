@@ -1,11 +1,11 @@
-import { Infer } from "@dassie/lib-oer"
-import { Reactor } from "@dassie/lib-reactive"
+import type { Infer } from "@dassie/lib-oer"
+import type { Reactor } from "@dassie/lib-reactive"
 import { UnreachableCaseError } from "@dassie/lib-type-utils"
 
 import { LINK_STATE_MAX_UPDATE_RETRANSMIT_DELAY } from "../constants/timings"
 import { peerNodeInfo } from "../peer-schema"
 import { type NodeTableEntry, NodeTableStore } from "../stores/node-table"
-import { NodeId } from "../types/node-id"
+import type { NodeId } from "../types/node-id"
 import { parseLinkStateEntries } from "../utils/parse-link-state-entries"
 
 export type AddNodeParameters = Pick<NodeTableEntry, "nodeId">

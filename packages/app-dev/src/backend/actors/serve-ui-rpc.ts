@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs"
 import { createServer as createHttpsServer } from "node:https"
 import path from "node:path"
 
-import { Reactor, createActor } from "@dassie/lib-reactive"
+import { type Reactor, createActor } from "@dassie/lib-reactive"
 import {
   createServer as createRpcServer,
   createWebSocketAdapter,

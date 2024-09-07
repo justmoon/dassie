@@ -1,5 +1,5 @@
 import type { BaseRequestContext } from "../types/context"
-import { HttpResponse } from "../types/http-response"
+import type { HttpResponse } from "../types/http-response"
 import { getResponseOptionsFromContext } from "../utils/get-response-from-context"
 
 export interface HttpResponseOptions {

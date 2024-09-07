@@ -1,15 +1,15 @@
 import { readFile, unlink } from "node:fs/promises"
 
-import { BtpToken } from "@dassie/app-node/src/backend/api-keys/types/btp-token"
+import type { BtpToken } from "@dassie/app-node/src/backend/api-keys/types/btp-token"
 import { DASSIE_DATABASE_SCHEMA } from "@dassie/app-node/src/backend/database/schema"
-import { SettlementSchemeId } from "@dassie/app-node/src/backend/peer-protocol/types/settlement-scheme-id"
+import type { SettlementSchemeId } from "@dassie/app-node/src/backend/peer-protocol/types/settlement-scheme-id"
 import { serializeEd25519Key } from "@dassie/app-node/src/backend/utils/pem"
 import { createDatabase } from "@dassie/lib-sqlite"
 import { isErrorWithCode } from "@dassie/lib-type-utils"
 
 import { DEBUG_UI_PORT } from "../constants/ports"
 import { setup as logger } from "../logger/instances"
-import { NodeConfig, generatePeerInfo } from "./generate-node-config"
+import { type NodeConfig, generatePeerInfo } from "./generate-node-config"
 
 export const prefillDatabase = async ({
   id,

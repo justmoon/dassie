@@ -1,6 +1,6 @@
-import { DassieReactor } from "../../base/types/dassie-base"
+import type { DassieReactor } from "../../base/types/dassie-base"
 import { ManageSettlementSchemeInstancesActor } from "../../settlement-schemes/manage-settlement-scheme-instances"
-import { PeerMessageHandler } from "../functions/handle-peer-message"
+import type { PeerMessageHandler } from "../functions/handle-peer-message"
 
 export const HandlePeeringInfoRequest = ((reactor: DassieReactor) => {
   return async ({

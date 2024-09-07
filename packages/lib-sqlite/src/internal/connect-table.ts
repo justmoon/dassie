@@ -1,5 +1,5 @@
 import type { Database, RunResult } from "better-sqlite3"
-import { Simplify } from "type-fest"
+import type { Simplify } from "type-fest"
 
 import type { InferInsertRow, InferRow, TableDescription } from "../types/table"
 

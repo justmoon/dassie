@@ -1,5 +1,5 @@
 import { EMPTY_UINT8ARRAY } from "../../../common/constants/general"
-import { DassieReactor } from "../../base/types/dassie-base"
+import type { DassieReactor } from "../../base/types/dassie-base"
 import { ManageSettlementSchemeInstancesActor } from "../../settlement-schemes/manage-settlement-scheme-instances"
 import { ActiveSettlementSchemesSignal } from "../../settlement-schemes/signals/active-settlement-schemes"
 import type { PeerMessageHandler } from "../functions/handle-peer-message"

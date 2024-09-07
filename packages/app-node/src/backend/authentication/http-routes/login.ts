@@ -17,7 +17,7 @@ import { getPrivateSeedAtPath } from "../../crypto/utils/seed-paths"
 import { HttpsRouter } from "../../http-server/values/https-router"
 import { COOKIE_MAX_AGE_SECONDS } from "../constants/cookie-lifetime"
 import { SessionsStore } from "../database-stores/sessions"
-import { SessionToken } from "../types/session-token"
+import type { SessionToken } from "../types/session-token"
 
 export const RegisterLoginRouteActor = (reactor: DassieReactor) => {
   const { random } = reactor.base

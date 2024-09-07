@@ -1,5 +1,5 @@
-import { NodeId } from "../../peer-protocol/types/node-id"
-import { LedgerId } from "../constants/ledgers"
+import type { NodeId } from "../../peer-protocol/types/node-id"
+import type { LedgerId } from "../constants/ledgers"
 
 /**
  * A string representing a path to an account in a ledger.

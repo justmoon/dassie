@@ -1,6 +1,6 @@
-import { DassieReactor } from "../../base/types/dassie-base"
+import type { DassieReactor } from "../../base/types/dassie-base"
 import { ManagePluginsActor } from "../../open-payments/manage-plugins"
-import { CommonEndpointInfo, PacketSender } from "../functions/send-packet"
+import type { CommonEndpointInfo, PacketSender } from "../functions/send-packet"
 
 export interface PluginEndpointInfo extends CommonEndpointInfo {
   readonly type: "plugin"

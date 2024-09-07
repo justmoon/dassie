@@ -1,10 +1,10 @@
 import { x25519 } from "@noble/curves/ed25519"
 
-import { Reactor } from "@dassie/lib-reactive"
+import type { Reactor } from "@dassie/lib-reactive"
 
 import { compareUint8Arrays } from "../../utils/compare-typedarray"
 import { X25519PrivateKey } from "../computed/x25519-private-key"
-import { PeerMessage } from "../peer-schema"
+import type { PeerMessage } from "../peer-schema"
 import { IncomingSessionKeysStore } from "../stores/incoming-session-keys"
 import type { NodeTableEntry } from "../stores/node-table"
 import { calculateMessageHmac } from "../utils/calculate-message-hmac"

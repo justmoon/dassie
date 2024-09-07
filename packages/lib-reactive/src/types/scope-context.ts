@@ -1,4 +1,4 @@
-import { DisposableScope, Disposer, Scope } from "../scope"
+import type { DisposableScope, Disposer, Scope } from "../scope"
 
 export interface ScopeContext {
   scope: Scope

@@ -3,7 +3,7 @@ import {
   setTimeout as setTimeoutPromise,
 } from "node:timers/promises"
 
-import {
+import type {
   IntervalId,
   Time,
   TimeoutId,

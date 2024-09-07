@@ -1,4 +1,4 @@
-import { Reactor, createActor } from "@dassie/lib-reactive"
+import { type Reactor, createActor } from "@dassie/lib-reactive"
 
 import { MajorityNodeListSignal } from "./computed/majority-node-list"
 import { ModifyNodeTable } from "./functions/modify-node-table"

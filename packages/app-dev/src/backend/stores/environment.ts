@@ -1,4 +1,4 @@
-import { SettlementSchemeId } from "@dassie/app-node/src/backend/peer-protocol/types/settlement-scheme-id"
+import type { SettlementSchemeId } from "@dassie/app-node/src/backend/peer-protocol/types/settlement-scheme-id"
 import { createStore } from "@dassie/lib-reactive"
 
 export interface EnvironmentSettings {

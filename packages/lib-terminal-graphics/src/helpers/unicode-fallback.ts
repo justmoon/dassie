@@ -1,6 +1,6 @@
 import isUnicodeSupported from "is-unicode-supported"
 
-import { UnicodeWithFallback } from "../theme"
+import type { UnicodeWithFallback } from "../theme"
 
 export const maybeUnicode = (value: UnicodeWithFallback) => {
   if (typeof value === "string") {

@@ -1,6 +1,6 @@
 import { signAsync } from "@noble/ed25519"
 
-import { Reactor } from "@dassie/lib-reactive"
+import type { Reactor } from "@dassie/lib-reactive"
 
 import { NodePrivateKeySignal } from "../computed/node-private-key"
 

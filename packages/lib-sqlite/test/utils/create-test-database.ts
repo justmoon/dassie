@@ -1,4 +1,8 @@
-import { DatabaseInstance, DatabaseSchema, createDatabase } from "../../src"
+import {
+  type DatabaseInstance,
+  type DatabaseSchema,
+  createDatabase,
+} from "../../src"
 
 export const createTestDatabase = <TSchema extends DatabaseSchema>(
   schema: TSchema,

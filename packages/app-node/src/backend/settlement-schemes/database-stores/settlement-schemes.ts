@@ -1,9 +1,9 @@
 import { produce } from "immer"
 
-import { Reactor, createStore } from "@dassie/lib-reactive"
+import { type Reactor, createStore } from "@dassie/lib-reactive"
 
 import { Database } from "../../database/open-database"
-import { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
+import type { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
 
 export const SettlementSchemesStore = (reactor: Reactor) => {
   const database = reactor.use(Database)

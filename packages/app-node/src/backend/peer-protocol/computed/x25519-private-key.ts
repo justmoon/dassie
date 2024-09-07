@@ -1,6 +1,6 @@
 import { edwardsToMontgomeryPriv } from "@noble/curves/ed25519"
 
-import { Reactor, createComputed } from "@dassie/lib-reactive"
+import { type Reactor, createComputed } from "@dassie/lib-reactive"
 
 import { NodePrivateKeySignal } from "../../crypto/computed/node-private-key"
 

@@ -4,8 +4,8 @@ import { describe, test, vi } from "vitest"
 import { setTimeout } from "node:timers/promises"
 
 import {
-  ActorContext,
-  Reactor,
+  type ActorContext,
+  type Reactor,
   createActor,
   createMapped,
   createReactor,

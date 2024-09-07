@@ -1,4 +1,4 @@
-import { Tagged } from "type-fest"
+import type { Tagged } from "type-fest"
 
 export interface TimeoutOptions {
   /**

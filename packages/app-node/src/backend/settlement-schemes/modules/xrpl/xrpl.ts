@@ -7,7 +7,7 @@ import { XRP_VALUE_FACTOR } from "./constants/asset-scale"
 import { CreateSettlementEngine } from "./functions/create-settlement-engine"
 import { getAccountInfo } from "./functions/get-account-info"
 import { loadOrCreateWallet } from "./functions/load-wallet"
-import { XrplPeerState } from "./types/peer-state"
+import type { XrplPeerState } from "./types/peer-state"
 
 const LEDGER_ID = castLedgerId("xrpl+xrp")
 

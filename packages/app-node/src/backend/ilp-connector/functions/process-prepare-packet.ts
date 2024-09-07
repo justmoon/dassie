@@ -1,21 +1,24 @@
 import {
-  IlpPacket,
+  type IlpPacket,
   IlpType,
   serializeIlpPacket,
 } from "@dassie/lib-protocol-ilp"
 import { isFailure } from "@dassie/lib-type-utils"
 
-import { Transfer } from "../../accounting/stores/ledger"
-import { DassieReactor } from "../../base/types/dassie-base"
+import type { Transfer } from "../../accounting/stores/ledger"
+import type { DassieReactor } from "../../base/types/dassie-base"
 import { connector as logger } from "../../logger/instances"
-import { PreparedPacketParameters, SendPacket } from "../functions/send-packet"
 import {
-  PreparedIlpPacketEvent,
+  type PreparedPacketParameters,
+  SendPacket,
+} from "../functions/send-packet"
+import {
+  type PreparedIlpPacketEvent,
   PreparedIlpPacketTopic,
 } from "../topics/prepared-ilp-packet"
 import { PendingPacketsMap } from "../values/pending-packets-map"
 import { CalculatePreparePacketOutcome } from "./calculate-prepare-packet-outcome"
-import { ProcessIncomingPacketParameters } from "./process-packet"
+import type { ProcessIncomingPacketParameters } from "./process-packet"
 import { ScheduleTimeout } from "./schedule-timeout"
 import { TriggerEarlyRejection } from "./trigger-early-rejection"
 

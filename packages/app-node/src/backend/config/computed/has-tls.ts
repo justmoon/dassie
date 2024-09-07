@@ -1,4 +1,4 @@
-import { Reactor, createComputed } from "@dassie/lib-reactive"
+import { type Reactor, createComputed } from "@dassie/lib-reactive"
 
 import { DatabaseConfigStore, hasTls } from "../database-config"
 

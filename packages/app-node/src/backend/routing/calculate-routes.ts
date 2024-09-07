@@ -1,13 +1,13 @@
 import Denque from "denque"
 
-import { Reactor, createActor } from "@dassie/lib-reactive"
+import { type Reactor, createActor } from "@dassie/lib-reactive"
 import { assertDefined } from "@dassie/lib-type-utils"
 
 import { IlpAllocationSchemeSignal } from "../config/computed/ilp-allocation-scheme"
 import { NodeIdSignal } from "../ilp-connector/computed/node-id"
-import { IlpAddress } from "../ilp-connector/types/ilp-address"
+import type { IlpAddress } from "../ilp-connector/types/ilp-address"
 import { NodeTableStore } from "../peer-protocol/stores/node-table"
-import { NodeId } from "../peer-protocol/types/node-id"
+import type { NodeId } from "../peer-protocol/types/node-id"
 import { RoutingTableSignal } from "./signals/routing-table"
 
 interface NodeInfoEntry {

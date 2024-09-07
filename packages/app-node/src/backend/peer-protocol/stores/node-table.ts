@@ -1,10 +1,10 @@
 import { castDraft, castImmutable, enableMapSet, produce } from "immer"
 
-import { Reactor, createStore } from "@dassie/lib-reactive"
+import { type Reactor, createStore } from "@dassie/lib-reactive"
 
 import { Database } from "../../database/open-database"
-import { NodeId } from "../types/node-id"
-import { SettlementSchemeId } from "../types/settlement-scheme-id"
+import type { NodeId } from "../types/node-id"
+import type { SettlementSchemeId } from "../types/settlement-scheme-id"
 
 enableMapSet()
 

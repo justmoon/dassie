@@ -1,6 +1,6 @@
 import { column, table } from "@dassie/lib-sqlite"
 
-import { NodeId } from "../types/node-id"
+import type { NodeId } from "../types/node-id"
 
 export const nodesTable = table({
   name: "nodes",

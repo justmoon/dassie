@@ -1,23 +1,29 @@
-import { IlpPacket, IlpType } from "@dassie/lib-protocol-ilp"
+import { type IlpPacket, IlpType } from "@dassie/lib-protocol-ilp"
 
-import { AccountPath } from "../../accounting/types/account-paths"
-import { DassieReactor } from "../../base/types/dassie-base"
-import { BtpEndpointInfo, SendBtpPackets } from "../senders/send-btp-packets"
+import type { AccountPath } from "../../accounting/types/account-paths"
+import type { DassieReactor } from "../../base/types/dassie-base"
 import {
-  IldcpEndpointInfo,
+  type BtpEndpointInfo,
+  SendBtpPackets,
+} from "../senders/send-btp-packets"
+import {
+  type IldcpEndpointInfo,
   SendIldcpPackets,
 } from "../senders/send-ildcp-packets"
 import {
-  IlpHttpEndpointInfo,
+  type IlpHttpEndpointInfo,
   SendIlpHttpPackets,
 } from "../senders/send-ilp-http-packets"
-import { PeerEndpointInfo, SendPeerPackets } from "../senders/send-peer-packets"
 import {
-  PluginEndpointInfo,
+  type PeerEndpointInfo,
+  SendPeerPackets,
+} from "../senders/send-peer-packets"
+import {
+  type PluginEndpointInfo,
   SendPluginPackets,
 } from "../senders/send-plugin-packets"
-import { PreparedIlpPacketEvent } from "../topics/prepared-ilp-packet"
-import { IlpAddress } from "../types/ilp-address"
+import type { PreparedIlpPacketEvent } from "../topics/prepared-ilp-packet"
+import type { IlpAddress } from "../types/ilp-address"
 
 export interface CommonEndpointInfo {
   readonly accountPath: AccountPath

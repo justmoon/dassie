@@ -1,4 +1,4 @@
-import { Reactor, createComputed } from "@dassie/lib-reactive"
+import { type Reactor, createComputed } from "@dassie/lib-reactive"
 
 import { NodePublicKeySignal } from "../../crypto/computed/node-public-key"
 import { calculateNodeId } from "../utils/calculate-node-id"

@@ -3,8 +3,8 @@ import { $ } from "execa"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
 
-import { Architecture } from "../constants/architectures"
-import { DassieVersion } from "../constants/version"
+import type { Architecture } from "../constants/architectures"
+import type { DassieVersion } from "../constants/version"
 import { getTarPath } from "../utils/bundle-name"
 import { getBundlePath } from "../utils/dynamic-paths"
 

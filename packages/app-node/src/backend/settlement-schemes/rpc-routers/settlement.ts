@@ -2,7 +2,7 @@ import { z } from "zod"
 
 import { createRouter } from "@dassie/lib-rpc/server"
 
-import { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
+import type { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
 import { protectedRoute } from "../../rpc-server/route-types/protected"
 import { ManageSettlementSchemeInstancesActor } from "../manage-settlement-scheme-instances"
 

@@ -10,15 +10,15 @@ import {
   InitSymbol,
   UseSymbol,
 } from "./internal/context-base"
-import { WrappedCallback, wrapCallback } from "./internal/wrap-callback"
-import { DisposableScope, createScope } from "./scope"
-import { ExecutionContext } from "./types/execution-context"
-import { Factory } from "./types/factory"
-import {
+import { type WrappedCallback, wrapCallback } from "./internal/wrap-callback"
+import { type DisposableScope, createScope } from "./scope"
+import type { ExecutionContext } from "./types/execution-context"
+import type { Factory } from "./types/factory"
+import type {
   DisposableScopeContext,
   DisposableScopeContextShortcuts,
 } from "./types/scope-context"
-import { StatefulContext } from "./types/stateful-context"
+import type { StatefulContext } from "./types/stateful-context"
 
 export interface ContextState
   extends WeakMap<Factory<unknown, never>, unknown> {

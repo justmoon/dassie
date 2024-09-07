@@ -1,5 +1,5 @@
 import { createActor } from "../actor"
-import { Reactor, createReactor } from "../reactor"
+import { type Reactor, createReactor } from "../reactor"
 import { createSignal } from "../signal"
 import { createTopic } from "../topic"
 

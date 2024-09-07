@@ -1,6 +1,6 @@
 import { column, table } from "@dassie/lib-sqlite"
 
-import { SessionToken } from "../types/session-token"
+import type { SessionToken } from "../types/session-token"
 
 export const sessionsTable = table({
   name: "sessions",

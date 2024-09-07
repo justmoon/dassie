@@ -4,13 +4,16 @@ import pMap from "p-map"
 import { createActor } from "@dassie/lib-reactive"
 
 import { EMPTY_UINT8ARRAY } from "../../common/constants/general"
-import { DassieActorContext, DassieReactor } from "../base/types/dassie-base"
+import type {
+  DassieActorContext,
+  DassieReactor,
+} from "../base/types/dassie-base"
 import { compareUint8Arrays } from "../utils/compare-typedarray"
 import { NODE_LIST_HASH_POLLING_INTERVAL } from "./constants/timings"
 import { SendPeerMessage } from "./functions/send-peer-message"
 import { BootstrapNodeListHashesSignal } from "./signals/bootstrap-node-list-hashes"
 import { BootstrapNodeListsSignal } from "./signals/bootstrap-node-lists"
-import { NodeId } from "./types/node-id"
+import type { NodeId } from "./types/node-id"
 
 enableMapSet()
 

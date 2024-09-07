@@ -2,7 +2,10 @@ import { assert } from "@dassie/lib-logger"
 import { createActor } from "@dassie/lib-reactive"
 import { isFailure } from "@dassie/lib-type-utils"
 
-import { DassieActorContext, DassieReactor } from "../base/types/dassie-base"
+import type {
+  DassieActorContext,
+  DassieReactor,
+} from "../base/types/dassie-base"
 import { EnvironmentConfig } from "../config/environment-config"
 import { NodeIdSignal } from "../ilp-connector/computed/node-id"
 import { peerProtocol as logger } from "../logger/instances"
@@ -11,7 +14,7 @@ import { ModifyNodeTable } from "./functions/modify-node-table"
 import { SendPeerMessage } from "./functions/send-peer-message"
 import { verifyLinkState } from "./functions/verify-link-state"
 import { NodeTableStore } from "./stores/node-table"
-import { NodeId } from "./types/node-id"
+import type { NodeId } from "./types/node-id"
 
 const NODE_REFRESH_INTERVAL = 1000
 

@@ -8,7 +8,7 @@ import { ChildProcess, fork } from "node:child_process"
 import type { Readable } from "node:stream"
 
 import { byLine } from "@dassie/lib-itergen-utils"
-import { Reactor, Scope } from "@dassie/lib-reactive"
+import type { Reactor, Scope } from "@dassie/lib-reactive"
 import { assertDefined, isObject } from "@dassie/lib-type-utils"
 
 import { LogsStore } from "../../common/stores/logs"

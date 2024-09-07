@@ -1,6 +1,6 @@
 import { createTopic } from "@dassie/lib-reactive"
 
-import { WebSocketImplementation } from "../../common/types/websocket"
+import type { WebSocketImplementation } from "../../common/types/websocket"
 import type { InboundConnection } from "../server"
 
 export function createWebSocketAdapter(

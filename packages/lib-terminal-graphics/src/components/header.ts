@@ -1,6 +1,6 @@
 import chalk from "chalk"
 
-import { StaticTerminalComponent } from "../types/terminal-component"
+import type { StaticTerminalComponent } from "../types/terminal-component"
 
 export interface HeaderOptions {
   title: string

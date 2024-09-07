@@ -1,7 +1,12 @@
-import { ComponentType, LazyExoticComponent, Suspense, lazy } from "react"
+import {
+  type ComponentType,
+  type LazyExoticComponent,
+  Suspense,
+  lazy,
+} from "react"
 import { Link } from "wouter"
 
-import { SettlementSchemeId } from "../../../backend/peer-protocol/types/settlement-scheme-id"
+import type { SettlementSchemeId } from "../../../backend/peer-protocol/types/settlement-scheme-id"
 import { Button } from "../../components/ui/button"
 import {
   Card,
@@ -49,11 +54,11 @@ export function ReceivePage() {
             <TabsList>
               <TabsTrigger value="interledger">Interledger</TabsTrigger>
               {activeSettlementSchemes.map((schemeId) =>
-                SCHEME_DEPOSIT_NAME_MAP[schemeId] ? (
+                SCHEME_DEPOSIT_NAME_MAP[schemeId] ?
                   <TabsTrigger key={schemeId} value={schemeId}>
                     {SCHEME_DEPOSIT_NAME_MAP[schemeId]}
                   </TabsTrigger>
-                ) : null,
+                : null,
               )}
             </TabsList>
             <TabsContent value="interledger">

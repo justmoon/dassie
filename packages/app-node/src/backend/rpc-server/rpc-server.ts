@@ -1,14 +1,14 @@
 import { parse } from "cookie"
 import { SuperJSON as superjson } from "superjson"
 
-import { Reactor, createActor } from "@dassie/lib-reactive"
+import { type Reactor, createActor } from "@dassie/lib-reactive"
 import { createServer, createWebSocketAdapter } from "@dassie/lib-rpc/server"
 
 import { SESSION_COOKIE_NAME } from "../../common/constants/cookie-name"
 import { DEV_SECURITY_TOKEN_LENGTH } from "../../common/constants/general"
 import { SessionsStore } from "../authentication/database-stores/sessions"
-import { SessionToken } from "../authentication/types/session-token"
-import { DassieActorContext } from "../base/types/dassie-base"
+import type { SessionToken } from "../authentication/types/session-token"
+import type { DassieActorContext } from "../base/types/dassie-base"
 import { EnvironmentConfig } from "../config/environment-config"
 import { HttpsWebSocketRouter } from "../http-server/values/https-websocket-router"
 import { appRouter } from "./app-router"

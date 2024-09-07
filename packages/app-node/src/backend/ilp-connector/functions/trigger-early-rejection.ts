@@ -1,14 +1,14 @@
 import {
-  IlpPacket,
+  type IlpPacket,
   IlpType,
   serializeIlpPacket,
 } from "@dassie/lib-protocol-ilp"
 
-import { DassieReactor } from "../../base/types/dassie-base"
+import type { DassieReactor } from "../../base/types/dassie-base"
 import { connector as logger } from "../../logger/instances"
 import { NodeIlpAddressSignal } from "../computed/node-ilp-address"
-import { PreparedIlpPacketEvent } from "../topics/prepared-ilp-packet"
-import { IlpFailure } from "../types/ilp-failure"
+import type { PreparedIlpPacketEvent } from "../topics/prepared-ilp-packet"
+import type { IlpFailure } from "../types/ilp-failure"
 import { SendPacket } from "./send-packet"
 
 export interface EarlyRejectionParameters {

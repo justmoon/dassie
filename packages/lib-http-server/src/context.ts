@@ -1,4 +1,4 @@
-import { BaseRequestContext } from "./types/context"
+import type { BaseRequestContext } from "./types/context"
 
 export function createContext(request: Request): BaseRequestContext {
   let url: URL | undefined

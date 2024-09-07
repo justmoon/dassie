@@ -1,5 +1,5 @@
 import { assert } from "@dassie/lib-logger"
-import { Reactor, createActor, createMapped } from "@dassie/lib-reactive"
+import { type Reactor, createActor, createMapped } from "@dassie/lib-reactive"
 
 import {
   cleanupPeer,

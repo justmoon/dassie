@@ -1,7 +1,7 @@
 import path from "node:path"
 
-import { SessionToken } from "@dassie/app-node/src/backend/authentication/types/session-token"
-import { BootstrapNodesConfig } from "@dassie/app-node/src/backend/config/environment-config"
+import type { SessionToken } from "@dassie/app-node/src/backend/authentication/types/session-token"
+import type { BootstrapNodesConfig } from "@dassie/app-node/src/backend/config/environment-config"
 import { getPublicKey } from "@dassie/app-node/src/backend/crypto/ed25519"
 import { calculatePathHmac } from "@dassie/app-node/src/backend/crypto/utils/seed-paths"
 import { calculateNodeId } from "@dassie/app-node/src/backend/ilp-connector/utils/calculate-node-id"

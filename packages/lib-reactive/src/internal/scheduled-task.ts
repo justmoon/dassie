@@ -1,9 +1,9 @@
-import { Promisable } from "type-fest"
+import type { Promisable } from "type-fest"
 
 import { UnreachableCaseError, isThenable } from "@dassie/lib-type-utils"
 
-import { Time, TimeoutId } from "../types/base-modules/time"
-import { ScopeContext } from "../types/scope-context"
+import type { Time, TimeoutId } from "../types/base-modules/time"
+import type { ScopeContext } from "../types/scope-context"
 
 /**
  * Description of a task that should be executed periodically.

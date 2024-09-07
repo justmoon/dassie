@@ -3,7 +3,7 @@ import { ModuleNode } from "vite"
 
 import path from "node:path"
 
-import { Reactor, createActor } from "@dassie/lib-reactive"
+import { type Reactor, createActor } from "@dassie/lib-reactive"
 
 import {
   DEVELOPMENT_SERVER_ENTRYPOINT,

@@ -1,9 +1,9 @@
 import { parseIlpPacket } from "@dassie/lib-protocol-ilp"
 
-import { DassieReactor } from "../../base/types/dassie-base"
+import type { DassieReactor } from "../../base/types/dassie-base"
 import { IlpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-scheme"
 import { ProcessPacket } from "../../ilp-connector/functions/process-packet"
-import { PeerEndpointInfo } from "../../ilp-connector/senders/send-peer-packets"
+import type { PeerEndpointInfo } from "../../ilp-connector/senders/send-peer-packets"
 import { peerProtocol as logger } from "../../logger/instances"
 import { GetLedgerIdForSettlementScheme } from "../../settlement-schemes/functions/get-ledger-id"
 import type { PeerMessageHandler } from "../functions/handle-peer-message"

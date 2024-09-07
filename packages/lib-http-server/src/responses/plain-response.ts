@@ -2,7 +2,7 @@ import type { BaseRequestContext } from "../types/context"
 import {
   DEFAULT_HTTP_RESPONSE_OPTIONS,
   DefaultHttpResponse,
-  HttpResponseOptions,
+  type HttpResponseOptions,
 } from "./default-http-reponse"
 
 export const DEFAULT_PLAIN_OPTIONS = {

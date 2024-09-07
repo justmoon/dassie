@@ -1,5 +1,5 @@
 import {
-  IlpPacket,
+  type IlpPacket,
   IlpType,
   interledgerTimeToTimestamp,
   timestampToInterledgerTime,
@@ -7,8 +7,8 @@ import {
 import { UnreachableCaseError, isFailure } from "@dassie/lib-type-utils"
 
 import { applyPacketPrepareToLedger } from "../../accounting/functions/apply-interledger-packet"
-import { LedgerStore, Transfer } from "../../accounting/stores/ledger"
-import { DassieReactor } from "../../base/types/dassie-base"
+import { LedgerStore, type Transfer } from "../../accounting/stores/ledger"
+import type { DassieReactor } from "../../base/types/dassie-base"
 import { CalculateOutgoingAmount } from "../../exchange/functions/calculate-outgoing-amount"
 import { ResolveIlpAddress } from "../../routing/functions/resolve-ilp-address"
 import {
@@ -22,7 +22,7 @@ import { InsufficientTimeoutIlpFailure } from "../failures/insufficient-timeout-
 import { InternalErrorIlpFailure } from "../failures/internal-error-ilp-failure"
 import { InvalidPacketIlpFailure } from "../failures/invalid-packet-ilp-failure"
 import { UnreachableIlpFailure } from "../failures/unreachable-ilp-failure"
-import { EndpointInfo } from "./send-packet"
+import type { EndpointInfo } from "./send-packet"
 
 export interface CalculatePreparePacketOutcomeParameters {
   readonly sourceEndpointInfo: EndpointInfo

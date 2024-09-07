@@ -1,4 +1,4 @@
-import {
+import type {
   DatabaseTableId,
   DatabaseTableName,
 } from "../../../../backend/database/schema"

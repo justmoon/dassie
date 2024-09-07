@@ -6,7 +6,7 @@ import { createActor } from "@dassie/lib-reactive"
 import { SESSION_COOKIE_NAME } from "../../../common/constants/cookie-name"
 import { HttpsRouter } from "../../http-server/values/https-router"
 import { SessionsStore } from "../database-stores/sessions"
-import { SessionToken } from "../types/session-token"
+import type { SessionToken } from "../types/session-token"
 
 export const RegisterLogoutRouteActor = () =>
   createActor((sig) => {

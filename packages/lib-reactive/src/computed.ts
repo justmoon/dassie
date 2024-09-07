@@ -1,17 +1,17 @@
 import { isObject } from "@dassie/lib-type-utils"
 
 import {
-  ComputationContext,
+  type ComputationContext,
   ComputationContextImplementation,
 } from "./computation-context"
 import { FactoryNameSymbol } from "./internal/context-base"
 import { Reactive, defaultComparator } from "./internal/reactive"
 import { createReactiveTopic } from "./internal/reactive-topic"
 import { confineScope, createScope } from "./scope"
-import { ReadonlySignal, SignalSymbol } from "./signal"
+import { type ReadonlySignal, SignalSymbol } from "./signal"
 import { type ReadonlyTopic, TopicSymbol } from "./topic"
-import { ScopeContext } from "./types/scope-context"
-import { StatefulContext } from "./types/stateful-context"
+import type { ScopeContext } from "./types/scope-context"
+import type { StatefulContext } from "./types/stateful-context"
 
 export const ComputedSymbol = Symbol("das:reactive:computed")
 

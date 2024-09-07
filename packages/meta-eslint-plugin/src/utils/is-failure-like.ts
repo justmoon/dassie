@@ -1,5 +1,5 @@
 import { unionTypeParts } from "tsutils"
-import { Type, TypeChecker } from "typescript"
+import type { Type, TypeChecker } from "typescript"
 
 export const FAILURE_UNIQUE_KEY = "dassie.failure"
 

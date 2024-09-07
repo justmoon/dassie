@@ -1,4 +1,4 @@
-import { InferRow, column, table } from "@dassie/lib-sqlite"
+import { type InferRow, column, table } from "@dassie/lib-sqlite"
 
 export const incomingPaymentTable = table({
   name: "incoming_payment",
