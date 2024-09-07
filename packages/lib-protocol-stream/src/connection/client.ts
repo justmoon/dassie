@@ -1,25 +1,27 @@
 import { isFailure } from "@dassie/lib-type-utils"
 
 import type { StreamProtocolContext } from "../context/context"
+import type { StreamCredentials } from "../server/generate-credentials"
 import { queryIldcp } from "../server/query-ildcp"
 import { Connection } from "./connection"
 import { createInitialConnectionState } from "./initial-state"
 
 interface ClientOptions {
   context: StreamProtocolContext
-  remoteAddress: string
-  secret: Uint8Array
+  credentials: StreamCredentials
 }
 
-export async function createClient(options: ClientOptions) {
-  const configuration = await queryIldcp(options.context)
+export async function createClient({ context, credentials }: ClientOptions) {
+  const configuration = await queryIldcp(context)
 
   if (isFailure(configuration)) {
     return configuration
   }
 
   const state = createInitialConnectionState({
-    ...options,
+    context,
+    remoteAddress: credentials.destination,
+    secret: credentials.secret,
     configuration,
     side: "client",
   })

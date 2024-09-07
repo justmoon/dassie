@@ -26,8 +26,10 @@ describe("Client Compatibility", () => {
     const client = unwrapFailure(
       await createClient({
         context: environment.createContext({ name: "client" }),
-        remoteAddress: destinationAccount,
-        secret: bufferToUint8Array(sharedSecret),
+        credentials: {
+          destination: destinationAccount,
+          secret: bufferToUint8Array(sharedSecret),
+        },
       }),
     )
 
@@ -55,8 +57,10 @@ describe("Client Compatibility", () => {
     const client = unwrapFailure(
       await createClient({
         context: environment.createContext({ name: "client" }),
-        remoteAddress: destinationAccount,
-        secret: bufferToUint8Array(sharedSecret),
+        credentials: {
+          destination: destinationAccount,
+          secret: bufferToUint8Array(sharedSecret),
+        },
       }),
     )
 
