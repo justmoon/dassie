@@ -33,8 +33,6 @@ import type {
 } from "./types/scope-context"
 import type { StatefulContext } from "./types/stateful-context"
 
-export const defaultSelector = <T>(value: T) => value
-
 export type ActorReference = Omit<
   Actor<unknown>,
   typeof TopicSymbol | "on" | "once" | "off"

@@ -1,7 +1,7 @@
 import type { Tagged } from "type-fest"
 
-import { defaultSelector } from "../actor-context"
 import { ContextBase } from "./context-base"
+import { defaultSelector } from "./default-selector"
 
 export const CacheStatus = {
   Clean: 0 as Tagged<0, "StatusClean">,

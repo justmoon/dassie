@@ -1,4 +1,4 @@
-import { defaultSelector } from "./actor-context"
+import { defaultSelector } from "./internal/default-selector"
 import {
   ReactiveSelector,
   type ReactiveSource,
