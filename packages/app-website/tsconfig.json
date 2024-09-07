@@ -1,9 +1,16 @@
 {
   "extends": "@dassie/meta-tsconfig/vite-react.json",
-  "include": ["**/*.ts", "**/*.tsx", "**/*.js"],
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "**/*.js"
+  ],
   "references": [
     {
       "path": "../app-node"
+    },
+    {
+      "path": "../lib-logger"
     },
     {
       "path": "../lib-protocol-stream"

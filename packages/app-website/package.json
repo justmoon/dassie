@@ -16,6 +16,7 @@
     "@astrojs/react": "^3.6.2",
     "@astrojs/starlight": "^0.27.0",
     "@dassie/app-node": "workspace:^",
+    "@dassie/lib-logger": "workspace:^",
     "@dassie/lib-protocol-stream": "workspace:^",
     "@dassie/lib-type-utils": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",

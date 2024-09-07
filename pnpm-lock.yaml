@@ -469,6 +469,9 @@ importers:
       '@dassie/app-node':
         specifier: workspace:^
         version: link:../app-node
+      '@dassie/lib-logger':
+        specifier: workspace:^
+        version: link:../lib-logger
       '@dassie/lib-protocol-stream':
         specifier: workspace:^
         version: link:../lib-protocol-stream
