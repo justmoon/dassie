@@ -1,10 +1,14 @@
 import type { IldcpResponse } from "@dassie/lib-protocol-ildcp"
-import type { Topic } from "@dassie/lib-reactive"
 
 import type { StreamProtocolContext } from "../context/context"
 import type { PskEnvironment } from "../crypto/functions"
 import type { StreamState } from "../stream/state"
 import type { Stream } from "../stream/stream"
+import type { InferTopics } from "../types/infer-topics"
+
+export type ConnectionEvents = {
+  stream: Stream
+}
 
 export interface ConnectionState {
   readonly context: StreamProtocolContext
@@ -17,7 +21,5 @@ export interface ConnectionState {
   maximumPacketAmount: bigint
   maximumStreamId: number
   readonly streams: Map<number, StreamState>
-  readonly topics: {
-    readonly stream: Topic<Stream>
-  }
+  readonly topics: InferTopics<ConnectionEvents>
 }

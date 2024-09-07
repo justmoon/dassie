@@ -1,6 +1,9 @@
-import type { StreamState } from "./state"
+import { type Listener, type Topic } from "@dassie/lib-reactive"
 
-export class Stream {
+import type { EventEmitter } from "../types/event-emitter"
+import type { StreamEvents, StreamState } from "./state"
+
+export class Stream implements EventEmitter<StreamEvents> {
   constructor(
     private readonly state: StreamState,
     public readonly id: number,
@@ -14,7 +17,15 @@ export class Stream {
     this.state.receiveMaximum += amount
   }
 
-  on(eventType: "money", handler: (amount: bigint) => void) {
-    this.state.topics[eventType].on(undefined, handler)
+  on<TEventType extends keyof StreamEvents>(
+    eventType: TEventType,
+    handler: Listener<StreamEvents[TEventType]>,
+  ) {
+    const topic: Topic<StreamEvents[TEventType]> = this.state.topics[eventType]
+    topic.on(undefined, handler)
+  }
+
+  off(eventType: keyof StreamEvents, handler: Listener<unknown>) {
+    this.state.topics[eventType].off(handler)
   }
 }

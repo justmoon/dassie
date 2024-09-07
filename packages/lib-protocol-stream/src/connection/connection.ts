@@ -1,5 +1,6 @@
 import { IlpType } from "@dassie/lib-protocol-ilp"
 import { isFailure } from "@dassie/lib-type-utils"
+import type { Listener, Topic } from "@dassie/lib-reactive"
 
 import { FrameType, type StreamFrame } from "../packets/schema"
 import { createInitialStreamState } from "../stream/initialize"
@@ -10,11 +11,12 @@ import {
   rejectSend,
 } from "../stream/send-money"
 import { Stream } from "../stream/stream"
+import type { EventEmitter } from "../types/event-emitter"
 import { measureExchangeRate } from "./measure-exchange-rate"
 import { sendPacket } from "./send-packet"
-import type { ConnectionState } from "./state"
+import type { ConnectionEvents, ConnectionState } from "./state"
 
-export class Connection {
+export class Connection implements EventEmitter<ConnectionEvents> {
   constructor(private readonly state: ConnectionState) {}
 
   async measureExchangeRate() {
@@ -83,9 +85,16 @@ export class Connection {
         throw new Error("Unexpected ILP packet type")
       }
     }
+  on<TEventType extends keyof ConnectionEvents>(
+    eventType: TEventType,
+    handler: Listener<ConnectionEvents[TEventType]>,
+  ) {
+    const topic: Topic<ConnectionEvents[TEventType]> =
+      this.state.topics[eventType]
+    topic.on(undefined, handler)
   }
 
-  on(eventType: "stream", handler: (connection: Stream) => void) {
-    this.state.topics[eventType].on(undefined, handler)
+  off(eventType: keyof ConnectionEvents, handler: Listener<unknown>) {
+    this.state.topics[eventType].off(handler)
   }
 }

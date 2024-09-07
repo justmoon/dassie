@@ -1,15 +1,25 @@
-import type { Connection } from "../connection/connection"
-import { generateCredentials } from "./generate-credentials"
-import type { ServerState } from "./state"
+import type { Listener, Topic } from "@dassie/lib-reactive"
 
-export class Server {
+import type { EventEmitter } from "../types/event-emitter"
+import { generateCredentials } from "./generate-credentials"
+import type { ServerEvents, ServerState } from "./state"
+
+export class Server implements EventEmitter<ServerEvents> {
   constructor(private readonly state: ServerState) {}
 
   generateCredentials() {
     return generateCredentials(this.state)
   }
 
-  on(eventType: "connection", handler: (connection: Connection) => void) {
-    this.state.topics[eventType].on(undefined, handler)
+  on<TEventType extends keyof ServerEvents>(
+    eventType: TEventType,
+    handler: Listener<ServerEvents[TEventType]>,
+  ) {
+    const topic: Topic<ServerEvents[TEventType]> = this.state.topics[eventType]
+    topic.on(undefined, handler)
+  }
+
+  off(eventType: keyof ServerEvents, handler: Listener<unknown>) {
+    this.state.topics[eventType].off(handler)
   }
 }

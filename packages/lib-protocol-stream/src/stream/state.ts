@@ -1,4 +1,8 @@
-import type { Topic } from "@dassie/lib-reactive"
+import type { InferTopics } from "../types/infer-topics"
+
+export type StreamEvents = {
+  money: bigint
+}
 
 export interface StreamState {
   sendMaximum: bigint
@@ -8,7 +12,5 @@ export interface StreamState {
   receiveMaximum: bigint
   receivedAmount: bigint
 
-  topics: {
-    money: Topic<bigint>
-  }
+  topics: InferTopics<StreamEvents>
 }
