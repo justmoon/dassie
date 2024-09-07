@@ -16,7 +16,7 @@ export {
   createJsonFormatter,
 } from "./formatters/json-formatter"
 export { createEnableChecker } from "./enabled"
-export { logContextSymbol, getLogContext as getLoggingContext } from "./context"
+export { logContextSymbol, getLogContext } from "./context"
 export { createLogger } from "./logger"
 export { captureConsole } from "./capture"
 export { assert, AssertionError } from "./utils/assert"

@@ -1,10 +1,10 @@
-import { getLoggingContext } from "./common"
+import { getLogContext } from "./context"
 
 export const CONSOLE_NAMESPACE = "console"
 export const captureConsole = () => {
   const methods = ["debug", "info", "warn", "error"] as const
 
-  const context = getLoggingContext()
+  const context = getLogContext()
 
   for (const method of methods) {
     // eslint-disable-next-line no-console
