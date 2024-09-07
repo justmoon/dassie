@@ -1,5 +1,8 @@
 /* eslint-disable n/no-unsupported-features/node-builtins */
+import { isError } from "@dassie/lib-logger"
+
 import type { CryptoContext, Cryptor, HmacSigner } from "../context"
+import { DECRYPTION_FAILURE } from "../failures/decryption-failure"
 
 const HASH_ALGORITHM = "SHA-256"
 const HMAC_ALGORITHM = {
@@ -87,26 +90,34 @@ export function createAesCryptor(
     },
 
     async decrypt(ciphertext: Uint8Array) {
-      const keyObject = await keyObjectPromise
+      try {
+        const keyObject = await keyObjectPromise
 
-      // Extract the IV and move the tag to the end of the ciphertext
-      const iv = ciphertext.subarray(0, IV_LENGTH)
-      const tag = ciphertext.subarray(IV_LENGTH, IV_LENGTH + AUTH_TAG_BYTES)
-      const encryptedBlocks = ciphertext.subarray(IV_LENGTH + AUTH_TAG_BYTES)
-      ciphertext = new Uint8Array(encryptedBlocks.byteLength + AUTH_TAG_BYTES)
-      ciphertext.set(encryptedBlocks)
-      ciphertext.set(tag, encryptedBlocks.byteLength)
+        // Extract the IV and move the tag to the end of the ciphertext
+        const iv = ciphertext.subarray(0, IV_LENGTH)
+        const tag = ciphertext.subarray(IV_LENGTH, IV_LENGTH + AUTH_TAG_BYTES)
+        const encryptedBlocks = ciphertext.subarray(IV_LENGTH + AUTH_TAG_BYTES)
+        ciphertext = new Uint8Array(encryptedBlocks.byteLength + AUTH_TAG_BYTES)
+        ciphertext.set(encryptedBlocks)
+        ciphertext.set(tag, encryptedBlocks.byteLength)
 
-      const plaintext = await crypto.subtle.decrypt(
-        {
-          name: ENCRYPTION_ALGORITHM,
-          iv,
-        },
-        keyObject,
-        ciphertext,
-      )
+        const plaintext = await crypto.subtle.decrypt(
+          {
+            name: ENCRYPTION_ALGORITHM,
+            iv,
+          },
+          keyObject,
+          ciphertext,
+        )
 
-      return new Uint8Array(plaintext)
+        return new Uint8Array(plaintext)
+      } catch (error: unknown) {
+        if (isError(error) && error.name === "OperationError") {
+          return DECRYPTION_FAILURE
+        }
+
+        throw error
+      }
     },
   }
 }

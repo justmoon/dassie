@@ -22,6 +22,18 @@ export async function handleConnectionPacket(
 ) {
   const decryptedData = await state.pskEnvironment.decrypt(packet.data)
 
+  if (isFailure(decryptedData)) {
+    return {
+      type: IlpType.Reject,
+      data: {
+        code: IlpErrorCode.F99_APPLICATION_ERROR,
+        message: "Failed to decrypt packet",
+        triggeredBy: state.configuration.address,
+        data: new Uint8Array(),
+      },
+    }
+  }
+
   const streamPacketParseResult = streamPacketSchema.parse(decryptedData)
 
   if (isFailure(streamPacketParseResult)) {

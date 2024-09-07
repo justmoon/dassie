@@ -1,6 +1,7 @@
 import { stringToUint8Array } from "uint8array-extras"
 
 import type { CryptoContext, Cryptor, HmacSigner } from "./context"
+import type { DecryptionFailure } from "./failures/decryption-failure"
 
 export const TOKEN_NONCE_LENGTH = 18
 
@@ -66,7 +67,9 @@ export function getPskEnvironment(context: CryptoContext, secret: Uint8Array) {
       return cryptor.encrypt(plaintext)
     },
 
-    async decrypt(ciphertext: Uint8Array): Promise<Uint8Array> {
+    async decrypt(
+      ciphertext: Uint8Array,
+    ): Promise<Uint8Array | DecryptionFailure> {
       if (!cryptorCache) {
         cryptorCache = this.getEncryptionKey().then((key) =>
           context.createAesCryptor(key),

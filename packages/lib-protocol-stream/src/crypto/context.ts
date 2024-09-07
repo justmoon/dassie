@@ -1,3 +1,5 @@
+import type { DecryptionFailure } from "./failures/decryption-failure"
+
 export interface CryptoContext {
   getRandomBytes(length: number): Uint8Array
   hash(message: Uint8Array): Promise<Uint8Array>
@@ -9,5 +11,5 @@ export type HmacSigner = (message: Uint8Array) => Promise<Uint8Array>
 
 export interface Cryptor {
   encrypt(plaintext: Uint8Array): Promise<Uint8Array>
-  decrypt(ciphertext: Uint8Array): Promise<Uint8Array>
+  decrypt(ciphertext: Uint8Array): Promise<Uint8Array | DecryptionFailure>
 }

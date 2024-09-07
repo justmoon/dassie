@@ -57,6 +57,10 @@ export async function sendPacket({
     result.data.data,
   )
 
+  if (isFailure(streamPacketDecrypted)) {
+    return { ilp: result, stream: streamPacketDecrypted }
+  }
+
   const responseStreamPacket = streamPacketSchema.parse(streamPacketDecrypted)
 
   if (isFailure(responseStreamPacket)) {
