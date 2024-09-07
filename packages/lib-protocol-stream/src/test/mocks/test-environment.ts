@@ -1,13 +1,23 @@
 import { createLogger } from "@dassie/lib-logger"
+import { UINT64_MAX } from "@dassie/lib-oer"
 import {
   ILDCP_ADDRESS,
   serializeIldcpResponse,
 } from "@dassie/lib-protocol-ildcp"
-import { type IlpEndpoint, IlpType } from "@dassie/lib-protocol-ilp"
+import {
+  type IlpEndpoint,
+  IlpErrorCode,
+  IlpType,
+  serializeAmountTooLargeData,
+} from "@dassie/lib-protocol-ilp"
 import { createScope } from "@dassie/lib-reactive"
 
 import type { StreamProtocolContext } from "../../context/context"
 import { createMockCryptoContext } from "./crypto-context"
+
+interface EnvironmentOptions {
+  maxPacketAmount?: bigint
+}
 
 interface ContextOptions {
   name: string
@@ -20,7 +30,9 @@ interface TestRoute {
 /**
  * Creates a simulated ILP network environment. Basically a tiny connector.
  */
-export function createTestEnvironment() {
+export function createTestEnvironment({
+  maxPacketAmount = UINT64_MAX,
+}: EnvironmentOptions = {}) {
   const routes = new Map<string, TestRoute>()
   const scope = createScope("test-environment")
 
@@ -44,8 +56,23 @@ export function createTestEnvironment() {
             return {
               type: IlpType.Fulfill,
               data: {
-                fulfillment: Buffer.alloc(32),
+                fulfillment: new Uint8Array(32),
                 data: ildcpResponse,
+              },
+            }
+          }
+
+          if (packet.amount > maxPacketAmount) {
+            return {
+              type: IlpType.Reject,
+              data: {
+                code: IlpErrorCode.F08_AMOUNT_TOO_LARGE,
+                message: "Amount exceeds maximum packet amount",
+                triggeredBy: "test.router",
+                data: serializeAmountTooLargeData({
+                  receivedAmount: packet.amount,
+                  maximumAmount: maxPacketAmount,
+                }),
               },
             }
           }
