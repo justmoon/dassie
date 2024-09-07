@@ -1,16 +1,16 @@
-import type { Random, Time } from "@dassie/lib-reactive"
+import type { Clock, Random } from "@dassie/lib-reactive"
 
+import { NodeClockImplementation } from "./clock"
 import { NodeRandomImplementation } from "./random"
-import { NodeTimeImplementation } from "./time"
 
 export interface NodeRuntime {
   random: Random
-  time: Time
+  clock: Clock
 }
 
 export const createNodeRuntime = (): NodeRuntime => {
   return {
     random: new NodeRandomImplementation(),
-    time: new NodeTimeImplementation(),
+    clock: new NodeClockImplementation(),
   }
 }

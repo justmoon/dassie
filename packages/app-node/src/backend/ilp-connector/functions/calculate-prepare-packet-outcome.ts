@@ -82,7 +82,7 @@ export const CalculatePreparePacketOutcome = (reactor: DassieReactor) => {
     )
     if (isFailure(incomingExpiry)) return incomingExpiry
 
-    const now = reactor.base.time.now()
+    const now = reactor.base.clock.now()
     const delta = incomingExpiry - now - ILP_MESSAGE_WINDOW
     if (delta < ILP_MESSAGE_WINDOW) {
       return INSUFFICIENT_TIMEOUT_FAILURE

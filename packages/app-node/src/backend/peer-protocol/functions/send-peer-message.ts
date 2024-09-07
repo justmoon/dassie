@@ -131,7 +131,7 @@ export const SendPeerMessage = (reactor: DassieReactor) => {
     }
 
     const controller = new AbortController()
-    const timeoutTimer = reactor.base.time.setTimeout(() => {
+    const timeoutTimer = reactor.base.clock.setTimeout(() => {
       controller.abort()
     }, timeout ?? DEFAULT_NODE_COMMUNICATION_TIMEOUT)
 
@@ -145,7 +145,7 @@ export const SendPeerMessage = (reactor: DassieReactor) => {
       signal: controller.signal,
     })
 
-    reactor.base.time.clearTimeout(timeoutTimer)
+    reactor.base.clock.clearTimeout(timeoutTimer)
 
     return new Uint8Array(await result.arrayBuffer())
   }

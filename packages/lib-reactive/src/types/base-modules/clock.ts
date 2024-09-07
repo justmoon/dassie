@@ -1,21 +1,14 @@
 import type { Tagged } from "type-fest"
 
-export interface TimeoutOptions {
-  /**
-   * An optional abort signal that will cancel the timeout.
-   */
-  signal?: AbortSignal
-}
-
 export type TimeoutId = Tagged<unknown, "TimeoutId">
 
 export type IntervalId = Tagged<unknown, "IntervalId">
 
-export interface Time {
+export interface Clock {
   /**
    * Returns the current time in milliseconds.
    *
-   * This is a wrapper around `Date.now()`.
+   * This the equivalent of `Date.now()`.
    */
   now(): number
 
@@ -38,23 +31,4 @@ export interface Time {
    * Equivalent of JavaScript's native `clearInterval`.
    */
   clearInterval(id: IntervalId): void
-
-  /**
-   * Returns a promise that resolves after the given delay.
-   */
-  timeout(delay: number, options?: TimeoutOptions): Promise<void>
-
-  /**
-   * Returns a promise that resolves as a new macrotask on the event loop.
-   */
-  immediate(): Promise<void>
-
-  /**
-   * Get an abort signal that will be aborted after the given delay.
-   *
-   * This is a wrapper around `AbortSignal.timeout`.
-   *
-   * @param delay - The delay in milliseconds.
-   */
-  abortTimeout(delay: number): AbortSignal
 }

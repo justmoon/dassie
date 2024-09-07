@@ -2,7 +2,7 @@ import type { Promisable } from "type-fest"
 
 import { UnreachableCaseError, isThenable } from "@dassie/lib-type-utils"
 
-import type { Time, TimeoutId } from "../types/base-modules/time"
+import type { Clock, TimeoutId } from "../types/base-modules/clock"
 import type { ScopeContext } from "../types/scope-context"
 
 /**
@@ -96,7 +96,7 @@ class ScheduledTaskImplementation implements ScheduledTask {
   constructor(
     private readonly context: ScopeContext,
     private readonly descriptor: TaskDescriptor,
-    private readonly time: Time,
+    private readonly time: Clock,
   ) {}
 
   async execute() {
@@ -214,5 +214,5 @@ class ScheduledTaskImplementation implements ScheduledTask {
 export const createScheduledTask = (
   context: ScopeContext,
   descriptor: TaskDescriptor,
-  time: Time,
+  time: Clock,
 ): ScheduledTask => new ScheduledTaskImplementation(context, descriptor, time)

@@ -21,7 +21,7 @@ import {
 } from "./scope"
 import { type ReadonlySignal, SignalSymbol } from "./signal"
 import type { ReadonlyTopic, TopicSymbol } from "./topic"
-import type { Time } from "./types/base-modules/time"
+import type { Clock } from "./types/base-modules/clock"
 import type { CancelableContext } from "./types/cancelable-context"
 import type { ExecutionContext } from "./types/execution-context"
 import type { Factory } from "./types/factory"
@@ -121,7 +121,10 @@ export interface ActorContext<TBase extends object = object>
    * @param this - The current ActorContext must have a time module in the base.
    * @param task - An object describing the task to be scheduled.
    */
-  task(this: ActorContext<{ time: Time }>, task: TaskDescriptor): ScheduledTask
+  task(
+    this: ActorContext<{ clock: Clock }>,
+    task: TaskDescriptor,
+  ): ScheduledTask
 
   /**
    * Instantiate an actor as a child of the current actor.
@@ -307,10 +310,10 @@ export class ActorContextImplementation<TBase extends object = object>
   }
 
   task(
-    this: ActorContext<{ time: Time }>,
+    this: ActorContext<{ clock: Clock }>,
     descriptor: TaskDescriptor,
   ): ScheduledTask {
-    return createScheduledTask(this, descriptor, this.reactor.base.time)
+    return createScheduledTask(this, descriptor, this.reactor.base.clock)
   }
 
   run<TReturn>(

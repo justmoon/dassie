@@ -21,6 +21,7 @@ export {
   DisposeSymbol,
 } from "./internal/context-base"
 export { defaultSelector } from "./internal/default-selector"
+export { delay, delayWithAbortSignal } from "./tools/delay"
 
 export type { Topic, ReadonlyTopic, InferTopicType } from "./topic"
 export type { Signal, ReadonlySignal, Reducer, InferSignalType } from "./signal"
@@ -54,12 +55,7 @@ export type {
   ReactiveObserver as ReactiveConsumer,
 } from "./internal/reactive"
 export type { Random } from "./types/base-modules/random"
-export type {
-  Time,
-  TimeoutOptions,
-  TimeoutId,
-  IntervalId,
-} from "./types/base-modules/time"
+export type { Clock, TimeoutId, IntervalId } from "./types/base-modules/clock"
 export type { Factory } from "./types/factory"
 export type {
   ScopeContext,
