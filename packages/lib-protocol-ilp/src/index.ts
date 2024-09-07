@@ -1,4 +1,10 @@
 export {
+  serializeAmountTooLargeData,
+  parseAmountTooLargeData,
+  amountTooLargeDataSchema,
+  type AmountTooLargeData,
+} from "./amount-too-large"
+export {
   interledgerTimeToTimestamp,
   timestampToInterledgerTime,
   INTERLEDGER_TIME_LENGTH,
