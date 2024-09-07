@@ -1,7 +1,22 @@
 {
   "extends": "astro/tsconfigs/strictest",
-  "references": [],
+  "references": [
+    {
+      "path": "../app-node"
+    },
+    {
+      "path": "../lib-protocol-stream"
+    },
+    {
+      "path": "../lib-type-utils"
+    },
+    {
+      "path": "../meta-unocss-config"
+    }
+  ],
   "compilerOptions": {
-    "outDir": "dist"
+    "outDir": "dist",
+    "jsx": "react-jsx",
+    "jsxImportSource": "react"
   }
 }

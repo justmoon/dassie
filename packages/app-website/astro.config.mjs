@@ -1,5 +1,9 @@
+import react from "@astrojs/react"
 import starlight from "@astrojs/starlight"
 import { defineConfig } from "astro/config"
+import unocss from "unocss/astro"
+
+import unocssConfig from "@dassie/meta-unocss-config"
 
 // https://astro.build/config
 export default defineConfig({
@@ -21,5 +25,7 @@ export default defineConfig({
         themes: ["dracula", "github-light"],
       },
     }),
+    react(),
+    unocss({ configFile: "./uno.config.ts" }),
   ],
 })

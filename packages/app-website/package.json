@@ -6,19 +6,31 @@
   "scripts": {
     "dev": "astro dev",
     "start": "astro dev",
+    "check": "astro check",
     "build": "astro check && astro build",
     "preview": "astro preview",
     "astro": "astro"
   },
   "dependencies": {
     "@astrojs/check": "^0.9.3",
+    "@astrojs/react": "^3.6.2",
     "@astrojs/starlight": "^0.27.0",
+    "@dassie/app-node": "workspace:^",
+    "@dassie/lib-protocol-stream": "workspace:^",
+    "@dassie/lib-type-utils": "workspace:^",
+    "@dassie/meta-unocss-config": "workspace:^",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@unocss/reset": "0.62.2",
     "astro": "4.15.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "sharp": "^0.33.5",
-    "typescript": "^5.5.4"
+    "typescript": "^5.5.4",
+    "unocss": "0.62.2"
   },
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "engines": {
-    "node": ">=20.x <=22.1.0"
+    "node": ">=20 <=22.1.0"
   }
 }
