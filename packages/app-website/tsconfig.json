@@ -1,5 +1,6 @@
 {
-  "extends": "astro/tsconfigs/strictest",
+  "extends": "@dassie/meta-tsconfig/vite-react.json",
+  "include": ["**/*.ts", "**/*.tsx", "**/*.js"],
   "references": [
     {
       "path": "../app-node"
@@ -15,8 +16,6 @@
     }
   ],
   "compilerOptions": {
-    "outDir": "dist",
-    "jsx": "react-jsx",
-    "jsxImportSource": "react"
+    "outDir": "dist"
   }
 }

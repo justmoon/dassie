@@ -5,9 +5,6 @@
     "**/*.tsx",
     "**/*.js"
   ],
-  "compilerOptions": {
-    "outDir": "dist"
-  },
   "references": [
     {
       "path": "../lib-format-utils"
@@ -57,5 +54,8 @@
     {
       "path": "../meta-unocss-config"
     }
-  ]
+  ],
+  "compilerOptions": {
+    "outDir": "dist"
+  }
 }

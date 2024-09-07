@@ -18,6 +18,7 @@
     "@dassie/app-node": "workspace:^",
     "@dassie/lib-protocol-stream": "workspace:^",
     "@dassie/lib-type-utils": "workspace:^",
+    "@dassie/meta-tsconfig": "workspace:^",
     "@dassie/meta-unocss-config": "workspace:^",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",

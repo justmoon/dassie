@@ -475,6 +475,9 @@ importers:
       '@dassie/lib-type-utils':
         specifier: workspace:^
         version: link:../lib-type-utils
+      '@dassie/meta-tsconfig':
+        specifier: workspace:^
+        version: link:../meta-tsconfig
       '@dassie/meta-unocss-config':
         specifier: workspace:^
         version: link:../meta-unocss-config
