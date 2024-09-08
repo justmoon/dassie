@@ -21,6 +21,11 @@ export {
   DisposeSymbol,
 } from "./internal/context-base"
 export { defaultSelector } from "./internal/default-selector"
+export {
+  createMockClock,
+  MockClockImplementation,
+  DEFAULT_MOCK_CLOCK_TIME,
+} from "./mocks/clock"
 export { delay, delayWithAbortSignal } from "./tools/delay"
 
 export type { Topic, ReadonlyTopic, InferTopicType } from "./topic"
@@ -54,6 +59,7 @@ export type {
   ReactiveSource as ReactiveProvider,
   ReactiveObserver as ReactiveConsumer,
 } from "./internal/reactive"
+export type { MockClock } from "./mocks/clock"
 export type { Random } from "./types/base-modules/random"
 export type { Clock, TimeoutId, IntervalId } from "./types/base-modules/clock"
 export type { Factory } from "./types/factory"
