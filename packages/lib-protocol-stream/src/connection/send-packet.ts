@@ -97,6 +97,18 @@ export async function sendPacket({
     )
   }
 
+  // Decreate concurrency when packets are being rejected due to a temporary error
+  // such as overloading.
+  if (result.type === IlpType.Reject && result.data.code.startsWith("T")) {
+    // Multiplicatively decrease concurrency as part of AIMD congestion control.
+    //
+    // Please note that this value is intentionally not rounded.
+    state.concurrency = Math.max(
+      state.concurrency * context.policy.concurrencyDecreaseFactor,
+      context.policy.minimumConcurrency,
+    )
+  }
+
   const streamPacketDecrypted = await state.pskEnvironment.decrypt(
     result.data.data,
   )

@@ -23,10 +23,17 @@ export interface StreamPolicy {
    * Does NOT have to be an integer.
    */
   readonly concurrencyIncreaseIncrement: number
+  /**
+   * The multiplicative decrease part of the AIMD congestion control algorithm.
+   *
+   * Must be between 0 and 1.
+   */
+  readonly concurrencyDecreaseFactor: number
 }
 
 export const DEFAULT_POLICY: StreamPolicy = {
   minimumConcurrency: 1,
   maximumConcurrency: 100,
   concurrencyIncreaseIncrement: 1,
+  concurrencyDecreaseFactor: 0.5,
 }
