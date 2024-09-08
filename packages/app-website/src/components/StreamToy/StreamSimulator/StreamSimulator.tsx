@@ -69,6 +69,7 @@ export default function StreamSimulator({
 
     const environment = createTestEnvironment({
       maxPacketAmount: configuration.maxPacketAmount,
+      latency: configuration.latency,
       scope,
       logger: createLogger("network", { context: logContext }),
     })

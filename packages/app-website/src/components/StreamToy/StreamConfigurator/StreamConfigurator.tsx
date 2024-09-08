@@ -5,6 +5,7 @@ import { Label } from "@dassie/app-node/src/frontend/components/ui/label"
 export interface StreamConfiguration {
   amount: bigint
   maxPacketAmount: bigint
+  latency: number
 }
 
 interface StreamConfigurationProperties {
@@ -20,6 +21,7 @@ interface StreamConfigurationProperties {
 export const DEFAULT_STREAM_CONFIGURATION: StreamConfiguration = {
   amount: 3000n,
   maxPacketAmount: 1000n,
+  latency: 100,
 }
 
 export default function StreamConfigurator({
@@ -42,6 +44,18 @@ export default function StreamConfigurator({
               onConfigurationChange((configuration) => ({
                 ...configuration,
                 maxPacketAmount: BigInt(event.target.value),
+              }))
+            }
+          />
+          <Label htmlFor="latency">Latency</Label>
+          <Input
+            type="number"
+            id="latency"
+            value={String(configuration.latency)}
+            onChange={(event) =>
+              onConfigurationChange((configuration) => ({
+                ...configuration,
+                latency: Number(event.target.value),
               }))
             }
           />

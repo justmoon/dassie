@@ -27,7 +27,11 @@ import { getPskEnvironment } from "../../crypto/functions"
 import { createMockCryptoContext } from "./crypto-context"
 
 interface EnvironmentOptions {
-  maxPacketAmount?: bigint
+  // Environment options
+  maxPacketAmount?: bigint | undefined
+  latency?: number | undefined
+
+  // Override context
   scope?: DisposableScope | undefined
   logger?: Logger | undefined
   clock?: Clock | undefined
@@ -58,6 +62,7 @@ interface ResponsePacketEvent {
  */
 export function createTestEnvironment({
   maxPacketAmount = UINT64_MAX,
+  latency = 0,
   scope = createScope("test-environment"),
   logger = createLogger("das:test:stream"),
   crypto = createMockCryptoContext(),
@@ -94,6 +99,10 @@ export function createTestEnvironment({
               data: ildcpResponse,
             },
           }
+        }
+
+        if (latency > 0) {
+          await new Promise((resolve) => setTimeout(resolve, latency))
         }
 
         if (packet.amount > maxPacketAmount) {
