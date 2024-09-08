@@ -21,6 +21,7 @@ export {
   type IlpFulfillPacket,
   type IlpRejectPacket,
   type IlpPacket,
+  type IlpResponsePacket,
   parseIlpPacket,
   serializeIlpPacket,
 } from "./schema"

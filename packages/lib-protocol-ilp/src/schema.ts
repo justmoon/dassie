@@ -74,6 +74,9 @@ export type IlpFulfillPacket = Simplify<Infer<typeof ilpFulfillSchema>>
 export type IlpRejectPacket = Simplify<Infer<typeof ilpRejectSchema>>
 
 export type IlpPacket = Simplify<Infer<typeof ilpPacketSchema>>
+export type IlpResponsePacket = Simplify<
+  IlpPacket & { type: typeof IlpType.Fulfill | typeof IlpType.Reject }
+>
 
 export const parseIlpPacket = (packet: Uint8Array): IlpPacket => {
   const parseResult = ilpPacketSchema.parse(packet)
