@@ -1,4 +1,5 @@
 import type { IldcpResponse } from "@dassie/lib-protocol-ildcp"
+import type { Deferred } from "@dassie/lib-reactive"
 
 import type { StreamProtocolContext } from "../context/context"
 import type { PskEnvironment } from "../crypto/functions"
@@ -23,4 +24,15 @@ export interface ConnectionState {
   readonly streams: Map<number, StreamState>
   readonly topics: InferTopics<ConnectionEvents>
   isSending: boolean
+
+  /**
+   * Number of packets that may be in flight at the same time.
+   */
+  concurrency: number
+
+  /**
+   * A deferred promise which can be used to wake up the send loop if there is
+   * new work to do.
+   */
+  sendLoopWaker: Deferred<void> | undefined
 }

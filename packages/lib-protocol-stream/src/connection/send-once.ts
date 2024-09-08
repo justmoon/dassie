@@ -15,15 +15,17 @@ import type { ConnectionState } from "./state"
  * Sends one Interledger packet and returns once the packet has been fulfilled or rejected.
  */
 export async function sendOnce(state: ConnectionState) {
+  const { context, streams, maximumPacketAmount } = state
+
   const frames = new Array<StreamFrame>()
   const fulfillHandlers = new Array<() => void>()
   const rejectHandlers = new Array<() => void>()
 
   let totalSend = 0n
-  for (const [streamId, streamState] of state.streams.entries()) {
+  for (const [streamId, streamState] of streams.entries()) {
     const desiredSend = getDesiredSendAmount(streamState)
 
-    const maximumSend = state.maximumPacketAmount - totalSend
+    const maximumSend = maximumPacketAmount - totalSend
     const actualSend = desiredSend > maximumSend ? maximumSend : desiredSend
 
     if (actualSend > 0n) {
@@ -46,6 +48,10 @@ export async function sendOnce(state: ConnectionState) {
       })
     }
   }
+
+  context.logger.debug?.("sending packet", {
+    amount: totalSend,
+  })
 
   const result = await sendPacket({
     state,

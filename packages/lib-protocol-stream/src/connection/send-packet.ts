@@ -55,6 +55,7 @@ export async function sendPacket({
     data: streamPacketEncrypted,
   })
 
+  // Handle F08 errors indicating that the packets we're sending are too large
   if (
     result.type === IlpType.Reject &&
     result.data.code === IlpErrorCode.F08_AMOUNT_TOO_LARGE
@@ -85,6 +86,15 @@ export async function sendPacket({
 
       state.maximumPacketAmount = newMaximum
     }
+  }
+
+  // Increase concurrency whenever we successfully send a packet
+  if (result.type === IlpType.Fulfill) {
+    // Additively increase concurrency as part of AIMD congestion control.
+    state.concurrency = Math.min(
+      state.concurrency + context.policy.concurrencyIncreaseIncrement,
+      context.policy.maximumConcurrency,
+    )
   }
 
   const streamPacketDecrypted = await state.pskEnvironment.decrypt(

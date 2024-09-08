@@ -3,6 +3,7 @@ import type { IlpEndpoint } from "@dassie/lib-protocol-ilp"
 import type { Clock, DisposableScope } from "@dassie/lib-reactive"
 
 import type { CryptoContext } from "../crypto/context"
+import type { StreamPolicy } from "./policy"
 
 export interface StreamProtocolContext {
   readonly crypto: CryptoContext
@@ -10,4 +11,5 @@ export interface StreamProtocolContext {
   readonly endpoint: IlpEndpoint
   readonly scope: DisposableScope
   readonly clock: Clock
+  readonly policy: StreamPolicy
 }

@@ -21,6 +21,7 @@ import {
 } from "@dassie/lib-reactive"
 
 import type { StreamProtocolContext } from "../../context/context"
+import { DEFAULT_POLICY, type StreamPolicy } from "../../context/policy"
 import type { CryptoContext } from "../../crypto/context"
 import { getPskEnvironment } from "../../crypto/functions"
 import { createMockCryptoContext } from "./crypto-context"
@@ -31,6 +32,7 @@ interface EnvironmentOptions {
   logger?: Logger | undefined
   clock?: Clock | undefined
   crypto?: CryptoContext | undefined
+  policy?: StreamPolicy | undefined
 }
 
 interface ContextOptions {
@@ -58,8 +60,9 @@ export function createTestEnvironment({
   maxPacketAmount = UINT64_MAX,
   scope = createScope("test-environment"),
   logger = createLogger("das:test:stream"),
-  clock = createMockClock(),
   crypto = createMockCryptoContext(),
+  clock = createMockClock(),
+  policy = DEFAULT_POLICY,
 }: EnvironmentOptions = {}) {
   const routes = new Map<string, TestRoute>()
 
@@ -149,6 +152,7 @@ export function createTestEnvironment({
         endpoint,
         scope,
         clock,
+        policy,
       }
     },
     dispose: () => scope.dispose(),

@@ -1,8 +1,8 @@
+import { createDeferred } from "@dassie/lib-reactive"
+
 import { hasWorkToDo } from "./has-work-to-do"
 import { sendOnce } from "./send-once"
 import type { ConnectionState } from "./state"
-
-const PACKET_DELAY = 100
 
 export function sendUntilDone(state: ConnectionState) {
   // If there is already a send loop active, we don't need to start another one
@@ -10,15 +10,36 @@ export function sendUntilDone(state: ConnectionState) {
 
   state.context.logger.debug?.("starting send loop")
   state.isSending = true
+
+  const promisePool = new Set<Promise<void>>()
+
   ;(async function sendLoop() {
     for (;;) {
-      await sendOnce(state)
+      const hasWork = hasWorkToDo(state)
 
-      if (!hasWorkToDo(state)) break
+      // If we have no more new work to do and no work is in progress, that
+      // means we are fully done and can end the loop.
+      if (!hasWork && promisePool.size === 0) break
 
-      // TODO: This is just temporary - eventually there should be a send
-      // scheduler which decides maximum number of packets in flight etc.
-      await new Promise((resolve) => setTimeout(resolve, PACKET_DELAY))
+      if (promisePool.size >= state.concurrency || !hasWork) {
+        state.sendLoopWaker = createDeferred()
+
+        // Check again when any of the current packets finishes or someone
+        // wakes us up.
+        await Promise.race([...promisePool, state.sendLoopWaker])
+        continue
+      }
+
+      const promise = sendOnce(state)
+
+      promisePool.add(promise)
+      promise
+        .catch((error: unknown) => {
+          state.context.logger.error("error in sendOnce", { error })
+        })
+        .finally(() => {
+          promisePool.delete(promise)
+        })
     }
   })().catch((error: unknown) => {
     console.error("error in send loop", { error })

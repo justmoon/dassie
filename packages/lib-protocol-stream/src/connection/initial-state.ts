@@ -8,6 +8,8 @@ import type { ConnectionState } from "./state"
 
 export const DEFAULT_MAXIMUM_PACKET_AMOUNT = UINT64_MAX
 
+export const INITIAL_CONCURRENCY = 1
+
 export interface ConnectionStateOptions {
   context: StreamProtocolContext
   configuration: IldcpResponse
@@ -39,5 +41,7 @@ export const createInitialConnectionState = ({
       stream: createTopic(),
     },
     isSending: false,
+    concurrency: INITIAL_CONCURRENCY,
+    sendLoopWaker: undefined,
   }
 }
