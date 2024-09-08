@@ -2,7 +2,6 @@ import {
   type Infer,
   defineClass,
   defineObjectSet,
-  ia5String,
   integerAsBigint,
   octetString,
   openType,
@@ -12,7 +11,7 @@ import {
   utf8String,
 } from "@dassie/lib-oer"
 
-export const ilpAddress = ia5String([1, 1023])
+import { ilpAddressSchema } from "@dassie/lib-protocol-ilp"
 
 export const FrameType = {
   ConnectionClose: 0x01,
@@ -54,7 +53,7 @@ export const frameConnectionCloseSchema = sequence({
 })
 
 export const frameConnectionNewAddressSchema = sequence({
-  sourceAccount: ilpAddress,
+  sourceAccount: ilpAddressSchema,
 })
 
 export const frameConnectionMaxDataSchema = sequence({
