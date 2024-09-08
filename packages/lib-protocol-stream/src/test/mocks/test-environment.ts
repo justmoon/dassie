@@ -10,14 +10,23 @@ import {
   IlpType,
   serializeAmountTooLargeData,
 } from "@dassie/lib-protocol-ilp"
-import { createScope } from "@dassie/lib-reactive"
+import {
+  type Clock,
+  type DisposableScope,
+  createMockClock,
+  createScope,
+} from "@dassie/lib-reactive"
 
 import type { StreamProtocolContext } from "../../context/context"
+import type { CryptoContext } from "../../crypto/context"
 import { createMockCryptoContext } from "./crypto-context"
 
 interface EnvironmentOptions {
   maxPacketAmount?: bigint
+  scope?: DisposableScope | undefined
   logger?: Logger | undefined
+  clock?: Clock | undefined
+  crypto?: CryptoContext | undefined
 }
 
 interface ContextOptions {
@@ -33,10 +42,12 @@ interface TestRoute {
  */
 export function createTestEnvironment({
   maxPacketAmount = UINT64_MAX,
+  scope = createScope("test-environment"),
   logger = createLogger("das:test:stream"),
+  clock = createMockClock(),
+  crypto = createMockCryptoContext(),
 }: EnvironmentOptions = {}) {
   const routes = new Map<string, TestRoute>()
-  const scope = createScope("test-environment")
 
   logger.debug?.("initializing test environment")
 
@@ -106,13 +117,11 @@ export function createTestEnvironment({
       }
 
       return {
-        crypto: createMockCryptoContext(),
+        crypto,
         logger,
         endpoint,
         scope,
-        getDateNow() {
-          return new Date("2024-08-29T10:44:29.380Z").valueOf()
-        },
+        clock,
       }
     },
     dispose: () => scope.dispose(),

@@ -28,6 +28,7 @@
     "@dassie/lib-protocol-ildcp": "workspace:^",
     "@dassie/lib-protocol-ilp": "workspace:^",
     "@dassie/lib-reactive": "workspace:^",
+    "@dassie/lib-reactive-io": "workspace:^",
     "@dassie/lib-type-utils": "workspace:^",
     "uint8array-extras": "^1.4.0"
   },

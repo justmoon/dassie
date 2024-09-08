@@ -23,6 +23,9 @@
       "path": "../lib-reactive"
     },
     {
+      "path": "../lib-reactive-io"
+    },
+    {
       "path": "../lib-type-utils"
     }
   ]
