@@ -22,4 +22,28 @@ export const IlpErrorCode = {
   R99_APPLICATION_ERROR: "R99",
 } as const
 
+export const humanReadableIlpErrors: Record<IlpErrorCode, string> = {
+  F00: "Bad Request",
+  F01: "Invalid Packet",
+  F02: "Unavailable",
+  F03: "Invalid Amount",
+  F04: "Insufficient Destination Amount",
+  F05: "Wrong Condition",
+  F06: "Unexpected Payment",
+  F07: "Cannot Receive",
+  F08: "Amount Too Large",
+  F99: "Application Error",
+  T00: "Internal Error",
+  T01: "Peer Unreachable",
+  T02: "Peer Busy",
+  T03: "Connector Busy",
+  T04: "Insufficient Liquidity",
+  T05: "Rate Limited",
+  T99: "Application Error",
+  R00: "Transfer Timed Out",
+  R01: "Insufficient Source Amount",
+  R02: "Insufficient Timeout",
+  R99: "Application Error",
+}
+
 export type IlpErrorCode = (typeof IlpErrorCode)[keyof typeof IlpErrorCode]

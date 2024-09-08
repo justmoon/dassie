@@ -472,9 +472,15 @@ importers:
       '@dassie/lib-logger':
         specifier: workspace:^
         version: link:../lib-logger
+      '@dassie/lib-protocol-ilp':
+        specifier: workspace:^
+        version: link:../lib-protocol-ilp
       '@dassie/lib-protocol-stream':
         specifier: workspace:^
         version: link:../lib-protocol-stream
+      '@dassie/lib-reactive':
+        specifier: workspace:^
+        version: link:../lib-reactive
       '@dassie/lib-type-utils':
         specifier: workspace:^
         version: link:../lib-type-utils
@@ -496,6 +502,12 @@ importers:
       astro:
         specifier: 4.15.4
         version: 4.15.4(@types/node@22.5.4)(rollup@4.21.2)(typescript@5.5.4)
+      immer:
+        specifier: ^10.1.1
+        version: 10.1.1
+      lucide-react:
+        specifier: ^0.435.0
+        version: 0.435.0(react@18.3.1)
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -508,6 +520,9 @@ importers:
       typescript:
         specifier: ^5.5.4
         version: 5.5.4
+      uint8array-extras:
+        specifier: ^1.4.0
+        version: 1.4.0
       unocss:
         specifier: 0.62.2
         version: 0.62.2(postcss@8.4.45)(rollup@4.21.2)(vite@5.4.3(@types/node@22.5.4))

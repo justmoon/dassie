@@ -13,7 +13,13 @@
       "path": "../lib-logger"
     },
     {
+      "path": "../lib-protocol-ilp"
+    },
+    {
       "path": "../lib-protocol-stream"
+    },
+    {
+      "path": "../lib-reactive"
     },
     {
       "path": "../lib-type-utils"

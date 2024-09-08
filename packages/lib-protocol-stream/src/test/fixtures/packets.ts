@@ -1,6 +1,6 @@
 import { base64ToUint8Array } from "uint8array-extras"
 
-import { FrameType, type Packet } from "../../packets/schema"
+import { FrameType, type StreamPacket } from "../../packets/schema"
 
 export default {
   "sequence:0": {
@@ -897,7 +897,7 @@ export default {
 } satisfies Record<
   string,
   {
-    packet: Packet
+    packet: StreamPacket
     buffer: string
   }
 >

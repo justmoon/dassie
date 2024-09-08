@@ -18,7 +18,7 @@ interface StreamConfigurationProperties {
 }
 
 export const DEFAULT_STREAM_CONFIGURATION: StreamConfiguration = {
-  amount: 1000n,
+  amount: 3000n,
   maxPacketAmount: 1000n,
 }
 

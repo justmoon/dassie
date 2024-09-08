@@ -10,7 +10,6 @@ import {
   uint8Number,
   utf8String,
 } from "@dassie/lib-oer"
-
 import { ilpAddressSchema } from "@dassie/lib-protocol-ilp"
 
 export const FrameType = {
@@ -210,4 +209,4 @@ export const streamPacketSchema = sequence({
   frames: sequenceOf(streamFrameSchema),
 })
 
-export type Packet = Infer<typeof streamPacketSchema>
+export type StreamPacket = Infer<typeof streamPacketSchema>
