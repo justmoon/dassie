@@ -19,10 +19,7 @@ import type { ConnectionState } from "./state"
 const PROBE_PACKET_AMOUNTS = [1, 1e3, 1e6, 1e9, 1e12].map(BigInt)
 
 interface GenerateProbePacketsOptions {
-  readonly state: Pick<
-    ConnectionState,
-    "context" | "pskEnvironment" | "nextSequence" | "remoteAddress"
-  >
+  readonly state: ConnectionState
 }
 
 export async function measureExchangeRate({

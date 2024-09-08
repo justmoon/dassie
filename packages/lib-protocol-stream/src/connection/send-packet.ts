@@ -1,17 +1,19 @@
-import { IlpType } from "@dassie/lib-protocol-ilp"
+import {
+  IlpErrorCode,
+  IlpType,
+  amountTooLargeDataSchema,
+} from "@dassie/lib-protocol-ilp"
 import { isFailure } from "@dassie/lib-type-utils"
 
 import { generateRandomCondition } from "../crypto/functions"
+import { multiplyByRatio } from "../math/ratio"
 import { getPacketExpiry } from "../packets/expiry"
 import { type StreamFrame, streamPacketSchema } from "../packets/schema"
 import { NO_REMOTE_ADDRESS_FAILURE } from "./failures/no-remote-address-failure"
 import type { ConnectionState } from "./state"
 
 interface GenerateProbePacketsOptions {
-  readonly state: Pick<
-    ConnectionState,
-    "context" | "pskEnvironment" | "nextSequence" | "remoteAddress"
-  >
+  readonly state: ConnectionState
   readonly amount: bigint
   readonly fulfillable?: boolean | undefined
   readonly frames?: StreamFrame[] | undefined
@@ -52,6 +54,38 @@ export async function sendPacket({
       : generateRandomCondition(context.crypto),
     data: streamPacketEncrypted,
   })
+
+  if (
+    result.type === IlpType.Reject &&
+    result.data.code === IlpErrorCode.F08_AMOUNT_TOO_LARGE
+  ) {
+    const amountTooLargeData = amountTooLargeDataSchema.parse(result.data.data)
+
+    if (isFailure(amountTooLargeData)) {
+      context.logger.warn("received invalid F08 data, ignoring")
+    } else if (
+      amountTooLargeData.value.maximumAmount >=
+      amountTooLargeData.value.receivedAmount
+    ) {
+      context.logger.warn(
+        "received F08 with maximum amount >= received amount, ignoring",
+      )
+    } else {
+      const newMaximum = multiplyByRatio(amount, [
+        amountTooLargeData.value.maximumAmount,
+        amountTooLargeData.value.receivedAmount,
+      ])
+
+      context.logger.debug?.("received F08, adjusting maximum packet amount", {
+        receivedAmount: amountTooLargeData.value.receivedAmount,
+        maximumAmount: amountTooLargeData.value.maximumAmount,
+        oldMax: state.maximumPacketAmount,
+        newMax: newMaximum,
+      })
+
+      state.maximumPacketAmount = newMaximum
+    }
+  }
 
   const streamPacketDecrypted = await state.pskEnvironment.decrypt(
     result.data.data,
