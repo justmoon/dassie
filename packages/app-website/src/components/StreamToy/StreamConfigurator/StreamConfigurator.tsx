@@ -6,6 +6,7 @@ export interface StreamConfiguration {
   amount: bigint
   maxPacketAmount: bigint
   latency: number
+  maxPacketsInFlight: number
 }
 
 interface StreamConfigurationProperties {
@@ -22,6 +23,7 @@ export const DEFAULT_STREAM_CONFIGURATION: StreamConfiguration = {
   amount: 3000n,
   maxPacketAmount: 1000n,
   latency: 100,
+  maxPacketsInFlight: 10,
 }
 
 export default function StreamConfigurator({
@@ -56,6 +58,20 @@ export default function StreamConfigurator({
               onConfigurationChange((configuration) => ({
                 ...configuration,
                 latency: Number(event.target.value),
+              }))
+            }
+          />
+          <Label htmlFor="max_packets_in_flight">
+            Max. # of Packets in Flight
+          </Label>
+          <Input
+            type="number"
+            id="max_packets_in_flight"
+            value={String(configuration.maxPacketsInFlight)}
+            onChange={(event) =>
+              onConfigurationChange((configuration) => ({
+                ...configuration,
+                maxPacketsInFlight: Number(event.target.value),
               }))
             }
           />

@@ -30,6 +30,7 @@ interface EnvironmentOptions {
   // Environment options
   maxPacketAmount?: bigint | undefined
   latency?: number | undefined
+  maxPacketsInFlight?: number | undefined
 
   // Override context
   scope?: DisposableScope | undefined
@@ -63,6 +64,7 @@ interface ResponsePacketEvent {
 export function createTestEnvironment({
   maxPacketAmount = UINT64_MAX,
   latency = 0,
+  maxPacketsInFlight = Infinity,
   scope = createScope("test-environment"),
   logger = createLogger("das:test:stream"),
   crypto = createMockCryptoContext(),
@@ -79,6 +81,8 @@ export function createTestEnvironment({
   return {
     createContext: ({ name }: ContextOptions): StreamProtocolContext => {
       const address = `test.${name}`
+
+      let packetsInFlight = 0
 
       async function processPacket(packet: IlpPreparePacket) {
         if (packet.destination.startsWith(address)) {
@@ -105,6 +109,18 @@ export function createTestEnvironment({
           await new Promise((resolve) => setTimeout(resolve, latency))
         }
 
+        if (packetsInFlight >= maxPacketsInFlight) {
+          return {
+            type: IlpType.Reject,
+            data: {
+              code: IlpErrorCode.T03_CONNECTOR_BUSY,
+              message: "Too many packets in flight",
+              triggeredBy: "test.router",
+              data: new Uint8Array(),
+            },
+          }
+        }
+
         if (packet.amount > maxPacketAmount) {
           return {
             type: IlpType.Reject,
@@ -125,7 +141,11 @@ export function createTestEnvironment({
             logger.debug?.("routing packet to destination", {
               destination: packet.destination,
             })
-            return route.handler(packet)
+
+            packetsInFlight++
+            return route.handler(packet).finally(() => {
+              packetsInFlight--
+            })
           }
         }
 
