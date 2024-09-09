@@ -3,7 +3,7 @@ import { useState } from "react"
 
 import { combine } from "@dassie/app-node/src/frontend/utils/class-helper"
 import {
-  type IlpErrorCode,
+  IlpErrorCode,
   type IlpPreparePacket,
   type IlpResponsePacket,
   IlpType,
@@ -11,6 +11,7 @@ import {
 } from "@dassie/lib-protocol-ilp"
 import type { PskEnvironment } from "@dassie/lib-protocol-stream"
 
+import AmountTooLargeResponseDetails from "./AmountTooLargeResponseDetails"
 import IlpPacketDetails from "./IlpPacketDetails"
 import StreamPacketDetails from "./StreamPacketDetails"
 import { useParsedStreamPacket } from "./use-parsed-stream-packet"
@@ -91,7 +92,7 @@ export default function StreamPacketLogEntry({
 
       <div
         className={combine(
-          "overflow-y-clip h-0 transition-[height]",
+          "overflow-y-clip h-0 transition-height",
           isExpanded && "h-[calc-size(auto)]",
         )}
       >
@@ -100,12 +101,19 @@ export default function StreamPacketLogEntry({
           <IlpPacketDetails packet={packet} />
           <div className="">STREAM Request</div>
           <StreamPacketDetails packet={requestStreamPacket} />
-          {response && (
-            <>
-              <div className="">STREAM Response</div>
-              <StreamPacketDetails packet={responseStreamPacket} response />
-            </>
-          )}
+          {response &&
+            ((
+              response.type === IlpType.Reject &&
+              response.data.code === IlpErrorCode.F08_AMOUNT_TOO_LARGE
+            ) ?
+              <>
+                <div className="">F08 Response Data</div>
+                <AmountTooLargeResponseDetails data={response.data.data} />
+              </>
+            : <>
+                <div className="">STREAM Response</div>
+                <StreamPacketDetails packet={responseStreamPacket} response />
+              </>)}
         </div>
       </div>
     </div>
