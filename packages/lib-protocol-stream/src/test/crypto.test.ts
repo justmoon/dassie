@@ -21,7 +21,7 @@ describe("Crypto", () => {
 
       expect(nonce.length).toBe(18)
       expect(uint8ArrayToHex(nonce)).toMatchInlineSnapshot(
-        `"fffefdfcfbfaf9f8f7f6f5f4f3f2f1f0efee"`,
+        `"1f0796160c164e1fdcc306caed8497f7c424"`,
       )
     })
   })
@@ -33,7 +33,7 @@ describe("Crypto", () => {
 
       expect(condition.length).toBe(32)
       expect(uint8ArrayToHex(condition)).toMatchInlineSnapshot(
-        `"fffefdfcfbfaf9f8f7f6f5f4f3f2f1f0efeeedecebeae9e8e7e6e5e4e3e2e1e0"`,
+        `"1f0796160c164e1fdcc306caed8497f7c424a4e4d66f5653f50d1f35e47638d9"`,
       )
     })
   })
@@ -106,14 +106,14 @@ describe("Crypto", () => {
         const ciphertext = await testEnvironment.encrypt(cleartext)
 
         expect(uint8ArrayToBase64(ciphertext)).toMatchInlineSnapshot(
-          `"//79/Pv6+fj39vX0XVHEJAdqdFP2GxaHn8tDUqEw4Xeomsk="`,
+          `"HweWFgwWTh/cwwbKHqRLNeDtuakR4E8ltFSDyQ7v31ImmnQ="`,
         )
       })
 
       test("decrypts data", async ({ expect }) => {
         const testEnvironment = getTestEnvironment()
         const ciphertext = base64ToUint8Array(
-          "//79/Pv6+fj39vX0XVHEJAdqdFP2GxaHn8tDUqEw4Xeomsk=",
+          "HweWFgwWTh/cwwbKHqRLNeDtuakR4E8ltFSDyQ7v31ImmnQ=",
         )
 
         const cleartext = await testEnvironment.decrypt(ciphertext)
