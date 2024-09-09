@@ -3,12 +3,11 @@ import chalk from "chalk"
 import isGeneratorFunction from "is-generator-function"
 import stringWidth from "string-width"
 
-import { isObject } from "@dassie/lib-type-utils"
+import { isError, isObject } from "@dassie/lib-type-utils"
 
 import type { Formatter, LogEventFormatter } from "../types/formatter"
 import type { LogMessage } from "../types/log-event"
 import { isAsyncFunction } from "../utils/is-async-function"
-import { isError } from "../utils/is-error"
 import { selectBySeed } from "../utils/select-by-seed"
 
 export interface Theme {

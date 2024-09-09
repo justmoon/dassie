@@ -1,4 +1,4 @@
-import { isError } from "@dassie/lib-logger"
+import { isError } from "@dassie/lib-type-utils"
 
 import type { RecognizedType, TypeInfo } from "./default-format"
 import { useLogViewerContext } from "./log-viewer"

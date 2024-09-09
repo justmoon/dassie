@@ -1,5 +1,4 @@
-import { isError } from "@dassie/lib-logger"
-import { isErrorWithCode } from "@dassie/lib-type-utils"
+import { isError, isErrorWithCode } from "@dassie/lib-type-utils"
 
 export function isConnectionRefusedError(error: unknown): error is TypeError {
   return (

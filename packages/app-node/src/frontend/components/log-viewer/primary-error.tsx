@@ -1,4 +1,5 @@
-import { hasAggregatedErrors, isError } from "@dassie/lib-logger"
+import { hasAggregatedErrors } from "@dassie/lib-logger"
+import { isError } from "@dassie/lib-type-utils"
 
 import { combine } from "../../utils/class-helper"
 import { DataValue } from "./data-value"

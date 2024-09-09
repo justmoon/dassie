@@ -1,5 +1,5 @@
 /* eslint-disable n/no-unsupported-features/node-builtins */
-import { isError } from "@dassie/lib-logger"
+import { isError } from "@dassie/lib-type-utils"
 
 import type { CryptoContext, Cryptor, HmacSigner } from "../context"
 import { DECRYPTION_FAILURE } from "../failures/decryption-failure"

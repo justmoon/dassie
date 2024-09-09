@@ -1,6 +1,6 @@
-import { isError } from "@dassie/lib-logger"
 import { IlpErrorCode } from "@dassie/lib-protocol-ilp"
 import { delayWithAbortSignal } from "@dassie/lib-reactive"
+import { isError } from "@dassie/lib-type-utils"
 
 import type { DassieReactor } from "../../base/types/dassie-base"
 import { connector as logger } from "../../logger/instances"

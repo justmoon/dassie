@@ -2,8 +2,7 @@
 import Anser from "anser"
 import { Fragment, type JSX } from "react"
 
-import { isError } from "@dassie/lib-logger"
-import { isObject } from "@dassie/lib-type-utils"
+import { isError, isObject } from "@dassie/lib-type-utils"
 
 import { ANSI_COLORS, ANSI_DECORATIONS } from "./ansi-theme"
 import { DataValue } from "./data-value"

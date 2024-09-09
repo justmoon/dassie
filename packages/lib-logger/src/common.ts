@@ -22,6 +22,6 @@ export { captureConsole } from "./capture"
 export { assert, AssertionError } from "./utils/assert"
 export { compareLogLevel } from "./utils/compare-level"
 export { selectBySeed } from "./utils/select-by-seed"
-export { isError, hasAggregatedErrors } from "./utils/is-error"
+export { hasAggregatedErrors } from "./utils/has-aggregated-errors"
 
 export type { Logger } from "./logger"

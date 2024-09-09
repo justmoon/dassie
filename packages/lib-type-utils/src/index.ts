@@ -10,6 +10,7 @@ export {
   FAILURE_UNIQUE_KEY,
   type InferFindFailure,
 } from "./failure"
+export { isError } from "./is-error"
 export { isErrorWithCode } from "./is-error-with-code"
 export { isObject } from "./is-object"
 export { UnreachableCaseError } from "./unreachable-case-error"
