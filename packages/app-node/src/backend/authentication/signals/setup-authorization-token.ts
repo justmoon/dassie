@@ -5,7 +5,7 @@ import { createSignal } from "@dassie/lib-reactive"
 import type { DassieReactor } from "../../base/types/dassie-base"
 
 export const SetupAuthorizationTokenSignal = (reactor: DassieReactor) => {
-  const { random } = reactor.base
+  const { crypto } = reactor.base
 
-  return createSignal(uint8ArrayToHex(random.randomBytes(32)))
+  return createSignal(uint8ArrayToHex(crypto.getRandomBytes(32)))
 }

@@ -45,7 +45,7 @@ describe("Crypto", () => {
       const wantCondition = base64ToUint8Array(
         "Zmh6rfhivXdsj8GLjp+OIAiXFIVu4jOzkCpZHQ1fKSU=",
       )
-      const gotCondition = await context.hash(fulfillment)
+      const gotCondition = await context.hash("sha256", fulfillment)
 
       expect(gotCondition).toEqual(wantCondition)
     })

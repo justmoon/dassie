@@ -14,6 +14,7 @@ import {
 } from "@dassie/lib-protocol-ilp"
 import {
   type Clock,
+  type Crypto,
   type DisposableScope,
   createMockClock,
   createScope,
@@ -22,7 +23,6 @@ import {
 
 import type { StreamProtocolContext } from "../../context/context"
 import { DEFAULT_POLICY, type StreamPolicy } from "../../context/policy"
-import type { CryptoContext } from "../../crypto/context"
 import { getPskEnvironment } from "../../crypto/functions"
 import { createMockCryptoContext } from "./crypto-context"
 
@@ -36,7 +36,7 @@ interface EnvironmentOptions {
   scope?: DisposableScope | undefined
   logger?: Logger | undefined
   clock?: Clock | undefined
-  crypto?: CryptoContext | undefined
+  crypto?: Crypto | undefined
   policy?: StreamPolicy | undefined
 }
 

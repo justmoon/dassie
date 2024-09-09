@@ -1,12 +1,10 @@
-import type { CryptoContext } from "../../crypto/context"
-import * as webContext from "../../crypto/contexts/web-crypto"
+import type { Crypto } from "@dassie/lib-reactive"
+import { createCrypto } from "@dassie/lib-reactive-io"
 
-export function createMockCryptoContext(): CryptoContext {
+export function createMockCryptoContext(): Crypto {
   let nonce = 0
 
-  return {
-    ...webContext,
-
+  return Object.assign(createCrypto(), {
     getRandomBytes: (length: number) => {
       const result = new Uint8Array(length)
 
@@ -17,5 +15,5 @@ export function createMockCryptoContext(): CryptoContext {
 
       return result
     },
-  }
+  })
 }

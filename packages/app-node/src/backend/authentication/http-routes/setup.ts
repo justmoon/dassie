@@ -25,7 +25,7 @@ import { SetupAuthorizationTokenSignal } from "../signals/setup-authorization-to
 import type { SessionToken } from "../types/session-token"
 
 export const RegisterSetupRouteActor = (reactor: DassieReactor) => {
-  const { random } = reactor.base
+  const { crypto } = reactor.base
   const http = reactor.use(HttpsRouter)
   const sessions = reactor.use(SessionsStore)
   const config = reactor.use(DatabaseConfigStore)
@@ -84,7 +84,7 @@ export const RegisterSetupRouteActor = (reactor: DassieReactor) => {
         config.act.setNodeIdentity(dassieKey)
 
         const sessionToken = uint8ArrayToHex(
-          random.randomBytes(32),
+          crypto.getRandomBytes(32),
         ) as SessionToken
 
         sessions.act.addSession(sessionToken)

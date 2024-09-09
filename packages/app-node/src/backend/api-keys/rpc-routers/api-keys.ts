@@ -17,8 +17,8 @@ export const apiKeysRouter = createRouter({
     return [...sig.read(BtpTokensStore)]
   }),
   addBtpToken: protectedRoute.mutation(({ context: { sig } }) => {
-    const { random } = sig.reactor.base
-    const token = uint8ArrayToBase64(random.randomBytes(16), {
+    const { crypto } = sig.reactor.base
+    const token = uint8ArrayToBase64(crypto.getRandomBytes(16), {
       urlSafe: true,
     }) as BtpToken
     const btpTokensStore = sig.reactor.use(BtpTokensStore)

@@ -1,13 +1,13 @@
 import { createClock } from "../generic/clock"
 import type { Runtime } from "../types/runtime"
-import { createRandom } from "./random"
+import { createCrypto } from "./crypto"
 
 export const createRuntime = (): Runtime => {
   return {
-    random: createRandom(),
     clock: createClock(),
+    crypto: createCrypto(),
   }
 }
 
-export { createRandom } from "./random"
 export { createClock } from "../generic/clock"
+export { createCrypto } from "./crypto"

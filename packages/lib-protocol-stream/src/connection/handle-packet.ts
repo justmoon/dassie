@@ -58,7 +58,7 @@ export async function handleConnectionPacket(
 
   const fulfillment = await state.pskEnvironment.getFulfillment(packet.data)
 
-  const condition = await state.context.crypto.hash(fulfillment)
+  const condition = await state.context.crypto.hash("sha256", fulfillment)
 
   const isFulfillable = areUint8ArraysEqual(
     condition,

@@ -49,6 +49,7 @@ export async function sendPacket({
     executionCondition:
       fulfillable ?
         await context.crypto.hash(
+          "sha256",
           await state.pskEnvironment.getFulfillment(streamPacketEncrypted),
         )
       : generateRandomCondition(context.crypto),

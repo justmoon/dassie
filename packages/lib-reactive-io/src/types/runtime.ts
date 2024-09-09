@@ -1,6 +1,6 @@
-import type { Clock, Random } from "@dassie/lib-reactive"
+import type { Clock, Crypto } from "@dassie/lib-reactive"
 
 export interface Runtime {
-  readonly random: Random
   readonly clock: Clock
+  readonly crypto: Crypto
 }

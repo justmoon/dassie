@@ -24,7 +24,7 @@ const stub = {
   ledger: LEDGER_ID,
 
   behavior: ({ sig, host }) => {
-    const { random } = sig.reactor.base
+    const { crypto } = sig.reactor.base
 
     let balance = INITIAL_BALANCE
 
@@ -54,7 +54,7 @@ const stub = {
       },
       prepareSettlement: ({ peerId, amount }) => {
         logger.info("preparing settlement", { to: peerId, amount })
-        const settlementId = uint8ArrayToHex(random.randomBytes(16))
+        const settlementId = uint8ArrayToHex(crypto.getRandomBytes(16))
         return {
           amount,
           message: new Uint8Array(),

@@ -20,7 +20,7 @@ import { SessionsStore } from "../database-stores/sessions"
 import type { SessionToken } from "../types/session-token"
 
 export const RegisterLoginRouteActor = (reactor: DassieReactor) => {
-  const { random } = reactor.base
+  const { crypto } = reactor.base
 
   return createActor((sig) => {
     const http = sig.reactor.use(HttpsRouter)
@@ -53,7 +53,7 @@ export const RegisterLoginRouteActor = (reactor: DassieReactor) => {
         }
 
         const sessionToken = uint8ArrayToHex(
-          random.randomBytes(32),
+          crypto.getRandomBytes(32),
         ) as SessionToken
 
         sessions.act.addSession(sessionToken)

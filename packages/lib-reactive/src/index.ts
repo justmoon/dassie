@@ -13,6 +13,15 @@ export { createDeferred } from "./deferred"
 export { createReactor } from "./reactor"
 export { createScope, confineScope } from "./scope"
 export { createAbstract } from "./abstract"
+export {
+  HASH_ALGORITHMS,
+  MAC_ALGORITHMS,
+  ENCRYPTION_ALGORITHMS,
+} from "./constants/crypto-algorithms"
+export {
+  DecryptionFailure,
+  DECRYPTION_FAILURE,
+} from "./failures/decryption-failure"
 export { CacheStatus } from "./internal/reactive"
 export {
   FactoryNameSymbol,
@@ -60,8 +69,17 @@ export type {
   ReactiveObserver as ReactiveConsumer,
 } from "./internal/reactive"
 export type { MockClock } from "./mocks/clock"
-export type { Random } from "./types/base-modules/random"
 export type { Clock, TimeoutId, IntervalId } from "./types/base-modules/clock"
+export type {
+  Crypto,
+  Cryptor,
+  HmacSigner,
+  HashAlgorithm,
+  MacAlgorithm,
+  EncryptionAlgorithm,
+  CryptorTypes,
+  AesCryptor,
+} from "./types/base-modules/crypto"
 export type { Factory } from "./types/factory"
 export type {
   ScopeContext,
