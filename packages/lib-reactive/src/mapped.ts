@@ -89,8 +89,7 @@ class MappedImplementation<
   TOutput,
   TBase extends object,
 > extends Reactive<Map<TInput, InternalMapEntry<TOutput>>> {
-  [MappedSymbol] = true as const;
-  [FactoryNameSymbol] = "anonymous"
+  [MappedSymbol] = true as const
 
   private baseSet: ReactiveSource<Set<TInput>>
   private internalMap = new Map<TInput, InternalMapEntry<TOutput>>()
