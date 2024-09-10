@@ -1,7 +1,9 @@
+import eslintPluginComments from "@eslint-community/eslint-plugin-eslint-comments/configs"
 import eslint from "@eslint/js"
 import eslintConfigPrettier from "eslint-config-prettier"
 import eslintPluginN from "eslint-plugin-n"
 import eslintPluginReact from "eslint-plugin-react"
+import eslintPluginReactHooks from "eslint-plugin-react-hooks"
 import eslintPluginTsdoc from "eslint-plugin-tsdoc"
 import eslintPluginUnicorn from "eslint-plugin-unicorn"
 import globals from "globals"
@@ -53,6 +55,7 @@ export default tseslint.config(
   ...tseslint.configs.strictTypeChecked,
   ...tseslint.configs.stylisticTypeChecked,
   eslintPluginUnicorn.configs["flat/recommended"],
+  eslintPluginComments.recommended,
   eslintPluginDassie.configs.recommended,
   {
     plugins: { tsdoc: eslintPluginTsdoc },
@@ -110,6 +113,11 @@ export default tseslint.config(
           ],
         },
       ],
+
+      "@eslint-community/eslint-comments/disable-enable-pair": [
+        "error",
+        { allowWholeFile: true },
+      ],
     },
     languageOptions: {
       ecmaVersion: 2021,
@@ -127,6 +135,10 @@ export default tseslint.config(
   ...[
     eslintPluginReact.configs.flat.recommended,
     eslintPluginReact.configs.flat["jsx-runtime"],
+    {
+      plugins: { "react-hooks": eslintPluginReactHooks },
+      rules: eslintPluginReactHooks.configs.recommended.rules,
+    },
     {
       rules: {
         "react/prop-types": "off",
