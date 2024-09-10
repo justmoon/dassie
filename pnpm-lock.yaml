@@ -134,6 +134,9 @@ importers:
       '@dassie/lib-type-utils':
         specifier: workspace:*
         version: link:../lib-type-utils
+      '@dassie/lib-x509':
+        specifier: workspace:*
+        version: link:../lib-x509
       '@dassie/meta-unocss-config':
         specifier: workspace:^
         version: link:../meta-unocss-config
@@ -300,6 +303,9 @@ importers:
       '@dassie/lib-type-utils':
         specifier: workspace:^
         version: link:../lib-type-utils
+      '@dassie/lib-x509':
+        specifier: workspace:^
+        version: link:../lib-x509
       '@dassie/meta-unocss-config':
         specifier: workspace:^
         version: link:../meta-unocss-config
@@ -738,6 +744,9 @@ importers:
       '@dassie/lib-type-utils':
         specifier: workspace:^
         version: link:../lib-type-utils
+      uint8array-extras:
+        specifier: ^1.4.0
+        version: 1.4.0
     devDependencies:
       '@dassie/eslint-config':
         specifier: workspace:^
@@ -760,6 +769,9 @@ importers:
       '@dassie/lib-type-utils':
         specifier: workspace:^
         version: link:../lib-type-utils
+      uint8array-extras:
+        specifier: ^1.4.0
+        version: 1.4.0
     devDependencies:
       '@dassie/eslint-config':
         specifier: workspace:^
@@ -919,6 +931,31 @@ importers:
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
+
+  packages/lib-x509:
+    dependencies:
+      '@dassie/lib-type-utils':
+        specifier: workspace:^
+        version: link:../lib-type-utils
+      uint8array-extras:
+        specifier: ^1.4.0
+        version: 1.4.0
+    devDependencies:
+      '@dassie/eslint-config':
+        specifier: workspace:^
+        version: link:../meta-eslint-config
+      '@dassie/lib-reactive':
+        specifier: workspace:^
+        version: link:../lib-reactive
+      '@dassie/lib-reactive-io':
+        specifier: workspace:^
+        version: link:../lib-reactive-io
+      '@dassie/meta-tsconfig':
+        specifier: workspace:^
+        version: link:../meta-tsconfig
+      type-fest:
+        specifier: ^4.25.0
+        version: 4.26.0
 
   packages/meta-api-extractor:
     devDependencies:

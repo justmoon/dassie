@@ -1,10 +1,17 @@
 import {
+  type KeyObject,
   createCipheriv,
   createDecipheriv,
   createHash,
   createHmac,
+  createPrivateKey,
+  createPublicKey,
+  createSign,
+  createVerify,
+  generateKeyPair,
   randomBytes,
 } from "node:crypto"
+import { promisify } from "node:util"
 
 import {
   type Crypto,
@@ -12,6 +19,7 @@ import {
   type EncryptionAlgorithm,
   type HashAlgorithm,
   type MacAlgorithm,
+  type RsaKeyPair,
 } from "@dassie/lib-reactive"
 import { bufferToUint8Array, isError } from "@dassie/lib-type-utils"
 
@@ -36,6 +44,8 @@ const ENCRYPTION_ALGORITHM_MAP: Record<
     tagLength: 16,
   },
 }
+
+const generateKeyPairPromise = promisify(generateKeyPair)
 
 class BrowserCryptoImplementation implements Crypto {
   getRandomBytes(length: number): Uint8Array {
@@ -112,8 +122,61 @@ class BrowserCryptoImplementation implements Crypto {
       },
     }
   }
+
+  async generateRsaKeyPair(modulusLength: number): Promise<RsaKeyPair> {
+    const { publicKey, privateKey } = await generateKeyPairPromise("rsa", {
+      modulusLength,
+    })
+    return createRsaKeyPair(privateKey, publicKey)
+  }
+
+  importRsaKeyPair(privateKeyData: string | Uint8Array): Promise<RsaKeyPair> {
+    const privateKey = createPrivateKey({
+      key:
+        typeof privateKeyData === "string" ? privateKeyData : (
+          Buffer.from(privateKeyData)
+        ),
+      format: typeof privateKeyData === "string" ? "pem" : "der",
+      type: "pkcs8",
+    })
+
+    const publicKey = createPublicKey(privateKey)
+
+    return Promise.resolve(createRsaKeyPair(privateKey, publicKey))
+  }
 }
 
 export function createCrypto(): Crypto {
   return new BrowserCryptoImplementation()
+}
+
+function createRsaKeyPair(privateKey: KeyObject, publicKey: KeyObject) {
+  return {
+    getPublicKeyPem() {
+      return Promise.resolve(
+        publicKey.export({
+          type: "spki",
+          format: "pem",
+        }) as string,
+      )
+    },
+    getPrivateKeyPem() {
+      return Promise.resolve(
+        privateKey.export({
+          type: "pkcs8",
+          format: "pem",
+        }) as string,
+      )
+    },
+    sign(message: Uint8Array) {
+      const sign = createSign("RSA-SHA256")
+      sign.update(message)
+      return Promise.resolve(bufferToUint8Array(sign.sign(privateKey)))
+    },
+    verify(message: Uint8Array, signature: Uint8Array) {
+      const verify = createVerify("RSA-SHA256")
+      verify.update(message)
+      return Promise.resolve(verify.verify(publicKey, signature))
+    },
+  }
 }

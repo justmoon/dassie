@@ -7,6 +7,7 @@ import {
   type EncryptionAlgorithm,
   type HashAlgorithm,
   type MacAlgorithm,
+  type RsaKeyPair,
 } from "@dassie/lib-reactive"
 import { isError } from "@dassie/lib-type-utils"
 
@@ -162,9 +163,7 @@ class BrowserCryptoImplementation implements Crypto {
     }
   }
 
-  async generateRsaKeyPair(
-    modulusLength: number,
-  ): Promise<{ publicKey: string; privateKey: string }> {
+  async generateRsaKeyPair(modulusLength: number): Promise<RsaKeyPair> {
     const keyPair = await crypto.subtle.generateKey(
       {
         name: "RSA-OAEP",
@@ -176,21 +175,90 @@ class BrowserCryptoImplementation implements Crypto {
       ["encrypt", "decrypt"],
     )
 
-    return {
-      publicKey: uint8ArrayToString(
-        new Uint8Array(
-          await crypto.subtle.exportKey("spki", keyPair.publicKey),
-        ),
-      ),
-      privateKey: uint8ArrayToString(
-        new Uint8Array(
-          await crypto.subtle.exportKey("pkcs8", keyPair.privateKey),
-        ),
-      ),
+    return createRsaKeyPair(keyPair)
+  }
+
+  async importRsaKeyPair(
+    privateKeyData: string | Uint8Array,
+  ): Promise<RsaKeyPair> {
+    if (typeof privateKeyData === "string") {
+      throw new TypeError("PEM format is not supported in this implementation")
     }
+
+    const privateKey = await crypto.subtle.importKey(
+      "pkcs8",
+      privateKeyData,
+      {
+        name: "RSA-OAEP",
+        hash: "SHA-256",
+      },
+      true,
+      ["sign", "verify"],
+    )
+
+    const publicKey = await derivePublicKeyFromPrivateKey(privateKey)
+
+    return createRsaKeyPair({ privateKey, publicKey })
   }
 }
 
 export function createCrypto(): Crypto {
   return new BrowserCryptoImplementation()
+}
+
+function createRsaKeyPair(keys: CryptoKeyPair): RsaKeyPair {
+  return {
+    async getPublicKeyPem() {
+      return uint8ArrayToString(
+        new Uint8Array(await crypto.subtle.exportKey("spki", keys.publicKey)),
+      )
+    },
+    async getPrivateKeyPem() {
+      return uint8ArrayToString(
+        new Uint8Array(await crypto.subtle.exportKey("pkcs8", keys.privateKey)),
+      )
+    },
+
+    async sign(message: Uint8Array) {
+      const signature = await crypto.subtle.sign(
+        "RSASSA-PKCS1-v1_5",
+        keys.privateKey,
+        message,
+      )
+      return new Uint8Array(signature)
+    },
+
+    async verify(message: Uint8Array, signature: Uint8Array) {
+      return crypto.subtle.verify(
+        "RSASSA-PKCS1-v1_5",
+        keys.publicKey,
+        signature,
+        message,
+      )
+    },
+  }
+}
+
+async function derivePublicKeyFromPrivateKey(
+  privateKey: CryptoKey,
+): Promise<CryptoKey> {
+  const jwk = await crypto.subtle.exportKey("jwk", privateKey)
+
+  // remove private data from JWK
+  delete jwk.d
+  delete jwk.dp
+  delete jwk.dq
+  delete jwk.q
+  delete jwk.qi
+  jwk.key_ops = ["encrypt", "wrapKey"]
+
+  // import public key
+  const publicKey = await crypto.subtle.importKey(
+    "jwk",
+    jwk,
+    { name: "RSA-OAEP", hash: "SHA-512" },
+    true,
+    ["encrypt", "wrapKey"],
+  )
+  return publicKey
 }

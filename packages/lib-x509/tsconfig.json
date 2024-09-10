@@ -1,0 +1,20 @@
+{
+  "extends": "@dassie/meta-tsconfig/vite-isomorphic.json",
+  "include": [
+    "src/**/*.ts"
+  ],
+  "compilerOptions": {
+    "outDir": "dist"
+  },
+  "references": [
+    {
+      "path": "../lib-reactive"
+    },
+    {
+      "path": "../lib-reactive-io"
+    },
+    {
+      "path": "../lib-type-utils"
+    }
+  ]
+}

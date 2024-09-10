@@ -31,6 +31,7 @@
     "@dassie/lib-rpc-react": "workspace:^",
     "@dassie/lib-sqlite": "workspace:^",
     "@dassie/lib-type-utils": "workspace:*",
+    "@dassie/lib-x509": "workspace:*",
     "@dassie/meta-unocss-config": "workspace:^",
     "@noble/hashes": "^1.3.2",
     "@react-hook/size": "^2.1.2",

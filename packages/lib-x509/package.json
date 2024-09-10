@@ -1,15 +1,12 @@
 {
-  "name": "@dassie/lib-reactive",
+  "name": "@dassie/lib-x509",
   "type": "module",
   "version": "1.0.0",
-  "description": "Simple reactive programming tools",
+  "description": "X.509 self-signed certificate generation",
   "main": "./src/index.ts",
   "exports": {
     ".": {
       "import": "./src/index.ts"
-    },
-    "./global": {
-      "import": "./global.ts"
     }
   },
   "scripts": {
@@ -19,15 +16,16 @@
   },
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
+  "devDependencies": {
+    "@dassie/eslint-config": "workspace:^",
+    "@dassie/lib-reactive": "workspace:^",
+    "@dassie/lib-reactive-io": "workspace:^",
+    "@dassie/meta-tsconfig": "workspace:^",
+    "type-fest": "^4.25.0"
+  },
   "dependencies": {
     "@dassie/lib-type-utils": "workspace:^",
     "uint8array-extras": "^1.4.0"
-  },
-  "devDependencies": {
-    "@dassie/eslint-config": "workspace:^",
-    "@dassie/meta-tsconfig": "workspace:^",
-    "immer": "^10.1.1",
-    "type-fest": "^4.25.0"
   },
   "engines": {
     "node": "=22.1.0"

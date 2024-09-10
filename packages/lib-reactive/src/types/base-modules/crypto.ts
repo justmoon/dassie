@@ -17,6 +17,12 @@ export type AesCryptor = Cryptor<
   Uint8Array,
   { iv: Uint8Array; tag: Uint8Array; ciphertext: Uint8Array }
 >
+export interface RsaKeyPair {
+  getPublicKeyPem(): Promise<string>
+  getPrivateKeyPem(): Promise<string>
+  sign(message: Uint8Array): Promise<Uint8Array>
+  verify(message: Uint8Array, signature: Uint8Array): Promise<boolean>
+}
 
 export type CryptorTypes = {
   "aes-128-gcm": AesCryptor
@@ -31,6 +37,8 @@ export interface Crypto {
     algorithm: T,
     key: Uint8Array,
   ): CryptorTypes[T]
+  generateRsaKeyPair(modulusLength: number): Promise<RsaKeyPair>
+  importRsaKeyPair(privateKey: string | Uint8Array): Promise<RsaKeyPair>
 }
 
 export type HmacSigner = (message: Uint8Array) => Promisable<Uint8Array>

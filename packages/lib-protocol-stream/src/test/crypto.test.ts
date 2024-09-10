@@ -6,17 +6,19 @@ import {
 } from "uint8array-extras"
 import { describe, test } from "vitest"
 
+import { createMockDeterministicCrypto } from "@dassie/lib-reactive"
+import { createCrypto } from "@dassie/lib-reactive-io"
+
 import {
   generateRandomCondition,
   generateTokenNonce,
   getPskEnvironment,
 } from "../crypto/functions"
-import { createMockCryptoContext } from "./mocks/crypto-context"
 
 describe("Crypto", () => {
   describe("generateTokenNonce", () => {
     test("should generate a token nonce", ({ expect }) => {
-      const context = createMockCryptoContext()
+      const context = createMockDeterministicCrypto(createCrypto())
       const nonce = generateTokenNonce(context)
 
       expect(nonce.length).toBe(18)
@@ -28,7 +30,7 @@ describe("Crypto", () => {
 
   describe("generateRandomCondition", () => {
     test("should generate a random 32-byte condition", ({ expect }) => {
-      const context = createMockCryptoContext()
+      const context = createMockDeterministicCrypto(createCrypto())
       const condition = generateRandomCondition(context)
 
       expect(condition.length).toBe(32)
@@ -40,7 +42,7 @@ describe("Crypto", () => {
 
   describe("hash", () => {
     test("generates the expected condition", async ({ expect }) => {
-      const context = createMockCryptoContext()
+      const context = createMockDeterministicCrypto(createCrypto())
       const fulfillment = new Uint8Array(32)
       const wantCondition = base64ToUint8Array(
         "Zmh6rfhivXdsj8GLjp+OIAiXFIVu4jOzkCpZHQ1fKSU=",
@@ -53,7 +55,7 @@ describe("Crypto", () => {
 
   describe("getPskEnvironment", () => {
     function getTestEnvironment() {
-      const context = createMockCryptoContext()
+      const context = createMockDeterministicCrypto(createCrypto())
       const secret = stringToUint8Array("foo")
       return getPskEnvironment(context, secret)
     }

@@ -43,6 +43,9 @@
       "path": "../lib-type-utils"
     },
     {
+      "path": "../lib-x509"
+    },
+    {
       "path": "../meta-unocss-config"
     }
   ]

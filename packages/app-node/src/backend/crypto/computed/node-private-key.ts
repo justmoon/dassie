@@ -1,12 +1,12 @@
 import { assert } from "@dassie/lib-logger"
 import { type Reactor, createComputed } from "@dassie/lib-reactive"
+import { parseEd25519Key } from "@dassie/lib-x509"
 
 import {
   DatabaseConfigStore,
   hasNodeIdentity,
 } from "../../config/database-config"
 import { crypto as logger } from "../../logger/instances"
-import { parseEd25519Key } from "../../utils/pem"
 
 export const NodePrivateKeySignal = (reactor: Reactor) =>
   createComputed(reactor, (sig) => {

@@ -8,6 +8,7 @@ import {
   setCookie,
 } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
+import { serializeEd25519Key } from "@dassie/lib-x509"
 
 import { SESSION_COOKIE_NAME } from "../../../common/constants/cookie-name"
 import { SEED_PATH_NODE_LOGIN } from "../../../common/constants/seed-paths"
@@ -18,7 +19,6 @@ import {
 } from "../../config/database-config"
 import { getPrivateSeedAtPath } from "../../crypto/utils/seed-paths"
 import { HttpsRouter } from "../../http-server/values/https-router"
-import { serializeEd25519Key } from "../../utils/pem"
 import { COOKIE_MAX_AGE_SECONDS } from "../constants/cookie-lifetime"
 import { SessionsStore } from "../database-stores/sessions"
 import { SetupAuthorizationTokenSignal } from "../signals/setup-authorization-token"

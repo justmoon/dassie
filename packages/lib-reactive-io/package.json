@@ -25,7 +25,8 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@dassie/lib-reactive": "workspace:^",
-    "@dassie/lib-type-utils": "workspace:^"
+    "@dassie/lib-type-utils": "workspace:^",
+    "uint8array-extras": "^1.4.0"
   },
   "devDependencies": {
     "@dassie/eslint-config": "workspace:^",

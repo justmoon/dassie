@@ -40,6 +40,11 @@ export {
   Xoshiro128PlusPlus,
 } from "./mocks/deterministic-crypto"
 export { delay, delayWithAbortSignal } from "./tools/delay"
+export {
+  randomBigInt,
+  randomBoolean,
+  randomNumber,
+} from "./tools/random-values"
 
 export type { Topic, ReadonlyTopic, InferTopicType } from "./topic"
 export type { Signal, ReadonlySignal, Reducer, InferSignalType } from "./signal"
@@ -83,6 +88,7 @@ export type {
   EncryptionAlgorithm,
   CryptorTypes,
   AesCryptor,
+  RsaKeyPair,
 } from "./types/base-modules/crypto"
 export type { Factory } from "./types/factory"
 export type {

@@ -20,6 +20,12 @@ export function createMockDeterministicCrypto(
 
       return new Uint8Array(data.buffer, 0, length)
     },
+
+    generateRsaKeyPair: () => {
+      throw new Error(
+        "Deterministic RSA key generation is not implemented in this mock",
+      )
+    },
   })
 }
 
