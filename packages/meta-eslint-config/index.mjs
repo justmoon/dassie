@@ -4,32 +4,56 @@ import eslintPluginN from "eslint-plugin-n"
 import eslintPluginReact from "eslint-plugin-react"
 import eslintPluginTsdoc from "eslint-plugin-tsdoc"
 import eslintPluginUnicorn from "eslint-plugin-unicorn"
+import globals from "globals"
 import tseslint from "typescript-eslint"
 
 import path from "node:path"
 
-import eslintPluginDassie from "@dassie/eslint-plugin"
+import eslintPluginDassie from "@dassie/meta-eslint-plugin"
+
+const FRONTEND_FILES = [
+  "packages/app-node/src/frontend/**/*.ts{,x}",
+  "packages/app-dev/src/frontend/**/*.ts{,x}",
+  "packages/app-website/src/**/*.ts{,x}",
+  "packages/lib-reactive-io/src/browser/**/*.ts",
+]
+const BACKEND_FILES = [
+  "packages/app-cli/index.js",
+  "packages/app-build/bin/**/*.ts",
+  "packages/app-build/src/**/*.ts",
+  "packages/app-dev/bin/**/*.{js,ts}",
+  "packages/app-dev/src/backend/**/*.ts",
+  "packages/app-dev/src/runner/**/*.{js,ts}",
+  "packages/app-node/src/backend/**/*.ts",
+  "packages/app-node/src/command-line/**/*.ts",
+  "packages/lib-http-server/src/environments/nodejs/**/*.ts",
+  "packages/lib-reactive-io/src/node/**/*.ts",
+  "packages/lib-terminal-graphics/src/**/*.ts",
+  "packages/meta-incremental-check/src/**/*.{js,ts}",
+]
 
 export default tseslint.config(
+  {
+    ignores: [
+      "**/dist/",
+      ".meta-updater/",
+      "eslint.config.mjs",
+      "vitest.config.ts",
+      "coverage/",
+      "packages/app-website/.astro/",
+      "packages/app-website/astro.config.mjs",
+      "packages/app-website/src/env.d.ts",
+      "packages/meta-api-extractor/",
+      "packages/meta-eslint-config/",
+      "packages/meta-eslint-plugin/lib/",
+    ],
+  },
   eslint.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   ...tseslint.configs.strictTypeChecked,
   ...tseslint.configs.stylisticTypeChecked,
   eslintPluginUnicorn.configs["flat/recommended"],
-  eslintPluginReact.configs.flat.recommended,
-  eslintPluginReact.configs.flat["jsx-runtime"],
-  eslintPluginN.configs["flat/recommended-module"],
   eslintPluginDassie.configs.recommended,
-  eslintConfigPrettier,
-  {
-    ignores: [
-      "dist/**",
-      "coverage/",
-      "eslint.config.mjs",
-      "next.config.js",
-      "rollup.config.js",
-    ],
-  },
   {
     plugins: { tsdoc: eslintPluginTsdoc },
     rules: {
@@ -57,14 +81,6 @@ export default tseslint.config(
       "@typescript-eslint/consistent-type-definitions": "off",
       "object-shorthand": ["warn", "properties"],
 
-      "react/prop-types": "off",
-
-      "n/no-missing-import": "off",
-      "n/no-unpublished-import": "off",
-      "n/no-extraneous-import": "off",
-      "n/shebang": "off",
-      "n/no-process-exit": "off",
-
       "@dassie/no-top-level-side-effects": [
         "error",
         {
@@ -81,6 +97,19 @@ export default tseslint.config(
           ],
         },
       ],
+
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["node:*"],
+              message:
+                "Node.js imports are only allowed in files that are marked as backend files",
+            },
+          ],
+        },
+      ],
     },
     languageOptions: {
       ecmaVersion: 2021,
@@ -88,12 +117,80 @@ export default tseslint.config(
         projectService: true,
         tsconfigRootDir: path.resolve(import.meta.dirname, "../../"),
       },
-    },
-
-    settings: {
-      react: {
-        version: "18.3.1",
+      globals: {
+        ...globals["shared-node-browser"],
       },
+    },
+  },
+
+  // Frontend
+  ...[
+    eslintPluginReact.configs.flat.recommended,
+    eslintPluginReact.configs.flat["jsx-runtime"],
+    {
+      rules: {
+        "react/prop-types": "off",
+      },
+
+      languageOptions: {
+        globals: {
+          ...globals.browser,
+        },
+      },
+
+      settings: {
+        react: {
+          version: "18.3.1",
+        },
+      },
+    },
+  ].map((config) => ({
+    ...config,
+    files: FRONTEND_FILES,
+  })),
+
+  // Backend
+  ...[
+    eslintPluginN.configs["flat/recommended-module"],
+    {
+      rules: {
+        "n/no-missing-import": "off",
+        "n/no-unpublished-import": "off",
+        "n/no-extraneous-import": "off",
+        "n/shebang": "off",
+        "n/no-process-exit": "off",
+
+        "no-restricted-imports": "off",
+      },
+
+      languageOptions: {
+        globals: {
+          ...globals.node,
+        },
+      },
+    },
+  ].map((config) => ({
+    ...config,
+    files: BACKEND_FILES,
+  })),
+
+  // Tests
+  {
+    files: ["**/test/**", "**/*.test.ts{,x}"],
+    rules: {
+      "unicorn/consistent-function-scoping": "off",
+      "@dassie/no-top-level-side-effects": "off",
+      "@typescript-eslint/no-empty-function": "off",
+      "@typescript-eslint/no-confusing-void-expression": "off",
+      "no-restricted-imports": "off",
+    },
+  },
+
+  // Examples
+  {
+    files: ["**/examples/**"],
+    rules: {
+      "no-restricted-imports": "off",
     },
   },
 
@@ -105,24 +202,9 @@ export default tseslint.config(
     },
   },
   {
-    files: ["packages/app-cli/index.js"],
-    env: {
-      node: true,
-    },
-  },
-  {
     files: ["next-env.d.ts"],
     rules: {
       "unicorn/prevent-abbreviations": "off",
-    },
-  },
-  {
-    files: ["**/*.test.ts{,x}"],
-    rules: {
-      "unicorn/consistent-function-scoping": "off",
-      "@dassie/no-top-level-side-effects": "off",
-      "@typescript-eslint/no-empty-function": "off",
-      "@typescript-eslint/no-confusing-void-expression": "off",
     },
   },
   {
@@ -131,4 +213,5 @@ export default tseslint.config(
       "@dassie/no-top-level-side-effects": "off",
     },
   },
+  eslintConfigPrettier,
 )

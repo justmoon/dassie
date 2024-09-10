@@ -19,7 +19,6 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@dassie/eslint-config": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
     "@types/eslint": "^9.6.0"
   },

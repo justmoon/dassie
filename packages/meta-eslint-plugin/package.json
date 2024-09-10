@@ -1,5 +1,5 @@
 {
-  "name": "@dassie/eslint-plugin",
+  "name": "@dassie/meta-eslint-plugin",
   "version": "1.0.0",
   "description": "Dassie Eslint plugin for ensuring proper failure handling",
   "author": "Stefan Thomas <justmoon@members.fsf.org>",

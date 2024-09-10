@@ -1,12 +1,12 @@
 {
-  "name": "@dassie/eslint-config",
+  "name": "@dassie/meta-eslint-config",
   "version": "1.0.0",
   "description": "Dassie Eslint rules",
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "main": "./index.mjs",
   "devDependencies": {
-    "@dassie/eslint-plugin": "workspace:^",
+    "@dassie/meta-eslint-plugin": "workspace:^",
     "@eslint/js": "^9.9.1",
     "@types/eslint__js": "^8.42.3",
     "eslint": "^9.9.1",
@@ -15,6 +15,7 @@
     "eslint-plugin-react": "^7.35.0",
     "eslint-plugin-tsdoc": "^0.3.0",
     "eslint-plugin-unicorn": "^55.0.0",
+    "globals": "^15.9.0",
     "typescript-eslint": "^8.2.0"
   },
   "engines": {

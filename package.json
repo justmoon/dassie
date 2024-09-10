@@ -12,7 +12,7 @@
     "check": "incremental-check && vitest --run && pnpm meta-updater --test",
     "test": "vitest",
     "prettier": "prettier --config .prettierrc.json --write \"packages/*/{src,test}/**/*.ts\"",
-    "lint": "pnpm -r lint",
+    "lint": "eslint",
     "typecheck": "tsc --build",
     "metacheck": "meta-updater --test",
     "api": "extract-apis",
@@ -40,7 +40,7 @@
   },
   "homepage": "https://github.com/justmoon/dassie#readme",
   "devDependencies": {
-    "@dassie/eslint-plugin": "workspace:^",
+    "@dassie/meta-eslint-config": "workspace:^",
     "@dassie/meta-api-extractor": "workspace:^",
     "@dassie/meta-incremental-check": "workspace:^",
     "@pnpm/lockfile-file": "^9.1.3",

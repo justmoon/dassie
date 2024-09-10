@@ -20,7 +20,6 @@
     "@dassie/lib-oer": "workspace:^"
   },
   "devDependencies": {
-    "@dassie/eslint-config": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^"
   },
   "engines": {

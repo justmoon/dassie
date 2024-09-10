@@ -3,15 +3,17 @@ import { ESLint } from "eslint"
 import { unlinkSync } from "node:fs"
 import path from "node:path"
 
+import { WORKSPACE_ROOT_PATH } from "./constants/workspace-path"
 import type { PackagesToBeLinted } from "./types/packages-to-be-linted"
 import { printToConsole, reportPackageStatus } from "./utils/report-status"
 
 export async function runEslint(packagesToBeLinted: PackagesToBeLinted) {
+  const eslint = new ESLint({ cwd: WORKSPACE_ROOT_PATH })
+
   let anyPackageHasErrors = false
   for (const { packagePath, packageName } of packagesToBeLinted) {
     reportPackageStatus(packageName, "start")
 
-    const eslint = new ESLint({ cwd: packagePath })
     const results = await eslint.lintFiles(packagePath)
 
     const formatter = await eslint.loadFormatter("stylish")

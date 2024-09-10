@@ -8,12 +8,12 @@ importers:
 
   .:
     devDependencies:
-      '@dassie/eslint-plugin':
-        specifier: workspace:^
-        version: link:packages/meta-eslint-plugin
       '@dassie/meta-api-extractor':
         specifier: workspace:^
         version: link:packages/meta-api-extractor
+      '@dassie/meta-eslint-config':
+        specifier: workspace:^
+        version: link:packages/meta-eslint-config
       '@dassie/meta-incremental-check':
         specifier: workspace:^
         version: link:packages/meta-incremental-check
@@ -87,9 +87,6 @@ importers:
         specifier: ^3.23.8
         version: 3.23.8
     devDependencies:
-      '@dassie/eslint-config':
-        specifier: workspace:^
-        version: link:../meta-eslint-config
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
@@ -97,7 +94,11 @@ importers:
         specifier: ^2.0.5
         version: 2.0.5(@types/node@22.5.4)
 
-  packages/app-cli: {}
+  packages/app-cli:
+    devDependencies:
+      '@dassie/meta-tsconfig':
+        specifier: workspace:^
+        version: link:../meta-tsconfig
 
   packages/app-dev:
     dependencies:
@@ -219,9 +220,6 @@ importers:
         specifier: ^3.23.8
         version: 3.23.8
     devDependencies:
-      '@dassie/eslint-config':
-        specifier: workspace:^
-        version: link:../meta-eslint-config
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
@@ -436,9 +434,6 @@ importers:
         specifier: ^4.5.5
         version: 4.5.5(@types/react@18.3.5)(immer@10.1.1)(react@18.3.1)
     devDependencies:
-      '@dassie/eslint-config':
-        specifier: workspace:^
-        version: link:../meta-eslint-config
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
@@ -539,9 +534,6 @@ importers:
         specifier: ^29.7.0
         version: 29.7.0
     devDependencies:
-      '@dassie/eslint-config':
-        specifier: workspace:^
-        version: link:../meta-eslint-config
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
@@ -573,9 +565,6 @@ importers:
         specifier: ^3.23.8
         version: 3.23.8
     devDependencies:
-      '@dassie/eslint-config':
-        specifier: workspace:^
-        version: link:../meta-eslint-config
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
@@ -588,9 +577,6 @@ importers:
 
   packages/lib-itergen-utils:
     devDependencies:
-      '@dassie/eslint-config':
-        specifier: workspace:^
-        version: link:../meta-eslint-config
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
@@ -613,9 +599,6 @@ importers:
         specifier: ^7.2.0
         version: 7.2.0
     devDependencies:
-      '@dassie/eslint-config':
-        specifier: workspace:^
-        version: link:../meta-eslint-config
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
@@ -629,9 +612,6 @@ importers:
         specifier: workspace:^
         version: link:../lib-type-utils
     devDependencies:
-      '@dassie/eslint-config':
-        specifier: workspace:^
-        version: link:../meta-eslint-config
       '@dassie/lib-format-utils':
         specifier: workspace:^
         version: link:../lib-format-utils
@@ -651,9 +631,6 @@ importers:
         specifier: ^1.4.0
         version: 1.4.0
     devDependencies:
-      '@dassie/eslint-config':
-        specifier: workspace:^
-        version: link:../meta-eslint-config
       '@dassie/lib-oer':
         specifier: workspace:^
         version: link:../lib-oer
@@ -673,9 +650,6 @@ importers:
         specifier: ^1.4.0
         version: 1.4.0
     devDependencies:
-      '@dassie/eslint-config':
-        specifier: workspace:^
-        version: link:../meta-eslint-config
       '@dassie/lib-oer':
         specifier: workspace:^
         version: link:../lib-oer
@@ -710,9 +684,6 @@ importers:
         specifier: ^1.4.0
         version: 1.4.0
     devDependencies:
-      '@dassie/eslint-config':
-        specifier: workspace:^
-        version: link:../meta-eslint-config
       '@dassie/lib-logger':
         specifier: workspace:^
         version: link:../lib-logger
@@ -732,9 +703,6 @@ importers:
         specifier: workspace:^
         version: link:../lib-oer
     devDependencies:
-      '@dassie/eslint-config':
-        specifier: workspace:^
-        version: link:../meta-eslint-config
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
@@ -748,9 +716,6 @@ importers:
         specifier: ^1.4.0
         version: 1.4.0
     devDependencies:
-      '@dassie/eslint-config':
-        specifier: workspace:^
-        version: link:../meta-eslint-config
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
@@ -773,9 +738,6 @@ importers:
         specifier: ^1.4.0
         version: 1.4.0
     devDependencies:
-      '@dassie/eslint-config':
-        specifier: workspace:^
-        version: link:../meta-eslint-config
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
@@ -792,9 +754,6 @@ importers:
         specifier: workspace:^
         version: link:../lib-rpc-react
     devDependencies:
-      '@dassie/eslint-config':
-        specifier: workspace:^
-        version: link:../meta-eslint-config
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
@@ -820,9 +779,6 @@ importers:
         specifier: ^3.23.8
         version: 3.23.8
     devDependencies:
-      '@dassie/eslint-config':
-        specifier: workspace:^
-        version: link:../meta-eslint-config
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
@@ -842,9 +798,6 @@ importers:
         specifier: ^5.52.1
         version: 5.55.0(react@18.3.1)
     devDependencies:
-      '@dassie/eslint-config':
-        specifier: workspace:^
-        version: link:../meta-eslint-config
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
@@ -870,9 +823,6 @@ importers:
         specifier: ^0.27.4
         version: 0.27.4
     devDependencies:
-      '@dassie/eslint-config':
-        specifier: workspace:^
-        version: link:../meta-eslint-config
       '@dassie/lib-logger':
         specifier: workspace:^
         version: link:../lib-logger
@@ -913,9 +863,6 @@ importers:
         specifier: ^9.0.0
         version: 9.0.0
     devDependencies:
-      '@dassie/eslint-config':
-        specifier: workspace:^
-        version: link:../meta-eslint-config
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
@@ -925,9 +872,6 @@ importers:
 
   packages/lib-type-utils:
     devDependencies:
-      '@dassie/eslint-config':
-        specifier: workspace:^
-        version: link:../meta-eslint-config
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
@@ -941,9 +885,6 @@ importers:
         specifier: ^1.4.0
         version: 1.4.0
     devDependencies:
-      '@dassie/eslint-config':
-        specifier: workspace:^
-        version: link:../meta-eslint-config
       '@dassie/lib-reactive':
         specifier: workspace:^
         version: link:../lib-reactive
@@ -965,7 +906,7 @@ importers:
 
   packages/meta-eslint-config:
     devDependencies:
-      '@dassie/eslint-plugin':
+      '@dassie/meta-eslint-plugin':
         specifier: workspace:^
         version: link:../meta-eslint-plugin
       '@eslint/js':
@@ -992,6 +933,9 @@ importers:
       eslint-plugin-unicorn:
         specifier: ^55.0.0
         version: 55.0.0(eslint@9.10.0(jiti@1.21.6))
+      globals:
+        specifier: ^15.9.0
+        version: 15.9.0
       typescript-eslint:
         specifier: ^8.2.0
         version: 8.4.0(eslint@9.10.0(jiti@1.21.6))(typescript@5.5.4)
@@ -1032,9 +976,6 @@ importers:
         specifier: ^3.23.8
         version: 3.23.8
     devDependencies:
-      '@dassie/eslint-config':
-        specifier: workspace:^
-        version: link:../meta-eslint-config
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
@@ -1063,9 +1004,6 @@ importers:
         specifier: 0.62.2
         version: 0.62.2(postcss@8.4.45)(rollup@4.21.2)(vite@5.4.3(@types/node@22.5.4))
     devDependencies:
-      '@dassie/eslint-config':
-        specifier: workspace:^
-        version: link:../meta-eslint-config
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig

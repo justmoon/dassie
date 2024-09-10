@@ -17,7 +17,6 @@
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "devDependencies": {
-    "@dassie/eslint-config": "workspace:^",
     "@dassie/lib-logger": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
     "ilp-protocol-stream": "2.7.2-alpha.2",

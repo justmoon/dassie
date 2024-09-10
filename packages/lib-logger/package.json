@@ -24,7 +24,6 @@
     "string-width": "^7.2.0"
   },
   "devDependencies": {
-    "@dassie/eslint-config": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
     "@types/is-generator-function": "^1.0.3"
   },

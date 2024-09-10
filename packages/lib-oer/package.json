@@ -20,7 +20,6 @@
     "@dassie/lib-type-utils": "workspace:^"
   },
   "devDependencies": {
-    "@dassie/eslint-config": "workspace:^",
     "@dassie/lib-format-utils": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
     "type-fest": "^4.25.0"
