@@ -26,6 +26,6 @@
     "uint8array-extras": "^1.4.0"
   },
   "engines": {
-    "node": "=22.1.0"
+    "node": "=22.8.0"
   }
 }

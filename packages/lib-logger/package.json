@@ -28,6 +28,6 @@
     "@types/is-generator-function": "^1.0.3"
   },
   "engines": {
-    "node": "=22.1.0"
+    "node": "=22.8.0"
   }
 }

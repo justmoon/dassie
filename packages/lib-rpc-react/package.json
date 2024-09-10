@@ -26,6 +26,6 @@
     "@tanstack/react-query": "^5.52.1"
   },
   "engines": {
-    "node": "=22.1.0"
+    "node": "=22.8.0"
   }
 }

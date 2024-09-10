@@ -39,6 +39,6 @@
   },
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "engines": {
-    "node": ">=20 <=22.1.0"
+    "node": ">=20 <=22.8.0"
   }
 }

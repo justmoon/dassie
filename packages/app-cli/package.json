@@ -13,6 +13,6 @@
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "engines": {
-    "node": "=22.1.0"
+    "node": "=22.8.0"
   }
 }

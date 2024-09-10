@@ -23,6 +23,6 @@
     "pretty-format": "^29.7.0"
   },
   "engines": {
-    "node": "=22.1.0"
+    "node": "=22.8.0"
   }
 }
