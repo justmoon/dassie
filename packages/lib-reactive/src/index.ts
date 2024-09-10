@@ -35,6 +35,10 @@ export {
   MockClockImplementation,
   DEFAULT_MOCK_CLOCK_TIME,
 } from "./mocks/clock"
+export {
+  createMockDeterministicCrypto,
+  Xoshiro128PlusPlus,
+} from "./mocks/deterministic-crypto"
 export { delay, delayWithAbortSignal } from "./tools/delay"
 
 export type { Topic, ReadonlyTopic, InferTopicType } from "./topic"

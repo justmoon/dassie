@@ -1,14 +1,16 @@
-import type { Crypto } from "@dassie/lib-reactive"
-import { createCrypto } from "@dassie/lib-reactive-io"
+import type { Crypto } from "../types/base-modules/crypto"
 
 const DEFAULT_SEED = new Uint32Array([
   0x13_67_bd_3b, 0x83_31_fa_de, 0x7b_96_f6_b5, 0xb4_9e_9f_58,
 ])
 
-export function createMockCryptoContext(): Crypto {
-  const randomGenerator = new Xoshiro128PlusPlus()
+export function createMockDeterministicCrypto(
+  crypto: Crypto,
+  seed: Uint32Array = DEFAULT_SEED,
+): Crypto {
+  const randomGenerator = new Xoshiro128PlusPlus(seed)
 
-  return Object.assign(createCrypto(), {
+  return Object.assign(crypto, {
     getRandomBytes: (length: number) => {
       const data = new Uint32Array(Math.ceil(length / 4))
 
@@ -16,14 +18,12 @@ export function createMockCryptoContext(): Crypto {
         data[index] = randomGenerator.next()
       }
 
-      const result = new Uint8Array(data.buffer)
-
-      return result.subarray(0, length)
+      return new Uint8Array(data.buffer, 0, length)
     },
   })
 }
 
-class Xoshiro128PlusPlus {
+export class Xoshiro128PlusPlus {
   private state: Uint32Array
 
   constructor(seed: Uint32Array = DEFAULT_SEED) {

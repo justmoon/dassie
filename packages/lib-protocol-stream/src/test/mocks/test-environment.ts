@@ -17,14 +17,15 @@ import {
   type Crypto,
   type DisposableScope,
   createMockClock,
+  createMockDeterministicCrypto,
   createScope,
   createTopic,
 } from "@dassie/lib-reactive"
+import { createCrypto } from "@dassie/lib-reactive-io"
 
 import type { StreamProtocolContext } from "../../context/context"
 import { DEFAULT_POLICY, type StreamPolicy } from "../../context/policy"
 import { getPskEnvironment } from "../../crypto/functions"
-import { createMockCryptoContext } from "./crypto-context"
 
 interface EnvironmentOptions {
   // Environment options
@@ -67,7 +68,7 @@ export function createTestEnvironment({
   maxPacketsInFlight = Infinity,
   scope = createScope("test-environment"),
   logger = createLogger("das:test:stream"),
-  crypto = createMockCryptoContext(),
+  crypto = createMockDeterministicCrypto(createCrypto()),
   clock = createMockClock(),
   policy = DEFAULT_POLICY,
 }: EnvironmentOptions = {}) {
