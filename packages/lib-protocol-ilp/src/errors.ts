@@ -46,4 +46,10 @@ export const humanReadableIlpErrors: Record<IlpErrorCode, string> = {
   R99: "Application Error",
 }
 
+export const getHumanReadableIlpError = (code: string) => {
+  return (
+    (humanReadableIlpErrors as Record<string, string>)[code] ?? "Unknown Error"
+  )
+}
+
 export type IlpErrorCode = (typeof IlpErrorCode)[keyof typeof IlpErrorCode]

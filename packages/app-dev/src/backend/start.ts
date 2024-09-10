@@ -3,9 +3,9 @@ import { ViteNodeServer as ViteNodeServerType } from "vite-node/server"
 
 import { createActor, createReactor } from "@dassie/lib-reactive"
 
-import { HandleShutdownSignalsActor } from "../common/actors/handle-shutdown-signals"
 import { ApplyDebugLoggingScopes } from "./actors/apply-debug-logging-scopes"
 import { HandleFileChangeActor } from "./actors/handle-file-change"
+import { HandleShutdownSignalsActor } from "./actors/handle-shutdown-signals"
 import { ProxyByHostnameActor } from "./actors/proxy-by-hostname"
 import { RegisterReactiveLoggerActor } from "./actors/register-reactive-logger"
 import { RunScenarioActor } from "./actors/run-scenario"

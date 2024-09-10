@@ -22,7 +22,6 @@ const STATE_OPEN = 1
 
 export function createWebSocketLink({
   url,
-  // eslint-disable-next-line n/no-unsupported-features/node-builtins
   WebSocket = globalThis.WebSocket,
   reconnectDelay,
 }: WebSocketLinkOptions): OutboundConnection {

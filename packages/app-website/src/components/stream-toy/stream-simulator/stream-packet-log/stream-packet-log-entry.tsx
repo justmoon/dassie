@@ -7,13 +7,13 @@ import {
   type IlpPreparePacket,
   type IlpResponsePacket,
   IlpType,
-  humanReadableIlpErrors,
+  getHumanReadableIlpError,
 } from "@dassie/lib-protocol-ilp"
 import type { PskEnvironment } from "@dassie/lib-protocol-stream"
 
-import AmountTooLargeResponseDetails from "./AmountTooLargeResponseDetails"
-import IlpPacketDetails from "./IlpPacketDetails"
-import StreamPacketDetails from "./StreamPacketDetails"
+import AmountTooLargeResponseDetails from "./amount-too-large-response-details"
+import IlpPacketDetails from "./ilp-packet-details"
+import StreamPacketDetails from "./stream-packet-details"
 import { useParsedStreamPacket } from "./use-parsed-stream-packet"
 
 interface StreamPacketLogEntryProperties {
@@ -32,10 +32,11 @@ export default function StreamPacketLogEntry({
 
   const [isExpanded, setIsExpanded] = useState(false)
 
-  const requestStreamPacket =
-    pskEnvironment && useParsedStreamPacket(packet.data, pskEnvironment)
-  const responseStreamPacket =
-    pskEnvironment && useParsedStreamPacket(response?.data.data, pskEnvironment)
+  const requestStreamPacket = useParsedStreamPacket(packet.data, pskEnvironment)
+  const responseStreamPacket = useParsedStreamPacket(
+    response?.data.data,
+    pskEnvironment,
+  )
 
   const ArrowIcon = sender === "client" ? ArrowRightIcon : ArrowLeftIcon
   // response = undefined
@@ -45,7 +46,9 @@ export default function StreamPacketLogEntry({
     >
       <div
         className="flex flex-row items-center justify-between cursor-pointer hover:bg-slate-700 transition-colors"
-        onClick={() => setIsExpanded((value) => !value)}
+        onClick={() => {
+          setIsExpanded((value) => !value)
+        }}
       >
         <div
           className={combine(
@@ -57,7 +60,7 @@ export default function StreamPacketLogEntry({
           <ArrowIcon
             className={combine(
               "size-4 rounded-full stroke-6",
-              !!response ?
+              response ?
                 response.type === IlpType.Fulfill ?
                   "text-green-500"
                 : "text-red-500"
@@ -65,16 +68,14 @@ export default function StreamPacketLogEntry({
             )}
           />
           <div className="font-bold">
-            {!!response ?
+            {response ?
               response.type === IlpType.Fulfill ?
                 "Fulfilled"
               : <div className="flex flex-row gap-3">
                   <div>Rejected</div>
                   <div className="text-red-300">
                     {response.data.code}{" "}
-                    {humanReadableIlpErrors[
-                      response.data.code as IlpErrorCode
-                    ] ?? "Unknown Error"}
+                    {getHumanReadableIlpError(response.data.code)}
                   </div>
                 </div>
 

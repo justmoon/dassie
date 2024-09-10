@@ -5,6 +5,12 @@
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "main": "./lib/index.js",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./lib/index.js"
+    }
+  },
   "scripts": {
     "typecheck": "tsc --pretty",
     "build": "tsc --pretty --project tsconfig.build.json"

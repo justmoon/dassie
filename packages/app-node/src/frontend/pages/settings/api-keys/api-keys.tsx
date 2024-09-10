@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unnecessary-condition, n/no-unsupported-features/node-builtins */
+/* eslint-disable @typescript-eslint/no-unnecessary-condition */
 import { CheckIcon, CopyIcon, EyeIcon, EyeOffIcon, XIcon } from "lucide-react"
 import { useRef, useState } from "react"
 

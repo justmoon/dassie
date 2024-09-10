@@ -42,24 +42,24 @@ export default function StreamConfigurator({
             type="number"
             id="max_packet_amount"
             value={String(configuration.maxPacketAmount)}
-            onChange={(event) =>
+            onChange={(event) => {
               onConfigurationChange((configuration) => ({
                 ...configuration,
                 maxPacketAmount: BigInt(event.target.value),
               }))
-            }
+            }}
           />
           <Label htmlFor="latency">Latency</Label>
           <Input
             type="number"
             id="latency"
             value={String(configuration.latency)}
-            onChange={(event) =>
+            onChange={(event) => {
               onConfigurationChange((configuration) => ({
                 ...configuration,
                 latency: Number(event.target.value),
               }))
-            }
+            }}
           />
           <Label htmlFor="max_packets_in_flight">
             Max. # of Packets in Flight
@@ -68,12 +68,12 @@ export default function StreamConfigurator({
             type="number"
             id="max_packets_in_flight"
             value={String(configuration.maxPacketsInFlight)}
-            onChange={(event) =>
+            onChange={(event) => {
               onConfigurationChange((configuration) => ({
                 ...configuration,
                 maxPacketsInFlight: Number(event.target.value),
               }))
-            }
+            }}
           />
         </div>
       </div>
@@ -85,16 +85,22 @@ export default function StreamConfigurator({
             type="number"
             id="send_amount"
             value={String(configuration.amount)}
-            onChange={(event) =>
+            onChange={(event) => {
               onConfigurationChange((configuration) => ({
                 ...configuration,
                 amount: BigInt(event.target.value),
               }))
-            }
+            }}
           />
         </div>
       </div>
-      <Button onClick={() => onStartClick()}>Simulate</Button>
+      <Button
+        onClick={() => {
+          onStartClick()
+        }}
+      >
+        Simulate
+      </Button>
     </div>
   )
 }

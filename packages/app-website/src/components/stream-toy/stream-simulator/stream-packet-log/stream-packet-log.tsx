@@ -4,7 +4,7 @@ import type {
 } from "@dassie/lib-protocol-ilp"
 import type { PskEnvironment } from "@dassie/lib-protocol-stream"
 
-import StreamPacketLogEntry from "./StreamPacketLogEntry"
+import StreamPacketLogEntry from "./stream-packet-log-entry"
 
 interface StreamPacketLogProperties {
   packets: IndexedPreparePacketEvent[]

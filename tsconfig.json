@@ -5,6 +5,9 @@
       "path": "./packages/app-build/tsconfig.json"
     },
     {
+      "path": "./packages/app-cli/tsconfig.json"
+    },
+    {
       "path": "./packages/app-dev/tsconfig.json"
     },
     {

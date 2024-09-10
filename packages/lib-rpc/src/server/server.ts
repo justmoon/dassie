@@ -1,7 +1,5 @@
 import type { Promisable } from "type-fest"
 
-import { setTimeout } from "node:timers/promises"
-
 import { UnreachableCaseError, isFailure } from "@dassie/lib-type-utils"
 
 import {
@@ -120,10 +118,17 @@ export function createServer<TOptions extends ServerOptions>({
                   }
 
                   if (queue.length === 1) {
-                    queuePromise = setTimeout(0).then(async () => {
-                      const batch = [...queue]
-                      queue.length = 0
-                      await respondEvent(batch)
+                    queuePromise = new Promise((resolve, reject) => {
+                      setTimeout(() => {
+                        const batch = [...queue]
+                        queue.length = 0
+                        respondEvent(batch)
+                          .then(resolve)
+                          .catch((error: unknown) => {
+                            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+                            reject(error)
+                          })
+                      }, 0)
                     })
                   }
                 })().catch((error: unknown) => {

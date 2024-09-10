@@ -74,7 +74,7 @@ export const rule = createRule<Options, MessageId>({
     }
 
     const constructSelector = (nodeType: string) =>
-      allowedNodes.length ?
+      allowedNodes.length > 0 ?
         `${nodeType}:not(:matches(${allowedNodes.join(",")}))`
       : nodeType
 

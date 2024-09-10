@@ -57,11 +57,12 @@ function parseChecksVoidReturn(
   checksVoidReturn: ChecksVoidReturnOptions | boolean | undefined,
 ): ChecksVoidReturnOptions | false {
   switch (checksVoidReturn) {
-    case false:
+    case false: {
       return false
+    }
 
     case true:
-    case undefined:
+    case undefined: {
       return {
         arguments: true,
         attributes: true,
@@ -69,8 +70,9 @@ function parseChecksVoidReturn(
         returns: true,
         variables: true,
       }
+    }
 
-    default:
+    default: {
       return {
         arguments: checksVoidReturn.arguments ?? true,
         attributes: checksVoidReturn.attributes ?? true,
@@ -78,6 +80,7 @@ function parseChecksVoidReturn(
         returns: checksVoidReturn.returns ?? true,
         variables: checksVoidReturn.variables ?? true,
       }
+    }
   }
 }
 
@@ -207,8 +210,9 @@ export const rule = createRule<Options, MessageId>({
     /**
      * This function analyzes the type of a node and checks if it is a Failure in a boolean conditional.
      * It uses recursion when checking nested logical operators.
-     * @param node The AST node to check.
-     * @param isTestExpr Whether the node is a descendant of a test expression.
+     *
+     * @param node - The AST node to check.
+     * @param isTestExpr - Whether the node is a descendant of a test expression.
      */
     function checkConditional(
       node: TSESTree.Expression,
@@ -243,13 +247,13 @@ export const rule = createRule<Options, MessageId>({
       node: TSESTree.CallExpression | TSESTree.NewExpression,
     ): void {
       const tsNode = services.esTreeNodeToTSNodeMap.get(node)
-      const voidArgs = voidFunctionArguments(checker, tsNode)
-      if (voidArgs.size === 0) {
+      const voidArguments = voidFunctionArguments(checker, tsNode)
+      if (voidArguments.size === 0) {
         return
       }
 
       for (const [index, argument] of node.arguments.entries()) {
-        if (!voidArgs.has(index)) {
+        if (!voidArguments.has(index)) {
           continue
         }
 
@@ -265,8 +269,8 @@ export const rule = createRule<Options, MessageId>({
 
     function checkAssignment(node: TSESTree.AssignmentExpression): void {
       const tsNode = services.esTreeNodeToTSNodeMap.get(node)
-      const varType = services.getTypeAtLocation(node.left)
-      if (!isVoidReturningFunctionType(checker, varType)) {
+      const variableType = services.getTypeAtLocation(node.left)
+      if (!isVoidReturningFunctionType(checker, variableType)) {
         return
       }
 
@@ -285,8 +289,8 @@ export const rule = createRule<Options, MessageId>({
       if (tsNode.initializer === undefined || node.init == null) {
         return
       }
-      const varType = services.getTypeAtLocation(node.id)
-      if (!isVoidReturningFunctionType(checker, varType)) {
+      const variableType = services.getTypeAtLocation(node.id)
+      if (!isVoidReturningFunctionType(checker, variableType)) {
         return
       }
 
@@ -336,7 +340,7 @@ export const rule = createRule<Options, MessageId>({
         if (isComputedPropertyName(tsNode.name)) {
           return
         }
-        const obj = tsNode.parent
+        const object = tsNode.parent
 
         // Below condition isn't satisfied unless something goes wrong,
         // but is needed for type checking.
@@ -344,19 +348,19 @@ export const rule = createRule<Options, MessageId>({
         // always an object literal expression, but after converting 'node'
         // to TypeScript AST, its type includes MethodDeclaration which
         // does include the case of class method declaration.
-        if (!isObjectLiteralExpression(obj)) {
+        if (!isObjectLiteralExpression(object)) {
           return
         }
 
         if (!returnsFailureLike(checker, checker.getTypeAtLocation(tsNode))) {
           return
         }
-        const objType = checker.getContextualType(obj)
-        if (objType === undefined) {
+        const objectType = checker.getContextualType(object)
+        if (objectType === undefined) {
           return
         }
         const propertySymbol = checker.getPropertyOfType(
-          objType,
+          objectType,
           tsNode.name.text,
         )
         if (propertySymbol === undefined) {
@@ -450,12 +454,13 @@ function checkThenableOrVoidArgument(
 ): void {
   if (isFailureLikeReturningFunctionType(checker, type)) {
     thenableReturnIndices.add(index)
-  } else if (isVoidReturningFunctionType(checker, type)) {
+  } else if (
+    isVoidReturningFunctionType(checker, type) &&
     // If a certain argument accepts both thenable and void returns,
     // a promise-returning function is valid
-    if (!thenableReturnIndices.has(index)) {
-      voidReturnIndices.add(index)
-    }
+    !thenableReturnIndices.has(index)
+  ) {
+    voidReturnIndices.add(index)
   }
 }
 
@@ -502,11 +507,11 @@ function voidFunctionArguments(
             // so that we'll handle it in the same way as a non-rest
             // 'param: MaybeVoidFunction'
             type = checker.getTypeArguments(type as TypeReference)[0]!
-            for (let i = index; i < node.arguments.length; i++) {
+            for (let index2 = index; index2 < node.arguments.length; index2++) {
               checkThenableOrVoidArgument(
                 checker,
                 type,
-                i,
+                index2,
                 thenableReturnIndices,
                 voidReturnIndices,
               )
@@ -514,16 +519,19 @@ function voidFunctionArguments(
           } else if (checker.isTupleType(type)) {
             // Check each type in the tuple - for example, [boolean, () => void] would
             // add the index of the second tuple parameter to 'voidReturnIndices'
-            const typeArgs = checker.getTypeArguments(type as TypeReference)
+            const typeArguments = checker.getTypeArguments(
+              type as TypeReference,
+            )
             for (
-              let i = index;
-              i < node.arguments.length && i - index < typeArgs.length;
-              i++
+              let index2 = index;
+              index2 < node.arguments.length &&
+              index2 - index < typeArguments.length;
+              index2++
             ) {
               checkThenableOrVoidArgument(
                 checker,
-                typeArgs[i - index]!,
-                i,
+                typeArguments[index2 - index]!,
+                index2,
                 thenableReturnIndices,
                 voidReturnIndices,
               )

@@ -58,7 +58,6 @@ const NodeHeader = ({ nodeId }: BasicNodeElementProperties) => {
 
 const createNodeRpcClients = (securityToken: string, nodeId: string) => {
   const queryClient = new QueryClient()
-  // eslint-disable-next-line n/no-unsupported-features/node-builtins
   const websocket = new WebSocket(
     `wss://${nodeId}.localhost/rpc?token=${securityToken}`,
   )

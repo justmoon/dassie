@@ -9,7 +9,11 @@ export {
   timestampToInterledgerTime,
   INTERLEDGER_TIME_LENGTH,
 } from "./date"
-export { IlpErrorCode, humanReadableIlpErrors } from "./errors"
+export {
+  IlpErrorCode,
+  humanReadableIlpErrors,
+  getHumanReadableIlpError,
+} from "./errors"
 export {
   IlpType,
   ilpAddressSchema,

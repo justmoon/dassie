@@ -87,33 +87,38 @@ export const rule = createRule<Options, MessageId>({
         return false
       }
 
-      if (node.type === AST_NODE_TYPES.CallExpression) {
-        return true
-      } else if (node.type === AST_NODE_TYPES.AwaitExpression) {
-        return true
-      } else if (node.type === AST_NODE_TYPES.ConditionalExpression) {
-        // We must be getting the promise-like value from one of the branches of the
-        // ternary. Check them directly.
-        const alternateResult = isUnhandledFailure(checker, node.alternate)
-        if (alternateResult) {
-          return alternateResult
+      switch (node.type) {
+        case AST_NODE_TYPES.CallExpression: {
+          return true
         }
-        return isUnhandledFailure(checker, node.consequent)
-      } else if (
-        node.type === AST_NODE_TYPES.MemberExpression ||
-        node.type === AST_NODE_TYPES.Identifier ||
-        node.type === AST_NODE_TYPES.NewExpression
-      ) {
-        // If it is just a property access chain or a `new` call (e.g. `foo.bar` or
-        // `new Promise()`), the promise is not handled because it doesn't have the
-        // necessary then/catch call at the end of the chain.
-        return true
-      } else if (node.type === AST_NODE_TYPES.LogicalExpression) {
-        const leftResult = isUnhandledFailure(checker, node.left)
-        if (leftResult) {
-          return leftResult
+        case AST_NODE_TYPES.AwaitExpression: {
+          return true
         }
-        return isUnhandledFailure(checker, node.right)
+        case AST_NODE_TYPES.ConditionalExpression: {
+          // We must be getting the promise-like value from one of the branches of the
+          // ternary. Check them directly.
+          const alternateResult = isUnhandledFailure(checker, node.alternate)
+          if (alternateResult) {
+            return alternateResult
+          }
+          return isUnhandledFailure(checker, node.consequent)
+        }
+        case AST_NODE_TYPES.MemberExpression:
+        case AST_NODE_TYPES.Identifier:
+        case AST_NODE_TYPES.NewExpression: {
+          // If it is just a property access chain or a `new` call (e.g. `foo.bar` or
+          // `new Promise()`), the promise is not handled because it doesn't have the
+          // necessary then/catch call at the end of the chain.
+          return true
+        }
+        case AST_NODE_TYPES.LogicalExpression: {
+          const leftResult = isUnhandledFailure(checker, node.left)
+          if (leftResult) {
+            return leftResult
+          }
+          return isUnhandledFailure(checker, node.right)
+        }
+        // No default
       }
 
       // Conservatively return false for all other expressions to avoid false positives

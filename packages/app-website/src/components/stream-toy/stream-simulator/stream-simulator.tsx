@@ -18,10 +18,10 @@ import {
 import { createScope } from "@dassie/lib-reactive"
 import { unwrapFailure } from "@dassie/lib-type-utils"
 
-import type { StreamConfiguration } from "../StreamConfigurator/StreamConfigurator"
+import type { StreamConfiguration } from "../stream-configurator/stream-configurator"
 import StreamPacketLog, {
   type IndexedPreparePacketEvent,
-} from "./StreamPacketLog/StreamPacketLog"
+} from "./stream-packet-log/stream-packet-log"
 
 enableMapSet()
 
@@ -35,10 +35,10 @@ export default function StreamSimulator({
   onBackClick,
 }: StreamSimulationProperties) {
   const [startTime] = useState(Date.now())
-  const logIndexRef = useRef(0)
+  const logIndexReference = useRef(0)
   const [logs, setLogs] = useState<ViewableLogLine[]>([])
 
-  const packetIndexRef = useRef(0)
+  const packetIndexReference = useRef(0)
   const [packets, setPackets] = useState<IndexedPreparePacketEvent[]>([])
   const [responsePackets, setResponsePackets] = useState(
     new Map<IlpPreparePacket, IlpResponsePacket>(),
@@ -60,7 +60,7 @@ export default function StreamSimulator({
           ...logs,
           {
             ...logEvent,
-            index: logIndexRef.current++,
+            index: logIndexReference.current++,
             relativeTime: Date.now() - startTime,
           },
         ])
@@ -79,7 +79,7 @@ export default function StreamSimulator({
     environment.topics.prepare.on(scope, ({ sender, packet }) => {
       setPackets((packets) => [
         ...packets,
-        { packet, sender, index: packetIndexRef.current++ },
+        { packet, sender, index: packetIndexReference.current++ },
       ])
     })
 
@@ -128,9 +128,7 @@ export default function StreamSimulator({
 
         const stream = client.createStream()
 
-        await stream.send({ amount: configuration.amount })
-
-        console.log("done")
+        unwrapFailure(await stream.send({ amount: configuration.amount }))
       } catch (error: unknown) {
         console.error("error while sending", { error })
       }
@@ -145,10 +143,16 @@ export default function StreamSimulator({
         console.error("error while disposing environment", { error })
       })
     }
-  }, [configuration, startTime, logIndexRef, packetIndexRef])
+  }, [configuration, startTime, logIndexReference, packetIndexReference])
   return (
     <div className="p-6 gap-6 flex flex-col">
-      <Button onClick={() => onBackClick()}>Back</Button>
+      <Button
+        onClick={() => {
+          onBackClick()
+        }}
+      >
+        Back
+      </Button>
       <StreamPacketLog
         packets={packets}
         responses={responsePackets}

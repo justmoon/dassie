@@ -1,0 +1,8 @@
+{
+  "extends": "@dassie/meta-tsconfig/vite-node.json",
+  "include": ["index.js"],
+  "compilerOptions": {
+    "outDir": "dist"
+  },
+  "references": []
+}

@@ -1,4 +1,3 @@
-/* eslint-disable n/no-unsupported-features/node-builtins */
 import { uint8ArrayToString } from "uint8array-extras"
 
 import {

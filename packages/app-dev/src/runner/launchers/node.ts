@@ -3,7 +3,7 @@ import { HasTlsSignal } from "@dassie/app-node/src/backend/config/computed/has-t
 import { createActor, createReactor } from "@dassie/lib-reactive"
 import { createRuntime } from "@dassie/lib-reactive-io/node"
 
-import { HandleShutdownSignalsActor } from "../../common/actors/handle-shutdown-signals"
+import { HandleShutdownSignalsActor } from "../../backend/actors/handle-shutdown-signals"
 import { ForwardLogsActor } from "../actors/forward-logs"
 import { ForwardPeerTrafficActor } from "../actors/forward-peer-traffic"
 import { HandleDisconnectActor } from "../actors/handle-disconnect"

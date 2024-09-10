@@ -57,7 +57,6 @@ const LogViewer = <TLogLine extends ViewableLogLine>({
   const [shouldStick, setShouldStick] = useState(true)
   const scrollPositionReference = useRef<number | undefined>(undefined)
   const [keywordFilter, setKeywordFilter] = useState("")
-  const latestLogLine = logs.at(-1)
   const filteredLogs = useMemo(
     () =>
       logs.filter((item) => {
@@ -78,7 +77,7 @@ const LogViewer = <TLogLine extends ViewableLogLine>({
 
         return true
       }),
-    [keywordFilter, externalFilter, logs, latestLogLine],
+    [keywordFilter, externalFilter, logs],
   )
 
   const virtualizer = useVirtualizer({

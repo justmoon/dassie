@@ -23,7 +23,6 @@ export function createUseWebSocketClient<
   return function useWebSocketClient({
     url,
     clientOptions,
-    // eslint-disable-next-line n/no-unsupported-features/node-builtins
     WebSocket = globalThis.WebSocket,
     reconnectDelay,
   }) {

@@ -24,7 +24,6 @@ export interface MessageEvent {
 }
 
 export type WebSocketWithBinaryTypeArrayBuffer = Merge<
-  // eslint-disable-next-line n/no-unsupported-features/node-builtins
   WebSocket,
   {
     addEventListener(

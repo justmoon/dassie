@@ -1,5 +1,6 @@
 import type { Plugin } from "pretty-format"
 
+// eslint-disable-next-line no-restricted-imports
 import { isTypedArray } from "node:util/types"
 
 function formatTypedArrayContentsAsHex(

@@ -3,8 +3,8 @@ import { useState } from "react"
 import StreamConfigurator, {
   DEFAULT_STREAM_CONFIGURATION,
   type StreamConfiguration,
-} from "./StreamConfigurator/StreamConfigurator"
-import StreamSimulator from "./StreamSimulator/StreamSimulator"
+} from "./stream-configurator/stream-configurator"
+import StreamSimulator from "./stream-simulator/stream-simulator"
 
 export default function StreamToy() {
   const [simulationConfiguration, setSimulationConfiguration] =
