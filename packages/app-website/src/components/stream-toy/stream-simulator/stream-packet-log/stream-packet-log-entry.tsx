@@ -12,7 +12,8 @@ import {
 import type { PskEnvironment } from "@dassie/lib-protocol-stream"
 
 import AmountTooLargeResponseDetails from "./amount-too-large-response-details"
-import IlpPacketDetails from "./ilp-packet-details"
+import IlpPrepareDetails from "./ilp-prepare-details"
+import IlpResponseDetails from "./ilp-response-details"
 import StreamPacketDetails from "./stream-packet-details"
 import { useParsedStreamPacket } from "./use-parsed-stream-packet"
 
@@ -98,8 +99,16 @@ export default function StreamPacketLogEntry({
         )}
       >
         <div className="grid grid-cols-[auto_auto_1fr] gap-3 px-3 py-2 border-t border-slate-700">
-          <div className="">ILP</div>
-          <IlpPacketDetails packet={packet} />
+          <div className="">ILP Prepare</div>
+          <IlpPrepareDetails packet={packet} />
+          {response && (
+            <>
+              <div className="">
+                ILP {response.type === IlpType.Fulfill ? "Fulfill" : "Reject"}
+              </div>
+              <IlpResponseDetails response={response} />
+            </>
+          )}
           <div className="">STREAM Request</div>
           <StreamPacketDetails packet={requestStreamPacket} />
           {response &&
