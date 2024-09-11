@@ -134,7 +134,6 @@ class BrowserCryptoImplementation implements Crypto {
         try {
           const keyObject = await keyObjectPromise
 
-          // Extract the IV and move the tag to the end of the ciphertext
           const combined = new Uint8Array(
             ciphertext.byteLength + algorithmInfo.tagLength,
           )
@@ -147,7 +146,7 @@ class BrowserCryptoImplementation implements Crypto {
               iv,
             },
             keyObject,
-            ciphertext,
+            combined,
           )
 
           return new Uint8Array(plaintext)
