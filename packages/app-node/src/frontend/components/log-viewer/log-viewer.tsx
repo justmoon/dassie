@@ -4,7 +4,6 @@ import {
   createContext,
   startTransition,
   useContext,
-  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -54,8 +53,7 @@ const LogViewer = <TLogLine extends ViewableLogLine>({
   className,
 }: LogViewerProperties<TLogLine>) => {
   const outerReference = useRef<HTMLDivElement>(null)
-  const [shouldStick, setShouldStick] = useState(true)
-  const scrollPositionReference = useRef<number | undefined>(undefined)
+  const [stickScrollToBottom, setStickScrollToBottom] = useState(true)
   const [keywordFilter, setKeywordFilter] = useState("")
   const filteredLogs = useMemo(
     () =>
@@ -83,42 +81,26 @@ const LogViewer = <TLogLine extends ViewableLogLine>({
   const virtualizer = useVirtualizer({
     count: filteredLogs.length,
     getScrollElement: () => outerReference.current,
-    estimateSize: () => 21,
+    estimateSize: () => 18,
     getItemKey: (index) => filteredLogs[index]!.index,
+    paddingEnd: 24,
+    initialOffset: Number.MAX_SAFE_INTEGER,
   })
 
-  useEffect(() => {
-    const outerElement = outerReference.current
-    if (!outerElement) return
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => true
 
-    const onScroll = () => {
-      if (scrollPositionReference.current !== outerElement.scrollTop) {
-        const newShouldStick =
-          outerElement.scrollHeight - outerElement.scrollTop ===
-          outerElement.clientHeight
-
-        setShouldStick(newShouldStick)
-      }
-    }
-    outerElement.addEventListener("scroll", onScroll)
-
-    return () => {
-      outerElement.removeEventListener("scroll", onScroll)
-    }
-  }, [outerReference, shouldStick, setShouldStick])
-
+  const totalSize = virtualizer.getTotalSize()
   useLayoutEffect(() => {
     const outerElement = outerReference.current
-
     if (!outerElement) return
 
-    if (shouldStick) {
+    if (stickScrollToBottom) {
       outerElement.scrollTop =
-        outerElement.scrollHeight - outerElement.clientTop
+        outerElement.scrollHeight - outerElement.clientHeight
     }
+  }, [filteredLogs, stickScrollToBottom, totalSize])
 
-    scrollPositionReference.current = outerElement.scrollTop
-  })
+  if (filteredLogs.length === 0) return null
 
   return (
     <Card
@@ -136,21 +118,40 @@ const LogViewer = <TLogLine extends ViewableLogLine>({
           }}
         />
       </CardHeader>
-      <CardContent ref={outerReference} className="min-h-0 overflow-y-scroll">
+      <CardContent
+        ref={outerReference}
+        className="min-h-0 relative overflow-y-scroll"
+        onScroll={(event) => {
+          const outerElement = event.currentTarget
+
+          const newShouldStick =
+            Math.abs(
+              outerElement.scrollHeight -
+                outerElement.scrollTop -
+                outerElement.clientHeight,
+            ) < 1
+
+          setStickScrollToBottom(newShouldStick)
+        }}
+      >
         <div
           className="relative"
-          style={{ height: virtualizer.getTotalSize() }}
+          style={{
+            height: virtualizer.getTotalSize(),
+          }}
         >
           {virtualizer.getVirtualItems().map((virtualItem) => {
             const logLine = filteredLogs[virtualItem.index]
-            if (!logLine) return null
+            if (!logLine || !virtualizer.scrollElement) return null
             return (
               <div
                 key={virtualItem.key}
                 data-index={virtualItem.index}
                 ref={virtualizer.measureElement}
                 className="w-full top-0 left-0 absolute"
-                style={{ transform: `translateY(${virtualItem.start}px)` }}
+                style={{
+                  transform: `translateY(${virtualItem.start}px)`,
+                }}
               >
                 <LogLine log={logLine} />
               </div>
