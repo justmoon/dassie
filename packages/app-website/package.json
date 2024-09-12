@@ -21,6 +21,7 @@
     "@dassie/lib-protocol-ilp": "workspace:^",
     "@dassie/lib-protocol-stream": "workspace:^",
     "@dassie/lib-reactive": "workspace:^",
+    "@dassie/lib-reactive-io": "workspace:^",
     "@dassie/lib-type-utils": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
     "@dassie/meta-unocss-config": "workspace:^",

@@ -6,6 +6,7 @@ export interface StreamConfiguration {
   amount: bigint
   maxPacketAmount: bigint
   latency: number
+  timeDilationFactor: number
   maxPacketsInFlight: number
 }
 
@@ -23,6 +24,7 @@ export const DEFAULT_STREAM_CONFIGURATION: StreamConfiguration = {
   amount: 3000n,
   maxPacketAmount: 1000n,
   latency: 100,
+  timeDilationFactor: 1,
   maxPacketsInFlight: 10,
 }
 
@@ -35,6 +37,21 @@ export default function StreamConfigurator({
     <div className="p-6 gap-6 flex flex-col">
       <h1 className="font-bold text-4xl">STREAM Toy</h1>
       <div className="flex flex-col gap-4 border p-4 rounded-md">
+        <h2 className="text-2xl">General Simulation Settings</h2>
+        <div className="grid w-full max-w-sm items-center gap-1.5">
+          <Label htmlFor="time_dilation_factor">Time Dilation Factor</Label>
+          <Input
+            type="number"
+            id="time_dilation_factor"
+            value={String(configuration.timeDilationFactor)}
+            onChange={(event) => {
+              onConfigurationChange((configuration) => ({
+                ...configuration,
+                timeDilationFactor: Number(event.target.value),
+              }))
+            }}
+          />
+        </div>
         <h2 className="text-2xl">Simulated Interledger Settings</h2>
         <div className="grid w-full max-w-sm items-center gap-1.5">
           <Label htmlFor="max_packet_amount">Max. Packet Amount</Label>

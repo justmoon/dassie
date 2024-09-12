@@ -45,6 +45,10 @@ export {
   randomBoolean,
   randomNumber,
 } from "./tools/random-values"
+export {
+  createTimeDilationClock,
+  TimeDilationClockImplementation,
+} from "./tools/time-dilation"
 
 export type { Topic, ReadonlyTopic, InferTopicType } from "./topic"
 export type { Signal, ReadonlySignal, Reducer, InferSignalType } from "./signal"

@@ -107,7 +107,9 @@ export function createTestEnvironment({
         }
 
         if (latency > 0) {
-          await new Promise((resolve) => setTimeout(resolve, latency))
+          await new Promise<void>((resolve) =>
+            clock.setTimeout(() => resolve(), latency),
+          )
         }
 
         if (packetsInFlight >= maxPacketsInFlight) {
