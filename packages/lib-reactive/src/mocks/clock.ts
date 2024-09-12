@@ -1,4 +1,4 @@
-import type { Clock, IntervalId, TimeoutId } from "../types/base-modules/clock"
+import type { Clock, TimeoutId } from "../types/base-modules/clock"
 
 export interface MockClock extends Clock {
   tick(duration: number): Promise<void>
@@ -13,20 +13,10 @@ interface ScheduledTimeout {
   readonly time: number
 }
 
-interface ScheduledInterval {
-  readonly id: IntervalId
-  readonly type: "interval"
-  readonly callback: () => void
-  readonly time: number
-  readonly interval: number
-}
-
-type ScheduledTimer = ScheduledTimeout | ScheduledInterval
-
 export class MockClockImplementation implements MockClock {
   private unique = 0
 
-  private timers: ScheduledTimer[] = []
+  private timers: ScheduledTimeout[] = []
   private ticking = false
 
   constructor(private time: number = DEFAULT_MOCK_CLOCK_TIME) {}
@@ -46,23 +36,7 @@ export class MockClockImplementation implements MockClock {
     return timeoutId
   }
 
-  setInterval(callback: () => void, interval: number): IntervalId {
-    const intervalId = this.unique++ as unknown as IntervalId
-    this.insertTimer({
-      id: intervalId,
-      type: "interval",
-      callback,
-      time: this.time + interval,
-      interval,
-    })
-    return intervalId
-  }
-
   clearTimeout(id: TimeoutId): void {
-    this.timers = this.timers.filter((timer) => timer.id !== id)
-  }
-
-  clearInterval(id: IntervalId): void {
     this.timers = this.timers.filter((timer) => timer.id !== id)
   }
 
@@ -96,13 +70,6 @@ export class MockClockImplementation implements MockClock {
 
       this.timers.shift()
 
-      if (nextTimer.type === "interval") {
-        this.insertTimer({
-          ...nextTimer,
-          time: nextTimer.time + nextTimer.interval,
-        })
-      }
-
       nextTimer.callback()
     }
 
@@ -118,7 +85,7 @@ export class MockClockImplementation implements MockClock {
     }
   }
 
-  private insertTimer(newTimer: ScheduledTimer) {
+  private insertTimer(newTimer: ScheduledTimeout) {
     const index = this.timers.findIndex((timer) => newTimer.time < timer.time)
 
     if (index === -1) {

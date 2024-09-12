@@ -28,17 +28,6 @@ describe("MockClock", () => {
       expect(callback).toHaveBeenCalledTimes(1)
     })
 
-    test("should call interval callback", async ({ expect }) => {
-      const clock = new MockClockImplementation()
-      const callback = vi.fn()
-
-      clock.setInterval(callback, 100)
-
-      await clock.tick(200)
-
-      expect(callback).toHaveBeenCalledTimes(2)
-    })
-
     test("should not call timeout that hasn't been reached", async ({
       expect,
     }) => {
@@ -46,19 +35,6 @@ describe("MockClock", () => {
       const callback = vi.fn()
 
       clock.setTimeout(callback, 100)
-
-      await clock.tick(50)
-
-      expect(callback).not.toHaveBeenCalled()
-    })
-
-    test("should not call interval that hasn't been reached", async ({
-      expect,
-    }) => {
-      const clock = new MockClockImplementation()
-      const callback = vi.fn()
-
-      clock.setInterval(callback, 100)
 
       await clock.tick(50)
 
@@ -77,35 +53,6 @@ describe("MockClock", () => {
       await clock.tick(100)
 
       expect(callback).not.toHaveBeenCalled()
-    })
-
-    test("should not call interval that has been cleared", async ({
-      expect,
-    }) => {
-      const clock = new MockClockImplementation()
-      const callback = vi.fn()
-
-      const intervalId = clock.setInterval(callback, 100)
-      clock.clearInterval(intervalId)
-
-      await clock.tick(100)
-
-      expect(callback).not.toHaveBeenCalled()
-    })
-
-    test("should only call interval once if it is cleared during its own callback", async ({
-      expect,
-    }) => {
-      const clock = new MockClockImplementation()
-      const callback = vi.fn(() => {
-        clock.clearInterval(intervalId)
-      })
-
-      const intervalId = clock.setInterval(callback, 100)
-
-      await clock.tick(1000)
-
-      expect(callback).toHaveBeenCalledTimes(1)
     })
 
     test("should call callbacks asynchronously", async ({ expect }) => {
@@ -256,42 +203,6 @@ describe("MockClock", () => {
       expect(callback2).toHaveBeenCalledTimes(1)
       expect(callback3).toHaveBeenCalledTimes(1)
       expect(clock.now()).toBe(1300)
-    })
-
-    test("should run until the first iteration of the last interval", async ({
-      expect,
-    }) => {
-      const clock = new MockClockImplementation(1000)
-
-      const observedOrder: [callbackId: number, time: number][] = []
-
-      const callback1 = vi.fn(() => {
-        observedOrder.push([1, clock.now()])
-      })
-      const callback2 = vi.fn(() => {
-        observedOrder.push([2, clock.now()])
-      })
-      const callback3 = vi.fn(() => {
-        observedOrder.push([3, clock.now()])
-      })
-
-      clock.setInterval(callback1, 100)
-      clock.setInterval(callback2, 200)
-      clock.setInterval(callback3, 300)
-
-      await clock.runUntilLast()
-
-      expect(callback1).toHaveBeenCalledTimes(3)
-      expect(callback2).toHaveBeenCalledTimes(1)
-      expect(callback3).toHaveBeenCalledTimes(1)
-      expect(clock.now()).toBe(1300)
-      expect(observedOrder).toEqual([
-        [1, 1100],
-        [2, 1200],
-        [1, 1200],
-        [3, 1300],
-        [1, 1300],
-      ])
     })
 
     test("should not run timers that were scheduled at a time after the time of the originally last timeout", async ({

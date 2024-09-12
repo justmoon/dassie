@@ -1,4 +1,4 @@
-import type { Clock, IntervalId, TimeoutId } from "@dassie/lib-reactive"
+import type { Clock, TimeoutId } from "@dassie/lib-reactive"
 
 export class GenericClockImplementation implements Clock {
   now(): number {
@@ -11,14 +11,6 @@ export class GenericClockImplementation implements Clock {
 
   clearTimeout(id: TimeoutId): void {
     clearTimeout(id as unknown as NodeJS.Timeout)
-  }
-
-  setInterval(callback: () => void, delay: number): IntervalId {
-    return setInterval(callback, delay) as unknown as IntervalId
-  }
-
-  clearInterval(id: IntervalId): void {
-    clearInterval(id as unknown as NodeJS.Timeout)
   }
 }
 

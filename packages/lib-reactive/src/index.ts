@@ -78,7 +78,7 @@ export type {
   ReactiveObserver as ReactiveConsumer,
 } from "./internal/reactive"
 export type { MockClock } from "./mocks/clock"
-export type { Clock, TimeoutId, IntervalId } from "./types/base-modules/clock"
+export type { Clock, TimeoutId } from "./types/base-modules/clock"
 export type {
   Crypto,
   Cryptor,
