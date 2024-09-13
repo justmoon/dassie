@@ -6,6 +6,7 @@ import {
   randomBigInt,
 } from "@dassie/lib-reactive"
 import { createCrypto } from "@dassie/lib-reactive-io"
+import { bigIntGcd } from "@dassie/lib-type-utils"
 
 import { bigintToUint8Array, encodeField } from "../../der"
 
@@ -95,7 +96,7 @@ export function generateRsaPrivateKey(
     const eulerTotient = (primeP - 1n) * (primeQ - 1n)
 
     // Ensure that gcd(publicExponent, φ(n)) == 1, which means publicExponent and φ(n) are coprime
-    if (gcd(publicExponent, eulerTotient) !== 1n) {
+    if (bigIntGcd(publicExponent, eulerTotient) !== 1n) {
       continue // If they are not coprime, retry with new primes
     }
 
@@ -123,22 +124,6 @@ export function generateRsaPrivateKey(
       coefficient, // (inverse of q) mod p
     }
   }
-}
-
-/**
- * Computes the greatest common divisor (GCD) of two bigint numbers using the Euclidean algorithm.
- *
- * @param a - The first bigint.
- * @param b - The second bigint.
- * @returns The GCD of a and b.
- */
-function gcd(a: bigint, b: bigint): bigint {
-  while (b !== BigInt(0)) {
-    const previousB = b
-    b = a % b
-    a = previousB
-  }
-  return a
 }
 
 /**
