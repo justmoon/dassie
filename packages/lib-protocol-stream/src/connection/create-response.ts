@@ -1,3 +1,4 @@
+import type { IldcpResponse } from "@dassie/lib-protocol-ildcp"
 import { IlpErrorCode, IlpType } from "@dassie/lib-protocol-ilp"
 
 import {
@@ -20,6 +21,8 @@ export function createResponseBuilder({
   amount,
   sequence,
 }: CreateResponseBuilderParameters) {
+  let assetDetails: Pick<IldcpResponse, "assetCode" | "assetScale"> | undefined
+  let maxStreamId: number | undefined
   const closedStreams = new Map<
     number,
     { errorCode: number; errorMessage: string }
@@ -29,6 +32,25 @@ export function createResponseBuilder({
     type: typeof IlpType.Fulfill | typeof IlpType.Reject,
   ) {
     const responseFrames: StreamFrame[] = []
+
+    if (assetDetails !== undefined) {
+      responseFrames.push({
+        type: FrameType.ConnectionAssetDetails,
+        data: {
+          sourceAssetCode: assetDetails.assetCode,
+          sourceAssetScale: assetDetails.assetScale,
+        },
+      })
+    }
+
+    if (maxStreamId !== undefined) {
+      responseFrames.push({
+        type: FrameType.ConnectionMaxStreamId,
+        data: {
+          maxStreamId: BigInt(maxStreamId),
+        },
+      })
+    }
 
     for (const [streamId, { errorCode, errorMessage }] of closedStreams) {
       responseFrames.push({
@@ -92,6 +114,16 @@ export function createResponseBuilder({
     }
   }
   return {
+    setAssetDetails(
+      configuration: Pick<IldcpResponse, "assetCode" | "assetScale">,
+    ) {
+      assetDetails = configuration
+    },
+
+    setMaxStreamId(streamId: number) {
+      maxStreamId = streamId
+    },
+
     setStreamClose(streamId: number, errorCode: number, errorMessage: string) {
       // Capture the earliest reason for closing a stream
       if (closedStreams.has(streamId)) return

@@ -1,13 +1,13 @@
 import { IlpType } from "@dassie/lib-protocol-ilp"
-import { isFailure } from "@dassie/lib-type-utils"
+import { bigIntMin, isFailure } from "@dassie/lib-type-utils"
 
-import { FrameType, type StreamFrame } from "../packets/schema"
 import {
   fulfillSend,
   getDesiredSendAmount,
   prepareSend,
   rejectSend,
 } from "../stream/send-money"
+import { createPrepareBuilder } from "./create-prepare"
 import { sendPacket } from "./send-packet"
 import type { ConnectionState } from "./state"
 
@@ -15,71 +15,80 @@ import type { ConnectionState } from "./state"
  * Sends one Interledger packet and returns once the packet has been fulfilled or rejected.
  */
 export async function sendOnce(state: ConnectionState) {
-  const { context, streams, maximumPacketAmount, exchangeRate } = state
+  const {
+    context,
+    configuration,
+    streams,
+    maxPacketAmount,
+    exchangeRate,
+    ourAddress,
+    remoteKnowsAddress,
+  } = state
 
   if (exchangeRate === undefined) {
     throw new Error("Cannot send money without an exchange rate")
   }
 
-  const frames = new Array<StreamFrame>()
-  const fulfillHandlers = new Array<() => void>()
-  const rejectHandlers = new Array<() => void>()
+  const prepareBuilder = createPrepareBuilder({
+    fulfillable: true,
+    maxPacketAmount,
+  })
 
-  let totalSend = 0n
+  if (!remoteKnowsAddress) {
+    prepareBuilder.setNewAddress(ourAddress)
+    prepareBuilder.setAssetDetails(configuration)
+    prepareBuilder.addStreamResponseHandler(() => {
+      state.remoteKnowsAddress = true
+    })
+  }
+
   for (const [streamId, streamState] of streams.entries()) {
     const desiredSend = getDesiredSendAmount(streamState)
+    const maxSend = prepareBuilder.getAvailableAmount()
 
-    const maximumSend = maximumPacketAmount - totalSend
-    const actualSend = desiredSend > maximumSend ? maximumSend : desiredSend
+    const actualSend = bigIntMin(maxSend, desiredSend)
 
     if (actualSend > 0n) {
       prepareSend(streamState, actualSend)
 
-      totalSend += actualSend
-      frames.push({
-        type: FrameType.StreamMoney,
-        data: {
-          streamId: BigInt(streamId),
-          shares: actualSend,
+      prepareBuilder.addMoney({
+        streamId,
+        amount: actualSend,
+        onFulfill: () => {
+          fulfillSend(streamState, actualSend)
         },
-      })
-
-      fulfillHandlers.push(() => {
-        fulfillSend(streamState, actualSend)
-      })
-      rejectHandlers.push(() => {
-        rejectSend(streamState, actualSend)
+        onReject: () => {
+          rejectSend(streamState, actualSend)
+        },
       })
     }
   }
 
-  const minDestinationAmount = (totalSend * exchangeRate[0]) / exchangeRate[1]
+  const packet = prepareBuilder.getPacket({ exchangeRate })
 
-  context.logger.debug?.("sending packet", {
-    sourceAmount: totalSend,
-    minDestinationAmount,
-  })
+  context.logger.debug?.("sending packet", packet)
 
   const result = await sendPacket({
     state,
-    sourceAmount: totalSend,
-    destinationAmount: minDestinationAmount,
-    fulfillable: true,
-    frames,
+    ...packet,
   })
 
   if (isFailure(result)) {
-    for (const handler of rejectHandlers) handler()
+    prepareBuilder.callRejectHandlers()
     return
   }
 
   if (result.ilp.type === IlpType.Fulfill) {
-    for (const handler of fulfillHandlers) handler()
+    prepareBuilder.callFulfillHandlers()
   } else {
-    for (const handler of rejectHandlers) handler()
+    prepareBuilder.callRejectHandlers()
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (result.ilp.type !== IlpType.Reject) {
       throw new Error("Unexpected ILP packet type")
     }
+  }
+
+  if (!isFailure(result.stream)) {
+    prepareBuilder.callStreamResponseHandlers()
   }
 }

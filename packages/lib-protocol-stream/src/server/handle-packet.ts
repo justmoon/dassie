@@ -52,6 +52,7 @@ export function createPacketHandler(
         configuration: state.configuration,
         secret,
         side: "server",
+        ourAddress: `${state.configuration.address}.${localId}`,
       })
       state.activeConnections.set(localId, connectionState)
 

@@ -17,11 +17,16 @@ export interface ConnectionState {
   side: "server" | "client"
   configuration: IldcpResponse
   readonly pskEnvironment: PskEnvironment
+  ourAddress: string
   remoteAddress: string | undefined
   nextSequence: number
   nextStreamId: number
-  maximumPacketAmount: bigint
-  maximumStreamId: number
+  maxPacketAmount: bigint
+  maxStreamId: number
+  remoteMaxStreamId: number | undefined
+  remoteAssetDetails:
+    | Pick<IldcpResponse, "assetCode" | "assetScale">
+    | undefined
   readonly streams: Map<number, StreamState>
   readonly topics: InferTopics<ConnectionEvents>
   isSending: boolean
@@ -38,4 +43,9 @@ export interface ConnectionState {
   sendLoopWaker: Deferred<void> | undefined
 
   exchangeRate: Ratio | undefined
+
+  /**
+   * Whether the other side knows our ILP address.
+   */
+  remoteKnowsAddress: boolean
 }

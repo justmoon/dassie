@@ -83,11 +83,11 @@ export async function sendPacket({
       context.logger.debug?.("received F08, adjusting maximum packet amount", {
         receivedAmount: amountTooLargeData.value.receivedAmount,
         maximumAmount: amountTooLargeData.value.maximumAmount,
-        oldMax: state.maximumPacketAmount,
+        oldMax: state.maxPacketAmount,
         newMax: newMaximum,
       })
 
-      state.maximumPacketAmount = newMaximum
+      state.maxPacketAmount = newMaximum
     }
   }
 

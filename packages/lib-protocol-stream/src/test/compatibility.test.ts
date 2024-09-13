@@ -83,6 +83,7 @@ describe("Client Compatibility", () => {
 
     expect(moneyReceived).toBe(1000)
 
+    await server.close()
     await environment.dispose()
   })
 })

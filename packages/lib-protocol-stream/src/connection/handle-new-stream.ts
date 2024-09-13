@@ -24,7 +24,7 @@ export function handleNewStream({
     side,
     streams,
     topics,
-    maximumStreamId,
+    maxStreamId: maximumStreamId,
   } = state
 
   assert(logger, !streams.has(streamId), "stream already exists")

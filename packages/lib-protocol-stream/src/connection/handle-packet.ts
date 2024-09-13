@@ -92,6 +92,32 @@ export async function handleConnectionPacket(
     )
   }
 
+  // Handle control frames
+  for (const frame of streamPacket.frames) {
+    switch (frame.type) {
+      case FrameType.ConnectionNewAddress: {
+        responseBuilder.setAssetDetails(state.configuration)
+        state.remoteAddress = frame.data.sourceAccount
+
+        break
+      }
+      case FrameType.ConnectionMaxStreamId: {
+        state.remoteMaxStreamId = Number(frame.data.maxStreamId)
+
+        break
+      }
+      case FrameType.ConnectionAssetDetails: {
+        state.remoteAssetDetails = {
+          assetCode: frame.data.sourceAssetCode,
+          assetScale: frame.data.sourceAssetScale,
+        }
+
+        break
+      }
+      // No default
+    }
+  }
+
   if (streamPacket.amount > packet.amount) {
     return responseBuilder.reject(
       "Packet did not deliver enough money",
