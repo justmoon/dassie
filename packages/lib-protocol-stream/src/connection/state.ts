@@ -3,6 +3,7 @@ import type { Deferred } from "@dassie/lib-reactive"
 
 import type { StreamProtocolContext } from "../context/context"
 import type { PskEnvironment } from "../crypto/functions"
+import type { Ratio } from "../math/ratio"
 import type { StreamState } from "../stream/state"
 import type { Stream } from "../stream/stream"
 import type { InferTopics } from "../types/infer-topics"
@@ -35,4 +36,6 @@ export interface ConnectionState {
    * new work to do.
    */
   sendLoopWaker: Deferred<void> | undefined
+
+  exchangeRate: Ratio | undefined
 }

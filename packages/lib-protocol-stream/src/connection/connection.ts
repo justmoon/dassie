@@ -1,16 +1,34 @@
 import type { Listener, Topic } from "@dassie/lib-reactive"
 
+import type { Ratio } from "../math/ratio"
 import { createInitialStreamState } from "../stream/initialize"
 import { Stream } from "../stream/stream"
 import type { EventEmitter } from "../types/event-emitter"
 import { measureExchangeRate } from "./measure-exchange-rate"
+import {
+  dangerouslyIgnoreExchangeRate,
+  dangerouslyMeasureExchangeRate,
+  setExchangeRate,
+} from "./set-exchange-rate"
 import type { ConnectionEvents, ConnectionState } from "./state"
 
 export class Connection implements EventEmitter<ConnectionEvents> {
   constructor(private readonly state: ConnectionState) {}
 
-  async measureExchangeRate() {
-    return await measureExchangeRate({ state: this.state })
+  measureExchangeRate() {
+    return measureExchangeRate({ state: this.state })
+  }
+
+  setExchangeRate(exchangeRate: Ratio) {
+    return setExchangeRate(this.state, exchangeRate)
+  }
+
+  dangerouslyIgnoreExchangeRate() {
+    dangerouslyIgnoreExchangeRate(this.state)
+  }
+
+  dangerouslyMeasureExchangeRate() {
+    return dangerouslyMeasureExchangeRate(this.state)
   }
 
   createStream() {

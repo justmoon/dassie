@@ -1,8 +1,14 @@
-import { isFailure } from "@dassie/lib-type-utils"
+import { bigIntGcd, isFailure } from "@dassie/lib-type-utils"
 
 import type { Ratio } from "../math/ratio"
-import { NO_REMOTE_ADDRESS_FAILURE } from "./failures/no-remote-address-failure"
-import { PROBING_UNSUCCESSFUL_FAILURE } from "./failures/probing-unsuccessful-failure"
+import {
+  NO_REMOTE_ADDRESS_FAILURE,
+  type NoRemoteAddressFailure,
+} from "./failures/no-remote-address-failure"
+import {
+  PROBING_UNSUCCESSFUL_FAILURE,
+  type ProbingUnsuccessfulFailure,
+} from "./failures/probing-unsuccessful-failure"
 import { sendPacket } from "./send-packet"
 import type { ConnectionState } from "./state"
 
@@ -24,7 +30,9 @@ interface GenerateProbePacketsOptions {
 
 export async function measureExchangeRate({
   state,
-}: GenerateProbePacketsOptions) {
+}: GenerateProbePacketsOptions): Promise<
+  Ratio | NoRemoteAddressFailure | ProbingUnsuccessfulFailure
+> {
   const { context, remoteAddress } = state
 
   if (!remoteAddress) {
@@ -35,7 +43,12 @@ export async function measureExchangeRate({
   // TODO: Handle retries
   const results = await Promise.all(
     PROBE_PACKET_AMOUNTS.map(async (amount) => {
-      const response = await sendPacket({ state, amount })
+      const response = await sendPacket({
+        state,
+        sourceAmount: amount,
+        destinationAmount: 0n,
+        fulfillable: false,
+      })
 
       if (isFailure(response)) {
         return response
@@ -69,10 +82,9 @@ export async function measureExchangeRate({
     return PROBING_UNSUCCESSFUL_FAILURE
   }
 
-  // Strip excess trailing zeros
-  while (exchangeRate[0] % 10n === 0n && exchangeRate[1] % 10n === 0n) {
-    exchangeRate = [exchangeRate[0] / 10n, exchangeRate[1] / 10n]
-  }
+  // Simplify the exchange rate
+  const gcd = bigIntGcd(exchangeRate[0], exchangeRate[1])
+  exchangeRate = [exchangeRate[0] / gcd, exchangeRate[1] / gcd]
 
   context.logger.info("exchange rate measured successfully", {
     exchangeRate,

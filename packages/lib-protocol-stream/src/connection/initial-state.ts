@@ -43,5 +43,6 @@ export const createInitialConnectionState = ({
     isSending: false,
     concurrency: INITIAL_CONCURRENCY,
     sendLoopWaker: undefined,
+    exchangeRate: undefined,
   }
 }

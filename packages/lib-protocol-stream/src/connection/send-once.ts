@@ -15,7 +15,11 @@ import type { ConnectionState } from "./state"
  * Sends one Interledger packet and returns once the packet has been fulfilled or rejected.
  */
 export async function sendOnce(state: ConnectionState) {
-  const { context, streams, maximumPacketAmount } = state
+  const { context, streams, maximumPacketAmount, exchangeRate } = state
+
+  if (exchangeRate === undefined) {
+    throw new Error("Cannot send money without an exchange rate")
+  }
 
   const frames = new Array<StreamFrame>()
   const fulfillHandlers = new Array<() => void>()
@@ -49,13 +53,17 @@ export async function sendOnce(state: ConnectionState) {
     }
   }
 
+  const minDestinationAmount = (totalSend * exchangeRate[0]) / exchangeRate[1]
+
   context.logger.debug?.("sending packet", {
-    amount: totalSend,
+    sourceAmount: totalSend,
+    minDestinationAmount,
   })
 
   const result = await sendPacket({
     state,
-    amount: totalSend,
+    sourceAmount: totalSend,
+    destinationAmount: minDestinationAmount,
     fulfillable: true,
     frames,
   })

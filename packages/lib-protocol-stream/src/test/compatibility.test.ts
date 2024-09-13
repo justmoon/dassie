@@ -64,6 +64,8 @@ describe("Client Compatibility", () => {
       }),
     )
 
+    unwrapFailure(client.setExchangeRate([1n, 1n]))
+
     let moneyReceived = 0
     server.on("connection", (connection: Connection) => {
       connection.on("stream", (stream: DataAndMoneyStream) => {

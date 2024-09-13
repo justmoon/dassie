@@ -157,6 +157,8 @@ export function useSimulation({ configuration }: SimulationProperties) {
           }),
         )
 
+        client.dangerouslyIgnoreExchangeRate()
+
         const stream = client.createStream()
 
         unwrapFailure(await stream.send({ amount: configuration.amount }))

@@ -43,10 +43,18 @@ interface EnvironmentOptions {
 
 interface ContextOptions {
   name: string
+
+  /**
+   * How many internal accounting units represent one unit on this endpoint.
+   *
+   * Defaults to 1_000_000n
+   */
+  unitsPerToken?: bigint
 }
 
 interface TestRoute {
   handler: IlpEndpoint["sendPacket"]
+  unitsPerToken: bigint
 }
 
 interface PreparePacketEvent {
@@ -80,7 +88,10 @@ export function createTestEnvironment({
   logger.debug?.("initializing test environment")
 
   return {
-    createContext: ({ name }: ContextOptions): StreamProtocolContext => {
+    createContext: ({
+      name,
+      unitsPerToken = 1_000_000n,
+    }: ContextOptions): StreamProtocolContext => {
       const address = `test.${name}`
 
       let packetsInFlight = 0
@@ -139,14 +150,21 @@ export function createTestEnvironment({
           }
         }
 
+        const internalAmount = packet.amount * unitsPerToken
+
         for (const [address, route] of routes.entries()) {
           if (packet.destination.startsWith(address)) {
             logger.debug?.("routing packet to destination", {
               destination: packet.destination,
             })
 
+            const outputPacket = {
+              ...packet,
+              amount: internalAmount / route.unitsPerToken,
+            }
+
             packetsInFlight++
-            return route.handler(packet).finally(() => {
+            return route.handler(outputPacket).finally(() => {
               packetsInFlight--
             })
           }
@@ -170,7 +188,7 @@ export function createTestEnvironment({
             throw new Error("Route already exists")
           }
 
-          routes.set(address, { handler })
+          routes.set(address, { handler, unitsPerToken })
 
           return () => {
             routes.delete(address)

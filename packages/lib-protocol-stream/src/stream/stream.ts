@@ -1,5 +1,9 @@
 import { type Listener, type Topic, createDeferred } from "@dassie/lib-reactive"
+import { isFailure } from "@dassie/lib-type-utils"
 
+import { assertConnectionCanSendMoney } from "../connection/assert-can-send"
+import type { NoExchangeRateFailure } from "../connection/failures/no-exchange-rate-failure"
+import type { NoRemoteAddressFailure } from "../connection/failures/no-remote-address-failure"
 import { sendUntilDone } from "../connection/send-until-done"
 import type { ConnectionState } from "../connection/state"
 import type { EventEmitter } from "../types/event-emitter"
@@ -25,16 +29,20 @@ export class Stream implements EventEmitter<StreamEvents> {
    *
    * The method will return a promise that either resolves when the money has
    * been sent successfully or return a failure if the money could not be sent
-   * after the specified timeout.
+   * within the specified timeout.
    */
   send({
     amount,
     timeout = DEFAULT_TIMEOUT,
-  }: SendOptions): Promise<void | SendFailure> {
+  }: SendOptions): Promise<
+    void | SendFailure | NoRemoteAddressFailure | NoExchangeRateFailure
+  > {
+    {
+      const result = this.addSendAmount(amount)
+      if (isFailure(result)) return Promise.resolve(result)
+    }
+
     const deferred = createDeferred<void | SendFailure>()
-
-    this.addSendAmount(amount)
-
     const targetAmount = this.state.sendMaximum
 
     const timeoutId = setTimeout(() => {
@@ -57,7 +65,14 @@ export class Stream implements EventEmitter<StreamEvents> {
   }
 
   addSendAmount(amount: bigint) {
+    {
+      const result = assertConnectionCanSendMoney(this.connectionState)
+      if (isFailure(result)) return result
+    }
+
     this.state.sendMaximum += amount
+
+    return
   }
 
   addReceiveAmount(amount: bigint) {

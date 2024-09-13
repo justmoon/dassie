@@ -12,19 +12,21 @@ import { type StreamFrame, streamPacketSchema } from "../packets/schema"
 import { NO_REMOTE_ADDRESS_FAILURE } from "./failures/no-remote-address-failure"
 import type { ConnectionState } from "./state"
 
-interface GenerateProbePacketsOptions {
+interface SendPacketOptions {
   readonly state: ConnectionState
-  readonly amount: bigint
+  readonly sourceAmount: bigint
+  readonly destinationAmount: bigint
   readonly fulfillable?: boolean | undefined
   readonly frames?: StreamFrame[] | undefined
 }
 
 export async function sendPacket({
   state,
-  amount,
+  sourceAmount: sourceAmount,
+  destinationAmount: destinationAmount,
   fulfillable = false,
   frames = [],
-}: GenerateProbePacketsOptions) {
+}: SendPacketOptions) {
   const { context, remoteAddress } = state
 
   if (!remoteAddress) {
@@ -36,7 +38,7 @@ export async function sendPacket({
   const streamPacket = streamPacketSchema.serializeOrThrow({
     packetType: IlpType.Prepare,
     sequence: BigInt(state.nextSequence++),
-    amount,
+    amount: destinationAmount,
     frames,
   })
 
@@ -44,7 +46,7 @@ export async function sendPacket({
 
   const result = await context.endpoint.sendPacket({
     destination: remoteAddress,
-    amount,
+    amount: sourceAmount,
     expiresAt: getPacketExpiry(context),
     executionCondition:
       fulfillable ?
@@ -73,7 +75,7 @@ export async function sendPacket({
         "received F08 with maximum amount >= received amount, ignoring",
       )
     } else {
-      const newMaximum = multiplyByRatio(amount, [
+      const newMaximum = multiplyByRatio(sourceAmount, [
         amountTooLargeData.value.maximumAmount,
         amountTooLargeData.value.receivedAmount,
       ])
