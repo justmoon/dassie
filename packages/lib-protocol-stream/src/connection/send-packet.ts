@@ -98,9 +98,8 @@ export async function sendPacket({
     )
   }
 
-  // Decreate concurrency when packets are being rejected due to a temporary error
-  // such as overloading.
-  if (result.type === IlpType.Reject && result.data.code.startsWith("T")) {
+  // Decreate concurrency when packets are being rejected
+  if (result.type === IlpType.Reject && fulfillable) {
     // Multiplicatively decrease concurrency as part of AIMD congestion control.
     //
     // Please note that this value is intentionally not rounded.
