@@ -70,7 +70,10 @@ export function createResponseBuilder({
     }
   }
 
-  async function reject(message: string) {
+  async function reject(
+    message: string,
+    code: IlpErrorCode = IlpErrorCode.F99_APPLICATION_ERROR,
+  ) {
     state.context.logger.debug?.("rejecting", {
       message,
     })
@@ -81,7 +84,7 @@ export function createResponseBuilder({
     return {
       type: IlpType.Reject,
       data: {
-        code: IlpErrorCode.F99_APPLICATION_ERROR,
+        code,
         message,
         triggeredBy: state.configuration.address,
         data: encryptedResponse,

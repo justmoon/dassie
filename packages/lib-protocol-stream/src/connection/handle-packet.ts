@@ -1,4 +1,4 @@
-import { areUint8ArraysEqual } from "uint8array-extras"
+import { areUint8ArraysEqual, uint8ArrayToHex } from "uint8array-extras"
 
 import {
   IlpErrorCode,
@@ -29,11 +29,14 @@ export async function handleConnectionPacket(
   const decryptedData = await state.pskEnvironment.decrypt(packet.data)
 
   if (isFailure(decryptedData)) {
+    logger.warn("failed to decrypt STREAM packet data", {
+      error: decryptedData,
+    })
     return {
       type: IlpType.Reject,
       data: {
-        code: IlpErrorCode.F99_APPLICATION_ERROR,
-        message: "Failed to decrypt packet",
+        code: IlpErrorCode.F06_UNEXPECTED_PAYMENT,
+        message: "Failed to decrypt incoming STREAM packet data",
         triggeredBy: state.configuration.address,
         data: new Uint8Array(),
       },
@@ -43,11 +46,14 @@ export async function handleConnectionPacket(
   const streamPacketParseResult = streamPacketSchema.parse(decryptedData)
 
   if (isFailure(streamPacketParseResult)) {
+    logger.warn("failed to parse STREAM packet data", {
+      error: streamPacketParseResult,
+    })
     return {
       type: IlpType.Reject,
       data: {
-        code: IlpErrorCode.F99_APPLICATION_ERROR,
-        message: "Failed to parse packet",
+        code: IlpErrorCode.F06_UNEXPECTED_PAYMENT,
+        message: "Failed to parse incoming STREAM packet data",
         triggeredBy: state.configuration.address,
         data: new Uint8Array(),
       },
@@ -65,12 +71,33 @@ export async function handleConnectionPacket(
     packet.executionCondition,
   )
 
+  if (!isFulfillable) {
+    logger.debug?.("received unfulfillable STREAM packet", {
+      expectedCondition: uint8ArrayToHex(packet.executionCondition),
+      generatedCondition: uint8ArrayToHex(condition),
+    })
+  }
+
   const responseBuilder = createResponseBuilder({
     state,
     fulfillment: isFulfillable ? fulfillment : false,
     amount: packet.amount,
     sequence: streamPacket.sequence,
   })
+
+  if (streamPacket.packetType !== IlpType.Prepare) {
+    return responseBuilder.reject(
+      "Wrong packet type",
+      IlpErrorCode.F06_UNEXPECTED_PAYMENT,
+    )
+  }
+
+  if (streamPacket.amount > packet.amount) {
+    return responseBuilder.reject(
+      "Packet did not deliver enough money",
+      IlpErrorCode.F04_INSUFFICIENT_DESTINATION_AMOUNT,
+    )
+  }
 
   let totalShares = 0n
   const streamReceiveList: StreamReceiveListEntry[] = []

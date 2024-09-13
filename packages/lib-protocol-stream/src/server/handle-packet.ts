@@ -21,7 +21,19 @@ export function createPacketHandler(
 ) {
   return async function handleServerPacket(packet) {
     if (!packet.destination.startsWith(state.configuration.address)) {
-      throw new Error("Received packet for wrong destination")
+      state.context.logger.warn(
+        "received packet that did not match what STREAM server thinks its address is",
+        { destination: packet.destination },
+      )
+      return {
+        type: IlpType.Reject,
+        data: {
+          code: IlpErrorCode.F02_UNREACHABLE,
+          message: "Incorrect destination",
+          triggeredBy: state.configuration.address,
+          data: new Uint8Array(),
+        },
+      }
     }
 
     const localId = packet.destination.slice(
@@ -56,8 +68,8 @@ export function createPacketHandler(
     return {
       type: IlpType.Reject,
       data: {
-        code: IlpErrorCode.F99_APPLICATION_ERROR,
-        message: "Not implemented",
+        code: IlpErrorCode.F02_UNREACHABLE,
+        message: "Unknown STREAM credentials",
         triggeredBy: state.configuration.address,
         data: new Uint8Array(),
       },
