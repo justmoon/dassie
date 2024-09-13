@@ -92,12 +92,7 @@ export default function StreamPacketLogEntry({
         />
       </div>
 
-      <div
-        className={combine(
-          "overflow-y-clip h-0 transition-height",
-          isExpanded && "h-[calc-size(auto)]",
-        )}
-      >
+      {isExpanded && (
         <div className="grid grid-cols-[auto_auto_1fr] gap-3 px-3 py-2 border-t border-slate-700">
           <div className="">ILP Prepare</div>
           <IlpPrepareDetails packet={packet} />
@@ -125,7 +120,7 @@ export default function StreamPacketLogEntry({
                 <StreamPacketDetails packet={responseStreamPacket} response />
               </>)}
         </div>
-      </div>
+      )}
     </div>
   )
 }

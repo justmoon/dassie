@@ -28,9 +28,11 @@ export default function StreamPacketDetails({
             {packet.frames.length > 0 ?
               <div className="col-span-2 flex flex-col gap-1">
                 <div className="text-muted-foreground">Frames</div>
-                {packet.frames.map((frame, index) => (
-                  <StreamFrameDetails key={index} frame={frame} />
-                ))}
+                <div className="bg-slate-900 p-3 flex flex-col gap-3 rounded-xl">
+                  {packet.frames.map((frame, index) => (
+                    <StreamFrameDetails key={index} frame={frame} />
+                  ))}
+                </div>
               </div>
             : <div className="text-muted-foreground">No frames</div>}
           </>
