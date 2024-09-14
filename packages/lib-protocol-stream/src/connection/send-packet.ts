@@ -1,15 +1,26 @@
+import type { ParseFailure } from "@dassie/lib-oer"
 import {
   IlpErrorCode,
+  type IlpResponsePacket,
   IlpType,
   amountTooLargeDataSchema,
 } from "@dassie/lib-protocol-ilp"
+import type { DecryptionFailure } from "@dassie/lib-reactive"
 import { isFailure } from "@dassie/lib-type-utils"
 
 import { generateRandomCondition } from "../crypto/functions"
 import { multiplyByRatio } from "../math/ratio"
 import { getPacketExpiry } from "../packets/expiry"
-import { type StreamFrame, streamPacketSchema } from "../packets/schema"
-import { NO_REMOTE_ADDRESS_FAILURE } from "./failures/no-remote-address-failure"
+import {
+  type StreamFrame,
+  type StreamPacket,
+  streamPacketSchema,
+} from "../packets/schema"
+import {
+  NO_REMOTE_ADDRESS_FAILURE,
+  type NoRemoteAddressFailure,
+} from "./failures/no-remote-address-failure"
+import { handleControlFrame } from "./handle-control-frames"
 import type { ConnectionState } from "./state"
 
 interface SendPacketOptions {
@@ -26,7 +37,13 @@ export async function sendPacket({
   destinationAmount: destinationAmount,
   fulfillable = false,
   frames = [],
-}: SendPacketOptions) {
+}: SendPacketOptions): Promise<
+  | NoRemoteAddressFailure
+  | {
+      ilp: IlpResponsePacket
+      stream: StreamPacket | DecryptionFailure | ParseFailure
+    }
+> {
   const { context, remoteAddress } = state
 
   if (!remoteAddress) {
@@ -119,10 +136,18 @@ export async function sendPacket({
     return { ilp: result, stream: streamPacketDecrypted }
   }
 
-  const responseStreamPacket = streamPacketSchema.parse(streamPacketDecrypted)
+  const streamPacketParseResult = streamPacketSchema.parse(
+    streamPacketDecrypted,
+  )
 
-  if (isFailure(responseStreamPacket)) {
-    return { ilp: result, stream: responseStreamPacket }
+  if (isFailure(streamPacketParseResult)) {
+    return { ilp: result, stream: streamPacketParseResult }
+  }
+
+  const responseStreamPacket = streamPacketParseResult.value
+
+  for (const frame of responseStreamPacket.frames) {
+    handleControlFrame({ state, frame })
   }
 
   return { ilp: result, stream: responseStreamPacket }

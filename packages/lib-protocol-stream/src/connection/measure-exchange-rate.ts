@@ -58,7 +58,7 @@ export async function measureExchangeRate({
         return response.stream
       }
 
-      const exchangeRate: Ratio = [response.stream.value.amount, amount]
+      const exchangeRate: Ratio = [response.stream.amount, amount]
       const digits = Math.log10(Number(amount))
 
       return { exchangeRate, digits }

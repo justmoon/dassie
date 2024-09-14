@@ -135,3 +135,5 @@ export function createResponseBuilder({
     reject,
   }
 }
+
+export type ResponseBuilder = ReturnType<typeof createResponseBuilder>

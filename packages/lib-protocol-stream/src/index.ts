@@ -27,4 +27,3 @@ export {
 } from "./packets/schema"
 
 export { type PskEnvironment, getPskEnvironment } from "./crypto/functions"
-export type { DecryptionFailure } from "./crypto/failures/decryption-failure"

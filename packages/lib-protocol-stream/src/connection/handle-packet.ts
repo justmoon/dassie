@@ -13,6 +13,7 @@ import {
 } from "../math/allocate-amounts"
 import { FrameType, streamPacketSchema } from "../packets/schema"
 import { createResponseBuilder } from "./create-response"
+import { handleControlFrame } from "./handle-control-frames"
 import { handleNewStream } from "./handle-new-stream"
 import type { ConnectionState } from "./state"
 
@@ -92,30 +93,8 @@ export async function handleConnectionPacket(
     )
   }
 
-  // Handle control frames
   for (const frame of streamPacket.frames) {
-    switch (frame.type) {
-      case FrameType.ConnectionNewAddress: {
-        responseBuilder.setAssetDetails(state.configuration)
-        state.remoteAddress = frame.data.sourceAccount
-
-        break
-      }
-      case FrameType.ConnectionMaxStreamId: {
-        state.remoteMaxStreamId = Number(frame.data.maxStreamId)
-
-        break
-      }
-      case FrameType.ConnectionAssetDetails: {
-        state.remoteAssetDetails = {
-          assetCode: frame.data.sourceAssetCode,
-          assetScale: frame.data.sourceAssetScale,
-        }
-
-        break
-      }
-      // No default
-    }
+    handleControlFrame({ state, frame, responseBuilder })
   }
 
   if (streamPacket.amount > packet.amount) {

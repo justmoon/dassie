@@ -1,8 +1,11 @@
 import { concatUint8Arrays, stringToUint8Array } from "uint8array-extras"
 
-import type { AesCryptor, Crypto, HmacSigner } from "@dassie/lib-reactive"
-
-import type { DecryptionFailure } from "./failures/decryption-failure"
+import type {
+  AesCryptor,
+  Crypto,
+  DecryptionFailure,
+  HmacSigner,
+} from "@dassie/lib-reactive"
 
 const HMAC_ALGORITHM = "hmac-sha256"
 const AES_ALGORITHM = "aes-256-gcm"
