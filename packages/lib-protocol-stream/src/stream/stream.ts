@@ -7,6 +7,7 @@ import type { NoRemoteAddressFailure } from "../connection/failures/no-remote-ad
 import { sendUntilDone } from "../connection/send-until-done"
 import type { ConnectionState } from "../connection/state"
 import type { EventEmitter } from "../types/event-emitter"
+import { closeStream } from "./close"
 import { SEND_TIMEOUT_FAILURE, type SendFailure } from "./failures/send-failure"
 import type { StreamEvents, StreamState } from "./state"
 
@@ -59,9 +60,26 @@ export class Stream implements EventEmitter<StreamEvents> {
     }
     this.state.topics.moneySent.on(undefined, listener)
 
-    sendUntilDone(this.connectionState)
+    sendUntilDone(this.connectionState).catch((error: unknown) => {
+      this.connectionState.context.logger.error(
+        "unexpected error returned by send loop",
+        {
+          error,
+        },
+      )
+    })
 
     return deferred
+  }
+
+  /**
+   * Close the stream.
+   *
+   * This will immediately stop all further sending except for any packets that
+   * are already in flight.
+   */
+  close() {
+    closeStream(this.id, this.connectionState, this.state)
   }
 
   addSendAmount(amount: bigint) {

@@ -6,14 +6,13 @@ import type { ConnectionState } from "./state"
 
 export function sendUntilDone(state: ConnectionState) {
   // If there is already a send loop active, we don't need to start another one
-  if (state.isSending) return
+  if (state.sendLoopPromise) return state.sendLoopPromise
 
   state.context.logger.debug?.("starting send loop")
-  state.isSending = true
 
   const promisePool = new Set<Promise<void>>()
 
-  ;(async function sendLoop() {
+  state.sendLoopPromise = (async function sendLoop() {
     for (;;) {
       const hasWork = hasWorkToDo(state)
 
@@ -44,4 +43,6 @@ export function sendUntilDone(state: ConnectionState) {
   })().catch((error: unknown) => {
     console.error("error in send loop", { error })
   })
+
+  return state.sendLoopPromise
 }

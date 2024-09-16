@@ -1,6 +1,14 @@
 import type { ReactNode } from "react"
 
-import { FrameType, type StreamFrame } from "@dassie/lib-protocol-stream"
+import {
+  ErrorCode,
+  FrameType,
+  type StreamFrame,
+} from "@dassie/lib-protocol-stream"
+
+const errorCodeMap = new Map<number, string>(
+  Object.entries(ErrorCode).map(([name, code]) => [code, name]),
+)
 
 interface StreamFrameProperties {
   frame: StreamFrame
@@ -31,6 +39,19 @@ export default function StreamFrameDetails({
 }: StreamFrameProperties): ReactNode {
   function renderFrameContents() {
     switch (frame.type) {
+      case FrameType.ConnectionClose: {
+        return (
+          <FrameWrapper>
+            <FrameTypeBadge>ConnectionClose</FrameTypeBadge>
+            <div>
+              Error Code:{" "}
+              {errorCodeMap.get(frame.data.errorCode) ??
+                `Unknown (0x${frame.data.errorCode.toString(16).padStart(2, "0")})`}{" "}
+              Error Message: {frame.data.errorMessage}
+            </div>
+          </FrameWrapper>
+        )
+      }
       case FrameType.ConnectionNewAddress: {
         return (
           <FrameWrapper>

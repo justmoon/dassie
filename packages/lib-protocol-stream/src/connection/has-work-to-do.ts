@@ -12,7 +12,11 @@ import type { ConnectionState } from "./state"
  * @returns Whether there is work to do.
  */
 export function hasWorkToDo(state: ConnectionState, includePending = false) {
+  if (state.isClosed) return false
+
   for (const stream of state.streams.values()) {
+    if (stream.isClosed && !stream.isRemoteClosed) continue
+
     const remainingSendAmount =
       getDesiredSendAmount(stream) +
       (includePending ? stream.sendHoldAmount : 0n)

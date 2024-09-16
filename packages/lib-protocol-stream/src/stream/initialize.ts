@@ -14,6 +14,10 @@ export function createInitialStreamState(): StreamState {
     topics: {
       money: createTopic(),
       moneySent: createTopic(),
+      closed: createTopic(),
     },
+
+    isClosed: false,
+    isRemoteClosed: false,
   }
 }

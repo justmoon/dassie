@@ -15,6 +15,16 @@ interface SendMoneyFrameOptions {
   onReject?: () => void
 }
 
+interface CloseConnectionFrameOptions {
+  errorCode: number
+  errorMessage: string
+}
+
+interface CloseStreamFrameOptions {
+  errorCode: number
+  errorMessage: string
+}
+
 interface GetPacketOptions {
   exchangeRate: Ratio
 }
@@ -32,6 +42,9 @@ export function createPrepareBuilder({
   let assetDetails: Pick<IldcpResponse, "assetCode" | "assetScale"> | undefined
 
   const moneyFrames = new Map<number, bigint>()
+
+  let closeConnection: CloseConnectionFrameOptions | undefined
+  const closeStreams = new Map<number, CloseStreamFrameOptions>()
 
   return {
     setNewAddress(address: string) {
@@ -61,6 +74,15 @@ export function createPrepareBuilder({
 
       if (onReject) {
         rejectHandlers.push(onReject)
+      }
+    },
+
+    closeConnection(options: CloseConnectionFrameOptions) {
+      closeConnection = options
+    },
+    closeStream(streamId: number, options: CloseStreamFrameOptions) {
+      if (!closeStreams.has(streamId)) {
+        closeStreams.set(streamId, options)
       }
     },
 
@@ -113,6 +135,27 @@ export function createPrepareBuilder({
         })
       }
 
+      for (const [streamId, options] of closeStreams) {
+        frames.push({
+          type: FrameType.StreamClose,
+          data: {
+            streamId: BigInt(streamId),
+            errorCode: options.errorCode,
+            errorMessage: options.errorMessage,
+          },
+        })
+      }
+
+      if (closeConnection !== undefined) {
+        frames.push({
+          type: FrameType.ConnectionClose,
+          data: {
+            errorCode: closeConnection.errorCode,
+            errorMessage: closeConnection.errorMessage,
+          },
+        })
+      }
+
       const destinationAmount = (totalSend * exchangeRate[0]) / exchangeRate[1]
 
       return {
@@ -140,3 +183,5 @@ export function createPrepareBuilder({
     },
   }
 }
+
+export type PrepareBuilder = ReturnType<typeof createPrepareBuilder>

@@ -1,6 +1,6 @@
 import { UINT64_MAX } from "@dassie/lib-oer"
 import type { IldcpResponse } from "@dassie/lib-protocol-ildcp"
-import { createTopic } from "@dassie/lib-reactive"
+import { type DisposableScope, createTopic } from "@dassie/lib-reactive"
 
 import type { StreamProtocolContext } from "../context/context"
 import { getPskEnvironment } from "../crypto/functions"
@@ -12,6 +12,7 @@ export const INITIAL_CONCURRENCY = 1
 
 export interface ConnectionStateOptions {
   context: StreamProtocolContext
+  scope: DisposableScope
   configuration: IldcpResponse
   ourAddress: string
   remoteAddress?: string | undefined
@@ -21,6 +22,7 @@ export interface ConnectionStateOptions {
 
 export const createInitialConnectionState = ({
   context,
+  scope,
   configuration,
   ourAddress,
   remoteAddress,
@@ -29,6 +31,7 @@ export const createInitialConnectionState = ({
 }: ConnectionStateOptions): ConnectionState => {
   return {
     context,
+    scope,
     side,
     configuration,
     ourAddress,
@@ -41,14 +44,17 @@ export const createInitialConnectionState = ({
     remoteMaxStreamId: undefined,
     remoteAssetDetails: undefined,
     streams: new Map(),
+    closedStreams: new Map(),
     maxPacketAmount: DEFAULT_MAXIMUM_PACKET_AMOUNT,
     topics: {
       stream: createTopic(),
+      closed: createTopic(),
     },
-    isSending: false,
+    sendLoopPromise: undefined,
     concurrency: INITIAL_CONCURRENCY,
     sendLoopWaker: undefined,
     exchangeRate: undefined,
     remoteKnowsAddress: side === "server",
+    isClosed: false,
   }
 }

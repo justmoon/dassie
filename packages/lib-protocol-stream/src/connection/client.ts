@@ -1,8 +1,10 @@
+import { confineScope, createScope } from "@dassie/lib-reactive"
 import { isFailure } from "@dassie/lib-type-utils"
 
 import type { StreamProtocolContext } from "../context/context"
 import type { StreamCredentials } from "../server/generate-credentials"
 import { queryIldcp } from "../server/query-ildcp"
+import { closeConnection } from "./close"
 import { Connection } from "./connection"
 import { handleConnectionPacket } from "./handle-packet"
 import { createInitialConnectionState } from "./initial-state"
@@ -13,6 +15,9 @@ interface ClientOptions {
 }
 
 export async function createClient({ context, credentials }: ClientOptions) {
+  const scope = createScope(`stream-client-${credentials.destination}`)
+  confineScope(scope, context.scope)
+
   const configuration = await queryIldcp(context)
 
   if (isFailure(configuration)) {
@@ -21,6 +26,7 @@ export async function createClient({ context, credentials }: ClientOptions) {
 
   const state = createInitialConnectionState({
     context,
+    scope,
     ourAddress: configuration.address,
     remoteAddress: credentials.destination,
     secret: credentials.secret,
@@ -31,7 +37,14 @@ export async function createClient({ context, credentials }: ClientOptions) {
   const unregisterHandler = state.context.endpoint.handlePackets((packet) =>
     handleConnectionPacket(state, packet),
   )
-  state.context.scope.onCleanup(unregisterHandler)
+  scope.onCleanup(unregisterHandler)
+
+  scope.onCleanup(async () => {
+    const result = await closeConnection(state)
+    if (isFailure(result)) {
+      // Ignore failures since we are closing the connection anyway
+    }
+  })
 
   return new Connection(state)
 }

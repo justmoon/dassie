@@ -3,22 +3,14 @@ import {
   type IlpPacketHandler,
   IlpType,
 } from "@dassie/lib-protocol-ilp"
+import { confineScope, createScope } from "@dassie/lib-reactive"
 
 import { Connection } from "../connection/connection"
 import { handleConnectionPacket } from "../connection/handle-packet"
 import { createInitialConnectionState } from "../connection/initial-state"
 import type { ServerState } from "./state"
 
-export function createPacketHandler(
-  state: Pick<
-    ServerState,
-    | "context"
-    | "configuration"
-    | "activeConnections"
-    | "activeCredentials"
-    | "topics"
-  >,
-) {
+export function createPacketHandler(state: ServerState) {
   return async function handleServerPacket(packet) {
     if (!packet.destination.startsWith(state.configuration.address)) {
       state.context.logger.warn(
@@ -47,8 +39,11 @@ export function createPacketHandler(
 
     const secret = state.activeCredentials.get(localId)
     if (secret) {
+      const scope = createScope(`stream-connection-${localId}`)
+      confineScope(scope, state.scope)
       const connectionState = createInitialConnectionState({
         context: state.context,
+        scope,
         configuration: state.configuration,
         secret,
         side: "server",

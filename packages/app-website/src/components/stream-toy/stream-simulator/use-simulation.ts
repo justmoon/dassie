@@ -162,6 +162,8 @@ export function useSimulation({ configuration }: SimulationProperties) {
         const stream = client.createStream()
 
         unwrapFailure(await stream.send({ amount: configuration.amount }))
+
+        await environment.dispose()
       } catch (error: unknown) {
         console.error("error while sending", { error })
       }

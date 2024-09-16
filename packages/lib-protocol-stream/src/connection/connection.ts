@@ -4,7 +4,9 @@ import type { Ratio } from "../math/ratio"
 import { createInitialStreamState } from "../stream/initialize"
 import { Stream } from "../stream/stream"
 import type { EventEmitter } from "../types/event-emitter"
+import { closeConnection } from "./close"
 import { measureExchangeRate } from "./measure-exchange-rate"
+import { sendUntilDone } from "./send-until-done"
 import {
   dangerouslyIgnoreExchangeRate,
   dangerouslyMeasureExchangeRate,
@@ -37,6 +39,15 @@ export class Connection implements EventEmitter<ConnectionEvents> {
     const streamState = createInitialStreamState()
     this.state.streams.set(streamId, streamState)
     return new Stream(this.state, streamState, streamId)
+  }
+
+  async close() {
+    return closeConnection(this.state)
+  }
+
+  async closeAfterDone() {
+    await sendUntilDone(this.state)
+    return closeConnection(this.state)
   }
 
   on<TEventType extends keyof ConnectionEvents>(

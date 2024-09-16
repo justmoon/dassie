@@ -3,6 +3,7 @@ import type { InferTopics } from "../types/infer-topics"
 export type StreamEvents = {
   money: bigint
   moneySent: bigint
+  closed: void
 }
 
 export interface StreamState {
@@ -14,4 +15,7 @@ export interface StreamState {
   receivedAmount: bigint
 
   topics: InferTopics<StreamEvents>
+
+  isClosed: boolean
+  isRemoteClosed: boolean
 }

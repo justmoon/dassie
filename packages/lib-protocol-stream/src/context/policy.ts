@@ -29,6 +29,16 @@ export interface StreamPolicy {
    * Must be between 0 and 1.
    */
   readonly concurrencyDecreaseFactor: number
+
+  /**
+   * How long to try to notify the other side that we are closing the connection.
+   */
+  readonly closeTimeout: number
+
+  /**
+   * How many times to retry sending a close packet.
+   */
+  readonly closeRetries: number
 }
 
 export const DEFAULT_POLICY: StreamPolicy = {
@@ -36,4 +46,6 @@ export const DEFAULT_POLICY: StreamPolicy = {
   maximumConcurrency: 100,
   concurrencyIncreaseIncrement: 1,
   concurrencyDecreaseFactor: 0.5,
+  closeTimeout: 30_000,
+  closeRetries: 3,
 }

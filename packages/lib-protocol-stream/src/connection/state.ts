@@ -1,5 +1,5 @@
 import type { IldcpResponse } from "@dassie/lib-protocol-ildcp"
-import type { Deferred } from "@dassie/lib-reactive"
+import type { Deferred, DisposableScope } from "@dassie/lib-reactive"
 
 import type { StreamProtocolContext } from "../context/context"
 import type { PskEnvironment } from "../crypto/functions"
@@ -10,10 +10,12 @@ import type { InferTopics } from "../types/infer-topics"
 
 export type ConnectionEvents = {
   stream: Stream
+  closed: void
 }
 
 export interface ConnectionState {
   readonly context: StreamProtocolContext
+  readonly scope: DisposableScope
   side: "server" | "client"
   configuration: IldcpResponse
   readonly pskEnvironment: PskEnvironment
@@ -28,8 +30,9 @@ export interface ConnectionState {
     | Pick<IldcpResponse, "assetCode" | "assetScale">
     | undefined
   readonly streams: Map<number, StreamState>
+  readonly closedStreams: Map<number, StreamState>
   readonly topics: InferTopics<ConnectionEvents>
-  isSending: boolean
+  sendLoopPromise: Promise<void> | undefined
 
   /**
    * Number of packets that may be in flight at the same time.
@@ -48,4 +51,9 @@ export interface ConnectionState {
    * Whether the other side knows our ILP address.
    */
   remoteKnowsAddress: boolean
+
+  /**
+   * Whether we consider the connection to be closed.
+   */
+  isClosed: boolean
 }
