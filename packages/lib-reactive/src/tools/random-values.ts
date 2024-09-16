@@ -23,20 +23,33 @@ export function randomBigInt(crypto: Crypto, min: bigint, max: bigint): bigint {
 }
 
 export function randomBoolean(crypto: Crypto): boolean {
-  return crypto.getRandomBytes(1)[0]! % 2 === 0
+  return Boolean(crypto.getRandomBytes(1)[0]! & 0x01)
 }
 
 /**
- * Generates a random number exactly like `Math.random()`.
+ * Generates a random number between 0 (inclusive) and 1 (exclusive).
+ *
+ * This mimics the behavior of `Math.random()` but uses the provided entropy.
+ *
+ * @see https://github.com/nodejs/node/blob/f226350fcbebd4449fb0034fdaffa147e4de28ea/deps/v8/src/base/utils/random-number-generator.h#L111-L116
  */
 export function randomNumber(crypto: Crypto) {
   const randomBytes = crypto.getRandomBytes(8)
 
-  // We need to convert the bytes to a number in the range [0, 1]
-  // because Math.random() returns a number in the range [0, 1).
-  const randomNumber = Number(
-    new DataView(randomBytes.buffer, randomBytes.byteOffset).getFloat64(0),
-  )
+  // Set first 12 bits to 0x3FF (positive, zero offset)
+  //
+  // Combined with a random mantissa this will produce a double precision float
+  // in the range [1, 2)
+  randomBytes[0] = 0b0011_1111
+  randomBytes[1]! |= 0b1111_0000
+
+  // Subtract 1 to transpose the range to [0, 1)
+  const randomNumber =
+    new DataView(
+      randomBytes.buffer,
+      randomBytes.byteOffset,
+      randomBytes.byteLength,
+    ).getFloat64(0) - 1
 
   return randomNumber
 }
