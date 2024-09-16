@@ -112,11 +112,6 @@ export function runTypeScriptCompiler(projectPath: string) {
         return
       }
 
-      if (packageName === "@dassie/app-website") {
-        // Linting for the website is temporarily disabled
-        return
-      }
-
       packagesToBeLinted.push({
         packagePath,
         packageName,
