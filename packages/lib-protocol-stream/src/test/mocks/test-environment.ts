@@ -20,6 +20,7 @@ import {
   createMockDeterministicCrypto,
   createScope,
   createTopic,
+  sampleLogNormalDistribution,
 } from "@dassie/lib-reactive"
 import { createCrypto } from "@dassie/lib-reactive-io"
 
@@ -31,6 +32,7 @@ interface EnvironmentOptions {
   // Environment options
   maxPacketAmount?: bigint | undefined
   latency?: number | undefined
+  jitter?: number | undefined
   maxPacketsInFlight?: number | undefined
 
   // Override context
@@ -73,6 +75,7 @@ interface ResponsePacketEvent {
 export function createTestEnvironment({
   maxPacketAmount = UINT64_MAX,
   latency = 0,
+  jitter = 0,
   maxPacketsInFlight = Infinity,
   scope = createScope("test-environment"),
   logger = createLogger("das:test:stream"),
@@ -84,6 +87,12 @@ export function createTestEnvironment({
 
   const preparePacketTopic = createTopic<PreparePacketEvent>()
   const responsePacketTopic = createTopic<ResponsePacketEvent>()
+
+  const latencyGenerator = sampleLogNormalDistribution(
+    crypto,
+    Math.log(latency),
+    jitter,
+  )
 
   logger.debug?.("initializing test environment")
 
@@ -119,7 +128,7 @@ export function createTestEnvironment({
 
         if (latency > 0) {
           await new Promise<void>((resolve) =>
-            clock.setTimeout(() => resolve(), latency),
+            clock.setTimeout(() => resolve(), latencyGenerator.next().value),
           )
         }
 

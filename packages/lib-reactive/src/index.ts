@@ -42,8 +42,10 @@ export {
 export { delay, delayWithAbortSignal } from "./tools/delay"
 export {
   randomBigInt,
-  randomBoolean,
+  sampleBoolean,
   randomNumber,
+  sampleGaussianDistribution,
+  sampleLogNormalDistribution,
 } from "./tools/random-values"
 export {
   createTimeDilationClock,

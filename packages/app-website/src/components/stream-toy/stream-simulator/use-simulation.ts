@@ -99,6 +99,7 @@ export function useSimulation({ configuration }: SimulationProperties) {
     const environment = createTestEnvironment({
       maxPacketAmount: configuration.maxPacketAmount,
       latency: configuration.latency,
+      jitter: configuration.jitter,
       maxPacketsInFlight: configuration.maxPacketsInFlight,
 
       scope,

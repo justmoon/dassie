@@ -6,6 +6,7 @@ export interface StreamConfiguration {
   amount: bigint
   maxPacketAmount: bigint
   latency: number
+  jitter: number
   timeDilationFactor: number
   maxPacketsInFlight: number
 }
@@ -24,6 +25,7 @@ export const DEFAULT_STREAM_CONFIGURATION: StreamConfiguration = {
   amount: 3000n,
   maxPacketAmount: 1000n,
   latency: 100,
+  jitter: 0.2,
   timeDilationFactor: 1,
   maxPacketsInFlight: 10,
 }
@@ -75,6 +77,18 @@ export default function StreamConfigurator({
               onConfigurationChange((configuration) => ({
                 ...configuration,
                 latency: Number(event.target.value),
+              }))
+            }}
+          />
+          <Label htmlFor="jitter">Jitter</Label>
+          <Input
+            type="number"
+            id="jitter"
+            value={String(configuration.jitter)}
+            onChange={(event) => {
+              onConfigurationChange((configuration) => ({
+                ...configuration,
+                jitter: Number(event.target.value),
               }))
             }}
           />
