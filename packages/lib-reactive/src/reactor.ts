@@ -13,7 +13,7 @@ import {
 import { type WrappedCallback, wrapCallback } from "./internal/wrap-callback"
 import { type DisposableScope, createScope } from "./scope"
 import type { ExecutionContext } from "./types/execution-context"
-import type { Factory } from "./types/factory"
+import type { Factory, FactoryOrInstance } from "./types/factory"
 import type {
   DisposableScopeContext,
   DisposableScopeContextShortcuts,
@@ -208,15 +208,19 @@ class ReactorImplementation<TBase extends object = object> implements Reactor {
 }
 
 interface CreateReactor {
-  (rootActor?: Factory<Actor<Promisable<void>>>): Reactor
+  (rootActorFactory?: FactoryOrInstance<Actor<Promisable<void>>>): Reactor
   <TBase extends object>(
-    rootActor: Factory<Actor<Promisable<void>, TBase>> | undefined,
+    rootActorFactory:
+      | FactoryOrInstance<Actor<Promisable<void>, TBase>>
+      | undefined,
     base: TBase,
   ): Reactor<TBase>
 }
 
 export const createReactor: CreateReactor = <TBase extends object>(
-  rootActor?: Factory<Actor<Promisable<void>, TBase>> | undefined,
+  rootActorFactory?:
+    | FactoryOrInstance<Actor<Promisable<void>, TBase>>
+    | undefined,
   base?: TBase,
 ): Reactor<TBase> => {
   const reactor: Reactor<TBase> = new ReactorImplementation(
@@ -225,15 +229,17 @@ export const createReactor: CreateReactor = <TBase extends object>(
     createScope("Reactor"),
   )
 
-  if (rootActor) {
-    Promise.resolve(reactor.use(rootActor).run(reactor)).catch(
-      (error: unknown) => {
-        console.error("error running root actor", {
-          actor: rootActor.name,
-          error,
-        })
-      },
-    )
+  if (rootActorFactory) {
+    const rootActor =
+      typeof rootActorFactory === "function" ?
+        reactor.use(rootActorFactory)
+      : rootActorFactory
+    Promise.resolve(rootActor.run(reactor)).catch((error: unknown) => {
+      console.error("error running root actor", {
+        actor: rootActor[FactoryNameSymbol],
+        error,
+      })
+    })
   }
 
   return reactor

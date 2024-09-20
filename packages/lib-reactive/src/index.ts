@@ -96,7 +96,7 @@ export type {
   AesCryptor,
   RsaKeyPair,
 } from "./types/base-modules/crypto"
-export type { Factory } from "./types/factory"
+export type { Factory, FactoryOrInstance } from "./types/factory"
 export type {
   ScopeContext,
   DisposableScopeContext,

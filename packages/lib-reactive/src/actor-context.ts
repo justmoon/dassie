@@ -24,7 +24,7 @@ import type { ReadonlyTopic, TopicSymbol } from "./topic"
 import type { Clock } from "./types/base-modules/clock"
 import type { CancelableContext } from "./types/cancelable-context"
 import type { ExecutionContext } from "./types/execution-context"
-import type { Factory } from "./types/factory"
+import type { FactoryOrInstance } from "./types/factory"
 import type { ReactiveContext } from "./types/reactive-context"
 import type {
   DisposableScopeContext,
@@ -61,10 +61,10 @@ export interface ActorContext<TBase extends object = object>
    * @param topic - Reference to the topic's factory function.
    */
   subscribe<TMessage>(
-    topicFactory:
-      | Factory<ReadonlyTopic<TMessage> | ReadonlySignal<TMessage>, TBase>
-      | ReadonlyTopic<TMessage>
-      | ReadonlySignal<TMessage>,
+    topicFactory: FactoryOrInstance<
+      ReadonlyTopic<TMessage> | ReadonlySignal<TMessage>,
+      TBase
+    >,
   ): void
 
   /**
@@ -74,10 +74,10 @@ export interface ActorContext<TBase extends object = object>
    * @param listener - A function that will be called every time a message is emitted on the topic.
    */
   on<TMessage>(
-    topicFactory:
-      | Factory<ReadonlyTopic<TMessage> | ReadonlySignal<TMessage>, TBase>
-      | ReadonlyTopic<TMessage>
-      | ReadonlySignal<TMessage>,
+    topicFactory: FactoryOrInstance<
+      ReadonlyTopic<TMessage> | ReadonlySignal<TMessage>,
+      TBase
+    >,
     listener: Listener<TMessage>,
   ): void
 
@@ -88,10 +88,10 @@ export interface ActorContext<TBase extends object = object>
    * @param listener - A function that will be called every time a message is emitted on the topic.
    */
   once<TMessage>(
-    topicFactory:
-      | Factory<ReadonlyTopic<TMessage> | ReadonlySignal<TMessage>, TBase>
-      | ReadonlyTopic<TMessage>
-      | ReadonlySignal<TMessage>,
+    topicFactory: FactoryOrInstance<
+      ReadonlyTopic<TMessage> | ReadonlySignal<TMessage>,
+      TBase
+    >,
     listener: Listener<TMessage>,
   ): void
 
@@ -143,7 +143,7 @@ export interface ActorContext<TBase extends object = object>
    * @returns - Return value of the first invocation of the actor.
    */
   run<TReturn>(
-    factory: Factory<Actor<TReturn, TBase>, TBase> | Actor<TReturn, TBase>,
+    factory: FactoryOrInstance<Actor<TReturn, TBase>, TBase>,
     options?: RunOptions | undefined,
   ): TReturn | undefined
 
@@ -156,9 +156,7 @@ export interface ActorContext<TBase extends object = object>
    * @param factory - Factory function of the mapped actors.
    */
   runMap<TReturn>(
-    factory:
-      | Factory<Mapped<unknown, Actor<TReturn, TBase>>, TBase>
-      | Mapped<unknown, Actor<TReturn, TBase>>,
+    factory: FactoryOrInstance<Mapped<unknown, Actor<TReturn, TBase>>, TBase>,
   ): (TReturn | undefined)[]
 
   /**
@@ -169,9 +167,7 @@ export interface ActorContext<TBase extends object = object>
    * This method is similar to {@link runMap}, but it will wait for each actor to finish starting up before starting the next one. When all actors are started, the method returns.
    */
   runMapSequential<TReturn>(
-    factory:
-      | Factory<Mapped<unknown, Actor<TReturn, TBase>>, TBase>
-      | Mapped<unknown, Actor<TReturn, TBase>>,
+    factory: FactoryOrInstance<Mapped<unknown, Actor<TReturn, TBase>>, TBase>,
   ): Promise<(Awaited<TReturn> | undefined)[]>
 
   /**
@@ -245,19 +241,19 @@ export class ActorContextImplementation<TBase extends object = object>
   }
 
   subscribe<TMessage>(
-    topicFactory:
-      | Factory<ReadonlyTopic<TMessage> | ReadonlySignal<TMessage>, TBase>
-      | ReadonlyTopic<TMessage>
-      | ReadonlySignal<TMessage>,
+    topicFactory: FactoryOrInstance<
+      ReadonlyTopic<TMessage> | ReadonlySignal<TMessage>,
+      TBase
+    >,
   ) {
     this.once(topicFactory, this.actor.forceRestart)
   }
 
   on<TMessage>(
-    topicFactory:
-      | Factory<ReadonlyTopic<TMessage> | ReadonlySignal<TMessage>, TBase>
-      | ReadonlyTopic<TMessage>
-      | ReadonlySignal<TMessage>,
+    topicFactory: FactoryOrInstance<
+      ReadonlyTopic<TMessage> | ReadonlySignal<TMessage>,
+      TBase
+    >,
     listener: Listener<TMessage>,
   ) {
     const topic =
@@ -269,10 +265,10 @@ export class ActorContextImplementation<TBase extends object = object>
   }
 
   once<TMessage>(
-    topicFactory:
-      | Factory<ReadonlyTopic<TMessage> | ReadonlySignal<TMessage>, TBase>
-      | ReadonlyTopic<TMessage>
-      | ReadonlySignal<TMessage>,
+    topicFactory: FactoryOrInstance<
+      ReadonlyTopic<TMessage> | ReadonlySignal<TMessage>,
+      TBase
+    >,
     listener: Listener<TMessage>,
   ) {
     const topic =
@@ -317,7 +313,7 @@ export class ActorContextImplementation<TBase extends object = object>
   }
 
   run<TReturn>(
-    actorFactory: Factory<Actor<TReturn, TBase>, TBase> | Actor<TReturn, TBase>,
+    actorFactory: FactoryOrInstance<Actor<TReturn, TBase>, TBase>,
     options?: RunOptions | undefined,
   ): TReturn | undefined {
     const actor =
@@ -349,9 +345,7 @@ export class ActorContextImplementation<TBase extends object = object>
   }
 
   runMap<TReturn>(
-    factory:
-      | Factory<Mapped<unknown, Actor<TReturn, TBase>>, TBase>
-      | Mapped<unknown, Actor<TReturn, TBase>>,
+    factory: FactoryOrInstance<Mapped<unknown, Actor<TReturn, TBase>>, TBase>,
   ): (TReturn | undefined)[] {
     const mapped =
       typeof factory === "function" ? this.reactor.use(factory) : factory
@@ -374,9 +368,7 @@ export class ActorContextImplementation<TBase extends object = object>
   }
 
   async runMapSequential<TReturn>(
-    factory:
-      | Factory<Mapped<unknown, Actor<TReturn, TBase>>, TBase>
-      | Mapped<unknown, Actor<TReturn, TBase>>,
+    factory: FactoryOrInstance<Mapped<unknown, Actor<TReturn, TBase>>, TBase>,
   ): Promise<(Awaited<TReturn> | undefined)[]> {
     const mapped =
       typeof factory === "function" ? this.reactor.use(factory) : factory

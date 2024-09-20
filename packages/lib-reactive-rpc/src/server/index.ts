@@ -1,7 +1,7 @@
 import type {
   Action,
   ActorContext,
-  Factory,
+  FactoryOrInstance,
   InferChanges,
   Reactor,
   ReadonlySignal,
@@ -14,7 +14,7 @@ export type ReactiveContext = { reactor: Reactor }
 
 export const subscribeToTopic = <TMessage>(
   sig: ActorContext,
-  topicFactory: Factory<ReadonlyTopic<TMessage>> | ReadonlyTopic<TMessage>,
+  topicFactory: FactoryOrInstance<ReadonlyTopic<TMessage>>,
 ): Subscription<TMessage> => {
   const topic =
     typeof topicFactory === "function" ?
@@ -36,7 +36,7 @@ export const subscribeToTopic = <TMessage>(
 
 export const subscribeToSignal = <TMessage>(
   sig: ActorContext,
-  signalFactory: Factory<ReadonlySignal<TMessage>> | ReadonlySignal<TMessage>,
+  signalFactory: FactoryOrInstance<ReadonlySignal<TMessage>>,
 ): Subscription<TMessage> => {
   const signal =
     typeof signalFactory === "function" ?
@@ -70,7 +70,7 @@ export const subscribeToStore = <
   TActions extends Record<string, Action<TState>>,
 >(
   sig: ActorContext,
-  storeFactory: Factory<Store<TState, TActions>> | Store<TState, TActions>,
+  storeFactory: FactoryOrInstance<Store<TState, TActions>>,
 ): Subscription<StoreMessage<TState, TActions>> => {
   const store =
     typeof storeFactory === "function" ?

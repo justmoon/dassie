@@ -5,7 +5,7 @@ import {
   defaultComparator,
 } from "./internal/reactive"
 import type { Reactor } from "./reactor"
-import type { Factory } from "./types/factory"
+import type { FactoryOrInstance } from "./types/factory"
 import type { ReactiveContext } from "./types/reactive-context"
 import type { StatefulContext } from "./types/stateful-context"
 
@@ -29,9 +29,7 @@ export class ReactiveContextImplementation<TBase extends object>
   ) {}
 
   readAndTrack<TState, TSelection>(
-    signalFactory:
-      | Factory<ReactiveSource<TState>, TBase>
-      | ReactiveSource<TState>,
+    signalFactory: FactoryOrInstance<ReactiveSource<TState>, TBase>,
     // Based on the overloaded function signature, the selector parameter may be omitted iff TMessage equals TSelection.
     // Therefore this cast is safe.
     selector: (state: TState) => TSelection = defaultSelector as unknown as (
@@ -57,7 +55,7 @@ export class ReactiveContextImplementation<TBase extends object>
   }
 
   readKeysAndTrack<TState extends object, TKeys extends keyof TState>(
-    signal: Factory<ReactiveSource<TState>, TBase> | ReactiveSource<TState>,
+    signal: FactoryOrInstance<ReactiveSource<TState>, TBase>,
     keys: readonly TKeys[],
   ): Pick<TState, TKeys> {
     return this.readAndTrack(
@@ -81,9 +79,7 @@ export class ReactiveContextImplementation<TBase extends object>
   }
 
   read<TState>(
-    signalFactory:
-      | Factory<ReactiveSource<TState>, TBase>
-      | ReactiveSource<TState>,
+    signalFactory: FactoryOrInstance<ReactiveSource<TState>, TBase>,
   ): TState {
     const signal =
       typeof signalFactory === "function" ?

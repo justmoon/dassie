@@ -13,7 +13,7 @@ import {
   createScope,
 } from "./scope"
 import { type ReadonlyTopic, createTopic } from "./topic"
-import type { Factory } from "./types/factory"
+import type { FactoryOrInstance } from "./types/factory"
 import type { ScopeContext } from "./types/scope-context"
 import type { StatefulContext } from "./types/stateful-context"
 
@@ -98,9 +98,7 @@ class MappedImplementation<
 
   constructor(
     private parentContext: StatefulContext<TBase> & ScopeContext,
-    baseSetFactory:
-      | Factory<ReactiveSource<Set<TInput>>, TBase>
-      | ReactiveSource<Set<TInput>>,
+    baseSetFactory: FactoryOrInstance<ReactiveSource<Set<TInput>>, TBase>,
     private mapFunction: (input: TInput, scope: Scope) => TOutput,
   ) {
     super(defaultComparator, true)
@@ -201,9 +199,7 @@ class MappedImplementation<
 
 export function createMapped<TInput, TOutput, TBase extends object>(
   parentContext: StatefulContext<TBase> & ScopeContext,
-  baseSet:
-    | Factory<ReactiveSource<Set<TInput>>, TBase>
-    | ReactiveSource<Set<TInput>>,
+  baseSet: FactoryOrInstance<ReactiveSource<Set<TInput>>, TBase>,
   mapFunction: (input: TInput, scope: Scope) => TOutput,
 ): Mapped<TInput, TOutput> {
   return new MappedImplementation(parentContext, baseSet, mapFunction)
