@@ -220,10 +220,10 @@ export const createFlow = ({
           if (component.isFinal(state)) break
         }
       } finally {
+        activeComponent = undefined
         cursor.show(outputStream)
       }
 
-      activeComponent = undefined
       return component.result(state) as InferComponentResult<TComponent>
     },
 
