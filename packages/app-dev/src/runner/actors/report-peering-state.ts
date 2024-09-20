@@ -1,7 +1,7 @@
-import { PeersSignal } from "@dassie/app-node/src/backend/peer-protocol/computed/peers"
+import { PeersSignal } from "@dassie/app-dassie/src/peer-protocol/computed/peers"
 import { createActor } from "@dassie/lib-reactive"
 
-import { convertVanityNodeIdToFriendly } from "../../common/utils/vanity-node-id-to-friendly"
+import { convertVanityNodeIdToFriendly } from "../../utils/vanity-node-id-to-friendly"
 import type { RpcReactor } from "../services/rpc-client"
 
 export const ReportPeeringStateActor = (reactor: RpcReactor) =>

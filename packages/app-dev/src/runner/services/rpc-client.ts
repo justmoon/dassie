@@ -7,9 +7,9 @@ import {
   createNodejsSocketLink,
 } from "@dassie/lib-rpc/client"
 
-import { DEBUG_RUNNER_RPC_PORT } from "../../backend/constants/ports"
-import type { RunnerRpcRouter } from "../../backend/rpc-routers/runner-rpc-router"
-import { transformer } from "../../common/utils/transformer"
+import { DEBUG_RUNNER_RPC_PORT } from "../../constants/ports"
+import type { RunnerRpcRouter } from "../../rpc-routers/runner-rpc-router"
+import { transformer } from "../../utils/transformer"
 
 export type RpcReactor = Reactor<{
   rpc: Client<RunnerRpcRouter>["rpc"]

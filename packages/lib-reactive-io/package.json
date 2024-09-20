@@ -29,7 +29,8 @@
     "uint8array-extras": "^1.4.0"
   },
   "devDependencies": {
-    "@dassie/meta-tsconfig": "workspace:^"
+    "@dassie/meta-tsconfig": "workspace:^",
+    "@types/node": "^22.5.5"
   },
   "engines": {
     "node": "=22.8.0"

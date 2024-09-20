@@ -1,6 +1,6 @@
-import { Button } from "@dassie/app-node/src/frontend/components/ui/button"
-import { Input } from "@dassie/app-node/src/frontend/components/ui/input"
-import { Label } from "@dassie/app-node/src/frontend/components/ui/label"
+import { Button } from "@dassie/gui-dassie/src/components/ui/button"
+import { Input } from "@dassie/gui-dassie/src/components/ui/input"
+import { Label } from "@dassie/gui-dassie/src/components/ui/label"
 
 export interface StreamConfiguration {
   amount: bigint

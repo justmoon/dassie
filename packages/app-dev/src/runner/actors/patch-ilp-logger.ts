@@ -1,6 +1,6 @@
 import { createRequire } from "node:module"
 
-import { LogsStore } from "@dassie/app-node/src/common/stores/logs"
+import { LogsStore } from "@dassie/app-dassie/src/logger/stores/logs"
 import { type Reactor, createActor } from "@dassie/lib-reactive"
 
 export const PatchIlpLoggerActor = (reactor: Reactor) => {
@@ -8,7 +8,7 @@ export const PatchIlpLoggerActor = (reactor: Reactor) => {
 
   return createActor(() => {
     const ownRequire = createRequire(import.meta.url)
-    const nodeRequire = createRequire(ownRequire.resolve("@dassie/app-node"))
+    const nodeRequire = createRequire(ownRequire.resolve("@dassie/app-dassie"))
     const streamRequire = createRequire(
       nodeRequire.resolve("ilp-protocol-stream"),
     )

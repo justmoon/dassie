@@ -7,7 +7,7 @@
   ],
   "references": [
     {
-      "path": "../app-node"
+      "path": "../gui-dassie"
     },
     {
       "path": "../lib-logger"

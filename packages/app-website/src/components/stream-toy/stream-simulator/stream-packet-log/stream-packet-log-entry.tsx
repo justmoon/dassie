@@ -1,7 +1,7 @@
 import { ArrowLeftIcon, ArrowRightIcon } from "lucide-react"
 import { useState } from "react"
 
-import { combine } from "@dassie/app-node/src/frontend/utils/class-helper"
+import { combine } from "@dassie/gui-dassie/src/utils/class-helper"
 import {
   IlpErrorCode,
   type IlpPreparePacket,

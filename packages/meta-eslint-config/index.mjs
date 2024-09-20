@@ -14,20 +14,18 @@ import path from "node:path"
 import eslintPluginDassie from "@dassie/meta-eslint-plugin"
 
 const FRONTEND_FILES = [
-  "packages/app-node/src/frontend/**/*.ts{,x}",
-  "packages/app-dev/src/frontend/**/*.ts{,x}",
   "packages/app-website/src/**/*.ts{,x}",
+  "packages/gui-dev/src/**/*.ts{,x}",
+  "packages/gui-dassie/src/**/*.ts{,x}",
   "packages/lib-reactive-io/src/browser/**/*.ts",
 ]
 const BACKEND_FILES = [
   "packages/app-cli/index.js",
   "packages/app-build/bin/**/*.ts",
   "packages/app-build/src/**/*.ts",
+  "packages/app-dassie/src/**/*.ts",
   "packages/app-dev/bin/**/*.{js,ts}",
-  "packages/app-dev/src/backend/**/*.ts",
-  "packages/app-dev/src/runner/**/*.{js,ts}",
-  "packages/app-node/src/backend/**/*.ts",
-  "packages/app-node/src/command-line/**/*.ts",
+  "packages/app-dev/src/**/*.{js,ts}",
   "packages/lib-http-server/src/environments/nodejs/**/*.ts",
   "packages/lib-reactive-io/src/node/**/*.ts",
   "packages/lib-terminal-graphics/src/**/*.ts",

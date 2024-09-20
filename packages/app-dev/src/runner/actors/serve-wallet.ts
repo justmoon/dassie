@@ -4,18 +4,17 @@ import { type ViteDevServer, createServer } from "vite"
 import { existsSync, readFileSync } from "node:fs"
 import path from "node:path"
 
-import { DatabaseConfigStore } from "@dassie/app-node/src/backend/config/database-config"
+import { DatabaseConfigStore } from "@dassie/app-dassie/src/config/database-config"
 import { assert } from "@dassie/lib-logger"
 import { type Reactor, createActor } from "@dassie/lib-reactive"
 
-import { runner as logger } from "../../backend/logger/instances"
+import { runner as logger } from "../../logger/instances"
 import {
   AdditionalMiddlewaresSignal,
   type ExpressMiddleware,
 } from "./serve-https"
 
-const walletPath = new URL("../../../../app-node/src/frontend", import.meta.url)
-  .pathname
+const walletPath = new URL("../../../../gui-dassie", import.meta.url).pathname
 
 const FS_PREFIX = `/@fs/`
 const VOLUME_RE = /^[a-z]:/i

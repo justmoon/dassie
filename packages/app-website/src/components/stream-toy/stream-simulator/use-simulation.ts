@@ -1,7 +1,7 @@
 import { enableMapSet, produce } from "immer"
 import { useEffect, useState } from "react"
 
-import type { ViewableLogLine } from "@dassie/app-node/src/frontend/components/log-viewer/log-line"
+import type { ViewableLogLine } from "@dassie/gui-dassie/src/components/log-viewer/log-line"
 import { type LogEvent, createLogger, getLogContext } from "@dassie/lib-logger"
 import type {
   IlpPreparePacket,

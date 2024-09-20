@@ -8,13 +8,19 @@
       "path": "./packages/app-cli/tsconfig.json"
     },
     {
+      "path": "./packages/app-dassie/tsconfig.json"
+    },
+    {
       "path": "./packages/app-dev/tsconfig.json"
     },
     {
-      "path": "./packages/app-node/tsconfig.json"
+      "path": "./packages/app-website/tsconfig.json"
     },
     {
-      "path": "./packages/app-website/tsconfig.json"
+      "path": "./packages/gui-dassie/tsconfig.json"
+    },
+    {
+      "path": "./packages/gui-dev/tsconfig.json"
     },
     {
       "path": "./packages/lib-format-utils/tsconfig.json"

@@ -20,7 +20,8 @@
   },
   "devDependencies": {
     "@dassie/meta-tsconfig": "workspace:^",
-    "@types/eslint": "^9.6.0"
+    "@types/eslint": "^9.6.0",
+    "@types/node": "^22.5.5"
   },
   "engines": {
     "node": "=22.8.0"

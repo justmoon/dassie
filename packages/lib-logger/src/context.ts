@@ -17,7 +17,7 @@ export interface LogContext {
 const getGlobalThis = () =>
   (typeof globalThis !== "undefined" ? globalThis
   : typeof global !== "undefined" ? global
-  : window) as {
+  : {}) as {
     [logContextSymbol]?: LogContext
   }
 

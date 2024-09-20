@@ -1,7 +1,7 @@
 import { PauseIcon, PlayIcon } from "lucide-react"
 
-import LogViewer from "@dassie/app-node/src/frontend/components/log-viewer/log-viewer"
-import { Button } from "@dassie/app-node/src/frontend/components/ui/button"
+import LogViewer from "@dassie/gui-dassie/src/components/log-viewer/log-viewer"
+import { Button } from "@dassie/gui-dassie/src/components/ui/button"
 
 import type { StreamConfiguration } from "../stream-configurator/stream-configurator"
 import StreamPacketLog from "./stream-packet-log/stream-packet-log"

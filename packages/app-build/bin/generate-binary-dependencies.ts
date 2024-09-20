@@ -5,7 +5,6 @@ import { createHash } from "node:crypto"
 import path from "node:path"
 import { Readable } from "node:stream"
 import { pipeline } from "node:stream/promises"
-import type { ReadableStream } from "node:stream/web"
 
 import { createFlow, header, tasklist } from "@dassie/lib-terminal-graphics"
 
@@ -105,7 +104,7 @@ await flow.attach(tasklist({}), async (state) => {
 
     const digest = createHash("sha256")
     // eslint-disable-next-line n/no-unsupported-features/node-builtins
-    await pipeline(Readable.fromWeb(result.body as ReadableStream), digest)
+    await pipeline(Readable.fromWeb(result.body), digest)
 
     const hash = digest.digest("hex")
 

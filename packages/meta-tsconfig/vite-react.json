@@ -3,7 +3,8 @@
   "display": "Vite + React",
   "extends": "./base.json",
   "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "target": "ES2020",
     "jsx": "react-jsx",
     "jsxImportSource": "react",
     "types": ["vite/client", "vitest/importMeta"]

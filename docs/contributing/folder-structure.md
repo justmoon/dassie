@@ -7,12 +7,13 @@ Dassie is a monorepo consisting of packages. We are using pnpm as the package ma
 Packages are marked with one of a number of prefixes depending on their type:
 
 - **app-** - Applications, i.e. code that you can directly execute
+- **gui-** - Frontends, typically built with React
 - **lib-** - Libraries, i.e. code that is meant to be included by other code
 - **meta-** - Meta-packages are those which are used by the development environment itself, such as eslint configuration etc.
 
 ## Features
 
-The more complex pieces of the Dassie codebase are broken down into features. For example, the Dassie node backend is found in `packages/app-node/src/backend/` and contains features like `accounting`, `authentication`, and `ilp-connector`.
+The more complex pieces of the Dassie codebase are broken down into features. For example, the Dassie node backend is found in `packages/app-dassie/src/` and contains features like `accounting`, `authentication`, and `ilp-connector`.
 
 Within each feature, you may find various subfolders containing different types of code assets:
 

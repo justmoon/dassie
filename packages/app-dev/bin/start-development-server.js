@@ -7,7 +7,7 @@ import { installSourcemapsSupport } from "vite-node/source-map"
 
 const log = console.info
 
-const DEVELOPMENT_SERVER_ENTRYPOINT = "packages/app-dev/src/backend/start.ts"
+const DEVELOPMENT_SERVER_ENTRYPOINT = "packages/app-dev/src/start.ts"
 
 const createViteServer = async () => {
   const viteServer = await createServer({
@@ -67,7 +67,7 @@ const getStartModule = async () => {
     },
   })
 
-  /** @type import("../src/backend/start") */
+  /** @type import("../src/start") */
   // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
   const startModule = await viteNodeRunner.executeFile(
     DEVELOPMENT_SERVER_ENTRYPOINT,

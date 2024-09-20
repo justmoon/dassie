@@ -55,7 +55,7 @@ export function convertFromNodejsRequest(
           nodeRequest,
           // eslint-disable-next-line n/no-unsupported-features/node-builtins
         ) as ReadableStream<Uint8Array>,
-        duplex: "half",
+        duplex: "half" as const,
       }
     : { body: null }),
   }

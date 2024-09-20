@@ -1,9 +1,15 @@
 import type { BaseRequestContext } from "../types/context"
 
+export interface ResponseOptions {
+  headers: Headers
+  status?: number
+  statusText?: string
+}
+
 export function getResponseOptionsFromContext(
   context: BaseRequestContext,
-): ResponseInit {
-  const responseInit: ResponseInit = {
+): ResponseOptions {
+  const responseInit: ResponseOptions = {
     headers: context.response.headers,
   }
 

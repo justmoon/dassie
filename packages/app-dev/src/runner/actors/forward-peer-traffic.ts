@@ -1,7 +1,7 @@
-import { OutgoingPeerMessageTopic } from "@dassie/app-node/src/backend/peer-protocol/functions/send-peer-message"
+import { OutgoingPeerMessageTopic } from "@dassie/app-dassie/src/peer-protocol/functions/send-peer-message"
 import { createActor } from "@dassie/lib-reactive"
 
-import { convertVanityNodeIdToFriendly } from "../../common/utils/vanity-node-id-to-friendly"
+import { convertVanityNodeIdToFriendly } from "../../utils/vanity-node-id-to-friendly"
 import { type RpcReactor } from "../services/rpc-client"
 
 export const ForwardPeerTrafficActor = (reactor: RpcReactor) =>

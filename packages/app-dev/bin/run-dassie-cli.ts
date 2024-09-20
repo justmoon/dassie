@@ -1,7 +1,7 @@
 /* eslint-disable unicorn/no-process-exit */
 import path from "node:path"
 
-import { nodeIndexToDataPath } from "../src/backend/utils/generate-node-config"
+import { nodeIndexToDataPath } from "../src/utils/generate-node-config"
 
 const NODE_ID_REGEX = /^d[1-9]\d*$/
 const nodeId = process.argv[2]
@@ -29,6 +29,6 @@ process.env["DASSIE_IPC_SOCKET_PATH"] = socketPath
 ;(global as unknown as { __DASSIE_VERSION__: string }).__DASSIE_VERSION__ =
   "dev"
 
-await import("@dassie/app-node/src/command-line/entry")
+await import("@dassie/app-dassie/src/command-line/entry")
 
 export {}

@@ -3,6 +3,8 @@
   "display": "Vite Isomorphic",
   "extends": "./base.json",
   "compilerOptions": {
-    "types": ["vite/client", "vitest/importMeta", "node"]
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "target": "ES2020",
+    "types": ["vite/client", "vitest/importMeta"]
   }
 }

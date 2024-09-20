@@ -1,9 +1,9 @@
-import { AttachLogger, DaemonActor } from "@dassie/app-node"
-import { HasTlsSignal } from "@dassie/app-node/src/backend/config/computed/has-tls"
+import { AttachLogger, DaemonActor } from "@dassie/app-dassie"
+import { HasTlsSignal } from "@dassie/app-dassie/src/config/computed/has-tls"
 import { createActor, createReactor } from "@dassie/lib-reactive"
 import { createRuntime } from "@dassie/lib-reactive-io/node"
 
-import { HandleShutdownSignalsActor } from "../../backend/actors/handle-shutdown-signals"
+import { HandleShutdownSignalsActor } from "../../actors/handle-shutdown-signals"
 import { ForwardLogsActor } from "../actors/forward-logs"
 import { ForwardPeerTrafficActor } from "../actors/forward-peer-traffic"
 import { HandleDisconnectActor } from "../actors/handle-disconnect"

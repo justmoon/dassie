@@ -7,22 +7,22 @@ import path from "node:path"
 import { createInterface } from "node:readline"
 import { fileURLToPath } from "node:url"
 
-import { getPublicKey } from "@dassie/app-node/src/backend/crypto/ed25519"
-import { calculatePathHmac } from "@dassie/app-node/src/backend/crypto/utils/seed-paths"
-import { calculateNodeId } from "@dassie/app-node/src/backend/ilp-connector/utils/calculate-node-id"
-import { SEED_PATH_NODE } from "@dassie/app-node/src/common/constants/seed-paths"
+import { SEED_PATH_NODE } from "@dassie/app-dassie/src/constants/seed-paths"
+import { getPublicKey } from "@dassie/app-dassie/src/crypto/ed25519"
+import { calculatePathHmac } from "@dassie/app-dassie/src/crypto/utils/seed-paths"
+import { calculateNodeId } from "@dassie/app-dassie/src/ilp-connector/utils/calculate-node-id"
 
 import {
   TEST_NODE_VANITY_ENTROPY,
   TEST_NODE_VANITY_SEEDS,
-} from "../src/backend/constants/vanity-nodes"
-import { nodeIndexToFriendlyId } from "../src/backend/utils/generate-node-config"
+} from "../src/constants/vanity-nodes"
+import { nodeIndexToFriendlyId } from "../src/utils/generate-node-config"
 
 const TARGET_PATTERN = /^d([1-9]\d*)_/
 
 const OUTPUT_FILE_PATH = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  "../src/backend/constants/vanity-nodes.ts",
+  "../src/constants/vanity-nodes.ts",
 )
 
 const OUTPUT_FILE_HEADER = `// Generated with packages/app-dev/bin/add-testnet-vanity-addresses.ts

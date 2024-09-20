@@ -3,6 +3,8 @@
   "display": "Vite + Node.js",
   "extends": "./base.json",
   "compilerOptions": {
+    "lib": ["ES2023"],
+    "target": "ES2022",
     "types": ["vite/client", "vitest/importMeta", "node"]
   }
 }

@@ -24,6 +24,7 @@
   "devDependencies": {
     "@dassie/lib-logger": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
+    "@types/node": "^22.5.5",
     "type-fest": "^4.25.0"
   },
   "peerDependencies": {

@@ -1,4 +1,4 @@
-import { LogsStore } from "@dassie/app-node/src/common/stores/logs"
+import { LogsStore } from "@dassie/app-dassie/src/logger/stores/logs"
 import { createActor } from "@dassie/lib-reactive"
 
 import { type RpcReactor } from "../services/rpc-client"

@@ -1,2 +1,2 @@
-https://nodejs.org/dist/v22.1.0/node-v22.1.0-linux-x64.tar.xz 22330ad3a1796ac30d75fab6f98cbe2b883239d4e31c2a52ec8f4e6cc52ace54
-https://github.com/WiseLibs/better-sqlite3/releases/download/v10.0.0/better-sqlite3-v10.0.0-node-v127-linux-x64.tar.gz 52629df9dcd984030660601b3762c180ba174bda65c4a98e6f0e1273bf990347
+https://nodejs.org/dist/v22.8.0/node-v22.8.0-linux-x64.tar.xz b6827dccd983acad09496f28a0f277218cc49302a8a7179ccbd7bf38305f5623
+https://github.com/WiseLibs/better-sqlite3/releases/download/v11.2.1/better-sqlite3-v11.2.1-node-v127-linux-x64.tar.gz e93df0e2d155e73c88aff0da882a638cc78d848c1c19b084b0ac5543e5f56aea

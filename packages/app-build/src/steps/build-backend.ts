@@ -4,7 +4,7 @@ import path from "node:path"
 
 import {
   PATH_DIST_STAGING_SHARED,
-  PATH_PACKAGE_APP_NODE,
+  PATH_PACKAGE_APP_DASSIE,
 } from "../constants/paths"
 
 const BANNER = `
@@ -34,7 +34,7 @@ await (async () => {
 export const buildBackend = async (detailedVersion: string) => {
   await build({
     entryPoints: [
-      path.resolve(PATH_PACKAGE_APP_NODE, "src/command-line/entry.ts"),
+      path.resolve(PATH_PACKAGE_APP_DASSIE, "src/command-line/entry.ts"),
     ],
     outfile: path.resolve(PATH_DIST_STAGING_SHARED, "backend.mjs"),
     bundle: true,

@@ -1,0 +1,66 @@
+{
+  "extends": "@dassie/meta-tsconfig/vite-react.json",
+  "include": [
+    "**/*.ts",
+    "**/*.tsx"
+  ],
+  "compilerOptions": {
+    "outDir": "dist"
+  },
+  "references": [
+    {
+      "path": "../app-dassie"
+    },
+    {
+      "path": "../lib-format-utils"
+    },
+    {
+      "path": "../lib-http-server"
+    },
+    {
+      "path": "../lib-logger"
+    },
+    {
+      "path": "../lib-oer"
+    },
+    {
+      "path": "../lib-protocol-ildcp"
+    },
+    {
+      "path": "../lib-protocol-ilp"
+    },
+    {
+      "path": "../lib-protocol-utils"
+    },
+    {
+      "path": "../lib-reactive"
+    },
+    {
+      "path": "../lib-reactive-io"
+    },
+    {
+      "path": "../lib-reactive-rpc"
+    },
+    {
+      "path": "../lib-rpc"
+    },
+    {
+      "path": "../lib-rpc-react"
+    },
+    {
+      "path": "../lib-sqlite"
+    },
+    {
+      "path": "../lib-terminal-graphics"
+    },
+    {
+      "path": "../lib-type-utils"
+    },
+    {
+      "path": "../lib-x509"
+    },
+    {
+      "path": "../meta-unocss-config"
+    }
+  ]
+}

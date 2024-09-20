@@ -4,7 +4,6 @@ import { copyFile, mkdir, unlink } from "node:fs/promises"
 import path from "node:path"
 import { Readable } from "node:stream"
 import { pipeline } from "node:stream/promises"
-import type { ReadableStream } from "node:stream/web"
 
 import { VERIFIED_HASHES } from "../constants/hashes"
 import { PATH_CACHE } from "../constants/paths"
@@ -65,7 +64,7 @@ export const downloadFile = async (
   }
 
   // eslint-disable-next-line n/no-unsupported-features/node-builtins
-  await pipeline(Readable.fromWeb(response.body as ReadableStream), writer)
+  await pipeline(Readable.fromWeb(response.body), writer)
 
   {
     const hasher = createHash("sha256")

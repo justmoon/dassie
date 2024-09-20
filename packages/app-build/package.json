@@ -34,6 +34,7 @@
   },
   "devDependencies": {
     "@dassie/meta-tsconfig": "workspace:^",
+    "@types/node": "^22.5.5",
     "vite-node": "^2.0.5"
   },
   "engines": {

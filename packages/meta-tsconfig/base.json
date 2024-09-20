@@ -3,8 +3,9 @@
   "display": "Default",
   "extends": "@tsconfig/strictest",
   "compilerOptions": {
-    "target": "ESNext",
-    "module": "ESNext",
+    "target": "ES2023",
+    "module": "ES2022",
+    "types": [],
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "allowSyntheticDefaultImports": true,
