@@ -173,12 +173,15 @@ export const text = ({
         chalk.dim(indentString(wrapAnsi(explanation, columns - 4), 4))
       : "",
       explanation && state === "normal" ? "\n" : "",
-      indentString(
-        state === "confirm" ? chalk.dim(value)
-        : state === "cancel" ? chalk.dim.strikethrough(value || "(canceled)")
-        : renderValueWithCursor(value, cursor).join(""),
-        4,
-      ),
+      ...(state === "confirm" ? [indentString(chalk.dim(value), 4)]
+      : state === "cancel" ?
+        [indentString(chalk.dim.strikethrough(value || "(canceled)"), 4)]
+      : [
+          "\n  ",
+          chalk.dim.green(">"),
+          " ",
+          renderValueWithCursor(value, cursor).join(""),
+        ]),
       "\n".repeat(1 + paddingBottom),
     ],
     result: ({ value }) => value,
