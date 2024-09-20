@@ -46,7 +46,7 @@ export const DEFAULT_THEME = {
   },
   radio: {
     checked: ["●", "(*)"],
-    unchecked: ["◯", "( )"],
+    unchecked: ["○", "( )"],
   },
   checkbox: {
     checked: ["☑", "[x]"],
