@@ -85,7 +85,7 @@ export async function runChecks() {
       }
     }
     worker.on("message", handleCheckerEvent)
-    const result = await rpcClient.rpc.runTypeScriptCompiler.mutate("./")
+    const result = await rpcClient.rpc.runTypeScriptCompiler.mutate(".")
 
     markStalePackagesDone()
 

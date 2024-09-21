@@ -50,12 +50,11 @@ export function runTypeScriptCompiler(projectPath: string) {
     )
 
     const originalCreateProgram = host.createProgram
-    host.createProgram = (rootNames, options, host, oldProgram) => {
+    host.createProgram = (rootNames, options, ...parameters) => {
       const builderProgram = originalCreateProgram(
         rootNames,
         options,
-        host,
-        oldProgram,
+        ...parameters,
       )
 
       if (typeof options?.["configFilePath"] !== "string") {
