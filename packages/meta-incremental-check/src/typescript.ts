@@ -103,14 +103,6 @@ export function runTypeScriptCompiler(projectPath: string) {
             !ignore.ignores(path.relative(projectRoot, fileName)),
         )
 
-      if (packageName === "@dassie/eslint-plugin") {
-        // We have to skip linting for the ESLint plugin because linting depends
-        // on the ESLint configuration, which in turn depends on the ESLint plugin.
-        //
-        // In other words, linting this package would create a circular dependency.
-        return
-      }
-
       packagesToBeLinted.push({
         packagePath,
         packageName,
