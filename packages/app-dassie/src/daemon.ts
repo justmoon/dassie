@@ -7,7 +7,6 @@ import { SetupUrlSignal } from "./authentication/computed/setup-url"
 import type { DassieActorContext } from "./base/types/dassie-base"
 import { BtpServerActor } from "./btp-server"
 import { HasNodeIdentitySignal } from "./config/computed/has-node-identity"
-import { HasTlsSignal } from "./config/computed/has-tls"
 import { ExchangeRatesActor } from "./exchange"
 import { HttpServerActor } from "./http-server"
 import { IldcpServerActor } from "./ildcp-server"
@@ -21,29 +20,13 @@ import { RoutingActor } from "./routing"
 import { TrpcServerActor } from "./rpc-server"
 import { SettlementSchemesActor } from "./settlement-schemes"
 
-export const StartTlsDependentServicesActor = () =>
-  createActor((sig: DassieActorContext) => {
-    const hasTls = sig.readAndTrack(HasTlsSignal)
-
-    if (!hasTls) {
-      logger.warn("Web UI is not configured, run `dassie init`")
-      return
-    }
-
-    sig.run(TrpcServerActor)
-    sig.run(AuthenticationFeatureActor)
-  })
-
 export const StartNodeIdentityDependentServicesActor = () =>
   createActor(async (sig: DassieActorContext) => {
     const hasNodeIdentity = sig.readAndTrack(HasNodeIdentitySignal)
 
     if (!hasNodeIdentity) {
-      const hasTls = sig.read(HasTlsSignal)
-      if (hasTls) {
-        const setupUrl = sig.readAndTrack(SetupUrlSignal)
-        logger.warn(`Node identity is not configured, visit ${setupUrl}`)
-      }
+      const setupUrl = sig.readAndTrack(SetupUrlSignal)
+      logger.warn(`Node identity is not configured, visit ${setupUrl}`)
       return
     }
 
@@ -67,6 +50,7 @@ export const DaemonActor = () =>
     sig.run(HttpServerActor)
     await sig.run(AcmeCertificateManagerActor)
 
-    sig.run(StartTlsDependentServicesActor)
+    sig.run(TrpcServerActor)
+    sig.run(AuthenticationFeatureActor)
     await sig.run(StartNodeIdentityDependentServicesActor)
   })

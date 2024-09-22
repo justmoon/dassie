@@ -2,6 +2,7 @@ import { type Reactor, createActor } from "@dassie/lib-reactive"
 import { createRuntime } from "@dassie/lib-reactive-io/node"
 import { tell } from "@dassie/lib-type-utils"
 
+import type { DassieBase } from "../../../../base/types/dassie-base"
 import { DaemonActor } from "../../../../daemon"
 import { systemd as logger } from "../../../../logger/instances"
 import { LogToConsoleActor } from "../nodejs/log-to-console"
@@ -14,7 +15,7 @@ import {
   getSocketActivationState,
 } from "./socket-activation"
 
-interface SystemdBase {
+interface SystemdBase extends DassieBase {
   socketActivationState: SocketActivationState
 }
 export type SystemdReactor = Reactor<SystemdBase>
@@ -34,14 +35,15 @@ export const NodejsSystemdDaemonActor = (reactor: Reactor) =>
       return
     }
 
-    const systemdReactor = sig.withBase({
+    const systemdContext = sig.withBase({
+      ...createRuntime(),
       socketActivationState,
     })
-    systemdReactor.run(ServeHttpActor)
-    systemdReactor.run(ServeIpcSocketActor)
-    systemdReactor.run(ServeHttpsActor)
+    systemdContext.run(ServeHttpActor)
+    systemdContext.run(ServeIpcSocketActor)
+    await systemdContext.run(ServeHttpsActor)
 
-    await sig.withBase(createRuntime()).run(DaemonActor)
+    await systemdContext.run(DaemonActor)
 
     notifySystemdReady()
   })

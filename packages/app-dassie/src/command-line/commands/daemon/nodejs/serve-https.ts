@@ -1,9 +1,11 @@
 import { createServer } from "node:https"
 
 import { createNodejsHttpHandlers } from "@dassie/lib-http-server"
-import { type Reactor, createActor } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 
+import type { DassieReactor } from "../../../../base/types/dassie-base"
 import { DatabaseConfigStore } from "../../../../config/database-config"
+import { FallbackToSelfSigned } from "../../../../http-server/functions/fallback-to-self-signed"
 import { HttpsRouter } from "../../../../http-server/values/https-router"
 import { HttpsWebSocketRouter } from "../../../../http-server/values/https-websocket-router"
 import { http as logger } from "../../../../logger/instances"
@@ -14,22 +16,25 @@ function handleError(error: unknown) {
 
 export const SOCKET_ACTIVATION_NAME_HTTPS = "dassie-https.socket"
 
-export const ServeHttpsActor = (reactor: Reactor) => {
+export const ServeHttpsActor = (reactor: DassieReactor) => {
   const httpsRouter = reactor.use(HttpsRouter)
   const websocketRouter = reactor.use(HttpsWebSocketRouter)
+  const fallbackToSelfSigned = reactor.use(FallbackToSelfSigned)
 
-  return createActor((sig) => {
+  return createActor(async (sig) => {
     const { httpsPort, url, tlsWebCert, tlsWebKey } = sig.readKeysAndTrack(
       DatabaseConfigStore,
       ["httpsPort", "url", "tlsWebCert", "tlsWebKey"],
     )
 
-    // assert(logger, !!tlsWebCert, "Web UI is not configured, missing certificate")
-    // assert(logger, !!tlsWebKey, "Web UI is not configured, missing private key")
+    const { tlsWebCert: cert, tlsWebKey: key } = await fallbackToSelfSigned({
+      tlsWebCert,
+      tlsWebKey,
+    })
 
     const server = createServer({
-      cert: tlsWebCert,
-      key: tlsWebKey,
+      cert,
+      key,
     })
 
     server.listen(httpsPort)

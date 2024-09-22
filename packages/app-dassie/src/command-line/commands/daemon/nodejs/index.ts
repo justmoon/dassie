@@ -11,9 +11,10 @@ export const NodejsDaemonActor = () =>
   createActor(async (sig) => {
     sig.run(LogToConsoleActor)
 
-    await sig.withBase(createRuntime()).run(DaemonActor)
+    const dassieContext = sig.withBase(createRuntime())
+    await dassieContext.run(DaemonActor)
 
-    sig.run(ServeHttpActor)
-    sig.run(ServeIpcSocketActor)
-    sig.run(ServeHttpsActor)
+    dassieContext.run(ServeHttpActor)
+    dassieContext.run(ServeIpcSocketActor)
+    await dassieContext.run(ServeHttpsActor)
   })

@@ -1,5 +1,4 @@
 import { AttachLogger, DaemonActor } from "@dassie/app-dassie"
-import { HasTlsSignal } from "@dassie/app-dassie/src/config/computed/has-tls"
 import { createActor, createReactor } from "@dassie/lib-reactive"
 import { createRuntime } from "@dassie/lib-reactive-io/node"
 
@@ -10,7 +9,6 @@ import { HandleDisconnectActor } from "../actors/handle-disconnect"
 import { PatchIlpLoggerActor } from "../actors/patch-ilp-logger"
 import { ReportPeeringStateActor } from "../actors/report-peering-state"
 import { ServeHttpsActor } from "../actors/serve-https"
-import { ServeWalletActor } from "../actors/serve-wallet"
 import { RpcClientServiceActor } from "../services/rpc-client"
 
 const DebugRunnerActor = () =>
@@ -24,22 +22,19 @@ const DebugRunnerActor = () =>
       throw new Error("Failed to set up RPC client")
     }
 
-    const rpcReactor = sig.withBase({ rpc: rpcClient.rpc })
+    const rpcContext = sig.withBase({ rpc: rpcClient.rpc })
 
-    rpcReactor.run(ForwardLogsActor)
+    rpcContext.run(ForwardLogsActor)
     sig.run(HandleShutdownSignalsActor)
     sig.run(HandleDisconnectActor)
     sig.run(PatchIlpLoggerActor)
-    rpcReactor.run(ForwardPeerTrafficActor)
-    await rpcReactor.run(ReportPeeringStateActor)
+    rpcContext.run(ForwardPeerTrafficActor)
+    await rpcContext.run(ReportPeeringStateActor)
 
-    await sig.withBase(createRuntime()).run(DaemonActor)
+    const dassieContext = sig.withBase(createRuntime())
 
-    const hasTls = sig.readAndTrack(HasTlsSignal)
-    if (hasTls) {
-      await sig.run(ServeWalletActor)
-      sig.run(ServeHttpsActor)
-    }
+    await dassieContext.run(DaemonActor)
+    await dassieContext.run(ServeHttpsActor)
   })
 
 const reactor = createReactor()

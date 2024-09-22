@@ -5,6 +5,7 @@ import { createActor } from "@dassie/lib-reactive"
 
 import type { SystemdReactor } from "."
 import { DatabaseConfigStore } from "../../../../config/database-config"
+import { FallbackToSelfSigned } from "../../../../http-server/functions/fallback-to-self-signed"
 import { HttpsRouter } from "../../../../http-server/values/https-router"
 import { HttpsWebSocketRouter } from "../../../../http-server/values/https-websocket-router"
 import { http as logger } from "../../../../logger/instances"
@@ -19,6 +20,7 @@ export const SOCKET_ACTIVATION_NAME_HTTPS = "dassie-https.socket"
 export const ServeHttpsActor = (reactor: SystemdReactor) => {
   const httpsRouter = reactor.use(HttpsRouter)
   const websocketRouter = reactor.use(HttpsWebSocketRouter)
+  const fallbackToSelfSigned = reactor.use(FallbackToSelfSigned)
 
   const server = createServer()
 
@@ -37,22 +39,20 @@ export const ServeHttpsActor = (reactor: SystemdReactor) => {
     server.listen({ fd })
   }
 
-  return createActor((sig) => {
+  return createActor(async (sig) => {
     const { url, tlsWebCert, tlsWebKey } = sig.readKeysAndTrack(
       DatabaseConfigStore,
       ["url", "tlsWebCert", "tlsWebKey"],
     )
 
-    if (!tlsWebCert || !tlsWebKey) {
-      logger.debug?.(
-        "certificate is not yet available, unable to handle https requests",
-      )
-      return
-    }
+    const { tlsWebCert: cert, tlsWebKey: key } = await fallbackToSelfSigned({
+      tlsWebCert,
+      tlsWebKey,
+    })
 
     server.setSecureContext({
-      cert: tlsWebCert,
-      key: tlsWebKey,
+      cert,
+      key,
     })
 
     logger.info(`listening on ${url}`)
