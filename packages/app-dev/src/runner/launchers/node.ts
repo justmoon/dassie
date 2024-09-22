@@ -3,6 +3,7 @@ import { createActor, createReactor } from "@dassie/lib-reactive"
 import { createRuntime } from "@dassie/lib-reactive-io/node"
 
 import { HandleShutdownSignalsActor } from "../../actors/handle-shutdown-signals"
+import { RegisterDevelopmentSetSessionRouteActor } from "../actors/development-set-session"
 import { ForwardLogsActor } from "../actors/forward-logs"
 import { ForwardPeerTrafficActor } from "../actors/forward-peer-traffic"
 import { HandleDisconnectActor } from "../actors/handle-disconnect"
@@ -35,6 +36,7 @@ const DebugRunnerActor = () =>
 
     await dassieContext.run(DaemonActor)
     await dassieContext.run(ServeHttpsActor)
+    sig.run(RegisterDevelopmentSetSessionRouteActor)
   })
 
 const reactor = createReactor()

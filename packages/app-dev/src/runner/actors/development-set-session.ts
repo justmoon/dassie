@@ -1,5 +1,9 @@
 import { z } from "zod"
 
+import { COOKIE_MAX_AGE_SECONDS } from "@dassie/app-dassie/src/authentication/constants/cookie-lifetime"
+import type { SessionToken } from "@dassie/app-dassie/src/authentication/types/session-token"
+import { SESSION_COOKIE_NAME } from "@dassie/app-dassie/src/constants/cookie-name"
+import { HttpsRouter } from "@dassie/app-dassie/src/http-server/values/https-router"
 import {
   createJsonResponse,
   parseBodyZod,
@@ -7,15 +11,8 @@ import {
 } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
-import { SESSION_COOKIE_NAME } from "../../constants/cookie-name"
-import { HttpsRouter } from "../../http-server/values/https-router"
-import { COOKIE_MAX_AGE_SECONDS } from "../constants/cookie-lifetime"
-import type { SessionToken } from "../types/session-token"
-
 export const RegisterDevelopmentSetSessionRouteActor = () =>
   createActor((sig) => {
-    if (!import.meta.env.DEV) return
-
     const http = sig.reactor.use(HttpsRouter)
 
     http
