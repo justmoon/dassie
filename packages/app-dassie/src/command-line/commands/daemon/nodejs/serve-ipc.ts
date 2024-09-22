@@ -9,7 +9,6 @@ import { EnvironmentConfig } from "../../../../config/environment-config"
 import { ServeLocalIpcActor } from "../../../../local-ipc-server/actors/serve-local-ipc"
 import { ipc as logger } from "../../../../logger/instances"
 
-export const SOCKET_ACTIVATION_NAME_IPC = "dassie-ipc.socket"
 export const ServeIpcSocketActor = (reactor: Reactor) => {
   const serveLocalIpcActor = reactor.use(ServeLocalIpcActor)
   const { ipcSocketPath } = reactor.use(EnvironmentConfig)

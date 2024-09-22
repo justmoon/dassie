@@ -6,7 +6,9 @@
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
   "devDependencies": {
-    "@tsconfig/strictest": "^2.0.2"
+    "@tsconfig/strictest": "^2.0.2",
+    "@types/node": "^22.5.5",
+    "@types/react": "^18.3.8"
   },
   "engines": {
     "node": "=22.8.0"

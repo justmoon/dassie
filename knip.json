@@ -2,11 +2,13 @@
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "workspaces": {
     ".": {
-      "entry": [".meta-updater/main.mjs"],
-      "ignoreDependencies": ["@dassie/eslint-plugin"]
+      "entry": [".meta-updater/main.mjs"]
     },
     "packages/*": {
-      "entry": ["src/examples/**/*.{js,ts}"]
+      "entry": ["bin/**/*.{js,ts}", "src/examples/**/*.{js,ts}"]
+    },
+    "packages/app-dassie": {
+      "entry": ["src/command-line/entry.ts"]
     },
     "packages/app-dev": {
       "entry": [
@@ -14,19 +16,26 @@
         "bin/*.ts",
         "src/runner/runner.js",
         "src/runner/launchers/*.ts"
-      ],
-      "vite": {
-        "entry": "src/frontend/index.tsx"
-      },
-      "ignoreDependencies": ["virtual:uno.css", "virtual:unocss-devtools"]
+      ]
     },
-    "packages/app-node": {
-      "entry": ["src/frontend/uno.config.ts"],
+    "packages/app-website": {
+      "ignoreDependencies": ["sharp"]
+    },
+    "packages/gui-dassie": {
+      "entry": ["uno.config.ts"],
       "vite": {
-        "entry": "src/frontend/index.tsx",
-        "config": "src/frontend/vite.config.ts"
+        "entry": "src/index.tsx",
+        "config": "vite.config.ts"
       },
       "ignoreDependencies": ["virtual:uno.css"]
+    },
+    "packages/gui-dev": {
+      "entry": ["uno.config.ts"],
+      "vite": {
+        "entry": "src/index.tsx",
+        "config": "vite.config.ts"
+      },
+      "ignoreDependencies": ["virtual:uno.css", "virtual:unocss-devtools"]
     },
     "packages/meta-eslint-config": {
       "eslint": {

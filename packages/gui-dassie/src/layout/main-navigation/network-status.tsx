@@ -1,7 +1,7 @@
 import { combine } from "../../utils/class-helper"
 import { rpc } from "../../utils/rpc"
 
-export interface NetworkStatusAppearanceProperties {
+interface NetworkStatusAppearanceProperties {
   state: "unknown" | "connected"
   nodeCount: number
 }

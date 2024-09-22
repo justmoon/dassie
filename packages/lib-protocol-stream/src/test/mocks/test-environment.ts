@@ -7,8 +7,8 @@ import {
 import {
   type IlpEndpoint,
   IlpErrorCode,
-  type IlpPacket,
   type IlpPreparePacket,
+  type IlpResponsePacket,
   IlpType,
   serializeAmountTooLargeData,
 } from "@dassie/lib-protocol-ilp"
@@ -66,7 +66,7 @@ interface PreparePacketEvent {
 
 interface ResponsePacketEvent {
   prepare: IlpPreparePacket
-  response: IlpPacket & { type: typeof IlpType.Fulfill | typeof IlpType.Reject }
+  response: IlpResponsePacket
 }
 
 /**

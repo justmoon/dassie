@@ -1,7 +1,7 @@
 import type { CurrencySpecification } from "../../types/currency"
 import { combine } from "../../utils/class-helper"
 
-export interface AmountProperties extends React.HTMLAttributes<HTMLDivElement> {
+interface AmountProperties extends React.HTMLAttributes<HTMLDivElement> {
   value: bigint
   currency: CurrencySpecification
 }

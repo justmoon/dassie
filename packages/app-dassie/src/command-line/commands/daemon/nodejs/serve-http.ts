@@ -1,18 +1,15 @@
 import { createServer } from "node:http"
 
-import { createNodejsHttpHandlers, createRouter } from "@dassie/lib-http-server"
+import { createNodejsHttpHandlers } from "@dassie/lib-http-server"
 import { type Reactor, createActor } from "@dassie/lib-reactive"
 
 import { DatabaseConfigStore } from "../../../../config/database-config"
+import { HttpRouter } from "../../../../http-server/values/http-router"
 import { http as logger } from "../../../../logger/instances"
-
-export const HttpRouter = () => createRouter()
 
 function handleError(error: unknown) {
   logger.error("http server error", { error })
 }
-
-export const SOCKET_ACTIVATION_NAME_HTTP = "dassie-http.socket"
 
 export const ServeHttpActor = (reactor: Reactor) => {
   const router = reactor.use(HttpRouter)

@@ -16,7 +16,7 @@ import { http as logger } from "@dassie/app-dassie/src/logger/instances"
 import { createNodejsHttpHandlers } from "@dassie/lib-http-server"
 import { createActor } from "@dassie/lib-reactive"
 
-export type ExpressMiddleware = RequestHandler
+type ExpressMiddleware = RequestHandler
 
 const walletPath = new URL("../../../../gui-dassie", import.meta.url).pathname
 

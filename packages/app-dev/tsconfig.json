@@ -1,6 +1,10 @@
 {
   "extends": "@dassie/meta-tsconfig/vite-node.json",
-  "include": ["**/*.js", "**/*.ts", "**/*.tsx"],
+  "include": [
+    "**/*.js",
+    "**/*.ts",
+    "**/*.tsx"
+  ],
   "compilerOptions": {
     "outDir": "dist"
   },
@@ -30,9 +34,6 @@
       "path": "../lib-rpc"
     },
     {
-      "path": "../lib-rpc-react"
-    },
-    {
       "path": "../lib-sqlite"
     },
     {
@@ -40,9 +41,6 @@
     },
     {
       "path": "../lib-x509"
-    },
-    {
-      "path": "../meta-unocss-config"
     }
   ]
 }

@@ -9,25 +9,16 @@
   },
   "references": [
     {
+      "path": "../app-dassie"
+    },
+    {
       "path": "../app-dev"
     },
     {
       "path": "../gui-dassie"
     },
     {
-      "path": "../lib-http-server"
-    },
-    {
-      "path": "../lib-itergen-utils"
-    },
-    {
       "path": "../lib-logger"
-    },
-    {
-      "path": "../lib-reactive"
-    },
-    {
-      "path": "../lib-reactive-io"
     },
     {
       "path": "../lib-reactive-rpc"
@@ -39,13 +30,7 @@
       "path": "../lib-rpc-react"
     },
     {
-      "path": "../lib-sqlite"
-    },
-    {
       "path": "../lib-type-utils"
-    },
-    {
-      "path": "../lib-x509"
     },
     {
       "path": "../meta-unocss-config"

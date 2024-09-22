@@ -8,7 +8,7 @@ import { ServeLocalIpcActor } from "../../../../local-ipc-server/actors/serve-lo
 import { ipc as logger } from "../../../../logger/instances"
 import { getSocketActivationFileDescriptors } from "./socket-activation"
 
-export const SOCKET_ACTIVATION_NAME_IPC = "dassie-ipc.socket"
+const SOCKET_ACTIVATION_NAME_IPC = "dassie-ipc.socket"
 
 function handleError(error: unknown) {
   logger.error("local ipc server error", { error })

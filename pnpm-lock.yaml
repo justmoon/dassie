@@ -138,9 +138,6 @@ importers:
       '@dassie/lib-rpc':
         specifier: workspace:^
         version: link:../lib-rpc
-      '@dassie/lib-rpc-react':
-        specifier: workspace:^
-        version: link:../lib-rpc-react
       '@dassie/lib-sqlite':
         specifier: workspace:^
         version: link:../lib-sqlite
@@ -153,66 +150,15 @@ importers:
       '@dassie/lib-x509':
         specifier: workspace:^
         version: link:../lib-x509
-      '@dassie/meta-unocss-config':
-        specifier: workspace:^
-        version: link:../meta-unocss-config
-      '@hookform/resolvers':
-        specifier: ^3.9.0
-        version: 3.9.0(react-hook-form@7.53.0(react@18.3.1))
       '@noble/curves':
         specifier: ^1.5.0
         version: 1.6.0
       '@noble/ed25519':
         specifier: ^2.0.0
         version: 2.1.0
-      '@noble/hashes':
-        specifier: ^1.3.2
-        version: 1.5.0
-      '@radix-ui/react-dropdown-menu':
-        specifier: ^2.1.1
-        version: 2.1.1(@types/react-dom@18.3.0)(@types/react@18.3.5)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@radix-ui/react-label':
-        specifier: ^2.1.0
-        version: 2.1.0(@types/react-dom@18.3.0)(@types/react@18.3.5)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@radix-ui/react-navigation-menu':
-        specifier: ^1.2.0
-        version: 1.2.0(@types/react-dom@18.3.0)(@types/react@18.3.5)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@radix-ui/react-scroll-area':
-        specifier: ^1.1.0
-        version: 1.1.0(@types/react-dom@18.3.0)(@types/react@18.3.5)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@radix-ui/react-slot':
-        specifier: ^1.1.0
-        version: 1.1.0(@types/react@18.3.5)(react@18.3.1)
-      '@radix-ui/react-tabs':
-        specifier: ^1.1.0
-        version: 1.1.0(@types/react-dom@18.3.0)(@types/react@18.3.5)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@radix-ui/react-toast':
-        specifier: ^1.2.1
-        version: 1.2.1(@types/react-dom@18.3.0)(@types/react@18.3.5)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@scure/bip39':
-        specifier: ^1.2.1
-        version: 1.4.0
-      '@tanstack/react-query':
-        specifier: ^5.52.1
-        version: 5.55.0(react@18.3.1)
-      '@tanstack/react-virtual':
-        specifier: ^3.10.4
-        version: 3.10.7(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@unocss/reset':
-        specifier: 0.62.2
-        version: 0.62.2
       acme-client:
         specifier: ^5.4.0
         version: 5.4.0
-      anser:
-        specifier: ^2.1.1
-        version: 2.1.1
-      class-variance-authority:
-        specifier: ^0.7.0
-        version: 0.7.0
-      clsx:
-        specifier: ^2.1.1
-        version: 2.1.1
       cmd-ts:
         specifier: ^0.13.0
         version: 0.13.0
@@ -234,9 +180,6 @@ importers:
       immer:
         specifier: ^10.1.1
         version: 10.1.1
-      lucide-react:
-        specifier: ^0.435.0
-        version: 0.435.0(react@18.3.1)
       nanoid:
         specifier: ^5.0.7
         version: 5.0.7
@@ -249,39 +192,18 @@ importers:
       react:
         specifier: ^18.3.1
         version: 18.3.1
-      react-dom:
-        specifier: ^18.3.1
-        version: 18.3.1(react@18.3.1)
-      react-hook-form:
-        specifier: ^7.53.0
-        version: 7.53.0(react@18.3.1)
-      react-number-format:
-        specifier: ^5.4.0
-        version: 5.4.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       superjson:
         specifier: ^2.2.1
         version: 2.2.1
-      tailwind-merge:
-        specifier: ^2.5.2
-        version: 2.5.2
       uint8array-extras:
         specifier: ^1.4.0
         version: 1.4.0
-      unocss:
-        specifier: 0.62.2
-        version: 0.62.2(postcss@8.4.45)(rollup@4.21.2)(vite@5.4.3(@types/node@22.5.5))
-      wouter:
-        specifier: 3.3.4
-        version: 3.3.4(react@18.3.1)
       xrpl:
         specifier: ^3.1.0
         version: 3.1.0
       zod:
         specifier: ^3.23.8
         version: 3.23.8
-      zustand:
-        specifier: ^4.5.5
-        version: 4.5.5(@types/react@18.3.5)(immer@10.1.1)(react@18.3.1)
     devDependencies:
       '@dassie/meta-tsconfig':
         specifier: workspace:^
@@ -295,12 +217,6 @@ importers:
       '@types/react':
         specifier: ^18.3.4
         version: 18.3.5
-      '@types/react-dom':
-        specifier: ^18.3.0
-        version: 18.3.0
-      '@vitejs/plugin-react':
-        specifier: ^4.3.1
-        version: 4.3.1(vite@5.4.3(@types/node@22.5.5))
       type-fest:
         specifier: ^4.25.0
         version: 4.26.0
@@ -334,9 +250,6 @@ importers:
       '@dassie/lib-rpc':
         specifier: workspace:^
         version: link:../lib-rpc
-      '@dassie/lib-rpc-react':
-        specifier: workspace:^
-        version: link:../lib-rpc-react
       '@dassie/lib-sqlite':
         specifier: workspace:^
         version: link:../lib-sqlite
@@ -346,27 +259,12 @@ importers:
       '@dassie/lib-x509':
         specifier: workspace:*
         version: link:../lib-x509
-      '@dassie/meta-unocss-config':
-        specifier: workspace:^
-        version: link:../meta-unocss-config
-      '@noble/hashes':
-        specifier: ^1.3.2
-        version: 1.5.0
-      '@react-hook/size':
-        specifier: ^2.1.2
-        version: 2.1.2(react@18.3.1)
       '@scure/bip39':
         specifier: ^1.2.1
         version: 1.4.0
-      '@tanstack/react-query':
-        specifier: ^5.52.1
-        version: 5.55.0(react@18.3.1)
       '@types/wtfnode':
         specifier: ^0.7.3
         version: 0.7.3
-      '@vitejs/plugin-react':
-        specifier: ^4.3.1
-        version: 4.3.1(vite@5.4.3(@types/node@22.5.5))
       chalk:
         specifier: ^5.3.0
         version: 5.3.0
@@ -382,42 +280,21 @@ importers:
       launch-editor:
         specifier: ^2.8.1
         version: 2.9.1
-      lucide-react:
-        specifier: ^0.435.0
-        version: 0.435.0(react@18.3.1)
       p-defer:
         specifier: ^4.0.1
         version: 4.0.1
       p-timeout:
         specifier: ^6.1.2
         version: 6.1.2
-      pure-rand:
-        specifier: ^6.0.4
-        version: 6.1.0
       react:
         specifier: ^18.3.1
         version: 18.3.1
-      react-dom:
-        specifier: ^18.3.1
-        version: 18.3.1(react@18.3.1)
-      react-force-graph-2d:
-        specifier: ^1.25.5
-        version: 1.25.5(react@18.3.1)
-      react-string-replace:
-        specifier: ^1.1.1
-        version: 1.1.1
       superjson:
         specifier: ^2.2.1
         version: 2.2.1
-      unocss:
-        specifier: 0.62.2
-        version: 0.62.2(postcss@8.4.45)(rollup@4.21.2)(vite@5.4.3(@types/node@22.5.5))
       vite:
         specifier: ^5.4.2
         version: 5.4.3(@types/node@22.5.5)
-      wouter:
-        specifier: 3.3.4
-        version: 3.3.4(react@18.3.1)
       ws:
         specifier: ^8.18.0
         version: 8.18.0
@@ -443,21 +320,12 @@ importers:
       '@types/react':
         specifier: ^18.3.4
         version: 18.3.5
-      '@types/react-dom':
-        specifier: ^18.3.0
-        version: 18.3.0
-      '@types/serve-static':
-        specifier: ^1.15.7
-        version: 1.15.7
       '@types/ws':
         specifier: ^8.5.12
         version: 8.5.12
       express:
         specifier: ^4.18.2
         version: 4.19.2
-      serve-static:
-        specifier: ^1.15.0
-        version: 1.15.0
       type-fest:
         specifier: ^4.25.0
         version: 4.26.0
@@ -527,15 +395,9 @@ importers:
       react-dom:
         specifier: ^18.3.1
         version: 18.3.1(react@18.3.1)
-      sharp:
-        specifier: ^0.33.5
-        version: 0.33.5
       typescript:
         specifier: ^5.5.4
         version: 5.5.4
-      uint8array-extras:
-        specifier: ^1.4.0
-        version: 1.4.0
       unocss:
         specifier: 0.62.2
         version: 0.62.2(postcss@8.4.45)(rollup@4.21.2)(vite@5.4.3(@types/node@22.5.5))
@@ -545,66 +407,24 @@ importers:
       '@dassie/app-dassie':
         specifier: workspace:^
         version: link:../app-dassie
-      '@dassie/lib-format-utils':
-        specifier: workspace:^
-        version: link:../lib-format-utils
-      '@dassie/lib-http-server':
-        specifier: workspace:^
-        version: link:../lib-http-server
       '@dassie/lib-logger':
         specifier: workspace:^
         version: link:../lib-logger
-      '@dassie/lib-oer':
-        specifier: workspace:^
-        version: link:../lib-oer
-      '@dassie/lib-protocol-ildcp':
-        specifier: workspace:^
-        version: link:../lib-protocol-ildcp
-      '@dassie/lib-protocol-ilp':
-        specifier: workspace:^
-        version: link:../lib-protocol-ilp
-      '@dassie/lib-protocol-utils':
-        specifier: workspace:^
-        version: link:../lib-protocol-utils
-      '@dassie/lib-reactive':
-        specifier: workspace:^
-        version: link:../lib-reactive
-      '@dassie/lib-reactive-io':
-        specifier: workspace:^
-        version: link:../lib-reactive-io
       '@dassie/lib-reactive-rpc':
         specifier: workspace:^
         version: link:../lib-reactive-rpc
-      '@dassie/lib-rpc':
-        specifier: workspace:^
-        version: link:../lib-rpc
       '@dassie/lib-rpc-react':
         specifier: workspace:^
         version: link:../lib-rpc-react
-      '@dassie/lib-sqlite':
-        specifier: workspace:^
-        version: link:../lib-sqlite
-      '@dassie/lib-terminal-graphics':
-        specifier: workspace:^
-        version: link:../lib-terminal-graphics
       '@dassie/lib-type-utils':
         specifier: workspace:^
         version: link:../lib-type-utils
-      '@dassie/lib-x509':
-        specifier: workspace:^
-        version: link:../lib-x509
       '@dassie/meta-unocss-config':
         specifier: workspace:^
         version: link:../meta-unocss-config
       '@hookform/resolvers':
         specifier: ^3.9.0
         version: 3.9.0(react-hook-form@7.53.0(react@18.3.1))
-      '@noble/curves':
-        specifier: ^1.5.0
-        version: 1.6.0
-      '@noble/ed25519':
-        specifier: ^2.0.0
-        version: 2.1.0
       '@noble/hashes':
         specifier: ^1.3.2
         version: 1.5.0
@@ -641,9 +461,6 @@ importers:
       '@unocss/reset':
         specifier: 0.62.2
         version: 0.62.2
-      acme-client:
-        specifier: ^5.4.0
-        version: 5.4.0
       anser:
         specifier: ^2.1.1
         version: 2.1.1
@@ -653,39 +470,12 @@ importers:
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
-      cmd-ts:
-        specifier: ^0.13.0
-        version: 0.13.0
-      cookie:
-        specifier: ^0.6.0
-        version: 0.6.0
-      denque:
-        specifier: ^2.1.0
-        version: 2.1.0
-      env-paths:
-        specifier: ^3.0.0
-        version: 3.0.0
-      execa:
-        specifier: ^9.3.1
-        version: 9.3.1
-      ilp-protocol-stream:
-        specifier: 2.7.2-alpha.2
-        version: 2.7.2-alpha.2
-      immer:
-        specifier: ^10.1.1
-        version: 10.1.1
       lucide-react:
         specifier: ^0.435.0
         version: 0.435.0(react@18.3.1)
       nanoid:
         specifier: ^5.0.7
         version: 5.0.7
-      p-map:
-        specifier: ^7.0.2
-        version: 7.0.2
-      pretty-format:
-        specifier: ^29.7.0
-        version: 29.7.0
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -704,18 +494,12 @@ importers:
       tailwind-merge:
         specifier: ^2.5.2
         version: 2.5.2
-      uint8array-extras:
-        specifier: ^1.4.0
-        version: 1.4.0
       unocss:
         specifier: 0.62.2
         version: 0.62.2(postcss@8.4.45)(rollup@4.21.2)(vite@5.4.3(@types/node@22.5.5))
       wouter:
         specifier: 3.3.4
         version: 3.3.4(react@18.3.1)
-      xrpl:
-        specifier: ^3.1.0
-        version: 3.1.0
       zod:
         specifier: ^3.23.8
         version: 3.23.8
@@ -726,9 +510,6 @@ importers:
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
-      '@types/cookie':
-        specifier: ^0.6.0
-        version: 0.6.0
       '@types/react':
         specifier: ^18.3.4
         version: 18.3.5
@@ -747,27 +528,18 @@ importers:
 
   packages/gui-dev:
     dependencies:
+      '@dassie/app-dassie':
+        specifier: workspace:*
+        version: link:../app-dassie
       '@dassie/app-dev':
         specifier: workspace:*
         version: link:../app-dev
       '@dassie/gui-dassie':
         specifier: workspace:*
         version: link:../gui-dassie
-      '@dassie/lib-http-server':
-        specifier: workspace:^
-        version: link:../lib-http-server
-      '@dassie/lib-itergen-utils':
-        specifier: workspace:*
-        version: link:../lib-itergen-utils
       '@dassie/lib-logger':
         specifier: workspace:^
         version: link:../lib-logger
-      '@dassie/lib-reactive':
-        specifier: workspace:^
-        version: link:../lib-reactive
-      '@dassie/lib-reactive-io':
-        specifier: workspace:^
-        version: link:../lib-reactive-io
       '@dassie/lib-reactive-rpc':
         specifier: workspace:^
         version: link:../lib-reactive-rpc
@@ -777,15 +549,9 @@ importers:
       '@dassie/lib-rpc-react':
         specifier: workspace:^
         version: link:../lib-rpc-react
-      '@dassie/lib-sqlite':
-        specifier: workspace:^
-        version: link:../lib-sqlite
       '@dassie/lib-type-utils':
         specifier: workspace:*
         version: link:../lib-type-utils
-      '@dassie/lib-x509':
-        specifier: workspace:*
-        version: link:../lib-x509
       '@dassie/meta-unocss-config':
         specifier: workspace:^
         version: link:../meta-unocss-config
@@ -795,45 +561,15 @@ importers:
       '@react-hook/size':
         specifier: ^2.1.2
         version: 2.1.2(react@18.3.1)
-      '@scure/bip39':
-        specifier: ^1.2.1
-        version: 1.4.0
       '@tanstack/react-query':
         specifier: ^5.52.1
         version: 5.55.0(react@18.3.1)
-      '@types/wtfnode':
-        specifier: ^0.7.3
-        version: 0.7.3
       '@vitejs/plugin-react':
         specifier: ^4.3.1
         version: 4.3.1(vite@5.4.3(@types/node@22.5.5))
-      chalk:
-        specifier: ^5.3.0
-        version: 5.3.0
-      connect-history-api-fallback:
-        specifier: ^2.0.0
-        version: 2.0.0
-      execa:
-        specifier: ^9.3.1
-        version: 9.3.1
-      immer:
-        specifier: ^10.1.1
-        version: 10.1.1
-      launch-editor:
-        specifier: ^2.8.1
-        version: 2.9.1
       lucide-react:
         specifier: ^0.435.0
         version: 0.435.0(react@18.3.1)
-      p-defer:
-        specifier: ^4.0.1
-        version: 4.0.1
-      p-timeout:
-        specifier: ^6.1.2
-        version: 6.1.2
-      pure-rand:
-        specifier: ^6.0.4
-        version: 6.1.0
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -858,49 +594,16 @@ importers:
       wouter:
         specifier: 3.3.4
         version: 3.3.4(react@18.3.1)
-      ws:
-        specifier: ^8.18.0
-        version: 8.18.0
-      wtfnode:
-        specifier: ^0.9.3
-        version: 0.9.3
-      zod:
-        specifier: ^3.23.8
-        version: 3.23.8
     devDependencies:
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
-      '@types/connect-history-api-fallback':
-        specifier: ^1.5.4
-        version: 1.5.4
-      '@types/express':
-        specifier: ^4.17.21
-        version: 4.17.21
       '@types/react':
         specifier: ^18.3.4
         version: 18.3.5
       '@types/react-dom':
         specifier: ^18.3.0
         version: 18.3.0
-      '@types/serve-static':
-        specifier: ^1.15.7
-        version: 1.15.7
-      '@types/ws':
-        specifier: ^8.5.12
-        version: 8.5.12
-      express:
-        specifier: ^4.18.2
-        version: 4.19.2
-      serve-static:
-        specifier: ^1.15.0
-        version: 1.15.0
-      type-fest:
-        specifier: ^4.25.0
-        version: 4.26.0
-      vite-node:
-        specifier: ^2.0.5
-        version: 2.0.5(@types/node@22.5.5)
 
   packages/lib-format-utils:
     dependencies:
@@ -1067,9 +770,6 @@ importers:
       ilp-protocol-stream:
         specifier: 2.7.2-alpha.2
         version: 2.7.2-alpha.2
-      type-fest:
-        specifier: ^4.25.0
-        version: 4.26.0
 
   packages/lib-protocol-utils:
     dependencies:
@@ -1137,9 +837,6 @@ importers:
       '@types/react':
         specifier: ^18.3.4
         version: 18.3.5
-      '@types/react-dom':
-        specifier: ^18.3.0
-        version: 18.3.0
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -1165,9 +862,6 @@ importers:
 
   packages/lib-rpc-react:
     dependencies:
-      '@dassie/lib-reactive':
-        specifier: workspace:^
-        version: link:../lib-reactive
       '@dassie/lib-rpc':
         specifier: workspace:^
         version: link:../lib-rpc
@@ -1181,9 +875,6 @@ importers:
       '@types/react':
         specifier: ^18.3.4
         version: 18.3.5
-      '@types/react-dom':
-        specifier: ^18.3.0
-        version: 18.3.0
       type-fest:
         specifier: ^4.25.0
         version: 4.26.0
@@ -1277,9 +968,6 @@ importers:
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
-      type-fest:
-        specifier: ^4.25.0
-        version: 4.26.0
 
   packages/meta-api-extractor:
     devDependencies:
@@ -1380,6 +1068,12 @@ importers:
       '@tsconfig/strictest':
         specifier: ^2.0.2
         version: 2.0.5
+      '@types/node':
+        specifier: ^22.5.5
+        version: 22.5.5
+      '@types/react':
+        specifier: ^18.3.8
+        version: 18.3.8
 
   packages/meta-unocss-config:
     dependencies:
@@ -1399,6 +1093,9 @@ importers:
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
+      '@types/node':
+        specifier: ^22.5.5
+        version: 22.5.5
 
 packages:
 
@@ -2047,20 +1744,20 @@ packages:
     resolution: {integrity: sha512-OIHZrb2ImZ7XG85HXOONLcJWGosv7sIvM2ifAPQVhg9Lv7qdmMBNVaai4QTdyuaqbKM5eO6sLSQOYI7wEQeCJQ==}
     engines: {node: '>=14'}
 
-  '@floating-ui/core@1.6.7':
-    resolution: {integrity: sha512-yDzVT/Lm101nQ5TCVeK65LtdN7Tj4Qpr9RTXJ2vPFLqtLxwOrpoxAHAJI8J3yYWUc40J0BDBheaitK5SJmno2g==}
+  '@floating-ui/core@1.6.8':
+    resolution: {integrity: sha512-7XJ9cPU+yI2QeLS+FCSlqNFZJq8arvswefkZrYI1yQBbftw6FyrZOxYSh+9S7z7TpeWlRt9zJ5IhM1WIL334jA==}
 
-  '@floating-ui/dom@1.6.10':
-    resolution: {integrity: sha512-fskgCFv8J8OamCmyun8MfjB1Olfn+uZKjOKZ0vhYF3gRmEUXcGOjxWL8bBr7i4kIuPZ2KD2S3EUIOxnjC8kl2A==}
+  '@floating-ui/dom@1.6.11':
+    resolution: {integrity: sha512-qkMCxSR24v2vGkhYDo/UzxfJN3D4syqSjyuTFz6C7XcpU1pASPRieNI0Kj5VP3/503mOfYiGY891ugBX1GlABQ==}
 
-  '@floating-ui/react-dom@2.1.1':
-    resolution: {integrity: sha512-4h84MJt3CHrtG18mGsXuLCHMrug49d7DFkU0RMIyshRveBeyV2hmV/pDaF2Uxtu8kgq5r46llp5E5FQiR0K2Yg==}
+  '@floating-ui/react-dom@2.1.2':
+    resolution: {integrity: sha512-06okr5cgPzMNBy+Ycse2A6udMi4bqwW/zgBF/rwjcNqWkyr82Mcg8b0vjX8OJpZFy/FKjJmw6wV7t44kK6kW7A==}
     peerDependencies:
       react: '>=16.8.0'
       react-dom: '>=16.8.0'
 
-  '@floating-ui/utils@0.2.7':
-    resolution: {integrity: sha512-X8R8Oj771YRl/w+c1HqAC1szL8zWQRwFvgDwT129k9ACdBoud/+/rX9V0qiMl6LWUdP9voC2nDVZYPMQQsb6eA==}
+  '@floating-ui/utils@0.2.8':
+    resolution: {integrity: sha512-kym7SodPp8/wloecOpcmSnWJsK7M0E5Wg8UcFA+uO4B9s5d0ywXOEro/8HM9x0rW+TljRzul/14UYz3TleT3ig==}
 
   '@gwhitney/detect-indent@7.0.1':
     resolution: {integrity: sha512-7bQW+gkKa2kKZPeJf6+c6gFK9ARxQfn+FKy9ScTBppyKRWH2KzsmweXUoklqeEiHiNVWaeP5csIdsNq6w7QhzA==}
@@ -3339,6 +3036,9 @@ packages:
 
   '@types/react@18.3.5':
     resolution: {integrity: sha512-WeqMfGJLGuLCqHGYRGHxnKrXcTitc6L/nBUWfWPcTarG3t9PsquqUMuVeXZeca+mglY4Vo5GZjCi0A3Or2lnxA==}
+
+  '@types/react@18.3.8':
+    resolution: {integrity: sha512-syBUrW3/XpnW4WJ41Pft+I+aPoDVbrBVQGEnbD7NijDGlVC+8gV/XKRY+7vMDlfPpbwYt0l1vd/Sj8bJGMbs9Q==}
 
   '@types/sax@1.2.7':
     resolution: {integrity: sha512-rO73L89PJxeYM3s3pPPjiPgVVcymqU490g0YO5n5By0k2Erzj6tay/4lr1CHAAU4JyOWd1rpQ8bCf6cZfHU96A==}
@@ -6374,9 +6074,6 @@ packages:
     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
     engines: {node: '>=6'}
 
-  pure-rand@6.1.0:
-    resolution: {integrity: sha512-bVWawvoZoBYpp6yIoQtQXHZjmz35RSVHnUOTefl8Vcjr8snTPY1wnpSPMWekcFwbxI6gtmT7rSYPFvz71ldiOA==}
-
   pvtsutils@1.3.5:
     resolution: {integrity: sha512-ARvb14YB9Nm2Xi6nBq1ZX6dAM0FsJnuk+31aUp4TrcZEdKUlSqOqsxJHUPJDNE3qiIp+iUPEIeR6Je/tgV7zsA==}
 
@@ -8482,22 +8179,22 @@ snapshots:
 
   '@fastify/accept-negotiator@1.1.0': {}
 
-  '@floating-ui/core@1.6.7':
+  '@floating-ui/core@1.6.8':
     dependencies:
-      '@floating-ui/utils': 0.2.7
+      '@floating-ui/utils': 0.2.8
 
-  '@floating-ui/dom@1.6.10':
+  '@floating-ui/dom@1.6.11':
     dependencies:
-      '@floating-ui/core': 1.6.7
-      '@floating-ui/utils': 0.2.7
+      '@floating-ui/core': 1.6.8
+      '@floating-ui/utils': 0.2.8
 
-  '@floating-ui/react-dom@2.1.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+  '@floating-ui/react-dom@2.1.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
-      '@floating-ui/dom': 1.6.10
+      '@floating-ui/dom': 1.6.11
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@floating-ui/utils@0.2.7': {}
+  '@floating-ui/utils@0.2.8': {}
 
   '@gwhitney/detect-indent@7.0.1': {}
 
@@ -9413,7 +9110,7 @@ snapshots:
 
   '@radix-ui/react-popper@1.2.0(@types/react-dom@18.3.0)(@types/react@18.3.5)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
-      '@floating-ui/react-dom': 2.1.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@floating-ui/react-dom': 2.1.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-arrow': 1.1.0(@types/react-dom@18.3.0)(@types/react@18.3.5)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-compose-refs': 1.1.0(@types/react@18.3.5)(react@18.3.1)
       '@radix-ui/react-context': 1.1.0(@types/react@18.3.5)(react@18.3.1)
@@ -9948,6 +9645,11 @@ snapshots:
       '@types/react': 18.3.5
 
   '@types/react@18.3.5':
+    dependencies:
+      '@types/prop-types': 15.7.12
+      csstype: 3.1.3
+
+  '@types/react@18.3.8':
     dependencies:
       '@types/prop-types': 15.7.12
       csstype: 3.1.3
@@ -10970,11 +10672,13 @@ snapshots:
     dependencies:
       color-name: 1.1.4
       simple-swizzle: 0.2.2
+    optional: true
 
   color@4.2.3:
     dependencies:
       color-convert: 2.0.1
       color-string: 1.9.1
+    optional: true
 
   colorette@2.0.20: {}
 
@@ -12439,7 +12143,8 @@ snapshots:
 
   is-arrayish@0.2.1: {}
 
-  is-arrayish@0.3.2: {}
+  is-arrayish@0.3.2:
+    optional: true
 
   is-async-function@2.0.0:
     dependencies:
@@ -13808,8 +13513,6 @@ snapshots:
 
   punycode@2.3.1: {}
 
-  pure-rand@6.1.0: {}
-
   pvtsutils@1.3.5:
     dependencies:
       tslib: 2.7.0
@@ -14374,6 +14077,7 @@ snapshots:
       '@img/sharp-wasm32': 0.33.5
       '@img/sharp-win32-ia32': 0.33.5
       '@img/sharp-win32-x64': 0.33.5
+    optional: true
 
   shebang-command@2.0.0:
     dependencies:
@@ -14413,6 +14117,7 @@ snapshots:
   simple-swizzle@0.2.2:
     dependencies:
       is-arrayish: 0.3.2
+    optional: true
 
   sirv@2.0.4:
     dependencies:

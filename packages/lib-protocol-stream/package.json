@@ -19,8 +19,7 @@
   "devDependencies": {
     "@dassie/lib-logger": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
-    "ilp-protocol-stream": "2.7.2-alpha.2",
-    "type-fest": "^4.25.0"
+    "ilp-protocol-stream": "2.7.2-alpha.2"
   },
   "dependencies": {
     "@dassie/lib-oer": "workspace:^",

@@ -33,9 +33,7 @@
     "lucide-react": "^0.435.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "sharp": "^0.33.5",
     "typescript": "^5.5.4",
-    "uint8array-extras": "^1.4.0",
     "unocss": "0.62.2"
   },
   "author": "Stefan Thomas <justmoon@members.fsf.org>",

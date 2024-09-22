@@ -15,7 +15,7 @@ function handleError(error: unknown) {
   logger.error("https server error", { error })
 }
 
-export const SOCKET_ACTIVATION_NAME_HTTPS = "dassie-https.socket"
+const SOCKET_ACTIVATION_NAME_HTTPS = "dassie-https.socket"
 
 export const ServeHttpsActor = (reactor: SystemdReactor) => {
   const httpsRouter = reactor.use(HttpsRouter)

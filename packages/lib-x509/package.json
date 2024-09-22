@@ -19,8 +19,7 @@
   "devDependencies": {
     "@dassie/lib-reactive": "workspace:^",
     "@dassie/lib-reactive-io": "workspace:^",
-    "@dassie/meta-tsconfig": "workspace:^",
-    "type-fest": "^4.25.0"
+    "@dassie/meta-tsconfig": "workspace:^"
   },
   "dependencies": {
     "@dassie/lib-type-utils": "workspace:^",

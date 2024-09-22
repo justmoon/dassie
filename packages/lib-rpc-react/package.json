@@ -17,11 +17,9 @@
   "devDependencies": {
     "@dassie/meta-tsconfig": "workspace:^",
     "@types/react": "^18.3.4",
-    "@types/react-dom": "^18.3.0",
     "type-fest": "^4.25.0"
   },
   "dependencies": {
-    "@dassie/lib-reactive": "workspace:^",
     "@dassie/lib-rpc": "workspace:^",
     "@tanstack/react-query": "^5.52.1"
   },

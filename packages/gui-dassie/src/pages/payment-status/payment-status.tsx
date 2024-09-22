@@ -1,4 +1,4 @@
-export interface PaymentStatusProperties {
+interface PaymentStatusProperties {
   params: {
     paymentId: string
   }
