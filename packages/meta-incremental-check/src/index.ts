@@ -14,6 +14,7 @@ import {
 
 import type { RpcRouter } from "./entry/worker"
 import type { ProgressMessage } from "./utils/report-status"
+import { runVitest } from "./vitest"
 
 export async function runChecks() {
   const worker = new Worker(
@@ -26,73 +27,75 @@ export async function runChecks() {
     connection: createNodejsMessagePortLink(rpcChannel.port1),
   })
 
-  worker.postMessage(rpcChannel.port2, [rpcChannel.port2])
+  try {
+    worker.postMessage(rpcChannel.port2, [rpcChannel.port2])
 
-  const flow = createFlow()
+    const flow = createFlow()
 
-  flow.show(header({ title: "Dassie Check" }))
+    flow.show(header({ title: "Dassie Check" }))
 
-  flow.show(note({ title: `Running TypeScript compiler...` }))
+    flow.show(note({ title: `Running TypeScript compiler...` }))
 
-  await flow.attach(tasklist({}), async (state) => {
-    state.act.addTask("meta/search-stale", {
-      description: "Searching for stale packages",
-      progress: "indeterminate",
-    })
+    await flow.attach(tasklist({}), async (state) => {
+      state.act.addTask("meta/search-stale", {
+        description: "Searching for stale packages",
+        progress: "indeterminate",
+      })
 
-    function markStalePackagesDone() {
-      state.act.updateTask("meta/search-stale", (task) =>
-        task.progress === "done" ?
-          task
-        : {
-            ...task,
-            progress: "done",
-          },
-      )
-    }
+      function markStalePackagesDone() {
+        state.act.updateTask("meta/search-stale", (task) =>
+          task.progress === "done" ?
+            task
+          : {
+              ...task,
+              progress: "done",
+            },
+        )
+      }
 
-    function handleCheckerEvent(event: unknown) {
-      if (Array.isArray(event)) {
-        const progressMessage = event as ProgressMessage
+      function handleCheckerEvent(event: unknown) {
+        if (Array.isArray(event)) {
+          const progressMessage = event as ProgressMessage
 
-        switch (progressMessage[0]) {
-          case "print": {
-            const [, message] = progressMessage
+          switch (progressMessage[0]) {
+            case "print": {
+              const [, message] = progressMessage
 
-            flow.show(message)
-            break
-          }
-          case "status": {
-            const [, packageName, status] = progressMessage
-
-            markStalePackagesDone()
-
-            if (status === "start") {
-              state.act.addTask(packageName, {
-                description: `Compiling ${packageName}`,
-                progress: "indeterminate",
-              })
-            } else {
-              state.act.updateTask(packageName, {
-                progress: status === "error" ? "error" : "done",
-              })
+              flow.show(message)
+              break
             }
-            break
+            case "status": {
+              const [, packageName, status] = progressMessage
+
+              markStalePackagesDone()
+
+              if (status === "start") {
+                state.act.addTask(packageName, {
+                  description: `Compiling ${packageName}`,
+                  progress: "indeterminate",
+                })
+              } else {
+                state.act.updateTask(packageName, {
+                  progress: status === "error" ? "error" : "done",
+                })
+              }
+              break
+            }
           }
         }
       }
-    }
-    worker.on("message", handleCheckerEvent)
-    const result = await rpcClient.rpc.runTypeScriptCompiler.mutate(".")
+      worker.on("message", handleCheckerEvent)
+      const result = await rpcClient.rpc.runTypeScriptCompiler.mutate(".")
 
-    markStalePackagesDone()
+      markStalePackagesDone()
 
-    process.exitCode = result
+      process.exitCode = result
 
-    worker.off("message", handleCheckerEvent)
-  })
+      worker.off("message", handleCheckerEvent)
+    })
 
-  if (process.exitCode === 0) {
+    if (process.exitCode !== 0) return
+
     flow.show(note({ title: `Running ESLint...` }))
 
     await flow.attach(tasklist({}), async (state) => {
@@ -150,10 +153,15 @@ export async function runChecks() {
 
       if (hasErrors) {
         process.exitCode = 1
+        return
       }
     })
-  }
 
-  rpcClient.close()
-  await worker.terminate()
+    flow.show(note({ title: `Running Vitest...` }))
+
+    await runVitest()
+  } finally {
+    rpcClient.close()
+    await worker.terminate()
+  }
 }

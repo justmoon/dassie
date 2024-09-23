@@ -9,7 +9,7 @@
     "build:web": "pnpm --filter=app-website build",
     "start": "which mkcert >/dev/null && : \"${NODE_EXTRA_CA_CERTS:=$(mkcert -CAROOT 2>/dev/null)/rootCA.pem}\" ; export NODE_EXTRA_CA_CERTS ; node packages/app-dev/bin/start-development-server.js",
     "dev": "pnpm start",
-    "check": "incremental-check && vitest --run && pnpm meta-updater --test",
+    "check": "incremental-check && pnpm meta-updater --test",
     "test": "vitest",
     "prettier": "prettier --config .prettierrc.json --write \"packages/*/{src,test}/**/*.ts\"",
     "lint": "eslint",
