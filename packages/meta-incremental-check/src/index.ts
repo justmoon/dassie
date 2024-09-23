@@ -160,6 +160,20 @@ export async function runChecks() {
     flow.show(note({ title: `Running Vitest...` }))
 
     await runVitest()
+
+    flow.show(note({ title: `Running Meta Updater...` }))
+
+    await flow.attach(tasklist({}), async (state) => {
+      state.act.addTask("meta-updater", {
+        description: "Validating metadata (package.json, tsconfig.json, ...)",
+        progress: "indeterminate",
+      })
+      await runMetaUpdater()
+      state.act.updateTask("meta-updater", (task) => ({
+        ...task,
+        progress: "done",
+      }))
+    })
   } finally {
     rpcClient.close()
     await worker.terminate()
