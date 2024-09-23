@@ -13,11 +13,17 @@ import {
 import { runEslint } from "../eslint"
 import { runTypeScriptCompiler } from "../typescript"
 
+const checkOptions = z.object({
+  all: z.boolean(),
+})
+
 const rpcRouter = createRouter({
   runTypeScriptCompiler: createRoute()
-    .input(z.string())
-    .mutation(({ input: projectRoot }) => runTypeScriptCompiler(projectRoot)),
-  runEslint: createRoute().mutation(() => runEslint()),
+    .input(checkOptions)
+    .mutation(({ input: options }) => runTypeScriptCompiler(options)),
+  runEslint: createRoute()
+    .input(checkOptions)
+    .mutation(({ input: options }) => runEslint(options)),
 })
 
 export type RpcRouter = typeof rpcRouter

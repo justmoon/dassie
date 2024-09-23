@@ -3,6 +3,7 @@ import { ESLint } from "eslint"
 import { mkdir, unlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 
+import type { RunChecksOptions } from "."
 import { WORKSPACE_ROOT_PATH } from "./constants/workspace-path"
 import { getFileDate } from "./utils/get-file-date"
 import { getPackages } from "./utils/get-packages"
@@ -14,7 +15,7 @@ const IGNORE_PACKAGES = new Set([
   "meta-tsconfig",
 ])
 
-export async function runEslint() {
+export async function runEslint({ all = false }: RunChecksOptions) {
   const eslint = new ESLint({ cwd: WORKSPACE_ROOT_PATH })
 
   const packageLockDate =
@@ -38,7 +39,7 @@ export async function runEslint() {
           path.resolve(packagePath, "dist/incremental-lint-tag"),
         )) ?? 0
 
-      if (lintTag > referenceDate) return false
+      if (!all && lintTag > referenceDate) return false
 
       reportPackageStatus(packageName, "start")
 

@@ -1052,6 +1052,9 @@ importers:
       '@dassie/lib-terminal-graphics':
         specifier: workspace:^
         version: link:../lib-terminal-graphics
+      cmd-ts:
+        specifier: ^0.13.0
+        version: 0.13.0
       zod:
         specifier: ^3.23.8
         version: 3.23.8

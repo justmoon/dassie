@@ -13,10 +13,15 @@ import {
 } from "@dassie/lib-terminal-graphics"
 
 import type { RpcRouter } from "./entry/worker"
+import { runMetaUpdater } from "./meta-updater"
 import type { ProgressMessage } from "./utils/report-status"
 import { runVitest } from "./vitest"
 
-export async function runChecks() {
+export interface RunChecksOptions {
+  all: boolean
+}
+
+export async function runChecks({ all = false }: Partial<RunChecksOptions>) {
   const worker = new Worker(
     path.resolve(new URL(import.meta.url).pathname, "../scripts/check.js"),
   )
@@ -85,7 +90,7 @@ export async function runChecks() {
         }
       }
       worker.on("message", handleCheckerEvent)
-      const result = await rpcClient.rpc.runTypeScriptCompiler.mutate(".")
+      const result = await rpcClient.rpc.runTypeScriptCompiler.mutate({ all })
 
       markStalePackagesDone()
 
@@ -148,7 +153,7 @@ export async function runChecks() {
       }
 
       worker.on("message", handleCheckerEvent)
-      const hasErrors = await rpcClient.rpc.runEslint.mutate()
+      const hasErrors = await rpcClient.rpc.runEslint.mutate({ all })
       worker.off("message", handleCheckerEvent)
 
       if (hasErrors) {

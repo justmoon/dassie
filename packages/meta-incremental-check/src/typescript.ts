@@ -3,6 +3,8 @@ import ts from "typescript"
 import { readFileSync } from "node:fs"
 import path from "node:path"
 
+import type { RunChecksOptions } from "."
+import { WORKSPACE_ROOT_PATH } from "./constants/workspace-path"
 import { printToConsole, reportPackageStatus } from "./utils/report-status"
 
 const PackagePathSymbol = Symbol("PackagePath")
@@ -20,10 +22,10 @@ declare module "typescript" {
   }
 }
 
-export function runTypeScriptCompiler(projectPath: string) {
+export function runTypeScriptCompiler({ all }: RunChecksOptions) {
   const host = createCustomSolutionBuilderHost()
-  const builder = ts.createSolutionBuilder(host, [projectPath], {
-    force: false,
+  const builder = ts.createSolutionBuilder(host, [WORKSPACE_ROOT_PATH], {
+    force: all,
     verbose: false,
   })
 
