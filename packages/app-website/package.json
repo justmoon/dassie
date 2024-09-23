@@ -15,7 +15,7 @@
   "dependencies": {
     "@astrojs/check": "^0.9.3",
     "@astrojs/react": "^3.6.2",
-    "@astrojs/starlight": "^0.27.0",
+    "@astrojs/starlight": "^0.28.2",
     "@dassie/gui-dassie": "workspace:^",
     "@dassie/lib-logger": "workspace:^",
     "@dassie/lib-protocol-ilp": "workspace:^",
@@ -25,16 +25,16 @@
     "@dassie/lib-type-utils": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
     "@dassie/meta-unocss-config": "workspace:^",
-    "@types/react": "^18.3.5",
+    "@types/react": "^18.3.8",
     "@types/react-dom": "^18.3.0",
-    "@unocss/reset": "0.62.2",
-    "astro": "4.15.4",
+    "@unocss/reset": "0.62.4",
+    "astro": "4.15.8",
     "immer": "^10.1.1",
-    "lucide-react": "^0.435.0",
+    "lucide-react": "^0.445.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "typescript": "^5.5.4",
-    "unocss": "0.62.2"
+    "typescript": "~5.5",
+    "unocss": "0.62.4"
   },
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "engines": {

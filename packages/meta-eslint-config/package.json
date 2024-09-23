@@ -8,17 +8,18 @@
   "devDependencies": {
     "@dassie/meta-eslint-plugin": "workspace:^",
     "@eslint-community/eslint-plugin-eslint-comments": "^4.4.0",
-    "@eslint/js": "^9.9.1",
+    "@eslint/js": "^9.11.0",
     "@types/eslint__js": "^8.42.3",
-    "eslint": "^9.9.1",
+    "eslint": "^9.11.0",
     "eslint-config-prettier": "^9.1.0",
-    "eslint-plugin-n": "^17.10.2",
-    "eslint-plugin-react": "^7.35.0",
+    "eslint-plugin-n": "^17.10.3",
+    "eslint-plugin-react": "^7.36.1",
     "eslint-plugin-react-hooks": "5.1.0-rc-3dfd5d9e-20240910",
     "eslint-plugin-tsdoc": "^0.3.0",
     "eslint-plugin-unicorn": "^55.0.0",
     "globals": "^15.9.0",
-    "typescript-eslint": "^8.2.0"
+    "typescript": "~5.5",
+    "typescript-eslint": "~8.5.0"
   },
   "engines": {
     "node": "=22.8.0"

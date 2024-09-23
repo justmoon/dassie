@@ -24,18 +24,18 @@
     "@dassie/lib-terminal-graphics": "workspace:^",
     "@dassie/lib-type-utils": "workspace:*",
     "cmd-ts": "^0.13.0",
-    "date-fns": "^3.6.0",
-    "esbuild": "^0.23.1",
-    "execa": "^9.3.1",
+    "date-fns": "^4.1.0",
+    "esbuild": "^0.24.0",
+    "execa": "^9.4.0",
     "http-server": "^14.1.1",
     "tempy": "^3.1.0",
-    "vite": "^5.4.2",
+    "vite": "^5.4.7",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@dassie/meta-tsconfig": "workspace:^",
     "@types/node": "^22.5.5",
-    "vite-node": "^2.0.5"
+    "vite-node": "^2.1.1"
   },
   "engines": {
     "node": "=22.8.0"

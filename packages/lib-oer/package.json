@@ -22,7 +22,7 @@
   "devDependencies": {
     "@dassie/lib-format-utils": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
-    "type-fest": "^4.25.0"
+    "type-fest": "^4.26.1"
   },
   "engines": {
     "node": "=22.8.0"

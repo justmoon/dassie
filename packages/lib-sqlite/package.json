@@ -18,14 +18,14 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@types/better-sqlite3": "^7.6.11",
-    "better-sqlite3": "^11.2.1",
+    "better-sqlite3": "^11.3.0",
     "kysely": "^0.27.4"
   },
   "devDependencies": {
     "@dassie/lib-logger": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
     "@types/node": "^22.5.5",
-    "type-fest": "^4.25.0"
+    "type-fest": "^4.26.1"
   },
   "peerDependencies": {
     "@dassie/lib-logger": "workspace:^1.0.0"
