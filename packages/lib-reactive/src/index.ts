@@ -64,12 +64,14 @@ export type {
 } from "./actor"
 export type {
   Store,
+  AnyStore,
   Action,
   Change,
   BoundAction,
   InferBoundAction,
   InferBoundActions,
   InferChanges,
+  InferActionHandlers,
 } from "./store"
 export type { ComputationContext } from "./computation-context"
 export type { Computed } from "./computed"

@@ -3,6 +3,7 @@ import { isObject } from "@dassie/lib-type-utils"
 import { createReactiveTopic } from "./internal/reactive-topic"
 import { type Signal, SignalImplementation } from "./signal"
 import { type ReadonlyTopic, type Topic, createTopic } from "./topic"
+import type { FactoryOrInstance } from "./types/factory"
 
 export const StoreSymbol = Symbol("das:reactive:store")
 
@@ -22,11 +23,23 @@ export type InferBoundActions<TActions> = {
 }
 
 export type InferChanges<TActions> = {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key in keyof TActions & string]: TActions[key] extends Action<any, any[]> ?
-    [key, Parameters<TActions[key]>]
+  [key in keyof TActions & string]: TActions[key] extends (
+    Action<infer _TState, infer TParameters extends unknown[]>
+  ) ?
+    [key, TParameters]
   : never
 }[keyof TActions & string]
+
+export type InferActionHandlers<TStore extends FactoryOrInstance<AnyStore>> =
+  TStore extends Store<infer TState, infer TActions> ?
+    {
+      [K in keyof TActions]: TActions[K] extends (
+        Action<TState, infer TParameters>
+      ) ?
+        (...parameters: TParameters) => void
+      : never
+    }
+  : never
 
 export type BoundAction<TState, TParameters extends unknown[]> = (
   this: void,
@@ -42,7 +55,9 @@ const bindActions = <TState, TActions extends Record<string, Action<TState>>>(
 
   for (const key in actions) {
     if (Object.prototype.hasOwnProperty.call(actions, key)) {
-      boundActions[key] = ((...parameters) => {
+      boundActions[key] = ((
+        ...parameters: Parameters<TActions[typeof key]>
+      ) => {
         const reducer = actions[key]!(...parameters)
 
         signal.update(reducer)
@@ -52,7 +67,7 @@ const bindActions = <TState, TActions extends Record<string, Action<TState>>>(
         ] as unknown as InferChanges<TActions>)
 
         return signal.read()
-      }) as (typeof boundActions)[typeof key]
+      }) as InferBoundActions<TActions>[typeof key]
     }
   }
 
@@ -93,6 +108,9 @@ export type Store<
     additionalActions: TAdditionalActions,
   ) => Store<TState, TActions & TAdditionalActions>
 }
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnyStore = Store<any, Record<string, Action<any, any[]>>>
 
 class StoreImplementation<
   TState,
