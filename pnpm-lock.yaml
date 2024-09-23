@@ -1052,9 +1052,6 @@ importers:
       '@dassie/lib-terminal-graphics':
         specifier: workspace:^
         version: link:../lib-terminal-graphics
-      ignore:
-        specifier: ^6.0.2
-        version: 6.0.2
       zod:
         specifier: ^3.23.8
         version: 3.23.8
@@ -4870,10 +4867,6 @@ packages:
 
   ignore@5.3.2:
     resolution: {integrity: sha512-hsBTNUqQTDwkWtcdYI2i06Y/nUBEsNEDJKjWdigLvegy8kDuJAS8uRlpkkcQpyEXL0Z/pjDy5HBmMjRCJ2gq+g==}
-    engines: {node: '>= 4'}
-
-  ignore@6.0.2:
-    resolution: {integrity: sha512-InwqeHHN2XpumIkMvpl/DCJVrAHgCsG5+cn1XlnLWGwtZBm8QJfSusItfrwx81CTp5agNZqpKU2J/ccC5nGT4A==}
     engines: {node: '>= 4'}
 
   ilp-logger@1.4.4:
@@ -12051,8 +12044,6 @@ snapshots:
   ieee754@1.2.1: {}
 
   ignore@5.3.2: {}
-
-  ignore@6.0.2: {}
 
   ilp-logger@1.4.4:
     dependencies:

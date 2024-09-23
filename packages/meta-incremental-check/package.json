@@ -15,7 +15,6 @@
   "dependencies": {
     "@dassie/lib-rpc": "workspace:^",
     "@dassie/lib-terminal-graphics": "workspace:^",
-    "ignore": "^6.0.2",
     "zod": "^3.23.8"
   },
   "devDependencies": {

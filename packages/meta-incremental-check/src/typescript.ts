@@ -1,4 +1,3 @@
-import createIgnore from "ignore"
 import ts from "typescript"
 
 import { readFileSync } from "node:fs"
@@ -8,13 +7,6 @@ import { printToConsole, reportPackageStatus } from "./utils/report-status"
 
 const PackagePathSymbol = Symbol("PackagePath")
 const PackageNameSymbol = Symbol("PackageName")
-
-const currentFilePath = new URL(import.meta.url).pathname
-const projectRoot = path.resolve(currentFilePath, "../../../../")
-
-const ignore = createIgnore().add(
-  readFileSync(path.resolve(projectRoot, ".gitignore")).toString(),
-)
 
 const typescriptSystem = {
   ...ts.sys,
@@ -29,9 +21,6 @@ declare module "typescript" {
 }
 
 export function runTypeScriptCompiler(projectPath: string) {
-  const packagesToBeLinted: import("./types/packages-to-be-linted").PackagesToBeLinted =
-    []
-
   const host = createCustomSolutionBuilderHost()
   const builder = ts.createSolutionBuilder(host, [projectPath], {
     force: false,
@@ -83,7 +72,6 @@ export function runTypeScriptCompiler(projectPath: string) {
       originalAfterProgramEmitAndDiagnostics?.(builderProgram)
 
       const program = builderProgram.getProgram()
-      const packagePath = program[PackagePathSymbol]!
       const packageName = program[PackageNameSymbol]!
       const diagnostics = ts.getPreEmitDiagnostics(program)
 
@@ -93,25 +81,10 @@ export function runTypeScriptCompiler(projectPath: string) {
       }
 
       reportPackageStatus(packageName, "success")
-
-      const sourceFiles = program
-        .getSourceFiles()
-        .map(({ fileName }) => fileName)
-        .filter(
-          (fileName) =>
-            fileName.startsWith(packagePath) &&
-            !ignore.ignores(path.relative(projectRoot, fileName)),
-        )
-
-      packagesToBeLinted.push({
-        packagePath,
-        packageName,
-        sourceFiles,
-      })
     }
 
     return host
   }
 
-  return { packagesToBeLinted, buildResult }
+  return buildResult
 }

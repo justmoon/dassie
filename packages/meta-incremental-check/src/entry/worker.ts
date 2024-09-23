@@ -17,20 +17,7 @@ const rpcRouter = createRouter({
   runTypeScriptCompiler: createRoute()
     .input(z.string())
     .mutation(({ input: projectRoot }) => runTypeScriptCompiler(projectRoot)),
-  runEslint: createRoute()
-    .input(
-      z.array(
-        z.object({
-          packageName: z.string(),
-          packagePath: z.string(),
-          sourceFiles: z.array(z.string()),
-        }),
-      ),
-    )
-    .mutation(
-      async ({ input: packagesToBeLinted }) =>
-        await runEslint(packagesToBeLinted),
-    ),
+  runEslint: createRoute().mutation(() => runEslint()),
 })
 
 export type RpcRouter = typeof rpcRouter

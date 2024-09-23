@@ -13,7 +13,6 @@ import {
 } from "@dassie/lib-terminal-graphics"
 
 import type { RpcRouter } from "./entry/worker"
-import type { PackagesToBeLinted } from "./types/packages-to-be-linted"
 import type { ProgressMessage } from "./utils/report-status"
 
 export async function runChecks() {
@@ -35,7 +34,6 @@ export async function runChecks() {
 
   flow.show(note({ title: `Running TypeScript compiler...` }))
 
-  let packagesToBeLinted!: PackagesToBeLinted
   await flow.attach(tasklist({}), async (state) => {
     state.act.addTask("meta/search-stale", {
       description: "Searching for stale packages",
@@ -89,16 +87,31 @@ export async function runChecks() {
 
     markStalePackagesDone()
 
-    packagesToBeLinted = result.packagesToBeLinted
-    process.exitCode = result.buildResult
+    process.exitCode = result
 
     worker.off("message", handleCheckerEvent)
   })
 
-  if (process.exitCode === 0 && packagesToBeLinted.length > 0) {
+  if (process.exitCode === 0) {
     flow.show(note({ title: `Running ESLint...` }))
 
     await flow.attach(tasklist({}), async (state) => {
+      state.act.addTask("meta/search-stale", {
+        description: "Searching for stale packages",
+        progress: "indeterminate",
+      })
+
+      function markStalePackagesDone() {
+        state.act.updateTask("meta/search-stale", (task) =>
+          task.progress === "done" ?
+            task
+          : {
+              ...task,
+              progress: "done",
+            },
+        )
+      }
+
       function handleCheckerEvent(event: unknown) {
         if (Array.isArray(event)) {
           const progressMessage = event as ProgressMessage
@@ -112,6 +125,8 @@ export async function runChecks() {
             }
             case "status": {
               const [, packageName, status] = progressMessage
+
+              markStalePackagesDone()
 
               if (status === "start") {
                 state.act.addTask(packageName, {
@@ -130,7 +145,7 @@ export async function runChecks() {
       }
 
       worker.on("message", handleCheckerEvent)
-      const hasErrors = await rpcClient.rpc.runEslint.mutate(packagesToBeLinted)
+      const hasErrors = await rpcClient.rpc.runEslint.mutate()
       worker.off("message", handleCheckerEvent)
 
       if (hasErrors) {
