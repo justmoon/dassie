@@ -42,7 +42,7 @@ export class DuplexPair {
   public readonly socket1: DuplexSocket
   public readonly socket2: DuplexSocket
 
-  constructor(options?: DuplexOptions | undefined) {
+  constructor(options?: DuplexOptions) {
     this.socket1 = new DuplexSocket(options)
     this.socket2 = new DuplexSocket(options)
     this.socket1[kOtherSide] = this.socket2

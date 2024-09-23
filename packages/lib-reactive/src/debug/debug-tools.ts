@@ -137,7 +137,7 @@ export class DebugTools {
   warnAboutDanglingCallback(
     callbackName: string | undefined,
     scope: ScopeContext,
-    path?: string | undefined,
+    path?: string,
   ) {
     console.warn(
       "callback received an event after the containing scope was disposed, meaning an event handler was not cleaned up properly",

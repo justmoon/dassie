@@ -46,10 +46,7 @@ export interface Reactor<TBase extends object = object>
    * @param factory - A function that is used both as the key to the value in the context and as the factory function to create the value if it does not yet exist in the context.
    * @param options - Options for this use call.
    */
-  use<TReturn>(
-    factory: Factory<TReturn, TBase>,
-    options?: UseOptions | undefined,
-  ): TReturn
+  use<TReturn>(factory: Factory<TReturn, TBase>, options?: UseOptions): TReturn
 
   /**
    * Access an element in the context but without creating it if it does not yet exist.
@@ -95,7 +92,7 @@ class ReactorImplementation<TBase extends object = object> implements Reactor {
     readonly base: TBase,
     readonly contextState: ContextState,
     readonly scope: DisposableScope,
-    debug?: DebugTools | undefined,
+    debug?: DebugTools,
   ) {
     this.debug = debug ?? createDebugTools(this, contextState)
   }
@@ -218,9 +215,7 @@ interface CreateReactor {
 }
 
 export const createReactor: CreateReactor = <TBase extends object>(
-  rootActorFactory?:
-    | FactoryOrInstance<Actor<Promisable<void>, TBase>>
-    | undefined,
+  rootActorFactory?: FactoryOrInstance<Actor<Promisable<void>, TBase>>,
   base?: TBase,
 ): Reactor<TBase> => {
   const reactor: Reactor<TBase> = new ReactorImplementation(

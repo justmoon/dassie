@@ -17,7 +17,7 @@ export const wrapCallback = <
 >(
   callback: TCallback,
   context: ScopeContext & StatefulContext<object>,
-  path?: string | undefined,
+  path?: string,
 ): WrappedCallback<TCallback> => {
   const wrappedCallback: WrappedCallback<TCallback> = Object.assign(
     ((...parameters) => {

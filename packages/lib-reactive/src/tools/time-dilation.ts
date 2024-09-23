@@ -71,7 +71,7 @@ export class TimeDilationClockImplementation implements TimeDilationClock {
   constructor(
     private readonly base: Clock,
     public factor: number,
-    initialTime?: number | undefined,
+    initialTime?: number,
   ) {
     const now = this.base.now()
     this.state = {
@@ -197,7 +197,7 @@ export class TimeDilationClockImplementation implements TimeDilationClock {
 export function createTimeDilationClock(
   clock: Clock,
   factor: number,
-  initialTime?: number | undefined,
+  initialTime?: number,
 ): TimeDilationClock {
   return new TimeDilationClockImplementation(clock, factor, initialTime)
 }

@@ -100,16 +100,13 @@ export interface ActorContext<TBase extends object = object>
    */
   interval(
     callback: () => Promisable<void>,
-    intervalInMilliseconds?: number | undefined,
+    intervalInMilliseconds?: number,
   ): void
 
   /**
    * Create a JS timeout that will be automatically cancelled when the current actor is disposed.
    */
-  timeout(
-    callback: () => Promisable<void>,
-    delayInMilliseconds?: number | undefined,
-  ): void
+  timeout(callback: () => Promisable<void>, delayInMilliseconds?: number): void
 
   /**
    * Create a recurring task.
@@ -144,7 +141,7 @@ export interface ActorContext<TBase extends object = object>
    */
   run<TReturn>(
     factory: FactoryOrInstance<Actor<TReturn, TBase>, TBase>,
-    options?: RunOptions | undefined,
+    options?: RunOptions,
   ): TReturn | undefined
 
   /**
@@ -278,10 +275,7 @@ export class ActorContextImplementation<TBase extends object = object>
     ;(SignalSymbol in topic ? topic.values : topic).once(this, listener)
   }
 
-  interval(
-    callback: () => Promisable<void>,
-    intervalInMilliseconds?: number | undefined,
-  ) {
+  interval(callback: () => Promisable<void>, intervalInMilliseconds?: number) {
     if (this.isDisposed) return
 
     const interval = setInterval(
@@ -295,7 +289,7 @@ export class ActorContextImplementation<TBase extends object = object>
 
   timeout(
     callback: () => Promisable<void>,
-    delayInMilliseconds?: number | undefined,
+    delayInMilliseconds?: number,
   ): void {
     if (this.isDisposed) return
 
@@ -314,7 +308,7 @@ export class ActorContextImplementation<TBase extends object = object>
 
   run<TReturn>(
     actorFactory: FactoryOrInstance<Actor<TReturn, TBase>, TBase>,
-    options?: RunOptions | undefined,
+    options?: RunOptions,
   ): TReturn | undefined {
     const actor =
       typeof actorFactory === "function" ?

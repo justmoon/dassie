@@ -159,7 +159,7 @@ export interface Actor<TReturn, TBase extends object = object>
    */
   run: (
     parentContext: StatefulContext<TBase> & ScopeContext,
-    options?: RunOptions | undefined,
+    options?: RunOptions,
   ) => TReturn | undefined
 
   /**
