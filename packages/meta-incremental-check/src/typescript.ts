@@ -1,10 +1,10 @@
 import ts from "typescript"
 
-import { readFileSync } from "node:fs"
 import path from "node:path"
 
 import type { RunChecksOptions } from "."
 import { WORKSPACE_ROOT_PATH } from "./constants/workspace-path"
+import { getPackageName } from "./utils/get-package-name"
 import { printToConsole, reportPackageStatus } from "./utils/report-status"
 
 const PackagePathSymbol = Symbol("PackagePath")
@@ -53,11 +53,7 @@ export function runTypeScriptCompiler({ all }: RunChecksOptions) {
       }
 
       const packagePath = path.resolve(options["configFilePath"], "../")
-      const packageJsonPath = path.resolve(packagePath, "package.json")
-      const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as {
-        name: string
-      }
-      const packageName = packageJson.name
+      const packageName = getPackageName(packagePath)
 
       const program = builderProgram.getProgram()
       program[PackagePathSymbol] = packagePath

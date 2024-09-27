@@ -6,6 +6,7 @@ import path from "node:path"
 import type { RunChecksOptions } from "."
 import { WORKSPACE_ROOT_PATH } from "./constants/workspace-path"
 import { getFileDate } from "./utils/get-file-date"
+import { getPackageName } from "./utils/get-package-name"
 import { getPackages } from "./utils/get-packages"
 import { printToConsole, reportPackageStatus } from "./utils/report-status"
 
@@ -63,14 +64,15 @@ export async function runEslint({ all = false }: RunChecksOptions) {
   }
 
   let anyPackageHasErrors = false
-  for await (const packageName of getPackages()) {
-    if (IGNORE_PACKAGES.has(packageName)) continue
+  for await (const packageFolder of getPackages()) {
+    if (IGNORE_PACKAGES.has(packageFolder)) continue
 
     const packagePath = path.resolve(
       WORKSPACE_ROOT_PATH,
       "packages",
-      packageName,
+      packageFolder,
     )
+    const packageName = getPackageName(packagePath)
     const hasErrors = await lintPackage(packageName, packagePath)
 
     if (hasErrors) {
