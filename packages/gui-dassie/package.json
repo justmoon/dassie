@@ -12,6 +12,7 @@
   "dependencies": {
     "@dassie/app-dassie": "workspace:^",
     "@dassie/lib-logger": "workspace:^",
+    "@dassie/lib-reactive": "workspace:^",
     "@dassie/lib-reactive-rpc": "workspace:^",
     "@dassie/lib-rpc-react": "workspace:^",
     "@dassie/lib-type-utils": "workspace:^",
@@ -25,6 +26,7 @@
     "@radix-ui/react-slot": "^1.1.0",
     "@radix-ui/react-tabs": "^1.1.0",
     "@radix-ui/react-toast": "^1.2.1",
+    "@react-hook/size": "^2.1.2",
     "@scure/bip39": "^1.2.1",
     "@tanstack/react-query": "^5.56.2",
     "@tanstack/react-virtual": "^3.10.8",
@@ -36,6 +38,7 @@
     "nanoid": "^5.0.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-force-graph-2d": "^1.25.5",
     "react-hook-form": "^7.53.0",
     "react-number-format": "^5.4.2",
     "superjson": "^2.2.1",

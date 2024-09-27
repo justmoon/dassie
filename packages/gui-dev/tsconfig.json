@@ -21,6 +21,9 @@
       "path": "../lib-logger"
     },
     {
+      "path": "../lib-reactive"
+    },
+    {
       "path": "../lib-reactive-rpc"
     },
     {
