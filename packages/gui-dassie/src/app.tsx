@@ -4,6 +4,7 @@ import { MainNavigation } from "./layout/main-navigation/main-navigation"
 import { Account } from "./pages/account/account"
 import { CreateFirstAccount } from "./pages/create-first-account/create-first-account"
 import { DebugPage } from "./pages/debug/debug"
+import { LedgersPage } from "./pages/ledgers/ledgers"
 import { LoginPage } from "./pages/login/login"
 import { PaymentStatus } from "./pages/payment-status/payment-status"
 import { ReceivePage } from "./pages/receive/receive"
@@ -22,11 +23,9 @@ const App = () => {
   }
 
   if (basicState.state === "uninitialized") {
-    return isSetupRoute ? (
-      <Setup token={setupRouteParameters.token} />
-    ) : (
-      <SetupInfoPage />
-    )
+    return isSetupRoute ?
+        <Setup token={setupRouteParameters.token} />
+      : <SetupInfoPage />
   }
 
   if (basicState.state === "anonymous") {
@@ -41,6 +40,7 @@ const App = () => {
     <div className="h-screen grid grid-rows-[auto_1fr]">
       <MainNavigation />
       <Switch>
+        <Route path="/ledgers" component={LedgersPage} />
         <Route path="/send" component={Send} />
         <Route path="/receive" component={ReceivePage} />
         <Route path="/payments/:paymentId" component={PaymentStatus} />

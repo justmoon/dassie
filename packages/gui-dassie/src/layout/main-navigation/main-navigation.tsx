@@ -26,6 +26,13 @@ export function MainNavigation() {
           </Link>
         </NavigationMenuItem>
         <NavigationMenuItem>
+          <Link href="/ledgers" asChild>
+            <NavigationMenuLink className={navigationMenuTriggerStyle()}>
+              Ledgers
+            </NavigationMenuLink>
+          </Link>
+        </NavigationMenuItem>
+        <NavigationMenuItem>
           <NavigationMenuTrigger>Debug</NavigationMenuTrigger>
           <NavigationMenuContent>
             <ul className="grid gap-3 p-6 md:w-[400px] lg:w-[500px]">
