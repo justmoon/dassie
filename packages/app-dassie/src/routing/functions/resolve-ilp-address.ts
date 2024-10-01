@@ -4,8 +4,8 @@ import { Failure, UnreachableCaseError } from "@dassie/lib-type-utils"
 import { IlpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-scheme"
 import type { EndpointInfo } from "../../ilp-connector/functions/send-packet"
 import type { PeerEndpointInfo } from "../../ilp-connector/senders/send-peer-packets"
+import { GetLedgerIdForSettlementScheme } from "../../ledgers/functions/get-ledger-id"
 import { NodeTableStore } from "../../peer-protocol/stores/node-table"
-import { GetLedgerIdForSettlementScheme } from "../../settlement-schemes/functions/get-ledger-id"
 import { RoutingTableSignal } from "../signals/routing-table"
 
 export default class NoRouteFoundFailure extends Failure {

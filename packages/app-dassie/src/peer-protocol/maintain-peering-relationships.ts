@@ -5,9 +5,9 @@ import type {
   DassieReactor,
 } from "../base/types/dassie-base"
 import { NodeIdSignal } from "../ilp-connector/computed/node-id"
+import { ManageSettlementSchemeInstancesActor } from "../ledgers/manage-settlement-scheme-instances"
+import { ActiveSettlementSchemesSignal } from "../ledgers/signals/active-settlement-schemes"
 import { peerProtocol as logger } from "../logger/instances"
-import { ManageSettlementSchemeInstancesActor } from "../settlement-schemes/manage-settlement-scheme-instances"
-import { ActiveSettlementSchemesSignal } from "../settlement-schemes/signals/active-settlement-schemes"
 import { PeersSignal } from "./computed/peers"
 import { SendPeerMessage } from "./functions/send-peer-message"
 import { NodeTableStore } from "./stores/node-table"

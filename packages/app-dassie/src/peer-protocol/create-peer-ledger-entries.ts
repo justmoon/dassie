@@ -6,8 +6,8 @@ import {
   initializePeer,
 } from "../accounting/functions/manage-peer"
 import { LedgerStore } from "../accounting/stores/ledger"
+import { GetLedgerIdForSettlementScheme } from "../ledgers/functions/get-ledger-id"
 import { peerProtocol as logger } from "../logger/instances"
-import { GetLedgerIdForSettlementScheme } from "../settlement-schemes/functions/get-ledger-id"
 import { PeersSignal } from "./computed/peers"
 import { NodeTableStore } from "./stores/node-table"
 

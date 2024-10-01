@@ -1,7 +1,7 @@
 import type { DassieReactor } from "../../base/types/dassie-base"
 import { EMPTY_UINT8ARRAY } from "../../constants/general"
-import { ManageSettlementSchemeInstancesActor } from "../../settlement-schemes/manage-settlement-scheme-instances"
-import { ActiveSettlementSchemesSignal } from "../../settlement-schemes/signals/active-settlement-schemes"
+import { ManageSettlementSchemeInstancesActor } from "../../ledgers/manage-settlement-scheme-instances"
+import { ActiveSettlementSchemesSignal } from "../../ledgers/signals/active-settlement-schemes"
 import type { PeerMessageHandler } from "../functions/handle-peer-message"
 import { NodeTableStore } from "../stores/node-table"
 

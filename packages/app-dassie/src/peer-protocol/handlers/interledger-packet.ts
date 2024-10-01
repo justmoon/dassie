@@ -4,8 +4,8 @@ import type { DassieReactor } from "../../base/types/dassie-base"
 import { IlpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-scheme"
 import { ProcessPacket } from "../../ilp-connector/functions/process-packet"
 import type { PeerEndpointInfo } from "../../ilp-connector/senders/send-peer-packets"
+import { GetLedgerIdForSettlementScheme } from "../../ledgers/functions/get-ledger-id"
 import { peerProtocol as logger } from "../../logger/instances"
-import { GetLedgerIdForSettlementScheme } from "../../settlement-schemes/functions/get-ledger-id"
 import type { PeerMessageHandler } from "../functions/handle-peer-message"
 
 export const HandleInterledgerPacket = ((reactor: DassieReactor) => {

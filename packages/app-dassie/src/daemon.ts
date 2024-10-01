@@ -11,6 +11,7 @@ import { ExchangeRatesActor } from "./exchange"
 import { HttpServerActor } from "./http-server"
 import { IldcpServerActor } from "./ildcp-server"
 import { IlpHttpActor } from "./ilp-http"
+import { LedgersActor } from "./ledgers"
 import { LocalRpcServerActor } from "./local-ipc-server"
 import { daemon as logger } from "./logger/instances"
 import { OpenPaymentsServerActor } from "./open-payments"
@@ -18,7 +19,6 @@ import { PeerProtocolActor } from "./peer-protocol"
 import { PublicApiServerActor } from "./public-api-server"
 import { RoutingActor } from "./routing"
 import { TrpcServerActor } from "./rpc-server"
-import { SettlementSchemesActor } from "./settlement-schemes"
 
 export const StartNodeIdentityDependentServicesActor = () =>
   createActor(async (sig: DassieActorContext) => {
@@ -36,7 +36,7 @@ export const StartNodeIdentityDependentServicesActor = () =>
     sig.run(IlpHttpActor)
     await sig.run(ExchangeRatesActor)
 
-    await sig.run(SettlementSchemesActor)
+    await sig.run(LedgersActor)
     await sig.run(OpenPaymentsServerActor)
     sig.run(PublicApiServerActor)
 

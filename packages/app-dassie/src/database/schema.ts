@@ -6,11 +6,11 @@ import { acmeTokensTable } from "../acme-certificate-manager/tables/acme-tokens"
 import { btpTokensTable } from "../api-keys/database-tables/btp-tokens"
 import { sessionsTable } from "../authentication/database-tables/sessions"
 import { CONFIG_DATABASE_SCALARS } from "../config/schemas/database-scalars"
+import { settlementSchemesTable } from "../ledgers/database-tables/settlement-schemes"
 import { incomingPaymentTable } from "../open-payments/tables/incoming-payment"
 import { outgoingPaymentTable } from "../open-payments/tables/outgoing-payment"
 import { nodesTable } from "../peer-protocol/tables/nodes"
 import { peersTable } from "../peer-protocol/tables/peers"
-import { settlementSchemesTable } from "../settlement-schemes/database-tables/settlement-schemes"
 import migrations from "./migrations"
 
 /**
