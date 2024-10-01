@@ -13,13 +13,12 @@ import type { SettlementSchemeId } from "@dassie/app-dassie/src/peer-protocol/ty
 import { assert } from "@dassie/lib-logger"
 
 import { NODE_ENTRYPOINT } from "../constants/entrypoints"
+import { LOCAL_FOLDER } from "../constants/paths"
 import { NODES_DEBUG_START_PORT, NODES_START_PORT } from "../constants/ports"
 import { TEST_NODE_VANITY_SEEDS } from "../constants/vanity-nodes"
 import { setup as logger } from "../logger/instances"
 import type { EnvironmentSettings } from "../stores/environment"
 import { calculateHaltonLocation } from "./calculate-halton-location"
-
-const LOCAL_PATH = new URL("../../../../../local", import.meta.url).pathname
 
 const BOOTSTRAP_NODES = [0, 1]
 
@@ -67,7 +66,7 @@ export const nodeIndexToSessionToken = (index: number) => {
 export const nodeIndexToDataPath = (index: number) => {
   const friendlyId = nodeIndexToFriendlyId(index)
 
-  return `${LOCAL_PATH}/data/${friendlyId}.localhost`
+  return `${LOCAL_FOLDER}/data/${friendlyId}.localhost`
 }
 export const nodeIndexToUrl = (index: number) =>
   `https://${nodeIndexToFriendlyId(index)}.localhost:${nodeIndexToPort(index)}`
@@ -149,8 +148,8 @@ export const generateNodeConfig = ((
     dataPath,
     ipcSocketPath: path.resolve(dataPath, "dassie.sock"),
     dassieNodeKey: nodeIndexToPrivateKey(index),
-    tlsWebCertFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost.pem`,
-    tlsWebKeyFile: `${LOCAL_PATH}/tls/${id}.localhost/web-${id}.localhost-key.pem`,
+    tlsWebCertFile: `${LOCAL_FOLDER}/tls/${id}.localhost/web-${id}.localhost.pem`,
+    tlsWebKeyFile: `${LOCAL_FOLDER}/tls/${id}.localhost/web-${id}.localhost-key.pem`,
     sessionToken: nodeIndexToSessionToken(index),
     bootstrapNodes: BOOTSTRAP_NODES.map((index) => {
       return {
