@@ -1,4 +1,5 @@
 import { PlusIcon } from "lucide-react"
+import { Link } from "wouter"
 
 import { Button } from "../../components/ui/button"
 import { rpc } from "../../utils/rpc"
@@ -15,10 +16,12 @@ export function LedgersPage() {
       {ledgers.map((ledger) => (
         <LedgerListEntry key={ledger.id} ledger={ledger} />
       ))}
-      <Button variant="outline" size="lg">
-        <PlusIcon className="size-6 mr-2" />
-        Add Ledger
-      </Button>
+      <Link href="/ledgers/create" asChild>
+        <Button variant="outline" size="lg">
+          <PlusIcon className="size-6 mr-2" />
+          Add Ledger
+        </Button>
+      </Link>
     </div>
   )
 }

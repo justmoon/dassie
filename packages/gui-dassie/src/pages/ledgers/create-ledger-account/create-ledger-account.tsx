@@ -3,17 +3,21 @@ import { useCallback } from "react"
 
 import type { SettlementSchemeId } from "@dassie/app-dassie/src/peer-protocol/types/settlement-scheme-id"
 
-import { Alert, AlertDescription, AlertTitle } from "../../components/ui/alert"
-import { Button } from "../../components/ui/button"
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "../../../components/ui/alert"
+import { Button } from "../../../components/ui/button"
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
-} from "../../components/ui/card"
-import { rpc } from "../../utils/rpc"
+} from "../../../components/ui/card"
+import { rpc } from "../../../utils/rpc"
 
-export const CreateFirstAccount = () => {
+export const CreateLedgerAccount = () => {
   const addSettlementScheme = rpc.config.addSettlementScheme.useMutation({
     onSuccess: () => {
       window.location.reload()
@@ -31,7 +35,7 @@ export const CreateFirstAccount = () => {
     <div className="flex h-full items-center justify-center">
       <Card className="w-full max-w-lg mx-8 h-full max-h-lg">
         <CardHeader>
-          <CardTitle>Select a settlement method</CardTitle>
+          <CardTitle>Choose a Ledger Type</CardTitle>
         </CardHeader>
         <CardContent>
           <Alert>
@@ -42,7 +46,7 @@ export const CreateFirstAccount = () => {
               methods below do <strong>not</strong> use real money.
             </AlertDescription>
           </Alert>
-          <div className="p-6 mt-4 max-w-sm bg-white rounded-lg border border-gray-200 shadow-md dark:bg-gray-800 dark:border-gray-700">
+          <div className="p-6 mt-4 bg-white rounded-lg border border-gray-200 shadow-md dark:bg-gray-800 dark:border-gray-700">
             <CircleSlash
               aria-hidden="true"
               className="mb-2 w-10 h-10 text-gray-500 dark:text-gray-400"

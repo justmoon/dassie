@@ -2,8 +2,8 @@ import { Route, Switch, useRoute } from "wouter"
 
 import { MainNavigation } from "./layout/main-navigation/main-navigation"
 import { Account } from "./pages/account/account"
-import { CreateFirstAccount } from "./pages/create-first-account/create-first-account"
 import { DebugPage } from "./pages/debug/debug"
+import { CreateLedgerAccount } from "./pages/ledgers/create-ledger-account/create-ledger-account"
 import { LedgersPage } from "./pages/ledgers/ledgers"
 import { LoginPage } from "./pages/login/login"
 import { PaymentStatus } from "./pages/payment-status/payment-status"
@@ -33,7 +33,7 @@ const App = () => {
   }
 
   if (basicState.activeSettlementSchemes.length === 0) {
-    return <CreateFirstAccount />
+    return <CreateLedgerAccount />
   }
 
   return (
@@ -41,6 +41,7 @@ const App = () => {
       <MainNavigation />
       <Switch>
         <Route path="/ledgers" component={LedgersPage} />
+        <Route path="/ledgers/create" component={CreateLedgerAccount} />
         <Route path="/send" component={Send} />
         <Route path="/receive" component={ReceivePage} />
         <Route path="/payments/:paymentId" component={PaymentStatus} />
