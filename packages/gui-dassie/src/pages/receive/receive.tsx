@@ -22,19 +22,16 @@ import {
   TabsList,
   TabsTrigger,
 } from "../../components/ui/tabs"
+import { SCHEME_NAME_MAP } from "../../constants/schemes"
 import { rpc } from "../../utils/rpc"
-
-const SCHEME_DEPOSIT_NAME_MAP: Record<SettlementSchemeId, string> = {
-  ["stub" as SettlementSchemeId]: "Stub",
-}
 
 const SCHEME_DEPOSIT_UI_MAP: Record<
   SettlementSchemeId,
-  LazyExoticComponent<ComponentType>
+  LazyExoticComponent<ComponentType> | null
 > = {
-  ["stub" as SettlementSchemeId]: lazy(
-    () => import("./settlement-schemes/stub"),
-  ),
+  stub: lazy(() => import("./settlement-schemes/stub")),
+  xrpl: null,
+  "xrpl-testnet": null,
 }
 
 export function ReceivePage() {
@@ -55,9 +52,9 @@ export function ReceivePage() {
             <TabsList>
               <TabsTrigger value="interledger">Interledger</TabsTrigger>
               {activeSettlementSchemes.map((schemeId) =>
-                SCHEME_DEPOSIT_NAME_MAP[schemeId] ?
+                SCHEME_NAME_MAP[schemeId] ?
                   <TabsTrigger key={schemeId} value={schemeId}>
-                    {SCHEME_DEPOSIT_NAME_MAP[schemeId]}
+                    {SCHEME_NAME_MAP[schemeId]}
                   </TabsTrigger>
                 : null,
               )}

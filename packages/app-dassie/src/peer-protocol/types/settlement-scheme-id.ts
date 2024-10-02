@@ -1,3 +1,1 @@
-import type { Tagged } from "type-fest"
-
-export type SettlementSchemeId = Tagged<string, "SettlementSchemeId">
+export type SettlementSchemeId = "stub" | "xrpl" | "xrpl-testnet"

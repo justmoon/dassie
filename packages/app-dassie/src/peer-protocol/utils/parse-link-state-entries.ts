@@ -2,12 +2,13 @@ import type { Infer } from "@dassie/lib-oer"
 import { UnreachableCaseError } from "@dassie/lib-type-utils"
 
 import { nodeInfoEntry } from "../peer-schema"
+import type { SettlementSchemeId } from "../types/settlement-scheme-id"
 
 export type LinkStateEntry = Infer<typeof nodeInfoEntry>
 
 export const parseLinkStateEntries = (entries: LinkStateEntry[]) => {
   const neighbors = []
-  const settlementSchemes = []
+  const settlementSchemes: SettlementSchemeId[] = []
 
   for (const entry of entries) {
     switch (entry.type) {

@@ -43,6 +43,13 @@ export const CreateSettlementEngine = (reactor: Reactor) => {
       accounts: [wallet.address],
     })
 
+    const ownAccountInfo = await getAccountInfo(client, wallet.address)
+
+    let balance =
+      ownAccountInfo ?
+        BigInt(ownAccountInfo.result.account_data.Balance) * XRP_VALUE_FACTOR
+      : 0n
+
     client.on("transaction", (transaction) => {
       if (transaction.meta?.AffectedNodes) {
         for (const node of transaction.meta.AffectedNodes) {
@@ -62,6 +69,8 @@ export const CreateSettlementEngine = (reactor: Reactor) => {
             const oldBalance =
               BigInt(node.ModifiedNode.PreviousFields["Balance"]) *
               XRP_VALUE_FACTOR
+
+            balance = newBalance
 
             const isSettlementResult = isSettlement(transaction)
 
@@ -222,6 +231,7 @@ export const CreateSettlementEngine = (reactor: Reactor) => {
       handleDeposit: () => {
         throw new Error("not implemented")
       },
+      getBalance: () => balance,
     } satisfies SettlementSchemeActorMethods<XrplPeerState>
   }
 }

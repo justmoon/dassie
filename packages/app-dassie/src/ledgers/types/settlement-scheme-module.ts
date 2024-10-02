@@ -152,6 +152,8 @@ export interface SettlementSchemeActorMethods<
    * Process an incoming deposit by the owner.
    */
   handleDeposit: (parameters: { amount: bigint }) => Promisable<void>
+
+  getBalance: () => bigint
 }
 
 export interface SettlementSchemeBehaviorParameters {

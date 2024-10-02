@@ -6,3 +6,10 @@ export const USD_SPECIFICATION: CurrencySpecification = {
   displayPrecision: 2,
   totalPrecision: 9,
 }
+
+export const XRP_SPECIFICATION: CurrencySpecification = {
+  symbol: "XRP",
+  code: "XRP",
+  displayPrecision: 2,
+  totalPrecision: 9,
+}

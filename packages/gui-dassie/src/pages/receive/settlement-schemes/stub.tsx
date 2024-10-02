@@ -4,7 +4,7 @@ import { Button } from "../../../components/ui/button"
 import { rpc } from "../../../utils/rpc"
 
 export default function StubDeposit() {
-  const stubDepositMutation = rpc.settlement.stubDeposit.useMutation()
+  const stubDepositMutation = rpc.ledgers.stubDeposit.useMutation()
   const [, setLocation] = useLocation()
 
   return (

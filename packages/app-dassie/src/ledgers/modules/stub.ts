@@ -95,6 +95,7 @@ const stub = {
         balance += amount
         host.reportDeposit({ ledgerId: LEDGER_ID, amount })
       },
+      getBalance: () => balance,
     }
   },
 } satisfies SettlementSchemeModule
