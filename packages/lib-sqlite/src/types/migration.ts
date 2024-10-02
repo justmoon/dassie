@@ -1,14 +1,9 @@
+import type SQLite from "better-sqlite3"
+
 export interface MigrationDefinition {
   version: number
-  up: (database: Database) => void
-  down: (database: Database) => void
+  up: (database: SQLite.Database) => void
+  down: (database: SQLite.Database) => void
 }
 
-export interface Database {
-  prepare(sql: string): SqliteStatement
-  exec(sql: string): void
-}
-
-export interface SqliteStatement {
-  run(): void
-}
+export { type default as SQLite } from "better-sqlite3"

@@ -1,3 +1,5 @@
+import type SQLite from "better-sqlite3"
+
 import { type DatabaseSchema, column, table } from "../../src"
 
 export default {
@@ -5,7 +7,7 @@ export default {
   migrations: [
     {
       version: 1,
-      up: (database) => {
+      up: (database: SQLite.Database) => {
         database.exec(`
           CREATE TABLE users (
             id INTEGER PRIMARY KEY,
@@ -21,7 +23,7 @@ export default {
             (3, 'Caelius', 42)
         `)
       },
-      down: (database) => {
+      down: (database: SQLite.Database) => {
         database.exec(`DROP TABLE users;`)
       },
     },
