@@ -33,6 +33,11 @@
   ],
   "compilerOptions": {
     "noPropertyAccessFromIndexSignature": false,
-    "outDir": "dist"
+    "outDir": "dist",
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ]
+    }
   }
 }

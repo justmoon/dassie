@@ -82,6 +82,9 @@ export default createUpdateOptions(async (workspaceDir) => {
         references: references.sort((r1, r2) => r1.path.localeCompare(r2.path)),
         compilerOptions: {
           ...tsConfig.compilerOptions,
+          paths: {
+            "@/*": ["./src/*"],
+          },
           outDir: "dist",
         },
       }
