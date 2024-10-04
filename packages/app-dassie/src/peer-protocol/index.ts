@@ -8,6 +8,7 @@ import { DownloadNodeListsActor } from "./download-node-lists"
 import { ForwardLinkStateUpdateActor } from "./forward-link-state-update"
 import { MaintainOwnNodeTableEntryActor } from "./maintain-own-node-table-entry"
 import { MaintainPeeringRelationshipsActor } from "./maintain-peering-relationships"
+import { PersistNodeTableActor } from "./persist-node-table"
 import { PollNodeListHashesActor } from "./poll-node-list-hashes"
 import { RefreshNodeStateActor } from "./refresh-node-state"
 import { RegisterOurselvesActor } from "./register-ourselves"
@@ -16,6 +17,7 @@ import { SendHeartbeatsActor } from "./send-heartbeats"
 
 export const PeerProtocolActor = () =>
   createActor(async (sig: DassieActorContext) => {
+    sig.run(PersistNodeTableActor)
     sig.run(RegisterPeerHttpHandlerActor)
 
     await sig.run(MaintainOwnNodeTableEntryActor)

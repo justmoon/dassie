@@ -1,8 +1,7 @@
 import { castDraft, castImmutable, enableMapSet, produce } from "immer"
 
-import { type Reactor, createStore } from "@dassie/lib-reactive"
+import { createStore } from "@dassie/lib-reactive"
 
-import { Database } from "../../database/open-database"
 import type { NodeId } from "../types/node-id"
 import type { SettlementSchemeId } from "../types/settlement-scheme-id"
 
@@ -85,45 +84,8 @@ export interface LinkState {
   readonly scheduledRetransmitTime: number
 }
 
-export const NodeTableStore = (reactor: Reactor) => {
-  const database = reactor.use(Database)
-
-  const { rows: result } = database.executeSync(
-    database.kysely
-      .selectFrom("nodes")
-      .select("id")
-      .leftJoin("peers", "nodes.rowid", "peers.node")
-      .select(["settlement_scheme_id", "settlement_scheme_state"])
-      .compile(),
-  )
-
-  const initialNodesMap = new Map<NodeId, NodeTableEntry>()
-
-  for (const row of result) {
-    const settlementSchemeState = JSON.parse(
-      row.settlement_scheme_state!,
-    ) as unknown
-
-    if (!settlementSchemeState || typeof settlementSchemeState !== "object") {
-      throw new Error("Invalid settlement scheme state")
-    }
-
-    initialNodesMap.set(row.id, {
-      nodeId: row.id,
-      linkState: undefined,
-      peerState:
-        row.settlement_scheme_id ?
-          {
-            id: "peered",
-            lastSeen: 0,
-            settlementSchemeId: row.settlement_scheme_id,
-            settlementSchemeState,
-          }
-        : { id: "none" },
-    })
-  }
-
-  return createStore(castImmutable(initialNodesMap)).actions({
+export const NodeTableStore = () =>
+  createStore(castImmutable(new Map<NodeId, NodeTableEntry>())).actions({
     addNode: (entry: NodeTableEntry) =>
       produce((draft) => {
         draft.set(
@@ -148,4 +110,3 @@ export const NodeTableStore = (reactor: Reactor) => {
         )
       }),
   })
-}
