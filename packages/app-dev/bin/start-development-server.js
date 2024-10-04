@@ -152,7 +152,7 @@ function restart() {
   isRestartQueued = true
 
   log(chalk.green("\n  Restarting development server...\n"))
-  void (async () => {
+  ;(async () => {
     try {
       await startupPromise
       await reactor.dispose()
@@ -165,5 +165,7 @@ function restart() {
     viteNodeServer.fetchCache = new Map()
 
     reactor = await start()
-  })()
+  })().catch((/** @type unknown */ error) => {
+    console.error(error)
+  })
 }
