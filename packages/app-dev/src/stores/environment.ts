@@ -2,8 +2,10 @@ import type { SettlementSchemeId } from "@dassie/app-dassie/src/peer-protocol/ty
 import { createStore } from "@dassie/lib-reactive"
 
 export interface EnvironmentSettings {
-  readonly additionalNodeStartIndex?: number | undefined
-  readonly defaultNodeSettings?: NodeSettings | undefined
+  readonly additionalNodeStartIndex: number
+  readonly defaultNodeSettings: NodeSettings
+  readonly bootstrapNodes: readonly number[]
+  readonly registeredNodes: readonly number[]
 }
 
 export interface NodeSettings {
@@ -19,10 +21,15 @@ export interface PeerSettings {
   }
 }
 
-export const DEFAULT_ADDITIONAL_NODE_START_INDEX = 10
+export const DEFAULT_ENVIRONMENT: EnvironmentSettings = {
+  additionalNodeStartIndex: 0,
+  defaultNodeSettings: {},
+  bootstrapNodes: [0, 1],
+  registeredNodes: [0, 1],
+}
 
 export const EnvironmentStore = () => {
-  const initialEnvironment: EnvironmentSettings = {}
+  const initialEnvironment: EnvironmentSettings = DEFAULT_ENVIRONMENT
 
   return createStore(initialEnvironment).actions({
     setEnvironment: (environment: EnvironmentSettings) => () => environment,

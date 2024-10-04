@@ -7,6 +7,10 @@ export type BigIntRunResult = RunResult & {
   lastInsertRowid: bigint
 }
 
+export interface InsertOptions {
+  ignoreConflicts?: boolean
+}
+
 export interface InsertManyResult {
   changes: number
   rowids: bigint[]
@@ -63,7 +67,10 @@ export interface ConnectedTable<TTable extends TableDescription> {
    *
    * @param row - The row to insert.
    */
-  insertOne: (row: Simplify<InferInsertRow<TTable>>) => BigIntRunResult
+  insertOne: (
+    row: Simplify<InferInsertRow<TTable>>,
+    options?: InsertOptions,
+  ) => BigIntRunResult
 
   /**
    * Insert multiple rows into the database.
@@ -74,7 +81,10 @@ export interface ConnectedTable<TTable extends TableDescription> {
    *
    * @param rows - The rows to insert.
    */
-  insertMany: (rows: InferInsertRow<TTable>[]) => InsertManyResult
+  insertMany: (
+    rows: InferInsertRow<TTable>[],
+    options?: InsertOptions,
+  ) => InsertManyResult
 
   /**
    * Delete rows matching a set of fields.
@@ -152,9 +162,9 @@ export const connectTable = <TTable extends TableDescription>(
       .join(", ")
   }
 
-  const createInsertQuery = (columns: string[]) =>
+  const createInsertQuery = (columns: string[], options?: InsertOptions) =>
     database.prepare(
-      `INSERT INTO ${name} (${columns.join(", ")}) VALUES (${columns
+      `INSERT ${options?.ignoreConflicts ? "OR IGNORE " : ""}INTO ${name} (${columns.join(", ")}) VALUES (${columns
         .map((key) => `@${key}`)
         .join(", ")})`,
     )
@@ -213,16 +223,16 @@ export const connectTable = <TTable extends TableDescription>(
 
       return query.run(newValues) as BigIntRunResult
     },
-    insertOne: (row) => {
-      const insertQuery = createInsertQuery(Object.keys(row))
+    insertOne: (row, options) => {
+      const insertQuery = createInsertQuery(Object.keys(row), options)
       return insertQuery.run(row) as BigIntRunResult
     },
-    insertMany: (rows) => {
+    insertMany: (rows, options) => {
       if (rows.length === 0) {
         return { changes: 0, rowids: [] }
       }
 
-      const insertQuery = createInsertQuery(Object.keys(rows[0]!))
+      const insertQuery = createInsertQuery(Object.keys(rows[0]!), options)
       const results = database.transaction<(_rows: typeof rows) => RunResult[]>(
         (rows) => {
           return rows.map((row) => insertQuery.run(row))

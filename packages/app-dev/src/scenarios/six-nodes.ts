@@ -13,7 +13,7 @@ export const description =
 
 export const StartScenario = (reactor: Reactor) => {
   const startNode = reactor.use(StartNode)
-  const ENVIRONMENT: EnvironmentSettings = {
+  const ENVIRONMENT: Partial<EnvironmentSettings> = {
     additionalNodeStartIndex: NODE_COUNT,
   }
 

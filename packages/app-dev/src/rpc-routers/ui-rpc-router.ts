@@ -13,10 +13,7 @@ import { scenarios } from "../scenarios"
 import { ScenarioSignal } from "../signals/scenario"
 import { SecurityTokenSignal } from "../signals/security-token"
 import { AdditionalNodesStore } from "../stores/additional-nodes"
-import {
-  DEFAULT_ADDITIONAL_NODE_START_INDEX,
-  EnvironmentStore,
-} from "../stores/environment"
+import { EnvironmentStore } from "../stores/environment"
 import { LogsStore } from "../stores/logs"
 import { PeeringStateStore } from "../stores/peering-state"
 import { PeerTrafficTopic } from "../topics/peer-traffic"
@@ -32,9 +29,7 @@ export const uiRpcRouter = createRouter({
     .mutation(({ context: { sig } }) => {
       const environmentStore = sig.reactor.use(EnvironmentStore)
       const additionalNodesStore = sig.reactor.use(AdditionalNodesStore)
-      const startIndex =
-        environmentStore.read().additionalNodeStartIndex ??
-        DEFAULT_ADDITIONAL_NODE_START_INDEX
+      const startIndex = environmentStore.read().additionalNodeStartIndex
       additionalNodesStore.act.addNode(
         startIndex + additionalNodesStore.read().size,
       )

@@ -17,10 +17,11 @@ import { LOCAL_FOLDER } from "../constants/paths"
 import { NODES_DEBUG_START_PORT, NODES_START_PORT } from "../constants/ports"
 import { TEST_NODE_VANITY_SEEDS } from "../constants/vanity-nodes"
 import { setup as logger } from "../logger/instances"
-import type { EnvironmentSettings } from "../stores/environment"
+import {
+  DEFAULT_ENVIRONMENT,
+  type EnvironmentSettings,
+} from "../stores/environment"
 import { calculateHaltonLocation } from "./calculate-halton-location"
-
-const BOOTSTRAP_NODES = [0, 1]
 
 export const nodeIndexToFriendlyId = (index: number) => `d${index + 1}`
 export const nodeIndexToPort = (index: number) => NODES_START_PORT + index
@@ -126,9 +127,13 @@ export const generateNodeConfig = ((
   nodeSettings,
   environmentSettings,
 ) => {
+  const completeEnvironmentSettings: EnvironmentSettings = {
+    ...DEFAULT_ENVIRONMENT,
+    ...environmentSettings,
+  }
   const completeNodeSettings: Required<NodeSettings> = {
     ...DEFAULT_NODE_SETTINGS,
-    ...environmentSettings.defaultNodeSettings,
+    ...completeEnvironmentSettings.defaultNodeSettings,
     ...nodeSettings,
   }
   const id = nodeIndexToFriendlyId(index)
@@ -151,7 +156,7 @@ export const generateNodeConfig = ((
     tlsWebCertFile: `${LOCAL_FOLDER}/tls/${id}.localhost/web-${id}.localhost.pem`,
     tlsWebKeyFile: `${LOCAL_FOLDER}/tls/${id}.localhost/web-${id}.localhost-key.pem`,
     sessionToken: nodeIndexToSessionToken(index),
-    bootstrapNodes: BOOTSTRAP_NODES.map((index) => {
+    bootstrapNodes: completeEnvironmentSettings.bootstrapNodes.map((index) => {
       return {
         id: nodeIndexToId(index),
         url: nodeIndexToUrl(index),
@@ -167,5 +172,5 @@ export const generateNodeConfig = ((
 }) satisfies (
   index: number,
   nodeConfig: NodeSettings,
-  environmentSettings: EnvironmentSettings,
+  environmentSettings: Partial<EnvironmentSettings>,
 ) => BaseNodeConfig
