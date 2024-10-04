@@ -1,3 +1,6 @@
+import { Trash2Icon } from "lucide-react"
+import { Link } from "wouter"
+
 import type { SettlementSchemeId } from "@dassie/app-dassie/src/peer-protocol/types/settlement-scheme-id"
 
 import { Amount } from "../../components/amount/amount"
@@ -16,8 +19,15 @@ export function LedgerListEntry({
 }: LedgerListEntryProperties) {
   return (
     <div className="flex flex-col gap-3 border rounded-xl p-3 pl-4 xl:p-6 xl:pl-7">
-      <div className="flex flex-row gap-3 items-center">
-        <h4 className="text-xl font-bold">{SCHEME_NAME_MAP[id]}</h4>
+      <div className="flex flex-row justify-between">
+        <div className="flex flex-row gap-3 items-center">
+          <h4 className="text-xl font-bold">{SCHEME_NAME_MAP[id]}</h4>
+        </div>
+        <Link href={`/ledgers/delete/${id}`} asChild>
+          <Button variant="destructive" size="icon" className="size-8">
+            <Trash2Icon className="size-4" />
+          </Button>
+        </Link>
       </div>
       <div className="flex flex-row gap-3">
         <Button>Send</Button>

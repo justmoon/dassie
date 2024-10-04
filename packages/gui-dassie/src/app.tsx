@@ -4,6 +4,7 @@ import { MainNavigation } from "./layout/main-navigation/main-navigation"
 import { Account } from "./pages/account/account"
 import { DebugPage } from "./pages/debug/debug"
 import { CreateLedgerAccount } from "./pages/ledgers/create-ledger-account/create-ledger-account"
+import { DeleteLedgerAccountPage } from "./pages/ledgers/delete-ledger-account/delete-ledger-account-page"
 import { LedgersPage } from "./pages/ledgers/ledgers"
 import { LoginPage } from "./pages/login/login"
 import { PaymentStatus } from "./pages/payment-status/payment-status"
@@ -42,6 +43,7 @@ const App = () => {
       <Switch>
         <Route path="/ledgers" component={LedgersPage} />
         <Route path="/ledgers/create" component={CreateLedgerAccount} />
+        <Route path="/ledgers/delete/:id" component={DeleteLedgerAccountPage} />
         <Route path="/send" component={Send} />
         <Route path="/receive" component={ReceivePage} />
         <Route path="/payments/:paymentId" component={PaymentStatus} />

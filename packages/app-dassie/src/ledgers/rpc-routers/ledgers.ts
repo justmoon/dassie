@@ -2,6 +2,8 @@ import { z } from "zod"
 
 import { createRouter } from "@dassie/lib-rpc/server"
 
+import { PeersSignal } from "../../peer-protocol/computed/peers"
+import { NodeTableStore } from "../../peer-protocol/stores/node-table"
 import type { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
 import { protectedRoute } from "../../rpc-server/route-types/protected"
 import { SettlementSchemesStore } from "../database-stores/settlement-schemes"
@@ -26,6 +28,54 @@ export const ledgersRouter = createRouter({
       }),
     )
   }),
+  checkLedgerDeletePrerequisites: protectedRoute
+    .input(z.string())
+    .query(({ input: ledgerId, context: { sig } }) => {
+      const manageSettlementSchemeInstancesActor = sig.reactor.use(
+        ManageSettlementSchemeInstancesActor,
+      )
+
+      const settlementActor = manageSettlementSchemeInstancesActor.get(
+        ledgerId as SettlementSchemeId,
+      )
+
+      const peers = sig.read(PeersSignal)
+      const nodeTable = sig.reactor.use(NodeTableStore)
+
+      const isUnused = ![...peers]
+        .map((peerId) => nodeTable.read().get(peerId)?.peerState)
+        .some(
+          (peerInfo) =>
+            peerInfo?.id === "peered" &&
+            peerInfo.settlementSchemeId === ledgerId,
+        )
+
+      return {
+        isActive: !!settlementActor,
+        isUnused,
+      }
+    }),
+  addSettlementScheme: protectedRoute
+    .input(
+      z.object({
+        id: z.string().transform((id) => id as SettlementSchemeId),
+        config: z.object({}),
+      }),
+    )
+    .mutation(({ context: { sig }, input: { id, config } }) => {
+      sig.reactor
+        .use(SettlementSchemesStore)
+        .act.addSettlementScheme(id, config)
+    }),
+  removeSettlementScheme: protectedRoute
+    .input(
+      z.object({
+        id: z.string().transform((id) => id as SettlementSchemeId),
+      }),
+    )
+    .mutation(({ context: { sig }, input: { id } }) => {
+      sig.reactor.use(SettlementSchemesStore).act.removeSettlementScheme(id)
+    }),
   stubDeposit: protectedRoute
     .input(z.string())
     .mutation(async ({ input: amount, context: { sig } }) => {

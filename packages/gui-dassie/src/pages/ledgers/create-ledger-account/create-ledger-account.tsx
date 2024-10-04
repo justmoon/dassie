@@ -1,5 +1,6 @@
 import { ArrowRight, CircleSlash, TestTube2Icon } from "lucide-react"
 import { useCallback } from "react"
+import { useLocation } from "wouter"
 
 import type { SettlementSchemeId } from "@dassie/app-dassie/src/peer-protocol/types/settlement-scheme-id"
 
@@ -18,9 +19,10 @@ import {
 import { rpc } from "../../../utils/rpc"
 
 export const CreateLedgerAccount = () => {
-  const addSettlementScheme = rpc.config.addSettlementScheme.useMutation({
+  const [, navigate] = useLocation()
+  const addSettlementScheme = rpc.ledgers.addSettlementScheme.useMutation({
     onSuccess: () => {
-      window.location.reload()
+      navigate("/ledgers")
     },
   })
 

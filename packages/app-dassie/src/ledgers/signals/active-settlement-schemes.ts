@@ -1,9 +1,9 @@
 import { enableMapSet, produce } from "immer"
 
 import {
-  type InferActionHandlers,
   type Reactor,
   createComputed,
+  watchStoreChanges,
 } from "@dassie/lib-reactive"
 
 import type { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
@@ -21,17 +21,19 @@ export const ActiveSettlementSchemesSignal = (reactor: Reactor) =>
       activeSettlementSchemes.add(settlementScheme.id)
     }
 
-    settlementSchemes.changes.on(reactor, ([actionId, parameters]) => {
-      const handlers: InferActionHandlers<typeof settlementSchemes> = {
-        addSettlementScheme: (settlementSchemeId) => {
-          const newSet = produce(activeSettlementSchemes, (draft) => {
-            draft.add(settlementSchemeId)
-          })
-          reactor.use(ActiveSettlementSchemesSignal).write(newSet)
-        },
-      }
-
-      handlers[actionId](...parameters)
+    watchStoreChanges(reactor, settlementSchemes, {
+      addSettlementScheme: (settlementSchemeId) => {
+        const newSet = produce(activeSettlementSchemes, (draft) => {
+          draft.add(settlementSchemeId)
+        })
+        reactor.use(ActiveSettlementSchemesSignal).write(newSet)
+      },
+      removeSettlementScheme: (settlementSchemeId) => {
+        const newSet = produce(activeSettlementSchemes, (draft) => {
+          draft.delete(settlementSchemeId)
+        })
+        reactor.use(ActiveSettlementSchemesSignal).write(newSet)
+      },
     })
 
     return activeSettlementSchemes

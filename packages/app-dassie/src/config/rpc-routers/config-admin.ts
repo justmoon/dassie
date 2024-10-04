@@ -5,8 +5,6 @@ import { createRouter } from "@dassie/lib-rpc/server"
 import { SetupUrlSignal } from "../../authentication/computed/setup-url"
 import { VALID_REALMS } from "../../constants/general"
 import { NodeIdSignal } from "../../ilp-connector/computed/node-id"
-import { SettlementSchemesStore } from "../../ledgers/database-stores/settlement-schemes"
-import type { SettlementSchemeId } from "../../peer-protocol/types/settlement-scheme-id"
 import { protectedRoute } from "../../rpc-server/route-types/protected"
 import { HasTlsSignal } from "../computed/has-tls"
 import { DatabaseConfigStore } from "../database-config"
@@ -65,17 +63,5 @@ export const configAdminRouter = createRouter({
 
       config.act.setHostname(hostname)
       return true
-    }),
-  addSettlementScheme: protectedRoute
-    .input(
-      z.object({
-        id: z.string().transform((id) => id as SettlementSchemeId),
-        config: z.object({}),
-      }),
-    )
-    .mutation(({ context: { sig }, input: { id, config } }) => {
-      sig.reactor
-        .use(SettlementSchemesStore)
-        .act.addSettlementScheme(id, config)
     }),
 })

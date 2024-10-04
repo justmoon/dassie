@@ -30,5 +30,15 @@ export const SettlementSchemesStore = (reactor: Reactor) => {
           config: JSON.stringify(config),
         })
       }),
+    removeSettlementScheme: (settlementSchemeId: SettlementSchemeId) =>
+      produce((draft) => {
+        const index = draft.findIndex(
+          (settlementScheme) => settlementScheme.id === settlementSchemeId,
+        )
+        if (index !== -1) {
+          draft.splice(1)
+        }
+        database.tables.settlementSchemes.delete({ id: settlementSchemeId })
+      }),
   })
 }
