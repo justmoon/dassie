@@ -7,6 +7,7 @@ import { CreateLedgerAccount } from "./pages/ledgers/create-ledger-account/creat
 import { DeleteLedgerAccountPage } from "./pages/ledgers/delete-ledger-account/delete-ledger-account-page"
 import { LedgersPage } from "./pages/ledgers/ledgers"
 import { LoginPage } from "./pages/login/login"
+import { NetworkPage } from "./pages/network/network"
 import { PaymentStatus } from "./pages/payment-status/payment-status"
 import { ReceivePage } from "./pages/receive/receive"
 import { Send } from "./pages/send/send"
@@ -41,6 +42,7 @@ const App = () => {
     <div className="h-screen grid grid-rows-[auto_1fr]">
       <MainNavigation />
       <Switch>
+        <Route path="/network" component={NetworkPage} />
         <Route path="/ledgers" component={LedgersPage} />
         <Route path="/ledgers/create" component={CreateLedgerAccount} />
         <Route path="/ledgers/delete/:id" component={DeleteLedgerAccountPage} />

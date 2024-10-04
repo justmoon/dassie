@@ -28,7 +28,6 @@ import type { AccountPath } from "../../accounting/types/account-paths"
 import { Database } from "../../database/open-database"
 import { DATABASE_TABLE_IDS } from "../../database/schema"
 import { LogsStore } from "../../logger/stores/logs"
-import { NodeTableStore } from "../../peer-protocol/stores/node-table"
 import { RoutingTableSignal } from "../../routing/signals/routing-table"
 import { prettyFormat } from "../../utils/pretty-format"
 import { protectedRoute } from "../route-types/protected"
@@ -84,9 +83,6 @@ export const debugRouter = createRouter({
   }),
   subscribeToLogs: protectedRoute.subscription(({ context: { sig } }) => {
     return subscribeToStore(sig, LogsStore)
-  }),
-  subscribeNodeTable: protectedRoute.subscription(({ context: { sig } }) => {
-    return subscribeToSignal(sig, NodeTableStore)
   }),
   subscribeRoutingTable: protectedRoute.subscription(({ context: { sig } }) => {
     return subscribeToSignal(sig, RoutingTableSignal)

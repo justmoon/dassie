@@ -1,4 +1,10 @@
-import { useRemoteSignal } from "@dassie/lib-reactive-rpc/client"
+import { useMemo } from "react"
+
+import { NodeTableStore } from "@dassie/app-dassie/src/peer-protocol/stores/node-table"
+import {
+  useRemoteSignal,
+  useRemoteStore,
+} from "@dassie/lib-reactive-rpc/client"
 
 import {
   Table,
@@ -9,46 +15,27 @@ import {
   TableRow,
 } from "../../../components/ui/table"
 import { rpc } from "../../../utils/rpc"
+import { sortNodes } from "../../../utils/sort-nodes"
 
 export function Nodes() {
-  const nodeTable = useRemoteSignal(rpc.debug.subscribeNodeTable)
+  const nodeTable = useRemoteStore(
+    rpc.network.subscribeToNodeTableStore,
+    NodeTableStore,
+  )
   const routingTable = useRemoteSignal(rpc.debug.subscribeRoutingTable)
 
   const { data: ilpAllocationScheme } =
     rpc.general.getAllocationScheme.useQuery(undefined)
 
-  if (!ilpAllocationScheme || !nodeTable || !routingTable) {
+  const sortedNodeTable = useMemo(() => {
+    if (!ilpAllocationScheme || !routingTable) return undefined
+
+    return sortNodes(ilpAllocationScheme, nodeTable, routingTable)
+  }, [ilpAllocationScheme, nodeTable, routingTable])
+
+  if (!ilpAllocationScheme || !routingTable || !sortedNodeTable) {
     return null
   }
-
-  const sortedNodeTable = [...nodeTable.values()]
-    .map((node) => {
-      const routingTableEntry = routingTable.get(
-        `${ilpAllocationScheme}.das.${node.nodeId}`,
-      )
-
-      if (routingTableEntry?.type !== "peer") {
-        return {
-          ...node,
-          distance: Number.POSITIVE_INFINITY,
-          nextHopNodes: [],
-        }
-      }
-
-      return {
-        ...node,
-        distance: routingTableEntry.distance,
-        nextHopNodes: routingTableEntry.firstHopOptions,
-      }
-    })
-    // Sort first by distance, then by nodeId
-    .sort((a, b) => {
-      if (a.distance === b.distance) {
-        return a.nodeId.localeCompare(b.nodeId)
-      }
-
-      return a.distance - b.distance
-    })
 
   return (
     <div>

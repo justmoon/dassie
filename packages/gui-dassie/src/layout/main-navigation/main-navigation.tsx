@@ -26,6 +26,13 @@ export function MainNavigation() {
           </Link>
         </NavigationMenuItem>
         <NavigationMenuItem>
+          <Link href="/network" asChild>
+            <NavigationMenuLink className={navigationMenuTriggerStyle()}>
+              Network
+            </NavigationMenuLink>
+          </Link>
+        </NavigationMenuItem>
+        <NavigationMenuItem>
           <Link href="/ledgers" asChild>
             <NavigationMenuLink className={navigationMenuTriggerStyle()}>
               Ledgers

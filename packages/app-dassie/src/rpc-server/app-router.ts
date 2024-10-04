@@ -5,6 +5,7 @@ import { apiKeysRouter } from "../api-keys/rpc-routers/api-keys"
 import { configAdminRouter } from "../config/rpc-routers/config-admin"
 import { tlsAdminRouter } from "../http-server/rpc-routers/tls-admin"
 import { ledgersRouter } from "../ledgers/rpc-routers/ledgers"
+import { networkRouter } from "../peer-protocol/rpc-routers/network"
 import { registrationClientRouter } from "../registration-client/rpc-router/registration-client"
 import { debugRouter } from "./routers/debug"
 import { generalRouter } from "./routers/general"
@@ -19,6 +20,7 @@ export const appRouter = createRouter({
   config: configAdminRouter,
   apiKeys: apiKeysRouter,
   registrationClient: registrationClientRouter,
+  network: networkRouter,
   ledgers: ledgersRouter,
 })
 

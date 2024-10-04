@@ -1,5 +1,10 @@
 import useSize from "@react-hook/size"
-import { useCallback, useEffect, useRef } from "react"
+import {
+  type ComponentPropsWithoutRef,
+  useCallback,
+  useEffect,
+  useRef,
+} from "react"
 import ReactForceGraph2d, {
   type ForceGraphMethods,
   type GraphData,
@@ -11,6 +16,7 @@ import { selectBySeed } from "@dassie/lib-logger"
 import { type ReadonlyTopic, createScope } from "@dassie/lib-reactive"
 
 import { COLORS } from "../../../constants/palette"
+import { combine } from "../../../utils/class-helper"
 
 export interface PeerTrafficEvent {
   from: string
@@ -19,7 +25,7 @@ export interface PeerTrafficEvent {
 
 type PeerTrafficTopic = ReadonlyTopic<PeerTrafficEvent>
 
-interface NetworkGraphProperties {
+interface NetworkGraphProperties extends ComponentPropsWithoutRef<"div"> {
   graphData: GraphData
   peerTraffic?: PeerTrafficTopic | undefined
 }
@@ -29,6 +35,8 @@ export type { GraphData } from "react-force-graph-2d"
 export const NetworkGraph = ({
   graphData,
   peerTraffic,
+  className,
+  ...remainingProperties
 }: NetworkGraphProperties) => {
   const rootReference = useRef<HTMLDivElement>(null)
   const forceGraphReference = useRef<ForceGraphMethods>()
@@ -66,7 +74,11 @@ export const NetworkGraph = ({
   }, [peerTraffic, forceGraphReference, graphData])
 
   return (
-    <div className="h-full relative" ref={rootReference}>
+    <div
+      className={combine("h-full relative", className)}
+      {...remainingProperties}
+      ref={rootReference}
+    >
       <div className="absolute inset-0">
         <ReactForceGraph2d
           ref={forceGraphReference}
