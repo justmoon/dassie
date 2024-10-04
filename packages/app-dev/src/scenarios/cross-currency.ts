@@ -14,6 +14,7 @@ export const StartScenario = (reactor: Reactor) => {
   const ENVIRONMENT: Partial<EnvironmentSettings> = {
     defaultNodeSettings: {},
     additionalNodeStartIndex: 3,
+    registeredNodes: [0, 1, 2],
   }
 
   return async ({ context }: StartScenarioParameters) => {

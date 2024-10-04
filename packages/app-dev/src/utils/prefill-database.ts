@@ -13,6 +13,7 @@ import { type NodeConfig, generatePeerInfo } from "./generate-node-config"
 
 export const prefillDatabase = async ({
   id,
+  fullId,
   hostname,
   httpsPort,
   dataPath,
@@ -20,6 +21,8 @@ export const prefillDatabase = async ({
   tlsWebCertFile,
   tlsWebKeyFile,
   sessionToken,
+  bootstrapNodes,
+  registeredNodes,
   peers,
   settlementMethods,
 }: NodeConfig) => {
@@ -64,15 +67,31 @@ export const prefillDatabase = async ({
     })
   }
 
+  if (
+    bootstrapNodes.some(({ id: bootstrapNodeId }) => bootstrapNodeId === fullId)
+  ) {
+    for (const node of registeredNodes) {
+      database.tables.nodes.insertOne({
+        id: node.id,
+        public_key: Buffer.from(node.publicKey),
+        url: node.url,
+        alias: node.alias,
+      })
+    }
+  }
+
   for (const peer of peers) {
     const peerInfo = generatePeerInfo(peer)
 
-    const { lastInsertRowid: nodeRowid } = database.tables.nodes.insertOne({
-      id: peerInfo.nodeId,
-      public_key: Buffer.from(peerInfo.nodePublicKey),
-      url: peerInfo.url,
-      alias: peerInfo.alias,
-    })
+    const { lastInsertRowid: nodeRowid } = database.tables.nodes.insertOne(
+      {
+        id: peerInfo.nodeId,
+        public_key: Buffer.from(peerInfo.nodePublicKey),
+        url: peerInfo.url,
+        alias: peerInfo.alias,
+      },
+      { ignoreConflicts: true },
+    )
 
     database.tables.peers.insertOne({
       node: nodeRowid,

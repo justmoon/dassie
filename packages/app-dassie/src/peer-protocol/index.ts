@@ -11,7 +11,6 @@ import { MaintainPeeringRelationshipsActor } from "./maintain-peering-relationsh
 import { PersistNodeTableActor } from "./persist-node-table"
 import { PollNodeListHashesActor } from "./poll-node-list-hashes"
 import { RefreshNodeStateActor } from "./refresh-node-state"
-import { RegisterOurselvesActor } from "./register-ourselves"
 import { RegisterPeerHttpHandlerActor } from "./register-peer-http-handler"
 import { SendHeartbeatsActor } from "./send-heartbeats"
 
@@ -28,7 +27,6 @@ export const PeerProtocolActor = () =>
     await sig.run(PollNodeListHashesActor)
     await sig.run(DownloadNodeListsActor)
     sig.run(AddMajorityNodesActor)
-    await sig.run(RegisterOurselvesActor)
     sig.run(BroadcastStateUpdatesActor)
     await sig.run(RefreshNodeStateActor)
 

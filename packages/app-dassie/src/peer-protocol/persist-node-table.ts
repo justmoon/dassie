@@ -5,6 +5,34 @@ import { createActor, watchStoreChanges } from "@dassie/lib-reactive"
 import { Database } from "../database/open-database"
 import { type NodeTableEntry, NodeTableStore } from "./stores/node-table"
 import type { NodeId } from "./types/node-id"
+import type { SettlementSchemeId } from "./types/settlement-scheme-id"
+
+function formatPeerState(
+  settlementSchemeId: SettlementSchemeId | null,
+  settlementSchemeState: string | null,
+) {
+  if (!settlementSchemeId || !settlementSchemeState) {
+    return { id: "none" as const }
+  }
+
+  const settlementSchemeStateParsed = JSON.parse(
+    settlementSchemeState,
+  ) as unknown
+
+  if (
+    !settlementSchemeStateParsed ||
+    typeof settlementSchemeStateParsed !== "object"
+  ) {
+    throw new Error("Invalid settlement scheme state")
+  }
+
+  return {
+    id: "peered" as const,
+    lastSeen: 0,
+    settlementSchemeId,
+    settlementSchemeState: settlementSchemeStateParsed,
+  }
+}
 
 export const PersistNodeTableActor = () =>
   createActor((sig) => {
@@ -23,26 +51,13 @@ export const PersistNodeTableActor = () =>
     const initialNodesMap = new Map<NodeId, NodeTableEntry>()
 
     for (const row of result) {
-      const settlementSchemeState = JSON.parse(
-        row.settlement_scheme_state!,
-      ) as unknown
-
-      if (!settlementSchemeState || typeof settlementSchemeState !== "object") {
-        throw new Error("Invalid settlement scheme state")
-      }
-
       initialNodesMap.set(row.id, {
         nodeId: row.id,
         linkState: undefined,
-        peerState:
-          row.settlement_scheme_id ?
-            {
-              id: "peered",
-              lastSeen: 0,
-              settlementSchemeId: row.settlement_scheme_id,
-              settlementSchemeState,
-            }
-          : { id: "none" },
+        peerState: formatPeerState(
+          row.settlement_scheme_id,
+          row.settlement_scheme_state,
+        ),
       })
     }
 

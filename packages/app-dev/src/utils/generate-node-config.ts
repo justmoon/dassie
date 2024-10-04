@@ -144,6 +144,7 @@ export const generateNodeConfig = ((
   return {
     index,
     id,
+    fullId: nodeIndexToId(index),
     hostname: `${id}.localhost`,
     httpsPort: port,
     debugPort: NODES_DEBUG_START_PORT + index,
@@ -165,6 +166,18 @@ export const generateNodeConfig = ((
         ),
       }
     }),
+    registeredNodes: completeEnvironmentSettings.registeredNodes.map(
+      (index) => {
+        return {
+          id: nodeIndexToId(index),
+          url: nodeIndexToUrl(index),
+          publicKey: Buffer.from(nodeIndexToPublicKey(index)).toString(
+            "base64url",
+          ),
+          alias: nodeIndexToFriendlyId(index),
+        }
+      },
+    ),
     settlementMethods: completeNodeSettings.settlementMethods,
     url: nodeIndexToUrl(index),
     entry: NODE_ENTRYPOINT,
