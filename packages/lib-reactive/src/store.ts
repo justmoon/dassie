@@ -1,9 +1,11 @@
 import { isObject } from "@dassie/lib-type-utils"
 
 import { createReactiveTopic } from "./internal/reactive-topic"
+import type { Scope } from "./scope"
 import { type Signal, SignalImplementation } from "./signal"
 import { type ReadonlyTopic, type Topic, createTopic } from "./topic"
 import type { FactoryOrInstance } from "./types/factory"
+import type { ScopeContext } from "./types/scope-context"
 
 export const StoreSymbol = Symbol("das:reactive:store")
 
@@ -160,3 +162,14 @@ export const isStore = (
   object: unknown,
 ): object is Store<unknown, Record<string, Action>> =>
   isObject(object) && object[StoreSymbol] === true
+
+export const watchStoreChanges = <TStore extends AnyStore>(
+  scope: ScopeContext | Scope | undefined,
+  store: TStore,
+  handlers: InferActionHandlers<TStore>,
+) => {
+  store.changes.on(scope, ([actionId, parameters]) => {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+    handlers[actionId]?.(...parameters)
+  })
+}

@@ -1,7 +1,7 @@
 export { createTopic, isTopic, TopicSymbol } from "./topic"
 export { createSignal, isSignal, SignalSymbol } from "./signal"
 export { createActor, isActor, ActorSymbol } from "./actor"
-export { createStore, isStore, StoreSymbol } from "./store"
+export { createStore, isStore, StoreSymbol, watchStoreChanges } from "./store"
 export { createComputed, isComputed, ComputedSymbol } from "./computed"
 export { createMapped, isMapped, MappedSymbol } from "./mapped"
 export {
