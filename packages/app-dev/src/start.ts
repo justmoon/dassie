@@ -6,6 +6,7 @@ import { createActor, createReactor } from "@dassie/lib-reactive"
 import { ApplyDebugLoggingScopes } from "./actors/apply-debug-logging-scopes"
 import { HandleFileChangeActor } from "./actors/handle-file-change"
 import { HandleShutdownSignalsActor } from "./actors/handle-shutdown-signals"
+import { PersistScenarioActor } from "./actors/persist-scenario"
 import { ProxyByHostnameActor } from "./actors/proxy-by-hostname"
 import { RegisterReactiveLoggerActor } from "./actors/register-reactive-logger"
 import { RunScenarioActor } from "./actors/run-scenario"
@@ -33,6 +34,8 @@ export const RootActor = () =>
       void sig.reactor.dispose()
       return
     }
+
+    sig.run(PersistScenarioActor)
 
     await sig.run(ServeUiRpcActor)
     sig.run(ServeRunnerRpcActor)

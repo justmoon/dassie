@@ -15,12 +15,12 @@ export const StartScenario = (reactor: Reactor) => {
   const environmentStore = reactor.use(EnvironmentStore)
   const startNode = reactor.use(StartNode)
 
-  environmentStore.act.applyEnvironment({
-    additionalNodeStartIndex: NODE_COUNT,
-    registeredNodes: Array.from({ length: NODE_COUNT }, (_, index) => index),
-  })
-
   return async ({ context }: StartScenarioParameters) => {
+    environmentStore.act.applyEnvironment({
+      additionalNodeStartIndex: NODE_COUNT,
+      registeredNodes: Array.from({ length: NODE_COUNT }, (_, index) => index),
+    })
+
     for (let index = 0; index < 6; index++) {
       const node = generateNodeConfig(index, {}, environmentStore.read())
       await startNode({ context, node })

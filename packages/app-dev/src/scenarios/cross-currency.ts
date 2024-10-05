@@ -12,13 +12,14 @@ export const description =
 export const StartScenario = (reactor: Reactor) => {
   const environmentStore = reactor.use(EnvironmentStore)
   const startNode = reactor.use(StartNode)
-  environmentStore.act.applyEnvironment({
-    defaultNodeSettings: {},
-    additionalNodeStartIndex: 3,
-    registeredNodes: [0, 1, 2],
-  })
 
   return async ({ context }: StartScenarioParameters) => {
+    environmentStore.act.applyEnvironment({
+      defaultNodeSettings: {},
+      additionalNodeStartIndex: 3,
+      registeredNodes: [0, 1, 2],
+    })
+
     const node1 = generateNodeConfig(
       0,
       {
