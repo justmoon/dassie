@@ -22,7 +22,7 @@ export interface PeerSettings {
 }
 
 export const DEFAULT_ENVIRONMENT: EnvironmentSettings = {
-  additionalNodeStartIndex: 0,
+  additionalNodeStartIndex: 2,
   defaultNodeSettings: {},
   bootstrapNodes: [0, 1],
   registeredNodes: [0, 1],
@@ -33,5 +33,12 @@ export const EnvironmentStore = () => {
 
   return createStore(initialEnvironment).actions({
     setEnvironment: (environment: EnvironmentSettings) => () => environment,
+    // eslint-disable-next-line unicorn/consistent-function-scoping
+    resetEnvironment: () => () => DEFAULT_ENVIRONMENT,
+    applyEnvironment:
+      (environment: Partial<EnvironmentSettings>) => (currentEnvironment) => ({
+        ...currentEnvironment,
+        ...environment,
+      }),
   })
 }

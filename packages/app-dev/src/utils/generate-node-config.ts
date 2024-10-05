@@ -125,7 +125,7 @@ export const generatePeerInfo = ({ index, settlement }: PeerSettings) => ({
 export const generateNodeConfig = ((
   index,
   nodeSettings,
-  environmentSettings,
+  environmentSettings = {},
 ) => {
   const completeEnvironmentSettings: EnvironmentSettings = {
     ...DEFAULT_ENVIRONMENT,
@@ -185,5 +185,5 @@ export const generateNodeConfig = ((
 }) satisfies (
   index: number,
   nodeConfig: NodeSettings,
-  environmentSettings: Partial<EnvironmentSettings>,
+  environmentSettings?: Partial<EnvironmentSettings>,
 ) => BaseNodeConfig

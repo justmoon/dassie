@@ -1,7 +1,7 @@
 import type { Reactor } from "@dassie/lib-reactive"
 
 import { StartNode } from "../functions/start-node"
-import type { EnvironmentSettings } from "../stores/environment"
+import { EnvironmentStore } from "../stores/environment"
 import { generateNodeConfig } from "../utils/generate-node-config"
 import type { StartScenarioParameters } from "./common"
 
@@ -10,13 +10,14 @@ export const description =
   "Network with two nodes using XRPL testnet settlement"
 
 export const StartScenario = (reactor: Reactor) => {
+  const environmentStore = reactor.use(EnvironmentStore)
   const startNode = reactor.use(StartNode)
-  const ENVIRONMENT: Partial<EnvironmentSettings> = {
+  environmentStore.act.applyEnvironment({
     defaultNodeSettings: {
       settlementMethods: ["xrpl-testnet"],
     },
     additionalNodeStartIndex: 2,
-  }
+  })
 
   return async ({ context }: StartScenarioParameters) => {
     const node1 = generateNodeConfig(
@@ -24,7 +25,7 @@ export const StartScenario = (reactor: Reactor) => {
       {
         settlementMethods: ["xrpl-testnet"],
       },
-      ENVIRONMENT,
+      environmentStore.read(),
     )
     await startNode({ context, node: node1 })
 
@@ -33,7 +34,7 @@ export const StartScenario = (reactor: Reactor) => {
       {
         settlementMethods: ["xrpl-testnet"],
       },
-      ENVIRONMENT,
+      environmentStore.read(),
     )
     await startNode({ context, node: node2 })
   }

@@ -10,13 +10,12 @@ export const description =
 
 export const StartScenario = (reactor: Reactor) => {
   const startNode = reactor.use(StartNode)
-  const ENVIRONMENT = {}
 
   return async ({ context }: StartScenarioParameters) => {
-    const node1 = generateNodeConfig(0, {}, ENVIRONMENT)
+    const node1 = generateNodeConfig(0, {})
     await startNode({ context, node: node1 })
 
-    const node2 = generateNodeConfig(1, {}, ENVIRONMENT)
+    const node2 = generateNodeConfig(1, {})
     await startNode({ context, node: node2 })
   }
 }
