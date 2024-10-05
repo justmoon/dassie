@@ -26,6 +26,7 @@ export const generalRouter = createRouter({
     const hostname = sig.read(DatabaseConfigStore).hostname
 
     const nodeId = sig.read(NodeIdSignal)
+    const ilpAllocationScheme = sig.read(IlpAllocationSchemeSignal)
 
     // Please note that this is a public method that anyone can call so don't
     // return any non-public information here.
@@ -35,12 +36,10 @@ export const generalRouter = createRouter({
       nodeCount,
       hostname,
       nodeId,
+      ilpAllocationScheme,
     } as const
   }),
   subscribeBalance: protectedRoute.subscription(({ context: { sig } }) => {
     return subscribeToSignal(sig, TotalOwnerBalanceSignal)
-  }),
-  getAllocationScheme: protectedRoute.query(({ context: { sig } }) => {
-    return sig.read(IlpAllocationSchemeSignal)
   }),
 })

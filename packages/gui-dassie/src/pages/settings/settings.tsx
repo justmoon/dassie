@@ -1,11 +1,12 @@
 import { useMutation } from "@tanstack/react-query"
+import { ExternalLinkIcon } from "lucide-react"
+import { Link } from "wouter"
 
 import { Button } from "../../components/ui/button"
 import { logout } from "../../utils/authentication"
 import { extend } from "../../utils/class-helper"
 import { rpc } from "../../utils/rpc"
 import { ApiKeysSettings } from "./api-keys/api-keys"
-import { RegistrationSettings } from "./registration/registration"
 
 const SettingsSection = extend(
   "SettingsSection",
@@ -78,13 +79,17 @@ export const Settings = () => {
       </SettingsSection>
       <SettingsSection>
         <SettingsSectionHeader>
-          <SettingsSectionTitle>Registration</SettingsSectionTitle>
+          <SettingsSectionTitle>Node Settings</SettingsSectionTitle>
           <SettingsSectionDescription>
-            Register your node as a tier-1 node
+            Edit your node settings
           </SettingsSectionDescription>
         </SettingsSectionHeader>
         <SettingsSectionContent>
-          <RegistrationSettings />
+          <Link href="/network">
+            <Button>
+              Edit Node Settings <ExternalLinkIcon className="size-4 ml-2" />
+            </Button>
+          </Link>
         </SettingsSectionContent>
       </SettingsSection>
       <SettingsSection>

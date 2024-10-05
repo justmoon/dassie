@@ -3,9 +3,9 @@ import { useState } from "react"
 
 import { useRemoteSignal } from "@dassie/lib-reactive-rpc/client"
 
-import { Button } from "../../../components/ui/button"
-import { combine } from "../../../utils/class-helper"
-import { rpc } from "../../../utils/rpc"
+import { Button } from "../../../../components/ui/button"
+import { combine } from "../../../../utils/class-helper"
+import { rpc } from "../../../../utils/rpc"
 import { RegistrationAdvancedSettings } from "./registration-advanced"
 import { RegistrationStatusBadge } from "./registration-status-badge"
 

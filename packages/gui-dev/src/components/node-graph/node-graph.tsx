@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useReducer, useState } from "react"
+import { useLocation } from "wouter"
 
 import type { PeerMessageMetadata } from "@dassie/app-dev/src/topics/peer-traffic"
 import {
@@ -16,6 +17,14 @@ const generateNode = (nodeId: string) => ({ id: nodeId })
 const NodeGraph = () => {
   const peeringState = useRemoteSignal(rpc.subscribeToPeeringState)
   const [peerTrafficTopic] = useState(() => createTopic<PeerTrafficEvent>())
+  const [, setLocation] = useLocation()
+
+  const handleNodeClick = useCallback(
+    (nodeId: string) => {
+      setLocation(`/nodes/${String(nodeId)}`)
+    },
+    [setLocation],
+  )
 
   rpc.subscribeToPeerTraffic.useSubscription(undefined, {
     onData: useCallback(
@@ -70,7 +79,13 @@ const NodeGraph = () => {
     dispatchGraphData({ nodes: Object.keys(peeringState), peeringState })
   }, [peeringState])
 
-  return <NetworkGraph graphData={graphData} peerTraffic={peerTrafficTopic} />
+  return (
+    <NetworkGraph
+      graphData={graphData}
+      peerTraffic={peerTrafficTopic}
+      onNodeClick={handleNodeClick}
+    />
+  )
 }
 
 export default NodeGraph

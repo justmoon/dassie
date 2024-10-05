@@ -24,8 +24,8 @@ export function Nodes() {
   )
   const routingTable = useRemoteSignal(rpc.debug.subscribeRoutingTable)
 
-  const { data: ilpAllocationScheme } =
-    rpc.general.getAllocationScheme.useQuery(undefined)
+  const { data: basicState } = rpc.general.getBasicState.useQuery()
+  const ilpAllocationScheme = basicState?.ilpAllocationScheme
 
   const sortedNodeTable = useMemo(() => {
     if (!ilpAllocationScheme || !routingTable) return undefined

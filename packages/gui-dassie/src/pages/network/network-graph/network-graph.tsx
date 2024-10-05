@@ -10,7 +10,6 @@ import ReactForceGraph2d, {
   type GraphData,
   type NodeObject,
 } from "react-force-graph-2d"
-import { useLocation } from "wouter"
 
 import { selectBySeed } from "@dassie/lib-logger"
 import { type ReadonlyTopic, createScope } from "@dassie/lib-reactive"
@@ -28,6 +27,7 @@ type PeerTrafficTopic = ReadonlyTopic<PeerTrafficEvent>
 interface NetworkGraphProperties extends ComponentPropsWithoutRef<"div"> {
   graphData: GraphData
   peerTraffic?: PeerTrafficTopic | undefined
+  onNodeClick?: ((nodeId: string) => void) | undefined
 }
 
 export type { GraphData } from "react-force-graph-2d"
@@ -35,19 +35,19 @@ export type { GraphData } from "react-force-graph-2d"
 export const NetworkGraph = ({
   graphData,
   peerTraffic,
+  onNodeClick,
   className,
   ...remainingProperties
 }: NetworkGraphProperties) => {
   const rootReference = useRef<HTMLDivElement>(null)
   const forceGraphReference = useRef<ForceGraphMethods>()
   const [width, height] = useSize(rootReference)
-  const [, setLocation] = useLocation()
 
   const handleNodeClick = useCallback(
     ({ id }: NodeObject) => {
-      setLocation(`/nodes/${String(id)}`)
+      if (id && typeof id === "string") onNodeClick?.(id)
     },
-    [setLocation],
+    [onNodeClick],
   )
 
   const generateLinkColor = useCallback(() => "#ffffff", [])

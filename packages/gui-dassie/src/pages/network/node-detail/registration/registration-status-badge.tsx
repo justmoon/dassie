@@ -1,4 +1,4 @@
-import { combine } from "../../../utils/class-helper"
+import { combine } from "../../../../utils/class-helper"
 
 interface RegistrationStatusBadgeProperties {
   registered: boolean

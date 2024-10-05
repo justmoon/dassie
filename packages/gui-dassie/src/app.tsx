@@ -43,6 +43,7 @@ const App = () => {
       <MainNavigation />
       <Switch>
         <Route path="/network" component={NetworkPage} />
+        <Route path="/network/:nodeId" component={NetworkPage} />
         <Route path="/ledgers" component={LedgersPage} />
         <Route path="/ledgers/create" component={CreateLedgerAccount} />
         <Route path="/ledgers/delete/:id" component={DeleteLedgerAccountPage} />
