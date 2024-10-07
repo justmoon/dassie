@@ -1,7 +1,6 @@
-import type { Reactor } from "@dassie/lib-reactive"
-
 import { StartNode } from "../functions/start-node"
 import { EnvironmentStore } from "../stores/environment"
+import type { DevelopmentReactor } from "../types/development-base"
 import { generateNodeConfig } from "../utils/generate-node-config"
 import type { StartScenarioParameters } from "./common"
 
@@ -9,7 +8,7 @@ export const name = "Cross-currency Settlement"
 export const description =
   "Two nodes using different settlement methods (stub and XRPL testnet) and a third node supporting both"
 
-export const StartScenario = (reactor: Reactor) => {
+export const StartScenario = (reactor: DevelopmentReactor) => {
   const environmentStore = reactor.use(EnvironmentStore)
   const startNode = reactor.use(StartNode)
 

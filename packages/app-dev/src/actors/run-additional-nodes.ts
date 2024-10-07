@@ -6,6 +6,7 @@ import { StartNode } from "../functions/start-node"
 import { children as logger } from "../logger/instances"
 import { AdditionalNodesStore } from "../stores/additional-nodes"
 import { EnvironmentStore } from "../stores/environment"
+import type { DevelopmentReactor } from "../types/development-base"
 import { generateNodeConfig } from "../utils/generate-node-config"
 
 // Amount of time to wait between starting each node process
@@ -21,7 +22,7 @@ export interface NodeDefinition<T> {
   entry?: string
 }
 
-export const RunAdditionalNodesActor = (reactor: Reactor) => {
+export const RunAdditionalNodesActor = (reactor: DevelopmentReactor) => {
   const environmentStore = reactor.use(EnvironmentStore)
   const startNode = reactor.use(StartNode)
 

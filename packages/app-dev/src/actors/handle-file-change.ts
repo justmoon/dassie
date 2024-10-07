@@ -3,7 +3,7 @@ import { ModuleNode } from "vite"
 
 import path from "node:path"
 
-import { type Reactor, createActor } from "@dassie/lib-reactive"
+import { createActor } from "@dassie/lib-reactive"
 
 import {
   DEVELOPMENT_SERVER_ENTRYPOINT,
@@ -11,8 +11,7 @@ import {
 } from "../constants/entrypoints"
 import { vite as logger } from "../logger/instances"
 import { PeeringStateStore } from "../stores/peering-state"
-import { ViteNodeServer } from "../unconstructables/vite-node-server"
-import { ViteServer } from "../unconstructables/vite-server"
+import type { DevelopmentReactor } from "../types/development-base"
 import { RunScenarioActor } from "./run-scenario"
 
 export function getShortName(file: string, root: string): string {
@@ -57,9 +56,8 @@ const areModulesWithinBoundary = (
   return false
 }
 
-export const HandleFileChangeActor = (reactor: Reactor) => {
-  const viteServer = reactor.use(ViteServer)
-  const viteNodeServer = reactor.use(ViteNodeServer)
+export const HandleFileChangeActor = (reactor: DevelopmentReactor) => {
+  const { viteServer, viteNodeServer } = reactor.base
   const peeringStateStore = reactor.use(PeeringStateStore)
   const runScenarioActor = reactor.use(RunScenarioActor)
 

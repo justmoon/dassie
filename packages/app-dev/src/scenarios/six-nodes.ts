@@ -1,7 +1,6 @@
-import type { Reactor } from "@dassie/lib-reactive"
-
 import { StartNode } from "../functions/start-node"
 import { EnvironmentStore } from "../stores/environment"
+import type { DevelopmentReactor } from "../types/development-base"
 import { generateNodeConfig } from "../utils/generate-node-config"
 import type { StartScenarioParameters } from "./common"
 
@@ -11,7 +10,7 @@ export const name = "Six Simple Nodes"
 export const description =
   "Network with six nodes using default configuration and stub settlement"
 
-export const StartScenario = (reactor: Reactor) => {
+export const StartScenario = (reactor: DevelopmentReactor) => {
   const environmentStore = reactor.use(EnvironmentStore)
   const startNode = reactor.use(StartNode)
 

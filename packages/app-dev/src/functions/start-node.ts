@@ -1,12 +1,11 @@
-import type { AbortContext, Reactor, ScopeContext } from "@dassie/lib-reactive"
+import type { AbortContext, ScopeContext } from "@dassie/lib-reactive"
 
 import { DEBUG_UI_RPC_PORT } from "../constants/ports"
 import { DebugScopesSignal } from "../signals/debug-scopes"
 import { SecurityTokenSignal } from "../signals/security-token"
 import { ActiveNodesStore } from "../stores/active-nodes"
+import type { DevelopmentReactor } from "../types/development-base"
 import type { RunnerEnvironment } from "../types/runner-environment"
-import { ViteNodeServer } from "../unconstructables/vite-node-server"
-import { ViteServer } from "../unconstructables/vite-server"
 import type { NodeConfig } from "../utils/generate-node-config"
 import { prefillDatabase } from "../utils/prefill-database"
 import { prepareDataDirectory } from "../utils/prepare-data-directory"
@@ -21,12 +20,11 @@ export interface StartNodeParameters {
   context: ScopeContext & AbortContext
 }
 
-export const StartNode = (reactor: Reactor) => {
+export const StartNode = (reactor: DevelopmentReactor) => {
   const debugScopesSignal = reactor.use(DebugScopesSignal)
   const runChildProcess = reactor.use(RunChildProcess)
   const securityTokenSignal = reactor.use(SecurityTokenSignal)
-  const viteServer = reactor.use(ViteServer)
-  const viteNodeServer = reactor.use(ViteNodeServer)
+  const { viteServer, viteNodeServer } = reactor.base
   const activeNodesStore = reactor.use(ActiveNodesStore)
 
   return async ({ node, context }: StartNodeParameters) => {

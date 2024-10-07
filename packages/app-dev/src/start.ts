@@ -1,6 +1,3 @@
-import type { ViteDevServer } from "vite"
-import { ViteNodeServer as ViteNodeServerType } from "vite-node/server"
-
 import { createActor, createReactor } from "@dassie/lib-reactive"
 
 import { ApplyDebugLoggingScopes } from "./actors/apply-debug-logging-scopes"
@@ -14,16 +11,13 @@ import { DebugUiServerActor } from "./actors/serve-gui"
 import { ServeRunnerRpcActor } from "./actors/serve-runner-rpc"
 import { ServeUiRpcActor } from "./actors/serve-ui-rpc"
 import { verifyPrerequisites } from "./functions/verify-prerequisites"
-import { ViteNodeServer } from "./unconstructables/vite-node-server"
-import { ViteServer } from "./unconstructables/vite-server"
-
-export interface StartParameters {
-  viteServer: ViteDevServer
-  viteNodeServer: ViteNodeServerType
-}
+import type {
+  DevelopmentActorContext,
+  DevelopmentBase,
+} from "./types/development-base"
 
 export const RootActor = () =>
-  createActor(async (sig) => {
+  createActor(async (sig: DevelopmentActorContext) => {
     sig.run(RegisterReactiveLoggerActor)
     sig.run(ApplyDebugLoggingScopes)
 
@@ -49,17 +43,9 @@ export const RootActor = () =>
     sig.run(HandleShutdownSignalsActor)
   })
 
-export const prepareReactor = ({
-  viteServer,
-  viteNodeServer,
-}: StartParameters) => {
-  const reactor = createReactor()
-  reactor.set(ViteServer, viteServer)
-  reactor.set(ViteNodeServer, viteNodeServer)
-  return reactor
-}
-
-const start = async (parameters: StartParameters) => {
+export const prepareReactor = (parameters: DevelopmentBase) =>
+  createReactor().withBase(parameters)
+const start = async (parameters: DevelopmentBase) => {
   const reactor = prepareReactor(parameters)
   const startActor = reactor.use(RootActor)
   await startActor.run(reactor)
