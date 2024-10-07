@@ -80,10 +80,15 @@ let isRestartQueued = false
 /** @type Promise<void> | undefined */
 let startupPromise
 
-const start = async () => {
+const start = async (/** @type boolean */ isFirst = false) => {
   const { prepareReactor, RootActor } = await getStartModule()
 
-  const reactor = prepareReactor({ viteServer, viteNodeServer })
+  const reactor = prepareReactor({
+    viteServer,
+    viteNodeServer,
+    restart,
+    isFirst,
+  })
 
   reactor.onCleanup(async () => {
     if (!isRestartQueued) {
@@ -127,7 +132,7 @@ const isWithinBoundary = (
 log(chalk.bold(`  Dassie${chalk.green("//dev")}\n`))
 log("  Starting development server...\n")
 
-let reactor = await start()
+let reactor = await start(true)
 
 viteServer.watcher.on("change", (/** @type string */ file) => {
   const { moduleGraph } = viteServer

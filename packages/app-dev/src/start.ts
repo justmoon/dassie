@@ -3,6 +3,7 @@ import { createActor, createReactor } from "@dassie/lib-reactive"
 import { ApplyDebugLoggingScopes } from "./actors/apply-debug-logging-scopes"
 import { HandleFileChangeActor } from "./actors/handle-file-change"
 import { HandleShutdownSignalsActor } from "./actors/handle-shutdown-signals"
+import { ListenForKeyboardShortcutsActor } from "./actors/listen-for-keyboard-shortcuts"
 import { PersistScenarioActor } from "./actors/persist-scenario"
 import { ProxyByHostnameActor } from "./actors/proxy-by-hostname"
 import { RegisterReactiveLoggerActor } from "./actors/register-reactive-logger"
@@ -38,13 +39,15 @@ export const RootActor = () =>
 
     sig.run(ProxyByHostnameActor)
 
+    sig.run(ListenForKeyboardShortcutsActor)
+
     sig.run(HandleFileChangeActor)
     await sig.run(RunScenarioActor)
-
   })
 
 export const prepareReactor = (parameters: DevelopmentBase) =>
   createReactor().withBase(parameters)
+
 const start = async (parameters: DevelopmentBase) => {
   const reactor = prepareReactor(parameters)
   const startActor = reactor.use(RootActor)
