@@ -160,6 +160,9 @@ export const RunChildProcess = (reactor: Reactor) => {
     })
 
     scope.onCleanup((): Promisable<void> => {
+      // Stop waiting for child to start
+      ready.resolve()
+
       if (child) {
         child.removeListener("exit", handleChildExit)
         child.removeListener("message", handleChildMessage)
@@ -167,7 +170,7 @@ export const RunChildProcess = (reactor: Reactor) => {
         child.disconnect()
 
         const childReference = child
-        return new Promise((resolve) => {
+        return new Promise<void>((resolve) => {
           const handleExit = () => {
             clearTimeout(timer)
             resolve()
@@ -178,9 +181,10 @@ export const RunChildProcess = (reactor: Reactor) => {
             childReference.kill("SIGKILL")
             resolve()
           }, CHILD_SHUTDOWN_GRACE_PERIOD)
+        }).finally(() => {
+          timeoutAbort.abort()
         })
       }
-      timeoutAbort.abort()
     })
 
     // Wait for ready message from child to indicate it is ready

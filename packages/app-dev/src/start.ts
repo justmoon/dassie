@@ -20,6 +20,7 @@ export const RootActor = () =>
   createActor(async (sig: DevelopmentActorContext) => {
     sig.run(RegisterReactiveLoggerActor)
     sig.run(ApplyDebugLoggingScopes)
+    sig.run(HandleShutdownSignalsActor)
 
     const isValidEnvironment = await verifyPrerequisites()
 
@@ -40,7 +41,6 @@ export const RootActor = () =>
     sig.run(HandleFileChangeActor)
     await sig.run(RunScenarioActor)
 
-    sig.run(HandleShutdownSignalsActor)
   })
 
 export const prepareReactor = (parameters: DevelopmentBase) =>

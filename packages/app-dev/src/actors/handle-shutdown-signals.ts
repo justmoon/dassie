@@ -1,3 +1,4 @@
+import chalk from "chalk"
 import { dump } from "wtfnode"
 
 import process from "node:process"
@@ -8,7 +9,15 @@ const OPEN_HANDLES_GRACE_PERIOD = 500
 
 export const HandleShutdownSignalsActor = (reactor: Reactor) =>
   createActor((sig) => {
-    const onShutdown = () => {
+    const handleShutdown = () => {
+      // eslint-disable-next-line no-console
+      console.log(chalk.red("\n  Shutting down development server...\n"))
+
+      // Immediately unregister signal handlers which enables the user to
+      // forcefully quit the process by pressing ctrl+c again.
+      process.off("SIGTERM", handleShutdown)
+      process.off("SIGINT", handleShutdown)
+
       reactor
         .dispose()
         .then(() => {
@@ -23,12 +32,16 @@ export const HandleShutdownSignalsActor = (reactor: Reactor) =>
         })
     }
 
-    process.on("SIGTERM", onShutdown)
-    process.on("SIGINT", onShutdown)
+    process.on("SIGTERM", handleShutdown)
+    process.on("SIGINT", handleShutdown)
     process.report.reportOnSignal = true
 
     sig.onCleanup(() => {
-      process.off("SIGTERM", onShutdown)
-      process.off("SIGINT", onShutdown)
+      process.off("SIGTERM", handleShutdown)
+      process.off("SIGINT", handleShutdown)
     })
+
+    return {
+      handleShutdown,
+    }
   })
