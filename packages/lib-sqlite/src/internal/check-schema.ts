@@ -47,6 +47,14 @@ export const checkSchema = (
       throw new Error(`Table "${table.name}" should be marked STRICT but isn't`)
     }
 
+    if ((actualTables[table.name]?.wr === 1n) !== !!table.withoutRowid) {
+      throw new Error(
+        table.withoutRowid ?
+          `Table "${table.name}" should be WITHOUT ROWID but isn't`
+        : `Table "${table.name}" should not be WITHOUT ROWID but is`,
+      )
+    }
+
     for (const [columnName, expectedSchema] of Object.entries(table.columns)) {
       const actualSchema = actualColumns.find(
         (schema) => schema.name === columnName,

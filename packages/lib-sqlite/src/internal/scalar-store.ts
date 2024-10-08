@@ -34,6 +34,7 @@ export const scalarTable = table({
     key: column().type("TEXT").notNull().primaryKey(),
     value: column().type("ANY").notNull(),
   },
+  withoutRowid: true,
 })
 
 export const createScalarStore = <

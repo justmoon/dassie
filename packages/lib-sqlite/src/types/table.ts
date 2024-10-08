@@ -11,11 +11,13 @@ import type { SqliteToTypescriptTypeMap } from "./sqlite-datatypes"
 export interface TableDescription {
   name: string
   columns: Record<string, ColumnDescription>
+  withoutRowid: boolean
 }
 
 export interface TableOptions {
   name: string
   columns: Record<string, { description: AnyColumnDescription }>
+  withoutRowid?: boolean | undefined
 }
 
 export interface InferTableDescription<T extends TableOptions = TableOptions>
@@ -28,11 +30,17 @@ export interface InferTableDescription<T extends TableOptions = TableOptions>
       ColumnDescription<Simplify<T>>
     : never
   }
+  withoutRowid: T["withoutRowid"] extends true ? true : false
 }
 
 export type InferRow<T extends TableDescription> = {
   [K in keyof T["columns"]]: InferColumnTypescriptType<T["columns"][K]>
 }
+
+export type InferRowWithRowid<T extends TableDescription> = Simplify<
+  InferRow<T> &
+    (T["withoutRowid"] extends true ? {} : { readonly rowid: bigint })
+>
 
 export type InferInsertRow<T extends TableDescription> = {
   [K in keyof T["columns"] as InferColumnRequired<T["columns"][K]> extends (

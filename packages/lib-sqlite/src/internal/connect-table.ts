@@ -1,7 +1,12 @@
 import type { Database, RunResult } from "better-sqlite3"
 import type { Simplify } from "type-fest"
 
-import type { InferInsertRow, InferRow, TableDescription } from "../types/table"
+import type {
+  InferInsertRow,
+  InferRow,
+  InferRowWithRowid,
+  TableDescription,
+} from "../types/table"
 
 export type BigIntRunResult = RunResult & {
   lastInsertRowid: bigint
@@ -28,14 +33,16 @@ export interface ConnectedTable<TTable extends TableDescription> {
    * @param row - An object which will be used to filter the rows.
    * @returns An array of rows matching the given criteria.
    */
-  select: (row?: Partial<InferRow<TTable>>) => Simplify<InferRow<TTable>>[]
+  select: (
+    row?: Partial<InferRowWithRowid<TTable>>,
+  ) => Simplify<InferRowWithRowid<TTable>>[]
 
   /**
    * Fetch all rows from the database.
    *
    * @returns An array of all rows in the table.
    */
-  selectAll: () => Simplify<InferRow<TTable>>[]
+  selectAll: () => Simplify<InferRowWithRowid<TTable>>[]
 
   /**
    * Fetch a unique row from the database.
@@ -44,14 +51,14 @@ export interface ConnectedTable<TTable extends TableDescription> {
    * @returns The first row matching the given criteria or undefined if no rows match.
    */
   selectFirst: (
-    row?: Partial<InferRow<TTable>>,
-  ) => Simplify<InferRow<TTable>> | undefined
+    row?: Partial<InferRowWithRowid<TTable>>,
+  ) => Simplify<InferRowWithRowid<TTable>> | undefined
 
   /**
    * Update rows matching a set of fields.
    */
   update: (
-    conditions: Partial<InferRow<TTable>>,
+    conditions: Partial<InferRowWithRowid<TTable>>,
     newValues: Partial<InferRow<TTable>>,
   ) => BigIntRunResult
 
@@ -96,7 +103,7 @@ export interface ConnectedTable<TTable extends TableDescription> {
    *
    * @param row - An object which will be used to filter the rows.
    */
-  delete: (row: Partial<InferRow<TTable>>) => BigIntRunResult
+  delete: (row: Partial<InferRowWithRowid<TTable>>) => BigIntRunResult
 
   /**
    * Delete all rows from the table.
@@ -110,7 +117,7 @@ export interface ConnectedTable<TTable extends TableDescription> {
    * @param conflictColumns - The columns to check for conflicts.
    */
   upsert: (
-    row: Simplify<InferRow<TTable>>,
+    row: Simplify<InferInsertRow<TTable>>,
     conflictColumns: (keyof InferRow<TTable>)[],
   ) => BigIntRunResult
 
@@ -134,11 +141,15 @@ export const connectTable = <TTable extends TableDescription>(
   tableDescription: TTable,
   database: Database,
 ): ConnectedTable<TTable> => {
-  const { name, columns } = tableDescription
+  const { name, columns, withoutRowid } = tableDescription
 
-  const selectAllQuery = database.prepare(`SELECT * FROM ${name}`)
+  const allColumns = withoutRowid ? "*" : "rowid, *"
+  const selectAllQuery = database.prepare(`SELECT ${allColumns} FROM ${name}`)
 
-  const createWhereClause = (row: Partial<InferRow<TTable>>, prefix = "") => {
+  const createWhereClause = (
+    row: Partial<InferRowWithRowid<TTable>>,
+    prefix = "",
+  ) => {
     const keys = Object.keys(row)
 
     if (keys.length === 0) {
@@ -172,7 +183,10 @@ export const connectTable = <TTable extends TableDescription>(
   /**
    * Prefix all keys in the given record with a given string prefix.
    */
-  const prefixKeys = (row: Partial<InferRow<TTable>>, prefix: string) => {
+  const prefixKeys = (
+    row: Partial<InferRowWithRowid<TTable>> | Partial<InferRow<TTable>>,
+    prefix: string,
+  ) => {
     return Object.fromEntries(
       Object.entries(row).map(([key, value]) => [`${prefix}${key}`, value]),
     )
@@ -181,17 +195,17 @@ export const connectTable = <TTable extends TableDescription>(
   return {
     select: (row) => {
       if (!row) {
-        return selectAllQuery.all() as Simplify<InferRow<TTable>>[]
+        return selectAllQuery.all() as Simplify<InferRowWithRowid<TTable>>[]
       }
 
       const query = database.prepare<[typeof row]>(
         `SELECT * FROM ${name} WHERE ${createWhereClause(row)}`,
       )
 
-      return query.all(row) as Simplify<InferRow<TTable>>[]
+      return query.all(row) as Simplify<InferRowWithRowid<TTable>>[]
     },
     selectAll: () => {
-      return selectAllQuery.all() as Simplify<InferRow<TTable>>[]
+      return selectAllQuery.all() as Simplify<InferRowWithRowid<TTable>>[]
     },
     selectFirst: (row) => {
       const query =
@@ -201,7 +215,7 @@ export const connectTable = <TTable extends TableDescription>(
           )
         : selectAllQuery
 
-      return query.get(row) as Simplify<InferRow<TTable>> | undefined
+      return query.get(row) as Simplify<InferRowWithRowid<TTable>> | undefined
     },
     update: (conditions, newValues) => {
       const query = database.prepare(
