@@ -88,6 +88,7 @@ export interface BaseNodeConfig {
   tlsWebKeyFile: string
   sessionToken: SessionToken
   bootstrapNodes: BootstrapNodesConfig
+  registeredNodes: BasicNodeInfo[]
   settlementMethods: readonly string[]
   url: string
   entry: string
@@ -113,12 +114,18 @@ const DEFAULT_NODE_SETTINGS: Required<NodeSettings> = {
   settlementMethods: ["stub"],
 }
 
-export const generatePeerInfo = ({ index, settlement }: PeerSettings) => ({
+export const generateBasicNodeInfo = (index: number) => ({
   index,
-  nodeId: nodeIndexToId(index),
+  id: nodeIndexToId(index),
   url: nodeIndexToUrl(index),
   alias: nodeIndexToFriendlyId(index),
-  nodePublicKey: nodeIndexToPublicKey(index),
+  publicKey: nodeIndexToPublicKey(index),
+})
+
+export type BasicNodeInfo = ReturnType<typeof generateBasicNodeInfo>
+
+export const generatePeerInfo = ({ index, settlement }: PeerSettings) => ({
+  ...generateBasicNodeInfo(index),
   settlement,
 })
 
@@ -166,17 +173,8 @@ export const generateNodeConfig = ((
         ),
       }
     }),
-    registeredNodes: completeEnvironmentSettings.registeredNodes.map(
-      (index) => {
-        return {
-          id: nodeIndexToId(index),
-          url: nodeIndexToUrl(index),
-          publicKey: Buffer.from(nodeIndexToPublicKey(index)).toString(
-            "base64url",
-          ),
-          alias: nodeIndexToFriendlyId(index),
-        }
-      },
+    registeredNodes: completeEnvironmentSettings.registeredNodes.map((index) =>
+      generateBasicNodeInfo(index),
     ),
     settlementMethods: completeNodeSettings.settlementMethods,
     url: nodeIndexToUrl(index),

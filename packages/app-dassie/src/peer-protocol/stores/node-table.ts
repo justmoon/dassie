@@ -22,6 +22,12 @@ export interface NodeTableEntry {
    * Current peering state between us and this node.
    */
   readonly peerState: PeerState
+
+  /**
+   * How the node was discovered. This affects whether it will be included in
+   * the node list.
+   */
+  readonly registrationState: RegistrationState
 }
 
 export type PeerState =
@@ -84,14 +90,40 @@ export interface LinkState {
   readonly scheduledRetransmitTime: number
 }
 
+export type DiscoverySource =
+  | "self" // This node is us
+  | "registration" // This node paid us to register itself
+  | "majority" // This node is known by a majority of other nodes
+  | "client" // This node is connected to us as a client
+
+export type RegistrationState =
+  | {
+      id: "none"
+    }
+  | {
+      id: "registered"
+      registeredAt: Date
+      renewedAt: Date
+    }
+
 export const NodeTableStore = () =>
   createStore(castImmutable(new Map<NodeId, NodeTableEntry>())).actions({
-    addNode: (entry: NodeTableEntry) =>
+    /**
+     * Notify the node table that a new node has been discovered.
+     *
+     * If the node is already known, this will do nothing.
+     */
+    addNode: (nodeId: NodeId) =>
       produce((draft) => {
+        if (draft.has(nodeId)) return
+
         draft.set(
-          entry.nodeId,
+          nodeId,
           castDraft({
-            ...entry,
+            nodeId,
+            linkState: undefined,
+            peerState: { id: "none" },
+            registrationState: { id: "none" },
           }),
         )
       }),
@@ -106,6 +138,29 @@ export const NodeTableStore = () =>
           castDraft({
             ...previousEntry,
             ...nodeEntry,
+          }),
+        )
+      }),
+    registerNode: (nodeId: NodeId) =>
+      produce((draft) => {
+        const entry = draft.get(nodeId)
+
+        if (!entry) {
+          throw new Error("Node not found")
+        }
+
+        draft.set(
+          nodeId,
+          castDraft({
+            ...entry,
+            registrationState: {
+              id: "registered",
+              registeredAt:
+                entry.registrationState.id === "registered" ?
+                  entry.registrationState.registeredAt
+                : new Date(),
+              renewedAt: new Date(),
+            },
           }),
         )
       }),

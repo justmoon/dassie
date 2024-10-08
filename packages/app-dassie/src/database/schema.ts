@@ -11,6 +11,7 @@ import { incomingPaymentTable } from "../open-payments/tables/incoming-payment"
 import { outgoingPaymentTable } from "../open-payments/tables/outgoing-payment"
 import { nodesTable } from "../peer-protocol/tables/nodes"
 import { peersTable } from "../peer-protocol/tables/peers"
+import { registrationsTable } from "../peer-protocol/tables/registrations"
 import migrations from "./migrations"
 
 /**
@@ -31,6 +32,7 @@ export const DASSIE_DATABASE_SCHEMA = {
     settlementSchemes: settlementSchemesTable,
     nodes: nodesTable,
     peers: peersTable,
+    registrations: registrationsTable,
     acmeTokens: acmeTokensTable,
     sessions: sessionsTable,
     btpTokens: btpTokensTable,

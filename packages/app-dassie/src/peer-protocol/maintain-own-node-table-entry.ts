@@ -7,10 +7,11 @@ import { SignWithDassieKey } from "../crypto/functions/sign-with-dassie-key"
 import { NodeIdSignal } from "../ilp-connector/computed/node-id"
 import { ActiveSettlementSchemesSignal } from "../ledgers/signals/active-settlement-schemes"
 import { peerProtocol as logger } from "../logger/instances"
-import { compareSetToArray } from "../utils/compare-sets"
+import { compareArrays, compareSetToArray } from "../utils/compare-sets"
+import { MajorityNodeListSignal } from "./computed/majority-node-list"
 import { PeersSignal } from "./computed/peers"
 import { LINK_STATE_MAX_UPDATE_INTERVAL } from "./constants/timings"
-import { ModifyNodeTable } from "./functions/modify-node-table"
+import { ProcessLinkState } from "./functions/modify-node-table"
 import { peerNodeInfo, signedPeerNodeInfo } from "./peer-schema"
 import { NodeTableStore } from "./stores/node-table"
 
@@ -21,15 +22,20 @@ export const MaintainOwnNodeTableEntryActor = () =>
     // Get the current peers and re-run the actor if they change
     const peers = sig.readAndTrack(PeersSignal)
     const settlementSchemes = sig.readAndTrack(ActiveSettlementSchemesSignal)
+    const majorityNodeListSignal = sig.readAndTrack(MajorityNodeListSignal)
 
     const nodeId = sig.readAndTrack(NodeIdSignal)
     const nodePublicKey = sig.readAndTrack(NodePublicKeySignal)
     const { url, alias } = sig.readAndTrack(DatabaseConfigStore)
     const oldLinkState = sig.read(NodeTableStore).get(nodeId)?.linkState
 
+    const peerIds = [...peers].filter((nodeId) =>
+      majorityNodeListSignal.has(nodeId),
+    )
+
     if (
       !oldLinkState ||
-      !compareSetToArray(peers, oldLinkState.neighbors) ||
+      !compareArrays(peerIds, oldLinkState.neighbors) ||
       !compareSetToArray(settlementSchemes, oldLinkState.settlementSchemes) ||
       oldLinkState.sequence <
         BigInt(Date.now()) - LINK_STATE_MAX_UPDATE_INTERVAL
@@ -40,7 +46,6 @@ export const MaintainOwnNodeTableEntryActor = () =>
         BigInt(Date.now()),
         (oldLinkState?.sequence ?? 0n) + 1n,
       )
-      const peerIds = [...peers]
       const settlementSchemeIds = [...settlementSchemes]
 
       const peerInfoEntries = [
@@ -95,12 +100,13 @@ export const MaintainOwnNodeTableEntryActor = () =>
           neighbors: peerIds.join(","),
         },
       )
-      const modifyNodeTable = sig.reactor.use(ModifyNodeTable)
+      const nodeTableStore = sig.reactor.use(NodeTableStore)
+      const processLinkState = sig.reactor.use(ProcessLinkState)
       if (oldLinkState === undefined) {
-        modifyNodeTable.addNode(nodeId)
+        nodeTableStore.act.addNode(nodeId)
       }
 
-      modifyNodeTable.processLinkState({
+      processLinkState({
         linkStateBytes: message,
         linkState: {
           nodeId,

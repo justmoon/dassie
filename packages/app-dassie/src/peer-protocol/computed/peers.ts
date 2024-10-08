@@ -25,13 +25,6 @@ export const PeersSignal = (reactor: Reactor) => {
     signal.update(
       produce((draft) => {
         switch (actionId) {
-          case "addNode": {
-            const { peerState, nodeId } = parameters[0]
-            if (peerState.id === "peered") {
-              draft.add(nodeId)
-            }
-            break
-          }
           case "updateNode": {
             const nodeKey = parameters[0]
             const { peerState } = parameters[1]
@@ -40,6 +33,10 @@ export const PeersSignal = (reactor: Reactor) => {
             } else if (peerState) {
               draft.delete(nodeKey)
             }
+            break
+          }
+          case "addNode":
+          case "registerNode": {
             break
           }
           default: {

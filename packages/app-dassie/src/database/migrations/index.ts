@@ -10,5 +10,6 @@ import m9 from "./0009-create-btp-tokens-table"
 import m10 from "./0010-add-settlement-state-column"
 import m11 from "./0011-create-accounts-table"
 import m12 from "./0012-change-payment-tables-for-open-payments"
+import m13 from "./0013-create-registrations-table"
 
-export default [m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12]
+export default [m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13]

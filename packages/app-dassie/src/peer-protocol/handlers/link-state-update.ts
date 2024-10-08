@@ -3,11 +3,11 @@ import { isFailure } from "@dassie/lib-type-utils"
 
 import { peerProtocol as logger } from "../../logger/instances"
 import type { PeerMessageHandler } from "../functions/handle-peer-message"
-import { ModifyNodeTable } from "../functions/modify-node-table"
+import { ProcessLinkState } from "../functions/modify-node-table"
 import { verifyLinkState } from "../functions/verify-link-state"
 
 export const HandleLinkStateUpdate = ((reactor: Reactor) => {
-  const modifyNodeTable = reactor.use(ModifyNodeTable)
+  const processLinkState = reactor.use(ProcessLinkState)
 
   return async ({
     message: {
@@ -34,7 +34,7 @@ export const HandleLinkStateUpdate = ((reactor: Reactor) => {
       return
     }
 
-    modifyNodeTable.processLinkState({
+    processLinkState({
       linkState: linkState.signed.value,
       linkStateBytes,
       retransmit: "scheduled",

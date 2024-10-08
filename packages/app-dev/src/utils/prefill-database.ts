@@ -2,6 +2,7 @@ import { readFile, unlink } from "node:fs/promises"
 
 import type { BtpToken } from "@dassie/app-dassie/src/api-keys/types/btp-token"
 import { DASSIE_DATABASE_SCHEMA } from "@dassie/app-dassie/src/database/schema"
+import type { NodeId } from "@dassie/app-dassie/src/peer-protocol/types/node-id"
 import type { SettlementSchemeId } from "@dassie/app-dassie/src/peer-protocol/types/settlement-scheme-id"
 import { createDatabase } from "@dassie/lib-sqlite"
 import { isErrorWithCode } from "@dassie/lib-type-utils"
@@ -10,6 +11,13 @@ import { serializeEd25519Key } from "@dassie/lib-x509"
 import { DEBUG_UI_PORT } from "../constants/ports"
 import { setup as logger } from "../logger/instances"
 import { type NodeConfig, generatePeerInfo } from "./generate-node-config"
+
+interface BasicNodeInfo {
+  id: NodeId
+  publicKey: Uint8Array
+  url: string
+  alias: string
+}
 
 export const prefillDatabase = async ({
   id,
@@ -67,15 +75,31 @@ export const prefillDatabase = async ({
     })
   }
 
-  if (
-    bootstrapNodes.some(({ id: bootstrapNodeId }) => bootstrapNodeId === fullId)
-  ) {
-    for (const node of registeredNodes) {
-      database.tables.nodes.insertOne({
+  function insertNodeToNodeTable(node: BasicNodeInfo) {
+    let rowid = database.tables.nodes.selectFirst({ id: node.id })?.rowid
+
+    if (!rowid) {
+      rowid = database.tables.nodes.insertOne({
         id: node.id,
         public_key: Buffer.from(node.publicKey),
         url: node.url,
         alias: node.alias,
+      }).lastInsertRowid
+    }
+
+    return rowid
+  }
+
+  if (
+    bootstrapNodes.some(({ id: bootstrapNodeId }) => bootstrapNodeId === fullId)
+  ) {
+    for (const node of registeredNodes) {
+      const nodeRowid = insertNodeToNodeTable(node)
+
+      database.tables.registrations.insertOne({
+        node: nodeRowid,
+        registered_at: BigInt(Date.now()),
+        renewed_at: BigInt(Date.now()),
       })
     }
   }
@@ -85,8 +109,8 @@ export const prefillDatabase = async ({
 
     const { lastInsertRowid: nodeRowid } = database.tables.nodes.insertOne(
       {
-        id: peerInfo.nodeId,
-        public_key: Buffer.from(peerInfo.nodePublicKey),
+        id: peerInfo.id,
+        public_key: Buffer.from(peerInfo.publicKey),
         url: peerInfo.url,
         alias: peerInfo.alias,
       },

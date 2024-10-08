@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useReducer } from "react"
+import { useCallback, useEffect, useMemo, useReducer } from "react"
+import type { LinkObject, NodeObject } from "react-force-graph-2d"
 import { useLocation } from "wouter"
 
 import { NodeTableStore } from "@dassie/app-dassie/src/peer-protocol/stores/node-table"
 import type { NodeId } from "@dassie/app-dassie/src/peer-protocol/types/node-id"
-import type { InferSignalType } from "@dassie/lib-reactive"
 import {
   useRemoteSignal,
   useRemoteStore,
@@ -39,19 +39,28 @@ export function NetworkPage({ params: { nodeId } }: NetworkPageProperties) {
     [setLocation],
   )
 
-  const [graphData, dispatchGraphData] = useReducer(
-    (
-      previousGraphData: GraphData,
-      action: InferSignalType<typeof NodeTableStore>,
-    ) => {
-      const nodes = []
-      const links = []
+  const graphData = useMemo(() => {
+    const nodes: NodeObject[] = []
+    const links: LinkObject[] = []
 
-      for (const node of action.values()) {
+    if (basicState?.state !== "authenticated") return { nodes, links }
+
+    for (const node of nodeTable.values()) {
+      nodes.push({ id: node.nodeId })
+
+      if (node.peerState.id === "peered") {
+        links.push({
+          source: basicState.nodeId,
+          target: node.nodeId,
+        })
+      }
+
+      if (node.nodeId !== basicState.nodeId) {
         for (const neighbor of node.linkState?.neighbors ?? []) {
           if (
+            neighbor !== basicState.nodeId &&
             neighbor > node.nodeId &&
-            action.get(neighbor)?.linkState?.neighbors.includes(node.nodeId)
+            nodeTable.get(neighbor)?.linkState?.neighbors.includes(node.nodeId)
           ) {
             links.push({
               source: node.nodeId,
@@ -59,16 +68,22 @@ export function NetworkPage({ params: { nodeId } }: NetworkPageProperties) {
             })
           }
         }
-
-        nodes.push(
-          previousGraphData.nodes.find(({ id }) => id === node.nodeId) ?? {
-            id: node.nodeId,
-          },
-        )
       }
+    }
 
+    return { nodes, links }
+  }, [nodeTable, basicState])
+
+  // We need to make sure that existing nodes' positions are preserved when the
+  // graph is updated.
+  const [stableGraphData, dispatchGraphData] = useReducer(
+    (previousGraphData: GraphData, { nodes, links }: GraphData) => {
       return {
-        nodes,
+        nodes: nodes.map(
+          (node) =>
+            previousGraphData.nodes.find((oldNode) => oldNode.id === node.id) ??
+            node,
+        ),
         links,
       }
     },
@@ -76,8 +91,8 @@ export function NetworkPage({ params: { nodeId } }: NetworkPageProperties) {
   )
 
   useEffect(() => {
-    dispatchGraphData(nodeTable)
-  }, [nodeTable])
+    dispatchGraphData(graphData)
+  }, [graphData])
 
   if (!basicState || !routingTable || basicState.state !== "authenticated") {
     return <div>Loading...</div>
@@ -95,7 +110,7 @@ export function NetworkPage({ params: { nodeId } }: NetworkPageProperties) {
         Network {nodeId}
       </h2>
       <NetworkGraph
-        graphData={graphData}
+        graphData={stableGraphData}
         className="h-xl md:col-span-2"
         onNodeClick={handleNodeClick}
       />

@@ -44,7 +44,9 @@ export const PersistNodeTableActor = () =>
         .selectFrom("nodes")
         .select("id")
         .leftJoin("peers", "nodes.rowid", "peers.node")
-        .select(["settlement_scheme_id", "settlement_scheme_state"])
+        .select(["peers.settlement_scheme_id", "peers.settlement_scheme_state"])
+        .leftJoin("registrations", "nodes.rowid", "registrations.node")
+        .select(["registrations.registered_at", "registrations.renewed_at"])
         .compile(),
     )
 
@@ -58,6 +60,16 @@ export const PersistNodeTableActor = () =>
           row.settlement_scheme_id,
           row.settlement_scheme_state,
         ),
+        registrationState:
+          row.registered_at && row.renewed_at ?
+            {
+              id: "registered",
+              registeredAt: new Date(Number(row.registered_at)),
+              renewedAt: new Date(Number(row.renewed_at)),
+            }
+          : {
+              id: "none",
+            },
       })
     }
 
@@ -68,6 +80,9 @@ export const PersistNodeTableActor = () =>
         // TODO
       },
       updateNode: () => {
+        // TODO
+      },
+      registerNode: () => {
         // TODO
       },
     })

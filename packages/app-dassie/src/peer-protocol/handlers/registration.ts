@@ -3,8 +3,9 @@ import { isFailure } from "@dassie/lib-type-utils"
 
 import { peerProtocol as logger } from "../../logger/instances"
 import type { PeerMessageHandler } from "../functions/handle-peer-message"
-import { ModifyNodeTable } from "../functions/modify-node-table"
+import { ProcessLinkState } from "../functions/modify-node-table"
 import { verifyLinkState } from "../functions/verify-link-state"
+import { NodeTableStore } from "../stores/node-table"
 
 export const HandleRegistration = ((reactor: Reactor) => {
   return async ({
@@ -40,9 +41,11 @@ export const HandleRegistration = ((reactor: Reactor) => {
       return
     }
 
-    const modifyNodeTable = reactor.use(ModifyNodeTable)
-    modifyNodeTable.addNode(nodeId)
-    modifyNodeTable.processLinkState({
+    const nodeTableStore = reactor.use(NodeTableStore)
+    const processLinkState = reactor.use(ProcessLinkState)
+    nodeTableStore.act.addNode(nodeId)
+    nodeTableStore.act.registerNode(nodeId)
+    processLinkState({
       linkState: linkState.signed.value,
       linkStateBytes,
       retransmit: "never",

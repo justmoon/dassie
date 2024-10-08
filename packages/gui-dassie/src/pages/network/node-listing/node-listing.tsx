@@ -17,6 +17,14 @@ interface NodeListingProperties extends ComponentPropsWithoutRef<"div"> {
   routingTable: InferSignalType<typeof RoutingTableSignal>
 }
 
+const CLIENT_DISTANCE = -1
+
+function getDistanceIcon(distance: number) {
+  if (distance === CLIENT_DISTANCE) return "C"
+  if (distance === Number.POSITIVE_INFINITY) return "∞"
+  return String(distance)
+}
+
 export function NodeListing({
   nodeTable,
   routingTable,
@@ -34,7 +42,14 @@ export function NodeListing({
 
     const distanceIndexedMap = new Map<number, NodeTableEntry[]>()
     for (const node of sortedNodes) {
-      const distance = node.distance
+      let distance = node.distance
+      if (
+        distance === Number.POSITIVE_INFINITY &&
+        node.peerState.id === "peered"
+      ) {
+        // Nodes which are peered but aren't in the global routing table are clients
+        distance = CLIENT_DISTANCE
+      }
       if (!distanceIndexedMap.has(distance)) {
         distanceIndexedMap.set(distance, [])
       }
@@ -56,7 +71,7 @@ export function NodeListing({
       {[...sortedNodeTable.entries()].map(([distance, nodes]) => (
         <div key={distance} className="flex flex-row gap-2">
           <div className="border-r text-3xl text-muted-foreground pr-2 w-10 text-right">
-            {distance === Number.POSITIVE_INFINITY ? "∞" : distance}
+            {getDistanceIcon(distance)}
           </div>
           <div className="flex-grow">
             {distance === 0 && (
@@ -77,6 +92,11 @@ export function NodeListing({
             {distance === Number.POSITIVE_INFINITY && (
               <h3 className="text-md font-semibold uppercase rounded-full text-muted-foreground">
                 No Connection
+              </h3>
+            )}
+            {distance === CLIENT_DISTANCE && (
+              <h3 className="text-md font-semibold uppercase rounded-full text-muted-foreground">
+                Client
               </h3>
             )}
             {nodes.map((node) => (

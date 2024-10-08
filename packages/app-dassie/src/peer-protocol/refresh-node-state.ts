@@ -10,7 +10,7 @@ import { EnvironmentConfig } from "../config/environment-config"
 import { NodeIdSignal } from "../ilp-connector/computed/node-id"
 import { peerProtocol as logger } from "../logger/instances"
 import { NODE_STATE_STALE_TIMEOUT } from "./constants/timings"
-import { ModifyNodeTable } from "./functions/modify-node-table"
+import { ProcessLinkState } from "./functions/modify-node-table"
 import { SendPeerMessage } from "./functions/send-peer-message"
 import { verifyLinkState } from "./functions/verify-link-state"
 import { NodeTableStore } from "./stores/node-table"
@@ -27,7 +27,7 @@ const INDIRECT_QUERY_PROBABILITY = 0.2
 
 export const RefreshNodeStateActor = (reactor: DassieReactor) => {
   const nodeTableStore = reactor.use(NodeTableStore)
-  const modifyNodeTable = reactor.use(ModifyNodeTable)
+  const processLinkState = reactor.use(ProcessLinkState)
   const nodeIdSignal = reactor.use(NodeIdSignal)
   const sendPeerMessage = reactor.use(SendPeerMessage)
 
@@ -116,7 +116,7 @@ export const RefreshNodeStateActor = (reactor: DassieReactor) => {
         return
       }
 
-      modifyNodeTable.processLinkState({
+      processLinkState({
         linkStateBytes: linkState.bytes,
         linkState: signed.value,
         retransmit: "never",

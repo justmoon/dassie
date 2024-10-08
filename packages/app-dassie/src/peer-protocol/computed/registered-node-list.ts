@@ -9,12 +9,16 @@ import type { NodeId } from "../types/node-id"
 enableMapSet()
 
 /**
- * A reactive set of the IDs of all nodes in the node table.
+ * A reactive set of the IDs of all nodes that have registered with this node.
  */
-export const NodeSetSignal = (reactor: Reactor) => {
+export const RegisteredNodeListSignal = (reactor: Reactor) => {
   const nodeTable = reactor.use(NodeTableStore)
 
-  const initialSet = new Set<NodeId>(nodeTable.read().keys())
+  const initialSet = new Set<NodeId>(
+    [...nodeTable.read().values()]
+      .filter(({ registrationState }) => registrationState.id === "registered")
+      .map(({ nodeId }) => nodeId),
+  )
 
   const signal = createSignal(initialSet)
 
@@ -22,11 +26,12 @@ export const NodeSetSignal = (reactor: Reactor) => {
     signal.update(
       produce((draft) => {
         switch (actionId) {
-          case "addNode": {
-            const { nodeId } = parameters[0]
+          case "registerNode": {
+            const nodeId = parameters[0]
             draft.add(nodeId)
             break
           }
+          case "addNode":
           case "updateNode": {
             break
           }
