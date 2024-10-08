@@ -39,6 +39,7 @@ export default tseslint.config(
       ".meta-updater/",
       "eslint.config.mjs",
       "vitest.config.ts",
+      "vitest.workspace.ts",
       "coverage/",
       "packages/app-website/.astro/",
       "packages/app-website/astro.config.mjs",
