@@ -13,7 +13,6 @@ import type { DassieReactor } from "../base/types/dassie-base"
 import { HttpsRouter } from "../http-server/values/https-router"
 import { ProcessPacket } from "../ilp-connector/functions/process-packet"
 import type { IlpHttpEndpointInfo } from "../ilp-connector/senders/send-ilp-http-packets"
-import type { IlpAddress } from "../ilp-connector/types/ilp-address"
 import { ILP_OVER_HTTP_CONTENT_TYPE } from "./constants/content-type"
 
 export const RegisterIlpHttpCallbackHandlerActor = (reactor: DassieReactor) => {
@@ -41,7 +40,7 @@ export const RegisterIlpHttpCallbackHandlerActor = (reactor: DassieReactor) => {
         const endpointInfo: IlpHttpEndpointInfo = {
           type: "http",
           accountPath: `${ownerLedgerIdSignal.read()}:equity/owner`,
-          ilpAddress: "test.not-implemented" as IlpAddress,
+          id: "TODO",
         }
 
         processPacket({

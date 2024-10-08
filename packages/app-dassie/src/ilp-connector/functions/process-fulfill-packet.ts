@@ -9,6 +9,7 @@ import {
   type ResolvedIlpPacketEvent,
   ResolvedIlpPacketTopic,
 } from "../topics/resolved-ilp-packet"
+import { getUniqueEndpointId } from "../utils/get-unique-endpoint-id"
 import {
   type PendingPacketsKey,
   PendingPacketsMap,
@@ -32,7 +33,7 @@ export const ProcessFulfillPacket = (reactor: DassieReactor) => {
       requestId,
     })
 
-    const pendingPacketKey: PendingPacketsKey = `${sourceEndpointInfo.ilpAddress}#${requestId}`
+    const pendingPacketKey: PendingPacketsKey = `${getUniqueEndpointId(sourceEndpointInfo)}#${requestId}`
     const prepare = pendingPacketsMap.get(pendingPacketKey)
 
     if (!prepare) {

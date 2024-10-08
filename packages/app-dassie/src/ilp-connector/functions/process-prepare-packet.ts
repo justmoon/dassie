@@ -16,8 +16,10 @@ import {
   type PreparedIlpPacketEvent,
   PreparedIlpPacketTopic,
 } from "../topics/prepared-ilp-packet"
+import { getUniqueEndpointId } from "../utils/get-unique-endpoint-id"
 import { PendingPacketsMap } from "../values/pending-packets-map"
 import { CalculatePreparePacketOutcome } from "./calculate-prepare-packet-outcome"
+import { GetEndpointIlpAddress } from "./get-endpoint-ilp-address"
 import type { ProcessIncomingPacketParameters } from "./process-packet"
 import { ScheduleTimeout } from "./schedule-timeout"
 import { TriggerEarlyRejection } from "./trigger-early-rejection"
@@ -31,6 +33,7 @@ export const ProcessPreparePacket = (reactor: DassieReactor) => {
   const calculatePreparePacketOutcome = reactor.use(
     CalculatePreparePacketOutcome,
   )
+  const getEndpointIlpAddress = reactor.use(GetEndpointIlpAddress)
 
   function processPreparePacket({
     sourceEndpointInfo,
@@ -55,7 +58,7 @@ export const ProcessPreparePacket = (reactor: DassieReactor) => {
     }
 
     logger.debug?.("processing ILP prepare", {
-      from: sourceEndpointInfo.ilpAddress,
+      from: getEndpointIlpAddress(sourceEndpointInfo),
       to: parsedPacket.data.destination,
       amount: parsedPacket.data.amount,
       requestId: outgoingRequestId,
@@ -82,15 +85,15 @@ export const ProcessPreparePacket = (reactor: DassieReactor) => {
     } = packetOutcome
 
     logger.debug?.("forwarding ILP prepare", {
-      from: sourceEndpointInfo.ilpAddress,
+      from: getEndpointIlpAddress(sourceEndpointInfo),
       to: parsedPacket.data.destination,
       amount: parsedPacket.data.amount,
       requestId: outgoingRequestId,
-      nextHop: destinationEndpointInfo.ilpAddress,
+      nextHop: getEndpointIlpAddress(destinationEndpointInfo),
     })
 
     pendingPacketsMap.set(
-      `${destinationEndpointInfo.ilpAddress}#${outgoingRequestId}`,
+      `${getUniqueEndpointId(destinationEndpointInfo)}#${outgoingRequestId}`,
       preparedIlpPacketEvent,
     )
 

@@ -1,7 +1,6 @@
 import { parseIlpPacket } from "@dassie/lib-protocol-ilp"
 
 import type { DassieReactor } from "../../base/types/dassie-base"
-import { IlpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-scheme"
 import { ProcessPacket } from "../../ilp-connector/functions/process-packet"
 import type { PeerEndpointInfo } from "../../ilp-connector/senders/send-peer-packets"
 import { GetLedgerIdForSettlementScheme } from "../../ledgers/functions/get-ledger-id"
@@ -9,7 +8,6 @@ import { peerProtocol as logger } from "../../logger/instances"
 import type { PeerMessageHandler } from "../functions/handle-peer-message"
 
 export const HandleInterledgerPacket = ((reactor: DassieReactor) => {
-  const ilpAllocationSchemeSignal = reactor.use(IlpAllocationSchemeSignal)
   const processPacket = reactor.use(ProcessPacket)
   const getLedgerIdForSettlementScheme = reactor.use(
     GetLedgerIdForSettlementScheme,
@@ -42,7 +40,6 @@ export const HandleInterledgerPacket = ((reactor: DassieReactor) => {
     const endpointInfo: PeerEndpointInfo = {
       type: "peer",
       nodeId: sender,
-      ilpAddress: `${ilpAllocationSchemeSignal.read()}.das.${sender}`,
       accountPath: `${ledgerId}:assets/interledger/${sender}`,
     }
 

@@ -22,7 +22,6 @@ export const HandleIldcpRequestsActor = () =>
 
     const ildcpDestinationInfo: IldcpEndpointInfo = {
       type: "ildcp",
-      ilpAddress: ILDCP_ADDRESS,
       // ILDCP cannot send or receive money so we set the account path to an impossible value
       accountPath: "unreachable" as AccountPath,
     }

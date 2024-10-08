@@ -15,19 +15,17 @@ import {
   SendIlpHttpPackets,
 } from "../senders/send-ilp-http-packets"
 import {
+  type LocalEndpointInfo,
+  SendLocalPackets,
+} from "../senders/send-local-packets"
+import {
   type PeerEndpointInfo,
   SendPeerPackets,
 } from "../senders/send-peer-packets"
-import {
-  type PluginEndpointInfo,
-  SendPluginPackets,
-} from "../senders/send-plugin-packets"
 import type { PreparedIlpPacketEvent } from "../topics/prepared-ilp-packet"
-import type { IlpAddress } from "../types/ilp-address"
 
 export interface CommonEndpointInfo {
   readonly accountPath: AccountPath
-  readonly ilpAddress: IlpAddress
 }
 
 export interface PreparedPacketParameters<
@@ -53,7 +51,7 @@ export type EndpointInfo =
   | PeerEndpointInfo
   | IldcpEndpointInfo
   | BtpEndpointInfo
-  | PluginEndpointInfo
+  | LocalEndpointInfo
   | IlpHttpEndpointInfo
 
 export type PacketSender<TType extends EndpointInfo["type"]> = {
@@ -70,7 +68,7 @@ export const SendPacket = (reactor: DassieReactor) => {
     peer: reactor.use(SendPeerPackets),
     ildcp: reactor.use(SendIldcpPackets),
     btp: reactor.use(SendBtpPackets),
-    plugin: reactor.use(SendPluginPackets),
+    local: reactor.use(SendLocalPackets),
     http: reactor.use(SendIlpHttpPackets),
   }
 

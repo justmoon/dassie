@@ -8,6 +8,7 @@ import type { CommonEndpointInfo, PacketSender } from "../functions/send-packet"
 
 export interface IlpHttpEndpointInfo extends CommonEndpointInfo {
   readonly type: "http"
+  readonly id: string
 }
 
 export const SendIlpHttpPackets = (reactor: Reactor): PacketSender<"http"> => {
@@ -18,6 +19,7 @@ export const SendIlpHttpPackets = (reactor: Reactor): PacketSender<"http"> => {
   return {
     sendPrepare: ({ serializedPacket, outgoingRequestId: requestId }) => {
       tell(() =>
+        // TODO: Select URL based on id
         sendAsyncPrepare({
           packet: serializedPacket,
           url: "http://localhost:3002",

@@ -1,15 +1,16 @@
 import { createConnection } from "ilp-protocol-stream"
 import { z } from "zod"
 
-import { isObject } from "@dassie/lib-type-utils"
+import { createScope } from "@dassie/lib-reactive"
+import { isObject, tell } from "@dassie/lib-type-utils"
 
 import { OwnerLedgerIdSignal } from "../../accounting/signals/owner-ledger-id"
 import type { DassieReactor } from "../../base/types/dassie-base"
 import { Database } from "../../database/open-database"
 import { payment as logger } from "../../logger/instances"
 import { paymentPointerToUrl } from "../../utils/resolve-payment-pointer"
-import { ManagePluginsActor } from "../manage-plugins"
 import { walletSchema } from "../schemas/wallet"
+import { CreatePlugin } from "./create-plugin"
 
 interface MakePaymentParameters {
   /**
@@ -78,7 +79,7 @@ const incomingPaymentSchema = z.object({
 export const MakePayment = (reactor: DassieReactor) => {
   const database = reactor.use(Database)
   const ownerLedgerIdSignal = reactor.use(OwnerLedgerIdSignal)
-  const pluginManager = reactor.use(ManagePluginsActor)
+  const createPlugin = reactor.use(CreatePlugin)
 
   return async function makePayment({
     id,
@@ -150,7 +151,9 @@ export const MakePayment = (reactor: DassieReactor) => {
       metadata: "{}",
     })
 
-    const plugin = await pluginManager.api.createPlugin.ask()
+    // TODO: Make sure this is cleaned up even in the case of failure
+    const scope = createScope("payment")
+    const plugin = createPlugin(scope)
 
     const connection = await createConnection({
       plugin,
@@ -182,12 +185,17 @@ export const MakePayment = (reactor: DassieReactor) => {
 
       if (sentAmount + amount >= sourceAmount) {
         logger.debug?.("payment complete", { id })
-        connection.end().catch((error: unknown) => {
-          logger.error("error ending connection", {
-            id,
-            error,
+        connection
+          .end()
+          .catch((error: unknown) => {
+            logger.error("error ending connection", {
+              id,
+              error,
+            })
           })
-        })
+          .finally(() => {
+            tell(() => scope.dispose())
+          })
       }
     })
   }

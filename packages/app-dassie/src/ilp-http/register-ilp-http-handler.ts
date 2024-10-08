@@ -13,7 +13,6 @@ import type { DassieReactor } from "../base/types/dassie-base"
 import { HttpsRouter } from "../http-server/values/https-router"
 import { ProcessPacket } from "../ilp-connector/functions/process-packet"
 import type { IlpHttpEndpointInfo } from "../ilp-connector/senders/send-ilp-http-packets"
-import type { IlpHttpIlpAddress } from "../ilp-connector/types/ilp-address"
 import { ILP_OVER_HTTP_CONTENT_TYPE } from "./constants/content-type"
 import { IncomingRequestIdMap } from "./values/incoming-request-id-map"
 
@@ -50,12 +49,12 @@ export const RegisterIlpHttpHandlerActor = (reactor: DassieReactor) => {
           return new BadRequestFailure("Missing required header Callback-Url")
         }
 
-        // TODO: Authentication
+        // TODO: Authentication, manage ILP-HTTP connections
 
         const endpointInfo: IlpHttpEndpointInfo = {
           type: "http",
           accountPath: `${ownerLedgerIdSignal.read()}:equity/owner`,
-          ilpAddress: "test.not-implemented" as IlpHttpIlpAddress,
+          id: "TODO",
         }
 
         incomingRequestIdMap.set(requestId, {

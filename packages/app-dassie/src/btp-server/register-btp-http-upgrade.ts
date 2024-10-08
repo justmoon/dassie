@@ -62,7 +62,6 @@ export const RegisterBtpHttpUpgradeActor = (reactor: DassieReactor) => {
           const endpointInfo: BtpEndpointInfo = {
             type: "btp",
             connectionId,
-            ilpAddress: `${nodeIlpAddress}.${localIlpAddressPart}`,
             accountPath: `${ownerLedgerIdSignal.read()}:equity/owner`,
           }
 

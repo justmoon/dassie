@@ -12,6 +12,7 @@ import { HttpServerActor } from "./http-server"
 import { IldcpServerActor } from "./ildcp-server"
 import { IlpHttpActor } from "./ilp-http"
 import { LedgersActor } from "./ledgers"
+import { LocalIlpActor } from "./local-ilp"
 import { LocalRpcServerActor } from "./local-ipc-server"
 import { daemon as logger } from "./logger/instances"
 import { OpenPaymentsServerActor } from "./open-payments"
@@ -34,6 +35,7 @@ export const StartNodeIdentityDependentServicesActor = () =>
     sig.run(BtpServerActor)
     sig.run(IldcpServerActor)
     sig.run(IlpHttpActor)
+    sig.run(LocalIlpActor)
     await sig.run(ExchangeRatesActor)
 
     await sig.run(LedgersActor)

@@ -2,6 +2,7 @@ import { type IlpPacket, IlpType } from "@dassie/lib-protocol-ilp"
 
 import type { DassieReactor } from "../../base/types/dassie-base"
 import { connector as logger } from "../../logger/instances"
+import { GetEndpointIlpAddress } from "./get-endpoint-ilp-address"
 import { ProcessFulfillPacket } from "./process-fulfill-packet"
 import { ProcessPreparePacket } from "./process-prepare-packet"
 import { ProcessRejectPacket } from "./process-reject-packet"
@@ -25,6 +26,8 @@ export type IlpPacketHandlers = {
 }
 
 export const ProcessPacket = (reactor: DassieReactor) => {
+  const getEndpointIlpAddress = reactor.use(GetEndpointIlpAddress)
+
   const handlers: IlpPacketHandlers = {
     [IlpType.Prepare]: reactor.use(ProcessPreparePacket),
     [IlpType.Fulfill]: reactor.use(ProcessFulfillPacket),
@@ -35,7 +38,7 @@ export const ProcessPacket = (reactor: DassieReactor) => {
     parameters: ProcessIncomingPacketParameters<TType>,
   ) {
     logger.debug?.("handle interledger packet", {
-      from: parameters.sourceEndpointInfo.ilpAddress,
+      from: getEndpointIlpAddress(parameters.sourceEndpointInfo),
     })
 
     const handler = handlers[

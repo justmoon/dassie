@@ -1,6 +1,7 @@
 import type { Reactor } from "@dassie/lib-reactive"
 
 import { HandleIldcpRequestsActor } from "../../ildcp-server/handle-ildcp-requests"
+import { GetEndpointIlpAddress } from "../functions/get-endpoint-ilp-address"
 import type { CommonEndpointInfo, PacketSender } from "../functions/send-packet"
 
 export interface IldcpEndpointInfo extends CommonEndpointInfo {
@@ -9,11 +10,12 @@ export interface IldcpEndpointInfo extends CommonEndpointInfo {
 
 export const SendIldcpPackets = (reactor: Reactor): PacketSender<"ildcp"> => {
   const ildcpHandler = reactor.use(HandleIldcpRequestsActor)
+  const getEndpointIlpAddress = reactor.use(GetEndpointIlpAddress)
 
   return {
     sendPrepare: ({ sourceEndpointInfo, outgoingRequestId: requestId }) => {
       ildcpHandler.api.handle.tell({
-        sourceIlpAddress: sourceEndpointInfo.ilpAddress,
+        sourceIlpAddress: getEndpointIlpAddress(sourceEndpointInfo),
         requestId,
       })
     },

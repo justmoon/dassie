@@ -1,7 +1,6 @@
 import type { Reactor } from "@dassie/lib-reactive"
 import { Failure, UnreachableCaseError } from "@dassie/lib-type-utils"
 
-import { IlpAllocationSchemeSignal } from "../../config/computed/ilp-allocation-scheme"
 import type { EndpointInfo } from "../../ilp-connector/functions/send-packet"
 import type { PeerEndpointInfo } from "../../ilp-connector/senders/send-peer-packets"
 import { GetLedgerIdForSettlementScheme } from "../../ledgers/functions/get-ledger-id"
@@ -17,7 +16,6 @@ export const NO_ROUTE_FOUND_FAILURE = new NoRouteFoundFailure()
 export const ResolveIlpAddress = (reactor: Reactor) => {
   const routingTable = reactor.use(RoutingTableSignal)
   const nodeTable = reactor.use(NodeTableStore)
-  const ilpAllocationScheme = reactor.use(IlpAllocationSchemeSignal)
   const getLedgerIdForSettlementScheme = reactor.use(
     GetLedgerIdForSettlementScheme,
   )
@@ -49,7 +47,6 @@ export const ResolveIlpAddress = (reactor: Reactor) => {
           type: "peer",
           nodeId: nextHop,
           accountPath: `${ledgerId}:assets/interledger/${nextHop}`,
-          ilpAddress: `${ilpAllocationScheme.read()}.das.${nextHop}`,
         }
 
         return destinationInfo
