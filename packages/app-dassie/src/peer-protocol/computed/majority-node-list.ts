@@ -1,6 +1,7 @@
 import { type Reactor, createComputed } from "@dassie/lib-reactive"
 
 import { EnvironmentConfig } from "../../config/environment-config"
+import { MAJORITY_THRESHOLD } from "../../registration-client/constants/threshold"
 import { compareSets } from "../../utils/compare-sets"
 import { BootstrapNodeListsSignal } from "../signals/bootstrap-node-lists"
 import type { NodeId } from "../types/node-id"
@@ -32,7 +33,9 @@ export const MajorityNodeListSignal = (reactor: Reactor) => {
 
       const majorityNodes = new Set(
         [...voteCount.entries()]
-          .filter(([, count]) => count > bootstrapNodes.length / 2)
+          .filter(
+            ([, count]) => count / bootstrapNodes.length > MAJORITY_THRESHOLD,
+          )
           .map(([nodeId]) => nodeId),
       )
 
