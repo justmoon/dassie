@@ -10,6 +10,7 @@ import { MaintainOwnNodeTableEntryActor } from "./maintain-own-node-table-entry"
 import { MaintainPeeringRelationshipsActor } from "./maintain-peering-relationships"
 import { PersistNodeTableActor } from "./persist-node-table"
 import { PollNodeListHashesActor } from "./poll-node-list-hashes"
+import { ReceiveAddressFromUplinkActor } from "./receive-address-from-uplink"
 import { RefreshNodeStateActor } from "./refresh-node-state"
 import { RegisterPeerHttpHandlerActor } from "./register-peer-http-handler"
 import { SendHeartbeatsActor } from "./send-heartbeats"
@@ -29,6 +30,7 @@ export const PeerProtocolActor = () =>
     sig.run(AddMajorityNodesActor)
     sig.run(BroadcastStateUpdatesActor)
     await sig.run(RefreshNodeStateActor)
+    sig.runMap(ReceiveAddressFromUplinkActor)
 
     sig.runMap(CreatePeerLedgerEntriesActor)
   })

@@ -1,6 +1,6 @@
 import { IlpErrorCode } from "@dassie/lib-protocol-ilp"
 import { delayWithAbortSignal } from "@dassie/lib-reactive"
-import { isError } from "@dassie/lib-type-utils"
+import { isError, isFailure } from "@dassie/lib-type-utils"
 
 import type { DassieReactor } from "../../base/types/dassie-base"
 import { connector as logger } from "../../logger/instances"
@@ -22,7 +22,9 @@ export const ScheduleTimeout = (reactor: DassieReactor) => {
     timeoutAbort,
   }: ScheduleTimeoutParameters) {
     delayWithAbortSignal(reactor.base.clock, 5000, timeoutAbort.signal)
-      .then(() => {
+      .then((value) => {
+        if (isFailure(value)) return
+
         logger.debug?.("ILP packet timed out", { requestId })
         triggerLateRejection({
           sourceEndpointInfo,

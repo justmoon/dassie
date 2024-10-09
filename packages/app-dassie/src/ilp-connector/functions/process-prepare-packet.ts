@@ -18,11 +18,18 @@ import {
 } from "../topics/prepared-ilp-packet"
 import { getUniqueEndpointId } from "../utils/get-unique-endpoint-id"
 import { PendingPacketsMap } from "../values/pending-packets-map"
-import { CalculatePreparePacketOutcome } from "./calculate-prepare-packet-outcome"
+import {
+  CalculatePreparePacketOutcome,
+  type PreparePacketOutcome,
+} from "./calculate-prepare-packet-outcome"
 import { GetEndpointIlpAddress } from "./get-endpoint-ilp-address"
 import type { ProcessIncomingPacketParameters } from "./process-packet"
 import { ScheduleTimeout } from "./schedule-timeout"
 import { TriggerEarlyRejection } from "./trigger-early-rejection"
+
+interface AdditionalPreparePacketParameters {
+  predeterminedOutcome?: PreparePacketOutcome | undefined
+}
 
 export const ProcessPreparePacket = (reactor: DassieReactor) => {
   const preparedIlpPacketTopic = reactor.use(PreparedIlpPacketTopic)
@@ -40,7 +47,9 @@ export const ProcessPreparePacket = (reactor: DassieReactor) => {
     parsedPacket,
     serializedPacket,
     requestId,
-  }: ProcessIncomingPacketParameters<typeof IlpType.Prepare>) {
+    predeterminedOutcome,
+  }: ProcessIncomingPacketParameters<typeof IlpType.Prepare> &
+    AdditionalPreparePacketParameters) {
     const outgoingRequestId = Math.trunc(Math.random() * 0xff_ff_ff_ff)
 
     const pendingTransfers: Transfer[] = []
@@ -64,10 +73,12 @@ export const ProcessPreparePacket = (reactor: DassieReactor) => {
       requestId: outgoingRequestId,
     })
 
-    const packetOutcome = calculatePreparePacketOutcome({
-      sourceEndpointInfo,
-      parsedPacket,
-    })
+    const packetOutcome =
+      predeterminedOutcome ??
+      calculatePreparePacketOutcome({
+        sourceEndpointInfo,
+        parsedPacket,
+      })
 
     if (isFailure(packetOutcome)) {
       triggerEarlyRejection({
