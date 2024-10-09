@@ -3,7 +3,6 @@ import { IlpType, serializeIlpPacket } from "@dassie/lib-protocol-ilp"
 import { createActor } from "@dassie/lib-reactive"
 import { isFailure } from "@dassie/lib-type-utils"
 
-import type { AccountPath } from "../accounting/types/account-paths"
 import type { DassieActorContext } from "../base/types/dassie-base"
 import { ProcessPacket } from "../ilp-connector/functions/process-packet"
 import type { IldcpEndpointInfo } from "../ilp-connector/senders/send-ildcp-packets"
@@ -22,8 +21,6 @@ export const HandleIldcpRequestsActor = () =>
 
     const ildcpDestinationInfo: IldcpEndpointInfo = {
       type: "ildcp",
-      // ILDCP cannot send or receive money so we set the account path to an impossible value
-      accountPath: "unreachable" as AccountPath,
     }
 
     ilpRoutingTable.set(ILDCP_ADDRESS, {

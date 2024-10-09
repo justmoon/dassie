@@ -8,7 +8,6 @@ import {
 import { parseIlpPacket } from "@dassie/lib-protocol-ilp"
 import { createActor } from "@dassie/lib-reactive"
 
-import { OwnerLedgerIdSignal } from "../accounting/signals/owner-ledger-id"
 import type { DassieReactor } from "../base/types/dassie-base"
 import { HttpsRouter } from "../http-server/values/https-router"
 import { ProcessPacket } from "../ilp-connector/functions/process-packet"
@@ -17,7 +16,6 @@ import { ILP_OVER_HTTP_CONTENT_TYPE } from "./constants/content-type"
 
 export const RegisterIlpHttpCallbackHandlerActor = (reactor: DassieReactor) => {
   const processPacket = reactor.use(ProcessPacket)
-  const ownerLedgerIdSignal = reactor.use(OwnerLedgerIdSignal)
 
   return createActor((sig) => {
     const http = sig.reactor.use(HttpsRouter)
@@ -39,7 +37,6 @@ export const RegisterIlpHttpCallbackHandlerActor = (reactor: DassieReactor) => {
 
         const endpointInfo: IlpHttpEndpointInfo = {
           type: "http",
-          accountPath: `${ownerLedgerIdSignal.read()}:equity/owner`,
           id: "TODO",
         }
 

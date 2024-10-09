@@ -2,9 +2,9 @@ import type { Reactor } from "@dassie/lib-reactive"
 
 import { HandleIldcpRequestsActor } from "../../ildcp-server/handle-ildcp-requests"
 import { GetEndpointIlpAddress } from "../functions/get-endpoint-ilp-address"
-import type { CommonEndpointInfo, PacketSender } from "../functions/send-packet"
+import type { PacketSender } from "../functions/send-packet"
 
-export interface IldcpEndpointInfo extends CommonEndpointInfo {
+export interface IldcpEndpointInfo {
   readonly type: "ildcp"
 }
 

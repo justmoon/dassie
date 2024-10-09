@@ -4,9 +4,9 @@ import { tell } from "@dassie/lib-type-utils"
 import { SendAsyncPrepare } from "../../ilp-http/functions/send-async-prepare"
 import { SendAsyncResult } from "../../ilp-http/functions/send-async-result"
 import { IncomingRequestIdMap } from "../../ilp-http/values/incoming-request-id-map"
-import type { CommonEndpointInfo, PacketSender } from "../functions/send-packet"
+import type { PacketSender } from "../functions/send-packet"
 
-export interface IlpHttpEndpointInfo extends CommonEndpointInfo {
+export interface IlpHttpEndpointInfo {
   readonly type: "http"
   readonly id: string
 }

@@ -22,6 +22,7 @@ import { InsufficientTimeoutIlpFailure } from "../failures/insufficient-timeout-
 import { InternalErrorIlpFailure } from "../failures/internal-error-ilp-failure"
 import { InvalidPacketIlpFailure } from "../failures/invalid-packet-ilp-failure"
 import { UnreachableIlpFailure } from "../failures/unreachable-ilp-failure"
+import { GetEndpointAccountPath } from "./get-endpoint-account-path"
 import type { EndpointInfo } from "./send-packet"
 
 export interface CalculatePreparePacketOutcomeParameters {
@@ -57,6 +58,7 @@ export const CalculatePreparePacketOutcome = (reactor: DassieReactor) => {
   const ledgerStore = reactor.use(LedgerStore)
   const resolveIlpAddress = reactor.use(ResolveIlpAddress)
   const calculateOutgoingAmount = reactor.use(CalculateOutgoingAmount)
+  const getEndpointAccountPath = reactor.use(GetEndpointAccountPath)
 
   function calculatePacketOutcome({
     sourceEndpointInfo,
@@ -100,14 +102,14 @@ export const CalculatePreparePacketOutcome = (reactor: DassieReactor) => {
       }
 
       outgoingAmount = calculateOutgoingAmount(
-        sourceEndpointInfo.accountPath,
-        destinationEndpointInfo.accountPath,
+        getEndpointAccountPath(sourceEndpointInfo),
+        getEndpointAccountPath(destinationEndpointInfo),
         parsedPacket.data.amount,
       )
 
       const transferParameters = applyPacketPrepareToLedger(
-        sourceEndpointInfo.accountPath,
-        destinationEndpointInfo.accountPath,
+        getEndpointAccountPath(sourceEndpointInfo),
+        getEndpointAccountPath(destinationEndpointInfo),
         parsedPacket.data.amount,
         outgoingAmount,
       )

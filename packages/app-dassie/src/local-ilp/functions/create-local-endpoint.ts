@@ -8,7 +8,6 @@ import {
 } from "@dassie/lib-protocol-ilp"
 import { type Scope, createDeferred } from "@dassie/lib-reactive"
 
-import { OwnerLedgerIdSignal } from "../../accounting/signals/owner-ledger-id"
 import type { DassieReactor } from "../../base/types/dassie-base"
 import { ProcessPacket } from "../../ilp-connector/functions/process-packet"
 import type { LocalEndpointInfo } from "../../ilp-connector/senders/send-local-packets"
@@ -26,7 +25,6 @@ export interface LocalIlpEndpoint extends IlpEndpoint {
 
 export const CreateLocalEndpoint = (reactor: DassieReactor) => {
   const localEndpointsStore = reactor.use(LocalEndpointsStore)
-  const ownerLedgerIdSignal = reactor.use(OwnerLedgerIdSignal)
   const processPacket = reactor.use(ProcessPacket)
   const outstandingRequestsStore = reactor.use(OutstandingRequestsStore)
 
@@ -43,7 +41,6 @@ export const CreateLocalEndpoint = (reactor: DassieReactor) => {
       type: "local",
       hint,
       localIlpAddressPart: id,
-      accountPath: `${ownerLedgerIdSignal.read()}:equity/owner`,
     }
 
     localEndpointsStore.act.registerLocalEndpoint(localEndpointInfo)

@@ -13,7 +13,6 @@ import {
 import { createActor, createSignal } from "@dassie/lib-reactive"
 import { isFailure } from "@dassie/lib-type-utils"
 
-import { OwnerLedgerIdSignal } from "../accounting/signals/owner-ledger-id"
 import { BtpTokensStore } from "../api-keys/database-stores/btp-tokens"
 import type { BtpToken } from "../api-keys/types/btp-token"
 import type { DassieReactor } from "../base/types/dassie-base"
@@ -30,7 +29,6 @@ export const RegisterBtpHttpUpgradeActor = (reactor: DassieReactor) => {
   const processPacket = reactor.use(ProcessPacket)
   const btpTokensStore = reactor.use(BtpTokensStore)
   const routingTableSignal = reactor.use(RoutingTableSignal)
-  const ownerLedgerIdSignal = reactor.use(OwnerLedgerIdSignal)
   const nextConnectionIdSignal = reactor.use(NextConnectionIdSignal)
   const websocketRouter = reactor.use(HttpsWebSocketRouter)
 
@@ -62,7 +60,6 @@ export const RegisterBtpHttpUpgradeActor = (reactor: DassieReactor) => {
           const endpointInfo: BtpEndpointInfo = {
             type: "btp",
             connectionId,
-            accountPath: `${ownerLedgerIdSignal.read()}:equity/owner`,
           }
 
           logger.debug?.("handle BTP websocket connection", { connectionId })

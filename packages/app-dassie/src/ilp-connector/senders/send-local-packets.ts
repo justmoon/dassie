@@ -5,9 +5,9 @@ import type { DassieReactor } from "../../base/types/dassie-base"
 import { LocalEndpointsStore } from "../../local-ilp/stores/local-endpoints"
 import { OutstandingRequestsStore } from "../../local-ilp/stores/outstanding-requests"
 import { ProcessPacket } from "../functions/process-packet"
-import type { CommonEndpointInfo, PacketSender } from "../functions/send-packet"
+import type { PacketSender } from "../functions/send-packet"
 
-export interface LocalEndpointInfo extends CommonEndpointInfo {
+export interface LocalEndpointInfo {
   readonly type: "local"
   readonly hint: string
   readonly localIlpAddressPart: string

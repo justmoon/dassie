@@ -1,6 +1,5 @@
 import { type IlpPacket, IlpType } from "@dassie/lib-protocol-ilp"
 
-import type { AccountPath } from "../../accounting/types/account-paths"
 import type { DassieReactor } from "../../base/types/dassie-base"
 import {
   type BtpEndpointInfo,
@@ -24,9 +23,7 @@ import {
 } from "../senders/send-peer-packets"
 import type { PreparedIlpPacketEvent } from "../topics/prepared-ilp-packet"
 
-export interface CommonEndpointInfo {
-  readonly accountPath: AccountPath
-}
+export interface CommonEndpointInfo {}
 
 export interface PreparedPacketParameters<
   TType extends EndpointInfo["type"] = EndpointInfo["type"],

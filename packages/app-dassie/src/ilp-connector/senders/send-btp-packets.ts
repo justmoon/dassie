@@ -9,9 +9,9 @@ import { isFailure } from "@dassie/lib-type-utils"
 import type { DassieReactor } from "../../base/types/dassie-base"
 import { RegisterBtpHttpUpgradeActor } from "../../btp-server/register-btp-http-upgrade"
 import { connector as logger } from "../../logger/instances"
-import type { CommonEndpointInfo, PacketSender } from "../functions/send-packet"
+import type { PacketSender } from "../functions/send-packet"
 
-export interface BtpEndpointInfo extends CommonEndpointInfo {
+export interface BtpEndpointInfo {
   readonly type: "btp"
   readonly connectionId: number
 }

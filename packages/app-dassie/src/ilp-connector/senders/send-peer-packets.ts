@@ -1,15 +1,17 @@
 import { assert } from "@dassie/lib-logger"
 import { tell } from "@dassie/lib-type-utils"
 
+import type { AccountPath } from "../../accounting/types/account-paths"
 import type { DassieReactor } from "../../base/types/dassie-base"
 import { connector as logger } from "../../logger/instances"
 import { SendPeerMessage } from "../../peer-protocol/functions/send-peer-message"
 import type { NodeId } from "../../peer-protocol/types/node-id"
-import type { CommonEndpointInfo, PacketSender } from "../functions/send-packet"
+import type { PacketSender } from "../functions/send-packet"
 
-export interface PeerEndpointInfo extends CommonEndpointInfo {
+export interface PeerEndpointInfo {
   readonly type: "peer"
   readonly nodeId: NodeId
+  readonly accountPath: AccountPath
 }
 
 export const SendPeerPackets = (
