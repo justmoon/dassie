@@ -40,6 +40,7 @@
   },
   "homepage": "https://github.com/justmoon/dassie#readme",
   "devDependencies": {
+    "@changesets/cli": "^2.27.9",
     "@dassie/meta-api-extractor": "workspace:^",
     "@dassie/meta-eslint-config": "workspace:^",
     "@dassie/meta-incremental-check": "workspace:^",
