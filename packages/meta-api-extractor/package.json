@@ -4,7 +4,11 @@
   "version": "1.0.0",
   "private": true,
   "description": "API Extractor based utilities to check and document the API surface of library packages",
-  "author": "Stefan Thomas <justmoon@members.fsf.org>",
+  "author": {
+    "name": "Stefan Thomas",
+    "email": "justmoon@members.fsf.org",
+    "url": "https://justmoon.com/"
+  },
   "license": "Apache-2.0",
   "bin": {
     "extract-apis": "./scripts/extract-apis.js"
@@ -14,5 +18,13 @@
   },
   "engines": {
     "node": "=22.8.0"
+  },
+  "bugs": {
+    "url": "https://github.com/justmoon/dassie/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/justmoon/dassie.git",
+    "directory": "packages/meta-api-extractor"
   }
 }

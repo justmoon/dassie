@@ -18,7 +18,11 @@
     "test-in-docker:ubuntu": "docker run --privileged --network host --rm --env DASSIE_MIRROR_URL=https://localhost:8443 --env CURL_CA_BUNDLE=/opt/mkcert/rootCA.pem -v \"${PWD}/resources/shell-installer/:/opt/install\" -v \"$(mkcert -CAROOT)/rootCA.pem:/opt/mkcert/rootCA.pem\" -it jrei/systemd-ubuntu /bin/sh -c \"apt-get update && apt-get install -y curl && sh /opt/install/install.sh\"",
     "upload": "gcloud storage cp dist/upload/* gs://get.dassie.land --recursive"
   },
-  "author": "Stefan Thomas <justmoon@members.fsf.org>",
+  "author": {
+    "name": "Stefan Thomas",
+    "email": "justmoon@members.fsf.org",
+    "url": "https://justmoon.com/"
+  },
   "license": "Apache-2.0",
   "dependencies": {
     "@dassie/lib-terminal-graphics": "workspace:^",
@@ -39,5 +43,13 @@
   },
   "engines": {
     "node": "=22.8.0"
+  },
+  "bugs": {
+    "url": "https://github.com/justmoon/dassie/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/justmoon/dassie.git",
+    "directory": "packages/app-build"
   }
 }

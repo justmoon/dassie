@@ -37,8 +37,21 @@
     "typescript": "~5.5",
     "unocss": "0.62.4"
   },
-  "author": "Stefan Thomas <justmoon@members.fsf.org>",
+  "author": {
+    "name": "Stefan Thomas",
+    "email": "justmoon@members.fsf.org",
+    "url": "https://justmoon.com/"
+  },
   "engines": {
     "node": ">=20 <=22.8.0"
+  },
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/justmoon/dassie/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/justmoon/dassie.git",
+    "directory": "packages/app-website"
   }
 }

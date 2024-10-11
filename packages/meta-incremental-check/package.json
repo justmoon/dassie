@@ -4,7 +4,11 @@
   "version": "1.0.0",
   "private": true,
   "description": "Use TypeScript to check for changed files and run ESLint on them",
-  "author": "Stefan Thomas <justmoon@members.fsf.org>",
+  "author": {
+    "name": "Stefan Thomas",
+    "email": "justmoon@members.fsf.org",
+    "url": "https://justmoon.com/"
+  },
   "license": "Apache-2.0",
   "bin": {
     "incremental-check": "./src/scripts/check.js"
@@ -26,5 +30,13 @@
   },
   "engines": {
     "node": "=22.8.0"
+  },
+  "bugs": {
+    "url": "https://github.com/justmoon/dassie/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/justmoon/dassie.git",
+    "directory": "packages/meta-incremental-check"
   }
 }

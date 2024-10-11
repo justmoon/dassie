@@ -34,7 +34,11 @@
     "p2p",
     "money"
   ],
-  "author": "Stefan Thomas <justmoon@members.fsf.org>",
+  "author": {
+    "name": "Stefan Thomas",
+    "email": "justmoon@members.fsf.org",
+    "url": "https://justmoon.com/"
+  },
   "license": "Apache-2.0",
   "bugs": {
     "url": "https://github.com/justmoon/dassie/issues"

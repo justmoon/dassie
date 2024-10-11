@@ -20,10 +20,38 @@ export default createUpdateOptions(async (workspaceDir) => {
     .slice(1)
 
   return {
-    "package.json": (manifest, dir) => {
+    "package.json": (manifest, { dir }) => {
+      const relativePath = path.relative(workspaceDir, dir)
+
+      for (const key of ["name", "version", "description"]) {
+        if (!manifest[key]) {
+          throw new Error(
+            `Package ${relativePath} must have a "${key}" field in its package.json`,
+          )
+        }
+      }
+      if (!manifest.private && !manifest.files) {
+        throw new Error(
+          "Any package that isn't private must specify the `files` to be published",
+        )
+      }
+
       return {
         ...manifest,
-        author: "Stefan Thomas <justmoon@members.fsf.org>",
+        author: {
+          name: "Stefan Thomas",
+          email: "justmoon@members.fsf.org",
+          url: "https://justmoon.com/",
+        },
+        bugs: {
+          url: "https://github.com/justmoon/dassie/issues",
+        },
+        license: "Apache-2.0",
+        repository: {
+          type: "git",
+          url: "git+https://github.com/justmoon/dassie.git",
+          ...(relativePath ? { directory: relativePath } : {}),
+        },
         engines: {
           node:
             manifest.name === "@dassie/app-website" ?

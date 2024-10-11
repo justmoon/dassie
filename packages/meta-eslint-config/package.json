@@ -3,7 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "description": "Dassie Eslint rules",
-  "author": "Stefan Thomas <justmoon@members.fsf.org>",
+  "author": {
+    "name": "Stefan Thomas",
+    "email": "justmoon@members.fsf.org",
+    "url": "https://justmoon.com/"
+  },
   "license": "Apache-2.0",
   "main": "./index.mjs",
   "devDependencies": {
@@ -24,5 +28,13 @@
   },
   "engines": {
     "node": "=22.8.0"
+  },
+  "bugs": {
+    "url": "https://github.com/justmoon/dassie/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/justmoon/dassie.git",
+    "directory": "packages/meta-eslint-config"
   }
 }
