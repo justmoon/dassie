@@ -1,7 +1,7 @@
 {
   "name": "@dassie/app-build",
   "type": "module",
-  "version": "1.0.0",
+  "version": "0.0.0",
   "description": "Tool used to build the Dassie release version",
   "private": true,
   "main": "./src/index.ts",

@@ -2,6 +2,7 @@
   "name": "@dassie/meta-incremental-check",
   "type": "module",
   "version": "1.0.0",
+  "private": true,
   "description": "Use TypeScript to check for changed files and run ESLint on them",
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",

@@ -1,7 +1,7 @@
 {
   "name": "@dassie/app-dev",
   "type": "module",
-  "version": "1.0.0",
+  "version": "0.0.0",
   "description": "Runs a small development environment for Dassie including multiple nodes",
   "private": true,
   "main": "./src/index.ts",

@@ -1,7 +1,8 @@
 {
   "name": "@dassie/lib-terminal-graphics",
   "type": "module",
-  "version": "1.0.0",
+  "version": "0.0.0",
+  "private": true,
   "description": "For building easy-to-use, interactive command-line interface (CLI) applications.",
   "main": "./src/index.ts",
   "exports": {

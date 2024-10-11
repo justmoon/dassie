@@ -1,6 +1,7 @@
 {
   "name": "@dassie/meta-eslint-plugin",
   "version": "1.0.0",
+  "private": true,
   "description": "Dassie Eslint plugin for ensuring proper failure handling",
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",

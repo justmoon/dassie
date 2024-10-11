@@ -1,7 +1,8 @@
 {
   "name": "@dassie/lib-protocol-utils",
   "type": "module",
-  "version": "1.0.0",
+  "version": "0.0.0",
+  "private": true,
   "description": "Serialization and deserialization for various protocols",
   "main": "./src/index.ts",
   "exports": {

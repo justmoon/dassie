@@ -1,7 +1,8 @@
 {
   "name": "@dassie/lib-logger",
   "type": "module",
-  "version": "1.0.0",
+  "version": "0.0.0",
+  "private": true,
   "description": "Logging library for the Dassie ILP project",
   "main": "./src/node.ts",
   "exports": {

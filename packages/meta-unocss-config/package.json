@@ -2,6 +2,7 @@
   "name": "@dassie/meta-unocss-config",
   "type": "module",
   "version": "1.0.0",
+  "private": true,
   "description": "Dassie Unocss config",
   "main": "./uno.config.ts",
   "author": "Stefan Thomas <justmoon@members.fsf.org>",

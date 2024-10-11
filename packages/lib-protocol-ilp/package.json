@@ -1,7 +1,8 @@
 {
   "name": "@dassie/lib-protocol-ilp",
   "type": "module",
-  "version": "1.0.0",
+  "version": "0.0.0",
+  "private": true,
   "description": "Implementation of the STREAM transport protocol",
   "main": "./src/index.ts",
   "exports": {

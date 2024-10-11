@@ -1,7 +1,8 @@
 {
   "name": "@dassie/lib-oer",
   "type": "module",
-  "version": "1.0.0",
+  "version": "0.0.0",
+  "private": true,
   "description": "Simple reactive programming tools",
   "main": "./src/index.ts",
   "exports": {

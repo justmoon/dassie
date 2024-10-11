@@ -2,6 +2,7 @@
   "name": "@dassie/meta-api-extractor",
   "type": "module",
   "version": "1.0.0",
+  "private": true,
   "description": "API Extractor based utilities to check and document the API surface of library packages",
   "author": "Stefan Thomas <justmoon@members.fsf.org>",
   "license": "Apache-2.0",
