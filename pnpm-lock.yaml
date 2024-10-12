@@ -849,6 +849,9 @@ importers:
         specifier: workspace:^
         version: link:../lib-rpc-react
     devDependencies:
+      '@dassie/meta-rollup-config':
+        specifier: workspace:^
+        version: link:../meta-rollup-config
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig

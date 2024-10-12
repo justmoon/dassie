@@ -2,21 +2,37 @@
   "name": "@dassie/lib-reactive-rpc",
   "type": "module",
   "version": "0.0.0",
-  "private": true,
   "description": "Read and subscribe to reactive values remotely via TRPC",
   "exports": {
-    "./server": {
-      "import": "./src/server/index.ts"
-    },
-    "./client": {
-      "import": "./src/client/index.tsx"
+    "./server": "./src/server/index.ts",
+    "./client": "./src/client/index.tsx"
+  },
+  "sideEffects": false,
+  "publishConfig": {
+    "exports": {
+      "./server": {
+        "types": "./dist/server/index.d.ts",
+        "default": "./dist/server/index.js"
+      },
+      "./client": {
+        "types": "./dist/client/index.d.ts",
+        "default": "./dist/client/index.js"
+      }
     }
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc && rollup -c",
     "lint": "eslint --color .",
     "typecheck": "tsc --pretty"
   },
+  "files": [
+    "dist/server/index.js",
+    "dist/server/index.js.map",
+    "dist/server/index.d.ts",
+    "dist/client/index.js",
+    "dist/client/index.js.map",
+    "dist/client/index.d.ts"
+  ],
   "author": {
     "name": "Stefan Thomas",
     "email": "justmoon@members.fsf.org",
@@ -24,6 +40,7 @@
   },
   "license": "Apache-2.0",
   "devDependencies": {
+    "@dassie/meta-rollup-config": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
     "@types/react": "^18.3.8",
     "react": "^18.3.1"
