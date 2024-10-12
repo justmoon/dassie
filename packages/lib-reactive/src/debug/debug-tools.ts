@@ -1,4 +1,4 @@
-import { castImmutable } from "immer"
+import type { ReadonlyDeep } from "type-fest"
 
 import { isObject } from "@dassie/lib-type-utils"
 
@@ -88,8 +88,8 @@ export class DebugTools {
    *
    * @returns All currently instantiated values in the reactor.
    */
-  getContext() {
-    return castImmutable(this.context)
+  getContext(): ReadonlyDeep<Map<number, ContextEntry>> {
+    return this.context
   }
 
   /**

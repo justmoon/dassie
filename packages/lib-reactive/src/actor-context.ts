@@ -1,6 +1,6 @@
 import type { Promisable } from "type-fest"
 
-import { type Actor, type RunOptions } from "./actor"
+import type { Actor, RunOptions } from "./actor"
 import type { Cancellable } from "./cancellation"
 import { FactoryNameSymbol } from "./internal/context-base"
 import type { Listener } from "./internal/emit-to-listener"

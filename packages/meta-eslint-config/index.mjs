@@ -36,6 +36,7 @@ export default tseslint.config(
   {
     ignores: [
       "**/dist/",
+      "**/rollup.config.js",
       ".meta-updater/",
       "eslint.config.mjs",
       "vitest.config.ts",
