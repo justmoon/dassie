@@ -4,12 +4,22 @@ import type {
   Action,
   BoundAction,
   Factory,
+  FactoryOrInstance,
   InferChanges,
+  ReadonlySignal,
   Store,
 } from "@dassie/lib-reactive"
-import { type Reactor, createReactor } from "@dassie/lib-reactive"
+import {
+  FactoryNameSymbol,
+  type Reactor,
+  createReactor,
+  createScope,
+  defaultSelector,
+} from "@dassie/lib-reactive"
 import type { UseSubscriptionHook } from "@dassie/lib-rpc-react"
 import type { Subscription } from "@dassie/lib-rpc/client"
+
+import { useSyncExternalStoreWithSelector } from "./hooks/use-sync-external-store-with-selector"
 
 interface ProviderProperties {
   reactor?: Reactor | undefined
@@ -41,6 +51,37 @@ const createReactiveHooks = () => {
   }
 
   const useReactor = () => useContext(ReactorContext)
+
+  const useSignal = <TValue, TSelection = TValue>(
+    signalFactory: FactoryOrInstance<ReadonlySignal<TValue>>,
+    selector: (value: TValue) => TSelection = defaultSelector as unknown as (
+      value: TValue,
+    ) => TSelection,
+  ): TSelection => {
+    const reactor = useReactor()
+
+    const signal =
+      typeof signalFactory === "function" ?
+        reactor.use(signalFactory)
+      : signalFactory
+
+    return useSyncExternalStoreWithSelector(
+      (onStoreChange) => {
+        const scope = createScope(`useSignal(${signal[FactoryNameSymbol]})`)
+
+        signal.values.on(scope, onStoreChange)
+
+        return () => {
+          scope.dispose().catch((error: unknown) => {
+            console.error("error disposing signal", { error })
+          })
+        }
+      },
+      () => signal.read(),
+      undefined,
+      selector,
+    )
+  }
 
   const useRemoteSignal = <TValue,>({
     useSubscription,
@@ -100,12 +141,18 @@ const createReactiveHooks = () => {
   return {
     Provider,
     useReactor,
+    useSignal,
     useRemoteSignal,
     useRemoteStore,
   }
 }
 
-export const { Provider, useReactor, useRemoteSignal, useRemoteStore } =
-  createReactiveHooks()
+export const {
+  Provider,
+  useReactor,
+  useSignal,
+  useRemoteSignal,
+  useRemoteStore,
+} = createReactiveHooks()
 
 export { createReactiveHooks }
