@@ -871,6 +871,9 @@ importers:
         specifier: ^3.23.8
         version: 3.23.8
     devDependencies:
+      '@dassie/meta-rollup-config':
+        specifier: workspace:^
+        version: link:../meta-rollup-config
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
