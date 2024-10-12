@@ -26,9 +26,6 @@ importers:
       '@pnpm/meta-updater':
         specifier: ^2.0.3
         version: 2.0.3
-      '@rollup/plugin-node-resolve':
-        specifier: ^15.3.0
-        version: 15.3.0(rollup@4.24.0)
       '@trivago/prettier-plugin-sort-imports':
         specifier: ^4.3.0
         version: 4.3.0(prettier@3.3.3)
@@ -47,12 +44,6 @@ importers:
       rollup:
         specifier: ^4.24.0
         version: 4.24.0
-      rollup-plugin-dts:
-        specifier: ^6.1.1
-        version: 6.1.1(rollup@4.24.0)(typescript@5.5.4)
-      rollup-plugin-esbuild:
-        specifier: ^6.1.1
-        version: 6.1.1(esbuild@0.24.0)(rollup@4.24.0)
       typescript:
         specifier: ~5.5
         version: 5.5.4
@@ -814,6 +805,9 @@ importers:
         specifier: ^4.26.1
         version: 4.26.1
     devDependencies:
+      '@dassie/meta-rollup-config':
+        specifier: workspace:^
+        version: link:../meta-rollup-config
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
@@ -970,6 +964,9 @@ importers:
 
   packages/lib-type-utils:
     devDependencies:
+      '@dassie/meta-rollup-config':
+        specifier: workspace:^
+        version: link:../meta-rollup-config
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
@@ -1092,6 +1089,18 @@ importers:
       '@types/node':
         specifier: ^22.5.5
         version: 22.5.5
+
+  packages/meta-rollup-config:
+    devDependencies:
+      '@rollup/plugin-node-resolve':
+        specifier: ^15.3.0
+        version: 15.3.0(rollup@4.24.0)
+      rollup-plugin-dts:
+        specifier: ^6.1.1
+        version: 6.1.1(rollup@4.24.0)(typescript@5.5.4)
+      rollup-plugin-esbuild:
+        specifier: ^6.1.1
+        version: 6.1.1(esbuild@0.24.0)(rollup@4.24.0)
 
   packages/meta-tsconfig:
     devDependencies:

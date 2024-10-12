@@ -1,0 +1,29 @@
+{
+  "name": "@dassie/meta-rollup-config",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dassie Rollup configuration",
+  "author": {
+    "name": "Stefan Thomas",
+    "email": "justmoon@members.fsf.org",
+    "url": "https://justmoon.com/"
+  },
+  "license": "Apache-2.0",
+  "main": "./index.mjs",
+  "devDependencies": {
+    "@rollup/plugin-node-resolve": "^15.3.0",
+    "rollup-plugin-dts": "^6.1.1",
+    "rollup-plugin-esbuild": "^6.1.1"
+  },
+  "engines": {
+    "node": "=22.8.0"
+  },
+  "bugs": {
+    "url": "https://github.com/justmoon/dassie/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/justmoon/dassie.git",
+    "directory": "packages/meta-rollup-config"
+  }
+}

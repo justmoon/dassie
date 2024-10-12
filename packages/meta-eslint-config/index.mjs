@@ -48,6 +48,7 @@ export default tseslint.config(
       "packages/meta-api-extractor/",
       "packages/meta-eslint-config/",
       "packages/meta-eslint-plugin/lib/",
+      "packages/meta-rollup-config/",
     ],
   },
   eslint.configs.recommended,
