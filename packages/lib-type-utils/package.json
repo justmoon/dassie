@@ -2,19 +2,25 @@
   "name": "@dassie/lib-type-utils",
   "type": "module",
   "version": "0.0.0",
-  "private": true,
   "description": "Useful tools for working with types",
-  "main": "./src/index.ts",
-  "exports": {
-    ".": {
-      "import": "./src/index.ts"
+  "exports": "./src/index.ts",
+  "sideEffects": false,
+  "publishConfig": {
+    "exports": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     }
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc && rollup -c",
     "lint": "eslint --color .",
     "typecheck": "tsc --pretty"
   },
+  "files": [
+    "dist/index.js",
+    "dist/index.js.map",
+    "dist/index.d.ts"
+  ],
   "author": {
     "name": "Stefan Thomas",
     "email": "justmoon@members.fsf.org",
