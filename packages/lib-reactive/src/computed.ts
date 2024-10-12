@@ -28,6 +28,7 @@ export interface Computed<TState> extends ReadonlySignal<TState> {
 }
 
 export interface ComputedOptions<TState> {
+  hasSideEffects?: boolean | undefined
   comparator?: ((oldValue: TState, newValue: TState) => boolean) | undefined
 }
 
@@ -48,7 +49,10 @@ class ComputedImplementation<
     private readonly computation: (sig: ComputationContext<TBase>) => TState,
     options: ComputedOptions<TState> = {},
   ) {
-    super(options.comparator ?? defaultComparator, false)
+    super(
+      options.comparator ?? defaultComparator,
+      options.hasSideEffects ?? false,
+    )
 
     const scope = createScope(this[FactoryNameSymbol])
 

@@ -3,6 +3,7 @@ export { createSignal, isSignal, SignalSymbol } from "./signal"
 export { createActor, isActor, ActorSymbol } from "./actor"
 export { createStore, isStore, StoreSymbol, watchStoreChanges } from "./store"
 export { createComputed, isComputed, ComputedSymbol } from "./computed"
+export { createEffect } from "./effect"
 export { createMapped, isMapped, MappedSymbol } from "./mapped"
 export {
   createCancellable,
@@ -75,16 +76,14 @@ export type {
 } from "./store"
 export type { ComputationContext } from "./computation-context"
 export type { Computed } from "./computed"
+export type { EffectContext } from "./effect"
 export type { Mapped } from "./mapped"
 export type { Reactor } from "./reactor"
 export type { Scope, Disposable, DisposableScope, Disposer } from "./scope"
 export type { Cancellable as Cancellation } from "./cancellation"
 export type { Deferred } from "./deferred"
 export type { Listener } from "./internal/emit-to-listener"
-export type {
-  ReactiveSource as ReactiveProvider,
-  ReactiveObserver as ReactiveConsumer,
-} from "./internal/reactive"
+export type { ReactiveSource, ReactiveObserver } from "./internal/reactive"
 export type { MockClock } from "./mocks/clock"
 export type { Clock, TimeoutId } from "./types/base-modules/clock"
 export type {
