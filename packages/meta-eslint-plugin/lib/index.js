@@ -16,6 +16,7 @@ const plugin = {
         "no-top-level-side-effects": no_top_level_side_effects_js_1.rule,
     },
 };
+// eslint-disable-next-line unicorn/prefer-module
 module.exports = {
     ...plugin,
     configs: {

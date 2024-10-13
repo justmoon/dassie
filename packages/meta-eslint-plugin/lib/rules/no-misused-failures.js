@@ -8,10 +8,11 @@ const create_rule_1 = require("../utils/create-rule");
 const is_failure_like_1 = require("../utils/is-failure-like");
 function parseChecksVoidReturn(checksVoidReturn) {
     switch (checksVoidReturn) {
-        case false:
+        case false: {
             return false;
+        }
         case true:
-        case undefined:
+        case undefined: {
             return {
                 arguments: true,
                 attributes: true,
@@ -19,7 +20,8 @@ function parseChecksVoidReturn(checksVoidReturn) {
                 returns: true,
                 variables: true,
             };
-        default:
+        }
+        default: {
             return {
                 arguments: checksVoidReturn.arguments ?? true,
                 attributes: checksVoidReturn.attributes ?? true,
@@ -27,6 +29,7 @@ function parseChecksVoidReturn(checksVoidReturn) {
                 returns: checksVoidReturn.returns ?? true,
                 variables: checksVoidReturn.variables ?? true,
             };
+        }
     }
 }
 exports.rule = (0, create_rule_1.createRule)({
@@ -136,8 +139,9 @@ exports.rule = (0, create_rule_1.createRule)({
         /**
          * This function analyzes the type of a node and checks if it is a Failure in a boolean conditional.
          * It uses recursion when checking nested logical operators.
-         * @param node The AST node to check.
-         * @param isTestExpr Whether the node is a descendant of a test expression.
+         *
+         * @param node - The AST node to check.
+         * @param isTestExpr - Whether the node is a descendant of a test expression.
          */
         function checkConditional(node, isTestExpr = false) {
             // prevent checking the same node multiple times
@@ -165,12 +169,12 @@ exports.rule = (0, create_rule_1.createRule)({
         }
         function checkArguments(node) {
             const tsNode = services.esTreeNodeToTSNodeMap.get(node);
-            const voidArgs = voidFunctionArguments(checker, tsNode);
-            if (voidArgs.size === 0) {
+            const voidArguments = voidFunctionArguments(checker, tsNode);
+            if (voidArguments.size === 0) {
                 return;
             }
             for (const [index, argument] of node.arguments.entries()) {
-                if (!voidArgs.has(index)) {
+                if (!voidArguments.has(index)) {
                     continue;
                 }
                 const tsNode = services.esTreeNodeToTSNodeMap.get(argument);
@@ -184,8 +188,8 @@ exports.rule = (0, create_rule_1.createRule)({
         }
         function checkAssignment(node) {
             const tsNode = services.esTreeNodeToTSNodeMap.get(node);
-            const varType = services.getTypeAtLocation(node.left);
-            if (!isVoidReturningFunctionType(checker, varType)) {
+            const variableType = services.getTypeAtLocation(node.left);
+            if (!isVoidReturningFunctionType(checker, variableType)) {
                 return;
             }
             if ((0, is_failure_like_1.returnsFailureLike)(checker, checker.getTypeAtLocation(tsNode.right))) {
@@ -200,8 +204,8 @@ exports.rule = (0, create_rule_1.createRule)({
             if (tsNode.initializer === undefined || node.init == null) {
                 return;
             }
-            const varType = services.getTypeAtLocation(node.id);
-            if (!isVoidReturningFunctionType(checker, varType)) {
+            const variableType = services.getTypeAtLocation(node.id);
+            if (!isVoidReturningFunctionType(checker, variableType)) {
                 return;
             }
             if ((0, is_failure_like_1.returnsFailureLike)(checker, checker.getTypeAtLocation(tsNode.initializer))) {
@@ -239,24 +243,24 @@ exports.rule = (0, create_rule_1.createRule)({
                 if ((0, typescript_1.isComputedPropertyName)(tsNode.name)) {
                     return;
                 }
-                const obj = tsNode.parent;
+                const object = tsNode.parent;
                 // Below condition isn't satisfied unless something goes wrong,
                 // but is needed for type checking.
                 // 'node' does not include class method declaration so 'obj' is
                 // always an object literal expression, but after converting 'node'
                 // to TypeScript AST, its type includes MethodDeclaration which
                 // does include the case of class method declaration.
-                if (!(0, typescript_1.isObjectLiteralExpression)(obj)) {
+                if (!(0, typescript_1.isObjectLiteralExpression)(object)) {
                     return;
                 }
                 if (!(0, is_failure_like_1.returnsFailureLike)(checker, checker.getTypeAtLocation(tsNode))) {
                     return;
                 }
-                const objType = checker.getContextualType(obj);
-                if (objType === undefined) {
+                const objectType = checker.getContextualType(object);
+                if (objectType === undefined) {
                     return;
                 }
-                const propertySymbol = checker.getPropertyOfType(objType, tsNode.name.text);
+                const propertySymbol = checker.getPropertyOfType(objectType, tsNode.name.text);
                 if (propertySymbol === undefined) {
                     return;
                 }
@@ -317,12 +321,11 @@ function checkThenableOrVoidArgument(checker, type, index, thenableReturnIndices
     if (isFailureLikeReturningFunctionType(checker, type)) {
         thenableReturnIndices.add(index);
     }
-    else if (isVoidReturningFunctionType(checker, type)) {
+    else if (isVoidReturningFunctionType(checker, type) &&
         // If a certain argument accepts both thenable and void returns,
         // a promise-returning function is valid
-        if (!thenableReturnIndices.has(index)) {
-            voidReturnIndices.add(index);
-        }
+        !thenableReturnIndices.has(index)) {
+        voidReturnIndices.add(index);
     }
 }
 // Get the positions of arguments which are void functions (and not also
@@ -361,16 +364,17 @@ function voidFunctionArguments(checker, node) {
                         // so that we'll handle it in the same way as a non-rest
                         // 'param: MaybeVoidFunction'
                         type = checker.getTypeArguments(type)[0];
-                        for (let i = index; i < node.arguments.length; i++) {
-                            checkThenableOrVoidArgument(checker, type, i, thenableReturnIndices, voidReturnIndices);
+                        for (let index2 = index; index2 < node.arguments.length; index2++) {
+                            checkThenableOrVoidArgument(checker, type, index2, thenableReturnIndices, voidReturnIndices);
                         }
                     }
                     else if (checker.isTupleType(type)) {
                         // Check each type in the tuple - for example, [boolean, () => void] would
                         // add the index of the second tuple parameter to 'voidReturnIndices'
-                        const typeArgs = checker.getTypeArguments(type);
-                        for (let i = index; i < node.arguments.length && i - index < typeArgs.length; i++) {
-                            checkThenableOrVoidArgument(checker, typeArgs[i - index], i, thenableReturnIndices, voidReturnIndices);
+                        const typeArguments = checker.getTypeArguments(type);
+                        for (let index2 = index; index2 < node.arguments.length &&
+                            index2 - index < typeArguments.length; index2++) {
+                            checkThenableOrVoidArgument(checker, typeArguments[index2 - index], index2, thenableReturnIndices, voidReturnIndices);
                         }
                     }
                 }

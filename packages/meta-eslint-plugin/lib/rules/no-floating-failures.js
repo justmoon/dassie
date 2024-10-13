@@ -60,35 +60,38 @@ exports.rule = (0, create_rule_1.createRule)({
             if (!(0, is_failure_like_1.isSometimesFailureLike)(checker, services.getTypeAtLocation(node))) {
                 return false;
             }
-            if (node.type === utils_1.AST_NODE_TYPES.CallExpression) {
-                return true;
-            }
-            else if (node.type === utils_1.AST_NODE_TYPES.AwaitExpression) {
-                return true;
-            }
-            else if (node.type === utils_1.AST_NODE_TYPES.ConditionalExpression) {
-                // We must be getting the promise-like value from one of the branches of the
-                // ternary. Check them directly.
-                const alternateResult = isUnhandledFailure(checker, node.alternate);
-                if (alternateResult) {
-                    return alternateResult;
+            switch (node.type) {
+                case utils_1.AST_NODE_TYPES.CallExpression: {
+                    return true;
                 }
-                return isUnhandledFailure(checker, node.consequent);
-            }
-            else if (node.type === utils_1.AST_NODE_TYPES.MemberExpression ||
-                node.type === utils_1.AST_NODE_TYPES.Identifier ||
-                node.type === utils_1.AST_NODE_TYPES.NewExpression) {
-                // If it is just a property access chain or a `new` call (e.g. `foo.bar` or
-                // `new Promise()`), the promise is not handled because it doesn't have the
-                // necessary then/catch call at the end of the chain.
-                return true;
-            }
-            else if (node.type === utils_1.AST_NODE_TYPES.LogicalExpression) {
-                const leftResult = isUnhandledFailure(checker, node.left);
-                if (leftResult) {
-                    return leftResult;
+                case utils_1.AST_NODE_TYPES.AwaitExpression: {
+                    return true;
                 }
-                return isUnhandledFailure(checker, node.right);
+                case utils_1.AST_NODE_TYPES.ConditionalExpression: {
+                    // We must be getting the promise-like value from one of the branches of the
+                    // ternary. Check them directly.
+                    const alternateResult = isUnhandledFailure(checker, node.alternate);
+                    if (alternateResult) {
+                        return alternateResult;
+                    }
+                    return isUnhandledFailure(checker, node.consequent);
+                }
+                case utils_1.AST_NODE_TYPES.MemberExpression:
+                case utils_1.AST_NODE_TYPES.Identifier:
+                case utils_1.AST_NODE_TYPES.NewExpression: {
+                    // If it is just a property access chain or a `new` call (e.g. `foo.bar` or
+                    // `new Promise()`), the promise is not handled because it doesn't have the
+                    // necessary then/catch call at the end of the chain.
+                    return true;
+                }
+                case utils_1.AST_NODE_TYPES.LogicalExpression: {
+                    const leftResult = isUnhandledFailure(checker, node.left);
+                    if (leftResult) {
+                        return leftResult;
+                    }
+                    return isUnhandledFailure(checker, node.right);
+                }
+                // No default
             }
             // Conservatively return false for all other expressions to avoid false positives
             // in cases we didn't consider.

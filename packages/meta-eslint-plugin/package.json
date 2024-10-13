@@ -39,5 +39,8 @@
     "type": "git",
     "url": "git+https://github.com/justmoon/dassie.git",
     "directory": "packages/meta-eslint-plugin"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.5"
   }
 }

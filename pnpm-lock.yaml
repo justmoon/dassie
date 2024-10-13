@@ -1051,6 +1051,10 @@ importers:
       typescript:
         specifier: ~5.5
         version: 5.5.4
+    devDependencies:
+      '@types/node':
+        specifier: ^22.5.5
+        version: 22.5.5
 
   packages/meta-incremental-check:
     dependencies:
@@ -10088,7 +10092,7 @@ snapshots:
 
   '@types/sax@1.2.7':
     dependencies:
-      '@types/node': 17.0.45
+      '@types/node': 22.5.5
 
   '@types/send@0.17.4':
     dependencies:

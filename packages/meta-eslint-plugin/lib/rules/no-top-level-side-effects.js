@@ -53,7 +53,7 @@ exports.rule = (0, create_rule_1.createRule)({
         if (option.allowInExportlessModules) {
             allowedNodes.push("Program:not(:has(ExportNamedDeclaration)) *");
         }
-        const constructSelector = (nodeType) => allowedNodes.length ?
+        const constructSelector = (nodeType) => allowedNodes.length > 0 ?
             `${nodeType}:not(:matches(${allowedNodes.join(",")}))`
             : nodeType;
         return {
