@@ -38,7 +38,7 @@ export {
 } from "./mocks/clock"
 export {
   createMockDeterministicCrypto,
-  Xoshiro128PlusPlus,
+  generateSeedFromString,
 } from "./mocks/deterministic-crypto"
 export { delay, delayWithAbortSignal } from "./tools/delay"
 export {
