@@ -26,9 +26,6 @@
       "path": "../lib-reactive-rpc"
     },
     {
-      "path": "../lib-rpc-react"
-    },
-    {
       "path": "../lib-type-utils"
     },
     {

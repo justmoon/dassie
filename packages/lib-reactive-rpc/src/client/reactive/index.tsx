@@ -16,12 +16,12 @@ import {
   createScope,
   defaultSelector,
 } from "@dassie/lib-reactive"
-import type { UseSubscriptionHook } from "@dassie/lib-rpc-react"
 import type { Subscription } from "@dassie/lib-rpc/client"
 
+import type { UseSubscriptionHook } from "../rpc/types/use-subscription"
 import { useSyncExternalStoreWithSelector } from "./hooks/use-sync-external-store-with-selector"
 
-interface ProviderProperties {
+export interface ProviderProperties {
   reactor?: Reactor | undefined
   children: ReactNode
 }
@@ -38,7 +38,7 @@ export type StoreSubscriptionData<TInitial, TChange> =
   | { type: "initial"; value: TInitial }
   | { type: "changes"; value: TChange }
 
-const createReactiveHooks = () => {
+export const createReactiveHooks = () => {
   const ReactorContext = createContext<Reactor>(createReactor())
 
   const Provider = ({ reactor, children }: ProviderProperties) => {
@@ -146,13 +146,3 @@ const createReactiveHooks = () => {
     useRemoteStore,
   }
 }
-
-export const {
-  Provider,
-  useReactor,
-  useSignal,
-  useRemoteSignal,
-  useRemoteStore,
-} = createReactiveHooks()
-
-export { createReactiveHooks }

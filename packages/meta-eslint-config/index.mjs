@@ -18,6 +18,7 @@ const FRONTEND_FILES = [
   "packages/gui-dev/src/**/*.ts{,x}",
   "packages/gui-dassie/src/**/*.ts{,x}",
   "packages/lib-reactive-io/src/browser/**/*.ts",
+  "packages/lib-reactive-rpc/src/client/**/*.ts{,x}",
 ]
 const BACKEND_FILES = [
   "packages/app-cli/index.js",
@@ -28,6 +29,7 @@ const BACKEND_FILES = [
   "packages/app-dev/src/**/*.{js,ts}",
   "packages/lib-http-server/src/environments/nodejs/**/*.ts",
   "packages/lib-reactive-io/src/node/**/*.ts",
+  "packages/lib-reactive-rpc/src/server/**/*.ts",
   "packages/lib-terminal-graphics/src/**/*.ts",
   "packages/meta-incremental-check/src/**/*.{js,ts}",
 ]

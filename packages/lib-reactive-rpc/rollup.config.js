@@ -9,14 +9,15 @@ const config = [
     ],
   }),
   ...entrypoint("client/index", {
-    input: "./src/client/index.tsx",
     external: [
       "react",
       "react/jsx-runtime",
       "@dassie/lib-reactive",
       "@dassie/lib-rpc/client",
+      "@dassie/lib-rpc/server",
       "@dassie/lib-rpc-react",
       "@dassie/lib-type-utils",
+      "@tanstack/react-query",
     ],
   }),
 ]

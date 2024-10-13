@@ -5,7 +5,7 @@
   "description": "Read and subscribe to reactive values remotely via TRPC",
   "exports": {
     "./server": "./src/server/index.ts",
-    "./client": "./src/client/index.tsx"
+    "./client": "./src/client/index.ts"
   },
   "sideEffects": false,
   "publishConfig": {
@@ -43,12 +43,13 @@
     "@dassie/meta-rollup-config": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
     "@types/react": "^18.3.8",
-    "react": "^18.3.1"
+    "react": "^18.3.1",
+    "type-fest": "^4.26.1"
   },
   "dependencies": {
     "@dassie/lib-reactive": "workspace:^",
     "@dassie/lib-rpc": "workspace:^",
-    "@dassie/lib-rpc-react": "workspace:^"
+    "@tanstack/react-query": "^5.56.2"
   },
   "peerDependencies": {
     "react": ">=18.0.0"

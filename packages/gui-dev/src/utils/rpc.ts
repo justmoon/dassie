@@ -4,7 +4,7 @@ import type { UiRpcRouter } from "@dassie/app-dev/src/rpc-routers/ui-rpc-router"
 import {
   type UseWebSocketClientOptions,
   createRpcReact,
-} from "@dassie/lib-rpc-react"
+} from "@dassie/lib-reactive-rpc/client"
 
 registerClass(TypeError, {
   allowProps: ["message", "stack", "cause"],

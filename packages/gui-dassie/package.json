@@ -19,7 +19,6 @@
     "@dassie/lib-logger": "workspace:^",
     "@dassie/lib-reactive": "workspace:^",
     "@dassie/lib-reactive-rpc": "workspace:^",
-    "@dassie/lib-rpc-react": "workspace:^",
     "@dassie/lib-type-utils": "workspace:^",
     "@dassie/meta-unocss-config": "workspace:^",
     "@hookform/resolvers": "^3.9.0",

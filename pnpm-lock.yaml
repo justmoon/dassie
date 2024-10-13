@@ -425,9 +425,6 @@ importers:
       '@dassie/lib-reactive-rpc':
         specifier: workspace:^
         version: link:../lib-reactive-rpc
-      '@dassie/lib-rpc-react':
-        specifier: workspace:^
-        version: link:../lib-rpc-react
       '@dassie/lib-type-utils':
         specifier: workspace:^
         version: link:../lib-type-utils
@@ -567,9 +564,6 @@ importers:
       '@dassie/lib-rpc':
         specifier: workspace:^
         version: link:../lib-rpc
-      '@dassie/lib-rpc-react':
-        specifier: workspace:^
-        version: link:../lib-rpc-react
       '@dassie/lib-type-utils':
         specifier: workspace:*
         version: link:../lib-type-utils
@@ -845,9 +839,9 @@ importers:
       '@dassie/lib-rpc':
         specifier: workspace:^
         version: link:../lib-rpc
-      '@dassie/lib-rpc-react':
-        specifier: workspace:^
-        version: link:../lib-rpc-react
+      '@tanstack/react-query':
+        specifier: ^5.56.2
+        version: 5.56.2(react@18.3.1)
     devDependencies:
       '@dassie/meta-rollup-config':
         specifier: workspace:^
@@ -861,6 +855,9 @@ importers:
       react:
         specifier: ^18.3.1
         version: 18.3.1
+      type-fest:
+        specifier: ^4.26.1
+        version: 4.26.1
 
   packages/lib-rpc:
     dependencies:
@@ -880,25 +877,6 @@ importers:
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
-      type-fest:
-        specifier: ^4.26.1
-        version: 4.26.1
-
-  packages/lib-rpc-react:
-    dependencies:
-      '@dassie/lib-rpc':
-        specifier: workspace:^
-        version: link:../lib-rpc
-      '@tanstack/react-query':
-        specifier: ^5.56.2
-        version: 5.56.2(react@18.3.1)
-    devDependencies:
-      '@dassie/meta-tsconfig':
-        specifier: workspace:^
-        version: link:../meta-tsconfig
-      '@types/react':
-        specifier: ^18.3.8
-        version: 18.3.8
       type-fest:
         specifier: ^4.26.1
         version: 4.26.1

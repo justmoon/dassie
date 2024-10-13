@@ -62,9 +62,6 @@
       "path": "./packages/lib-rpc/tsconfig.json"
     },
     {
-      "path": "./packages/lib-rpc-react/tsconfig.json"
-    },
-    {
       "path": "./packages/lib-sqlite/tsconfig.json"
     },
     {
