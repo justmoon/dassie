@@ -1,6 +1,6 @@
 {
   "name": "@dassie/lib-rpc",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "RPC library for communicating between TypeScript processes",
   "type": "module",
   "exports": {

@@ -1,6 +1,6 @@
 {
   "name": "@dassie/lib-reactive-io",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "IO abstraction layer for Dassie",
   "type": "module",
   "sideEffects": false,
