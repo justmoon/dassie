@@ -130,7 +130,8 @@ export async function handleConnectionPacket(
       streamReceiveList.push({
         streamId,
         shares: frame.data.shares,
-        receiveMaximum: streamState.receiveMaximum - streamState.receivedAmount,
+        receivedAmount: streamState.receivedAmount,
+        receiveMaximum: streamState.receiveMaximum,
       })
     }
   }
@@ -146,6 +147,17 @@ export async function handleConnectionPacket(
   })
 
   if (isFailure(allocatedAmounts)) {
+    for (const {
+      streamId,
+      receivedAmount,
+      receiveMaximum,
+    } of streamReceiveList) {
+      responseBuilder.setStreamMaxMoney({
+        streamId,
+        totalReceived: receivedAmount,
+        receiveMax: receiveMaximum,
+      })
+    }
     return responseBuilder.reject("Amount exceeds maximum receive amount")
   }
 

@@ -1,3 +1,5 @@
+import { UINT64_MAX } from "@dassie/lib-oer"
+
 import { FrameType, type StreamFrame } from "../packets/schema"
 import type { ResponseBuilder } from "./create-response"
 import { markConnectionClosed } from "./mark-closed"
@@ -66,7 +68,37 @@ export function handleControlFrame({
       logger.debug?.("received close frame")
 
       markConnectionClosed(state)
+
+      break
     }
+    case FrameType.StreamMaxMoney: {
+      logger.debug?.("received remote max money", {
+        receiveMaximum: frame.data.receiveMax,
+        totalReceived: frame.data.totalReceived,
+      })
+
+      const stream = state.streams.get(Number(frame.data.streamId))
+
+      if (!stream) {
+        logger.warn("received max money for unknown stream", {
+          streamId: frame.data.streamId,
+        })
+        break
+      }
+
+      if (frame.data.totalReceived > stream.remoteReceivedAmount) {
+        stream.remoteReceivedAmount = frame.data.totalReceived
+      }
+
+      if (
+        stream.remoteReceiveMaximum === UINT64_MAX ||
+        stream.remoteReceiveMaximum < frame.data.receiveMax
+      ) {
+        stream.remoteReceiveMaximum = frame.data.receiveMax
+      }
+      break
+    }
+
     // No default
   }
 }

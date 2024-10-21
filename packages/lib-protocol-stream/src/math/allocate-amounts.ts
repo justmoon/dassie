@@ -8,6 +8,7 @@ import { type Ratio, multiplyByRatio } from "./ratio"
 export interface StreamReceiveListEntry {
   readonly streamId: number
   readonly shares: bigint
+  readonly receivedAmount: bigint
   readonly receiveMaximum: bigint
 }
 
@@ -44,7 +45,9 @@ export function allocateAmounts(
       )
 
       const canReceive =
-        streamReceiveEntry.receiveMaximum - allocationList[index]!.amount
+        streamReceiveEntry.receiveMaximum -
+        streamReceiveEntry.receivedAmount -
+        allocationList[index]!.amount
 
       const allocatedAmount = min(
         min(amountByShare, canReceive),

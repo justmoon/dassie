@@ -1,10 +1,13 @@
+import { bigIntMin } from "@dassie/lib-type-utils"
+
 import type { StreamState } from "./state"
 
 export function getDesiredSendAmount(streamState: StreamState) {
-  return (
+  return bigIntMin(
     streamState.sendMaximum -
-    streamState.sendHoldAmount -
-    streamState.sentAmount
+      streamState.sendHoldAmount -
+      streamState.sentAmount,
+    streamState.remoteReceiveMaximum - streamState.remoteReceivedAmount,
   )
 }
 

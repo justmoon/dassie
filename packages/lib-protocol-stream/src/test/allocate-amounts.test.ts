@@ -10,16 +10,19 @@ describe("allocateAmounts", () => {
       {
         streamId: 1,
         shares: 10n,
+        receivedAmount: 0n,
         receiveMaximum: 30n,
       },
       {
         streamId: 2,
         shares: 10n,
+        receivedAmount: 0n,
         receiveMaximum: 30n,
       },
       {
         streamId: 3,
         shares: 10n,
+        receivedAmount: 0n,
         receiveMaximum: 30n,
       },
     ]
@@ -51,16 +54,19 @@ describe("allocateAmounts", () => {
       {
         streamId: 1,
         shares: 1000n,
+        receivedAmount: 0n,
         receiveMaximum: 10n,
       },
       {
         streamId: 2,
         shares: 10n,
+        receivedAmount: 0n,
         receiveMaximum: 1000n,
       },
       {
         streamId: 3,
         shares: 10n,
+        receivedAmount: 0n,
         receiveMaximum: 1000n,
       },
     ]
@@ -89,9 +95,9 @@ describe("allocateAmounts", () => {
     expect,
   }) => {
     const streamReceiveList = [
-      { streamId: 1, shares: 10n, receiveMaximum: 1000n },
-      { streamId: 2, shares: 10n, receiveMaximum: 1000n },
-      { streamId: 3, shares: 10n, receiveMaximum: 1000n },
+      { streamId: 1, shares: 10n, receivedAmount: 0n, receiveMaximum: 1000n },
+      { streamId: 2, shares: 10n, receivedAmount: 0n, receiveMaximum: 1000n },
+      { streamId: 3, shares: 10n, receivedAmount: 0n, receiveMaximum: 1000n },
     ]
 
     const allocationList = allocateAmounts(30n, 100n, streamReceiveList)
@@ -116,9 +122,9 @@ describe("allocateAmounts", () => {
 
   test("should reject packets when the amount is too large", ({ expect }) => {
     const streamReceiveList = [
-      { streamId: 1, shares: 10n, receiveMaximum: 1000n },
-      { streamId: 2, shares: 10n, receiveMaximum: 1000n },
-      { streamId: 3, shares: 10n, receiveMaximum: 1000n },
+      { streamId: 1, shares: 10n, receivedAmount: 0n, receiveMaximum: 1000n },
+      { streamId: 2, shares: 10n, receivedAmount: 0n, receiveMaximum: 1000n },
+      { streamId: 3, shares: 10n, receivedAmount: 0n, receiveMaximum: 1000n },
     ]
 
     const allocationList = allocateAmounts(30n, 3001n, streamReceiveList)

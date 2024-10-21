@@ -15,6 +15,12 @@ interface CreateResponseBuilderParameters {
   readonly sequence: bigint
 }
 
+interface StreamMaxMoneyParameters {
+  streamId: number
+  totalReceived: bigint
+  receiveMax: bigint
+}
+
 export function createResponseBuilder({
   state,
   fulfillment,
@@ -26,6 +32,10 @@ export function createResponseBuilder({
   const closedStreams = new Map<
     number,
     { errorCode: number; errorMessage: string }
+  >()
+  const streamMaxMoney = new Map<
+    number,
+    Omit<StreamMaxMoneyParameters, "streamId">
   >()
 
   async function serializeAndEncryptStreamResponse(
@@ -48,6 +58,21 @@ export function createResponseBuilder({
         type: FrameType.ConnectionMaxStreamId,
         data: {
           maxStreamId: BigInt(maxStreamId),
+        },
+      })
+    }
+
+    for (const [streamId, { totalReceived, receiveMax }] of streamMaxMoney) {
+      if (closedStreams.has(streamId)) {
+        continue
+      }
+
+      responseFrames.push({
+        type: FrameType.StreamMaxMoney,
+        data: {
+          streamId: BigInt(streamId),
+          totalReceived,
+          receiveMax,
         },
       })
     }
@@ -129,6 +154,17 @@ export function createResponseBuilder({
       if (closedStreams.has(streamId)) return
 
       closedStreams.set(streamId, { errorCode, errorMessage })
+    },
+
+    setStreamMaxMoney({
+      streamId,
+      totalReceived,
+      receiveMax,
+    }: StreamMaxMoneyParameters) {
+      streamMaxMoney.set(streamId, {
+        totalReceived,
+        receiveMax,
+      })
     },
 
     tryFulfill,

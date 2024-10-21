@@ -17,5 +17,8 @@ export interface StreamState {
   topics: InferTopics<StreamEvents>
 
   isClosed: boolean
+
+  remoteReceivedAmount: bigint
+  remoteReceiveMaximum: bigint
   isRemoteClosed: boolean
 }
