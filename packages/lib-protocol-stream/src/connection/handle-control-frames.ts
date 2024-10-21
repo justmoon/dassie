@@ -1,6 +1,6 @@
 import { FrameType, type StreamFrame } from "../packets/schema"
-import { markConnectionClosed } from "./close"
 import type { ResponseBuilder } from "./create-response"
+import { markConnectionClosed } from "./mark-closed"
 import type { ConnectionState } from "./state"
 
 interface HandleControlFrameParameters {

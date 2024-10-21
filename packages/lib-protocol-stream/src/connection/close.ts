@@ -2,20 +2,9 @@ import { IlpType } from "@dassie/lib-protocol-ilp"
 import { isFailure } from "@dassie/lib-type-utils"
 
 import { ErrorCode, FrameType } from "../packets/schema"
-import { closeStream } from "../stream/close"
+import { markConnectionClosed } from "./mark-closed"
 import { sendPacket } from "./send-packet"
 import type { ConnectionState } from "./state"
-
-export function markConnectionClosed(state: ConnectionState) {
-  for (const [streamId, stream] of state.streams.entries()) {
-    closeStream(streamId, state, stream)
-  }
-
-  if (!state.isClosed) {
-    state.isClosed = true
-    state.topics.closed.emit()
-  }
-}
 
 export async function closeConnection(state: ConnectionState) {
   if (state.isClosed) return
