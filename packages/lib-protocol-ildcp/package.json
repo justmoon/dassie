@@ -1,20 +1,26 @@
 {
   "name": "@dassie/lib-protocol-ildcp",
-  "type": "module",
   "version": "0.0.0",
-  "private": true,
   "description": "Implementation of the IL-DCP automatic configuration protocol",
-  "main": "./src/index.ts",
-  "exports": {
-    ".": {
-      "import": "./src/index.ts"
+  "type": "module",
+  "exports": "./src/index.ts",
+  "sideEffects": false,
+  "publishConfig": {
+    "exports": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     }
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc && rollup -c",
     "lint": "eslint --color .",
     "typecheck": "tsc --pretty"
   },
+  "files": [
+    "dist/index.js",
+    "dist/index.js.map",
+    "dist/index.d.ts"
+  ],
   "author": {
     "name": "Stefan Thomas",
     "email": "justmoon@members.fsf.org",
@@ -22,13 +28,14 @@
   },
   "license": "Apache-2.0",
   "devDependencies": {
-    "@dassie/lib-oer": "workspace:^",
+    "@dassie/meta-rollup-config": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
-    "type-fest": "^4.26.1"
+    "type-fest": "^4.26.1",
+    "uint8array-extras": "^1.4.0"
   },
   "dependencies": {
-    "@dassie/lib-type-utils": "workspace:^",
-    "uint8array-extras": "^1.4.0"
+    "@dassie/lib-oer": "workspace:^",
+    "@dassie/lib-type-utils": "workspace:^"
   },
   "engines": {
     "node": "=22.8.0"

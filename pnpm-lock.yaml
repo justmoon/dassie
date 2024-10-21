@@ -713,22 +713,25 @@ importers:
 
   packages/lib-protocol-ildcp:
     dependencies:
-      '@dassie/lib-type-utils':
-        specifier: workspace:^
-        version: link:../lib-type-utils
-      uint8array-extras:
-        specifier: ^1.4.0
-        version: 1.4.0
-    devDependencies:
       '@dassie/lib-oer':
         specifier: workspace:^
         version: link:../lib-oer
+      '@dassie/lib-type-utils':
+        specifier: workspace:^
+        version: link:../lib-type-utils
+    devDependencies:
+      '@dassie/meta-rollup-config':
+        specifier: workspace:^
+        version: link:../meta-rollup-config
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
       type-fest:
         specifier: ^4.26.1
         version: 4.26.1
+      uint8array-extras:
+        specifier: ^1.4.0
+        version: 1.4.0
 
   packages/lib-protocol-ilp:
     dependencies:
@@ -754,6 +757,9 @@ importers:
 
   packages/lib-protocol-stream:
     dependencies:
+      '@dassie/lib-logger':
+        specifier: workspace:^
+        version: link:../lib-logger
       '@dassie/lib-oer':
         specifier: workspace:^
         version: link:../lib-oer
@@ -776,9 +782,6 @@ importers:
         specifier: ^1.4.0
         version: 1.4.0
     devDependencies:
-      '@dassie/lib-logger':
-        specifier: workspace:^
-        version: link:../lib-logger
       '@dassie/meta-rollup-config':
         specifier: workspace:^
         version: link:../meta-rollup-config
