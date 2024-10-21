@@ -1,20 +1,51 @@
 {
   "name": "@dassie/lib-logger",
-  "type": "module",
   "version": "0.0.0",
-  "private": true,
   "description": "Logging library for the Dassie ILP project",
-  "main": "./src/node.ts",
+  "type": "module",
+  "sideEffects": false,
   "exports": {
-    "types": "./src/node.ts",
-    "node": "./src/node.ts",
-    "import": "./src/browser.ts"
+    ".": {
+      "node": "./src/node.ts",
+      "import": "./src/browser.ts"
+    },
+    "./node": {
+      "import": "./src/node.ts"
+    },
+    "./browser": {
+      "import": "./src/browser.ts"
+    }
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/browser.d.ts",
+        "node": "./dist/node.js",
+        "import": "./dist/browser.js"
+      },
+      "./node": {
+        "types": "./dist/node.d.ts",
+        "import": "./dist/node.js"
+      },
+      "./browser": {
+        "types": "./dist/browser.d.ts",
+        "import": "./dist/browser.js"
+      }
+    }
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc && rollup -c",
     "lint": "eslint --color .",
     "typecheck": "tsc --pretty"
   },
+  "files": [
+    "dist/node.js",
+    "dist/node.js.map",
+    "dist/node.d.ts",
+    "dist/browser.js",
+    "dist/browser.js.map",
+    "dist/browser.d.ts"
+  ],
   "author": {
     "name": "Stefan Thomas",
     "email": "justmoon@members.fsf.org",
@@ -28,6 +59,7 @@
     "string-width": "^7.2.0"
   },
   "devDependencies": {
+    "@dassie/meta-rollup-config": "workspace:^",
     "@dassie/meta-tsconfig": "workspace:^",
     "@types/is-generator-function": "^1.0.3"
   },
