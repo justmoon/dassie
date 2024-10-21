@@ -1,6 +1,5 @@
 import ansiEscapes from "ansi-escapes"
 import chalk from "chalk"
-import isGeneratorFunction from "is-generator-function"
 import stringWidth from "string-width"
 
 import { isError, isObject } from "@dassie/lib-type-utils"
@@ -8,6 +7,7 @@ import { isError, isObject } from "@dassie/lib-type-utils"
 import type { Formatter, LogEventFormatter } from "../types/formatter"
 import type { LogMessage } from "../types/log-event"
 import { isAsyncFunction } from "../utils/is-async-function"
+import { isGeneratorFunction } from "../utils/is-generator-function"
 import { selectBySeed } from "../utils/select-by-seed"
 
 export interface Theme {

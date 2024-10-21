@@ -1,2 +1,4 @@
 export const isAsyncFunction = (value: unknown) =>
-  Object.prototype.toString.call(value) === "[object AsyncFunction]"
+  typeof value === "function" &&
+  Symbol.toStringTag in value &&
+  value[Symbol.toStringTag] === "AsyncFunction"
