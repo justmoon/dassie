@@ -179,7 +179,15 @@ export function createTestEnvironment({
           }
         }
 
-        throw new Error("Invalid packet destination: " + packet.destination)
+        return {
+          type: IlpType.Reject,
+          data: {
+            code: IlpErrorCode.F02_UNREACHABLE,
+            message: "Unknown destination",
+            triggeredBy: "test.router",
+            data: new Uint8Array(),
+          },
+        }
       }
 
       const endpoint: IlpEndpoint = {
