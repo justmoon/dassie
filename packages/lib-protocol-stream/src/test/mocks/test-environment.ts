@@ -65,6 +65,7 @@ interface PreparePacketEvent {
 }
 
 interface ResponsePacketEvent {
+  prepareSender: string
   prepare: IlpPreparePacket
   response: IlpResponsePacket
 }
@@ -196,7 +197,11 @@ export function createTestEnvironment({
 
           const result = await processPacket(packet)
 
-          responsePacketTopic.emit({ prepare: packet, response: result })
+          responsePacketTopic.emit({
+            prepareSender: address,
+            prepare: packet,
+            response: result,
+          })
 
           return result
         },
