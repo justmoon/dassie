@@ -46,7 +46,7 @@ export class Stream implements EventEmitter<StreamEvents> {
     const deferred = createDeferred<void | SendFailure>()
     const targetAmount = this.state.sendMaximum
 
-    const timeoutId = setTimeout(() => {
+    const timeoutId = this.connectionState.context.clock.setTimeout(() => {
       this.state.topics.moneySent.off(listener)
       deferred.resolve(SEND_TIMEOUT_FAILURE)
     }, timeout)
@@ -54,7 +54,7 @@ export class Stream implements EventEmitter<StreamEvents> {
     const listener = () => {
       if (this.state.sentAmount >= targetAmount) {
         this.state.topics.moneySent.off(listener)
-        clearTimeout(timeoutId)
+        this.connectionState.context.clock.clearTimeout(timeoutId)
         deferred.resolve()
       }
     }
