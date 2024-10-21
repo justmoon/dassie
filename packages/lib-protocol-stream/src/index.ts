@@ -27,3 +27,5 @@ export {
 } from "./packets/schema"
 
 export { type PskEnvironment, getPskEnvironment } from "./crypto/functions"
+
+export { multiplyByRatio, type Ratio } from "./math/ratio"
