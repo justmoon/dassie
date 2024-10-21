@@ -742,6 +742,9 @@ importers:
       '@dassie/lib-oer':
         specifier: workspace:^
         version: link:../lib-oer
+      '@dassie/meta-rollup-config':
+        specifier: workspace:^
+        version: link:../meta-rollup-config
       '@dassie/meta-tsconfig':
         specifier: workspace:^
         version: link:../meta-tsconfig
