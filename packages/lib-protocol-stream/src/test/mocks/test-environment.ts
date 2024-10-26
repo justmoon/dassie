@@ -16,9 +16,11 @@ import {
   type Clock,
   type Crypto,
   type DisposableScope,
+  type Signal,
   createMockClock,
   createMockDeterministicCrypto,
   createScope,
+  createSignal,
   createTopic,
   sampleLogNormalDistribution,
 } from "@dassie/lib-reactive"
@@ -52,6 +54,8 @@ interface ContextOptions {
    * Defaults to 1_000_000n
    */
   unitsPerToken?: bigint
+
+  startingBalance?: bigint
 }
 
 interface TestRoute {
@@ -101,8 +105,12 @@ export function createTestEnvironment({
     createContext: ({
       name,
       unitsPerToken = 1_000_000n,
-    }: ContextOptions): StreamProtocolContext => {
+      startingBalance = 0n,
+    }: ContextOptions): StreamProtocolContext & {
+      _test: { balance: Signal<bigint> }
+    } => {
       const address = `test.${name}`
+      const balance = createSignal(startingBalance)
 
       let packetsInFlight = 0
 
@@ -195,7 +203,13 @@ export function createTestEnvironment({
         async sendPacket(packet) {
           preparePacketTopic.emit({ sender: address, packet })
 
+          balance.update((balance) => balance - packet.amount)
+
           const result = await processPacket(packet)
+
+          if (result.type === IlpType.Reject) {
+            balance.update((balance) => balance + packet.amount)
+          }
 
           responsePacketTopic.emit({
             prepareSender: address,
@@ -210,7 +224,18 @@ export function createTestEnvironment({
             throw new Error("Route already exists")
           }
 
-          routes.set(address, { handler, unitsPerToken })
+          routes.set(address, {
+            handler: async (packet) => {
+              const result = await handler(packet)
+
+              if (result.type === IlpType.Fulfill) {
+                balance.update((balance) => balance + packet.amount)
+              }
+
+              return result
+            },
+            unitsPerToken,
+          })
 
           return () => {
             routes.delete(address)
@@ -225,6 +250,10 @@ export function createTestEnvironment({
         scope,
         clock,
         policy,
+
+        _test: {
+          balance,
+        },
       }
     },
     dispose: () => scope.dispose(),
