@@ -286,5 +286,11 @@ export function createTestEnvironment({
     },
     getPskEnvironment: (secret: Uint8Array) =>
       getPskEnvironment(crypto, secret),
+
+    crypto,
+    logger,
+    scope,
+    clock,
+    policy,
   }
 }
