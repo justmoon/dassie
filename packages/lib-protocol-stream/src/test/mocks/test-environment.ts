@@ -53,14 +53,14 @@ interface ContextOptions {
    *
    * Defaults to 1_000_000n
    */
-  unitsPerToken?: bigint
+  unitsPerToken?: bigint | (() => bigint)
 
   startingBalance?: bigint
 }
 
 interface TestRoute {
   handler: IlpEndpoint["sendPacket"]
-  unitsPerToken: bigint
+  unitsPerToken: bigint | (() => bigint)
 }
 
 interface PreparePacketEvent {
@@ -104,7 +104,7 @@ export function createTestEnvironment({
   return {
     createContext: ({
       name,
-      unitsPerToken = 1_000_000n,
+      unitsPerToken = 1n,
       startingBalance = 0n,
     }: ContextOptions): StreamProtocolContext & {
       _test: { balance: Signal<bigint> }
@@ -153,7 +153,13 @@ export function createTestEnvironment({
           }
         }
 
-        if (packet.amount > maxPacketAmount) {
+        const internalAmount =
+          packet.amount *
+          (typeof unitsPerToken === "function" ? unitsPerToken() : (
+            unitsPerToken
+          ))
+
+        if (internalAmount > maxPacketAmount) {
           return {
             type: IlpType.Reject,
             data: {
@@ -161,16 +167,14 @@ export function createTestEnvironment({
               message: "Amount exceeds maximum packet amount",
               triggeredBy: "test.router",
               data: serializeAmountTooLargeData({
-                receivedAmount: packet.amount,
+                receivedAmount: internalAmount,
                 maximumAmount: maxPacketAmount,
               }),
             },
           }
         }
 
-        const internalAmount = packet.amount * unitsPerToken
-
-        for (const [address, route] of routes.entries()) {
+        for (const [address, { handler, unitsPerToken }] of routes.entries()) {
           if (packet.destination.startsWith(address)) {
             logger.debug?.("routing packet to destination", {
               destination: packet.destination,
@@ -178,11 +182,15 @@ export function createTestEnvironment({
 
             const outputPacket = {
               ...packet,
-              amount: internalAmount / route.unitsPerToken,
+              amount:
+                internalAmount /
+                (typeof unitsPerToken === "function" ? unitsPerToken() : (
+                  unitsPerToken
+                )),
             }
 
             packetsInFlight++
-            return route.handler(outputPacket).finally(() => {
+            return handler(outputPacket).finally(() => {
               packetsInFlight--
             })
           }
