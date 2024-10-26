@@ -21,7 +21,7 @@ export function hasWorkToDo(state: ConnectionState, includePending = false) {
       getDesiredSendAmount(stream) +
       (includePending ? stream.sendHoldAmount : 0n)
 
-    if (remainingSendAmount > 0n) return true
+    if (remainingSendAmount > state.context.policy.deMinimisAmount) return true
   }
 
   return false

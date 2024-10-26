@@ -39,6 +39,14 @@ export interface StreamPolicy {
    * How many times to retry sending a close packet.
    */
   readonly closeRetries: number
+
+  /**
+   * Cutoff below which we will treat an amount as zero.
+   *
+   * This is helpful because it is impossible to send very small amounts of
+   * money precisely due to rounding.
+   */
+  readonly deMinimisAmount: bigint
 }
 
 export const DEFAULT_POLICY: StreamPolicy = {
@@ -48,4 +56,5 @@ export const DEFAULT_POLICY: StreamPolicy = {
   concurrencyDecreaseFactor: 0.5,
   closeTimeout: 30_000,
   closeRetries: 3,
+  deMinimisAmount: 1000n,
 }
