@@ -1,5 +1,5 @@
 import type { Merge, Promisable, Simplify } from "type-fest"
-import { type infer as ZodInfer, type ZodTypeAny, z } from "zod"
+import { type ZodTypeAny, z } from "zod"
 
 import { isFailure } from "@dassie/lib-type-utils"
 
@@ -44,7 +44,7 @@ export interface RouteBuilder<
 > {
   input<TInput extends ZodTypeAny>(
     schema: TInput,
-  ): RouteBuilder<Merge<TRouteSettings, { _input: ZodInfer<TInput> }>>
+  ): RouteBuilder<Merge<TRouteSettings, { _input: z.infer<TInput> }>>
 
   context<TContext extends object>(): RouteBuilder<
     Merge<TRouteSettings, { _context: TRouteSettings["_context"] & TContext }>
