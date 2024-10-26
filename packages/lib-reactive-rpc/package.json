@@ -1,7 +1,7 @@
 {
   "name": "@dassie/lib-reactive-rpc",
   "type": "module",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Read and subscribe to reactive values remotely via TRPC",
   "exports": {
     "./server": "./src/server/index.ts",

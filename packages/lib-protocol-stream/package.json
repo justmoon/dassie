@@ -1,6 +1,6 @@
 {
   "name": "@dassie/lib-protocol-stream",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Implementation of the STREAM transport protocol",
   "type": "module",
   "exports": "./src/index.ts",
