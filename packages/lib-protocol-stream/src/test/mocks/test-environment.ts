@@ -22,6 +22,7 @@ import {
   createScope,
   createSignal,
   createTopic,
+  randomNumber,
   sampleLogNormalDistribution,
 } from "@dassie/lib-reactive"
 import { createCrypto } from "@dassie/lib-reactive-io"
@@ -36,6 +37,7 @@ interface EnvironmentOptions {
   latency?: number | undefined
   jitter?: number | undefined
   maxPacketsInFlight?: number | undefined
+  packetLoss?: number | undefined
 
   // Override context
   scope?: DisposableScope | undefined
@@ -82,6 +84,7 @@ export function createTestEnvironment({
   latency = 0,
   jitter = 0,
   maxPacketsInFlight = Infinity,
+  packetLoss = 0,
   scope = createScope("test-environment"),
   logger = createLogger("das:test:stream"),
   crypto = createMockDeterministicCrypto(createCrypto()),
@@ -147,6 +150,18 @@ export function createTestEnvironment({
             data: {
               code: IlpErrorCode.T03_CONNECTOR_BUSY,
               message: "Too many packets in flight",
+              triggeredBy: "test.router",
+              data: new Uint8Array(),
+            },
+          }
+        }
+
+        if (packetLoss > 0 && randomNumber(crypto) < packetLoss) {
+          return {
+            type: IlpType.Reject,
+            data: {
+              code: IlpErrorCode.T00_INTERNAL_ERROR,
+              message: "Random packet loss",
               triggeredBy: "test.router",
               data: new Uint8Array(),
             },
