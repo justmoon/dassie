@@ -177,9 +177,7 @@ describe("Connection", () => {
       })
     })
 
-    const stream = client.createStream()
-
-    unwrapFailure(await stream.send({ amount: 1_000_000n }))
+    unwrapFailure(await client.pay({ sourceAmountLimit: 1_000_000n }))
 
     expect(moneyReceived).toBe(1_000_000n)
 

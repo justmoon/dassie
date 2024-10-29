@@ -5,6 +5,7 @@ import { Stream } from "../stream/stream"
 import type { EventEmitter } from "../types/event-emitter"
 import { closeConnection } from "./close"
 import { createStream } from "./create-stream"
+import { makePayment } from "./make-payment"
 import { measureExchangeRate } from "./measure-exchange-rate"
 import { sendUntilDone } from "./send-until-done"
 import {
@@ -13,6 +14,10 @@ import {
   setExchangeRate,
 } from "./set-exchange-rate"
 import type { ConnectionEvents, ConnectionState } from "./state"
+
+interface PayOptions {
+  sourceAmountLimit: bigint
+}
 
 export class Connection implements EventEmitter<ConnectionEvents> {
   constructor(private readonly state: ConnectionState) {}
@@ -37,6 +42,10 @@ export class Connection implements EventEmitter<ConnectionEvents> {
     const { streamId, streamState } = createStream({ state: this.state })
 
     return new Stream(this.state, streamState, streamId)
+  }
+
+  pay({ sourceAmountLimit }: PayOptions) {
+    return makePayment({ state: this.state, sourceAmountLimit })
   }
 
   async close() {
