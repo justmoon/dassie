@@ -96,6 +96,11 @@ export function handleControlFrame({
       ) {
         stream.remoteReceiveMaximum = frame.data.receiveMax
       }
+
+      stream.topics.remoteMoney.emit({
+        receivedAmount: frame.data.totalReceived,
+        receiveMaximum: frame.data.receiveMax,
+      })
       break
     }
 

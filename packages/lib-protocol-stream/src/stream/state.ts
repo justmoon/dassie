@@ -1,8 +1,14 @@
 import type { InferTopics } from "../types/infer-topics"
 
+export interface RemoteMoneyEvent {
+  readonly receivedAmount: bigint
+  readonly receiveMaximum: bigint
+}
+
 export type StreamEvents = {
   money: bigint
   moneySent: bigint
+  remoteMoney: RemoteMoneyEvent
   closed: void
 }
 

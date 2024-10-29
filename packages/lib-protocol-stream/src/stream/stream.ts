@@ -1,4 +1,9 @@
-import { type Listener, type Topic, createDeferred } from "@dassie/lib-reactive"
+import {
+  type Listener,
+  type Topic,
+  createDeferred,
+  createScope,
+} from "@dassie/lib-reactive"
 import { isFailure } from "@dassie/lib-type-utils"
 
 import { assertConnectionCanSendMoney } from "../connection/assert-can-send"
@@ -8,8 +13,12 @@ import { sendUntilDone } from "../connection/send-until-done"
 import type { ConnectionState } from "../connection/state"
 import type { EventEmitter } from "../types/event-emitter"
 import { closeStream } from "./close"
-import { SEND_TIMEOUT_FAILURE, type SendFailure } from "./failures/send-failure"
-import type { StreamEvents, StreamState } from "./state"
+import {
+  SEND_INCOMPLETE_FAILURE,
+  SEND_TIMEOUT_FAILURE,
+  type SendFailure,
+} from "./failures/send-failure"
+import type { RemoteMoneyEvent, StreamEvents, StreamState } from "./state"
 
 export interface SendOptions {
   amount: bigint
@@ -38,6 +47,8 @@ export class Stream implements EventEmitter<StreamEvents> {
   }: SendOptions): Promise<
     void | SendFailure | NoRemoteAddressFailure | NoExchangeRateFailure
   > {
+    const scope = createScope("stream-send")
+
     {
       const result = this.addSendAmount(amount)
       if (isFailure(result)) return Promise.resolve(result)
@@ -46,28 +57,50 @@ export class Stream implements EventEmitter<StreamEvents> {
     const deferred = createDeferred<void | SendFailure>()
     const targetAmount = this.state.sendMaximum
 
+    const handleSendCompleted = (result: void | SendFailure = undefined) => {
+      scope.dispose().catch((error: unknown) => {
+        this.connectionState.context.logger.error(
+          "error disposing send scope",
+          { error },
+        )
+      })
+      this.connectionState.context.clock.clearTimeout(timeoutId)
+      deferred.resolve(result)
+    }
+
     const timeoutId = this.connectionState.context.clock.setTimeout(() => {
-      this.state.topics.moneySent.off(listener)
-      deferred.resolve(SEND_TIMEOUT_FAILURE)
+      handleSendCompleted(SEND_TIMEOUT_FAILURE)
     }, timeout)
 
-    const listener = () => {
+    const sentListener = () => {
       if (this.state.sentAmount >= targetAmount) {
-        this.state.topics.moneySent.off(listener)
-        this.connectionState.context.clock.clearTimeout(timeoutId)
-        deferred.resolve()
+        handleSendCompleted()
       }
     }
-    this.state.topics.moneySent.on(undefined, listener)
+    this.state.topics.moneySent.on(scope, sentListener)
 
-    sendUntilDone(this.connectionState).catch((error: unknown) => {
-      this.connectionState.context.logger.error(
-        "unexpected error returned by send loop",
-        {
-          error,
-        },
-      )
-    })
+    const remoteListener = (event: RemoteMoneyEvent) => {
+      if (
+        event.receiveMaximum - event.receivedAmount <
+        this.connectionState.context.policy.deMinimisAmount
+      ) {
+        handleSendCompleted()
+      }
+    }
+    this.state.topics.remoteMoney.on(scope, remoteListener)
+
+    sendUntilDone(this.connectionState)
+      .catch((error: unknown) => {
+        this.connectionState.context.logger.error(
+          "unexpected error returned by send loop",
+          {
+            error,
+          },
+        )
+      })
+      .finally(() => {
+        handleSendCompleted(SEND_INCOMPLETE_FAILURE)
+      })
 
     return deferred
   }
