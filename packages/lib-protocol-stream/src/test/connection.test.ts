@@ -112,7 +112,7 @@ describe("Connection", () => {
     expect,
   }) => {
     const environment = createTestEnvironment({
-      maxPacketAmount: BigInt(1e10),
+      maxPacketAmount: BigInt(1e16),
     })
     const server = unwrapFailure(
       await createServer({
