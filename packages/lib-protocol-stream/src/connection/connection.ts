@@ -1,10 +1,10 @@
 import type { Listener, Topic } from "@dassie/lib-reactive"
 
 import type { Ratio } from "../math/ratio"
-import { createInitialStreamState } from "../stream/initialize"
 import { Stream } from "../stream/stream"
 import type { EventEmitter } from "../types/event-emitter"
 import { closeConnection } from "./close"
+import { createStream } from "./create-stream"
 import { measureExchangeRate } from "./measure-exchange-rate"
 import { sendUntilDone } from "./send-until-done"
 import {
@@ -34,10 +34,8 @@ export class Connection implements EventEmitter<ConnectionEvents> {
   }
 
   createStream() {
-    const streamId = this.state.nextStreamId
-    this.state.nextStreamId += 2
-    const streamState = createInitialStreamState()
-    this.state.streams.set(streamId, streamState)
+    const { streamId, streamState } = createStream({ state: this.state })
+
     return new Stream(this.state, streamState, streamId)
   }
 
