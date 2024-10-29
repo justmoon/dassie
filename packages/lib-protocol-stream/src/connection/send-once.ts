@@ -22,6 +22,8 @@ export async function sendOnce(state: ConnectionState) {
     throw new Error("Cannot send money without an exchange rate")
   }
 
+  context.logger.debug?.("building packet")
+
   const prepareBuilder = createPrepareBuilder({
     fulfillable: true,
     maxPacketAmount,
@@ -85,6 +87,10 @@ function buildPacket(state: ConnectionState, prepareBuilder: PrepareBuilder) {
     const actualSend = bigIntMin(maxSend, desiredSend)
 
     if (actualSend > 0n) {
+      state.context.logger.debug?.("need to send money", {
+        streamId,
+        actualSend,
+      })
       prepareSend(streamState, actualSend)
 
       prepareBuilder.addMoney({

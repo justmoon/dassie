@@ -16,9 +16,17 @@ export function sendUntilDone(state: ConnectionState) {
     for (;;) {
       const hasWork = !state.scope.isDisposed && hasWorkToDo(state)
 
+      state.context.logger.debug?.("send loop", {
+        hasWork,
+        pendingPackets: promisePool.size,
+      })
+
       // If we have no more new work to do and no work is in progress, that
       // means we are fully done and can end the loop.
-      if (!hasWork && promisePool.size === 0) break
+      if (!hasWork && promisePool.size === 0) {
+        state.context.logger.debug?.("nothing to do, exiting send loop")
+        break
+      }
 
       if (promisePool.size >= state.concurrency || !hasWork) {
         state.sendLoopWaker = createDeferred()
