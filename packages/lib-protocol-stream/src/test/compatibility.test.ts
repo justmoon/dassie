@@ -69,7 +69,7 @@ describe("Client Compatibility", () => {
     let moneyReceived = 0
     server.on("connection", (connection: Connection) => {
       connection.on("stream", (stream: DataAndMoneyStream) => {
-        stream.setReceiveMax(1000)
+        stream.setReceiveMax(1_000_000)
 
         stream.on("money", (amount: string) => {
           moneyReceived += Number(amount)
@@ -79,9 +79,9 @@ describe("Client Compatibility", () => {
 
     const stream = client.createStream()
 
-    unwrapFailure(await stream.send({ amount: 1000n }))
+    unwrapFailure(await stream.send({ amount: 1_000_000n }))
 
-    expect(moneyReceived).toBe(1000)
+    expect(moneyReceived).toBe(1_000_000)
 
     await server.close()
     await environment.dispose()

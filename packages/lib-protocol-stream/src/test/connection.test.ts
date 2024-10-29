@@ -169,7 +169,7 @@ describe("Connection", () => {
     let moneyReceived = 0n
     server.on("connection", (connection) => {
       connection.on("stream", (stream) => {
-        stream.addReceiveAmount(1000n)
+        stream.addReceiveAmount(1_000_000n)
 
         stream.on("money", (amount) => {
           moneyReceived += amount
@@ -179,9 +179,9 @@ describe("Connection", () => {
 
     const stream = client.createStream()
 
-    unwrapFailure(await stream.send({ amount: 1000n }))
+    unwrapFailure(await stream.send({ amount: 1_000_000n }))
 
-    expect(moneyReceived).toBe(1000n)
+    expect(moneyReceived).toBe(1_000_000n)
 
     await environment.dispose()
   })
