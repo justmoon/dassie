@@ -1,0 +1,242 @@
+# 7. The rewrite: target stack, architecture and plan
+
+Chapters 1–6 describe what the original Dassie does. This chapter describes what the new implementation is: which behaviour it keeps, how it maps onto the Vorstand stack (Rust, Deno, Solid 2), and in what order to build it. The choices that are genuinely open are collected in [chapter 8](08-decisions.md). Where this chapter says "proposed", the decision is recorded there and has not been confirmed yet.
+
+## 1. Goals and non-goals
+
+**Goals**
+
+- Everything the original does that works, with the same user-visible behaviour: install, `dassie init`, browser setup and login, ledgers, discovery, auto-peering, routing, forwarding, settlement, sending and receiving, the debug pages, the multi-node dev environment, and the website's STREAM simulator.
+- The behaviour the original *intends* but does not deliver. That covers every gap in chapters 2–6 that is a plain bug or TODO (default disposition: fix, see [8 §1](08-decisions.md)).
+- One self-contained release artifact per platform, with no bundled interpreter or native add-on, built for x64 and arm64.
+- Tests at every level. The original has none for the app, the GUI or the tooling (UI-17).
+
+**Non-goals for the first release**
+
+- Interoperating with running v0 nodes on the peer protocol (proposed, [D2](08-decisions.md#d2-peer-protocol-v0-or-v1)).
+- Reading v0 databases ([D3](08-decisions.md#d3-database-continuity)). A v0 owner recovers by entering their passphrase in the new node: identity, node ID and on-ledger accounts all derive from it (§2).
+- The design-only features: the token payment protocol, the private UDP transport, and signed or independent frontends. They stay future work, and the architecture should not preclude them.
+
+## 2. Compatibility contract
+
+| Surface | Keep byte-for-byte? | Why |
+|---|---|---|
+| Passphrase → seed → node key → login secret → node ID ([3 §2](03-peer-network.md), [2 §8](02-node-runtime.md)) | **Yes** | Owners recover their node with the same passphrase. The node ID is the node's network identity. |
+| Settlement-module entropy paths and XRPL wallet derivation ([5 §4.5, §6.3.1](05-accounting-and-settlement.md)) | **Yes** | The same passphrase must find the same XRPL account and its funds. |
+| ILPv4 packets, error codes, Interledger timestamps ([4 §1](04-interledger.md)) | **Yes** | Interledger standard. Fix the parse quirks (`triggeredBy` may be empty, ILP-3). |
+| ILDCP ([4 §6](04-interledger.md)) | **Yes**, format | Standard. Answer each endpoint's real asset (ILP-7). |
+| STREAM ([4 §11](04-interledger.md)) | **Yes**, per RFC 29 | Must interoperate with `ilp-protocol-stream` and other STREAM implementations. Skip unknown frames instead of rejecting them (ILP-11). |
+| BTP 2.0 ([3 §14](03-peer-network.md), [4 §10](04-interledger.md)) | **Yes** | Existing ILP clients (`ilp-plugin-btp`) connect with `btp+wss://:<token>@host/btp`. |
+| ILP-over-HTTP ([4 §8](04-interledger.md)) | Per RFC 35, adding synchronous mode | Standard. The original's version is a stub. |
+| Open Payments wallet address and incoming payments, SPSP ([4 §9](04-interledger.md)) | Per the specs | Other wallets resolve `$host`. Add SPSP ([D9](08-decisions.md#d9-open-payments-and-spsp-scope)). |
+| XRPL settlement memo type and the `settlement` message semantics | Yes within one network version | Both sides of a peering must agree; it changes only with the peer protocol version. |
+| Dassie peer protocol ([3 §5–§8](03-peer-network.md)) | **No** (proposed): v1 keeps the OER message set and fixes authentication | v0 does not authenticate senders (NET-8). The network is a two-node test network. [D2](08-decisions.md#d2-peer-protocol-v0-or-v1). |
+| OIDs, the `application/dassie-message` media type, `POST /peer` | Yes, with the envelope `version` byte set to 1 | Lets a v1 node recognise and refuse a v0 message cleanly (400 "unsupported version"). |
+| UI ↔ node RPC (`dassie-rpc-01`, superjson) ([2 §10](02-node-runtime.md)) | **No** | Both ends are rewritten. A typed contract replaces it ([D5](08-decisions.md#d5-ui-and-cli-rpc-contract)). |
+| `/api/setup`, `/api/login`, `/api/logout`, `__Host-Dassie-Session` cookie | Semantics yes, bodies may change | Same flow and security properties. |
+| SQLite schema, `application_id 0x1DA53B81`, scalar names ([2 §5](02-node-runtime.md)) | **No** | A new schema designed for what must survive a restart (§5). It may use a new application ID. |
+| Install layout, systemd units, socket names, `dassie` CLI verbs, env var names ([2 §3, §12](02-node-runtime.md)) | **Yes**, where sensible | Operators' muscle memory and docs. Drop variables that no longer mean anything (`NODE_ENV`). |
+| Mirror layout `get.dassie.land/meta/latest`, `/<ver>/dassie-<ver>-linux-<arch>.tar.*` | Yes, plus signatures | So the installer and updater URLs keep working ([D11](08-decisions.md#d11-release-integrity)). |
+
+## 3. How the original maps onto the stack
+
+Vorstand's conventions apply throughout: a Cargo workspace in `crates/` (edition 2024, `rust-toolchain.toml` pinned, `Cargo.lock` committed); a Deno workspace in `apps/` and `packages/` (root `deno.json`, `deno.lock` committed, pre-release npm packages pinned exactly, `solid-js@2.0.0-rc.x` with `@solidjs/web` and Vite through `@solidjs/vite-plugin`); and normative contracts in a top-level directory that both sides are generated from. Packages meet only through their exports.
+
+**Proposed split ([D1](08-decisions.md#d1-what-runs-in-rust-and-what-in-deno)): the node is Rust, the browser is Solid, and the tooling is Deno.**
+
+- The daemon, the CLI and every protocol are Rust. The result is one static binary (`dassie`) with the wallet's built assets embedded. It replaces the bundled Node.js, the esbuild bundle and the `better-sqlite3` prebuilds, along with the stale-hash build problem (UI-10) and the x64-only restriction.
+- The cryptographic and protocol cores (`dassie-identity`, `dassie-oer`, `dassie-ilp`, `dassie-stream`) are also built to WASM. This follows the same pattern as Vorstand's `vault-core`:
+  - the wallet derives keys in the browser with exactly the code the node uses;
+  - the website's STREAM simulator runs the real STREAM implementation.
+- Deno runs everything that orchestrates or builds: the multi-node dev environment and its dashboard server, the Vite builds of the Solid apps, the website, release scripts, and interop tests against the original.
+
+### 3.1 Workspace layout
+
+```
+crates/
+  dassie-oer/           X.696 OER subset used by Dassie, correct per spec (fixes ILP-12, OER-q1..3)
+  dassie-identity/      BIP-39, seed paths, Ed25519/X25519, node ID, login secret      (+ wasm feature)
+  dassie-ilp/           ILPv4 packets, timestamps, error codes, F08, ILDCP, BTP codecs  (+ wasm)
+  dassie-stream/        STREAM: sans-IO connection/stream state machines, crypto        (+ wasm)
+  dassie-ledger/        internal double-entry ledger, transfer journal
+  dassie-settlement/    SettlementScheme trait, host interface, stub module
+  dassie-xrpl/          XRPL module: binary codec (Payment+Memos), signing, WebSocket client
+  dassie-peer/          peer protocol v1, node table, link state, membership, peering, routing
+  dassie-connector/     ILP connector pipeline, endpoints (peer/BTP/local/HTTP/ILDCP), FX
+  dassie-payments/      Open Payments + SPSP server and client, payment pointer resolution
+  dassie-node/          daemon composition: config, DB, HTTP(S)/IPC listeners, TLS, ACME, auth, RPC
+  dassie-cli/           the `dassie` binary: daemon | init | update | verify-install
+proto/
+  dassie/ui/v1/         UI and CLI RPC contract (normative; Rust and TS generated from it)
+  dassie/dev/v1/        dev-environment control contract
+apps/
+  wallet/               Solid 2 SPA served by the node (chapter 6 §1)
+  dev/                  Deno: multi-node dev environment, SNI proxy, certs, scenarios (6 §6)
+  dev-dashboard/        Solid 2 dev dashboard (6 §2)
+  website/              dassie.land static site + STREAM toy (6 §3)
+packages/
+  rpc/                  TS client for proto/dassie/ui/v1 (generated + transport)
+  ui/                   shared Solid components: amount, log viewer, network graph, forms
+  identity-wasm/        wasm-bindgen output of dassie-identity / dassie-stream for Deno + browser
+resources/
+  systemd/  installer/  launcher-less (the binary is the entry point)
+```
+
+### 3.2 Original package → new home
+
+| Original | New | Notes |
+|---|---|---|
+| `lib-oer` | `crates/dassie-oer` | Implement X.696 correctly. Golden vectors come from the original's fixtures ([4 §1.9, §6.1, §11.2](04-interledger.md)). |
+| `lib-protocol-ilp`, `-ildcp`, `-utils` (BTP) | `crates/dassie-ilp` | |
+| `lib-protocol-stream` | `crates/dassie-stream` | Keep the original's API ideas: AIMD concurrency, bigint amounts, failures as values, explicit `measureExchangeRate`. Close the RFC gaps (ILP-11). Also replaces the upstream `ilp-protocol-stream` that Open Payments used. |
+| `lib-reactive`, `-reactive-io`, `-reactive-rpc` | tokio task tree in `dassie-node` (§4), and Solid 2 signals in the browser | Solid 2's reactive primitives are the natural home for the UI half of `lib-reactive`. |
+| `lib-rpc` | `proto/dassie/ui/v1` + generated code | |
+| `lib-http-server` | `hyper`/`axum` + `rustls` in `dassie-node` | Keep scope-bound route registration semantics (§4.3). |
+| `lib-sqlite` | `rusqlite` with STRICT tables, migrations by `user_version` | Keep the application-ID and schema-check ideas. |
+| `lib-logger` | `tracing` with the same `das:node:*` targets and `DEBUG` patterns | `DASSIE_LOG_LEVEL` keeps working. |
+| `lib-x509` | `rcgen` (self-signed) + `pkcs8`/`ed25519-dalek` (key PEM) | Fixes the serial and time encoding bugs (RT-14). |
+| `lib-terminal-graphics` | Rust TUI helpers in `dassie-cli` (e.g. `cliclack`/`inquire`-style prompts) | Same prompts and notes as `dassie init` ([2 §4.5](02-node-runtime.md)). |
+| `app-dassie` | `crates/dassie-node`, `dassie-cli` and the protocol crates | |
+| `gui-dassie` | `apps/wallet` (Solid 2) + `packages/ui` | No React, wouter, TanStack Query or Radix. Use Solid 2 primitives and the Vorstand UI conventions where they fit. |
+| `gui-dev` | `apps/dev-dashboard` | |
+| `app-dev` | `apps/dev` (Deno) | Spawns real `dassie` binaries instead of Vite SSR module runners. |
+| `app-build` | Nix and/or Deno release scripts; `cargo build --release` for musl x64/arm64 | Sign artifacts ([D11](08-decisions.md#d11-release-integrity)). |
+| `app-website` | `apps/website` | Content from [6 §3](06-user-interfaces-and-tooling.md). The STREAM toy uses `dassie-stream` WASM. |
+| `app-cli` (npm placeholder) | dropped | Keep the npm name reserved. |
+| `meta-*` | `deno fmt/lint/check`, `cargo fmt/clippy/test` | |
+
+## 4. Node architecture (Rust)
+
+### 4.1 Runtime model
+
+The original is a tree of reactive actors that re-run when signals they read change ([2 §18.1](02-node-runtime.md)). The port keeps the **observable behaviour** of that model without reproducing the framework:
+
+- **Services are supervised tokio tasks in a tree.** Each one owns a `CancellationToken` and a LIFO cleanup stack. Unlike the original, where an error stops an actor permanently (RT-24), a failed service is restarted with backoff and reported. If a service cannot start, the daemon exits non-zero instead of running half-started.
+- **Shared state lives in versioned cells (`tokio::sync::watch`).** Covers the config, node table, peers set, active settlement schemes, routing table, exchange rates and ledger. A service that the original restarted on a signal change instead `select!`s on `changed()` and reconfigures itself.
+- **Stores that the UI replicates also broadcast change events.** These are the node table and the log buffer. The UI gets a snapshot followed by deltas ([D5](08-decisions.md#d5-ui-and-cli-rpc-contract)).
+- **Timers use an injectable `Clock`, and randomness an injectable RNG.** As in the original (`lib-reactive-io`, mock clock and deterministic crypto), this lets tests simulate multi-node networks deterministically.
+- **The start order of [2 §2.4](02-node-runtime.md) is kept**, but nothing blocks on the network:
+  - The listeners come up first, as in the original's systemd runtime (fixes RT-8).
+  - Identity-dependent services start when an identity exists.
+  - The exchange-rate fetch, XRPL connection and bootstrap polls become readiness conditions with retries, rather than `await`s that can wedge startup (ILP-14, ACC-26, NET-14).
+- **Graceful shutdown on SIGTERM**: stop accepting, drain in-flight packets up to their expiry, close the DB, remove the socket (RT-7).
+
+### 4.2 Protocol crates are sans-IO
+
+`dassie-stream`, `dassie-peer` (message handling, link-state processing, routing calculation), `dassie-connector` (outcome calculation) and `dassie-ledger` are pure state machines. They take inputs plus `now`, and they return outputs: packets to send, timers to arm, ledger operations. `dassie-node` wires them to sockets and the database. This makes the original's implicit timing rules ([3 §17](03-peer-network.md), [4 §12](04-interledger.md), [5 §7](05-accounting-and-settlement.md)) unit-testable, and it lets the same `dassie-stream` code run in WASM for the website.
+
+### 4.3 HTTP surface
+
+The route table of [2 §6.3](02-node-runtime.md) is kept, including routes that exist only in certain states: `/api/setup` only while uninitialized, `/api/login` and `/api/logout` only after. The following is fixed:
+
+- the redirect uses the configured hostname and keeps the query string (RT-1);
+- `HEAD` is handled, and all asset types are served with correct MIME types, caching and compression (RT-15);
+- unmatched WebSocket upgrades get a 404 (RT-16);
+- strict security headers on every response: CSP with no inline script or style, HSTS once a real certificate is installed, `X-Content-Type-Options`, `Referrer-Policy`, `frame-ancestors 'none'`;
+- an `Origin` check on `/rpc` and on the `/api/*` POSTs (RT-6);
+- WebSocket sessions are re-validated on every call, so logout takes effect immediately.
+
+### 4.4 Persistence (what must survive a restart)
+
+Most of the original's integrity gaps come from state it keeps only in memory, or reconstructs incorrectly at startup (ACC-5, ACC-6, ACC-16, ACC-18, NET-1, NET-2). The new schema persists:
+
+| Data | Original | New |
+|---|---|---|
+| Config (realm, hostname, ports, alias, exchange-rate URL), TLS cert/key, ACME account | scalars | same, with RPC setters for all (RT-4) |
+| Node key | PEM in DB | same, file mode 0600 on the DB and data dir ([D10](08-decisions.md#d10-secrets-at-rest)) |
+| Sessions | token only, never expire | hashed token, created/last-used, expiry, revocation list (RT-11) |
+| BTP tokens | plaintext | hashed, plus a label and created time; shown once at creation |
+| Node table: nodes, link states (signed bytes), registrations, peers with scheme state | written only by dev prefill | written on every change (NET-1, NET-2, ACC-18) |
+| Own link-state sequence | memory | persisted high-water mark (NET-7) |
+| Ledger | cumulative posted totals | append-only **transfer journal** (id, debit, credit, amount, state, timestamps, reference to packet or settlement), with account balances derived or cached in the same transaction |
+| Pending ILP transfers | memory | memory, but voided by the journal's recovery on startup, since in-flight packets cannot survive a restart |
+| Pending outgoing settlements | memory | journal rows with module-specific reference (tx hash), reconciled on startup (ACC-16) |
+| Settlement-module balance checkpoints | none (full balance re-deposited at every start) | last reconciled on-ledger balance per module; startup books only the difference, through `equity/suspense` (ACC-6, ACC-2) |
+| Peer trust lines | re-posted at every start | posted once when the peer account is created; changes are explicit transfers (ACC-5) |
+| Incoming and outgoing payments | rows without state | full Open Payments state: received/sent amounts, completion, expiry, STREAM credentials tied to the payment (ILP-10) |
+| Exchange rates | memory | last good snapshot with timestamp; refreshed periodically ([D7](08-decisions.md#d7-exchange-rates-fees-and-spread)) |
+
+### 4.5 Settlement and ledgers
+
+The settlement interface of [5 §4.3–§4.4](05-accounting-and-settlement.md) is a good shape, and the port keeps it as a Rust trait with these changes:
+
+- explicit transfer handles;
+- `cancel` actually called on failure;
+- a durable pending-settlement record;
+- `supportedVersions` negotiated during peering (ACC-14, NET-26);
+- module config passed through (ACC-12, RT-21).
+
+The XRPL module needs:
+
+- reserve awareness, so it never settles from the reserve (ACC-19);
+- a `TransactionResult` check (ACC-22);
+- activation (`CreatedNode`) handling (ACC-20);
+- booked fees and drop rounding (ACC-21);
+- sender-account checking;
+- a memo type per network: testnet vs mainnet, versioned with the peer protocol (ACC-13).
+
+Mainnet stays disabled until the [D8](08-decisions.md#d8-real-money) criteria are met.
+
+## 5. Wallet and dashboard (Solid 2)
+
+- Same pages, flows and copy as [6 §1.5–§1.6](06-user-interfaces-and-tooling.md), with the listed UI gaps fixed (UI-1 to UI-8). In particular:
+  - multi-currency amounts;
+  - adding XRPL ledgers;
+  - deposit address and QR code for XRPL;
+  - a working payment status page.
+- **Key derivation in the browser uses `dassie-identity` WASM.** The mnemonic is validated (UI-5). Setup sends only the node key and the login proof, as today.
+- **The live data model.** Every `subscribe*` procedure delivers either:
+  - a value stream (signals), or
+  - a snapshot followed by typed deltas (stores).
+
+  In the client, these feed Solid 2 signals and stores. This replaces `useRemoteSignal` and `useRemoteStore`, and it no longer needs the server's reducer code in the browser ([6 §0](06-user-interfaces-and-tooling.md)).
+- The page CSP stays strict: no inline script (the original's dark-mode snippet moves into the bundle) and nothing loaded from other origins.
+- **The debug pages stay** (logs, nodes, ledger, routing, database). The "State" page that introspected `lib-reactive` becomes a service and cell inspector fed by the supervisor (§4.1).
+- **The dev dashboard** reuses the wallet's debug components (`packages/ui`). It talks to each node with a per-node dev token over the same contract.
+
+## 6. Developer environment (Deno)
+
+`apps/dev` reproduces [6 §6](06-user-interfaces-and-tooling.md):
+
+- the same hostnames (`dN.localhost`) and ports (SNI proxy on 443, dashboard 10100, control 10101, nodes `5000+N`);
+- mkcert certificates, vanity node identities, the database prefill and auto-login links;
+- the four scenarios, plus "add node" and file-watch restart.
+
+The differences:
+
+- **Nodes are real `dassie` binaries** built by `cargo build`, restarted when the Rust sources change. The wallet is served by Vite with HMR from the node's HTTPS port, by proxying non-API paths in dev, as the original did.
+- **Prefill goes through the node's own CLI and RPC** (for example `dassie dev seed --config <json>` behind a dev feature flag), not by writing the database directly. That keeps the schema private to the node.
+- **Logs, peer traffic and peering state reach the dashboard** through the dev contract (`proto/dassie/dev/v1`), not by patching the logger.
+- **The vanity identity table is regenerated** with `dassie-identity` (same derivation, so the existing table stays valid).
+
+## 7. Testing strategy
+
+1. **Golden vectors.** The original's fixtures and computed vectors become test data:
+   - ILP and ILDCP packets, every STREAM frame, STREAM crypto ([4 §1.9, §6.1, §11.2, §11.3](04-interledger.md));
+   - node IDs of the bootstrap nodes ([3 §2.2](03-peer-network.md));
+   - the BIP-39 → node key → login secret chain;
+   - the XRPL wallet derivation for a fixed passphrase.
+
+   Vectors marked as produced by an independent encoder ([3 §5.5](03-peer-network.md)) must first be confirmed against the original code.
+2. **Property tests** for `dassie-oer` (round trip, canonical-only parse), the ledger (no transfer breaks a limit; balances equal the journal), and STREAM allocation ([4 §11.11](04-interledger.md)).
+3. **Interop.** A Deno test harness runs:
+   - `dassie-stream` (native and WASM) against the npm `ilp-protocol-stream`, both directions;
+   - the BTP server against `ilp-plugin-btp`;
+   - Open Payments and SPSP against the reference clients.
+4. **Deterministic network simulation.** N nodes are wired in-process through the sans-IO crates with a mock clock and seeded RNG. They cover discovery, majority computation, flooding suppression, peering, routing convergence, settlement thresholds, and restart recovery.
+5. **End to end.** The dev scenarios run headless in CI: start N nodes, set up through the HTTP API, add ledgers, peer, pay, settle, restart, and check that the balances are unchanged.
+6. **Installer and updater.** Containers with systemd, as the original's `test-in-docker:*` scripts did ([6 §5.5](06-user-interfaces-and-tooling.md)), including signature-verification failure cases.
+
+## 8. Milestones
+
+| # | Milestone | Done when |
+|---|---|---|
+| M1 | Core crates: `dassie-oer`, `dassie-identity`, `dassie-ilp`, `dassie-stream` | All golden vectors pass. STREAM interoperates with `ilp-protocol-stream`. WASM builds load in Deno and the browser. |
+| M2 | Node skeleton: config, DB, listeners (plain and socket-activated), TLS, ACME, setup/login/logout, RPC contract, `dassie init`/`daemon`/`verify-install` | A fresh install reaches "setup complete" in a browser with a Let's Encrypt staging cert. |
+| M3 | Ledger journal, connector, local endpoints, ILDCP, BTP, stub settlement module | A BTP client pays the node's STREAM receiver. The journal matches the packet trace. |
+| M4 | Peer protocol v1, node table, membership, registration, auto-peering, link state, routing, settlement loop | The `two-nodes` and `six-nodes` scenarios converge and route payments across hops. Restarts keep peerings and balances. |
+| M5 | Wallet (Solid 2) and dev environment (Deno) with dashboard | All pages of [6 §1.6](06-user-interfaces-and-tooling.md) work against M4. `deno task dev` brings up any scenario. |
+| M6 | Open Payments + SPSP, payment pointers, outgoing payments with quotes and status | Pays to and from another Open Payments/SPSP wallet. |
+| M7 | XRPL testnet module with reserve and fee accounting | The `xrpl-settlement` and `cross-currency` scenarios settle and reconcile across restarts. |
+| M8 | Release: static binaries (x64, arm64), signed artifacts, installer, updater, systemd units | Installer and updater tests pass on Debian, Ubuntu, Fedora and CentOS images. A tampered bundle is refused. |
+| M9 | Website and STREAM toy | `dassie.land` builds from `apps/website`. The toy runs on `dassie-stream` WASM. |
