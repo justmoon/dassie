@@ -52,7 +52,7 @@ impl Connection {
             buffer.len() >= BUFFER_LENGTH,
             "buffer shorter than BUFFER_LENGTH"
         );
-        self.stats.packets_received += 1;
+        self.stats.packets_received = self.stats.packets_received.saturating_add(1);
         let (out, scratch) = buffer.split_at_mut(dassie_ilp::MAX_PACKET_LENGTH);
         let packet = self
             .keys
@@ -65,6 +65,15 @@ impl Connection {
             // Not for us, or garbled: RFC 29 §4.3 says F06.
             return self.write_plain_reject(IlpErrorCode::F06_UNEXPECTED_PAYMENT, out);
         };
+        if prepare.expires_at <= now {
+            return self.write_plain_reject(IlpErrorCode::R00_TRANSFER_TIMED_OUT, out);
+        }
+        if !self.has_event_room() {
+            // The application is not polling; refuse until it does, so that
+            // the remote cannot overflow the queue (D16). Senders retry.
+            return self.write_plain_reject(IlpErrorCode::T05_RATE_LIMITED, out);
+        }
+        self.last_activity = Some(now);
         let decision = self.receive(prepare, &packet);
         let length = self.write_response(rng, prepare, &packet, &decision, out);
         if let Some((code, by_remote)) = decision.close {
@@ -318,7 +327,6 @@ impl Connection {
     }
 
     fn check_incoming_data(&self, packet: &Packet<'_>) -> Result<bool, ErrorCode> {
-        let mut new_bytes: u64 = 0;
         for (position, frame) in packet.frames.iter().enumerate() {
             let Frame::StreamData {
                 stream_id,
@@ -344,11 +352,27 @@ impl Connection {
                 Err(Refusal::FlowControl) => return Err(ErrorCode::FLOW_CONTROL_ERROR),
                 Err(Refusal::Fragmented) => return Ok(false),
             }
-            let end = offset.saturating_add(data.len() as u64);
-            new_bytes =
-                new_bytes.saturating_add(end.saturating_sub(stream.receive.highest_offset()));
         }
-        if self.data_received_total.saturating_add(new_bytes) > self.connection_max_data() {
+        // The connection limit, counted as upstream does: the highest
+        // offsets of open streams after this packet, added up.
+        let mut total: u64 = 0;
+        for stream in &self.streams {
+            let mut highest = stream.receive.highest_offset();
+            for frame in packet.frames.iter() {
+                if let Frame::StreamData {
+                    stream_id,
+                    offset,
+                    data,
+                } = frame
+                    && stream_id == stream.id
+                    && !data.is_empty()
+                {
+                    highest = highest.max(offset.saturating_add(data.len() as u64));
+                }
+            }
+            total = total.saturating_add(highest);
+        }
+        if total > self.connection_max_data() {
             return Err(ErrorCode::FLOW_CONTROL_ERROR);
         }
         Ok(true)
@@ -388,17 +412,17 @@ impl Connection {
                     .iter_mut()
                     .find(|stream| stream.id == stream_id)
             {
-                let before = stream.receive.highest_offset();
                 stream.receive.insert(offset, data);
-                self.data_received_total += stream.receive.highest_offset() - before;
-                self.stats.bytes_received += data.len() as u64;
+                self.stats.bytes_received =
+                    self.stats.bytes_received.saturating_add(data.len() as u64);
                 if stream.receive.readable() > 0 {
                     self.push_event(Event::DataReadable { stream_id });
                 }
             }
         }
-        self.stats.packets_received_fulfilled += 1;
-        self.stats.amount_received += prepare.amount;
+        self.stats.packets_received_fulfilled =
+            self.stats.packets_received_fulfilled.saturating_add(1);
+        self.stats.amount_received = self.stats.amount_received.saturating_add(prepare.amount);
     }
 
     /// Produces the frames of a response. Called twice per response, to

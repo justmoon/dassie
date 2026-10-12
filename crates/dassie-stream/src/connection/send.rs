@@ -80,6 +80,8 @@ impl Connection {
         if self.retry_at.is_some_and(|at| now < at) {
             return None;
         }
+        // The idle clock starts with the first chance to send.
+        self.last_activity.get_or_insert(now);
         self.retry_at = None;
         let index = self.slots.iter().position(|slot| !slot.active)?;
         let mut slot = core::mem::replace(self.slots.get_mut(index)?, Slot::new(0));
@@ -152,10 +154,15 @@ impl Connection {
             return;
         };
         let mut budget = self.max_packet_amount;
+        // The receiver's room is converted at the rate the path is expected
+        // to deliver, not the minimum: at the minimum a packet that fits
+        // would arrive too large whenever the real rate is better, and be
+        // refused forever.
+        let room_rate = self.expected_rate.unwrap_or(rate);
         for stream in self.streams.iter().filter(|stream| stream.can_send()) {
             let sendable = stream
                 .unsent_amount()
-                .min(rate.max_source_amount(stream.remote_room()));
+                .min(room_rate.max_source_amount(stream.remote_room()));
             let amount = sendable.min(budget);
             if amount > 0 {
                 slot.money.push((stream.id, amount));
@@ -186,7 +193,7 @@ impl Connection {
         let mut budget = MAX_PLAINTEXT.saturating_sub(fixed);
         let connection_room = self
             .remote_connection_max_data
-            .saturating_sub(self.data_sent_total);
+            .saturating_sub(self.data_sent_total());
         let mut connection_budget = connection_room;
         for stream in self.streams.iter().filter(|stream| stream.can_send()) {
             if budget <= DATA_FRAME_OVERHEAD || !stream.send.has_unsent() {
@@ -207,11 +214,6 @@ impl Connection {
             budget -= DATA_FRAME_OVERHEAD + bytes.len();
             slot.data.push((stream.id, offset, end));
         }
-    }
-
-    /// Our connection-level receive limit, advertised as `ConnectionMaxData`.
-    pub(super) fn connection_max_data(&self) -> u64 {
-        self.data_consumed + self.policy.connection_receive_window_bytes
     }
 
     /// Produces the frames of the request planned in `slot`. Called twice
@@ -364,7 +366,7 @@ impl Connection {
     fn commit_request(&mut self, slot: &mut Slot) {
         slot.active = true;
         self.next_sequence += 1;
-        self.stats.packets_sent += 1;
+        self.stats.packets_sent = self.stats.packets_sent.saturating_add(1);
         for &(id, amount) in &slot.money {
             if let Some(stream) = self.streams.iter_mut().find(|stream| stream.id == id) {
                 stream.held += amount;
@@ -372,16 +374,16 @@ impl Connection {
         }
         for &(id, start, end) in &slot.data {
             if let Some(stream) = self.streams.iter_mut().find(|stream| stream.id == id) {
-                let high = stream.send.high_offset();
                 let length = usize::try_from(end - start).unwrap_or(0);
                 stream.send.mark_sent(length);
-                self.data_sent_total += stream.send.high_offset() - high;
-                self.stats.bytes_sent += end - start;
+                self.stats.bytes_sent = self.stats.bytes_sent.saturating_add(end - start);
             }
         }
         if slot.kind == PacketKind::Normal {
             self.stream_id_blocked = None;
-            slot.window_update = self.window_update_pending;
+            slot.window_update = self
+                .window_update_pending
+                .then_some(self.window_update_sequence);
             self.window_update_pending = false;
         }
     }

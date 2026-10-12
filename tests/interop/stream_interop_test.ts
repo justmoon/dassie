@@ -87,6 +87,67 @@ Deno.test(
 );
 
 Deno.test(
+  "data keeps flowing to ilp-protocol-stream after streams close",
+  options,
+  async () => {
+    // ilp-protocol-stream counts connection-level flow control over open
+    // streams only. Counting closed streams too, as dassie-stream once did,
+    // stalls once 64 KiB went over streams that have since closed.
+    const network = new Network();
+    const server = await createServer({
+      plugin: createPlugin(network, "test.upstream"),
+      serverSecret: Buffer.alloc(32, 8),
+    });
+    const received = new Map<number, number>();
+    server.on("connection", (connection: Connection) => {
+      connection.on("stream", (stream: DataAndMoneyStream) => {
+        stream.on("data", (chunk: Buffer) => {
+          received.set(
+            stream.id,
+            (received.get(stream.id) ?? 0) + chunk.length,
+          );
+        });
+      });
+    });
+    const { destinationAccount, sharedSecret } = server
+      .generateAddressAndSecret();
+    const connection = new StreamConnection(
+      new Uint8Array(sharedSecret),
+      destinationAccount,
+      "test.dassie",
+      "USD",
+      6,
+    );
+    const driver = new ClientDriver(connection, {
+      sendPacket: (prepare) => network.route(prepare),
+    });
+    network.register(
+      "test.dassie",
+      (prepare) => Promise.resolve(driver.handlePrepare(prepare)),
+    );
+
+    const size = 70_000;
+    for (let round = 0; round < 2; round++) {
+      const stream = connection.openStream();
+      const data = new Uint8Array(size).fill(1);
+      let written = 0;
+      await waitUntil(() => {
+        if (written < size) {
+          written += connection.write(stream, data.subarray(written));
+          driver.pump();
+        }
+        return received.get(Number(stream)) === size;
+      });
+      connection.closeStream(stream, 1);
+      driver.pump();
+    }
+
+    await driver.close();
+    await server.close();
+  },
+);
+
+Deno.test(
   "ilp-protocol-stream client pays a dassie server",
   options,
   async () => {

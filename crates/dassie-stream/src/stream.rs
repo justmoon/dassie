@@ -165,10 +165,12 @@ impl Stream {
 
     /// Whether everything is settled and the stream can be forgotten: one
     /// side closed it (and, if it was us, the remote heard), nothing is in
-    /// flight, and the application has read all its data.
+    /// flight, and the application has read its data or, by closing the
+    /// stream itself, said it does not want it.
     pub(crate) fn is_finished(&self) -> bool {
         let closed = self.local_close_acknowledged || self.remote_close.is_some();
-        closed && self.held == 0 && self.receive.readable() == 0
+        let drained = self.local_close.is_some() || self.receive.readable() == 0;
+        closed && self.held == 0 && drained
     }
 
     pub(crate) fn check_invariants(&self) {

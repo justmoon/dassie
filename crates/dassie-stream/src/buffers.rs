@@ -174,6 +174,12 @@ impl ReceiveBuffer {
             .unwrap_or_default()
     }
 
+    /// Offset of the next byte the application reads.
+    #[must_use]
+    pub const fn read_offset(&self) -> u64 {
+        self.read_offset
+    }
+
     /// The highest offset the remote may send up to: the window past what
     /// the application has read.
     #[must_use]
@@ -207,6 +213,10 @@ impl ReceiveBuffer {
         let end = offset
             .checked_add(length as u64)
             .ok_or(Refusal::FlowControl)?;
+        if length == 0 {
+            // Empty data stores nothing, wherever it claims to be.
+            return Ok(());
+        }
         if end > self.max_offset() {
             return Err(Refusal::FlowControl);
         }
@@ -228,6 +238,9 @@ impl ReceiveBuffer {
 
     /// Stores data at `offset`, which [`check`](Self::check) accepted.
     pub fn insert(&mut self, offset: u64, data: &[u8]) {
+        if data.is_empty() {
+            return;
+        }
         let end = offset + data.len() as u64;
         assert!(end <= self.max_offset(), "data beyond the receive window");
         if end <= self.read_offset {

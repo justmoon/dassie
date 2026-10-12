@@ -192,6 +192,9 @@ impl Server {
             .open_token(token, &mut scratch)
             .map_err(|_| IlpErrorCode::F02_UNREACHABLE)?;
         if self.entries.len() >= self.max_connections {
+            self.remove_closed();
+        }
+        if self.entries.len() >= self.max_connections {
             return Err(IlpErrorCode::T03_CONNECTOR_BUSY);
         }
         let shared_secret = self.secret.shared_secret(token);
@@ -215,6 +218,10 @@ impl Server {
             tag: Vec::from(contents.connection_tag),
             connection,
         });
+        if self.opened.len() >= self.max_connections {
+            // The application is not polling; the oldest notice goes.
+            self.opened.pop_front();
+        }
         self.opened.push_back(id);
         Ok(self.entries.len() - 1)
     }
@@ -267,10 +274,11 @@ impl Server {
             .map(|entry| entry.tag.as_slice())
     }
 
-    /// Forgets closed connections whose events have all been polled.
-    /// Another packet for one opens it afresh.
+    /// Forgets connections that are closed, settled, and whose events have
+    /// all been polled. Another packet for one opens it afresh. Called
+    /// automatically when the table is full.
     pub fn remove_closed(&mut self) {
         self.entries
-            .retain(|entry| !(entry.connection.is_closed() && !entry.connection.has_events()));
+            .retain(|entry| !(entry.connection.is_settled() && !entry.connection.has_events()));
     }
 }

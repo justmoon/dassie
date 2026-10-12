@@ -224,9 +224,34 @@ impl Simulation {
         // receiver credited the money absorbs the loss itself, and the
         // sender rightly counts the packet as failed, so dropping responses
         // here would show the receiver more than the sender sent.
-        let droppable = matches!(message, Message::Prepare { .. });
-        if droppable && self.rng.below(1000) < self.path.loss_permille {
+        if let Message::Prepare {
+            from,
+            request_id,
+            bytes,
+        } = &message
+            && self.rng.below(1000) < self.path.loss_permille
+        {
             let _ = writeln!(self.trace, "{} drop", self.now.unix_ms);
+            // A connector that loses a Prepare downstream still answers the
+            // sender, with R00 when the Prepare expires.
+            let Ok(dassie_ilp::Packet::Prepare(prepare)) = dassie_ilp::Packet::decode_exact(bytes)
+            else {
+                panic!("connections must send valid prepares");
+            };
+            let reject = Reject {
+                code: IlpErrorCode::R00_TRANSFER_TIMED_OUT,
+                triggered_by: Address::parse("test.connector").ok(),
+                message: "",
+                data: &[],
+            };
+            let response = Message::Response {
+                to: *from,
+                request_id: *request_id,
+                bytes: reject.to_vec(),
+            };
+            self.sequence += 1;
+            self.queue
+                .insert((prepare.expires_at.unix_ms, self.sequence), response);
             return;
         }
         let at = self.now.unix_ms + self.path.latency_ms;

@@ -50,7 +50,14 @@ pub struct Policy {
     /// that opened it, so with zero that packet's money is always refused
     /// once; a receiver that takes any payment sets this instead.
     pub remote_stream_receive_max: u64,
+    /// How long a connection may go without hearing from the remote before
+    /// it closes, as in `ilp-protocol-stream`. Bounds how long abandoned
+    /// connections hold a server's table (D16).
+    pub idle_timeout_ms: u64,
 }
+
+/// Most streams a connection may have open, both sides together.
+pub const MAX_STREAMS: u32 = 100;
 
 impl Policy {
     /// The default policy.
@@ -73,6 +80,7 @@ impl Policy {
         retry_delay_max_ms: 30_000,
         max_packet_amount: u64::MAX,
         remote_stream_receive_max: 0,
+        idle_timeout_ms: 60_000,
     };
 
     /// Checks that the limits make sense together.
@@ -91,12 +99,16 @@ impl Policy {
             "maximum concurrency above 1000"
         );
         assert!(
-            self.max_remote_streams >= 1 && self.max_remote_streams <= 1000,
-            "remote stream limit out of range"
+            self.max_remote_streams >= 1 && self.max_local_streams >= 1,
+            "stream limits must allow a stream"
         );
+        // Every packet carries the limits of every open stream, and a
+        // response a receipt per stream: with at most 100 streams the
+        // largest packet stays within the 512 frames a packet may have and
+        // well within ILP's 32 KiB of data.
         assert!(
-            self.max_local_streams >= 1 && self.max_local_streams <= 1000,
-            "local stream limit out of range"
+            self.max_remote_streams + self.max_local_streams <= MAX_STREAMS,
+            "more streams than one packet can describe"
         );
         assert!(
             self.stream_receive_window_bytes <= 1 << 24,
@@ -117,6 +129,7 @@ impl Policy {
             self.retry_delay_start_ms <= self.retry_delay_max_ms,
             "retry delay start above maximum"
         );
+        assert!(self.idle_timeout_ms > 0, "idle timeout is zero");
     }
 }
 

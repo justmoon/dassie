@@ -41,6 +41,20 @@ fn ilp_11_unknown_frames_are_skipped() {
 }
 
 #[test]
+fn bytes_after_a_known_frames_fields_are_ignored() {
+    // As in ilp-protocol-stream, so that frames can gain fields without
+    // breaking older receivers: ConnectionMaxStreamId(1) plus a stray byte.
+    let mut packet = hex("010c0100010001");
+    packet.push(1);
+    packet.extend_from_slice(&hex("05030101ff"));
+    let parsed = Packet::parse(&packet).unwrap();
+    assert_eq!(
+        parsed.frames.iter().collect::<Vec<_>>(),
+        [Frame::ConnectionMaxStreamId { max_stream_id: 1 }]
+    );
+}
+
+#[test]
 fn ilp_11_bytes_after_the_frames_are_ignored() {
     let mut packet = encode(&Packet {
         sequence: 1,

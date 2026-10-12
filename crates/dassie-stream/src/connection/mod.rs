@@ -16,6 +16,7 @@
 //! [`Policy`], and [`Connection::check_invariants`] verifies the state after
 //! any step (D16).
 
+mod closed;
 mod receive;
 mod response;
 mod send;
@@ -147,9 +148,10 @@ struct Slot {
     closes: Vec<u64>,
     /// Whether it carried this side's address and limits.
     announced: bool,
-    /// Whether it carried limits the application raised. If the packet is
-    /// lost they must be sent again, or both sides could wait forever.
-    window_update: bool,
+    /// Which of the application's limit updates it carried, if any. If the
+    /// packet is lost they must be sent again, or both sides could wait
+    /// forever; if it arrives, only that update is acknowledged.
+    window_update: Option<u64>,
 }
 
 impl Slot {
@@ -166,7 +168,7 @@ impl Slot {
             data: Vec::with_capacity(streams),
             closes: Vec::with_capacity(streams),
             announced: false,
-            window_update: false,
+            window_update: None,
         }
     }
 
@@ -176,7 +178,7 @@ impl Slot {
         self.data.clear();
         self.closes.clear();
         self.announced = false;
-        self.window_update = false;
+        self.window_update = None;
         self.source_amount = 0;
         self.min_destination_amount = 0;
     }
@@ -218,6 +220,10 @@ pub struct Connection {
     announce_pending: bool,
     /// The application raised a receive limit the remote should hear about.
     window_update_pending: bool,
+    /// Counts the application's limit updates, to tell them apart.
+    window_update_sequence: u64,
+    /// Last sign of life from the remote, for the idle timeout.
+    last_activity: Option<Timestamp>,
 
     next_sequence: u64,
     streams: Vec<Stream>,
@@ -225,21 +231,21 @@ pub struct Connection {
     remote_max_stream_id: u64,
     local_max_stream_id: u64,
     stream_id_blocked: Option<u64>,
-    /// One bit per remote stream ID (ID / 2) that was opened and is gone.
-    closed_remote_streams: Vec<u64>,
+    closed_remote_streams: closed::ClosedIds,
 
+    /// The remote's limit on the sum of the highest offsets sent on open
+    /// streams. Like `ilp-protocol-stream`, both sides count open streams
+    /// only, so closing a stream frees its share.
     remote_connection_max_data: u64,
-    /// Bytes the application read, plus unread bytes dropped with closed
-    /// streams: what the connection receive window slides by.
-    data_consumed: u64,
-    /// Highest received offsets of all streams added up.
-    data_received_total: u64,
-    /// Highest sent offsets of all streams added up.
-    data_sent_total: u64,
 
     slots: Vec<Slot>,
     concurrency_milli: u32,
+    /// The least the receiver must get: what packets promise.
     exchange_rate: Option<Rate>,
+    /// What the path is expected to deliver: the measured or set rate, or
+    /// better if replies show it. Used to convert the receiver's limits,
+    /// which the minimum rate would overshoot.
+    expected_rate: Option<Rate>,
     rate_too_low: bool,
     max_packet_amount: u64,
     retry_at: Option<Timestamp>,
@@ -298,22 +304,22 @@ impl Connection {
             connected: false,
             announce_pending: true,
             window_update_pending: false,
+            window_update_sequence: 0,
+            last_activity: None,
             next_sequence: 0,
             streams: Vec::with_capacity(stream_capacity),
             next_local_stream_id,
             remote_max_stream_id: DEFAULT_REMOTE_MAX_STREAM_ID,
             local_max_stream_id: 2 * u64::from(policy.max_remote_streams),
             stream_id_blocked: None,
-            closed_remote_streams: Vec::new(),
+            closed_remote_streams: closed::ClosedIds::default(),
             remote_connection_max_data: policy.connection_receive_window_bytes,
-            data_consumed: 0,
-            data_received_total: 0,
-            data_sent_total: 0,
             slots: (0..slot_count)
                 .map(|_| Slot::new(stream_capacity))
                 .collect(),
             concurrency_milli: policy.min_concurrency * 1000,
             exchange_rate: None,
+            expected_rate: None,
             rate_too_low: false,
             max_packet_amount: policy.max_packet_amount,
             retry_at: None,
@@ -467,7 +473,7 @@ impl Connection {
             return Err(StreamError::StreamClosed);
         }
         stream.receive_max = amount.max(stream.received);
-        self.window_update_pending = true;
+        self.note_window_update();
         Ok(())
     }
 
@@ -480,11 +486,15 @@ impl Connection {
     pub fn read(&mut self, id: u64, output: &mut [u8]) -> Result<usize, StreamError> {
         let stream = self.stream_mut(id).ok_or(StreamError::UnknownStream)?;
         let count = stream.receive.read(output);
-        self.data_consumed += count as u64;
         if count > 0 {
-            self.window_update_pending = true;
+            self.note_window_update();
         }
         Ok(count)
+    }
+
+    fn note_window_update(&mut self) {
+        self.window_update_pending = true;
+        self.window_update_sequence += 1;
     }
 
     /// Closes a stream. Money and data not yet sent are dropped; what is in
@@ -502,10 +512,12 @@ impl Connection {
     /// sending money if a too-low rate stopped it.
     pub fn set_exchange_rate(&mut self, rate: Rate) {
         self.exchange_rate = Some(rate);
+        self.expected_rate = (!rate.is_zero()).then_some(rate);
         self.rate_too_low = false;
     }
 
-    /// Sends money without caring how much arrives.
+    /// Sends money without caring how much arrives. The receiver's limits
+    /// are converted at whatever rate replies show.
     pub fn dangerously_ignore_exchange_rate(&mut self) {
         self.set_exchange_rate(Rate::ZERO);
     }
@@ -514,7 +526,12 @@ impl Connection {
     /// growing size, as the original did (spec 4 §11.10). The result is
     /// reported as an event and, if precise enough, adopted as the rate less
     /// the policy's slippage.
+    /// A measurement already in progress continues; calling again does
+    /// nothing.
     pub fn measure_exchange_rate(&mut self) {
+        if self.probing.is_some() || !matches!(self.state, State::Open) {
+            return;
+        }
         let mut probing = Probing {
             queue: [0; MAX_PROBES],
             queued: 0,
@@ -554,6 +571,9 @@ impl Connection {
         };
     }
 
+    /// Ends the connection. Nothing new is sent, but packets in flight still
+    /// settle when their responses arrive or they expire: money they carried
+    /// may have been delivered, and dropping them would under-report it.
     fn finish_close(&mut self, code: ErrorCode, by_remote: bool) {
         if matches!(self.state, State::Closed) {
             return;
@@ -561,17 +581,25 @@ impl Connection {
         self.state = State::Closed;
         self.retry_at = None;
         self.probing = None;
-        for slot in &mut self.slots {
-            if slot.active {
-                for &(id, amount) in &slot.money {
-                    if let Some(stream) = self.streams.iter_mut().find(|stream| stream.id == id) {
-                        stream.held -= amount;
-                    }
-                }
-                slot.reset();
-            }
-        }
         self.push_event(Event::ConnectionClosed { code, by_remote });
+    }
+
+    /// Whether the connection is closed and nothing is in flight any more.
+    #[must_use]
+    pub fn is_settled(&self) -> bool {
+        self.is_closed() && self.slots.iter().all(|slot| !slot.active)
+    }
+
+    /// Events one incoming packet can cause at most: a stream opened, data
+    /// and money for each stream, every stream closed, and connection
+    /// events. Packets are refused while the queue lacks this much room, so
+    /// a remote cannot overflow it (D16).
+    fn event_reserve(&self) -> usize {
+        3 * self.streams.capacity() + 4
+    }
+
+    fn has_event_room(&self) -> bool {
+        self.events.len() + self.event_reserve() <= self.events_capacity
     }
 
     /// The next event, if any.
@@ -604,9 +632,6 @@ impl Connection {
     /// When [`handle_timeout`](Self::handle_timeout) should next be called.
     #[must_use]
     pub fn poll_timeout(&self) -> Option<Timestamp> {
-        if matches!(self.state, State::Closed) {
-            return None;
-        }
         let expiries = self
             .slots
             .iter()
@@ -616,7 +641,19 @@ impl Connection {
             State::Closing { deadline, .. } => Some(deadline),
             _ => None,
         };
-        expiries.chain(closing).chain(self.retry_at).min()
+        expiries
+            .chain(closing)
+            .chain(self.retry_at)
+            .chain(self.idle_deadline())
+            .min()
+    }
+
+    fn idle_deadline(&self) -> Option<Timestamp> {
+        if matches!(self.state, State::Closed) {
+            return None;
+        }
+        self.last_activity
+            .map(|at| at.saturating_add_ms(self.policy.idle_timeout_ms))
     }
 
     fn allowed_concurrency(&self) -> usize {
@@ -641,23 +678,39 @@ impl Connection {
     }
 
     fn mark_remote_stream_closed(&mut self, id: u64) {
-        let index = usize::try_from(id / 2).unwrap_or(usize::MAX);
-        let word = index / 64;
-        if word >= self.closed_remote_streams.len() {
-            // Grows with the advertised stream limit, one bit per stream the
-            // remote may ever open.
-            self.closed_remote_streams.resize(word + 1, 0);
-        }
-        if let Some(bits) = self.closed_remote_streams.get_mut(word) {
-            *bits |= 1 << (index % 64);
-        }
+        self.closed_remote_streams.mark(id / 2);
     }
 
     fn is_remote_stream_closed(&self, id: u64) -> bool {
-        let index = usize::try_from(id / 2).unwrap_or(usize::MAX);
-        self.closed_remote_streams
-            .get(index / 64)
-            .is_some_and(|bits| bits & (1 << (index % 64)) != 0)
+        self.closed_remote_streams.is_closed(id / 2)
+    }
+
+    /// Our connection-level receive limit, advertised as `ConnectionMaxData`:
+    /// what the application read on open streams plus the window.
+    pub(super) fn connection_max_data(&self) -> u64 {
+        self.streams
+            .iter()
+            .map(|stream| stream.receive.read_offset())
+            .fold(
+                self.policy.connection_receive_window_bytes,
+                u64::saturating_add,
+            )
+    }
+
+    /// The highest offsets received on open streams, added up.
+    fn data_received_total(&self) -> u64 {
+        self.streams
+            .iter()
+            .map(|stream| stream.receive.highest_offset())
+            .fold(0, u64::saturating_add)
+    }
+
+    /// The highest offsets sent on open streams, added up.
+    fn data_sent_total(&self) -> u64 {
+        self.streams
+            .iter()
+            .map(|stream| stream.send.high_offset())
+            .fold(0, u64::saturating_add)
     }
 
     /// Checks the connection's internal consistency. Tests and simulations
@@ -696,10 +749,10 @@ impl Connection {
             normal <= self.policy.max_concurrency as usize,
             "more packets in flight than the maximum"
         );
-        if matches!(self.state, State::Closed) {
+        if !matches!(self.state, State::Closed) {
             assert!(
-                self.slots.iter().all(|slot| !slot.active),
-                "closed with packets in flight"
+                self.data_received_total() <= self.connection_max_data(),
+                "received beyond the connection window"
             );
         }
     }

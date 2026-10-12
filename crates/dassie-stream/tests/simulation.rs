@@ -8,6 +8,14 @@ use support::sim::{Path, Side, Simulation};
 
 const STEPS: usize = 100_000;
 
+/// For lossy paths: every lost packet costs its 30-second expiry, and a
+/// few in a row would otherwise trip the 60-second idle timeout, which
+/// these tests are not about.
+const LOSSY: Policy = Policy {
+    idle_timeout_ms: 600_000,
+    ..Policy::DEFAULT
+};
+
 fn measured_rate(path: Path) -> Rate {
     let mut sim = Simulation::new(1, path, Policy::DEFAULT);
     sim.client.measure_exchange_rate();
@@ -138,9 +146,10 @@ fn survives_packet_loss() {
         max_packet_amount: 50_000,
         ..Path::default()
     };
-    let sim = pay(path, Policy::DEFAULT, 1_000_000);
+    let sim = pay(path, LOSSY, 1_000_000);
     assert_eq!(server_received(&sim), 1_000_000);
-    assert!(sim.client.stats().packets_timed_out > 0);
+    // Lost packets come back as R00 when they expire.
+    assert!(sim.client.stats().packets_rejected > 0);
 }
 
 #[test]
@@ -279,7 +288,7 @@ fn scenario_trace(seed: u64) -> String {
         rate: (3, 2),
         ..Path::default()
     };
-    let mut sim = Simulation::new(seed, path, Policy::DEFAULT);
+    let mut sim = Simulation::new(seed, path, LOSSY);
     sim.client.measure_exchange_rate();
     let stream = sim.client.open_stream().unwrap();
     sim.client.set_send_max(stream, 300_000).unwrap();

@@ -54,6 +54,7 @@ impl Connection {
             return;
         };
         let mut slot = core::mem::replace(target, Slot::new(0));
+        self.last_activity = Some(now);
         match Response::decode_exact(response) {
             Ok(Response::Fulfill(fulfill))
                 if slot.kind != PacketKind::Probe && fulfill.satisfies(&slot.condition) =>
@@ -94,7 +95,7 @@ impl Connection {
                 continue;
             };
             let mut slot = core::mem::replace(target, Slot::new(0));
-            self.stats.packets_timed_out += 1;
+            self.stats.packets_timed_out = self.stats.packets_timed_out.saturating_add(1);
             self.settle_lost(now, &slot);
             slot.reset();
             if let Some(target) = self.slots.get_mut(index) {
@@ -105,6 +106,11 @@ impl Connection {
             && now >= deadline
         {
             self.finish_close(code, false);
+        }
+        if self.idle_deadline().is_some_and(|deadline| now >= deadline) {
+            // Nothing from the remote for the idle timeout: give up, as
+            // upstream does, so that abandoned connections end.
+            self.finish_close(ErrorCode::NO_ERROR, false);
         }
         self.after_step(now);
     }
@@ -187,9 +193,12 @@ impl Connection {
             }
         }
         self.acknowledge_closes(slot);
-        self.stats.packets_fulfilled += 1;
-        self.stats.amount_sent += slot.source_amount;
-        self.stats.amount_delivered += reply.unwrap_or(slot.min_destination_amount);
+        self.stats.packets_fulfilled = self.stats.packets_fulfilled.saturating_add(1);
+        self.stats.amount_sent = self.stats.amount_sent.saturating_add(slot.source_amount);
+        self.stats.amount_delivered = self
+            .stats
+            .amount_delivered
+            .saturating_add(reply.unwrap_or(slot.min_destination_amount));
         self.increase_concurrency();
         self.retry_delay_ms = self.policy.retry_delay_start_ms;
     }
@@ -207,7 +216,7 @@ impl Connection {
 
     /// Returns a packet's money, data and limit updates to be sent again.
     fn undo(&mut self, slot: &Slot) {
-        if slot.window_update {
+        if slot.window_update.is_some() {
             self.window_update_pending = true;
         }
         for &(id, amount) in &slot.money {
@@ -230,11 +239,12 @@ impl Connection {
         reply: Option<u64>,
     ) {
         self.undo(slot);
-        self.stats.packets_rejected += 1;
+        self.stats.packets_rejected = self.stats.packets_rejected.saturating_add(1);
         if reply.is_some() {
             // The receiver processed the frames: closes and limits included.
             self.acknowledge_closes(slot);
-            if slot.window_update {
+            // Only if the application raised nothing since this packet left.
+            if slot.window_update == Some(self.window_update_sequence) {
                 self.window_update_pending = false;
             }
         }
@@ -257,15 +267,20 @@ impl Connection {
             Failure::Receiver => {
                 if let Some(received) = reply
                     && slot.source_amount > 0
-                    && received < slot.min_destination_amount
                 {
-                    self.rate_too_low = true;
-                    self.push_event(Event::ExchangeRateTooLow {
-                        expected: slot.min_destination_amount,
-                        received,
-                    });
+                    if received < slot.min_destination_amount {
+                        self.rate_too_low = true;
+                        self.push_event(Event::ExchangeRateTooLow {
+                            expected: slot.min_destination_amount,
+                            received,
+                        });
+                    } else {
+                        self.learn_rate(received, slot.source_amount);
+                    }
                 }
-                self.decrease_concurrency();
+                // The receiver refused; its new limits are applied, but
+                // sending again at once could repeat the refusal.
+                self.back_off(now);
             }
             Failure::TooLarge => {}
             Failure::Temporary => self.back_off(now),
@@ -286,13 +301,38 @@ impl Connection {
 
     fn back_off(&mut self, now: Timestamp) {
         self.decrease_concurrency();
+        if matches!(self.state, State::Closed) {
+            return;
+        }
         self.retry_at = Some(now.saturating_add_ms(self.retry_delay_ms));
-        self.retry_delay_ms = (self.retry_delay_ms * 2).min(self.policy.retry_delay_max_ms);
+        self.retry_delay_ms = self
+            .retry_delay_ms
+            .saturating_mul(2)
+            .min(self.policy.retry_delay_max_ms);
+    }
+
+    /// A reply showed the path delivering `received` for `source`: if that
+    /// is better than expected, expect it from now on, so the receiver's
+    /// limits are converted at what actually arrives.
+    fn learn_rate(&mut self, received: u64, source: u64) {
+        let Some(observed) = Rate::new(received, source) else {
+            return;
+        };
+        let better = self
+            .expected_rate
+            .is_none_or(|expected| observed.at_least(expected) && observed != expected);
+        if better {
+            self.expected_rate = Some(observed);
+        }
     }
 
     /// Lowers the packet limit after an F08: the packet's amount scaled by
     /// what the rejecting hop accepts over what it received.
     fn learn_max_packet_amount(&mut self, source_amount: u64, reject: &Reject<'_>) {
+        // An F08 for a packet without money says nothing about amounts.
+        if source_amount == 0 {
+            return;
+        }
         let limit = match AmountTooLarge::from_reject(reject) {
             Some(data) if data.received_amount > 0 => {
                 let scaled = u128::from(source_amount) * u128::from(data.maximum_amount)
@@ -305,6 +345,10 @@ impl Connection {
         self.max_packet_amount = self
             .max_packet_amount
             .min(limit.min(source_amount.saturating_sub(1)));
+        if self.max_packet_amount == 0 {
+            // The path carries no money at all: give up, as upstream does.
+            self.finish_close(ErrorCode::INTERNAL_ERROR, false);
+        }
     }
 
     fn probe_settled(&mut self, now: Timestamp, amount: u64, failure: Failure, reply: Option<u64>) {
@@ -312,7 +356,7 @@ impl Connection {
         let Some(probing) = self.probing.as_mut() else {
             return;
         };
-        probing.outstanding -= 1;
+        probing.outstanding = probing.outstanding.saturating_sub(1);
         if let Some(received) = reply
             && received > 0
         {

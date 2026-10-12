@@ -356,7 +356,10 @@ impl Frame<'_> {
     /// unknown frames, which the original rejected (ILP-11).
     pub fn decode<'a>(reader: &mut Reader<'a>) -> Result<Option<Frame<'a>>, DecodeError> {
         let frame_type = reader.read_u8()?;
-        reader.read_prefixed(|content| decode_content(frame_type, content))
+        // Bytes after a known frame's fields are ignored, as upstream does,
+        // so that frames can gain fields without breaking older receivers.
+        let content = reader.read_octets(Size::ANY)?;
+        decode_content(frame_type, &mut Reader::new(content))
     }
 }
 
