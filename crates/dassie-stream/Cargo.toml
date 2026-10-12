@@ -7,7 +7,21 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+default = []
+# JavaScript bindings (wasm-bindgen), including dassie-ilp's packet codecs.
+# Brings the platform RNG, used only at that edge.
+wasm = [
+  "dep:wasm-bindgen",
+  "dep:getrandom",
+  "getrandom/sys_rng",
+  "getrandom/wasm_js",
+  "dassie-ilp/wasm",
+]
+
 [dependencies]
+getrandom = { version = "0.4.3", default-features = false, optional = true }
+wasm-bindgen = { version = "=0.2.129", optional = true }
 # Without the default `getrandom` feature: the caller injects randomness.
 aes-gcm = { version = "0.11.1", default-features = false, features = ["aes"] }
 dassie-ilp = { path = "../dassie-ilp" }
@@ -20,6 +34,8 @@ sha2 = { version = "0.11", default-features = false }
 subtle = { version = "2.6", default-features = false }
 
 [dev-dependencies]
+# The OS RNG, for the interop example only.
+getrandom = { version = "0.4.3", features = ["sys_rng"] }
 dassie-oer = { path = "../dassie-oer" }
 proptest = "1.12"
 serde_json = "1.0.154"

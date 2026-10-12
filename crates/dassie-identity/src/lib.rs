@@ -44,6 +44,8 @@ mod node_id;
 mod node_key;
 mod secret;
 mod seed;
+#[cfg(feature = "wasm")]
+mod wasm;
 mod wordlist;
 mod x25519;
 

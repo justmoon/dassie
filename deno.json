@@ -1,0 +1,24 @@
+{
+  "workspace": [
+    "./packages/identity-wasm",
+    "./tests/interop"
+  ],
+  "nodeModulesDir": "auto",
+  "exclude": [
+    "crates/",
+    "target/",
+    "spec/",
+    "testdata/",
+    "packages/identity-wasm/gen/"
+  ],
+  "fmt": {
+    "include": ["packages/", "tests/", "scripts/", "deno.json"],
+    "exclude": ["**/*.md"]
+  },
+  "tasks": {
+    "build:wasm": "deno run --allow-run --allow-read --allow-write --allow-env scripts/build-wasm.ts",
+    "check": "deno fmt --check && deno lint && deno check",
+    "test": "deno test --allow-read --allow-write --allow-env --allow-net --allow-run",
+    "ci": "deno task build:wasm && deno task check && deno task test"
+  }
+}

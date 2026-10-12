@@ -41,6 +41,8 @@ pub mod receipt;
 mod server;
 mod stream;
 pub mod token;
+#[cfg(feature = "wasm")]
+mod wasm;
 
 pub use connection::{
     AssetDetails, BUFFER_LENGTH, Config, Connection, Role, StreamError, Transmit,

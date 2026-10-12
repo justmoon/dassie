@@ -28,6 +28,8 @@ mod error_code;
 pub mod ildcp;
 mod packet;
 mod timestamp;
+#[cfg(feature = "wasm")]
+mod wasm;
 
 pub use address::{Address, InvalidAddress, MAX_ADDRESS_LENGTH};
 pub use amount_too_large::AmountTooLarge;
