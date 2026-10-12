@@ -1,0 +1,34 @@
+[workspace]
+members = ["crates/*"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.98"
+license = "Apache-2.0"
+publish = false
+
+# Integer overflow is a bug wherever it happens, and in this code base it
+# usually means a wrong balance. Checks stay on in every profile (D16).
+[profile.dev]
+overflow-checks = true
+
+# Crypto, property tests and simulations are unbearably slow unoptimized.
+# Line tables keep file:line in backtraces.
+[profile.test]
+opt-level = 3
+debug = "line-tables-only"
+overflow-checks = true
+
+[profile.release]
+lto = true
+codegen-units = 1
+overflow-checks = true
+
+# The WASM modules (built as wasm32 cdylibs by scripts/build-wasm.ts): small
+# rather than fast, since every browser downloads them.
+[profile.wasm]
+inherits = "release"
+opt-level = "s"
+panic = "abort"
+strip = true
