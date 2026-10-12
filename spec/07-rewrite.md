@@ -235,7 +235,7 @@ Every crate is written so that a simulation can drive it ([D16](08-decisions.md#
    - the BIP-39 → node key → login secret chain;
    - the XRPL wallet derivation for a fixed passphrase.
 
-   Vectors marked as produced by an independent encoder ([3 §5.5](03-peer-network.md)) must first be confirmed against the original code.
+   The vectors are generated from the original code by `testdata/original/` (this includes the independently computed ones of [3 §5.5](03-peer-network.md), now confirmed).
 2. **Property tests** for `dassie-oer` (round trip, canonical-only parse), the ledger (no transfer breaks a limit; balances equal the journal), and STREAM allocation ([4 §11.11](04-interledger.md)).
 3. **Interop.** A Deno test harness runs:
    - `dassie-stream` (native and WASM) against the npm `ilp-protocol-stream`, both directions;

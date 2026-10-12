@@ -139,7 +139,7 @@ Sources: `peer-protocol/computed/x25519-private-key.ts`, `peer-protocol/function
 
 - **Static X25519 private key of a node.** `ed25519.utils.toMontgomerySecret(seed)` = `clamp(SHA-512(seed)[0..32])`. This is the same as libsodium `crypto_sign_ed25519_sk_to_curve25519`.
 - **X25519 public key of a peer.** `ed25519.utils.toMontgomery(edPublicKey)` = birational map `u = (1+y)/(1-y) mod p`. This is the same as libsodium `crypto_sign_ed25519_pk_to_curve25519`.
-- Vector: seed `03`×32 gives Ed pub `ed4928c6...37d1` and X25519 pub `75e270df2952c57ba8367ba8618c178f9fe50db2799d304e74e918d985686146`.
+- Vector: seed `03`×32 gives Ed pub `ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1` and X25519 pub `75e270df2952c57ba8367ba8618c178f9fe50db2799d304e74e918d985686146`.
 
 ---
 
@@ -326,9 +326,9 @@ The response type is selected by the *request* content type. There is no envelop
 
 ### 5.5 Test vectors
 
-These were generated with an independent encoder written from this spec. They match lib-oer's rules. The node-ID derivation was cross-checked against the real bootstrap config (§2.2). The vectors are not produced by Dassie itself; regenerate them from the real code if byte-exact confirmation is needed.
+These were first computed with an independent encoder written from this spec, then confirmed byte for byte against the original code at `e962ab78` (its `peer-schema.ts`, `calculate-node-id.ts`, `@noble/ed25519` and `@noble/curves`), by the generator in the rewrite's `testdata/original/`. The generated copies live in `crates/dassie-oer/tests/data/vectors.json` and `crates/dassie-identity/tests/data/keys.json`.
 
-Node A (seed `01`×32, pub `8a88e3dd...6f5c`, ID `dagvMuaJff2H5DrnJw8llmK-WZ83WrSzY`). Node B (seed `03`×32, pub `ed4928c6...37d1`, ID `dRLajGQUsQnlsol-B7F0Uf_og05hZo4C3`).
+Node A (seed `01`×32, pub `8a88e3dd...6f5c`, ID `dagvMuaJff2H5DrnJw8llmK-WZ83WrSzY`). Node B (seed `03`×32, pub `ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1`, ID `dRLajGQUsQnlsol-B7F0Uf_og05hZo4C3`).
 
 PeerNodeInfo of A, with fields:
 - sequence = 1700000000000 (`0000018bcfe56800`);
