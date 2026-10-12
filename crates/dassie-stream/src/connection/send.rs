@@ -1,0 +1,388 @@
+//! Building outgoing packets.
+
+use dassie_ilp::{Address, MAX_DATA_LENGTH, Prepare, Timestamp};
+use dassie_oer::Writer;
+use rand_core::CryptoRng;
+
+use super::{BUFFER_LENGTH, Connection, PacketKind, Role, Slot, State, Transmit};
+use crate::crypto::{Keys, OVERHEAD};
+use crate::frame::{ErrorCode, Frame};
+use crate::packet::{self, PacketType};
+
+/// Largest STREAM plaintext that fits an ILP packet's data once encrypted.
+pub(super) const MAX_PLAINTEXT: usize = MAX_DATA_LENGTH - OVERHEAD;
+
+/// Most bytes a `StreamData` frame needs besides its data: type, length
+/// determinant, two 9-byte integers and the data's length determinant.
+const DATA_FRAME_OVERHEAD: usize = 1 + 3 + 9 + 9 + 3;
+
+/// Counts and sizes the frames `visit` produces.
+pub(super) fn measure(visit: impl Fn(&mut dyn FnMut(Frame<'_>))) -> (usize, usize) {
+    let mut count = 0;
+    let mut length = 0;
+    visit(&mut |frame| {
+        count += 1;
+        length += frame.encoded_len();
+    });
+    (count, length)
+}
+
+/// Writes the STREAM packet made of `visit`'s frames into `buffer` after
+/// room for the encryption overhead, then encrypts it in place. Returns the
+/// ciphertext length.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn seal(
+    keys: &Keys,
+    rng: &mut (impl CryptoRng + ?Sized),
+    buffer: &mut [u8],
+    sequence: u64,
+    packet_type: PacketType,
+    prepare_amount: u64,
+    (count, frames_length): (usize, usize),
+    visit: impl Fn(&mut dyn FnMut(Frame<'_>)),
+) -> usize {
+    let plaintext_len = packet::header_len(sequence, prepare_amount, count) + frames_length;
+    assert!(plaintext_len <= MAX_PLAINTEXT, "STREAM packet too large");
+    let region = buffer
+        .get_mut(..OVERHEAD + plaintext_len)
+        .unwrap_or_else(|| panic!("STREAM buffer too small"));
+    let (_, body) = region.split_at_mut(OVERHEAD);
+    let mut writer = Writer::new(body);
+    packet::encode_header(&mut writer, sequence, packet_type, prepare_amount, count);
+    visit(&mut |frame| frame.encode_to(&mut writer));
+    assert!(
+        writer.position() == plaintext_len,
+        "frames changed between passes"
+    );
+    keys.cipher.encrypt(rng, plaintext_len, region)
+}
+
+impl Connection {
+    /// Writes the next packet to send into `buffer`, if there is one to
+    /// send now.
+    ///
+    /// # Panics
+    ///
+    /// If `buffer` is shorter than [`BUFFER_LENGTH`].
+    pub fn poll_transmit(
+        &mut self,
+        now: Timestamp,
+        rng: &mut (impl CryptoRng + ?Sized),
+        buffer: &mut [u8],
+    ) -> Option<Transmit> {
+        assert!(
+            buffer.len() >= BUFFER_LENGTH,
+            "buffer shorter than BUFFER_LENGTH"
+        );
+        if matches!(self.state, State::Closed) || self.remote_address.is_none() {
+            return None;
+        }
+        if self.retry_at.is_some_and(|at| now < at) {
+            return None;
+        }
+        self.retry_at = None;
+        let index = self.slots.iter().position(|slot| !slot.active)?;
+        let mut slot = core::mem::replace(self.slots.get_mut(index)?, Slot::new(0));
+        let planned = match self.state {
+            State::Closing { code, .. } => self.plan_close(&mut slot, code),
+            _ => self.plan_probe(&mut slot) || self.plan_normal(&mut slot),
+        };
+        let transmit = planned.then(|| {
+            let transmit = self.encode_request(now, rng, &mut slot, buffer);
+            self.commit_request(&mut slot);
+            transmit
+        });
+        if let Some(target) = self.slots.get_mut(index) {
+            *target = slot;
+        }
+        transmit
+    }
+
+    fn plan_close(&mut self, slot: &mut Slot, _code: ErrorCode) -> bool {
+        let close_in_flight = self.active_slots(PacketKind::Close) > 0;
+        if close_in_flight || self.close_attempts >= self.policy.close_retries {
+            return false;
+        }
+        self.close_attempts += 1;
+        slot.kind = PacketKind::Close;
+        true
+    }
+
+    fn plan_probe(&mut self, slot: &mut Slot) -> bool {
+        let Some(probing) = self.probing.as_mut() else {
+            return false;
+        };
+        let Some(amount) = probing.dequeue() else {
+            return false;
+        };
+        probing.outstanding += 1;
+        slot.kind = PacketKind::Probe;
+        slot.source_amount = amount;
+        slot.announced = !self.remote_knows_us || self.announce_pending;
+        true
+    }
+
+    fn plan_normal(&mut self, slot: &mut Slot) -> bool {
+        if self.active_slots(PacketKind::Normal) >= self.allowed_concurrency() {
+            return false;
+        }
+        slot.kind = PacketKind::Normal;
+        slot.announced = !self.remote_knows_us || self.announce_pending;
+        self.plan_money(slot);
+        for stream in &self.streams {
+            if stream.local_close.is_some() && !stream.local_close_acknowledged {
+                slot.closes.push(stream.id);
+            }
+        }
+        self.plan_data(slot);
+        let worthwhile = slot.source_amount > 0
+            || !slot.data.is_empty()
+            || !slot.closes.is_empty()
+            || (slot.announced && self.role == Role::Client && !self.remote_knows_us)
+            || self.stream_id_blocked.is_some()
+            || self.window_update_pending;
+        if !worthwhile {
+            slot.reset();
+        }
+        worthwhile
+    }
+
+    fn plan_money(&self, slot: &mut Slot) {
+        let (Some(rate), false) = (self.exchange_rate, self.rate_too_low) else {
+            return;
+        };
+        let mut budget = self.max_packet_amount;
+        for stream in self.streams.iter().filter(|stream| stream.can_send()) {
+            let sendable = stream
+                .unsent_amount()
+                .min(rate.max_source_amount(stream.remote_room()));
+            let amount = sendable.min(budget);
+            if amount > 0 {
+                slot.money.push((stream.id, amount));
+                budget -= amount;
+                slot.source_amount += amount;
+            }
+        }
+        // Dust waits while other money is in flight: those packets may fail
+        // and free a larger amount. Alone, even a small amount goes, so a
+        // payment below the threshold completes (the original never sent
+        // it, ILP-11).
+        let money_in_flight = self
+            .slots
+            .iter()
+            .any(|other| other.active && other.source_amount > 0);
+        if slot.source_amount < self.policy.de_minimis_amount && money_in_flight {
+            slot.money.clear();
+            slot.source_amount = 0;
+        }
+        if slot.source_amount > 0 {
+            slot.min_destination_amount = rate.destination_amount(slot.source_amount);
+        }
+    }
+
+    fn plan_data(&self, slot: &mut Slot) {
+        let (_, control_length) = measure(|visit| self.visit_request(slot, visit));
+        let fixed = packet::header_len(u64::MAX, u64::MAX, 512) + control_length;
+        let mut budget = MAX_PLAINTEXT.saturating_sub(fixed);
+        let connection_room = self
+            .remote_connection_max_data
+            .saturating_sub(self.data_sent_total);
+        let mut connection_budget = connection_room;
+        for stream in self.streams.iter().filter(|stream| stream.can_send()) {
+            if budget <= DATA_FRAME_OVERHEAD || !stream.send.has_unsent() {
+                continue;
+            }
+            // New bytes beyond the stream's high-water mark count against
+            // the connection's limit; retransmissions do not.
+            let high = stream.send.high_offset();
+            let limit = stream
+                .remote_max_data
+                .min(high.saturating_add(connection_budget));
+            let (offset, bytes) = stream.send.unsent(budget - DATA_FRAME_OVERHEAD, limit);
+            if bytes.is_empty() {
+                continue;
+            }
+            let end = offset + bytes.len() as u64;
+            connection_budget = connection_budget.saturating_sub(end.saturating_sub(high));
+            budget -= DATA_FRAME_OVERHEAD + bytes.len();
+            slot.data.push((stream.id, offset, end));
+        }
+    }
+
+    /// Our connection-level receive limit, advertised as `ConnectionMaxData`.
+    pub(super) fn connection_max_data(&self) -> u64 {
+        self.data_consumed + self.policy.connection_receive_window_bytes
+    }
+
+    /// Produces the frames of the request planned in `slot`. Called twice
+    /// per packet, to measure and to write, so it must not change anything.
+    pub(super) fn visit_request(&self, slot: &Slot, visit: &mut dyn FnMut(Frame<'_>)) {
+        if slot.announced {
+            self.visit_announcement(visit);
+        }
+        match slot.kind {
+            PacketKind::Probe => return,
+            PacketKind::Close => {
+                let code = match self.state {
+                    State::Closing { code, .. } => code,
+                    _ => ErrorCode::NO_ERROR,
+                };
+                visit(Frame::ConnectionClose { code, message: "" });
+                return;
+            }
+            PacketKind::Normal => {}
+        }
+        if let Some(max_stream_id) = self.stream_id_blocked {
+            visit(Frame::ConnectionStreamIdBlocked { max_stream_id });
+        }
+        visit(Frame::ConnectionMaxData {
+            max_offset: self.connection_max_data(),
+        });
+        for stream in &self.streams {
+            if let Some(code) = stream.local_close {
+                if slot.closes.contains(&stream.id) {
+                    visit(Frame::StreamClose {
+                        stream_id: stream.id,
+                        code,
+                        message: "",
+                    });
+                }
+            } else {
+                self.visit_stream_limits(stream, visit);
+            }
+        }
+        for &(stream_id, shares) in &slot.money {
+            visit(Frame::StreamMoney { stream_id, shares });
+        }
+        for &(stream_id, start, end) in &slot.data {
+            if let Some(stream) = self.stream(stream_id) {
+                visit(Frame::StreamData {
+                    stream_id,
+                    offset: start,
+                    data: stream.send.slice(start, end),
+                });
+            }
+        }
+    }
+
+    /// This side's address, asset and limits.
+    pub(super) fn visit_announcement(&self, visit: &mut dyn FnMut(Frame<'_>)) {
+        if self.role == Role::Client
+            && let Some(address) = self.local_address.as_deref()
+        {
+            visit(Frame::ConnectionNewAddress {
+                source_account: Address::parse(address).ok(),
+            });
+        }
+        if let Some((code, scale)) = &self.local_asset {
+            visit(Frame::ConnectionAssetDetails {
+                asset_code: code,
+                asset_scale: *scale,
+            });
+        }
+        visit(Frame::ConnectionMaxStreamId {
+            max_stream_id: self.local_max_stream_id,
+        });
+    }
+
+    pub(super) fn visit_stream_limits(
+        &self,
+        stream: &crate::stream::Stream,
+        visit: &mut dyn FnMut(Frame<'_>),
+    ) {
+        visit(Frame::StreamMaxMoney {
+            stream_id: stream.id,
+            receive_max: stream.receive_max,
+            total_received: stream.received,
+        });
+        visit(Frame::StreamMaxData {
+            stream_id: stream.id,
+            max_offset: stream.receive.max_offset(),
+        });
+    }
+
+    fn encode_request(
+        &self,
+        now: Timestamp,
+        rng: &mut (impl CryptoRng + ?Sized),
+        slot: &mut Slot,
+        buffer: &mut [u8],
+    ) -> Transmit {
+        let Some(destination) = self
+            .remote_address
+            .as_deref()
+            .and_then(|text| Address::parse(text).ok())
+        else {
+            unreachable!("remote addresses are validated when stored");
+        };
+        let sequence = self.next_sequence;
+        let measured = measure(|visit| self.visit_request(slot, visit));
+        let plaintext_len =
+            packet::header_len(sequence, slot.min_destination_amount, measured.0) + measured.1;
+        let data_len = OVERHEAD + plaintext_len;
+        let expires_at = now.saturating_add_ms(self.policy.packet_timeout_ms);
+        let mut prepare = Prepare {
+            amount: slot.source_amount,
+            expires_at,
+            execution_condition: [0; 32],
+            destination,
+            data: &[],
+        };
+        let header_len = prepare.header_len(data_len);
+        let (head, rest) = buffer.split_at_mut(header_len);
+        let sealed = seal(
+            &self.keys,
+            rng,
+            rest,
+            sequence,
+            PacketType::Prepare,
+            slot.min_destination_amount,
+            measured,
+            |visit| self.visit_request(slot, visit),
+        );
+        assert!(sealed == data_len, "sealed length mismatch");
+        let condition = if slot.kind == PacketKind::Probe {
+            let mut random = [0; 32];
+            rng.fill_bytes(&mut random);
+            random
+        } else {
+            self.keys
+                .condition(rest.get(..data_len).unwrap_or_default())
+        };
+        prepare.execution_condition = condition;
+        prepare.encode_header(data_len, &mut Writer::new(head));
+        slot.sequence = sequence;
+        slot.expires_at = expires_at;
+        slot.condition = condition;
+        Transmit {
+            request_id: sequence,
+            length: header_len + data_len,
+            expires_at,
+        }
+    }
+
+    fn commit_request(&mut self, slot: &mut Slot) {
+        slot.active = true;
+        self.next_sequence += 1;
+        self.stats.packets_sent += 1;
+        for &(id, amount) in &slot.money {
+            if let Some(stream) = self.streams.iter_mut().find(|stream| stream.id == id) {
+                stream.held += amount;
+            }
+        }
+        for &(id, start, end) in &slot.data {
+            if let Some(stream) = self.streams.iter_mut().find(|stream| stream.id == id) {
+                let high = stream.send.high_offset();
+                let length = usize::try_from(end - start).unwrap_or(0);
+                stream.send.mark_sent(length);
+                self.data_sent_total += stream.send.high_offset() - high;
+                self.stats.bytes_sent += end - start;
+            }
+        }
+        if slot.kind == PacketKind::Normal {
+            self.stream_id_blocked = None;
+            slot.window_update = self.window_update_pending;
+            self.window_update_pending = false;
+        }
+    }
+}
