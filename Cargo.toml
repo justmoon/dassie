@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/dassie-identity", "crates/dassie-oer"]
+members = ["crates/dassie-identity", "crates/dassie-ilp", "crates/dassie-oer"]
 resolver = "3"
 
 [workspace.package]
