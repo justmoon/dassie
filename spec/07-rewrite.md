@@ -10,6 +10,7 @@ Chapters 1–6 describe what the original Dassie does. This chapter describes wh
 - The behaviour the original *intends* but does not deliver. That covers every gap in chapters 2–6 that is a plain bug or TODO (default disposition: fix, see [8 §1](08-decisions.md)).
 - One self-contained release artifact per platform, with no bundled interpreter or native add-on, built for x64 and arm64.
 - Tests at every level. The original has none for the app, the GUI or the tooling (UI-17).
+- Code built for deterministic simulation testing from the first crate: deterministic, bounded, asserted, instrumented and cheap to run, in a pragmatic TigerStyle ([D16](08-decisions.md#d16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation)). The rewrite will be built mostly by agents, and its confidence comes from exercising the code at scale.
 
 **Non-goals for the first release**
 
@@ -125,6 +126,15 @@ The original is a tree of reactive actors that re-run when signals they read cha
 
 `dassie-stream`, `dassie-peer` (message handling, link-state processing, routing calculation), `dassie-connector` (outcome calculation) and `dassie-ledger` are pure state machines. They take inputs plus `now`, and they return outputs: packets to send, timers to arm, ledger operations. `dassie-node` wires them to sockets and the database. This makes the original's implicit timing rules ([3 §17](03-peer-network.md), [4 §12](04-interledger.md), [5 §7](05-accounting-and-settlement.md)) unit-testable, and it lets the same `dassie-stream` code run in WASM for the website.
 
+These crates follow [D16](08-decisions.md#d16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation):
+
+- They are deterministic functions of their inputs, `now` and an injected RNG.
+- Every queue, table and buffer has a configured limit, and memory is allocated when a state machine is created, not per packet.
+- Invariants are asserted after every transition.
+- Everything observable is reported as events and counters.
+
+The node's services are the only place that touches real clocks, sockets and entropy. A simulation replaces exactly that layer.
+
 ### 4.3 HTTP surface
 
 The route table of [2 §6.3](02-node-runtime.md) is kept, including routes that exist only in certain states: `/api/setup` only while uninitialized, `/api/login` and `/api/logout` only after. The following is fixed:
@@ -211,6 +221,14 @@ The differences:
 
 ## 7. Testing strategy
 
+Deterministic simulation testing (item 4) is the main source of confidence, and the other levels feed it:
+
+- golden vectors pin the wire formats a simulation cannot judge;
+- interop pins the standards;
+- end-to-end tests check the real IO layer that a simulation replaces.
+
+Every crate is written so that a simulation can drive it ([D16](08-decisions.md#d16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation)). Every simulation or property-test failure prints the seed that reproduces it.
+
 1. **Golden vectors.** The original's fixtures and computed vectors become test data:
    - ILP and ILDCP packets, every STREAM frame, STREAM crypto ([4 §1.9, §6.1, §11.2, §11.3](04-interledger.md));
    - node IDs of the bootstrap nodes ([3 §2.2](03-peer-network.md));
@@ -224,6 +242,11 @@ The differences:
    - the BTP server against `ilp-plugin-btp`;
    - Open Payments and SPSP against the reference clients.
 4. **Deterministic network simulation.** N nodes are wired in-process through the sans-IO crates with a mock clock and seeded RNG. They cover discovery, majority computation, flooding suppression, peering, routing convergence, settlement thresholds, and restart recovery.
+   - The simulated network injects latency, loss, reordering, duplication, partitions, crashes and restarts.
+   - It checks every state machine's invariants after each step, and global properties such as conservation of money across all ledgers.
+   - A run is reproducible from its seed, and two runs with the same seed must produce identical event traces.
+   - Simulations start small in M1 (STREAM connections over a simulated connector) and grow with each milestone. In CI they run with fixed seeds, and longer randomized campaigns run outside CI.
+   - Every decoder also has a "never panics on arbitrary input" property test.
 5. **End to end.** The dev scenarios run headless in CI: start N nodes, set up through the HTTP API, add ledgers, peer, pay, settle, restart, and check that the balances are unchanged.
 6. **Installer and updater.** Containers with systemd, as the original's `test-in-docker:*` scripts did ([6 §5.5](06-user-interfaces-and-tooling.md)), including signature-verification failure cases.
 

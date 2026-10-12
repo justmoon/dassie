@@ -209,6 +209,39 @@ All decisions below were confirmed on 2026-10-11. Each states the **decision** a
 - The default BNL is `test1.dassie.xyz` and `test2.dassie.xyz` ([3 §11.1](03-peer-network.md)).
 - **Decision:** the project stands up and operates v1 bootstrap nodes (at least three, so that one failure doesn't block majority) under new hostnames in `dassie.xyz` (for example `boot1`–`boot3.dassie.xyz`), on separate providers or regions. Ship them as the default BNL, with their node IDs checked against their public keys at startup (NET-19).
 
+### D16. Engineering style: pragmatic TigerStyle and deterministic simulation
+
+Confirmed on 2026-10-12, after the others.
+
+- **Why:** the rewrite will be built almost entirely by agents, and it must still reach a very high level of confidence in its security and reliability. That confidence comes from testing, simulating and exercising the code far more than review could. Deterministic simulation testing (DST) is the main tool in the later milestones. It only works if the code is built for it from the first crate, because retrofitting determinism means rewriting.
+- **Decision:** follow a pragmatic version of [TigerStyle](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md). "Pragmatic" means:
+  - dynamic allocation inside the Rust standard library, or inside a robust dependency, is accepted;
+  - a robust third-party crate is used rather than rewritten, notably the cryptographic primitives.
+
+  Allocation and dependencies are still treated as code smells and avoided where that makes sense.
+- **Requirements on every crate:**
+  - **Deterministic.** The protocol and state-machine crates never read the wall clock, the OS RNG, environment variables or threads:
+    - Time is an input (`now`), and timers are deadlines the caller polls. Randomness comes from an injected RNG.
+    - Iteration order is always defined, so no randomly seeded hash maps.
+    - State holds no floating-point values.
+    - The same inputs and seed give the same outputs, byte for byte.
+  - **Bounded.** Every queue, table, buffer and loop has an explicit limit, set by configuration and named with its unit. Exceeding a limit is an error value, never unbounded growth. State machines allocate when they are created, not on the steady-state packet path.
+  - **Asserted.**
+    - Assertions check preconditions, postconditions and invariants, and stay enabled in release builds. A broken invariant crashes rather than corrupting balances.
+    - Each state machine has an invariant check that tests and simulations run after every transition.
+    - Untrusted input never reaches an assertion: it gets an error value.
+    - Integer overflow checks are on in every profile.
+  - **Instrumented.** State machines report everything observable as events and counters through their API, so a simulation can record, compare and replay a run. Core crates have no logging dependency; the node maps events to `tracing`.
+  - **Efficient.** Simulations should run many nodes for long simulated periods, so the hot paths stay cheap, and costly parts such as crypto sit behind narrow interfaces that a simulation can substitute.
+  - **Simple shape.**
+    - No recursion.
+    - Functions of at most 70 lines.
+    - No panicking indexing or `unwrap` outside tests.
+    - No lossy integer casts.
+    - Explicit units in names.
+- **Testing consequences:** see [7 §7](07-rewrite.md#7-testing-strategy). Every decoder gets a "never panics on arbitrary input" property test. Every simulation failure reports the seed that reproduces it.
+- **Rejected:** conventional style with determinism added later, when DST starts. Clocks, RNGs, unordered maps and unbounded queues spread into every crate, and removing them afterwards costs more than avoiding them.
+
 ## 4. Gaps by decision
 
 Gaps not listed here follow the default disposition (§1).
