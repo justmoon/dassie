@@ -98,83 +98,127 @@ pub enum Response<'a> {
     Reject(Reject<'a>),
 }
 
+/// Shared by the three packet types: the encoding up to and including the
+/// length determinant of `data`, for `data_len` octets of data.
+///
+/// The `encode_header` methods exist so that a caller can place the data
+/// after the header itself, for example to encrypt it in place (STREAM
+/// does), without the packet holding it.
+fn header_len(fixed_body_len: usize, data_len: usize) -> usize {
+    let body_len = fixed_body_len + size::prefixed(data_len);
+    1 + size::length_determinant(body_len) + body_len - data_len
+}
+
 impl Prepare<'_> {
-    fn body_len(&self) -> usize {
-        8 + TIMESTAMP_LENGTH
-            + 32
-            + size::prefixed(self.destination.as_str().len())
-            + size::prefixed(self.data.len())
+    fn fixed_body_len(&self) -> usize {
+        8 + TIMESTAMP_LENGTH + 32 + size::prefixed(self.destination.as_str().len())
+    }
+
+    /// Length of the encoding without the `data_len` octets of data, which
+    /// follow it. `self.data` is ignored.
+    #[must_use]
+    pub fn header_len(&self, data_len: usize) -> usize {
+        header_len(self.fixed_body_len(), data_len)
+    }
+
+    /// Writes the encoding up to the data, for `data_len` octets of data
+    /// that the caller places right after it. `self.data` is ignored.
+    pub fn encode_header(&self, data_len: usize, writer: &mut Writer<'_>) {
+        assert!(data_len <= MAX_DATA_LENGTH, "ILP data too long");
+        writer.write_u8(TYPE_PREPARE);
+        writer.write_length(self.fixed_body_len() + size::prefixed(data_len));
+        writer.write_u64(self.amount);
+        writer.write_bytes(&self.expires_at.to_ilp_bytes());
+        writer.write_bytes(&self.execution_condition);
+        writer.write_ascii(self.destination.as_str(), ADDRESS_SIZE, Alphabet::IA5);
+        writer.write_length(data_len);
     }
 }
 
 impl Fulfill<'_> {
-    fn body_len(&self) -> usize {
-        32 + size::prefixed(self.data.len())
-    }
-
     /// Whether this fulfillment satisfies `condition`.
     #[must_use]
     pub fn satisfies(&self, condition: &[u8; 32]) -> bool {
         condition_for(&self.fulfillment) == *condition
     }
+
+    /// Length of the encoding without the `data_len` octets of data, which
+    /// follow it. `self.data` is ignored.
+    #[must_use]
+    pub fn header_len(&self, data_len: usize) -> usize {
+        header_len(32, data_len)
+    }
+
+    /// Writes the encoding up to the data, for `data_len` octets of data
+    /// that the caller places right after it. `self.data` is ignored.
+    pub fn encode_header(&self, data_len: usize, writer: &mut Writer<'_>) {
+        assert!(data_len <= MAX_DATA_LENGTH, "ILP data too long");
+        writer.write_u8(TYPE_FULFILL);
+        writer.write_length(32 + size::prefixed(data_len));
+        writer.write_bytes(&self.fulfillment);
+        writer.write_length(data_len);
+    }
 }
 
 impl Reject<'_> {
-    fn body_len(&self) -> usize {
+    fn fixed_body_len(&self) -> usize {
         let triggered_by = self
             .triggered_by
             .map_or(0, |address| address.as_str().len());
-        3 + size::prefixed(triggered_by)
-            + size::prefixed(self.message.len())
-            + size::prefixed(self.data.len())
+        3 + size::prefixed(triggered_by) + size::prefixed(self.message.len())
+    }
+
+    /// Length of the encoding without the `data_len` octets of data, which
+    /// follow it. `self.data` is ignored.
+    #[must_use]
+    pub fn header_len(&self, data_len: usize) -> usize {
+        header_len(self.fixed_body_len(), data_len)
+    }
+
+    /// Writes the encoding up to the data, for `data_len` octets of data
+    /// that the caller places right after it. `self.data` is ignored.
+    pub fn encode_header(&self, data_len: usize, writer: &mut Writer<'_>) {
+        assert!(data_len <= MAX_DATA_LENGTH, "ILP data too long");
+        writer.write_u8(TYPE_REJECT);
+        writer.write_length(self.fixed_body_len() + size::prefixed(data_len));
+        writer.write_bytes(&self.code.bytes());
+        let triggered_by = self.triggered_by.map_or("", |address| address.as_str());
+        writer.write_ascii(triggered_by, OPTIONAL_ADDRESS_SIZE, Alphabet::IA5);
+        writer.write_utf8(self.message, MESSAGE_SIZE);
+        writer.write_length(data_len);
     }
 }
 
 impl Encode for Prepare<'_> {
     fn encoded_len(&self) -> usize {
-        1 + size::prefixed(self.body_len())
+        self.header_len(self.data.len()) + self.data.len()
     }
 
     fn encode_to(&self, writer: &mut Writer<'_>) {
-        writer.write_u8(TYPE_PREPARE);
-        writer.write_prefixed(self.body_len(), |writer| {
-            writer.write_u64(self.amount);
-            writer.write_bytes(&self.expires_at.to_ilp_bytes());
-            writer.write_bytes(&self.execution_condition);
-            writer.write_ascii(self.destination.as_str(), ADDRESS_SIZE, Alphabet::IA5);
-            writer.write_octets(self.data, DATA_SIZE);
-        });
+        self.encode_header(self.data.len(), writer);
+        writer.write_bytes(self.data);
     }
 }
 
 impl Encode for Fulfill<'_> {
     fn encoded_len(&self) -> usize {
-        1 + size::prefixed(self.body_len())
+        self.header_len(self.data.len()) + self.data.len()
     }
 
     fn encode_to(&self, writer: &mut Writer<'_>) {
-        writer.write_u8(TYPE_FULFILL);
-        writer.write_prefixed(self.body_len(), |writer| {
-            writer.write_bytes(&self.fulfillment);
-            writer.write_octets(self.data, DATA_SIZE);
-        });
+        self.encode_header(self.data.len(), writer);
+        writer.write_bytes(self.data);
     }
 }
 
 impl Encode for Reject<'_> {
     fn encoded_len(&self) -> usize {
-        1 + size::prefixed(self.body_len())
+        self.header_len(self.data.len()) + self.data.len()
     }
 
     fn encode_to(&self, writer: &mut Writer<'_>) {
-        writer.write_u8(TYPE_REJECT);
-        writer.write_prefixed(self.body_len(), |writer| {
-            writer.write_bytes(&self.code.bytes());
-            let triggered_by = self.triggered_by.map_or("", |address| address.as_str());
-            writer.write_ascii(triggered_by, OPTIONAL_ADDRESS_SIZE, Alphabet::IA5);
-            writer.write_utf8(self.message, MESSAGE_SIZE);
-            writer.write_octets(self.data, DATA_SIZE);
-        });
+        self.encode_header(self.data.len(), writer);
+        writer.write_bytes(self.data);
     }
 }
 
