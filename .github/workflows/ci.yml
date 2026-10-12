@@ -1,0 +1,27 @@
+name: CI
+
+# The rewrite lives on the `rewrite` branch until it replaces `main`.
+on:
+  push:
+    branches: [rewrite]
+  pull_request:
+    branches: [rewrite]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: cachix/install-nix-action@v31
+      # Rust in the Nix sandbox: fmt, clippy (native and wasm32), tests and
+      # the WASM bindings, with the toolchain pinned by the flake.
+      - name: Nix checks
+        run: nix flake check --print-build-logs
+      # The Deno side needs npm and JSR, so it runs outside the sandbox, in
+      # the flake's shell: WASM build, fmt, lint, type check, the WASM vector
+      # tests, interop with ilp-protocol-stream and the headless-browser test.
+      - name: Deno checks
+        run: nix develop --command deno task ci
