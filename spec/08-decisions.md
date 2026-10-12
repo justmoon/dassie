@@ -29,7 +29,7 @@ Every fix gets a test that would have failed against the original's behaviour.
 | Node ID algorithm, including stripping trailing `A`s | [3 §2.2](03-peer-network.md) | Node identity continuity. |
 | BIP-39 seed → `HMAC-SHA256` seed-path chain, `node`, `node/login`, `node/settlement-module/<scheme>/<path>` | [3 §2.1](03-peer-network.md), [5 §4.5](05-accounting-and-settlement.md) | The same passphrase recovers the same node and the same ledger accounts. |
 | XRPL wallet: first 16 bytes of entropy as an ed25519 family seed | [5 §6.3.1](05-accounting-and-settlement.md) | Funds continuity. |
-| Ed25519 verification accepts ZIP-215 | [3 §2.1](03-peer-network.md) | Harmless. Being stricter could split the network on edge-case signatures. Revisit with D2. |
+| Ed25519 verification accepts ZIP-215 | [3 §2.1](03-peer-network.md) | Harmless. Being stricter could split the network on edge-case signatures. Kept for v1 as well (confirmed with D2): use `verify`, not `verify_strict`. |
 | Majority rule: strictly more than N/2 of *configured* bootstrap nodes | [3 §11.4](03-peer-network.md) (NET-16) | The code is right and the doc's "N/2 + 1" is the outlier. Fix the doc, not the code. |
 | Gossip parameters: suppress after 3 copies, 1–500 ms forward jitter, 5–20 s heartbeats, 3 h staleness, 1 h re-issue | [3 §17](03-peer-network.md) | Sound defaults. Make them configurable for tests. |
 | Settlement trigger: every 4 s, threshold = credit midpoint × 1.1, settle down to the midpoint | [5 §4.6](05-accounting-and-settlement.md) | Keep the policy. Fix the credit asymmetry (ACC-24) with D6. |
@@ -41,37 +41,37 @@ Every fix gets a test that would have failed against the original's behaviour.
 
 ## 3. Decisions
 
-Each decision has a **proposal**, which the user still has to confirm. Until a proposal is confirmed, build to it, but keep the code easy to change on that point.
+All decisions below were confirmed on 2026-10-11. Each states the **decision** and, where one was considered, the **rejected** alternative and why.
 
 ### D1. What runs in Rust and what in Deno
 
-- **Proposal:** the node (daemon, CLI, all protocols) is Rust. The wallet and dev dashboard are Solid 2, built with Deno and Vite. The dev environment, website, build and release scripts, and interop tests are Deno. The core crates also ship as WASM ([7 §3](07-rewrite.md#3-how-the-original-maps-onto-the-stack)).
-- **Alternative:** the node is a Deno app (as Vorstand's servers are), calling Rust cores through WASM or FFI.
-- **Why not the alternative:**
+- **Decision:** the node (daemon, CLI, all protocols) is Rust. The wallet and dev dashboard are Solid 2, built with Deno and Vite. The dev environment, website, build and release scripts, and interop tests are Deno. The core crates also ship as WASM ([7 §3](07-rewrite.md#3-how-the-original-maps-onto-the-stack)).
+- **Rejected:** the node is a Deno app (as Vorstand's servers are), calling Rust cores through WASM or FFI.
+- **Why not:**
   - The packet path, the ledger and the long-running network services benefit from Rust's performance and type system.
   - A static binary is what the install and update story wants.
   - A Deno node would bring back a bundled runtime, the problem the original had with Node.
-- **Affects:** everything. Settle this first.
+- **Affects:** everything.
 
 ### D2. Peer protocol: v0 or v1
 
-- **Proposal:** v1, with envelope `version = 1`. It keeps the v0 message set and OER layouts ([3 §5](03-peer-network.md)) and changes:
-  - **Sender authentication** (NET-8): the MAC key comes from a static-static X25519 between the sender's and the recipient's node keys, mixed with the ephemeral key. Alternatively, an Ed25519 signature by the sender over `version ‖ sender ‖ content ‖ timestamp`. The MAC also covers `version` and `sender`.
+- **Decision:** v1, with envelope `version = 1`. It keeps the v0 message set and OER layouts ([3 §5](03-peer-network.md)) and changes:
+  - **Sender authentication** (NET-8): the MAC key comes from a static-static X25519 between the sender's and the recipient's node keys, mixed with the ephemeral key. The MAC also covers `version` and `sender`. (Rejected: an Ed25519 signature by the sender over `version ‖ sender ‖ content ‖ timestamp`, which costs a signature per message.)
   - **Replay protection:** a timestamp plus a per-sender nonce window.
   - **Peering requests** carry the full signed node info, which is verified, and must match the sender (NET-3, NET-4).
   - **The HTTP status is meaningful:** non-200 responses are errors (NET-11).
   - **Peering termination** messages exist (NET-13; see D12).
   - **Settlement-module versions** are exchanged during peering (NET-26).
 - **Cost:** v1 nodes cannot talk to the two v0 test nodes. Both are operated by the project and can be replaced.
-- **Alternative:** stay v0-compatible and add v1 later. This means shipping a known sender-forgery hole (forged `interledgerPacket` and `settlement` messages from any peered node).
+- **Rejected:** stay v0-compatible and add v1 later. This means shipping a known sender-forgery hole (forged `interledgerPacket` and `settlement` messages from any peered node).
 
 ### D3. Database continuity
 
-- **Proposal:** start a new schema. Don't migrate v0 databases. A v0 owner re-runs setup with their passphrase, which yields the same node ID and the same XRPL account. The things that do not carry over:
+- **Decision:** start a new schema. Don't migrate v0 databases. A v0 owner re-runs setup with their passphrase, which yields the same node ID and the same XRPL account. The things that do not carry over:
   - peerings (v0 never persisted them anyway);
   - ledger totals (v0's are inflated on every restart, ACC-5 and ACC-6);
   - BTP tokens (the owner re-creates them).
-- **Alternative:** an import command for `config.*` scalars and `btp_tokens`. It is cheap to add later if anyone asks.
+- **Not now:** an import command for `config.*` scalars and `btp_tokens`. It is cheap to add later if anyone asks.
 
 ### D4. Network membership economics
 
@@ -81,15 +81,16 @@ Each decision has a **proposal**, which the user still has to confirm. Until a p
   - removing nodes that lose majority or go silent ([3 §18](03-peer-network.md), NET-17, NET-18).
 
   The original implements none of it.
-- **Proposal:**
+- **Decision:**
   - Implement **removal and expiry** now: majority loss, a staleness timeout, and registration expiry without renewal.
   - Implement **automatic registration and renewal** now: register with every BNL node, and re-register before expiry.
   - Implement the **fee quote and payment** after M6, once outgoing payments work, as a v1.x protocol addition: a quote message plus payment by ILP with a signed quote condition (the "naive" token payment variant, [5 §9](05-accounting-and-settlement.md)).
-- **Open:** fee schedule; whether the UI target stays 80% or follows the doc's 75%.
+- **Fee schedule:** set when the fee quote and payment are implemented after M6. Registration is free until then.
+- **Payment target:** the cheapest 75% of bootstrap nodes, as the design doc says. The UI's 80% changes to match.
 
 ### D5. UI and CLI RPC contract
 
-- **Proposal:** a normative contract in `proto/dassie/ui/v1`, following Vorstand's `proto/` convention. It is generated into Rust and TypeScript (`packages/rpc`) and carried over one WebSocket per client:
+- **Decision:** a normative contract in `proto/dassie/ui/v1`, following Vorstand's `proto/` convention. It is generated into Rust and TypeScript (`packages/rpc`) and carried over one WebSocket per client:
   - **Shape:** unary calls and server streams. Streams are either *value* streams or *snapshot + delta* streams.
   - **Messages:** protobuf binary frames.
   - **Amounts:** fixed-width integers with explicit scale.
@@ -97,7 +98,7 @@ Each decision has a **proposal**, which the user still has to confirm. Until a p
 
   The same contract serves the IPC socket for the CLI.
 - **Procedure set:** that of [2 §10.3](02-node-runtime.md), extended by the missing setters (RT-4), XRPL ledger management, payment status, session management, and the service/cell inspector.
-- **Alternative:** JSON over WebSocket with a JSON-Schema contract. It is easier to debug, but the codegen story is weaker on the Rust side.
+- **Rejected:** JSON over WebSocket with a JSON-Schema contract. It is easier to debug, but the codegen story is weaker on the Rust side.
 
 ### D6. Owner ledger and multi-currency accounts
 
@@ -107,7 +108,7 @@ Each decision has a **proposal**, which the user still has to confirm. Until a p
   - The UI shows only USD (UI-2).
   - ILDCP always answers XRP/9 (ILP-7).
   - Incoming payments always say USD/2 (ILP-10).
-- **Proposal:**
+- **Decision:**
   - An owner equity account per active ledger.
   - The owner's spendable balance per ledger is enforced: owner packets debit an account with a limit.
   - Local, BTP and HTTP endpoints get a ledger (the account's asset) chosen at creation.
@@ -120,17 +121,17 @@ Each decision has a **proposal**, which the user still has to confirm. Until a p
 ### D7. Exchange rates, fees and spread
 
 - **Facts:** rates are fetched once from Coinbase. There is no refresh, no spread and no fees. The `revenue/fees` and `expenses/fees` accounts are unused (ACC-3, ILP-6).
-- **Proposal:**
+- **Decision:**
   - Refresh periodically (for example every 60 s) with retry and backoff.
   - Persist the last good snapshot. Reject cross-currency packets with T00 once rates are older than a staleness bound (for example 1 h).
   - Use exact integer math throughout.
   - Add a configurable connector fee and FX spread (default 0, as now), booked to `revenue/fees` and `revenue/fx` as the internal-ledger design note describes.
-- **Open:** the rate source for `live`. Coinbase's public endpoint, a configurable list of sources, or a median of several.
+- **Rate source:** the median of a configurable list of sources, so that one source failing or being manipulated cannot move the rate. (Rejected: Coinbase alone, a single point of failure; an ordered fallback list, which still trusts whichever source answers first.)
 
 ### D8. Real money
 
 - **Facts:** realm `live` is refused ("Livenet is not yet supported"). The XRPL mainnet module is unregistered.
-- **Proposal:** keep `live` disabled through M8. Enable it only when all of these are true:
+- **Decision:** keep `live` disabled through M8. Enable it only when all of these are true:
   - the D2 authentication is in place;
   - the ledger is durable (journal, reconciliation);
   - XRPL reserve and result handling is complete (ACC-19 to ACC-22);
@@ -144,17 +145,17 @@ Each decision has a **proposal**, which the user still has to confirm. Until a p
 - **Facts:**
   - The node serves an Open-Payments-style wallet address and unauthenticated incoming payments, with hard-coded amounts.
   - There is no SPSP, no GNAP auth server, no quotes and no outgoing-payment resources (ILP-10).
-- **Proposal:**
+- **Decision:**
   - **Serve SPSP** (`application/spsp4+json` on the payment-pointer URL), so the node is payable by any ILP wallet.
   - **Serve Open Payments incoming payments with correct state:** received amount, completion, expiry, `GET /incoming-payments/{id}`, pagination, and the correct asset.
   - **Client side:** pay SPSP and Open Payments receivers, quoting through STREAM rate probing, and track payment status.
   - **Defer** GNAP and the outgoing-payment and quote resources (the third-party-client use case).
-- **Open:** whether creating incoming payments stays open to anyone (as Open Payments allows for receivers) or needs a token.
+- **Creating incoming payments** stays open to anyone, as Open Payments allows for receivers. It is rate-limited, and unused incoming payments expire. (Rejected: requiring a token, which would stop some third-party senders from paying without extra setup.)
 
 ### D10. Secrets at rest
 
 - **Facts:** the node key, TLS key, ACME key, sessions and BTP tokens are stored in plaintext in SQLite with the default umask (RT-25).
-- **Proposal:**
+- **Decision:**
   - Data directory 0700 and DB file 0600.
   - Session and BTP tokens stored only as hashes.
   - Node key and settlement entropy stay plaintext. The node must sign and settle unattended, and encrypting them with a key stored next to them would only be theatre.
@@ -163,11 +164,11 @@ Each decision has a **proposal**, which the user still has to confirm. Until a p
 ### D11. Release integrity
 
 - **Facts:** bundles are unsigned. `meta/latest` is plain text. The updater does not check HTTP status (RT-18, UI-11). Releases are uploaded by hand (UI-12).
-- **Proposal:**
-  - Each release publishes `SHA256SUMS` and a signature (minisign or Sigstore). The public key is compiled into the binary and printed in the install script.
+- **Decision:**
+  - Each release publishes `SHA256SUMS` and a minisign signature. The public key is compiled into the binary and printed in the install script. (Rejected: Sigstore, whose verification needs the network or a bundled trust root and is heavier to embed.)
   - The installer and the updater verify before extracting.
   - The symlink swap is atomic (`rename`).
-  - CI builds and publishes releases, with reproducible builds via Nix if D14 says so.
+  - CI builds and publishes releases, reproducibly through the Nix flake of D14.
   - Canary gets its own channel file (`meta/canary`).
 
 ### D12. Peering lifecycle and liveness
@@ -177,18 +178,18 @@ Each decision has a **proposal**, which the user still has to confirm. Until a p
   - Heartbeats don't update `lastSeen`.
   - There is no termination, advertise flag or banning (NET-12, NET-13).
   - Auto-peering stops at 2 peers and has no backoff (NET-22).
-- **Proposal:** implement the peer-state design ([3 §12](03-peer-network.md), and the `peer-state.md` content quoted in [3 §18](03-peer-network.md)):
+- **Decision:** implement the peer-state design ([3 §12](03-peer-network.md), and the `peer-state.md` content quoted in [3 §18](03-peer-network.md)):
   - states `request-peering`, `peered`, `terminating` and `banned`;
   - the `advertise` flag based on heartbeat consistency, liquidity and failures, with flapping damping;
   - termination with settle-on-terminate;
   - candidate scoring and backoff;
   - support for child (non-majority) peers routed beneath our address (NET-21).
-- **Open:** the numbers (missed-heartbeat threshold, damping) and the peer target, which stays 2 for now.
+- **Numbers:** the peer target stays 2. The missed-heartbeat threshold and the damping are set from the deterministic network simulation in M4 ([7 §7](07-rewrite.md#7-testing-strategy)) and are configurable.
 
 ### D13. Connector timing and packet limits
 
 - **Facts:** the internal timeout is 5 s, independent of the packet expiry (up to 30 s), so fulfills that arrive late are lost (ILP-1). Invalid fulfills are dropped (ILP-2).
-- **Proposal:**
+- **Decision:**
   - Time out at the outgoing packet's expiry.
   - Reject invalid fulfillments with F05 at once, and stop waiting.
   - F08 carries amount data.
@@ -200,14 +201,13 @@ Each decision has a **proposal**, which the user still has to confirm. Until a p
 
 ### D14. Build system
 
-- **Proposal:** follow Vorstand: Nix flake for CI builds and release artifacts, plain `cargo` and `deno task` locally. Choose this only if the user wants Dassie in the same CI style. Otherwise use GitHub Actions with `cargo-zigbuild` or `cross` for musl x64/arm64.
-- **Open:** user's call.
+- **Decision:** follow Vorstand: Nix flake for CI builds and release artifacts, plain `cargo` and `deno task` locally.
+- **Rejected:** GitHub Actions with `cargo-zigbuild` or `cross` for musl x64/arm64, which gives no reproducible builds by default.
 
 ### D15. Bootstrap network for v1
 
 - The default BNL is `test1.dassie.xyz` and `test2.dassie.xyz` ([3 §11.1](03-peer-network.md)).
-- **Proposal:** stand up v1 bootstrap nodes (at least three, so that one failure doesn't block majority) under new hostnames. Ship them as the default BNL, with their node IDs checked against their public keys at startup (NET-19).
-- **Open:** hosting, operators, hostnames.
+- **Decision:** the project stands up and operates v1 bootstrap nodes (at least three, so that one failure doesn't block majority) under new hostnames in `dassie.xyz` (for example `boot1`–`boot3.dassie.xyz`), on separate providers or regions. Ship them as the default BNL, with their node IDs checked against their public keys at startup (NET-19).
 
 ## 4. Gaps by decision
 

@@ -8,4 +8,4 @@ The work starts from the specification in [`spec/`](spec/README.md):
 
 - the original's functionality and operation, in chapters 1–6;
 - the plan for the rewrite, in [chapter 7](spec/07-rewrite.md);
-- the decisions that still need an answer, in [chapter 8](spec/08-decisions.md).
+- the decisions taken for the rewrite, in [chapter 8](spec/08-decisions.md).

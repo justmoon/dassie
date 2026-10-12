@@ -1,6 +1,6 @@
 # 7. The rewrite: target stack, architecture and plan
 
-Chapters 1–6 describe what the original Dassie does. This chapter describes what the new implementation is: which behaviour it keeps, how it maps onto the Vorstand stack (Rust, Deno, Solid 2), and in what order to build it. The choices that are genuinely open are collected in [chapter 8](08-decisions.md). Where this chapter says "proposed", the decision is recorded there and has not been confirmed yet.
+Chapters 1–6 describe what the original Dassie does. This chapter describes what the new implementation is: which behaviour it keeps, how it maps onto the Vorstand stack (Rust, Deno, Solid 2), and in what order to build it. The choices that were open are recorded, with their reasons, in [chapter 8](08-decisions.md).
 
 ## 1. Goals and non-goals
 
@@ -13,7 +13,7 @@ Chapters 1–6 describe what the original Dassie does. This chapter describes wh
 
 **Non-goals for the first release**
 
-- Interoperating with running v0 nodes on the peer protocol (proposed, [D2](08-decisions.md#d2-peer-protocol-v0-or-v1)).
+- Interoperating with running v0 nodes on the peer protocol ([D2](08-decisions.md#d2-peer-protocol-v0-or-v1)).
 - Reading v0 databases ([D3](08-decisions.md#d3-database-continuity)). A v0 owner recovers by entering their passphrase in the new node: identity, node ID and on-ledger accounts all derive from it (§2).
 - The design-only features: the token payment protocol, the private UDP transport, and signed or independent frontends. They stay future work, and the architecture should not preclude them.
 
@@ -30,7 +30,7 @@ Chapters 1–6 describe what the original Dassie does. This chapter describes wh
 | ILP-over-HTTP ([4 §8](04-interledger.md)) | Per RFC 35, adding synchronous mode | Standard. The original's version is a stub. |
 | Open Payments wallet address and incoming payments, SPSP ([4 §9](04-interledger.md)) | Per the specs | Other wallets resolve `$host`. Add SPSP ([D9](08-decisions.md#d9-open-payments-and-spsp-scope)). |
 | XRPL settlement memo type and the `settlement` message semantics | Yes within one network version | Both sides of a peering must agree; it changes only with the peer protocol version. |
-| Dassie peer protocol ([3 §5–§8](03-peer-network.md)) | **No** (proposed): v1 keeps the OER message set and fixes authentication | v0 does not authenticate senders (NET-8). The network is a two-node test network. [D2](08-decisions.md#d2-peer-protocol-v0-or-v1). |
+| Dassie peer protocol ([3 §5–§8](03-peer-network.md)) | **No**: v1 keeps the OER message set and fixes authentication | v0 does not authenticate senders (NET-8). The network is a two-node test network. [D2](08-decisions.md#d2-peer-protocol-v0-or-v1). |
 | OIDs, the `application/dassie-message` media type, `POST /peer` | Yes, with the envelope `version` byte set to 1 | Lets a v1 node recognise and refuse a v0 message cleanly (400 "unsupported version"). |
 | UI ↔ node RPC (`dassie-rpc-01`, superjson) ([2 §10](02-node-runtime.md)) | **No** | Both ends are rewritten. A typed contract replaces it ([D5](08-decisions.md#d5-ui-and-cli-rpc-contract)). |
 | `/api/setup`, `/api/login`, `/api/logout`, `__Host-Dassie-Session` cookie | Semantics yes, bodies may change | Same flow and security properties. |
@@ -42,7 +42,7 @@ Chapters 1–6 describe what the original Dassie does. This chapter describes wh
 
 Vorstand's conventions apply throughout: a Cargo workspace in `crates/` (edition 2024, `rust-toolchain.toml` pinned, `Cargo.lock` committed); a Deno workspace in `apps/` and `packages/` (root `deno.json`, `deno.lock` committed, pre-release npm packages pinned exactly, `solid-js@2.0.0-rc.x` with `@solidjs/web` and Vite through `@solidjs/vite-plugin`); and normative contracts in a top-level directory that both sides are generated from. Packages meet only through their exports.
 
-**Proposed split ([D1](08-decisions.md#d1-what-runs-in-rust-and-what-in-deno)): the node is Rust, the browser is Solid, and the tooling is Deno.**
+**The split ([D1](08-decisions.md#d1-what-runs-in-rust-and-what-in-deno)): the node is Rust, the browser is Solid, and the tooling is Deno.**
 
 - The daemon, the CLI and every protocol are Rust. The result is one static binary (`dassie`) with the wallet's built assets embedded. It replaces the bundled Node.js, the esbuild bundle and the `better-sqlite3` prebuilds, along with the stale-hash build problem (UI-10) and the x64-only restriction.
 - The cryptographic and protocol cores (`dassie-identity`, `dassie-oer`, `dassie-ilp`, `dassie-stream`) are also built to WASM. This follows the same pattern as Vorstand's `vault-core`:
@@ -100,7 +100,7 @@ resources/
 | `gui-dassie` | `apps/wallet` (Solid 2) + `packages/ui` | No React, wouter, TanStack Query or Radix. Use Solid 2 primitives and the Vorstand UI conventions where they fit. |
 | `gui-dev` | `apps/dev-dashboard` | |
 | `app-dev` | `apps/dev` (Deno) | Spawns real `dassie` binaries instead of Vite SSR module runners. |
-| `app-build` | Nix and/or Deno release scripts; `cargo build --release` for musl x64/arm64 | Sign artifacts ([D11](08-decisions.md#d11-release-integrity)). |
+| `app-build` | Nix flake ([D14](08-decisions.md#d14-build-system)) and Deno release scripts; `cargo build --release` for musl x64/arm64 | Sign artifacts ([D11](08-decisions.md#d11-release-integrity)). |
 | `app-website` | `apps/website` | Content from [6 §3](06-user-interfaces-and-tooling.md). The STREAM toy uses `dassie-stream` WASM. |
 | `app-cli` (npm placeholder) | dropped | Keep the npm name reserved. |
 | `meta-*` | `deno fmt/lint/check`, `cargo fmt/clippy/test` | |

@@ -13,7 +13,7 @@ This directory specifies everything the original Dassie does, in enough detail t
 | 5 | [Accounting and settlement](05-accounting-and-settlement.md) | The double-entry internal ledger, how packets and settlements become transfers, the settlement-scheme interface, the settlement trigger, stub and XRPL modules |
 | 6 | [User interfaces and tooling](06-user-interfaces-and-tooling.md) | The web wallet page by page, the dev dashboard, the website and STREAM toy, release build, installer, updater, the multi-node dev environment |
 | 7 | [The rewrite](07-rewrite.md) | Compatibility contract, mapping onto Rust, Deno and Solid 2, node architecture, persistence, testing, milestones |
-| 8 | [Decisions and gap register](08-decisions.md) | What happens to each known gap, and the open decisions with proposals |
+| 8 | [Decisions and gap register](08-decisions.md) | What happens to each known gap, and the decisions taken for the rewrite |
 
 Reading order: 1, then 7 and 8 for direction. Read 2–6 as reference while building the matching part.
 
