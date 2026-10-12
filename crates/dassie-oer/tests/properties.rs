@@ -119,7 +119,7 @@ proptest! {
     #[test]
     fn prefixed_reads_never_panic(input: Vec<u8>, inner_reads in 0usize..4) {
         let mut reader = Reader::new(&input);
-        let _ = reader.read_prefixed(|inner| {
+        let _ = reader.read_prefixed(|inner| -> Result<(), dassie_oer::DecodeError> {
             for _ in 0..inner_reads {
                 inner.read_var_uint()?;
             }

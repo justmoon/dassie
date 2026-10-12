@@ -55,6 +55,8 @@ impl Encode for Entry<'_> {
 }
 
 impl<'a> Decode<'a> for Entry<'a> {
+    type Error = DecodeError;
+
     fn decode(reader: &mut Reader<'a>) -> Result<Self, DecodeError> {
         match reader.read_context_tag()? {
             0 => Ok(Self::Neighbor(
@@ -105,6 +107,8 @@ impl Encode for NodeInfo<'_> {
 }
 
 impl<'a> Decode<'a> for NodeInfo<'a> {
+    type Error = DecodeError;
+
     fn decode(reader: &mut Reader<'a>) -> Result<Self, DecodeError> {
         reader.expect_bytes(&PEER_NODE_INFO_OID)?;
         let node_id = reader.read_ascii(NODE_ID_SIZE, NODE_ID_ALPHABET)?;
@@ -136,6 +140,8 @@ struct SignedNodeInfo<'a> {
 }
 
 impl<'a> Decode<'a> for SignedNodeInfo<'a> {
+    type Error = DecodeError;
+
     fn decode(reader: &mut Reader<'a>) -> Result<Self, DecodeError> {
         let (node_info, signed_bytes) = reader.read_prefixed(|inner| {
             let start = inner.position();
@@ -253,7 +259,9 @@ fn peer_message_envelopes_decode() {
     assert_eq!(to_hex(session_key).len(), 64);
     assert_eq!(reader.read_context_tag(), Ok(2));
     let (request_id, packet) = reader
-        .read_prefixed(|inner| Ok((inner.read_u32()?, inner.read_octets(Size::ANY)?)))
+        .read_prefixed(|inner| {
+            Ok::<_, DecodeError>((inner.read_u32()?, inner.read_octets(Size::ANY)?))
+        })
         .unwrap();
     reader.finish().unwrap();
     assert_eq!((request_id, packet), (42, &[0x0c][..]));

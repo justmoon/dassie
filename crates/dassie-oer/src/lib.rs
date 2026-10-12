@@ -79,11 +79,16 @@ pub trait Encode {
 
 /// A value decodable from canonical OER, borrowing from the input.
 pub trait Decode<'a>: Sized {
+    /// The error type. Protocol crates use their own, so that they can
+    /// report failures OER knows nothing about, such as an invalid address,
+    /// next to the codec's.
+    type Error: From<DecodeError>;
+
     /// Reads one value from `reader`.
-    fn decode(reader: &mut Reader<'a>) -> Result<Self, DecodeError>;
+    fn decode(reader: &mut Reader<'a>) -> Result<Self, Self::Error>;
 
     /// Decodes a value that must occupy all of `input`.
-    fn decode_exact(input: &'a [u8]) -> Result<Self, DecodeError> {
+    fn decode_exact(input: &'a [u8]) -> Result<Self, Self::Error> {
         let mut reader = Reader::new(input);
         let value = Self::decode(&mut reader)?;
         reader.finish()?;

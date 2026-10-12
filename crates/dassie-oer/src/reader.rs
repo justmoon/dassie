@@ -33,6 +33,14 @@ impl<'a> Reader<'a> {
         self.position
     }
 
+    /// Offset of the cursor in the outermost input. Differs from
+    /// [`position`](Self::position) inside open types and CONTAINING, whose
+    /// readers start at zero; use it for error reporting.
+    #[must_use]
+    pub const fn offset(&self) -> usize {
+        self.base + self.position
+    }
+
     /// Bytes left to read.
     #[must_use]
     pub const fn remaining(&self) -> usize {
@@ -330,10 +338,13 @@ impl<'a> Reader<'a> {
     /// Reads a length-prefixed value (an open type or an OCTET STRING
     /// CONTAINING another type) with `decode`, which must consume the
     /// content exactly. The inner reader cannot see past the content.
-    pub fn read_prefixed<T>(
+    ///
+    /// The error type is the decoder's, so that protocol crates can report
+    /// their own failures from inside nested values.
+    pub fn read_prefixed<T, E: From<DecodeError>>(
         &mut self,
-        decode: impl FnOnce(&mut Reader<'a>) -> Result<T, DecodeError>,
-    ) -> Result<T, DecodeError> {
+        decode: impl FnOnce(&mut Reader<'a>) -> Result<T, E>,
+    ) -> Result<T, E> {
         let length = self.read_length()?;
         let content_start = self.position;
         let content = self.read_bytes(length)?;
