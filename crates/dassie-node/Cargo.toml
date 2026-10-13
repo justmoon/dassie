@@ -1,0 +1,79 @@
+[package]
+name = "dassie-node"
+version = "0.1.0"
+description = "The Dassie daemon: config, database, listeners, TLS, ACME, the owner's login and the RPC contract"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+dassie-identity = { path = "../dassie-identity" }
+dassie-node-core = { path = "../dassie-node-core" }
+
+# The async runtime and the cancellation tree of services.
+tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "signal", "fs"] }
+tokio-util = { version = "0.7.20", features = ["codec", "rt"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+
+# HTTP/1.1 only: the wallet, the owner's API and, later, the protocol
+# endpoints. A dozen routes don't need a framework.
+hyper = { version = "1.12.0", features = ["server", "http1"] }
+hyper-util = { version = "0.1.21", features = ["tokio", "server", "server-graceful", "client-legacy", "http1"] }
+http-body-util = "0.1.5"
+bytes = "1"
+# The WebSocket protocol over an upgraded hyper connection; the handshake is
+# ours, so no TLS or client features.
+tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
+
+# TLS with ring as the only provider: two providers in one build make
+# rustls refuse to pick one at runtime, and ring builds without cmake for
+# static binaries (M8). Every TLS crate below has its defaults off for that.
+rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
+rcgen = { version = "0.14.10", default-features = false, features = ["ring", "pem"] }
+x509-parser = "0.18.1"
+# The validity dates rcgen takes; already in the tree through it.
+time = "0.3.55"
+instant-acme = { version = "0.8.5", default-features = false, features = ["ring", "hyper-rustls"] }
+# The ACME client's HTTP client, which instant-acme does not expose: ours
+# also reads the directory's terms of service, and trusts a test CA's root
+# when asked to. System roots otherwise, through the platform verifier.
+hyper-rustls = { version = "0.27.10", default-features = false, features = ["ring", "http1", "tls12", "rustls-platform-verifier"] }
+http = "1"
+
+# SQLite, compiled in: the release binary carries no shared libraries.
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+
+# The RPC contract's messages (proto/dassie/ui/v1).
+prost = "0.14.4"
+# JSON for the setup and login bodies, and the stored ACME credentials.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0.154"
+
+# The owner's sockets from systemd. It does the fd adoption, which needs
+# unsafe code this crate forbids.
+listenfd = "1.0.2"
+
+# The OS RNG, behind the injected RNG trait of the core crates.
+getrandom = { version = "0.4.3", features = ["sys_rng"] }
+rand_core = { version = "0.10", default-features = false }
+sha2 = "0.11"
+
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std", "ansi", "registry"] }
+
+[build-dependencies]
+prost-build = "0.14.4"
+protox = "0.9.1"
+# Precompresses the embedded wallet.
+flate2 = "1"
+sha2 = "0.11"
+
+[dev-dependencies]
+dassie-node-core = { path = "../dassie-node-core", features = ["testing"] }
+proptest = "1.12"
+tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["connect", "handshake"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
+hyper = { version = "1.12.0", features = ["client", "http1"] }
+tempfile = "3"
