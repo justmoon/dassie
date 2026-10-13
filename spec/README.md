@@ -31,4 +31,4 @@ The original implementation is the `main` branch of this repository at commit `e
 
 Source citations use paths relative to that tree. Each chapter's preamble says what its short paths are relative to (`APP/` and `AD/` both mean `packages/app-dassie/src/`). The original's own design notes live in `docs/implementation-notes/` there. Their content is folded into the chapters, including where the code disagrees with them.
 
-Test vectors come from the original's fixtures unless marked otherwise. [3 §5.5](03-peer-network.md) contains vectors computed with an independent encoder written from this spec; confirm them against the original before relying on them.
+Test vectors come from the original's fixtures unless marked otherwise. [3 §5.5](03-peer-network.md) contains vectors first computed with an independent encoder written from this spec; they have since been confirmed against the original.

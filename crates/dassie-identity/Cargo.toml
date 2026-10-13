@@ -1,0 +1,39 @@
+[package]
+name = "dassie-identity"
+version = "0.1.0"
+description = "Dassie node identity: BIP-39 phrases, seed paths, Ed25519 node keys, node IDs and X25519"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+# JavaScript bindings (wasm-bindgen) for the wallet and the dev tools. Also
+# brings the platform RNG, used only at that edge.
+wasm = ["dep:wasm-bindgen", "dep:getrandom", "getrandom/sys_rng", "getrandom/wasm_js"]
+
+[dependencies]
+getrandom = { version = "0.4.3", default-features = false, optional = true }
+wasm-bindgen = { version = "=0.2.129", optional = true }
+dassie-oer = { path = "../dassie-oer", default-features = false }
+# Ed25519 signing and ZIP-215 verification. `fast` keeps the precomputed
+# basepoint tables, since simulations sign a lot; `zeroize` wipes the signing
+# key on drop.
+ed25519-dalek = { version = "3.0", default-features = false, features = ["fast", "zeroize"] }
+# X25519 on the Montgomery form of the node key. Already in the tree through
+# ed25519-dalek, so it costs nothing extra; x25519-dalek would add only a
+# wrapper.
+curve25519-dalek = { version = "5.0", default-features = false, features = ["zeroize"] }
+hmac = { version = "0.13", default-features = false, features = ["zeroize"] }
+pbkdf2 = { version = "0.13", default-features = false, features = ["hmac"] }
+# The RNG trait shared with ed25519-dalek 3. Only the trait: the caller
+# injects the generator, so the crate never touches the OS RNG.
+rand_core = { version = "0.10", default-features = false }
+sha2 = { version = "0.11", default-features = false, features = ["zeroize"] }
+subtle = { version = "2.6", default-features = false }
+zeroize = { version = "1.9", default-features = false }
+
+[dev-dependencies]
+proptest = "1.12"
+serde_json = "1.0.154"

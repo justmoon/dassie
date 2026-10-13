@@ -1,0 +1,5 @@
+# Only the channel: components or targets listed here would make rustup
+# download them in builds that run offline. The Nix flake reads this file and
+# adds clippy, rustfmt and the wasm32 target itself.
+[toolchain]
+channel = "1.98.1"

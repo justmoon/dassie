@@ -1,0 +1,974 @@
+{
+  "source": "e962ab78",
+  "packets": [
+    {
+      "name": "sequence:0",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": []
+      },
+      "encoded": "010c010001000100"
+    },
+    {
+      "name": "sequence:max_js",
+      "packet": {
+        "version": 1,
+        "sequence": "9007199254740991",
+        "packetType": 12,
+        "amount": "0",
+        "frames": []
+      },
+      "encoded": "010c071fffffffffffff01000100"
+    },
+    {
+      "name": "sequence:max_uint_64",
+      "packet": {
+        "version": 1,
+        "sequence": "18446744073709551615",
+        "packetType": 12,
+        "amount": "0",
+        "frames": []
+      },
+      "encoded": "010c08ffffffffffffffff01000100"
+    },
+    {
+      "name": "type:prepare",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": []
+      },
+      "encoded": "010c010001000100"
+    },
+    {
+      "name": "type:fulfill",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 13,
+        "amount": "0",
+        "frames": []
+      },
+      "encoded": "010d010001000100"
+    },
+    {
+      "name": "type:reject",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 14,
+        "amount": "0",
+        "frames": []
+      },
+      "encoded": "010e010001000100"
+    },
+    {
+      "name": "amount:0",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": []
+      },
+      "encoded": "010c010001000100"
+    },
+    {
+      "name": "amount:max_js",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "9007199254740991",
+        "frames": []
+      },
+      "encoded": "010c0100071fffffffffffff0100"
+    },
+    {
+      "name": "amount:max_uint_64",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "18446744073709551615",
+        "frames": []
+      },
+      "encoded": "010c010008ffffffffffffffff0100"
+    },
+    {
+      "name": "frame:connection_close",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 1,
+            "data": {
+              "errorCode": 1,
+              "errorMessage": "fail"
+            }
+          }
+        ]
+      },
+      "encoded": "010c010001000101010601046661696c"
+    },
+    {
+      "name": "frame:connection_new_address",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 2,
+            "data": {
+              "sourceAccount": "example.alice"
+            }
+          }
+        ]
+      },
+      "encoded": "010c010001000101020e0d6578616d706c652e616c696365"
+    },
+    {
+      "name": "frame:connection_asset_details",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 7,
+            "data": {
+              "sourceAssetCode": "ABC",
+              "sourceAssetScale": 255
+            }
+          }
+        ]
+      },
+      "encoded": "010c010001000101070503414243ff"
+    },
+    {
+      "name": "frame:connection_max_data:0",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 3,
+            "data": {
+              "maxOffset": "0"
+            }
+          }
+        ]
+      },
+      "encoded": "010c01000100010103020100"
+    },
+    {
+      "name": "frame:connection_max_data:max_js",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 3,
+            "data": {
+              "maxOffset": "9007199254740991"
+            }
+          }
+        ]
+      },
+      "encoded": "010c0100010001010308071fffffffffffff"
+    },
+    {
+      "name": "frame:connection_max_data:max_uint_64",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 3,
+            "data": {
+              "maxOffset": "18446744073709551615"
+            }
+          }
+        ]
+      },
+      "encoded": "010c010001000101030908ffffffffffffffff"
+    },
+    {
+      "name": "frame:connection_data_blocked:0",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 4,
+            "data": {
+              "maxOffset": "0"
+            }
+          }
+        ]
+      },
+      "encoded": "010c01000100010104020100"
+    },
+    {
+      "name": "frame:connection_data_blocked:max_js",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 4,
+            "data": {
+              "maxOffset": "9007199254740991"
+            }
+          }
+        ]
+      },
+      "encoded": "010c0100010001010408071fffffffffffff"
+    },
+    {
+      "name": "frame:connection_data_blocked:max_uint_64",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 4,
+            "data": {
+              "maxOffset": "18446744073709551615"
+            }
+          }
+        ]
+      },
+      "encoded": "010c010001000101040908ffffffffffffffff"
+    },
+    {
+      "name": "frame:connection_max_stream_id:0",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 5,
+            "data": {
+              "maxStreamId": "0"
+            }
+          }
+        ]
+      },
+      "encoded": "010c01000100010105020100"
+    },
+    {
+      "name": "frame:connection_max_stream_id:max_js",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 5,
+            "data": {
+              "maxStreamId": "9007199254740991"
+            }
+          }
+        ]
+      },
+      "encoded": "010c0100010001010508071fffffffffffff"
+    },
+    {
+      "name": "frame:connection_max_stream_id:max_uint_64",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 5,
+            "data": {
+              "maxStreamId": "18446744073709551615"
+            }
+          }
+        ]
+      },
+      "encoded": "010c010001000101050908ffffffffffffffff"
+    },
+    {
+      "name": "frame:connection_stream_id_blocked:0",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 6,
+            "data": {
+              "maxStreamId": "0"
+            }
+          }
+        ]
+      },
+      "encoded": "010c01000100010106020100"
+    },
+    {
+      "name": "frame:connection_stream_id_blocked:max_js",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 6,
+            "data": {
+              "maxStreamId": "9007199254740991"
+            }
+          }
+        ]
+      },
+      "encoded": "010c0100010001010608071fffffffffffff"
+    },
+    {
+      "name": "frame:connection_stream_id_blocked:max_uint_64",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 6,
+            "data": {
+              "maxStreamId": "18446744073709551615"
+            }
+          }
+        ]
+      },
+      "encoded": "010c010001000101060908ffffffffffffffff"
+    },
+    {
+      "name": "frame:stream_close",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 16,
+            "data": {
+              "streamId": "123",
+              "errorCode": 255,
+              "errorMessage": "an error message"
+            }
+          }
+        ]
+      },
+      "encoded": "010c0100010001011014017bff10616e206572726f72206d657373616765"
+    },
+    {
+      "name": "frame:stream_money:0",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 17,
+            "data": {
+              "streamId": "123",
+              "shares": "0"
+            }
+          }
+        ]
+      },
+      "encoded": "010c0100010001011104017b0100"
+    },
+    {
+      "name": "frame:stream_money:max_js",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 17,
+            "data": {
+              "streamId": "123",
+              "shares": "9007199254740991"
+            }
+          }
+        ]
+      },
+      "encoded": "010c010001000101110a017b071fffffffffffff"
+    },
+    {
+      "name": "frame:stream_money:max_uint_64",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 17,
+            "data": {
+              "streamId": "123",
+              "shares": "18446744073709551615"
+            }
+          }
+        ]
+      },
+      "encoded": "010c010001000101110b017b08ffffffffffffffff"
+    },
+    {
+      "name": "frame:stream_max_money:receive_max:0",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 18,
+            "data": {
+              "streamId": "123",
+              "receiveMax": "0",
+              "totalReceived": "456"
+            }
+          }
+        ]
+      },
+      "encoded": "010c0100010001011207017b01000201c8"
+    },
+    {
+      "name": "frame:stream_max_money:receive_max:max_js",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 18,
+            "data": {
+              "streamId": "123",
+              "receiveMax": "9007199254740991",
+              "totalReceived": "456"
+            }
+          }
+        ]
+      },
+      "encoded": "010c010001000101120d017b071fffffffffffff0201c8"
+    },
+    {
+      "name": "frame:stream_max_money:receive_max:max_uint_64",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 18,
+            "data": {
+              "streamId": "123",
+              "receiveMax": "18446744073709551615",
+              "totalReceived": "456"
+            }
+          }
+        ]
+      },
+      "encoded": "010c010001000101120e017b08ffffffffffffffff0201c8"
+    },
+    {
+      "name": "frame:stream_max_money:receive_max:greater_than_max_uint64",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 18,
+            "data": {
+              "streamId": "123",
+              "receiveMax": "18446744073709551616",
+              "totalReceived": "456"
+            }
+          }
+        ]
+      },
+      "encoded": "010c010001000101120f017b090100000000000000000201c8"
+    },
+    {
+      "name": "frame:stream_max_money:total_received:0",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 18,
+            "data": {
+              "streamId": "123",
+              "receiveMax": "456",
+              "totalReceived": "0"
+            }
+          }
+        ]
+      },
+      "encoded": "010c0100010001011207017b0201c80100"
+    },
+    {
+      "name": "frame:stream_max_money:total_received:max_js",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 18,
+            "data": {
+              "streamId": "123",
+              "receiveMax": "456",
+              "totalReceived": "9007199254740991"
+            }
+          }
+        ]
+      },
+      "encoded": "010c010001000101120d017b0201c8071fffffffffffff"
+    },
+    {
+      "name": "frame:stream_max_money:total_received:max_uint_64",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 18,
+            "data": {
+              "streamId": "123",
+              "receiveMax": "456",
+              "totalReceived": "18446744073709551615"
+            }
+          }
+        ]
+      },
+      "encoded": "010c010001000101120e017b0201c808ffffffffffffffff"
+    },
+    {
+      "name": "frame:stream_money_blocked:send_max:0",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 19,
+            "data": {
+              "streamId": "123",
+              "sendMax": "0",
+              "totalSent": "456"
+            }
+          }
+        ]
+      },
+      "encoded": "010c0100010001011307017b01000201c8"
+    },
+    {
+      "name": "frame:stream_money_blocked:send_max:max_js",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 19,
+            "data": {
+              "streamId": "123",
+              "sendMax": "9007199254740991",
+              "totalSent": "456"
+            }
+          }
+        ]
+      },
+      "encoded": "010c010001000101130d017b071fffffffffffff0201c8"
+    },
+    {
+      "name": "frame:stream_money_blocked:send_max:max_uint_64",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 19,
+            "data": {
+              "streamId": "123",
+              "sendMax": "18446744073709551615",
+              "totalSent": "456"
+            }
+          }
+        ]
+      },
+      "encoded": "010c010001000101130e017b08ffffffffffffffff0201c8"
+    },
+    {
+      "name": "frame:stream_money_blocked:send_max:greater_than_max_uint64",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 19,
+            "data": {
+              "streamId": "123",
+              "sendMax": "18446744073709551616",
+              "totalSent": "456"
+            }
+          }
+        ]
+      },
+      "encoded": "010c010001000101130f017b090100000000000000000201c8"
+    },
+    {
+      "name": "frame:stream_money_blocked:total_sent:0",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 19,
+            "data": {
+              "streamId": "123",
+              "sendMax": "456",
+              "totalSent": "0"
+            }
+          }
+        ]
+      },
+      "encoded": "010c0100010001011307017b0201c80100"
+    },
+    {
+      "name": "frame:stream_money_blocked:total_sent:max_js",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 19,
+            "data": {
+              "streamId": "123",
+              "sendMax": "456",
+              "totalSent": "9007199254740991"
+            }
+          }
+        ]
+      },
+      "encoded": "010c010001000101130d017b0201c8071fffffffffffff"
+    },
+    {
+      "name": "frame:stream_money_blocked:total_sent:max_uint_64",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 19,
+            "data": {
+              "streamId": "123",
+              "sendMax": "456",
+              "totalSent": "18446744073709551615"
+            }
+          }
+        ]
+      },
+      "encoded": "010c010001000101130e017b0201c808ffffffffffffffff"
+    },
+    {
+      "name": "frame:stream_data",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 20,
+            "data": {
+              "streamId": "123",
+              "offset": "456",
+              "data": "666f6f626172"
+            }
+          }
+        ]
+      },
+      "encoded": "010c010001000101140c017b0201c806666f6f626172"
+    },
+    {
+      "name": "frame:stream_data:offset:0",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 20,
+            "data": {
+              "streamId": "123",
+              "offset": "0",
+              "data": ""
+            }
+          }
+        ]
+      },
+      "encoded": "010c0100010001011405017b010000"
+    },
+    {
+      "name": "frame:stream_data:offset:max_js",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 20,
+            "data": {
+              "streamId": "123",
+              "offset": "9007199254740991",
+              "data": ""
+            }
+          }
+        ]
+      },
+      "encoded": "010c010001000101140b017b071fffffffffffff00"
+    },
+    {
+      "name": "frame:stream_data:offset:max_uint_64",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 20,
+            "data": {
+              "streamId": "123",
+              "offset": "18446744073709551615",
+              "data": ""
+            }
+          }
+        ]
+      },
+      "encoded": "010c010001000101140c017b08ffffffffffffffff00"
+    },
+    {
+      "name": "frame:stream_max_data:offset:0",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 21,
+            "data": {
+              "streamId": "123",
+              "maxOffset": "0"
+            }
+          }
+        ]
+      },
+      "encoded": "010c0100010001011504017b0100"
+    },
+    {
+      "name": "frame:stream_max_data:offset:max_js",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 21,
+            "data": {
+              "streamId": "123",
+              "maxOffset": "9007199254740991"
+            }
+          }
+        ]
+      },
+      "encoded": "010c010001000101150a017b071fffffffffffff"
+    },
+    {
+      "name": "frame:stream_max_data:offset:max_uint_64",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 21,
+            "data": {
+              "streamId": "123",
+              "maxOffset": "18446744073709551615"
+            }
+          }
+        ]
+      },
+      "encoded": "010c010001000101150b017b08ffffffffffffffff"
+    },
+    {
+      "name": "frame:stream_data_blocked:offset:0",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 22,
+            "data": {
+              "streamId": "123",
+              "maxOffset": "0"
+            }
+          }
+        ]
+      },
+      "encoded": "010c0100010001011604017b0100"
+    },
+    {
+      "name": "frame:stream_data_blocked:offset:max_js",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 22,
+            "data": {
+              "streamId": "123",
+              "maxOffset": "9007199254740991"
+            }
+          }
+        ]
+      },
+      "encoded": "010c010001000101160a017b071fffffffffffff"
+    },
+    {
+      "name": "frame:stream_data_blocked:offset:max_uint_64",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 22,
+            "data": {
+              "streamId": "123",
+              "maxOffset": "18446744073709551615"
+            }
+          }
+        ]
+      },
+      "encoded": "010c010001000101160b017b08ffffffffffffffff"
+    },
+    {
+      "name": "frame:stream_receipt",
+      "packet": {
+        "version": 1,
+        "sequence": "0",
+        "packetType": 12,
+        "amount": "0",
+        "frames": [
+          {
+            "type": 23,
+            "data": {
+              "streamId": "1",
+              "receipt": "01000000000000000000000000000000000100000000000001f4c122fa0252debb672d591823f710e99516d67385cf397da87cc8f9e8c8bf5130"
+            }
+          }
+        ]
+      },
+      "encoded": "010c010001000101173d01013a01000000000000000000000000000000000100000000000001f4c122fa0252debb672d591823f710e99516d67385cf397da87cc8f9e8c8bf5130"
+    }
+  ],
+  "crypto": {
+    "secret": "666f6f",
+    "encryptionKey": "cdf386314fee63e10e50213ab4ddd6844efb6c5fcdea94b4c123a63201003040",
+    "fulfillmentKey": "961f27189089a2cbdf51e3da534bb1c572b78cdbd5d98fb98afb75187d4cba1b",
+    "fulfillments": [
+      {
+        "data": "626172",
+        "fulfillment": "c1803ed8ee0868f07da893d9184fd9973570d5ea7185b64483d3f886483bb92c"
+      }
+    ],
+    "encryptions": [
+      {
+        "plaintext": "666f6f20626172",
+        "ciphertext": "1f0796160c164e1fdcc306ca1ea44b35e0edb9a911e04f25b45483c90eefdf52269a74"
+      },
+      {
+        "plaintext": "",
+        "ciphertext": "ed8497f7c424a4e4d66f56536f8585d61cd1616c38741accdb55ec2e"
+      },
+      {
+        "plaintext": "61206c6f6e67657220706c61696e746578742074686174207370616e73206d6f7265207468616e206f6e652041455320626c6f636b",
+        "ciphertext": "f50d1f35e47638d99a1c8448b9fe44853e3ff8a7f216dada75ec4bc8d43a0de2ae0483c0732ac1b89cfe1378b6a8fc0b3d8cca6c96463d9c4e0b6a7f49c7a858edd57897814d258cb18f1dc80c0da407da"
+      }
+    ],
+    "originalCiphertext": "1f0796160c164e1fdcc306ca1ea44b35e0edb9a911e04f25b45483c90eefdf52269a74",
+    "zeroCondition": "66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925",
+    "hmacCheck": "cdf386314fee63e10e50213ab4ddd6844efb6c5fcdea94b4c123a63201003040"
+  }
+}

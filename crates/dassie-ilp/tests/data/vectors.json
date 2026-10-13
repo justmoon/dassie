@@ -1,0 +1,152 @@
+{
+  "source": "e962ab78",
+  "packets": [
+    {
+      "name": "prepare",
+      "packet": {
+        "type": 12,
+        "data": {
+          "amount": "107",
+          "expiresAt": "20171223012140549",
+          "executionCondition": "74e1136dc71c9e5f283bec83461cbf1261c4014f72d48f8dd65453a0b84e7de1",
+          "destination": "example.alice",
+          "data": "5db343fdc41898f6df4202329139dc242dd0f558a811b46b28918fdab37c6cb0"
+        }
+      },
+      "encoded": "0c68000000000000006b323031373132323330313231343035343974e1136dc71c9e5f283bec83461cbf1261c4014f72d48f8dd65453a0b84e7de10d6578616d706c652e616c696365205db343fdc41898f6df4202329139dc242dd0f558a811b46b28918fdab37c6cb0",
+      "reencoded": "0c68000000000000006b323031373132323330313231343035343974e1136dc71c9e5f283bec83461cbf1261c4014f72d48f8dd65453a0b84e7de10d6578616d706c652e616c696365205db343fdc41898f6df4202329139dc242dd0f558a811b46b28918fdab37c6cb0"
+    },
+    {
+      "name": "fulfill",
+      "packet": {
+        "type": 13,
+        "data": {
+          "fulfillment": "c3866b48749ccf113b2e15c25d2407fbfc14476fe7296bb1bf1bcd9e6e416650",
+          "data": "673febd78a33b28e1c0db14c9a06251a05fa831ed4ed91ebcd150e7249c2e600"
+        }
+      },
+      "encoded": "0d41c3866b48749ccf113b2e15c25d2407fbfc14476fe7296bb1bf1bcd9e6e41665020673febd78a33b28e1c0db14c9a06251a05fa831ed4ed91ebcd150e7249c2e600",
+      "reencoded": "0d41c3866b48749ccf113b2e15c25d2407fbfc14476fe7296bb1bf1bcd9e6e41665020673febd78a33b28e1c0db14c9a06251a05fa831ed4ed91ebcd150e7249c2e600"
+    },
+    {
+      "name": "reject",
+      "packet": {
+        "type": 14,
+        "data": {
+          "code": "F01",
+          "triggeredBy": "example.us.bob",
+          "message": "missing destination. ledger=example.us.",
+          "data": "000000041041"
+        }
+      },
+      "encoded": "0e414630310e6578616d706c652e75732e626f62276d697373696e672064657374696e6174696f6e2e206c65646765723d6578616d706c652e75732e06000000041041",
+      "reencoded": "0e414630310e6578616d706c652e75732e626f62276d697373696e672064657374696e6174696f6e2e206c65646765723d6578616d706c652e75732e06000000041041"
+    }
+  ],
+  "ildcp": [
+    {
+      "name": "response",
+      "response": {
+        "address": "test.alice",
+        "assetScale": 9,
+        "assetCode": "XRP"
+      },
+      "encoded": "0a746573742e616c6963650903585250",
+      "reencoded": "0a746573742e616c6963650903585250"
+    }
+  ],
+  "ildcpAddress": "peer.config",
+  "ildcpCondition": "66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925",
+  "f08": [
+    {
+      "receivedAmount": "0",
+      "maximumAmount": "0",
+      "encoded": "00000000000000000000000000000000"
+    },
+    {
+      "receivedAmount": "11",
+      "maximumAmount": "10",
+      "encoded": "000000000000000b000000000000000a"
+    },
+    {
+      "receivedAmount": "18446744073709551615",
+      "maximumAmount": "1",
+      "encoded": "ffffffffffffffff0000000000000001"
+    }
+  ],
+  "timestamps": [
+    {
+      "ms": 0,
+      "text": "19700101000000000"
+    },
+    {
+      "ms": 1514000000000,
+      "text": "20171223033320000"
+    },
+    {
+      "ms": 1513992100549,
+      "text": "20171223012140549"
+    },
+    {
+      "ms": 4102444799999,
+      "text": "20991231235959999"
+    }
+  ],
+  "btp": {
+    "message": {
+      "value": {
+        "requestId": 1,
+        "protocolData": [
+          {
+            "protocolName": "auth",
+            "contentType": 0,
+            "data": ""
+          },
+          {
+            "protocolName": "auth_token",
+            "contentType": 1,
+            "data": "7365637265742d746f6b656e"
+          }
+        ]
+      },
+      "encoded": "0600000001220102046175746800000a617574685f746f6b656e010c7365637265742d746f6b656e"
+    },
+    "response": {
+      "value": {
+        "requestId": 1,
+        "protocolData": []
+      },
+      "encoded": "0100000001020100"
+    },
+    "transfer": {
+      "value": {
+        "requestId": 4294967295,
+        "amount": "123456789",
+        "protocolData": [
+          {
+            "protocolName": "ilp",
+            "contentType": 0,
+            "data": "0c68000000000000006b323031373132323330313231343035343974e1136dc71c9e5f283bec83461cbf1261c4014f72d48f8dd65453a0b84e7de10d6578616d706c652e616c696365205db343fdc41898f6df4202329139dc242dd0f558a811b46b28918fdab37c6cb0"
+          }
+        ]
+      },
+      "encoded": "07ffffffff7a00000000075bcd15010103696c70006a0c68000000000000006b323031373132323330313231343035343974e1136dc71c9e5f283bec83461cbf1261c4014f72d48f8dd65453a0b84e7de10d6578616d706c652e616c696365205db343fdc41898f6df4202329139dc242dd0f558a811b46b28918fdab37c6cb0"
+    },
+    "error": {
+      "value": {
+        "requestId": 7,
+        "code": "F00",
+        "name": "NotAcceptedError",
+        "triggeredAt": "2017-08-29T18:04:04.123Z",
+        "data": "6e6f7065",
+        "protocolData": []
+      },
+      "encoded": "020000000734463030104e6f7441636365707465644572726f7218323031372d30382d32395431383a30343a30342e3132335a046e6f70650100"
+    }
+  },
+  "packetTypes": {
+    "Prepare": 12,
+    "Fulfill": 13,
+    "Reject": 14
+  }
+}

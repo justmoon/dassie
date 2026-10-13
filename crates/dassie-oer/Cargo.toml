@@ -1,0 +1,18 @@
+[package]
+name = "dassie-oer"
+version = "0.1.0"
+description = "Canonical X.696 Octet Encoding Rules: the subset the Dassie protocols use"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = ["alloc"]
+# `to_vec` for callers at API edges (WASM bindings, tests). The codec itself
+# never allocates.
+alloc = []
+
+[dev-dependencies]
+proptest = "1.12"
+serde_json = "1.0.154"

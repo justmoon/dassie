@@ -1,0 +1,2 @@
+# Functions stay short enough to read in one go (D16).
+too-many-lines-threshold = 70
