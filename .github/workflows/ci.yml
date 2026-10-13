@@ -25,8 +25,9 @@ jobs:
       # The Deno side needs npm and JSR, so it runs outside the sandbox, in
       # the flake's shell: the WASM and wallet builds, the end-to-end binary,
       # fmt, lint, type check, the WASM vector tests, interop with
-      # ilp-protocol-stream, the browser test, and a fresh install through
-      # dassie init and the wallet with Pebble as the ACME CA (GitHub's
-      # CI=true makes the end-to-end tests fail rather than skip).
+      # ilp-protocol-stream, the browser test, a fresh install through
+      # dassie init and the wallet with Pebble as the ACME CA, and
+      # ilp-plugin-btp paying the node's STREAM receiver (GitHub's CI=true
+      # makes the end-to-end tests fail rather than skip).
       - name: Deno checks
         run: nix develop --command deno task ci
