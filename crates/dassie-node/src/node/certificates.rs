@@ -163,17 +163,54 @@ impl Node {
     }
 
     /// Obtains and installs a certificate for the hostname, creating the ACME
-    /// account if there is none for the directory. One order runs at a time.
+    /// account if there is none for the directory.
+    ///
+    /// One order runs at a time. A request that finds another running (the
+    /// renewal, woken by the hostname change that came just before, say)
+    /// waits for it, and takes its certificate if that one fits.
     pub async fn obtain_certificate(
         &self,
         request: ObtainRequest,
         progress: &mut (dyn FnMut(Step) + Send),
     ) -> Result<CertificateInfo, ObtainError> {
-        let Ok(_order) = self.acme_order.try_lock() else {
-            return Err(ObtainError::Precondition(
-                "another certificate order is running".into(),
-            ));
+        let (_order, waited) = match self.acme_order.try_lock() {
+            Ok(order) => (order, false),
+            Err(_) => (self.acme_order.lock().await, true),
         };
+        if waited && let Some(info) = self.current_fits(&request) {
+            return Ok(info);
+        }
+        self.order(request, progress).await
+    }
+
+    /// The certificate being served, if it is from ACME, from the directory
+    /// asked for, for the hostname, and not due for renewal.
+    fn current_fits(&self, request: &ObtainRequest) -> Option<CertificateInfo> {
+        let config = self.config();
+        if request
+            .directory
+            .as_ref()
+            .is_some_and(|directory| *directory != config.acme_directory)
+        {
+            return None;
+        }
+        let info = self.certificate.info();
+        let remaining = info.not_after_ms.saturating_sub(self.now_ms());
+        let fits = info.source == CertificateSource::Acme
+            && config
+                .hostname
+                .as_ref()
+                .is_some_and(|hostname| info.covers(hostname))
+            && remaining > self.policies.renewal.renew_before_ms;
+        fits.then_some(info)
+    }
+
+    /// Runs an order; the caller holds `acme_order`.
+    async fn order(
+        &self,
+        request: ObtainRequest,
+        progress: &mut (dyn FnMut(Step) + Send),
+    ) -> Result<CertificateInfo, ObtainError> {
         let config = self.config();
         let hostname = config.hostname.clone().ok_or_else(|| {
             ObtainError::Precondition("set the hostname before ordering a certificate".into())
@@ -271,13 +308,17 @@ impl Node {
     }
 
     async fn renew(&self) {
+        // The owner is ordering one right now; that will do.
+        let Ok(_order) = self.acme_order.try_lock() else {
+            return;
+        };
         tracing::info!(target: target::ACME, "renewing the certificate");
         let request = ObtainRequest {
             email: String::new(),
             agree_to_terms: false,
             directory: None,
         };
-        let result = self.obtain_certificate(request, &mut |_| {}).await;
+        let result = self.order(request, &mut |_| {}).await;
         if let Err(error) = result {
             let retry_after_ms = match error {
                 ObtainError::Unavailable(_, retry_after_ms) => retry_after_ms,

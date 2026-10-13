@@ -19,9 +19,10 @@ message GetAcmeTermsResponse {
 // Obtains a certificate for the configured hostname over ACME (http-01) and
 // installs it. The node keeps the account and renews by itself.
 //
-// Streams progress, ending after STEP_INSTALLED. Errors:
-// - FAILED_PRECONDITION: no hostname, the terms not agreed to, or another
-//   order is already running;
+// Streams progress, ending after STEP_INSTALLED. One order runs at a time:
+// a call that finds another running (a renewal, say) waits for it, and if
+// that one got a fitting certificate, ends at once with it. Errors:
+// - FAILED_PRECONDITION: no hostname, or the terms not agreed to;
 // - UNAVAILABLE: the ACME server failed or refused, with its reason.
 // Cancelling the call abandons the order.
 message ObtainCertificateRequest {
