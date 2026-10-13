@@ -48,6 +48,15 @@ struct Received {
 
 impl BtpClient {
     async fn connect(node: &TestNode, token: &str) -> Result<Self, Option<u16>> {
+        Self::connect_pinging(node, token, false).await
+    }
+
+    /// Connects, pinging first if `ping`, as `ilp-plugin-btp` does.
+    async fn connect_pinging(
+        node: &TestNode,
+        token: &str,
+        ping: bool,
+    ) -> Result<Self, Option<u16>> {
         let (stream, _) = connect_tls(node.https).await;
         let request = format!("wss://{}/btp", node.host())
             .into_client_request()
@@ -55,6 +64,9 @@ impl BtpClient {
         let (mut socket, _) = tokio_tungstenite::client_async(request, stream)
             .await
             .map_err(|_| None)?;
+        if ping {
+            socket.send(Message::Ping(Vec::new().into())).await.unwrap();
+        }
         let entries = [
             entry("auth", ContentType::OCTET_STREAM, b""),
             entry("auth_username", ContentType::TEXT_PLAIN_UTF8, b""),
@@ -68,7 +80,11 @@ impl BtpClient {
             .send(Message::Binary(auth.to_vec().into()))
             .await
             .unwrap();
-        match socket.next().await {
+        let mut reply = socket.next().await;
+        while let Some(Ok(Message::Pong(_))) = reply {
+            reply = socket.next().await;
+        }
+        match reply {
             Some(Ok(Message::Binary(bytes))) => {
                 let reply = btp::Packet::decode_exact(&bytes).unwrap();
                 assert_eq!(reply.request_id, 77);
@@ -492,6 +508,11 @@ async fn bad_tokens_and_silence_are_refused() {
     };
     assert_eq!(silent.closed().await, Some(1008));
     BtpClient::connect(&node, &secret).await.unwrap();
+    // Found by the interop test: ilp-plugin-btp pings before it
+    // authenticates, which the first version took for a failed login.
+    BtpClient::connect_pinging(&node, &secret, true)
+        .await
+        .unwrap();
     node.stop().await;
 }
 

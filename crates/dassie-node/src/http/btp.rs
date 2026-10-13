@@ -134,14 +134,24 @@ async fn authenticate(
     timeout: Duration,
     outbound: mpsc::Sender<Outbound>,
 ) -> Result<u64, &'static str> {
-    let first = tokio::time::timeout(timeout, socket.next())
+    // Control frames may come first: ilp-plugin-btp pings as soon as it
+    // connects.
+    let first = async {
+        loop {
+            match socket.next().await {
+                Some(Ok(Message::Ping(_) | Message::Pong(_))) => {}
+                other => return other,
+            }
+        }
+    };
+    let first = tokio::time::timeout(timeout, first)
         .await
         .map_err(|_| "no authentication")?;
     let Some(Ok(Message::Binary(bytes))) = first else {
-        return Err("expected a BTP authentication message");
+        return Err("expected a binary BTP message");
     };
     let packet = btp::Packet::decode_exact(&bytes).map_err(|_| "not a BTP packet")?;
-    let token = btp::auth_token(&packet).ok_or("expected a BTP authentication message")?;
+    let token = btp::auth_token(&packet).ok_or("expected BTP authentication")?;
     let session = engine
         .btp_connect(token.to_string(), outbound)
         .await
