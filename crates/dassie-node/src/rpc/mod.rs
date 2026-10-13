@@ -10,6 +10,7 @@
 pub mod connection;
 mod convert;
 mod handlers;
+mod ledger;
 
 use std::fmt;
 
@@ -76,6 +77,10 @@ impl RpcError {
 
     fn unavailable(message: impl fmt::Display) -> Self {
         Self::new(proto::ErrorCode::Unavailable, message)
+    }
+
+    fn exhausted(message: impl fmt::Display) -> Self {
+        Self::new(proto::ErrorCode::ResourceExhausted, message)
     }
 
     /// A bug. The details go to the log, not to the client.

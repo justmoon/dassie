@@ -23,6 +23,7 @@ pub mod tls;
 /// The version of this build.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub mod daemon;
+pub mod engine;
 pub mod http;
 pub mod ipc;
 pub mod supervisor;

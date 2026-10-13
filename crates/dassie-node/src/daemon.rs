@@ -351,6 +351,10 @@ fn start_services(
     supervisor::spawn(services, "sessions", shutdown.clone(), move || {
         prune_sessions(Arc::clone(&node_), shutdown_.clone())
     });
+    let (node_, shutdown_) = (Arc::clone(node), shutdown.clone());
+    supervisor::spawn(services, "engine", shutdown.clone(), move || {
+        crate::engine::run(Arc::clone(&node_), shutdown_.clone())
+    });
 }
 
 async fn prune_sessions(node: Arc<Node>, shutdown: CancellationToken) {
