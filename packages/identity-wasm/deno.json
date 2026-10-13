@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "exports": {
     ".": "./mod.ts",
-    "./stream": "./stream.ts"
+    "./stream": "./stream.ts",
+    "./web": "./web.ts"
   }
 }
