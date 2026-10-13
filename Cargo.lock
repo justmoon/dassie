@@ -458,6 +458,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "dassie-ledger"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+]
+
+[[package]]
 name = "dassie-node"
 version = "0.1.0"
 dependencies = [

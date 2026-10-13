@@ -3,6 +3,7 @@ members = [
   "crates/dassie-cli",
   "crates/dassie-identity",
   "crates/dassie-ilp",
+  "crates/dassie-ledger",
   "crates/dassie-node",
   "crates/dassie-node-core",
   "crates/dassie-oer",

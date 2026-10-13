@@ -1,0 +1,13 @@
+[package]
+name = "dassie-ledger"
+version = "0.1.0"
+description = "Dassie's internal double-entry ledger and its transfer journal, as a sans-IO state machine"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+proptest = "1.12"

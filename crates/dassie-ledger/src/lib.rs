@@ -1,0 +1,62 @@
+//! Dassie's internal ledger: double-entry accounts, pending and posted
+//! transfers, and the journal that makes them durable.
+//!
+//! - [`LedgerId`] names the ledgers the node knows and their assets.
+//! - [`AccountPath`] names an account on a ledger; its kind decides its
+//!   limit and its group.
+//! - [`Ledger`] holds the accounts and the pending transfers, checks limits,
+//!   and queues a [`JournalEntry`] for everything the database must keep.
+//!
+//! The design follows the original's internal-ledger note (spec 5 §2),
+//! which TigerBeetle inspired, with the gaps of spec 5 §10 closed:
+//!
+//! - transfers have IDs, and refusals are values, never assertions on input
+//!   (ACC-8);
+//! - linked transfers are created all or none (ACC-7);
+//! - opening an account that exists returns it unchanged (ACC-4);
+//! - the owner's accounts on a ledger form a group whose total carries the
+//!   spending limit, so the owner cannot overspend (ACC-9), while each
+//!   spending endpoint has its own sub-account for attribution (spec 7 §4.5).
+//!
+//! Nothing here performs IO or reads a clock: callers pass `now_ms` in and
+//! persist what [`Ledger::poll_journal`] hands them, before they act on the
+//! result (D16).
+
+#![no_std]
+#![forbid(unsafe_code)]
+#![deny(missing_docs)]
+#![deny(
+    clippy::indexing_slicing,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::float_arithmetic,
+    clippy::too_many_lines
+)]
+
+extern crate alloc;
+#[cfg(test)]
+extern crate std;
+
+mod account;
+mod ledger;
+mod ledger_id;
+mod name;
+mod path;
+mod reference;
+
+pub use account::{Account, AccountId, Balance, Limit};
+pub use ledger::{
+    Config, JournalEntry, Ledger, LedgerError, RestoreError, Stats, StoredAccount, Transfer,
+    TransferError, TransferId, TransferSpec, TransferState,
+};
+pub use ledger_id::{Asset, LedgerId, Realm};
+pub use name::{InvalidName, Name};
+pub use path::{AccountName, AccountPath, InvalidPath, OwnerSub};
+pub use reference::{Reference, TraceId};
+
+/// The largest total any account counter may reach: SQLite stores the
+/// cached totals as signed 64-bit integers. At scale 9 this is about 9.2e9
+/// units of the asset over an account's lifetime.
+pub const MAX_TOTAL: u64 = i64::MAX.unsigned_abs();

@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 65450370cd78046f3ed8046372a715e3c8a4bec3c3253f272396df02ff6cc9d3 # shrinks to ops = [OpenToken(0), OpenToken(1), Create { from: 215, to: 83, amount: 1, pending: true, kind: 0 }]
