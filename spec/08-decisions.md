@@ -117,6 +117,8 @@ All decisions below were confirmed on 2026-10-11. Each states the **decision** a
   - A preferred display currency, with the total converted at current rates (as `TotalOwnerBalance` does now).
   - Per-ledger config for trust line, max packet amount and settlement threshold ratio.
   - Learn the credit the peer extends to us, for the settlement midpoint (ACC-24).
+- **Owner sub-accounts (confirmed 2026-10-13):** the owner's funds on a ledger stay in one pool. Each spending endpoint, such as a BTP token, gets a sub-account of the pool for attribution, and the limit applies to the group's total ([7 §4.5](07-rewrite.md#45-settlement-and-ledgers)). Per-token spending caps are policies computed from the journal, built in M5.
+  - **Rejected:** an account per token holding its own balance, as `ilp-connector` child accounts do. Refilling a token means scheduled top-ups, and funds can't be committed to several tokens at once (a fractional reserve), so ten tokens that may each spend $10 would lock up $100.
 
 ### D7. Exchange rates, fees and spread
 
@@ -127,6 +129,7 @@ All decisions below were confirmed on 2026-10-11. Each states the **decision** a
   - Use exact integer math throughout.
   - Add a configurable connector fee and FX spread (default 0, as now), booked to `revenue/fees` and `revenue/fx` as the internal-ledger design note describes.
 - **Rate source:** the median of a configurable list of sources, so that one source failing or being manipulated cannot move the rate. (Rejected: Coinbase alone, a single point of failure; an ordered fallback list, which still trusts whichever source answers first.)
+- **When:** the conversion math and the T00 rule come with the connector in M3. The fetcher, fees and spread come in M7, the first milestone with a second currency.
 
 ### D8. Real money
 
