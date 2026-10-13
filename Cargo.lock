@@ -481,8 +481,14 @@ name = "dassie-node"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "dassie-connector",
  "dassie-identity",
+ "dassie-ilp",
+ "dassie-ledger",
  "dassie-node-core",
+ "dassie-oer",
+ "dassie-settlement",
+ "dassie-stream",
  "flate2",
  "futures-util",
  "getrandom 0.4.3",

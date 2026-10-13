@@ -8,8 +8,14 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+dassie-connector = { path = "../dassie-connector" }
 dassie-identity = { path = "../dassie-identity" }
+dassie-ilp = { path = "../dassie-ilp" }
+dassie-ledger = { path = "../dassie-ledger" }
 dassie-node-core = { path = "../dassie-node-core" }
+dassie-oer = { path = "../dassie-oer" }
+dassie-settlement = { path = "../dassie-settlement" }
+dassie-stream = { path = "../dassie-stream" }
 
 # The async runtime and the cancellation tree of services.
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "signal", "fs"] }
