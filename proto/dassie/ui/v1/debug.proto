@@ -56,17 +56,23 @@ message Transfer {
     // "trust", "deposit", "withdrawal" or "reconciliation".
     string other = 12;
   }
+  // Where the row is in the order rows were written or last changed: a
+  // packet's transfer is written when it is posted, after transfers with
+  // larger IDs, and a settlement's row changes when it is resolved.
+  uint64 sequence = 13;
 }
 
 message ListTransfersRequest {
-  // Transfers with a larger ID; from the first if unset.
-  optional uint64 after_id = 1;
+  // Rows written or changed after this sequence number; from the first if
+  // unset. Paging with the last `sequence` seen sees every row and every
+  // change once.
+  optional uint64 after_sequence = 1;
   // At most this many, up to 1000; 0 means 100.
   uint32 limit = 2;
 }
 
 message ListTransfersResponse {
-  // In ID order.
+  // In sequence order.
   repeated Transfer transfers = 1;
 }
 

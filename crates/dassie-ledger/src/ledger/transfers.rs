@@ -8,9 +8,6 @@ use super::{
 };
 use crate::MAX_TOTAL;
 use crate::account::{AccountId, Balance};
-use crate::ledger_id::LedgerId;
-use crate::name::Name;
-use crate::path::{AccountName, AccountPath};
 
 /// A change to an account's counters.
 #[derive(Clone, Copy)]
@@ -192,32 +189,14 @@ impl Ledger {
         Ok(())
     }
 
-    /// Voids every packet transfer pending on a peer's accounts, as when it
-    /// is no longer peered. Settlements stay: their money may be moving.
-    /// Returns how many were voided.
-    pub fn close_peer(&mut self, now_ms: u64, ledger: LedgerId, node: Name) -> usize {
-        let accounts = [
-            self.find(&AccountPath::new(
-                ledger,
-                AccountName::AssetsInterledger(node),
-            )),
-            self.find(&AccountPath::new(ledger, AccountName::ContraTrust(node))),
-        ];
-        let doomed: Vec<TransferId> = self
-            .pending
-            .values()
-            .filter(|transfer| !transfer.reference.is_durable_while_pending())
-            .filter(|transfer| {
-                accounts.contains(&Some(transfer.debit))
-                    || accounts.contains(&Some(transfer.credit))
-            })
-            .map(|transfer| transfer.id)
-            .collect();
-        for &id in &doomed {
-            let voided = self.void(now_ms, id);
-            assert!(voided.is_ok(), "voiding a packet transfer failed");
-        }
-        doomed.len()
+    /// Whether [`create`](Self::create) would take `spec` now, as far as
+    /// the accounts and their limits go, without creating it.
+    ///
+    /// # Errors
+    ///
+    /// Why it would be refused.
+    pub fn validate(&self, spec: &TransferSpec) -> Result<(), TransferError> {
+        self.check(spec)
     }
 
     /// Validates a transfer against the accounts, their limits and bounds.

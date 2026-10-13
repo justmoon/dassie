@@ -38,12 +38,19 @@ class IpcSocket implements SocketLike {
   constructor(path: string) {
     Deno.connect({ transport: "unix", path }).then(
       (connection) => {
+        // Closed while connecting: the connection is not wanted any more.
+        if (this.readyState === CLOSED) {
+          connection.close();
+          return;
+        }
         this.#connection = connection;
         this.readyState = OPEN;
         this.onopen?.(new Event("open"));
         this.#read(connection);
       },
-      () => this.#closed(1006),
+      () => {
+        if (this.readyState !== CLOSED) this.#closed(1006);
+      },
     );
   }
 

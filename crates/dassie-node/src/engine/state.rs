@@ -37,8 +37,9 @@ pub struct Core {
     pub(super) batch: LedgerBatch,
     /// Messages for BTP clients, sent once the batch is persisted.
     pub(super) outputs: Vec<(u64, Outbound)>,
-    /// Links whose client stopped reading, to drop after this batch.
-    pub(super) overflowed: Vec<u64>,
+    /// Links to end once this batch's messages are handed over: their
+    /// client stopped reading or went away, or their token was revoked.
+    pub(super) closing: Vec<u64>,
     deferred: Vec<Box<dyn FnOnce() + Send>>,
     packet_events: Option<broadcast::Sender<TraceEvent>>,
     /// Where the connector writes the packet it sends on.
@@ -92,7 +93,7 @@ impl Core {
             next_link: 0,
             batch: LedgerBatch::default(),
             outputs: Vec::new(),
-            overflowed: Vec::new(),
+            closing: Vec::new(),
             deferred: Vec::new(),
             packet_events: None,
             out: vec![0; MAX_PACKET_LENGTH],
@@ -174,12 +175,11 @@ impl Core {
             for reply in std::mem::take(&mut self.deferred) {
                 reply();
             }
-            let overflowed = std::mem::take(&mut self.overflowed);
-            if overflowed.is_empty() {
+            let closing = std::mem::take(&mut self.closing);
+            if closing.is_empty() {
                 return;
             }
-            for link in overflowed {
-                tracing::info!(target: target::BTP, link, "a client does not read; disconnecting");
+            for link in closing {
                 self.close_link(link);
             }
         }
@@ -218,16 +218,21 @@ impl Core {
 
     /// Hands the batch's messages to the BTP connections. A client whose
     /// queue is full is not reading: it is disconnected, rather than allowed
-    /// to make the node hold its messages.
+    /// to make the node hold its messages. A connection whose task is gone
+    /// is ended too.
     fn dispatch(&mut self) {
         for (link, message) in std::mem::take(&mut self.outputs) {
             let Some(sender) = self.links.get(&link).map(|link| &link.outbound) else {
                 continue;
             };
-            if let Err(mpsc::error::TrySendError::Full(_)) = sender.try_send(message)
-                && !self.overflowed.contains(&link)
-            {
-                self.overflowed.push(link);
+            let failure = match sender.try_send(message) {
+                Ok(()) => continue,
+                Err(mpsc::error::TrySendError::Full(_)) => "a client does not read; disconnecting",
+                Err(mpsc::error::TrySendError::Closed(_)) => "a client's connection is gone",
+            };
+            if !self.closing.contains(&link) {
+                tracing::info!(target: target::BTP, link, "{failure}");
+                self.closing.push(link);
             }
         }
     }
@@ -257,8 +262,9 @@ fn check_bounds(policies: &Policies) {
         "the ledger needs room for every packet's transfers, and settlements"
     );
     assert!(
-        connector.max_pending >= connector.max_pending_per_endpoint,
-        "one endpoint may use the whole table"
+        connector.max_pending
+            >= connector.max_pending_per_endpoint * (policies.max_btp_connections + 1),
+        "every BTP client and the receiver can fill their share of the table at once"
     );
     assert!(
         connector.max_endpoints > policies.max_btp_connections,

@@ -249,7 +249,7 @@ async fn ledgers(owner: &mut Owner) -> proto::Ledger {
 async fn journal(owner: &mut Owner) -> Vec<proto::Transfer> {
     let Ok(response::Method::ListTransfers(list)) = owner
         .call(Method::ListTransfers(proto::ListTransfersRequest {
-            after_id: None,
+            after_sequence: None,
             limit: 1000,
         }))
         .await
@@ -572,5 +572,71 @@ async fn btp_transfers_and_duplicates_get_errors() {
     client.send(40, &packet, false).await;
     let duplicate = client.receive().await.unwrap();
     assert!(duplicate.error && duplicate.request_id == 40);
+    node.stop().await;
+}
+
+// Found in review: every connection used up an attempt, so a client that
+// reconnected often, or several behind one address, got locked out.
+#[tokio::test]
+async fn only_failed_logins_count_against_an_address() {
+    let node = TestNode::start().await;
+    let mut owner = ready(&node).await;
+    let (_, secret) = token(&mut owner).await;
+    let burst = Policies::DEFAULT.btp_auth_attempts.client_burst;
+    for _ in 0..burst * 2 {
+        BtpClient::connect(&node, &secret).await.unwrap();
+    }
+    for _ in 0..burst {
+        let refused = BtpClient::connect(&node, "AAAAAAAAAAAAAAAAAAAAAA").await;
+        assert_eq!(refused.err(), Some(Some(1008)));
+    }
+    // Now the address is blocked, the right token included: the handshake
+    // gets 429.
+    assert_eq!(BtpClient::connect(&node, &secret).await.err(), Some(None));
+    node.stop().await;
+}
+
+// Found in review: a BTP Error answering our Message was only logged, and
+// the packet held its place until it expired.
+#[tokio::test]
+async fn a_btp_error_rejects_the_packet_it_answers() {
+    let node = TestNode::start().await;
+    let mut owner = ready(&node).await;
+    let (_, secret) = token(&mut owner).await;
+    let mut alice = BtpClient::connect(&node, &secret).await.unwrap();
+    let mut bob = BtpClient::connect(&node, &secret).await.unwrap();
+    let now = node.clock.now_ms();
+    let (alice_address, ..) = alice.ildcp(now).await;
+    let destination = format!("{alice_address}.x");
+    let packet = Prepare {
+        amount: 10,
+        expires_at: Timestamp::from_unix_ms(now + 20_000),
+        execution_condition: [1; 32],
+        destination: Address::parse(&destination).unwrap(),
+        data: b"",
+    };
+    let sent = bob.prepare(&packet.to_vec()).await;
+    let arrived = alice.receive().await.unwrap();
+    let error = btp::Packet {
+        request_id: arrived.request_id,
+        body: Body::Error(btp::Error {
+            code: "F99",
+            name: "ApplicationError",
+            triggered_at: "",
+            data: b"",
+            protocol_data: ProtocolData::EMPTY,
+        }),
+    };
+    alice
+        .socket
+        .send(Message::Binary(error.to_vec().into()))
+        .await
+        .unwrap();
+    let answer = bob.receive().await.unwrap();
+    assert_eq!((answer.request_id, answer.response), (sent, true));
+    let Response::Reject(reject) = Response::decode_exact(&answer.ilp).unwrap() else {
+        panic!("expected a reject");
+    };
+    assert_eq!(reject.code, dassie_ilp::ErrorCode::F99_APPLICATION_ERROR);
     node.stop().await;
 }

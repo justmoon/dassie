@@ -124,9 +124,7 @@ fn journal_rows_carry_their_references_and_paths() {
         })
     );
     assert_eq!(rows[2].state, TransferState::Pending);
-    let after = store
-        .transfers_after(Some(rows[0].transfer.id.0), 1)
-        .unwrap();
+    let after = store.transfers_after(Some(rows[0].sequence), 1).unwrap();
     assert_eq!(after.len(), 1);
     assert_eq!(after[0].transfer.id, rows[1].transfer.id);
 }
@@ -224,4 +222,57 @@ fn schemes_checkpoints_and_tokens_round_trip() {
     // twice (ACC-6).
     assert_eq!(store.checkpoints().unwrap(), [(stub, 150)]);
     assert_eq!(store.btp_tokens().unwrap()[0].revoked_at_ms, Some(20));
+}
+
+// Found in review: paging by transfer ID missed a packet transfer posted
+// after one with a larger ID had been read.
+#[test]
+fn paging_sees_transfers_posted_out_of_order() {
+    let store = Store::open_in_memory().unwrap();
+    let mut ledger = scenario(&store);
+    let owner = ledger.find(&path(AccountName::EquityOwner)).unwrap();
+    let token = ledger
+        .find(&path(AccountName::EquityOwnerSub(OwnerSub::Btp(1))))
+        .unwrap();
+    let spec = |sequence| TransferSpec {
+        debit: token,
+        credit: owner,
+        amount: 2,
+        pending: true,
+        reference: Reference::Packet(TraceId { epoch: 4, sequence }),
+    };
+    let slow = ledger.create(10, &spec(20)).unwrap();
+    let fast = ledger.create(10, &spec(21)).unwrap();
+    ledger.post(11, fast).unwrap();
+    store.commit_ledger(&drain(&mut ledger, 11)).unwrap();
+    let seen = store.transfers_after(None, 100).unwrap();
+    let last = seen.last().unwrap();
+    assert_eq!(last.transfer.id, fast);
+    let cursor = last.sequence;
+    ledger.post(12, slow).unwrap();
+    store.commit_ledger(&drain(&mut ledger, 12)).unwrap();
+    let next = store.transfers_after(Some(cursor), 100).unwrap();
+    assert_eq!(next.len(), 1);
+    assert_eq!(next[0].transfer.id, slow);
+    assert!(slow < fast);
+}
+
+// Found in review: removing a scheme and adding it again in one batch
+// broke the commit, and so the engine.
+#[test]
+fn a_scheme_removed_and_added_in_one_batch_stays() {
+    let store = Store::open_in_memory().unwrap();
+    let stub = Name::new("stub").unwrap();
+    let added = LedgerBatch {
+        schemes_added: vec![(stub, String::new())],
+        ..LedgerBatch::default()
+    };
+    store.commit_ledger(&added).unwrap();
+    let again = LedgerBatch {
+        schemes_removed: vec![stub],
+        schemes_added: vec![(stub, "{}".into())],
+        ..LedgerBatch::default()
+    };
+    store.commit_ledger(&again).unwrap();
+    assert_eq!(store.settlement_schemes().unwrap(), [(stub, "{}".into())]);
 }

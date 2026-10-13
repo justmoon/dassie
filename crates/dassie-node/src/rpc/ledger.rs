@@ -114,6 +114,7 @@ async fn dispatch_more(
 /// Streams the packet trace until the call ends or the engine stops.
 async fn subscribe_packets(engine: &Engine, items: &Items) -> Result<Reply, RpcError> {
     let mut events = engine.subscribe_packets()?;
+    let mut lost = 0u64;
     loop {
         let event = tokio::select! {
             () = engine.generation().cancelled() => {
@@ -123,13 +124,29 @@ async fn subscribe_packets(engine: &Engine, items: &Items) -> Result<Reply, RpcE
         };
         let item = match event {
             Ok(TraceEvent::Packet(record)) => proto::packet_event::Event::Packet(packet(&record)),
-            Ok(TraceEvent::Lagged(dropped)) => proto::packet_event::Event::Lagged(dropped),
-            Err(RecvError::Lagged(dropped)) => proto::packet_event::Event::Lagged(dropped),
+            Ok(TraceEvent::Lagged(dropped)) | Err(RecvError::Lagged(dropped)) => {
+                lost += dropped;
+                continue;
+            }
             Err(RecvError::Closed) => return Err(RpcError::unavailable(EngineError::Unavailable)),
         };
-        items.send(stream_item::Method::SubscribePackets(proto::PacketEvent {
+        // Whatever was lost, here or on the way, is reported before the
+        // next packet, once there is room to say so.
+        if lost > 0 {
+            let lagged = proto::packet_event::Event::Lagged(lost);
+            if !items.try_send(stream_item::Method::SubscribePackets(proto::PacketEvent {
+                event: Some(lagged),
+            })) {
+                lost += 1;
+                continue;
+            }
+            lost = 0;
+        }
+        if !items.try_send(stream_item::Method::SubscribePackets(proto::PacketEvent {
             event: Some(item),
-        }));
+        })) {
+            lost += 1;
+        }
     }
 }
 
@@ -137,7 +154,7 @@ fn list_transfers(node: &Node, request: &proto::ListTransfersRequest) -> Result<
     let rows = node
         .store()
         .transfers_after(
-            request.after_id,
+            request.after_sequence,
             u32::try_from(page(request.limit)).unwrap_or(MAX_PAGE),
         )
         .map_err(RpcError::internal)?;
@@ -261,6 +278,7 @@ fn transfer(row: &JournalRow) -> proto::Transfer {
         created_at_unix_ms: convert::time(row.transfer.created_at_ms),
         resolved_at_unix_ms: row.resolved_at_ms.map_or(0, convert::time),
         reference: Some(reference),
+        sequence: row.sequence,
     }
 }
 

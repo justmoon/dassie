@@ -19,7 +19,12 @@ import WebSocket from "ws";
 import { createConnection } from "ilp-protocol-stream";
 import { RpcClient } from "@dassie/rpc";
 import { ipcConnector } from "@dassie/rpc/ipc";
-import { PacketState, type Transfer, TransferState } from "@dassie/rpc/proto";
+import {
+  type Packet,
+  PacketState,
+  type Transfer,
+  TransferState,
+} from "@dassie/rpc/proto";
 import { deriveNodeKey, loginSecret } from "@dassie/identity-wasm";
 
 import {
@@ -129,6 +134,28 @@ async function pay(owner: RpcClient, url: string) {
   }
 }
 
+/** The whole journal, in small pages, as a client that follows it reads. */
+async function journal(owner: RpcClient): Promise<Transfer[]> {
+  const rows: Transfer[] = [];
+  for (;;) {
+    const afterSequence = rows.at(-1)?.sequence;
+    const page = await owner.call("listTransfers", { afterSequence, limit: 7 });
+    if (page.transfers.length === 0) return rows;
+    rows.push(...page.transfers);
+  }
+}
+
+/** The packet trace, in small pages. */
+async function trace(owner: RpcClient): Promise<Packet[]> {
+  const packets: Packet[] = [];
+  for (;;) {
+    const after = packets.at(-1)?.trace;
+    const page = await owner.call("listPackets", { after, limit: 7 });
+    if (page.packets.length === 0) return packets;
+    packets.push(...page.packets);
+  }
+}
+
 /**
  * Every fulfilled packet with money has exactly its posted transfer, from
  * the token's sub-account to the owner's pool; rejected packets have none;
@@ -138,8 +165,8 @@ async function journalMatchesTrace(
   owner: RpcClient,
   tokenId: bigint,
 ): Promise<bigint> {
-  const { transfers } = await owner.call("listTransfers", { limit: 1000 });
-  const { packets } = await owner.call("listPackets", { limit: 1000 });
+  const transfers = await journal(owner);
+  const packets = await trace(owner);
   const byId = new Map<bigint, Transfer>(transfers.map((t) => [t.id, t]));
   let total = 0n;
   let fulfilled = 0;
@@ -217,7 +244,7 @@ Deno.test({
         pool.creditsPosted - pool.debitsPosted,
         100_000_000_000n + PAYMENT,
       );
-      const journal = await owner.call("listTransfers", { limit: 1000 });
+      const books = await journal(owner);
 
       // A restart keeps the books and deposits nothing again (ACC-6).
       owner.close();
@@ -227,7 +254,7 @@ Deno.test({
       owner = new RpcClient({ url: "ipc", connect });
       const [restarted] = (await waitForLedger(owner)).ledgers;
       assertEquals(restarted, ledger);
-      assertEquals(await owner.call("listTransfers", { limit: 1000 }), journal);
+      assertEquals(await journal(owner), books);
     } finally {
       owner?.close();
       const { code, output } = await daemon.stop();

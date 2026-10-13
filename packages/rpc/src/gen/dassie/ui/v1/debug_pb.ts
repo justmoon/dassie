@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file dassie/ui/v1/debug.proto.
  */
 export const file_dassie_ui_v1_debug: GenFile = /*@__PURE__*/
-  fileDesc("ChhkYXNzaWUvdWkvdjEvZGVidWcucHJvdG8SDGRhc3NpZS51aS52MSKDAQoHQWNjb3VudBIKCgJpZBgBIAEoDRIMCgRwYXRoGAIgASgJEhUKDWRlYml0c19wb3N0ZWQYAyABKAQSFgoOY3JlZGl0c19wb3N0ZWQYBCABKAQSFgoOZGViaXRzX3BlbmRpbmcYBSABKAQSFwoPY3JlZGl0c19wZW5kaW5nGAYgASgEIhUKE0xpc3RBY2NvdW50c1JlcXVlc3QiPwoUTGlzdEFjY291bnRzUmVzcG9uc2USJwoIYWNjb3VudHMYASADKAsyFS5kYXNzaWUudWkudjEuQWNjb3VudCIqCgdUcmFjZUlkEg0KBWVwb2NoGAEgASgEEhAKCHNlcXVlbmNlGAIgASgEIrACCghUcmFuc2ZlchIKCgJpZBgBIAEoBBINCgVkZWJpdBgCIAEoDRIOCgZjcmVkaXQYAyABKA0SEgoKZGViaXRfcGF0aBgEIAEoCRITCgtjcmVkaXRfcGF0aBgFIAEoCRIOCgZhbW91bnQYBiABKAQSKgoFc3RhdGUYByABKA4yGy5kYXNzaWUudWkudjEuVHJhbnNmZXJTdGF0ZRIaChJjcmVhdGVkX2F0X3VuaXhfbXMYCCABKAMSGwoTcmVzb2x2ZWRfYXRfdW5peF9tcxgJIAEoAxInCgZwYWNrZXQYCiABKAsyFS5kYXNzaWUudWkudjEuVHJhY2VJZEgAEhQKCnNldHRsZW1lbnQYCyABKAlIABIPCgVvdGhlchgMIAEoCUgAQgsKCXJlZmVyZW5jZSJJChRMaXN0VHJhbnNmZXJzUmVxdWVzdBIVCghhZnRlcl9pZBgBIAEoBEgAiAEBEg0KBWxpbWl0GAIgASgNQgsKCV9hZnRlcl9pZCJCChVMaXN0VHJhbnNmZXJzUmVzcG9uc2USKQoJdHJhbnNmZXJzGAEgAygLMhYuZGFzc2llLnVpLnYxLlRyYW5zZmVyIqMCCgZQYWNrZXQSJAoFdHJhY2UYASABKAsyFS5kYXNzaWUudWkudjEuVHJhY2VJZBIOCgZzb3VyY2UYAiABKAkSEwoLZGVzdGluYXRpb24YAyABKAkSGwoTZGVzdGluYXRpb25fYWRkcmVzcxgEIAEoCRIRCglhbW91bnRfaW4YBSABKAQSEgoKYW1vdW50X291dBgGIAEoBBIbChNyZWNlaXZlZF9hdF91bml4X21zGAcgASgDEhsKE3Jlc29sdmVkX2F0X3VuaXhfbXMYCCABKAMSKAoFc3RhdGUYCSABKA4yGS5kYXNzaWUudWkudjEuUGFja2V0U3RhdGUSEwoLcmVqZWN0X2NvZGUYCiABKAkSEQoJdHJhbnNmZXJzGAsgAygEIkkKEkxpc3RQYWNrZXRzUmVxdWVzdBIkCgVhZnRlchgBIAEoCzIVLmRhc3NpZS51aS52MS5UcmFjZUlkEg0KBWxpbWl0GAIgASgNIjwKE0xpc3RQYWNrZXRzUmVzcG9uc2USJQoHcGFja2V0cxgBIAMoCzIULmRhc3NpZS51aS52MS5QYWNrZXQiGQoXU3Vic2NyaWJlUGFja2V0c1JlcXVlc3QiUAoLUGFja2V0RXZlbnQSJgoGcGFja2V0GAEgASgLMhQuZGFzc2llLnVpLnYxLlBhY2tldEgAEhAKBmxhZ2dlZBgCIAEoBEgAQgcKBWV2ZW50KoEBCg1UcmFuc2ZlclN0YXRlEh4KGlRSQU5TRkVSX1NUQVRFX1VOU1BFQ0lGSUVEEAASGgoWVFJBTlNGRVJfU1RBVEVfUEVORElORxABEhkKFVRSQU5TRkVSX1NUQVRFX1BPU1RFRBACEhkKFVRSQU5TRkVSX1NUQVRFX1ZPSURFRBADKnwKC1BhY2tldFN0YXRlEhwKGFBBQ0tFVF9TVEFURV9VTlNQRUNJRklFRBAAEhgKFFBBQ0tFVF9TVEFURV9QRU5ESU5HEAESGgoWUEFDS0VUX1NUQVRFX0ZVTEZJTExFRBACEhkKFVBBQ0tFVF9TVEFURV9SRUpFQ1RFRBADYgZwcm90bzM");
+  fileDesc("ChhkYXNzaWUvdWkvdjEvZGVidWcucHJvdG8SDGRhc3NpZS51aS52MSKDAQoHQWNjb3VudBIKCgJpZBgBIAEoDRIMCgRwYXRoGAIgASgJEhUKDWRlYml0c19wb3N0ZWQYAyABKAQSFgoOY3JlZGl0c19wb3N0ZWQYBCABKAQSFgoOZGViaXRzX3BlbmRpbmcYBSABKAQSFwoPY3JlZGl0c19wZW5kaW5nGAYgASgEIhUKE0xpc3RBY2NvdW50c1JlcXVlc3QiPwoUTGlzdEFjY291bnRzUmVzcG9uc2USJwoIYWNjb3VudHMYASADKAsyFS5kYXNzaWUudWkudjEuQWNjb3VudCIqCgdUcmFjZUlkEg0KBWVwb2NoGAEgASgEEhAKCHNlcXVlbmNlGAIgASgEIsICCghUcmFuc2ZlchIKCgJpZBgBIAEoBBINCgVkZWJpdBgCIAEoDRIOCgZjcmVkaXQYAyABKA0SEgoKZGViaXRfcGF0aBgEIAEoCRITCgtjcmVkaXRfcGF0aBgFIAEoCRIOCgZhbW91bnQYBiABKAQSKgoFc3RhdGUYByABKA4yGy5kYXNzaWUudWkudjEuVHJhbnNmZXJTdGF0ZRIaChJjcmVhdGVkX2F0X3VuaXhfbXMYCCABKAMSGwoTcmVzb2x2ZWRfYXRfdW5peF9tcxgJIAEoAxInCgZwYWNrZXQYCiABKAsyFS5kYXNzaWUudWkudjEuVHJhY2VJZEgAEhQKCnNldHRsZW1lbnQYCyABKAlIABIPCgVvdGhlchgMIAEoCUgAEhAKCHNlcXVlbmNlGA0gASgEQgsKCXJlZmVyZW5jZSJVChRMaXN0VHJhbnNmZXJzUmVxdWVzdBIbCg5hZnRlcl9zZXF1ZW5jZRgBIAEoBEgAiAEBEg0KBWxpbWl0GAIgASgNQhEKD19hZnRlcl9zZXF1ZW5jZSJCChVMaXN0VHJhbnNmZXJzUmVzcG9uc2USKQoJdHJhbnNmZXJzGAEgAygLMhYuZGFzc2llLnVpLnYxLlRyYW5zZmVyIqMCCgZQYWNrZXQSJAoFdHJhY2UYASABKAsyFS5kYXNzaWUudWkudjEuVHJhY2VJZBIOCgZzb3VyY2UYAiABKAkSEwoLZGVzdGluYXRpb24YAyABKAkSGwoTZGVzdGluYXRpb25fYWRkcmVzcxgEIAEoCRIRCglhbW91bnRfaW4YBSABKAQSEgoKYW1vdW50X291dBgGIAEoBBIbChNyZWNlaXZlZF9hdF91bml4X21zGAcgASgDEhsKE3Jlc29sdmVkX2F0X3VuaXhfbXMYCCABKAMSKAoFc3RhdGUYCSABKA4yGS5kYXNzaWUudWkudjEuUGFja2V0U3RhdGUSEwoLcmVqZWN0X2NvZGUYCiABKAkSEQoJdHJhbnNmZXJzGAsgAygEIkkKEkxpc3RQYWNrZXRzUmVxdWVzdBIkCgVhZnRlchgBIAEoCzIVLmRhc3NpZS51aS52MS5UcmFjZUlkEg0KBWxpbWl0GAIgASgNIjwKE0xpc3RQYWNrZXRzUmVzcG9uc2USJQoHcGFja2V0cxgBIAMoCzIULmRhc3NpZS51aS52MS5QYWNrZXQiGQoXU3Vic2NyaWJlUGFja2V0c1JlcXVlc3QiUAoLUGFja2V0RXZlbnQSJgoGcGFja2V0GAEgASgLMhQuZGFzc2llLnVpLnYxLlBhY2tldEgAEhAKBmxhZ2dlZBgCIAEoBEgAQgcKBWV2ZW50KoEBCg1UcmFuc2ZlclN0YXRlEh4KGlRSQU5TRkVSX1NUQVRFX1VOU1BFQ0lGSUVEEAASGgoWVFJBTlNGRVJfU1RBVEVfUEVORElORxABEhkKFVRSQU5TRkVSX1NUQVRFX1BPU1RFRBACEhkKFVRSQU5TRkVSX1NUQVRFX1ZPSURFRBADKnwKC1BhY2tldFN0YXRlEhwKGFBBQ0tFVF9TVEFURV9VTlNQRUNJRklFRBAAEhgKFFBBQ0tFVF9TVEFURV9QRU5ESU5HEAESGgoWUEFDS0VUX1NUQVRFX0ZVTEZJTExFRBACEhkKFVBBQ0tFVF9TVEFURV9SRUpFQ1RFRBADYgZwcm90bzM");
 
 /**
  * An account of the internal ledger.
@@ -198,6 +198,15 @@ export type Transfer = Message<"dassie.ui.v1.Transfer"> & {
     value: string;
     case: "other";
   } | { case: undefined; value?: undefined };
+
+  /**
+   * Where the row is in the order rows were written or last changed: a
+   * packet's transfer is written when it is posted, after transfers with
+   * larger IDs, and a settlement's row changes when it is resolved.
+   *
+   * @generated from field: uint64 sequence = 13;
+   */
+  sequence: bigint;
 };
 
 /**
@@ -212,11 +221,13 @@ export const TransferSchema: GenMessage<Transfer> = /*@__PURE__*/
  */
 export type ListTransfersRequest = Message<"dassie.ui.v1.ListTransfersRequest"> & {
   /**
-   * Transfers with a larger ID; from the first if unset.
+   * Rows written or changed after this sequence number; from the first if
+   * unset. Paging with the last `sequence` seen sees every row and every
+   * change once.
    *
-   * @generated from field: optional uint64 after_id = 1;
+   * @generated from field: optional uint64 after_sequence = 1;
    */
-  afterId?: bigint | undefined;
+  afterSequence?: bigint | undefined;
 
   /**
    * At most this many, up to 1000; 0 means 100.
@@ -238,7 +249,7 @@ export const ListTransfersRequestSchema: GenMessage<ListTransfersRequest> = /*@_
  */
 export type ListTransfersResponse = Message<"dassie.ui.v1.ListTransfersResponse"> & {
   /**
-   * In ID order.
+   * In sequence order.
    *
    * @generated from field: repeated dassie.ui.v1.Transfer transfers = 1;
    */

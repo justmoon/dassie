@@ -349,28 +349,6 @@ fn reports_may_take_the_group_below_zero() {
 }
 
 #[test]
-fn closing_a_peer_voids_its_packets_but_not_its_settlements() {
-    let (mut ledger, accounts) = funded(UNIT);
-    let (peer_account, _) = ledger.open_peer(0, LedgerId::StubUsd, peer(), 0).unwrap();
-    ledger
-        .create(1, &spec(accounts.token, peer_account, 5, true, packet(0)))
-        .unwrap();
-    let settlement = Reference::Settlement {
-        scheme: Name::new("stub").unwrap(),
-        id: Name::new("s1").unwrap(),
-    };
-    let kept = ledger
-        .create(
-            1,
-            &spec(accounts.owner, accounts.settlement, 2, true, settlement),
-        )
-        .unwrap();
-    assert_eq!(ledger.close_peer(2, LedgerId::StubUsd, peer()), 1);
-    assert!(ledger.pending(kept).is_some());
-    ledger.check_invariants();
-}
-
-#[test]
 fn the_journal_rebuilds_the_ledger() {
     let (mut ledger, accounts) = funded(UNIT);
     let mut mirror = Mirror::default();

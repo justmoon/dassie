@@ -23,7 +23,9 @@ pub struct LedgerBatch {
     pub journal: Vec<JournalEntry>,
     /// Settlement schemes activated, with their config.
     pub schemes_added: Vec<(Name, String)>,
-    /// Settlement schemes deactivated. Their checkpoints stay.
+    /// Settlement schemes deactivated. Their checkpoints stay. Written
+    /// before the additions; a scheme added and then removed within the
+    /// batch is left out of `schemes_added`.
     pub schemes_removed: Vec<Name>,
     /// Each scheme's balance as the books now record it.
     pub checkpoints: Vec<(Name, u64)>,
@@ -77,6 +79,8 @@ pub struct StoredLedger {
 /// A transfer in the journal, with its accounts' paths.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JournalRow {
+    /// Where the row is in the order rows were written or last changed.
+    pub sequence: u64,
     /// The transfer.
     pub transfer: Transfer,
     /// Where it is now.
@@ -230,31 +234,35 @@ impl Store {
         Ok(())
     }
 
-    /// Up to `limit` journal rows after `after`, in ID order.
+    /// Up to `limit` journal rows written or changed after `after`, a
+    /// sequence number, in that order. A reader that pages with the last
+    /// sequence it saw sees every row, and every change of a row, once.
     pub fn transfers_after(
         &self,
         after: Option<u64>,
         limit: u32,
     ) -> Result<Vec<JournalRow>, StoreError> {
         let connection = self.lock();
-        let after = after.map_or(-1, |after| i64::try_from(after).unwrap_or(i64::MAX));
+        let after = after.map_or(0, |after| i64::try_from(after).unwrap_or(i64::MAX));
         let mut statement = connection.prepare(&format!(
             "SELECT {TRANSFER_COLUMNS}, d.path, c.path FROM ledger_transfers t \
              JOIN ledger_accounts d ON d.id = t.debit JOIN ledger_accounts c ON c.id = t.credit \
-             WHERE t.id > ?1 ORDER BY t.id LIMIT ?2"
+             WHERE t.sequence > ?1 ORDER BY t.sequence LIMIT ?2"
         ))?;
         statement
             .query_map(params![after, limit], |row| {
                 Ok((
                     read_transfer(row)?,
-                    row.get::<_, String>(12)?,
+                    row.get::<_, i64>(12)?,
                     row.get::<_, String>(13)?,
+                    row.get::<_, String>(14)?,
                 ))
             })?
             .map(|row| {
-                let (transfer, debit_path, credit_path) = row?;
+                let (transfer, sequence, debit_path, credit_path) = row?;
                 let (transfer, state, resolved_at_ms) = transfer?;
                 Ok(JournalRow {
+                    sequence: amount(sequence)?,
                     transfer,
                     state,
                     resolved_at_ms,
@@ -269,7 +277,7 @@ impl Store {
 /// The columns [`read_transfer`] reads, in its order.
 const TRANSFER_COLUMNS: &str = "t.id, t.debit, t.credit, t.amount, t.state, t.created_at_ms, \
      t.resolved_at_ms, t.reference, t.packet_epoch, t.packet_sequence, t.settlement_scheme, \
-     t.settlement_id";
+     t.settlement_id, t.sequence";
 
 type TransferRow = Result<(Transfer, TransferState, Option<u64>), StoreError>;
 
@@ -344,7 +352,8 @@ fn write_entry(transaction: &Transaction<'_>, entry: &JournalEntry) -> Result<()
             at_ms,
         } => {
             let updated = transaction.execute(
-                "UPDATE ledger_transfers SET state = 'posted', resolved_at_ms = ?2 \
+                "UPDATE ledger_transfers SET state = 'posted', resolved_at_ms = ?2, \
+                 sequence = (SELECT max(sequence) + 1 FROM ledger_transfers) \
                  WHERE id = ?1 AND state = 'pending'",
                 params![sql_amount(transfer.id.0)?, to_sql_time(at_ms)],
             )?;
@@ -367,7 +376,8 @@ fn write_entry(transaction: &Transaction<'_>, entry: &JournalEntry) -> Result<()
             at_ms,
         } => {
             let updated = transaction.execute(
-                "UPDATE ledger_transfers SET state = 'voided', resolved_at_ms = ?2 \
+                "UPDATE ledger_transfers SET state = 'voided', resolved_at_ms = ?2, \
+                 sequence = (SELECT max(sequence) + 1 FROM ledger_transfers) \
                  WHERE id = ?1 AND state = 'pending'",
                 params![sql_amount(transfer.id.0)?, to_sql_time(at_ms)],
             )?;
@@ -407,8 +417,9 @@ fn insert_transfer(
     };
     transaction.execute(
         "INSERT INTO ledger_transfers (id, debit, credit, amount, state, created_at_ms, \
-         resolved_at_ms, reference, packet_epoch, packet_sequence, settlement_scheme, settlement_id) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+         resolved_at_ms, reference, packet_epoch, packet_sequence, settlement_scheme, settlement_id, \
+         sequence) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, \
+         (SELECT coalesce(max(sequence), 0) + 1 FROM ledger_transfers))",
         params![
             sql_amount(transfer.id.0)?,
             transfer.debit.0,
@@ -429,16 +440,18 @@ fn insert_transfer(
 
 fn write_settlement(transaction: &Transaction<'_>, batch: &LedgerBatch) -> Result<(), StoreError> {
     let at = to_sql_time(batch.at_ms);
-    for (id, config) in &batch.schemes_added {
-        transaction.execute(
-            "INSERT INTO settlement_schemes (id, config, activated_at_ms) VALUES (?1, ?2, ?3)",
-            params![id.as_str(), config, at],
-        )?;
-    }
+    // Removals first: a scheme removed and added again in one batch ends up
+    // added. (One added and then removed is not in `schemes_added`.)
     for id in &batch.schemes_removed {
         transaction.execute(
             "DELETE FROM settlement_schemes WHERE id = ?1",
             [id.as_str()],
+        )?;
+    }
+    for (id, config) in &batch.schemes_added {
+        transaction.execute(
+            "INSERT INTO settlement_schemes (id, config, activated_at_ms) VALUES (?1, ?2, ?3)",
+            params![id.as_str(), config, at],
         )?;
     }
     for (scheme, balance) in &batch.checkpoints {

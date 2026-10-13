@@ -157,6 +157,7 @@ impl Core {
             ));
         }
         self.schemes.remove(&id);
+        self.batch.schemes_added.retain(|(added, _)| *added != id);
         self.batch.schemes_removed.push(id);
         if self
             .receiver
@@ -174,17 +175,30 @@ impl Core {
 
     pub(super) fn stub_deposit(&mut self, amount: u64) -> Result<LedgerView, EngineError> {
         let stub = Name::new("stub").map_err(|_| EngineError::Internal("name".into()))?;
-        let Some(active) = self.schemes.get_mut(&stub) else {
-            return Err(EngineError::Precondition(
-                "the stub scheme is not active".into(),
-            ));
+        let inactive = || EngineError::Precondition("the stub scheme is not active".into());
+        let ledger = self
+            .schemes
+            .get(&stub)
+            .map(|active| active.scheme.ledger())
+            .ok_or_else(inactive)?;
+        // The books must take it before the stub's balance moves: they
+        // could not follow it otherwise.
+        let deposit = TransferSpec {
+            debit: self.account(ledger, AccountName::AssetsSettlement)?,
+            credit: self.account(ledger, AccountName::EquityOwner)?,
+            amount,
+            pending: false,
+            reference: Reference::Deposit,
         };
+        self.ledger
+            .validate(&deposit)
+            .map_err(|e| EngineError::Invalid(e.to_string()))?;
+        let active = self.schemes.get_mut(&stub).ok_or_else(inactive)?;
         let mut effects = Vec::new();
         active
             .scheme
             .deposit(amount, &mut effects)
             .map_err(|e| EngineError::Invalid(e.to_string()))?;
-        let ledger = active.scheme.ledger();
         let balance = active.scheme.balance();
         self.apply_effects(ledger, &effects)?;
         self.batch.checkpoints.push((stub, balance));

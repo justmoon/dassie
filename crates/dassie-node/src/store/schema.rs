@@ -99,7 +99,11 @@ CREATE TABLE ledger_transfers (
   packet_epoch INTEGER CHECK ((reference = 'packet') = (packet_epoch IS NOT NULL)),
   packet_sequence INTEGER CHECK ((reference = 'packet') = (packet_sequence IS NOT NULL)),
   settlement_scheme TEXT CHECK ((reference = 'settlement') = (settlement_scheme IS NOT NULL)),
-  settlement_id TEXT CHECK ((reference = 'settlement') = (settlement_id IS NOT NULL))
+  settlement_id TEXT CHECK ((reference = 'settlement') = (settlement_id IS NOT NULL)),
+  -- The order rows were written or last changed in, for readers that page
+  -- through the journal: a packet's transfer is written when it is posted,
+  -- which is not the order of transfer IDs.
+  sequence INTEGER NOT NULL UNIQUE CHECK (sequence > 0)
 ) STRICT;
 
 CREATE INDEX ledger_transfers_by_debit ON ledger_transfers (debit, state);
@@ -227,6 +231,7 @@ const TABLES: &[Table] = &[
             ("packet_sequence", "INTEGER", false, false),
             ("settlement_scheme", "TEXT", false, false),
             ("settlement_id", "TEXT", false, false),
+            ("sequence", "INTEGER", true, false),
         ],
     },
     Table {

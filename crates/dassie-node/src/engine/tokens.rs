@@ -16,6 +16,10 @@ use crate::store::{BtpTokenRow, Store, StoreError};
 /// Most tokens not revoked.
 pub const MAX_TOKENS: usize = 64;
 
+/// Most tokens ever made, revoked ones included: each keeps its account,
+/// which the journal refers to, so this bounds what revoking can leave.
+pub const MAX_TOKEN_ROWS: usize = 1024;
+
 /// Most bytes in a token's label.
 const MAX_LABEL_BYTES: usize = 64;
 
@@ -127,6 +131,9 @@ impl Core {
         if self.by_hash.len() >= MAX_TOKENS {
             return Err(EngineError::Exhausted("there are 64 tokens already".into()));
         }
+        if self.tokens.len() >= MAX_TOKEN_ROWS {
+            return Err(EngineError::Exhausted("1024 tokens have been made".into()));
+        }
         let mut random = [0u8; TOKEN_BYTES];
         self.node.with_rng(|rng| rng.fill_bytes(&mut random));
         let mut encoded = [0u8; dassie_stream::base64url::encoded_len(TOKEN_BYTES)];
@@ -177,8 +184,11 @@ impl Core {
         self.by_hash.remove(&token.row.token_hash);
         let links: Vec<u64> = token.connections.iter().copied().collect();
         self.batch.tokens_revoked.push(id);
+        // Their messages of this batch go out first; then they end.
         for link in links {
-            self.close_link(link);
+            if !self.closing.contains(&link) {
+                self.closing.push(link);
+            }
         }
         tracing::info!(target: target::BTP, id, "BTP token revoked");
         Ok(())

@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use dassie_ilp::btp::{self, Body as BtpBody, ContentType, ProtocolData, ProtocolDataEntry};
+use dassie_ilp::{ErrorCode, Reject};
 use dassie_oer::{Decode, Encode};
 use futures_util::{SinkExt, StreamExt};
 use hyper::body::Incoming;
@@ -54,14 +55,14 @@ pub fn upgrade(
     let Some(engine) = node.engine() else {
         return response::text(StatusCode::SERVICE_UNAVAILABLE, "The ledger is not running");
     };
-    if !node.btp_auth_allowed(peer.ip()) {
-        return response::text(StatusCode::TOO_MANY_REQUESTS, "Too many attempts");
+    if node.btp_auth_blocked(peer.ip()) {
+        return response::text(StatusCode::TOO_MANY_REQUESTS, "Too many failed attempts");
     }
     let Some(permit) = node.btp_permit() else {
         return response::text(StatusCode::SERVICE_UNAVAILABLE, "Too many BTP clients");
     };
     let upgrade = hyper::upgrade::on(&mut request);
-    let auth_timeout = Duration::from_millis(node.policies().btp_auth_timeout_ms);
+    let node = Arc::clone(node);
     let shutdown = shutdown.clone();
     tasks.spawn(async move {
         let _permit = permit;
@@ -72,7 +73,7 @@ pub fn upgrade(
                     .max_frame_size(Some(MAX_MESSAGE_BYTES));
                 let io = TokioIo::new(upgraded);
                 let socket = WebSocketStream::from_raw_socket(io, Role::Server, Some(config)).await;
-                serve(engine, socket, auth_timeout, shutdown).await;
+                serve(&node, peer, engine, socket, shutdown).await;
             }
             Err(error) => tracing::debug!(target: target::BTP, %error, "BTP upgrade failed"),
         }
@@ -81,16 +82,23 @@ pub fn upgrade(
 }
 
 async fn serve(
+    node: &Node,
+    peer: SocketAddr,
     engine: Engine,
     mut socket: Socket,
-    auth_timeout: Duration,
     shutdown: CancellationToken,
 ) {
     let (outbound, mut queue) = mpsc::channel(OUTBOUND_QUEUE);
+    let auth_timeout = Duration::from_millis(node.policies().btp_auth_timeout_ms);
     let link = match authenticate(&engine, &mut socket, auth_timeout, outbound).await {
         Ok(link) => link,
-        Err(reason) => {
+        Err(Refused { reason, failed }) => {
             tracing::debug!(target: target::BTP, reason, "BTP client refused");
+            // Only failed logins count against the client's address, so
+            // that honest clients may reconnect as often as they need.
+            if failed {
+                node.btp_auth_failed(peer.ip());
+            }
             close(&mut socket, CloseCode::Policy, reason).await;
             return;
         }
@@ -127,13 +135,27 @@ async fn serve(
     }
 }
 
+/// Why a client was not let in.
+struct Refused {
+    reason: &'static str,
+    /// It failed to log in, rather than going away.
+    failed: bool,
+}
+
+const fn failed(reason: &'static str) -> Refused {
+    Refused {
+        reason,
+        failed: true,
+    }
+}
+
 /// Waits for the auth message and checks its token.
 async fn authenticate(
     engine: &Engine,
     socket: &mut Socket,
     timeout: Duration,
     outbound: mpsc::Sender<Outbound>,
-) -> Result<u64, &'static str> {
+) -> Result<u64, Refused> {
     // Control frames may come first: ilp-plugin-btp pings as soon as it
     // connects.
     let first = async {
@@ -146,24 +168,39 @@ async fn authenticate(
     };
     let first = tokio::time::timeout(timeout, first)
         .await
-        .map_err(|_| "no authentication")?;
-    let Some(Ok(Message::Binary(bytes))) = first else {
-        return Err("expected a binary BTP message");
+        .map_err(|_| failed("no authentication"))?;
+    let bytes = match first {
+        Some(Ok(Message::Binary(bytes))) => bytes,
+        Some(Ok(Message::Close(_)) | Err(_)) | None => {
+            return Err(Refused {
+                reason: "connection lost",
+                failed: false,
+            });
+        }
+        Some(Ok(_)) => return Err(failed("expected a binary BTP message")),
     };
-    let packet = btp::Packet::decode_exact(&bytes).map_err(|_| "not a BTP packet")?;
-    let token = btp::auth_token(&packet).ok_or("expected BTP authentication")?;
+    let packet = btp::Packet::decode_exact(&bytes).map_err(|_| failed("not a BTP packet"))?;
+    let token = btp::auth_token(&packet).ok_or(failed("expected BTP authentication"))?;
     let session = engine
         .btp_connect(token.to_string(), outbound)
         .await
-        .map_err(|_| "authentication failed")?;
+        .map_err(|_| failed("authentication failed"))?;
     let accepted = btp::Packet {
         request_id: packet.request_id,
         body: BtpBody::Response(ProtocolData::EMPTY),
     };
-    socket
+    if socket
         .send(Message::Binary(accepted.to_vec().into()))
         .await
-        .map_err(|_| "connection lost")?;
+        .is_err()
+    {
+        // The engine has the link already: give it back.
+        engine.btp_closed(session.link).await;
+        return Err(Refused {
+            reason: "connection lost",
+            failed: false,
+        });
+    }
     Ok(session.link)
 }
 
@@ -189,8 +226,23 @@ async fn receive(
         }
         // An acknowledgement without ILP data; nothing waits for it.
         (BtpBody::Response(_), None) => {}
+        // RFC 23: an Error answers our Message as a failure. The Prepare it
+        // answers is rejected now, rather than held until it expires.
         (BtpBody::Error(error), _) => {
             tracing::debug!(target: target::BTP, link, code = error.code, name = error.name, "BTP error from client");
+            let code = <[u8; 3]>::try_from(error.code.as_bytes())
+                .ok()
+                .and_then(ErrorCode::new)
+                .unwrap_or(ErrorCode::T00_INTERNAL_ERROR);
+            let reject = Reject {
+                code,
+                triggered_by: None,
+                message: "the BTP client answered with an error",
+                data: &[],
+            };
+            engine
+                .btp_packet(link, packet.request_id, reject.to_vec(), true)
+                .await;
         }
         (BtpBody::Transfer { .. }, _) => {
             let refusal = Outbound::Error {

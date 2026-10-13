@@ -160,6 +160,23 @@ impl RateLimiter {
         result
     }
 
+    /// Whether `client` has an attempt left, without taking it: for limits
+    /// that count only failures, checked up front and charged with
+    /// [`check`](Self::check) when an attempt fails.
+    pub fn peek(&mut self, client: ClientKey, now_ms: u64) -> Result<(), Limited> {
+        let policy = self.policy;
+        let Some((_, bucket)) = self.clients.iter_mut().find(|(key, _)| *key == client) else {
+            return Ok(());
+        };
+        bucket.refill(policy.client_burst, policy.client_refill_ms, now_ms);
+        if bucket.tokens == 0 {
+            return Err(Limited {
+                retry_after_ms: bucket.wait_ms(policy.client_refill_ms, now_ms),
+            });
+        }
+        Ok(())
+    }
+
     /// The slot of `client`, making one if needed.
     fn slot(&mut self, client: ClientKey, now_ms: u64) -> usize {
         if let Some(index) = self.clients.iter().position(|(key, _)| *key == client) {
@@ -253,6 +270,22 @@ mod tests {
             }
         }
         assert_eq!(limiter.check(v4(1), 120_000), Ok(()));
+    }
+
+    #[test]
+    fn peeking_takes_no_attempt() {
+        let mut limiter = RateLimiter::new(RateLimitPolicy::DEFAULT);
+        for _ in 0..100 {
+            assert_eq!(limiter.peek(v4(1), 0), Ok(()));
+        }
+        for _ in 0..RateLimitPolicy::DEFAULT.client_burst {
+            assert_eq!(limiter.check(v4(1), 0), Ok(()));
+        }
+        assert!(limiter.peek(v4(1), 0).is_err());
+        assert_eq!(
+            limiter.peek(v4(1), RateLimitPolicy::DEFAULT.client_refill_ms),
+            Ok(())
+        );
     }
 
     #[test]

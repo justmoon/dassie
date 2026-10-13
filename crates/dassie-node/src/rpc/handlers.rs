@@ -30,13 +30,18 @@ pub struct Items {
 
 impl Items {
     pub(super) fn send(&self, item: stream_item::Method) {
+        let _ = self.try_send(item);
+    }
+
+    /// Queues an item; false if the connection's queue had no room for it.
+    pub(super) fn try_send(&self, item: stream_item::Method) -> bool {
         let message = proto::ServerMessage {
             call_id: self.call_id,
             kind: Some(proto::server_message::Kind::Item(proto::StreamItem {
                 method: Some(item),
             })),
         };
-        let _ = self.sender.try_send((self.generation, message));
+        self.sender.try_send((self.generation, message)).is_ok()
     }
 }
 

@@ -92,9 +92,11 @@ impl Connector {
             if at > now_ms {
                 return None;
             }
-            let Some(entry) = self.take(destination, request_id) else {
-                continue;
-            };
+            // Every deadline belongs to a packet in flight (an invariant);
+            // without one, this would loop for ever.
+            let entry = self.take(destination, request_id);
+            assert!(entry.is_some(), "a deadline without its packet");
+            let entry = entry?;
             let resolution = match entry.failure {
                 Some(code) => Resolution::Failed(code, "next hop went away"),
                 None => Resolution::Failed(ErrorCode::R00_TRANSFER_TIMED_OUT, "packet timed out"),

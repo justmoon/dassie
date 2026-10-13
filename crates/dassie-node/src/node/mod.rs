@@ -86,7 +86,12 @@ impl Policies {
             max_pending: 9216,
             max_journal: 1024,
         },
-        connector: dassie_connector::Config::DEFAULT,
+        // Every BTP client and the receiver can fill their share of the
+        // packet table at once: 65 × 60 fits its 4096.
+        connector: dassie_connector::Config {
+            max_pending_per_endpoint: 60,
+            ..dassie_connector::Config::DEFAULT
+        },
     };
 }
 
@@ -319,13 +324,20 @@ impl Node {
         Arc::clone(&self.btp_connections).try_acquire_owned().ok()
     }
 
-    /// Whether `client` may try to authenticate a BTP connection now.
+    /// Whether `client` failed to authenticate BTP connections too often to
+    /// try again now.
     #[must_use]
-    pub fn btp_auth_allowed(&self, client: std::net::IpAddr) -> bool {
+    pub fn btp_auth_blocked(&self, client: std::net::IpAddr) -> bool {
         let client = dassie_node_core::rate_limit::ClientKey::from_ip(client);
         lock(&self.btp_auth_limiter)
-            .check(client, self.now_ms())
-            .is_ok()
+            .peek(client, self.now_ms())
+            .is_err()
+    }
+
+    /// Counts a failed BTP authentication from `client`.
+    pub fn btp_auth_failed(&self, client: std::net::IpAddr) {
+        let client = dassie_node_core::rate_limit::ClientKey::from_ip(client);
+        let _ = lock(&self.btp_auth_limiter).check(client, self.now_ms());
     }
 
     /// Whether the node has an identity.
