@@ -1,5 +1,11 @@
 [workspace]
-members = ["crates/dassie-identity", "crates/dassie-ilp", "crates/dassie-oer", "crates/dassie-stream"]
+members = [
+  "crates/dassie-identity",
+  "crates/dassie-ilp",
+  "crates/dassie-node-core",
+  "crates/dassie-oer",
+  "crates/dassie-stream",
+]
 resolver = "3"
 
 [workspace.package]

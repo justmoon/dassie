@@ -260,6 +260,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "dassie-node-core"
+version = "0.1.0"
+dependencies = [
+ "dassie-identity",
+ "dassie-node-core",
+ "proptest",
+ "rand_core",
+ "sha2",
+ "subtle",
+]
+
+[[package]]
 name = "dassie-oer"
 version = "0.1.0"
 dependencies = [
