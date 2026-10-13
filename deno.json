@@ -1,6 +1,9 @@
 {
   "workspace": [
+    "./apps/wallet",
     "./packages/identity-wasm",
+    "./packages/rpc",
+    "./tests/e2e",
     "./tests/interop"
   ],
   "nodeModulesDir": "auto",
@@ -9,16 +12,20 @@
     "target/",
     "spec/",
     "testdata/",
-    "packages/identity-wasm/gen/"
+    "packages/identity-wasm/gen/",
+    "packages/rpc/src/gen/",
+    "apps/wallet/dist/"
   ],
   "fmt": {
-    "include": ["packages/", "tests/", "scripts/", "deno.json"],
+    "include": ["apps/", "packages/", "tests/", "scripts/", "deno.json"],
     "exclude": ["**/*.md"]
   },
   "tasks": {
     "build:wasm": "deno run --allow-run --allow-read --allow-write --allow-env scripts/build-wasm.ts",
+    "build:wallet": "cd apps/wallet && deno task build",
+    "build:e2e": "DASSIE_WALLET_DIST=$(pwd)/apps/wallet/dist cargo build --locked --profile e2e -p dassie-cli",
     "check": "deno fmt --check && deno lint && deno check",
     "test": "deno test --allow-read --allow-write --allow-env --allow-net --allow-run",
-    "ci": "deno task build:wasm && deno task check && deno task test"
+    "ci": "deno task build:wasm && deno task build:wallet && deno task build:e2e && deno task check && deno task test"
   }
 }
