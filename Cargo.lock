@@ -428,6 +428,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "dassie-connector"
+version = "0.1.0"
+dependencies = [
+ "dassie-ilp",
+ "dassie-ledger",
+ "dassie-node-core",
+ "dassie-oer",
+ "proptest",
+ "rand_core",
+]
+
+[[package]]
 name = "dassie-identity"
 version = "0.1.0"
 dependencies = [

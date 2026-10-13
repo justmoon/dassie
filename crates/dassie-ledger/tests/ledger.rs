@@ -450,7 +450,10 @@ fn pending_transfers_within_the_group_leave_the_funds_free() {
     let (mut ledger, accounts) = funded(10);
     let (peer, _) = ledger.open_peer(0, LedgerId::StubUsd, peer(), 0).unwrap();
     ledger
-        .create(1, &spec(accounts.token, accounts.owner, 100, true, packet(0)))
+        .create(
+            1,
+            &spec(accounts.token, accounts.owner, 100, true, packet(0)),
+        )
         .unwrap();
     let group = ledger.group_balance(accounts.owner).unwrap();
     assert!(group.within(dassie_ledger::Limit::DebitsMustNotExceedCredits));
