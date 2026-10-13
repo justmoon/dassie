@@ -1,0 +1,29 @@
+[package]
+name = "dassie-cli"
+version = "0.1.0"
+description = "The dassie binary: daemon, init and verify-install"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "dassie"
+path = "src/main.rs"
+
+[dependencies]
+dassie-node = { path = "../dassie-node" }
+dassie-node-core = { path = "../dassie-node-core" }
+tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
+tokio-util = { version = "0.7.20", features = ["codec"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+bytes = "1"
+prost = "0.14.4"
+# The few flags there are; clap would not pay its way.
+lexopt = "0.3.2"
+# The init wizard's prompts, in the original's style.
+cliclack = "0.5.6"
+tracing = "0.1.44"
+
+[dev-dependencies]
+tempfile = "3"
