@@ -524,6 +524,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dassie-settlement"
+version = "0.1.0"
+dependencies = [
+ "dassie-ledger",
+ "dassie-node-core",
+ "rand_core",
+]
+
+[[package]]
 name = "dassie-stream"
 version = "0.1.0"
 dependencies = [

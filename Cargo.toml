@@ -7,6 +7,7 @@ members = [
   "crates/dassie-node",
   "crates/dassie-node-core",
   "crates/dassie-oer",
+  "crates/dassie-settlement",
   "crates/dassie-stream",
 ]
 resolver = "3"

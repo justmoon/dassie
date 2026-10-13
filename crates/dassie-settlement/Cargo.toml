@@ -1,0 +1,16 @@
+[package]
+name = "dassie-settlement"
+version = "0.1.0"
+description = "Settlement schemes for Dassie: the scheme interface, activation reconciliation and the stub module"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+dassie-ledger = { path = "../dassie-ledger" }
+# The RNG trait only: the caller injects the generator.
+rand_core = { version = "0.10", default-features = false }
+
+[dev-dependencies]
+dassie-node-core = { path = "../dassie-node-core", features = ["testing"] }
