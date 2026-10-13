@@ -1,0 +1,18 @@
+{
+  "pebble": {
+    "listenAddress": "127.0.0.1:14000",
+    "managementListenAddress": "127.0.0.1:15000",
+    "certificate": "cert.pem",
+    "privateKey": "key.pem",
+    "httpPort": 18780,
+    "tlsPort": 18781,
+    "ocspResponderURL": "",
+    "externalAccountBindingRequired": false,
+    "domainBlocklist": [],
+    "retryAfter": {
+      "authz": 1,
+      "order": 1
+    },
+    "certificateValidityPeriod": 7776000
+  }
+}

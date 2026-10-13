@@ -1,0 +1,451 @@
+//! A daemon in-process, on loopback ports in a temporary directory, with a
+//! manual clock and a seeded RNG; and clients for its HTTPS, WebSocket and
+//! IPC sides.
+
+#![allow(
+    dead_code,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing
+)]
+
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+
+use bytes::Bytes;
+use dassie_node::clock::ManualClock;
+use dassie_node::daemon::{self, DaemonError, Prepared};
+use dassie_node::env::{Env, Settings};
+use dassie_node::node::Policies;
+use dassie_node::rpc::proto::{self, client_message, request, response, server_message};
+use dassie_node::store::Store;
+use dassie_node::{ipc, tls};
+use dassie_node_core::testing::SeededRng;
+use futures_util::{SinkExt, StreamExt};
+use http_body_util::{BodyExt, Full};
+use hyper::{Request, StatusCode};
+use hyper_util::rt::TokioIo;
+use prost::Message as _;
+use rustls::DigitallySignedStruct;
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use tokio::net::{TcpStream, UnixStream};
+use tokio::task::JoinHandle;
+use tokio_rustls::TlsConnector;
+use tokio_rustls::client::TlsStream;
+use tokio_tungstenite::WebSocketStream;
+use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_util::codec::{Framed, LengthDelimitedCodec};
+use tokio_util::sync::CancellationToken;
+
+/// 2027-01-15, a plausible now.
+pub const START_MS: u64 = 1_800_000_000_000;
+
+/// A running daemon.
+pub struct TestNode {
+    pub dir: tempfile::TempDir,
+    pub http: SocketAddr,
+    pub https: SocketAddr,
+    pub ipc: PathBuf,
+    pub clock: ManualClock,
+    shutdown: CancellationToken,
+    handle: Option<JoinHandle<Result<(), DaemonError>>>,
+}
+
+impl TestNode {
+    /// A daemon on a fresh directory.
+    pub async fn start() -> Self {
+        Self::start_in(tempfile::tempdir().unwrap(), ManualClock::new(START_MS), 1).await
+    }
+
+    /// A daemon on a fresh directory, with other limits.
+    pub async fn start_with(policies: Policies) -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        Self::start_in_with(dir, ManualClock::new(START_MS), 1, policies).await
+    }
+
+    /// A daemon on `dir`, which may hold a database already.
+    pub async fn start_in(dir: tempfile::TempDir, clock: ManualClock, seed: u64) -> Self {
+        Self::start_in_with(dir, clock, seed, Policies::DEFAULT).await
+    }
+
+    async fn start_in_with(
+        dir: tempfile::TempDir,
+        clock: ManualClock,
+        seed: u64,
+        policies: Policies,
+    ) -> Self {
+        let http = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let https = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let ipc_path = dir.path().join("ipc.sock");
+        let ipc = ipc::bind(&ipc_path).unwrap();
+        let state = dir.path().join("state");
+        let env = Env::from_pairs([("DASSIE_STATE_DIRECTORY", state.to_str().unwrap())]);
+        let settings = Settings::from_env(&env).unwrap();
+        let store = Store::open(&state).unwrap();
+        let (http_address, https_address) =
+            (http.local_addr().unwrap(), https.local_addr().unwrap());
+        let prepared = Prepared::from_parts(settings, store, http, https, ipc);
+        let shutdown = CancellationToken::new();
+        let handle = tokio::spawn(daemon::run(
+            prepared,
+            Arc::new(clock.clone()),
+            Box::new(SeededRng::new(seed)),
+            policies,
+            shutdown.clone(),
+        ));
+        let node = Self {
+            dir,
+            http: http_address,
+            https: https_address,
+            ipc: ipc_path,
+            clock,
+            shutdown,
+            handle: Some(handle),
+        };
+        node.wait_until_up().await;
+        node
+    }
+
+    async fn wait_until_up(&self) {
+        for _ in 0..200 {
+            if UnixStream::connect(&self.ipc).await.is_ok()
+                && TcpStream::connect(self.https).await.is_ok()
+            {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        panic!("the daemon did not come up");
+    }
+
+    /// Stops the daemon and returns its directory and clock, to start again.
+    pub async fn stop(mut self) -> (tempfile::TempDir, ManualClock) {
+        self.shutdown.cancel();
+        self.handle.take().unwrap().await.unwrap().unwrap();
+        let _ = std::fs::remove_file(&self.ipc);
+        (self.dir, self.clock)
+    }
+
+    /// The origin of the HTTPS listener, as the browser would name it.
+    pub fn origin(&self) -> String {
+        format!("https://localhost:{}", self.https.port())
+    }
+
+    pub fn host(&self) -> String {
+        format!("localhost:{}", self.https.port())
+    }
+
+    pub async fn ipc(&self) -> RpcClient<Framed<UnixStream, LengthDelimitedCodec>> {
+        RpcClient::ipc(&self.ipc).await
+    }
+
+    /// The setup token, from the setup URL.
+    pub async fn setup_token(&self) -> String {
+        let response = self
+            .ipc()
+            .await
+            .call(request::Method::GetSetupUrl(proto::GetSetupUrlRequest {}))
+            .await;
+        let Ok(response::Method::GetSetupUrl(setup)) = response else {
+            panic!("{response:?}")
+        };
+        setup.url.rsplit('/').next().unwrap().to_string()
+    }
+}
+
+/// Accepts any server certificate, and keeps the last one it saw.
+#[derive(Debug, Default)]
+pub struct Recorder(pub Mutex<Option<CertificateDer<'static>>>);
+
+impl ServerCertVerifier for Recorder {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: UnixTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        *self.0.lock().unwrap() = Some(end_entity.clone().into_owned());
+        Ok(ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        certificate: &CertificateDer<'_>,
+        signature: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        let algorithms = tls::provider().signature_verification_algorithms;
+        rustls::crypto::verify_tls12_signature(message, certificate, signature, &algorithms)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        certificate: &CertificateDer<'_>,
+        signature: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        let algorithms = tls::provider().signature_verification_algorithms;
+        rustls::crypto::verify_tls13_signature(message, certificate, signature, &algorithms)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        tls::provider()
+            .signature_verification_algorithms
+            .supported_schemes()
+    }
+}
+
+/// A TLS connection to the node, and the certificate it presented.
+pub async fn connect_tls(address: SocketAddr) -> (TlsStream<TcpStream>, CertificateDer<'static>) {
+    let recorder = Arc::new(Recorder::default());
+    let config = rustls::ClientConfig::builder_with_provider(tls::provider())
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .dangerous()
+        .with_custom_certificate_verifier(recorder.clone())
+        .with_no_client_auth();
+    let stream = TcpStream::connect(address).await.unwrap();
+    let name = ServerName::try_from("localhost").unwrap();
+    let stream = TlsConnector::from(Arc::new(config))
+        .connect(name, stream)
+        .await
+        .unwrap();
+    let certificate = recorder.0.lock().unwrap().clone().unwrap();
+    (stream, certificate)
+}
+
+/// A response, read in full.
+#[derive(Debug)]
+pub struct Reply {
+    pub status: StatusCode,
+    pub headers: hyper::HeaderMap,
+    pub body: Bytes,
+}
+
+impl Reply {
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers.get(name).map(|value| value.to_str().unwrap())
+    }
+
+    pub fn text(&self) -> String {
+        String::from_utf8_lossy(&self.body).into_owned()
+    }
+
+    /// The `name=value` of the `Set-Cookie` header.
+    pub fn cookie(&self) -> String {
+        self.header("set-cookie")
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string()
+    }
+}
+
+/// Sends `request` over a fresh connection, TLS or not.
+pub async fn send(address: SocketAddr, tls: bool, request: Request<Full<Bytes>>) -> Reply {
+    if tls {
+        let (stream, _) = connect_tls(address).await;
+        exchange(TokioIo::new(stream), request).await
+    } else {
+        exchange(
+            TokioIo::new(TcpStream::connect(address).await.unwrap()),
+            request,
+        )
+        .await
+    }
+}
+
+async fn exchange<S>(io: TokioIo<S>, request: Request<Full<Bytes>>) -> Reply
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    let (mut sender, connection) = hyper::client::conn::http1::handshake(io).await.unwrap();
+    tokio::spawn(connection);
+    let response = sender.send_request(request).await.unwrap();
+    let (parts, body) = response.into_parts();
+    let body = body.collect().await.unwrap().to_bytes();
+    Reply {
+        status: parts.status,
+        headers: parts.headers,
+        body,
+    }
+}
+
+/// A `POST` of `json` from the node's own pages.
+pub fn post_json(node: &TestNode, path: &str, json: &str) -> Request<Full<Bytes>> {
+    Request::post(path)
+        .header("host", node.host())
+        .header("origin", node.origin())
+        .header("content-type", "application/json")
+        .body(Full::new(Bytes::from(json.to_string())))
+        .unwrap()
+}
+
+/// The setup body for `key`, with the right proof.
+pub fn setup_body(token: &str, key: &dassie_identity::NodeKey) -> String {
+    let hex = dassie_node_core::hex::encode;
+    format!(
+        r#"{{"setupAuthorizationToken":"{token}","rawDassieKeyHex":"{}","loginAuthorizationSignature":"{}"}}"#,
+        hex(key.as_bytes()),
+        hex(key.login_secret().as_bytes())
+    )
+}
+
+pub fn login_body(key: &dassie_identity::NodeKey) -> String {
+    let proof = dassie_node_core::hex::encode(key.login_secret().as_bytes());
+    format!(r#"{{"loginAuthorizationSignature":"{proof}"}}"#)
+}
+
+/// Sets the node up with `key` and returns the session cookie.
+pub async fn set_up(node: &TestNode, key: &dassie_identity::NodeKey) -> String {
+    let token = node.setup_token().await;
+    let reply = send(
+        node.https,
+        true,
+        post_json(node, "/api/setup", &setup_body(&token, key)),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+    reply.cookie()
+}
+
+/// An RPC client over any message transport.
+pub struct RpcClient<T> {
+    transport: T,
+    next_call: u32,
+}
+
+impl RpcClient<Framed<UnixStream, LengthDelimitedCodec>> {
+    pub async fn ipc(path: &std::path::Path) -> Self {
+        let stream = UnixStream::connect(path).await.unwrap();
+        Self {
+            transport: Framed::new(stream, ipc::codec()),
+            next_call: 1,
+        }
+    }
+}
+
+/// A browser's RPC WebSocket.
+pub type Socket = WebSocketStream<TlsStream<TcpStream>>;
+
+/// Opens `/rpc` with `cookie` (if any) and `origin`.
+pub async fn websocket(
+    node: &TestNode,
+    cookie: Option<&str>,
+    origin: &str,
+) -> Result<Socket, String> {
+    let (stream, _) = connect_tls(node.https).await;
+    let mut request = format!("wss://{}/rpc", node.host())
+        .into_client_request()
+        .unwrap();
+    let headers = request.headers_mut();
+    headers.insert("origin", origin.parse().unwrap());
+    headers.insert("sec-websocket-protocol", "dassie.ui.v1".parse().unwrap());
+    if let Some(cookie) = cookie {
+        headers.insert("cookie", cookie.parse().unwrap());
+    }
+    tokio_tungstenite::client_async(request, stream)
+        .await
+        .map(|(socket, _)| socket)
+        .map_err(|error| error.to_string())
+}
+
+/// Something that carries whole messages.
+pub trait Transport {
+    async fn send_bytes(&mut self, bytes: Bytes);
+    /// The next message, or `None` when the other end closed.
+    async fn receive_bytes(&mut self) -> Option<Bytes>;
+}
+
+impl Transport for Framed<UnixStream, LengthDelimitedCodec> {
+    async fn send_bytes(&mut self, bytes: Bytes) {
+        self.send(bytes).await.unwrap();
+    }
+
+    async fn receive_bytes(&mut self) -> Option<Bytes> {
+        self.next().await.map(|frame| frame.unwrap().freeze())
+    }
+}
+
+impl Transport for Socket {
+    async fn send_bytes(&mut self, bytes: Bytes) {
+        self.send(Message::Binary(bytes)).await.unwrap();
+    }
+
+    async fn receive_bytes(&mut self) -> Option<Bytes> {
+        loop {
+            match self.next().await? {
+                Ok(Message::Binary(bytes)) => return Some(bytes),
+                Ok(Message::Close(_)) | Err(_) => return None,
+                Ok(_) => {}
+            }
+        }
+    }
+}
+
+impl<T: Transport> RpcClient<T> {
+    pub fn new(transport: T) -> Self {
+        Self {
+            transport,
+            next_call: 1,
+        }
+    }
+
+    pub fn into_inner(self) -> T {
+        self.transport
+    }
+
+    pub async fn send_raw(&mut self, message: proto::ClientMessage) {
+        self.transport
+            .send_bytes(Bytes::from(message.encode_to_vec()))
+            .await;
+    }
+
+    pub async fn receive(&mut self) -> Option<proto::ServerMessage> {
+        let bytes = self.transport.receive_bytes().await?;
+        Some(proto::ServerMessage::decode(bytes).unwrap())
+    }
+
+    /// Calls a unary method; `Err` carries the error.
+    pub async fn call(
+        &mut self,
+        method: request::Method,
+    ) -> Result<response::Method, proto::Error> {
+        let call_id = self.next_call;
+        self.next_call += 1;
+        let request = proto::Request {
+            method: Some(method),
+        };
+        self.send_raw(proto::ClientMessage {
+            call_id,
+            kind: Some(client_message::Kind::Request(request)),
+        })
+        .await;
+        let message = self.receive().await.expect("the connection closed");
+        assert_eq!(message.call_id, call_id);
+        match message.kind.unwrap() {
+            server_message::Kind::Response(response) => Ok(response.method.unwrap()),
+            server_message::Kind::Error(error) => Err(error),
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    /// `GetBasicState`'s state.
+    pub async fn state(&mut self) -> proto::NodeState {
+        match self
+            .call(request::Method::GetBasicState(
+                proto::GetBasicStateRequest {},
+            ))
+            .await
+        {
+            Ok(response::Method::GetBasicState(state)) => state.state(),
+            other => panic!("{other:?}"),
+        }
+    }
+}

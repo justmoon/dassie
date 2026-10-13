@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package dassie.ui.v1;
+
+message Certificate {
+  CertificateSource source = 1;
+  // The DNS names and IP addresses it is valid for.
+  repeated string names = 2;
+  int64 not_before_unix_ms = 3;
+  int64 not_after_unix_ms = 4;
+}
+
+enum CertificateSource {
+  CERTIFICATE_SOURCE_UNSPECIFIED = 0;
+  // Made by the node until a real one is installed.
+  CERTIFICATE_SOURCE_SELF_SIGNED = 1;
+  // Issued through ACME, and renewed by the node.
+  CERTIFICATE_SOURCE_ACME = 2;
+  // Installed with SetCertificate; the node does not renew it.
+  CERTIFICATE_SOURCE_MANUAL = 3;
+}
+
+// Installs a certificate from elsewhere. INVALID_ARGUMENT unless the chain
+// parses, the key is the leaf's, and the leaf is valid now.
+message SetCertificateRequest {
+  // PEM, leaf first.
+  string certificate_chain_pem = 1;
+  // PEM, PKCS#8 or SEC1.
+  string private_key_pem = 2;
+}
+
+message SetCertificateResponse {
+  Certificate certificate = 1;
+}

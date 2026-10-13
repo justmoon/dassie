@@ -4,3 +4,5 @@ node_modules/
 packages/identity-wasm/gen/
 result
 result-*
+# Built by `deno task build:wallet`.
+apps/wallet/dist/

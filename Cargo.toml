@@ -1,5 +1,13 @@
 [workspace]
-members = ["crates/dassie-identity", "crates/dassie-ilp", "crates/dassie-oer", "crates/dassie-stream"]
+members = [
+  "crates/dassie-cli",
+  "crates/dassie-identity",
+  "crates/dassie-ilp",
+  "crates/dassie-node",
+  "crates/dassie-node-core",
+  "crates/dassie-oer",
+  "crates/dassie-stream",
+]
 resolver = "3"
 
 [workspace.package]
@@ -32,3 +40,8 @@ inherits = "release"
 opt-level = "s"
 panic = "abort"
 strip = true
+
+# The binary the end-to-end tests run (tests/e2e): debug-fast to build, with
+# the same checks as release.
+[profile.e2e]
+inherits = "dev"

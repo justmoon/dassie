@@ -1,0 +1,146 @@
+// The node's RPC contract with its owner's clients: the wallet in the
+// browser and the `dassie` CLI. Decision D5 (spec 8) chose it; spec 7 §4.6
+// has the details. This file is normative: change it first, then both sides.
+//
+// Transports
+// ----------
+// - WebSocket at `wss://<host>/rpc`, subprotocol `dassie.ui.v1`. Every
+//   message is one binary frame. The session cookie authenticates the
+//   socket, and is checked again on every call: once the session ends, the
+//   server closes the socket with code 4001.
+// - The IPC socket (`/run/dassie.sock`). Every message is a frame with a
+//   4-byte big-endian length prefix. Whoever can open the socket is the
+//   owner, so every call is authenticated.
+// Both limit a message to 1 MiB, and refuse calls beyond a fixed number in
+// flight per connection (`ERROR_CODE_RESOURCE_EXHAUSTED`).
+//
+// Calls
+// -----
+// The client sends a `Request` under a call ID of its choice, unique among
+// its calls in flight. The server answers that ID with exactly one of:
+// - a `Response`, for a unary method;
+// - any number of `StreamItem`s, then a `StreamEnd`, for a streaming method;
+// - an `Error`, which ends either kind of call.
+// A `Cancel` ends a call early; the server sends nothing more for it. The
+// ID may be reused once the call has ended.
+//
+// The method numbers in `Request`, `Response` and `StreamItem` are shared:
+// a method's response or items always carry its request's number.
+
+syntax = "proto3";
+
+package dassie.ui.v1;
+
+import "dassie/ui/v1/acme.proto";
+import "dassie/ui/v1/config.proto";
+import "dassie/ui/v1/node.proto";
+import "dassie/ui/v1/sessions.proto";
+import "dassie/ui/v1/tls.proto";
+
+// Client to node.
+message ClientMessage {
+  uint32 call_id = 1;
+
+  oneof kind {
+    Request request = 2;
+    Cancel cancel = 3;
+  }
+}
+
+// Ends a call early.
+message Cancel {}
+
+message Request {
+  oneof method {
+    // Public: the only method an unauthenticated socket may call.
+    GetBasicStateRequest get_basic_state = 1;
+    GetStatusRequest get_status = 2;
+
+    GetConfigRequest get_config = 10;
+    GetSetupUrlRequest get_setup_url = 11;
+    SetHostnameRequest set_hostname = 12;
+    SetRealmRequest set_realm = 13;
+    SetPortsRequest set_ports = 14;
+    SetAliasRequest set_alias = 15;
+
+    SetCertificateRequest set_certificate = 20;
+
+    // Streaming.
+    ObtainCertificateRequest obtain_certificate = 30;
+    GetAcmeTermsRequest get_acme_terms = 31;
+
+    ListSessionsRequest list_sessions = 40;
+    RevokeSessionRequest revoke_session = 41;
+    RevokeAllSessionsRequest revoke_all_sessions = 42;
+  }
+}
+
+// Node to client.
+message ServerMessage {
+  uint32 call_id = 1;
+
+  oneof kind {
+    Response response = 2;
+    StreamItem item = 3;
+    StreamEnd end = 4;
+    Error error = 5;
+  }
+}
+
+message Response {
+  oneof method {
+    GetBasicStateResponse get_basic_state = 1;
+    GetStatusResponse get_status = 2;
+
+    GetConfigResponse get_config = 10;
+    GetSetupUrlResponse get_setup_url = 11;
+    SetHostnameResponse set_hostname = 12;
+    SetRealmResponse set_realm = 13;
+    SetPortsResponse set_ports = 14;
+    SetAliasResponse set_alias = 15;
+
+    SetCertificateResponse set_certificate = 20;
+
+    GetAcmeTermsResponse get_acme_terms = 31;
+
+    ListSessionsResponse list_sessions = 40;
+    RevokeSessionResponse revoke_session = 41;
+    RevokeAllSessionsResponse revoke_all_sessions = 42;
+  }
+}
+
+message StreamItem {
+  oneof method {
+    AcmeProgress obtain_certificate = 30;
+  }
+}
+
+// A stream finished without error.
+message StreamEnd {}
+
+message Error {
+  ErrorCode code = 1;
+  // For people; clients branch on the code only.
+  string message = 2;
+}
+
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  // The call needs an authenticated session.
+  ERROR_CODE_UNAUTHENTICATED = 1;
+  // The request is malformed or a value is out of range.
+  ERROR_CODE_INVALID_ARGUMENT = 2;
+  // The node is not in a state that allows the call, e.g. setup is done.
+  ERROR_CODE_FAILED_PRECONDITION = 3;
+  ERROR_CODE_NOT_FOUND = 4;
+  // Too many calls in flight, or a limit was reached.
+  ERROR_CODE_RESOURCE_EXHAUSTED = 5;
+  // Something the node depends on (e.g. the ACME server) failed; retrying
+  // later may help.
+  ERROR_CODE_UNAVAILABLE = 6;
+  // A bug in the node. The message says no more than that; details go to
+  // the node's log.
+  ERROR_CODE_INTERNAL = 7;
+  // The node does not know the method: the client is newer than the node.
+  ERROR_CODE_UNIMPLEMENTED = 8;
+}

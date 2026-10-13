@@ -1,0 +1,269 @@
+// Milestone M2's done criterion (spec 7 §8): a fresh install reaches
+// "setup complete" in a browser with a certificate from an ACME CA.
+//
+// The CA is Pebble, Let's Encrypt's test server, which runs the same ACME
+// protocol and http-01 validation as Let's Encrypt's staging service; only
+// the directory URL and the root differ. The daemon runs as systemd would
+// run it, socket-activated, with a fresh state directory.
+
+import { assert, assertEquals, assertMatch } from "@std/assert";
+import {
+  deriveNodeKey,
+  generateMnemonic,
+  nodeId,
+  publicKey,
+} from "@dassie/identity-wasm";
+import type { ElementHandle, Page } from "@astral/astral";
+import {
+  DASSIE,
+  dassie,
+  HTTPS_PORT,
+  missingTools,
+  PEBBLE_API_ROOT,
+  PEBBLE_DIRECTORY,
+  Process,
+  startActivated,
+  startBrowser,
+  startPebble,
+  waitForPort,
+} from "./harness.ts";
+
+const missing = await missingTools();
+if (missing) console.warn(`skipping the end-to-end tests: ${missing}`);
+
+/**
+ * The text of the element with `testid`, once it appears. It polls in
+ * whatever document the page shows, since setup and login end by reloading
+ * the page, which a pending `waitForSelector` does not survive.
+ */
+async function text(page: Page, testid: string): Promise<string> {
+  const deadline = Date.now() + 20_000;
+  for (;;) {
+    const found = await page.evaluate(
+      (id: string) =>
+        document.querySelector(`[data-testid="${id}"]`)?.textContent ?? null,
+      { args: [testid] },
+    ).catch(() => null);
+    if (found !== null) return found.trim();
+    if (Date.now() > deadline) {
+      const body = await page.evaluate(() => document.body.innerText)
+        .catch(() => "(no document)");
+      throw new Error(`no ${testid} on ${page.url}:\n${body}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
+/** The element with `testid`, once it is in the current document. */
+async function element(page: Page, testid: string): Promise<ElementHandle> {
+  await text(page, testid);
+  const found = await page.$(`[data-testid="${testid}"]`);
+  if (!found) throw new Error(`${testid} vanished`);
+  return found;
+}
+
+async function click(page: Page, testid: string): Promise<void> {
+  await (await element(page, testid)).click();
+}
+
+/** Replaces the value of the input with `testid`. */
+async function type(page: Page, testid: string, value: string): Promise<void> {
+  const input = await element(page, testid);
+  await input.evaluate((node: HTMLInputElement) => (node.value = ""));
+  await input.type(value);
+}
+
+function expectedNodeId(phrase: string): string {
+  return nodeId(publicKey(deriveNodeKey(phrase)));
+}
+
+/** The certificate Pebble issues chains to the root Pebble generated. */
+async function assertServedByPebble(): Promise<void> {
+  const apiRoot = await Deno.readTextFile(PEBBLE_API_ROOT);
+  const client = Deno.createHttpClient({ caCerts: [apiRoot] });
+  const response = await fetch("https://localhost:15000/roots/0", { client });
+  const issuingRoot = await response.text();
+  client.close();
+  const connection = await Deno.connect({
+    hostname: "127.0.0.1",
+    port: HTTPS_PORT,
+  });
+  const tls = await Deno.startTls(connection, {
+    hostname: "dassie.test",
+    caCerts: [issuingRoot],
+  });
+  await tls.handshake();
+  tls.close();
+}
+
+/** Generates a wallet in the setup wizard; returns its phrase. */
+async function generateWallet(page: Page): Promise<string> {
+  await click(page, "generate-wallet");
+  const phrase = await text(page, "mnemonic");
+  const words = phrase.split(/\s+/);
+  assertEquals(words.length, 12);
+  await click(page, "backed-up");
+  const number = Number(await text(page, "verify-word-number"));
+  await type(page, "verify-input", words[number - 1]);
+  await click(page, "verify-submit");
+  return phrase;
+}
+
+async function logIn(page: Page, phrase: string): Promise<void> {
+  await type(page, "login-input", phrase);
+  await click(page, "login-submit");
+}
+
+async function stopAll(processes: Process[]): Promise<void> {
+  for (const process of processes.reverse()) {
+    const { code, output } = await process.stop();
+    if (process.name === "dassie" && code !== 0) {
+      throw new Error(`the daemon exited with ${code}:\n${output}`);
+    }
+  }
+}
+
+Deno.test({
+  name:
+    "a fresh install reaches setup complete with a certificate from the ACME CA",
+  ignore: missing !== undefined,
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    const verify = await new Deno.Command(DASSIE, { args: ["verify-install"] })
+      .output();
+    assert(
+      verify.success,
+      "the binary must carry the wallet: deno task build:e2e",
+    );
+
+    const dir = await Deno.makeTempDir({ prefix: "dassie-e2e-" });
+    const processes = await startPebble();
+    let daemon = await startActivated(dir);
+    processes.push(daemon);
+    const browser = await startBrowser(dir);
+    try {
+      // `dassie init` configures the node and obtains the certificate.
+      const output = await dassie(dir, [
+        "init",
+        "--hostname",
+        "dassie.test",
+        "--email",
+        "e2e@dassie.test",
+        "--agree-tos",
+        "--acme-directory",
+        PEBBLE_DIRECTORY,
+      ]);
+      const setupUrl = output.split("\n").find((line) =>
+        line.startsWith("https://")
+      );
+      assertMatch(
+        setupUrl ?? "",
+        new RegExp(`^https://dassie\\.test:${HTTPS_PORT}/setup/[0-9a-f]{64}$`),
+      );
+      await assertServedByPebble();
+
+      // The browser sets the node up.
+      const page = await browser.newPage(setupUrl);
+      const phrase = await generateWallet(page);
+      await text(page, "setup-complete");
+      assertEquals(await text(page, "node-id"), expectedNodeId(phrase));
+
+      // Logging out and in again, with a wrong phrase first.
+      await click(page, "logout");
+      await logIn(page, generateMnemonic());
+      assertMatch(await text(page, "login-error"), /does not belong/);
+      await logIn(page, phrase);
+      assertEquals(await text(page, "node-id"), expectedNodeId(phrase));
+
+      // A restart keeps the identity, the session and the certificate.
+      daemon = await restart(processes, daemon, dir);
+      await page.reload();
+      assertEquals(await text(page, "node-id"), expectedNodeId(phrase));
+      await assertServedByPebble();
+      const setup = await page.evaluate(async () => {
+        const response = await fetch("/api/setup", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        });
+        return response.status;
+      });
+      assertEquals(setup, 404, "setup is gone once done");
+    } finally {
+      await browser.close();
+      await stopAll(processes);
+      await Deno.remove(dir, { recursive: true });
+    }
+  },
+});
+
+async function restart(
+  processes: Process[],
+  daemon: Process,
+  dir: string,
+): Promise<Process> {
+  const { code, output } = await daemon.stop();
+  assertEquals(code, 0, output);
+  processes.splice(processes.indexOf(daemon), 1);
+  const started = await startActivated(dir);
+  processes.push(started);
+  return started;
+}
+
+Deno.test({
+  name:
+    "the standalone runtime with its self-signed certificate, recovering a wallet",
+  ignore: missing !== undefined,
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    const dir = await Deno.makeTempDir({ prefix: "dassie-e2e-" });
+    const daemon = new Process("dassie", DASSIE, [
+      "daemon",
+      "--http-port",
+      "18880",
+      "--https-port",
+      "18843",
+    ], {
+      env: {
+        DASSIE_STATE_DIRECTORY: `${dir}/state`,
+        DASSIE_IPC_SOCKET_PATH: `${dir}/ipc.sock`,
+      },
+    });
+    await waitForPort(18843);
+    const browser = await startBrowser(dir);
+    try {
+      const output = await dassie(dir, [
+        "init",
+        "--hostname",
+        "localhost",
+        "--skip-acme",
+      ]);
+      const setupUrl = output.split("\n").find((line) =>
+        line.startsWith("https://")
+      );
+      assertMatch(
+        setupUrl ?? "",
+        /^https:\/\/localhost:18843\/setup\/[0-9a-f]{64}$/,
+      );
+      const page = await browser.newPage(setupUrl);
+      const phrase =
+        "pulp junk march life divorce celery flower bar one angry claw crush";
+      await click(page, "recover-wallet");
+      await type(page, "recover-input", "not a passphrase");
+      await click(page, "recover-submit");
+      await text(page, "setup-error");
+      await type(page, "recover-input", phrase);
+      await click(page, "recover-submit");
+      assertEquals(
+        await text(page, "node-id"),
+        "d1_UeCE9UMCwvVHSXdI9o0Tpz4rnidWvR",
+      );
+    } finally {
+      await browser.close();
+      await stopAll([daemon]);
+      await Deno.remove(dir, { recursive: true });
+    }
+  },
+});

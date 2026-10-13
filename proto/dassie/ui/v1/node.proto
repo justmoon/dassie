@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package dassie.ui.v1;
+
+import "dassie/ui/v1/tls.proto";
+
+message GetBasicStateRequest {}
+
+// What anyone who can reach the node may know about it. It decides which
+// screen the wallet shows.
+message GetBasicStateResponse {
+  NodeState state = 1;
+  // Empty while uninitialized.
+  string node_id = 2;
+  // Empty until configured.
+  string hostname = 3;
+  // "test" or "g": the first segment of the node's ILP address.
+  string ilp_allocation_scheme = 4;
+  string version = 5;
+}
+
+enum NodeState {
+  NODE_STATE_UNSPECIFIED = 0;
+  // No node key yet: setup is open to whoever holds the setup token.
+  NODE_STATE_UNINITIALIZED = 1;
+  // Set up, and this connection has no session.
+  NODE_STATE_ANONYMOUS = 2;
+  // Set up, and this connection belongs to the owner.
+  NODE_STATE_AUTHENTICATED = 3;
+}
+
+message GetStatusRequest {}
+
+message GetStatusResponse {
+  string version = 1;
+  Runtime runtime = 2;
+  int64 started_at_unix_ms = 3;
+  // The certificate the HTTPS listener serves.
+  Certificate certificate = 4;
+  AcmeStatus acme = 5;
+  // The ports the node listens on, which may differ from the configured
+  // ones under systemd.
+  uint32 http_port = 6;
+  uint32 https_port = 7;
+}
+
+enum Runtime {
+  RUNTIME_UNSPECIFIED = 0;
+  // The node bound its own sockets.
+  RUNTIME_STANDALONE = 1;
+  // systemd passed the sockets in.
+  RUNTIME_SYSTEMD = 2;
+}
+
+message AcmeStatus {
+  // Whether an ACME account is stored, so the node can renew by itself.
+  bool has_account = 1;
+  // When the node next checks whether to renew; 0 if it never will.
+  int64 next_check_unix_ms = 2;
+  // Why the last attempt failed; empty if it did not.
+  string last_error = 3;
+}

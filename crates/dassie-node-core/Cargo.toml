@@ -1,0 +1,25 @@
+[package]
+name = "dassie-node-core"
+version = "0.1.0"
+description = "The Dassie node's decisions without IO: config, setup, sessions, origins, rate limits, ACME and TLS policy"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+# A seeded RNG for tests of this crate and the crates above it.
+testing = []
+
+[dependencies]
+dassie-identity = { path = "../dassie-identity" }
+# The RNG trait shared with dassie-identity. Only the trait: the caller
+# injects the generator.
+rand_core = { version = "0.10", default-features = false }
+sha2 = { version = "0.11", default-features = false }
+subtle = { version = "2.6", default-features = false }
+
+[dev-dependencies]
+dassie-node-core = { path = ".", features = ["testing"] }
+proptest = "1.12"

@@ -65,6 +65,7 @@ crates/
   dassie-peer/          peer protocol v1, node table, link state, membership, peering, routing
   dassie-connector/     ILP connector pipeline, endpoints (peer/BTP/local/HTTP/ILDCP), FX
   dassie-payments/      Open Payments + SPSP server and client, payment pointer resolution
+  dassie-node-core/     the node's decisions without IO: config, setup, sessions, rate limits, ACME/TLS policy
   dassie-node/          daemon composition: config, DB, HTTP(S)/IPC listeners, TLS, ACME, auth, RPC
   dassie-cli/           the `dassie` binary: daemon | init | update | verify-install
 proto/
@@ -121,6 +122,11 @@ The original is a tree of reactive actors that re-run when signals they read cha
   - Identity-dependent services start when an identity exists.
   - The exchange-rate fetch, XRPL connection and bootstrap polls become readiness conditions with retries, rather than `await`s that can wedge startup (ILP-14, ACC-26, NET-14).
 - **Graceful shutdown on SIGTERM**: stop accepting, drain in-flight packets up to their expiry, close the DB, remove the socket (RT-7).
+- **Two runtimes, chosen automatically.** `dassie daemon --runtime standalone|systemd` replaces `nodejs|nodejs-systemd`, which name a runtime that no longer exists. Without the flag, the daemon uses `systemd` when `LISTEN_FDS` is set for its PID.
+  - `standalone` binds the ports in the config, and the IPC socket at `$XDG_RUNTIME_DIR/dassie.sock` unless `DASSIE_IPC_SOCKET_PATH` says otherwise.
+  - `systemd` takes the sockets by name and checks `LISTEN_PID` (RT-20). It reports `READY=1` and `STOPPING=1` natively.
+  - Either way, URLs the node prints or redirects to use the ports it actually listens on.
+- **The node's decisions live in `dassie-node-core`.** Setup and login checks, session lifetimes, rate limits, the same-origin rule, and when to renew a certificate are pure functions of their inputs, `now` and an injected RNG, as [D16](08-decisions.md#d16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation) asks. `dassie-node` only carries them out.
 
 ### 4.2 Protocol crates are sans-IO
 
@@ -143,8 +149,16 @@ The route table of [2 §6.3](02-node-runtime.md) is kept, including routes that 
 - `HEAD` is handled, and all asset types are served with correct MIME types, caching and compression (RT-15);
 - unmatched WebSocket upgrades get a 404 (RT-16);
 - strict security headers on every response: CSP with no inline script or style, HSTS once a real certificate is installed, `X-Content-Type-Options`, `Referrer-Policy`, `frame-ancestors 'none'`;
-- an `Origin` check on `/rpc` and on the `/api/*` POSTs (RT-6);
-- WebSocket sessions are re-validated on every call, so logout takes effect immediately.
+- an `Origin` check on `/rpc` and on the `/api/*` POSTs (RT-6): `Origin` must be `https://` plus the request's `Host`. `Host` must be the configured hostname, `localhost` or an IP literal, which stops DNS rebinding;
+- WebSocket sessions are re-validated on every call, so logout takes effect immediately. Logging out also closes that session's open sockets.
+
+**The daemon drives ACME**, for the first certificate as for renewals. In the original, `dassie init` ran its own ACME client and asked the daemon over RPC to publish challenge tokens. That meant two ACME implementations, with token RPCs that could fail on duplicates (RT-13). Now `dassie init` calls `acme.ObtainCertificate` and shows the progress the daemon streams back.
+- Challenge tokens live in memory, in a bounded table whose expiry is enforced.
+- Only one order runs at a time.
+- A failed renewal backs off from 1 hour to 24 hours and honours `Retry-After`.
+- Certificate keys are ECDSA P-256.
+- Changing the hostname while a CA-issued certificate is installed falls back to the self-signed certificate until a new one is issued.
+- The self-signed certificate is generated once and kept (RT-14).
 
 ### 4.4 Persistence (what must survive a restart)
 
@@ -153,8 +167,9 @@ Most of the original's integrity gaps come from state it keeps only in memory, o
 | Data | Original | New |
 |---|---|---|
 | Config (realm, hostname, ports, alias, exchange-rate URL), TLS cert/key, ACME account | scalars | same, with RPC setters for all (RT-4) |
-| Node key | PEM in DB | same, file mode 0600 on the DB and data dir ([D10](08-decisions.md#d10-secrets-at-rest)) |
-| Sessions | token only, never expire | hashed token, created/last-used, expiry, revocation list (RT-11) |
+| Node key | PEM in DB | the raw 32-byte seed; file mode 0600 on the DB and 0700 on the data dir ([D10](08-decisions.md#d10-secrets-at-rest)) |
+| Sessions | token only, never expire | SHA-256 of the token, created and last used. A session ends after 30 days unused or 1 year in total, whichever comes first, or when revoked. At most 64 are kept; the least recently used goes first (RT-11) |
+| ACME challenge tokens | table | memory, since the daemon that serves them also runs the order |
 | BTP tokens | plaintext | hashed, plus a label and created time; shown once at creation |
 | Node table: nodes, link states (signed bytes), registrations, peers with scheme state | written only by dev prefill | written on every change (NET-1, NET-2, ACC-18) |
 | Own link-state sequence | memory | persisted high-water mark (NET-7) |
@@ -165,6 +180,8 @@ Most of the original's integrity gaps come from state it keeps only in memory, o
 | Peer trust lines | re-posted at every start | posted once when the peer account is created; changes are explicit transfers (ACC-5) |
 | Incoming and outgoing payments | rows without state | full Open Payments state: received/sent amounts, completion, expiry, STREAM credentials tied to the payment (ILP-10) |
 | Exchange rates | memory | last good snapshot with timestamp; refreshed periodically ([D7](08-decisions.md#d7-exchange-rates-fees-and-spread)) |
+
+The database has a new application ID, `0x7DA5E2C9` (like the original's, a random positive int32 with nibbles 2–4 set to `DA5`). A file with the v0 ID `0x1DA53B81` is refused with a message telling the owner to set the node up again with their passphrase ([D3](08-decisions.md#d3-database-continuity)). Configuration is typed columns with CHECK constraints in single-row tables, not a key/value table, so that SQLite itself refuses an invalid port or realm.
 
 ### 4.5 Settlement and ledgers
 
@@ -186,6 +203,24 @@ The XRPL module needs:
 - a memo type per network: testnet vs mainnet, versioned with the peer protocol (ACC-13).
 
 Mainnet stays disabled until the [D8](08-decisions.md#d8-real-money) criteria are met.
+
+### 4.6 The RPC contract in practice
+
+[D5](08-decisions.md#d5-ui-and-cli-rpc-contract) fixes the shape. The details:
+
+- **Envelopes.**
+  - The client sends a `ClientMessage`: a call ID plus a request or a cancel.
+  - The server answers with a `ServerMessage`: the call ID plus one of a response, a stream item, the end of a stream, or an error.
+  - Requests and responses are `oneof`s of one typed message per method, not string paths.
+- **Errors** carry a code (`UNAUTHENTICATED`, `INVALID_ARGUMENT`, `FAILED_PRECONDITION`, `NOT_FOUND`, `RESOURCE_EXHAUSTED`, `UNAVAILABLE`, `INTERNAL`) and a message for people.
+- **Transports.**
+  - WebSocket at `/rpc`: one message per binary frame.
+  - The IPC socket: frames with a 4-byte big-endian length prefix.
+  - Both have a 1 MiB message limit, and per-connection limits on concurrent calls and open streams.
+  - The node caps the number of open WebSockets. A browser's socket with no call in flight closes after 10 minutes without a message; the client reconnects on its next call.
+  - A client that sends faster than it reads is disconnected, rather than allowed to queue answers without bound.
+  - Every way a session ends (logout, revocation, expiry, eviction for a newer one) closes its sockets with code 4001, after the calls already answered have their answers.
+- **The browser client** gives every call a timeout (RT-27).
 
 ## 5. Wallet and dashboard (Solid 2)
 

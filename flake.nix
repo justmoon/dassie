@@ -76,7 +76,8 @@
               installPhase = "install -Dm755 wasm-bindgen $out/bin/wasm-bindgen";
             };
 
-          # The Rust workspace, with the golden vectors the tests read.
+          # The Rust workspace, with the golden vectors the tests read and
+          # the RPC contract dassie-node generates its messages from.
           src = lib.fileset.toSource {
             root = ./.;
             fileset = lib.fileset.unions [
@@ -84,6 +85,7 @@
               ./Cargo.lock
               ./clippy.toml
               ./crates
+              ./proto
             ];
           };
 
@@ -158,7 +160,15 @@
                 cargoClippyExtraArgs = "-- -D warnings";
               }
             );
-            cargo-test = craneLib.cargoTest (common // { inherit cargoArtifacts; });
+            # systemd-socket-activate, for dassie-cli's process tests, which
+            # skip without it.
+            cargo-test = craneLib.cargoTest (
+              common
+              // {
+                inherit cargoArtifacts;
+                nativeCheckInputs = [ pkgs.systemd ];
+              }
+            );
             inherit identity-wasm;
           };
 
@@ -168,6 +178,10 @@
               wasm-bindgen
               pkgs.deno
               pkgs.chromium
+              # The end-to-end tests (tests/e2e): Let's Encrypt's test ACME
+              # server, and systemd's socket activation without systemd.
+              pkgs.pebble
+              pkgs.systemd
               # For regenerating the golden vectors (testdata/original).
               pkgs.nodejs
               pkgs.pnpm
