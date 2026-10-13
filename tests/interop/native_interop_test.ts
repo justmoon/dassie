@@ -151,7 +151,7 @@ Deno.test(
     const peer = new Peer(binary, [
       "client",
       destinationAccount,
-      encodeHex(sharedSecret),
+      encodeHex(new Uint8Array(sharedSecret)),
       "1000000",
       "test.native",
     ]);
