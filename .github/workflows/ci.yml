@@ -1,11 +1,13 @@
 name: CI
 
 # The rewrite lives on the `rewrite` branch until it replaces `main`.
+# Milestones stack as `rewrite-*` branches, each PR into the one before it,
+# so PRs into those run too.
 on:
   push:
     branches: [rewrite]
   pull_request:
-    branches: [rewrite]
+    branches: [rewrite, "rewrite-*"]
 
 permissions:
   contents: read
