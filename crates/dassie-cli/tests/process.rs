@@ -9,7 +9,7 @@
 
 use std::os::unix::net::UnixDatagram;
 use std::path::Path;
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
 const DASSIE: &str = env!("CARGO_BIN_EXE_dassie");
@@ -25,16 +25,35 @@ fn have_socket_activate() -> bool {
     found
 }
 
-/// The next datagram on `socket`, as text, waiting at most 10 s.
-fn receive(socket: &UnixDatagram) -> String {
+/// The next datagram on `socket`, as text, waiting at most 10 s. If none
+/// comes, fails with what `child` printed.
+fn receive(socket: &UnixDatagram, child: &mut Option<Child>) -> String {
     socket
         .set_read_timeout(Some(Duration::from_secs(10)))
         .unwrap();
     let mut buffer = [0; 256];
-    let length = socket
-        .recv(&mut buffer)
-        .expect("no notification within 10 s");
-    String::from_utf8_lossy(&buffer[..length]).into_owned()
+    match socket.recv(&mut buffer) {
+        Ok(length) => String::from_utf8_lossy(&buffer[..length]).into_owned(),
+        Err(error) => panic!("no notification within 10 s ({error}):\n{}", fail(child)),
+    }
+}
+
+/// Stops `child` and describes how it ended, for a failure message.
+fn fail(child: &mut Option<Child>) -> String {
+    let Some(mut child) = child.take() else {
+        return String::new();
+    };
+    let _ = child.kill();
+    describe(&child.wait_with_output().unwrap())
+}
+
+fn describe(output: &Output) -> String {
+    format!(
+        "{}\n{}{}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    )
 }
 
 fn terminate(pid: u32) {
@@ -45,14 +64,17 @@ fn terminate(pid: u32) {
     assert!(status.success());
 }
 
-fn wait_for(path: &Path) {
+/// Waits for `path` to appear; if it does not, fails with what `child`
+/// printed.
+fn wait_for(path: &Path, child: &mut Option<Child>) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while !path.exists() {
-        assert!(
-            Instant::now() < deadline,
-            "{} did not appear",
-            path.display()
-        );
+        let exited = child
+            .as_mut()
+            .is_some_and(|c| c.try_wait().unwrap().is_some());
+        if exited || Instant::now() > deadline {
+            panic!("{} did not appear:\n{}", path.display(), fail(child));
+        }
         std::thread::sleep(Duration::from_millis(20));
     }
 }
@@ -85,19 +107,17 @@ fn socket_activated_daemon_reports_ready_and_stopping() {
         ))
         .arg(format!("--setenv=NOTIFY_SOCKET={}", notify_path.display()))
         .args([DASSIE, "daemon"])
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    assert_eq!(receive(&notify), "READY=1");
-    terminate(child.id());
-    assert_eq!(receive(&notify), "STOPPING=1");
-    let output = child.wait_with_output().unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    let pid = child.id();
+    let mut child = Some(child);
+    assert_eq!(receive(&notify, &mut child), "READY=1");
+    terminate(pid);
+    assert_eq!(receive(&notify, &mut child), "STOPPING=1");
+    let output = child.take().unwrap().wait_with_output().unwrap();
+    assert!(output.status.success(), "{}", describe(&output));
 }
 
 fn run(args: &[&str], env: &[(&str, &str)]) -> Output {
@@ -152,10 +172,13 @@ fn the_standalone_daemon_cleans_up_its_socket() {
         .env_clear()
         .env("DASSIE_STATE_DIRECTORY", &state)
         .env("DASSIE_IPC_SOCKET_PATH", &ipc)
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    wait_for(&ipc);
+    let pid = child.id();
+    let mut child = Some(child);
+    wait_for(&ipc, &mut child);
     assert_eq!(
         std::fs::metadata(&ipc).unwrap().permissions().mode() & 0o777,
         0o660
@@ -168,10 +191,10 @@ fn the_standalone_daemon_cleans_up_its_socket() {
             ("DASSIE_IPC_SOCKET_PATH", ipc.to_str().unwrap()),
         ],
     );
-    assert_eq!(second.status.code(), Some(1));
-    terminate(child.id());
-    let output = child.wait_with_output().unwrap();
-    assert!(output.status.success());
+    assert_eq!(second.status.code(), Some(1), "{}", describe(&second));
+    terminate(pid);
+    let output = child.take().unwrap().wait_with_output().unwrap();
+    assert!(output.status.success(), "{}", describe(&output));
     assert!(!ipc.exists());
 }
 

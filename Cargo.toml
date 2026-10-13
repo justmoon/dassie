@@ -40,3 +40,8 @@ inherits = "release"
 opt-level = "s"
 panic = "abort"
 strip = true
+
+# The binary the end-to-end tests run (tests/e2e): debug-fast to build, with
+# the same checks as release.
+[profile.e2e]
+inherits = "dev"

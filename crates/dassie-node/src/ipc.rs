@@ -39,13 +39,34 @@ pub fn codec() -> LengthDelimitedCodec {
         .new_codec()
 }
 
-/// Binds the socket at `path`, mode 0660.
+/// A socket bound at a temporary name, not yet where clients look for it.
+#[derive(Debug)]
+pub struct Unpublished {
+    temporary: PathBuf,
+    path: PathBuf,
+}
+
+impl Unpublished {
+    /// Renames the socket into place: from now on clients reach it.
+    pub fn publish(self) -> io::Result<PathBuf> {
+        fs::rename(&self.temporary, &self.path)?;
+        Ok(self.path)
+    }
+
+    /// Removes the socket file, for a daemon that did not start.
+    pub fn discard(self) {
+        let _ = fs::remove_file(&self.temporary);
+    }
+}
+
+/// Binds the socket for `path`, mode 0660, at a temporary name.
 ///
 /// A daemon that answers on `path` already is left alone, and this one
-/// refuses to start. A stale socket file is replaced. The socket is bound at
-/// a temporary name and renamed into place, so it is never reachable with
-/// looser permissions.
-pub fn bind(path: &Path) -> io::Result<StdUnixListener> {
+/// refuses to start. The socket is renamed into place by
+/// [`Unpublished::publish`] once the daemon is ready for clients, replacing
+/// a stale file; so it is never reachable with looser permissions, nor
+/// before the daemon answers, nor left behind by a daemon that failed.
+pub fn bind_unpublished(path: &Path) -> io::Result<(StdUnixListener, Unpublished)> {
     if std::os::unix::net::UnixStream::connect(path).is_ok() {
         return Err(io::Error::new(
             io::ErrorKind::AddrInUse,
@@ -56,7 +77,19 @@ pub fn bind(path: &Path) -> io::Result<StdUnixListener> {
     let _ = fs::remove_file(&temporary);
     let listener = StdUnixListener::bind(&temporary)?;
     fs::set_permissions(&temporary, Permissions::from_mode(0o660))?;
-    fs::rename(&temporary, path)?;
+    Ok((
+        listener,
+        Unpublished {
+            temporary,
+            path: path.to_path_buf(),
+        },
+    ))
+}
+
+/// [`bind_unpublished`], published at once.
+pub fn bind(path: &Path) -> io::Result<StdUnixListener> {
+    let (listener, unpublished) = bind_unpublished(path)?;
+    unpublished.publish()?;
     Ok(listener)
 }
 

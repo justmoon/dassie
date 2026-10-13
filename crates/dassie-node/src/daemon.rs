@@ -49,6 +49,8 @@ pub enum DaemonError {
     Bind(String, io::Error),
     /// The node could not start.
     Node(NodeError),
+    /// SIGTERM and SIGINT could not be handled.
+    Signals,
     /// TLS could not be set up.
     Tls(rustls::Error),
 }
@@ -61,6 +63,7 @@ impl fmt::Display for DaemonError {
             Self::Activation(error) => error.fmt(f),
             Self::Bind(what, error) => write!(f, "binding {what}: {error}"),
             Self::Node(error) => error.fmt(f),
+            Self::Signals => f.write_str("could not listen for SIGTERM and SIGINT"),
             Self::Tls(error) => write!(f, "TLS: {error}"),
         }
     }
@@ -92,8 +95,8 @@ pub struct Prepared {
     http: TcpListener,
     https: TcpListener,
     ipc: UnixListener,
-    /// The IPC socket file the daemon made, to remove at exit.
-    ipc_path: Option<PathBuf>,
+    /// The IPC socket the daemon made, published once it is ready.
+    ipc_socket: Option<ipc::Unpublished>,
     notifier: Option<Notifier>,
 }
 
@@ -109,7 +112,7 @@ impl Prepared {
             Runtime::Standalone
         });
         let store = Store::open(&settings.data_dir).map_err(DaemonError::Store)?;
-        let (http, https, ipc, ipc_path) = match runtime {
+        let (http, https, ipc, ipc_socket) = match runtime {
             Runtime::Systemd => {
                 let sockets = systemd::take_sockets(env).map_err(DaemonError::Activation)?;
                 (sockets.http, sockets.https, sockets.ipc, None)
@@ -121,9 +124,9 @@ impl Prepared {
                 };
                 let (http, https) = bind_ports(ports)?;
                 let path = standalone_ipc_path(&settings, env);
-                let ipc = ipc::bind(&path)
+                let (ipc, unpublished) = ipc::bind_unpublished(&path)
                     .map_err(|e| DaemonError::Bind(path.display().to_string(), e))?;
-                (http, https, ipc, Some(path))
+                (http, https, ipc, Some(unpublished))
             }
         };
         Ok(Self {
@@ -133,7 +136,7 @@ impl Prepared {
             http,
             https,
             ipc,
-            ipc_path,
+            ipc_socket,
             notifier,
         })
     }
@@ -154,7 +157,7 @@ impl Prepared {
             http,
             https,
             ipc,
-            ipc_path: None,
+            ipc_socket: None,
             notifier: None,
         }
     }
@@ -197,27 +200,40 @@ pub async fn run(
         http,
         https,
         ipc,
-        ipc_path,
+        ipc_socket,
         notifier,
     } = prepared;
-    let listeners = adopt(http, https, ipc).map_err(|e| DaemonError::Bind("sockets".into(), e))?;
-    let (http, https, ipc) = listeners;
-    let http_port = http.local_addr().map_or(0, |address| address.port());
-    let https_port = https.local_addr().map_or(0, |address| address.port());
-    let node = Node::new(NodeOptions {
+    let parts = NodeParts {
+        settings,
         store,
+        runtime,
         clock,
         rng,
-        runtime,
-        http_port,
-        https_port,
-        acme_ca_file: settings.acme_ca_file.clone(),
         policies,
-    })
-    .map_err(DaemonError::Node)?;
-    let tls = tls::server_config(Arc::clone(node.certificate())).map_err(DaemonError::Tls)?;
+    };
+    let (node, listeners, tls) = match make_node(parts, (http, https, ipc)) {
+        Ok(made) => made,
+        Err(error) => {
+            // A daemon that did not start leaves no socket behind.
+            if let Some(socket) = ipc_socket {
+                socket.discard();
+            }
+            return Err(error);
+        }
+    };
     let services = TaskTracker::new();
-    start_services(&node, &services, &shutdown, (http, https, ipc), tls);
+    start_services(&node, &services, &shutdown, listeners, tls);
+    // Clients find the socket only now, when the daemon answers them and
+    // handles signals; before, a CLI would hang or a SIGTERM go unhandled.
+    let ipc_path = match ipc_socket.map(ipc::Unpublished::publish).transpose() {
+        Ok(path) => path,
+        Err(error) => {
+            shutdown.cancel();
+            services.close();
+            services.wait().await;
+            return Err(DaemonError::Bind("the IPC socket".into(), error));
+        }
+    };
     report_ready(&node, notifier.as_ref());
     shutdown.cancelled().await;
     tracing::info!(target: target::DAEMON, "shutting down");
@@ -237,6 +253,41 @@ pub async fn run(
     }
     tracing::info!(target: target::DAEMON, "stopped");
     Ok(())
+}
+
+/// What the node is made from, besides its sockets.
+struct NodeParts {
+    settings: Settings,
+    store: Store,
+    runtime: Runtime,
+    clock: Arc<dyn Clock>,
+    rng: Box<dyn SharedRng>,
+    policies: Policies,
+}
+
+/// Adopts the sockets and makes the node and its TLS configuration; nothing
+/// is served yet.
+fn make_node(
+    parts: NodeParts,
+    sockets: (TcpListener, TcpListener, UnixListener),
+) -> Result<(Arc<Node>, Listeners, Arc<rustls::ServerConfig>), DaemonError> {
+    let (http, https, ipc) = sockets;
+    let listeners = adopt(http, https, ipc).map_err(|e| DaemonError::Bind("sockets".into(), e))?;
+    let http_port = listeners.0.local_addr().map_or(0, |address| address.port());
+    let https_port = listeners.1.local_addr().map_or(0, |address| address.port());
+    let node = Node::new(NodeOptions {
+        store: parts.store,
+        clock: parts.clock,
+        rng: parts.rng,
+        runtime: parts.runtime,
+        http_port,
+        https_port,
+        acme_ca_file: parts.settings.acme_ca_file.clone(),
+        policies: parts.policies,
+    })
+    .map_err(DaemonError::Node)?;
+    let tls = tls::server_config(Arc::clone(node.certificate())).map_err(DaemonError::Tls)?;
+    Ok((node, listeners, tls))
 }
 
 type Listeners = (

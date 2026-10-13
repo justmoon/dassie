@@ -152,13 +152,24 @@ impl Node {
         Ok(info)
     }
 
+    /// The ACME client, made on first use.
+    fn acme(&self) -> Result<&crate::acme::AcmeClient, ObtainError> {
+        self.acme
+            .get_or_init(|| {
+                crate::acme::AcmeClient::new(self.acme_ca_file.as_deref())
+                    .map_err(|e| e.to_string())
+            })
+            .as_ref()
+            .map_err(|error| ObtainError::Unavailable(format!("the ACME client: {error}"), None))
+    }
+
     /// The configured directory, or `directory`, with its terms of service.
     pub async fn acme_terms(
         &self,
         directory: Option<DirectoryUrl>,
     ) -> Result<(DirectoryUrl, Option<String>), ObtainError> {
         let directory = directory.unwrap_or_else(|| self.config().acme_directory);
-        let terms = self.acme.terms_of_service(&directory).await?;
+        let terms = self.acme()?.terms_of_service(&directory).await?;
         Ok((directory, terms))
     }
 
@@ -217,7 +228,7 @@ impl Node {
         })?;
         let directory = request.directory.clone().unwrap_or(config.acme_directory);
         let account = match self.store.acme_account(directory.as_str())? {
-            Some(credentials) => self.acme.account(&credentials).await?,
+            Some(credentials) => self.acme()?.account(&credentials).await?,
             None if !request.agree_to_terms => {
                 return Err(ObtainError::Precondition(
                     "the CA's terms of service must be agreed to".into(),
@@ -225,8 +236,10 @@ impl Node {
             }
             None => {
                 progress(Step::CreatingAccount);
-                let (account, credentials) =
-                    self.acme.create_account(&directory, &request.email).await?;
+                let (account, credentials) = self
+                    .acme()?
+                    .create_account(&directory, &request.email)
+                    .await?;
                 self.store.set_acme_account(
                     directory.as_str(),
                     &credentials,

@@ -174,7 +174,12 @@ fn daemon(options: DaemonOptions) -> ExitCode {
     };
     let result = runtime.block_on(async {
         let shutdown = CancellationToken::new();
-        tokio::spawn(stop_on_signal(shutdown.clone()));
+        // The handlers exist before the daemon publishes its socket or
+        // reports readiness, so no SIGTERM finds the process without one.
+        let Some(signals) = listen_for_signals() else {
+            return Err(daemon::DaemonError::Signals);
+        };
+        tokio::spawn(stop_on_signal(signals, shutdown.clone()));
         daemon::run(
             prepared,
             Arc::new(SystemClock),
@@ -193,15 +198,18 @@ fn daemon(options: DaemonOptions) -> ExitCode {
     }
 }
 
-async fn stop_on_signal(shutdown: CancellationToken) {
+type Signals = (tokio::signal::unix::Signal, tokio::signal::unix::Signal);
+
+/// SIGTERM and SIGINT, handled from now on.
+fn listen_for_signals() -> Option<Signals> {
     use tokio::signal::unix::{SignalKind, signal};
-    let (Ok(mut terminate), Ok(mut interrupt)) = (
-        signal(SignalKind::terminate()),
-        signal(SignalKind::interrupt()),
-    ) else {
-        tracing::error!(target: log::target::DAEMON, "could not listen for signals");
-        return;
-    };
+    let terminate = signal(SignalKind::terminate()).ok()?;
+    let interrupt = signal(SignalKind::interrupt()).ok()?;
+    Some((terminate, interrupt))
+}
+
+async fn stop_on_signal(signals: Signals, shutdown: CancellationToken) {
+    let (mut terminate, mut interrupt) = signals;
     tokio::select! {
         _ = terminate.recv() => {}
         _ = interrupt.recv() => {}

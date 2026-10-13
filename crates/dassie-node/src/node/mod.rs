@@ -143,7 +143,10 @@ pub struct Node {
     certificate: Arc<CertificateSlot>,
     renewal: Mutex<Renewal>,
     renewal_wake: Notify,
-    acme: AcmeClient,
+    /// Made on first use: the system's root store is read then, so a
+    /// machine without one still serves, and says so when ordering.
+    acme: std::sync::OnceLock<Result<AcmeClient, String>>,
+    acme_ca_file: Option<PathBuf>,
     acme_order: tokio::sync::Mutex<()>,
     acme_last_error: Mutex<Option<String>>,
     revocations: broadcast::Sender<Revocation>,
@@ -185,8 +188,14 @@ impl Node {
         let config = store.config()?;
         let node_key = store.node_key()?.map(Arc::new);
         let certificate = certificates::initial(&store, config.hostname.as_ref(), now_ms)?;
-        let acme =
-            AcmeClient::new(acme_ca_file.as_deref()).map_err(|e| NodeError::Acme(e.to_string()))?;
+        let acme = std::sync::OnceLock::new();
+        if acme_ca_file.is_some() {
+            // A test CA's root that cannot be read is a mistake in the
+            // environment: refuse to start, rather than fail the first order.
+            let client = AcmeClient::new(acme_ca_file.as_deref())
+                .map_err(|e| NodeError::Acme(e.to_string()))?;
+            let _ = acme.set(Ok(client));
+        }
         let setup_token = SetupToken::generate(rng.as_mut());
         Ok(Arc::new(Self {
             store,
@@ -200,6 +209,7 @@ impl Node {
             renewal: Mutex::new(Renewal::new(policies.renewal, now_ms)),
             renewal_wake: Notify::new(),
             acme,
+            acme_ca_file,
             acme_order: tokio::sync::Mutex::new(()),
             acme_last_error: Mutex::new(None),
             revocations: broadcast::Sender::new(16),
