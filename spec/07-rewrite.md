@@ -217,6 +217,9 @@ Mainnet stays disabled until the [D8](08-decisions.md#d8-real-money) criteria ar
   - WebSocket at `/rpc`: one message per binary frame.
   - The IPC socket: frames with a 4-byte big-endian length prefix.
   - Both have a 1 MiB message limit, and per-connection limits on concurrent calls and open streams.
+  - The node caps the number of open WebSockets. A browser's socket with no call in flight closes after 10 minutes without a message; the client reconnects on its next call.
+  - A client that sends faster than it reads is disconnected, rather than allowed to queue answers without bound.
+  - Every way a session ends (logout, revocation, expiry, eviction for a newer one) closes its sockets with code 4001, after the calls already answered have their answers.
 - **The browser client** gives every call a timeout (RT-27).
 
 ## 5. Wallet and dashboard (Solid 2)

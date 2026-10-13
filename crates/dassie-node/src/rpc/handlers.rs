@@ -281,7 +281,9 @@ fn settings_error(error: SettingsError) -> RpcError {
 
 fn obtain_error(error: ObtainError) -> RpcError {
     match error {
-        ObtainError::Precondition(_) => RpcError::precondition(error),
+        ObtainError::Precondition(_) | ObtainError::HostnameChanged => {
+            RpcError::precondition(error)
+        }
         ObtainError::Unavailable(..) => RpcError::unavailable(error),
         ObtainError::Internal(_) => RpcError::internal(error),
     }

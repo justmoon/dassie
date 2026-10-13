@@ -7,6 +7,7 @@
 //! arrive too often (RT-10).
 
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use bytes::Bytes;
 use dassie_node_core::origin;
@@ -64,8 +65,11 @@ pub fn check_origin(node: &Node, request: &Request<Incoming>) -> Result<(), Refu
     .map_err(|error| Refusal(StatusCode::FORBIDDEN, error.to_string()))
 }
 
-/// Reads a JSON body of at most [`MAX_BODY_BYTES`].
-async fn json_body<T: DeserializeOwned>(request: Request<Incoming>) -> Result<T, Refusal> {
+/// Reads a JSON body of at most [`MAX_BODY_BYTES`], sent within `timeout`.
+async fn json_body<T: DeserializeOwned>(
+    request: Request<Incoming>,
+    timeout: Duration,
+) -> Result<T, Refusal> {
     let is_json = header_str(request.headers(), &header::CONTENT_TYPE)
         .and_then(|value| value.split(';').next())
         .is_some_and(|media| media.trim().eq_ignore_ascii_case("application/json"));
@@ -75,20 +79,30 @@ async fn json_body<T: DeserializeOwned>(request: Request<Incoming>) -> Result<T,
             "Expected application/json".into(),
         ));
     }
-    let bytes: Bytes = match Limited::new(request.into_body(), MAX_BODY_BYTES)
-        .collect()
-        .await
-    {
-        Ok(collected) => collected.to_bytes(),
-        Err(_) => {
+    // Headers have hyper's timeout; the body gets one here, or a client
+    // could hold its connection by sending a byte now and then.
+    let collect = Limited::new(request.into_body(), MAX_BODY_BYTES).collect();
+    let bytes: Bytes = match tokio::time::timeout(timeout, collect).await {
+        Ok(Ok(collected)) => collected.to_bytes(),
+        Ok(Err(_)) => {
             return Err(Refusal(
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "Payload Too Large".into(),
             ));
         }
+        Err(_) => {
+            return Err(Refusal(
+                StatusCode::REQUEST_TIMEOUT,
+                "Request Timeout".into(),
+            ));
+        }
     };
     serde_json::from_slice(&bytes)
         .map_err(|_| Refusal(StatusCode::BAD_REQUEST, "Invalid HTTP request body".into()))
+}
+
+fn body_timeout(node: &Node) -> Duration {
+    Duration::from_millis(node.policies().body_timeout_ms)
 }
 
 fn user_agent(request: &Request<Incoming>) -> String {
@@ -103,7 +117,7 @@ pub async fn setup(node: &Node, peer: SocketAddr, request: Request<Incoming>) ->
         return refusal.into_response();
     }
     let user_agent = user_agent(&request);
-    let body: SetupBody = match json_body(request).await {
+    let body: SetupBody = match json_body(request, body_timeout(node)).await {
         Ok(body) => body,
         Err(refusal) => return refusal.into_response(),
     };
@@ -121,7 +135,7 @@ pub async fn login(node: &Node, peer: SocketAddr, request: Request<Incoming>) ->
         return refusal.into_response();
     }
     let user_agent = user_agent(&request);
-    let body: LoginBody = match json_body(request).await {
+    let body: LoginBody = match json_body(request, body_timeout(node)).await {
         Ok(body) => body,
         Err(refusal) => return refusal.into_response(),
     };

@@ -13,6 +13,7 @@ use std::io::IsTerminal;
 use dassie_node::env::Env;
 use dassie_node::rpc::proto::{self, request::Method, response, stream_item};
 use dassie_node_core::config::{Hostname, LETS_ENCRYPT_STAGING};
+use dassie_node_core::urls;
 
 use crate::client::{CallError, Client};
 
@@ -268,13 +269,38 @@ async fn finish(client: &mut Client, hostname: &str) -> Result<(), Stopped> {
         Err(CallError {
             code: Some(proto::ErrorCode::FailedPrecondition),
             ..
-        }) => shown(cliclack::outro(format!(
-            "Configuration completed! You may now visit your Dassie node at https://{hostname}/"
-        ))),
+        }) => {
+            let url = node_url(client, hostname).await?;
+            shown(cliclack::outro(format!(
+                "Configuration completed! You may now visit your Dassie node at {url}/"
+            )))
+        }
         Err(error) => Err(failed(&error)),
         Ok(_) => Err(failed(&CallError {
             code: None,
             message: "The daemon answered out of turn".into(),
         })),
     }
+}
+
+/// The node's URL, with the port its HTTPS listener actually has, which
+/// under systemd may not be the configured one (spec 7 §4.1).
+async fn node_url(client: &mut Client, hostname: &str) -> Result<String, Stopped> {
+    let status = client
+        .call(Method::GetStatus(proto::GetStatusRequest {}))
+        .await;
+    let Ok(response::Method::GetStatus(status)) = status else {
+        return Err(failed(&CallError {
+            code: None,
+            message: "Could not read the node's status".into(),
+        }));
+    };
+    let port = u16::try_from(status.https_port).unwrap_or(443);
+    let hostname = Hostname::parse(hostname).map_err(|error| {
+        failed(&CallError {
+            code: None,
+            message: format!("{hostname}: {error}"),
+        })
+    })?;
+    Ok(urls::node_url(Some(&hostname), port).unwrap_or_default())
 }

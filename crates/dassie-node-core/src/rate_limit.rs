@@ -2,22 +2,22 @@
 //!
 //! The original had no rate limiting at all (spec 2 §8.4, RT-10). The login
 //! secret is 256 bits, so guessing is hopeless anyway; the limit is there so
-//! that a flood of attempts costs the node nothing, each one being an HMAC
-//! and possibly a database write.
+//! that one client cannot make the node do work as fast as it can send.
 //!
-//! Each client (an IPv4 address, or an IPv6 /64) has a bucket, and all of
-//! them share a global one. An attempt takes a token from both or neither.
-//! The table has a fixed number of client slots; when it is full, the client
-//! seen least recently loses its slot. That can hand a forgetful attacker a
-//! fresh bucket, which is why the global bucket exists.
+//! Each client (an IPv4 address, or an IPv6 /56) has a bucket of its own.
+//! There is deliberately no bucket shared by all clients: a handful of
+//! addresses could keep it empty and so lock the owner out of logging in,
+//! or out of setting the node up at all. The table has a fixed number of
+//! client slots; when it is full, the client seen least recently loses its
+//! slot, which at worst hands someone a fresh bucket.
 
 use alloc::vec::Vec;
 use core::net::IpAddr;
 
-use crate::{MINUTE_MS, SECOND_MS};
+use crate::MINUTE_MS;
 
-/// Who an attempt comes from: an IPv4 address, or the /64 of an IPv6
-/// address, since one host usually has a whole /64.
+/// Who an attempt comes from: an IPv4 address, or the /56 of an IPv6
+/// address, since one customer of a provider usually has a whole /56.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ClientKey([u8; 16]);
 
@@ -31,7 +31,7 @@ impl ClientKey {
                 Some(v4) => Self(v4.to_ipv6_mapped().octets()),
                 None => {
                     let mut octets = v6.octets();
-                    for byte in octets.iter_mut().skip(8) {
+                    for byte in octets.iter_mut().skip(7) {
                         *byte = 0;
                     }
                     Self(octets)
@@ -48,22 +48,15 @@ pub struct RateLimitPolicy {
     pub client_burst: u32,
     /// One more attempt per client every this long.
     pub client_refill_ms: u64,
-    /// Attempts all clients together may make at once.
-    pub global_burst: u32,
-    /// One more attempt overall every this long.
-    pub global_refill_ms: u64,
     /// Client slots in the table.
     pub client_slots: usize,
 }
 
 impl RateLimitPolicy {
-    /// 5 per client, then one every 12 s; 30 overall, then one every 2 s;
-    /// 256 clients tracked.
+    /// 5 per client, then one every 12 s; 256 clients tracked.
     pub const DEFAULT: Self = Self {
         client_burst: 5,
         client_refill_ms: MINUTE_MS / 5,
-        global_burst: 30,
-        global_refill_ms: 2 * SECOND_MS,
         client_slots: 256,
     };
 }
@@ -127,7 +120,6 @@ pub struct RateLimitStats {
 #[derive(Clone, Debug)]
 pub struct RateLimiter {
     policy: RateLimitPolicy,
-    global: Bucket,
     clients: Vec<(ClientKey, Bucket)>,
     stats: RateLimitStats,
 }
@@ -135,11 +127,10 @@ pub struct RateLimiter {
 impl RateLimiter {
     /// An empty table, with all its memory allocated now.
     #[must_use]
-    pub fn new(policy: RateLimitPolicy, now_ms: u64) -> Self {
-        assert!(policy.client_slots > 0 && policy.client_burst > 0 && policy.global_burst > 0);
+    pub fn new(policy: RateLimitPolicy) -> Self {
+        assert!(policy.client_slots > 0 && policy.client_burst > 0);
         Self {
             policy,
-            global: Bucket::full(policy.global_burst, now_ms),
             clients: Vec::with_capacity(policy.client_slots),
             stats: RateLimitStats::default(),
         }
@@ -148,8 +139,6 @@ impl RateLimiter {
     /// Takes one attempt for `client`, or says how long to wait.
     pub fn check(&mut self, client: ClientKey, now_ms: u64) -> Result<(), Limited> {
         let policy = self.policy;
-        self.global
-            .refill(policy.global_burst, policy.global_refill_ms, now_ms);
         let index = self.slot(client, now_ms);
         let Some((_, bucket)) = self.clients.get_mut(index) else {
             unreachable!("slot returns an index into the table");
@@ -159,13 +148,8 @@ impl RateLimiter {
             Err(Limited {
                 retry_after_ms: bucket.wait_ms(policy.client_refill_ms, now_ms),
             })
-        } else if self.global.tokens == 0 {
-            Err(Limited {
-                retry_after_ms: self.global.wait_ms(policy.global_refill_ms, now_ms),
-            })
         } else {
             bucket.tokens -= 1;
-            self.global.tokens -= 1;
             Ok(())
         };
         match result {
@@ -209,7 +193,6 @@ impl RateLimiter {
     /// twice, or a bucket over its size.
     pub fn check_invariants(&self) {
         assert!(self.clients.len() <= self.policy.client_slots);
-        assert!(self.global.tokens <= self.policy.global_burst);
         for (index, (key, bucket)) in self.clients.iter().enumerate() {
             assert!(bucket.tokens <= self.policy.client_burst);
             let rest = self.clients.iter().skip(index.saturating_add(1));
@@ -220,6 +203,8 @@ impl RateLimiter {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::indexing_slicing)]
+
     use super::*;
     use core::net::{Ipv4Addr, Ipv6Addr};
     use proptest::prelude::*;
@@ -231,7 +216,7 @@ mod tests {
     // RT-10: the original allowed unlimited attempts.
     #[test]
     fn a_client_gets_its_burst_then_waits() {
-        let mut limiter = RateLimiter::new(RateLimitPolicy::DEFAULT, 0);
+        let mut limiter = RateLimiter::new(RateLimitPolicy::DEFAULT);
         for _ in 0..5 {
             assert_eq!(limiter.check(v4(1), 0), Ok(()));
         }
@@ -257,27 +242,31 @@ mod tests {
         );
     }
 
+    // Other clients, however many and however busy, never use up the
+    // owner's attempts.
     #[test]
-    fn the_global_bucket_caps_many_clients() {
-        let mut limiter = RateLimiter::new(RateLimitPolicy::DEFAULT, 0);
-        for client in 0..30 {
-            assert_eq!(limiter.check(v4(client), 0), Ok(()));
+    fn other_clients_cannot_lock_one_out() {
+        let mut limiter = RateLimiter::new(RateLimitPolicy::DEFAULT);
+        for now in (0..120_000).step_by(1_000) {
+            for client in 2..=40 {
+                let _ = limiter.check(v4(client), now);
+            }
         }
-        assert_eq!(
-            limiter.check(v4(200), 0),
-            Err(Limited {
-                retry_after_ms: 2_000
-            })
-        );
+        assert_eq!(limiter.check(v4(1), 120_000), Ok(()));
     }
 
     #[test]
-    fn ipv6_clients_are_grouped_by_slash_64() {
-        let a = Ipv6Addr::new(0x2001, 0xdb8, 0, 1, 0, 0, 0, 1);
-        let b = Ipv6Addr::new(0x2001, 0xdb8, 0, 1, 0xffff, 0, 0, 2);
+    fn ipv6_clients_are_grouped_by_slash_56() {
+        let a = Ipv6Addr::new(0x2001, 0xdb8, 0x12, 0x3401, 0, 0, 0, 1);
+        let b = Ipv6Addr::new(0x2001, 0xdb8, 0x12, 0x34ff, 0xffff, 0, 0, 2);
+        let other = Ipv6Addr::new(0x2001, 0xdb8, 0x12, 0x3501, 0, 0, 0, 1);
         assert_eq!(
             ClientKey::from_ip(IpAddr::V6(a)),
             ClientKey::from_ip(IpAddr::V6(b))
+        );
+        assert_ne!(
+            ClientKey::from_ip(IpAddr::V6(a)),
+            ClientKey::from_ip(IpAddr::V6(other))
         );
         let mapped = Ipv4Addr::new(10, 0, 0, 1).to_ipv6_mapped();
         assert_eq!(ClientKey::from_ip(IpAddr::V6(mapped)), v4(1));
@@ -289,7 +278,7 @@ mod tests {
             client_slots: 2,
             ..RateLimitPolicy::DEFAULT
         };
-        let mut limiter = RateLimiter::new(policy, 0);
+        let mut limiter = RateLimiter::new(policy);
         assert_eq!(limiter.check(v4(1), 0), Ok(()));
         assert_eq!(limiter.check(v4(2), 100), Ok(()));
         assert_eq!(limiter.check(v4(3), 200), Ok(()));
@@ -300,19 +289,20 @@ mod tests {
     proptest! {
         #[test]
         fn stays_within_bounds(attempts in proptest::collection::vec((0_u8..40, 0_u64..5_000), 1..400)) {
-            let policy = RateLimitPolicy { client_slots: 8, ..RateLimitPolicy::DEFAULT };
-            let mut limiter = RateLimiter::new(policy, 0);
+            let policy = RateLimitPolicy { client_slots: 64, ..RateLimitPolicy::DEFAULT };
+            let mut limiter = RateLimiter::new(policy);
             let mut now = 0;
-            let mut allowed = 0_u64;
+            let mut allowed = [0_u64; 40];
             for (client, step) in attempts {
                 now += step;
                 if limiter.check(v4(client), now).is_ok() {
-                    allowed += 1;
+                    allowed[usize::from(client)] += 1;
                 }
             }
-            // Never more than the global burst plus what it refilled.
-            prop_assert!(allowed <= 30 + now / 2_000);
-            prop_assert_eq!(limiter.stats().allowed, allowed);
+            // No client ever got more than its burst plus what refilled.
+            for count in allowed {
+                prop_assert!(count <= 5 + now / 12_000);
+            }
         }
     }
 }

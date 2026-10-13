@@ -303,12 +303,12 @@ impl Store {
     }
 
     /// Stores a new session, and deletes the least recently used ones beyond
-    /// the policy's limit, in one transaction.
+    /// the policy's limit, in one transaction. Says how many it deleted.
     pub fn insert_session(
         &self,
         record: &SessionRecord,
         policy: &SessionPolicy,
-    ) -> Result<(), StoreError> {
+    ) -> Result<u32, StoreError> {
         let mut connection = self.lock();
         let transaction = connection.transaction()?;
         transaction.execute(
@@ -320,13 +320,20 @@ impl Store {
                 record.user_agent,
             ],
         )?;
-        transaction.execute(
-            "DELETE FROM sessions WHERE id NOT IN \
-             (SELECT id FROM sessions ORDER BY last_used_at_ms DESC, id LIMIT ?1)",
-            [policy.max_sessions],
+        // The new session always stays; of the others, the most recently
+        // used fill the remaining places. Ties on time go by creation, then
+        // by ID, so the order is total and the outcome deterministic.
+        let evicted = transaction.execute(
+            "DELETE FROM sessions WHERE id != ?1 AND id NOT IN \
+             (SELECT id FROM sessions WHERE id != ?1 \
+              ORDER BY last_used_at_ms DESC, created_at_ms DESC, id LIMIT ?2)",
+            params![
+                record.id.0.as_slice(),
+                policy.max_sessions.saturating_sub(1)
+            ],
         )?;
         transaction.commit()?;
-        Ok(())
+        Ok(u32::try_from(evicted).unwrap_or(u32::MAX))
     }
 
     /// The session with `id`.

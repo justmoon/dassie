@@ -26,8 +26,8 @@ use hyper_util::client::legacy::Client as HyperClient;
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
 use instant_acme::{
-    Account, AccountCredentials, AuthorizationStatus, BodyWrapper, ChallengeType, HttpClient,
-    Identifier, NewAccount, NewOrder, Order, OrderStatus, RetryPolicy,
+    Account, AccountCredentials, AuthorizationStatus, BodyWrapper, BytesResponse, ChallengeType,
+    HttpClient, Identifier, NewAccount, NewOrder, Order, OrderStatus, RetryPolicy,
 };
 use rcgen::{CertificateParams, KeyPair, PKCS_ECDSA_P256_SHA256};
 use rustls::RootCertStore;
@@ -107,10 +107,43 @@ impl From<instant_acme::Error> for AcmeError {
 
 type Https = HyperClient<HttpsConnector<HttpConnector>, BodyWrapper<Bytes>>;
 
+/// Time to connect to the ACME server.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Time for the ACME server to answer one request, headers and body.
+pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// The hyper client with a deadline on every request, so that a server
+/// that accepts and then stalls cannot hold an order for ever.
+#[derive(Clone)]
+struct Timed {
+    inner: Https,
+    timeout: Duration,
+}
+
+impl HttpClient for Timed {
+    fn request(
+        &self,
+        request: Request<BodyWrapper<Bytes>>,
+    ) -> std::pin::Pin<Box<dyn Future<Output = Result<BytesResponse, instant_acme::Error>> + Send>>
+    {
+        let pending = HttpClient::request(&self.inner, request);
+        let timeout = self.timeout;
+        Box::pin(async move {
+            tokio::time::timeout(timeout, pending)
+                .await
+                .unwrap_or_else(|_| {
+                    Err(instant_acme::Error::Str(
+                        "the ACME server did not answer in time",
+                    ))
+                })
+        })
+    }
+}
+
 /// The HTTP side of ACME: the system's roots, or only a test CA's.
 #[derive(Clone)]
 pub struct AcmeClient {
-    http: Https,
+    http: Timed,
 }
 
 impl fmt::Debug for AcmeClient {
@@ -123,6 +156,11 @@ impl AcmeClient {
     /// A client that trusts the system's roots, or, with `ca_file`, only the
     /// root in that PEM file (for test CAs such as Pebble).
     pub fn new(ca_file: Option<&Path>) -> Result<Self, AcmeError> {
+        Self::with_timeout(ca_file, REQUEST_TIMEOUT)
+    }
+
+    /// [`new`](Self::new), with another request timeout (tests).
+    pub fn with_timeout(ca_file: Option<&Path>, timeout: Duration) -> Result<Self, AcmeError> {
         let internal = |error: &dyn fmt::Display| AcmeError::Internal(error.to_string());
         let builder = match ca_file {
             None => HttpsConnectorBuilder::new()
@@ -143,9 +181,13 @@ impl AcmeClient {
                 HttpsConnectorBuilder::new().with_tls_config(config)
             }
         };
-        let connector = builder.https_only().enable_http1().build();
+        let mut http = HttpConnector::new();
+        http.set_connect_timeout(Some(CONNECT_TIMEOUT));
+        http.enforce_http(false);
+        let connector = builder.https_only().enable_http1().wrap_connector(http);
+        let inner = HyperClient::builder(TokioExecutor::new()).build(connector);
         Ok(Self {
-            http: HyperClient::builder(TokioExecutor::new()).build(connector),
+            http: Timed { inner, timeout },
         })
     }
 
@@ -168,10 +210,12 @@ impl AcmeClient {
                 response.parts.status
             )));
         }
-        let body = response
-            .body
-            .into_bytes()
+        // The body has a deadline too; its size is checked once read, since
+        // instant-acme reads bodies whole, and the directory is the owner's
+        // choice.
+        let body = tokio::time::timeout(self.http.timeout, response.body.into_bytes())
             .await
+            .map_err(|_| server("the directory did not arrive in time".into()))?
             .map_err(|e| server(e.to_string()))?;
         if body.len() > MAX_DIRECTORY_BYTES {
             return Err(server("the directory is unreasonably large".into()));
@@ -339,4 +383,37 @@ async fn publish_challenges(
         challenge.set_ready().await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use super::*;
+
+    // A server that accepts and then says nothing once held an order, and
+    // with it every later order, for ever.
+    #[tokio::test(start_paused = true)]
+    async fn a_stalled_server_times_out() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let held = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            std::future::pending::<()>().await;
+            drop(stream);
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("root.pem");
+        let names = vec!["localhost".to_string()];
+        let certificate = tls::self_signed(&names, 1_800_000_000_000).unwrap();
+        std::fs::write(&root, certificate.chain_pem).unwrap();
+        let client = AcmeClient::with_timeout(Some(&root), Duration::from_secs(5)).unwrap();
+        let directory = DirectoryUrl::parse(&format!("https://localhost:{port}/dir")).unwrap();
+        let result = client.terms_of_service(&directory).await;
+        assert!(
+            matches!(result, Err(AcmeError::Server { .. })),
+            "{result:?}"
+        );
+        held.abort();
+    }
 }

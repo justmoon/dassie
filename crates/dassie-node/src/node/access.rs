@@ -128,8 +128,14 @@ impl Node {
             times,
             user_agent: clean_user_agent(user_agent),
         };
-        self.store
-            .insert_session(&record, &self.policies.sessions)?;
+        // Sessions evicted to make room close their sockets.
+        if self
+            .store
+            .insert_session(&record, &self.policies.sessions)?
+            > 0
+        {
+            self.revoke(Revocation::Recheck);
+        }
         let max_age_s = self.policies.sessions.cookie_max_age_s(times, now_ms);
         Ok(NewSession {
             id: record.id,
@@ -157,6 +163,8 @@ impl Node {
     /// Like [`authenticate`](Self::authenticate), by ID.
     pub fn check_session(&self, id: &SessionId) -> Result<Option<SessionId>, StoreError> {
         let Some(record) = self.store.session(id)? else {
+            // Ended some other way (pruned, evicted): its sockets close too.
+            self.revoke(Revocation::Session(*id));
             return Ok(None);
         };
         let now_ms = self.now_ms();
@@ -203,10 +211,16 @@ impl Node {
         Ok(count)
     }
 
-    /// Deletes expired sessions.
+    /// Deletes expired sessions, and closes their sockets.
     pub fn prune_sessions(&self) -> Result<u32, StoreError> {
-        self.store
-            .prune_sessions(&self.policies.sessions, self.now_ms())
+        let pruned = self
+            .store
+            .prune_sessions(&self.policies.sessions, self.now_ms())?;
+        // Their sockets close too.
+        if pruned > 0 {
+            self.revoke(Revocation::Recheck);
+        }
+        Ok(pruned)
     }
 
     fn revoke(&self, revocation: Revocation) {

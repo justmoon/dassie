@@ -4,7 +4,7 @@ use std::fmt;
 
 use dassie_node_core::config::{Alias, ConfigError, Hostname, NodeConfig, Ports, Realm};
 
-use super::{Node, NodeError, Runtime};
+use super::{Node, NodeError, Runtime, lock};
 use crate::store::StoreError;
 
 /// A configuration change was refused or failed.
@@ -44,11 +44,21 @@ impl From<NodeError> for SettingsError {
 }
 
 impl Node {
-    /// Stores `config` and makes it current.
-    pub(super) fn store_config(&self, config: NodeConfig) -> Result<(), StoreError> {
+    /// Changes the configuration: reads it, applies `change` and stores the
+    /// result, all under `config_writer`, so that two changes at once cannot
+    /// undo each other. `change` returning `false` means nothing changed.
+    pub(super) fn change_config(
+        &self,
+        change: impl FnOnce(&mut NodeConfig) -> Result<bool, SettingsError>,
+    ) -> Result<(NodeConfig, bool), SettingsError> {
+        let _writer = lock(&self.config_writer);
+        let mut config = self.config();
+        if !change(&mut config)? {
+            return Ok((config, false));
+        }
         self.store.set_config(&config)?;
-        self.config.send_replace(config);
-        Ok(())
+        self.config.send_replace(config.clone());
+        Ok((config, true))
     }
 
     /// Sets the public hostname. The certificate follows: a self-signed one
@@ -56,31 +66,36 @@ impl Node {
     /// ACME account exists. Every URL uses the new name at once (RT-3).
     pub fn set_hostname(&self, hostname: &str) -> Result<NodeConfig, SettingsError> {
         let hostname = Hostname::parse(hostname)?;
-        let mut config = self.config();
-        if config.hostname.as_ref() == Some(&hostname) {
-            return Ok(config);
+        let (config, changed) = self.change_config(|config| {
+            let changed = config.hostname.as_ref() != Some(&hostname);
+            config.hostname = Some(hostname);
+            Ok(changed)
+        })?;
+        if changed {
+            self.refresh_certificate()?;
+            self.wake_renewal();
         }
-        config.hostname = Some(hostname);
-        self.store_config(config.clone())?;
-        self.refresh_certificate()?;
-        self.wake_renewal();
         Ok(config)
     }
 
     /// Sets the realm; `live` is refused (D8).
     pub fn set_realm(&self, realm: Realm) -> Result<NodeConfig, SettingsError> {
-        let mut config = self.config();
-        config.realm = realm.check_settable()?;
-        self.store_config(config.clone())?;
+        let realm = realm.check_settable()?;
+        let (config, _) = self.change_config(|config| {
+            config.realm = realm;
+            Ok(true)
+        })?;
         Ok(config)
     }
 
     /// Sets the standalone runtime's ports, and says whether a restart is
     /// needed for them to take effect.
     pub fn set_ports(&self, http: u32, https: u32) -> Result<(NodeConfig, bool), SettingsError> {
-        let mut config = self.config();
-        config.ports = Ports::new(http, https)?;
-        self.store_config(config.clone())?;
+        let ports = Ports::new(http, https)?;
+        let (config, _) = self.change_config(|config| {
+            config.ports = ports;
+            Ok(true)
+        })?;
         let listening = (self.http_port, self.https_port);
         let restart_required = self.runtime == Runtime::Standalone
             && listening != (config.ports.http(), config.ports.https());
@@ -89,9 +104,11 @@ impl Node {
 
     /// Sets the alias.
     pub fn set_alias(&self, alias: &str) -> Result<NodeConfig, SettingsError> {
-        let mut config = self.config();
-        config.alias = Alias::parse(alias)?;
-        self.store_config(config.clone())?;
+        let alias = Alias::parse(alias)?;
+        let (config, _) = self.change_config(|config| {
+            config.alias = alias;
+            Ok(true)
+        })?;
         Ok(config)
     }
 }

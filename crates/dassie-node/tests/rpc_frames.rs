@@ -67,3 +67,44 @@ proptest! {
         }
     }
 }
+
+// A flood of calls the node refuses (no method) once filled the outgoing
+// queue, which only the connection's own loop drains, while that loop
+// waited for room in it: the connection hung for ever, deaf to shutdown.
+#[test]
+fn a_flood_of_refused_calls_ends_the_connection() {
+    // Paused time: the send timeout passes as soon as nothing else can run.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .start_paused(true)
+        .build()
+        .unwrap();
+    let node = node();
+    let frames = (0..200_000_u32).map(|call_id| {
+        let message = proto::ClientMessage {
+            call_id,
+            kind: Some(proto::client_message::Kind::Request(proto::Request {
+                method: None,
+            })),
+        };
+        Ok::<_, Infallible>(Bytes::from(message.encode_to_vec()))
+    });
+    let incoming = futures_util::stream::iter(frames);
+    // A client that never reads: every send waits.
+    let outgoing = futures_util::sink::unfold((), |(), _: Bytes| {
+        futures_util::future::pending::<Result<(), Infallible>>()
+    });
+    let serve = connection::serve(
+        Arc::clone(&node),
+        Caller::Browser(None),
+        incoming,
+        Box::pin(outgoing),
+        CancellationToken::new(),
+    );
+    let closed = runtime
+        .block_on(async { tokio::time::timeout(std::time::Duration::from_secs(60), serve).await });
+    assert!(
+        matches!(closed, Ok(Closed::ProtocolError | Closed::ByClient)),
+        "{closed:?}"
+    );
+}

@@ -10,6 +10,9 @@ use tokio_util::sync::CancellationToken;
 
 use super::{Node, NodeError, lock};
 use crate::acme::{AcmeError, OrderContext, Step};
+
+/// The longest an order may take, all requests included.
+const ORDER_LIMIT: std::time::Duration = std::time::Duration::from_secs(600);
 use crate::log::target;
 use crate::store::{Store, StoreError, StoredCertificate};
 use crate::tls::{self, LoadedCertificate, TlsError};
@@ -57,6 +60,9 @@ fn make_self_signed(
 pub enum ObtainError {
     /// Not possible as things stand.
     Precondition(String),
+    /// The hostname changed while the order ran; its certificate was for
+    /// the old one and is discarded.
+    HostnameChanged,
     /// The ACME server failed or refused, and may say when to try again,
     /// in ms from now.
     Unavailable(String, Option<u64>),
@@ -67,6 +73,9 @@ pub enum ObtainError {
 impl fmt::Display for ObtainError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::HostnameChanged => {
+                f.write_str("the hostname changed while ordering; order again")
+            }
             Self::Precondition(message)
             | Self::Unavailable(message, _)
             | Self::Internal(message) => f.write_str(message),
@@ -191,7 +200,25 @@ impl Node {
         if waited && let Some(info) = self.current_fits(&request) {
             return Ok(info);
         }
-        self.order(request, progress).await
+        self.order_in_time(request, progress).await
+    }
+
+    /// [`order`](Self::order), within [`ORDER_LIMIT`]: a stalled ACME
+    /// server must not hold `acme_order`, and with it every later order,
+    /// for ever.
+    async fn order_in_time(
+        &self,
+        request: ObtainRequest,
+        progress: &mut (dyn FnMut(Step) + Send),
+    ) -> Result<CertificateInfo, ObtainError> {
+        tokio::time::timeout(ORDER_LIMIT, self.order(request, progress))
+            .await
+            .unwrap_or_else(|_| {
+                Err(ObtainError::Unavailable(
+                    "the ACME order took too long".into(),
+                    None,
+                ))
+            })
     }
 
     /// The certificate being served, if it is from ACME, from the directory
@@ -256,12 +283,24 @@ impl Node {
             clock: self.clock.as_ref(),
         };
         let stored = crate::acme::order_certificate(&context, progress).await?;
-        let info = self.install(&stored)?;
+        let info = {
+            // Checked and installed under the configuration's writer lock,
+            // so a hostname change lands either before (and the certificate
+            // is discarded) or after (and replaces it with a self-signed one
+            // until a new order).
+            let _writer = lock(&self.config_writer);
+            if self.config().hostname.as_ref() != Some(&hostname) {
+                return Err(ObtainError::HostnameChanged);
+            }
+            self.install(&stored)?
+        };
         if request.directory.is_some() {
-            let mut config = self.config();
-            config.acme_directory = directory;
-            self.store_config(config)
-                .map_err(|e| ObtainError::Internal(e.to_string()))?;
+            self.change_config(|config| {
+                let changed = config.acme_directory != directory;
+                config.acme_directory = directory;
+                Ok(changed)
+            })
+            .map_err(|e| ObtainError::Internal(e.to_string()))?;
         }
         lock(&self.renewal).succeeded(self.now_ms());
         *lock(&self.acme_last_error) = None;
@@ -331,7 +370,12 @@ impl Node {
             agree_to_terms: false,
             directory: None,
         };
-        let result = self.order(request, &mut |_| {}).await;
+        let result = self.order_in_time(request, &mut |_| {}).await;
+        if let Err(ObtainError::HostnameChanged) = result {
+            // Not a failure: look again at once, for the new name.
+            lock(&self.renewal).wake(self.now_ms());
+            return;
+        }
         if let Err(error) = result {
             let retry_after_ms = match error {
                 ObtainError::Unavailable(_, retry_after_ms) => retry_after_ms,

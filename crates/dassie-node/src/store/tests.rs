@@ -222,3 +222,24 @@ fn expired_sessions_are_pruned() {
     assert_eq!(store.prune_sessions(&policy, 365 * DAY_MS).unwrap(), 2);
     assert!(store.sessions().unwrap().is_empty());
 }
+
+// A new session is never the one evicted, even when the clock has not
+// moved since the others were used.
+#[test]
+fn a_new_session_survives_eviction_on_a_tie() {
+    let store = Store::open_in_memory().unwrap();
+    let policy = SessionPolicy {
+        max_sessions: 1,
+        ..SessionPolicy::DEFAULT
+    };
+    for byte in [9, 1] {
+        store.insert_session(&session(byte, 5, 5), &policy).unwrap();
+        let ids: Vec<u8> = store
+            .sessions()
+            .unwrap()
+            .iter()
+            .map(|s| s.id.0[0])
+            .collect();
+        assert_eq!(ids, [byte]);
+    }
+}

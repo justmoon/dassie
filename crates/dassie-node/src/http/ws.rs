@@ -70,11 +70,17 @@ pub fn upgrade(
             return response::text(StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error");
         }
     };
+    // The socket outlives its HTTP connection, whose permit is returned at
+    // the upgrade; it holds one of its own until it closes.
+    let Some(permit) = node.websocket_permit() else {
+        return response::text(StatusCode::SERVICE_UNAVAILABLE, "Too many open sockets");
+    };
     let accept = derive_accept_key(key.as_bytes());
     let upgrade = hyper::upgrade::on(&mut request);
     let node = Arc::clone(node);
     let shutdown = shutdown.clone();
     tasks.spawn(async move {
+        let _permit = permit;
         match upgrade.await {
             Ok(upgraded) => {
                 serve(
@@ -141,6 +147,7 @@ where
         Closed::ProtocolError => Some((CloseCode::Protocol, "expected dassie.ui.v1 messages")),
         Closed::SessionEnded => Some((CloseCode::from(SESSION_ENDED), "session ended")),
         Closed::Shutdown => Some((CloseCode::Away, "node shutting down")),
+        Closed::Idle => Some((CloseCode::Normal, "idle")),
     };
     if let Some((code, reason)) = frame {
         let close = Message::Close(Some(CloseFrame {

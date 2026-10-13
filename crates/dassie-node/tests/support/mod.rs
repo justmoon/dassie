@@ -60,8 +60,23 @@ impl TestNode {
         Self::start_in(tempfile::tempdir().unwrap(), ManualClock::new(START_MS), 1).await
     }
 
+    /// A daemon on a fresh directory, with other limits.
+    pub async fn start_with(policies: Policies) -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        Self::start_in_with(dir, ManualClock::new(START_MS), 1, policies).await
+    }
+
     /// A daemon on `dir`, which may hold a database already.
     pub async fn start_in(dir: tempfile::TempDir, clock: ManualClock, seed: u64) -> Self {
+        Self::start_in_with(dir, clock, seed, Policies::DEFAULT).await
+    }
+
+    async fn start_in_with(
+        dir: tempfile::TempDir,
+        clock: ManualClock,
+        seed: u64,
+        policies: Policies,
+    ) -> Self {
         let http = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let https = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let ipc_path = dir.path().join("ipc.sock");
@@ -78,7 +93,7 @@ impl TestNode {
             prepared,
             Arc::new(clock.clone()),
             Box::new(SeededRng::new(seed)),
-            Policies::DEFAULT,
+            policies,
             shutdown.clone(),
         ));
         let node = Self {

@@ -4,17 +4,27 @@
 //! with exactly one terminal message (a response, the end of a stream, or
 //! an error), even when its handler panics. After a `Cancel`, nothing more
 //! is sent for that call. A browser's connection ends when its session
-//! does, so logging out takes effect on open sockets too (RT-6).
+//! does, so logging out takes effect on open sockets too (RT-6); calls
+//! already answered get their answers first.
+//!
+//! The loop never waits on its own outgoing queue, which only it drains:
+//! a client that sends faster than it reads, so that even refusals no
+//! longer fit, is disconnected. A browser's connection with nothing in
+//! flight closes after a while without messages (D16: an idle socket is
+//! memory and a file descriptor held for nothing).
 
 use std::collections::BTreeMap;
 use std::panic::AssertUnwindSafe;
+use std::pin::pin;
 use std::sync::Arc;
+use std::time::Duration;
 
 use bytes::Bytes;
 use futures_util::{FutureExt, Sink, SinkExt, Stream, StreamExt};
 use prost::Message;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinSet;
+use tokio::time::{Instant, Sleep};
 use tokio_util::sync::CancellationToken;
 
 use super::handlers::{self, Items, Reply};
@@ -26,15 +36,24 @@ use crate::node::{Node, Revocation};
 /// Messages queued for the client, per connection.
 const OUTGOING_QUEUE: usize = 64;
 
+/// How long the client may take to accept one message.
+const SEND_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How long calls already in flight get to answer when the session ends.
+const ENDING_GRACE: Duration = Duration::from_secs(1);
+
 /// Why a connection ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Closed {
     /// The client went away, or the transport failed.
     ByClient,
-    /// The client sent something that is not a `ClientMessage`.
+    /// The client sent something that is not a `ClientMessage`, or more
+    /// than it reads.
     ProtocolError,
     /// The browser's session ended.
     SessionEnded,
+    /// Nothing happened for the idle timeout.
+    Idle,
     /// The node is shutting down.
     Shutdown,
 }
@@ -53,6 +72,8 @@ struct Connection {
     tasks: JoinSet<()>,
     sender: mpsc::Sender<Queued>,
     shutdown: CancellationToken,
+    /// Set once the session ended: when the calls in flight must be done.
+    ending: Option<Instant>,
 }
 
 /// Serves the connection until it ends, and says why.
@@ -69,6 +90,10 @@ where
 {
     let (sender, mut queue) = mpsc::channel(OUTGOING_QUEUE);
     let mut revocations = node.revocations();
+    let idle_after = match caller {
+        Caller::Browser(_) => Some(Duration::from_millis(node.policies().socket_idle_ms)),
+        Caller::Owner => None,
+    };
     let mut connection = Connection {
         node,
         caller,
@@ -77,12 +102,22 @@ where
         tasks: JoinSet::new(),
         sender,
         shutdown,
+        ending: None,
     };
+    let far = Duration::from_secs(86_400 * 365);
+    let mut idle = pin!(tokio::time::sleep(idle_after.unwrap_or(far)));
     let closed = loop {
+        if let Some(deadline) = connection.ending
+            && (connection.calls.is_empty() || Instant::now() >= deadline)
+        {
+            break Closed::SessionEnded;
+        }
+        let watch_idle = idle_after.is_some() && connection.calls.is_empty();
         tokio::select! {
-            frame = incoming.next() => match frame {
+            frame = incoming.next(), if connection.ending.is_none() => match frame {
                 Some(Ok(bytes)) => {
-                    if let Err(closed) = connection.receive(&bytes).await {
+                    reset(&mut idle, idle_after);
+                    if let Err(closed) = connection.receive(&bytes) {
                         break closed;
                     }
                 }
@@ -92,16 +127,23 @@ where
                 if !connection.forward(generation, &message) {
                     continue;
                 }
-                if outgoing.send(Bytes::from(message.encode_to_vec())).await.is_err() {
+                reset(&mut idle, idle_after);
+                // A client that stops reading would otherwise hold the loop,
+                // and with it shutdown, here for ever.
+                let send = outgoing.send(Bytes::from(message.encode_to_vec()));
+                if !matches!(tokio::time::timeout(SEND_TIMEOUT, send).await, Ok(Ok(()))) {
                     break Closed::ByClient;
                 }
             }
             Some(_) = connection.tasks.join_next() => {}
             revocation = revocations.recv() => {
-                if connection.session_ended(revocation) {
-                    break Closed::SessionEnded;
+                if connection.ending.is_none() && connection.session_ended(revocation) {
+                    connection.ending = Some(Instant::now() + ENDING_GRACE);
                 }
             }
+            () = idle.as_mut(), if watch_idle => break Closed::Idle,
+            () = tokio::time::sleep_until(connection.ending.unwrap_or_else(Instant::now)),
+                if connection.ending.is_some() => {}
             () = connection.shutdown.cancelled() => break Closed::Shutdown,
         }
     };
@@ -112,14 +154,20 @@ where
     closed
 }
 
+fn reset(idle: &mut std::pin::Pin<&mut Sleep>, after: Option<Duration>) {
+    if let Some(after) = after {
+        idle.as_mut().reset(Instant::now() + after);
+    }
+}
+
 impl Connection {
-    async fn receive(&mut self, bytes: &[u8]) -> Result<(), Closed> {
+    fn receive(&mut self, bytes: &[u8]) -> Result<(), Closed> {
         let Ok(message) = proto::ClientMessage::decode(bytes) else {
             return Err(Closed::ProtocolError);
         };
         let call_id = message.call_id;
         match message.kind {
-            Some(client_message::Kind::Request(request)) => self.start(call_id, request).await,
+            Some(client_message::Kind::Request(request)) => self.start(call_id, request),
             Some(client_message::Kind::Cancel(_)) => {
                 if let Some((_, call)) = self.calls.remove(&call_id) {
                     call.cancel();
@@ -130,7 +178,7 @@ impl Connection {
         }
     }
 
-    async fn start(&mut self, call_id: u32, request: proto::Request) -> Result<(), Closed> {
+    fn start(&mut self, call_id: u32, request: proto::Request) -> Result<(), Closed> {
         // Reusing the ID of a call in flight would make every later message
         // ambiguous; the contract forbids it.
         if self.calls.contains_key(&call_id) {
@@ -151,13 +199,12 @@ impl Connection {
         };
         if let Some(error) = refusal {
             // Generation 0 belongs to no call: the refusal of one that never
-            // started.
+            // started. If not even that fits, the client does not read.
             let message = terminal(call_id, Err(error));
             return self
                 .sender
-                .send((0, message))
-                .await
-                .map_err(|_| Closed::ByClient);
+                .try_send((0, message))
+                .map_err(|_| Closed::ProtocolError);
         }
         let Some(method) = request.method else {
             return Ok(());
@@ -179,6 +226,7 @@ impl Connection {
                 () = token.cancelled() => return,
                 outcome = work => outcome.unwrap_or_else(|_| Err(RpcError::internal("an RPC handler panicked"))),
             };
+            // A task, not the loop, waits here; the loop drains the queue.
             let _ = items.sender.send((generation, terminal(call_id, outcome))).await;
         });
         Ok(())
@@ -208,11 +256,12 @@ impl Connection {
             return false;
         };
         match revocation {
-            Ok(revocation) => revocation.ends(&session),
-            // Missed some: ask the database instead.
-            Err(broadcast::error::RecvError::Lagged(_)) => {
+            Ok(Revocation::Recheck) | Err(broadcast::error::RecvError::Lagged(_)) => {
+                // Some sessions ended without a name, or notices were
+                // missed: ask the database.
                 !matches!(self.node.check_session(&session), Ok(Some(_)))
             }
+            Ok(revocation) => revocation.ends(&session),
             Err(broadcast::error::RecvError::Closed) => false,
         }
     }

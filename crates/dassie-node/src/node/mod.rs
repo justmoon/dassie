@@ -20,7 +20,7 @@ use dassie_node_core::rate_limit::{RateLimitPolicy, RateLimiter};
 use dassie_node_core::session::{SessionId, SessionPolicy};
 use dassie_node_core::setup::SetupToken;
 use dassie_node_core::urls;
-use tokio::sync::{Notify, broadcast, watch};
+use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, broadcast, watch};
 
 pub use access::{AuthError, NewSession, SessionView};
 pub use certificates::{ObtainError, ObtainRequest};
@@ -49,6 +49,13 @@ pub struct Policies {
     pub login_attempts: RateLimitPolicy,
     /// Certificate renewal.
     pub renewal: RenewalPolicy,
+    /// Most RPC WebSockets open at once.
+    pub max_websockets: usize,
+    /// A browser's RPC socket with no call in flight closes after this long
+    /// without a message either way.
+    pub socket_idle_ms: u64,
+    /// Time to send a request body to the HTTP API.
+    pub body_timeout_ms: u64,
 }
 
 impl Policies {
@@ -57,6 +64,9 @@ impl Policies {
         sessions: SessionPolicy::DEFAULT,
         login_attempts: RateLimitPolicy::DEFAULT,
         renewal: RenewalPolicy::DEFAULT,
+        max_websockets: 256,
+        socket_idle_ms: 10 * 60 * 1_000,
+        body_timeout_ms: 10_000,
     };
 }
 
@@ -116,6 +126,9 @@ pub enum Revocation {
     Session(SessionId),
     /// Every session but one, or all.
     AllExcept(Option<SessionId>),
+    /// Some sessions ended (expired, or evicted for newer ones) without
+    /// being named: each socket checks its own.
+    Recheck,
 }
 
 impl Revocation {
@@ -125,6 +138,7 @@ impl Revocation {
         match self {
             Self::Session(id) => id == session,
             Self::AllExcept(keep) => keep.as_ref() != Some(session),
+            Self::Recheck => false,
         }
     }
 }
@@ -135,6 +149,9 @@ pub struct Node {
     clock: Arc<dyn Clock>,
     rng: Mutex<Box<dyn SharedRng>>,
     config: watch::Sender<NodeConfig>,
+    /// Held across each read, change and write of the configuration, so
+    /// that concurrent changes cannot undo each other.
+    config_writer: Mutex<()>,
     node_key: RwLock<Option<Arc<NodeKey>>>,
     setup_token: SetupToken,
     policies: Policies,
@@ -150,6 +167,7 @@ pub struct Node {
     acme_order: tokio::sync::Mutex<()>,
     acme_last_error: Mutex<Option<String>>,
     revocations: broadcast::Sender<Revocation>,
+    websockets: Arc<Semaphore>,
     runtime: Runtime,
     http_port: u16,
     https_port: u16,
@@ -201,9 +219,10 @@ impl Node {
             store,
             rng: Mutex::new(rng),
             config: watch::Sender::new(config),
+            config_writer: Mutex::new(()),
             node_key: RwLock::new(node_key),
             setup_token,
-            login_limiter: Mutex::new(RateLimiter::new(policies.login_attempts, now_ms)),
+            login_limiter: Mutex::new(RateLimiter::new(policies.login_attempts)),
             challenges: Mutex::new(ChallengeTokens::default()),
             certificate: Arc::new(CertificateSlot::new(certificate)),
             renewal: Mutex::new(Renewal::new(policies.renewal, now_ms)),
@@ -213,6 +232,7 @@ impl Node {
             acme_order: tokio::sync::Mutex::new(()),
             acme_last_error: Mutex::new(None),
             revocations: broadcast::Sender::new(16),
+            websockets: Arc::new(Semaphore::new(policies.max_websockets)),
             policies,
             runtime,
             http_port,
@@ -299,6 +319,18 @@ impl Node {
     #[must_use]
     pub const fn started_at_ms(&self) -> u64 {
         self.started_at_ms
+    }
+
+    /// A place for one more RPC WebSocket, if any is left.
+    #[must_use]
+    pub fn websocket_permit(&self) -> Option<OwnedSemaphorePermit> {
+        Arc::clone(&self.websockets).try_acquire_owned().ok()
+    }
+
+    /// The limits and lifetimes in force.
+    #[must_use]
+    pub const fn policies(&self) -> &Policies {
+        &self.policies
     }
 
     /// The database.
