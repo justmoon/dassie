@@ -167,7 +167,9 @@ async fn dispatch_more(
             let revoked = node.revoke_sessions(keep).map_err(RpcError::internal)?;
             response::Method::RevokeAllSessions(proto::RevokeAllSessionsResponse { revoked })
         }
-        _ => unreachable!("dispatch answers the other methods"),
+        // The ledger's methods: UNAVAILABLE while the ledger is not running,
+        // which until the engine exists is always.
+        _ => return Err(RpcError::unavailable("the ledger is not running")),
     };
     Ok(Reply::Unary(reply))
 }
@@ -231,6 +233,7 @@ fn basic_state(node: &Node, caller: Caller) -> proto::GetBasicStateResponse {
             .unwrap_or_default(),
         ilp_allocation_scheme: config.realm.ilp_allocation_scheme().into(),
         version: crate::VERSION.into(),
+        active_settlement_schemes: Vec::new(),
     }
 }
 

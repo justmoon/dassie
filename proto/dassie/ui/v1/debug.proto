@@ -1,0 +1,124 @@
+syntax = "proto3";
+
+package dassie.ui.v1;
+
+// An account of the internal ledger.
+message Account {
+  uint32 id = 1;
+  // For example "stub+usd:equity/owner/btp/3".
+  string path = 2;
+  uint64 debits_posted = 3;
+  uint64 credits_posted = 4;
+  uint64 debits_pending = 5;
+  uint64 credits_pending = 6;
+}
+
+message ListAccountsRequest {}
+
+message ListAccountsResponse {
+  // In ID order.
+  repeated Account accounts = 1;
+}
+
+// Identifies a packet across restarts: the node's boot, and the packet's
+// number within it.
+message TraceId {
+  uint64 epoch = 1;
+  uint64 sequence = 2;
+}
+
+enum TransferState {
+  TRANSFER_STATE_UNSPECIFIED = 0;
+  TRANSFER_STATE_PENDING = 1;
+  TRANSFER_STATE_POSTED = 2;
+  TRANSFER_STATE_VOIDED = 3;
+}
+
+// A transfer in the journal: posted ones, and settlements also while
+// pending. A packet's transfer is journaled when it is posted; a packet that
+// was rejected leaves none.
+message Transfer {
+  uint64 id = 1;
+  uint32 debit = 2;
+  uint32 credit = 3;
+  string debit_path = 4;
+  string credit_path = 5;
+  uint64 amount = 6;
+  TransferState state = 7;
+  int64 created_at_unix_ms = 8;
+  // 0 while pending.
+  int64 resolved_at_unix_ms = 9;
+  oneof reference {
+    // The packet it moved money for.
+    TraceId packet = 10;
+    // "<scheme>:<settlement ID>".
+    string settlement = 11;
+    // "trust", "deposit", "withdrawal" or "reconciliation".
+    string other = 12;
+  }
+}
+
+message ListTransfersRequest {
+  // Transfers with a larger ID; from the first if unset.
+  optional uint64 after_id = 1;
+  // At most this many, up to 1000; 0 means 100.
+  uint32 limit = 2;
+}
+
+message ListTransfersResponse {
+  // In ID order.
+  repeated Transfer transfers = 1;
+}
+
+enum PacketState {
+  PACKET_STATE_UNSPECIFIED = 0;
+  // Forwarded, waiting for the response.
+  PACKET_STATE_PENDING = 1;
+  PACKET_STATE_FULFILLED = 2;
+  PACKET_STATE_REJECTED = 3;
+}
+
+// A packet the connector handled, from its recent trace.
+message Packet {
+  TraceId trace = 1;
+  // The endpoints, for example "btp:3" or "local:0".
+  string source = 2;
+  // Empty if it was not routed.
+  string destination = 3;
+  // Cut at 96 bytes.
+  string destination_address = 4;
+  uint64 amount_in = 5;
+  uint64 amount_out = 6;
+  int64 received_at_unix_ms = 7;
+  // 0 while pending.
+  int64 resolved_at_unix_ms = 8;
+  PacketState state = 9;
+  // The ILP error code if rejected, for example "F02".
+  string reject_code = 10;
+  // The IDs of its transfers.
+  repeated uint64 transfers = 11;
+}
+
+message ListPacketsRequest {
+  // Packets after this one; from the oldest kept if unset.
+  TraceId after = 1;
+  // At most this many, up to 1000; 0 means 100.
+  uint32 limit = 2;
+}
+
+message ListPacketsResponse {
+  // Oldest first. The trace keeps the most recent few thousand packets.
+  repeated Packet packets = 1;
+}
+
+// Streams the packets as they arrive and as they are resolved.
+message SubscribePacketsRequest {}
+
+message PacketEvent {
+  oneof event {
+    // A packet as it is now.
+    Packet packet = 1;
+    // This many events were dropped because the subscriber fell behind.
+    uint64 lagged = 2;
+  }
+}

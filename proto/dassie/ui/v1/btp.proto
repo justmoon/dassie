@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package dassie.ui.v1;
+
+// A token that lets an ILP client connect over BTP
+// (`btp+wss://:<token>@<host>/btp`). Its client spends from, and receives
+// into, the owner's funds on the token's ledger; the token's own account
+// only records what went through it.
+message BtpToken {
+  // Names the token in RevokeBtpToken. It is not the token.
+  uint64 id = 1;
+  string label = 2;
+  // The ledger the client pays and is paid in, for example "stub+usd".
+  string ledger = 3;
+  int64 created_at_unix_ms = 4;
+  // What the client received less what it sent, posted, in the ledger's
+  // units: negative once it has spent.
+  int64 net_received = 5;
+  // Clients connected with it now.
+  uint32 connections = 6;
+}
+
+// INVALID_ARGUMENT for an unknown ledger or a label over 64 bytes;
+// FAILED_PRECONDITION if the ledger's scheme is not active;
+// RESOURCE_EXHAUSTED at 64 tokens.
+message CreateBtpTokenRequest {
+  string label = 1;
+  string ledger = 2;
+}
+
+// The token itself is shown only here: the node keeps only its hash.
+message CreateBtpTokenResponse {
+  BtpToken token = 1;
+  string secret = 2;
+  // The URL a client connects with, the secret included.
+  string url = 3;
+}
+
+message ListBtpTokensRequest {}
+
+message ListBtpTokensResponse {
+  // Oldest first.
+  repeated BtpToken tokens = 1;
+}
+
+// Disconnects the token's clients and refuses it from now on. Its account
+// and journal stay. NOT_FOUND if there is no such token.
+message RevokeBtpTokenRequest {
+  uint64 id = 1;
+}
+
+message RevokeBtpTokenResponse {}

@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package dassie.ui.v1;
+
+// Credentials for paying the node's STREAM receiver, which credits the
+// owner's funds on the owner's first active ledger. A stand-in until Open
+// Payments and SPSP (M6), which issue them per incoming payment.
+// FAILED_PRECONDITION while no settlement scheme is active.
+message CreateStreamCredentialsRequest {
+  // Labels the connection; at most 64 bytes.
+  string tag = 1;
+}
+
+message CreateStreamCredentialsResponse {
+  // The ILP address to pay.
+  string destination_account = 1;
+  // The connection's 32-byte shared secret.
+  bytes shared_secret = 2;
+  string asset_code = 3;
+  uint32 asset_scale = 4;
+}
