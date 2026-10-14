@@ -1,16 +1,18 @@
 // The package is shared by the wallet and the dev dashboard, so it imports
-// nothing of either: only itself, Solid and the RPC packages.
+// nothing of either: only itself, Solid, the RPC packages, and uqr, a QR
+// encoder without dependencies of its own (M7b, deposit addresses).
 
 import { assertEquals } from "@std/assert";
 
 const root = new URL(".", import.meta.url).pathname;
 
-Deno.test("src imports only itself, Solid and the RPC packages", async () => {
+Deno.test("src imports only itself, Solid, the RPC packages and uqr", async () => {
   const allowed = [
     "solid-js",
     "@solidjs/web",
     "@dassie/rpc",
     "@dassie/rpc/proto",
+    "uqr",
   ];
   const outside: string[] = [];
   const walk = async (dir: string) => {
