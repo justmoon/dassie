@@ -14,6 +14,8 @@ import {
   verifyReceipt,
 } from "ilp-protocol-stream";
 
+import { encodeReject } from "@dassie/identity-wasm";
+
 import { createPlugin, Network } from "./network.ts";
 
 const options = { sanitizeOps: false, sanitizeResources: false };
@@ -37,6 +39,7 @@ class Peer {
   readonly #pending = new Map<bigint, (bytes: Uint8Array) => void>();
   readonly lines: string[] = [];
   #nextId = 0n;
+  #stopped = false;
   onSend: (requestId: bigint, prepare: Uint8Array) => void = () => {};
   readonly finished: Promise<void>;
 
@@ -93,6 +96,9 @@ class Peer {
 
   /** Delivers a Prepare to the peer and resolves with its answer. */
   prepare(bytes: Uint8Array): Promise<Uint8Array> {
+    // The other side may still send, closing its connection, after the
+    // peer stopped: it gets an answer, not a promise that never settles.
+    if (this.#stopped) return Promise.resolve(gone());
     const id = this.#nextId++;
     const answer = new Promise<Uint8Array>((resolve) =>
       this.#pending.set(id, resolve)
@@ -124,10 +130,23 @@ class Peer {
   }
 
   async stop() {
+    this.#stopped = true;
     await this.#writer.close().catch(() => {});
     await this.#process.status;
     await this.finished;
+    for (const answer of this.#pending.values()) answer(gone());
+    this.#pending.clear();
   }
+}
+
+/** What a stopped peer answers. */
+function gone(): Uint8Array {
+  return encodeReject(
+    "T01",
+    "test.native",
+    "the peer stopped",
+    new Uint8Array(),
+  );
 }
 
 Deno.test(
