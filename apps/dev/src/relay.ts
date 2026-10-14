@@ -20,8 +20,13 @@ const CONNECT_TIMEOUT_MS = 5_000;
 /**
  * Connects to the IPC socket at `path`, then upgrades `request` and relays
  * between the two until either closes. 502 if the node does not answer.
+ * `onSocket` is told of the upgraded socket.
  */
-export async function relay(request: Request, path: string): Promise<Response> {
+export async function relay(
+  request: Request,
+  path: string,
+  onSocket: (socket: WebSocket) => void = () => {},
+): Promise<Response> {
   const ipc = ipcConnector(path)();
   const opened = await new Promise<boolean>((resolve) => {
     const timer = setTimeout(() => resolve(false), CONNECT_TIMEOUT_MS);
@@ -49,6 +54,7 @@ export async function relay(request: Request, path: string): Promise<Response> {
     return new Response("not a WebSocket upgrade", { status: 400 });
   }
   const { socket, response } = upgraded;
+  onSocket(socket);
   socket.binaryType = "arraybuffer";
   const end = (code: number, reason: string) => {
     ipc.close();

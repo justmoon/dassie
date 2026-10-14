@@ -15,6 +15,13 @@ import { extname, join, normalize } from "@std/path";
 import type { ControlHub } from "./control.ts";
 import { relay, wantsContract } from "./relay.ts";
 
+/**
+ * How long closing waits for connections to end. A dashboard that is open
+ * keeps its sockets until it is told to close them, and may be about to
+ * reconnect: past this, the dev server exits regardless.
+ */
+export const CLOSE_GRACE_MS = 1_000;
+
 /** The names the dashboard answers to. */
 export const DASHBOARD_HOSTS = ["localhost", "dev-rpc.localhost"] as const;
 
@@ -68,7 +75,13 @@ export interface Server {
 /** Serves on each port, at 127.0.0.1 and, where there is one, ::1. */
 export function startServer(options: ServerOptions): Server {
   const servers: Deno.HttpServer[] = [];
-  const handler = (request: Request) => handle(request, options);
+  // Upgraded sockets, which a graceful shutdown would wait for.
+  const sockets = new Set<WebSocket>();
+  const track = (socket: WebSocket) => {
+    sockets.add(socket);
+    socket.addEventListener("close", () => sockets.delete(socket));
+  };
+  const handler = (request: Request) => handle(request, options, track);
   for (const port of options.ports) {
     for (const hostname of ["127.0.0.1", "::1"]) {
       try {
@@ -88,7 +101,23 @@ export function startServer(options: ServerOptions): Server {
   }
   return {
     async close() {
-      await Promise.all(servers.map((server) => server.shutdown()));
+      // No new connections from here on; then the open sockets are told
+      // to close.
+      const shutdown = Promise.all(servers.map((server) => server.shutdown()));
+      for (const socket of sockets) {
+        try {
+          socket.close(1001, "shutting down");
+        } catch {
+          // Not open yet: the shutdown ends it.
+        }
+      }
+      sockets.clear();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const late = new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, CLOSE_GRACE_MS);
+      });
+      await Promise.race([shutdown, late]);
+      clearTimeout(timer);
     },
   };
 }
@@ -96,6 +125,7 @@ export function startServer(options: ServerOptions): Server {
 async function handle(
   request: Request,
   options: ServerOptions,
+  track: (socket: WebSocket) => void,
 ): Promise<Response> {
   const url = new URL(request.url);
   // From `Host`, or `:authority` over HTTP/2, which has no `Host`.
@@ -109,6 +139,7 @@ async function handle(
     if (refused) return new Response(refused, { status: 403 });
     if (url.pathname === "/control") {
       const { socket, response } = Deno.upgradeWebSocket(request);
+      track(socket);
       options.control.attach(socket);
       return response;
     }
@@ -118,7 +149,7 @@ async function handle(
     if (!wantsContract(request)) {
       return new Response("the contract's subprotocol only", { status: 400 });
     }
-    return await relay(request, socket);
+    return await relay(request, socket, track);
   }
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response("method not allowed", { status: 405 });
