@@ -1,0 +1,64 @@
+/**
+ * Incoming payments as the wallet shows them: where each is, who asked for
+ * it, and what for.
+ */
+
+/** Where an incoming payment is. */
+export type IncomingState = "open" | "completed" | "expired";
+
+/** The fields these helpers read. */
+export interface IncomingFields {
+  id: string;
+  client: string;
+  metadataJson: string;
+  createdAtMs: bigint;
+  expiresAtMs: bigint;
+  completedAtMs?: bigint;
+}
+
+/** Whether it still takes money at `nowMs`. */
+export function incomingState(
+  payment: Pick<IncomingFields, "completedAtMs" | "expiresAtMs">,
+  nowMs: number,
+): IncomingState {
+  if (payment.completedAtMs !== undefined) return "completed";
+  return BigInt(nowMs) < payment.expiresAtMs ? "open" : "expired";
+}
+
+/** Newest first; ties by ID, so the order never jumps. */
+export function newestFirst<T extends IncomingFields>(
+  payments: readonly T[],
+): T[] {
+  return [...payments].sort((a, b) =>
+    a.createdAtMs === b.createdAtMs
+      ? a.id.localeCompare(b.id)
+      : a.createdAtMs > b.createdAtMs
+      ? -1
+      : 1
+  );
+}
+
+/** Who created it: the owner, a client by wallet address, or by key. */
+export function clientLabel(client: string): string {
+  if (client === "") return "You";
+  if (client.startsWith("jwk:")) return "A client known by its key";
+  try {
+    const url = new URL(client);
+    return `${url.host}${url.pathname === "/" ? "" : url.pathname}`;
+  } catch {
+    return client;
+  }
+}
+
+/** What its creator said it is for, if anything. */
+export function description(metadataJson: string): string | undefined {
+  if (metadataJson === "") return undefined;
+  try {
+    const metadata: unknown = JSON.parse(metadataJson);
+    if (typeof metadata !== "object" || metadata === null) return undefined;
+    const text = (metadata as Record<string, unknown>).description;
+    return typeof text === "string" && text !== "" ? text : undefined;
+  } catch {
+    return undefined;
+  }
+}

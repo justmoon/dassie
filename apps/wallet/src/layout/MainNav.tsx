@@ -46,6 +46,7 @@ export function MainNav(): JSX.Element {
       </div>
       <div id="nav-links" class={`nav-links ${open() ? "open" : ""}`}>
         <Link href="/dashboard" testid="nav-dashboard">Dashboard</Link>
+        <Link href="/payments" testid="nav-activity">Activity</Link>
         <Link href="/network" testid="nav-network">Network</Link>
         <Link href="/ledgers" testid="nav-ledgers">Ledgers</Link>
         <div class="menu">
