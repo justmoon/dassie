@@ -46,6 +46,10 @@ pub struct LedgerBatch {
     pub verdicts: super::VerdictBatch,
     /// Outgoing payments made, what they sent, and grant spend.
     pub outgoing: super::OutgoingBatch,
+    /// The owner's peer settings, if they changed.
+    pub peer_settings: Option<super::PeerSettings>,
+    /// Bans made and lifted, with why (D18).
+    pub bans: Vec<super::BanChange>,
 }
 
 impl LedgerBatch {
@@ -64,6 +68,8 @@ impl LedgerBatch {
             && self.incoming_progress.is_empty()
             && self.verdicts.is_empty()
             && self.outgoing.is_empty()
+            && self.peer_settings.is_none()
+            && self.bans.is_empty()
     }
 
     /// Whether it changes Open Payments resources.
@@ -287,6 +293,7 @@ impl Store {
         )?;
         super::owed::write_verdicts(&transaction, &batch.verdicts, batch.at_ms)?;
         super::outgoing::write_outgoing(&transaction, &batch.outgoing)?;
+        super::grace::write_grace(&transaction, batch.peer_settings, &batch.bans)?;
         transaction.commit()?;
         Ok(())
     }

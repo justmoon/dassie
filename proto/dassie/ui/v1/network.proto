@@ -35,6 +35,8 @@ message NetworkNode {
   bool banned = 16;
   // The peering, while there is one.
   NetworkPeer peering = 17;
+  // Why it is banned, while it is.
+  Ban ban = 18;
 }
 
 enum PeerState {
@@ -94,11 +96,28 @@ message NetworkPeer {
   // What this node owes the peer net, in the scheme ledger's units:
   // negative when the peer owes this node.
   int64 owed = 12;
-  // What the peer refused of this node's Fulfills in the last 24 hours, in
-  // the scheme ledger's units (D17): money this node paid on, or its
-  // receiver took, that the peer did not count. Honest peers refuse only
-  // after crashes or late Fulfills.
-  uint64 refused_24h = 13;
+  reserved 13;
+  reserved "refused_24h";
+  // What the peer cost this node, against its grace limit (D18), as of the
+  // last check; unset before the first.
+  PeerCost cost = 14;
+}
+
+// What a peer cost this node, in a ledger's units (D18). Past its grace
+// limit, it is banned.
+message PeerCost {
+  string ledger = 1;
+  string asset_code = 2;
+  uint32 asset_scale = 3;
+  // The losses its refused Fulfills booked in the last 30 days, or since a
+  // ban on it was lifted (D17): money this node paid on that the peer did
+  // not count. Honest peers refuse only after crashes or late Fulfills.
+  uint64 refused = 4;
+  // What it owes this node and has not settled, once it has owed more than
+  // half its credit for longer than the grace for settling.
+  uint64 overdue = 5;
+  // Its grace limit: a share of the credit this node extends to it.
+  uint64 grace = 6;
 }
 
 message ListPeersRequest {}
@@ -205,6 +224,42 @@ message ListBansRequest {}
 message ListBansResponse {
   // By ID.
   repeated string nodes = 1;
+  // The same, with why.
+  repeated Ban bans = 2;
+}
+
+// A ban: by the owner, or by the node, when a peer cost it more than its
+// grace limit (D18).
+message Ban {
+  string node = 1;
+  // "owner", "grace-limit", or empty when not known.
+  string reason = 2;
+  int64 banned_at_unix_ms = 3;
+  // What the peer cost, for a ban over its grace limit.
+  PeerCost cost = 4;
+}
+
+// The owner's settings for peers (D18).
+message PeerSettings {
+  // The share of the credit this node extends to a peer that the peer may
+  // cost it in 30 days before it is banned, in parts per million: 1 to
+  // 1 000 000.
+  uint32 grace_share_ppm = 1;
+}
+
+message GetPeerSettingsRequest {}
+
+message GetPeerSettingsResponse {
+  PeerSettings settings = 1;
+}
+
+// INVALID_ARGUMENT when out of range.
+message SetPeerSettingsRequest {
+  PeerSettings settings = 1;
+}
+
+message SetPeerSettingsResponse {
+  PeerSettings settings = 1;
 }
 
 // Settlement with one node, both ways (spec 7 §4.7): kept from the first

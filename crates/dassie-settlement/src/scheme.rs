@@ -113,6 +113,14 @@ pub trait SettlementScheme: Send {
     /// node checkpoints.
     fn balance(&self) -> u64;
 
+    /// Whether the scheme sees its ledger as it is now, so a settlement a
+    /// peer made would have reached the books. Until it does, no peer is
+    /// held to account for not settling (D18). A scheme without a ledger
+    /// to follow always does.
+    fn synced(&self) -> bool {
+        true
+    }
+
     /// What a node that wants to peer with us needs to know.
     fn peering_info(&self, out: &mut Vec<u8>);
 

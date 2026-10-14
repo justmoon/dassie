@@ -99,7 +99,8 @@ fn fulfills_taken_answer_resends_until_forgotten() {
 }
 
 // A refusal is a journal row with the packet's trace, which says what a
-// peer's refusals cost since a time.
+// peer's refusals cost since a time: only the losses, not what our own
+// receiver took back.
 #[test]
 fn refusals_are_journaled_per_peer() {
     let store = Store::open_in_memory().unwrap();
@@ -113,8 +114,9 @@ fn refusals_are_journaled_per_peer() {
     };
     ledger.create(70, &spec).unwrap();
     commit(&store, &mut ledger, LedgerBatch::default());
-    assert_eq!(store.refused_since(account, 70).unwrap(), 25);
-    assert_eq!(store.refused_since(account, 71).unwrap(), 0);
+    assert_eq!(store.losses_since(account, owner, 70).unwrap(), 25);
+    assert_eq!(store.losses_since(account, owner, 71).unwrap(), 0);
+    assert_eq!(store.losses_since(account, account, 70).unwrap(), 0);
     let rows = store.transfers_after(None, 10, Some(account)).unwrap();
     let refusal = rows.iter().find(|row| row.transfer.amount == 25).unwrap();
     assert_eq!(refusal.transfer.reference, Reference::Refusal(TRACE));

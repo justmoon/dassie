@@ -15,6 +15,7 @@ use super::proto::{self, request::Method, response, stream_item};
 use super::{RpcError, convert};
 use crate::engine::{Engine, NetworkView, PeerView};
 use crate::node::Node;
+use crate::store::{BanRecord, PeerCost, PeerSettings};
 
 /// Answers the network's methods.
 pub async fn dispatch(
@@ -81,9 +82,35 @@ pub async fn dispatch(
             engine.unban_node(node_id(&request.node)?).await?;
             response::Method::UnbanNode(proto::UnbanNodeResponse {})
         }
+        Method::GetPeerSettings(_) => {
+            response::Method::GetPeerSettings(proto::GetPeerSettingsResponse {
+                settings: Some(peer_settings(engine.peer_settings().await?)),
+            })
+        }
+        Method::SetPeerSettings(request) => set_peer_settings(engine, request).await?,
         other => view(&engine.network().await?, other),
     };
     Ok(Reply::Unary(reply))
+}
+
+/// Changes the owner's peer settings, and answers with them.
+async fn set_peer_settings(
+    engine: &Engine,
+    request: proto::SetPeerSettingsRequest,
+) -> Result<response::Method, RpcError> {
+    let settings = request
+        .settings
+        .ok_or_else(|| RpcError::invalid("settings are required"))?;
+    engine
+        .set_peer_settings(PeerSettings {
+            grace_share_ppm: settings.grace_share_ppm,
+        })
+        .await?;
+    Ok(response::Method::SetPeerSettings(
+        proto::SetPeerSettingsResponse {
+            settings: Some(peer_settings(engine.peer_settings().await?)),
+        },
+    ))
 }
 
 /// The methods that only read the network.
@@ -110,7 +137,12 @@ fn view(view: &NetworkView, method: Method) -> response::Method {
             response::Method::GetRegistrationStatus(registration(view))
         }
         Method::ListBans(_) => response::Method::ListBans(proto::ListBansResponse {
-            nodes: view.bans.iter().map(ToString::to_string).collect(),
+            nodes: view.bans.iter().map(|(id, _)| id.to_string()).collect(),
+            bans: view
+                .bans
+                .iter()
+                .map(|(id, record)| ban(id, *record))
+                .collect(),
         }),
         Method::ListSettlementChannels(_) => {
             response::Method::ListSettlementChannels(proto::ListSettlementChannelsResponse {
@@ -128,11 +160,13 @@ fn node_id(text: &str) -> Result<NodeId, RpcError> {
 /// The node table by ID, each node with its peering if there is one.
 fn node_table(view: &NetworkView) -> BTreeMap<String, proto::NetworkNode> {
     let peers: BTreeMap<NodeId, &PeerView> = view.peers.iter().map(|p| (p.id, p)).collect();
+    let bans: BTreeMap<NodeId, Option<BanRecord>> = view.bans.iter().copied().collect();
     view.nodes
         .iter()
         .map(|entry| {
             let mut message = node(entry);
             message.peering = peers.get(&entry.id).map(|p| peer(p));
+            message.ban = bans.get(&entry.id).map(|record| ban(&entry.id, *record));
             (message.id.clone(), message)
         })
         .collect()
@@ -172,6 +206,7 @@ fn node(view: &NodeView) -> proto::NetworkNode {
         peer_state: peer_state.into(),
         banned: view.banned,
         peering: None,
+        ban: None,
     }
 }
 
@@ -196,7 +231,36 @@ fn peer(view: &PeerView) -> proto::NetworkPeer {
         owed: view.owed.map_or(0, |owed| {
             i64::try_from(owed).unwrap_or(if owed < 0 { i64::MIN } else { i64::MAX })
         }),
-        refused_24h: view.refused_24h,
+        cost: view.cost.as_ref().map(cost),
+    }
+}
+
+fn cost(cost: &PeerCost) -> proto::PeerCost {
+    let asset = cost.ledger.asset();
+    proto::PeerCost {
+        ledger: cost.ledger.as_str().into(),
+        asset_code: asset.code.into(),
+        asset_scale: asset.scale.into(),
+        refused: cost.refused,
+        overdue: cost.overdue,
+        grace: cost.grace,
+    }
+}
+
+/// A ban, with why where that is known: bans from before the node kept
+/// reasons have none.
+fn ban(node: &NodeId, record: Option<BanRecord>) -> proto::Ban {
+    proto::Ban {
+        node: node.to_string(),
+        reason: record.map_or("", |record| record.reason.as_str()).into(),
+        banned_at_unix_ms: record.map_or(0, |record| convert::time(record.banned_at_ms)),
+        cost: record.and_then(|record| record.cost).as_ref().map(cost),
+    }
+}
+
+const fn peer_settings(settings: PeerSettings) -> proto::PeerSettings {
+    proto::PeerSettings {
+        grace_share_ppm: settings.grace_share_ppm,
     }
 }
 

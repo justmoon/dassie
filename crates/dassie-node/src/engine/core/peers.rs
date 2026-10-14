@@ -195,8 +195,8 @@ pub struct PeerView {
     pub advertised: bool,
     /// What we owe the peer net; negative when it owes us.
     pub owed: Option<i128>,
-    /// What the peer refused of our Fulfills in the last 24 hours (D17).
-    pub refused_24h: u64,
+    /// What it cost us at its last check, against its grace limit (D18).
+    pub cost: Option<crate::store::PeerCost>,
 }
 
 /// The network as the owner sees it.
@@ -214,8 +214,8 @@ pub struct NetworkView {
     pub registration: Vec<dassie_peer::RegistrationStatus>,
     /// Settlement channels, with nodes peered with now or before.
     pub channels: Vec<(NodeId, dassie_peer::Channel)>,
-    /// Banned nodes.
-    pub bans: Vec<NodeId>,
+    /// Banned nodes, with why where that is known.
+    pub bans: Vec<(NodeId, Option<crate::store::BanRecord>)>,
     /// Routes to the node's own endpoints other than peers: address,
     /// endpoint and ledger.
     pub local_routes: Vec<(String, EndpointId, dassie_ledger::LedgerId)>,
@@ -239,7 +239,7 @@ impl Core {
                     Some(PeerView {
                         id: view.id,
                         owed: self.owed(view.id, peering.scheme),
-                        refused_24h: self.refused_recently(view.id, peering.scheme),
+                        cost: self.grace.cost(&view.id),
                         peering,
                         termination: view.termination,
                         advertised: view.advertised,
@@ -252,7 +252,11 @@ impl Core {
                 .channels()
                 .map(|(id, channel)| (*id, channel.clone()))
                 .collect(),
-            bans: self.peer.bans().copied().collect(),
+            bans: self
+                .peer
+                .bans()
+                .map(|node| (*node, self.ban_record(node)))
+                .collect(),
             local_routes: self
                 .connector
                 .endpoints()
@@ -320,9 +324,12 @@ impl Core {
             Inbound::Deferred => None,
             Inbound::Packet(from, request_id, packet, reply, verdicts) => {
                 let taken = self.peer_packet(from, request_id, &packet);
-                // A Fulfill's reply is our verdict on it (D17).
+                // A Fulfill's reply is our verdict on it (D17). A liar's is
+                // a refusal whatever it took.
                 Some(match verdicts {
-                    Some(verdicts) if taken => verdicts.accepted,
+                    Some(verdicts) if taken && !self.lies(super::Lie::RefuseFulfills) => {
+                        verdicts.accepted
+                    }
                     Some(verdicts) => verdicts.refused,
                     None => reply,
                 })
@@ -415,6 +422,13 @@ impl Core {
             BanError::Ourselves => EngineError::Invalid("a node cannot ban itself".into()),
             BanError::Full => EngineError::Exhausted("too many banned nodes".into()),
         })?;
+        self.record_ban(crate::store::BanRecord {
+            node,
+            reason: crate::store::BanReason::Owner,
+            banned_at_ms: now,
+            cost: None,
+            unbanned_at_ms: None,
+        });
         self.after_peer();
         Ok(())
     }
@@ -429,6 +443,7 @@ impl Core {
         if !self.peer.unban(now, node) {
             return Err(EngineError::NotFound("the node is not banned".into()));
         }
+        self.record_unban(*node);
         self.after_peer();
         Ok(())
     }

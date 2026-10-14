@@ -18,10 +18,11 @@ use crate::log::target;
 use crate::node::Policies;
 
 /// The first wait after a cancelled settlement; it doubles with each one
-/// in a row, up to an hour, so a node without funds does not journal a
-/// pair of rows every few seconds.
+/// in a row, up to ten minutes, so a node without funds does not journal a
+/// pair of rows every few seconds, and one with funds again settles well
+/// within its peers' grace for settling (D18).
 const CANCEL_BACKOFF_MIN_MS: u64 = 1_000;
-const CANCEL_BACKOFF_MAX_MS: u64 = 3_600_000;
+const CANCEL_BACKOFF_MAX_MS: u64 = 600_000;
 
 /// The settling side of the core.
 pub(super) struct Settlements {
@@ -87,6 +88,9 @@ impl Core {
             return;
         }
         self.settle.at_ms = now.saturating_add(self.settle.interval_ms);
+        if self.lies(super::grace::Lie::NeverSettle) {
+            return;
+        }
         let peers: Vec<(NodeId, SchemeId, u64, Vec<u8>)> = self
             .peer
             .active_peers()
@@ -213,34 +217,6 @@ impl Core {
         let at = self.position(node, scheme)?;
         let position = i128::try_from(at.position).ok()?;
         Some(position - i128::from(at.credit_out))
-    }
-
-    /// What `node` refused of our Fulfills in the last 24 hours, on
-    /// `scheme`'s ledger (D17): read from the journal, where each refusal
-    /// credits its account.
-    pub(super) fn refused_recently(&self, node: NodeId, scheme: SchemeId) -> u64 {
-        const DAY_MS: u64 = 24 * 60 * 60 * 1_000;
-        let Some(ledger) = Name::new(scheme.as_str())
-            .ok()
-            .and_then(|name| self.schemes.get(&name))
-            .map(|active| active.scheme.ledger())
-        else {
-            return 0;
-        };
-        let Some(account) = Name::new(node.as_str()).ok().and_then(|name| {
-            self.ledger.find(&AccountPath::new(
-                ledger,
-                AccountName::AssetsInterledger(name),
-            ))
-        }) else {
-            return 0;
-        };
-        self.store
-            .refused_since(account, self.now_ms.saturating_sub(DAY_MS))
-            .unwrap_or_else(|error| {
-                tracing::error!(target: target::PEER, %error, "reading refusals");
-                0
-            })
     }
 
     /// Prepares a settlement and books its pending transfer; it executes

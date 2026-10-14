@@ -13,6 +13,9 @@
 //! once to keep that affordable.
 
 mod gnap;
+mod grace;
+#[cfg(test)]
+mod grace_tests;
 mod inspect;
 mod ledger;
 #[cfg(test)]
@@ -40,6 +43,7 @@ use dassie_node_core::session::{SessionId, SessionPolicy, SessionTimes};
 use rusqlite::{Connection, OptionalExtension, params};
 
 pub use gnap::{GrantRow, GrantState, MAX_GRANTS, TokenRow};
+pub use grace::{BanChange, BanReason, BanRecord, MAX_BAN_RECORDS, PeerCost, PeerSettings};
 pub use inspect::{BLOB_CUT, Cell, ColumnInfo, MAX_ROWS, RowsPage, TEXT_CUT, TableInfo, Value};
 pub use ledger::{BtpTokenRow, JournalRow, LedgerBatch, StoredLedger, TokenCap};
 pub use outgoing::{

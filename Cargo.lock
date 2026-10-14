@@ -487,6 +487,7 @@ dependencies = [
  "dassie-identity",
  "dassie-ilp",
  "dassie-ledger",
+ "dassie-node",
  "dassie-node-core",
  "dassie-oer",
  "dassie-payments",

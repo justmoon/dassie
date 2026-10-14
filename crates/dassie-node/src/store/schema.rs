@@ -30,6 +30,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_7,
     MIGRATION_8,
     MIGRATION_9,
+    MIGRATION_10,
 ];
 
 const MIGRATION_1: &str = "
@@ -504,6 +505,38 @@ ALTER TABLE outgoing_payments ADD COLUMN recipient TEXT
   CHECK (recipient IS NULL OR length(recipient) BETWEEN 1 AND 2048);
 ";
 
+/// One grace limit per peer (D18): the share of the credit we extend that
+/// a peer may cost us before it is banned, and why each node was banned.
+/// A record outlives its ban, so a peer unbanned is held to account only
+/// for what it cost since.
+const MIGRATION_10: &str = "
+CREATE TABLE peer_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  grace_share_ppm INTEGER NOT NULL CHECK (grace_share_ppm BETWEEN 1 AND 10000000)
+) STRICT;
+
+INSERT INTO peer_settings VALUES (1, 750000);
+
+CREATE TABLE peer_ban_records (
+  node TEXT PRIMARY KEY CHECK (length(node) BETWEEN 2 AND 45),
+  reason TEXT NOT NULL CHECK (reason IN ('owner', 'grace-limit')),
+  banned_at_ms INTEGER NOT NULL CHECK (banned_at_ms >= 0),
+  -- What the peer cost, for a ban over the grace limit.
+  cost_ledger TEXT CHECK (cost_ledger IS NULL OR length(cost_ledger) BETWEEN 1 AND 32),
+  cost_refused INTEGER CHECK (cost_refused IS NULL OR cost_refused >= 0),
+  cost_overdue INTEGER CHECK (cost_overdue IS NULL OR cost_overdue >= 0),
+  cost_grace INTEGER CHECK (cost_grace IS NULL OR cost_grace >= 0),
+  unbanned_at_ms INTEGER CHECK (unbanned_at_ms IS NULL OR unbanned_at_ms >= banned_at_ms),
+  CHECK ((cost_ledger IS NULL) = (cost_refused IS NULL)
+     AND (cost_refused IS NULL) = (cost_overdue IS NULL)
+     AND (cost_overdue IS NULL) = (cost_grace IS NULL)),
+  CHECK ((reason = 'grace-limit') = (cost_ledger IS NOT NULL))
+) STRICT, WITHOUT ROWID;
+
+CREATE INDEX peer_ban_records_unbanned ON peer_ban_records (unbanned_at_ms)
+  WHERE unbanned_at_ms IS NOT NULL;
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -878,6 +911,28 @@ pub const TABLES: &[Table] = &[
         columns: &[
             ("id", "INTEGER", false, true),
             ("default_ledger", "TEXT", false, false),
+        ],
+    },
+    Table {
+        name: "peer_settings",
+        without_rowid: false,
+        columns: &[
+            ("id", "INTEGER", false, true),
+            ("grace_share_ppm", "INTEGER", true, false),
+        ],
+    },
+    Table {
+        name: "peer_ban_records",
+        without_rowid: true,
+        columns: &[
+            ("node", "TEXT", true, true),
+            ("reason", "TEXT", true, false),
+            ("banned_at_ms", "INTEGER", true, false),
+            ("cost_ledger", "TEXT", false, false),
+            ("cost_refused", "INTEGER", false, false),
+            ("cost_overdue", "INTEGER", false, false),
+            ("cost_grace", "INTEGER", false, false),
+            ("unbanned_at_ms", "INTEGER", false, false),
         ],
     },
 ];

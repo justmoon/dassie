@@ -199,3 +199,143 @@ fn steps_report_what_they_changed() {
     core.finish_step(&mut outputs);
     assert!(core.take_changes().ledger);
 }
+
+/// A peer whose peering ended, owing us `owed` of the 1 000 we extend,
+/// and with `lost` booked as its refusals' losses and `reversed` as ones
+/// our receiver took back, all on disk.
+fn costly_peer(core: &mut Core, owed: u64, lost: u64, reversed: u64) -> dassie_identity::NodeId {
+    use dassie_ledger::{AccountName, LedgerId, Name, Reference, TraceId, TransferSpec};
+
+    let node = NodeKey::from_bytes(&[9; 32]).node_id();
+    let name = Name::new(node.as_str()).unwrap();
+    core.add_scheme("stub", String::new()).unwrap();
+    let (interledger, _) = core
+        .ledger
+        .open_peer(NOW, LedgerId::StubUsd, name, 1_000)
+        .unwrap();
+    let owner = core
+        .account(LedgerId::StubUsd, AccountName::EquityOwner)
+        .unwrap();
+    let losses = core
+        .account(LedgerId::StubUsd, AccountName::ExpensesLosses)
+        .unwrap();
+    let trace = TraceId {
+        epoch: 1,
+        sequence: 1,
+    };
+    for (debit, credit, amount, reference) in [
+        (interledger, owner, owed, Reference::Packet(trace)),
+        (losses, interledger, lost, Reference::Refusal(trace)),
+        (owner, interledger, reversed, Reference::Refusal(trace)),
+    ] {
+        if amount > 0 {
+            let spec = TransferSpec {
+                debit,
+                credit,
+                amount,
+                pending: false,
+                reference,
+            };
+            core.ledger.create(NOW, &spec).unwrap();
+        }
+    }
+    core.flush();
+    node
+}
+
+// D18: what a peer owes counts once it has stayed above half its credit
+// for the grace for settling, and as a whole; its refusals count as their
+// losses, never what our receiver took back.
+#[test]
+fn a_peer_costs_its_losses_and_what_it_owes_past_its_grace() {
+    let mut core = core(8);
+    core.grace_checks();
+    let node = costly_peer(&mut core, 800, 30, 40);
+    core.update_synced();
+    let cost = core.peer_cost(node).unwrap();
+    assert_eq!((cost.refused, cost.overdue), (30, 0), "not overdue yet");
+    // The floor: a hundredth of a unit.
+    assert_eq!(cost.grace, 10_000_000);
+    core.begin_step(NOW + Policies::DEFAULT.grace.settle_grace_ms);
+    let cost = core.peer_cost(node).unwrap();
+    // Its refusals credited it back: it owes 800 less 70.
+    assert_eq!((cost.refused, cost.overdue), (30, 730));
+}
+
+// D18: owing half the credit or less is never overdue, however long.
+#[test]
+fn owing_half_the_credit_is_not_overdue() {
+    let mut core = core(9);
+    let node = costly_peer(&mut core, 500, 0, 0);
+    core.update_synced();
+    core.peer_cost(node).unwrap();
+    core.begin_step(NOW + 10 * Policies::DEFAULT.grace.settle_grace_ms);
+    assert_eq!(core.peer_cost(node).unwrap().overdue, 0);
+}
+
+// D18: a peer past its limit is banned, with what it cost, and the owner
+// lifting the ban starts its window anew.
+#[test]
+fn a_ban_keeps_what_the_peer_cost_and_an_unban_forgets_it() {
+    use crate::store::{BanReason, PeerSettings};
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = core_on(Arc::clone(&store), 10);
+    // A tiny share, so the floor decides: a hundredth of a unit.
+    core.set_peer_settings(PeerSettings { grace_share_ppm: 1 })
+        .unwrap();
+    let node = costly_peer(&mut core, 0, 20_000_000, 0);
+    core.update_synced();
+    let cost = core.peer_cost(node).unwrap();
+    assert!(cost.over());
+    core.ban_for(node, cost);
+    core.flush();
+    assert!(core.peer.is_banned(&node));
+    let record = core.ban_record(&node).unwrap();
+    assert_eq!(record.reason, BanReason::GraceLimit);
+    assert_eq!(record.cost, Some(cost));
+    assert_eq!(store.ban_records().unwrap(), [record]);
+
+    core.begin_step(NOW + 1_000);
+    core.unban_node(&node).unwrap();
+    core.flush();
+    assert_eq!(core.peer_cost(node).unwrap().refused, 0);
+    assert_eq!(
+        store.ban_records().unwrap()[0].unbanned_at_ms,
+        Some(NOW + 1_000)
+    );
+    // A restart keeps that.
+    drop(core);
+    let core = core_on(store, 11);
+    assert_eq!(
+        core.ban_record(&node).unwrap().unbanned_at_ms,
+        Some(NOW + 1_000)
+    );
+}
+
+// The owner's share is checked and persisted.
+#[test]
+fn peer_settings_are_checked_and_kept() {
+    use crate::store::PeerSettings;
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = core_on(Arc::clone(&store), 12);
+    assert_eq!(core.peer_settings(), PeerSettings::DEFAULT);
+    assert!(
+        core.set_peer_settings(PeerSettings { grace_share_ppm: 0 })
+            .is_err()
+    );
+    assert!(
+        core.set_peer_settings(PeerSettings {
+            grace_share_ppm: 10_000_001
+        })
+        .is_err()
+    );
+    let settings = PeerSettings {
+        grace_share_ppm: 750_000,
+    };
+    core.set_peer_settings(settings).unwrap();
+    core.flush();
+    drop(core);
+    assert_eq!(core_on(store, 13).peer_settings(), settings);
+}

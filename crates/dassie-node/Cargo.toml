@@ -7,6 +7,11 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+default = []
+# Lets a simulation make a node lie to its peers (D18): never in a release.
+testing = []
+
 [dependencies]
 dassie-connector = { path = "../dassie-connector" }
 dassie-identity = { path = "../dassie-identity" }
@@ -88,6 +93,7 @@ flate2 = "1"
 sha2 = "0.11"
 
 [dev-dependencies]
+dassie-node = { path = ".", features = ["testing"] }
 dassie-node-core = { path = "../dassie-node-core", features = ["testing"] }
 proptest = "1.12"
 tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["connect", "handshake"] }
