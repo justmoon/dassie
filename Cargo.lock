@@ -549,9 +549,13 @@ dependencies = [
  "dassie-identity",
  "dassie-node-core",
  "dassie-oer",
+ "hmac",
  "proptest",
+ "rand_core",
  "serde_json",
  "sha2",
+ "subtle",
+ "zeroize",
 ]
 
 [[package]]
