@@ -361,6 +361,17 @@ export class Environment {
         LogLevel.INFO,
         "fix the cause and restart, or reset the scenario",
       );
+      // The scenario stopped every node it had started; only the one that
+      // failed says why.
+      for (const status of this.#statuses.values()) {
+        if (status.state !== NodeState.FAILED) status.state = NodeState.STOPPED;
+        else if (status.lastError === "") {
+          status.lastError = String((error as Error).message)
+            .slice(-MAX_ERROR_BYTES);
+        }
+      }
+      this.#changed();
+      await this.#recordPids();
       return;
     }
     this.#scenario = scenario;
