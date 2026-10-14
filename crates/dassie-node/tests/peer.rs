@@ -141,6 +141,57 @@ async fn net(node: &TestNode, peer: &NodeKey) -> i128 {
     i128::from(account.credits_posted) - i128::from(account.debits_posted)
 }
 
+/// What the network methods say of a pair: one peer, one route, the
+/// other node known with its URL, and the registration with A.
+async fn check_network(node: &TestNode, own: &NodeKey, other: &NodeKey) {
+    let mut owner = node.ipc().await;
+    let Ok(response::Method::ListPeers(peers)) = owner
+        .call(Method::ListPeers(proto::ListPeersRequest {}))
+        .await
+    else {
+        panic!("no peers")
+    };
+    assert_eq!(peers.peers.len(), 1);
+    let peer = &peers.peers[0];
+    assert_eq!(peer.node, other.node_id().to_string());
+    assert_eq!((peer.scheme.as_str(), peer.version), ("stub", 1));
+    assert_eq!((peer.credit_in, peer.credit_out), (CREDIT, CREDIT));
+    let Ok(response::Method::ListRoutes(routes)) = owner
+        .call(Method::ListRoutes(proto::ListRoutesRequest {}))
+        .await
+    else {
+        panic!("no routes")
+    };
+    assert_eq!(routes.routes.len(), 1);
+    assert_eq!(
+        routes.routes[0].prefix,
+        format!("test.das.{}", other.node_id())
+    );
+    let Ok(response::Method::ListNodes(nodes)) = owner
+        .call(Method::ListNodes(proto::ListNodesRequest {}))
+        .await
+    else {
+        panic!("no nodes")
+    };
+    let them = nodes
+        .nodes
+        .iter()
+        .find(|n| n.id == other.node_id().to_string())
+        .unwrap();
+    assert!(them.url.starts_with("https://localhost:") && them.peer && them.majority);
+    let Ok(response::Method::GetRegistrationStatus(status)) = owner
+        .call(Method::GetRegistrationStatus(
+            proto::GetRegistrationStatusRequest {},
+        ))
+        .await
+    else {
+        panic!("no status")
+    };
+    assert_eq!(status.node, own.node_id().to_string());
+    assert_eq!(status.bootstrap.len(), 1);
+    assert!(status.bootstrap[0].listed);
+}
+
 async fn peered(a: &TestNode, b: &NodeKey) -> bool {
     let path = format!("stub+usd:assets/interledger/{}", b.node_id());
     accounts(a).await.contains(&path)
@@ -173,6 +224,8 @@ async fn two_daemons_peer_and_keep_their_peering() {
     .await;
     // Both link states name the other, so each has a route to the other.
     settle(&clock).await;
+    check_network(&a, &key_a, &key_b).await;
+    check_network(&b, &key_b, &key_a).await;
     // A client of A pays B's receiver, one hop away, within B's credit.
     let mut owner_a = a.ipc().await;
     let Ok(response::Method::CreateBtpToken(token)) = owner_a

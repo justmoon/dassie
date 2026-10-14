@@ -130,7 +130,37 @@ impl PeeringHooks for Hooks<'_> {
     }
 }
 
+/// The network as the owner sees it.
+#[derive(Clone, Debug)]
+pub struct NetworkView {
+    /// Our node ID.
+    pub own: NodeId,
+    /// `test` or `g`.
+    pub allocation_scheme: &'static str,
+    /// The node table.
+    pub nodes: Vec<dassie_peer::NodeView>,
+    /// Our peerings.
+    pub peers: Vec<(NodeId, dassie_peer::Peering)>,
+    /// Our standing with the bootstrap nodes.
+    pub registration: Vec<dassie_peer::RegistrationStatus>,
+}
+
 impl Core {
+    /// The network as the owner sees it.
+    pub(in crate::engine) fn network(&self) -> NetworkView {
+        NetworkView {
+            own: *self.peer.own(),
+            allocation_scheme: self.allocation_scheme,
+            nodes: self.peer.nodes(),
+            peers: self
+                .peer
+                .peers()
+                .map(|(id, peering)| (*id, peering.clone()))
+                .collect(),
+            registration: self.peer.registration_status(),
+        }
+    }
+
     /// Runs `f` on the peer node with the hooks over the core.
     pub(super) fn with_peer<T>(
         &mut self,

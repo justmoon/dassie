@@ -26,6 +26,7 @@ use dassie_node_core::config::Realm;
 use dassie_stream::BUFFER_LENGTH;
 
 pub use ledgers::LedgerView;
+pub use peers::NetworkView;
 pub use tokens::{BtpSession, NewToken, TokenView, token_hash};
 
 use ledgers::ActiveScheme;

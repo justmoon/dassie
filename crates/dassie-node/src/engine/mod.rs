@@ -29,8 +29,8 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
 pub use self::core::{
-    BtpSession, Core, CoreParts, Credentials, EngineError, LedgerView, NewToken, Outbound, Output,
-    TokenView,
+    BtpSession, Core, CoreParts, Credentials, EngineError, LedgerView, NetworkView, NewToken,
+    Outbound, Output, TokenView,
 };
 
 use crate::log::target;
@@ -181,6 +181,11 @@ impl Engine {
     /// Credentials for paying the node's STREAM receiver.
     pub async fn stream_credentials(&self, tag: String) -> Result<Credentials, EngineError> {
         self.call(move |core| core.stream_credentials(&tag)).await
+    }
+
+    /// The network: the node table, peers and registrations.
+    pub async fn network(&self) -> Result<NetworkView, EngineError> {
+        self.call(|core| Ok(core.network())).await
     }
 
     /// Every ledger account.

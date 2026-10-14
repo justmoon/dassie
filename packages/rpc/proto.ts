@@ -9,6 +9,7 @@ export * from "./src/gen/dassie/ui/v1/btp_pb.ts";
 export * from "./src/gen/dassie/ui/v1/config_pb.ts";
 export * from "./src/gen/dassie/ui/v1/debug_pb.ts";
 export * from "./src/gen/dassie/ui/v1/ledger_pb.ts";
+export * from "./src/gen/dassie/ui/v1/network_pb.ts";
 export * from "./src/gen/dassie/ui/v1/node_pb.ts";
 export * from "./src/gen/dassie/ui/v1/payments_pb.ts";
 export * from "./src/gen/dassie/ui/v1/sessions_pb.ts";

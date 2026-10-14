@@ -11,6 +11,7 @@ pub mod connection;
 mod convert;
 mod handlers;
 mod ledger;
+mod network;
 
 use std::fmt;
 
