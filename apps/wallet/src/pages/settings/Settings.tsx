@@ -22,6 +22,7 @@ import {
 } from "@dassie/ui/ui";
 import type { ThemeSetting } from "@dassie/ui/theme";
 import { ApiKeys } from "./ApiKeys.tsx";
+import { parseShare, shareText } from "../network/grace.ts";
 
 export function Settings(): JSX.Element {
   return (
@@ -32,6 +33,7 @@ export function Settings(): JSX.Element {
           <Wallet />
           <Appearance />
           <NodeSettings />
+          <PeerSettings />
         </div>
         <div class="stack">
           <Sessions />
@@ -164,6 +166,67 @@ function NodeSettings(): JSX.Element {
           </span>
         </dd>
       </dl>
+    </Card>
+  );
+}
+
+/** The share of the credit a peer may cost before it is banned (D18). */
+function PeerSettings(): JSX.Element {
+  const client = useClient();
+  const toast = useToast();
+  const id = createUniqueId();
+  const [version, setVersion] = createSignal(0);
+  const settings = createMemo(async () => {
+    version();
+    return (await client.call("getPeerSettings", {})).settings;
+  });
+  const [share, setShare] = createSignal<string>();
+  const [error, setError] = createSignal<string>();
+  const shown = () =>
+    share() ??
+      (settings() ? shareText(settings()!.graceSharePpm).replace("%", "") : "");
+  const save = async (event: SubmitEvent) => {
+    event.preventDefault();
+    setError(undefined);
+    const ppm = parseShare(shown());
+    if (ppm === undefined) {
+      setError("A share is more than 0% and at most 1000%.");
+      return;
+    }
+    try {
+      await client.call("setPeerSettings", {
+        settings: { graceSharePpm: ppm },
+      });
+      toast({ title: "Grace limit saved" });
+      setShare(undefined);
+      setVersion((n) => n + 1);
+    } catch (failure) {
+      setError(describe(failure));
+    }
+  };
+  return (
+    <Card title="Peers" testid="peer-settings">
+      <form onSubmit={save}>
+        <Field
+          label="Grace limit (% of the credit you extend)"
+          for={`${id}-share`}
+          hint="A peer that costs you more than this in 30 days, in Fulfills it refused or debts it did not settle, is banned."
+        >
+          <input
+            id={`${id}-share`}
+            data-testid="grace-share-input"
+            inputmode="decimal"
+            value={shown()}
+            onInput={(event) => setShare(event.currentTarget.value)}
+          />
+        </Field>
+        <div class="actions">
+          <button type="submit" class="primary" data-testid="grace-share-save">
+            Save
+          </button>
+        </div>
+      </form>
+      <ErrorText message={error()} />
     </Card>
   );
 }
