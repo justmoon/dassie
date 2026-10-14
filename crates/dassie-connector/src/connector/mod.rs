@@ -184,6 +184,7 @@ impl Connector {
             ledger,
             next_request_id: 0,
             pending_from: 0,
+            draining: false,
         };
         self.endpoints.insert(id, endpoint, own)
     }
@@ -218,6 +219,7 @@ impl Connector {
             ledger,
             next_request_id: first_request_id,
             pending_from: 0,
+            draining: false,
         };
         self.endpoints.insert(id, endpoint, own)
     }
@@ -315,6 +317,28 @@ impl Connector {
         true
     }
 
+    /// Stops, or resumes, new Prepares to and from an endpoint, whose
+    /// peering is ending: packets in flight finish, and their responses
+    /// still flow. Returns whether the endpoint exists.
+    pub fn set_draining(&mut self, id: EndpointId, draining: bool) -> bool {
+        self.endpoints
+            .get_mut(id)
+            .map(|endpoint| endpoint.draining = draining)
+            .is_some()
+    }
+
+    /// Packets in flight to or from an endpoint: once none are left, a
+    /// draining endpoint can go without either side's books parting.
+    #[must_use]
+    pub fn pending_for(&self, id: EndpointId) -> usize {
+        let from = self
+            .endpoints
+            .get(id)
+            .map_or(0, |endpoint| endpoint.pending_from);
+        let to = self.pending.range((id, 0)..=(id, u32::MAX)).count();
+        from + to
+    }
+
     /// The address an endpoint was added with.
     #[must_use]
     pub fn endpoint_address(&self, id: EndpointId) -> Option<&str> {
@@ -386,10 +410,13 @@ impl Connector {
         loop {
             let prefix = text.get(..end)?;
             if let Some(options) = self.routes.get(prefix) {
-                let hop = options
-                    .iter()
-                    .flatten()
-                    .find(|hop| **hop != source && self.endpoints.get(**hop).is_some());
+                let hop = options.iter().flatten().find(|hop| {
+                    **hop != source
+                        && self
+                            .endpoints
+                            .get(**hop)
+                            .is_some_and(|endpoint| !endpoint.draining)
+                });
                 if let Some(hop) = hop {
                     return Some(*hop);
                 }

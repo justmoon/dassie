@@ -73,6 +73,20 @@ impl Connector {
         }
         self.stats.prepares += 1;
         let trace = self.next_trace();
+        if self
+            .endpoints
+            .get(source)
+            .is_some_and(|endpoint| endpoint.draining)
+        {
+            self.trace
+                .push(PacketRecord::new(trace, source, "", 0, now_ms));
+            return self.answer(
+                now_ms,
+                trace,
+                &refuse(ErrorCode::T01_PEER_UNREACHABLE, "the peering is ending"),
+                out,
+            );
+        }
         let Ok(prepare) = Prepare::decode_exact(packet) else {
             self.trace
                 .push(PacketRecord::new(trace, source, "", 0, now_ms));
