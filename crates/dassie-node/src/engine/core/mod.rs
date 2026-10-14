@@ -10,6 +10,7 @@
 mod ledgers;
 mod packets;
 mod peers;
+mod settlement;
 mod tokens;
 
 #[cfg(test)]
@@ -31,6 +32,7 @@ pub use tokens::{BtpSession, NewToken, TokenView, token_hash};
 
 use ledgers::ActiveScheme;
 use packets::Receiver;
+use settlement::Settlements;
 use tokens::{BtpLink, TokenState};
 
 use crate::clock::SharedRng;
@@ -196,6 +198,8 @@ pub struct Core {
     peer_credit: u64,
     /// Peer requests and replies, handed over once the batch is persisted.
     outputs_peer: Vec<Output>,
+    /// Settling with peers.
+    settle: Settlements,
 }
 
 impl Core {
@@ -228,14 +232,7 @@ impl Core {
             now_ms,
         );
         let epoch = store.next_boot_epoch().map_err(text)?;
-        let stored = store.load_ledger().map_err(text)?;
-        let ledger = Ledger::restore(
-            policies.ledger,
-            stored.accounts,
-            stored.pending,
-            stored.next_transfer,
-        )
-        .map_err(text)?;
+        let ledger = restore_ledger(&store, policies.ledger)?;
         let own_address = format!("{}.das.{}", realm.ilp_allocation_scheme(), key.node_id());
         let connector = Connector::new(
             ConnectorConfig {
@@ -274,6 +271,7 @@ impl Core {
             allocation_scheme: realm.ilp_allocation_scheme(),
             peer_credit: policies.peer_credit,
             outputs_peer: Vec::new(),
+            settle: Settlements::new(now_ms, &policies),
         };
         core.restore()?;
         Ok(core)
@@ -287,13 +285,23 @@ impl Core {
         self.load_schemes(&store)?;
         self.update_peer_schemes();
         let peers: Vec<dassie_identity::NodeId> = self.peer.peers().map(|(id, _)| *id).collect();
+        let active: std::collections::BTreeSet<dassie_identity::NodeId> =
+            self.peer.active_peers().map(|(id, _)| *id).collect();
         for node in peers {
             // A peer whose scheme is gone has no ledger to book on: it gets
             // no endpoint, which the rest of the node does without.
             if let Err(error) = self.add_peer_endpoint(node) {
                 tracing::error!(target: target::PEER, %node, %error, "a peer without an endpoint");
             }
+            // One being ended stays drained.
+            if !active.contains(&node)
+                && let Some(&endpoint) = self.peer_endpoints.get(&node)
+            {
+                self.connector
+                    .set_draining(dassie_connector::EndpointId::Peer(endpoint), true);
+            }
         }
+        self.reconcile_settlements();
         self.update_routes();
         self.after_peer();
         self.flush();
@@ -339,10 +347,14 @@ impl Core {
     #[must_use]
     pub fn deadline(&self) -> Option<u64> {
         let receiver = self.receiver.as_ref().and_then(Receiver::deadline);
+        let settlement = self.peer.peers().next().map(|_| self.settle.at_ms);
+        let finals = (!self.settle.finals.is_empty()).then_some(self.settle.at_ms);
         [
             self.connector.poll_timeout(),
             receiver,
             self.peer.poll_timeout(),
+            settlement,
+            finals,
         ]
         .into_iter()
         .flatten()
@@ -355,8 +367,14 @@ impl Core {
     pub fn finish_step(&mut self, out: &mut Vec<Output>) {
         loop {
             self.peer_timers();
+            self.settlement_timers();
             self.expire(self.now_ms);
             self.flush();
+            // Settlements run once their pending transfers are on disk;
+            // what they did is persisted in turn (ACC-16).
+            if self.execute_settlements() {
+                continue;
+            }
             self.check_invariants();
             while let Some(event) = self.connector.poll_event() {
                 out.push(Output::Trace(event));
@@ -447,6 +465,18 @@ fn check_bounds(policies: &Policies) {
         policies.ledger.max_journal >= 64,
         "a command's journal entries fit the journal"
     );
+}
+
+/// The ledger, from its journal.
+fn restore_ledger(store: &Store, config: dassie_ledger::Config) -> Result<Ledger, String> {
+    let stored = store.load_ledger().map_err(text)?;
+    Ledger::restore(
+        config,
+        stored.accounts,
+        stored.pending,
+        stored.next_transfer,
+    )
+    .map_err(text)
 }
 
 fn text(error: impl std::fmt::Display) -> String {

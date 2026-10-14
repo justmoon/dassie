@@ -1,8 +1,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
 use dassie_identity::NodeKey;
-use dassie_peer::wire::SchemeId;
-use dassie_peer::{PeerBatch, Peering, Registration, Sources, StoredNode};
+use dassie_peer::wire::{SchemeId, TerminationReason};
+use dassie_peer::{
+    Channel, Outgoing, PeerBatch, Peering, Registration, Sources, StoredChannel, StoredNode,
+    Termination,
+};
 
 use super::*;
 use crate::store::{BtpTokenRow, LedgerBatch};
@@ -30,6 +33,7 @@ fn node(seed: u8) -> StoredNode {
             inbound: true,
             last_seen_ms: 15,
         }),
+        termination: None,
         replay_floor_ms: 16,
     }
 }
@@ -56,6 +60,7 @@ fn the_node_table_round_trips() {
             nodes: vec![node(1), bare.clone()],
             removed: Vec::new(),
             own_sequence: Some(1_800_000_000_000),
+            ..PeerBatch::default()
         },
     );
     let stored = store.load_peer().unwrap();
@@ -90,6 +95,7 @@ fn peerings_end_with_their_nodes() {
             nodes: vec![unpeered],
             removed: vec![node(2).id],
             own_sequence: None,
+            ..PeerBatch::default()
         },
     );
     let stored = store.load_peer().unwrap();
@@ -144,7 +150,79 @@ fn a_node_removed_and_added_in_one_batch_stays() {
             nodes: vec![node(1)],
             removed: vec![node(1).id],
             own_sequence: None,
+            ..PeerBatch::default()
         },
     );
     assert_eq!(store.load_peer().unwrap().nodes, [node(1)]);
+}
+
+// A peering being ended, settlement channels with a message on its way,
+// and bans survive a restart (spec 7 §4.4). A channel stays when its node
+// leaves the table.
+#[test]
+fn terminations_channels_and_bans_round_trip() {
+    let store = Store::open_in_memory().unwrap();
+    let mut ending = node(1);
+    ending.termination = Some(Termination {
+        since_ms: 20,
+        reason: TerminationReason::Owner,
+        by_us: true,
+        acknowledged: false,
+    });
+    let key = NodeKey::from_bytes(&[3; 32]);
+    let channel = StoredChannel {
+        node: key.node_id(),
+        channel: Channel {
+            key: key.public_key(),
+            url: "https://c.example".into(),
+            settled_in: 4,
+            settled_out: 7,
+            outbox: Some(Outgoing {
+                sequence: 7,
+                scheme: SchemeId::parse("stub").unwrap(),
+                amount: 500,
+                data: vec![9],
+                attempts: 2,
+            }),
+        },
+    };
+    commit(
+        &store,
+        PeerBatch {
+            nodes: vec![ending.clone()],
+            channels: vec![channel.clone()],
+            banned: vec![node(5).id, node(6).id],
+            ..PeerBatch::default()
+        },
+    );
+    let stored = store.load_peer().unwrap();
+    assert_eq!(stored.nodes, [ending]);
+    assert_eq!(stored.channels, std::slice::from_ref(&channel));
+    let mut bans = vec![node(5).id, node(6).id];
+    bans.sort();
+    assert_eq!(stored.bans, bans);
+    // The termination ends, the node leaves, a ban is lifted, and the
+    // message arrives: the channel stays, without it.
+    let mut delivered = channel;
+    delivered.channel.outbox = None;
+    commit(
+        &store,
+        PeerBatch {
+            removed: vec![node(1).id],
+            channels: vec![delivered.clone()],
+            unbanned: vec![node(5).id],
+            ..PeerBatch::default()
+        },
+    );
+    let stored = store.load_peer().unwrap();
+    assert!(stored.nodes.is_empty());
+    assert_eq!(stored.channels, [delivered]);
+    assert_eq!(stored.bans, [node(6).id]);
+    let terminations: i64 = store
+        .lock()
+        .query_row("SELECT count(*) FROM peer_terminations", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(terminations, 0);
 }
