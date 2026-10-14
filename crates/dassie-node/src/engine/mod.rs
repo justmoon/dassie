@@ -70,6 +70,16 @@ enum Command {
         outbound: mpsc::Sender<Outbound>,
         reply: oneshot::Sender<Result<BtpSession, EngineError>>,
     },
+    /// A peer's request; the reply comes once the batch is persisted.
+    PeerInbound {
+        body: Vec<u8>,
+        reply: oneshot::Sender<dassie_peer::Reply>,
+    },
+    /// The result of one of our peer requests.
+    PeerResponse {
+        id: dassie_peer::RequestId,
+        result: Result<dassie_peer::Response, dassie_peer::Failure>,
+    },
     /// Run this on the core.
     Call(Call),
 }
@@ -80,6 +90,8 @@ impl std::fmt::Debug for Command {
             Self::Btp { connection, .. } => write!(f, "Btp({connection})"),
             Self::BtpClosed { connection } => write!(f, "BtpClosed({connection})"),
             Self::BtpConnect { .. } => f.write_str("BtpConnect"),
+            Self::PeerInbound { .. } => f.write_str("PeerInbound"),
+            Self::PeerResponse { id, .. } => write!(f, "PeerResponse({id:?})"),
             Self::Call(_) => f.write_str("Call"),
         }
     }
@@ -237,6 +249,17 @@ impl Engine {
     pub async fn btp_closed(&self, connection: u64) {
         let _ = self.commands.send(Command::BtpClosed { connection }).await;
     }
+
+    /// Hands in a peer's request, and waits for the reply, which comes once
+    /// what the request changed is on disk.
+    pub async fn peer_inbound(&self, body: Vec<u8>) -> Result<dassie_peer::Reply, EngineError> {
+        let (reply, result) = oneshot::channel();
+        self.commands
+            .send(Command::PeerInbound { body, reply })
+            .await
+            .map_err(|_| EngineError::Unavailable)?;
+        result.await.map_err(|_| EngineError::Unavailable)
+    }
 }
 
 /// The engine as a supervised service: waits for the node's identity, then
@@ -252,12 +275,17 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
         },
     };
     let Some(key) = key else { return };
+    // Subscribed before our info is read, so no change in between is lost.
+    let config = node.subscribe_config();
     let parts = CoreParts {
         store: node.store_handle(),
         key,
         realm: node.config().realm,
         policies: *node.policies(),
         rng: node.shared_rng(),
+        peer_rng: node.shared_rng(),
+        own_info: node.own_info(),
+        bootstrap: node.bootstrap(),
     };
     let core = match Core::start(parts, node.now_ms()) {
         Ok(core) => core,
@@ -270,7 +298,7 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
     let generation = CancellationToken::new();
     let packets = broadcast::Sender::new(PACKET_EVENTS);
     let engine = Engine {
-        commands,
+        commands: commands.clone(),
         generation: generation.clone(),
         packets: packets.clone(),
     };
@@ -283,8 +311,11 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
         packets,
         outputs: Vec::new(),
         replies: Vec::new(),
+        commands,
+        peer_replies: BTreeMap::new(),
+        next_inbound: 0,
     };
-    driver.run(receiver, &shutdown).await;
+    driver.run(receiver, config, &shutdown).await;
 }
 
 /// What runs the core: takes commands in batches, steps the core, and
@@ -297,10 +328,20 @@ struct Driver<'a> {
     packets: broadcast::Sender<TraceEvent>,
     outputs: Vec<Output>,
     replies: Vec<Reply>,
+    /// For the results of peer requests, which come back as commands.
+    commands: mpsc::Sender<Command>,
+    /// Inbound peer requests waiting for their reply.
+    peer_replies: BTreeMap<dassie_peer::InboundId, oneshot::Sender<dassie_peer::Reply>>,
+    next_inbound: u64,
 }
 
 impl Driver<'_> {
-    async fn run(&mut self, mut receiver: mpsc::Receiver<Command>, shutdown: &CancellationToken) {
+    async fn run(
+        &mut self,
+        mut receiver: mpsc::Receiver<Command>,
+        mut config: watch::Receiver<dassie_node_core::config::NodeConfig>,
+        shutdown: &CancellationToken,
+    ) {
         let mut wake = self.node.clock().subscribe();
         loop {
             let delay = self
@@ -329,6 +370,13 @@ impl Driver<'_> {
                 }
                 () = sleep => self.core.begin_step(self.node.now_ms()),
                 () = clock_moved(&mut wake) => self.core.begin_step(self.node.now_ms()),
+                changed = config.changed() => {
+                    if changed.is_err() {
+                        break;
+                    }
+                    self.core.begin_step(self.node.now_ms());
+                    self.core.set_own_info(self.node.own_info());
+                }
             }
             self.finish();
         }
@@ -361,6 +409,13 @@ impl Driver<'_> {
                     let _ = reply.send(outcome);
                 }));
             }
+            Command::PeerInbound { body, reply } => {
+                let inbound = dassie_peer::InboundId(self.next_inbound);
+                self.next_inbound += 1;
+                self.peer_replies.insert(inbound, reply);
+                self.core.peer_inbound(inbound, &body);
+            }
+            Command::PeerResponse { id, result } => self.core.peer_response(id, result),
             Command::Call(call) => {
                 let reply = call(&mut self.core);
                 self.replies.push(reply);
@@ -391,10 +446,20 @@ impl Driver<'_> {
     /// Hands the step's messages over; returns the links that failed.
     fn dispatch(&mut self) -> Vec<u64> {
         let mut failed = Vec::new();
-        for output in self.outputs.drain(..) {
+        for output in std::mem::take(&mut self.outputs) {
             let (link, message) = match output {
                 Output::Trace(event) => {
                     let _ = self.packets.send(event);
+                    continue;
+                }
+                Output::PeerRequest(request) => {
+                    self.send_peer_request(request);
+                    continue;
+                }
+                Output::PeerReply { inbound, reply } => {
+                    if let Some(sender) = self.peer_replies.remove(&inbound) {
+                        let _ = sender.send(reply);
+                    }
                     continue;
                 }
                 Output::Btp { link, message } => (link, message),
@@ -422,6 +487,23 @@ impl Driver<'_> {
             }
         }
         failed
+    }
+}
+
+impl Driver<'_> {
+    /// Sends a peer request on a task of its own; its result comes back as
+    /// a command. The peer node bounds the requests in flight.
+    fn send_peer_request(&self, request: dassie_peer::Request) {
+        let client = self.node.peer_client().clone();
+        let commands = self.commands.clone();
+        let id = request.id;
+        tokio::spawn(async move {
+            let (kind, to) = (request.kind, request.to);
+            let result = client.send(request).await;
+            let status = result.as_ref().map(|response| response.status);
+            tracing::debug!(target: target::PEER, ?kind, %to, ?status, "peer request");
+            let _ = commands.send(Command::PeerResponse { id, result }).await;
+        });
     }
 }
 

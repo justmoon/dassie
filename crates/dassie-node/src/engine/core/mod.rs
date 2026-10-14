@@ -9,6 +9,7 @@
 
 mod ledgers;
 mod packets;
+mod peers;
 mod tokens;
 
 #[cfg(test)]
@@ -107,6 +108,15 @@ pub enum Output {
     },
     /// A packet as the trace records it, for subscribers.
     Trace(TraceEvent),
+    /// A peer request to send.
+    PeerRequest(dassie_peer::Request),
+    /// The reply to an inbound peer request.
+    PeerReply {
+        /// The request it answers.
+        inbound: dassie_peer::InboundId,
+        /// The reply.
+        reply: dassie_peer::Reply,
+    },
 }
 
 /// Credentials for the STREAM receiver.
@@ -132,6 +142,12 @@ pub struct CoreParts {
     pub policies: Policies,
     /// Its randomness.
     pub rng: Box<dyn SharedRng>,
+    /// The peer protocol's randomness.
+    pub peer_rng: Box<dyn SharedRng>,
+    /// What our link state says about us.
+    pub own_info: dassie_peer::OwnInfo,
+    /// The bootstrap nodes.
+    pub bootstrap: Vec<dassie_peer::Bootstrap>,
 }
 
 /// The engine's state.
@@ -167,6 +183,18 @@ pub struct Core {
     scratch: Vec<u8>,
     /// Where the receiver's connections work.
     work: Vec<u8>,
+    /// The peer protocol.
+    peer: dassie_peer::PeerNode,
+    /// Peers' connector endpoints, both ways.
+    peer_endpoints: BTreeMap<dassie_identity::NodeId, u64>,
+    endpoint_peers: BTreeMap<u64, dassie_identity::NodeId>,
+    next_peer_endpoint: u64,
+    /// `test` or `g`, for nodes' addresses.
+    allocation_scheme: &'static str,
+    /// The credit extended to a new peer.
+    peer_credit: u64,
+    /// Peer requests and replies, handed over once the batch is persisted.
+    outputs_peer: Vec<Output>,
 }
 
 impl Core {
@@ -184,8 +212,20 @@ impl Core {
             realm,
             policies,
             rng,
+            peer_rng,
+            own_info,
+            bootstrap,
         } = parts;
         check_bounds(&policies);
+        let peer = dassie_peer::PeerNode::new(
+            policies.peer,
+            Arc::clone(&key),
+            own_info,
+            bootstrap,
+            store.load_peer().map_err(text)?,
+            Box::new(peer_rng),
+            now_ms,
+        );
         let epoch = store.next_boot_epoch().map_err(text)?;
         let stored = store.load_ledger().map_err(text)?;
         let ledger = Ledger::restore(
@@ -226,12 +266,34 @@ impl Core {
             up: vec![0; MAX_PACKET_LENGTH],
             scratch: vec![0; BUFFER_LENGTH.max(MAX_PACKET_LENGTH)],
             work: vec![0; BUFFER_LENGTH],
+            peer,
+            peer_endpoints: BTreeMap::new(),
+            endpoint_peers: BTreeMap::new(),
+            next_peer_endpoint: 0,
+            allocation_scheme: realm.ilp_allocation_scheme(),
+            peer_credit: policies.peer_credit,
+            outputs_peer: Vec::new(),
         };
-        let store = Arc::clone(&core.store);
-        core.load_tokens(&store).map_err(text)?;
-        core.load_schemes(&store)?;
-        core.flush();
+        core.restore()?;
         Ok(core)
+    }
+
+    /// The rest of the state: tokens, schemes, and the peers, whose
+    /// accounts the journal must have (spec 7 §4.4).
+    fn restore(&mut self) -> Result<(), String> {
+        let store = Arc::clone(&self.store);
+        self.load_tokens(&store).map_err(text)?;
+        self.load_schemes(&store)?;
+        self.update_peer_schemes();
+        let peers: Vec<dassie_identity::NodeId> = self.peer.peers().map(|(id, _)| *id).collect();
+        for node in peers {
+            self.add_peer_endpoint(node)
+                .map_err(|error| format!("peer {node}: {error}"))?;
+        }
+        self.update_routes();
+        self.after_peer();
+        self.flush();
+        Ok(())
     }
 
     /// The node's ILP address.
@@ -273,10 +335,14 @@ impl Core {
     #[must_use]
     pub fn deadline(&self) -> Option<u64> {
         let receiver = self.receiver.as_ref().and_then(Receiver::deadline);
-        match (self.connector.poll_timeout(), receiver) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        }
+        [
+            self.connector.poll_timeout(),
+            receiver,
+            self.peer.poll_timeout(),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     /// Ends a step: expires what is due, persists, then hands over what
@@ -284,12 +350,14 @@ impl Core {
     /// nothing is left to close.
     pub fn finish_step(&mut self, out: &mut Vec<Output>) {
         loop {
+            self.peer_timers();
             self.expire(self.now_ms);
             self.flush();
             self.check_invariants();
             while let Some(event) = self.connector.poll_event() {
                 out.push(Output::Trace(event));
             }
+            out.append(&mut self.outputs_peer);
             out.extend(
                 self.outputs
                     .drain(..)
@@ -310,6 +378,7 @@ impl Core {
     /// the disk.
     pub(super) fn flush(&mut self) {
         self.take_journal();
+        self.peer.take_changes(&mut self.batch.peer);
         if self.batch.is_empty() {
             return;
         }
@@ -325,6 +394,7 @@ impl Core {
         if cfg!(debug_assertions) {
             self.ledger.check_invariants();
             self.connector.check_invariants(&self.ledger);
+            self.peer.check_invariants();
         }
     }
 
@@ -356,14 +426,20 @@ fn check_bounds(policies: &Policies) {
         policies.ledger.max_pending as usize >= connector.ledger_pending_needed() + 64,
         "the ledger needs room for every packet's transfers, and settlements"
     );
+    let peers = policies.peer.max_peers;
     assert!(
         connector.max_pending
-            >= connector.max_pending_per_endpoint * (policies.max_btp_connections + 1),
-        "every BTP client and the receiver can fill their share of the table at once"
+            >= connector.max_pending_per_endpoint * (policies.max_btp_connections + 1)
+                + connector.max_pending_per_peer * peers,
+        "every BTP client, the receiver and every peer can fill their share of the table at once"
     );
     assert!(
-        connector.max_endpoints > policies.max_btp_connections,
-        "every BTP connection, and the receiver, is an endpoint"
+        connector.max_endpoints > policies.max_btp_connections + 1 + peers,
+        "every BTP connection, the receiver and every peer is an endpoint"
+    );
+    assert!(
+        policies.peer_credit <= dassie_ledger::MAX_TOTAL,
+        "the credit fits the ledger"
     );
     assert!(
         policies.ledger.max_journal >= 64,

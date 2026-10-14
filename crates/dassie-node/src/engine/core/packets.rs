@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use dassie_connector::{EndpointId, Forwarded, Outcome, Upstream};
 use dassie_identity::SeedPath;
-use dassie_ilp::{Address, Prepare, Timestamp};
+use dassie_ilp::{Address, ErrorCode, Prepare, Timestamp};
 use dassie_ledger::LedgerId;
 use dassie_oer::Decode;
 use dassie_stream::{AssetDetails, ConnectionId, Event, Policy, Server, ServerConfig};
@@ -13,6 +13,9 @@ use dassie_stream::{AssetDetails, ConnectionId, Event, Policy, Server, ServerCon
 use super::Core;
 use super::{EngineError, Outbound};
 use crate::log::target;
+
+/// The type byte of an ILP Prepare.
+const PREPARE_TYPE: u8 = 12;
 
 /// The STREAM receiver's endpoint.
 pub(super) const RECEIVER: EndpointId = EndpointId::Local(0);
@@ -89,13 +92,42 @@ impl Receiver {
 
 impl Core {
     pub(super) fn btp_prepare(&mut self, link: u64, request_id: u32, packet: &[u8]) {
-        if !self.links.contains_key(&link) {
-            return;
+        if self.links.contains_key(&link) {
+            self.prepare_from(EndpointId::Btp(link), request_id, packet);
         }
+    }
+
+    pub(super) fn btp_response(&mut self, link: u64, request_id: u32, packet: &[u8]) {
+        if self.links.contains_key(&link) {
+            self.response_from(EndpointId::Btp(link), request_id, packet);
+        }
+    }
+
+    /// An ILP packet from a peer: a Prepare, or the response to one of
+    /// ours, told apart by its type.
+    pub(super) fn peer_packet(
+        &mut self,
+        from: dassie_identity::NodeId,
+        request_id: u32,
+        packet: &[u8],
+    ) {
+        let Some(&endpoint) = self.peer_endpoints.get(&from) else {
+            return;
+        };
+        let source = EndpointId::Peer(endpoint);
+        match packet.first() {
+            Some(&PREPARE_TYPE) => self.prepare_from(source, request_id, packet),
+            Some(_) => self.response_from(source, request_id, packet),
+            None => {}
+        }
+    }
+
+    /// A Prepare from an endpoint, through the connector.
+    fn prepare_from(&mut self, source: EndpointId, request_id: u32, packet: &[u8]) {
         let now = self.now_ms();
         let outcome = self.connector.handle_prepare(
             now,
-            EndpointId::Btp(link),
+            source,
             request_id,
             packet,
             &mut self.ledger,
@@ -105,29 +137,40 @@ impl Core {
         match outcome {
             Outcome::Forward(forwarded) => self.forwarded(now, forwarded),
             Outcome::Respond(length) => {
-                let packet = self.out.get(..length).unwrap_or_default().to_vec();
-                self.outputs
-                    .push((link, Outbound::Response { request_id, packet }));
-            }
-            Outcome::Duplicate => self.outputs.push((
-                link,
-                Outbound::Error {
+                let upstream = Upstream {
+                    to: source,
                     request_id,
-                    message: "a request with this ID is in flight",
-                },
-            )),
+                    length,
+                };
+                if let (Some(from), Some(to)) = (self.out.get(..length), self.up.get_mut(..length))
+                {
+                    to.copy_from_slice(from);
+                }
+                self.upstream(now, upstream);
+            }
+            Outcome::Duplicate => match source {
+                EndpointId::Btp(link) => self.outputs.push((
+                    link,
+                    Outbound::Error {
+                        request_id,
+                        message: "a request with this ID is in flight",
+                    },
+                )),
+                // A peer has no error channel: the duplicate is dropped.
+                _ => {
+                    tracing::debug!(target: target::PEER, %source, request_id, "duplicate request ID")
+                }
+            },
             Outcome::UnknownSource => {}
         }
     }
 
-    pub(super) fn btp_response(&mut self, link: u64, request_id: u32, packet: &[u8]) {
-        if !self.links.contains_key(&link) {
-            return;
-        }
+    /// A response from an endpoint, through the connector.
+    fn response_from(&mut self, source: EndpointId, request_id: u32, packet: &[u8]) {
         let now = self.now_ms();
         let upstream = self.connector.handle_response(
             now,
-            EndpointId::Btp(link),
+            source,
             request_id,
             packet,
             &mut self.ledger,
@@ -136,6 +179,43 @@ impl Core {
         if let Some(upstream) = upstream {
             self.upstream(now, upstream);
         }
+    }
+
+    /// Sends an ILP packet to a peer. A Prepare that cannot be sent fails
+    /// at once; a response that cannot leaves the peer to time out.
+    fn send_to_peer(
+        &mut self,
+        now: u64,
+        endpoint: u64,
+        request_id: u32,
+        prepare: Option<usize>,
+        response: Option<usize>,
+    ) {
+        let Some(&node) = self.endpoint_peers.get(&endpoint) else {
+            return;
+        };
+        let (packet, timeout_ms) = match (prepare, response) {
+            (Some(length), _) => {
+                let packet = self.out.get(..length).unwrap_or_default();
+                let expiry = Prepare::decode_exact(packet).map_or(now, |p| p.expires_at.unix_ms);
+                (packet, expiry.saturating_sub(now))
+            }
+            (None, Some(length)) => (self.up.get(..length).unwrap_or_default(), u64::MAX),
+            (None, None) => return,
+        };
+        let sent = self
+            .peer
+            .send_packet(now, &node, request_id, packet, timeout_ms);
+        if sent.is_err() && prepare.is_some() {
+            self.connector.fail_forwarded(
+                now,
+                EndpointId::Peer(endpoint),
+                request_id,
+                ErrorCode::T01_PEER_UNREACHABLE,
+                "the peer could not be reached",
+            );
+        }
+        self.after_peer();
     }
 
     /// Sends a Prepare the connector forwarded.
@@ -156,7 +236,16 @@ impl Core {
                 ));
             }
             RECEIVER => self.deliver(now, forwarded),
-            EndpointId::Local(_) | EndpointId::Peer(_) => {}
+            EndpointId::Peer(endpoint) => {
+                self.send_to_peer(
+                    now,
+                    endpoint,
+                    forwarded.request_id,
+                    Some(forwarded.length),
+                    None,
+                );
+            }
+            EndpointId::Local(_) => {}
         }
     }
 
@@ -231,7 +320,16 @@ impl Core {
                 }
                 self.pump(now);
             }
-            EndpointId::Local(_) | EndpointId::Peer(_) => {}
+            EndpointId::Peer(endpoint) => {
+                self.send_to_peer(
+                    now,
+                    endpoint,
+                    upstream.request_id,
+                    None,
+                    Some(upstream.length),
+                );
+            }
+            EndpointId::Local(_) => {}
         }
     }
 
@@ -322,12 +420,7 @@ impl Core {
                 return;
             };
             match outcome {
-                Outcome::Forward(
-                    forwarded @ Forwarded {
-                        to: EndpointId::Btp(_),
-                        ..
-                    },
-                ) => {
+                Outcome::Forward(forwarded) if forwarded.to != RECEIVER => {
                     self.forwarded(now, forwarded);
                 }
                 // Back to the receiver, which cannot pay itself: the packet

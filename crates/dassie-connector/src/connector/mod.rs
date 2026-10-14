@@ -366,10 +366,10 @@ impl Connector {
         trace
     }
 
-    /// The next hop for `destination`, which is never `source`: below our
-    /// own address only children (or F02, NET-34); beyond it, the longest
-    /// whole-segment prefix in the route table, its first hop that is an
-    /// endpoint and not the packet's source.
+    /// The next hop for `destination`: below our own address only
+    /// children (or F02, NET-34); beyond it, the longest whole-segment
+    /// prefix in the route table, its first hop that is an endpoint and not
+    /// the packet's source, so packets do not bounce between peers.
     pub(crate) fn next_hop(
         &self,
         destination: Address<'_>,
@@ -377,10 +377,9 @@ impl Connector {
     ) -> Option<EndpointId> {
         let own = Address::parse(&self.own_address).ok()?;
         if destination.has_prefix(own) {
-            return self
-                .endpoints
-                .route_child(destination)
-                .filter(|to| *to != source);
+            // A child may address itself; only routes between nodes could
+            // loop.
+            return self.endpoints.route_child(destination);
         }
         let text = destination.as_str();
         let mut end = text.len();

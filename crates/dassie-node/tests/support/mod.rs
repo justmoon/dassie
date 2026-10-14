@@ -9,6 +9,8 @@
     clippy::indexing_slicing
 )]
 
+pub mod btp_client;
+
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -42,6 +44,90 @@ use tokio_util::sync::CancellationToken;
 
 /// 2027-01-15, a plausible now.
 pub const START_MS: u64 = 1_800_000_000_000;
+
+/// A daemon's listeners, bound before it starts, so that other nodes can
+/// be told where it will be.
+pub struct Bound {
+    dir: tempfile::TempDir,
+    http: std::net::TcpListener,
+    https: std::net::TcpListener,
+    ipc_path: PathBuf,
+    ipc: std::os::unix::net::UnixListener,
+}
+
+impl Bound {
+    /// Listeners on fresh ports and a fresh directory.
+    pub fn new() -> Self {
+        Self::bind_in(tempfile::tempdir().unwrap())
+    }
+
+    /// Listeners on fresh ports, for a daemon on `dir`.
+    pub fn bind_in(dir: tempfile::TempDir) -> Self {
+        let http = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let https = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let ipc_path = dir.path().join("ipc.sock");
+        let ipc = ipc::bind(&ipc_path).unwrap();
+        Self {
+            dir,
+            http,
+            https,
+            ipc_path,
+            ipc,
+        }
+    }
+
+    /// The HTTPS port the daemon will have.
+    pub fn https_port(&self) -> u16 {
+        self.https.local_addr().unwrap().port()
+    }
+
+    /// Starts the daemon, with `env` beside its state directory.
+    pub async fn start(
+        self,
+        clock: ManualClock,
+        seed: u64,
+        policies: Policies,
+        env: &[(&str, &str)],
+    ) -> TestNode {
+        let Self {
+            dir,
+            http,
+            https,
+            ipc_path,
+            ipc,
+        } = self;
+        let state = dir.path().join("state");
+        let state_text = state.to_str().unwrap().to_owned();
+        let pairs = env
+            .iter()
+            .copied()
+            .chain([("DASSIE_STATE_DIRECTORY", state_text.as_str())]);
+        let settings = Settings::from_env(&Env::from_pairs(pairs)).unwrap();
+        let store = Store::open(&state).unwrap();
+        let (http_address, https_address) =
+            (http.local_addr().unwrap(), https.local_addr().unwrap());
+        let prepared = Prepared::from_parts(settings, store, http, https, ipc);
+        let shutdown = CancellationToken::new();
+        let handle = tokio::spawn(daemon::run(
+            prepared,
+            Arc::new(clock.clone()),
+            Box::new(SeededRng::new(seed)),
+            policies,
+            shutdown.clone(),
+        ));
+        let node = TestNode {
+            dir,
+            http: http_address,
+            https: https_address,
+            ipc: ipc_path,
+            clock,
+            shutdown,
+            handle: Some(handle),
+        };
+        node.wait_until_up().await;
+        node
+    }
+}
 
 /// A running daemon.
 pub struct TestNode {
@@ -77,36 +163,7 @@ impl TestNode {
         seed: u64,
         policies: Policies,
     ) -> Self {
-        let http = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let https = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let ipc_path = dir.path().join("ipc.sock");
-        let ipc = ipc::bind(&ipc_path).unwrap();
-        let state = dir.path().join("state");
-        let env = Env::from_pairs([("DASSIE_STATE_DIRECTORY", state.to_str().unwrap())]);
-        let settings = Settings::from_env(&env).unwrap();
-        let store = Store::open(&state).unwrap();
-        let (http_address, https_address) =
-            (http.local_addr().unwrap(), https.local_addr().unwrap());
-        let prepared = Prepared::from_parts(settings, store, http, https, ipc);
-        let shutdown = CancellationToken::new();
-        let handle = tokio::spawn(daemon::run(
-            prepared,
-            Arc::new(clock.clone()),
-            Box::new(SeededRng::new(seed)),
-            policies,
-            shutdown.clone(),
-        ));
-        let node = Self {
-            dir,
-            http: http_address,
-            https: https_address,
-            ipc: ipc_path,
-            clock,
-            shutdown,
-            handle: Some(handle),
-        };
-        node.wait_until_up().await;
-        node
+        Bound::bind_in(dir).start(clock, seed, policies, &[]).await
     }
 
     async fn wait_until_up(&self) {

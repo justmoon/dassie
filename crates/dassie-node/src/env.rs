@@ -21,12 +21,10 @@ use serde::Deserialize;
 
 use crate::log::{LogFilter, LogLevel};
 
-/// The bootstrap nodes of the original's test network (spec 2 §17), whose
-/// IDs are checked against their keys like any other list (NET-19).
-pub const DEFAULT_BOOTSTRAP_NODES: &str = r#"[
-  {"id":"dNKbwOMCw0DTToPM4tyyVASWxM4NP3MKW","url":"https://test1.dassie.xyz","publicKey":"QBe5HLbdYFtIpjFTIu_Lz8lkoUJ3fmAvFHfCb9CVwIM"},
-  {"id":"dyrjUANXiJ5S6JXxwo7jdKKJjdLtK129U","url":"https://test2.dassie.xyz","publicKey":"tmS1PB42DEjYi-Ua4RNguhweId9YjT9Kml3uq3iZSuQ"}
-]"#;
+/// No default bootstrap nodes until the v1 network's exist (D15): the
+/// original's speak v0, which refuses every v1 message. A node without any
+/// runs alone, and says so.
+pub const DEFAULT_BOOTSTRAP_NODES: &str = "[]";
 
 /// Length of `DASSIE_DEV_SECURITY_TOKEN`.
 pub const DEV_SECURITY_TOKEN_LENGTH: usize = 64;
@@ -121,10 +119,19 @@ pub struct Settings {
     /// A token that authenticates RPC sockets in development. Read and
     /// checked now; used from M5.
     pub dev_security_token: Option<String>,
-    /// The network's bootstrap nodes. Read and checked now; used from M4.
+    /// The network's bootstrap nodes.
     pub bootstrap_nodes: Vec<BootstrapNode>,
     /// An extra root the ACME client trusts, for test CAs such as Pebble.
     pub acme_ca_file: Option<PathBuf>,
+    /// Extra roots the peer client trusts, beside the platform's: a dev or
+    /// test CA (`DASSIE_PEER_CA_FILE`).
+    pub peer_ca_file: Option<PathBuf>,
+    /// Whether peers may be at private addresses, such as `localhost` in
+    /// dev and tests (`DASSIE_PEER_ALLOW_PRIVATE=1`).
+    pub peer_allow_private: bool,
+    /// Whether the peer protocol runs on dev timers, polling every second
+    /// (`DASSIE_DEV_TIMINGS=1`).
+    pub dev_timings: bool,
 }
 
 impl Settings {
@@ -137,6 +144,9 @@ impl Settings {
             dev_security_token: dev_security_token(env)?,
             bootstrap_nodes: bootstrap_nodes(env)?,
             acme_ca_file: env.path("DASSIE_ACME_CA_FILE"),
+            peer_ca_file: env.path("DASSIE_PEER_CA_FILE"),
+            peer_allow_private: flag(env, "DASSIE_PEER_ALLOW_PRIVATE")?,
+            dev_timings: flag(env, "DASSIE_DEV_TIMINGS")?,
         })
     }
 }
@@ -175,6 +185,18 @@ fn log_filter(env: &Env) -> Result<LogFilter, EnvError> {
     Ok(LogFilter::new(level, env.get("DEBUG")?.unwrap_or_default()))
 }
 
+/// A variable that is `1` or `0`, or absent for `0`.
+fn flag(env: &Env, variable: &'static str) -> Result<bool, EnvError> {
+    match env.get(variable)? {
+        None | Some("0") => Ok(false),
+        Some("1") => Ok(true),
+        Some(_) => Err(EnvError {
+            variable,
+            problem: "must be 1 or 0".into(),
+        }),
+    }
+}
+
 fn dev_security_token(env: &Env) -> Result<Option<String>, EnvError> {
     match env.get("DASSIE_DEV_SECURITY_TOKEN")? {
         None => Ok(None),
@@ -211,13 +233,24 @@ fn bootstrap_nodes(env: &Env) -> Result<Vec<BootstrapNode>, EnvError> {
             "lists more than {MAX_BOOTSTRAP_NODES} nodes"
         )));
     }
-    nodes
+    let nodes: Vec<BootstrapNode> = nodes
         .into_iter()
         .map(|node| {
             let checked = check_bootstrap_node(&node);
             checked.ok_or_else(|| error(format!("has an invalid entry for {:?}", node.id)))
         })
-        .collect()
+        .collect::<Result<_, _>>()?;
+    // A node listed twice would vote twice for the majority.
+    for (index, node) in nodes.iter().enumerate() {
+        let repeated = nodes
+            .iter()
+            .skip(index + 1)
+            .any(|other| other.id == node.id || other.url == node.url);
+        if repeated {
+            return Err(error(format!("lists {} more than once", node.id)));
+        }
+    }
+    Ok(nodes)
 }
 
 /// A bootstrap node's entry, if its URL is HTTPS, its key decodes and its
@@ -225,7 +258,7 @@ fn bootstrap_nodes(env: &Env) -> Result<Vec<BootstrapNode>, EnvError> {
 fn check_bootstrap_node(node: &BootstrapNodeJson) -> Option<BootstrapNode> {
     let mut key = [0; 32];
     let length = base64url::decode(node.public_key.as_bytes(), &mut key).ok()?;
-    if length != key.len() || !node.url.starts_with("https://") {
+    if length != key.len() || !dassie_peer::wire::is_valid_url(&node.url) {
         return None;
     }
     let public_key = PublicKey::from_bytes(&key).ok()?;
@@ -261,10 +294,21 @@ mod tests {
         assert!(dir(&[]).is_err());
     }
 
+    // D15: until the v1 network's bootstrap nodes exist, there are none.
     #[test]
-    fn the_default_bootstrap_nodes_check_out() {
+    fn there_are_no_default_bootstrap_nodes() {
         let nodes = settings(&[("HOME", "/h")]).map(|s| s.bootstrap_nodes.len());
-        assert_eq!(nodes, Ok(2));
+        assert_eq!(nodes, Ok(0));
+    }
+
+    #[test]
+    fn bootstrap_nodes_are_listed_once() {
+        let one = r#"{"id":"dNKbwOMCw0DTToPM4tyyVASWxM4NP3MKW","url":"https://test1.dassie.xyz","publicKey":"QBe5HLbdYFtIpjFTIu_Lz8lkoUJ3fmAvFHfCb9CVwIM"}"#;
+        let twice = format!("[{one},{one}]");
+        let once = format!("[{one}]");
+        assert!(settings(&[("HOME", "/h"), ("DASSIE_BOOTSTRAP_NODES", &twice)]).is_err());
+        let nodes = settings(&[("HOME", "/h"), ("DASSIE_BOOTSTRAP_NODES", &once)]);
+        assert_eq!(nodes.map(|s| s.bootstrap_nodes.len()), Ok(1));
     }
 
     // RT-24: in the original these broke whichever actor read them first,
@@ -274,6 +318,7 @@ mod tests {
         let bad = [
             ("DASSIE_LOG_LEVEL", "verbose"),
             ("DASSIE_DEV_SECURITY_TOKEN", "short"),
+            ("DASSIE_PEER_ALLOW_PRIVATE", "yes"),
             ("DASSIE_BOOTSTRAP_NODES", "{"),
             (
                 "DASSIE_BOOTSTRAP_NODES",

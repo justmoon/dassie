@@ -127,6 +127,7 @@ impl Core {
             self.batch.schemes_added.push((id, config));
         }
         self.schemes.insert(id, ActiveScheme { scheme });
+        self.update_peer_schemes();
         self.ensure_receiver()?;
         Ok(ledger)
     }
@@ -148,6 +149,7 @@ impl Core {
             ));
         }
         self.schemes.remove(&id);
+        self.update_peer_schemes();
         self.batch.schemes_added.retain(|(added, _)| *added != id);
         self.batch.schemes_removed.push(id);
         if self

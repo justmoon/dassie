@@ -18,6 +18,7 @@ pub mod clock;
 pub mod env;
 pub mod log;
 pub mod node;
+pub mod peer_client;
 pub mod rpc;
 pub mod store;
 pub mod tls;

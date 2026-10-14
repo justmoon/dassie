@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use dassie_node::clock::ManualClock;
-use dassie_node::node::{Node, NodeOptions, Policies, Runtime};
+use dassie_node::node::{Node, NodeOptions, PeerOptions, Policies, Runtime};
 use dassie_node::rpc::connection::{self, Closed};
 use dassie_node::rpc::{Caller, proto};
 use dassie_node::store::Store;
@@ -27,6 +27,7 @@ fn node() -> Arc<Node> {
         https_port: 443,
         acme_ca_file: None,
         policies: Policies::DEFAULT,
+        peer: PeerOptions::default(),
     })
     .unwrap()
 }

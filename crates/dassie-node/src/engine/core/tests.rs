@@ -21,6 +21,12 @@ fn core(seed: u64) -> Core {
         realm: Realm::Test,
         policies: Policies::DEFAULT,
         rng: Box::new(SeededRng::new(seed)),
+        peer_rng: Box::new(SeededRng::new(seed + 1)),
+        own_info: dassie_peer::OwnInfo {
+            url: None,
+            alias: String::new(),
+        },
+        bootstrap: Vec::new(),
     };
     Core::start(parts, NOW).unwrap()
 }

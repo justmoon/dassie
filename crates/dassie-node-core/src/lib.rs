@@ -36,6 +36,7 @@ extern crate alloc;
 extern crate std;
 
 pub mod acme;
+pub mod address;
 pub mod certificate;
 pub mod config;
 pub mod hex;
