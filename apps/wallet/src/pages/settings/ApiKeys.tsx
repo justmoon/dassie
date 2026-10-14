@@ -14,17 +14,17 @@ import {
   For,
   Show,
 } from "solid-js";
-import { Amount, ledgerCurrency } from "../../shared/amount/Amount.tsx";
+import { Amount, ledgerCurrency } from "@dassie/ui/amount";
 import {
   amountText,
   currencyOf,
   parseAmount,
   parseFailureText,
-} from "../../shared/amount/currency.ts";
-import { dateTime } from "../../shared/format.ts";
-import { useNodeData } from "../../shared/node-data.ts";
-import { describe, useClient } from "../../shared/rpc.ts";
-import { useToast } from "../../shared/ui/toast.tsx";
+} from "@dassie/ui/currency";
+import { dateTime } from "@dassie/ui/format";
+import { useNodeData } from "@dassie/ui/node-data";
+import { describe, useClient } from "@dassie/ui/rpc";
+import { useToast } from "@dassie/ui/toast";
 import {
   Card,
   ConfirmButton,
@@ -32,7 +32,7 @@ import {
   ErrorText,
   Field,
   Masked,
-} from "../../shared/ui/ui.tsx";
+} from "@dassie/ui/ui";
 import { formatCap, usedShare, WINDOWS } from "./caps.ts";
 
 export function ApiKeys(): JSX.Element {

@@ -1,6 +1,6 @@
 /** BTP tokens' spending caps (spec 7 §4.5) as the owner sets and reads them. */
 
-import { type Currency, formatAmount } from "../../shared/amount/currency.ts";
+import { type Currency, formatAmount } from "@dassie/ui/currency";
 
 /** The windows the owner picks from. */
 export const WINDOWS = [

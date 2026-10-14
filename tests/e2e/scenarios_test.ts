@@ -17,13 +17,12 @@ import BtpPlugin from "ilp-plugin-btp";
 import WebSocket from "ws";
 import { createConnection } from "ilp-protocol-stream";
 
-import { missingBinary } from "./harness.ts";
 import {
-  ROOT,
-  Scenario,
-  type ScenarioName,
-  type ScenarioNode,
-} from "./scenarios.ts";
+  DASSIE,
+  missingScenarioTools,
+  SCENARIO_PORT_OFFSET,
+} from "./harness.ts";
+import { Scenario, type ScenarioNode } from "@dassie/dev/scenario";
 
 /** 5 USD: over four times what a peer extends, so every hop must settle. */
 const PAYMENT = 5_000_000_000n;
@@ -36,17 +35,20 @@ const CREDIT = 1_100_000_000n;
 const THRESHOLD = CREDIT / 10n;
 const DEPOSIT = 100_000_000_000n;
 
-const missing = await missingBinary();
+const missing = await missingScenarioTools();
 
-/** A `ws` socket that trusts the test root. */
-class TrustingWebSocket extends WebSocket {
-  constructor(url: string) {
-    super(url, { ca: ROOT });
-  }
+/** A `ws` socket class that trusts the scenario's CA. */
+async function trusting(scenario: Scenario): Promise<typeof WebSocket> {
+  const ca = await Deno.readTextFile(scenario.caFile);
+  return class extends WebSocket {
+    constructor(url: string) {
+      super(url, { ca });
+    }
+  };
 }
 
 /** A client of `from` pays `PAYMENT` to the receiver of `to`. */
-async function pay(from: ScenarioNode, to: ScenarioNode) {
+async function pay(scenario: Scenario, from: ScenarioNode, to: ScenarioNode) {
   const token = await from.rpc.call("createBtpToken", {
     label: "e2e",
     ledger: "stub+usd",
@@ -54,8 +56,11 @@ async function pay(from: ScenarioNode, to: ScenarioNode) {
   const credentials = await to.rpc.call("createStreamCredentials", {
     tag: "e2e",
   });
-  const plugin = new BtpPlugin({ server: token.url }, {
-    WebSocket: TrustingWebSocket,
+  // At `localhost`, which the node's certificate names too: Deno need not
+  // resolve `dN.localhost`.
+  const server = token.url.replace(`@${from.hostname}:`, "@localhost:");
+  const plugin = new BtpPlugin({ server }, {
+    WebSocket: await trusting(scenario),
   });
   await plugin.connect();
   try {
@@ -188,10 +193,13 @@ async function restartAll(scenario: Scenario) {
 }
 
 async function run(
-  name: ScenarioName,
+  name: string,
   test: (scenario: Scenario) => Promise<void>,
 ) {
-  const scenario = await Scenario.start(name);
+  const scenario = await Scenario.temporary(name, {
+    dassie: DASSIE,
+    portOffset: SCENARIO_PORT_OFFSET,
+  });
   let passed = false;
   try {
     await test(scenario);
@@ -211,16 +219,16 @@ Deno.test({
   async fn() {
     await run("two-nodes", async (scenario) => {
       await scenario.until("convergence", () => scenario.converged());
-      const [d0, d1] = scenario.nodes;
+      const [d1, d2] = scenario.nodes;
       assertEquals(
         await scenario.peerings(),
-        new Map([["d0", ["d1"]], ["d1", ["d0"]]]),
+        new Map([["d1", ["d2"]], ["d2", ["d1"]]]),
       );
-      await pay(d0, d1);
+      await pay(scenario, d1, d2);
       await scenario.until("settled", () => quiet(scenario));
       assertEquals(
         await owners(scenario),
-        new Map([["d0", DEPOSIT - PAYMENT], ["d1", DEPOSIT + PAYMENT]]),
+        new Map([["d1", DEPOSIT - PAYMENT], ["d2", DEPOSIT + PAYMENT]]),
       );
       await assertSettled(scenario);
       await restartAll(scenario);
@@ -228,29 +236,29 @@ Deno.test({
         "routes after a restart",
         () => scenario.converged(),
       );
-      await pay(d1, d0);
+      await pay(scenario, d2, d1);
       await scenario.until("settled back", () => quiet(scenario));
       assertEquals(
         await owners(scenario),
-        new Map([["d0", DEPOSIT], ["d1", DEPOSIT]]),
+        new Map([["d1", DEPOSIT], ["d2", DEPOSIT]]),
       );
       await assertSettled(scenario);
-      // d0's owner ends the peering: it ends on both sides, each settles
+      // d1's owner ends the peering: it ends on both sides, each settles
       // what it still owes, and they do not peer again at once.
-      await d0.rpc.call("terminatePeering", { node: d1.id });
+      await d1.rpc.call("terminatePeering", { node: d2.id });
       await scenario.until("parted", async () => {
         const peerings = await scenario.peerings();
-        return peerings.get("d0")!.length === 0 &&
-          peerings.get("d1")!.length === 0 && await quiet(scenario);
+        return peerings.get("d1")!.length === 0 &&
+          peerings.get("d2")!.length === 0 && await quiet(scenario);
       });
       const accounts = await peerAccounts(scenario);
-      assertEquals(accounts.get("d0>d1"), CREDIT, "d0 owes nothing");
-      assertEquals(accounts.get("d1>d0"), CREDIT, "d1 owes nothing");
+      assertEquals(accounts.get("d1>d2"), CREDIT, "d1 owes nothing");
+      assertEquals(accounts.get("d2>d1"), CREDIT, "d2 owes nothing");
       await assertSettled(scenario);
       await new Promise((resolve) => setTimeout(resolve, 5_000));
       assertEquals(
         await scenario.peerings(),
-        new Map([["d0", []], ["d1", []]]),
+        new Map([["d1", []], ["d2", []]]),
         "no new peering during the cooldown",
       );
     });
@@ -274,7 +282,7 @@ Deno.test({
           .map((b) => [a, b])
       )[0];
       assert(from && to, "every node is every other's peer");
-      await pay(from, to);
+      await pay(scenario, from, to);
       await scenario.until("settled", () => quiet(scenario));
       const balances = await owners(scenario);
       for (const node of scenario.nodes) {

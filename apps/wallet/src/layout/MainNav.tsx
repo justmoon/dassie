@@ -6,10 +6,10 @@
 
 import type { JSX } from "@solidjs/web";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
-import { useNodeData } from "../shared/node-data.ts";
-import { useClient } from "../shared/rpc.ts";
-import { Link, useRouter } from "../shared/router/Router.tsx";
-import { ThemeToggle } from "./ThemeToggle.tsx";
+import { useNodeData } from "@dassie/ui/node-data";
+import { useClient } from "@dassie/ui/rpc";
+import { Link, useRouter } from "@dassie/ui/router";
+import { ThemeToggle } from "@dassie/ui/theme-toggle";
 
 const DEBUG_PAGES = [
   ["/debug/logs", "Logs"],

@@ -6,3 +6,9 @@ result
 result-*
 # Built by `deno task build:wallet`.
 apps/wallet/dist/
+# Built by the dev environment (`vite build --mode development --watch`).
+apps/*/dist-dev/
+# The dev environment's state (apps/dev): certificates, node data.
+/local/
+# Built by `deno task build:dashboard`.
+apps/dev-dashboard/dist/

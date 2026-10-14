@@ -6,12 +6,12 @@
 import type { JSX } from "@solidjs/web";
 import { createMemo, createSignal, createUniqueId, For, Show } from "solid-js";
 import { submitLogout } from "../../auth.ts";
-import { useTheme } from "../../layout/ThemeToggle.tsx";
+import { useTheme } from "@dassie/ui/theme-toggle";
 import { logoutFailure } from "../../messages.ts";
-import { dateTime } from "../../shared/format.ts";
-import { useNodeData } from "../../shared/node-data.ts";
-import { describe, useClient } from "../../shared/rpc.ts";
-import { useToast } from "../../shared/ui/toast.tsx";
+import { dateTime } from "@dassie/ui/format";
+import { useNodeData } from "@dassie/ui/node-data";
+import { describe, useClient } from "@dassie/ui/rpc";
+import { useToast } from "@dassie/ui/toast";
 import {
   Badge,
   Card,
@@ -19,8 +19,8 @@ import {
   ErrorText,
   Field,
   PageTitle,
-} from "../../shared/ui/ui.tsx";
-import type { ThemeSetting } from "../../theme.ts";
+} from "@dassie/ui/ui";
+import type { ThemeSetting } from "@dassie/ui/theme";
 import { ApiKeys } from "./ApiKeys.tsx";
 
 export function Settings(): JSX.Element {

@@ -5,17 +5,11 @@
 
 import type { JSX } from "@solidjs/web";
 import { createSignal, For, Show } from "solid-js";
-import { relativeTime, shortId } from "../../shared/format.ts";
-import { createLiveValue } from "../../shared/live/live.ts";
-import { describe, useClient } from "../../shared/rpc.ts";
-import { useToast } from "../../shared/ui/toast.tsx";
-import {
-  Badge,
-  Card,
-  ErrorText,
-  LiveNote,
-  PageTitle,
-} from "../../shared/ui/ui.tsx";
+import { relativeTime, shortId } from "@dassie/ui/format";
+import { createLiveValue } from "@dassie/ui/live";
+import { describe, useClient } from "@dassie/ui/rpc";
+import { useToast } from "@dassie/ui/toast";
+import { Badge, Card, ErrorText, LiveNote, PageTitle } from "@dassie/ui/ui";
 
 export function Register(): JSX.Element {
   const client = useClient();

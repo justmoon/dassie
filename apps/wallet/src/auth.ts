@@ -79,6 +79,11 @@ export async function submitLogin(phrase: string): Promise<Outcome> {
   });
 }
 
+/** `POST /api/login` with a proof as hex, for the dev environment's links. */
+export function submitLoginProof(proofHex: string): Promise<Outcome> {
+  return post("/api/login", { loginAuthorizationSignature: proofHex });
+}
+
 /** `POST /api/logout`: ends this browser's session. */
 export function submitLogout(): Promise<Outcome> {
   return post("/api/logout", {});

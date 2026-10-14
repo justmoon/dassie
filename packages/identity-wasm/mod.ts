@@ -15,6 +15,7 @@ export {
   devSessionToken,
   generateMnemonic,
   loginSecret,
+  mnemonicFromEntropy,
   nodeId,
   normalizeMnemonic,
   publicKey,

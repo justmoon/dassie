@@ -16,11 +16,11 @@ import { createSignal, Errored, lazy, Loading, Match, Switch } from "solid-js";
 import { decideScreen, isSetupPath, ownerScreen } from "./gate.ts";
 import { Shell } from "./layout/Shell.tsx";
 import { Onboarding } from "./pages/ledgers/CreateLedger.tsx";
-import { createNodeData, NodeDataContext } from "./shared/node-data.ts";
-import { RpcContext } from "./shared/rpc.ts";
-import { Router } from "./shared/router/Router.tsx";
-import { Toaster } from "./shared/ui/toast.tsx";
-import { PageError } from "./shared/ui/ui.tsx";
+import { createNodeData, NodeDataContext } from "@dassie/ui/node-data";
+import { RpcContext } from "@dassie/ui/rpc";
+import { Router } from "@dassie/ui/router";
+import { Toaster } from "@dassie/ui/toast";
+import { PageError } from "@dassie/ui/ui";
 import { Card, Spinner } from "./ui.tsx";
 
 // The setup and login screens, with the identity WASM, load only when

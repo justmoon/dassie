@@ -1,14 +1,19 @@
 /**
- * The SHA-256 of the contract's files, in name order, each as its name, a
+ * The SHA-256 of a contract's files, in name order, each as its name, a
  * newline, its length, a newline and its bytes, so that moving text between
  * files changes the hash.
  */
 
 import { encodeHex } from "@std/encoding/hex";
 
-const contractDir = new URL("../../../proto/dassie/ui/v1/", import.meta.url);
+/** The contracts generated here, as their directories under `proto/`. */
+export const CONTRACTS = ["dassie/ui/v1", "dassie/dev/v1"] as const;
+export type Contract = typeof CONTRACTS[number];
 
-export async function contractHash(): Promise<string> {
+const protoDir = new URL("../../../proto/", import.meta.url);
+
+export async function contractHash(contract: Contract): Promise<string> {
+  const contractDir = new URL(`${contract}/`, protoDir);
   const names: string[] = [];
   for await (const entry of Deno.readDir(contractDir)) {
     if (entry.isFile && entry.name.endsWith(".proto")) names.push(entry.name);

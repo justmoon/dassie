@@ -1,0 +1,42 @@
+// The package is shared by the wallet and the dev dashboard, so it imports
+// nothing of either: only itself, Solid and the RPC packages.
+
+import { assertEquals } from "@std/assert";
+
+const root = new URL(".", import.meta.url).pathname;
+
+Deno.test("src imports only itself, Solid and the RPC packages", async () => {
+  const allowed = [
+    "solid-js",
+    "@solidjs/web",
+    "@dassie/rpc",
+    "@dassie/rpc/proto",
+  ];
+  const outside: string[] = [];
+  const walk = async (dir: string) => {
+    for await (const entry of Deno.readDir(dir)) {
+      const path = `${dir}/${entry.name}`;
+      if (entry.isDirectory) {
+        await walk(path);
+        continue;
+      }
+      if (!/\.tsx?$/.test(entry.name) || entry.name.includes("_test.")) {
+        continue;
+      }
+      const code = await Deno.readTextFile(path);
+      for (const [, specifier] of code.matchAll(/from "([^"]+)"/g)) {
+        if (allowed.includes(specifier)) continue;
+        if (!specifier.startsWith(".")) {
+          outside.push(`${path}: ${specifier}`);
+          continue;
+        }
+        const target = new URL(specifier, `file://${path}`).pathname;
+        if (!target.startsWith(`${root}src/`)) {
+          outside.push(`${path}: ${specifier}`);
+        }
+      }
+    }
+  };
+  await walk(`${root}src`);
+  assertEquals(outside, []);
+});

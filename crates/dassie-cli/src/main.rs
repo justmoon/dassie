@@ -44,6 +44,8 @@ Commands:
                                                      passed them, else bind)
                       --http-port <port>             standalone: this port
                       --https-port <port>            instead of the configured
+                      --listen <address>             standalone: only this
+                                                     address (default: all)
   init              Configure the node: hostname and TLS certificate.
                       --hostname <name>      the node's public DNS name
                       --email <address>      contact for the ACME account
@@ -120,6 +122,9 @@ fn daemon_args(parser: &mut lexopt::Parser) -> Result<DaemonOptions, lexopt::Err
             }
             Long("http-port") => http = Some(parser.value()?.parse::<u32>()?),
             Long("https-port") => https = Some(parser.value()?.parse::<u32>()?),
+            Long("listen") => {
+                options.listen = Some(parser.value()?.parse::<std::net::IpAddr>()?);
+            }
             other => return Err(other.unexpected()),
         }
     }

@@ -15,6 +15,8 @@ import type { SocketLike } from "./mod.ts";
 
 /** The contract's limit on a message. */
 const MAX_MESSAGE_BYTES = 1024 * 1024;
+/** What may wait to be written before the node is taken to be stuck. */
+const MAX_QUEUED_BYTES = 8 * 1024 * 1024;
 
 const CONNECTING = 0;
 const OPEN = 1;
@@ -34,6 +36,7 @@ class IpcSocket implements SocketLike {
   onerror: ((event: Event) => void) | null = null;
   #connection: Deno.UnixConn | undefined;
   #writes: Promise<void> = Promise.resolve();
+  #queued = 0;
 
   constructor(path: string) {
     Deno.connect({ transport: "unix", path }).then(
@@ -57,11 +60,20 @@ class IpcSocket implements SocketLike {
   send(data: Uint8Array): void {
     const connection = this.#connection;
     if (this.readyState !== OPEN || !connection) return;
+    if (this.#queued + 4 + data.length > MAX_QUEUED_BYTES) {
+      // The node does not read: give up rather than buffer without end.
+      this.close(1006);
+      return;
+    }
     const frame = new Uint8Array(4 + data.length);
     new DataView(frame.buffer).setUint32(0, data.length);
     frame.set(data, 4);
+    this.#queued += frame.length;
     this.#writes = this.#writes
       .then(() => writeAll(connection, frame))
+      .then(() => {
+        this.#queued -= frame.length;
+      })
       .catch(() => this.close());
   }
 

@@ -7,7 +7,7 @@ import {
   type LedgerRemovalBlocker,
   LedgerRemovalBlocker_Kind as Kind,
 } from "@dassie/rpc/proto";
-import type { CheckItem } from "../../shared/ui/ui.tsx";
+import type { CheckItem } from "@dassie/ui/ui";
 
 /** What the owner types to confirm, e.g. `DELETE STUB`. */
 export function expectedConfirmation(scheme: string): string {

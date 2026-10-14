@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { currencyOf } from "../../shared/amount/currency.ts";
+import { currencyOf } from "@dassie/ui/currency";
 import { formatCap, usedShare, windowLabel } from "./caps.ts";
 
 const usd = currencyOf("USD", 9);

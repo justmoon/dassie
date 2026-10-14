@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::future::Future;
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -61,6 +61,9 @@ impl tower_service::Service<Name> for GuardedResolver {
     fn call(&mut self, name: Name) -> Self::Future {
         let allow_private = self.allow_private;
         Box::pin(async move {
+            if allow_private && is_localhost(name.as_str()) {
+                return Ok(vec![SocketAddr::from((Ipv4Addr::LOCALHOST, 0))].into_iter());
+            }
             let found = tokio::net::lookup_host((name.as_str(), 0)).await?;
             let allowed: Vec<SocketAddr> = found
                 .filter(|address| allow_private || is_public(address.ip()))
@@ -247,6 +250,19 @@ impl PeerClient {
     }
 }
 
+/// Whether `name` is `localhost` or a name under it, which always means
+/// this machine (RFC 6761 §6.3): the dev environment's `dN.localhost`,
+/// whatever the system's resolver makes of them.
+fn is_localhost(name: &str) -> bool {
+    let name = name.strip_suffix('.').unwrap_or(name);
+    name.eq_ignore_ascii_case("localhost")
+        || name
+            .len()
+            .checked_sub(".localhost".len())
+            .and_then(|start| name.get(start..))
+            .is_some_and(|tail| tail.eq_ignore_ascii_case(".localhost"))
+}
+
 /// Whether a URL's host is an IP literal that is not public. Names are
 /// checked when resolved; literals never are.
 fn literal_is_private(host: &str) -> bool {
@@ -271,6 +287,8 @@ fn literal_is_private(host: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
+
     use super::*;
 
     #[test]
@@ -281,5 +299,32 @@ mod tests {
         assert!(!literal_is_private("1.1.1.1:443"));
         assert!(!literal_is_private("example.com:443"));
         assert!(!literal_is_private("localhost"));
+    }
+
+    #[test]
+    fn localhost_names_are_this_machine() {
+        assert!(is_localhost("localhost"));
+        assert!(is_localhost("d1.localhost"));
+        assert!(is_localhost("D12.LocalHost."));
+        assert!(!is_localhost("notlocalhost"));
+        assert!(!is_localhost("localhost.example.com"));
+        assert!(!is_localhost(".localhostx"));
+        assert!(!is_localhost(""));
+    }
+
+    #[tokio::test]
+    async fn localhost_resolves_to_loopback_only_when_private_is_allowed() {
+        use tower_service::Service as _;
+        let name: Name = "d7.localhost".parse().unwrap();
+        let mut allowed = GuardedResolver {
+            allow_private: true,
+        };
+        let found: Vec<SocketAddr> = allowed.call(name.clone()).await.unwrap().collect();
+        assert_eq!(found, [SocketAddr::from((Ipv4Addr::LOCALHOST, 0))]);
+        // Without it, loopback is refused like any private address.
+        let mut guarded = GuardedResolver {
+            allow_private: false,
+        };
+        assert!(guarded.call(name).await.is_err());
     }
 }

@@ -7,31 +7,21 @@
 import type { JSX } from "@solidjs/web";
 import { type NetworkNode, PeerState } from "@dassie/rpc/proto";
 import { createMemo, For, Show } from "solid-js";
-import { Amount, ledgerCurrency } from "../../shared/amount/Amount.tsx";
-import { currencyOf } from "../../shared/amount/currency.ts";
-import { dateTime, shortId } from "../../shared/format.ts";
-import { createLiveValue } from "../../shared/live/live.ts";
-import { NetworkGraph } from "../../shared/network/NetworkGraph.tsx";
+import { Amount, ledgerCurrency } from "@dassie/ui/amount";
+import { currencyOf } from "@dassie/ui/currency";
+import { dateTime, shortId } from "@dassie/ui/format";
+import { createLiveValue } from "@dassie/ui/live";
+import { NetworkGraph } from "@dassie/ui/network";
 import {
   graphLinks,
   groupNodes,
   peerStateName,
-} from "../../shared/network/nodes.ts";
-import { useNodeData } from "../../shared/node-data.ts";
-import { describe, useClient } from "../../shared/rpc.ts";
-import {
-  Link,
-  type RouteProps,
-  useRouter,
-} from "../../shared/router/Router.tsx";
-import { useToast } from "../../shared/ui/toast.tsx";
-import {
-  Badge,
-  Card,
-  ConfirmButton,
-  LiveNote,
-  PageTitle,
-} from "../../shared/ui/ui.tsx";
+} from "@dassie/ui/network/nodes";
+import { useNodeData } from "@dassie/ui/node-data";
+import { describe, useClient } from "@dassie/ui/rpc";
+import { Link, type RouteProps, useRouter } from "@dassie/ui/router";
+import { useToast } from "@dassie/ui/toast";
+import { Badge, Card, ConfirmButton, LiveNote, PageTitle } from "@dassie/ui/ui";
 
 export function Network(props: RouteProps): JSX.Element {
   const data = useNodeData();

@@ -4,7 +4,8 @@
   "exports": {
     ".": "./mod.ts",
     "./ipc": "./ipc.ts",
-    "./proto": "./proto.ts"
+    "./proto": "./proto.ts",
+    "./dev": "./dev.ts"
   },
   "imports": {
     "@bufbuild/protobuf": "npm:@bufbuild/protobuf@^2.16.0",
