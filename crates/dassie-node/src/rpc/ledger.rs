@@ -75,18 +75,7 @@ async fn dispatch_more(
                 token: Some(token(&view)),
             })
         }
-        Method::CreateBtpToken(request) => {
-            let cap = request.cap.as_ref().map(cap);
-            let created = engine
-                .create_token(request.label, request.ledger, cap)
-                .await?;
-            let url = btp_url(node, &created.secret);
-            response::Method::CreateBtpToken(proto::CreateBtpTokenResponse {
-                token: Some(token(&created.view)),
-                secret: created.secret,
-                url,
-            })
-        }
+        Method::CreateBtpToken(request) => create_token(node, engine, request).await?,
         Method::ListBtpTokens(_) => response::Method::ListBtpTokens(proto::ListBtpTokensResponse {
             tokens: engine.tokens().await?.iter().map(token).collect(),
         }),
@@ -135,10 +124,22 @@ async fn dispatch_more(
 async fn subscribe_packets(engine: &Engine, items: &Items) -> Result<Reply, RpcError> {
     let mut events = engine.subscribe_packets()?;
     let mut lost = 0u64;
+    // An empty `lagged` says the stream is live, at once and then at least
+    // every minute (spec 7 §4.6).
+    let alive = || {
+        stream_item::Method::SubscribePackets(proto::PacketEvent {
+            event: Some(proto::packet_event::Event::Lagged(0)),
+        })
+    };
+    items.send_wait(alive()).await?;
     loop {
         let event = tokio::select! {
             () = engine.generation().cancelled() => {
                 return Err(RpcError::unavailable(EngineError::Unavailable));
+            }
+            () = tokio::time::sleep(KEEPALIVE) => {
+                items.try_send(alive());
+                continue;
             }
             event = events.recv() => event,
         };
@@ -168,6 +169,25 @@ async fn subscribe_packets(engine: &Engine, items: &Items) -> Result<Reply, RpcE
             lost += 1;
         }
     }
+}
+
+async fn create_token(
+    node: &Node,
+    engine: &Engine,
+    request: proto::CreateBtpTokenRequest,
+) -> Result<response::Method, RpcError> {
+    let cap = request.cap.as_ref().map(cap);
+    let created = engine
+        .create_token(request.label, request.ledger, cap)
+        .await?;
+    let url = btp_url(node, &created.secret);
+    Ok(response::Method::CreateBtpToken(
+        proto::CreateBtpTokenResponse {
+            token: Some(token(&created.view)),
+            secret: created.secret,
+            url,
+        },
+    ))
 }
 
 /// A place for one more live stream on the node.

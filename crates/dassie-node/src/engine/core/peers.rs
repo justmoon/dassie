@@ -381,6 +381,7 @@ impl Core {
                     EngineError::Precondition("a registration with it is on its way".into())
                 }
             })?;
+        self.changes.network = true;
         self.after_peer();
         Ok(())
     }

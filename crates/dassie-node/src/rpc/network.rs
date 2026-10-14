@@ -89,8 +89,18 @@ pub async fn dispatch(
 /// The methods that only read the network.
 fn view(view: &NetworkView, method: Method) -> response::Method {
     match method {
+        // A table of 1024 nodes with their neighbors could pass the message
+        // limit; SubscribeNodes splits it, a unary answer cannot.
         Method::ListNodes(_) => response::Method::ListNodes(proto::ListNodesResponse {
-            nodes: node_table(view).into_values().collect(),
+            nodes: view
+                .nodes
+                .iter()
+                .map(|entry| proto::NetworkNode {
+                    neighbors: Vec::new(),
+                    settlement_schemes: Vec::new(),
+                    ..node(entry)
+                })
+                .collect(),
         }),
         Method::ListPeers(_) => response::Method::ListPeers(proto::ListPeersResponse {
             peers: view.peers.iter().map(peer).collect(),

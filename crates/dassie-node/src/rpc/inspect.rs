@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 
+use prost::Message;
 use tokio::time::Instant;
 
 use super::handlers::{Items, Reply};
@@ -17,6 +18,9 @@ use crate::supervisor::{ServiceState, ServiceStatus};
 
 /// Lines in one item of the log stream.
 const LOG_CHUNK: usize = 200;
+
+/// Bytes of lines in one item, well below the message limit.
+const LOG_CHUNK_BYTES: usize = 256 * 1024;
 
 /// Answers the inspector's methods; hands the others back.
 pub async fn dispatch(
@@ -52,13 +56,14 @@ async fn subscribe_logs(node: &Arc<Node>, items: &Items) -> Result<Reply, RpcErr
             if lines.is_empty() && skipped == 0 && !reset && !keepalive {
                 break;
             }
-            let full = lines.len() == LOG_CHUNK;
+            let lines = within_bytes(lines.iter().map(log_line));
             if let Some(last) = lines.last() {
                 after = last.index;
             }
+            let more = !lines.is_empty() && after < ring.latest();
             let event = proto::LogEvent {
                 reset,
-                lines: lines.iter().map(log_line).collect(),
+                lines,
                 skipped,
             };
             items
@@ -66,7 +71,7 @@ async fn subscribe_logs(node: &Arc<Node>, items: &Items) -> Result<Reply, RpcErr
                 .await?;
             sent_at = Instant::now();
             reset = false;
-            if !full {
+            if !more {
                 break;
             }
         }
@@ -74,6 +79,20 @@ async fn subscribe_logs(node: &Arc<Node>, items: &Items) -> Result<Reply, RpcErr
         // A line, or the keepalive.
         let _ = tokio::time::timeout(KEEPALIVE, latest.changed()).await;
     }
+}
+
+/// As many lines as fit in an item; at least one.
+fn within_bytes(lines: impl Iterator<Item = proto::LogLine>) -> Vec<proto::LogLine> {
+    let mut kept = Vec::new();
+    let mut bytes = 0;
+    for line in lines {
+        bytes += line.encoded_len();
+        if bytes > LOG_CHUNK_BYTES && !kept.is_empty() {
+            break;
+        }
+        kept.push(line);
+    }
+    kept
 }
 
 fn log_line(line: &LogLine) -> proto::LogLine {

@@ -356,67 +356,68 @@ fn start_services(
         Arc::new(listeners.1),
         Arc::new(listeners.2),
     );
-    let (node_, shutdown_) = (Arc::clone(node), shutdown.clone());
-    supervisor::spawn(
-        services,
-        node.services(),
+    let spawn = |name, service| supervise(node, services, shutdown, name, service);
+    spawn(
         "http",
-        shutdown.clone(),
-        move || {
-            http::serve(
-                Arc::clone(&node_),
-                Arc::clone(&http),
-                None,
-                shutdown_.clone(),
-            )
-        },
+        Box::new(move |node, shutdown| {
+            Box::pin(http::serve(node, Arc::clone(&http), None, shutdown))
+        }),
     );
-    let (node_, shutdown_) = (Arc::clone(node), shutdown.clone());
-    supervisor::spawn(
-        services,
-        node.services(),
+    spawn(
         "https",
-        shutdown.clone(),
-        move || {
-            http::serve(
-                Arc::clone(&node_),
+        Box::new(move |node, shutdown| {
+            Box::pin(http::serve(
+                node,
                 Arc::clone(&https),
                 Some(Arc::clone(&tls)),
-                shutdown_.clone(),
-            )
-        },
+                shutdown,
+            ))
+        }),
     );
-    let (node_, shutdown_) = (Arc::clone(node), shutdown.clone());
-    supervisor::spawn(
-        services,
-        node.services(),
+    spawn(
         "ipc",
-        shutdown.clone(),
-        move || ipc::serve(Arc::clone(&node_), Arc::clone(&ipc), shutdown_.clone()),
+        Box::new(move |node, shutdown| Box::pin(ipc::serve(node, Arc::clone(&ipc), shutdown))),
     );
-    let (node_, shutdown_) = (Arc::clone(node), shutdown.clone());
-    supervisor::spawn(
-        services,
-        node.services(),
+    spawn(
         "acme",
-        shutdown.clone(),
-        move || Arc::clone(&node_).run_renewal(shutdown_.clone()),
+        Box::new(|node, shutdown| Box::pin(node.run_renewal(shutdown))),
     );
-    let (node_, shutdown_) = (Arc::clone(node), shutdown.clone());
-    supervisor::spawn(
-        services,
-        node.services(),
+    spawn(
         "sessions",
-        shutdown.clone(),
-        move || prune_sessions(Arc::clone(&node_), shutdown_.clone()),
+        Box::new(|node, shutdown| Box::pin(prune_sessions(node, shutdown))),
     );
+    spawn(
+        "engine",
+        Box::new(|node, shutdown| Box::pin(crate::engine::run(node, shutdown))),
+    );
+}
+
+/// A service: started again, with the node and the shutdown token, after
+/// it stops.
+type Service = Box<
+    dyn Fn(
+            Arc<Node>,
+            CancellationToken,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+        + Send
+        + Sync,
+>;
+
+/// Runs `service` under the supervisor, as `name`.
+fn supervise(
+    node: &Arc<Node>,
+    services: &TaskTracker,
+    shutdown: &CancellationToken,
+    name: &'static str,
+    service: Service,
+) {
     let (node_, shutdown_) = (Arc::clone(node), shutdown.clone());
     supervisor::spawn(
         services,
         node.services(),
-        "engine",
+        name,
         shutdown.clone(),
-        move || crate::engine::run(Arc::clone(&node_), shutdown_.clone()),
+        move || service(Arc::clone(&node_), shutdown_.clone()),
     );
 }
 
@@ -440,7 +441,8 @@ fn report_ready(node: &Node, notifier: Option<&Notifier>) {
     let (http_port, https_port) = node.ports();
     tracing::info!(target: target::DAEMON, version = crate::VERSION, runtime = ?node.runtime(), http_port, https_port, "listening");
     if let Some(url) = node.setup_url() {
-        tracing::warn!(target: target::DAEMON, "Node identity is not configured, visit {url}");
+        // A field, so that the log ring of the debug pages redacts it.
+        tracing::warn!(target: target::DAEMON, setup_url = %url, "Node identity is not configured; visit the setup URL");
     }
     if let Some(notifier) = notifier
         && let Err(error) = notifier.notify("READY=1")

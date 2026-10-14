@@ -280,3 +280,71 @@ proptest! {
         prop_assert_eq!(view.usage, expected.refilled(CAP, now));
     }
 }
+
+/// A step of a run in which the owner also changes the cap.
+#[derive(Clone, Debug)]
+enum Change {
+    Pay(u64),
+    Resolve(bool),
+    Wait(u64),
+    /// The cap becomes this much per 10 s.
+    Set(u64),
+    /// The cap is lifted.
+    Lift,
+}
+
+fn change() -> impl Strategy<Value = Change> {
+    prop_oneof![
+        4 => (1..=1_200u64).prop_map(Change::Pay),
+        4 => any::<bool>().prop_map(Change::Resolve),
+        2 => (0..=4_000u64).prop_map(Change::Wait),
+        1 => (1..=2_000u64).prop_map(Change::Set),
+        1 => Just(Change::Lift),
+    ]
+}
+
+proptest! {
+    // Changing, lifting and setting the cap again while packets are in
+    // flight keeps the connector's invariants: every cap holds exactly
+    // what its packets in flight charge, and stays within itself unless
+    // it was lowered under them.
+    #[test]
+    fn caps_change_safely_with_packets_in_flight(steps in prop::collection::vec(change(), 1..200)) {
+        let (mut h, alice) = harness();
+        let mut now = NOW;
+        let mut in_flight: Vec<Forwarded> = Vec::new();
+        let mut request_id = 0;
+        for step in steps {
+            request_id += 1;
+            match step {
+                Change::Pay(amount) => {
+                    if let Ok(sent) = to_peer(&mut h, now, request_id, amount) {
+                        in_flight.push(sent);
+                    }
+                }
+                Change::Resolve(fulfill_it) => {
+                    if in_flight.is_empty() {
+                        continue;
+                    }
+                    let sent = in_flight.remove(0);
+                    let response = if fulfill_it {
+                        fulfill([7; 32])
+                    } else {
+                        reject(ErrorCode::T00_INTERNAL_ERROR)
+                    };
+                    h.respond(now, sent.to, sent.request_id, &response);
+                }
+                Change::Wait(ms) => now += ms,
+                Change::Set(amount) => {
+                    let cap = SpendingCap { amount, window_ms: 10_000 };
+                    h.connector.set_cap(now, alice, Some(cap)).unwrap();
+                    h.check();
+                }
+                Change::Lift => {
+                    h.connector.set_cap(now, alice, None).unwrap();
+                    h.check();
+                }
+            }
+        }
+    }
+}

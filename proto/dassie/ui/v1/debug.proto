@@ -127,6 +127,8 @@ message PacketEvent {
     // A packet as it is now.
     Packet packet = 1;
     // This many events were dropped because the subscriber fell behind.
+    // The first item, and one at least every minute, has 0: the stream is
+    // live.
     uint64 lagged = 2;
   }
 }

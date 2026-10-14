@@ -340,3 +340,60 @@ async fn stats_name_the_node_once_set_up() {
     assert_eq!(stats["node"]["id"], key().node_id().as_str());
     assert_eq!(stats["peers"], serde_json::json!([]));
 }
+
+/// Waits for the first item, or an error, of each of `calls`; returns the
+/// calls that got an error, with its code.
+async fn first_answers(client: &mut Owner, calls: &[u32]) -> Vec<(u32, proto::ErrorCode)> {
+    let mut waiting: std::collections::BTreeSet<u32> = calls.iter().copied().collect();
+    let mut refused = Vec::new();
+    while !waiting.is_empty() {
+        let message = next(client).await;
+        if !waiting.remove(&message.call_id) {
+            continue;
+        }
+        if let Some(server_message::Kind::Error(error)) = message.kind {
+            refused.push((message.call_id, error.code()));
+        }
+    }
+    refused
+}
+
+// A cancelled stream frees its place on the connection and on the node;
+// the node serves 64 streams in all.
+#[tokio::test]
+async fn streams_free_their_places_and_the_node_holds_64() {
+    let node = TestNode::start().await;
+    let logs = || Method::SubscribeLogs(proto::SubscribeLogsRequest {});
+    let mut first = node.ipc().await;
+    for call_id in 1..=12 {
+        subscribe(&mut first, call_id, logs()).await;
+    }
+    let calls: Vec<u32> = (1..=12).collect();
+    assert_eq!(first_answers(&mut first, &calls).await, []);
+    first
+        .send_raw(proto::ClientMessage {
+            call_id: 1,
+            kind: Some(client_message::Kind::Cancel(proto::Cancel {})),
+        })
+        .await;
+    subscribe(&mut first, 13, logs()).await;
+    assert_eq!(first_answers(&mut first, &[13]).await, []);
+    // 12 open here; five more connections ask for 60, of which 52 fit.
+    let mut others = Vec::new();
+    let mut refused = 0;
+    for _ in 0..5 {
+        let mut client = node.ipc().await;
+        for call_id in 1..=12 {
+            subscribe(&mut client, call_id, logs()).await;
+        }
+        let answers = first_answers(&mut client, &calls).await;
+        assert!(
+            answers
+                .iter()
+                .all(|(_, code)| *code == proto::ErrorCode::ResourceExhausted)
+        );
+        refused += answers.len();
+        others.push(client);
+    }
+    assert_eq!(refused, 60 - 52);
+}

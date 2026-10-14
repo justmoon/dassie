@@ -201,7 +201,8 @@ export const ListNodesRequestSchema: GenMessage<ListNodesRequest> = /*@__PURE__*
  */
 export type ListNodesResponse = Message<"dassie.ui.v1.ListNodesResponse"> & {
   /**
-   * By ID.
+   * By ID; without their neighbors, settlement schemes and peering, which
+   * could pass the message limit: SubscribeNodes has them.
    *
    * @generated from field: repeated dassie.ui.v1.NetworkNode nodes = 1;
    */

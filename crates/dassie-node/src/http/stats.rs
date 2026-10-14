@@ -3,10 +3,9 @@
 //! As in the original it needs no authentication: it shows the version,
 //! the node and its peers. Only the peers the node advertises are listed,
 //! which its signed link state publishes anyway. The answer is kept for a
-//! few seconds, so that unauthenticated requests cannot queue work for the
+//! few seconds, and made by one request at a time while the others wait
+//! for it, so unauthenticated requests queue at most one call to the
 //! engine.
-
-use std::sync::{Mutex, PoisonError};
 
 use dassie_stream::base64url;
 use hyper::StatusCode;
@@ -19,9 +18,10 @@ use crate::node::Node;
 /// How long an answer is kept.
 const CACHE_MS: u64 = 5_000;
 
-/// The last answer, and when it was made.
+/// The last answer, and when it was made. The lock is held while a new
+/// answer is made.
 #[derive(Default)]
-pub struct StatsCache(Mutex<Option<(u64, String)>>);
+pub struct StatsCache(tokio::sync::Mutex<Option<(u64, String)>>);
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -59,12 +59,9 @@ pub async fn serve(node: &Node) -> hyper::Response<Body> {
     let Some(key) = node.node_key() else {
         return response::not_found();
     };
+    let mut cache = node.stats_cache().0.lock().await;
     let now = node.now_ms();
-    let cached = node
-        .stats_cache()
-        .0
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
+    let cached = cache
         .clone()
         .filter(|(at, _)| now.saturating_sub(*at) < CACHE_MS);
     let body = match cached {
@@ -96,14 +93,11 @@ pub async fn serve(node: &Node) -> hyper::Response<Body> {
                     .collect(),
             };
             let body = serde_json::to_string(&stats).unwrap_or_default();
-            *node
-                .stats_cache()
-                .0
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner) = Some((now, body.clone()));
+            *cache = Some((now, body.clone()));
             body
         }
     };
+    drop(cache);
     let mut response = response::with_body(StatusCode::OK, "application/json", body);
     response
         .headers_mut()

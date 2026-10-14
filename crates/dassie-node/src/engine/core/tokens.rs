@@ -129,37 +129,8 @@ impl Core {
         ledger: &str,
         cap: Option<SpendingCap>,
     ) -> Result<NewToken, EngineError> {
-        if cap.is_some_and(|cap| !cap.is_valid()) {
-            return Err(invalid_cap());
-        }
-        if label.len() > MAX_LABEL_BYTES {
-            return Err(EngineError::Invalid(
-                "the label is longer than 64 bytes".into(),
-            ));
-        }
-        let ledger =
-            LedgerId::parse(ledger).ok_or_else(|| EngineError::Invalid("unknown ledger".into()))?;
-        if !self
-            .schemes
-            .values()
-            .any(|active| active.scheme.ledger() == ledger)
-        {
-            return Err(EngineError::Precondition(
-                "no active scheme serves that ledger".into(),
-            ));
-        }
-        if self.by_hash.len() >= MAX_TOKENS {
-            return Err(EngineError::Exhausted("there are 64 tokens already".into()));
-        }
-        if self.tokens.len() >= MAX_TOKEN_ROWS {
-            return Err(EngineError::Exhausted("1024 tokens have been made".into()));
-        }
-        let mut random = [0u8; TOKEN_BYTES];
-        self.rng.fill_bytes(&mut random);
-        let mut encoded = [0u8; dassie_stream::base64url::encoded_len(TOKEN_BYTES)];
-        let length = dassie_stream::base64url::encode(&random, &mut encoded);
-        let secret =
-            String::from_utf8_lossy(encoded.get(..length).unwrap_or_default()).into_owned();
+        let ledger = self.check_new_token(&label, ledger, cap)?;
+        let secret = self.new_secret();
         let id = self.tokens.keys().next_back().map_or(1, |last| last + 1);
         let row = BtpTokenRow {
             id,
@@ -196,6 +167,50 @@ impl Core {
             .ok_or_else(|| EngineError::Internal("token".into()))?;
         tracing::info!(target: target::BTP, id, "BTP token created");
         Ok(NewToken { view, secret })
+    }
+
+    /// The ledger of a token that may be made with `label` and `cap`.
+    fn check_new_token(
+        &self,
+        label: &str,
+        ledger: &str,
+        cap: Option<SpendingCap>,
+    ) -> Result<LedgerId, EngineError> {
+        if cap.is_some_and(|cap| !cap.is_valid()) {
+            return Err(invalid_cap());
+        }
+        if label.len() > MAX_LABEL_BYTES {
+            return Err(EngineError::Invalid(
+                "the label is longer than 64 bytes".into(),
+            ));
+        }
+        let ledger =
+            LedgerId::parse(ledger).ok_or_else(|| EngineError::Invalid("unknown ledger".into()))?;
+        if !self
+            .schemes
+            .values()
+            .any(|active| active.scheme.ledger() == ledger)
+        {
+            return Err(EngineError::Precondition(
+                "no active scheme serves that ledger".into(),
+            ));
+        }
+        if self.by_hash.len() >= MAX_TOKENS {
+            return Err(EngineError::Exhausted("there are 64 tokens already".into()));
+        }
+        if self.tokens.len() >= MAX_TOKEN_ROWS {
+            return Err(EngineError::Exhausted("1024 tokens have been made".into()));
+        }
+        Ok(ledger)
+    }
+
+    /// A new token's secret: 22 base64url characters.
+    fn new_secret(&mut self) -> String {
+        let mut random = [0u8; TOKEN_BYTES];
+        self.rng.fill_bytes(&mut random);
+        let mut encoded = [0u8; dassie_stream::base64url::encoded_len(TOKEN_BYTES)];
+        let length = dassie_stream::base64url::encode(&random, &mut encoded);
+        String::from_utf8_lossy(encoded.get(..length).unwrap_or_default()).into_owned()
     }
 
     /// Revokes a BTP token, and closes its connections.

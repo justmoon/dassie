@@ -61,7 +61,8 @@ message NodeTableEvent {
 message ListNodesRequest {}
 
 message ListNodesResponse {
-  // By ID.
+  // By ID; without their neighbors, settlement schemes and peering, which
+  // could pass the message limit: SubscribeNodes has them.
   repeated NetworkNode nodes = 1;
 }
 

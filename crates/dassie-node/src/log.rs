@@ -306,6 +306,11 @@ impl LogRing {
         (lines, skipped)
     }
 
+    /// The number of the newest line.
+    pub fn latest(&self) -> u64 {
+        *self.latest.borrow()
+    }
+
     /// The number of the newest line, as it changes.
     #[must_use]
     pub fn subscribe(&self) -> watch::Receiver<u64> {
@@ -368,7 +373,7 @@ struct LineVisitor {
 fn is_secret(name: &str) -> bool {
     matches!(
         name,
-        "secret" | "token" | "password" | "cookie" | "private_key" | "credentials"
+        "secret" | "token" | "password" | "cookie" | "private_key" | "credentials" | "setup_url"
     ) || name.ends_with("_secret")
         || name.ends_with("_token")
 }

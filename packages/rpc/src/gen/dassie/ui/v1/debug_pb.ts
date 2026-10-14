@@ -429,6 +429,8 @@ export type PacketEvent = Message<"dassie.ui.v1.PacketEvent"> & {
   } | {
     /**
      * This many events were dropped because the subscriber fell behind.
+     * The first item, and one at least every minute, has 0: the stream is
+     * live.
      *
      * @generated from field: uint64 lagged = 2;
      */

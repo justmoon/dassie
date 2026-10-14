@@ -243,7 +243,7 @@ Mainnet stays disabled until the [D8](08-decisions.md#d8-real-money) criteria ar
   - Every way a session ends (logout, revocation, expiry, eviction for a newer one) closes its sockets with code 4001, after the calls already answered have their answers.
 - **Live streams** (`Subscribe*`) carry either the whole value each time, or a snapshot followed by upserts and removals by key.
   - The first item of a stream, and of every snapshot split over several items, has `reset` set.
-  - The node publishes only state that is on disk. It sends at most 4 items a second, coalescing changes in between, so a slow client never falls behind; it sends an item at least every 60 s, so a client can tell a quiet stream from a dead one.
+  - The node publishes a change only once the step that made it is on disk. It sends at most 4 items a second, coalescing changes in between, so a slow client never falls behind; it sends an item at least every 60 s, so a client can tell a quiet stream from a dead one.
   - A stream ends with `UNAVAILABLE` when the node's engine restarts, and the client subscribes again.
 - **The browser client** gives every call a timeout (RT-27), and lets a caller cancel a call or stream.
 
