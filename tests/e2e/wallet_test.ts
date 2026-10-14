@@ -1,8 +1,8 @@
 // Milestone M5a's done criterion (spec 7 §8): every page of the wallet
-// (spec 6 §1.6, but Send and payment status, which come with M6) works
-// against real nodes. A `two-nodes` scenario runs, and a headless browser
-// signed in to `d1` goes through the pages; live data must arrive without a
-// reload. `DASSIE_E2E_WALLET_DIR` serves a wallet build other than the one
+// (spec 6 §1.6) works against real nodes, and M6's: two nodes pay each
+// other through Open Payments, from the wallet's Send. A `two-nodes`
+// scenario runs, and a headless browser signed in to `d1` goes through the
+// pages; live data must arrive without a reload. `DASSIE_E2E_WALLET_DIR` serves a wallet build other than the one
 // embedded in the binary, for working on the wallet, and
 // `DASSIE_E2E_SCREENSHOTS` names a directory for a picture of each step.
 
@@ -169,6 +169,117 @@ Deno.test({
           await picture(page, "02-activity");
         },
       );
+
+      await t.step(
+        "send: to d2's payment pointer, and its status",
+        async () => {
+          const balance = async (node: ScenarioNode) =>
+            (await node.rpc.call("listLedgers", {})).ledgers[0].ownerBalance;
+          const [before1, before2] = [await balance(d1), await balance(d2)];
+          await visit(page, d1, "/");
+          await click(page, "send-button");
+          const pointer = `$${d2.hostname}:${d2.httpsPort}`;
+          await type(page, "send-recipient", pointer);
+          await until(
+            page,
+            "d2's wallet address is found",
+            () => text(page, "send-recipient-name"),
+            (name) => name.includes(pointer),
+          );
+          await click(page, "send-continue");
+          await type(page, "send-amount", "1.5");
+          await type(page, "send-note", "e2e send");
+          await click(page, "send-review");
+          assertEquals(
+            await attribute(page, "send-debit", "data-value"),
+            "1500000000",
+          );
+          assertEquals(
+            await attribute(page, "send-receive", "data-value"),
+            "1500000000",
+          );
+          await picture(page, "03-send-review");
+          await click(page, "send-confirm");
+          await until(
+            page,
+            "the payment completes",
+            () => attribute(page, "payment", "data-state"),
+            (state) => state === "completed",
+          );
+          assertEquals(
+            await attribute(page, "payment-sent", "data-value"),
+            "1500000000",
+          );
+          assertEquals(await text(page, "payment-recipient"), pointer);
+          await picture(page, "03-payment");
+          // d2 has it, with the note; the money moved.
+          const { payments } = await d2.rpc.call("listIncomingPayments", {});
+          const received = payments.find((payment) =>
+            payment.metadataJson.includes("e2e send")
+          );
+          assertEquals(received?.receivedAmount, 1_500_000_000n);
+          assertEquals(await balance(d1), before1 - 1_500_000_000n);
+          await scenario.until(
+            "d2's balance moves",
+            async () => (await balance(d2)) === before2 + 1_500_000_000n,
+          );
+          // Activity leads back to it.
+          const id = await page.evaluate(() =>
+            location.pathname.split("/").at(-1)
+          );
+          await click(page, "payment-activity");
+          await until(
+            page,
+            "the payment is listed",
+            () => attribute(page, `outgoing-${id}`, "data-state"),
+            (state) => state === "completed",
+          );
+          await click(page, "outgoing-link");
+          await until(
+            page,
+            "its page again",
+            () => attribute(page, "payment", "data-state"),
+            (state) => state === "completed",
+          );
+        },
+      );
+
+      await t.step("send: pay d2's payment request", async () => {
+        const { payment } = await d2.rpc.call("createIncomingPayment", {
+          incomingAmount: 250_000_000n,
+          description: "e2e invoice",
+        });
+        assert(payment);
+        await visit(page, d1, `/send?to=${encodeURIComponent(payment.url)}`);
+        await until(
+          page,
+          "the request is read",
+          () => text(page, "send-request"),
+          (request) => request.includes("e2e invoice"),
+        );
+        await click(page, "send-continue");
+        assertEquals(
+          await page.evaluate(() =>
+            (document.querySelector(
+              '[data-testid="send-amount"]',
+            ) as HTMLInputElement).value
+          ),
+          "0.25",
+        );
+        await click(page, "send-review");
+        await click(page, "send-confirm");
+        await until(
+          page,
+          "the request is paid",
+          () => attribute(page, "payment", "data-state"),
+          (state) => state === "completed",
+        );
+        const { payments } = await d2.rpc.call("listIncomingPayments", {});
+        assertEquals(
+          payments.find((entry) => entry.id === payment.id)?.receivedAmount,
+          250_000_000n,
+        );
+      });
 
       await t.step("ledgers: a peered ledger cannot be removed", async () => {
         await visit(page, d1, "/ledgers");

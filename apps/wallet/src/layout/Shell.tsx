@@ -1,7 +1,7 @@
 /**
  * The wallet's frame: the navigation, a notice while the connection is
- * down, and the page (spec 6 §1.5's routes, and the consent and connected
- * apps pages of D9; Send and payment status come with M6c).
+ * down, and the page (spec 6 §1.5's routes, and the Send, payment status,
+ * consent and connected apps pages of D9).
  */
 
 import type { JSX } from "@solidjs/web";
@@ -35,6 +35,13 @@ const Settings = lazy(() => import("../pages/settings/Settings.tsx"), {
 const Activity = lazy(() => import("../pages/payments/Activity.tsx"), {
   export: "Activity",
 });
+const Send = lazy(() => import("../pages/payments/Send.tsx"), {
+  export: "Send",
+});
+const PaymentStatus = lazy(
+  () => import("../pages/payments/PaymentStatus.tsx"),
+  { export: "PaymentStatus" },
+);
 const Consent = lazy(() => import("../pages/grants/Consent.tsx"), {
   export: "Consent",
 });
@@ -53,6 +60,8 @@ const ROUTES = [
   { path: "/ledgers/delete/:scheme", component: DeleteLedger },
   { path: "/ledgers", component: Ledgers },
   { path: "/receive", component: Receive },
+  { path: "/send", component: Send },
+  { path: "/payments/:id", component: PaymentStatus },
   { path: "/payments", component: Activity },
   { path: "/consent/:id", component: Consent },
   { path: "/grants", component: Grants },

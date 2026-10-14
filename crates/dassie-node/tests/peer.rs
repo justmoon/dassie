@@ -7,14 +7,13 @@
 
 mod support;
 
-use std::time::Duration;
-
 use dassie_identity::NodeKey;
 use dassie_node::clock::{Clock, ManualClock};
 use dassie_node::node::Policies;
 use dassie_node::rpc::proto::{self, request::Method, response};
 use support::btp_client::{BtpClient, pay_stream};
-use support::{Bound, START_MS, TestNode, set_up};
+use support::pair::{CA, bootstrap, key, peered, prepare, settle, until};
+use support::{Bound, START_MS, TestNode};
 
 /// 5 USD: over four times the credit, so it only gets through if A
 /// settles with B as it goes.
@@ -25,111 +24,6 @@ const DEPOSIT: u64 = 100_000_000_000;
 
 /// The credit a node extends to a peer: 1.1 USD.
 const CREDIT: u64 = 1_100_000_000;
-
-const CA: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../testdata/pebble/root.pem"
-);
-const CERT: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../testdata/pebble/cert.pem"
-);
-const KEY: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/pebble/key.pem");
-
-fn key(seed: u8) -> NodeKey {
-    NodeKey::from_bytes(&[seed; 32])
-}
-
-/// `DASSIE_BOOTSTRAP_NODES` naming `node` at `port`.
-fn bootstrap(node: &NodeKey, port: u16) -> String {
-    let mut encoded = [0u8; 43];
-    let length = dassie_identity::base64url::encode(node.public_key().as_bytes(), &mut encoded);
-    let public = std::str::from_utf8(&encoded[..length]).unwrap();
-    format!(
-        r#"[{{"id":"{}","url":"https://localhost:{port}","publicKey":"{public}"}}]"#,
-        node.node_id()
-    )
-}
-
-/// Sets a node up as a peer: owner, hostname, certificate, stub scheme.
-async fn prepare(node: &TestNode, key: &NodeKey) {
-    set_up(node, key).await;
-    let mut owner = node.ipc().await;
-    let hostname = owner
-        .call(Method::SetHostname(proto::SetHostnameRequest {
-            hostname: "localhost".into(),
-        }))
-        .await;
-    assert!(hostname.is_ok(), "{hostname:?}");
-    let certificate = owner
-        .call(Method::SetCertificate(proto::SetCertificateRequest {
-            certificate_chain_pem: std::fs::read_to_string(CERT).unwrap(),
-            private_key_pem: std::fs::read_to_string(KEY).unwrap(),
-        }))
-        .await;
-    assert!(certificate.is_ok(), "{certificate:?}");
-    for _ in 0..200 {
-        let added = owner
-            .call(Method::AddSettlementScheme(
-                proto::AddSettlementSchemeRequest {
-                    id: "stub".into(),
-                    config: String::new(),
-                },
-            ))
-            .await;
-        if added.is_ok() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("the stub scheme did not start");
-}
-
-/// The node's ledger accounts' paths.
-async fn accounts(node: &TestNode) -> Vec<String> {
-    let mut owner = node.ipc().await;
-    for _ in 0..200 {
-        let reply = owner
-            .call(Method::ListAccounts(proto::ListAccountsRequest {}))
-            .await;
-        match reply {
-            Ok(response::Method::ListAccounts(list)) => {
-                return list
-                    .accounts
-                    .into_iter()
-                    .map(|account| account.path)
-                    .collect();
-            }
-            // The engine is still starting.
-            Err(error) if error.code() == proto::ErrorCode::Unavailable => {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-            other => panic!("{other:?}"),
-        }
-    }
-    panic!("the engine did not start");
-}
-
-/// Moves the shared clock on in small steps, giving the daemons real time
-/// to talk, until `done` holds.
-async fn until(clock: &ManualClock, mut done: impl AsyncFnMut() -> bool) {
-    for _ in 0..600 {
-        if done().await {
-            return;
-        }
-        clock.advance(250);
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    panic!("not reached in time");
-}
-
-/// Gives the daemons a few seconds of their time to exchange link states.
-async fn settle(clock: &ManualClock) {
-    for _ in 0..20 {
-        clock.advance(250);
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-}
 
 /// The net credit of `node`'s account for its peer `peer`.
 async fn net(node: &TestNode, peer: &NodeKey) -> i128 {
@@ -242,11 +136,6 @@ async fn quiet(a: &TestNode, b: &TestNode, key_a: &NodeKey, key_b: &NodeKey) -> 
         }
     }
     net(a, key_b).await + net(b, key_a).await == 2 * i128::from(CREDIT)
-}
-
-async fn peered(a: &TestNode, b: &NodeKey) -> bool {
-    let path = format!("stub+usd:assets/interledger/{}", b.node_id());
-    accounts(a).await.contains(&path)
 }
 
 #[tokio::test(flavor = "multi_thread")]

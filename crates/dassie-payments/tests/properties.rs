@@ -45,6 +45,14 @@ proptest! {
     }
 
     #[test]
+    fn recipients_are_https_urls(input in text()) {
+        if let Ok(recipient) = pointer::Recipient::parse(&input) {
+            prop_assert!(recipient.url().starts_with("https://"));
+            prop_assert!(pointer::check_wallet_address(recipient.url()).is_ok());
+        }
+    }
+
+    #[test]
     fn encoded_query_values_decode(value in any::<String>()) {
         let query = format!("v={}", uri::percent_encode(&value));
         prop_assert_eq!(uri::query_pairs(&query), Ok(vec![("v".to_string(), value)]));

@@ -157,6 +157,12 @@ message Request {
     // Streaming.
     SubscribeGrantsRequest subscribe_grants = 117;
     RevokeGrantRequest revoke_grant = 118;
+
+    ResolveRecipientRequest resolve_recipient = 119;
+    QuoteSendRequest quote_send = 120;
+    SendPaymentRequest send_payment = 121;
+    // Streaming.
+    SubscribeOutgoingPaymentRequest subscribe_outgoing_payment = 122;
   }
 }
 
@@ -235,6 +241,10 @@ message Response {
     DecideGrantResponse decide_grant = 115;
     ListGrantsResponse list_grants = 116;
     RevokeGrantResponse revoke_grant = 118;
+
+    ResolveRecipientResponse resolve_recipient = 119;
+    QuoteSendResponse quote_send = 120;
+    SendPaymentResponse send_payment = 121;
   }
 }
 
@@ -255,6 +265,8 @@ message StreamItem {
     LogEvent subscribe_logs = 110;
     // The approved grants, whole, each time they change.
     ListGrantsResponse subscribe_grants = 117;
+    // The payment, whole, each time it changes.
+    OutgoingPayment subscribe_outgoing_payment = 122;
   }
 }
 

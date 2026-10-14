@@ -11,6 +11,7 @@ pub mod auth;
 pub mod client;
 pub mod consent;
 pub mod keys;
+pub mod spending;
 
 use std::net::IpAddr;
 use std::sync::{Mutex, OnceLock};
@@ -48,6 +49,10 @@ const CREATIONS: RateLimitPolicy = RateLimitPolicy {
     client_slots: 1024,
 };
 
+/// Most of the owner's lookups of recipients at once: each may fetch from
+/// other wallets as the node.
+const MAX_LOOKUPS: usize = 4;
+
 /// What Open Payments keeps beside the database: clients' key sets, the
 /// node's own key, its tokens at other wallets, and the rate limits.
 pub struct State {
@@ -55,6 +60,8 @@ pub struct State {
     pub keys: Mutex<keys::KeyCache>,
     /// The node's own tokens at other wallets' authorization servers.
     pub tokens: client::Tokens,
+    /// Permits for the owner's lookups of recipients; the rest wait.
+    pub lookups: tokio::sync::Semaphore,
     client_key: OnceLock<Result<keys::ClientKey, String>>,
     requests: Mutex<RateLimiter>,
     creations: Mutex<RateLimiter>,
@@ -65,6 +72,7 @@ impl Default for State {
         Self {
             keys: Mutex::new(keys::KeyCache::default()),
             tokens: Mutex::new(client::TokenCache::default()),
+            lookups: tokio::sync::Semaphore::new(MAX_LOOKUPS),
             client_key: OnceLock::new(),
             requests: Mutex::new(RateLimiter::new(REQUESTS)),
             creations: Mutex::new(RateLimiter::new(CREATIONS)),
@@ -167,6 +175,17 @@ impl Urls {
     #[must_use]
     pub fn incoming_payment(&self, id: PaymentId) -> String {
         format!("{}{INCOMING_PREFIX}/{id}", self.origin)
+    }
+
+    /// The path of `url` if it is at this node's origin, compared as
+    /// origins are: whatever the case, and with or without the scheme's
+    /// own port.
+    #[must_use]
+    pub fn own_path(&self, url: &str) -> Option<String> {
+        use dassie_payments::uri::Uri;
+        let uri = Uri::parse(url).ok()?;
+        let ours = Uri::parse(&self.origin).ok()?;
+        (uri.origin() == ours.origin()).then(|| uri.path.to_string())
     }
 }
 

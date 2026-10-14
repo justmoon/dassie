@@ -29,6 +29,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_6,
     MIGRATION_7,
     MIGRATION_8,
+    MIGRATION_9,
 ];
 
 const MIGRATION_1: &str = "
@@ -494,6 +495,15 @@ CREATE TABLE grant_spend (
 ) STRICT, WITHOUT ROWID;
 ";
 
+const MIGRATION_9: &str = "
+-- The wallet address an owner's payment goes to, as the owner named it;
+-- NULL when only the incoming payment is known (D9).
+ALTER TABLE quotes ADD COLUMN recipient TEXT
+  CHECK (recipient IS NULL OR length(recipient) BETWEEN 1 AND 2048);
+ALTER TABLE outgoing_payments ADD COLUMN recipient TEXT
+  CHECK (recipient IS NULL OR length(recipient) BETWEEN 1 AND 2048);
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -820,6 +830,7 @@ pub const TABLES: &[Table] = &[
             ("receive_asset_scale", "INTEGER", true, false),
             ("created_at_ms", "INTEGER", true, false),
             ("expires_at_ms", "INTEGER", true, false),
+            ("recipient", "TEXT", false, false),
         ],
     },
     Table {
@@ -848,6 +859,7 @@ pub const TABLES: &[Table] = &[
             ("deadline_ms", "INTEGER", true, false),
             ("finished_at_ms", "INTEGER", false, false),
             ("revision", "INTEGER", true, false),
+            ("recipient", "TEXT", false, false),
         ],
     },
     Table {

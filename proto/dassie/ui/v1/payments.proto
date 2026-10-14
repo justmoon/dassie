@@ -163,6 +163,11 @@ message OutgoingPayment {
   uint64 created_at_ms = 16;
   // When it completed or failed.
   optional uint64 finished_at_ms = 17;
+  // The wallet address it pays, when the owner named one (M6c): as a URL,
+  // and as a payment pointer. Empty when only the incoming payment is
+  // known.
+  string recipient_url = 18;
+  string recipient_pointer = 19;
 }
 
 message ListOutgoingPaymentsRequest {
@@ -188,6 +193,104 @@ message OutgoingPaymentEvent {
   repeated OutgoingPayment upserted = 2;
   // IDs of payments no longer among the newest.
   repeated string removed = 3;
+}
+
+// The owner's Send (M6c): to a payment pointer, a wallet address URL, or
+// a payment request (an incoming payment's URL), on this node or another.
+
+// Whom a payment goes to.
+message Recipient {
+  // The wallet address it pays, as a URL and as a payment pointer.
+  string wallet_address = 1;
+  string payment_pointer = 2;
+  // Its name, as its wallet says; empty for none.
+  string public_name = 3;
+  // The asset it is paid in.
+  string asset_code = 4;
+  uint32 asset_scale = 5;
+  // Whether it is one of this node's own wallet addresses.
+  bool is_own = 6;
+  // The payment request it names, if it named one.
+  optional PaymentRequest request = 7;
+}
+
+// An incoming payment that waits to be paid.
+message PaymentRequest {
+  // Its URL.
+  string url = 1;
+  // What it still accepts; none for any amount.
+  optional uint64 remaining = 2;
+  optional uint64 expires_at_ms = 3;
+  // Its description, if its metadata has one.
+  string description = 4;
+}
+
+// Reads what the input names. INVALID_ARGUMENT for input that names no
+// recipient or one that cannot be paid; UNAVAILABLE when its wallet does
+// not answer.
+message ResolveRecipientRequest {
+  // A payment pointer ($host[/path]), a wallet address URL, or an
+  // incoming payment's URL.
+  string recipient = 1;
+}
+
+message ResolveRecipientResponse {
+  Recipient recipient = 1;
+}
+
+// Quotes a payment. For a wallet address it creates the incoming payment
+// there first; a payment request is paid as it is. Until M7 the debit
+// equals what the recipient gets, and a recipient in another asset is
+// refused.
+message QuoteSendRequest {
+  // As ResolveRecipientRequest.
+  string recipient = 1;
+  // The ledger to pay from; empty for the default one if it is in the
+  // recipient's asset, or else the first that is.
+  string ledger = 2;
+  // What the recipient is to get, in its asset. Needed for a wallet
+  // address; for a payment request, none means what it still accepts.
+  optional uint64 amount = 3;
+  // For the recipient, at most 256 characters: the description of the
+  // incoming payment created. Not for payment requests.
+  string note = 4;
+}
+
+// A quote for the owner: payable once, until it expires.
+message SendQuote {
+  // A UUID.
+  string id = 1;
+  string ledger = 2;
+  string asset_code = 3;
+  uint32 asset_scale = 4;
+  // What it debits, in the ledger's units.
+  uint64 debit_amount = 5;
+  // What the recipient gets, in its asset.
+  OpenPaymentsAmount receive_amount = 6;
+  // The incoming payment it pays.
+  string receiver = 7;
+  uint64 expires_at_ms = 8;
+  Recipient recipient = 9;
+}
+
+message QuoteSendResponse {
+  SendQuote quote = 1;
+}
+
+// Pays a quote of the owner's. INVALID_ARGUMENT once it has expired or was
+// paid; FAILED_PRECONDITION when the funds do not cover it.
+message SendPaymentRequest {
+  string quote_id = 1;
+}
+
+message SendPaymentResponse {
+  OutgoingPayment payment = 1;
+}
+
+// Streaming: one outgoing payment, whole, each time it changes. NOT_FOUND
+// for no such payment.
+message SubscribeOutgoingPaymentRequest {
+  string id = 1;
 }
 
 // What a grant's access item allows, as the owner reads it.

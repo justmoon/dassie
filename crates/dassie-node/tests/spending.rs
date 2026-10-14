@@ -403,3 +403,45 @@ async fn a_quote_pays_once_even_twice_at_once() {
     assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.text());
     node.stop().await;
 }
+
+// Found in review, untested: the owner's quotes and a client's are each
+// their own, whoever pays them.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_owners_quotes_and_a_clients_are_apart() {
+    let (node, key) = start().await;
+    let client = own_client(&node, &key);
+    let token = approved(&node, &client, 1_000).await;
+    let target = receiver(&node, 100).await;
+    let quote = json!({ "walletAddress": host(&node), "receiver": target, "method": "ilp" });
+    let theirs = body(&post(&node, &client, "/quotes", &token, &quote).await);
+    let id = theirs["id"].as_str().unwrap().rsplit('/').next().unwrap();
+    let paid = node
+        .ipc()
+        .await
+        .call(Method::SendPayment(proto::SendPaymentRequest {
+            quote_id: id.into(),
+        }))
+        .await;
+    assert_eq!(
+        paid.unwrap_err().code(),
+        proto::ErrorCode::FailedPrecondition
+    );
+    let Ok(response::Method::QuoteSend(quoted)) = node
+        .ipc()
+        .await
+        .call(Method::QuoteSend(proto::QuoteSendRequest {
+            recipient: format!("${}", node.host()),
+            ledger: String::new(),
+            amount: Some(100),
+            note: String::new(),
+        }))
+        .await
+    else {
+        panic!("no quote")
+    };
+    let mine = format!("{}/quotes/{}", node.origin(), quoted.quote.unwrap().id);
+    let pay = json!({ "walletAddress": host(&node), "quoteId": mine });
+    let reply = post(&node, &client, "/outgoing-payments", &token, &pay).await;
+    assert_eq!(reply.status, StatusCode::FORBIDDEN, "{}", reply.text());
+    node.stop().await;
+}

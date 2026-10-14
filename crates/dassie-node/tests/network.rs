@@ -463,6 +463,7 @@ impl Sim {
                         asset_scale: 9,
                     },
                     metadata: None,
+                    recipient: Some(format!("https://n{to}.test/.well-known/pay")),
                 })
                 .unwrap();
             outgoing = Some(created.row.id);
@@ -1220,6 +1221,7 @@ fn outgoing_payments_refuse_what_their_rows_cannot_hold() {
                     asset_scale: 9,
                 },
                 metadata: None,
+                recipient: None,
             });
             refusals.push(created.is_err());
         });
