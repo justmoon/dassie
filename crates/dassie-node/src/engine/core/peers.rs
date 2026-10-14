@@ -164,9 +164,13 @@ impl PeeringHooks for Hooks<'_> {
             .is_none_or(|id| self.connector.pending_for(EndpointId::Peer(*id)) == 0)
     }
 
-    fn credit(&self, scheme: SchemeId) -> u64 {
-        let _ = scheme;
-        self.credit
+    fn credit(&self, peer: NodeId, scheme: SchemeId) -> u64 {
+        Name::new(scheme.as_str())
+            .ok()
+            .and_then(|name| self.schemes.get(&name))
+            .map_or(self.credit, |active| {
+                self.credit_for(peer, active.scheme.ledger())
+            })
     }
 }
 
@@ -492,17 +496,12 @@ impl Core {
                 }
                 self.update_routes();
             }
-            Event::PeeringEnded {
-                peer,
-                settle,
-                scheme,
-                state,
-            } => {
+            Event::PeeringEnded { peer, settle } => {
                 tracing::info!(target: target::PEER, %peer, settle, "peering ended");
                 self.remove_peer_endpoint(&peer);
                 if settle {
-                    self.settle.finals.insert(peer, (scheme, state));
-                    // At once, rather than at the next check.
+                    // The final settlement, at once rather than at the next
+                    // check.
                     self.settle.at_ms = self.now_ms;
                 }
                 self.update_routes();

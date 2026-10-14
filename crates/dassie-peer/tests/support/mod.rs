@@ -35,7 +35,7 @@ impl PeeringHooks for StubHooks {
         if scheme.as_str() == "stub" { &[1] } else { &[] }
     }
 
-    fn credit(&self, _: SchemeId) -> u64 {
+    fn credit(&self, _: NodeId, _: SchemeId) -> u64 {
         CREDIT
     }
 
@@ -150,7 +150,7 @@ pub struct SimNode {
     pub node: Option<PeerNode>,
     pub stored: Stored,
     stored_nodes: BTreeMap<NodeId, dassie_peer::StoredNode>,
-    stored_channels: BTreeMap<NodeId, dassie_peer::StoredChannel>,
+    pub stored_channels: BTreeMap<NodeId, dassie_peer::StoredChannel>,
     stored_bans: BTreeSet<NodeId>,
     pub skew_ms: i64,
     generation: u64,

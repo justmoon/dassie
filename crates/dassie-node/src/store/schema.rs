@@ -200,6 +200,10 @@ CREATE TABLE settlement_channels (
   outbox_amount INTEGER CHECK (outbox_amount IS NULL OR outbox_amount >= 0),
   outbox_data BLOB,
   outbox_attempts INTEGER CHECK (outbox_attempts IS NULL OR outbox_attempts >= 0),
+  -- A settlement of everything owed, due since a peering ended: its scheme
+  -- and the scheme's state for the peer.
+  final_scheme TEXT,
+  final_state BLOB CHECK ((final_scheme IS NULL) = (final_state IS NULL)),
   CHECK ((outbox_sequence IS NULL) = (outbox_scheme IS NULL)
      AND (outbox_scheme IS NULL) = (outbox_amount IS NULL)
      AND (outbox_amount IS NULL) = (outbox_data IS NULL)
@@ -407,6 +411,8 @@ const TABLES: &[Table] = &[
             ("outbox_amount", "INTEGER", false, false),
             ("outbox_data", "BLOB", false, false),
             ("outbox_attempts", "INTEGER", false, false),
+            ("final_scheme", "TEXT", false, false),
+            ("final_state", "BLOB", false, false),
         ],
     },
     Table {

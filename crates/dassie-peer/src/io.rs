@@ -195,13 +195,10 @@ pub enum Event {
     PeeringEnded {
         /// The peer.
         peer: NodeId,
-        /// Whether to settle everything owed: the peer knew of the end, so
-        /// it is there to be paid.
+        /// Whether everything owed is to be settled: the peer knew of the
+        /// end, so it is there to be paid. The channel's
+        /// [`FinalDue`](crate::FinalDue) says so until it is done.
         settle: bool,
-        /// The scheme it settled with.
-        scheme: SchemeId,
-        /// The scheme's state for the peer, for that last settlement.
-        state: Vec<u8>,
     },
     /// A peer is listed as our neighbor again, or no longer.
     Advertised {

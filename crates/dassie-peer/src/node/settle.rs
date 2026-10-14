@@ -30,8 +30,14 @@ impl PeerNode {
     }
 
     /// Opens the channel with `node`, a new peer, or brings its contact up
-    /// to date. Returns whether it exists.
+    /// to date. A peering again settles normally: a final settlement still
+    /// due is part of what it settles. Returns whether it exists.
     pub(crate) fn open_channel(&mut self, node: NodeId) -> bool {
+        if let Some(channel) = self.channels.get_mut(&node)
+            && channel.final_due.take().is_some()
+        {
+            self.channels_dirty.insert(node);
+        }
         let Some((key, url)) = self.contact(&node) else {
             return self.channels.contains_key(&node);
         };
@@ -250,6 +256,11 @@ impl PeerNode {
             self.stats.settlements_duplicate += 1;
             return Inbound::Reply(super::inbound::ok(accepted, &[]));
         }
+        // The sender sends one at a time, in order: anything but the next
+        // is a bug, or an attempt to push the sequence out of range.
+        if Some(sequence) != channel.settled_in.checked_add(1) {
+            return Inbound::Reply(Reply::refuse(400, "settlement out of order"));
+        }
         Inbound::Settlement {
             from,
             scheme,
@@ -257,6 +268,15 @@ impl PeerNode {
             data,
             sequence,
             reply: super::inbound::ok(accepted, &[]),
+        }
+    }
+
+    /// The final settlement with `node` is made, or nothing was owed.
+    pub fn final_settled(&mut self, node: &NodeId) {
+        if let Some(channel) = self.channels.get_mut(node)
+            && channel.final_due.take().is_some()
+        {
+            self.channels_dirty.insert(*node);
         }
     }
 

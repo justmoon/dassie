@@ -67,6 +67,8 @@ impl Core {
         }
         let checkpoint = self.checkpoints.get(&id).copied();
         let ledger = self.activate(id, config, checkpoint, true)?;
+        // Settlements left pending when it was last removed (ACC-16).
+        self.reconcile_settlements(Some(id));
         self.ledger_view(ledger)
             .ok_or_else(|| EngineError::Internal("the ledger vanished".into()))
     }
@@ -160,6 +162,16 @@ impl Core {
             .any(|(_, peering)| peering.scheme.as_str() == id.as_str())
         {
             return Err(EngineError::Precondition("peers settle with it".into()));
+        }
+        if self.peer.channels().any(|(_, channel)| {
+            channel
+                .final_due
+                .as_ref()
+                .is_some_and(|due| due.scheme.as_str() == id.as_str())
+        }) {
+            return Err(EngineError::Precondition(
+                "a peering that ended still has to be settled with it".into(),
+            ));
         }
         self.schemes.remove(&id);
         self.update_peer_schemes();

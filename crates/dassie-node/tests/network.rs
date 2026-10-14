@@ -517,6 +517,16 @@ fn run(seed: u64) -> Result<Vec<String>, String> {
         if sim.peers(ender).contains(&peer) {
             return Err(format!("node {ender}'s peering with {peer} did not end"));
         }
+        // Each side settled everything it owed the other.
+        let other = (0..count).find(|i| key(*i).node_id() == peer).unwrap();
+        let mine = sim.balances(ender)[&format!("stub+usd:assets/interledger/{peer}")];
+        let theirs =
+            sim.balances(other)[&format!("stub+usd:assets/interledger/{}", key(ender).node_id())];
+        if (mine, theirs) != (CREDIT, CREDIT) {
+            return Err(format!(
+                "nodes {ender} and {other} parted owing: {mine}, {theirs}"
+            ));
+        }
     }
     check(&sim)?;
     Ok(sim.trace)

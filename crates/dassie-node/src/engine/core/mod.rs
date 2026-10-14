@@ -301,7 +301,7 @@ impl Core {
                     .set_draining(dassie_connector::EndpointId::Peer(endpoint), true);
             }
         }
-        self.reconcile_settlements();
+        self.reconcile_settlements(None);
         self.update_routes();
         self.after_peer();
         self.flush();
@@ -348,7 +348,11 @@ impl Core {
     pub fn deadline(&self) -> Option<u64> {
         let receiver = self.receiver.as_ref().and_then(Receiver::deadline);
         let settlement = self.peer.peers().next().map(|_| self.settle.at_ms);
-        let finals = (!self.settle.finals.is_empty()).then_some(self.settle.at_ms);
+        let finals = self
+            .peer
+            .channels()
+            .any(|(_, channel)| channel.final_due.is_some())
+            .then_some(self.settle.at_ms);
         [
             self.connector.poll_timeout(),
             receiver,
@@ -373,6 +377,8 @@ impl Core {
             // Settlements run once their pending transfers are on disk;
             // what they did is persisted in turn (ACC-16).
             if self.execute_settlements() {
+                // Their announcements go out with this step's outputs.
+                self.after_peer();
                 continue;
             }
             self.check_invariants();

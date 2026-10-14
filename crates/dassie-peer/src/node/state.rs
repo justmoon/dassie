@@ -106,6 +106,15 @@ impl PeerNode {
             }
         }
         self.dirty.clear();
+        // Peerings from before channels existed get one now.
+        let unchanneled: Vec<NodeId> = self
+            .peers()
+            .map(|(id, _)| *id)
+            .filter(|id| !self.channels.contains_key(id))
+            .collect();
+        for id in unchanneled {
+            self.open_channel(id);
+        }
         self.gossip.routes_dirty = true;
         if peered {
             // The peers we have get a heartbeat's time to confirm
@@ -413,8 +422,8 @@ impl PeerNode {
         self.check_channels();
         for (id, entry) in &self.table {
             assert!(
-                entry.peering().is_none() || self.channels.contains_key(id),
-                "a peer has a channel"
+                entry.peering().is_none() || entry.key.is_none() || self.channels.contains_key(id),
+                "a peer we can reach has a channel"
             );
             assert!(
                 !entry.advertise.on || entry.peering().is_some(),

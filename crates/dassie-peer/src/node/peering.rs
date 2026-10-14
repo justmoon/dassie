@@ -193,7 +193,7 @@ impl PeerNode {
             node_info,
             data: &data,
             versions: hooks.versions(scheme).to_vec(),
-            credit: hooks.credit(scheme),
+            credit: hooks.credit(node, scheme),
         });
         if let Some(entry) = self.table.get_mut(&node) {
             entry.peer = PeerState::Requesting {

@@ -336,11 +336,18 @@ impl PeerNode {
         self.drop_source(&peer, Sources::PEER);
         self.gossip.routes_dirty = true;
         self.stats.terminations += 1;
+        if termination.acknowledged
+            && let Some(channel) = self.channels.get_mut(&peer)
+        {
+            channel.final_due = Some(crate::channel::FinalDue {
+                scheme: peering.scheme,
+                state: peering.state,
+            });
+            self.channels_dirty.insert(peer);
+        }
         self.event(Event::PeeringEnded {
             peer,
             settle: termination.acknowledged,
-            scheme: peering.scheme,
-            state: peering.state,
         });
     }
 

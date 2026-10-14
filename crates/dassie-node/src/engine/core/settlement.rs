@@ -36,8 +36,9 @@ pub(super) struct Settlements {
     /// Peers not settled with before a time, after cancelled settlements,
     /// and how many in a row.
     pub backoff: BTreeMap<NodeId, (u64, u32)>,
-    /// Ended peerings still to be settled with: their scheme and state.
-    pub finals: BTreeMap<NodeId, (SchemeId, Vec<u8>)>,
+    /// Settlements that executed while an earlier one to the same peer was
+    /// still being announced: posted and announced once that one arrives.
+    pub announce: Vec<(Name, Name)>,
 }
 
 impl Settlements {
@@ -49,7 +50,7 @@ impl Settlements {
             settling: BTreeMap::new(),
             to_execute: Vec::new(),
             backoff: BTreeMap::new(),
-            finals: BTreeMap::new(),
+            announce: Vec::new(),
         }
     }
 }
@@ -65,6 +66,8 @@ pub(super) struct Settling {
     pub amount: u64,
     /// What the scheme gave to send the peer.
     pub message: Vec<u8>,
+    /// Whether it settles everything owed at the end of a peering.
+    pub last: bool,
 }
 
 /// A peer's position, as the settlement policy needs it.
@@ -113,39 +116,75 @@ impl Core {
                 self.prepare_settlement(node, &at, amount, &state);
             }
         }
-        let finals: Vec<NodeId> = self.settle.finals.keys().copied().collect();
-        for node in finals {
+        self.settle_finals();
+        self.announce_deferred();
+    }
+
+    /// Settles everything owed with peerings that ended while the other
+    /// side knew. The channel keeps that due, across restarts, until it is
+    /// made: a failure or a cancellation tries again later.
+    fn settle_finals(&mut self) {
+        let finals: Vec<(NodeId, dassie_peer::FinalDue)> = self
+            .peer
+            .channels()
+            .filter_map(|(id, channel)| Some((*id, channel.final_due.clone()?)))
+            .filter(|(id, _)| self.peer.peering_of(id).is_none())
+            .collect();
+        for (node, due) in finals {
             if !self.can_settle(&node) {
                 continue;
             }
-            let Some((scheme, state)) = self.settle.finals.remove(&node) else {
-                continue;
-            };
-            let Some(at) = self.position(node, scheme) else {
+            let Some(at) = self.position(node, due.scheme) else {
                 continue;
             };
             let amount = policy::final_amount(at.position, at.credit_out);
-            if amount > 0 {
-                tracing::info!(target: target::SETTLEMENT, %node, amount, "settling what is owed at the end of a peering");
-                self.prepare_settlement(node, &at, amount, &state);
+            if amount == 0 {
+                self.peer.final_settled(&node);
+                continue;
+            }
+            tracing::info!(target: target::SETTLEMENT, %node, amount, "settling what is owed at the end of a peering");
+            self.prepare_settlement(node, &at, amount, &due.state);
+            if let Some(settling) = self
+                .settle
+                .settling
+                .values_mut()
+                .find(|settling| settling.peer == node)
+            {
+                settling.last = true;
             }
         }
     }
 
-    /// Whether nothing is on its way to `node`, and no cancelled
-    /// settlement holds it off (ACC-17).
+    /// Whether nothing is on its way to `node`: no message, no settlement
+    /// of ours in progress or still pending from before a restart; that we
+    /// hold a channel with it; and that no cancelled settlement holds it
+    /// off (ACC-17).
     fn can_settle(&self, node: &NodeId) -> bool {
-        !self.peer.settling(node)
+        self.peer.channel(node).is_some()
+            && !self.peer.settling(node)
             && !self
                 .settle
                 .settling
                 .values()
                 .any(|settling| settling.peer == *node)
+            && !self.pending_settlement_to(node)
             && self
                 .settle
                 .backoff
                 .get(node)
                 .is_none_or(|(until, _)| *until <= self.now_ms)
+    }
+
+    /// Whether a settlement transfer to `node` is pending in the ledger,
+    /// on any scheme.
+    fn pending_settlement_to(&self, node: &NodeId) -> bool {
+        self.ledger.pending_transfers().any(|transfer| {
+            matches!(transfer.reference, Reference::Settlement { .. })
+                && self.ledger.account(transfer.debit).is_some_and(|account| {
+                    matches!(account.path().name,
+                        AccountName::AssetsInterledger(peer) if peer.as_str() == node.as_str())
+                })
+        })
     }
 
     /// Where we stand with `node` on `scheme`'s ledger.
@@ -240,6 +279,7 @@ impl Core {
                 transfer,
                 amount,
                 message: prepared.message,
+                last: false,
             },
         );
         self.settle.to_execute.push((at.scheme, prepared.id));
@@ -270,14 +310,23 @@ impl Core {
 
     /// Hands each scheme its settlements still pending from before a
     /// restart (ACC-16).
-    pub(super) fn reconcile_settlements(&mut self) {
-        let schemes: Vec<Name> = self.schemes.keys().copied().collect();
+    /// Only `scheme`'s if one is named; settlements in progress in this
+    /// run are not the scheme's to reconcile.
+    pub(super) fn reconcile_settlements(&mut self, only: Option<Name>) {
+        let schemes: Vec<Name> = self
+            .schemes
+            .keys()
+            .copied()
+            .filter(|scheme| only.is_none_or(|only| only == *scheme))
+            .collect();
         for scheme in schemes {
             let pending: Vec<(Name, u64)> = self
                 .ledger
                 .pending_transfers()
                 .filter_map(|transfer| match transfer.reference {
-                    Reference::Settlement { scheme: s, id } if s == scheme => {
+                    Reference::Settlement { scheme: s, id }
+                        if s == scheme && !self.settle.settling.contains_key(&(s, id)) =>
+                    {
                         Some((id, transfer.amount))
                     }
                     _ => None,
@@ -313,26 +362,40 @@ impl Core {
         let AccountName::AssetsInterledger(peer) = path.name else {
             return None;
         };
+        // The scheme's message did not survive the restart; a scheme that
+        // finalizes after one (XRPL, M7) needs it persisted.
         Some(Settling {
             peer: NodeId::parse(peer.as_str()).ok()?,
             transfer: transfer.id,
             amount: transfer.amount,
             message: Vec::new(),
+            last: false,
         })
     }
 
     /// Our settlement executed: its transfer is posted, and the peer is
-    /// told, until it has heard.
+    /// told, until it has heard; both in one batch. If an earlier message
+    /// to the peer is still on its way, both wait until it arrives.
     pub(super) fn settlement_done(&mut self, scheme: Name, id: Name) {
         let Some(settling) = self.take_settling(scheme, id) else {
             tracing::warn!(target: target::SETTLEMENT, %scheme, %id, "an unknown settlement executed");
             return;
         };
+        if self.peer.settling(&settling.peer) {
+            self.settle.settling.insert((scheme, id), settling);
+            if !self.settle.announce.contains(&(scheme, id)) {
+                self.settle.announce.push((scheme, id));
+            }
+            return;
+        }
         if let Err(error) = self.ledger.post(self.now_ms, settling.transfer) {
             tracing::error!(target: target::SETTLEMENT, %error, "a settlement's transfer could not be posted");
             return;
         }
         self.settle.backoff.remove(&settling.peer);
+        if settling.last {
+            self.peer.final_settled(&settling.peer);
+        }
         let Some(scheme_id) = SchemeId::parse(scheme.as_str()) else {
             return;
         };
@@ -345,6 +408,14 @@ impl Core {
             settling.message,
         ) {
             tracing::error!(target: target::SETTLEMENT, %peer, ?error, "a settlement could not be announced");
+        }
+    }
+
+    /// Posts and announces the settlements that waited for an earlier
+    /// message to arrive.
+    fn announce_deferred(&mut self) {
+        for (scheme, id) in std::mem::take(&mut self.settle.announce) {
+            self.settlement_done(scheme, id);
         }
     }
 

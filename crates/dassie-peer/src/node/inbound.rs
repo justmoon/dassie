@@ -21,6 +21,9 @@ use crate::wire::{
     encode_link_states, encode_octets, encode_response,
 };
 
+/// The ILP packet type of a Prepare (spec 4 §1).
+const PREPARE_TYPE: u8 = 12;
+
 /// What an inbound request waits on a probe for.
 #[derive(Clone, Debug)]
 pub(crate) enum ProbeFor {
@@ -90,8 +93,16 @@ impl PeerNode {
         }
         match content {
             Content::InterledgerPacket { request_id, packet } => {
-                if self.peering_of(&accepted.sender).is_none() {
+                let Some(entry) = self.table.get(&accepted.sender) else {
                     return refuse(409, "not peered");
+                };
+                if entry.peering().is_none() {
+                    return refuse(409, "not peered");
+                }
+                // A peering being ended takes no new Prepares: refused here,
+                // they leave nothing to answer, so the drain can finish.
+                if entry.termination().is_some() && packet.first() == Some(&PREPARE_TYPE) {
+                    return refuse(409, "the peering is ending");
                 }
                 Inbound::Packet {
                     from: accepted.sender,

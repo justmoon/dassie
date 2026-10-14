@@ -350,6 +350,79 @@ fn a_banned_node_is_refused() {
     let _ = a;
 }
 
+// Found in review: a sequence far ahead was stored as applied, and could
+// not be persisted. Only the next one is applied.
+#[test]
+fn a_settlement_out_of_order_is_refused() {
+    let (mut network, _, _) = peered(44);
+    let mut sender = Sender::new(&key(1));
+    for sequence in [2, u64::MAX] {
+        let content = Content::Settlement {
+            scheme: stub(),
+            amount: 5,
+            data: &[],
+            sequence,
+        };
+        let body = sender.request(&network, 0, &content);
+        assert_eq!(network.inbound(0, &body).status, 400, "{sequence}");
+    }
+    let channel = network.node(0).channel(&key(1).node_id()).unwrap();
+    assert_eq!(channel.settled_in, 0);
+}
+
+// Found in review: the final settlement after a peering ended was kept
+// only in memory. It is on the channel, persisted, until it is made.
+#[test]
+fn a_final_settlement_due_survives_a_restart() {
+    let (mut network, _, b) = peered(45);
+    network.act(0, |node, now| {
+        node.terminate(now, &b, TerminationReason::Owner);
+    });
+    settle(&mut network, 10_000);
+    assert!(network.node(0).channel(&b).unwrap().final_due.is_some());
+    network.crash(0);
+    network.start(0);
+    assert!(network.node(0).channel(&b).unwrap().final_due.is_some());
+    network.act(0, |node, _| node.final_settled(&b));
+    assert!(network.node(0).channel(&b).unwrap().final_due.is_none());
+}
+
+// Found in review: peerings persisted before channels existed (M4a) had
+// none, so settling with them could not be announced.
+#[test]
+fn peerings_from_before_channels_get_one() {
+    let (mut network, _, b) = peered(46);
+    network.crash(0);
+    network.nodes[0].stored_channels.clear();
+    network.start(0);
+    assert!(network.node(0).channel(&b).is_some());
+}
+
+// Found in review: a peer that kept sending Prepares while its peering
+// was ending kept it from ever ending. They are refused at the protocol.
+#[test]
+fn a_peering_being_ended_takes_no_new_prepares() {
+    let (mut network, _, b) = peered(47);
+    network.nodes[0].hooks.busy.insert(b);
+    network.act(0, |node, now| {
+        node.terminate(now, &b, TerminationReason::Owner);
+    });
+    let mut sender = Sender::new(&key(1));
+    let prepare = Content::InterledgerPacket {
+        request_id: 1,
+        packet: &[12, 1, 0],
+    };
+    let body = sender.request(&network, 0, &prepare);
+    assert_eq!(network.inbound(0, &body).status, 409);
+    // Responses still come through.
+    let fulfill = Content::InterledgerPacket {
+        request_id: 2,
+        packet: &[13, 1, 0],
+    };
+    let body = sender.request(&network, 0, &fulfill);
+    assert_eq!(network.inbound(0, &body).status, 200);
+}
+
 // The advertise flag follows liveness, and each withdrawal holds the peer
 // down longer (damping, D12).
 #[test]
