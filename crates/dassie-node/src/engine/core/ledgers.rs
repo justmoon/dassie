@@ -54,11 +54,12 @@ impl Core {
         Ok(())
     }
 
-    pub(in crate::engine) fn add_scheme(
-        &mut self,
-        id: &str,
-        config: String,
-    ) -> Result<LedgerView, EngineError> {
+    /// Activates a settlement scheme.
+    ///
+    /// # Errors
+    ///
+    /// The scheme is unknown, refuses its config, or is active.
+    pub fn add_scheme(&mut self, id: &str, config: String) -> Result<LedgerView, EngineError> {
         let id =
             Name::new(id).map_err(|_| EngineError::Invalid("unknown settlement scheme".into()))?;
         if self.schemes.contains_key(&id) {
@@ -132,7 +133,12 @@ impl Core {
         Ok(ledger)
     }
 
-    pub(in crate::engine) fn remove_scheme(&mut self, id: &str) -> Result<(), EngineError> {
+    /// Deactivates a settlement scheme.
+    ///
+    /// # Errors
+    ///
+    /// The scheme is not active, or tokens use its ledger.
+    pub fn remove_scheme(&mut self, id: &str) -> Result<(), EngineError> {
         let id =
             Name::new(id).map_err(|_| EngineError::NotFound("the scheme is not active".into()))?;
         let ledger = match self.schemes.get(&id) {
@@ -166,10 +172,12 @@ impl Core {
         Ok(())
     }
 
-    pub(in crate::engine) fn stub_deposit(
-        &mut self,
-        amount: u64,
-    ) -> Result<LedgerView, EngineError> {
+    /// Adds test money through the stub.
+    ///
+    /// # Errors
+    ///
+    /// The stub is not active, or the books cannot take it.
+    pub fn stub_deposit(&mut self, amount: u64) -> Result<LedgerView, EngineError> {
         let stub = Name::new("stub").map_err(|_| EngineError::Internal("name".into()))?;
         let inactive = || EngineError::Precondition("the stub scheme is not active".into());
         let ledger = self
@@ -279,10 +287,12 @@ impl Core {
         Ok(())
     }
 
-    pub(in crate::engine) fn stream_credentials(
-        &mut self,
-        tag: &str,
-    ) -> Result<Credentials, EngineError> {
+    /// Credentials for paying the node's STREAM receiver.
+    ///
+    /// # Errors
+    ///
+    /// No scheme is active, or the tag is too long.
+    pub fn stream_credentials(&mut self, tag: &str) -> Result<Credentials, EngineError> {
         if tag.len() > dassie_stream::token::MAX_CONNECTION_TAG_LENGTH {
             return Err(EngineError::Invalid("the tag is too long".into()));
         }
@@ -302,14 +312,16 @@ impl Core {
         })
     }
 
-    pub(in crate::engine) fn active_schemes(&self) -> Vec<String> {
+    /// The active schemes' IDs.
+    pub fn active_schemes(&self) -> Vec<String> {
         self.schemes
             .keys()
             .map(|id| id.as_str().to_string())
             .collect()
     }
 
-    pub(in crate::engine) fn ledger_views(&self) -> Vec<LedgerView> {
+    /// The ledgers of active schemes.
+    pub fn ledger_views(&self) -> Vec<LedgerView> {
         let mut ledgers: Vec<LedgerId> = self
             .schemes
             .values()

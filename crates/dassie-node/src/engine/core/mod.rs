@@ -399,18 +399,16 @@ impl Core {
         }
     }
 
-    pub(in crate::engine) fn account_list(&self) -> Vec<(AccountId, Account)> {
+    /// Every ledger account.
+    pub fn account_list(&self) -> Vec<(AccountId, Account)> {
         self.ledger
             .accounts()
             .map(|(id, account)| (id, *account))
             .collect()
     }
 
-    pub(in crate::engine) fn packets(
-        &self,
-        after: Option<TraceId>,
-        limit: usize,
-    ) -> Vec<PacketRecord> {
+    /// Up to `limit` packets after `after` from the trace.
+    pub fn packets(&self, after: Option<TraceId>, limit: usize) -> Vec<PacketRecord> {
         self.connector
             .packets_after(after)
             .take(limit)

@@ -104,11 +104,12 @@ impl Core {
         Ok(())
     }
 
-    pub(in crate::engine) fn create_token(
-        &mut self,
-        label: String,
-        ledger: &str,
-    ) -> Result<NewToken, EngineError> {
+    /// Creates a BTP token.
+    ///
+    /// # Errors
+    ///
+    /// The label or ledger is invalid, or the tokens are at their bound.
+    pub fn create_token(&mut self, label: String, ledger: &str) -> Result<NewToken, EngineError> {
         if label.len() > MAX_LABEL_BYTES {
             return Err(EngineError::Invalid(
                 "the label is longer than 64 bytes".into(),
@@ -168,7 +169,12 @@ impl Core {
         Ok(NewToken { view, secret })
     }
 
-    pub(in crate::engine) fn revoke_token(&mut self, id: u64) -> Result<(), EngineError> {
+    /// Revokes a BTP token, and closes its connections.
+    ///
+    /// # Errors
+    ///
+    /// There is no such token.
+    pub fn revoke_token(&mut self, id: u64) -> Result<(), EngineError> {
         let now = self.now_ms();
         let Some(token) = self
             .tokens
@@ -191,7 +197,8 @@ impl Core {
         Ok(())
     }
 
-    pub(in crate::engine) fn token_views(&self) -> Vec<TokenView> {
+    /// The BTP tokens not revoked.
+    pub fn token_views(&self) -> Vec<TokenView> {
         self.tokens
             .iter()
             .filter(|(_, token)| token.row.revoked_at_ms.is_none())
@@ -214,10 +221,7 @@ impl Core {
 
     /// Checks a client's token and gives its connection an address of its
     /// own below the node's, which ILDCP will hand it.
-    pub(in crate::engine) fn btp_connect(
-        &mut self,
-        token: &str,
-    ) -> Result<BtpSession, EngineError> {
+    pub fn btp_connect(&mut self, token: &str) -> Result<BtpSession, EngineError> {
         let Some(&id) = self.by_hash.get(&token_hash(token)) else {
             return Err(EngineError::NotFound("unknown token".into()));
         };

@@ -147,7 +147,7 @@ pub struct NetworkView {
 
 impl Core {
     /// The network as the owner sees it.
-    pub(in crate::engine) fn network(&self) -> NetworkView {
+    pub fn network(&self) -> NetworkView {
         NetworkView {
             own: *self.peer.own(),
             allocation_scheme: self.allocation_scheme,
