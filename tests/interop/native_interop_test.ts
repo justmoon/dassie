@@ -139,10 +139,15 @@ class Peer {
   }
 }
 
-/** What a stopped peer answers. */
+/**
+ * What a stopped peer answers: unreachable, for good. The native client
+ * exits as soon as its own close is acknowledged, and ilp-protocol-stream
+ * may still be sending its side of the close; a temporary error would have
+ * it retry until its idle timeout, and server.close() would wait for that.
+ */
 function gone(): Uint8Array {
   return encodeReject(
-    "T01",
+    "F02",
     "test.native",
     "the peer stopped",
     new Uint8Array(),
