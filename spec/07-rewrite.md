@@ -170,7 +170,7 @@ Most of the original's integrity gaps come from state it keeps only in memory, o
 | Node key | PEM in DB | the raw 32-byte seed; file mode 0600 on the DB and 0700 on the data dir ([D10](08-decisions.md#d10-secrets-at-rest)) |
 | Sessions | token only, never expire | SHA-256 of the token, created and last used. A session ends after 30 days unused or 1 year in total, whichever comes first, or when revoked. At most 64 are kept; the least recently used goes first (RT-11) |
 | ACME challenge tokens | table | memory, since the daemon that serves them also runs the order |
-| BTP tokens | plaintext | hashed, plus a label and created time; shown once at creation |
+| BTP tokens | plaintext | hashed, plus a label and created time; shown once at creation. A token's spending cap and how much of it is used, written with the journal rows that use it ([§4.5](#45-settlement-and-ledgers)) |
 | Node table: nodes, link states (signed bytes), registrations, peers with scheme state | written only by dev prefill | written on every change (NET-1, NET-2, ACC-18) |
 | Own link-state sequence | memory | persisted high-water mark (NET-7) |
 | Settlement channels: per node ever peered with, the highest settlement sequence applied and sent, and the settlement message not yet acknowledged | none | in the batch that changes them; kept after the peering ends ([§4.7](#47-peer-protocol-v1)) |
@@ -213,6 +213,16 @@ Mainnet stays disabled until the [D8](08-decisions.md#d8-real-money) criteria ar
 - a transfer within the group never needs free funds, since its effect on the total is zero;
 - each token's spending can be read from the journal, which is what the per-token spending caps of M5 (an amount per window, refilling continuously) are computed from. Caps are limits, not allocations, so they may add up to more than the funds.
 
+**Spending caps.** A BTP token may carry a cap of `A` per window `W`, refilling continuously.
+- **What counts** is a packet that debits the token's account and credits an account outside the owner's group: a peer, or `revenue/fx`. A payment to the node's own receiver, or to another token's client, moves no money out of the owner's funds and does not count.
+- **The bucket**, in exact integers: `U` (amount·ms) as of time `τ`, and `R`, what packets in flight hold. `U` drains at `A` per ms: `U(t) = max(0, U − (t − τ)·A)`.
+  - A Prepare of `a` is refused with F08 (maximum `A`) when `a > A`, and with T04 when `U(t) + (R + a)·W > A·W`. Otherwise `R` grows by `a`.
+  - A fulfilled packet adds `a·W` to `U`; a rejected one only frees `R`.
+  - So `U + R·W ≤ A·W` always, and what a token spends in any period `t` is at most `A + A·t/W`.
+- **It is enforced in the connector**, per account, so all of a token's connections share one cap.
+- **The usage is checkpointed** with the journal rows that change it. The journal alone cannot rebuild it from a recent window: two histories with the same recent rows can have used different amounts. A replay of the token's journal since the cap was set is the reference the tests check the checkpoint against.
+- Setting a cap where there was none starts from nothing used; changing one converts what is used, rounding up; removing it, or revoking the token, drops it.
+
 **What the ledger refuses and what it records.** Packets and settlements are refused when they would break a limit (T04). Reconciliations, deposits and withdrawals report what happened on the underlying ledger and are recorded even when they take the group below zero; spending is then refused until it recovers. Settlement modules report their on-ledger balance as a checkpoint, and activation books only the difference to the last checkpoint, through `equity/suspense` (ACC-2, ACC-6). The checkpoint is written in the same transaction as the transfers it explains.
 
 ### 4.6 The RPC contract in practice
@@ -227,11 +237,15 @@ Mainnet stays disabled until the [D8](08-decisions.md#d8-real-money) criteria ar
 - **Transports.**
   - WebSocket at `/rpc`: one message per binary frame.
   - The IPC socket: frames with a 4-byte big-endian length prefix.
-  - Both have a 1 MiB message limit, and per-connection limits on concurrent calls and open streams.
+  - Both have a 1 MiB message limit, and per-connection limits on concurrent calls (16) and open streams (12). A node serves at most 64 live streams in all.
   - The node caps the number of open WebSockets. A browser's socket with no call in flight closes after 10 minutes without a message; the client reconnects on its next call.
   - A client that sends faster than it reads is disconnected, rather than allowed to queue answers without bound.
   - Every way a session ends (logout, revocation, expiry, eviction for a newer one) closes its sockets with code 4001, after the calls already answered have their answers.
-- **The browser client** gives every call a timeout (RT-27).
+- **Live streams** (`Subscribe*`) carry either the whole value each time, or a snapshot followed by upserts and removals by key.
+  - The first item of a stream, and of every snapshot split over several items, has `reset` set.
+  - The node publishes only state that is on disk. It sends at most 4 items a second, coalescing changes in between, so a slow client never falls behind; it sends an item at least every 60 s, so a client can tell a quiet stream from a dead one.
+  - A stream ends with `UNAVAILABLE` when the node's engine restarts, and the client subscribes again.
+- **The browser client** gives every call a timeout (RT-27), and lets a caller cancel a call or stream.
 
 ### 4.7 Peer protocol v1
 
@@ -461,8 +475,11 @@ settle balance − midpoint when balance ≥ midpoint · 1.1; on termination, se
 
   In the client, these feed Solid 2 signals and stores. This replaces `useRemoteSignal` and `useRemoteStore`, and it no longer needs the server's reducer code in the browser ([6 §0](06-user-interfaces-and-tooling.md)).
 - The page CSP stays strict: no inline script (the original's dark-mode snippet moves into the bundle) and nothing loaded from other origins.
-- **The debug pages stay** (logs, nodes, ledger, routing, database). The "State" page that introspected `lib-reactive` becomes a service and cell inspector fed by the supervisor (§4.1).
-- **The dev dashboard** reuses the wallet's debug components (`packages/ui`). It talks to each node with a per-node dev token over the same contract.
+- **The debug pages stay** (logs, nodes, ledger, routing, database), and a packets page joins them. The "State" page that introspected `lib-reactive` becomes a service and cell inspector fed by the supervisor (§4.1).
+  - The logs page reads a ring of the node's last 1000 lines (at most 1 MiB), kept whatever `DASSIE_LOG_LEVEL` says: info and above, and debug for the targets `DEBUG` names. Fields named like secrets are redacted.
+  - The database page never reads a secret column: the node key, the TLS key, the ACME credentials, session IDs and token hashes are shown as redacted.
+- **Send and payment status come with M6**, which brings payment pointers. Until then the wallet offers Receive only.
+- **The dev dashboard** reuses the wallet's debug components (`packages/ui`). It talks to each node over the same contract, through the node's IPC socket, which the dev server relays to it; nothing in the node accepts a dev token.
 
 ## 6. Developer environment (Deno)
 
@@ -474,9 +491,9 @@ settle balance − midpoint when balance ≥ midpoint · 1.1; on termination, se
 
 The differences:
 
-- **Nodes are real `dassie` binaries** built by `cargo build`, restarted when the Rust sources change. The wallet is served by Vite with HMR from the node's HTTPS port, by proxying non-API paths in dev, as the original did.
-- **Prefill goes through the node's own CLI and RPC** (for example `dassie dev seed --config <json>` behind a dev feature flag), not by writing the database directly. That keeps the schema private to the node.
-- **Logs, peer traffic and peering state reach the dashboard** through the dev contract (`proto/dassie/dev/v1`), not by patching the logger.
+- **Nodes are real `dassie` binaries** built by `cargo build`, restarted when the Rust sources change. The wallet is rebuilt by `vite build --watch`, and in dev the node serves it from that directory (`DASSIE_DEV_WALLET_DIR`) instead of its embedded copy. A change shows after a reload, under the same CSP as in production; there is no HMR proxy in the node.
+- **Prefill goes through the node's own RPC and HTTP API**, as the end-to-end tests set nodes up, not by writing the database directly. That keeps the schema private to the node.
+- **Logs, peer traffic and peering state reach the dashboard** from the nodes' own RPC (`SubscribeLogs`, `SubscribePackets`, `SubscribeNodes`), not by patching the logger.
 - **The vanity identity table is regenerated** with `dassie-identity` (same derivation, so the existing table stays valid).
 
 ## 7. Testing strategy
@@ -518,8 +535,8 @@ Every crate is written so that a simulation can drive it ([D16](08-decisions.md#
 | M2 | Node skeleton: config, DB, listeners (plain and socket-activated), TLS, ACME, setup/login/logout, RPC contract, `dassie init`/`daemon`/`verify-install` | A fresh install reaches "setup complete" in a browser with a Let's Encrypt staging cert. |
 | M3 | Ledger journal, connector, local endpoints, ILDCP, BTP, stub settlement module. Exchange-rate math and its T00 rule; the rate fetcher comes in M7 with the first second currency | A BTP client pays the node's STREAM receiver. The journal matches the packet trace. |
 | M4 | Peer protocol v1, node table, membership, registration, auto-peering, link state, routing, settlement loop. Delivered in two PRs: **M4a** (v1, membership, peering, routing, packets over peers) and **M4b** (settlement loop, the D12 lifecycle: termination, bans, the advertise flag) | The `two-nodes` and `six-nodes` scenarios converge and route payments across hops. Restarts keep peerings and balances. M4a stops at payments within the credit peers extend, with restarts that keep peerings; M4b pays several times the credit across hops, so every hop must settle. Child peers move to the milestone that adds registration fees ([D12](08-decisions.md#d12-peering-lifecycle-and-liveness)). |
-| M5 | Wallet (Solid 2) and dev environment (Deno) with dashboard, including BTP token spending caps | All pages of [6 §1.6](06-user-interfaces-and-tooling.md) work against M4. `deno task dev` brings up any scenario. |
-| M6 | Open Payments + SPSP, payment pointers, outgoing payments with quotes and status | Pays to and from another Open Payments/SPSP wallet. |
+| M5 | Wallet (Solid 2) and dev environment (Deno) with dashboard, including BTP token spending caps. Delivered in two PRs: **M5a** (the node's live streams and inspectors, `GET /stats`, spending caps, every wallet page) and **M5b** (`deno task dev`, the dev dashboard, `packages/ui`) | All pages of [6 §1.6](06-user-interfaces-and-tooling.md) but Send and payment status work against M4. `deno task dev` brings up any scenario. |
+| M6 | Open Payments + SPSP, payment pointers, outgoing payments with quotes and status, and the wallet's Send and payment status pages | Pays to and from another Open Payments/SPSP wallet. |
 | M7 | XRPL testnet module with reserve and fee accounting; the exchange-rate fetcher of D7, fees and spread | The `xrpl-settlement` and `cross-currency` scenarios settle and reconcile across restarts. |
 | M8 | Release: static binaries (x64, arm64), signed artifacts, installer, updater, systemd units | Installer and updater tests pass on Debian, Ubuntu, Fedora and CentOS images. A tampered bundle is refused. |
 | M9 | Website and STREAM toy | `dassie.land` builds from `apps/website`. The toy runs on `dassie-stream` WASM. |
