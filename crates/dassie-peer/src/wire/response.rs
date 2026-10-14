@@ -78,6 +78,8 @@ pub enum RefusalReason {
     Unreachable,
     /// The requester is banned.
     Banned,
+    /// The responder is still ending a peering with the requester.
+    Terminating,
 }
 
 impl RefusalReason {
@@ -94,6 +96,7 @@ impl RefusalReason {
             Self::SchemeRefused => 6,
             Self::Unreachable => 7,
             Self::Banned => 8,
+            Self::Terminating => 9,
         }
     }
 
@@ -109,6 +112,7 @@ impl RefusalReason {
             6 => Self::SchemeRefused,
             7 => Self::Unreachable,
             8 => Self::Banned,
+            9 => Self::Terminating,
             _ => Self::Unspecified,
         }
     }

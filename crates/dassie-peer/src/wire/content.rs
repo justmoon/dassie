@@ -51,6 +51,9 @@ pub enum Content<'a> {
         amount: u64,
         /// The scheme's own data.
         data: &'a [u8],
+        /// Its number from this sender to this recipient: increasing,
+        /// never reset, so a copy is applied once.
+        sequence: u64,
     },
     /// `settlementMessage [5]`.
     SettlementMessage {
@@ -70,6 +73,47 @@ pub enum Content<'a> {
         /// The scheme.
         scheme: SchemeId,
     },
+    /// `peeringTermination [10]`.
+    PeeringTermination(TerminationReason),
+}
+
+/// Why a peering is terminated. Unknown codes read as
+/// [`TerminationReason::Unspecified`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TerminationReason {
+    /// No reason given.
+    Unspecified,
+    /// The owner ended it, or banned the peer.
+    Owner,
+    /// The peer was not heard from for too long.
+    Unresponsive,
+    /// The sender holds no peering with the recipient: the recipient's is
+    /// left over.
+    NotPeered,
+}
+
+impl TerminationReason {
+    /// The reason's code.
+    #[must_use]
+    pub const fn code(self) -> u8 {
+        match self {
+            Self::Unspecified => 0,
+            Self::Owner => 1,
+            Self::Unresponsive => 2,
+            Self::NotPeered => 3,
+        }
+    }
+
+    /// The reason with code `code`.
+    #[must_use]
+    pub const fn from_code(code: u8) -> Self {
+        match code {
+            1 => Self::Owner,
+            2 => Self::Unresponsive,
+            3 => Self::NotPeered,
+            _ => Self::Unspecified,
+        }
+    }
 }
 
 impl Content<'_> {
@@ -87,6 +131,7 @@ impl Content<'_> {
             Self::NodeListRequest => Kind::NodeListRequest,
             Self::Registration(_) => Kind::Registration,
             Self::PeeringInfoRequest { .. } => Kind::PeeringInfoRequest,
+            Self::PeeringTermination(_) => Kind::PeeringTermination,
         }
     }
 
@@ -108,13 +153,14 @@ impl Content<'_> {
                 size::quantity(ids.len()) + ids.iter().map(node_id_len).sum::<usize>()
             }
             Self::Settlement { scheme, data, .. } => {
-                scheme.encoded_len() + 8 + size::prefixed(data.len())
+                scheme.encoded_len() + 8 + size::prefixed(data.len()) + 8
             }
             Self::SettlementMessage { scheme, message } => {
                 scheme.encoded_len() + size::prefixed(message.len())
             }
             Self::NodeListHashRequest | Self::NodeListRequest => 0,
             Self::PeeringInfoRequest { scheme } => scheme.encoded_len(),
+            Self::PeeringTermination(_) => 1,
         }
     }
 }
@@ -156,10 +202,12 @@ impl Encode for Content<'_> {
                 scheme,
                 amount,
                 data,
+                sequence,
             } => {
                 scheme.write(writer);
                 writer.write_u64(*amount);
                 writer.write_octets(data, Size::ANY);
+                writer.write_u64(*sequence);
             }
             Self::SettlementMessage { scheme, message } => {
                 scheme.write(writer);
@@ -167,6 +215,7 @@ impl Encode for Content<'_> {
             }
             Self::NodeListHashRequest | Self::NodeListRequest => {}
             Self::PeeringInfoRequest { scheme } => scheme.write(writer),
+            Self::PeeringTermination(reason) => writer.write_u8(reason.code()),
         }
     }
 }
@@ -201,6 +250,7 @@ impl<'a> Decode<'a> for Content<'a> {
                 scheme: SchemeId::read(reader)?,
                 amount: reader.read_u64()?,
                 data: reader.read_octets(Size::ANY)?,
+                sequence: reader.read_u64()?,
             },
             Kind::SettlementMessage => Self::SettlementMessage {
                 scheme: SchemeId::read(reader)?,
@@ -212,6 +262,9 @@ impl<'a> Decode<'a> for Content<'a> {
             Kind::PeeringInfoRequest => Self::PeeringInfoRequest {
                 scheme: SchemeId::read(reader)?,
             },
+            Kind::PeeringTermination => {
+                Self::PeeringTermination(TerminationReason::from_code(reader.read_u8()?))
+            }
         })
     }
 }

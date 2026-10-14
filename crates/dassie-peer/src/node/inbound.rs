@@ -162,7 +162,9 @@ impl PeerNode {
                 }
                 ok(accepted, &encode_octets(&info))
             }
-            Content::Settlement { .. } | Content::SettlementMessage { .. } => {
+            Content::Settlement { .. }
+            | Content::SettlementMessage { .. }
+            | Content::PeeringTermination(_) => {
                 if self.peering_of(&accepted.sender).is_none() {
                     return Reply::refuse(409, "not peered");
                 }

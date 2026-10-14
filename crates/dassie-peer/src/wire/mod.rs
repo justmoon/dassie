@@ -14,7 +14,7 @@ mod url;
 use dassie_identity::NodeId;
 use dassie_oer::{Alphabet, DecodeError, DecodeErrorKind, Reader, Size, Writer, oid};
 
-pub use content::{Content, PeeringRequest};
+pub use content::{Content, PeeringRequest, TerminationReason};
 pub use envelope::{Authentication, Envelope, EnvelopeError, HmacAuthentication, encode_envelope};
 pub use node_info::{Entry, InvalidNodeInfo, NodeInfo, SignedNodeInfo, sign_node_info};
 pub use response::{
@@ -98,11 +98,12 @@ pub enum Kind {
     Registration,
     /// `peeringInfoRequest [9]`.
     PeeringInfoRequest,
+    /// `peeringTermination [10]`.
+    PeeringTermination,
 }
 
 impl Kind {
-    /// The kind with CHOICE tag `tag`. Tag 10, reserved for
-    /// `peeringTermination`, is not one yet.
+    /// The kind with CHOICE tag `tag`.
     #[must_use]
     pub const fn from_tag(tag: u64) -> Option<Self> {
         Some(match tag {
@@ -116,6 +117,7 @@ impl Kind {
             7 => Self::NodeListRequest,
             8 => Self::Registration,
             9 => Self::PeeringInfoRequest,
+            10 => Self::PeeringTermination,
             _ => return None,
         })
     }
@@ -134,6 +136,7 @@ impl Kind {
             Self::NodeListRequest => 7,
             Self::Registration => 8,
             Self::PeeringInfoRequest => 9,
+            Self::PeeringTermination => 10,
         }
     }
 
@@ -147,6 +150,7 @@ impl Kind {
                 | Self::Settlement
                 | Self::SettlementMessage
                 | Self::Registration
+                | Self::PeeringTermination
         )
     }
 }
