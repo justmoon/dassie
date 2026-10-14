@@ -13,7 +13,7 @@
 
 use std::fmt;
 use std::io;
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener};
 use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -81,6 +81,10 @@ pub struct DaemonOptions {
     /// configured ones: for running unprivileged, and for the development
     /// environment's many nodes.
     pub ports: Option<Ports>,
+    /// The one address the standalone runtime listens on, instead of all:
+    /// the development environment keeps its nodes, whose keys are public,
+    /// on loopback.
+    pub listen: Option<IpAddr>,
 }
 
 /// Everything the daemon needs before the async runtime starts.
@@ -122,7 +126,7 @@ impl Prepared {
                     Some(ports) => ports,
                     None => store.config().map_err(DaemonError::Store)?.ports,
                 };
-                let (http, https) = bind_ports(ports)?;
+                let (http, https) = bind_ports(ports, options.listen)?;
                 let path = standalone_ipc_path(&settings, env);
                 let (ipc, unpublished) = ipc::bind_unpublished(&path)
                     .map_err(|e| DaemonError::Bind(path.display().to_string(), e))?;
@@ -174,13 +178,19 @@ fn standalone_ipc_path(settings: &Settings, env: &Env) -> PathBuf {
     })
 }
 
-/// Binds both ports on every address, IPv6 and IPv4 where the system has
-/// IPv6, IPv4 only where it does not.
-fn bind_ports(ports: Ports) -> Result<(TcpListener, TcpListener), DaemonError> {
+/// Binds both ports on `listen`, or on every address: IPv6 and IPv4 where
+/// the system has IPv6, IPv4 only where it does not.
+fn bind_ports(
+    ports: Ports,
+    listen: Option<IpAddr>,
+) -> Result<(TcpListener, TcpListener), DaemonError> {
     let bind = |port: u16| {
-        TcpListener::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, port)))
-            .or_else(|_| TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, port))))
-            .map_err(|error| DaemonError::Bind(format!("port {port}"), error))
+        match listen {
+            Some(address) => TcpListener::bind(SocketAddr::from((address, port))),
+            None => TcpListener::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, port)))
+                .or_else(|_| TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, port)))),
+        }
+        .map_err(|error| DaemonError::Bind(format!("port {port}"), error))
     };
     Ok((bind(ports.http())?, bind(ports.https())?))
 }

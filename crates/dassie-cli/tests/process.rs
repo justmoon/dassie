@@ -198,6 +198,35 @@ fn the_standalone_daemon_cleans_up_its_socket() {
     assert!(!ipc.exists());
 }
 
+// The dev environment keeps its nodes on loopback: `--listen` binds only
+// there.
+#[test]
+fn the_standalone_daemon_listens_where_it_is_told() {
+    use std::net::{SocketAddr, TcpStream};
+    let dir = tempfile::tempdir().unwrap();
+    let ipc = dir.path().join("ipc.sock");
+    let child = Command::new(DASSIE)
+        .args(["daemon", "--http-port", "18296", "--https-port", "18297"])
+        .args(["--listen", "127.0.0.1"])
+        .env_clear()
+        .env("DASSIE_STATE_DIRECTORY", dir.path().join("state"))
+        .env("DASSIE_IPC_SOCKET_PATH", &ipc)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let pid = child.id();
+    let mut child = Some(child);
+    wait_for(&ipc, &mut child);
+    assert!(TcpStream::connect(SocketAddr::from(([127, 0, 0, 1], 18297))).is_ok());
+    // Not on IPv6 loopback, as it would be when bound to every address.
+    let v6: SocketAddr = "[::1]:18297".parse().unwrap();
+    assert!(TcpStream::connect(v6).is_err());
+    terminate(pid);
+    let output = child.take().unwrap().wait_with_output().unwrap();
+    assert!(output.status.success(), "{}", describe(&output));
+}
+
 // RT-9: the original's client crashed with a stack trace when the daemon
 // was not running.
 #[test]
