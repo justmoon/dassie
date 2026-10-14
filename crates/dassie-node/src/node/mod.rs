@@ -10,13 +10,14 @@ mod access;
 mod certificates;
 mod settings;
 
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use dassie_identity::NodeKey;
 use dassie_node_core::acme::{ChallengeTokens, Renewal, RenewalPolicy};
 use dassie_node_core::config::NodeConfig;
-use dassie_node_core::rate_limit::{RateLimitPolicy, RateLimiter};
+use dassie_node_core::rate_limit::{ClientKey, RateLimitPolicy, RateLimiter};
 use dassie_node_core::session::{SessionId, SessionPolicy};
 use dassie_node_core::setup::SetupToken;
 use dassie_node_core::urls;
@@ -29,6 +30,7 @@ pub use settings::SettingsError;
 use crate::acme::AcmeClient;
 use crate::clock::{Clock, SharedRng};
 use crate::engine::Engine;
+use crate::peer_client::PeerClient;
 use crate::store::{Store, StoreError};
 use crate::tls::{CertificateSlot, TlsError};
 
@@ -67,6 +69,11 @@ pub struct Policies {
     pub ledger: dassie_ledger::Config,
     /// The connector's bounds and timing.
     pub connector: dassie_connector::Config,
+    /// The peer protocol's bounds and timers.
+    pub peer: dassie_peer::Config,
+    /// The credit extended to a new peer, in its ledger's units: 1.1 units
+    /// at scale 9 on the test network (spec 5 §2.7).
+    pub peer_credit: u64,
 }
 
 impl Policies {
@@ -83,15 +90,26 @@ impl Policies {
         btp_auth_attempts: RateLimitPolicy::DEFAULT,
         ledger: dassie_ledger::Config {
             max_accounts: 4096,
-            max_pending: 9216,
+            max_pending: 16_448,
             max_journal: 1024,
         },
-        // Every BTP client and the receiver can fill their share of the
-        // packet table at once: 65 × 60 fits its 4096.
+        // Every BTP client, the receiver and every peer can fill their
+        // share of the packet table at once: 65 × 60 + 8 × 512 fits its
+        // 8192, and the ledger has two transfers for each, and 64 more.
         connector: dassie_connector::Config {
+            max_pending: 8192,
             max_pending_per_endpoint: 60,
             ..dassie_connector::Config::DEFAULT
         },
+        peer: dassie_peer::Config::DEFAULT,
+        peer_credit: 1_100_000_000,
+    };
+
+    /// The production values with the peer protocol's dev timers (spec 7
+    /// §4.7), for dev environments and tests.
+    pub const DEV: Self = Self {
+        peer: dassie_peer::Config::DEV,
+        ..Self::DEFAULT
     };
 }
 
@@ -113,6 +131,61 @@ pub struct NodeOptions {
     pub acme_ca_file: Option<PathBuf>,
     /// Limits and lifetimes.
     pub policies: Policies,
+    /// The peer protocol's settings.
+    pub peer: PeerOptions,
+}
+
+/// The peer protocol's settings, from the environment.
+#[derive(Clone, Debug, Default)]
+pub struct PeerOptions {
+    /// The bootstrap nodes.
+    pub bootstrap: Vec<dassie_peer::Bootstrap>,
+    /// Extra roots for peers' certificates (dev and tests).
+    pub ca_file: Option<PathBuf>,
+    /// Whether peers may be at private addresses (dev and tests).
+    pub allow_private: bool,
+}
+
+/// Most inbound peer requests waiting on the engine at once.
+const MAX_PEER_REQUESTS: usize = 256;
+
+/// Requests without authentication, per client address: they are for tools
+/// and debugging, since nodes authenticate every request.
+const PEER_ANONYMOUS: RateLimitPolicy = RateLimitPolicy {
+    client_burst: 20,
+    client_refill_ms: 1_000,
+    client_slots: 1024,
+};
+
+/// The node's side of the peer protocol, beside the engine.
+struct PeerSide {
+    bootstrap: Vec<dassie_peer::Bootstrap>,
+    /// Made on first use, as the ACME client is: a machine without the
+    /// system's roots still serves, and says why its peer requests fail.
+    client: std::sync::OnceLock<Result<PeerClient, String>>,
+    allow_private: bool,
+    permits: Arc<Semaphore>,
+    limiter: Mutex<RateLimiter>,
+}
+
+impl PeerSide {
+    fn new(options: PeerOptions) -> Result<Self, NodeError> {
+        let client = std::sync::OnceLock::new();
+        if options.ca_file.is_some() {
+            // A dev or test CA's root that cannot be read is a mistake in
+            // the environment: refuse to start, rather than fail later.
+            let made = PeerClient::new(options.ca_file.as_deref(), options.allow_private)
+                .map_err(NodeError::Peer)?;
+            let _ = client.set(Ok(made));
+        }
+        Ok(Self {
+            bootstrap: options.bootstrap,
+            client,
+            allow_private: options.allow_private,
+            permits: Arc::new(Semaphore::new(MAX_PEER_REQUESTS)),
+            limiter: Mutex::new(RateLimiter::new(PEER_ANONYMOUS)),
+        })
+    }
 }
 
 /// The node could not start.
@@ -124,6 +197,8 @@ pub enum NodeError {
     Tls(TlsError),
     /// The ACME client could not be set up (a bad `DASSIE_ACME_CA_FILE`).
     Acme(String),
+    /// The peer client could not be set up (a bad `DASSIE_PEER_CA_FILE`).
+    Peer(String),
 }
 
 impl std::fmt::Display for NodeError {
@@ -132,6 +207,7 @@ impl std::fmt::Display for NodeError {
             Self::Store(error) => error.fmt(f),
             Self::Tls(error) => error.fmt(f),
             Self::Acme(error) => write!(f, "ACME client: {error}"),
+            Self::Peer(error) => write!(f, "peer client: {error}"),
         }
     }
 }
@@ -170,9 +246,9 @@ impl Revocation {
 
 /// The node.
 pub struct Node {
-    store: Store,
+    store: Arc<Store>,
     clock: Arc<dyn Clock>,
-    rng: Mutex<Box<dyn SharedRng>>,
+    rng: Arc<Mutex<Box<dyn SharedRng>>>,
     config: watch::Sender<NodeConfig>,
     /// Held across each read, change and write of the configuration, so
     /// that concurrent changes cannot undo each other.
@@ -200,6 +276,7 @@ pub struct Node {
     http_port: u16,
     https_port: u16,
     started_at_ms: u64,
+    peer: PeerSide,
 }
 
 impl std::fmt::Debug for Node {
@@ -229,7 +306,9 @@ impl Node {
             https_port,
             acme_ca_file,
             policies,
+            peer,
         } = options;
+        let peer = PeerSide::new(peer)?;
         let now_ms = clock.now_ms();
         let config = store.config()?;
         let node_key = store.node_key()?.map(Arc::new);
@@ -244,8 +323,8 @@ impl Node {
         }
         let setup_token = SetupToken::generate(rng.as_mut());
         Ok(Arc::new(Self {
-            store,
-            rng: Mutex::new(rng),
+            store: Arc::new(store),
+            rng: Arc::new(Mutex::new(rng)),
             config: watch::Sender::new(config),
             config_writer: Mutex::new(()),
             node_key: watch::Sender::new(node_key),
@@ -270,7 +349,68 @@ impl Node {
             https_port,
             started_at_ms: now_ms,
             clock,
+            peer,
         }))
+    }
+
+    /// The bootstrap nodes.
+    #[must_use]
+    pub fn bootstrap(&self) -> Vec<dassie_peer::Bootstrap> {
+        self.peer.bootstrap.clone()
+    }
+
+    /// The client for peer requests, made on first use; `None` when it
+    /// cannot be, for want of roots to trust.
+    #[must_use]
+    pub fn peer_client(&self) -> Option<&PeerClient> {
+        let allow_private = self.peer.allow_private;
+        let made = self.peer.client.get_or_init(|| {
+            let made = PeerClient::new(None, allow_private);
+            if let Err(error) = &made {
+                tracing::error!(target: crate::log::target::PEER, %error, "no peer requests can be sent");
+            }
+            made
+        });
+        made.as_ref().ok()
+    }
+
+    /// A place for one more inbound peer request, if any is left.
+    #[must_use]
+    pub fn peer_permit(&self) -> Option<OwnedSemaphorePermit> {
+        Arc::clone(&self.peer.permits).try_acquire_owned().ok()
+    }
+
+    /// Whether `client` may send another unauthenticated or failing peer
+    /// request now.
+    #[must_use]
+    pub fn peer_limited(&self, client: IpAddr) -> bool {
+        let now = self.now_ms();
+        lock(&self.peer.limiter)
+            .peek(ClientKey::from_ip(client), now)
+            .is_err()
+    }
+
+    /// Charges `client` for an unauthenticated or failed peer request.
+    pub fn peer_charge(&self, client: IpAddr) {
+        let now = self.now_ms();
+        let _ = lock(&self.peer.limiter).check(ClientKey::from_ip(client), now);
+    }
+
+    /// The configuration as it changes.
+    #[must_use]
+    pub fn subscribe_config(&self) -> watch::Receiver<NodeConfig> {
+        self.config.subscribe()
+    }
+
+    /// What our link state says about us: the public URL, once there is a
+    /// hostname, and the alias.
+    #[must_use]
+    pub fn own_info(&self) -> dassie_peer::OwnInfo {
+        let config = self.config();
+        dassie_peer::OwnInfo {
+            url: dassie_node_core::urls::node_url(config.hostname.as_ref(), self.ports().1),
+            alias: config.alias.as_str().to_owned(),
+        }
     }
 
     /// Now, by the node's clock.
@@ -316,6 +456,12 @@ impl Node {
     /// Runs `f` with the node's RNG.
     pub fn with_rng<T>(&self, f: impl FnOnce(&mut dyn SharedRng) -> T) -> T {
         f(lock(&self.rng).as_mut())
+    }
+
+    /// The node's RNG, as one a task can own.
+    #[must_use]
+    pub fn shared_rng(&self) -> Box<dyn SharedRng> {
+        Box::new(LockedRng(Arc::clone(&self.rng)))
     }
 
     /// A place for one more BTP client, if any is left.
@@ -412,7 +558,36 @@ impl Node {
 
     /// The database.
     #[must_use]
-    pub const fn store(&self) -> &Store {
+    pub fn store(&self) -> &Store {
         &self.store
     }
+
+    /// The database, as a task can own it.
+    #[must_use]
+    pub fn store_handle(&self) -> Arc<Store> {
+        Arc::clone(&self.store)
+    }
 }
+
+/// The node's RNG behind its lock: each draw takes the lock, so a task may
+/// own one while others draw too.
+struct LockedRng(Arc<Mutex<Box<dyn SharedRng>>>);
+
+impl rand_core::TryRng for LockedRng {
+    type Error = std::convert::Infallible;
+
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        Ok(rand_core::Rng::next_u32(&mut **lock(&self.0)))
+    }
+
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        Ok(rand_core::Rng::next_u64(&mut **lock(&self.0)))
+    }
+
+    fn try_fill_bytes(&mut self, dst: &mut [u8]) -> Result<(), Self::Error> {
+        rand_core::Rng::fill_bytes(&mut **lock(&self.0), dst);
+        Ok(())
+    }
+}
+
+impl rand_core::TryCryptoRng for LockedRng {}

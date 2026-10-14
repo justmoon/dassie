@@ -20,7 +20,7 @@ pub const V0_APPLICATION_ID: i32 = 0x1DA5_3B81;
 
 /// The migrations, in order. Migration `n` (1-based) brings `user_version`
 /// to `n`. Never edit one that has shipped; add another.
-const MIGRATIONS: &[&str] = &[MIGRATION_1, MIGRATION_2];
+const MIGRATIONS: &[&str] = &[MIGRATION_1, MIGRATION_2, MIGRATION_3];
 
 const MIGRATION_1: &str = "
 CREATE TABLE node_config (
@@ -130,6 +130,50 @@ CREATE TABLE btp_tokens (
   created_at_ms INTEGER NOT NULL,
   revoked_at_ms INTEGER
 ) STRICT;
+";
+
+/// The peer protocol (spec 7 §4.4, §4.7): the node table, with each node's
+/// verified link state, its registration with us and our peering with it;
+/// and our own link state's sequence, which only goes up (NET-7).
+const MIGRATION_3: &str = "
+CREATE TABLE peer_nodes (
+  id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 2 AND 45),
+  link_state BLOB CHECK (link_state IS NULL OR length(link_state) <= 8192),
+  sources INTEGER NOT NULL CHECK (sources BETWEEN 0 AND 31),
+  first_seen_ms INTEGER NOT NULL,
+  registered_at_ms INTEGER,
+  renewed_at_ms INTEGER,
+  registration_expires_ms INTEGER,
+  -- The URL the registration was probed at, and the /24 or /48 it came
+  -- from, which registrations are capped by.
+  registered_url TEXT,
+  registered_network BLOB CHECK (registered_network IS NULL OR length(registered_network) = 7),
+  CHECK ((registered_at_ms IS NULL) = (renewed_at_ms IS NULL)
+     AND (renewed_at_ms IS NULL) = (registration_expires_ms IS NULL)
+     AND (registration_expires_ms IS NULL) = (registered_url IS NULL))
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE peers (
+  node TEXT PRIMARY KEY REFERENCES peer_nodes (id) ON DELETE CASCADE,
+  scheme TEXT NOT NULL,
+  version INTEGER NOT NULL CHECK (version BETWEEN 0 AND 65535),
+  state BLOB NOT NULL,
+  credit_in INTEGER NOT NULL CHECK (credit_in >= 0),
+  credit_out INTEGER NOT NULL CHECK (credit_out >= 0),
+  since_ms INTEGER NOT NULL,
+  inbound INTEGER NOT NULL CHECK (inbound IN (0, 1)),
+  last_seen_ms INTEGER NOT NULL,
+  -- The newest timestamp accepted from the peer: after a restart, nothing
+  -- at or below it is accepted again.
+  replay_floor_ms INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE own_link_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  sequence INTEGER NOT NULL CHECK (sequence >= 0)
+) STRICT;
+
+INSERT INTO own_link_state VALUES (1, 0);
 ";
 
 /// A column as the code expects it: name, type, NOT NULL, part of the
@@ -262,6 +306,45 @@ const TABLES: &[Table] = &[
             ("ledger", "TEXT", true, false),
             ("created_at_ms", "INTEGER", true, false),
             ("revoked_at_ms", "INTEGER", false, false),
+        ],
+    },
+    Table {
+        name: "peer_nodes",
+        without_rowid: true,
+        columns: &[
+            ("id", "TEXT", true, true),
+            ("link_state", "BLOB", false, false),
+            ("sources", "INTEGER", true, false),
+            ("first_seen_ms", "INTEGER", true, false),
+            ("registered_at_ms", "INTEGER", false, false),
+            ("renewed_at_ms", "INTEGER", false, false),
+            ("registration_expires_ms", "INTEGER", false, false),
+            ("registered_url", "TEXT", false, false),
+            ("registered_network", "BLOB", false, false),
+        ],
+    },
+    Table {
+        name: "peers",
+        without_rowid: true,
+        columns: &[
+            ("node", "TEXT", true, true),
+            ("scheme", "TEXT", true, false),
+            ("version", "INTEGER", true, false),
+            ("state", "BLOB", true, false),
+            ("credit_in", "INTEGER", true, false),
+            ("credit_out", "INTEGER", true, false),
+            ("since_ms", "INTEGER", true, false),
+            ("inbound", "INTEGER", true, false),
+            ("last_seen_ms", "INTEGER", true, false),
+            ("replay_floor_ms", "INTEGER", true, false),
+        ],
+    },
+    Table {
+        name: "own_link_state",
+        without_rowid: false,
+        columns: &[
+            ("id", "INTEGER", false, true),
+            ("sequence", "INTEGER", true, false),
         ],
     },
 ];

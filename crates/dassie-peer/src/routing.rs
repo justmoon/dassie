@@ -1,0 +1,163 @@
+//! Routes from link states (spec 3 §13, spec 7 §4.7): a breadth-first
+//! search from ourselves over the edges both ends advertise, giving each
+//! reachable node its first hops on shortest paths.
+//!
+//! An edge counts only if both ends list each other, so no node can claim
+//! a link the other end does not confirm; the caller passes only fresh
+//! link states, so a node that went silent drops out (NET-18).
+
+use alloc::collections::{BTreeMap, VecDeque};
+use alloc::vec::Vec;
+
+use dassie_identity::NodeId;
+
+/// Most first hops kept per destination.
+pub const MAX_FIRST_HOPS: usize = 4;
+
+/// The routes: for each reachable node, its first hops, sorted. There is
+/// none for ourselves (NET-34).
+pub type Routes = BTreeMap<NodeId, Vec<NodeId>>;
+
+/// Computes the routes from `own`. `neighbors` gives a node's advertised
+/// neighbors, sorted, if its link state is fresh.
+pub fn compute<'a>(own: &NodeId, neighbors: impl Fn(&NodeId) -> Option<&'a [NodeId]>) -> Routes {
+    let mut routes = Routes::new();
+    let Some(own_neighbors) = neighbors(own) else {
+        return routes;
+    };
+    // Level by level: each node's level, and the queue of the next.
+    let mut level: BTreeMap<NodeId, u32> = BTreeMap::new();
+    level.insert(*own, 0);
+    let mut queue = VecDeque::new();
+    for neighbor in own_neighbors {
+        if neighbor != own && is_edge(&neighbors, own, neighbor) && !level.contains_key(neighbor) {
+            level.insert(*neighbor, 1);
+            routes.insert(*neighbor, alloc::vec![*neighbor]);
+            queue.push_back(*neighbor);
+        }
+    }
+    while let Some(current) = queue.pop_front() {
+        let Some(&depth) = level.get(&current) else {
+            continue;
+        };
+        let hops = routes.get(&current).cloned().unwrap_or_default();
+        for next in neighbors(&current).unwrap_or_default() {
+            if !is_edge(&neighbors, &current, next) {
+                continue;
+            }
+            match level.get(next) {
+                None => {
+                    level.insert(*next, depth + 1);
+                    routes.insert(*next, hops.clone());
+                    queue.push_back(*next);
+                }
+                Some(&other) if other == depth + 1 => {
+                    if let Some(existing) = routes.get_mut(next) {
+                        merge(existing, &hops);
+                    }
+                }
+                Some(_) => {}
+            }
+        }
+    }
+    routes
+}
+
+/// Whether `a` and `b` list each other.
+fn is_edge<'a>(
+    neighbors: &impl Fn(&NodeId) -> Option<&'a [NodeId]>,
+    a: &NodeId,
+    b: &NodeId,
+) -> bool {
+    neighbors(b).is_some_and(|listed| listed.binary_search(a).is_ok())
+        && neighbors(a).is_some_and(|listed| listed.binary_search(b).is_ok())
+}
+
+/// Adds `hops` to `existing`, keeping it sorted and bounded.
+fn merge(existing: &mut Vec<NodeId>, hops: &[NodeId]) {
+    for hop in hops {
+        if let Err(at) = existing.binary_search(hop) {
+            existing.insert(at, *hop);
+        }
+    }
+    existing.truncate(MAX_FIRST_HOPS);
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::vec;
+
+    use super::*;
+
+    fn id(name: &str) -> NodeId {
+        NodeId::parse(name).unwrap()
+    }
+
+    fn graph(edges: &[(&str, &str)]) -> BTreeMap<NodeId, Vec<NodeId>> {
+        let mut map: BTreeMap<NodeId, Vec<NodeId>> = BTreeMap::new();
+        for (a, b) in edges {
+            map.entry(id(a)).or_default().push(id(b));
+            map.entry(id(b)).or_default().push(id(a));
+        }
+        for list in map.values_mut() {
+            list.sort_unstable();
+            list.dedup();
+        }
+        map
+    }
+
+    fn routes(map: &BTreeMap<NodeId, Vec<NodeId>>, own: &str) -> Routes {
+        compute(&id(own), |node| map.get(node).map(Vec::as_slice))
+    }
+
+    #[test]
+    fn shortest_paths_give_every_first_hop() {
+        // da - db - dd, da - dc - dd, dd - de
+        let map = graph(&[
+            ("da", "db"),
+            ("da", "dc"),
+            ("db", "dd"),
+            ("dc", "dd"),
+            ("dd", "de"),
+        ]);
+        let routes = routes(&map, "da");
+        assert_eq!(routes[&id("db")], vec![id("db")]);
+        assert_eq!(routes[&id("dd")], vec![id("db"), id("dc")]);
+        assert_eq!(routes[&id("de")], vec![id("db"), id("dc")]);
+        assert!(
+            !routes.contains_key(&id("da")),
+            "no route to ourselves (NET-34)"
+        );
+    }
+
+    // A node claiming a link the other end does not list gets no route
+    // through it.
+    #[test]
+    fn one_sided_links_do_not_count() {
+        let mut map = graph(&[("da", "db")]);
+        map.get_mut(&id("db")).unwrap().push(id("dx"));
+        map.insert(id("dx"), vec![]);
+        let routes = routes(&map, "da");
+        assert!(!routes.contains_key(&id("dx")));
+        // And a node that does not list us is not our first hop.
+        let mut map = graph(&[("db", "dc")]);
+        map.insert(id("da"), vec![id("db")]);
+        assert!(routes_from(&map, "da").is_empty());
+    }
+
+    fn routes_from(map: &BTreeMap<NodeId, Vec<NodeId>>, own: &str) -> Routes {
+        routes(map, own)
+    }
+
+    #[test]
+    fn first_hops_are_bounded() {
+        let mut edges = vec![];
+        let names = ["db", "dc", "dd", "de", "df", "dg"];
+        for name in names {
+            edges.push(("da", name));
+            edges.push((name, "dz"));
+        }
+        let map = graph(&edges);
+        assert_eq!(routes(&map, "da")[&id("dz")].len(), MAX_FIRST_HOPS);
+    }
+}

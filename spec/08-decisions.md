@@ -29,7 +29,7 @@ Every fix gets a test that would have failed against the original's behaviour.
 | Node ID algorithm, including stripping trailing `A`s | [3 §2.2](03-peer-network.md) | Node identity continuity. |
 | BIP-39 seed → `HMAC-SHA256` seed-path chain, `node`, `node/login`, `node/settlement-module/<scheme>/<path>` | [3 §2.1](03-peer-network.md), [5 §4.5](05-accounting-and-settlement.md) | The same passphrase recovers the same node and the same ledger accounts. |
 | XRPL wallet: first 16 bytes of entropy as an ed25519 family seed | [5 §6.3.1](05-accounting-and-settlement.md) | Funds continuity. |
-| Ed25519 verification accepts ZIP-215 | [3 §2.1](03-peer-network.md) | Harmless. Being stricter could split the network on edge-case signatures. Kept for v1 as well (confirmed with D2): use `verify`, not `verify_strict`. |
+| Ed25519 verification accepts ZIP-215 | [3 §2.1](03-peer-network.md) | Harmless. Being stricter could split the network on edge-case signatures. Kept for v1 as well (confirmed with D2). ed25519-dalek's `verify` is *not* ZIP-215: it is cofactorless and checks R by its encoding. So v1 verifies with `ed25519-zebra`, the ZIP-215 reference implementation (decided 2026-10-14). Small-order public keys are refused for link states, since under ZIP-215 one signature verifies for every message under such a key. |
 | Majority rule: strictly more than N/2 of *configured* bootstrap nodes | [3 §11.4](03-peer-network.md) (NET-16) | The code is right and the doc's "N/2 + 1" is the outlier. Fix the doc, not the code. |
 | Gossip parameters: suppress after 3 copies, 1–500 ms forward jitter, 5–20 s heartbeats, 3 h staleness, 1 h re-issue | [3 §17](03-peer-network.md) | Sound defaults. Make them configurable for tests. |
 | Settlement trigger: every 4 s, threshold = credit midpoint × 1.1, settle down to the midpoint | [5 §4.6](05-accounting-and-settlement.md) | Keep the policy. Fix the credit asymmetry (ACC-24) with D6. |
@@ -56,8 +56,15 @@ All decisions below were confirmed on 2026-10-11. Each states the **decision** a
 ### D2. Peer protocol: v0 or v1
 
 - **Decision:** v1, with envelope `version = 1`. It keeps the v0 message set and OER layouts ([3 §5](03-peer-network.md)) and changes:
-  - **Sender authentication** (NET-8): the MAC key comes from a static-static X25519 between the sender's and the recipient's node keys, mixed with the ephemeral key. The MAC also covers `version` and `sender`. (Rejected: an Ed25519 signature by the sender over `version ‖ sender ‖ content ‖ timestamp`, which costs a signature per message.)
+  - **Sender authentication** (NET-8): the MAC key comes from a static-static X25519 between the sender's and the recipient's node keys. The MAC also covers `version`, `sender` and the recipient. (Rejected: an Ed25519 signature by the sender over `version ‖ sender ‖ content ‖ timestamp`, which costs a signature per message.)
   - **Replay protection:** a timestamp plus a per-sender nonce window.
+  - **Amended 2026-10-14.** The exact scheme is in [7 §4.7](07-rewrite.md#47-peer-protocol-v1).
+    - **No ephemeral key.** The first version of this decision mixed an ephemeral X25519 into the key. For a scheme that only MACs, that adds nothing: whoever holds the recipient's static key can forge with or without it, so there is neither forward secrecy nor protection against key-compromise impersonation. It also let anyone force an X25519 operation per request by sending fresh ephemerals.
+    - **Direction labels.** Request and response keys are expanded with direction labels and the ordered pair of public keys, so a message cannot be reflected back to its sender.
+    - **Sender key in the envelope.** The sender's Ed25519 key travels in the authentication field and must hash to the claimed node ID. A recipient can then check a message from a node that is not in its table yet, such as a registrant or a node polling a bootstrap node.
+    - **Replay window.** "Nonce window" became a session ID plus a counter, checked against a sliding window. A per-peer floor is persisted, so a restart does not reopen a replay window.
+    - **Authenticated responses.** Responses are MACed as well, so node lists, peering answers and registrations are authenticated end to end, not just over TLS.
+  - **Post-quantum path (2026-10-14).** The authentication CHOICE reserves tag `[2]` for a scheme built on the X-Wing hybrid KEM, and link-state *extension* entries can carry its public key. X-Wing is a KEM: it can protect the key agreement, but signatures and node IDs stay Ed25519, since the passphrase-to-node-ID chain is fixed (7 §2). Confidentiality against "harvest now, decrypt later" belongs to TLS (hybrid X25519MLKEM768), which comes when the release's crypto provider is settled (M8).
   - **Peering requests** carry the full signed node info, which is verified, and must match the sender (NET-3, NET-4).
   - **The HTTP status is meaningful:** non-200 responses are errors (NET-11).
   - **Peering termination** messages exist (NET-13; see D12).
@@ -87,6 +94,16 @@ All decisions below were confirmed on 2026-10-11. Each states the **decision** a
   - Implement the **fee quote and payment** after M6, once outgoing payments work, as a v1.x protocol addition: a quote message plus payment by ILP with a signed quote condition (the "naive" token payment variant, [5 §9](05-accounting-and-settlement.md)).
 - **Fee schedule:** set when the fee quote and payment are implemented after M6. Registration is free until then.
 - **Payment target:** the cheapest 75% of bootstrap nodes, as the design doc says. The UI's 80% changes to match.
+- **Refinements (2026-10-14, from the M4 design review):**
+  - **The served list is `unexpired registrations ∪ self`.** In the original it was `majority ∪ registered` (3 §11.5). Majority is computed from the bootstrap nodes' lists, so serving it back would keep a node listed forever once it had made it, whether or not it renews. A bootstrap node lists itself and registers with the others like any node.
+  - **Membership freezes when lists go stale.** A node is removed for losing majority only while more than half of the configured lists are fresh. Otherwise two bootstrap nodes going offline would empty every table in the network.
+  - **NET-15.** A downloaded list is accepted when its response is authenticated by the bootstrap node's configured key. Its hash is recomputed from the downloaded bytes. Comparing the list with the hash polled earlier proves nothing, because both answers come from the same server, and on a busy bootstrap node the list changes between the two requests.
+  - **Free registration is throttled** until the fee arrives:
+    - a global token bucket for new registrations;
+    - one registration per URL host and port;
+    - a cap per /24 or /48;
+    - a reachability probe: the bootstrap node asks the registrant's URL for its link state, with authentication, before accepting.
+  - **Timings:** registrations last 24 h and are renewed every 6 h. A node with no reason to stay in the table is removed after a 1 h grace.
 
 ### D5. UI and CLI RPC contract
 
@@ -188,6 +205,15 @@ All decisions below were confirmed on 2026-10-11. Each states the **decision** a
   - candidate scoring and backoff;
   - support for child (non-majority) peers routed beneath our address (NET-21).
 - **Numbers:** the peer target stays 2. The missed-heartbeat threshold and the damping are set from the deterministic network simulation in M4 ([7 §7](07-rewrite.md#7-testing-strategy)) and are configurable.
+- **Refinements (2026-10-14, from the M4 design review):**
+  - **Only confirmed peers count toward the target.** A peer is confirmed by a reciprocal edge in the link states or by a recent authenticated heartbeat. A node whose stored peerings went stale therefore looks for new peers instead of staying isolated.
+  - **A bridge rule joins islands.** While a majority node with a fresh link state stays unreachable, a node attempts one more peering beyond the target, so two separate triangles of peers join up.
+  - **Inbound slots are capped** below the maximum, so requests alone cannot fill every slot.
+  - **Duplicate and crossed requests:**
+    - a peering request from a node that is already peered is accepted again idempotently, which covers an accept that got lost;
+    - when two nodes ask each other at once, the request from the lower node ID wins.
+  - **The responder probes the requester's URL before accepting,** as the design note intended.
+- **Delivery:** M4a builds the `none`, `request-peering` and `peered` states with the rules above. M4b adds termination, banning, the advertise flag and child peers.
 
 ### D13. Connector timing and packet limits
 
@@ -211,6 +237,7 @@ All decisions below were confirmed on 2026-10-11. Each states the **decision** a
 
 - The default BNL is `test1.dassie.xyz` and `test2.dassie.xyz` ([3 §11.1](03-peer-network.md)).
 - **Decision:** the project stands up and operates v1 bootstrap nodes (at least three, so that one failure doesn't block majority) under new hostnames in `dassie.xyz` (for example `boot1`–`boot3.dassie.xyz`), on separate providers or regions. Ship them as the default BNL, with their node IDs checked against their public keys at startup (NET-19).
+- **Until they exist (2026-10-14):** the default BNL is empty. The v0 nodes would refuse every v1 message. A node with no bootstrap nodes runs alone and warns. It neither polls nor registers until `DASSIE_BOOTSTRAP_NODES` is set.
 
 ### D16. Engineering style: pragmatic TigerStyle and deterministic simulation
 

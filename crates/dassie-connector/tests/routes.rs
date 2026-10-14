@@ -1,0 +1,196 @@
+//! Peers and the route table (M4): packets to other nodes go to a peer the
+//! routes name, never back where they came from; below our own address
+//! only children count; a packet that surely did not reach its peer is
+//! rejected at once.
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+
+mod support;
+
+use dassie_connector::{Config, EndpointId, Outcome, RoutesError};
+use dassie_ilp::{ErrorCode, Fulfill, Response, ildcp};
+use dassie_oer::{Decode, Encode};
+use support::{Harness, NOW, OWN, decode_prepare, prepare};
+
+const BTP: EndpointId = EndpointId::Btp(1);
+const ONE: EndpointId = EndpointId::Peer(1);
+const TWO: EndpointId = EndpointId::Peer(2);
+const TRUST: u64 = 1_100_000_000;
+
+fn harness() -> Harness {
+    let mut harness = Harness::new(Config::DEFAULT, 10_000_000_000);
+    harness.add_peer(1, "done", TRUST, 7_000);
+    harness.add_peer(2, "dtwo", TRUST, 0);
+    harness
+}
+
+fn set(harness: &mut Harness, routes: &[(&str, &[EndpointId])]) {
+    harness
+        .connector
+        .set_routes(routes.iter().map(|(prefix, hops)| (*prefix, *hops)))
+        .unwrap();
+}
+
+fn forwarded_to(outcome: Outcome) -> EndpointId {
+    match outcome {
+        Outcome::Forward(forwarded) => forwarded.to,
+        other => panic!("not forwarded: {other:?}"),
+    }
+}
+
+fn rejected(harness: &Harness, outcome: Outcome) -> ErrorCode {
+    match outcome {
+        Outcome::Respond(length) => harness.reject_written(length).0,
+        other => panic!("not answered: {other:?}"),
+    }
+}
+
+#[test]
+fn packets_follow_the_longest_route() {
+    let mut harness = harness();
+    set(
+        &mut harness,
+        &[("test.das.dfar", &[ONE]), ("test.das.dfar.child", &[TWO])],
+    );
+    let to_far = prepare("test.das.dfar.x", 10, NOW + 20_000, [1; 32]);
+    assert_eq!(forwarded_to(harness.prepare(NOW, BTP, 1, &to_far)), ONE);
+    let to_child = prepare("test.das.dfar.child.y", 10, NOW + 20_000, [2; 32]);
+    assert_eq!(forwarded_to(harness.prepare(NOW, BTP, 2, &to_child)), TWO);
+    // Whole segments only (NET-33).
+    let lookalike = prepare("test.das.dfarther", 10, NOW + 20_000, [3; 32]);
+    let outcome = harness.prepare(NOW, BTP, 3, &lookalike);
+    assert_eq!(rejected(&harness, outcome), ErrorCode::F02_UNREACHABLE);
+}
+
+// A packet never goes straight back to the peer it came from: the next
+// option is used, and with none, F02.
+#[test]
+fn packets_do_not_bounce_back() {
+    let mut harness = harness();
+    set(&mut harness, &[("test.das.dfar", &[ONE, TWO])]);
+    let packet = prepare("test.das.dfar", 10, NOW + 20_000, [1; 32]);
+    assert_eq!(forwarded_to(harness.prepare(NOW, ONE, 1, &packet)), TWO);
+    set(&mut harness, &[("test.das.dfar", &[ONE])]);
+    let outcome = harness.prepare(NOW, ONE, 2, &packet);
+    assert_eq!(rejected(&harness, outcome), ErrorCode::F02_UNREACHABLE);
+}
+
+// Below our own address only children are routes; our own address itself
+// has none (NET-34), and no route may claim our subtree.
+#[test]
+fn our_own_address_is_ours() {
+    let mut harness = harness();
+    assert_eq!(
+        harness.connector.set_routes([(OWN, &[ONE][..])]),
+        Err(RoutesError::InvalidPrefix)
+    );
+    set(&mut harness, &[("test.das", &[ONE])]);
+    let own = prepare(OWN, 10, NOW + 20_000, [1; 32]);
+    let outcome = harness.prepare(NOW, TWO, 1, &own);
+    assert_eq!(rejected(&harness, outcome), ErrorCode::F02_UNREACHABLE);
+    let missing = prepare(&format!("{OWN}.nobody"), 10, NOW + 20_000, [1; 32]);
+    let outcome = harness.prepare(NOW, TWO, 2, &missing);
+    assert_eq!(rejected(&harness, outcome), ErrorCode::F02_UNREACHABLE);
+    let child = prepare(&format!("{OWN}.alice"), 10, NOW + 20_000, [1; 32]);
+    assert_eq!(forwarded_to(harness.prepare(NOW, TWO, 3, &child)), BTP);
+}
+
+// A peer's packets debit its account, within the credit it was given:
+// eleven packets of 0.1 fit a credit of 1.1, the twelfth gets T04.
+#[test]
+fn peer_packets_book_against_its_credit() {
+    let mut harness = harness();
+    let three = EndpointId::Peer(3);
+    harness.add_peer(3, "dthree", TRUST, 0);
+    for request_id in 0..11 {
+        let packet = prepare(&format!("{OWN}.alice"), 100_000_000, NOW + 20_000, [4; 32]);
+        assert_eq!(
+            forwarded_to(harness.prepare(NOW, three, request_id, &packet)),
+            BTP
+        );
+    }
+    let packet = prepare(&format!("{OWN}.alice"), 100_000_000, NOW + 20_000, [4; 32]);
+    let outcome = harness.prepare(NOW, three, 11, &packet);
+    assert_eq!(
+        rejected(&harness, outcome),
+        ErrorCode::T04_INSUFFICIENT_LIQUIDITY
+    );
+}
+
+// Outgoing request IDs to a peer start where the caller said, so after a
+// restart they do not collide with IDs the peer remembers.
+#[test]
+fn peer_request_ids_start_at_random() {
+    let mut harness = harness();
+    set(&mut harness, &[("test.das.dfar", &[ONE])]);
+    let packet = prepare("test.das.dfar", 10, NOW + 20_000, [1; 32]);
+    match harness.prepare(NOW, BTP, 1, &packet) {
+        Outcome::Forward(forwarded) => assert_eq!(forwarded.request_id, 7_000),
+        other => panic!("{other:?}"),
+    }
+}
+
+// A packet that surely did not reach its peer is rejected at once with
+// what the caller says; its transfer is voided.
+#[test]
+fn undelivered_packets_fail_at_once() {
+    let mut harness = harness();
+    set(&mut harness, &[("test.das.dfar", &[ONE])]);
+    let packet = prepare("test.das.dfar", 10, NOW + 20_000, [1; 32]);
+    let Outcome::Forward(forwarded) = harness.prepare(NOW, BTP, 9, &packet) else {
+        panic!()
+    };
+    assert!(harness.connector.fail_forwarded(
+        NOW + 5,
+        ONE,
+        forwarded.request_id,
+        ErrorCode::T01_PEER_UNREACHABLE,
+        "the peer could not be reached",
+    ));
+    assert_eq!(harness.connector.poll_timeout(), Some(NOW + 5));
+    let upstream = harness.timeout(NOW + 5).unwrap();
+    assert_eq!((upstream.to, upstream.request_id), (BTP, 9));
+    let (code, _) = harness.reject_written(upstream.length);
+    assert_eq!(code, ErrorCode::T01_PEER_UNREACHABLE);
+    assert_eq!(harness.ledger.pending_transfers().count(), 0);
+    assert!(!harness.connector.fail_forwarded(
+        NOW + 6,
+        ONE,
+        forwarded.request_id,
+        ErrorCode::T01_PEER_UNREACHABLE,
+        "again"
+    ));
+}
+
+// A peer asking ILDCP learns the address we gave it and our asset.
+#[test]
+fn peers_get_their_address_over_ildcp() {
+    let mut harness = harness();
+    let request = ildcp::request(dassie_ilp::Timestamp::from_unix_ms(NOW)).to_vec();
+    let Outcome::Respond(length) = harness.prepare(NOW, ONE, 1, &request) else {
+        panic!()
+    };
+    let written = harness.written(length);
+    let Response::Fulfill(Fulfill { data, .. }) = Response::decode_exact(&written).unwrap() else {
+        panic!("not fulfilled")
+    };
+    let answer = ildcp::Response::decode_exact(data).unwrap();
+    assert_eq!(answer.address.as_str(), "test.das.done");
+    assert_eq!(answer.asset_code, "USD");
+}
+
+#[test]
+fn the_route_table_is_bounded() {
+    let mut harness = Harness::new(
+        Config {
+            max_routes: 1,
+            ..Config::DEFAULT
+        },
+        0,
+    );
+    harness.add_peer(1, "done", TRUST, 0);
+    let two = [("test.das.da", &[ONE][..]), ("test.das.db", &[ONE][..])];
+    assert_eq!(harness.connector.set_routes(two), Err(RoutesError::TooMany));
+    assert_eq!(harness.connector.routes().count(), 0);
+    let _ = decode_prepare;
+}

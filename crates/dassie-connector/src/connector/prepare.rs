@@ -192,17 +192,16 @@ impl Connector {
         if self.pending.len() >= config.max_pending {
             return Err(refuse(ErrorCode::T03_CONNECTOR_BUSY, "connector busy"));
         }
-        if from.pending_from >= config.max_pending_per_endpoint {
+        if from.pending_from >= config.max_pending_from(source) {
             return Err(refuse(
                 ErrorCode::T05_RATE_LIMITED,
                 "too many packets in flight",
             ));
         }
         // Unroutable, including anything below our own address that is no
-        // endpoint's and our own address itself (ILP-3).
+        // endpoint's and our own address itself (ILP-3, NET-34).
         let to = self
-            .endpoints
-            .route(prepare.destination)
+            .next_hop(prepare.destination, source)
             .ok_or(refuse(ErrorCode::F02_UNREACHABLE, "no route found"))?;
         let incoming_ms = prepare.expires_at.unix_ms;
         let latest_ms = incoming_ms.saturating_sub(config.message_window_ms);

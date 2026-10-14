@@ -1,0 +1,96 @@
+syntax = "proto3";
+
+package dassie.ui.v1;
+
+// A node in the node table (spec 3 §9): what its link state says, and why
+// it is in the table.
+message NetworkNode {
+  string id = 1;
+  // Empty until its link state is known.
+  string url = 2;
+  string alias = 3;
+  // Its link state's sequence, a timestamp in ms; 0 if unknown.
+  uint64 sequence = 4;
+  // Why the node is in the table. A node with no reason left is removed
+  // after a grace period.
+  bool is_self = 5;
+  bool bootstrap = 6;
+  // On a majority of the bootstrap nodes' lists.
+  bool majority = 7;
+  // Registered with this node, as a bootstrap node.
+  bool registered = 8;
+  bool peer = 9;
+  // When its registration with this node lapses; 0 if not registered.
+  int64 registered_until_unix_ms = 10;
+  // Its first hops, if a route reaches it.
+  repeated string first_hops = 11;
+}
+
+message ListNodesRequest {}
+
+message ListNodesResponse {
+  // By ID.
+  repeated NetworkNode nodes = 1;
+}
+
+// A peering.
+message NetworkPeer {
+  string node = 1;
+  // The settlement scheme, for example "stub".
+  string scheme = 2;
+  // The scheme's version both speak.
+  uint32 version = 3;
+  // The credit the peer extends to this node, in the scheme ledger's
+  // units.
+  uint64 credit_in = 4;
+  // The credit this node extends to the peer.
+  uint64 credit_out = 5;
+  int64 since_unix_ms = 6;
+  // The last authenticated message from the peer.
+  int64 last_seen_unix_ms = 7;
+  // Whether the peer asked.
+  bool inbound = 8;
+}
+
+message ListPeersRequest {}
+
+message ListPeersResponse {
+  // By node ID.
+  repeated NetworkPeer peers = 1;
+}
+
+// A route: the ILP address prefix of a node, and the peers that lead to it
+// on shortest paths.
+message NetworkRoute {
+  string node = 1;
+  // For example "test.das.dNKbw…".
+  string prefix = 2;
+  repeated string first_hops = 3;
+}
+
+message ListRoutesRequest {}
+
+message ListRoutesResponse {
+  // By node ID.
+  repeated NetworkRoute routes = 1;
+}
+
+// This node's standing with one bootstrap node (D4).
+message BootstrapStatus {
+  string node = 1;
+  // Whether its list, as last fetched, names this node.
+  bool listed = 2;
+  // When it last took this node's registration; 0 if not since start.
+  int64 registered_at_unix_ms = 3;
+  // When its list was last fetched; 0 if never.
+  int64 list_fetched_unix_ms = 4;
+}
+
+message GetRegistrationStatusRequest {}
+
+message GetRegistrationStatusResponse {
+  // This node's ID.
+  string node = 1;
+  // One per configured bootstrap node.
+  repeated BootstrapStatus bootstrap = 2;
+}

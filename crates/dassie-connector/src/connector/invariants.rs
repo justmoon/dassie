@@ -30,9 +30,6 @@ impl Connector {
                     .contains(&(entry.expires_at_ms, destination, request_id)),
                 "a packet without its deadline"
             );
-            if entry.failure.is_some() {
-                assert!(self.endpoints.get(destination).is_none());
-            }
             if !entry.source_gone {
                 live_incoming += 1;
                 assert!(
@@ -57,8 +54,12 @@ impl Connector {
                 endpoint.pending_from, expected,
                 "packets in flight from {id}"
             );
-            assert!(endpoint.pending_from <= self.config.max_pending_per_endpoint);
+            assert!(endpoint.pending_from <= self.config.max_pending_from(*id));
         }
+        assert!(
+            self.routes.len() <= self.config.max_routes,
+            "routes within bounds"
+        );
         self.trace.check_invariants();
     }
 }

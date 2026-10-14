@@ -106,7 +106,7 @@ async fn dispatch_more(
             })
         }
         Method::SubscribePackets(_) => return subscribe_packets(engine, items).await,
-        _ => unreachable!("the RPC dispatch answers the other methods"),
+        other => return super::network::dispatch(engine, other).await,
     };
     Ok(Reply::Unary(reply))
 }

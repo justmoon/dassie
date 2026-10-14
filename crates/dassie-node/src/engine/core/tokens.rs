@@ -5,11 +5,10 @@ use std::collections::BTreeSet;
 use dassie_connector::{EndpointError, EndpointId};
 use dassie_ledger::{AccountId, AccountName, AccountPath, LedgerId, OwnerSub};
 use sha2::{Digest, Sha256};
-use tokio::sync::mpsc;
 
+use super::Core;
+use super::EngineError;
 use super::packets::RECEIVER_SEGMENT;
-use super::state::Core;
-use super::{EngineError, Outbound};
 use crate::log::target;
 use crate::store::{BtpTokenRow, Store, StoreError};
 
@@ -39,8 +38,6 @@ pub(super) struct TokenState {
 /// A connected client.
 pub(super) struct BtpLink {
     pub token: u64,
-    /// Dropping it ends the connection's task.
-    pub outbound: mpsc::Sender<Outbound>,
 }
 
 /// A token as the owner sees it.
@@ -107,11 +104,12 @@ impl Core {
         Ok(())
     }
 
-    pub(super) fn create_token(
-        &mut self,
-        label: String,
-        ledger: &str,
-    ) -> Result<super::NewToken, EngineError> {
+    /// Creates a BTP token.
+    ///
+    /// # Errors
+    ///
+    /// The label or ledger is invalid, or the tokens are at their bound.
+    pub fn create_token(&mut self, label: String, ledger: &str) -> Result<NewToken, EngineError> {
         if label.len() > MAX_LABEL_BYTES {
             return Err(EngineError::Invalid(
                 "the label is longer than 64 bytes".into(),
@@ -135,7 +133,7 @@ impl Core {
             return Err(EngineError::Exhausted("1024 tokens have been made".into()));
         }
         let mut random = [0u8; TOKEN_BYTES];
-        self.node.with_rng(|rng| rng.fill_bytes(&mut random));
+        self.rng.fill_bytes(&mut random);
         let mut encoded = [0u8; dassie_stream::base64url::encoded_len(TOKEN_BYTES)];
         let length = dassie_stream::base64url::encode(&random, &mut encoded);
         let secret =
@@ -168,10 +166,15 @@ impl Core {
             .token_view(id)
             .ok_or_else(|| EngineError::Internal("token".into()))?;
         tracing::info!(target: target::BTP, id, "BTP token created");
-        Ok(super::NewToken { view, secret })
+        Ok(NewToken { view, secret })
     }
 
-    pub(super) fn revoke_token(&mut self, id: u64) -> Result<(), EngineError> {
+    /// Revokes a BTP token, and closes its connections.
+    ///
+    /// # Errors
+    ///
+    /// There is no such token.
+    pub fn revoke_token(&mut self, id: u64) -> Result<(), EngineError> {
         let now = self.now_ms();
         let Some(token) = self
             .tokens
@@ -194,7 +197,8 @@ impl Core {
         Ok(())
     }
 
-    pub(super) fn token_views(&self) -> Vec<TokenView> {
+    /// The BTP tokens not revoked.
+    pub fn token_views(&self) -> Vec<TokenView> {
         self.tokens
             .iter()
             .filter(|(_, token)| token.row.revoked_at_ms.is_none())
@@ -217,11 +221,7 @@ impl Core {
 
     /// Checks a client's token and gives its connection an address of its
     /// own below the node's, which ILDCP will hand it.
-    pub(super) fn btp_connect(
-        &mut self,
-        token: &str,
-        outbound: mpsc::Sender<Outbound>,
-    ) -> Result<BtpSession, EngineError> {
+    pub fn btp_connect(&mut self, token: &str) -> Result<BtpSession, EngineError> {
         let Some(&id) = self.by_hash.get(&token_hash(token)) else {
             return Err(EngineError::NotFound("unknown token".into()));
         };
@@ -232,13 +232,7 @@ impl Core {
         let link = self.next_link;
         self.next_link += 1;
         let address = self.link_address(link, account, ledger)?;
-        self.links.insert(
-            link,
-            BtpLink {
-                token: id,
-                outbound,
-            },
-        );
+        self.links.insert(link, BtpLink { token: id });
         if let Some(state) = self.tokens.get_mut(&id) {
             state.connections.insert(link);
         }
@@ -255,7 +249,7 @@ impl Core {
     ) -> Result<String, EngineError> {
         for _ in 0..8 {
             let mut random = [0u8; 6];
-            self.node.with_rng(|rng| rng.fill_bytes(&mut random));
+            self.rng.fill_bytes(&mut random);
             let segment: String = random
                 .iter()
                 .map(|byte| {

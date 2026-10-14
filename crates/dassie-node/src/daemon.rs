@@ -26,7 +26,7 @@ use tokio_util::task::TaskTracker;
 use crate::clock::{Clock, SharedRng};
 use crate::env::{Env, EnvError, Settings};
 use crate::log::target;
-use crate::node::{Node, NodeError, NodeOptions, Policies, Runtime};
+use crate::node::{Node, NodeError, NodeOptions, PeerOptions, Policies, Runtime};
 use crate::store::{Store, StoreError};
 use crate::systemd::{self, ActivationError, Notifier};
 use crate::{http, ipc, supervisor, tls};
@@ -275,6 +275,15 @@ fn make_node(
     let listeners = adopt(http, https, ipc).map_err(|e| DaemonError::Bind("sockets".into(), e))?;
     let http_port = listeners.0.local_addr().map_or(0, |address| address.port());
     let https_port = listeners.1.local_addr().map_or(0, |address| address.port());
+    let settings = &parts.settings;
+    let policies = if settings.dev_timings {
+        Policies {
+            peer: dassie_peer::Config::DEV,
+            ..parts.policies
+        }
+    } else {
+        parts.policies
+    };
     let node = Node::new(NodeOptions {
         store: parts.store,
         clock: parts.clock,
@@ -282,12 +291,33 @@ fn make_node(
         runtime: parts.runtime,
         http_port,
         https_port,
-        acme_ca_file: parts.settings.acme_ca_file.clone(),
-        policies: parts.policies,
+        acme_ca_file: settings.acme_ca_file.clone(),
+        policies,
+        peer: peer_options(settings),
     })
     .map_err(DaemonError::Node)?;
+    if settings.bootstrap_nodes.is_empty() {
+        tracing::warn!(target: target::PEER, "no bootstrap nodes: the node runs alone (set DASSIE_BOOTSTRAP_NODES)");
+    }
     let tls = tls::server_config(Arc::clone(node.certificate())).map_err(DaemonError::Tls)?;
     Ok((node, listeners, tls))
+}
+
+/// The peer protocol's settings from the environment.
+fn peer_options(settings: &Settings) -> PeerOptions {
+    PeerOptions {
+        bootstrap: settings
+            .bootstrap_nodes
+            .iter()
+            .map(|node| dassie_peer::Bootstrap {
+                id: node.id,
+                url: node.url.clone(),
+                key: node.public_key,
+            })
+            .collect(),
+        ca_file: settings.peer_ca_file.clone(),
+        allow_private: settings.peer_allow_private,
+    }
 }
 
 type Listeners = (

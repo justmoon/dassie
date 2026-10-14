@@ -42,6 +42,10 @@ pub mod target {
     pub const ENGINE: &str = "das:node:accounting";
     /// BTP clients.
     pub const BTP: &str = "das:node:btp";
+    /// The peer protocol: link states, membership, peering.
+    pub const PEER: &str = "das:node:peer-protocol";
+    /// Routes.
+    pub const ROUTING: &str = "das:node:routing";
     /// Payments to the node's STREAM receiver.
     pub const PAYMENT: &str = "das:node:payment";
     /// Settlement schemes.

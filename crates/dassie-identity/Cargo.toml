@@ -17,10 +17,12 @@ wasm = ["dep:wasm-bindgen", "dep:getrandom", "getrandom/sys_rng", "getrandom/was
 getrandom = { version = "0.4.3", default-features = false, optional = true }
 wasm-bindgen = { version = "=0.2.129", optional = true }
 dassie-oer = { path = "../dassie-oer", default-features = false }
-# Ed25519 signing and ZIP-215 verification. `fast` keeps the precomputed
-# basepoint tables, since simulations sign a lot; `zeroize` wipes the signing
-# key on drop.
+# Ed25519 signing. `fast` keeps the precomputed basepoint tables, since
+# simulations sign a lot; `zeroize` wipes the signing key on drop.
 ed25519-dalek = { version = "3.0", default-features = false, features = ["fast", "zeroize"] }
+# Ed25519 verification by the ZIP-215 rules (spec 8 §2), which dalek's
+# `verify` does not follow. Built on the same curve25519-dalek.
+ed25519-zebra = { version = "5.0", default-features = false }
 # X25519 on the Montgomery form of the node key. Already in the tree through
 # ed25519-dalek, so it costs nothing extra; x25519-dalek would add only a
 # wrapper.

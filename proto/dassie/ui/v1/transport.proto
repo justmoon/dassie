@@ -36,6 +36,7 @@ import "dassie/ui/v1/btp.proto";
 import "dassie/ui/v1/config.proto";
 import "dassie/ui/v1/debug.proto";
 import "dassie/ui/v1/ledger.proto";
+import "dassie/ui/v1/network.proto";
 import "dassie/ui/v1/node.proto";
 import "dassie/ui/v1/payments.proto";
 import "dassie/ui/v1/sessions.proto";
@@ -95,6 +96,11 @@ message Request {
     ListPacketsRequest list_packets = 82;
     // Streaming.
     SubscribePacketsRequest subscribe_packets = 83;
+
+    ListNodesRequest list_nodes = 90;
+    ListPeersRequest list_peers = 91;
+    ListRoutesRequest list_routes = 92;
+    GetRegistrationStatusRequest get_registration_status = 93;
   }
 }
 
@@ -144,6 +150,11 @@ message Response {
     ListAccountsResponse list_accounts = 80;
     ListTransfersResponse list_transfers = 81;
     ListPacketsResponse list_packets = 82;
+
+    ListNodesResponse list_nodes = 90;
+    ListPeersResponse list_peers = 91;
+    ListRoutesResponse list_routes = 92;
+    GetRegistrationStatusResponse get_registration_status = 93;
   }
 }
 

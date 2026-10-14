@@ -15,6 +15,9 @@
 mod ledger;
 #[cfg(test)]
 mod ledger_tests;
+mod peer;
+#[cfg(test)]
+mod peer_tests;
 mod schema;
 
 use std::fmt;
