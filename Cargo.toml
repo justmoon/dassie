@@ -50,3 +50,9 @@ strip = true
 # the same checks as release.
 [profile.e2e]
 inherits = "dev"
+
+# The Nix checks (flake.nix): the test profile's settings, so that CI builds
+# as a local `cargo test` does, under a name that does not put `cargo check`
+# and clippy in test mode, which would lint only cfg(test) code.
+[profile.ci]
+inherits = "test"
