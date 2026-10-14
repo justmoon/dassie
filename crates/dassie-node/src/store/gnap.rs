@@ -32,7 +32,9 @@ pub enum GrantState {
 }
 
 impl GrantState {
-    const fn as_str(self) -> &'static str {
+    /// As stored.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Pending => "pending",
             Self::Approved => "approved",

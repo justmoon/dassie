@@ -10,6 +10,7 @@
 )]
 
 pub mod btp_client;
+pub mod op;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;

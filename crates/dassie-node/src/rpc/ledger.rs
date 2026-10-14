@@ -106,6 +106,9 @@ async fn dispatch_more(
             let _permit = permit(node)?;
             return subscribe_packets(engine, items).await;
         }
+        other if super::grants::is_grants(&other) => {
+            return super::grants::dispatch(node, engine, other, items).await;
+        }
         other if super::payments::is_payments(&other) => {
             return super::payments::dispatch(node, engine, other, items).await;
         }
