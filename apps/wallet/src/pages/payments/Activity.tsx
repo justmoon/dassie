@@ -1,7 +1,7 @@
 /**
  * Activity: the incoming and outgoing payments, newest first, as they
- * receive and send money (D9). Apps the owner approved send outgoing
- * payments; the owner's own Send comes with M6c.
+ * receive and send money (D9). Outgoing payments are the owner's Sends and
+ * those of apps the owner approved; each leads to its own page.
  */
 
 import type { JSX } from "@solidjs/web";
@@ -10,6 +10,7 @@ import { createSignal, For, onCleanup, Show } from "solid-js";
 import { Amount, ledgerCurrency } from "@dassie/ui/amount";
 import { dateTime } from "@dassie/ui/format";
 import { createLiveTable } from "@dassie/ui/live";
+import { Link } from "@dassie/ui/router";
 import { describe, useClient } from "@dassie/ui/rpc";
 import {
   Badge,
@@ -25,6 +26,7 @@ import {
   incomingState,
   newestFirst,
 } from "./incoming.ts";
+import { destinationLabel } from "./send.ts";
 
 /** How many incoming payments the page follows. */
 const LIMIT = 100;
@@ -117,7 +119,12 @@ function OutgoingRow(props: { payment: OutgoingPayment }): JSX.Element {
       data-state={props.payment.state}
     >
       <div class="activity-head">
-        <strong>To {receiverLabel(props.payment.receiver)}</strong>
+        <Link
+          href={`/payments/${props.payment.id}`}
+          testid="outgoing-link"
+        >
+          <strong>To {destinationLabel(props.payment)}</strong>
+        </Link>
         <Badge tone={tone()} testid="outgoing-state">
           {props.payment.state}
         </Badge>
@@ -142,15 +149,6 @@ function OutgoingRow(props: { payment: OutgoingPayment }): JSX.Element {
       </Show>
     </li>
   );
-}
-
-/** Where a payment goes: the receiving wallet's host. */
-function receiverLabel(receiver: string): string {
-  try {
-    return new URL(receiver).host;
-  } catch {
-    return receiver;
-  }
 }
 
 function Row(props: { payment: IncomingPayment; now: number }): JSX.Element {

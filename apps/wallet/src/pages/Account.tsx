@@ -47,6 +47,9 @@ export function Account(): JSX.Element {
           </For>
         </ul>
         <div class="actions">
+          <Link href="/send" class="button primary" testid="send-button">
+            Send
+          </Link>
           <Link href="/receive" class="button primary" testid="receive-button">
             Receive
           </Link>
