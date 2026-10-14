@@ -160,18 +160,28 @@ const PEER_ANONYMOUS: RateLimitPolicy = RateLimitPolicy {
 /// The node's side of the peer protocol, beside the engine.
 struct PeerSide {
     bootstrap: Vec<dassie_peer::Bootstrap>,
-    client: PeerClient,
+    /// Made on first use, as the ACME client is: a machine without the
+    /// system's roots still serves, and says why its peer requests fail.
+    client: std::sync::OnceLock<Result<PeerClient, String>>,
+    allow_private: bool,
     permits: Arc<Semaphore>,
     limiter: Mutex<RateLimiter>,
 }
 
 impl PeerSide {
     fn new(options: PeerOptions) -> Result<Self, NodeError> {
-        let client = PeerClient::new(options.ca_file.as_deref(), options.allow_private)
-            .map_err(NodeError::Peer)?;
+        let client = std::sync::OnceLock::new();
+        if options.ca_file.is_some() {
+            // A dev or test CA's root that cannot be read is a mistake in
+            // the environment: refuse to start, rather than fail later.
+            let made = PeerClient::new(options.ca_file.as_deref(), options.allow_private)
+                .map_err(NodeError::Peer)?;
+            let _ = client.set(Ok(made));
+        }
         Ok(Self {
             bootstrap: options.bootstrap,
             client,
+            allow_private: options.allow_private,
             permits: Arc::new(Semaphore::new(MAX_PEER_REQUESTS)),
             limiter: Mutex::new(RateLimiter::new(PEER_ANONYMOUS)),
         })
@@ -349,10 +359,19 @@ impl Node {
         self.peer.bootstrap.clone()
     }
 
-    /// The client for peer requests.
+    /// The client for peer requests, made on first use; `None` when it
+    /// cannot be, for want of roots to trust.
     #[must_use]
-    pub fn peer_client(&self) -> &PeerClient {
-        &self.peer.client
+    pub fn peer_client(&self) -> Option<&PeerClient> {
+        let allow_private = self.peer.allow_private;
+        let made = self.peer.client.get_or_init(|| {
+            let made = PeerClient::new(None, allow_private);
+            if let Err(error) = &made {
+                tracing::error!(target: crate::log::target::PEER, %error, "no peer requests can be sent");
+            }
+            made
+        });
+        made.as_ref().ok()
     }
 
     /// A place for one more inbound peer request, if any is left.

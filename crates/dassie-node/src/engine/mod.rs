@@ -499,12 +499,15 @@ impl Driver<'_> {
     /// Sends a peer request on a task of its own; its result comes back as
     /// a command. The peer node bounds the requests in flight.
     fn send_peer_request(&self, request: dassie_peer::Request) {
-        let client = self.node.peer_client().clone();
+        let client = self.node.peer_client().cloned();
         let commands = self.commands.clone();
         let id = request.id;
         tokio::spawn(async move {
             let (kind, to) = (request.kind, request.to);
-            let result = client.send(request).await;
+            let result = match client {
+                Some(client) => client.send(request).await,
+                None => Err(dassie_peer::Failure::NotDelivered),
+            };
             let status = result.as_ref().map(|response| response.status);
             tracing::debug!(target: target::PEER, ?kind, %to, ?status, "peer request");
             let _ = commands.send(Command::PeerResponse { id, result }).await;
