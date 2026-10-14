@@ -4,6 +4,8 @@ mod invariants;
 mod prepare;
 mod response;
 
+pub use response::{Posted, Responded};
+
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -347,6 +349,14 @@ impl Connector {
             .map_or(0, |endpoint| endpoint.pending_from);
         let to = self.pending.range((id, 0)..=(id, u32::MAX)).count();
         from + to
+    }
+
+    /// Packets in flight that came from an endpoint.
+    #[must_use]
+    pub fn pending_from(&self, id: EndpointId) -> usize {
+        self.endpoints
+            .get(id)
+            .map_or(0, |endpoint| endpoint.pending_from)
     }
 
     /// Limits what `account` may spend out of its owner's funds, from

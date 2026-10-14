@@ -215,6 +215,34 @@ impl Core {
         Some(position - i128::from(at.credit_out))
     }
 
+    /// What `node` refused of our Fulfills in the last 24 hours, on
+    /// `scheme`'s ledger (D17): read from the journal, where each refusal
+    /// credits its account.
+    pub(super) fn refused_recently(&self, node: NodeId, scheme: SchemeId) -> u64 {
+        const DAY_MS: u64 = 24 * 60 * 60 * 1_000;
+        let Some(ledger) = Name::new(scheme.as_str())
+            .ok()
+            .and_then(|name| self.schemes.get(&name))
+            .map(|active| active.scheme.ledger())
+        else {
+            return 0;
+        };
+        let Some(account) = Name::new(node.as_str()).ok().and_then(|name| {
+            self.ledger.find(&AccountPath::new(
+                ledger,
+                AccountName::AssetsInterledger(name),
+            ))
+        }) else {
+            return 0;
+        };
+        self.store
+            .refused_since(account, self.now_ms.saturating_sub(DAY_MS))
+            .unwrap_or_else(|error| {
+                tracing::error!(target: target::PEER, %error, "reading refusals");
+                0
+            })
+    }
+
     /// Prepares a settlement and books its pending transfer; it executes
     /// once that is on disk (ACC-16).
     fn prepare_settlement(&mut self, node: NodeId, at: &Position, amount: u64, state: &[u8]) {

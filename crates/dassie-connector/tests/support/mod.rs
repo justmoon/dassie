@@ -2,7 +2,7 @@
 
 #![allow(dead_code)]
 
-use dassie_connector::{Config, Connector, EndpointId, Outcome, Rates, Upstream};
+use dassie_connector::{Config, Connector, EndpointId, Outcome, Rates, Responded, Upstream};
 use dassie_ilp::{
     Address, ErrorCode, Fulfill, MAX_PACKET_LENGTH, Prepare, Reject, Response, Timestamp,
     condition_for,
@@ -121,7 +121,27 @@ impl Harness {
             &mut self.buffer,
         );
         self.check();
-        upstream
+        upstream.upstream()
+    }
+
+    /// Handles a response, and says what it did.
+    pub fn respond_full(
+        &mut self,
+        now: u64,
+        from: EndpointId,
+        request_id: u32,
+        packet: &[u8],
+    ) -> Responded {
+        let responded = self.connector.handle_response(
+            now,
+            from,
+            request_id,
+            packet,
+            &mut self.ledger,
+            &mut self.buffer,
+        );
+        self.check();
+        responded
     }
 
     pub fn timeout(&mut self, now: u64) -> Option<Upstream> {

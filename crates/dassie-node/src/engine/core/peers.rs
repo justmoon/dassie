@@ -24,6 +24,7 @@ pub(super) struct Hooks<'a> {
     pub credit: u64,
     pub connector: &'a Connector,
     pub endpoints: &'a BTreeMap<NodeId, u64>,
+    pub owed: &'a super::verdicts::Owed,
 }
 
 impl Hooks<'_> {
@@ -62,7 +63,7 @@ impl Hooks<'_> {
 enum Inbound {
     Reply(Reply),
     Deferred,
-    Packet(NodeId, u32, Vec<u8>, Reply),
+    Packet(NodeId, u32, Vec<u8>, Reply, Option<dassie_peer::Verdicts>),
     Settlement(NodeId, SchemeId, u64, Vec<u8>, u64, Reply),
     SchemeMessage(NodeId, SchemeId, Vec<u8>, Reply),
 }
@@ -158,10 +159,14 @@ impl PeeringHooks for Hooks<'_> {
         Ok(Agreed { state, credit_out })
     }
 
-    fn drained(&self, peer: NodeId) -> bool {
-        self.endpoints
+    fn drained(&self, peer: NodeId, reason: TerminationReason) -> bool {
+        let packets = self
+            .endpoints
             .get(&peer)
-            .is_none_or(|id| self.connector.pending_for(EndpointId::Peer(*id)) == 0)
+            .is_none_or(|id| self.connector.pending_for(EndpointId::Peer(*id)) == 0);
+        // A peer that stopped answering may never give its verdicts; they
+        // are still asked for over the settlement channel.
+        packets && (reason == TerminationReason::Unresponsive || self.owed.count(&peer) == 0)
     }
 
     fn credit(&self, peer: NodeId, scheme: SchemeId) -> u64 {
@@ -187,6 +192,8 @@ pub struct PeerView {
     pub advertised: bool,
     /// What we owe the peer net; negative when it owes us.
     pub owed: Option<i128>,
+    /// What the peer refused of our Fulfills in the last 24 hours (D17).
+    pub refused_24h: u64,
 }
 
 /// The network as the owner sees it.
@@ -229,6 +236,7 @@ impl Core {
                     Some(PeerView {
                         id: view.id,
                         owed: self.owed(view.id, peering.scheme),
+                        refused_24h: self.refused_recently(view.id, peering.scheme),
                         peering,
                         termination: view.termination,
                         advertised: view.advertised,
@@ -264,6 +272,7 @@ impl Core {
             credit: self.peer_credit,
             connector: &self.connector,
             endpoints: &self.peer_endpoints,
+            owed: &self.owed,
         };
         f(&mut self.peer, &mut hooks, now)
     }
@@ -285,7 +294,8 @@ impl Core {
                     request_id,
                     packet,
                     reply,
-                } => Inbound::Packet(from, request_id, packet.to_vec(), reply),
+                    verdicts,
+                } => Inbound::Packet(from, request_id, packet.to_vec(), reply, verdicts),
                 dassie_peer::Inbound::Settlement {
                     from,
                     scheme,
@@ -305,9 +315,14 @@ impl Core {
         let reply = match outcome {
             Inbound::Reply(reply) => Some(reply),
             Inbound::Deferred => None,
-            Inbound::Packet(from, request_id, packet, reply) => {
-                self.peer_packet(from, request_id, &packet);
-                Some(reply)
+            Inbound::Packet(from, request_id, packet, reply, verdicts) => {
+                let taken = self.peer_packet(from, request_id, &packet);
+                // A Fulfill's reply is our verdict on it (D17).
+                Some(match verdicts {
+                    Some(verdicts) if taken => verdicts.accepted,
+                    Some(verdicts) => verdicts.refused,
+                    None => reply,
+                })
             }
             Inbound::Settlement(from, scheme, amount, data, sequence, reply) => {
                 Some(self.settlement_from(from, scheme, amount, &data, sequence, reply))
@@ -547,6 +562,18 @@ impl Core {
             }
             Event::Advertised { peer, on } => {
                 tracing::debug!(target: target::PEER, %peer, on, "advertised");
+            }
+            Event::Verdict {
+                peer,
+                tag,
+                accepted,
+            } => {
+                tracing::debug!(target: target::PEER, %peer, tag, accepted, "verdict on a Fulfill");
+                self.verdict_on(tag, accepted);
+            }
+            Event::VerdictMissing { peer, tag } => {
+                tracing::debug!(target: target::PEER, %peer, tag, "no verdict on a Fulfill yet");
+                self.verdict_missing(tag);
             }
             Event::SettlementDelivered { peer, sequence } => {
                 tracing::debug!(target: target::SETTLEMENT, %peer, sequence, "the peer has our settlement");

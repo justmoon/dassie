@@ -204,6 +204,13 @@ function NodeDetail(props: { node: NetworkNode }): JSX.Element {
                 currency={currency(peering().scheme)}
               />
             </dd>
+            <dt>Refused (24 h)</dt>
+            <dd data-testid="peer-refused">
+              <Amount
+                value={peering().refused24h}
+                currency={currency(peering().scheme)}
+              />
+            </dd>
             <Show when={peering().terminationReason}>
               <dt>Ending, because</dt>
               <dd>{peering().terminationReason}</dd>

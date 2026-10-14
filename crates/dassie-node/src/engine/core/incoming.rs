@@ -9,6 +9,11 @@
 //! with its journal row, so the payment never shows money the books lack,
 //! nor the other way round.
 //!
+//! A packet that came from a peer counts only once that peer's verdict
+//! says the Fulfill counted there too (D17): until then it waits, still
+//! taking its place against what the payment may receive, and a refusal
+//! frees that place again.
+//!
 //! The owner's payments and clients' are bounded apart, so that clients,
 //! whom anyone can be, never crowd out the owner's own requests. When the
 //! clients' share is full, the oldest of their payments that received
@@ -57,6 +62,11 @@ pub(super) struct OpenIncoming {
     ledger: LedgerId,
     incoming_amount: Option<u64>,
     received: u64,
+    /// What fulfilled packets brought that waits for a peer's verdict.
+    waiting: u64,
+    /// What arrived and was taken back when a peer refused its Fulfill:
+    /// the payment's connections still count it.
+    released: u64,
     created_at_ms: u64,
     expires_at_ms: u64,
     client: Option<String>,
@@ -66,7 +76,7 @@ impl OpenIncoming {
     /// What it may still receive. The books keep totals below `i64::MAX`.
     fn remaining(&self) -> u64 {
         let ceiling = self.incoming_amount.unwrap_or(dassie_ledger::MAX_TOTAL);
-        ceiling.saturating_sub(self.received)
+        ceiling.saturating_sub(self.received + self.waiting)
     }
 }
 
@@ -103,7 +113,9 @@ pub(super) fn admission(
         Some(payment) if payment.ledger == ledger && now_ms < payment.expires_at_ms => (
             Admission::Accept {
                 money_limit: payment.remaining(),
-                received: payment.received,
+                // What its connections have seen arrive, waiting, or taken
+                // back, so what they report only grows.
+                received: payment.received + payment.waiting + payment.released,
             },
             Some(id),
         ),
@@ -137,6 +149,12 @@ impl Core {
             }
             *count += 1;
             self.incoming.insert(row.id, open_of(&row));
+        }
+        let released = self.store.incoming_released().map_err(|e| e.to_string())?;
+        for (id, amount) in released {
+            if let Some(payment) = self.incoming.get_mut(&id) {
+                payment.released = amount;
+            }
         }
         if dropped > 0 {
             // Only after the bounds were lowered: they take no more money.
@@ -232,7 +250,9 @@ impl Core {
             .then(|| {
                 self.incoming
                     .iter()
-                    .filter(|(_, payment)| payment.client.is_some() && payment.received == 0)
+                    .filter(|(_, payment)| {
+                        payment.client.is_some() && payment.received == 0 && payment.waiting == 0
+                    })
                     .min_by_key(|(id, payment)| (payment.created_at_ms, **id))
                     .map(|(id, _)| *id)
             })
@@ -316,6 +336,59 @@ impl Core {
         Ok(row)
     }
 
+    /// Counts what a fulfilled packet from a peer brought as waiting for
+    /// the peer's verdict, if the payment is still open.
+    pub(super) fn incoming_waiting(&mut self, id: PaymentId, amount: u64) {
+        if let Some(payment) = self.incoming.get_mut(&id) {
+            assert!(
+                amount <= payment.remaining(),
+                "a payment took more than it may"
+            );
+            payment.waiting += amount;
+        }
+    }
+
+    /// The peer's verdict counted what was waiting: it is received. A
+    /// payment closed since, by its client or its expiry, still gets it.
+    pub(super) fn incoming_confirmed(&mut self, id: PaymentId, amount: u64) {
+        if let Some(payment) = self.incoming.get_mut(&id) {
+            assert!(payment.waiting >= amount, "confirmed more than waited");
+            payment.waiting -= amount;
+            self.incoming_received(id, amount);
+            return;
+        }
+        let row = match self.batch.incoming_progress.get(&id) {
+            Some(progress) => Some((progress.received_amount, progress.completed_at_ms)),
+            None => self
+                .store
+                .incoming_payment(id)
+                .ok()
+                .flatten()
+                .map(|row| (row.received_amount, row.completed_at_ms)),
+        };
+        let Some((received, completed_at_ms)) = row else {
+            tracing::error!(target: target::PAYMENT, %id, "a confirmed payment is gone");
+            return;
+        };
+        self.batch.incoming_progress.insert(
+            id,
+            IncomingProgress {
+                received_amount: received.saturating_add(amount),
+                completed_at_ms,
+            },
+        );
+    }
+
+    /// The peer refused: what was waiting is free to arrive again.
+    pub(super) fn incoming_released(&mut self, id: PaymentId, amount: u64) {
+        if let Some(payment) = self.incoming.get_mut(&id) {
+            assert!(payment.waiting >= amount, "released more than waited");
+            payment.waiting -= amount;
+            payment.released = payment.released.saturating_add(amount);
+            *self.batch.incoming_released.entry(id).or_default() += amount;
+        }
+    }
+
     /// Adds what a fulfilled packet brought to its payment, completing it
     /// when it has all it asked for.
     pub(super) fn incoming_received(&mut self, id: PaymentId, amount: u64) {
@@ -328,7 +401,7 @@ impl Core {
             "a payment took more than it may"
         );
         payment.received += amount;
-        let complete = payment.incoming_amount == Some(payment.received);
+        let complete = payment.incoming_amount == Some(payment.received) && payment.waiting == 0;
         let progress = IncomingProgress {
             received_amount: payment.received,
             completed_at_ms: complete.then_some(now.max(payment.created_at_ms)),
@@ -352,7 +425,11 @@ impl Core {
             assert!(
                 payment
                     .incoming_amount
-                    .is_none_or(|amount| payment.received < amount),
+                    .is_none_or(|amount| payment.received + payment.waiting <= amount),
+                "a payment took more than it may"
+            );
+            assert!(
+                payment.incoming_amount != Some(payment.received),
                 "a completed payment is open"
             );
         }
@@ -364,6 +441,8 @@ fn open_of(row: &IncomingRow) -> OpenIncoming {
         ledger: row.ledger,
         incoming_amount: row.incoming_amount,
         received: row.received_amount,
+        waiting: 0,
+        released: 0,
         created_at_ms: row.created_at_ms,
         expires_at_ms: row.expires_at_ms,
         client: row.client.clone(),

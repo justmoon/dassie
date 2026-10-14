@@ -37,6 +37,10 @@ pub enum Reference {
     /// A difference between a settlement module's balance and its last
     /// checkpoint, found at activation (ACC-6).
     Reconciliation,
+    /// The compensation for a packet whose Fulfill the upstream peer
+    /// refused after it was posted here (D17): it reverses the packet, or
+    /// books the loss.
+    Refusal(TraceId),
 }
 
 impl Reference {
@@ -47,7 +51,7 @@ impl Reference {
     pub const fn is_report(&self) -> bool {
         matches!(
             self,
-            Self::Deposit | Self::Withdrawal | Self::Reconciliation
+            Self::Deposit | Self::Withdrawal | Self::Reconciliation | Self::Refusal(_)
         )
     }
 

@@ -13,6 +13,7 @@ mod packets;
 mod peers;
 mod settlement;
 mod tokens;
+mod verdicts;
 
 #[cfg(test)]
 mod tests;
@@ -216,6 +217,8 @@ pub struct Core {
     /// The ledger's counters when last looked at: pending transfers move
     /// balances without a journal entry.
     ledger_stats: dassie_ledger::Stats,
+    /// The Fulfills owed a verdict (D17).
+    owed: verdicts::Owed,
 }
 
 impl Core {
@@ -293,6 +296,7 @@ impl Core {
             settle: Settlements::new(now_ms, &policies),
             changes: Changes::default(),
             ledger_stats: dassie_ledger::Stats::default(),
+            owed: verdicts::Owed::new(now_ms),
         };
         core.restore()?;
         Ok(core)
@@ -305,6 +309,7 @@ impl Core {
         self.load_tokens(&store).map_err(text)?;
         self.load_schemes(&store)?;
         self.load_incoming()?;
+        self.load_owed()?;
         self.update_peer_schemes();
         let peers: Vec<dassie_identity::NodeId> = self.peer.peers().map(|(id, _)| *id).collect();
         let active: std::collections::BTreeSet<dassie_identity::NodeId> =
@@ -381,6 +386,7 @@ impl Core {
             self.peer.poll_timeout(),
             settlement,
             finals,
+            self.owed.deadline(),
         ]
         .into_iter()
         .flatten()
@@ -395,6 +401,7 @@ impl Core {
             self.peer_timers();
             self.settlement_timers();
             self.expire(self.now_ms);
+            self.verdict_timers();
             self.flush();
             // Settlements run once their pending transfers are on disk;
             // what they did is persisted in turn (ACC-16).
@@ -467,6 +474,7 @@ impl Core {
             self.connector.check_invariants(&self.ledger);
             self.peer.check_invariants();
             self.check_incoming();
+            self.owed.check();
         }
     }
 

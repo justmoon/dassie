@@ -42,6 +42,9 @@ pub enum AccountName {
     ExpensesFees,
     /// The destination side of currency exchange.
     ExpensesFx,
+    /// Money paid on for packets an upstream peer then refused: what a
+    /// hop bears when its Fulfill did not count upstream (D17).
+    ExpensesLosses,
 }
 
 /// A path that does not name an account.
@@ -123,6 +126,7 @@ fn parse_name(text: &str) -> Result<AccountName, InvalidPath> {
         "revenue/fx" => Some(AccountName::RevenueFx),
         "expenses/fees" => Some(AccountName::ExpensesFees),
         "expenses/fx" => Some(AccountName::ExpensesFx),
+        "expenses/losses" => Some(AccountName::ExpensesLosses),
         _ => None,
     };
     if let Some(name) = fixed {
@@ -166,6 +170,7 @@ impl fmt::Display for AccountName {
             Self::RevenueFx => f.write_str("revenue/fx"),
             Self::ExpensesFees => f.write_str("expenses/fees"),
             Self::ExpensesFx => f.write_str("expenses/fx"),
+            Self::ExpensesLosses => f.write_str("expenses/losses"),
         }
     }
 }
@@ -198,6 +203,7 @@ mod tests {
             AccountName::RevenueFx,
             AccountName::ExpensesFees,
             AccountName::ExpensesFx,
+            AccountName::ExpensesLosses,
         ];
         for ledger in LedgerId::ALL {
             for name in names {

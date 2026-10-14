@@ -17,6 +17,9 @@ mod inspect;
 mod ledger;
 #[cfg(test)]
 mod ledger_tests;
+mod owed;
+#[cfg(test)]
+mod owed_tests;
 mod payments;
 mod peer;
 #[cfg(test)]
@@ -38,6 +41,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 pub use gnap::{GrantRow, GrantState, MAX_GRANTS, TokenRow};
 pub use inspect::{BLOB_CUT, Cell, ColumnInfo, MAX_ROWS, RowsPage, TEXT_CUT, TableInfo, Value};
 pub use ledger::{BtpTokenRow, JournalRow, LedgerBatch, StoredLedger, TokenCap};
+pub use owed::{Compensation, OwedFulfill, PostedTransfer, TakenFulfill, VerdictBatch};
 pub use payments::{
     IncomingPage, IncomingProgress, IncomingQuery, IncomingRow, MAX_OPEN_LOADED, PaymentId,
     UNPAID_RETENTION_MS,
