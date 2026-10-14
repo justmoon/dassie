@@ -133,6 +133,7 @@ impl Connector {
         out: &mut [u8],
     ) -> Option<Upstream> {
         let fulfilled = matches!(resolution, Resolution::Fulfilled(_));
+        self.charge(now_ms, entry, fulfilled);
         for id in entry.transfers.into_iter().flatten() {
             let settled = if fulfilled {
                 ledger.post(now_ms, id)
@@ -180,6 +181,25 @@ impl Connector {
             request_id: entry.source_request_id,
             length,
         })
+    }
+}
+
+impl Connector {
+    /// Settles a resolved packet with its account's spending cap: a
+    /// fulfilled one is spent, either way it is no longer in flight.
+    fn charge(&mut self, now_ms: u64, entry: &Pending, fulfilled: bool) {
+        let Some((account, amount)) = entry.charge else {
+            return;
+        };
+        let Some(cap) = self.caps.get_mut(&account) else {
+            return;
+        };
+        if fulfilled {
+            cap.post(now_ms, amount);
+            self.cap_changes.insert(account);
+        } else {
+            cap.release(amount);
+        }
     }
 }
 

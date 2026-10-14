@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc f4b17f82baea8bf3ff8133547a12c0aa4b66fc90a0cc3e61670dbde1a76f58cd # shrinks to steps = [Pay(54), Resolve(true), Pay(947), Wait(10), Pay(947)]
+cc 196aab4ab19ba41fb0d7f43ceb3a9924e3c57fc19abb3167f39d028307ec49c0 # shrinks to steps = [Pay(1), Pay(1), Pay(1), Resolve(false), PayOwn(1), Pay(1), Resolve(false), Pay(1), Resolve(false), PayOwn(1), Pay(1), Pay(1), Pay(1), Pay(1), Pay(1), Pay(1), Pay(1), Pay(1), Wait(3617), Wait(3604), Wait(919), Pay(1), Pay(1), Wait(3884), Wait(3879), Pay(1), Wait(3097), Pay(1), Pay(1), Pay(1), Pay(1), Pay(1), Pay(1), Pay(1), Resolve(false), Resolve(true)]

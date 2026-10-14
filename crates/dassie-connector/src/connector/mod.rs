@@ -11,6 +11,7 @@ use alloc::vec::Vec;
 use dassie_ilp::{Address, ErrorCode};
 use dassie_ledger::{AccountId, LedgerId, TraceId, TransferId};
 
+use crate::cap::{CapError, CapState, CapUsage, CapView, SpendingCap};
 use crate::config::Config;
 use crate::endpoint::{Endpoint, EndpointError, EndpointId, Endpoints};
 use crate::trace::{PacketRecord, Trace, TraceEvent};
@@ -104,6 +105,9 @@ pub(crate) struct Pending {
     /// Set when the packet cannot reach its next hop: the code and message
     /// it is rejected with at once.
     pub failure: Option<(ErrorCode, &'static str)>,
+    /// The account it spends from and the amount, if it moves money out of
+    /// its owner's funds: what a spending cap counts.
+    pub charge: Option<(AccountId, u64)>,
 }
 
 /// The connector.
@@ -125,6 +129,10 @@ pub struct Connector {
     stats: Stats,
     /// Reused for linked transfers, so the packet path does not allocate.
     scratch: Vec<TransferId>,
+    /// Spending caps, by the account they limit.
+    caps: BTreeMap<AccountId, CapState>,
+    /// Caps whose usage changed since it was last polled.
+    cap_changes: BTreeSet<AccountId>,
 }
 
 impl Connector {
@@ -149,6 +157,8 @@ impl Connector {
             next_sequence: 0,
             stats: Stats::default(),
             scratch: Vec::with_capacity(2),
+            caps: BTreeMap::new(),
+            cap_changes: BTreeSet::new(),
         }
     }
 
@@ -337,6 +347,93 @@ impl Connector {
             .map_or(0, |endpoint| endpoint.pending_from);
         let to = self.pending.range((id, 0)..=(id, u32::MAX)).count();
         from + to
+    }
+
+    /// Limits what `account` may spend out of its owner's funds, from
+    /// `now_ms` on (spec 7 §4.5), or lifts its cap. A new cap starts with
+    /// nothing used; a changed one keeps what was used, rounded up to the
+    /// new window. Packets in flight count against it either way.
+    ///
+    /// # Errors
+    ///
+    /// If the cap is invalid, or the table of caps is full.
+    pub fn set_cap(
+        &mut self,
+        now_ms: u64,
+        account: AccountId,
+        cap: Option<SpendingCap>,
+    ) -> Result<(), CapError> {
+        let Some(cap) = cap else {
+            self.caps.remove(&account);
+            self.cap_changes.remove(&account);
+            return Ok(());
+        };
+        let usage = match self.caps.get(&account) {
+            Some(state) => state.usage.rescaled(state.cap, cap, now_ms),
+            None => CapUsage::new(now_ms),
+        };
+        self.insert_cap(account, cap, usage)
+    }
+
+    /// Restores a cap with the usage persisted for it.
+    ///
+    /// # Errors
+    ///
+    /// As [`set_cap`](Self::set_cap).
+    pub fn restore_cap(
+        &mut self,
+        account: AccountId,
+        cap: SpendingCap,
+        usage: CapUsage,
+    ) -> Result<(), CapError> {
+        self.insert_cap(account, cap, usage)
+    }
+
+    fn insert_cap(
+        &mut self,
+        account: AccountId,
+        cap: SpendingCap,
+        usage: CapUsage,
+    ) -> Result<(), CapError> {
+        if !cap.is_valid() {
+            return Err(CapError::Invalid);
+        }
+        if !self.caps.contains_key(&account) && self.caps.len() >= self.config.max_caps {
+            return Err(CapError::Full);
+        }
+        let reserved = self
+            .pending
+            .values()
+            .filter_map(|entry| entry.charge)
+            .filter(|(charged, _)| *charged == account)
+            .map(|(_, amount)| u128::from(amount))
+            .sum();
+        let mut state = CapState {
+            cap,
+            usage,
+            reserved,
+            over: false,
+        };
+        state.over = !state.within();
+        self.caps.insert(account, state);
+        Ok(())
+    }
+
+    /// The cap on `account` as of `now_ms`, if it has one.
+    #[must_use]
+    pub fn cap(&self, account: AccountId, now_ms: u64) -> Option<CapView> {
+        self.caps.get(&account).map(|state| state.view(now_ms))
+    }
+
+    /// The next cap whose usage changed, with its cap and usage: what to
+    /// persist with the step's journal.
+    pub fn poll_cap_change(&mut self) -> Option<(AccountId, SpendingCap, CapUsage)> {
+        while let Some(account) = self.cap_changes.pop_first() {
+            if let Some(state) = self.caps.get(&account) {
+                return Some((account, state.cap, state.usage));
+            }
+        }
+        None
     }
 
     /// The address an endpoint was added with.

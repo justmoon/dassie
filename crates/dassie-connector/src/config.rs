@@ -34,6 +34,8 @@ pub struct Config {
     pub max_packet_amount: u64,
     /// Rates older than this refuse cross-currency packets with T00 (D7).
     pub max_rate_age_ms: u64,
+    /// Most accounts with a spending cap.
+    pub max_caps: usize,
 }
 
 impl Config {
@@ -53,6 +55,7 @@ impl Config {
         max_hold_ms: 30_000,
         max_packet_amount: 100_000_000,
         max_rate_age_ms: 60 * 60 * 1_000,
+        max_caps: 256,
     };
 
     /// Checks the bounds make sense.

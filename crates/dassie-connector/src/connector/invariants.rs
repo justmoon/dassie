@@ -2,7 +2,7 @@
 
 use alloc::collections::BTreeMap;
 
-use dassie_ledger::{Ledger, Reference};
+use dassie_ledger::{AccountId, Ledger, Reference};
 
 use super::Connector;
 use crate::endpoint::EndpointId;
@@ -60,6 +60,30 @@ impl Connector {
             self.routes.len() <= self.config.max_routes,
             "routes within bounds"
         );
+        self.check_caps();
         self.trace.check_invariants();
+    }
+
+    /// Each cap holds what its account's packets in flight charge, and
+    /// stays within itself unless it was lowered while they were.
+    fn check_caps(&self) {
+        assert!(
+            self.caps.len() <= self.config.max_caps,
+            "caps within bounds"
+        );
+        let mut held: BTreeMap<AccountId, u128> = BTreeMap::new();
+        for (account, amount) in self.pending.values().filter_map(|entry| entry.charge) {
+            *held.entry(account).or_default() += u128::from(amount);
+        }
+        for (account, cap) in &self.caps {
+            let expected = held.get(account).copied().unwrap_or(0);
+            assert_eq!(cap.reserved, expected, "a cap holds its packets in flight");
+            assert!(cap.cap.is_valid(), "a cap is valid");
+            assert!(cap.over || cap.within(), "a cap holds no more than itself");
+        }
+        assert!(
+            self.cap_changes.iter().all(|id| self.caps.contains_key(id)),
+            "changes of caps that exist"
+        );
     }
 }

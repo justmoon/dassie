@@ -6,11 +6,13 @@ use dassie_ilp::{
     ildcp,
 };
 use dassie_ledger::{
-    AccountName, AccountPath, Ledger, Reference, TraceId, TransferError, TransferId, TransferSpec,
+    AccountId, AccountName, AccountPath, Ledger, Reference, TraceId, TransferError, TransferId,
+    TransferSpec,
 };
 use dassie_oer::{Decode, Encode};
 
 use super::{Connector, Forwarded, Outcome, Pending};
+use crate::cap::CapRefusal;
 use crate::endpoint::EndpointId;
 use crate::fx::{Rates, convert};
 use crate::trace::{PacketRecord, PacketState};
@@ -40,6 +42,12 @@ struct Route {
     to: EndpointId,
     expires_at: Timestamp,
     amount_out: u64,
+}
+
+/// A packet's pending transfers, and what a spending cap counts of it.
+struct Booked {
+    transfers: [Option<TransferId>; 2],
+    charge: Option<(AccountId, u64)>,
 }
 
 impl Connector {
@@ -112,11 +120,11 @@ impl Connector {
             Ok(route) => route,
             Err(refusal) => return self.answer(now_ms, trace, &refusal, out),
         };
-        let transfers = match self.book(now_ms, trace, source, &route, prepare.amount, ledger) {
-            Ok(transfers) => transfers,
+        let booked = match self.book(now_ms, trace, source, &route, prepare.amount, ledger) {
+            Ok(booked) => booked,
             Err(refusal) => return self.answer(now_ms, trace, &refusal, out),
         };
-        self.forward(trace, source, request_id, &prepare, &route, transfers, out)
+        self.forward(trace, source, request_id, &prepare, &route, booked, out)
     }
 
     /// Answers at once with a reject from this node.
@@ -266,8 +274,45 @@ impl Connector {
 
     /// The packet's pending transfers: one on a ledger, two across ledgers
     /// through the FX accounts, none for nothing or between endpoints that
-    /// share an account.
+    /// share an account. A packet that moves money out of its owner's funds
+    /// must pass the source account's spending cap first, and holds its
+    /// amount there while in flight.
     fn book(
+        &mut self,
+        now_ms: u64,
+        trace: TraceId,
+        source: EndpointId,
+        route: &Route,
+        amount_in: u64,
+        ledger: &mut Ledger,
+    ) -> Result<Booked, Refusal> {
+        let internal = refuse(ErrorCode::T00_INTERNAL_ERROR, "internal error");
+        let (Some(from), Some(to)) = (self.endpoints.get(source), self.endpoints.get(route.to))
+        else {
+            return Err(internal);
+        };
+        if amount_in == 0 || from.account == to.account {
+            return Ok(Booked {
+                transfers: [None, None],
+                charge: None,
+            });
+        }
+        let (from_account, to_account) = (from.account, to.account);
+        let counted = from.ledger != to.ledger || !same_group(ledger, from_account, to_account);
+        let charge = counted.then_some((from_account, amount_in));
+        if let Some(cap) = charge.and_then(|(account, _)| self.caps.get(&account)) {
+            cap.admits(now_ms, amount_in)
+                .map_err(|refusal| cap_refusal(refusal, amount_in))?;
+        }
+        let transfers = self.book_transfers(now_ms, trace, source, route, amount_in, ledger)?;
+        if let Some(cap) = charge.and_then(|(account, _)| self.caps.get_mut(&account)) {
+            cap.reserve(now_ms, amount_in);
+        }
+        Ok(Booked { transfers, charge })
+    }
+
+    /// The pending transfers of a packet that moves money.
+    fn book_transfers(
         &mut self,
         now_ms: u64,
         trace: TraceId,
@@ -281,9 +326,6 @@ impl Connector {
         else {
             return Err(internal);
         };
-        if amount_in == 0 || from.account == to.account {
-            return Ok([None, None]);
-        }
         let reference = Reference::Packet(trace);
         let pending = |debit, credit, amount| TransferSpec {
             debit,
@@ -330,9 +372,10 @@ impl Connector {
         source_request_id: u32,
         prepare: &Prepare<'_>,
         route: &Route,
-        transfers: [Option<TransferId>; 2],
+        booked: Booked,
         out: &mut [u8],
     ) -> Outcome {
+        let Booked { transfers, charge } = booked;
         // The route exists and the table has room: an ID is always found.
         let Some(request_id) = self.request_id_for(route.to) else {
             return Outcome::UnknownSource;
@@ -349,6 +392,7 @@ impl Connector {
                 expires_at_ms,
                 transfers,
                 failure: None,
+                charge,
             },
         );
         self.deadlines.insert((expires_at_ms, route.to, request_id));
@@ -375,6 +419,33 @@ impl Connector {
             request_id,
             length,
         })
+    }
+}
+
+/// Whether two accounts are in the same group: money between them stays
+/// in their owner's funds.
+fn same_group(ledger: &Ledger, a: AccountId, b: AccountId) -> bool {
+    let group = |id| ledger.account(id).and_then(|account| account.group());
+    group(a).is_some_and(|root| group(b) == Some(root))
+}
+
+/// What a spending cap's refusal means to the sender: a packet larger than
+/// the cap never passes, and is told the most that would (F08); otherwise
+/// the cap refills, and the sender may try again later (T04).
+const fn cap_refusal(refusal: CapRefusal, amount: u64) -> Refusal {
+    match refusal {
+        CapRefusal::TooLarge(maximum) => Refusal {
+            code: ErrorCode::F08_AMOUNT_TOO_LARGE,
+            message: "packet amount exceeds the spending cap",
+            too_large: Some(AmountTooLarge {
+                received_amount: amount,
+                maximum_amount: maximum,
+            }),
+        },
+        CapRefusal::Exhausted => refuse(
+            ErrorCode::T04_INSUFFICIENT_LIQUIDITY,
+            "the spending cap is reached",
+        ),
     }
 }
 

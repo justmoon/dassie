@@ -43,12 +43,14 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
+mod cap;
 mod config;
 mod connector;
 mod endpoint;
 mod fx;
 mod trace;
 
+pub use cap::{CapError, CapUsage, CapView, SpendingCap, replay};
 pub use config::Config;
 pub use connector::{
     Connector, Forwarded, MAX_ROUTE_OPTIONS, Outcome, RoutesError, Stats, Upstream,
