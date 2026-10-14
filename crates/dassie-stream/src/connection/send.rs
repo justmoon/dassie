@@ -293,12 +293,13 @@ impl Connection {
         visit: &mut dyn FnMut(Frame<'_>),
     ) {
         // Under a connection limit, a stream reports the application's
-        // count, which survives reconnections, and no more room than what
-        // is left of the limit.
+        // count, which survives reconnections and leaves out what the
+        // application does not count yet, and no more room than what is
+        // left of the limit.
         let (receive_max, total_received) = if self.money_limit == u64::MAX {
             (stream.receive_max, stream.received)
         } else {
-            let received = self.money_received.max(stream.received);
+            let received = self.money_received;
             (
                 stream
                     .receive_max
