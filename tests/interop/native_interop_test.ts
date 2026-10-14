@@ -21,7 +21,11 @@ import { createPlugin, Network } from "./network.ts";
 const options = { sanitizeOps: false, sanitizeResources: false };
 const root = new URL("../../", import.meta.url).pathname;
 
+// The Nix check builds the peer itself and names it in DASSIE_INTEROP_PEER,
+// as its sandbox has no Cargo registry to build from.
 async function buildPeer(): Promise<string> {
+  const built = Deno.env.get("DASSIE_INTEROP_PEER");
+  if (built) return built;
   const build = await new Deno.Command("cargo", {
     args: ["build", "--package", "dassie-stream", "--example", "interop_peer"],
     cwd: root,

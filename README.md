@@ -40,7 +40,7 @@ The work starts from the specification in [`spec/`](spec/README.md):
 
 ## Building and testing
 
-With [Nix](https://nixos.org), `nix develop` provides every tool at the pinned versions, and `nix flake check` runs what CI runs in the sandbox (CI builds those checks on [nixbuild.net](https://nixbuild.net)). Without it, install the Rust toolchain named in `rust-toolchain.toml` with the `wasm32-unknown-unknown` target, the `wasm-bindgen` CLI at the version in `Cargo.lock`, Deno, and Chrome or Chromium; the end-to-end tests also need `pebble`, `pebble-challtestsrv`, `systemd-socket-activate` and `mkcert`, and are skipped without them outside CI.
+With [Nix](https://nixos.org), `nix develop` provides every tool at the pinned versions, and `nix flake check` runs what CI runs, Rust and Deno alike, in the sandbox (CI builds those checks on [nixbuild.net](https://nixbuild.net)). Without it, install the Rust toolchain named in `rust-toolchain.toml` with the `wasm32-unknown-unknown` target, the `wasm-bindgen` CLI at the version in `Cargo.lock`, Deno, and Chrome or Chromium; the end-to-end tests also need `pebble`, `pebble-challtestsrv`, `systemd-socket-activate` and `mkcert`, and are skipped without them outside CI.
 
 ```sh
 cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
@@ -52,7 +52,7 @@ deno task check        # fmt, lint, type check
 deno task test         # WASM vectors, STREAM interop, browser, end to end
 ```
 
-`deno task ci` runs the Deno steps in order, building what they need first. After changing `proto/`, run `deno task gen` in `packages/rpc`; a test fails until the generated code matches.
+`deno task ci` runs the Deno steps in order, building what they need first. After changing `deno.lock`'s JSR packages, run `nix run .#deno-jsr` and commit `nix/deno/jsr.json`; the flake refuses to evaluate until it matches. After changing `proto/`, run `deno task gen` in `packages/rpc`; a test fails until the generated code matches.
 
 To try a node without root, run it standalone on high ports, then configure it from another terminal:
 

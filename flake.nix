@@ -56,9 +56,9 @@
           };
           craneLib = (crane.mkLib pkgs).overrideToolchain (_: toolchain);
 
-          lockedBindgen = lib.findFirst (p: p.name == "wasm-bindgen") null (
-            lib.importTOML ./Cargo.lock
-          ).package;
+          lockedBindgen =
+            lib.findFirst (p: p.name == "wasm-bindgen") null
+              (lib.importTOML ./Cargo.lock).package;
           wasm-bindgen =
             assert lib.assertMsg (lockedBindgen.version == wasmBindgenVersion)
               "wasm-bindgen: the CLI (flake.nix) is ${wasmBindgenVersion}, Cargo.lock has ${lockedBindgen.version}; they must match";
@@ -142,11 +142,72 @@
               '';
             }
           );
+
+          # The binary the end-to-end tests run, with the wallet, as
+          # `deno task build:e2e` makes it.
+          e2eArtifacts = craneLib.buildDepsOnly (
+            common
+            // {
+              pname = "dassie-e2e";
+              CARGO_PROFILE = "e2e";
+              doCheck = false;
+            }
+          );
+          dassie-e2e = craneLib.buildPackage (
+            common
+            // {
+              pname = "dassie-e2e";
+              CARGO_PROFILE = "e2e";
+              cargoArtifacts = e2eArtifacts;
+              cargoExtraArgs = "--locked -p dassie-cli";
+              DASSIE_WALLET_DIST = deno.wallet;
+              doCheck = false;
+            }
+          );
+
+          # dassie-stream's peer for ilp-protocol-stream (tests/interop),
+          # unoptimized, as the test builds it with plain `cargo build`.
+          interop-peer = craneLib.mkCargoDerivation (
+            common
+            // {
+              pname = "interop-peer";
+              CARGO_PROFILE = "e2e";
+              cargoArtifacts = e2eArtifacts;
+              buildPhaseCargoCommand = ''
+                cargo build --locked --profile e2e -p dassie-stream --example interop_peer
+              '';
+              doInstallCargoArtifacts = false;
+              installPhaseCommand = "install -Dm755 target/e2e/examples/interop_peer $out/bin/interop_peer";
+            }
+          );
+
+          # The Deno side of `deno task ci` (nix/deno).
+          deno = import ./nix/deno {
+            inherit
+              pkgs
+              identity-wasm
+              dassie-e2e
+              interop-peer
+              ;
+            inherit (pkgs) deno;
+          };
         in
         {
           packages = {
-            inherit identity-wasm wasm-bindgen;
+            inherit identity-wasm wasm-bindgen dassie-e2e;
+            inherit (deno) wallet dev-dashboard;
             default = identity-wasm;
+          };
+
+          # After a change to deno.lock's JSR packages.
+          apps.deno-jsr = {
+            type = "app";
+            program = lib.getExe (
+              pkgs.writeShellApplication {
+                name = "deno-jsr";
+                text = "${lib.getExe pkgs.python3} nix/deno/jsr.py";
+              }
+            );
           };
 
           checks = {
@@ -181,7 +242,8 @@
               }
             );
             inherit identity-wasm;
-          };
+          }
+          // deno.checks;
 
           devShells.default = pkgs.mkShell {
             packages = [
@@ -207,6 +269,7 @@
     {
       packages = lib.genAttrs systems (system: (perSystem system).packages);
       checks = lib.genAttrs systems (system: (perSystem system).checks);
+      apps = lib.genAttrs systems (system: (perSystem system).apps);
       devShells = lib.genAttrs systems (system: (perSystem system).devShells);
     };
 }

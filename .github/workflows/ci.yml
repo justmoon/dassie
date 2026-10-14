@@ -19,10 +19,13 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Rust in the Nix sandbox: fmt, clippy (native and wasm32), tests and the
-  # WASM bindings, with the toolchain pinned by the flake. Each check is its
-  # own job, built on nixbuild.net, which keeps what it built: dependencies
-  # that have not changed are not built again.
+  # Everything, as the flake's checks, in the Nix sandbox with the toolchain
+  # and dependencies it pins: the Rust side (fmt, clippy native and wasm32,
+  # tests, the WASM bindings) and the Deno side (nix/deno: fmt, lint, type
+  # check, each member's tests, and each interop and end-to-end test file,
+  # against the wallet and the end-to-end binary built in Nix). Each check is
+  # its own job, built on nixbuild.net, which keeps what it built: checks
+  # whose inputs have not changed are not run again.
   nix:
     uses: nixbuild/nixbuild-action/.github/workflows/ci-workflow.yml@v27
     secrets:
@@ -30,31 +33,3 @@ jobs:
     with:
       # What `nix flake check` builds on an x86_64 runner.
       filter_builds: '.top_attr == "checks" and .system == "x86_64-linux"'
-
-  deno:
-    runs-on: ubuntu-latest
-    # A hung end-to-end test would otherwise hold the run for six hours.
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v6
-      - uses: cachix/install-nix-action@v31
-      # The dependencies build:wasm and build:e2e compile, kept between runs
-      # of the same branch or PR.
-      - uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            target
-          key: deno-cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'flake.lock') }}
-          restore-keys: deno-cargo-${{ runner.os }}-
-      # The Deno side needs npm and JSR, so it runs outside the sandbox, in
-      # the flake's shell: the WASM and wallet builds, the end-to-end binary,
-      # fmt, lint, type check, the WASM vector tests, interop with
-      # ilp-protocol-stream, the browser test, a fresh install through
-      # dassie init and the wallet with Pebble as the ACME CA, and
-      # ilp-plugin-btp paying the node's STREAM receiver (GitHub's CI=true
-      # makes the end-to-end tests fail rather than skip).
-      - name: Deno checks
-        run: nix develop --command deno task ci
