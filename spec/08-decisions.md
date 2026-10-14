@@ -195,8 +195,14 @@ Revised on 2026-10-14; it first served SPSP and deferred GNAP, quotes and outgoi
     - It completes once it has sent that, or once its receiver says it has all it asked for, which a hop that lost a packet may have paid for (D17): a completed incoming payment tells a sender its total and that no more fits. A connection that closes early is opened again for the rest, up to 8 times, a while later each time.
     - Grant limits are reserved in the interval window the payment is created in; a failed payment releases what it did not send.
   - **Client side:**
-    - To pay an incoming payment on another node, the node reads it with a non-interactive `incoming-payment` `read-all` grant from that node's authorization server, as its own `$host` wallet address and key (M6b).
-    - The wallet's Send also creates the incoming payment there, from a wallet address or payment pointer (M6c).
+    - To pay an incoming payment on another node, the node reads it with a non-interactive `incoming-payment` grant from that node's authorization server, as its own `$host` wallet address and key (M6b). The grant asks for `create` and `read-all`, so one token serves Send too; tokens are cached by authorization server, origin and access.
+    - A wallet address on another node is paid only if it names itself: its `id` is at the origin it was read from, and its servers are HTTPS URLs.
+  - **The owner's Send** (M6c), over RPC, needs no grant: the node quotes and pays as the owner, with the logic third-party clients go through.
+    - It goes to a payment pointer or wallet address, here or on another node, or to a payment request: an incoming payment's URL, as Receive hands out.
+    - For a wallet address, quoting first creates the incoming payment there, expecting what the owner sends, for 30 minutes (the quote's 5 and the payment's 10, with room to spare), with the owner's note as its description. A payment request is paid as it is: what it still accepts, or less.
+    - The amount is what the recipient gets. Until M7 the debit equals it; choosing between the two comes with M7's rates.
+    - The quote and the payment keep the wallet address paid, for the owner's pages.
+    - At most 4 lookups of recipients run at once, since each may fetch from other wallets as the node; the rest wait.
   - **Payment pointers** stay only as input syntax: `$host/path` means `https://host/path`, and a bare `$host` means `https://host/.well-known/pay`.
   - **Not supported:** card authorization (v1.4.0), since the node has no cards. STREAM receipts are not part of Open Payments and are not issued.
 - **Rejected:**
