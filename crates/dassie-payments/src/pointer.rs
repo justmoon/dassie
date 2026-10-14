@@ -3,10 +3,12 @@
 //! Open Payments names accounts by wallet address URL. Payment pointers
 //! remain as a shorter way to write one: `$host/path` is
 //! `https://host/path`, and a bare `$host` is `https://host/.well-known/pay`.
+//! What an owner sends to is either, or an incoming payment's URL: a
+//! payment request.
 
 use alloc::string::String;
 
-use crate::uri::Uri;
+use crate::uri::{MAX_URI_BYTES, Uri};
 
 /// The path a bare `$host` stands for.
 pub const WELL_KNOWN_PATH: &str = "/.well-known/pay";
@@ -39,6 +41,57 @@ pub fn wallet_address_url(input: &str) -> Result<String, InvalidWalletAddress> {
     };
     check_wallet_address(&url)?;
     Ok(url)
+}
+
+/// What a payment goes to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Recipient {
+    /// A wallet address, where the payment's incoming payment is created.
+    WalletAddress(String),
+    /// An incoming payment that exists already: a payment request.
+    IncomingPayment(String),
+}
+
+impl Recipient {
+    /// The recipient a payment pointer, wallet address URL or incoming
+    /// payment URL names.
+    ///
+    /// # Errors
+    ///
+    /// If the input is none of them; see [`wallet_address_url`].
+    pub fn parse(input: &str) -> Result<Self, InvalidWalletAddress> {
+        if input.len() > MAX_URI_BYTES {
+            return Err(InvalidWalletAddress);
+        }
+        let url = wallet_address_url(input)?;
+        if crate::gnap::is_receiver(&url) {
+            Ok(Self::IncomingPayment(url))
+        } else {
+            Ok(Self::WalletAddress(url))
+        }
+    }
+
+    /// Its URL.
+    #[must_use]
+    pub fn url(&self) -> &str {
+        match self {
+            Self::WalletAddress(url) | Self::IncomingPayment(url) => url,
+        }
+    }
+}
+
+/// A wallet address URL written as a payment pointer: `$host` for the
+/// well-known path, `$host/path` otherwise; none if it is not one.
+#[must_use]
+pub fn payment_pointer(url: &str) -> Option<String> {
+    check_wallet_address(url).ok()?;
+    let uri = Uri::parse(url).ok()?;
+    let mut pointer = String::from("$");
+    pointer.push_str(uri.authority);
+    if uri.path != WELL_KNOWN_PATH && !uri.path.is_empty() && uri.path != "/" {
+        pointer.push_str(uri.path);
+    }
+    Some(pointer)
 }
 
 /// Checks that a URL may be a wallet address.
@@ -78,6 +131,61 @@ mod tests {
             wallet_address_url(" https://ilp.example/alice ").as_deref(),
             Ok("https://ilp.example/alice")
         );
+    }
+
+    #[test]
+    fn writes_wallet_addresses_as_payment_pointers() {
+        for (url, pointer) in [
+            ("https://d2.localhost:5002/.well-known/pay", "$d2.localhost:5002"),
+            ("https://d2.localhost/pay/stub", "$d2.localhost/pay/stub"),
+            ("https://ilp.example", "$ilp.example"),
+        ] {
+            assert_eq!(payment_pointer(url).as_deref(), Some(pointer), "{url}");
+            assert_eq!(
+                wallet_address_url(pointer).ok().and_then(|url| payment_pointer(&url)),
+                Some(pointer.into())
+            );
+        }
+        assert_eq!(payment_pointer("http://ilp.example/a"), None);
+    }
+
+    #[test]
+    fn tells_payment_requests_from_wallet_addresses() {
+        assert_eq!(
+            Recipient::parse("$d2.localhost:5002"),
+            Ok(Recipient::WalletAddress(
+                "https://d2.localhost:5002/.well-known/pay".into()
+            ))
+        );
+        assert_eq!(
+            Recipient::parse(" https://d2.localhost/incoming-payments/abc "),
+            Ok(Recipient::IncomingPayment(
+                "https://d2.localhost/incoming-payments/abc".into()
+            ))
+        );
+        assert_eq!(
+            Recipient::parse("$wallet.example/alice/incoming-payments/1"),
+            Ok(Recipient::IncomingPayment(
+                "https://wallet.example/alice/incoming-payments/1".into()
+            ))
+        );
+        // No id: a wallet address that happens to have the word in its path.
+        assert_eq!(
+            Recipient::parse("https://wallet.example/incoming-payments/"),
+            Ok(Recipient::WalletAddress(
+                "https://wallet.example/incoming-payments/".into()
+            ))
+        );
+        for input in [
+            "",
+            "alice",
+            "http://d2.localhost/incoming-payments/abc",
+            "https://d2.localhost/incoming-payments/abc?x=1",
+        ] {
+            assert_eq!(Recipient::parse(input), Err(InvalidWalletAddress), "{input}");
+        }
+        let long = alloc::format!("https://wallet.example/{}", "a".repeat(MAX_URI_BYTES));
+        assert_eq!(Recipient::parse(&long), Err(InvalidWalletAddress));
     }
 
     #[test]
