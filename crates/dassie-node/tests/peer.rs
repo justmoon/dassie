@@ -1,6 +1,7 @@
 //! Two daemons in one process, peering over real HTTPS (spec 7 §4.7): they
-//! register, learn of each other, peer, and keep their peering across a
-//! restart.
+//! register, learn of each other, peer, pay several times the credit by
+//! settling, keep their peering and balances across a restart, and end
+//! the peering settled.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
@@ -15,8 +16,12 @@ use dassie_node::rpc::proto::{self, request::Method, response};
 use support::btp_client::{BtpClient, pay_stream};
 use support::{Bound, START_MS, TestNode, set_up};
 
-/// 0.25 USD, more than one packet's worth.
-const PAYMENT: u64 = 250_000_000;
+/// 5 USD: over four times the credit, so it only gets through if A
+/// settles with B as it goes.
+const PAYMENT: u64 = 5_000_000_000;
+
+/// What each stub starts with: 100 USD.
+const DEPOSIT: u64 = 100_000_000_000;
 
 /// The credit a node extends to a peer: 1.1 USD.
 const CREDIT: u64 = 1_100_000_000;
@@ -192,6 +197,53 @@ async fn check_network(node: &TestNode, own: &NodeKey, other: &NodeKey) {
     assert!(status.bootstrap[0].listed);
 }
 
+/// The node's peerings.
+async fn peers(node: &TestNode) -> Vec<proto::NetworkPeer> {
+    let Ok(response::Method::ListPeers(peers)) = node
+        .ipc()
+        .await
+        .call(Method::ListPeers(proto::ListPeersRequest {}))
+        .await
+    else {
+        panic!("no peers")
+    };
+    peers.peers
+}
+
+/// The node's stub's balance on its "underlying ledger".
+async fn stub_balance(node: &TestNode) -> u64 {
+    let Ok(response::Method::ListLedgers(ledgers)) = node
+        .ipc()
+        .await
+        .call(Method::ListLedgers(proto::ListLedgersRequest {}))
+        .await
+    else {
+        panic!("no ledgers")
+    };
+    ledgers.ledgers[0].on_ledger_balance
+}
+
+/// Whether settling between A and B is quiet: nothing on its way either
+/// way, and their books mirror each other.
+async fn quiet(a: &TestNode, b: &TestNode, key_a: &NodeKey, key_b: &NodeKey) -> bool {
+    for node in [a, b] {
+        let Ok(response::Method::ListSettlementChannels(channels)) = node
+            .ipc()
+            .await
+            .call(Method::ListSettlementChannels(
+                proto::ListSettlementChannelsRequest {},
+            ))
+            .await
+        else {
+            return false;
+        };
+        if channels.channels.iter().any(|channel| channel.sending) {
+            return false;
+        }
+    }
+    net(a, key_b).await + net(b, key_a).await == 2 * i128::from(CREDIT)
+}
+
 async fn peered(a: &TestNode, b: &NodeKey) -> bool {
     let path = format!("stub+usd:assets/interledger/{}", b.node_id());
     accounts(a).await.contains(&path)
@@ -239,7 +291,7 @@ async fn two_daemons_peer_and_keep_their_peering() {
         removed.unwrap_err().code(),
         proto::ErrorCode::FailedPrecondition
     );
-    // A client of A pays B's receiver, one hop away, within B's credit.
+    // A client of A pays B's receiver, one hop away, beyond B's credit.
     let mut owner_a = a.ipc().await;
     let Ok(response::Method::CreateBtpToken(token)) = owner_a
         .call(Method::CreateBtpToken(proto::CreateBtpTokenRequest {
@@ -269,19 +321,66 @@ async fn two_daemons_peer_and_keep_their_peering() {
         PAYMENT,
     )
     .await;
-    // Each side's account for the other moved by the payment, mirrored:
-    // A owes B what B is owed by A.
+    // A settled as it paid; once quiet, the books mirror each other, and
+    // what A settled left its stub for B's.
+    until(&clock, async || quiet(&a, &b, &key_a, &key_b).await).await;
     let at_a = net(&a, &key_b).await;
-    let at_b = net(&b, &key_a).await;
-    assert_eq!(at_a, i128::from(CREDIT) + i128::from(PAYMENT), "A's books");
-    assert_eq!(at_b, i128::from(CREDIT) - i128::from(PAYMENT), "B's books");
+    let settled = u64::try_from(i128::from(PAYMENT) - (at_a - i128::from(CREDIT))).unwrap();
+    assert!(settled >= PAYMENT - CREDIT, "settled {settled}");
+    assert_eq!(stub_balance(&a).await, DEPOSIT - settled);
+    assert_eq!(stub_balance(&b).await, DEPOSIT + settled);
     // Restarted, B still has its peering and its accounts: nothing to redo.
+    let at_b = net(&b, &key_a).await;
     let (dir, clock_b) = b.stop().await;
     assert_eq!(clock_b.now_ms(), clock.now_ms());
     let b = Bound::bind_in(dir)
         .start(clock.clone(), 3, Policies::DEV, &env)
         .await;
     assert!(peered(&b, &key_a).await);
+    assert_eq!(net(&b, &key_a).await, at_b);
+    assert_eq!(stub_balance(&b).await, DEPOSIT + settled);
+    // A's owner ends the peering: it ends on both sides, and A settles
+    // everything it still owes.
+    let ended = a
+        .ipc()
+        .await
+        .call(Method::TerminatePeering(proto::TerminatePeeringRequest {
+            node: key_b.node_id().to_string(),
+        }))
+        .await;
+    assert!(ended.is_ok(), "{ended:?}");
+    until(&clock, async || {
+        peers(&a).await.is_empty()
+            && peers(&b).await.is_empty()
+            && quiet(&a, &b, &key_a, &key_b).await
+            && net(&a, &key_b).await == i128::from(CREDIT)
+    })
+    .await;
+    assert_eq!(stub_balance(&a).await + stub_balance(&b).await, 2 * DEPOSIT);
+    // And they do not peer again straight away.
+    settle(&clock).await;
+    settle(&clock).await;
+    assert!(peers(&a).await.is_empty() && peers(&b).await.is_empty());
+    // A ban is kept, and lifted.
+    let mut owner_a = a.ipc().await;
+    let node_b = key_b.node_id().to_string();
+    let banned = owner_a
+        .call(Method::BanNode(proto::BanNodeRequest {
+            node: node_b.clone(),
+        }))
+        .await;
+    assert!(banned.is_ok(), "{banned:?}");
+    let Ok(response::Method::ListBans(bans)) = owner_a
+        .call(Method::ListBans(proto::ListBansRequest {}))
+        .await
+    else {
+        panic!("no bans")
+    };
+    assert_eq!(bans.nodes, std::slice::from_ref(&node_b));
+    let unbanned = owner_a
+        .call(Method::UnbanNode(proto::UnbanNodeRequest { node: node_b }))
+        .await;
+    assert!(unbanned.is_ok(), "{unbanned:?}");
     a.stop().await;
     b.stop().await;
 }
