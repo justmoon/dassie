@@ -168,3 +168,70 @@ Deno.test("streams deliver items until their end", async () => {
   assertEquals(steps, [2, 4]);
   client.close();
 });
+
+Deno.test("aborting a stream cancels it on the node, and drops later items", async () => {
+  const { client, sockets } = setUp();
+  const lines: number[] = [];
+  const abort = new AbortController();
+  const stream = client.stream(
+    "subscribeLogs",
+    {},
+    (event) => lines.push(event.lines.length),
+    { signal: abort.signal },
+  );
+  sockets[0].open();
+  const callId = sockets[0].sent[0].callId;
+  const item = create(ServerMessageSchema, {
+    callId,
+    kind: {
+      case: "item",
+      value: {
+        method: { case: "subscribeLogs", value: { reset: true, lines: [{}] } },
+      },
+    },
+  });
+  sockets[0].deliver(item);
+  abort.abort();
+  await stream;
+  sockets[0].deliver(item);
+  assertEquals(lines, [1]);
+  const cancel = sockets[0].sent[1];
+  assertEquals([cancel.kind.case, cancel.callId], ["cancel", callId]);
+  client.close();
+});
+
+Deno.test("aborting a call before the socket opens sends nothing", async () => {
+  const { client, sockets } = setUp();
+  const abort = new AbortController();
+  const call = client.call("getStatus", {}, { signal: abort.signal });
+  abort.abort();
+  await assertRejects(() => call, DOMException);
+  sockets[0].open();
+  assertEquals(sockets[0].sent.length, 0);
+  // Aborting after the end does nothing.
+  const done = new AbortController();
+  const second = client.call("getStatus", {}, { signal: done.signal });
+  const callId = sockets[0].sent[0].callId;
+  sockets[0].deliver(create(ServerMessageSchema, {
+    callId,
+    kind: { case: "error", value: { code: ErrorCode.NOT_FOUND } },
+  }));
+  await assertRejects(() => second, RpcError);
+  done.abort();
+  assertEquals(sockets[0].sent.length, 1);
+  client.close();
+});
+
+Deno.test("the connection's state is reported", async () => {
+  using time = new FakeTime();
+  const { client, sockets } = setUp();
+  const states: string[] = [];
+  client.onConnectionChange((state) => states.push(state));
+  const call = client.call("getStatus", {});
+  sockets[0].open();
+  sockets[0].lose(1006);
+  await assertRejects(() => call, RpcError);
+  time.tick(2_000);
+  client.close();
+  assertEquals(states, ["connecting", "open", "waiting", "idle", "closed"]);
+});
