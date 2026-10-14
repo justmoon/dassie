@@ -5,8 +5,10 @@
 
 mod gossip;
 mod inbound;
+mod lifecycle;
 mod membership;
 mod peering;
+mod settle;
 mod state;
 
 use alloc::boxed::Box;
@@ -20,12 +22,14 @@ use dassie_oer::Encode;
 use rand_core::CryptoRng;
 
 use crate::auth::{Authenticator, Pending};
+use crate::channel::{Channel, Retry};
 use crate::config::Config;
 use crate::io::{Event, Failure, Output, Request, RequestId, Response, Stats};
 use crate::routing::Routes;
 use crate::table::{Bucket, Entry, Sources};
 use crate::wire::{Authentication, Content, ResponseEnvelope, SchemeId, encode_envelope};
 
+pub use lifecycle::BanError;
 pub use membership::RegistrationStatus;
 pub use state::NodeView;
 
@@ -117,6 +121,10 @@ pub(crate) enum Purpose {
     /// An ILP Fulfill or Reject, by the request ID of the Prepare it
     /// answers, kept to be sent again.
     Response(Box<Answer>),
+    /// A settlement message, by its sequence.
+    Settlement(u64),
+    /// Telling a peer we end the peering.
+    Termination,
 }
 
 /// An ILP response for a peer: sent again until it arrives or `until_ms`,
@@ -170,6 +178,20 @@ pub struct PeerNode {
     pub(crate) removed: Vec<NodeId>,
     pub(crate) registrations: Bucket,
     pub(crate) stats: Stats,
+    /// When this run of the node started.
+    pub(crate) started_ms: u64,
+    /// Settlement channels, by node.
+    pub(crate) channels: BTreeMap<NodeId, Channel>,
+    pub(crate) channels_dirty: BTreeSet<NodeId>,
+    /// When each channel's outbox goes next.
+    pub(crate) retries: BTreeMap<NodeId, Retry>,
+    /// Banned nodes, and the changes not yet persisted.
+    pub(crate) bans: BTreeSet<NodeId>,
+    pub(crate) banned: Vec<NodeId>,
+    pub(crate) unbanned: Vec<NodeId>,
+    /// Peers we are telling that we end the peering, and when to try
+    /// next (`u64::MAX` while a message is in flight).
+    pub(crate) telling: BTreeMap<NodeId, u64>,
 }
 
 impl PeerNode {
@@ -216,6 +238,14 @@ impl PeerNode {
             removed: Vec::new(),
             registrations: Bucket::full(config.registration_rate, now_ms),
             stats: Stats::default(),
+            started_ms: now_ms,
+            channels: BTreeMap::new(),
+            channels_dirty: BTreeSet::new(),
+            retries: BTreeMap::new(),
+            bans: BTreeSet::new(),
+            banned: Vec::new(),
+            unbanned: Vec::new(),
+            telling: BTreeMap::new(),
             config,
         };
         node.restore(stored);
@@ -427,6 +457,8 @@ impl PeerNode {
                     });
                 }
             }
+            Purpose::Settlement(sequence) => self.on_settlement(to, sequence, &result),
+            Purpose::Termination => self.on_termination(to, &result),
             Purpose::Response(answer) => {
                 // A refusal after reading it will not change; anything
                 // else is tried again, and a copy that arrives twice is
@@ -457,6 +489,9 @@ impl PeerNode {
         self.advance(now_ms);
         self.expire_requests(hooks);
         self.retry_answers();
+        self.retry_settlements();
+        // Before our link state is issued, which says whom we advertise.
+        self.review_peers(hooks);
         self.issue_own();
         self.flood();
         self.heartbeat();
@@ -479,6 +514,7 @@ impl PeerNode {
             self.peering.next_due(),
             self.next_maintenance(),
             self.answers.iter().map(|(at, _)| *at).min(),
+            self.next_settlement_retry(),
         ];
         candidates.into_iter().flatten().min()
     }

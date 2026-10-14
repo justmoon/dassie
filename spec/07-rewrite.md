@@ -342,7 +342,8 @@ PeeringResponse ::= CHOICE {
   refused  [1] SEQUENCE { reason UINT8 } }
   -- 0 unspecified, 1 unknown node, 2 unsupported scheme, 3 no common version, 4 capacity,
   -- 5 concurrent request, 6 refused by the scheme, 7 unreachable, 8 banned,
-  -- 9 terminating (the responder is still ending a peering with the requester); unknown values read as 0
+  -- 9 terminating (the responder is ending, or an owner recently ended, its peering with the
+  -- requester); unknown values read as 0
 
 registration [8] SEQUENCE { nodeInfo SignedPeerNodeInfo }  -- unchanged
 -- response body, was empty
@@ -395,7 +396,7 @@ peeringTermination [10] SEQUENCE { reason UINT8 }
   2. The side that started sends `peeringTermination`, again until a 200 or a 409 arrives or 2 min have passed. The other side answers at once and terminates too.
   3. Once no packet is in flight with the peer and no response to it is waiting to be sent again, the peering ends. Its accounts stay, with their balances: they are the record of what is owed, and a later peering with the node uses them again without posting trust a second time.
   4. If the exchange of step 2 completed, each side then settles everything it owes. An unresponsive peer is not settled with; the debt stays on the books.
-  5. The node does not ask the peer again for 24 h after an owner's termination, or after its usual backoff otherwise. A request from a node we are terminating with is refused with reason 9.
+  5. The node does not ask the peer again for 24 h after an owner's termination, or after its usual backoff otherwise. A request from a node we are terminating with, or whose peering an owner ended in the last 24 h, is refused with reason 9; that cooldown does not survive a restart, and a ban is the lasting way.
 - **Bans** are a list the owner keeps. A banned node is never asked, is refused with reason 8, and its messages do not confirm it as a peer. Its link states still flood.
 - **One-sided peerings.** A node that holds no peering with a sender, and is not asking for one, answers an authenticated heartbeat that lists it as a neighbor with a `peeringTermination` of reason 3, at most once per backoff period. The other side then ends its peering.
 
@@ -438,7 +439,7 @@ settle balance − midpoint when balance ≥ midpoint · 1.1; on termination, se
 | Removal grace | 1 h (10 s) |
 | Peering check, bridge check | 1 s, 60 s (2 s) |
 | Peer confirmed by a message within | 60 s |
-| Advertise hold-down | 30 s doubling to 1 h; reset after 1 h stable (5 s to 1 min; 1 min) |
+| Advertise hold-down | 30 s doubling to 1 h; reset after 1 h stable (5 s to 1 min; 5 min) |
 | Peer unresponsive after | 24 h (2 min) |
 | Termination message retries | 2 min (20 s) |
 | No new peering after an owner's termination | 24 h (5 min) |

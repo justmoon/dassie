@@ -78,7 +78,8 @@ pub enum RefusalReason {
     Unreachable,
     /// The requester is banned.
     Banned,
-    /// The responder is still ending a peering with the requester.
+    /// The responder is ending its peering with the requester, or an owner
+    /// recently ended it.
     Terminating,
 }
 

@@ -271,7 +271,7 @@ fn an_own_url_too_long_is_no_url() {
         Box::new(SeededRng::new(1)),
         START,
     );
-    node.handle_timeout(START, &mut support::StubHooks);
+    node.handle_timeout(START, &mut support::StubHooks::default());
     let mut batch = PeerBatch::default();
     node.take_changes(&mut batch);
     assert_eq!(batch.own_sequence, None);

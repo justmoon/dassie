@@ -199,13 +199,13 @@ fn our_sequence_survives_restarts_and_clock_rollback() {
             },
             Vec::new(),
             Stored {
-                nodes: Vec::new(),
                 own_sequence: stored,
+                ..Stored::default()
             },
             Box::new(SeededRng::new(1)),
             START,
         );
-        node.handle_timeout(START, &mut support::StubHooks);
+        node.handle_timeout(START, &mut support::StubHooks::default());
         let mut batch = dassie_peer::PeerBatch::default();
         node.take_changes(&mut batch);
         batch.own_sequence.unwrap()

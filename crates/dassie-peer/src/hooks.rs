@@ -88,4 +88,9 @@ pub trait PeeringHooks {
         info: &[u8],
         data: &[u8],
     ) -> Result<Agreed, Declined>;
+
+    /// Whether nothing is in flight with `peer` any more: no packet waits
+    /// for its response, in either direction. A terminating peering ends
+    /// only then, so both sides' books agree.
+    fn drained(&self, peer: NodeId) -> bool;
 }

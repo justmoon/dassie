@@ -106,6 +106,26 @@ impl PeerNode {
             Content::PeeringRequest(_) => {
                 self.peering_request(hooks, accepted, envelope.content, id)
             }
+            Content::Settlement {
+                scheme,
+                amount,
+                data,
+                sequence,
+            } => self.settlement_request(&accepted, scheme, amount, data, sequence),
+            Content::SettlementMessage { scheme, message } => {
+                if self.peering_of(&accepted.sender).is_none() {
+                    return refuse(409, "not peered");
+                }
+                Inbound::SchemeMessage {
+                    from: accepted.sender,
+                    scheme,
+                    message,
+                    reply: ok(&accepted, &[]),
+                }
+            }
+            Content::PeeringTermination(reason) => {
+                Inbound::Reply(self.termination_request(&accepted, reason))
+            }
             other => Inbound::Reply(self.answer(hooks, &accepted, other)),
         }
     }
@@ -124,6 +144,7 @@ impl PeerNode {
                     Processed::Invalid(_) => return Reply::refuse(400, "invalid link state"),
                     _ if accepted.is_authenticated() && info.info.node_id == sender => {
                         self.heard_from(&sender);
+                        self.notice_one_sided(sender, &info);
                     }
                     _ => {}
                 }
@@ -162,17 +183,12 @@ impl PeerNode {
                 }
                 ok(accepted, &encode_octets(&info))
             }
-            Content::Settlement { .. }
-            | Content::SettlementMessage { .. }
-            | Content::PeeringTermination(_) => {
-                if self.peering_of(&accepted.sender).is_none() {
-                    return Reply::refuse(409, "not peered");
-                }
-                Reply::refuse(503, "settlement between peers comes later")
-            }
             Content::InterledgerPacket { .. }
             | Content::Registration(_)
-            | Content::PeeringRequest(_) => Reply::refuse(400, "unexpected"),
+            | Content::PeeringRequest(_)
+            | Content::Settlement { .. }
+            | Content::SettlementMessage { .. }
+            | Content::PeeringTermination(_) => Reply::refuse(400, "unexpected"),
         }
     }
 

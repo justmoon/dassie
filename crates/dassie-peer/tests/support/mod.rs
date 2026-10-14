@@ -23,9 +23,12 @@ use dassie_peer::{
 pub const START: u64 = 1_800_000_000_000;
 pub const CREDIT: u64 = 1_100_000_000;
 
-/// Hooks for the stub scheme: always agrees.
+/// Hooks for the stub scheme: always agrees. Peers in `busy` still have
+/// packets in flight.
 #[derive(Default)]
-pub struct StubHooks;
+pub struct StubHooks {
+    pub busy: BTreeSet<NodeId>,
+}
 
 impl PeeringHooks for StubHooks {
     fn versions(&self, scheme: SchemeId) -> &'static [u16] {
@@ -85,6 +88,10 @@ impl PeeringHooks for StubHooks {
             credit_out: CREDIT,
         })
     }
+
+    fn drained(&self, peer: NodeId) -> bool {
+        !self.busy.contains(&peer)
+    }
 }
 
 pub fn key(index: usize) -> Arc<NodeKey> {
@@ -143,13 +150,25 @@ pub struct SimNode {
     pub node: Option<PeerNode>,
     pub stored: Stored,
     stored_nodes: BTreeMap<NodeId, dassie_peer::StoredNode>,
+    stored_channels: BTreeMap<NodeId, dassie_peer::StoredChannel>,
+    stored_bans: BTreeSet<NodeId>,
     pub skew_ms: i64,
     generation: u64,
     next_inbound: u64,
     /// Inbound requests waiting on a deferred reply: who asked, and which
     /// request of theirs it was.
     deferred: BTreeMap<InboundId, (usize, u64, RequestId)>,
-    hooks: StubHooks,
+    pub hooks: StubHooks,
+}
+
+/// A settlement a node applied: who got it, from whom, how much, and its
+/// sequence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Applied {
+    pub to: usize,
+    pub from: NodeId,
+    pub amount: u64,
+    pub sequence: u64,
 }
 
 pub struct Network {
@@ -169,6 +188,14 @@ pub struct Network {
     pub events: Vec<(usize, Event)>,
     /// ILP packets received: by which node, from whom, with which ID.
     pub packets: Vec<(usize, NodeId, u32)>,
+    /// Settlements applied.
+    pub applied: Vec<Applied>,
+    /// Settlements sent: by which node, to whom, how much, with which
+    /// sequence.
+    pub settled: Vec<(usize, NodeId, u64, u64)>,
+    /// Whether a node settles everything it owes when a peering ends, as
+    /// the node's core does: one unit, here.
+    pub settle_on_end: bool,
 }
 
 impl Network {
@@ -195,6 +222,9 @@ impl Network {
             trace: Vec::new(),
             events: Vec::new(),
             packets: Vec::new(),
+            applied: Vec::new(),
+            settled: Vec::new(),
+            settle_on_end: false,
         };
         for index in 0..count {
             let skew = i64::try_from(rng.next_u64() % 20_001).unwrap() - 10_000;
@@ -203,11 +233,13 @@ impl Network {
                 node: None,
                 stored: Stored::default(),
                 stored_nodes: BTreeMap::new(),
+                stored_channels: BTreeMap::new(),
+                stored_bans: BTreeSet::new(),
                 skew_ms: skew,
                 generation: 0,
                 next_inbound: 0,
                 deferred: BTreeMap::new(),
-                hooks: StubHooks,
+                hooks: StubHooks::default(),
             });
             network.start(index);
         }
@@ -225,6 +257,8 @@ impl Network {
         sim.generation += 1;
         sim.deferred.clear();
         sim.stored.nodes = sim.stored_nodes.values().cloned().collect();
+        sim.stored.channels = sim.stored_channels.values().cloned().collect();
+        sim.stored.bans = sim.stored_bans.iter().copied().collect();
         let mut node = PeerNode::new(
             self.config,
             key(index),
@@ -282,9 +316,10 @@ impl Network {
         while let Some(output) = node.poll_output() {
             outputs.push(output);
         }
+        let mut events = Vec::new();
         while let Some(event) = node.poll_event() {
             self.trace.push(format!("{} {index} {event:?}", self.now));
-            self.events.push((index, event));
+            events.push(event);
         }
         let sim = &mut self.nodes[index];
         for stored in batch.nodes {
@@ -296,9 +331,61 @@ impl Network {
         if let Some(sequence) = batch.own_sequence {
             sim.stored.own_sequence = sequence;
         }
+        for channel in batch.channels {
+            sim.stored_channels.insert(channel.node, channel);
+        }
+        for banned in batch.banned {
+            sim.stored_bans.insert(banned);
+        }
+        for unbanned in batch.unbanned {
+            sim.stored_bans.remove(&unbanned);
+        }
         for output in outputs {
             self.carry(index, output);
         }
+        let settle = events.iter().filter_map(|event| match event {
+            Event::PeeringEnded {
+                peer, settle: true, ..
+            } if self.settle_on_end => Some(*peer),
+            _ => None,
+        });
+        let settle: Vec<NodeId> = settle.collect();
+        for event in events {
+            self.events.push((index, event));
+        }
+        for peer in settle {
+            // The books only owe a node that held the peering, and so a
+            // channel: a peering only one side held moved no money.
+            if self.holds_channel(&peer, index) {
+                self.settle(index, peer, 1);
+            }
+        }
+    }
+
+    /// Node `index` settles `amount` with `peer`, if nothing is on its way.
+    pub fn settle(&mut self, index: usize, peer: NodeId, amount: u64) -> bool {
+        let now = self.local_now(index);
+        let Some(node) = self.nodes[index].node.as_mut() else {
+            return false;
+        };
+        let scheme = SchemeId::parse("stub").unwrap();
+        let Ok(sequence) = node.send_settlement(now, &peer, scheme, amount, Vec::new()) else {
+            return false;
+        };
+        self.settled.push((index, peer, amount, sequence));
+        self.trace
+            .push(format!("{} {index} settles {amount} #{sequence}", self.now));
+        self.drain(index);
+        true
+    }
+
+    /// Whether the node `node` holds a channel with node `with`, as it
+    /// persisted it: up or down.
+    pub fn holds_channel(&self, node: &NodeId, with: usize) -> bool {
+        let own = key(with).node_id();
+        (0..self.nodes.len())
+            .find(|index| key(*index).node_id() == *node)
+            .is_some_and(|index| self.nodes[index].stored_channels.contains_key(&own))
     }
 
     fn carry(&mut self, index: usize, output: Output) {
@@ -441,6 +528,23 @@ impl Network {
                 self.packets.push((to, sender, request_id));
                 Some(reply)
             }
+            Inbound::Settlement {
+                from: sender,
+                amount,
+                sequence,
+                reply,
+                ..
+            } => {
+                node.settlement_applied(now, &sender, sequence);
+                self.applied.push(Applied {
+                    to,
+                    from: sender,
+                    amount,
+                    sequence,
+                });
+                Some(reply)
+            }
+            Inbound::SchemeMessage { reply, .. } => Some(reply),
         };
         self.drain(to);
         if let Some(reply) = reply {
@@ -564,7 +668,18 @@ impl Network {
         sim.next_inbound += 1;
         let node = sim.node.as_mut().unwrap();
         let reply = match node.handle_inbound(now, &mut sim.hooks, inbound, body, None) {
-            Inbound::Reply(reply) | Inbound::Packet { reply, .. } => reply,
+            Inbound::Reply(reply)
+            | Inbound::Packet { reply, .. }
+            | Inbound::SchemeMessage { reply, .. } => reply,
+            Inbound::Settlement {
+                from,
+                sequence,
+                reply,
+                ..
+            } => {
+                node.settlement_applied(now, &from, sequence);
+                reply
+            }
             Inbound::Deferred => dassie_peer::Reply {
                 status: 0,
                 body: Vec::new(),

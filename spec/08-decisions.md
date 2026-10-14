@@ -219,7 +219,7 @@ All decisions below were confirmed on 2026-10-11. Each states the **decision** a
   - **Termination ends a peering, not a relationship.** The accounts stay, with what is owed, and the settlement sequence carries on, so a settlement that arrives after the peering ended is still credited once. Peering with the node again reuses both, without posting trust twice.
   - **`banned` is a list, not a peering state,** since a node can be banned while its peering is still terminating.
 - **Child peers deferred (2026-10-14).** Child peers (NET-21, NET-23) need a node's ILP address to follow its uplink, which touches the connector, BTP and the STREAM receiver. They only matter once registration costs something (NET-17): today any node with a URL registers automatically and becomes a member within minutes. They move to the milestone that adds registration fees.
-- **Known limit:** a node never closes a peer's accounts or settlement channel. With 1024 accounts, about 500 distinct peers fit in a node's lifetime; after that, peering is refused for capacity.
+- **Known limit:** a node never closes a peer's accounts or settlement channel. It keeps at most 512 channels, one per node it has ever peered with; after that, peering with a new node is refused for capacity. Closing a relationship whose balance is settled can lift this later.
 
 ### D13. Connector timing and packet limits
 
