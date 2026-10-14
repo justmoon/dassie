@@ -6,10 +6,15 @@
 //! are tightened, with a warning.
 //!
 //! Every statement is short, and the connection is used synchronously behind
-//! a mutex: in WAL mode with `synchronous = NORMAL` a commit does not wait
-//! for the disk, so a statement takes microseconds and a thread pool would
-//! cost more than it saves.
+//! a mutex: a statement takes microseconds and a thread pool would cost more
+//! than it saves. Commits wait for the disk (`synchronous = FULL`), because
+//! a fulfilled packet is passed on only once its transfer is durable, power
+//! loss included; the ledger's engine commits a whole batch of packets at
+//! once to keep that affordable.
 
+mod ledger;
+#[cfg(test)]
+mod ledger_tests;
 mod schema;
 
 use std::fmt;
@@ -24,6 +29,7 @@ use dassie_node_core::config::{Alias, DirectoryUrl, Hostname, NodeConfig, Ports,
 use dassie_node_core::session::{SessionId, SessionPolicy, SessionTimes};
 use rusqlite::{Connection, OptionalExtension, params};
 
+pub use ledger::{BtpTokenRow, JournalRow, LedgerBatch, StoredLedger};
 pub use schema::{APPLICATION_ID, V0_APPLICATION_ID};
 
 use crate::log::target;
@@ -133,7 +139,7 @@ impl Store {
         secure_file(&path)?;
         let connection = Connection::open(&path)?;
         connection.pragma_update(None, "journal_mode", "WAL")?;
-        connection.pragma_update(None, "synchronous", "NORMAL")?;
+        connection.pragma_update(None, "synchronous", "FULL")?;
         Self::prepare(connection)
     }
 
@@ -144,6 +150,7 @@ impl Store {
 
     fn prepare(mut connection: Connection) -> Result<Self, StoreError> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
+        connection.pragma_update(None, "foreign_keys", "ON")?;
         schema::prepare(&mut connection)?;
         schema::check(&mut connection)?;
         Ok(Self {

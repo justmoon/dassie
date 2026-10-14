@@ -1,7 +1,7 @@
 //! Setup, login, logout and sessions.
 
 use std::fmt;
-use std::sync::{Arc, PoisonError};
+use std::sync::Arc;
 
 use dassie_node_core::rate_limit::ClientKey;
 use dassie_node_core::session::{
@@ -86,10 +86,7 @@ impl Node {
             return Err(AuthError::AlreadySetUp);
         }
         tracing::info!(target: target::AUTH, node_id = %key.node_id(), "node identity set up");
-        *self
-            .node_key
-            .write()
-            .unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(key));
+        self.node_key.send_replace(Some(Arc::new(key)));
         self.new_session(user_agent)
     }
 

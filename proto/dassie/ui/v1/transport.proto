@@ -32,8 +32,12 @@ syntax = "proto3";
 package dassie.ui.v1;
 
 import "dassie/ui/v1/acme.proto";
+import "dassie/ui/v1/btp.proto";
 import "dassie/ui/v1/config.proto";
+import "dassie/ui/v1/debug.proto";
+import "dassie/ui/v1/ledger.proto";
 import "dassie/ui/v1/node.proto";
+import "dassie/ui/v1/payments.proto";
 import "dassie/ui/v1/sessions.proto";
 import "dassie/ui/v1/tls.proto";
 
@@ -72,6 +76,25 @@ message Request {
     ListSessionsRequest list_sessions = 40;
     RevokeSessionRequest revoke_session = 41;
     RevokeAllSessionsRequest revoke_all_sessions = 42;
+
+    // UNAVAILABLE from here on while the node's ledger is not running: before
+    // setup, or for a moment after a failure.
+    ListLedgersRequest list_ledgers = 50;
+    AddSettlementSchemeRequest add_settlement_scheme = 51;
+    RemoveSettlementSchemeRequest remove_settlement_scheme = 52;
+    StubDepositRequest stub_deposit = 53;
+
+    CreateBtpTokenRequest create_btp_token = 60;
+    ListBtpTokensRequest list_btp_tokens = 61;
+    RevokeBtpTokenRequest revoke_btp_token = 62;
+
+    CreateStreamCredentialsRequest create_stream_credentials = 70;
+
+    ListAccountsRequest list_accounts = 80;
+    ListTransfersRequest list_transfers = 81;
+    ListPacketsRequest list_packets = 82;
+    // Streaming.
+    SubscribePacketsRequest subscribe_packets = 83;
   }
 }
 
@@ -106,12 +129,28 @@ message Response {
     ListSessionsResponse list_sessions = 40;
     RevokeSessionResponse revoke_session = 41;
     RevokeAllSessionsResponse revoke_all_sessions = 42;
+
+    ListLedgersResponse list_ledgers = 50;
+    AddSettlementSchemeResponse add_settlement_scheme = 51;
+    RemoveSettlementSchemeResponse remove_settlement_scheme = 52;
+    StubDepositResponse stub_deposit = 53;
+
+    CreateBtpTokenResponse create_btp_token = 60;
+    ListBtpTokensResponse list_btp_tokens = 61;
+    RevokeBtpTokenResponse revoke_btp_token = 62;
+
+    CreateStreamCredentialsResponse create_stream_credentials = 70;
+
+    ListAccountsResponse list_accounts = 80;
+    ListTransfersResponse list_transfers = 81;
+    ListPacketsResponse list_packets = 82;
   }
 }
 
 message StreamItem {
   oneof method {
     AcmeProgress obtain_certificate = 30;
+    PacketEvent subscribe_packets = 83;
   }
 }
 

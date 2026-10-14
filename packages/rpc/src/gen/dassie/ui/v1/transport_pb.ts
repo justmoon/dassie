@@ -35,10 +35,18 @@ import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2"
 import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
 import type { AcmeProgress, GetAcmeTermsRequest, GetAcmeTermsResponse, ObtainCertificateRequest } from "./acme_pb.ts";
 import { file_dassie_ui_v1_acme } from "./acme_pb.ts";
+import type { CreateBtpTokenRequest, CreateBtpTokenResponse, ListBtpTokensRequest, ListBtpTokensResponse, RevokeBtpTokenRequest, RevokeBtpTokenResponse } from "./btp_pb.ts";
+import { file_dassie_ui_v1_btp } from "./btp_pb.ts";
 import type { GetConfigRequest, GetConfigResponse, GetSetupUrlRequest, GetSetupUrlResponse, SetAliasRequest, SetAliasResponse, SetHostnameRequest, SetHostnameResponse, SetPortsRequest, SetPortsResponse, SetRealmRequest, SetRealmResponse } from "./config_pb.ts";
 import { file_dassie_ui_v1_config } from "./config_pb.ts";
+import type { ListAccountsRequest, ListAccountsResponse, ListPacketsRequest, ListPacketsResponse, ListTransfersRequest, ListTransfersResponse, PacketEvent, SubscribePacketsRequest } from "./debug_pb.ts";
+import { file_dassie_ui_v1_debug } from "./debug_pb.ts";
+import type { AddSettlementSchemeRequest, AddSettlementSchemeResponse, ListLedgersRequest, ListLedgersResponse, RemoveSettlementSchemeRequest, RemoveSettlementSchemeResponse, StubDepositRequest, StubDepositResponse } from "./ledger_pb.ts";
+import { file_dassie_ui_v1_ledger } from "./ledger_pb.ts";
 import type { GetBasicStateRequest, GetBasicStateResponse, GetStatusRequest, GetStatusResponse } from "./node_pb.ts";
 import { file_dassie_ui_v1_node } from "./node_pb.ts";
+import type { CreateStreamCredentialsRequest, CreateStreamCredentialsResponse } from "./payments_pb.ts";
+import { file_dassie_ui_v1_payments } from "./payments_pb.ts";
 import type { ListSessionsRequest, ListSessionsResponse, RevokeAllSessionsRequest, RevokeAllSessionsResponse, RevokeSessionRequest, RevokeSessionResponse } from "./sessions_pb.ts";
 import { file_dassie_ui_v1_sessions } from "./sessions_pb.ts";
 import type { SetCertificateRequest, SetCertificateResponse } from "./tls_pb.ts";
@@ -49,7 +57,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file dassie/ui/v1/transport.proto.
  */
 export const file_dassie_ui_v1_transport: GenFile = /*@__PURE__*/
-  fileDesc("ChxkYXNzaWUvdWkvdjEvdHJhbnNwb3J0LnByb3RvEgxkYXNzaWUudWkudjEiegoNQ2xpZW50TWVzc2FnZRIPCgdjYWxsX2lkGAEgASgNEigKB3JlcXVlc3QYAiABKAsyFS5kYXNzaWUudWkudjEuUmVxdWVzdEgAEiYKBmNhbmNlbBgDIAEoCzIULmRhc3NpZS51aS52MS5DYW5jZWxIAEIGCgRraW5kIggKBkNhbmNlbCLTBgoHUmVxdWVzdBI9Cg9nZXRfYmFzaWNfc3RhdGUYASABKAsyIi5kYXNzaWUudWkudjEuR2V0QmFzaWNTdGF0ZVJlcXVlc3RIABI0CgpnZXRfc3RhdHVzGAIgASgLMh4uZGFzc2llLnVpLnYxLkdldFN0YXR1c1JlcXVlc3RIABI0CgpnZXRfY29uZmlnGAogASgLMh4uZGFzc2llLnVpLnYxLkdldENvbmZpZ1JlcXVlc3RIABI5Cg1nZXRfc2V0dXBfdXJsGAsgASgLMiAuZGFzc2llLnVpLnYxLkdldFNldHVwVXJsUmVxdWVzdEgAEjgKDHNldF9ob3N0bmFtZRgMIAEoCzIgLmRhc3NpZS51aS52MS5TZXRIb3N0bmFtZVJlcXVlc3RIABIyCglzZXRfcmVhbG0YDSABKAsyHS5kYXNzaWUudWkudjEuU2V0UmVhbG1SZXF1ZXN0SAASMgoJc2V0X3BvcnRzGA4gASgLMh0uZGFzc2llLnVpLnYxLlNldFBvcnRzUmVxdWVzdEgAEjIKCXNldF9hbGlhcxgPIAEoCzIdLmRhc3NpZS51aS52MS5TZXRBbGlhc1JlcXVlc3RIABI+Cg9zZXRfY2VydGlmaWNhdGUYFCABKAsyIy5kYXNzaWUudWkudjEuU2V0Q2VydGlmaWNhdGVSZXF1ZXN0SAASRAoSb2J0YWluX2NlcnRpZmljYXRlGB4gASgLMiYuZGFzc2llLnVpLnYxLk9idGFpbkNlcnRpZmljYXRlUmVxdWVzdEgAEjsKDmdldF9hY21lX3Rlcm1zGB8gASgLMiEuZGFzc2llLnVpLnYxLkdldEFjbWVUZXJtc1JlcXVlc3RIABI6Cg1saXN0X3Nlc3Npb25zGCggASgLMiEuZGFzc2llLnVpLnYxLkxpc3RTZXNzaW9uc1JlcXVlc3RIABI8Cg5yZXZva2Vfc2Vzc2lvbhgpIAEoCzIiLmRhc3NpZS51aS52MS5SZXZva2VTZXNzaW9uUmVxdWVzdEgAEkUKE3Jldm9rZV9hbGxfc2Vzc2lvbnMYKiABKAsyJi5kYXNzaWUudWkudjEuUmV2b2tlQWxsU2Vzc2lvbnNSZXF1ZXN0SABCCAoGbWV0aG9kIswBCg1TZXJ2ZXJNZXNzYWdlEg8KB2NhbGxfaWQYASABKA0SKgoIcmVzcG9uc2UYAiABKAsyFi5kYXNzaWUudWkudjEuUmVzcG9uc2VIABIoCgRpdGVtGAMgASgLMhguZGFzc2llLnVpLnYxLlN0cmVhbUl0ZW1IABImCgNlbmQYBCABKAsyFy5kYXNzaWUudWkudjEuU3RyZWFtRW5kSAASJAoFZXJyb3IYBSABKAsyEy5kYXNzaWUudWkudjEuRXJyb3JIAEIGCgRraW5kIpsGCghSZXNwb25zZRI+Cg9nZXRfYmFzaWNfc3RhdGUYASABKAsyIy5kYXNzaWUudWkudjEuR2V0QmFzaWNTdGF0ZVJlc3BvbnNlSAASNQoKZ2V0X3N0YXR1cxgCIAEoCzIfLmRhc3NpZS51aS52MS5HZXRTdGF0dXNSZXNwb25zZUgAEjUKCmdldF9jb25maWcYCiABKAsyHy5kYXNzaWUudWkudjEuR2V0Q29uZmlnUmVzcG9uc2VIABI6Cg1nZXRfc2V0dXBfdXJsGAsgASgLMiEuZGFzc2llLnVpLnYxLkdldFNldHVwVXJsUmVzcG9uc2VIABI5CgxzZXRfaG9zdG5hbWUYDCABKAsyIS5kYXNzaWUudWkudjEuU2V0SG9zdG5hbWVSZXNwb25zZUgAEjMKCXNldF9yZWFsbRgNIAEoCzIeLmRhc3NpZS51aS52MS5TZXRSZWFsbVJlc3BvbnNlSAASMwoJc2V0X3BvcnRzGA4gASgLMh4uZGFzc2llLnVpLnYxLlNldFBvcnRzUmVzcG9uc2VIABIzCglzZXRfYWxpYXMYDyABKAsyHi5kYXNzaWUudWkudjEuU2V0QWxpYXNSZXNwb25zZUgAEj8KD3NldF9jZXJ0aWZpY2F0ZRgUIAEoCzIkLmRhc3NpZS51aS52MS5TZXRDZXJ0aWZpY2F0ZVJlc3BvbnNlSAASPAoOZ2V0X2FjbWVfdGVybXMYHyABKAsyIi5kYXNzaWUudWkudjEuR2V0QWNtZVRlcm1zUmVzcG9uc2VIABI7Cg1saXN0X3Nlc3Npb25zGCggASgLMiIuZGFzc2llLnVpLnYxLkxpc3RTZXNzaW9uc1Jlc3BvbnNlSAASPQoOcmV2b2tlX3Nlc3Npb24YKSABKAsyIy5kYXNzaWUudWkudjEuUmV2b2tlU2Vzc2lvblJlc3BvbnNlSAASRgoTcmV2b2tlX2FsbF9zZXNzaW9ucxgqIAEoCzInLmRhc3NpZS51aS52MS5SZXZva2VBbGxTZXNzaW9uc1Jlc3BvbnNlSABCCAoGbWV0aG9kIlAKClN0cmVhbUl0ZW0SOAoSb2J0YWluX2NlcnRpZmljYXRlGB4gASgLMhouZGFzc2llLnVpLnYxLkFjbWVQcm9ncmVzc0gAQggKBm1ldGhvZCILCglTdHJlYW1FbmQiPwoFRXJyb3ISJQoEY29kZRgBIAEoDjIXLmRhc3NpZS51aS52MS5FcnJvckNvZGUSDwoHbWVzc2FnZRgCIAEoCSqcAgoJRXJyb3JDb2RlEhoKFkVSUk9SX0NPREVfVU5TUEVDSUZJRUQQABIeChpFUlJPUl9DT0RFX1VOQVVUSEVOVElDQVRFRBABEh8KG0VSUk9SX0NPREVfSU5WQUxJRF9BUkdVTUVOVBACEiIKHkVSUk9SX0NPREVfRkFJTEVEX1BSRUNPTkRJVElPThADEhgKFEVSUk9SX0NPREVfTk9UX0ZPVU5EEAQSIQodRVJST1JfQ09ERV9SRVNPVVJDRV9FWEhBVVNURUQQBRIaChZFUlJPUl9DT0RFX1VOQVZBSUxBQkxFEAYSFwoTRVJST1JfQ09ERV9JTlRFUk5BTBAHEhwKGEVSUk9SX0NPREVfVU5JTVBMRU1FTlRFRBAIYgZwcm90bzM", [file_dassie_ui_v1_acme, file_dassie_ui_v1_config, file_dassie_ui_v1_node, file_dassie_ui_v1_sessions, file_dassie_ui_v1_tls]);
+  fileDesc("ChxkYXNzaWUvdWkvdjEvdHJhbnNwb3J0LnByb3RvEgxkYXNzaWUudWkudjEiegoNQ2xpZW50TWVzc2FnZRIPCgdjYWxsX2lkGAEgASgNEigKB3JlcXVlc3QYAiABKAsyFS5kYXNzaWUudWkudjEuUmVxdWVzdEgAEiYKBmNhbmNlbBgDIAEoCzIULmRhc3NpZS51aS52MS5DYW5jZWxIAEIGCgRraW5kIggKBkNhbmNlbCLvDAoHUmVxdWVzdBI9Cg9nZXRfYmFzaWNfc3RhdGUYASABKAsyIi5kYXNzaWUudWkudjEuR2V0QmFzaWNTdGF0ZVJlcXVlc3RIABI0CgpnZXRfc3RhdHVzGAIgASgLMh4uZGFzc2llLnVpLnYxLkdldFN0YXR1c1JlcXVlc3RIABI0CgpnZXRfY29uZmlnGAogASgLMh4uZGFzc2llLnVpLnYxLkdldENvbmZpZ1JlcXVlc3RIABI5Cg1nZXRfc2V0dXBfdXJsGAsgASgLMiAuZGFzc2llLnVpLnYxLkdldFNldHVwVXJsUmVxdWVzdEgAEjgKDHNldF9ob3N0bmFtZRgMIAEoCzIgLmRhc3NpZS51aS52MS5TZXRIb3N0bmFtZVJlcXVlc3RIABIyCglzZXRfcmVhbG0YDSABKAsyHS5kYXNzaWUudWkudjEuU2V0UmVhbG1SZXF1ZXN0SAASMgoJc2V0X3BvcnRzGA4gASgLMh0uZGFzc2llLnVpLnYxLlNldFBvcnRzUmVxdWVzdEgAEjIKCXNldF9hbGlhcxgPIAEoCzIdLmRhc3NpZS51aS52MS5TZXRBbGlhc1JlcXVlc3RIABI+Cg9zZXRfY2VydGlmaWNhdGUYFCABKAsyIy5kYXNzaWUudWkudjEuU2V0Q2VydGlmaWNhdGVSZXF1ZXN0SAASRAoSb2J0YWluX2NlcnRpZmljYXRlGB4gASgLMiYuZGFzc2llLnVpLnYxLk9idGFpbkNlcnRpZmljYXRlUmVxdWVzdEgAEjsKDmdldF9hY21lX3Rlcm1zGB8gASgLMiEuZGFzc2llLnVpLnYxLkdldEFjbWVUZXJtc1JlcXVlc3RIABI6Cg1saXN0X3Nlc3Npb25zGCggASgLMiEuZGFzc2llLnVpLnYxLkxpc3RTZXNzaW9uc1JlcXVlc3RIABI8Cg5yZXZva2Vfc2Vzc2lvbhgpIAEoCzIiLmRhc3NpZS51aS52MS5SZXZva2VTZXNzaW9uUmVxdWVzdEgAEkUKE3Jldm9rZV9hbGxfc2Vzc2lvbnMYKiABKAsyJi5kYXNzaWUudWkudjEuUmV2b2tlQWxsU2Vzc2lvbnNSZXF1ZXN0SAASOAoMbGlzdF9sZWRnZXJzGDIgASgLMiAuZGFzc2llLnVpLnYxLkxpc3RMZWRnZXJzUmVxdWVzdEgAEkkKFWFkZF9zZXR0bGVtZW50X3NjaGVtZRgzIAEoCzIoLmRhc3NpZS51aS52MS5BZGRTZXR0bGVtZW50U2NoZW1lUmVxdWVzdEgAEk8KGHJlbW92ZV9zZXR0bGVtZW50X3NjaGVtZRg0IAEoCzIrLmRhc3NpZS51aS52MS5SZW1vdmVTZXR0bGVtZW50U2NoZW1lUmVxdWVzdEgAEjgKDHN0dWJfZGVwb3NpdBg1IAEoCzIgLmRhc3NpZS51aS52MS5TdHViRGVwb3NpdFJlcXVlc3RIABI/ChBjcmVhdGVfYnRwX3Rva2VuGDwgASgLMiMuZGFzc2llLnVpLnYxLkNyZWF0ZUJ0cFRva2VuUmVxdWVzdEgAEj0KD2xpc3RfYnRwX3Rva2Vucxg9IAEoCzIiLmRhc3NpZS51aS52MS5MaXN0QnRwVG9rZW5zUmVxdWVzdEgAEj8KEHJldm9rZV9idHBfdG9rZW4YPiABKAsyIy5kYXNzaWUudWkudjEuUmV2b2tlQnRwVG9rZW5SZXF1ZXN0SAASUQoZY3JlYXRlX3N0cmVhbV9jcmVkZW50aWFscxhGIAEoCzIsLmRhc3NpZS51aS52MS5DcmVhdGVTdHJlYW1DcmVkZW50aWFsc1JlcXVlc3RIABI6Cg1saXN0X2FjY291bnRzGFAgASgLMiEuZGFzc2llLnVpLnYxLkxpc3RBY2NvdW50c1JlcXVlc3RIABI8Cg5saXN0X3RyYW5zZmVycxhRIAEoCzIiLmRhc3NpZS51aS52MS5MaXN0VHJhbnNmZXJzUmVxdWVzdEgAEjgKDGxpc3RfcGFja2V0cxhSIAEoCzIgLmRhc3NpZS51aS52MS5MaXN0UGFja2V0c1JlcXVlc3RIABJCChFzdWJzY3JpYmVfcGFja2V0cxhTIAEoCzIlLmRhc3NpZS51aS52MS5TdWJzY3JpYmVQYWNrZXRzUmVxdWVzdEgAQggKBm1ldGhvZCLMAQoNU2VydmVyTWVzc2FnZRIPCgdjYWxsX2lkGAEgASgNEioKCHJlc3BvbnNlGAIgASgLMhYuZGFzc2llLnVpLnYxLlJlc3BvbnNlSAASKAoEaXRlbRgDIAEoCzIYLmRhc3NpZS51aS52MS5TdHJlYW1JdGVtSAASJgoDZW5kGAQgASgLMhcuZGFzc2llLnVpLnYxLlN0cmVhbUVuZEgAEiQKBWVycm9yGAUgASgLMhMuZGFzc2llLnVpLnYxLkVycm9ySABCBgoEa2luZCL+CwoIUmVzcG9uc2USPgoPZ2V0X2Jhc2ljX3N0YXRlGAEgASgLMiMuZGFzc2llLnVpLnYxLkdldEJhc2ljU3RhdGVSZXNwb25zZUgAEjUKCmdldF9zdGF0dXMYAiABKAsyHy5kYXNzaWUudWkudjEuR2V0U3RhdHVzUmVzcG9uc2VIABI1CgpnZXRfY29uZmlnGAogASgLMh8uZGFzc2llLnVpLnYxLkdldENvbmZpZ1Jlc3BvbnNlSAASOgoNZ2V0X3NldHVwX3VybBgLIAEoCzIhLmRhc3NpZS51aS52MS5HZXRTZXR1cFVybFJlc3BvbnNlSAASOQoMc2V0X2hvc3RuYW1lGAwgASgLMiEuZGFzc2llLnVpLnYxLlNldEhvc3RuYW1lUmVzcG9uc2VIABIzCglzZXRfcmVhbG0YDSABKAsyHi5kYXNzaWUudWkudjEuU2V0UmVhbG1SZXNwb25zZUgAEjMKCXNldF9wb3J0cxgOIAEoCzIeLmRhc3NpZS51aS52MS5TZXRQb3J0c1Jlc3BvbnNlSAASMwoJc2V0X2FsaWFzGA8gASgLMh4uZGFzc2llLnVpLnYxLlNldEFsaWFzUmVzcG9uc2VIABI/Cg9zZXRfY2VydGlmaWNhdGUYFCABKAsyJC5kYXNzaWUudWkudjEuU2V0Q2VydGlmaWNhdGVSZXNwb25zZUgAEjwKDmdldF9hY21lX3Rlcm1zGB8gASgLMiIuZGFzc2llLnVpLnYxLkdldEFjbWVUZXJtc1Jlc3BvbnNlSAASOwoNbGlzdF9zZXNzaW9ucxgoIAEoCzIiLmRhc3NpZS51aS52MS5MaXN0U2Vzc2lvbnNSZXNwb25zZUgAEj0KDnJldm9rZV9zZXNzaW9uGCkgASgLMiMuZGFzc2llLnVpLnYxLlJldm9rZVNlc3Npb25SZXNwb25zZUgAEkYKE3Jldm9rZV9hbGxfc2Vzc2lvbnMYKiABKAsyJy5kYXNzaWUudWkudjEuUmV2b2tlQWxsU2Vzc2lvbnNSZXNwb25zZUgAEjkKDGxpc3RfbGVkZ2VycxgyIAEoCzIhLmRhc3NpZS51aS52MS5MaXN0TGVkZ2Vyc1Jlc3BvbnNlSAASSgoVYWRkX3NldHRsZW1lbnRfc2NoZW1lGDMgASgLMikuZGFzc2llLnVpLnYxLkFkZFNldHRsZW1lbnRTY2hlbWVSZXNwb25zZUgAElAKGHJlbW92ZV9zZXR0bGVtZW50X3NjaGVtZRg0IAEoCzIsLmRhc3NpZS51aS52MS5SZW1vdmVTZXR0bGVtZW50U2NoZW1lUmVzcG9uc2VIABI5CgxzdHViX2RlcG9zaXQYNSABKAsyIS5kYXNzaWUudWkudjEuU3R1YkRlcG9zaXRSZXNwb25zZUgAEkAKEGNyZWF0ZV9idHBfdG9rZW4YPCABKAsyJC5kYXNzaWUudWkudjEuQ3JlYXRlQnRwVG9rZW5SZXNwb25zZUgAEj4KD2xpc3RfYnRwX3Rva2Vucxg9IAEoCzIjLmRhc3NpZS51aS52MS5MaXN0QnRwVG9rZW5zUmVzcG9uc2VIABJAChByZXZva2VfYnRwX3Rva2VuGD4gASgLMiQuZGFzc2llLnVpLnYxLlJldm9rZUJ0cFRva2VuUmVzcG9uc2VIABJSChljcmVhdGVfc3RyZWFtX2NyZWRlbnRpYWxzGEYgASgLMi0uZGFzc2llLnVpLnYxLkNyZWF0ZVN0cmVhbUNyZWRlbnRpYWxzUmVzcG9uc2VIABI7Cg1saXN0X2FjY291bnRzGFAgASgLMiIuZGFzc2llLnVpLnYxLkxpc3RBY2NvdW50c1Jlc3BvbnNlSAASPQoObGlzdF90cmFuc2ZlcnMYUSABKAsyIy5kYXNzaWUudWkudjEuTGlzdFRyYW5zZmVyc1Jlc3BvbnNlSAASOQoMbGlzdF9wYWNrZXRzGFIgASgLMiEuZGFzc2llLnVpLnYxLkxpc3RQYWNrZXRzUmVzcG9uc2VIAEIICgZtZXRob2QiiAEKClN0cmVhbUl0ZW0SOAoSb2J0YWluX2NlcnRpZmljYXRlGB4gASgLMhouZGFzc2llLnVpLnYxLkFjbWVQcm9ncmVzc0gAEjYKEXN1YnNjcmliZV9wYWNrZXRzGFMgASgLMhkuZGFzc2llLnVpLnYxLlBhY2tldEV2ZW50SABCCAoGbWV0aG9kIgsKCVN0cmVhbUVuZCI/CgVFcnJvchIlCgRjb2RlGAEgASgOMhcuZGFzc2llLnVpLnYxLkVycm9yQ29kZRIPCgdtZXNzYWdlGAIgASgJKpwCCglFcnJvckNvZGUSGgoWRVJST1JfQ09ERV9VTlNQRUNJRklFRBAAEh4KGkVSUk9SX0NPREVfVU5BVVRIRU5USUNBVEVEEAESHwobRVJST1JfQ09ERV9JTlZBTElEX0FSR1VNRU5UEAISIgoeRVJST1JfQ09ERV9GQUlMRURfUFJFQ09ORElUSU9OEAMSGAoURVJST1JfQ09ERV9OT1RfRk9VTkQQBBIhCh1FUlJPUl9DT0RFX1JFU09VUkNFX0VYSEFVU1RFRBAFEhoKFkVSUk9SX0NPREVfVU5BVkFJTEFCTEUQBhIXChNFUlJPUl9DT0RFX0lOVEVSTkFMEAcSHAoYRVJST1JfQ09ERV9VTklNUExFTUVOVEVEEAhiBnByb3RvMw", [file_dassie_ui_v1_acme, file_dassie_ui_v1_btp, file_dassie_ui_v1_config, file_dassie_ui_v1_debug, file_dassie_ui_v1_ledger, file_dassie_ui_v1_node, file_dassie_ui_v1_payments, file_dassie_ui_v1_sessions, file_dassie_ui_v1_tls]);
 
 /**
  * Client to node.
@@ -197,6 +205,83 @@ export type Request = Message<"dassie.ui.v1.Request"> & {
      */
     value: RevokeAllSessionsRequest;
     case: "revokeAllSessions";
+  } | {
+    /**
+     * UNAVAILABLE from here on while the node's ledger is not running: before
+     * setup, or for a moment after a failure.
+     *
+     * @generated from field: dassie.ui.v1.ListLedgersRequest list_ledgers = 50;
+     */
+    value: ListLedgersRequest;
+    case: "listLedgers";
+  } | {
+    /**
+     * @generated from field: dassie.ui.v1.AddSettlementSchemeRequest add_settlement_scheme = 51;
+     */
+    value: AddSettlementSchemeRequest;
+    case: "addSettlementScheme";
+  } | {
+    /**
+     * @generated from field: dassie.ui.v1.RemoveSettlementSchemeRequest remove_settlement_scheme = 52;
+     */
+    value: RemoveSettlementSchemeRequest;
+    case: "removeSettlementScheme";
+  } | {
+    /**
+     * @generated from field: dassie.ui.v1.StubDepositRequest stub_deposit = 53;
+     */
+    value: StubDepositRequest;
+    case: "stubDeposit";
+  } | {
+    /**
+     * @generated from field: dassie.ui.v1.CreateBtpTokenRequest create_btp_token = 60;
+     */
+    value: CreateBtpTokenRequest;
+    case: "createBtpToken";
+  } | {
+    /**
+     * @generated from field: dassie.ui.v1.ListBtpTokensRequest list_btp_tokens = 61;
+     */
+    value: ListBtpTokensRequest;
+    case: "listBtpTokens";
+  } | {
+    /**
+     * @generated from field: dassie.ui.v1.RevokeBtpTokenRequest revoke_btp_token = 62;
+     */
+    value: RevokeBtpTokenRequest;
+    case: "revokeBtpToken";
+  } | {
+    /**
+     * @generated from field: dassie.ui.v1.CreateStreamCredentialsRequest create_stream_credentials = 70;
+     */
+    value: CreateStreamCredentialsRequest;
+    case: "createStreamCredentials";
+  } | {
+    /**
+     * @generated from field: dassie.ui.v1.ListAccountsRequest list_accounts = 80;
+     */
+    value: ListAccountsRequest;
+    case: "listAccounts";
+  } | {
+    /**
+     * @generated from field: dassie.ui.v1.ListTransfersRequest list_transfers = 81;
+     */
+    value: ListTransfersRequest;
+    case: "listTransfers";
+  } | {
+    /**
+     * @generated from field: dassie.ui.v1.ListPacketsRequest list_packets = 82;
+     */
+    value: ListPacketsRequest;
+    case: "listPackets";
+  } | {
+    /**
+     * Streaming.
+     *
+     * @generated from field: dassie.ui.v1.SubscribePacketsRequest subscribe_packets = 83;
+     */
+    value: SubscribePacketsRequest;
+    case: "subscribePackets";
   } | { case: undefined; value?: undefined };
 };
 
@@ -340,6 +425,72 @@ export type Response = Message<"dassie.ui.v1.Response"> & {
      */
     value: RevokeAllSessionsResponse;
     case: "revokeAllSessions";
+  } | {
+    /**
+     * @generated from field: dassie.ui.v1.ListLedgersResponse list_ledgers = 50;
+     */
+    value: ListLedgersResponse;
+    case: "listLedgers";
+  } | {
+    /**
+     * @generated from field: dassie.ui.v1.AddSettlementSchemeResponse add_settlement_scheme = 51;
+     */
+    value: AddSettlementSchemeResponse;
+    case: "addSettlementScheme";
+  } | {
+    /**
+     * @generated from field: dassie.ui.v1.RemoveSettlementSchemeResponse remove_settlement_scheme = 52;
+     */
+    value: RemoveSettlementSchemeResponse;
+    case: "removeSettlementScheme";
+  } | {
+    /**
+     * @generated from field: dassie.ui.v1.StubDepositResponse stub_deposit = 53;
+     */
+    value: StubDepositResponse;
+    case: "stubDeposit";
+  } | {
+    /**
+     * @generated from field: dassie.ui.v1.CreateBtpTokenResponse create_btp_token = 60;
+     */
+    value: CreateBtpTokenResponse;
+    case: "createBtpToken";
+  } | {
+    /**
+     * @generated from field: dassie.ui.v1.ListBtpTokensResponse list_btp_tokens = 61;
+     */
+    value: ListBtpTokensResponse;
+    case: "listBtpTokens";
+  } | {
+    /**
+     * @generated from field: dassie.ui.v1.RevokeBtpTokenResponse revoke_btp_token = 62;
+     */
+    value: RevokeBtpTokenResponse;
+    case: "revokeBtpToken";
+  } | {
+    /**
+     * @generated from field: dassie.ui.v1.CreateStreamCredentialsResponse create_stream_credentials = 70;
+     */
+    value: CreateStreamCredentialsResponse;
+    case: "createStreamCredentials";
+  } | {
+    /**
+     * @generated from field: dassie.ui.v1.ListAccountsResponse list_accounts = 80;
+     */
+    value: ListAccountsResponse;
+    case: "listAccounts";
+  } | {
+    /**
+     * @generated from field: dassie.ui.v1.ListTransfersResponse list_transfers = 81;
+     */
+    value: ListTransfersResponse;
+    case: "listTransfers";
+  } | {
+    /**
+     * @generated from field: dassie.ui.v1.ListPacketsResponse list_packets = 82;
+     */
+    value: ListPacketsResponse;
+    case: "listPackets";
   } | { case: undefined; value?: undefined };
 };
 
@@ -363,6 +514,12 @@ export type StreamItem = Message<"dassie.ui.v1.StreamItem"> & {
      */
     value: AcmeProgress;
     case: "obtainCertificate";
+  } | {
+    /**
+     * @generated from field: dassie.ui.v1.PacketEvent subscribe_packets = 83;
+     */
+    value: PacketEvent;
+    case: "subscribePackets";
   } | { case: undefined; value?: undefined };
 };
 

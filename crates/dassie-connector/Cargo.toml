@@ -1,0 +1,19 @@
+[package]
+name = "dassie-connector"
+version = "0.1.0"
+description = "Dassie's ILP connector as a sans-IO state machine: endpoints, routing, ILDCP, amounts, the ledger and the packet trace"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+dassie-ilp = { path = "../dassie-ilp" }
+dassie-ledger = { path = "../dassie-ledger" }
+dassie-oer = { path = "../dassie-oer", default-features = false }
+
+[dev-dependencies]
+dassie-node-core = { path = "../dassie-node-core", features = ["testing"] }
+dassie-oer = { path = "../dassie-oer" }
+proptest = "1.12"
+rand_core = { version = "0.10", default-features = false }

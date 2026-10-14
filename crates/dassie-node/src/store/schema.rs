@@ -20,7 +20,7 @@ pub const V0_APPLICATION_ID: i32 = 0x1DA5_3B81;
 
 /// The migrations, in order. Migration `n` (1-based) brings `user_version`
 /// to `n`. Never edit one that has shipped; add another.
-const MIGRATIONS: &[&str] = &[MIGRATION_1];
+const MIGRATIONS: &[&str] = &[MIGRATION_1, MIGRATION_2];
 
 const MIGRATION_1: &str = "
 CREATE TABLE node_config (
@@ -65,6 +65,71 @@ CREATE TABLE sessions (
 ) STRICT, WITHOUT ROWID;
 
 CREATE INDEX sessions_by_last_use ON sessions (last_used_at_ms);
+";
+
+/// The ledger (spec 7 §4.4): its accounts with their posted totals cached,
+/// the journal of transfers, the settlement schemes and their checkpoints,
+/// and the BTP tokens, by hash (D10). Amounts are integers in the ledger's
+/// units; the ledger keeps every total below `i64::MAX`.
+const MIGRATION_2: &str = "
+CREATE TABLE boot (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  epoch INTEGER NOT NULL CHECK (epoch >= 0)
+) STRICT;
+
+INSERT INTO boot VALUES (1, 0);
+
+CREATE TABLE ledger_accounts (
+  id INTEGER PRIMARY KEY CHECK (id >= 0),
+  path TEXT NOT NULL UNIQUE,
+  debits_posted INTEGER NOT NULL DEFAULT 0 CHECK (debits_posted >= 0),
+  credits_posted INTEGER NOT NULL DEFAULT 0 CHECK (credits_posted >= 0)
+) STRICT;
+
+CREATE TABLE ledger_transfers (
+  id INTEGER PRIMARY KEY CHECK (id >= 0),
+  debit INTEGER NOT NULL REFERENCES ledger_accounts (id),
+  credit INTEGER NOT NULL REFERENCES ledger_accounts (id) CHECK (credit != debit),
+  amount INTEGER NOT NULL CHECK (amount > 0),
+  state TEXT NOT NULL CHECK (state IN ('pending', 'posted', 'voided')),
+  created_at_ms INTEGER NOT NULL,
+  resolved_at_ms INTEGER CHECK ((state = 'pending') = (resolved_at_ms IS NULL)),
+  reference TEXT NOT NULL CHECK (reference IN
+    ('packet', 'settlement', 'trust', 'deposit', 'withdrawal', 'reconciliation')),
+  packet_epoch INTEGER CHECK ((reference = 'packet') = (packet_epoch IS NOT NULL)),
+  packet_sequence INTEGER CHECK ((reference = 'packet') = (packet_sequence IS NOT NULL)),
+  settlement_scheme TEXT CHECK ((reference = 'settlement') = (settlement_scheme IS NOT NULL)),
+  settlement_id TEXT CHECK ((reference = 'settlement') = (settlement_id IS NOT NULL)),
+  -- The order rows were written or last changed in, for readers that page
+  -- through the journal: a packet's transfer is written when it is posted,
+  -- which is not the order of transfer IDs.
+  sequence INTEGER NOT NULL UNIQUE CHECK (sequence > 0)
+) STRICT;
+
+CREATE INDEX ledger_transfers_by_debit ON ledger_transfers (debit, state);
+CREATE INDEX ledger_transfers_by_credit ON ledger_transfers (credit, state);
+CREATE INDEX ledger_transfers_pending ON ledger_transfers (state) WHERE state = 'pending';
+
+CREATE TABLE settlement_schemes (
+  id TEXT PRIMARY KEY,
+  config TEXT NOT NULL,
+  activated_at_ms INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE settlement_checkpoints (
+  scheme TEXT PRIMARY KEY,
+  balance INTEGER NOT NULL CHECK (balance >= 0),
+  updated_at_ms INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE btp_tokens (
+  id INTEGER PRIMARY KEY CHECK (id >= 1),
+  token_hash BLOB NOT NULL UNIQUE CHECK (length(token_hash) = 32),
+  label TEXT NOT NULL CHECK (length(CAST(label AS BLOB)) <= 64),
+  ledger TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  revoked_at_ms INTEGER
+) STRICT;
 ";
 
 /// A column as the code expects it: name, type, NOT NULL, part of the
@@ -130,6 +195,73 @@ const TABLES: &[Table] = &[
             ("created_at_ms", "INTEGER", true, false),
             ("last_used_at_ms", "INTEGER", true, false),
             ("user_agent", "TEXT", true, false),
+        ],
+    },
+    Table {
+        name: "boot",
+        without_rowid: false,
+        columns: &[
+            ("id", "INTEGER", false, true),
+            ("epoch", "INTEGER", true, false),
+        ],
+    },
+    Table {
+        name: "ledger_accounts",
+        without_rowid: false,
+        columns: &[
+            ("id", "INTEGER", false, true),
+            ("path", "TEXT", true, false),
+            ("debits_posted", "INTEGER", true, false),
+            ("credits_posted", "INTEGER", true, false),
+        ],
+    },
+    Table {
+        name: "ledger_transfers",
+        without_rowid: false,
+        columns: &[
+            ("id", "INTEGER", false, true),
+            ("debit", "INTEGER", true, false),
+            ("credit", "INTEGER", true, false),
+            ("amount", "INTEGER", true, false),
+            ("state", "TEXT", true, false),
+            ("created_at_ms", "INTEGER", true, false),
+            ("resolved_at_ms", "INTEGER", false, false),
+            ("reference", "TEXT", true, false),
+            ("packet_epoch", "INTEGER", false, false),
+            ("packet_sequence", "INTEGER", false, false),
+            ("settlement_scheme", "TEXT", false, false),
+            ("settlement_id", "TEXT", false, false),
+            ("sequence", "INTEGER", true, false),
+        ],
+    },
+    Table {
+        name: "settlement_schemes",
+        without_rowid: true,
+        columns: &[
+            ("id", "TEXT", true, true),
+            ("config", "TEXT", true, false),
+            ("activated_at_ms", "INTEGER", true, false),
+        ],
+    },
+    Table {
+        name: "settlement_checkpoints",
+        without_rowid: true,
+        columns: &[
+            ("scheme", "TEXT", true, true),
+            ("balance", "INTEGER", true, false),
+            ("updated_at_ms", "INTEGER", true, false),
+        ],
+    },
+    Table {
+        name: "btp_tokens",
+        without_rowid: false,
+        columns: &[
+            ("id", "INTEGER", false, true),
+            ("token_hash", "BLOB", true, false),
+            ("label", "TEXT", true, false),
+            ("ledger", "TEXT", true, false),
+            ("created_at_ms", "INTEGER", true, false),
+            ("revoked_at_ms", "INTEGER", false, false),
         ],
     },
 ];

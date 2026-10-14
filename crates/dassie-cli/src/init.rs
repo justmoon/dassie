@@ -226,8 +226,9 @@ async fn obtain_certificate(
     spinner.start("Ordering certificate...");
     let result = client
         .stream(Method::ObtainCertificate(request), |item| {
-            let stream_item::Method::ObtainCertificate(progress) = item;
-            spinner.set_message(step_message(progress.step()));
+            if let stream_item::Method::ObtainCertificate(progress) = item {
+                spinner.set_message(step_message(progress.step()));
+            }
         })
         .await;
     match result {

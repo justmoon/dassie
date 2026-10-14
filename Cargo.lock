@@ -428,6 +428,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "dassie-connector"
+version = "0.1.0"
+dependencies = [
+ "dassie-ilp",
+ "dassie-ledger",
+ "dassie-node-core",
+ "dassie-oer",
+ "proptest",
+ "rand_core",
+]
+
+[[package]]
 name = "dassie-identity"
 version = "0.1.0"
 dependencies = [
@@ -458,12 +470,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "dassie-ledger"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+]
+
+[[package]]
 name = "dassie-node"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "dassie-connector",
  "dassie-identity",
+ "dassie-ilp",
+ "dassie-ledger",
  "dassie-node-core",
+ "dassie-oer",
+ "dassie-settlement",
+ "dassie-stream",
  "flate2",
  "futures-util",
  "getrandom 0.4.3",
@@ -514,6 +539,15 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "serde_json",
+]
+
+[[package]]
+name = "dassie-settlement"
+version = "0.1.0"
+dependencies = [
+ "dassie-ledger",
+ "dassie-node-core",
+ "rand_core",
 ]
 
 [[package]]

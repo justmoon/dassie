@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+package dassie.ui.v1;
+
+// A ledger the node keeps books for, with the settlement scheme that moves
+// its money. Amounts are integers in the asset's smallest unit: an amount of
+// 1 is 10^-asset_scale units of the asset.
+message Ledger {
+  // For example "stub+usd".
+  string id = 1;
+  // The settlement scheme serving it, for example "stub".
+  string settlement_scheme = 2;
+  string asset_code = 3;
+  uint32 asset_scale = 4;
+  // What the owner has: the posted total of the owner's accounts on this
+  // ledger, the pool and every endpoint's sub-account. May be negative
+  // after the underlying ledger lost money; spending stops then.
+  int64 owner_balance = 5;
+  // Of that, what packets in flight hold.
+  uint64 owner_pending = 6;
+  // The balance on the underlying ledger, as the scheme last reported it.
+  uint64 on_ledger_balance = 7;
+}
+
+message ListLedgersRequest {}
+
+message ListLedgersResponse {
+  // The ledgers of active settlement schemes, in a fixed order.
+  repeated Ledger ledgers = 1;
+}
+
+// Activates a settlement scheme and its ledger. On its first activation the
+// scheme's balance becomes the owner's deposit; later activations book only
+// what changed meanwhile. INVALID_ARGUMENT for an unknown scheme or a config
+// it refuses, FAILED_PRECONDITION if it is active, or of the other realm.
+message AddSettlementSchemeRequest {
+  // For example "stub".
+  string id = 1;
+  // The scheme's config, JSON. The stub takes none: empty or "{}".
+  string config = 2;
+}
+
+message AddSettlementSchemeResponse {
+  Ledger ledger = 1;
+}
+
+// Deactivates a scheme. Its books stay, and come back when it is added
+// again. FAILED_PRECONDITION while a BTP token uses its ledger; NOT_FOUND if
+// it is not active.
+message RemoveSettlementSchemeRequest {
+  string id = 1;
+}
+
+message RemoveSettlementSchemeResponse {}
+
+// Adds test money through the stub scheme. FAILED_PRECONDITION if the stub
+// is not active.
+message StubDepositRequest {
+  // In the stub ledger's units (USD at scale 9). Not zero.
+  uint64 amount = 1;
+}
+
+message StubDepositResponse {
+  Ledger ledger = 1;
+}

@@ -40,6 +40,41 @@ pub fn is_upgrade(request: &Request<Incoming>) -> bool {
     header_has_token(request.headers(), &header::CONNECTION, "upgrade")
 }
 
+/// The client's key, if the request is a WebSocket handshake.
+pub(super) fn handshake_key(request: &Request<Incoming>) -> Option<String> {
+    let headers = request.headers();
+    let is_websocket = header_has_token(headers, &header::UPGRADE, "websocket")
+        && header_str(headers, &header::SEC_WEBSOCKET_VERSION) == Some("13");
+    header_str(headers, &header::SEC_WEBSOCKET_KEY)
+        .filter(|_| is_websocket)
+        .map(str::to_string)
+}
+
+/// The answer to a request that is not a WebSocket handshake.
+pub(super) fn not_a_handshake() -> Response<Body> {
+    response::text(StatusCode::BAD_REQUEST, "Expected a WebSocket handshake")
+}
+
+/// The 101 that completes the handshake for `key`.
+pub(super) fn switching_protocols(key: &str, subprotocol: Option<&'static str>) -> Response<Body> {
+    let accept = derive_accept_key(key.as_bytes());
+    let mut response = response::with_body(StatusCode::SWITCHING_PROTOCOLS, "text/plain", "");
+    let headers = response.headers_mut();
+    headers.remove(header::CONTENT_TYPE);
+    headers.insert(header::UPGRADE, HeaderValue::from_static("websocket"));
+    headers.insert(header::CONNECTION, HeaderValue::from_static("Upgrade"));
+    if let Some(subprotocol) = subprotocol {
+        headers.insert(
+            header::SEC_WEBSOCKET_PROTOCOL,
+            HeaderValue::from_static(subprotocol),
+        );
+    }
+    if let Ok(accept) = HeaderValue::from_str(&accept) {
+        headers.insert(header::SEC_WEBSOCKET_ACCEPT, accept);
+    }
+    response
+}
+
 /// Answers the handshake, and serves the socket once upgraded.
 pub fn upgrade(
     node: &Arc<Node>,
@@ -47,12 +82,10 @@ pub fn upgrade(
     tasks: &TaskTracker,
     shutdown: &CancellationToken,
 ) -> Response<Body> {
-    let headers = request.headers();
-    let is_websocket = header_has_token(headers, &header::UPGRADE, "websocket")
-        && header_str(headers, &header::SEC_WEBSOCKET_VERSION) == Some("13");
-    let Some(key) = header_str(headers, &header::SEC_WEBSOCKET_KEY).filter(|_| is_websocket) else {
-        return response::text(StatusCode::BAD_REQUEST, "Expected a WebSocket handshake");
+    let Some(key) = handshake_key(&request) else {
+        return not_a_handshake();
     };
+    let headers = request.headers();
     if !header_has_token(headers, &header::SEC_WEBSOCKET_PROTOCOL, SUBPROTOCOL) {
         return response::text(
             StatusCode::BAD_REQUEST,
@@ -75,7 +108,6 @@ pub fn upgrade(
     let Some(permit) = node.websocket_permit() else {
         return response::text(StatusCode::SERVICE_UNAVAILABLE, "Too many open sockets");
     };
-    let accept = derive_accept_key(key.as_bytes());
     let upgrade = hyper::upgrade::on(&mut request);
     let node = Arc::clone(node);
     let shutdown = shutdown.clone();
@@ -94,19 +126,7 @@ pub fn upgrade(
             Err(error) => tracing::debug!(target: target::RPC, %error, "WebSocket upgrade failed"),
         }
     });
-    let mut response = response::with_body(StatusCode::SWITCHING_PROTOCOLS, "text/plain", "");
-    let headers = response.headers_mut();
-    headers.remove(header::CONTENT_TYPE);
-    headers.insert(header::UPGRADE, HeaderValue::from_static("websocket"));
-    headers.insert(header::CONNECTION, HeaderValue::from_static("Upgrade"));
-    headers.insert(
-        header::SEC_WEBSOCKET_PROTOCOL,
-        HeaderValue::from_static(SUBPROTOCOL),
-    );
-    if let Ok(accept) = HeaderValue::from_str(&accept) {
-        headers.insert(header::SEC_WEBSOCKET_ACCEPT, accept);
-    }
-    response
+    switching_protocols(&key, Some(SUBPROTOCOL))
 }
 
 async fn serve<S>(node: Arc<Node>, caller: Caller, io: S, shutdown: CancellationToken)

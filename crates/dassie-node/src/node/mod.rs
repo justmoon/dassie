@@ -11,7 +11,7 @@ mod certificates;
 mod settings;
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use dassie_identity::NodeKey;
 use dassie_node_core::acme::{ChallengeTokens, Renewal, RenewalPolicy};
@@ -28,6 +28,7 @@ pub use settings::SettingsError;
 
 use crate::acme::AcmeClient;
 use crate::clock::{Clock, SharedRng};
+use crate::engine::Engine;
 use crate::store::{Store, StoreError};
 use crate::tls::{CertificateSlot, TlsError};
 
@@ -56,6 +57,16 @@ pub struct Policies {
     pub socket_idle_ms: u64,
     /// Time to send a request body to the HTTP API.
     pub body_timeout_ms: u64,
+    /// Most BTP clients connected at once.
+    pub max_btp_connections: usize,
+    /// Time a BTP client has to authenticate after connecting.
+    pub btp_auth_timeout_ms: u64,
+    /// Failed BTP authentications, per client address.
+    pub btp_auth_attempts: RateLimitPolicy,
+    /// The ledger's bounds.
+    pub ledger: dassie_ledger::Config,
+    /// The connector's bounds and timing.
+    pub connector: dassie_connector::Config,
 }
 
 impl Policies {
@@ -67,6 +78,20 @@ impl Policies {
         max_websockets: 256,
         socket_idle_ms: 10 * 60 * 1_000,
         body_timeout_ms: 10_000,
+        max_btp_connections: 64,
+        btp_auth_timeout_ms: 10_000,
+        btp_auth_attempts: RateLimitPolicy::DEFAULT,
+        ledger: dassie_ledger::Config {
+            max_accounts: 4096,
+            max_pending: 9216,
+            max_journal: 1024,
+        },
+        // Every BTP client and the receiver can fill their share of the
+        // packet table at once: 65 × 60 fits its 4096.
+        connector: dassie_connector::Config {
+            max_pending_per_endpoint: 60,
+            ..dassie_connector::Config::DEFAULT
+        },
     };
 }
 
@@ -152,7 +177,10 @@ pub struct Node {
     /// Held across each read, change and write of the configuration, so
     /// that concurrent changes cannot undo each other.
     config_writer: Mutex<()>,
-    node_key: RwLock<Option<Arc<NodeKey>>>,
+    node_key: watch::Sender<Option<Arc<NodeKey>>>,
+    engine: watch::Sender<Option<Engine>>,
+    btp_connections: Arc<Semaphore>,
+    btp_auth_limiter: Mutex<RateLimiter>,
     setup_token: SetupToken,
     policies: Policies,
     login_limiter: Mutex<RateLimiter>,
@@ -220,7 +248,10 @@ impl Node {
             rng: Mutex::new(rng),
             config: watch::Sender::new(config),
             config_writer: Mutex::new(()),
-            node_key: RwLock::new(node_key),
+            node_key: watch::Sender::new(node_key),
+            engine: watch::Sender::new(None),
+            btp_connections: Arc::new(Semaphore::new(policies.max_btp_connections)),
+            btp_auth_limiter: Mutex::new(RateLimiter::new(policies.btp_auth_attempts)),
             setup_token,
             login_limiter: Mutex::new(RateLimiter::new(policies.login_attempts)),
             challenges: Mutex::new(ChallengeTokens::default()),
@@ -257,10 +288,56 @@ impl Node {
     /// The node key, once set up.
     #[must_use]
     pub fn node_key(&self) -> Option<Arc<NodeKey>> {
-        self.node_key
-            .read()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+        self.node_key.borrow().clone()
+    }
+
+    /// The node key as it changes: `None` until setup.
+    #[must_use]
+    pub fn identity(&self) -> watch::Receiver<Option<Arc<NodeKey>>> {
+        self.node_key.subscribe()
+    }
+
+    /// The ledger's engine, while it runs.
+    #[must_use]
+    pub fn engine(&self) -> Option<Engine> {
+        self.engine.borrow().clone()
+    }
+
+    pub(crate) fn publish_engine(&self, engine: Option<Engine>) {
+        self.engine.send_replace(engine);
+    }
+
+    /// The node's clock.
+    #[must_use]
+    pub fn clock(&self) -> Arc<dyn Clock> {
+        Arc::clone(&self.clock)
+    }
+
+    /// Runs `f` with the node's RNG.
+    pub fn with_rng<T>(&self, f: impl FnOnce(&mut dyn SharedRng) -> T) -> T {
+        f(lock(&self.rng).as_mut())
+    }
+
+    /// A place for one more BTP client, if any is left.
+    #[must_use]
+    pub fn btp_permit(&self) -> Option<OwnedSemaphorePermit> {
+        Arc::clone(&self.btp_connections).try_acquire_owned().ok()
+    }
+
+    /// Whether `client` failed to authenticate BTP connections too often to
+    /// try again now.
+    #[must_use]
+    pub fn btp_auth_blocked(&self, client: std::net::IpAddr) -> bool {
+        let client = dassie_node_core::rate_limit::ClientKey::from_ip(client);
+        lock(&self.btp_auth_limiter)
+            .peek(client, self.now_ms())
+            .is_err()
+    }
+
+    /// Counts a failed BTP authentication from `client`.
+    pub fn btp_auth_failed(&self, client: std::net::IpAddr) {
+        let client = dassie_node_core::rate_limit::ClientKey::from_ip(client);
+        let _ = lock(&self.btp_auth_limiter).check(client, self.now_ms());
     }
 
     /// Whether the node has an identity.

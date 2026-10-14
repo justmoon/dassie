@@ -8,6 +8,7 @@
 
 mod api;
 pub mod assets;
+mod btp;
 pub mod response;
 mod ws;
 
@@ -234,6 +235,9 @@ async fn route_https(
 ) -> Response<Body> {
     let node = &context.node;
     let path = request.uri().path().to_string();
+    if path == "/btp" && ws::is_upgrade(&request) {
+        return btp::upgrade(node, request, peer, &context.tasks, &context.shutdown);
+    }
     if path == "/rpc" {
         return if ws::is_upgrade(&request) {
             ws::upgrade(node, request, &context.tasks, &context.shutdown)

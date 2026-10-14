@@ -17,6 +17,8 @@ message GetBasicStateResponse {
   // "test" or "g": the first segment of the node's ILP address.
   string ilp_allocation_scheme = 4;
   string version = 5;
+  // The active settlement schemes, for example "stub".
+  repeated string active_settlement_schemes = 6;
 }
 
 enum NodeState {

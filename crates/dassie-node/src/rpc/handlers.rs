@@ -29,14 +29,19 @@ pub struct Items {
 }
 
 impl Items {
-    fn send(&self, item: stream_item::Method) {
+    pub(super) fn send(&self, item: stream_item::Method) {
+        let _ = self.try_send(item);
+    }
+
+    /// Queues an item; false if the connection's queue had no room for it.
+    pub(super) fn try_send(&self, item: stream_item::Method) -> bool {
         let message = proto::ServerMessage {
             call_id: self.call_id,
             kind: Some(proto::server_message::Kind::Item(proto::StreamItem {
                 method: Some(item),
             })),
         };
-        let _ = self.sender.try_send((self.generation, message));
+        self.sender.try_send((self.generation, message)).is_ok()
     }
 }
 
@@ -167,7 +172,7 @@ async fn dispatch_more(
             let revoked = node.revoke_sessions(keep).map_err(RpcError::internal)?;
             response::Method::RevokeAllSessions(proto::RevokeAllSessionsResponse { revoked })
         }
-        _ => unreachable!("dispatch answers the other methods"),
+        other => return super::ledger::dispatch(node, other, items).await,
     };
     Ok(Reply::Unary(reply))
 }
@@ -231,6 +236,16 @@ fn basic_state(node: &Node, caller: Caller) -> proto::GetBasicStateResponse {
             .unwrap_or_default(),
         ilp_allocation_scheme: config.realm.ilp_allocation_scheme().into(),
         version: crate::VERSION.into(),
+        active_settlement_schemes: node
+            .store()
+            .settlement_schemes()
+            .map(|schemes| {
+                schemes
+                    .iter()
+                    .map(|(id, _)| id.as_str().to_string())
+                    .collect()
+            })
+            .unwrap_or_default(),
     }
 }
 

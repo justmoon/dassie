@@ -173,8 +173,8 @@ Most of the original's integrity gaps come from state it keeps only in memory, o
 | BTP tokens | plaintext | hashed, plus a label and created time; shown once at creation |
 | Node table: nodes, link states (signed bytes), registrations, peers with scheme state | written only by dev prefill | written on every change (NET-1, NET-2, ACC-18) |
 | Own link-state sequence | memory | persisted high-water mark (NET-7) |
-| Ledger | cumulative posted totals | append-only **transfer journal** (id, debit, credit, amount, state, timestamps, reference to packet or settlement), with account balances derived or cached in the same transaction |
-| Pending ILP transfers | memory | memory, but voided by the journal's recovery on startup, since in-flight packets cannot survive a restart |
+| Ledger | cumulative posted totals | append-only **transfer journal** (id, debit, credit, amount, state, timestamps, reference to packet or settlement), with account balances cached in the same transaction. Only transfers that reach posted balances are journaled, plus pending settlements; a voided packet transfer never touched a posted balance and leaves no row |
+| Pending ILP transfers | memory | memory only: in-flight packets cannot survive a restart, so a restarted ledger has none |
 | Pending outgoing settlements | memory | journal rows with module-specific reference (tx hash), reconciled on startup (ACC-16) |
 | Settlement-module balance checkpoints | none (full balance re-deposited at every start) | last reconciled on-ledger balance per module; startup books only the difference, through `equity/suspense` (ACC-6, ACC-2) |
 | Peer trust lines | re-posted at every start | posted once when the peer account is created; changes are explicit transfers (ACC-5) |
@@ -203,6 +203,14 @@ The XRPL module needs:
 - a memo type per network: testnet vs mainnet, versioned with the peer protocol (ACC-13).
 
 Mainnet stays disabled until the [D8](08-decisions.md#d8-real-money) criteria are met.
+
+**The owner's accounts ([D6](08-decisions.md#d6-owner-ledger-and-multi-currency-accounts)).** Each ledger `L` has one pool of owner funds, `L:equity/owner`. Every endpoint that spends for the owner gets a sub-account under it, for example `L:equity/owner/btp/<token>` for a BTP token. A sub-account holds no allocation and may go negative on its own; together with the pool it forms a **group** whose total carries the overspending limit (debits ≤ credits). So:
+
+- a BTP client paying the node's own STREAM receiver books Dr `equity/owner/btp/<token>`, Cr `equity/owner`: the group total is unchanged, and the journal still has a transfer per packet (ACC-8);
+- a transfer within the group never needs free funds, since its effect on the total is zero;
+- each token's spending can be read from the journal, which is what the per-token spending caps of M5 (an amount per window, refilling continuously) are computed from. Caps are limits, not allocations, so they may add up to more than the funds.
+
+**What the ledger refuses and what it records.** Packets and settlements are refused when they would break a limit (T04). Reconciliations, deposits and withdrawals report what happened on the underlying ledger and are recorded even when they take the group below zero; spending is then refused until it recovers. Settlement modules report their on-ledger balance as a checkpoint, and activation books only the difference to the last checkpoint, through `equity/suspense` (ACC-2, ACC-6). The checkpoint is written in the same transaction as the transfers it explains.
 
 ### 4.6 The RPC contract in practice
 
@@ -291,10 +299,10 @@ Every crate is written so that a simulation can drive it ([D16](08-decisions.md#
 |---|---|---|
 | M1 | Core crates: `dassie-oer`, `dassie-identity`, `dassie-ilp`, `dassie-stream` | All golden vectors pass. STREAM interoperates with `ilp-protocol-stream`. WASM builds load in Deno and the browser. |
 | M2 | Node skeleton: config, DB, listeners (plain and socket-activated), TLS, ACME, setup/login/logout, RPC contract, `dassie init`/`daemon`/`verify-install` | A fresh install reaches "setup complete" in a browser with a Let's Encrypt staging cert. |
-| M3 | Ledger journal, connector, local endpoints, ILDCP, BTP, stub settlement module | A BTP client pays the node's STREAM receiver. The journal matches the packet trace. |
+| M3 | Ledger journal, connector, local endpoints, ILDCP, BTP, stub settlement module. Exchange-rate math and its T00 rule; the rate fetcher comes in M7 with the first second currency | A BTP client pays the node's STREAM receiver. The journal matches the packet trace. |
 | M4 | Peer protocol v1, node table, membership, registration, auto-peering, link state, routing, settlement loop | The `two-nodes` and `six-nodes` scenarios converge and route payments across hops. Restarts keep peerings and balances. |
-| M5 | Wallet (Solid 2) and dev environment (Deno) with dashboard | All pages of [6 §1.6](06-user-interfaces-and-tooling.md) work against M4. `deno task dev` brings up any scenario. |
+| M5 | Wallet (Solid 2) and dev environment (Deno) with dashboard, including BTP token spending caps | All pages of [6 §1.6](06-user-interfaces-and-tooling.md) work against M4. `deno task dev` brings up any scenario. |
 | M6 | Open Payments + SPSP, payment pointers, outgoing payments with quotes and status | Pays to and from another Open Payments/SPSP wallet. |
-| M7 | XRPL testnet module with reserve and fee accounting | The `xrpl-settlement` and `cross-currency` scenarios settle and reconcile across restarts. |
+| M7 | XRPL testnet module with reserve and fee accounting; the exchange-rate fetcher of D7, fees and spread | The `xrpl-settlement` and `cross-currency` scenarios settle and reconcile across restarts. |
 | M8 | Release: static binaries (x64, arm64), signed artifacts, installer, updater, systemd units | Installer and updater tests pass on Debian, Ubuntu, Fedora and CentOS images. A tampered bundle is refused. |
 | M9 | Website and STREAM toy | `dassie.land` builds from `apps/website`. The toy runs on `dassie-stream` WASM. |

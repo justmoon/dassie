@@ -38,6 +38,14 @@ pub mod target {
     pub const RPC: &str = "das:node:rpc";
     /// Socket activation and readiness.
     pub const SYSTEMD: &str = "das:node:systemd";
+    /// The ledger's engine.
+    pub const ENGINE: &str = "das:node:accounting";
+    /// BTP clients.
+    pub const BTP: &str = "das:node:btp";
+    /// Payments to the node's STREAM receiver.
+    pub const PAYMENT: &str = "das:node:payment";
+    /// Settlement schemes.
+    pub const SETTLEMENT: &str = "das:node:settlement";
 }
 
 /// The lowest level shown.

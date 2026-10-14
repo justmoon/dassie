@@ -86,7 +86,9 @@ class Peer {
     view.setBigUint64(1, id);
     view.setUint32(9, bytes.length);
     frame.set(bytes, 13);
-    return this.#writer.write(frame);
+    // The client's send loop may still deliver a packet after the test
+    // stopped the peer; that write fails, and nothing waits for it.
+    return this.#writer.write(frame).catch(() => {});
   }
 
   /** Delivers a Prepare to the peer and resolves with its answer. */
@@ -151,7 +153,7 @@ Deno.test(
     const peer = new Peer(binary, [
       "client",
       destinationAccount,
-      encodeHex(sharedSecret),
+      encodeHex(new Uint8Array(sharedSecret)),
       "1000000",
       "test.native",
     ]);

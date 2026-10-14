@@ -67,6 +67,20 @@ export async function missingTools(): Promise<string | undefined> {
   return reason;
 }
 
+/** Why tests that need only the binary cannot run here, if they cannot. */
+export async function missingBinary(): Promise<string | undefined> {
+  try {
+    await Deno.stat(DASSIE);
+    return undefined;
+  } catch {
+    const reason = `missing ${DASSIE} (deno task build:e2e)`;
+    if (Deno.env.get("CI")) {
+      throw new Error(`end-to-end tests cannot run: ${reason}`);
+    }
+    return reason;
+  }
+}
+
 /** A child process that is stopped with SIGTERM and awaited. */
 export class Process {
   readonly #child: Deno.ChildProcess;
