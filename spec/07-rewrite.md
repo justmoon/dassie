@@ -173,6 +173,7 @@ Most of the original's integrity gaps come from state it keeps only in memory, o
 | BTP tokens | plaintext | hashed, plus a label and created time; shown once at creation |
 | Node table: nodes, link states (signed bytes), registrations, peers with scheme state | written only by dev prefill | written on every change (NET-1, NET-2, ACC-18) |
 | Own link-state sequence | memory | persisted high-water mark (NET-7) |
+| Replay state of peer messages | none (no replay protection) | per peer, the newest accepted message timestamp, written with the batch it took effect in ([§4.7](#47-peer-protocol-v1)) |
 | Ledger | cumulative posted totals | append-only **transfer journal** (id, debit, credit, amount, state, timestamps, reference to packet or settlement), with account balances cached in the same transaction. Only transfers that reach posted balances are journaled, plus pending settlements; a voided packet transfer never touched a posted balance and leaves no row |
 | Pending ILP transfers | memory | memory only: in-flight packets cannot survive a restart, so a restarted ledger has none |
 | Pending outgoing settlements | memory | journal rows with module-specific reference (tx hash), reconciled on startup (ACC-16) |
@@ -229,6 +230,165 @@ Mainnet stays disabled until the [D8](08-decisions.md#d8-real-money) criteria ar
   - A client that sends faster than it reads is disconnected, rather than allowed to queue answers without bound.
   - Every way a session ends (logout, revocation, expiry, eviction for a newer one) closes its sockets with code 4001, after the calls already answered have their answers.
 - **The browser client** gives every call a timeout (RT-27).
+
+### 4.7 Peer protocol v1
+
+This section is normative for v1. It describes what changes from v0 ([3 §5–§13](03-peer-network.md)); anything not mentioned here keeps the v0 layout and meaning. The reasons are in [D2](08-decisions.md#d2-peer-protocol-v0-or-v1), [D4](08-decisions.md#d4-network-membership-economics) and [D12](08-decisions.md#d12-peering-lifecycle-and-liveness).
+
+**Transport.** Requests stay `POST /peer` with `Accept` and `Content-Type` exactly `application/dassie-message`. Responses are `application/dassie-peer-response`. The HTTP status means something (NET-11):
+
+| Status | Meaning |
+|---|---|
+| 200 | Handled. The body is a `PeerResponse`. |
+| 400 | Malformed, a version other than 1, a sender equal to the recipient, or a link state that fails verification. |
+| 401 | Authentication is missing where it is required, or fails, or is a replay. |
+| 406 / 415 / 413 | Wrong `Accept`, wrong `Content-Type`, or a body over 64 KiB. |
+| 409 | The message needs a peering that does not exist (`interledgerPacket`, `settlement`, `settlementMessage`). |
+| 429 | Rate limited. |
+| 503 | The node is busy, has a full table, or is not running its peer protocol yet. |
+
+Every non-200 response has a short `text/plain` body for people. Senders treat any status other than 200 as a failure. Status 400, 401, 409 and 503 mean the message was not acted upon.
+
+**Envelope.**
+
+```
+PeerMessage ::= SEQUENCE {
+  version        UINT8,                 -- 1
+  sender         NodeId,
+  authentication Authentication,
+  content        PeerMessageContent }   -- raw choice, runs to the end of the body
+
+Authentication ::= CHOICE {
+  none         [0] NULL,
+  hmacSha256V1 [1] SEQUENCE {
+    senderKey   OCTET STRING (SIZE(32)),   -- Ed25519 public key; NodeId(senderKey) MUST equal sender
+    sessionId   OCTET STRING (SIZE(16)),
+    counter     UINT64,                    -- 0, 1, 2, ... within the session
+    timestampMs UINT64,
+    mac         OCTET STRING (SIZE(32)) },
+  reserved     [2] OCTET STRING }          -- for a future X-Wing scheme; answered 401
+
+PeerResponse ::= SEQUENCE {
+  authentication CHOICE { none [0] NULL, hmacSha256V1 [1] OCTET STRING (SIZE(32)) },
+  body }                                   -- the v0 response for the request type, runs to the end
+```
+
+**Keys and MACs.** The sender is S and the recipient is R. `pub` means an Ed25519 public key, and `x25519` is the conversion of [3 §2.4](03-peer-network.md).
+
+```
+dh     = X25519(x25519(S), x25519(pub R))     -- = X25519(x25519(R), x25519(pub S)); all-zero is refused
+K_pair = HKDF-SHA256-Extract(salt = "dassie peer v1", ikm = dh)
+K_req  = HKDF-SHA256-Expand(K_pair, "request"  ‖ pub S ‖ pub R, 32)
+K_resp = HKDF-SHA256-Expand(K_pair, "response" ‖ pub S ‖ pub R, 32)
+mac    = HMAC-SHA256(K_req, 0x01 ‖ LEN ‖ sender ‖ LEN ‖ recipient ‖ sessionId ‖ counter ‖ timestampMs ‖ content)
+respMac = HMAC-SHA256(K_resp, mac ‖ body)
+```
+
+- `content` is the exact bytes of `PeerMessageContent`, tag included. `LEN ‖ id` is the OER encoding of a node ID.
+- S and R always name the request's sender and recipient, so a response is keyed by the same pair in the same order. The labels and the ordered keys make each MAC specific to one direction. Comparisons are constant-time (NET-10).
+- A response is authenticated if and only if its request was.
+
+**Which messages need authentication.**
+- Always: `interledgerPacket`, `settlement`, `settlementMessage`, `peeringRequest`, `registration` and `peeringTermination`.
+- The others may be authenticated. A v1 node authenticates every request it sends, since it only sends to nodes whose key it knows. An authenticated `linkStateUpdate` whose sender is the subject of the state counts as a heartbeat.
+- For `peeringRequest` and `registration`, the embedded signed node info must verify and name the sender (NET-3, NET-4).
+
+**Replay.** For each sender, the recipient accepts a message only if:
+- `|timestampMs − now| ≤ 60 s`;
+- `timestampMs` is above the sender's floor;
+- its `(sessionId, counter)` pair is new.
+
+A sender uses one session per destination and starts a new one every hour. The recipient keeps at most two sessions per sender. Each session holds the highest counter seen and a 1024-counter sliding window; counters below the window are refused. When a third session displaces one, the sender's floor rises to the newest timestamp of the displaced session.
+- For peers, the newest accepted timestamp is persisted in the same transaction as the message's effects, and becomes the floor after a restart.
+- For other senders, the floor after a restart is the start time.
+- A message's effects only become visible after the transaction that records it, so a message lost in a crash can be accepted once more, but never twice.
+- Keys are cached per sender, at most 1024 of them. An entry is added only after a MAC verifies (NET-9).
+
+**Link state.**
+- **New OID.** `PeerNodeInfo` uses OID `1.3.6.1.4.1.54392.5.1399.1.3`, so a node info signed under v0 is not a v1 link state. Verification is ZIP-215 ([8 §2](08-decisions.md#2-original-behaviour-kept-on-purpose)), and small-order public keys are refused.
+- **New entry.** A third entry kind is added: `extension [2] SEQUENCE { type UINT16, value OCTET STRING (SIZE(0..2048)) }`. Unknown types are kept, since the signature covers them, and otherwise ignored. A future X-Wing key is type 1.
+- **Limits:**
+  - `url` is at most 256 bytes;
+  - `alias` at most 64;
+  - at most 64 entries;
+  - the signed info at most 4 KiB.
+- **URL syntax** is part of verification, so all nodes agree on it: `https://`, a lowercase hostname or IP literal, an optional port, and nothing else. There is no userinfo, path, query, fragment or trailing slash. `~` is allowed (NET-30).
+- **Sequence:**
+  - A state whose sequence is more than 10 min ahead of the receiver's clock is refused. Routing uses only states whose sequence is within 3 h before now and 10 min after.
+  - An older or equal sequence is dropped before its signature is checked. A byte-identical copy counts toward the flooding suppression; other copies with the same sequence do not.
+  - Each subject may issue at most 8 states in a burst, then one per 5 s; the excess is neither stored nor forwarded.
+  - A node's own sequence is `max(now, last + 1)` with the last value persisted (NET-7). It is re-issued when its neighbors, schemes, URL or alias change (NET-6), and every hour (NET-5).
+- **Requests:** `linkStateRequest` carries at most 16 distinct node IDs.
+
+**Changed messages.**
+
+```
+peeringRequest [0] SEQUENCE {
+  settlementSchemeId   SettlementSchemeId,
+  nodeInfo             OCTET STRING CONTAINING SignedPeerNodeInfo,
+  settlementSchemeData OCTET STRING,
+  versions             SEQUENCE (SIZE(1..16)) OF UINT16,   -- the scheme versions the sender supports (NET-26)
+  credit               UINT64 }                            -- credit the sender extends, in the scheme ledger's units (ACC-24)
+
+-- response body
+PeeringResponse ::= CHOICE {
+  accepted [0] SEQUENCE { version UINT16, credit UINT64, data OCTET STRING },
+  refused  [1] SEQUENCE { reason UINT8 } }
+  -- 0 unspecified, 1 unknown node, 2 unsupported scheme, 3 no common version, 4 capacity,
+  -- 5 concurrent request, 6 refused by the scheme, 7 unreachable, 8 banned; unknown values read as 0
+
+registration [8] SEQUENCE { nodeInfo SignedPeerNodeInfo }  -- unchanged
+-- response body, was empty
+RegistrationResponse ::= SEQUENCE { expiresAtMs UINT64 }
+
+peeringTermination [10]  -- reserved; its layout comes with termination in M4b
+```
+
+**Membership** ([D4](08-decisions.md#d4-network-membership-economics)):
+- A bootstrap node serves `unexpired registrations ∪ itself`, sorted by bytes (NET-32).
+- A downloaded list is accepted when its response is authenticated by the configured key, and is stored with the hash of the bytes received (NET-15).
+- Majority is unchanged: strictly more than half of the *configured* bootstrap nodes.
+- Nodes lose their majority place only while more than half of the lists have been fetched within the last 10 min.
+- **Registration:**
+  - it lasts 24 h, and clients renew every 6 h;
+  - before accepting a new registration, or one whose URL changed, the bootstrap node asks that URL for the registrant's link state, with authentication, and must get the registered sequence back;
+  - new registrations are throttled globally (a bucket of 20, refilled at 60 per hour);
+  - there is one registration per URL host and port, and at most 8 per /24 (IPv4) or /48 (IPv6).
+- **The node table** removes a node 1 h after its last reason to be there is gone: self, bootstrap, majority, registration or peering (NET-18).
+
+**Peering.**
+- **Who counts:** only confirmed peers count toward the target of 2. A peer is confirmed by a reciprocal edge or an authenticated heartbeat within the last 60 s.
+- **Slot caps:**
+  - inbound requests are accepted while there are fewer than 6 inbound peers;
+  - a node starts at most target + 2 outbound peerings.
+- **Bridge rule:** if a majority node with a fresh link state has been unreachable for 2 min, the node starts one more outbound peering, with that node if it can.
+- **Before accepting,** the responder probes the requester's URL as for registration.
+- **Repeats and crossings:**
+  - a request from a node that is already peered on the same scheme is accepted again with the stored state;
+  - crossed requests resolve in favour of the lower node ID.
+- **Backoff:** failed candidates back off exponentially, from 10 s to 1 h. "Unknown node" is retried after one list-poll period instead.
+- **Durability:** a peering is persisted before the acceptance is sent and before the requester uses it.
+
+**Routing.** Routing runs a breadth-first search over edges that both ends advertise and whose link states are fresh.
+- The route for `<scheme>.das.<id>` lists up to 4 first hops on shortest paths.
+- There is no route for the node's own address (NET-34). Destinations under our own address go only to our own endpoints, or get F02.
+- A packet is never forwarded back to the endpoint it came from.
+
+**Outbound requests** go only to `https` URLs. Requests to private, loopback, link-local or similar addresses are refused, after DNS resolution, unless the operator allows them (for dev and tests). The node never follows redirects.
+
+**Timers and limits.** All of these are configurable; the values in brackets are dev settings.
+
+| What | Value |
+|---|---|
+| Hash poll and list download | 60 s (1 s) |
+| Peer message timeout | 30 s; 5 s for hash polls; a packet's own expiry if sooner |
+| Heartbeat | 5–20 s, and once at once when a peering forms |
+| Link-state re-issue | 1 h, debounced to one per 5 s (0.5 s) |
+| Refresh | one stale node per 1 s, up to 16 IDs per request, staleness 3 h |
+| Registration lifetime and renewal | 24 h and 6 h (2 min and 30 s) |
+| Removal grace | 1 h (10 s) |
+| Peering check, bridge check | 1 s, 60 s (2 s) |
+| Request body | 64 KiB |
 
 ## 5. Wallet and dashboard (Solid 2)
 
@@ -300,7 +460,7 @@ Every crate is written so that a simulation can drive it ([D16](08-decisions.md#
 | M1 | Core crates: `dassie-oer`, `dassie-identity`, `dassie-ilp`, `dassie-stream` | All golden vectors pass. STREAM interoperates with `ilp-protocol-stream`. WASM builds load in Deno and the browser. |
 | M2 | Node skeleton: config, DB, listeners (plain and socket-activated), TLS, ACME, setup/login/logout, RPC contract, `dassie init`/`daemon`/`verify-install` | A fresh install reaches "setup complete" in a browser with a Let's Encrypt staging cert. |
 | M3 | Ledger journal, connector, local endpoints, ILDCP, BTP, stub settlement module. Exchange-rate math and its T00 rule; the rate fetcher comes in M7 with the first second currency | A BTP client pays the node's STREAM receiver. The journal matches the packet trace. |
-| M4 | Peer protocol v1, node table, membership, registration, auto-peering, link state, routing, settlement loop | The `two-nodes` and `six-nodes` scenarios converge and route payments across hops. Restarts keep peerings and balances. |
+| M4 | Peer protocol v1, node table, membership, registration, auto-peering, link state, routing, settlement loop. Delivered in two PRs: **M4a** (v1, membership, peering, routing, packets over peers) and **M4b** (settlement loop, the full D12 lifecycle, child peers) | The `two-nodes` and `six-nodes` scenarios converge and route payments across hops. Restarts keep peerings and balances. M4a stops at payments within the credit peers extend, with restarts that keep peerings. |
 | M5 | Wallet (Solid 2) and dev environment (Deno) with dashboard, including BTP token spending caps | All pages of [6 §1.6](06-user-interfaces-and-tooling.md) work against M4. `deno task dev` brings up any scenario. |
 | M6 | Open Payments + SPSP, payment pointers, outgoing payments with quotes and status | Pays to and from another Open Payments/SPSP wallet. |
 | M7 | XRPL testnet module with reserve and fee accounting; the exchange-rate fetcher of D7, fees and spread | The `xrpl-settlement` and `cross-currency` scenarios settle and reconcile across restarts. |
