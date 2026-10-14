@@ -182,9 +182,19 @@ Revised on 2026-10-14; it first served SPSP and deferred GNAP, quotes and outgoi
     - **What a client reaches:** `read`, `list` and `complete` reach only the incoming payments the client created; `read-all` reaches any.
     - **Bounds:** the owner's incoming payments and clients' are bounded apart, so that clients never crowd out the owner. When clients' share is full, the oldest of their payments that received nothing is closed. Clients' payments last at most 7 days, and unpaid ones are forgotten a week after they close.
     - **Grant limits** (amounts per repeating interval) are reserved when an outgoing payment is created.
-  - **Client side:** the wallet's Send is an Open Payments client of the receiver's servers. It gets a non-interactive grant, creates the incoming payment there, then quotes and pays from the node's own resources.
-    - It quotes through STREAM rate probing.
-    - It never debits more than the quote, across crashes too.
+  - **The owner's consent** (M6b):
+    - A grant that needs the owner is pending until decided. The client is sent to `GET /gnap/interact/{id}/{key}`, a random key per grant, which leads to the wallet's consent page.
+    - The page shows who asks (the client's wallet address and public name, or "unverified key"), the access, and its limits in plain words. Approving or denying sends the client to its finish URI, with the interaction hash and `interact_ref`, or with `result=grant_rejected`.
+    - The client continues with `interact_ref` to get its token, no sooner than the `wait` it was given (`too_fast`).
+    - A pending grant lapses after 10 minutes. At most 256 are pending at once.
+  - **Quotes and outgoing payments** (M6b):
+    - Until M7 every ledger has one asset and the connector charges no fees, so a quote is same-asset at a rate of 1 and needs no probe. A receiver in another asset is refused. STREAM rate probing comes with M7's exchange rates; the quote math already takes a rate.
+    - A quote lasts 5 minutes, or less if its receiver expires sooner, and pays one outgoing payment.
+    - An outgoing payment never debits more than its debit amount, across crashes too: its sent amount is what was posted (D17).
+    - Grant limits are reserved in the interval window the payment is created in; a failed payment releases what it did not send.
+  - **Client side:**
+    - To pay an incoming payment on another node, the node reads it with a non-interactive `incoming-payment` `read-all` grant from that node's authorization server, as its own `$host` wallet address and key (M6b).
+    - The wallet's Send also creates the incoming payment there, from a wallet address or payment pointer (M6c).
   - **Payment pointers** stay only as input syntax: `$host/path` means `https://host/path`, and a bare `$host` means `https://host/.well-known/pay`.
   - **Not supported:** card authorization (v1.4.0), since the node has no cards. STREAM receipts are not part of Open Payments and are not issued.
 - **Rejected:**
