@@ -7,6 +7,7 @@
 
 #![deny(clippy::disallowed_types)]
 
+mod grace;
 mod incoming;
 mod ledgers;
 mod packets;
@@ -29,6 +30,7 @@ use dassie_ledger::{Account, AccountId, Ledger, Name, TraceId};
 use dassie_node_core::config::Realm;
 use dassie_stream::BUFFER_LENGTH;
 
+pub use grace::{GracePolicy, Lie};
 pub use incoming::{IncomingPolicy, NewIncoming};
 pub use ledgers::{LedgerView, RemovalBlocker};
 pub use packets::ledger_slug;
@@ -45,7 +47,7 @@ use tokens::{BtpLink, TokenState};
 use crate::clock::SharedRng;
 use crate::log::target;
 use crate::node::Policies;
-use crate::store::{LedgerBatch, PaymentId, Store, StoreError};
+use crate::store::{BanRecord, LedgerBatch, PaymentId, PeerSettings, Store, StoreError};
 
 /// Why the engine did not do something.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -228,6 +230,12 @@ pub struct Core {
     owed: verdicts::Owed,
     /// What sends outgoing payments.
     spending: payers::Spending,
+    /// What peers cost us, against their grace limits (D18).
+    grace: grace::Grace,
+    /// The owner's peer settings.
+    peer_settings: PeerSettings,
+    /// Why nodes were banned, and when bans were lifted.
+    ban_records: BTreeMap<dassie_identity::NodeId, BanRecord>,
 }
 
 impl Core {
@@ -300,6 +308,9 @@ impl Core {
             ledger_stats: dassie_ledger::Stats::default(),
             owed: verdicts::Owed::new(now_ms),
             spending: payers::Spending::default(),
+            grace: grace::Grace::new(now_ms, policies.grace, policies.settlement_ratio_ppm),
+            peer_settings: PeerSettings::DEFAULT,
+            ban_records: BTreeMap::new(),
         };
         core.restore()?;
         Ok(core)
@@ -309,6 +320,13 @@ impl Core {
     /// accounts the journal must have (spec 7 §4.4).
     fn restore(&mut self) -> Result<(), String> {
         let store = Arc::clone(&self.store);
+        self.peer_settings = store.peer_settings().map_err(text)?;
+        self.ban_records = store
+            .ban_records()
+            .map_err(text)?
+            .into_iter()
+            .map(|record| (record.node, record))
+            .collect();
         self.load_tokens(&store).map_err(text)?;
         self.load_schemes(&store)?;
         self.load_incoming()?;
@@ -384,6 +402,7 @@ impl Core {
             .channels()
             .any(|(_, channel)| channel.final_due.is_some())
             .then_some(self.settle.at_ms);
+        let grace = self.peer.channels().next().map(|_| self.grace.at_ms());
         [
             self.connector.poll_timeout(),
             receiver,
@@ -392,6 +411,7 @@ impl Core {
             finals,
             self.owed.deadline(),
             self.outgoing_deadline(),
+            grace,
         ]
         .into_iter()
         .flatten()
@@ -415,6 +435,11 @@ impl Core {
             if self.execute_settlements() {
                 // Their announcements go out with this step's outputs.
                 self.after_peer();
+                continue;
+            }
+            // What peers cost is read from the books on disk; a ban is
+            // persisted in turn (D18).
+            if self.grace_checks() {
                 continue;
             }
             self.check_invariants();
@@ -549,6 +574,10 @@ fn check_bounds(policies: &Policies) {
     assert!(
         verdicts::MAX_OWED_PER_PEER > connector.max_pending_per_peer,
         "a peer can fill its share of the table without owing too many verdicts"
+    );
+    assert!(
+        policies.peer.max_bans + policies.peer.max_channels <= crate::store::MAX_BAN_RECORDS,
+        "every ban, and every peer that could be banned, has room for its record"
     );
 }
 

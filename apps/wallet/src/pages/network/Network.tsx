@@ -22,6 +22,7 @@ import { describe, useClient } from "@dassie/ui/rpc";
 import { Link, type RouteProps, useRouter } from "@dassie/ui/router";
 import { useToast } from "@dassie/ui/toast";
 import { Badge, Card, ConfirmButton, LiveNote, PageTitle } from "@dassie/ui/ui";
+import { banText, costParts, costText } from "./grace.ts";
 
 export function Network(props: RouteProps): JSX.Element {
   const data = useNodeData();
@@ -186,6 +187,16 @@ function NodeDetail(props: { node: NetworkNode }): JSX.Element {
         <dt>Peering</dt>
         <dd data-testid="peer-state">{peerStateName(node().peerState)}</dd>
       </dl>
+      <Show when={node().ban}>
+        {(ban) => (
+          <p data-testid="ban-reason">
+            <Badge tone="bad">Banned</Badge> {banText(ban())}{" "}
+            <Show when={ban().bannedAtUnixMs > 0n}>
+              <span class="muted">{dateTime(ban().bannedAtUnixMs)}</span>
+            </Show>
+          </p>
+        )}
+      </Show>
       <Show when={node().peering}>
         {(peering) => (
           <dl class="facts">
@@ -204,12 +215,18 @@ function NodeDetail(props: { node: NetworkNode }): JSX.Element {
                 currency={currency(peering().scheme)}
               />
             </dd>
-            <dt>Refused (24 h)</dt>
-            <dd data-testid="peer-refused">
-              <Amount
-                value={peering().refused24h}
-                currency={currency(peering().scheme)}
-              />
+            <dt>Cost (30 days)</dt>
+            <dd data-testid="peer-cost">
+              <Show when={peering().cost} fallback="not checked yet">
+                {(cost) => (
+                  <>
+                    {costText(cost())}
+                    <Show when={costParts(cost())}>
+                      <span class="muted">({costParts(cost())})</span>
+                    </Show>
+                  </>
+                )}
+              </Show>
             </dd>
             <Show when={peering().terminationReason}>
               <dt>Ending, because</dt>
@@ -262,6 +279,7 @@ function NodeDetail(props: { node: NetworkNode }): JSX.Element {
           <button
             type="button"
             data-testid="unban-node"
+            title="What its refusals cost before counts no more; what it still owes does."
             onClick={act(
               "Ban lifted",
               () => client.call("unbanNode", { node: node().id }),

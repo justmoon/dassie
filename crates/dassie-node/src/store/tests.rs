@@ -96,7 +96,7 @@ fn refuses_foreign_and_newer_databases() {
         Store::open(temp.path()),
         Err(StoreError::TooNew {
             found: 99,
-            known: 9
+            known: 10
         })
     ));
 }

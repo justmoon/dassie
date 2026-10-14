@@ -81,6 +81,8 @@ pub struct Policies {
     pub settlement_ratio_ppm: u32,
     /// Open Payments' incoming payments.
     pub incoming: crate::engine::IncomingPolicy,
+    /// The timing of each peer's grace limit (D18).
+    pub grace: crate::engine::GracePolicy,
 }
 
 impl Policies {
@@ -113,6 +115,7 @@ impl Policies {
         settlement_interval_ms: 4_000,
         settlement_ratio_ppm: dassie_settlement::policy::DEFAULT_RATIO_PPM,
         incoming: crate::engine::IncomingPolicy::DEFAULT,
+        grace: crate::engine::GracePolicy::DEFAULT,
     };
 
     /// The production values with the peer protocol's dev timers (spec 7
@@ -120,6 +123,7 @@ impl Policies {
     pub const DEV: Self = Self {
         peer: dassie_peer::Config::DEV,
         settlement_interval_ms: 1_000,
+        grace: crate::engine::GracePolicy::DEV,
         ..Self::DEFAULT
     };
 }

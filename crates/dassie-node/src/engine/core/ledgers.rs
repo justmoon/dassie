@@ -254,6 +254,9 @@ impl Core {
                         self.account(ledger, AccountName::AssetsInterledger(*peer))?;
                     let reference = self.incoming_reference(scheme);
                     self.post(settlement, interledger, *amount, reference)?;
+                    if let Ok(node) = dassie_identity::NodeId::parse(peer.as_str()) {
+                        self.grace_settled(node);
+                    }
                 }
                 Effect::Finalize { settlement: id } => self.settlement_done(scheme, *id),
                 Effect::Cancel { settlement: id } => self.settlement_cancelled(scheme, *id),

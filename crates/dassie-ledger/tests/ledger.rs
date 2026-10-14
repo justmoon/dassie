@@ -316,10 +316,10 @@ fn reports_may_take_the_group_below_zero() {
             1,
             &spec(
                 accounts.owner,
-                accounts.suspense,
+                accounts.settlement,
                 15,
                 false,
-                Reference::Reconciliation,
+                Reference::Withdrawal,
             ),
         )
         .unwrap();
@@ -438,5 +438,34 @@ fn pending_transfers_within_the_group_leave_the_funds_free() {
     ledger
         .create(1, &spec(accounts.token, peer, 10, true, packet(1)))
         .unwrap();
+    ledger.check_invariants();
+}
+
+// M7: what the node gains or loses is the owner's. A reconciliation that
+// finds more money raises the owner's funds, one that finds less lowers
+// them, even below zero.
+#[test]
+fn reconciliations_move_the_owners_funds() {
+    let (mut ledger, accounts) = funded(10);
+    let gain = spec(
+        accounts.settlement,
+        accounts.suspense,
+        5,
+        false,
+        Reference::Reconciliation,
+    );
+    ledger.create(1, &gain).unwrap();
+    let group =
+        |ledger: &dassie_ledger::Ledger| ledger.group_balance(accounts.owner).unwrap().net_credit();
+    assert_eq!(group(&ledger), 15);
+    let loss = spec(
+        accounts.suspense,
+        accounts.settlement,
+        20,
+        false,
+        Reference::Reconciliation,
+    );
+    ledger.create(2, &loss).unwrap();
+    assert_eq!(group(&ledger), -5);
     ledger.check_invariants();
 }

@@ -136,23 +136,6 @@ impl Store {
             .optional()?;
         Ok(found.is_some())
     }
-
-    /// What each peer's refusals booked since `since_ms`, by the account
-    /// they credited: the peer's.
-    ///
-    /// # Errors
-    ///
-    /// The database failed.
-    pub fn refused_since(&self, account: AccountId, since_ms: u64) -> Result<u64, StoreError> {
-        let connection = self.lock();
-        let total: i64 = connection.query_row(
-            "SELECT coalesce(sum(amount), 0) FROM ledger_transfers \
-             WHERE reference = 'refusal' AND credit = ?1 AND created_at_ms >= ?2",
-            params![account.0, to_sql_time(since_ms)],
-            |row| row.get(0),
-        )?;
-        u64::try_from(total).map_err(|_| StoreError::Corrupt("refused total"))
-    }
 }
 
 fn read_owed(row: &Row<'_>) -> rusqlite::Result<Result<OwedFulfill, StoreError>> {

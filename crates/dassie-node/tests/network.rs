@@ -20,6 +20,11 @@
 //! Outgoing payments go between nodes and to a node's own receiver: each
 //! sends exactly its debit amount, across a crash of its node too, and
 //! its receiver gets what it sent.
+//!
+//! An honest network never bans a peer for what it cost (D18), crashes and
+//! all. A node that lies to its peers, refusing Fulfills it took or never
+//! settling, is banned by the peer it cost, which loses at most its grace
+//! limit and the credit both ways.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
@@ -31,9 +36,9 @@ use dassie_connector::{CapUsage, SpendingCap, replay};
 use dassie_identity::{NodeId, NodeKey};
 use dassie_ilp::{Address, Prepare, Timestamp};
 use dassie_ledger::LedgerId;
-use dassie_node::engine::{Core, CoreParts, NewIncoming, NewOutgoing, Outbound, Output};
+use dassie_node::engine::{Core, CoreParts, Lie, NewIncoming, NewOutgoing, Outbound, Output};
 use dassie_node::node::Policies;
-use dassie_node::store::{ForeignAmount, OutgoingState, PaymentId, Store};
+use dassie_node::store::{BanReason, ForeignAmount, OutgoingState, PaymentId, PeerSettings, Store};
 use dassie_node_core::config::Realm;
 use dassie_node_core::testing::SeededRng;
 use dassie_oer::Decode;
@@ -119,11 +124,23 @@ struct Sim {
     /// Pairs whose requests do not get through, from the first to the
     /// second.
     cut: BTreeSet<(usize, usize)>,
+    /// The credit each node extends to its peers, where not the default.
+    credits: BTreeMap<usize, u64>,
     trace: Vec<String>,
 }
 
 impl Sim {
     fn new(seed: u64, count: usize, bootstraps: usize) -> Self {
+        Self::with_credits(seed, count, bootstraps, BTreeMap::new())
+    }
+
+    /// As [`Sim::new`], with some nodes extending other credit to peers.
+    fn with_credits(
+        seed: u64,
+        count: usize,
+        bootstraps: usize,
+        credits: BTreeMap<usize, u64>,
+    ) -> Self {
         let bootstrap = (0..bootstraps)
             .map(|index| Bootstrap {
                 id: key(index).node_id(),
@@ -143,6 +160,7 @@ impl Sim {
             abandoned: Vec::new(),
             outgoing: Vec::new(),
             cut: BTreeSet::new(),
+            credits,
             trace: Vec::new(),
         };
         for _ in 0..count {
@@ -172,7 +190,14 @@ impl Sim {
             store: Arc::clone(&node.store),
             key: key(index),
             realm: Realm::Test,
-            policies: Policies::DEV,
+            policies: Policies {
+                peer_credit: self
+                    .credits
+                    .get(&index)
+                    .copied()
+                    .unwrap_or(Policies::DEV.peer_credit),
+                ..Policies::DEV
+            },
             rng: Box::new(SeededRng::new(seed)),
             peer_rng: Box::new(SeededRng::new(seed ^ 1)),
             own_info: OwnInfo {
@@ -593,6 +618,43 @@ struct Run {
     refusals: usize,
     /// What hops lost to refusals.
     lost: i128,
+    /// The most a peer cost a node at the end, in parts per million of the
+    /// credit the node extends to it.
+    worst_cost_ppm: u64,
+}
+
+/// The nodes each node banned for what they cost (D18).
+fn automatic_bans(sim: &Sim) -> Vec<(usize, NodeId)> {
+    let mut bans = Vec::new();
+    for (index, node) in sim.nodes.iter().enumerate() {
+        let Some(core) = node.core.as_ref() else {
+            continue;
+        };
+        for (banned, record) in core.network().bans {
+            if record.is_some_and(|record| record.reason == BanReason::GraceLimit) {
+                bans.push((index, banned));
+            }
+        }
+    }
+    bans
+}
+
+/// The most any peer cost any node, as a share of its credit.
+fn worst_cost_ppm(sim: &Sim) -> u64 {
+    let mut worst = 0;
+    for node in &sim.nodes {
+        let Some(core) = node.core.as_ref() else {
+            continue;
+        };
+        for peer in core.network().peers {
+            if let Some(cost) = peer.cost {
+                let credit = u128::from(peer.peering.credit_out.max(1));
+                let ppm = u128::from(cost.total()) * 1_000_000 / credit;
+                worst = worst.max(u64::try_from(ppm).unwrap_or(u64::MAX));
+            }
+        }
+    }
+    worst
 }
 
 /// The refusals in every node's journal.
@@ -703,6 +765,7 @@ fn run(seed: u64) -> Result<Run, String> {
     Ok(Run {
         refusals: refusals(&sim),
         lost: (0..count).map(|index| -losses(&sim, index)).sum(),
+        worst_cost_ppm: worst_cost_ppm(&sim),
         trace: sim.trace,
     })
 }
@@ -1006,8 +1069,20 @@ fn check_outgoing(sim: &Sim) -> Result<(), String> {
     Ok(())
 }
 
-/// The books: owners', settlements and every pair of accounts.
+/// The books: owners', settlements and every pair of accounts; and no
+/// honest peer was banned for what it cost.
 fn check_books(sim: &Sim) -> Result<(), String> {
+    if let Some((index, node)) = automatic_bans(sim).first() {
+        let record = sim
+            .core(*index)
+            .network()
+            .bans
+            .into_iter()
+            .find(|(id, _)| id == node);
+        return Err(format!(
+            "node {index} banned {node} for what it cost, in an honest network: {record:?}"
+        ));
+    }
     check_owner_books(sim)?;
     let count = sim.nodes.len();
     let (mut owners, mut stubs) = (0i128, 0i128);
@@ -1228,4 +1303,186 @@ fn outgoing_payments_refuse_what_their_rows_cannot_hold() {
     }
     assert_eq!(refusals, [true, true, true]);
     assert!(sim.nodes[0].core.is_some(), "the engine kept running");
+}
+
+// D18: honest peers cost each other only through crashes and late
+// Fulfills, which stay below the default grace limit. A crash of an
+// upstream with packets in flight is what costs most.
+#[test]
+fn honest_peers_stay_below_their_grace_limits() {
+    let mut costs: Vec<u64> = seeds()
+        .map(|seed| run(seed).unwrap_or_else(|problem| panic!("seed {seed}: {problem}")))
+        .map(|run| run.worst_cost_ppm)
+        .collect();
+    costs.sort_unstable();
+    let worst = costs.last().copied().unwrap_or(0);
+    let costly = costs.iter().filter(|cost| **cost > 0).count();
+    eprintln!(
+        "the most a peer cost: {worst} ppm of its credit; {costly} of {} runs cost anything",
+        costs.len()
+    );
+    assert!(
+        worst < u64::from(PeerSettings::DEFAULT.grace_share_ppm),
+        "an honest peer cost {worst} ppm of its credit"
+    );
+}
+
+/// Three nodes where the liar, node 1, reaches node 2 only through node
+/// 0: node 2 bans it before they can peer. Node 1 then lies.
+fn liar_network(seed: u64, lie: Lie) -> Sim {
+    let mut sim = Sim::new(seed, 3, 1);
+    sim.loss_per_mille = 0;
+    sim.step(2, |core| core.ban_node(key(1).node_id()).unwrap());
+    sim.run_until(START + 60_000);
+    let (victim, target) = (key(0).node_id(), key(2).node_id());
+    assert!(
+        sim.peers(1).contains(&victim) && sim.peers(2).contains(&victim),
+        "seed {seed}: the nodes did not peer"
+    );
+    assert!(
+        !sim.peers(1).contains(&target),
+        "seed {seed}: the ban did not hold"
+    );
+    sim.step(1, |core| core.lie(lie));
+    sim.trace.push(format!("{} 1 lies: {lie:?}", sim.now));
+    sim
+}
+
+/// Whether node 0 banned node 1 for what it cost.
+fn victim_banned_liar(sim: &Sim) -> bool {
+    automatic_bans(sim)
+        .iter()
+        .any(|(index, node)| *index == 0 && *node == key(1).node_id())
+}
+
+/// What node 1 cost node 0, as node 0's ban says.
+fn liar_cost(sim: &Sim) -> dassie_node::store::PeerCost {
+    sim.core(0)
+        .network()
+        .bans
+        .into_iter()
+        .find(|(node, _)| *node == key(1).node_id())
+        .and_then(|(_, record)| record?.cost)
+        .expect("a ban with what the liar cost")
+}
+
+/// What a liar tries to pay: far more than the credit both ways and the
+/// grace limit, so the exposure bound is put to the test.
+const LIAR_PAYS: u64 = 10_000_000_000;
+
+/// What node 1 cost node 0 is at most its grace limit and the credit both
+/// ways (D18): its losses to the liar, and what the liar owes it.
+fn check_exposure(sim: &Sim, seed: u64) {
+    let liar = key(1).node_id();
+    let balances = sim.balances(0);
+    let lost = -losses(sim, 0);
+    let position = balances[&format!("stub+usd:assets/interledger/{liar}")];
+    let owes = (CREDIT - position).max(0);
+    let grace = CREDIT * i128::from(PeerSettings::DEFAULT.grace_share_ppm) / 1_000_000;
+    assert!(
+        lost + owes <= grace + 2 * CREDIT,
+        "seed {seed}: the liar cost {lost} lost and {owes} owed, past {grace} + 2 × {CREDIT}"
+    );
+}
+
+// D18: a peer that takes Fulfills and says it refused them costs the hop
+// that paid on, which bans it once its losses pass the grace limit.
+#[test]
+fn a_peer_that_refuses_what_it_took_is_banned() {
+    for seed in 0..20 {
+        let mut sim = liar_network(seed, Lie::RefuseFulfills);
+        sim.pay(1, 2, LIAR_PAYS, None, None);
+        assert!(
+            sim.run_until_or(sim.now + 120_000, victim_banned_liar),
+            "seed {seed}: node 0 never banned the liar; it lost {}",
+            -losses(&sim, 0)
+        );
+        let cost = liar_cost(&sim);
+        assert!(
+            cost.refused > cost.grace && cost.overdue == 0,
+            "seed {seed}: banned for {cost:?}"
+        );
+        // The ban ends the peering, and only the liar's: once the verdicts
+        // it is owed came, or after ten minutes.
+        let ending = sim
+            .core(0)
+            .network()
+            .peers
+            .iter()
+            .any(|peer| peer.id == key(1).node_id() && peer.termination.is_some());
+        assert!(ending, "seed {seed}: the peering is not ending");
+        // It keeps paying on: the bound must hold however long it goes.
+        sim.run_until(sim.now + 12 * 60_000);
+        check_exposure(&sim, seed);
+        assert!(!sim.peers(0).contains(&key(1).node_id()), "seed {seed}");
+        assert!(sim.peers(0).contains(&key(2).node_id()), "seed {seed}");
+    }
+}
+
+// D18: a peer that never settles what it owes is banned once its debt has
+// stayed past half its credit for longer than the grace for settling.
+#[test]
+fn a_peer_that_never_settles_is_banned() {
+    for seed in 0..20 {
+        let mut sim = liar_network(seed, Lie::NeverSettle);
+        sim.pay(1, 0, LIAR_PAYS, None, None);
+        // The liar owes past where it should have settled from here on.
+        let due = |sim: &Sim| {
+            let position =
+                sim.balances(0)[&format!("stub+usd:assets/interledger/{}", key(1).node_id())];
+            CREDIT - position > CREDIT * 55 / 100
+        };
+        assert!(sim.run_until_or(sim.now + 120_000, due), "seed {seed}");
+        let due_at = sim.now;
+        assert!(
+            sim.run_until_or(sim.now + 10 * 60_000, victim_banned_liar),
+            "seed {seed}: node 0 never banned the liar"
+        );
+        let grace = Policies::DEV.grace.settle_grace_ms;
+        assert!(
+            sim.now - due_at >= grace,
+            "seed {seed}: banned before its grace for settling passed"
+        );
+        let cost = liar_cost(&sim);
+        assert!(
+            cost.overdue > cost.grace && cost.refused == 0,
+            "seed {seed}: banned for {cost:?}"
+        );
+        sim.run_until(sim.now + 60_000);
+        check_exposure(&sim, seed);
+        assert_eq!(losses(&sim, 0), 0, "seed {seed}");
+    }
+}
+
+// Found in review: a peer that extends us little credit settles only well
+// past half the credit we extend. Owing short of its own threshold, it
+// is not overdue, however long it waits.
+#[test]
+fn an_honest_peer_with_little_credit_is_not_overdue() {
+    let mut credits = BTreeMap::new();
+    credits.insert(1, 1);
+    let mut sim = Sim::with_credits(90, 2, 1, credits);
+    sim.loss_per_mille = 0;
+    sim.run_until(START + 60_000);
+    assert!(
+        sim.peers(0).contains(&key(1).node_id()),
+        "the nodes did not peer"
+    );
+    // With credit this uneven, node 0 settled half of it to node 1 as
+    // they peered, so node 1 owes it half (spec 5 §4.6). Node 1 then
+    // pays 0.03 more: it owes more than half of node 0's credit of 1.1,
+    // and less than the 0.605 it settles at, 1.1 × 1.1 / 2.
+    sim.pay(1, 0, 30_000_000, None, None);
+    sim.run_until(sim.now + 10 * Policies::DEV.grace.settle_grace_ms);
+    let peer = sim
+        .core(0)
+        .network()
+        .peers
+        .into_iter()
+        .find(|peer| peer.id == key(1).node_id())
+        .unwrap();
+    let owes = CREDIT - peer.owed.map(|owed| owed + CREDIT).unwrap();
+    assert!(owes > CREDIT / 2, "it owes {owes}");
+    assert_eq!(peer.cost.unwrap().overdue, 0);
+    assert!(automatic_bans(&sim).is_empty());
 }

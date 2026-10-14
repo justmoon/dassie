@@ -29,9 +29,9 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
 pub use self::core::{
-    BtpSession, Changes, Core, CoreParts, CreatedOutgoing, EngineError, IncomingPolicy, LedgerView,
-    NetworkView, NewIncoming, NewOutgoing, NewToken, Outbound, Output, PeerView, RemovalBlocker,
-    TokenView, ledger_slug,
+    BtpSession, Changes, Core, CoreParts, CreatedOutgoing, EngineError, GracePolicy,
+    IncomingPolicy, LedgerView, Lie, NetworkView, NewIncoming, NewOutgoing, NewToken, Outbound,
+    Output, PeerView, RemovalBlocker, TokenView, ledger_slug,
 };
 
 use crate::log::target;
@@ -277,6 +277,20 @@ impl Engine {
     /// Lifts a ban.
     pub async fn unban_node(&self, node: dassie_identity::NodeId) -> Result<(), EngineError> {
         self.call(move |core| core.unban_node(&node)).await
+    }
+
+    /// The owner's peer settings.
+    pub async fn peer_settings(&self) -> Result<crate::store::PeerSettings, EngineError> {
+        self.call(|core| Ok(core.peer_settings())).await
+    }
+
+    /// Changes the owner's peer settings.
+    pub async fn set_peer_settings(
+        &self,
+        settings: crate::store::PeerSettings,
+    ) -> Result<(), EngineError> {
+        self.call(move |core| core.set_peer_settings(settings))
+            .await
     }
 
     /// One ledger account.

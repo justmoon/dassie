@@ -163,6 +163,9 @@ message Request {
     SendPaymentRequest send_payment = 121;
     // Streaming.
     SubscribeOutgoingPaymentRequest subscribe_outgoing_payment = 122;
+
+    GetPeerSettingsRequest get_peer_settings = 123;
+    SetPeerSettingsRequest set_peer_settings = 124;
   }
 }
 
@@ -245,6 +248,9 @@ message Response {
     ResolveRecipientResponse resolve_recipient = 119;
     QuoteSendResponse quote_send = 120;
     SendPaymentResponse send_payment = 121;
+
+    GetPeerSettingsResponse get_peer_settings = 123;
+    SetPeerSettingsResponse set_peer_settings = 124;
   }
 }
 

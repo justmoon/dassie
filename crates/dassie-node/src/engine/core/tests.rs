@@ -199,3 +199,169 @@ fn steps_report_what_they_changed() {
     core.finish_step(&mut outputs);
     assert!(core.take_changes().ledger);
 }
+
+/// A peer whose peering ended, owing us `owed` of the 1 000 we extend,
+/// and with `lost` booked as its refusals' losses and `reversed` as ones
+/// our receiver took back, all on disk.
+fn costly_peer(core: &mut Core, owed: u64, lost: u64, reversed: u64) -> dassie_identity::NodeId {
+    use dassie_ledger::{AccountName, LedgerId, Name, Reference, TraceId, TransferSpec};
+
+    let node = NodeKey::from_bytes(&[9; 32]).node_id();
+    let name = Name::new(node.as_str()).unwrap();
+    core.add_scheme("stub", String::new()).unwrap();
+    let (interledger, _) = core
+        .ledger
+        .open_peer(NOW, LedgerId::StubUsd, name, 1_000)
+        .unwrap();
+    let owner = core
+        .account(LedgerId::StubUsd, AccountName::EquityOwner)
+        .unwrap();
+    let losses = core
+        .account(LedgerId::StubUsd, AccountName::ExpensesLosses)
+        .unwrap();
+    let trace = TraceId {
+        epoch: 1,
+        sequence: 1,
+    };
+    for (debit, credit, amount, reference) in [
+        (interledger, owner, owed, Reference::Packet(trace)),
+        (losses, interledger, lost, Reference::Refusal(trace)),
+        (owner, interledger, reversed, Reference::Refusal(trace)),
+    ] {
+        if amount > 0 {
+            let spec = TransferSpec {
+                debit,
+                credit,
+                amount,
+                pending: false,
+                reference,
+            };
+            core.ledger.create(NOW, &spec).unwrap();
+        }
+    }
+    core.flush();
+    node
+}
+
+// D18: a peer's refusals count as their losses, never what our receiver
+// took back. A peering that ended without the peer settling stays owed on
+// the books, but is not overdue: the peer may never have heard it ended.
+#[test]
+fn a_peer_costs_its_losses_and_not_an_ended_peerings_debt() {
+    let mut core = core(8);
+    let node = costly_peer(&mut core, 800, 30, 40);
+    core.update_synced();
+    let none = std::collections::BTreeSet::new();
+    let cost = core.peer_cost(node, &none).unwrap();
+    assert_eq!((cost.refused, cost.overdue), (30, 0));
+    // The floor: a hundredth of a unit.
+    assert_eq!(cost.grace, 10_000_000);
+    core.begin_step(NOW + 10 * Policies::DEFAULT.grace.settle_grace_ms);
+    let cost = core.peer_cost(node, &none).unwrap();
+    assert_eq!((cost.refused, cost.overdue), (30, 0));
+}
+
+// D18: a peer past its limit is banned, with what it cost, and the owner
+// lifting the ban starts its window anew.
+#[test]
+fn a_ban_keeps_what_the_peer_cost_and_an_unban_forgets_it() {
+    use crate::store::{BanReason, PeerSettings};
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = core_on(Arc::clone(&store), 10);
+    // A tiny share, so the floor decides: a hundredth of a unit.
+    core.set_peer_settings(PeerSettings { grace_share_ppm: 1 })
+        .unwrap();
+    let node = costly_peer(&mut core, 0, 20_000_000, 0);
+    core.update_synced();
+    let none = std::collections::BTreeSet::new();
+    let cost = core.peer_cost(node, &none).unwrap();
+    assert!(cost.over());
+    assert!(core.ban_for(node, cost));
+    core.flush();
+    assert!(core.peer.is_banned(&node));
+    let record = core.ban_record(&node).unwrap();
+    assert_eq!(record.reason, BanReason::GraceLimit);
+    assert_eq!(record.cost, Some(cost));
+    assert_eq!(store.ban_records().unwrap(), [record]);
+
+    core.begin_step(NOW + 1_000);
+    core.unban_node(&node).unwrap();
+    core.flush();
+    assert_eq!(core.peer_cost(node, &none).unwrap().refused, 0);
+    assert_eq!(
+        store.ban_records().unwrap()[0].unbanned_at_ms,
+        Some(NOW + 1_000)
+    );
+    // A restart keeps that.
+    drop(core);
+    let core = core_on(store, 11);
+    assert_eq!(
+        core.ban_record(&node).unwrap().unbanned_at_ms,
+        Some(NOW + 1_000)
+    );
+}
+
+// Found in review: lifting a ban the node has no record of, from before
+// it kept them, still starts the peer's window anew.
+#[test]
+fn an_unban_without_a_record_makes_one() {
+    use crate::store::BanReason;
+
+    let mut core = core(14);
+    let node = NodeKey::from_bytes(&[9; 32]).node_id();
+    core.peer.ban(NOW, node).unwrap();
+    core.unban_node(&node).unwrap();
+    let record = core.ban_record(&node).unwrap();
+    assert_eq!(record.reason, BanReason::Owner);
+    assert_eq!(record.unbanned_at_ms, Some(NOW));
+}
+
+// Found in review: the owner banning a node the node banned already keeps
+// the record of why.
+#[test]
+fn an_owner_ban_keeps_an_automatic_bans_record() {
+    use crate::store::{BanReason, PeerSettings};
+
+    let mut core = core(15);
+    core.set_peer_settings(PeerSettings { grace_share_ppm: 1 })
+        .unwrap();
+    let node = costly_peer(&mut core, 0, 20_000_000, 0);
+    core.update_synced();
+    let cost = core
+        .peer_cost(node, &std::collections::BTreeSet::new())
+        .unwrap();
+    core.ban_for(node, cost);
+    core.ban_node(node).unwrap();
+    assert_eq!(
+        core.ban_record(&node).unwrap().reason,
+        BanReason::GraceLimit
+    );
+}
+
+// The owner's share is checked and persisted.
+#[test]
+fn peer_settings_are_checked_and_kept() {
+    use crate::store::PeerSettings;
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = core_on(Arc::clone(&store), 12);
+    assert_eq!(core.peer_settings(), PeerSettings::DEFAULT);
+    assert!(
+        core.set_peer_settings(PeerSettings { grace_share_ppm: 0 })
+            .is_err()
+    );
+    assert!(
+        core.set_peer_settings(PeerSettings {
+            grace_share_ppm: 10_000_001
+        })
+        .is_err()
+    );
+    let settings = PeerSettings {
+        grace_share_ppm: 750_000,
+    };
+    core.set_peer_settings(settings).unwrap();
+    core.flush();
+    drop(core);
+    assert_eq!(core_on(store, 13).peer_settings(), settings);
+}

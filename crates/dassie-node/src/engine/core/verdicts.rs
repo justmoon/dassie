@@ -526,6 +526,9 @@ impl Core {
             }],
         };
         tracing::warn!(target: target::PEER, peer = %row.peer, amount, trace = ?row.trace, compensation = ?row.compensation, "a peer refused our Fulfill");
+        if row.compensation == Compensation::Loss {
+            self.grace.check_soon(row.peer);
+        }
         for spec in specs {
             self.take_journal();
             let booked = self.ledger.create(self.now_ms, &spec);

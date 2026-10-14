@@ -258,10 +258,43 @@ async fn two_daemons_peer_and_keep_their_peering() {
         panic!("no bans")
     };
     assert_eq!(bans.nodes, std::slice::from_ref(&node_b));
+    // It says who banned it, and when (D18).
+    assert_eq!(bans.bans.len(), 1);
+    assert_eq!(bans.bans[0].node, node_b);
+    assert_eq!(bans.bans[0].reason, "owner");
+    assert!(bans.bans[0].banned_at_unix_ms > 0 && bans.bans[0].cost.is_none());
     let unbanned = owner_a
         .call(Method::UnbanNode(proto::UnbanNodeRequest { node: node_b }))
         .await;
     assert!(unbanned.is_ok(), "{unbanned:?}");
     a.stop().await;
     b.stop().await;
+}
+
+// D18: the owner's grace share is read, changed within range, and kept.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_grace_share_is_the_owners() {
+    let node = TestNode::start().await;
+    prepare(&node, &key(1)).await;
+    let mut owner = node.ipc().await;
+    let read = |response| match response {
+        Ok(response::Method::GetPeerSettings(reply)) => reply.settings.unwrap().grace_share_ppm,
+        Ok(response::Method::SetPeerSettings(reply)) => reply.settings.unwrap().grace_share_ppm,
+        other => panic!("{other:?}"),
+    };
+    let get = || Method::GetPeerSettings(proto::GetPeerSettingsRequest {});
+    assert_eq!(read(owner.call(get()).await), 750_000);
+    let set = |ppm| {
+        Method::SetPeerSettings(proto::SetPeerSettingsRequest {
+            settings: Some(proto::PeerSettings {
+                grace_share_ppm: ppm,
+            }),
+        })
+    };
+    assert_eq!(read(owner.call(set(2_000_000)).await), 2_000_000);
+    for refused in [0, 10_000_001] {
+        assert!(owner.call(set(refused)).await.is_err(), "{refused}");
+    }
+    assert_eq!(read(owner.call(get()).await), 2_000_000);
+    node.stop().await;
 }

@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file dassie/ui/v1/network.proto.
  */
 export const file_dassie_ui_v1_network: GenFile = /*@__PURE__*/
-  fileDesc("ChpkYXNzaWUvdWkvdjEvbmV0d29yay5wcm90bxIMZGFzc2llLnVpLnYxIpEDCgtOZXR3b3JrTm9kZRIKCgJpZBgBIAEoCRILCgN1cmwYAiABKAkSDQoFYWxpYXMYAyABKAkSEAoIc2VxdWVuY2UYBCABKAQSDwoHaXNfc2VsZhgFIAEoCBIRCglib290c3RyYXAYBiABKAgSEAoIbWFqb3JpdHkYByABKAgSEgoKcmVnaXN0ZXJlZBgIIAEoCBIMCgRwZWVyGAkgASgIEiAKGHJlZ2lzdGVyZWRfdW50aWxfdW5peF9tcxgKIAEoAxISCgpmaXJzdF9ob3BzGAsgAygJEhEKCW5laWdoYm9ycxgMIAMoCRIaChJzZXR0bGVtZW50X3NjaGVtZXMYDSADKAkSFQoIZGlzdGFuY2UYDiABKA1IAIgBARIrCgpwZWVyX3N0YXRlGA8gASgOMhcuZGFzc2llLnVpLnYxLlBlZXJTdGF0ZRIOCgZiYW5uZWQYECABKAgSKgoHcGVlcmluZxgRIAEoCzIZLmRhc3NpZS51aS52MS5OZXR3b3JrUGVlckILCglfZGlzdGFuY2UiFwoVU3Vic2NyaWJlTm9kZXNSZXF1ZXN0Il0KDk5vZGVUYWJsZUV2ZW50Eg0KBXJlc2V0GAEgASgIEisKCHVwc2VydGVkGAIgAygLMhkuZGFzc2llLnVpLnYxLk5ldHdvcmtOb2RlEg8KB3JlbW92ZWQYAyADKAkiEgoQTGlzdE5vZGVzUmVxdWVzdCI9ChFMaXN0Tm9kZXNSZXNwb25zZRIoCgVub2RlcxgBIAMoCzIZLmRhc3NpZS51aS52MS5OZXR3b3JrTm9kZSKIAgoLTmV0d29ya1BlZXISDAoEbm9kZRgBIAEoCRIOCgZzY2hlbWUYAiABKAkSDwoHdmVyc2lvbhgDIAEoDRIRCgljcmVkaXRfaW4YBCABKAQSEgoKY3JlZGl0X291dBgFIAEoBBIVCg1zaW5jZV91bml4X21zGAYgASgDEhkKEWxhc3Rfc2Vlbl91bml4X21zGAcgASgDEg8KB2luYm91bmQYCCABKAgSDQoFc3RhdGUYCSABKAkSGgoSdGVybWluYXRpb25fcmVhc29uGAogASgJEhIKCmFkdmVydGlzZWQYCyABKAgSDAoEb3dlZBgMIAEoAxITCgtyZWZ1c2VkXzI0aBgNIAEoBCISChBMaXN0UGVlcnNSZXF1ZXN0Ij0KEUxpc3RQZWVyc1Jlc3BvbnNlEigKBXBlZXJzGAEgAygLMhkuZGFzc2llLnVpLnYxLk5ldHdvcmtQZWVyIlIKDE5ldHdvcmtSb3V0ZRIMCgRub2RlGAEgASgJEg4KBnByZWZpeBgCIAEoCRISCgpmaXJzdF9ob3BzGAMgAygJEhAKCGRpc3RhbmNlGAQgASgNIj4KCkxvY2FsUm91dGUSDgoGcHJlZml4GAEgASgJEhAKCGVuZHBvaW50GAIgASgJEg4KBmxlZGdlchgDIAEoCSITChFMaXN0Um91dGVzUmVxdWVzdCJwChJMaXN0Um91dGVzUmVzcG9uc2USKgoGcm91dGVzGAEgAygLMhouZGFzc2llLnVpLnYxLk5ldHdvcmtSb3V0ZRIuCgxsb2NhbF9yb3V0ZXMYAiADKAsyGC5kYXNzaWUudWkudjEuTG9jYWxSb3V0ZSIYChZTdWJzY3JpYmVSb3V0ZXNSZXF1ZXN0ImwKD0Jvb3RzdHJhcFN0YXR1cxIMCgRub2RlGAEgASgJEg4KBmxpc3RlZBgCIAEoCBIdChVyZWdpc3RlcmVkX2F0X3VuaXhfbXMYAyABKAMSHAoUbGlzdF9mZXRjaGVkX3VuaXhfbXMYBCABKAMiHgocR2V0UmVnaXN0cmF0aW9uU3RhdHVzUmVxdWVzdCJvCh1HZXRSZWdpc3RyYXRpb25TdGF0dXNSZXNwb25zZRIMCgRub2RlGAEgASgJEjAKCWJvb3RzdHJhcBgCIAMoCzIdLmRhc3NpZS51aS52MS5Cb290c3RyYXBTdGF0dXMSDgoGbWVtYmVyGAMgASgIIh4KHFN1YnNjcmliZVJlZ2lzdHJhdGlvblJlcXVlc3QiLAocUmVnaXN0ZXJXaXRoQm9vdHN0cmFwUmVxdWVzdBIMCgRub2RlGAEgASgJIh8KHVJlZ2lzdGVyV2l0aEJvb3RzdHJhcFJlc3BvbnNlIicKF1Rlcm1pbmF0ZVBlZXJpbmdSZXF1ZXN0EgwKBG5vZGUYASABKAkiGgoYVGVybWluYXRlUGVlcmluZ1Jlc3BvbnNlIh4KDkJhbk5vZGVSZXF1ZXN0EgwKBG5vZGUYASABKAkiEQoPQmFuTm9kZVJlc3BvbnNlIiAKEFVuYmFuTm9kZVJlcXVlc3QSDAoEbm9kZRgBIAEoCSITChFVbmJhbk5vZGVSZXNwb25zZSIRCg9MaXN0QmFuc1JlcXVlc3QiIQoQTGlzdEJhbnNSZXNwb25zZRINCgVub2RlcxgBIAMoCSKNAQoRU2V0dGxlbWVudENoYW5uZWwSDAoEbm9kZRgBIAEoCRISCgpzZXR0bGVkX2luGAIgASgEEhMKC3NldHRsZWRfb3V0GAMgASgEEg8KB3NlbmRpbmcYBCABKAgSFgoOc2VuZGluZ19hbW91bnQYBSABKAQSGAoQc2VuZGluZ19hdHRlbXB0cxgGIAEoDSIfCh1MaXN0U2V0dGxlbWVudENoYW5uZWxzUmVxdWVzdCJTCh5MaXN0U2V0dGxlbWVudENoYW5uZWxzUmVzcG9uc2USMQoIY2hhbm5lbHMYASADKAsyHy5kYXNzaWUudWkudjEuU2V0dGxlbWVudENoYW5uZWwqigEKCVBlZXJTdGF0ZRIaChZQRUVSX1NUQVRFX1VOU1BFQ0lGSUVEEAASEwoPUEVFUl9TVEFURV9OT05FEAESGQoVUEVFUl9TVEFURV9SRVFVRVNUSU5HEAISFQoRUEVFUl9TVEFURV9QRUVSRUQQAxIaChZQRUVSX1NUQVRFX1RFUk1JTkFUSU5HEARiBnByb3RvMw");
+  fileDesc("ChpkYXNzaWUvdWkvdjEvbmV0d29yay5wcm90bxIMZGFzc2llLnVpLnYxIrEDCgtOZXR3b3JrTm9kZRIKCgJpZBgBIAEoCRILCgN1cmwYAiABKAkSDQoFYWxpYXMYAyABKAkSEAoIc2VxdWVuY2UYBCABKAQSDwoHaXNfc2VsZhgFIAEoCBIRCglib290c3RyYXAYBiABKAgSEAoIbWFqb3JpdHkYByABKAgSEgoKcmVnaXN0ZXJlZBgIIAEoCBIMCgRwZWVyGAkgASgIEiAKGHJlZ2lzdGVyZWRfdW50aWxfdW5peF9tcxgKIAEoAxISCgpmaXJzdF9ob3BzGAsgAygJEhEKCW5laWdoYm9ycxgMIAMoCRIaChJzZXR0bGVtZW50X3NjaGVtZXMYDSADKAkSFQoIZGlzdGFuY2UYDiABKA1IAIgBARIrCgpwZWVyX3N0YXRlGA8gASgOMhcuZGFzc2llLnVpLnYxLlBlZXJTdGF0ZRIOCgZiYW5uZWQYECABKAgSKgoHcGVlcmluZxgRIAEoCzIZLmRhc3NpZS51aS52MS5OZXR3b3JrUGVlchIeCgNiYW4YEiABKAsyES5kYXNzaWUudWkudjEuQmFuQgsKCV9kaXN0YW5jZSIXChVTdWJzY3JpYmVOb2Rlc1JlcXVlc3QiXQoOTm9kZVRhYmxlRXZlbnQSDQoFcmVzZXQYASABKAgSKwoIdXBzZXJ0ZWQYAiADKAsyGS5kYXNzaWUudWkudjEuTmV0d29ya05vZGUSDwoHcmVtb3ZlZBgDIAMoCSISChBMaXN0Tm9kZXNSZXF1ZXN0Ij0KEUxpc3ROb2Rlc1Jlc3BvbnNlEigKBW5vZGVzGAEgAygLMhkuZGFzc2llLnVpLnYxLk5ldHdvcmtOb2RlIqwCCgtOZXR3b3JrUGVlchIMCgRub2RlGAEgASgJEg4KBnNjaGVtZRgCIAEoCRIPCgd2ZXJzaW9uGAMgASgNEhEKCWNyZWRpdF9pbhgEIAEoBBISCgpjcmVkaXRfb3V0GAUgASgEEhUKDXNpbmNlX3VuaXhfbXMYBiABKAMSGQoRbGFzdF9zZWVuX3VuaXhfbXMYByABKAMSDwoHaW5ib3VuZBgIIAEoCBINCgVzdGF0ZRgJIAEoCRIaChJ0ZXJtaW5hdGlvbl9yZWFzb24YCiABKAkSEgoKYWR2ZXJ0aXNlZBgLIAEoCBIMCgRvd2VkGAwgASgDEiQKBGNvc3QYDiABKAsyFi5kYXNzaWUudWkudjEuUGVlckNvc3RKBAgNEA5SC3JlZnVzZWRfMjRoInQKCFBlZXJDb3N0Eg4KBmxlZGdlchgBIAEoCRISCgphc3NldF9jb2RlGAIgASgJEhMKC2Fzc2V0X3NjYWxlGAMgASgNEg8KB3JlZnVzZWQYBCABKAQSDwoHb3ZlcmR1ZRgFIAEoBBINCgVncmFjZRgGIAEoBCISChBMaXN0UGVlcnNSZXF1ZXN0Ij0KEUxpc3RQZWVyc1Jlc3BvbnNlEigKBXBlZXJzGAEgAygLMhkuZGFzc2llLnVpLnYxLk5ldHdvcmtQZWVyIlIKDE5ldHdvcmtSb3V0ZRIMCgRub2RlGAEgASgJEg4KBnByZWZpeBgCIAEoCRISCgpmaXJzdF9ob3BzGAMgAygJEhAKCGRpc3RhbmNlGAQgASgNIj4KCkxvY2FsUm91dGUSDgoGcHJlZml4GAEgASgJEhAKCGVuZHBvaW50GAIgASgJEg4KBmxlZGdlchgDIAEoCSITChFMaXN0Um91dGVzUmVxdWVzdCJwChJMaXN0Um91dGVzUmVzcG9uc2USKgoGcm91dGVzGAEgAygLMhouZGFzc2llLnVpLnYxLk5ldHdvcmtSb3V0ZRIuCgxsb2NhbF9yb3V0ZXMYAiADKAsyGC5kYXNzaWUudWkudjEuTG9jYWxSb3V0ZSIYChZTdWJzY3JpYmVSb3V0ZXNSZXF1ZXN0ImwKD0Jvb3RzdHJhcFN0YXR1cxIMCgRub2RlGAEgASgJEg4KBmxpc3RlZBgCIAEoCBIdChVyZWdpc3RlcmVkX2F0X3VuaXhfbXMYAyABKAMSHAoUbGlzdF9mZXRjaGVkX3VuaXhfbXMYBCABKAMiHgocR2V0UmVnaXN0cmF0aW9uU3RhdHVzUmVxdWVzdCJvCh1HZXRSZWdpc3RyYXRpb25TdGF0dXNSZXNwb25zZRIMCgRub2RlGAEgASgJEjAKCWJvb3RzdHJhcBgCIAMoCzIdLmRhc3NpZS51aS52MS5Cb290c3RyYXBTdGF0dXMSDgoGbWVtYmVyGAMgASgIIh4KHFN1YnNjcmliZVJlZ2lzdHJhdGlvblJlcXVlc3QiLAocUmVnaXN0ZXJXaXRoQm9vdHN0cmFwUmVxdWVzdBIMCgRub2RlGAEgASgJIh8KHVJlZ2lzdGVyV2l0aEJvb3RzdHJhcFJlc3BvbnNlIicKF1Rlcm1pbmF0ZVBlZXJpbmdSZXF1ZXN0EgwKBG5vZGUYASABKAkiGgoYVGVybWluYXRlUGVlcmluZ1Jlc3BvbnNlIh4KDkJhbk5vZGVSZXF1ZXN0EgwKBG5vZGUYASABKAkiEQoPQmFuTm9kZVJlc3BvbnNlIiAKEFVuYmFuTm9kZVJlcXVlc3QSDAoEbm9kZRgBIAEoCSITChFVbmJhbk5vZGVSZXNwb25zZSIRCg9MaXN0QmFuc1JlcXVlc3QiQgoQTGlzdEJhbnNSZXNwb25zZRINCgVub2RlcxgBIAMoCRIfCgRiYW5zGAIgAygLMhEuZGFzc2llLnVpLnYxLkJhbiJkCgNCYW4SDAoEbm9kZRgBIAEoCRIOCgZyZWFzb24YAiABKAkSGQoRYmFubmVkX2F0X3VuaXhfbXMYAyABKAMSJAoEY29zdBgEIAEoCzIWLmRhc3NpZS51aS52MS5QZWVyQ29zdCInCgxQZWVyU2V0dGluZ3MSFwoPZ3JhY2Vfc2hhcmVfcHBtGAEgASgNIhgKFkdldFBlZXJTZXR0aW5nc1JlcXVlc3QiRwoXR2V0UGVlclNldHRpbmdzUmVzcG9uc2USLAoIc2V0dGluZ3MYASABKAsyGi5kYXNzaWUudWkudjEuUGVlclNldHRpbmdzIkYKFlNldFBlZXJTZXR0aW5nc1JlcXVlc3QSLAoIc2V0dGluZ3MYASABKAsyGi5kYXNzaWUudWkudjEuUGVlclNldHRpbmdzIkcKF1NldFBlZXJTZXR0aW5nc1Jlc3BvbnNlEiwKCHNldHRpbmdzGAEgASgLMhouZGFzc2llLnVpLnYxLlBlZXJTZXR0aW5ncyKNAQoRU2V0dGxlbWVudENoYW5uZWwSDAoEbm9kZRgBIAEoCRISCgpzZXR0bGVkX2luGAIgASgEEhMKC3NldHRsZWRfb3V0GAMgASgEEg8KB3NlbmRpbmcYBCABKAgSFgoOc2VuZGluZ19hbW91bnQYBSABKAQSGAoQc2VuZGluZ19hdHRlbXB0cxgGIAEoDSIfCh1MaXN0U2V0dGxlbWVudENoYW5uZWxzUmVxdWVzdCJTCh5MaXN0U2V0dGxlbWVudENoYW5uZWxzUmVzcG9uc2USMQoIY2hhbm5lbHMYASADKAsyHy5kYXNzaWUudWkudjEuU2V0dGxlbWVudENoYW5uZWwqigEKCVBlZXJTdGF0ZRIaChZQRUVSX1NUQVRFX1VOU1BFQ0lGSUVEEAASEwoPUEVFUl9TVEFURV9OT05FEAESGQoVUEVFUl9TVEFURV9SRVFVRVNUSU5HEAISFQoRUEVFUl9TVEFURV9QRUVSRUQQAxIaChZQRUVSX1NUQVRFX1RFUk1JTkFUSU5HEARiBnByb3RvMw");
 
 /**
  * A node in the node table (spec 3 §9): what its link state says, and why
@@ -127,6 +127,13 @@ export type NetworkNode = Message<"dassie.ui.v1.NetworkNode"> & {
    * @generated from field: dassie.ui.v1.NetworkPeer peering = 17;
    */
   peering?: NetworkPeer | undefined;
+
+  /**
+   * Why it is banned, while it is.
+   *
+   * @generated from field: dassie.ui.v1.Ban ban = 18;
+   */
+  ban?: Ban | undefined;
 };
 
 /**
@@ -307,14 +314,12 @@ export type NetworkPeer = Message<"dassie.ui.v1.NetworkPeer"> & {
   owed: bigint;
 
   /**
-   * What the peer refused of this node's Fulfills in the last 24 hours, in
-   * the scheme ledger's units (D17): money this node paid on, or its
-   * receiver took, that the peer did not count. Honest peers refuse only
-   * after crashes or late Fulfills.
+   * What the peer cost this node, against its grace limit (D18), as of the
+   * last check; unset before the first.
    *
-   * @generated from field: uint64 refused_24h = 13;
+   * @generated from field: dassie.ui.v1.PeerCost cost = 14;
    */
-  refused24h: bigint;
+  cost?: PeerCost | undefined;
 };
 
 /**
@@ -323,6 +328,61 @@ export type NetworkPeer = Message<"dassie.ui.v1.NetworkPeer"> & {
  */
 export const NetworkPeerSchema: GenMessage<NetworkPeer> = /*@__PURE__*/
   messageDesc(file_dassie_ui_v1_network, 5);
+
+/**
+ * What a peer cost this node, in a ledger's units (D18). Past its grace
+ * limit, it is banned.
+ *
+ * @generated from message dassie.ui.v1.PeerCost
+ */
+export type PeerCost = Message<"dassie.ui.v1.PeerCost"> & {
+  /**
+   * @generated from field: string ledger = 1;
+   */
+  ledger: string;
+
+  /**
+   * @generated from field: string asset_code = 2;
+   */
+  assetCode: string;
+
+  /**
+   * @generated from field: uint32 asset_scale = 3;
+   */
+  assetScale: number;
+
+  /**
+   * The losses its refused Fulfills booked in the last 30 days, or since a
+   * ban on it was lifted (D17): money this node paid on that the peer did
+   * not count. Honest peers refuse only after crashes or late Fulfills.
+   *
+   * @generated from field: uint64 refused = 4;
+   */
+  refused: bigint;
+
+  /**
+   * What it owes this node and has not settled, once it has owed past the
+   * point where it should have settled for longer than the grace for
+   * settling.
+   *
+   * @generated from field: uint64 overdue = 5;
+   */
+  overdue: bigint;
+
+  /**
+   * Its grace limit: a share of the credit this node extends to it.
+   *
+   * @generated from field: uint64 grace = 6;
+   */
+  grace: bigint;
+};
+
+/**
+ * Describes the message dassie.ui.v1.PeerCost.
+ * Use `create(PeerCostSchema)` to create a new message.
+ */
+export const PeerCostSchema: GenMessage<PeerCost> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_network, 6);
 
 /**
  * @generated from message dassie.ui.v1.ListPeersRequest
@@ -335,7 +395,7 @@ export type ListPeersRequest = Message<"dassie.ui.v1.ListPeersRequest"> & {
  * Use `create(ListPeersRequestSchema)` to create a new message.
  */
 export const ListPeersRequestSchema: GenMessage<ListPeersRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_network, 6);
+  messageDesc(file_dassie_ui_v1_network, 7);
 
 /**
  * @generated from message dassie.ui.v1.ListPeersResponse
@@ -354,7 +414,7 @@ export type ListPeersResponse = Message<"dassie.ui.v1.ListPeersResponse"> & {
  * Use `create(ListPeersResponseSchema)` to create a new message.
  */
 export const ListPeersResponseSchema: GenMessage<ListPeersResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_network, 7);
+  messageDesc(file_dassie_ui_v1_network, 8);
 
 /**
  * A route: the ILP address prefix of a node, and the peers that lead to it
@@ -393,7 +453,7 @@ export type NetworkRoute = Message<"dassie.ui.v1.NetworkRoute"> & {
  * Use `create(NetworkRouteSchema)` to create a new message.
  */
 export const NetworkRouteSchema: GenMessage<NetworkRoute> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_network, 8);
+  messageDesc(file_dassie_ui_v1_network, 9);
 
 /**
  * A route to one of this node's own endpoints.
@@ -428,7 +488,7 @@ export type LocalRoute = Message<"dassie.ui.v1.LocalRoute"> & {
  * Use `create(LocalRouteSchema)` to create a new message.
  */
 export const LocalRouteSchema: GenMessage<LocalRoute> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_network, 9);
+  messageDesc(file_dassie_ui_v1_network, 10);
 
 /**
  * @generated from message dassie.ui.v1.ListRoutesRequest
@@ -441,7 +501,7 @@ export type ListRoutesRequest = Message<"dassie.ui.v1.ListRoutesRequest"> & {
  * Use `create(ListRoutesRequestSchema)` to create a new message.
  */
 export const ListRoutesRequestSchema: GenMessage<ListRoutesRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_network, 10);
+  messageDesc(file_dassie_ui_v1_network, 11);
 
 /**
  * @generated from message dassie.ui.v1.ListRoutesResponse
@@ -467,7 +527,7 @@ export type ListRoutesResponse = Message<"dassie.ui.v1.ListRoutesResponse"> & {
  * Use `create(ListRoutesResponseSchema)` to create a new message.
  */
 export const ListRoutesResponseSchema: GenMessage<ListRoutesResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_network, 11);
+  messageDesc(file_dassie_ui_v1_network, 12);
 
 /**
  * Streams the routes, whole, each time they change.
@@ -482,7 +542,7 @@ export type SubscribeRoutesRequest = Message<"dassie.ui.v1.SubscribeRoutesReques
  * Use `create(SubscribeRoutesRequestSchema)` to create a new message.
  */
 export const SubscribeRoutesRequestSchema: GenMessage<SubscribeRoutesRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_network, 12);
+  messageDesc(file_dassie_ui_v1_network, 13);
 
 /**
  * This node's standing with one bootstrap node (D4).
@@ -522,7 +582,7 @@ export type BootstrapStatus = Message<"dassie.ui.v1.BootstrapStatus"> & {
  * Use `create(BootstrapStatusSchema)` to create a new message.
  */
 export const BootstrapStatusSchema: GenMessage<BootstrapStatus> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_network, 13);
+  messageDesc(file_dassie_ui_v1_network, 14);
 
 /**
  * @generated from message dassie.ui.v1.GetRegistrationStatusRequest
@@ -535,7 +595,7 @@ export type GetRegistrationStatusRequest = Message<"dassie.ui.v1.GetRegistration
  * Use `create(GetRegistrationStatusRequestSchema)` to create a new message.
  */
 export const GetRegistrationStatusRequestSchema: GenMessage<GetRegistrationStatusRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_network, 14);
+  messageDesc(file_dassie_ui_v1_network, 15);
 
 /**
  * @generated from message dassie.ui.v1.GetRegistrationStatusResponse
@@ -569,7 +629,7 @@ export type GetRegistrationStatusResponse = Message<"dassie.ui.v1.GetRegistratio
  * Use `create(GetRegistrationStatusResponseSchema)` to create a new message.
  */
 export const GetRegistrationStatusResponseSchema: GenMessage<GetRegistrationStatusResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_network, 15);
+  messageDesc(file_dassie_ui_v1_network, 16);
 
 /**
  * Streams the registration status, whole, each time it changes.
@@ -584,7 +644,7 @@ export type SubscribeRegistrationRequest = Message<"dassie.ui.v1.SubscribeRegist
  * Use `create(SubscribeRegistrationRequestSchema)` to create a new message.
  */
 export const SubscribeRegistrationRequestSchema: GenMessage<SubscribeRegistrationRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_network, 16);
+  messageDesc(file_dassie_ui_v1_network, 17);
 
 /**
  * Registers with a bootstrap node now, rather than when the node next
@@ -606,7 +666,7 @@ export type RegisterWithBootstrapRequest = Message<"dassie.ui.v1.RegisterWithBoo
  * Use `create(RegisterWithBootstrapRequestSchema)` to create a new message.
  */
 export const RegisterWithBootstrapRequestSchema: GenMessage<RegisterWithBootstrapRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_network, 17);
+  messageDesc(file_dassie_ui_v1_network, 18);
 
 /**
  * @generated from message dassie.ui.v1.RegisterWithBootstrapResponse
@@ -619,7 +679,7 @@ export type RegisterWithBootstrapResponse = Message<"dassie.ui.v1.RegisterWithBo
  * Use `create(RegisterWithBootstrapResponseSchema)` to create a new message.
  */
 export const RegisterWithBootstrapResponseSchema: GenMessage<RegisterWithBootstrapResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_network, 18);
+  messageDesc(file_dassie_ui_v1_network, 19);
 
 /**
  * Ends a peering, as its owner (D12): no new packets, then once those in
@@ -640,7 +700,7 @@ export type TerminatePeeringRequest = Message<"dassie.ui.v1.TerminatePeeringRequ
  * Use `create(TerminatePeeringRequestSchema)` to create a new message.
  */
 export const TerminatePeeringRequestSchema: GenMessage<TerminatePeeringRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_network, 19);
+  messageDesc(file_dassie_ui_v1_network, 20);
 
 /**
  * @generated from message dassie.ui.v1.TerminatePeeringResponse
@@ -653,7 +713,7 @@ export type TerminatePeeringResponse = Message<"dassie.ui.v1.TerminatePeeringRes
  * Use `create(TerminatePeeringResponseSchema)` to create a new message.
  */
 export const TerminatePeeringResponseSchema: GenMessage<TerminatePeeringResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_network, 20);
+  messageDesc(file_dassie_ui_v1_network, 21);
 
 /**
  * Bans a node: it is never asked to peer, is refused when it asks, and a
@@ -673,7 +733,7 @@ export type BanNodeRequest = Message<"dassie.ui.v1.BanNodeRequest"> & {
  * Use `create(BanNodeRequestSchema)` to create a new message.
  */
 export const BanNodeRequestSchema: GenMessage<BanNodeRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_network, 21);
+  messageDesc(file_dassie_ui_v1_network, 22);
 
 /**
  * @generated from message dassie.ui.v1.BanNodeResponse
@@ -686,7 +746,7 @@ export type BanNodeResponse = Message<"dassie.ui.v1.BanNodeResponse"> & {
  * Use `create(BanNodeResponseSchema)` to create a new message.
  */
 export const BanNodeResponseSchema: GenMessage<BanNodeResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_network, 22);
+  messageDesc(file_dassie_ui_v1_network, 23);
 
 /**
  * @generated from message dassie.ui.v1.UnbanNodeRequest
@@ -703,7 +763,7 @@ export type UnbanNodeRequest = Message<"dassie.ui.v1.UnbanNodeRequest"> & {
  * Use `create(UnbanNodeRequestSchema)` to create a new message.
  */
 export const UnbanNodeRequestSchema: GenMessage<UnbanNodeRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_network, 23);
+  messageDesc(file_dassie_ui_v1_network, 24);
 
 /**
  * @generated from message dassie.ui.v1.UnbanNodeResponse
@@ -716,7 +776,7 @@ export type UnbanNodeResponse = Message<"dassie.ui.v1.UnbanNodeResponse"> & {
  * Use `create(UnbanNodeResponseSchema)` to create a new message.
  */
 export const UnbanNodeResponseSchema: GenMessage<UnbanNodeResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_network, 24);
+  messageDesc(file_dassie_ui_v1_network, 25);
 
 /**
  * @generated from message dassie.ui.v1.ListBansRequest
@@ -729,7 +789,7 @@ export type ListBansRequest = Message<"dassie.ui.v1.ListBansRequest"> & {
  * Use `create(ListBansRequestSchema)` to create a new message.
  */
 export const ListBansRequestSchema: GenMessage<ListBansRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_network, 25);
+  messageDesc(file_dassie_ui_v1_network, 26);
 
 /**
  * @generated from message dassie.ui.v1.ListBansResponse
@@ -741,6 +801,13 @@ export type ListBansResponse = Message<"dassie.ui.v1.ListBansResponse"> & {
    * @generated from field: repeated string nodes = 1;
    */
   nodes: string[];
+
+  /**
+   * The same, with why.
+   *
+   * @generated from field: repeated dassie.ui.v1.Ban bans = 2;
+   */
+  bans: Ban[];
 };
 
 /**
@@ -748,7 +815,135 @@ export type ListBansResponse = Message<"dassie.ui.v1.ListBansResponse"> & {
  * Use `create(ListBansResponseSchema)` to create a new message.
  */
 export const ListBansResponseSchema: GenMessage<ListBansResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_network, 26);
+  messageDesc(file_dassie_ui_v1_network, 27);
+
+/**
+ * A ban: by the owner, or by the node, when a peer cost it more than its
+ * grace limit (D18).
+ *
+ * @generated from message dassie.ui.v1.Ban
+ */
+export type Ban = Message<"dassie.ui.v1.Ban"> & {
+  /**
+   * @generated from field: string node = 1;
+   */
+  node: string;
+
+  /**
+   * "owner", "grace-limit", or empty when not known.
+   *
+   * @generated from field: string reason = 2;
+   */
+  reason: string;
+
+  /**
+   * @generated from field: int64 banned_at_unix_ms = 3;
+   */
+  bannedAtUnixMs: bigint;
+
+  /**
+   * What the peer cost, for a ban over its grace limit.
+   *
+   * @generated from field: dassie.ui.v1.PeerCost cost = 4;
+   */
+  cost?: PeerCost | undefined;
+};
+
+/**
+ * Describes the message dassie.ui.v1.Ban.
+ * Use `create(BanSchema)` to create a new message.
+ */
+export const BanSchema: GenMessage<Ban> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_network, 28);
+
+/**
+ * The owner's settings for peers (D18).
+ *
+ * @generated from message dassie.ui.v1.PeerSettings
+ */
+export type PeerSettings = Message<"dassie.ui.v1.PeerSettings"> & {
+  /**
+   * The share of the credit this node extends to a peer that the peer may
+   * cost it in 30 days before it is banned, in parts per million: 1 to
+   * 10 000 000 (ten times the credit).
+   *
+   * @generated from field: uint32 grace_share_ppm = 1;
+   */
+  graceSharePpm: number;
+};
+
+/**
+ * Describes the message dassie.ui.v1.PeerSettings.
+ * Use `create(PeerSettingsSchema)` to create a new message.
+ */
+export const PeerSettingsSchema: GenMessage<PeerSettings> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_network, 29);
+
+/**
+ * @generated from message dassie.ui.v1.GetPeerSettingsRequest
+ */
+export type GetPeerSettingsRequest = Message<"dassie.ui.v1.GetPeerSettingsRequest"> & {
+};
+
+/**
+ * Describes the message dassie.ui.v1.GetPeerSettingsRequest.
+ * Use `create(GetPeerSettingsRequestSchema)` to create a new message.
+ */
+export const GetPeerSettingsRequestSchema: GenMessage<GetPeerSettingsRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_network, 30);
+
+/**
+ * @generated from message dassie.ui.v1.GetPeerSettingsResponse
+ */
+export type GetPeerSettingsResponse = Message<"dassie.ui.v1.GetPeerSettingsResponse"> & {
+  /**
+   * @generated from field: dassie.ui.v1.PeerSettings settings = 1;
+   */
+  settings?: PeerSettings | undefined;
+};
+
+/**
+ * Describes the message dassie.ui.v1.GetPeerSettingsResponse.
+ * Use `create(GetPeerSettingsResponseSchema)` to create a new message.
+ */
+export const GetPeerSettingsResponseSchema: GenMessage<GetPeerSettingsResponse> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_network, 31);
+
+/**
+ * INVALID_ARGUMENT when out of range.
+ *
+ * @generated from message dassie.ui.v1.SetPeerSettingsRequest
+ */
+export type SetPeerSettingsRequest = Message<"dassie.ui.v1.SetPeerSettingsRequest"> & {
+  /**
+   * @generated from field: dassie.ui.v1.PeerSettings settings = 1;
+   */
+  settings?: PeerSettings | undefined;
+};
+
+/**
+ * Describes the message dassie.ui.v1.SetPeerSettingsRequest.
+ * Use `create(SetPeerSettingsRequestSchema)` to create a new message.
+ */
+export const SetPeerSettingsRequestSchema: GenMessage<SetPeerSettingsRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_network, 32);
+
+/**
+ * @generated from message dassie.ui.v1.SetPeerSettingsResponse
+ */
+export type SetPeerSettingsResponse = Message<"dassie.ui.v1.SetPeerSettingsResponse"> & {
+  /**
+   * @generated from field: dassie.ui.v1.PeerSettings settings = 1;
+   */
+  settings?: PeerSettings | undefined;
+};
+
+/**
+ * Describes the message dassie.ui.v1.SetPeerSettingsResponse.
+ * Use `create(SetPeerSettingsResponseSchema)` to create a new message.
+ */
+export const SetPeerSettingsResponseSchema: GenMessage<SetPeerSettingsResponse> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_network, 33);
 
 /**
  * Settlement with one node, both ways (spec 7 §4.7): kept from the first
@@ -804,7 +999,7 @@ export type SettlementChannel = Message<"dassie.ui.v1.SettlementChannel"> & {
  * Use `create(SettlementChannelSchema)` to create a new message.
  */
 export const SettlementChannelSchema: GenMessage<SettlementChannel> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_network, 27);
+  messageDesc(file_dassie_ui_v1_network, 34);
 
 /**
  * @generated from message dassie.ui.v1.ListSettlementChannelsRequest
@@ -817,7 +1012,7 @@ export type ListSettlementChannelsRequest = Message<"dassie.ui.v1.ListSettlement
  * Use `create(ListSettlementChannelsRequestSchema)` to create a new message.
  */
 export const ListSettlementChannelsRequestSchema: GenMessage<ListSettlementChannelsRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_network, 28);
+  messageDesc(file_dassie_ui_v1_network, 35);
 
 /**
  * @generated from message dassie.ui.v1.ListSettlementChannelsResponse
@@ -836,7 +1031,7 @@ export type ListSettlementChannelsResponse = Message<"dassie.ui.v1.ListSettlemen
  * Use `create(ListSettlementChannelsResponseSchema)` to create a new message.
  */
 export const ListSettlementChannelsResponseSchema: GenMessage<ListSettlementChannelsResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_network, 29);
+  messageDesc(file_dassie_ui_v1_network, 36);
 
 /**
  * @generated from enum dassie.ui.v1.PeerState
