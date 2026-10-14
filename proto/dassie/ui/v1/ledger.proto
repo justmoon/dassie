@@ -39,6 +39,8 @@ message LedgerRemovalBlocker {
     KIND_BTP_TOKENS = 2;
     // Peerings that ended still have to be settled with it.
     KIND_FINAL_SETTLEMENTS = 3;
+    // Outgoing payments from its ledger have not finished.
+    KIND_OUTGOING_PAYMENTS = 4;
   }
 }
 

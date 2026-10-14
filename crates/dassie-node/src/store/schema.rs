@@ -28,6 +28,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_5,
     MIGRATION_6,
     MIGRATION_7,
+    MIGRATION_8,
 ];
 
 const MIGRATION_1: &str = "
@@ -418,6 +419,81 @@ ALTER TABLE incoming_payments ADD COLUMN released_amount INTEGER NOT NULL DEFAUL
   CHECK (released_amount >= 0);
 ";
 
+/// Spending through Open Payments (D9, spec 7 §4.4): quotes, which the
+/// resource server writes as it makes them; outgoing payments, written by
+/// the engine with the journal rows that move their money; and what each
+/// grant spent per window of its interval, written with the payments that
+/// spend it.
+const MIGRATION_8: &str = "
+CREATE TABLE quotes (
+  id BLOB PRIMARY KEY CHECK (length(id) = 16),
+  ledger TEXT NOT NULL,
+  wallet_address TEXT NOT NULL CHECK (length(wallet_address) BETWEEN 1 AND 2048),
+  -- The client that made it, as grants name clients; NULL for the owner.
+  client TEXT CHECK (client IS NULL OR length(client) BETWEEN 1 AND 2048),
+  -- The incoming payment it pays, and how to reach it.
+  receiver TEXT NOT NULL CHECK (length(receiver) BETWEEN 1 AND 2048),
+  destination TEXT NOT NULL CHECK (length(destination) BETWEEN 1 AND 1023),
+  shared_secret BLOB NOT NULL CHECK (length(shared_secret) = 32),
+  debit_amount INTEGER NOT NULL CHECK (debit_amount > 0),
+  receive_amount INTEGER NOT NULL CHECK (receive_amount > 0),
+  receive_asset_code TEXT NOT NULL CHECK (length(receive_asset_code) BETWEEN 1 AND 32),
+  receive_asset_scale INTEGER NOT NULL CHECK (receive_asset_scale BETWEEN 0 AND 255),
+  created_at_ms INTEGER NOT NULL,
+  expires_at_ms INTEGER NOT NULL CHECK (expires_at_ms > created_at_ms)
+) STRICT, WITHOUT ROWID;
+
+CREATE INDEX quotes_by_expiry ON quotes (expires_at_ms);
+
+CREATE TABLE outgoing_payments (
+  id BLOB PRIMARY KEY CHECK (length(id) = 16),
+  ledger TEXT NOT NULL,
+  wallet_address TEXT NOT NULL CHECK (length(wallet_address) BETWEEN 1 AND 2048),
+  client TEXT CHECK (client IS NULL OR length(client) BETWEEN 1 AND 2048),
+  -- The grant it spends, and the window of the grant's interval it was
+  -- reserved in.
+  grant_id BLOB CHECK (grant_id IS NULL OR length(grant_id) = 16),
+  grant_window_ms INTEGER CHECK ((grant_id IS NULL) = (grant_window_ms IS NULL)),
+  -- A quote pays one payment only.
+  quote_id BLOB UNIQUE CHECK (quote_id IS NULL OR length(quote_id) = 16),
+  receiver TEXT NOT NULL CHECK (length(receiver) BETWEEN 1 AND 2048),
+  destination TEXT NOT NULL CHECK (length(destination) BETWEEN 1 AND 1023),
+  shared_secret BLOB NOT NULL CHECK (length(shared_secret) = 32),
+  debit_amount INTEGER NOT NULL CHECK (debit_amount > 0),
+  receive_amount INTEGER NOT NULL CHECK (receive_amount > 0),
+  receive_asset_code TEXT NOT NULL CHECK (length(receive_asset_code) BETWEEN 1 AND 32),
+  receive_asset_scale INTEGER NOT NULL CHECK (receive_asset_scale BETWEEN 0 AND 255),
+  -- What was posted: never more than the debit amount.
+  sent_amount INTEGER NOT NULL CHECK (sent_amount >= 0 AND sent_amount <= debit_amount),
+  state TEXT NOT NULL CHECK (state IN ('sending', 'completed', 'failed')),
+  failure TEXT CHECK ((state = 'failed') = (failure IS NOT NULL) AND length(failure) <= 256),
+  metadata TEXT CHECK (metadata IS NULL OR length(CAST(metadata AS BLOB)) <= 4096),
+  created_at_ms INTEGER NOT NULL,
+  -- When it fails if it has not sent all by then.
+  deadline_ms INTEGER NOT NULL CHECK (deadline_ms > created_at_ms),
+  finished_at_ms INTEGER CHECK ((state = 'sending') = (finished_at_ms IS NULL)),
+  revision INTEGER NOT NULL UNIQUE CHECK (revision > 0)
+) STRICT, WITHOUT ROWID;
+
+CREATE INDEX outgoing_payments_by_ledger ON outgoing_payments (ledger, created_at_ms, id);
+CREATE INDEX outgoing_payments_by_client ON outgoing_payments (ledger, client, created_at_ms, id);
+CREATE INDEX outgoing_payments_by_time ON outgoing_payments (created_at_ms, id);
+CREATE INDEX outgoing_payments_sending ON outgoing_payments (created_at_ms) WHERE state = 'sending';
+
+-- What a refusal took back is no longer counted: the payment's STREAM
+-- connections are closed instead, so senders start anew (D17).
+ALTER TABLE incoming_payments DROP COLUMN released_amount;
+
+CREATE TABLE grant_spend (
+  grant_id BLOB NOT NULL CHECK (length(grant_id) = 16),
+  -- The start of the window of the grant's interval; 0 without one.
+  window_start_ms INTEGER NOT NULL CHECK (window_start_ms >= 0),
+  debit_amount INTEGER NOT NULL CHECK (debit_amount >= 0),
+  receive_amount INTEGER NOT NULL CHECK (receive_amount >= 0),
+  PRIMARY KEY (grant_id, window_start_ms)
+) STRICT, WITHOUT ROWID;
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -429,6 +505,8 @@ pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("gnap_grants", "continue_token_hash"),
     ("gnap_grants", "interaction"),
     ("gnap_tokens", "token_hash"),
+    ("quotes", "shared_secret"),
+    ("outgoing_payments", "shared_secret"),
 ];
 
 /// A column as the code expects it: name, type, NOT NULL, part of the
@@ -662,7 +740,6 @@ pub const TABLES: &[Table] = &[
             ("expires_at_ms", "INTEGER", true, false),
             ("completed_at_ms", "INTEGER", false, false),
             ("revision", "INTEGER", true, false),
-            ("released_amount", "INTEGER", true, false),
         ],
     },
     Table {
@@ -724,6 +801,63 @@ pub const TABLES: &[Table] = &[
             ("request_id", "INTEGER", true, true),
             ("condition", "BLOB", true, true),
             ("taken_at_ms", "INTEGER", true, false),
+        ],
+    },
+    Table {
+        name: "quotes",
+        without_rowid: true,
+        columns: &[
+            ("id", "BLOB", true, true),
+            ("ledger", "TEXT", true, false),
+            ("wallet_address", "TEXT", true, false),
+            ("client", "TEXT", false, false),
+            ("receiver", "TEXT", true, false),
+            ("destination", "TEXT", true, false),
+            ("shared_secret", "BLOB", true, false),
+            ("debit_amount", "INTEGER", true, false),
+            ("receive_amount", "INTEGER", true, false),
+            ("receive_asset_code", "TEXT", true, false),
+            ("receive_asset_scale", "INTEGER", true, false),
+            ("created_at_ms", "INTEGER", true, false),
+            ("expires_at_ms", "INTEGER", true, false),
+        ],
+    },
+    Table {
+        name: "outgoing_payments",
+        without_rowid: true,
+        columns: &[
+            ("id", "BLOB", true, true),
+            ("ledger", "TEXT", true, false),
+            ("wallet_address", "TEXT", true, false),
+            ("client", "TEXT", false, false),
+            ("grant_id", "BLOB", false, false),
+            ("grant_window_ms", "INTEGER", false, false),
+            ("quote_id", "BLOB", false, false),
+            ("receiver", "TEXT", true, false),
+            ("destination", "TEXT", true, false),
+            ("shared_secret", "BLOB", true, false),
+            ("debit_amount", "INTEGER", true, false),
+            ("receive_amount", "INTEGER", true, false),
+            ("receive_asset_code", "TEXT", true, false),
+            ("receive_asset_scale", "INTEGER", true, false),
+            ("sent_amount", "INTEGER", true, false),
+            ("state", "TEXT", true, false),
+            ("failure", "TEXT", false, false),
+            ("metadata", "TEXT", false, false),
+            ("created_at_ms", "INTEGER", true, false),
+            ("deadline_ms", "INTEGER", true, false),
+            ("finished_at_ms", "INTEGER", false, false),
+            ("revision", "INTEGER", true, false),
+        ],
+    },
+    Table {
+        name: "grant_spend",
+        without_rowid: true,
+        columns: &[
+            ("grant_id", "BLOB", true, true),
+            ("window_start_ms", "INTEGER", true, true),
+            ("debit_amount", "INTEGER", true, false),
+            ("receive_amount", "INTEGER", true, false),
         ],
     },
     Table {

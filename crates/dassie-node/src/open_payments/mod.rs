@@ -8,6 +8,8 @@
 //! Payments only once it has one.
 
 pub mod auth;
+pub mod client;
+pub mod consent;
 pub mod keys;
 
 use std::net::IpAddr;
@@ -47,10 +49,12 @@ const CREATIONS: RateLimitPolicy = RateLimitPolicy {
 };
 
 /// What Open Payments keeps beside the database: clients' key sets, the
-/// node's own key, and the rate limits.
+/// node's own key, its tokens at other wallets, and the rate limits.
 pub struct State {
     /// Clients' key sets.
     pub keys: Mutex<keys::KeyCache>,
+    /// The node's own tokens at other wallets' authorization servers.
+    pub tokens: client::Tokens,
     client_key: OnceLock<Result<keys::ClientKey, String>>,
     requests: Mutex<RateLimiter>,
     creations: Mutex<RateLimiter>,
@@ -60,6 +64,7 @@ impl Default for State {
     fn default() -> Self {
         Self {
             keys: Mutex::new(keys::KeyCache::default()),
+            tokens: Mutex::new(client::TokenCache::default()),
             client_key: OnceLock::new(),
             requests: Mutex::new(RateLimiter::new(REQUESTS)),
             creations: Mutex::new(RateLimiter::new(CREATIONS)),

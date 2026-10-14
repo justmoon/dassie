@@ -3,8 +3,8 @@ syntax = "proto3";
 package dassie.ui.v1;
 
 // Open Payments (D9): the node's wallet addresses, one per active ledger,
-// and their incoming payments. FAILED_PRECONDITION until the node has a
-// hostname, which every URL names.
+// their incoming and outgoing payments, and the grants the owner decides.
+// FAILED_PRECONDITION until the node has a hostname, which every URL names.
 
 // A wallet address.
 message WalletAddress {
@@ -120,3 +120,166 @@ message IncomingPaymentEvent {
   // IDs of payments no longer among the newest.
   repeated string removed = 3;
 }
+
+// An amount in an asset: what a limit or a payment names. Its asset may
+// differ from the ledger's for what a receiver gets.
+message OpenPaymentsAmount {
+  uint64 value = 1;
+  string asset_code = 2;
+  uint32 asset_scale = 3;
+}
+
+// An outgoing payment: a client's, with the owner's consent (M6b), or the
+// owner's own (M6c).
+message OutgoingPayment {
+  // A UUID.
+  string id = 1;
+  // Its URL.
+  string url = 2;
+  // The wallet address that pays.
+  string wallet_address = 3;
+  string ledger = 4;
+  string asset_code = 5;
+  uint32 asset_scale = 6;
+  // The incoming payment it pays.
+  string receiver = 7;
+  // What it debits at most, in the ledger's units.
+  uint64 debit_amount = 8;
+  // What the receiver is to get, in its asset.
+  OpenPaymentsAmount receive_amount = 9;
+  // What it debited so far.
+  uint64 sent_amount = 10;
+  // "sending", "completed" or "failed".
+  string state = 11;
+  // Why it failed, for people.
+  string failure = 12;
+  // The wallet address of the client that created it; empty for the
+  // owner.
+  string client = 13;
+  // The quote it pays; empty if made without one.
+  string quote_url = 14;
+  // Its metadata, as JSON; empty for none.
+  string metadata_json = 15;
+  uint64 created_at_ms = 16;
+  // When it completed or failed.
+  optional uint64 finished_at_ms = 17;
+}
+
+message ListOutgoingPaymentsRequest {
+  // How many, newest first, up to 1000; 0 means 100.
+  uint32 limit = 1;
+}
+
+message ListOutgoingPaymentsResponse {
+  // Newest first.
+  repeated OutgoingPayment payments = 1;
+}
+
+// Streaming: the newest outgoing payments, then each change.
+message SubscribeOutgoingPaymentsRequest {
+  // How many it follows, newest first, up to 1000; 0 means 100.
+  uint32 limit = 1;
+}
+
+message OutgoingPaymentEvent {
+  // Set on the first item.
+  bool reset = 1;
+  // Payments added or changed, whole.
+  repeated OutgoingPayment upserted = 2;
+  // IDs of payments no longer among the newest.
+  repeated string removed = 3;
+}
+
+// What a grant's access item allows, as the owner reads it.
+message GrantAccess {
+  // "incoming-payment", "outgoing-payment" or "quote".
+  string type = 1;
+  // "create", "read", "read-all", "list", "list-all", "complete".
+  repeated string actions = 2;
+  // The wallet address it reaches, and its ledger; empty for any of the
+  // node's.
+  string wallet_address = 3;
+  string ledger = 4;
+  // Its limits, for outgoing payments.
+  optional GrantLimits limits = 5;
+}
+
+// The limits of an outgoing-payment grant, and what it spent.
+message GrantLimits {
+  // The only incoming payment it may pay; empty for any.
+  string receiver = 1;
+  // The ISO 8601 repeating interval the amounts apply to; empty for all
+  // time.
+  string interval = 2;
+  // The most it may debit, and deliver, per interval.
+  optional OpenPaymentsAmount debit_amount = 3;
+  optional OpenPaymentsAmount receive_amount = 4;
+  // The interval's window now, if now is in one.
+  optional uint64 window_start_ms = 5;
+  optional uint64 window_end_ms = 6;
+  // What it spent in that window: debited, and delivered.
+  uint64 spent_debit = 7;
+  uint64 spent_receive = 8;
+}
+
+// A grant the owner decides, or decided.
+message Grant {
+  // A UUID.
+  string id = 1;
+  // The client's wallet address.
+  string client = 2;
+  // Its public name, if its wallet address has one; else empty.
+  string client_name = 3;
+  repeated GrantAccess access = 4;
+  // The wallet address the client asks the owner to prove, if any.
+  string subject = 5;
+  // "pending" or "approved".
+  string state = 6;
+  uint64 created_at_ms = 7;
+  optional uint64 decided_at_ms = 8;
+  // When a pending one lapses.
+  uint64 expires_at_ms = 9;
+}
+
+// The grant waiting for the owner at the consent page: its ID and key come
+// from the URL the client sent the owner to. NOT_FOUND once decided,
+// lapsed or with a wrong key.
+message GetGrantRequestRequest {
+  string id = 1;
+  string key = 2;
+}
+
+message GetGrantRequestResponse {
+  Grant grant = 1;
+}
+
+// The owner approves or denies a waiting grant. NOT_FOUND as for
+// GetGrantRequest.
+message DecideGrantRequest {
+  string id = 1;
+  string key = 2;
+  bool approve = 3;
+}
+
+message DecideGrantResponse {
+  // Where to send the owner back to the client; empty if it named nowhere.
+  string finish_url = 1;
+}
+
+// The grants the owner approved and has not revoked.
+message ListGrantsRequest {}
+
+message ListGrantsResponse {
+  // Newest first.
+  repeated Grant grants = 1;
+}
+
+// Streaming: the approved grants, whole, each time they change.
+message SubscribeGrantsRequest {}
+
+// Revokes a grant and its tokens. NOT_FOUND for an unknown one.
+message RevokeGrantRequest {
+  string id = 1;
+}
+
+message RevokeGrantResponse {}

@@ -116,6 +116,9 @@ message Request {
     ListIncomingPaymentsRequest list_incoming_payments = 75;
     // Streaming.
     SubscribeIncomingPaymentsRequest subscribe_incoming_payments = 76;
+    ListOutgoingPaymentsRequest list_outgoing_payments = 77;
+    // Streaming.
+    SubscribeOutgoingPaymentsRequest subscribe_outgoing_payments = 78;
 
     ListAccountsRequest list_accounts = 80;
     ListTransfersRequest list_transfers = 81;
@@ -147,6 +150,13 @@ message Request {
     ListDatabaseTablesRequest list_database_tables = 111;
     ListDatabaseRowsRequest list_database_rows = 112;
     ListServicesRequest list_services = 113;
+
+    GetGrantRequestRequest get_grant_request = 114;
+    DecideGrantRequest decide_grant = 115;
+    ListGrantsRequest list_grants = 116;
+    // Streaming.
+    SubscribeGrantsRequest subscribe_grants = 117;
+    RevokeGrantRequest revoke_grant = 118;
   }
 }
 
@@ -200,6 +210,7 @@ message Response {
     CreateIncomingPaymentResponse create_incoming_payment = 73;
     CompleteIncomingPaymentResponse complete_incoming_payment = 74;
     ListIncomingPaymentsResponse list_incoming_payments = 75;
+    ListOutgoingPaymentsResponse list_outgoing_payments = 77;
 
     ListAccountsResponse list_accounts = 80;
     ListTransfersResponse list_transfers = 81;
@@ -219,6 +230,11 @@ message Response {
     ListDatabaseTablesResponse list_database_tables = 111;
     ListDatabaseRowsResponse list_database_rows = 112;
     ListServicesResponse list_services = 113;
+
+    GetGrantRequestResponse get_grant_request = 114;
+    DecideGrantResponse decide_grant = 115;
+    ListGrantsResponse list_grants = 116;
+    RevokeGrantResponse revoke_grant = 118;
   }
 }
 
@@ -228,6 +244,7 @@ message StreamItem {
     // The ledgers, whole, each time they change.
     ListLedgersResponse subscribe_ledgers = 55;
     IncomingPaymentEvent subscribe_incoming_payments = 76;
+    OutgoingPaymentEvent subscribe_outgoing_payments = 78;
     PacketEvent subscribe_packets = 83;
     TransferEvent subscribe_transfers = 84;
     NodeTableEvent subscribe_nodes = 100;
@@ -236,6 +253,8 @@ message StreamItem {
     // The registration status, whole, each time it changes.
     GetRegistrationStatusResponse subscribe_registration = 102;
     LogEvent subscribe_logs = 110;
+    // The approved grants, whole, each time they change.
+    ListGrantsResponse subscribe_grants = 117;
   }
 }
 

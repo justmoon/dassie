@@ -29,8 +29,9 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
 pub use self::core::{
-    BtpSession, Changes, Core, CoreParts, EngineError, IncomingPolicy, LedgerView, NetworkView,
-    NewIncoming, NewToken, Outbound, Output, PeerView, RemovalBlocker, TokenView, ledger_slug,
+    BtpSession, Changes, Core, CoreParts, CreatedOutgoing, EngineError, IncomingPolicy, LedgerView,
+    NetworkView, NewIncoming, NewOutgoing, NewToken, Outbound, Output, PeerView, RemovalBlocker,
+    TokenView, ledger_slug,
 };
 
 use crate::log::target;
@@ -217,6 +218,15 @@ impl Engine {
             .await
     }
 
+    /// Makes an outgoing payment, which starts sending at once.
+    pub async fn create_outgoing_payment(
+        &self,
+        new: NewOutgoing,
+    ) -> Result<CreatedOutgoing, EngineError> {
+        self.call(move |core| core.create_outgoing_payment(new))
+            .await
+    }
+
     /// Completes an incoming payment.
     pub async fn complete_incoming_payment(
         &self,
@@ -224,6 +234,17 @@ impl Engine {
     ) -> Result<crate::store::IncomingRow, EngineError> {
         self.call(move |core| core.complete_incoming_payment(id))
             .await
+    }
+
+    /// Tells live views of payments that something they show changed
+    /// outside the engine: grants, which the authorization server writes.
+    pub async fn payments_changed(&self) {
+        let _ = self
+            .call(|core| {
+                core.payments_changed();
+                Ok(())
+            })
+            .await;
     }
 
     /// The network: the node table, peers and registrations.

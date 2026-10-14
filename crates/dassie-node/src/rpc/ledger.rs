@@ -366,7 +366,9 @@ impl From<EngineError> for RpcError {
         match error {
             EngineError::Unavailable => Self::unavailable(error),
             EngineError::Invalid(message) => Self::invalid(message),
-            EngineError::Precondition(message) => Self::precondition(message),
+            EngineError::Precondition(message) | EngineError::Refused(message) => {
+                Self::precondition(message)
+            }
             EngineError::NotFound(message) => Self::not_found(message),
             EngineError::Exhausted(message) => Self::exhausted(message),
             EngineError::Internal(message) => Self::internal(message),
@@ -398,6 +400,7 @@ fn blocker(blocker: &RemovalBlocker) -> proto::LedgerRemovalBlocker {
         RemovalBlocker::Peers(count) => (Kind::Peers, count),
         RemovalBlocker::BtpTokens(count) => (Kind::BtpTokens, count),
         RemovalBlocker::FinalSettlements(count) => (Kind::FinalSettlements, count),
+        RemovalBlocker::OutgoingPayments(count) => (Kind::OutgoingPayments, count),
     };
     proto::LedgerRemovalBlocker {
         kind: kind.into(),

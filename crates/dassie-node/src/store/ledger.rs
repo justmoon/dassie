@@ -42,10 +42,10 @@ pub struct LedgerBatch {
     pub incoming_created: Vec<super::IncomingRow>,
     /// What packets paid into incoming payments, and completions.
     pub incoming_progress: std::collections::BTreeMap<super::PaymentId, super::IncomingProgress>,
-    /// What was taken back from incoming payments, to add (D17).
-    pub incoming_released: std::collections::BTreeMap<super::PaymentId, u64>,
     /// Fulfills owed a verdict, verdicts come, and Fulfills taken (D17).
     pub verdicts: super::VerdictBatch,
+    /// Outgoing payments made, what they sent, and grant spend.
+    pub outgoing: super::OutgoingBatch,
 }
 
 impl LedgerBatch {
@@ -63,13 +63,15 @@ impl LedgerBatch {
             && self.incoming_created.is_empty()
             && self.incoming_progress.is_empty()
             && self.verdicts.is_empty()
-            && self.incoming_released.is_empty()
+            && self.outgoing.is_empty()
     }
 
     /// Whether it changes Open Payments resources.
     #[must_use]
     pub fn changes_payments(&self) -> bool {
-        !(self.incoming_created.is_empty() && self.incoming_progress.is_empty())
+        !(self.incoming_created.is_empty()
+            && self.incoming_progress.is_empty()
+            && self.outgoing.is_empty())
     }
 }
 
@@ -282,9 +284,9 @@ impl Store {
             &transaction,
             &batch.incoming_created,
             &batch.incoming_progress,
-            &batch.incoming_released,
         )?;
         super::owed::write_verdicts(&transaction, &batch.verdicts, batch.at_ms)?;
+        super::outgoing::write_outgoing(&transaction, &batch.outgoing)?;
         transaction.commit()?;
         Ok(())
     }

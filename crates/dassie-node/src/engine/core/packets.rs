@@ -283,7 +283,7 @@ impl Core {
     }
 
     /// Sends a Prepare the connector forwarded.
-    fn forwarded(&mut self, now: u64, forwarded: Forwarded) {
+    pub(super) fn forwarded(&mut self, now: u64, forwarded: Forwarded) {
         match forwarded.to {
             EndpointId::Btp(link) => {
                 let packet = self
@@ -331,6 +331,7 @@ impl Core {
             rng,
             receivers,
             incoming,
+            finished_incoming,
             out,
             scratch,
             ..
@@ -344,7 +345,8 @@ impl Core {
         };
         let mut paid = None;
         let admit = |tag: &[u8]| {
-            let (admission, id) = super::incoming::admission(incoming, ledger, now, tag);
+            let (admission, id) =
+                super::incoming::admission(incoming, finished_incoming, ledger, now, tag);
             paid = id;
             admission
         };
@@ -389,6 +391,10 @@ impl Core {
             }
             EndpointId::Local(_) => {
                 let Some(ledger) = self.receiver_ledger(upstream.to) else {
+                    if self.payer_ledger(upstream.to).is_some() {
+                        let response = packet.to_vec();
+                        self.payer_response(now, upstream.request_id, &response);
+                    }
                     return;
                 };
                 let Self {
@@ -564,6 +570,7 @@ impl Core {
         {
             self.upstream(now, upstream);
         }
+        self.outgoing_timers(now);
         let at = Timestamp::from_unix_ms(now);
         for receiver in self.receivers.values_mut() {
             for id in receiver.connections.clone() {

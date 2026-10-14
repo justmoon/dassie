@@ -16,6 +16,10 @@
 //! their books still mirror each other; a hop whose Fulfill its upstream
 //! refused books the loss, and the losses are what receivers got beyond
 //! what senders paid.
+//!
+//! Outgoing payments go between nodes and to a node's own receiver: each
+//! sends exactly its debit amount, across a crash of its node too, and
+//! its receiver gets what it sent.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
@@ -27,9 +31,9 @@ use dassie_connector::{CapUsage, SpendingCap, replay};
 use dassie_identity::{NodeId, NodeKey};
 use dassie_ilp::{Address, Prepare, Timestamp};
 use dassie_ledger::LedgerId;
-use dassie_node::engine::{Core, CoreParts, NewIncoming, Outbound, Output};
+use dassie_node::engine::{Core, CoreParts, NewIncoming, NewOutgoing, Outbound, Output};
 use dassie_node::node::Policies;
-use dassie_node::store::{PaymentId, Store};
+use dassie_node::store::{ForeignAmount, OutgoingState, PaymentId, Store};
 use dassie_node_core::config::Realm;
 use dassie_node_core::testing::SeededRng;
 use dassie_oer::Decode;
@@ -76,6 +80,11 @@ struct Payment {
     token: (u64, Option<SpendingCap>),
     link: u64,
     connection: Connection,
+    /// Its address, the receiver's, and the shared secret: what a new
+    /// connection needs when the receiver closed the old one (D17).
+    credentials: (String, String, [u8; 32]),
+    /// What earlier connections sent.
+    sent_before: u64,
     amount: u64,
     stream: Option<u64>,
     /// BTP request ID → STREAM request ID.
@@ -104,6 +113,9 @@ struct Sim {
     payments: Vec<Payment>,
     /// Payments whose sender's node crashed: its client is gone.
     abandoned: Vec<Payment>,
+    /// Outgoing payments: from which node, to which, the incoming payment
+    /// they pay and the outgoing payment.
+    outgoing: Vec<(usize, usize, PaymentId, PaymentId)>,
     /// Pairs whose requests do not get through, from the first to the
     /// second.
     cut: BTreeSet<(usize, usize)>,
@@ -129,6 +141,7 @@ impl Sim {
             loss_per_mille: 10,
             payments: Vec::new(),
             abandoned: Vec::new(),
+            outgoing: Vec::new(),
             cut: BTreeSet::new(),
             trace: Vec::new(),
         };
@@ -391,19 +404,8 @@ impl Sim {
             session = Some((token.view.id, core.btp_connect(&token.secret).unwrap()));
         });
         let (token, session) = session.unwrap();
-        let mut connection = Connection::new(&Config {
-            role: Role::Client,
-            shared_secret: &shared_secret,
-            local_address: Some(Address::parse(&session.address).unwrap()),
-            remote_address: Some(Address::parse(&destination).unwrap()),
-            local_asset: Some(AssetDetails {
-                code: "USD",
-                scale: 9,
-            }),
-            receipt: None,
-            policy: Policy::DEFAULT,
-        });
-        connection.measure_exchange_rate();
+        let credentials = (session.address.clone(), destination, shared_secret);
+        let connection = client(&credentials);
         self.payments.push(Payment {
             from,
             to,
@@ -412,6 +414,8 @@ impl Sim {
             token: (token, cap),
             link: session.link,
             connection,
+            credentials,
+            sent_before: 0,
             amount,
             stream: None,
             in_flight: BTreeMap::new(),
@@ -420,6 +424,53 @@ impl Sim {
         });
         self.trace
             .push(format!("{} pay {from} -> {to} {amount}", self.now));
+    }
+
+    /// An outgoing payment of `amount` from node `from` to an incoming
+    /// payment of node `to`, which may be the same node.
+    fn pay_outgoing(&mut self, from: usize, to: usize, amount: u64) {
+        let mut incoming = None;
+        self.step(to, |core| {
+            let payment = core
+                .create_incoming_payment(NewIncoming {
+                    ledger: LedgerId::StubUsd,
+                    wallet_address: "https://sim.example/.well-known/pay".into(),
+                    client: None,
+                    incoming_amount: Some(amount),
+                    expires_at_ms: None,
+                    metadata: None,
+                })
+                .unwrap();
+            incoming = Some(payment);
+        });
+        let incoming = incoming.unwrap();
+        let mut outgoing = None;
+        self.step(from, |core| {
+            let created = core
+                .create_outgoing_payment(NewOutgoing {
+                    ledger: LedgerId::StubUsd,
+                    wallet_address: "https://sim.example/.well-known/pay".into(),
+                    client: None,
+                    grant: None,
+                    quote_id: None,
+                    receiver: format!("https://n{to}.test/incoming-payments/{}", incoming.id),
+                    destination: incoming.ilp_address.clone(),
+                    shared_secret: incoming.shared_secret,
+                    debit_amount: amount,
+                    receive_amount: ForeignAmount {
+                        value: amount,
+                        asset_code: "USD".into(),
+                        asset_scale: 9,
+                    },
+                    metadata: None,
+                })
+                .unwrap();
+            outgoing = Some(created.row.id);
+        });
+        self.outgoing
+            .push((from, to, incoming.id, outgoing.unwrap()));
+        self.trace
+            .push(format!("{} outgoing {from} -> {to} {amount}", self.now));
     }
 
     /// Lets every payment send what it can.
@@ -432,21 +483,24 @@ impl Sim {
             if payment.done {
                 continue;
             }
-            if payment.stream.is_none() && payment.connection.exchange_rate().is_some() {
-                let id = payment.connection.open_stream().unwrap();
-                payment.connection.set_send_max(id, payment.amount).unwrap();
-                payment.stream = Some(id);
-            }
             // An incoming payment that takes less stops the stream there.
             let expected = payment.amount.min(payment.limit.unwrap_or(u64::MAX));
-            if let Some(id) = payment.stream
-                && payment
-                    .connection
-                    .stream(id)
-                    .is_some_and(|s| s.total_sent() == expected)
-            {
+            if sent(payment) == expected {
                 payment.done = true;
                 continue;
+            }
+            // The receiver closed the connection, when a refusal took back
+            // what it had counted: a sender starts anew for the rest.
+            if payment.connection.is_closed() && payment.in_flight.is_empty() {
+                payment.sent_before = sent(payment);
+                payment.connection = client(&payment.credentials);
+                payment.stream = None;
+            }
+            if payment.stream.is_none() && payment.connection.exchange_rate().is_some() {
+                let id = payment.connection.open_stream().unwrap();
+                let left = payment.amount - payment.sent_before;
+                payment.connection.set_send_max(id, left).unwrap();
+                payment.stream = Some(id);
             }
             let mut sends = Vec::new();
             while let Some(transmit) = payment.connection.poll_transmit(now, &mut rng, &mut buffer)
@@ -606,6 +660,14 @@ fn run(seed: u64) -> Result<Run, String> {
         window_ms: 10_000,
     };
     sim.pay(from, (from + 1) % count, 400_000_000, Some(cap), None);
+    // Outgoing payments: to another node, and to the node's own receiver.
+    let from = usize::try_from(rng.next_u64() % count as u64).unwrap();
+    sim.pay_outgoing(
+        from,
+        (from + 1) % count,
+        50_000_000 + rng.next_u64() % 2_000_000_000,
+    );
+    sim.pay_outgoing(from, from, 10_000_000 + rng.next_u64() % 100_000_000);
     // A node crashes mid-payment, with packets in flight: a sender, a hop
     // or a receiver.
     sim.run_until(sim.now + 500 + rng.next_u64() % 4_000);
@@ -740,10 +802,30 @@ fn check_incoming(sim: &Sim, payment: &Payment) -> Result<(), String> {
 }
 
 fn sent(payment: &Payment) -> u64 {
-    payment
-        .stream
-        .and_then(|id| payment.connection.stream(id))
-        .map_or(0, |stream| stream.total_sent())
+    payment.sent_before
+        + payment
+            .stream
+            .and_then(|id| payment.connection.stream(id))
+            .map_or(0, |stream| stream.total_sent())
+}
+
+/// A STREAM client paying the receiver at `credentials`.
+fn client(credentials: &(String, String, [u8; 32])) -> Connection {
+    let (own, destination, secret) = credentials;
+    let mut connection = Connection::new(&Config {
+        role: Role::Client,
+        shared_secret: secret,
+        local_address: Some(Address::parse(own).unwrap()),
+        remote_address: Some(Address::parse(destination).unwrap()),
+        local_asset: Some(AssetDetails {
+            code: "USD",
+            scale: 9,
+        }),
+        receipt: None,
+        policy: Policy::DEFAULT,
+    });
+    connection.measure_exchange_rate();
+    connection
 }
 
 /// Each owner's pool moved by exactly what its incoming payments
@@ -757,7 +839,11 @@ fn check_owner_books(sim: &Sim) -> Result<(), String> {
         let received: i128 = all()
             .filter(|payment| payment.to == index)
             .map(|payment| i128::from(received(sim, payment)))
-            .sum();
+            .sum::<i128>()
+            + outgoing_flows(sim)
+                .filter(|flow| flow.to == index)
+                .map(|flow| i128::from(flow.received))
+                .sum::<i128>();
         if pool - DEPOSIT != received {
             return Err(format!(
                 "node {index}'s owner gained {} for {received} received",
@@ -774,6 +860,19 @@ fn check_owner_books(sim: &Sim) -> Result<(), String> {
                 ));
             }
         }
+        let paid: i128 = outgoing_flows(sim)
+            .filter(|flow| flow.from == index)
+            .map(|flow| i128::from(flow.sent))
+            .sum();
+        let payer = -balances
+            .get("stub+usd:equity/owner/local/pay")
+            .copied()
+            .unwrap_or(0);
+        if payer != paid {
+            return Err(format!(
+                "node {index}'s payer paid {payer} for {paid} its outgoing payments sent"
+            ));
+        }
         if let Some(owed) = sim.nodes[index].store.owed_fulfills().unwrap().first() {
             return Err(format!(
                 "node {index} still waits for {}'s verdict on {:?}",
@@ -783,7 +882,10 @@ fn check_owner_books(sim: &Sim) -> Result<(), String> {
     }
     let beyond: i128 = all()
         .map(|payment| i128::from(received(sim, payment)) - i128::from(sent(payment)))
-        .sum();
+        .sum::<i128>()
+        + outgoing_flows(sim)
+            .map(|flow| i128::from(flow.received) - i128::from(flow.sent))
+            .sum::<i128>();
     let lost: i128 = (0..sim.nodes.len()).map(|index| -losses(sim, index)).sum();
     // A client whose node crashed may have paid for packets it never heard
     // were fulfilled: those count as sent too.
@@ -802,6 +904,33 @@ fn check_owner_books(sim: &Sim) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+/// What an outgoing payment sent, and what its receiver got.
+struct Flow {
+    from: usize,
+    to: usize,
+    sent: u64,
+    received: u64,
+}
+
+fn outgoing_flows(sim: &Sim) -> impl Iterator<Item = Flow> + '_ {
+    sim.outgoing
+        .iter()
+        .map(|&(from, to, incoming, outgoing)| Flow {
+            from,
+            to,
+            sent: sim.nodes[from]
+                .store
+                .outgoing_payment(outgoing)
+                .unwrap()
+                .map_or(0, |row| row.sent_amount),
+            received: sim.nodes[to]
+                .store
+                .incoming_payment(incoming)
+                .unwrap()
+                .map_or(0, |row| row.received_amount),
+        })
 }
 
 /// What a node booked as lost to refusals, as a net credit (so negative).
@@ -840,7 +969,40 @@ fn check(sim: &Sim) -> Result<(), String> {
         check_cap(sim, payment)?;
         check_incoming(sim, payment)?;
     }
+    check_outgoing(sim)?;
     check_books(sim)
+}
+
+/// Each outgoing payment completed, having sent its debit amount or what
+/// its receiver still lacked when a hop lost a packet, and its receiver
+/// got what it asked for.
+fn check_outgoing(sim: &Sim) -> Result<(), String> {
+    for &(from, to, incoming, outgoing) in &sim.outgoing {
+        let row = sim.nodes[from]
+            .store
+            .outgoing_payment(outgoing)
+            .unwrap()
+            .ok_or("an outgoing payment vanished")?;
+        if row.state != OutgoingState::Completed {
+            let incoming_row = sim.nodes[to].store.incoming_payment(incoming).unwrap();
+            return Err(format!(
+                "an outgoing payment from {from} to {to} ended {:?} ({:?}) having sent {} of {}; its receiver: {incoming_row:?}",
+                row.state, row.failure, row.sent_amount, row.debit_amount
+            ));
+        }
+        let received = sim.nodes[to]
+            .store
+            .incoming_payment(incoming)
+            .unwrap()
+            .map_or(0, |row| row.received_amount);
+        if received < row.sent_amount || received != row.receive_amount.value {
+            return Err(format!(
+                "node {to} received {received} of the {} node {from} sent, for {}",
+                row.sent_amount, row.receive_amount.value
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// The books: owners', settlements and every pair of accounts.

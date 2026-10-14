@@ -79,6 +79,9 @@ async fn route(
             wallet::wallet_address(node, urls, path).await
         }
         (&Method::POST, GRANT_PATH) => grants::request(node, peer, urls, request).await,
+        (&Method::GET, path) if path.starts_with("/gnap/interact/") => {
+            grants::interact(node, urls, path)
+        }
         (&Method::POST | &Method::DELETE, path) if path.starts_with("/gnap/") => {
             grants::manage(node, urls, &method, path, request).await
         }

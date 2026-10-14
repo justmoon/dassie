@@ -42,6 +42,8 @@ pub enum RemovalBlocker {
     Peers(u32),
     /// Peerings that ended still have to be settled with it.
     FinalSettlements(u32),
+    /// Outgoing payments from its ledger have not finished.
+    OutgoingPayments(u32),
 }
 
 impl RemovalBlocker {
@@ -52,6 +54,7 @@ impl RemovalBlocker {
             Self::BtpTokens(_) => "BTP tokens use its ledger",
             Self::Peers(_) => "peers settle with it",
             Self::FinalSettlements(_) => "a peering that ended still has to be settled with it",
+            Self::OutgoingPayments(_) => "outgoing payments from its ledger have not finished",
         }
     }
 }
@@ -158,6 +161,7 @@ impl Core {
         self.schemes.insert(id, ActiveScheme { scheme });
         self.update_peer_schemes();
         self.add_receiver(ledger)?;
+        self.add_payer(ledger)?;
         Ok(ledger)
     }
 
@@ -180,11 +184,14 @@ impl Core {
         self.update_peer_schemes();
         self.batch.schemes_added.retain(|(added, _)| *added != id);
         self.batch.schemes_removed.push(id);
+        let now = self.now_ms();
         if let Some(receiver) = self.receivers.remove(&ledger) {
-            let now = self.now_ms();
             self.connector.remove_endpoint(now, receiver.endpoint);
-            self.expire(now);
         }
+        if let Some(payer) = self.spending.payers.remove(&ledger) {
+            self.connector.remove_endpoint(now, payer.endpoint);
+        }
+        self.expire(now);
         Ok(())
     }
 
@@ -311,23 +318,7 @@ impl Core {
         if self.receivers.contains_key(&ledger) {
             return Ok(());
         }
-        // The next number, skipping any in use: a number comes back only
-        // after 65 536 activations, long after anything for it is gone.
-        let taken = |n: u16| {
-            self.receivers
-                .values()
-                .any(|receiver| receiver.endpoint == dassie_connector::EndpointId::Local(n))
-        };
-        let mut free = self.next_local;
-        for _ in 0..=super::MAX_LOCAL_ENDPOINTS {
-            if !taken(free) {
-                break;
-            }
-            free = free.wrapping_add(1);
-        }
-        assert!(!taken(free), "more receivers than local endpoints");
-        self.next_local = free.wrapping_add(1);
-        let endpoint = dassie_connector::EndpointId::Local(free);
+        let endpoint = self.free_local();
         let own = self.connector.own_address().to_string();
         let receiver = Receiver::new(&self.key, &own, ledger, endpoint)?;
         let owner = self.account(ledger, AccountName::EquityOwner)?;
@@ -336,6 +327,32 @@ impl Core {
             .map_err(|e| EngineError::Internal(e.to_string()))?;
         self.receivers.insert(ledger, receiver);
         Ok(())
+    }
+
+    /// The next local endpoint, skipping any in use: a number comes back
+    /// only after 65 536 activations, long after anything for it is gone.
+    pub(super) fn free_local(&mut self) -> dassie_connector::EndpointId {
+        let taken = |n: u16| {
+            let endpoint = dassie_connector::EndpointId::Local(n);
+            self.receivers
+                .values()
+                .any(|receiver| receiver.endpoint == endpoint)
+                || self
+                    .spending
+                    .payers
+                    .values()
+                    .any(|payer| payer.endpoint == endpoint)
+        };
+        let mut free = self.next_local;
+        for _ in 0..=super::MAX_LOCAL_ENDPOINTS {
+            if !taken(free) {
+                break;
+            }
+            free = free.wrapping_add(1);
+        }
+        assert!(!taken(free), "more local endpoints than there may be");
+        self.next_local = free.wrapping_add(1);
+        dassie_connector::EndpointId::Local(free)
     }
 
     /// The active schemes' IDs.
@@ -389,6 +406,10 @@ impl Core {
             (tokens, RemovalBlocker::BtpTokens(count(tokens))),
             (peers, RemovalBlocker::Peers(count(peers))),
             (finals, RemovalBlocker::FinalSettlements(count(finals))),
+            (
+                self.unfinished_on(ledger),
+                RemovalBlocker::OutgoingPayments(count(self.unfinished_on(ledger))),
+            ),
         ]
         .into_iter()
         .filter(|(n, _)| *n > 0)
