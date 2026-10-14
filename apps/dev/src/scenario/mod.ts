@@ -41,7 +41,12 @@ export interface ScenarioOptions {
   readonly withoutLedger?: readonly number[];
   /** Each line a node prints. */
   readonly onLine?: (node: string, stream: Stream, line: string) => void;
+  /** Each node's progress: started, then set up. */
+  readonly onNode?: (node: ScenarioNode, phase: NodePhase) => void;
 }
+
+/** How far a node got. */
+export type NodePhase = "starting" | "setting-up" | "running" | "failed";
 
 /** A running scenario. */
 export class Scenario {
@@ -140,9 +145,18 @@ export class Scenario {
       { DASSIE_BOOTSTRAP_NODES: this.#bootstrapNodes() },
     );
     this.nodes.push(node);
-    await node.start();
-    const withoutLedger = this.options.withoutLedger?.includes(index);
-    await node.setUp(withoutLedger ? [] : schemes);
+    const report = this.options.onNode ?? (() => {});
+    try {
+      report(node, "starting");
+      await node.start();
+      report(node, "setting-up");
+      const withoutLedger = this.options.withoutLedger?.includes(index);
+      await node.setUp(withoutLedger ? [] : schemes);
+    } catch (error) {
+      report(node, "failed");
+      throw error;
+    }
+    report(node, "running");
     return node;
   }
 
