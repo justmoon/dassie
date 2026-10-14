@@ -50,7 +50,9 @@ mod fx;
 mod trace;
 
 pub use config::Config;
-pub use connector::{Connector, Forwarded, Outcome, Stats, Upstream};
+pub use connector::{
+    Connector, Forwarded, MAX_ROUTE_OPTIONS, Outcome, RoutesError, Stats, Upstream,
+};
 pub use endpoint::{EndpointError, EndpointId};
 pub use fx::{RATE_PRECISION, Rates, convert};
 pub use trace::{MAX_TRACED_ADDRESS, PacketRecord, PacketState, TraceEvent};

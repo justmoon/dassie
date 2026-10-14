@@ -27,6 +27,8 @@ enum Answer {
     Reject,
     Garbage,
     Never,
+    /// The packet surely did not reach its peer.
+    Undelivered,
 }
 
 /// An answer to send: from, request ID, the right fulfillment, and how.
@@ -78,6 +80,15 @@ impl Simulation {
                 LedgerId::StubUsd,
             )
             .unwrap();
+        // Two peers, and a node beyond them they both lead to.
+        h.add_peer(10, "dfar1", 300_000_000, 0);
+        h.add_peer(11, "dfar2", 300_000_000, 1 << 31);
+        h.connector
+            .set_routes([(
+                "test.das.dbeyond",
+                &[EndpointId::Peer(10), EndpointId::Peer(11)][..],
+            )])
+            .unwrap();
         h.check();
         Self {
             rng: SeededRng::new(seed),
@@ -108,6 +119,8 @@ impl Simulation {
     fn live_endpoints(&self) -> Vec<EndpointId> {
         let mut endpoints: Vec<_> = self.live.iter().flatten().copied().collect();
         endpoints.push(RECEIVER);
+        endpoints.push(EndpointId::Peer(10));
+        endpoints.push(EndpointId::Peer(11));
         endpoints
     }
 
@@ -116,7 +129,8 @@ impl Simulation {
             0 => OWN.to_string(),
             1 => format!("{OWN}.nobody"),
             2 => "test.elsewhere".to_string(),
-            3..=5 => format!("{OWN}.stream.{}", self.below(4)),
+            3 | 4 => format!("{OWN}.stream.{}", self.below(4)),
+            5 => format!("test.das.dbeyond.{}", self.below(4)),
             _ => {
                 let name = NAMES[self.below(5) as usize];
                 format!("{OWN}.{name}.x")
@@ -157,6 +171,7 @@ impl Simulation {
                     5 => Answer::WrongFulfillment,
                     6 | 7 => Answer::Reject,
                     8 => Answer::Garbage,
+                    _ if sent.to.is_peer() && self.below(2) == 0 => Answer::Undelivered,
                     _ => Answer::Never,
                 };
                 let at = self.now + self.below(25_000);
@@ -185,6 +200,18 @@ impl Simulation {
                 Answer::Reject => reject(ErrorCode::F99_APPLICATION_ERROR),
                 Answer::Garbage => vec![0x0d, 0x01],
                 Answer::Never => continue,
+                Answer::Undelivered => {
+                    let failed = self.h.connector.fail_forwarded(
+                        key.0,
+                        from,
+                        request_id,
+                        ErrorCode::T01_PEER_UNREACHABLE,
+                        "not delivered",
+                    );
+                    self.h.check();
+                    let _ = failed;
+                    continue;
+                }
             };
             if let Some(upstream) = self.h.respond(key.0, from, request_id, &bytes) {
                 self.answered(upstream.to, upstream.request_id);

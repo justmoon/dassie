@@ -156,7 +156,7 @@ impl Core {
                 ));
             }
             RECEIVER => self.deliver(now, forwarded),
-            EndpointId::Local(_) => {}
+            EndpointId::Local(_) | EndpointId::Peer(_) => {}
         }
     }
 
@@ -231,7 +231,7 @@ impl Core {
                 }
                 self.pump(now);
             }
-            EndpointId::Local(_) => {}
+            EndpointId::Local(_) | EndpointId::Peer(_) => {}
         }
     }
 

@@ -14,6 +14,17 @@ pub enum EndpointId {
     Btp(u64),
     /// An in-process endpoint, such as the STREAM receiver.
     Local(u16),
+    /// A peer node, by the node's number for the peering: never reused, so
+    /// a late response cannot resolve a later peering's packet.
+    Peer(u64),
+}
+
+impl EndpointId {
+    /// Whether it is a peer, rather than a child of the node.
+    #[must_use]
+    pub const fn is_peer(self) -> bool {
+        matches!(self, Self::Peer(_))
+    }
 }
 
 impl fmt::Display for EndpointId {
@@ -21,6 +32,7 @@ impl fmt::Display for EndpointId {
         match self {
             Self::Btp(id) => write!(f, "btp:{id}"),
             Self::Local(id) => write!(f, "local:{id}"),
+            Self::Peer(id) => write!(f, "peer:{id}"),
         }
     }
 }
@@ -62,9 +74,9 @@ pub(crate) struct Endpoint {
     pub pending_from: usize,
 }
 
-/// The endpoints, by ID. Every endpoint's address is its route: the
-/// connector's endpoints are all children of the node in M3; routes learned
-/// from peers come in M4.
+/// The endpoints, by ID. A child's address, below the node's own, is its
+/// route; a peer's address is only what ILDCP tells it, and routes to
+/// peers come from the route table.
 #[derive(Debug, Default)]
 pub(crate) struct Endpoints {
     by_id: BTreeMap<EndpointId, Endpoint>,
@@ -98,12 +110,13 @@ impl Endpoints {
         }
         let address =
             Address::parse(&endpoint.address).map_err(|_| EndpointError::InvalidAddress)?;
-        if address.strip_prefix(own).is_none()
-            || self
-                .by_id
-                .values()
-                .any(|other| overlaps(&other.address, &endpoint.address))
-        {
+        let child_clash = !id.is_peer()
+            && (address.strip_prefix(own).is_none()
+                || self
+                    .by_id
+                    .iter()
+                    .any(|(other, e)| !other.is_peer() && overlaps(&e.address, &endpoint.address)));
+        if child_clash {
             return Err(EndpointError::InvalidAddress);
         }
         self.by_id.insert(id, endpoint);
@@ -114,11 +127,12 @@ impl Endpoints {
         self.by_id.remove(&id)
     }
 
-    /// The endpoint whose address is the longest whole-segment prefix of
-    /// `destination` (NET-33). Addresses never nest, so at most one fits.
-    pub fn route(&self, destination: Address<'_>) -> Option<EndpointId> {
+    /// The child whose address is a whole-segment prefix of `destination`
+    /// (NET-33). Children's addresses never nest, so at most one fits.
+    pub fn route_child(&self, destination: Address<'_>) -> Option<EndpointId> {
         self.by_id
             .iter()
+            .filter(|(id, _)| !id.is_peer())
             .find(|(_, endpoint)| {
                 Address::parse(&endpoint.address)
                     .is_ok_and(|address| destination.has_prefix(address))

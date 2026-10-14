@@ -98,7 +98,7 @@ impl Connector {
             assert!(entry.is_some(), "a deadline without its packet");
             let entry = entry?;
             let resolution = match entry.failure {
-                Some(code) => Resolution::Failed(code, "next hop went away"),
+                Some((code, message)) => Resolution::Failed(code, message),
                 None => Resolution::Failed(ErrorCode::R00_TRANSFER_TIMED_OUT, "packet timed out"),
             };
             if let Some(upstream) = self.resolve(now_ms, &entry, &resolution, ledger, out) {

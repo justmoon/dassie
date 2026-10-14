@@ -11,8 +11,13 @@ pub struct Config {
     pub max_endpoints: usize,
     /// Most packets in flight.
     pub max_pending: usize,
-    /// Most packets in flight from one endpoint.
+    /// Most packets in flight from one child endpoint.
     pub max_pending_per_endpoint: usize,
+    /// Most packets in flight from one peer: a peer carries other nodes'
+    /// traffic too.
+    pub max_pending_per_peer: usize,
+    /// Most routes in the route table.
+    pub max_routes: usize,
     /// Packet records kept in the trace.
     pub trace_capacity: usize,
     /// Trace events waiting to be polled.
@@ -39,6 +44,8 @@ impl Config {
         max_endpoints: 256,
         max_pending: 4096,
         max_pending_per_endpoint: 512,
+        max_pending_per_peer: 512,
+        max_routes: 1024,
         trace_capacity: 4096,
         max_events: 1024,
         message_window_ms: 1_000,
@@ -58,11 +65,22 @@ impl Config {
         assert!(self.max_pending > 0, "a connector needs room for packets");
         assert!(self.max_pending_per_endpoint > 0);
         assert!(self.max_pending_per_endpoint <= self.max_pending);
+        assert!(self.max_pending_per_peer > 0);
         assert!(self.trace_capacity > 0 && self.max_events > 0);
         assert!(self.max_hold_ms >= self.min_timeout_ms);
         // Request IDs are u32s: a counter skipping IDs in use always finds
         // one while fewer than 2^32 are pending.
         assert!(u32::try_from(self.max_pending).is_ok());
+    }
+
+    /// The most packets in flight from one endpoint.
+    #[must_use]
+    pub const fn max_pending_from(&self, endpoint: crate::EndpointId) -> usize {
+        if endpoint.is_peer() {
+            self.max_pending_per_peer
+        } else {
+            self.max_pending_per_endpoint
+        }
     }
 
     /// The pending transfers the ledger must have room for: two per packet

@@ -192,3 +192,28 @@ pub fn reject(code: ErrorCode) -> Vec<u8> {
 pub fn decode_prepare(bytes: &[u8]) -> Prepare<'_> {
     Prepare::decode_exact(bytes).unwrap()
 }
+
+impl Harness {
+    /// A peer `peer:{id}`, extending `trust`, at `test.das.{node}`, with
+    /// its first request ID `first`.
+    pub fn add_peer(&mut self, id: u64, node: &str, trust: u64, first: u32) -> AccountId {
+        let name = dassie_ledger::Name::new(node).unwrap();
+        let (account, _) = self
+            .ledger
+            .open_peer(0, LedgerId::StubUsd, name, trust)
+            .unwrap();
+        while let Some(entry) = self.ledger.poll_journal() {
+            self.journal.push(entry);
+        }
+        self.connector
+            .add_peer(
+                EndpointId::Peer(id),
+                &format!("test.das.{node}"),
+                account,
+                LedgerId::StubUsd,
+                first,
+            )
+            .unwrap();
+        account
+    }
+}

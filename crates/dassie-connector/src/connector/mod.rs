@@ -15,6 +15,18 @@ use crate::config::Config;
 use crate::endpoint::{Endpoint, EndpointError, EndpointId, Endpoints};
 use crate::trace::{PacketRecord, Trace, TraceEvent};
 
+/// Most next hops a route lists.
+pub const MAX_ROUTE_OPTIONS: usize = 4;
+
+/// Why routes could not be set.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RoutesError {
+    /// More routes than the table holds.
+    TooMany,
+    /// A prefix is not an ILP address, or lies below our own.
+    InvalidPrefix,
+}
+
 /// What became of an incoming Prepare. The packet to send is in the buffer
 /// the caller passed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,9 +101,9 @@ pub(crate) struct Pending {
     /// The outgoing packet's expiry.
     pub expires_at_ms: u64,
     pub transfers: [Option<TransferId>; 2],
-    /// Set when the next hop went away: the code the packet is rejected
-    /// with at once.
-    pub failure: Option<ErrorCode>,
+    /// Set when the packet cannot reach its next hop: the code and message
+    /// it is rejected with at once.
+    pub failure: Option<(ErrorCode, &'static str)>,
 }
 
 /// The connector.
@@ -100,6 +112,8 @@ pub struct Connector {
     config: Config,
     own_address: String,
     endpoints: Endpoints,
+    /// Routes beyond our own address: prefix to next hops, best first.
+    routes: BTreeMap<String, [Option<EndpointId>; MAX_ROUTE_OPTIONS]>,
     /// By destination and outgoing request ID.
     pending: BTreeMap<(EndpointId, u32), Pending>,
     /// When each packet in flight expires.
@@ -127,6 +141,7 @@ impl Connector {
             config,
             own_address: String::from(own_address),
             endpoints: Endpoints::default(),
+            routes: BTreeMap::new(),
             pending: BTreeMap::new(),
             deadlines: BTreeSet::new(),
             incoming: BTreeSet::new(),
@@ -156,6 +171,9 @@ impl Connector {
         account: AccountId,
         ledger: LedgerId,
     ) -> Result<(), EndpointError> {
+        if id.is_peer() {
+            return Err(EndpointError::InvalidAddress);
+        }
         if self.endpoints.len() >= self.config.max_endpoints {
             return Err(EndpointError::Full);
         }
@@ -168,6 +186,97 @@ impl Connector {
             pending_from: 0,
         };
         self.endpoints.insert(id, endpoint, own)
+    }
+
+    /// Adds a peer at `address`, which is only what ILDCP tells it: packets
+    /// reach peers through the route table. Its first request ID is chosen
+    /// by the caller at random, so that after a restart our new packets do
+    /// not reuse IDs the peer still holds from before.
+    ///
+    /// # Errors
+    ///
+    /// If the table is full, the ID is taken or not a peer's, or the address
+    /// is not one.
+    pub fn add_peer(
+        &mut self,
+        id: EndpointId,
+        address: &str,
+        account: AccountId,
+        ledger: LedgerId,
+        first_request_id: u32,
+    ) -> Result<(), EndpointError> {
+        if !id.is_peer() {
+            return Err(EndpointError::Duplicate);
+        }
+        if self.endpoints.len() >= self.config.max_endpoints {
+            return Err(EndpointError::Full);
+        }
+        let own = Address::parse(&self.own_address).map_err(|_| EndpointError::InvalidAddress)?;
+        let endpoint = Endpoint {
+            address: String::from(address),
+            account,
+            ledger,
+            next_request_id: first_request_id,
+            pending_from: 0,
+        };
+        self.endpoints.insert(id, endpoint, own)
+    }
+
+    /// Replaces the route table: for each prefix outside our own address,
+    /// its next hops, best first. Hops that are not endpoints (any more)
+    /// are skipped when routing.
+    ///
+    /// # Errors
+    ///
+    /// Too many routes, or a prefix that is not a valid one; the table is
+    /// then unchanged.
+    pub fn set_routes<'a>(
+        &mut self,
+        routes: impl IntoIterator<Item = (&'a str, &'a [EndpointId])>,
+    ) -> Result<(), RoutesError> {
+        let own = Address::parse(&self.own_address).map_err(|_| RoutesError::InvalidPrefix)?;
+        let mut table = BTreeMap::new();
+        for (prefix, hops) in routes {
+            let address = Address::parse(prefix).map_err(|_| RoutesError::InvalidPrefix)?;
+            if address.has_prefix(own) {
+                return Err(RoutesError::InvalidPrefix);
+            }
+            if table.len() >= self.config.max_routes {
+                return Err(RoutesError::TooMany);
+            }
+            let mut options = [None; MAX_ROUTE_OPTIONS];
+            for (slot, hop) in options.iter_mut().zip(hops) {
+                *slot = Some(*hop);
+            }
+            table.insert(String::from(prefix), options);
+        }
+        self.routes = table;
+        Ok(())
+    }
+
+    /// Fails a forwarded packet that surely did not reach its next hop:
+    /// it is rejected upstream with `code` at once, through
+    /// [`handle_timeout`](Self::handle_timeout), and its transfers voided.
+    /// Use it only when the next hop cannot have acted on the packet; when
+    /// unsure, let it expire, or the two sides' books part. Returns whether
+    /// the packet was in flight.
+    pub fn fail_forwarded(
+        &mut self,
+        now_ms: u64,
+        to: EndpointId,
+        request_id: u32,
+        code: ErrorCode,
+        message: &'static str,
+    ) -> bool {
+        let Some(entry) = self.pending.get_mut(&(to, request_id)) else {
+            return false;
+        };
+        self.deadlines
+            .remove(&(entry.expires_at_ms, to, request_id));
+        entry.failure = Some((code, message));
+        entry.expires_at_ms = now_ms;
+        self.deadlines.insert((now_ms, to, request_id));
+        true
     }
 
     /// Removes an endpoint. Packets in flight to it are failed with T01
@@ -192,7 +301,7 @@ impl Connector {
             self.deadlines
                 .remove(&(expires_at_ms, destination, request_id));
             if let Some(entry) = self.pending.get_mut(&(destination, request_id)) {
-                entry.failure = Some(ErrorCode::T01_PEER_UNREACHABLE);
+                entry.failure = Some((ErrorCode::T01_PEER_UNREACHABLE, "next hop went away"));
                 entry.expires_at_ms = now_ms;
             }
             self.deadlines.insert((now_ms, destination, request_id));
@@ -255,6 +364,46 @@ impl Connector {
         };
         self.next_sequence += 1;
         trace
+    }
+
+    /// The next hop for `destination`, which is never `source`: below our
+    /// own address only children (or F02, NET-34); beyond it, the longest
+    /// whole-segment prefix in the route table, its first hop that is an
+    /// endpoint and not the packet's source.
+    pub(crate) fn next_hop(
+        &self,
+        destination: Address<'_>,
+        source: EndpointId,
+    ) -> Option<EndpointId> {
+        let own = Address::parse(&self.own_address).ok()?;
+        if destination.has_prefix(own) {
+            return self
+                .endpoints
+                .route_child(destination)
+                .filter(|to| *to != source);
+        }
+        let text = destination.as_str();
+        let mut end = text.len();
+        loop {
+            let prefix = text.get(..end)?;
+            if let Some(options) = self.routes.get(prefix) {
+                let hop = options
+                    .iter()
+                    .flatten()
+                    .find(|hop| **hop != source && self.endpoints.get(**hop).is_some());
+                if let Some(hop) = hop {
+                    return Some(*hop);
+                }
+            }
+            end = prefix.rfind('.')?;
+        }
+    }
+
+    /// The routes, for inspection.
+    pub fn routes(&self) -> impl Iterator<Item = (&str, impl Iterator<Item = EndpointId> + '_)> {
+        self.routes
+            .iter()
+            .map(|(prefix, options)| (prefix.as_str(), options.iter().flatten().copied()))
     }
 
     /// A request ID for `destination` that is not in flight to it.
