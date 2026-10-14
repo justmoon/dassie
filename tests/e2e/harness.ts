@@ -15,6 +15,8 @@ const root = new URL("../../", import.meta.url).pathname;
 
 /** The binary under test, built with the wallet by `deno task build:e2e`. */
 export const DASSIE = `${root}target/e2e/dassie`;
+/** The fake XRP Ledger, built with it by `deno task build:e2e`. */
+export const FAKE_LEDGER = `${root}target/e2e/examples/fake_ledger`;
 /** Pebble's configuration and its API certificate. */
 export const PEBBLE_DIR = `${root}testdata/pebble`;
 /** The root of Pebble's API certificate, which the daemon must trust. */
@@ -88,10 +90,12 @@ export const SCENARIO_PORT_OFFSET = 14_000;
 export async function missingScenarioTools(): Promise<string | undefined> {
   const missing = [];
   if (!(await which("mkcert"))) missing.push("mkcert");
-  try {
-    await Deno.stat(DASSIE);
-  } catch {
-    missing.push(`${DASSIE} (deno task build:e2e)`);
+  for (const binary of [DASSIE, FAKE_LEDGER]) {
+    try {
+      await Deno.stat(binary);
+    } catch {
+      missing.push(`${binary} (deno task build:e2e)`);
+    }
   }
   if (missing.length === 0) return undefined;
   const reason = `missing ${missing.join(", ")}`;

@@ -23,7 +23,7 @@ export interface ScenarioDef {
   readonly unavailable?: string;
 }
 
-const XRPL = "needs the XRPL settlement module (M7)";
+const RATES = "needs exchange rates (M7c)";
 
 export const SCENARIOS: readonly ScenarioDef[] = [
   {
@@ -51,7 +51,6 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     schemes: [["xrpl-testnet"], ["xrpl-testnet"]],
     addedSchemes: ["xrpl-testnet"],
     bootstrap: [0, 1],
-    unavailable: XRPL,
   },
   {
     id: "cross-currency",
@@ -61,7 +60,7 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     schemes: [["stub"], ["stub", "xrpl-testnet"], ["xrpl-testnet"]],
     addedSchemes: ["stub"],
     bootstrap: [0, 1],
-    unavailable: XRPL,
+    unavailable: RATES,
   },
   {
     id: "one-node",
