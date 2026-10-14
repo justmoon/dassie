@@ -252,3 +252,76 @@ impl Decode<'_> for NodeListResponse {
         Ok(Self(ids))
     }
 }
+
+/// Encodes a link-state response from stored `SignedPeerNodeInfo` bytes.
+#[must_use]
+pub fn encode_link_states(found: &[Option<&[u8]>]) -> Vec<u8> {
+    let length = size::quantity(found.len())
+        + found
+            .iter()
+            .map(|bytes| size::tag(0) + bytes.map_or(0, <[u8]>::len))
+            .sum::<usize>();
+    let mut out = alloc::vec![0u8; length];
+    let mut writer = Writer::new(&mut out);
+    writer.write_quantity(found.len());
+    for bytes in found {
+        match bytes {
+            Some(bytes) => {
+                writer.write_context_tag(1);
+                writer.write_bytes(bytes);
+            }
+            None => writer.write_context_tag(0),
+        }
+    }
+    out
+}
+
+/// Encodes a body that is one OCTET STRING: the peering info.
+#[must_use]
+pub fn encode_octets(data: &[u8]) -> Vec<u8> {
+    let mut out = alloc::vec![0u8; size::prefixed(data.len())];
+    Writer::new(&mut out).write_octets(data, Size::ANY);
+    out
+}
+
+/// Reads a body that is one OCTET STRING.
+///
+/// # Errors
+///
+/// It is not.
+pub fn decode_octets(body: &[u8]) -> Result<&[u8], DecodeError> {
+    let mut reader = Reader::new(body);
+    let data = reader.read_octets(Size::ANY)?;
+    reader.finish()?;
+    Ok(data)
+}
+
+/// Encodes a registration's answer: when it expires.
+#[must_use]
+pub fn encode_expiry(expires_at_ms: u64) -> Vec<u8> {
+    expires_at_ms.to_be_bytes().to_vec()
+}
+
+/// Reads a registration's answer.
+///
+/// # Errors
+///
+/// It is not eight bytes.
+pub fn decode_expiry(body: &[u8]) -> Result<u64, DecodeError> {
+    let mut reader = Reader::new(body);
+    let expiry = reader.read_u64()?;
+    reader.finish()?;
+    Ok(expiry)
+}
+
+/// Reads a node-list hash.
+///
+/// # Errors
+///
+/// It is not 32 bytes.
+pub fn decode_hash(body: &[u8]) -> Result<[u8; 32], DecodeError> {
+    let mut reader = Reader::new(body);
+    let hash = read_fixed::<32>(&mut reader)?;
+    reader.finish()?;
+    Ok(hash)
+}

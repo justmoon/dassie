@@ -20,4 +20,5 @@ zeroize = { version = "1.9", default-features = false }
 [dev-dependencies]
 dassie-node-core = { path = "../dassie-node-core", features = ["testing"] }
 proptest = "1.12"
+rand_core = { version = "0.10", default-features = false }
 serde_json = "1.0.154"

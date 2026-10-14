@@ -318,7 +318,8 @@ A sender uses one session per destination and starts a new one every hour. The r
   - An older or equal sequence is dropped before its signature is checked. A byte-identical copy counts toward the flooding suppression; other copies with the same sequence do not.
   - Each subject may issue at most 8 states in a burst, then one per 5 s; the excess is neither stored nor forwarded.
   - A node's own sequence is `max(now, last + 1)` with the last value persisted (NET-7). It is re-issued when its neighbors, schemes, URL or alias change (NET-6), and every hour (NET-5).
-- **Requests:** `linkStateRequest` carries at most 16 distinct node IDs.
+- **Anti-entropy:** when no link state is stale, a node asks a random peer (or a bootstrap node, if it has no peers) for the link states of the next 16 nodes in its table, round and round, every 10 s. Flooding alone loses an update for up to an hour when a message is lost, a node is down or the network splits. The simulation found that, and the sweep repairs it within one pass of the table.
+- **Requests:** `linkStateRequest` carries at most 16 distinct node IDs. It is answered in the order asked, each ID once.
 - **Scheme IDs:** `SettlementSchemeId` is at most 64 characters, down from 128. The alphabet is unchanged.
 - **Public key:** the `publicKey` field is exactly 32 bytes.
 
@@ -387,6 +388,7 @@ peeringTermination [10]  -- reserved; its layout comes with termination in M4b
 | Heartbeat | 5–20 s, and once at once when a peering forms |
 | Link-state re-issue | 1 h, debounced to one per 5 s (0.5 s) |
 | Refresh | one stale node per 1 s, up to 16 IDs per request, staleness 3 h |
+| Anti-entropy sweep | 16 nodes per 10 s (1 s) |
 | Registration lifetime and renewal | 24 h and 6 h (2 min and 30 s) |
 | Removal grace | 1 h (10 s) |
 | Peering check, bridge check | 1 s, 60 s (2 s) |

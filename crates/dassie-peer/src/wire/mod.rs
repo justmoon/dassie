@@ -19,6 +19,7 @@ pub use envelope::{Authentication, Envelope, EnvelopeError, HmacAuthentication, 
 pub use node_info::{Entry, InvalidNodeInfo, NodeInfo, SignedNodeInfo, sign_node_info};
 pub use response::{
     LinkStateResponse, NodeListResponse, PeeringResponse, RefusalReason, ResponseEnvelope,
+    decode_expiry, decode_hash, decode_octets, encode_expiry, encode_link_states, encode_octets,
     encode_response,
 };
 pub use scheme::{MAX_SCHEME_ID, SchemeId};

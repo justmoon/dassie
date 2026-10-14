@@ -26,4 +26,20 @@ extern crate alloc;
 extern crate std;
 
 pub mod auth;
+mod config;
+mod hooks;
+mod io;
+mod node;
+mod persist;
+pub mod routing;
+mod table;
 pub mod wire;
+
+pub use config::{Config, Rate};
+pub use hooks::{Agreed, Declined, PeeringHooks};
+pub use io::{
+    Event, Failure, Inbound, InboundId, Output, Reply, Request, RequestId, Response, Stats,
+};
+pub use node::{Bootstrap, NodeView, OwnInfo, PeerNode, RegistrationStatus, SendError};
+pub use persist::{PeerBatch, Stored, StoredNode};
+pub use table::{Peering, Registration, Sources};

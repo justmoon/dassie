@@ -1,0 +1,569 @@
+//! A simulated network of peer nodes (spec 7 §7): virtual time, a network
+//! that delays, loses, duplicates and partitions, nodes that crash and
+//! restart from what they persisted. Everything comes from one seed.
+
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    dead_code
+)]
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
+
+use dassie_identity::{NodeId, NodeKey};
+use dassie_node_core::testing::SeededRng;
+use dassie_peer::wire::{RefusalReason, SchemeId};
+use dassie_peer::{
+    Agreed, Bootstrap, Config, Declined, Event, Failure, Inbound, InboundId, Output, OwnInfo,
+    PeerBatch, PeerNode, PeeringHooks, Request, RequestId, Response, Stored,
+};
+
+pub const START: u64 = 1_800_000_000_000;
+pub const CREDIT: u64 = 1_100_000_000;
+
+/// Hooks for the stub scheme: always agrees.
+#[derive(Default)]
+pub struct StubHooks;
+
+impl PeeringHooks for StubHooks {
+    fn versions(&self, scheme: SchemeId) -> &'static [u16] {
+        if scheme.as_str() == "stub" { &[1] } else { &[] }
+    }
+
+    fn credit(&self, _: SchemeId) -> u64 {
+        CREDIT
+    }
+
+    fn peering_info(&mut self, scheme: SchemeId, _: &mut Vec<u8>) -> Result<(), Declined> {
+        if scheme.as_str() == "stub" {
+            Ok(())
+        } else {
+            Err(Declined)
+        }
+    }
+
+    fn create_request(
+        &mut self,
+        _: NodeId,
+        _: SchemeId,
+        _: &[u8],
+        _: &mut Vec<u8>,
+    ) -> Result<(), Declined> {
+        Ok(())
+    }
+
+    fn accept(
+        &mut self,
+        _: u64,
+        _: NodeId,
+        _: SchemeId,
+        _: u16,
+        _: u64,
+        _: &[u8],
+        _: &mut Vec<u8>,
+    ) -> Result<Agreed, RefusalReason> {
+        Ok(Agreed {
+            state: Vec::new(),
+            credit_out: CREDIT,
+        })
+    }
+
+    fn finalize(
+        &mut self,
+        _: u64,
+        _: NodeId,
+        _: SchemeId,
+        _: u16,
+        _: u64,
+        _: &[u8],
+        _: &[u8],
+    ) -> Result<Agreed, Declined> {
+        Ok(Agreed {
+            state: Vec::new(),
+            credit_out: CREDIT,
+        })
+    }
+}
+
+pub fn key(index: usize) -> Arc<NodeKey> {
+    Arc::new(NodeKey::from_bytes(&[u8::try_from(index + 1).unwrap(); 32]))
+}
+
+pub fn url(index: usize) -> String {
+    format!("https://n{index}.test")
+}
+
+/// What the network does to a message.
+#[derive(Clone, Copy, Debug)]
+pub struct Faults {
+    pub min_latency_ms: u64,
+    pub max_latency_ms: u64,
+    /// Per mille.
+    pub loss: u64,
+    /// Per mille.
+    pub duplication: u64,
+}
+
+impl Faults {
+    pub const NONE: Self = Self {
+        min_latency_ms: 5,
+        max_latency_ms: 50,
+        loss: 0,
+        duplication: 0,
+    };
+    pub const ROUGH: Self = Self {
+        min_latency_ms: 1,
+        max_latency_ms: 400,
+        loss: 30,
+        duplication: 20,
+    };
+}
+
+#[derive(Debug)]
+enum Delivery {
+    /// A request arriving at `to`.
+    Request {
+        from: usize,
+        to: usize,
+        request: RequestId,
+        body: Vec<u8>,
+    },
+    /// A request's outcome arriving back at `to`.
+    Result {
+        to: usize,
+        generation: u64,
+        request: RequestId,
+        result: Result<Response, Failure>,
+    },
+}
+
+pub struct SimNode {
+    pub node: Option<PeerNode>,
+    pub stored: Stored,
+    stored_nodes: BTreeMap<NodeId, dassie_peer::StoredNode>,
+    pub skew_ms: i64,
+    generation: u64,
+    next_inbound: u64,
+    /// Inbound requests waiting on a deferred reply: who asked, and which
+    /// request of theirs it was.
+    deferred: BTreeMap<InboundId, (usize, u64, RequestId)>,
+    hooks: StubHooks,
+}
+
+pub struct Network {
+    pub now: u64,
+    pub nodes: Vec<SimNode>,
+    pub config: Config,
+    pub faults: Faults,
+    pub bootstrap: Vec<Bootstrap>,
+    by_url: BTreeMap<String, usize>,
+    queue: BTreeMap<(u64, u64), Delivery>,
+    sequence: u64,
+    rng: SeededRng,
+    /// Pairs that cannot reach each other.
+    pub cut: BTreeSet<(usize, usize)>,
+    /// What happened, for comparing runs.
+    pub trace: Vec<String>,
+    pub events: Vec<(usize, Event)>,
+}
+
+impl Network {
+    pub fn new(seed: u64, count: usize, bootstrap_count: usize, config: Config) -> Self {
+        let mut rng = SeededRng::new(seed);
+        let bootstrap: Vec<Bootstrap> = (0..bootstrap_count)
+            .map(|index| Bootstrap {
+                id: key(index).node_id(),
+                url: url(index),
+                key: key(index).public_key(),
+            })
+            .collect();
+        let mut network = Self {
+            now: START,
+            nodes: Vec::new(),
+            config,
+            faults: Faults::NONE,
+            bootstrap,
+            by_url: BTreeMap::new(),
+            queue: BTreeMap::new(),
+            sequence: 0,
+            rng: SeededRng::new(rng.next_u64()),
+            cut: BTreeSet::new(),
+            trace: Vec::new(),
+            events: Vec::new(),
+        };
+        for index in 0..count {
+            let skew = i64::try_from(rng.next_u64() % 20_001).unwrap() - 10_000;
+            network.by_url.insert(url(index), index);
+            network.nodes.push(SimNode {
+                node: None,
+                stored: Stored::default(),
+                stored_nodes: BTreeMap::new(),
+                skew_ms: skew,
+                generation: 0,
+                next_inbound: 0,
+                deferred: BTreeMap::new(),
+                hooks: StubHooks,
+            });
+            network.start(index);
+        }
+        network
+    }
+
+    fn local_now(&self, index: usize) -> u64 {
+        self.now.saturating_add_signed(self.nodes[index].skew_ms)
+    }
+
+    pub fn start(&mut self, index: usize) {
+        let seed = self.rng.next_u64();
+        let now = self.local_now(index);
+        let sim = &mut self.nodes[index];
+        sim.generation += 1;
+        sim.deferred.clear();
+        sim.stored.nodes = sim.stored_nodes.values().cloned().collect();
+        let mut node = PeerNode::new(
+            self.config,
+            key(index),
+            OwnInfo {
+                url: Some(url(index)),
+                alias: format!("n{index}"),
+            },
+            self.bootstrap.clone(),
+            sim.stored.clone(),
+            Box::new(SeededRng::new(seed)),
+            now,
+        );
+        node.set_schemes(now, vec![SchemeId::parse("stub").unwrap()]);
+        sim.node = Some(node);
+        self.trace.push(format!("{} start {index}", self.now));
+    }
+
+    pub fn crash(&mut self, index: usize) {
+        self.nodes[index].node = None;
+        self.trace.push(format!("{} crash {index}", self.now));
+    }
+
+    pub fn is_up(&self, index: usize) -> bool {
+        self.nodes[index].node.is_some()
+    }
+
+    pub fn node(&self, index: usize) -> &PeerNode {
+        self.nodes[index].node.as_ref().unwrap()
+    }
+
+    fn schedule(&mut self, delay: u64, delivery: Delivery) {
+        self.sequence += 1;
+        self.queue
+            .insert((self.now + delay, self.sequence), delivery);
+    }
+
+    fn latency(&mut self) -> u64 {
+        let span = self.faults.max_latency_ms - self.faults.min_latency_ms + 1;
+        self.faults.min_latency_ms + self.rng.next_u64() % span
+    }
+
+    fn chance(&mut self, per_mille: u64) -> bool {
+        self.rng.next_u64() % 1000 < per_mille
+    }
+
+    /// Persists what a node changed and carries out its outputs.
+    fn drain(&mut self, index: usize) {
+        let Some(node) = self.nodes[index].node.as_mut() else {
+            return;
+        };
+        node.check_invariants();
+        let mut batch = PeerBatch::default();
+        node.take_changes(&mut batch);
+        let mut outputs = Vec::new();
+        while let Some(output) = node.poll_output() {
+            outputs.push(output);
+        }
+        while let Some(event) = node.poll_event() {
+            self.trace.push(format!("{} {index} {event:?}", self.now));
+            self.events.push((index, event));
+        }
+        let sim = &mut self.nodes[index];
+        for stored in batch.nodes {
+            sim.stored_nodes.insert(stored.id, stored);
+        }
+        for removed in batch.removed {
+            sim.stored_nodes.remove(&removed);
+        }
+        if let Some(sequence) = batch.own_sequence {
+            sim.stored.own_sequence = sequence;
+        }
+        for output in outputs {
+            self.carry(index, output);
+        }
+    }
+
+    fn carry(&mut self, index: usize, output: Output) {
+        match output {
+            Output::Request(request) => self.send(index, request),
+            Output::Reply { inbound, reply } => {
+                let Some((to, generation, request)) = self.nodes[index].deferred.remove(&inbound)
+                else {
+                    return;
+                };
+                let response = Response {
+                    status: reply.status,
+                    body: reply.body,
+                };
+                let delay = self.latency();
+                self.schedule(
+                    delay,
+                    Delivery::Result {
+                        to,
+                        generation,
+                        request,
+                        result: Ok(response),
+                    },
+                );
+            }
+        }
+    }
+
+    fn send(&mut self, from: usize, request: Request) {
+        self.trace.push(format!(
+            "{} {from} -> {:?} {:?}",
+            self.now, request.to, request.kind
+        ));
+        let generation = self.nodes[from].generation;
+        let Some(&to) = self.by_url.get(&request.url) else {
+            self.schedule(
+                1,
+                Delivery::Result {
+                    to: from,
+                    generation,
+                    request: request.id,
+                    result: Err(Failure::NotDelivered),
+                },
+            );
+            return;
+        };
+        if self.cut.contains(&(from, to))
+            || self.cut.contains(&(to, from))
+            || self.chance(self.faults.loss)
+        {
+            let delay = self.latency();
+            self.schedule(
+                delay,
+                Delivery::Result {
+                    to: from,
+                    generation,
+                    request: request.id,
+                    result: Err(Failure::NotDelivered),
+                },
+            );
+            return;
+        }
+        let copies = if self.chance(self.faults.duplication) {
+            2
+        } else {
+            1
+        };
+        for _ in 0..copies {
+            let delay = self.latency();
+            self.schedule(
+                delay,
+                Delivery::Request {
+                    from,
+                    to,
+                    request: request.id,
+                    body: request.body.clone(),
+                },
+            );
+        }
+    }
+
+    fn deliver(&mut self, delivery: Delivery) {
+        match delivery {
+            Delivery::Request {
+                from,
+                to,
+                request,
+                body,
+            } => self.arrive(from, to, request, &body),
+            Delivery::Result {
+                to,
+                generation,
+                request,
+                result,
+            } => {
+                if self.nodes[to].generation != generation {
+                    return;
+                }
+                let now = self.local_now(to);
+                let sim = &mut self.nodes[to];
+                if let Some(node) = sim.node.as_mut() {
+                    node.handle_response(now, &mut sim.hooks, request, result);
+                    self.drain(to);
+                }
+            }
+        }
+    }
+
+    fn arrive(&mut self, from: usize, to: usize, request: RequestId, body: &[u8]) {
+        let generation = self.nodes[from].generation;
+        let now = self.local_now(to);
+        let sim = &mut self.nodes[to];
+        let Some(node) = sim.node.as_mut() else {
+            let delay = self.latency();
+            self.schedule(
+                delay,
+                Delivery::Result {
+                    to: from,
+                    generation,
+                    request,
+                    result: Err(Failure::NotDelivered),
+                },
+            );
+            return;
+        };
+        let inbound = InboundId(sim.next_inbound);
+        sim.next_inbound += 1;
+        let reply = match node.handle_inbound(now, &mut sim.hooks, inbound, body) {
+            Inbound::Reply(reply) => Some(reply),
+            Inbound::Deferred => {
+                sim.deferred.insert(inbound, (from, generation, request));
+                None
+            }
+            Inbound::Packet { reply, .. } => Some(reply),
+        };
+        self.drain(to);
+        if let Some(reply) = reply {
+            let delay = self.latency();
+            let response = Response {
+                status: reply.status,
+                body: reply.body,
+            };
+            self.schedule(
+                delay,
+                Delivery::Result {
+                    to: from,
+                    generation,
+                    request,
+                    result: Ok(response),
+                },
+            );
+        }
+    }
+
+    /// Runs until `until`.
+    pub fn run_until(&mut self, until: u64) {
+        let mut steps = 0u64;
+        loop {
+            steps += 1;
+            assert!(steps < 10_000_000, "the simulation made no progress");
+            let next_delivery = self.queue.keys().next().map(|(at, _)| *at);
+            let next_timer = (0..self.nodes.len())
+                .filter_map(|index| {
+                    let node = self.nodes[index].node.as_ref()?;
+                    let local = node.poll_timeout()?;
+                    // Back from the node's clock to the network's.
+                    Some(local.saturating_add_signed(-self.nodes[index].skew_ms))
+                })
+                .min();
+            let next = [next_delivery, next_timer].into_iter().flatten().min();
+            let Some(next) = next.filter(|at| *at <= until) else {
+                self.now = until;
+                return;
+            };
+            self.now = self.now.max(next);
+            if next_delivery == Some(next) {
+                let key = *self.queue.keys().next().unwrap();
+                let delivery = self.queue.remove(&key).unwrap();
+                self.deliver(delivery);
+                continue;
+            }
+            for index in 0..self.nodes.len() {
+                let now = self.local_now(index);
+                let sim = &mut self.nodes[index];
+                let Some(node) = sim.node.as_mut() else {
+                    continue;
+                };
+                if node.poll_timeout().is_some_and(|at| at <= now) {
+                    node.handle_timeout(now, &mut sim.hooks);
+                    self.drain(index);
+                    let node = self.nodes[index].node.as_ref().unwrap();
+                    assert!(
+                        node.poll_timeout().is_none_or(|at| at > now),
+                        "node {index} is due again at once"
+                    );
+                }
+            }
+        }
+    }
+
+    pub fn up(&self) -> impl Iterator<Item = usize> + '_ {
+        (0..self.nodes.len()).filter(|index| self.is_up(*index))
+    }
+
+    /// The peer graph as both ends see it: an edge where both are peered.
+    pub fn peer_graph(&self) -> BTreeMap<NodeId, Vec<NodeId>> {
+        let mut graph: BTreeMap<NodeId, Vec<NodeId>> = BTreeMap::new();
+        for index in self.up() {
+            let node = self.node(index);
+            graph.entry(*node.own()).or_default();
+            for (peer, _) in node.peers() {
+                let mutual = self.up().any(|other| {
+                    self.node(other).own() == peer
+                        && self.node(other).peering_of(node.own()).is_some()
+                });
+                if mutual {
+                    graph.entry(*node.own()).or_default().push(*peer);
+                }
+            }
+        }
+        for list in graph.values_mut() {
+            list.sort_unstable();
+        }
+        graph
+    }
+}
+
+/// Whether `graph` is connected.
+pub fn connected(graph: &BTreeMap<NodeId, Vec<NodeId>>) -> bool {
+    let Some(start) = graph.keys().next() else {
+        return true;
+    };
+    let mut seen = BTreeSet::from([*start]);
+    let mut stack = vec![*start];
+    while let Some(node) = stack.pop() {
+        for next in graph.get(&node).into_iter().flatten() {
+            if seen.insert(*next) {
+                stack.push(*next);
+            }
+        }
+    }
+    seen.len() == graph.len()
+}
+
+impl Network {
+    pub fn node_mut(&mut self, index: usize) -> &mut PeerNode {
+        self.nodes[index].node.as_mut().unwrap()
+    }
+
+    /// Hands `body` to node `index` as an inbound request, at its clock.
+    pub fn inbound(&mut self, index: usize, body: &[u8]) -> dassie_peer::Reply {
+        let now = self.local_now(index);
+        let sim = &mut self.nodes[index];
+        let inbound = InboundId(sim.next_inbound);
+        sim.next_inbound += 1;
+        let node = sim.node.as_mut().unwrap();
+        let reply = match node.handle_inbound(now, &mut sim.hooks, inbound, body) {
+            Inbound::Reply(reply) | Inbound::Packet { reply, .. } => reply,
+            Inbound::Deferred => dassie_peer::Reply {
+                status: 0,
+                body: Vec::new(),
+            },
+        };
+        self.drain(index);
+        reply
+    }
+
+    pub fn clock(&self, index: usize) -> u64 {
+        self.local_now(index)
+    }
+}
