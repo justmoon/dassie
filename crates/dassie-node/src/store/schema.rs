@@ -20,7 +20,13 @@ pub const V0_APPLICATION_ID: i32 = 0x1DA5_3B81;
 
 /// The migrations, in order. Migration `n` (1-based) brings `user_version`
 /// to `n`. Never edit one that has shipped; add another.
-const MIGRATIONS: &[&str] = &[MIGRATION_1, MIGRATION_2, MIGRATION_3, MIGRATION_4];
+const MIGRATIONS: &[&str] = &[
+    MIGRATION_1,
+    MIGRATION_2,
+    MIGRATION_3,
+    MIGRATION_4,
+    MIGRATION_5,
+];
 
 const MIGRATION_1: &str = "
 CREATE TABLE node_config (
@@ -215,18 +221,64 @@ CREATE TABLE peer_bans (
 ) STRICT, WITHOUT ROWID;
 ";
 
+/// BTP spending caps (spec 7 §4.5), and the journal by account for the
+/// wallet's account pages. `btp_tokens` is rebuilt, since its new CHECKs
+/// span columns; nothing references it.
+const MIGRATION_5: &str = "
+CREATE TABLE btp_tokens_new (
+  id INTEGER PRIMARY KEY CHECK (id >= 1),
+  token_hash BLOB NOT NULL UNIQUE CHECK (length(token_hash) = 32),
+  label TEXT NOT NULL CHECK (length(CAST(label AS BLOB)) <= 64),
+  ledger TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  revoked_at_ms INTEGER,
+  -- At most cap_amount per cap_window_ms, refilling continuously.
+  cap_amount INTEGER CHECK (cap_amount IS NULL OR cap_amount > 0),
+  cap_window_ms INTEGER CHECK (cap_window_ms IS NULL OR cap_window_ms BETWEEN 1000 AND 31622400000),
+  -- What fulfilled packets use of the cap as of cap_as_of_ms, in amount·ms:
+  -- cap_used_amount · cap_window_ms + cap_used_remainder. Written with the
+  -- journal rows that change it.
+  cap_used_amount INTEGER NOT NULL DEFAULT 0 CHECK (cap_used_amount >= 0),
+  cap_used_remainder INTEGER NOT NULL DEFAULT 0 CHECK (cap_used_remainder >= 0),
+  cap_as_of_ms INTEGER NOT NULL DEFAULT 0,
+  CHECK ((cap_amount IS NULL) = (cap_window_ms IS NULL)),
+  CHECK (cap_window_ms IS NULL OR cap_used_remainder < cap_window_ms)
+) STRICT;
+
+INSERT INTO btp_tokens_new (id, token_hash, label, ledger, created_at_ms, revoked_at_ms)
+  SELECT id, token_hash, label, ledger, created_at_ms, revoked_at_ms FROM btp_tokens;
+DROP TABLE btp_tokens;
+ALTER TABLE btp_tokens_new RENAME TO btp_tokens;
+
+CREATE INDEX ledger_transfers_by_debit_sequence ON ledger_transfers (debit, sequence);
+CREATE INDEX ledger_transfers_by_credit_sequence ON ledger_transfers (credit, sequence);
+";
+
+/// Columns that hold secrets: the database inspector never reads them.
+pub const SECRET_COLUMNS: &[(&str, &str)] = &[
+    ("node_key", "private_key"),
+    ("tls_certificate", "key_pem"),
+    ("acme_account", "credentials"),
+    ("sessions", "id"),
+    ("btp_tokens", "token_hash"),
+];
+
 /// A column as the code expects it: name, type, NOT NULL, part of the
 /// primary key.
 type Column = (&'static str, &'static str, bool, bool);
 
 /// A table as the code expects it.
-struct Table {
-    name: &'static str,
-    without_rowid: bool,
-    columns: &'static [Column],
+pub struct Table {
+    /// Its name.
+    pub name: &'static str,
+    /// Whether it is a `WITHOUT ROWID` table.
+    pub without_rowid: bool,
+    /// Its columns: name, type, NOT NULL, part of the primary key.
+    pub columns: &'static [Column],
 }
 
-const TABLES: &[Table] = &[
+/// Every table, as the code expects it.
+pub const TABLES: &[Table] = &[
     Table {
         name: "node_config",
         without_rowid: false,
@@ -345,6 +397,11 @@ const TABLES: &[Table] = &[
             ("ledger", "TEXT", true, false),
             ("created_at_ms", "INTEGER", true, false),
             ("revoked_at_ms", "INTEGER", false, false),
+            ("cap_amount", "INTEGER", false, false),
+            ("cap_window_ms", "INTEGER", false, false),
+            ("cap_used_amount", "INTEGER", true, false),
+            ("cap_used_remainder", "INTEGER", true, false),
+            ("cap_as_of_ms", "INTEGER", true, false),
         ],
     },
     Table {
@@ -441,6 +498,11 @@ pub fn prepare(connection: &mut Connection) -> Result<(), StoreError> {
 }
 
 fn migrate(connection: &mut Connection) -> Result<(), StoreError> {
+    migrate_until(connection, MIGRATIONS.len())
+}
+
+/// Runs the migrations up to `last`, for tests of an upgrade.
+pub(super) fn migrate_until(connection: &mut Connection, last: usize) -> Result<(), StoreError> {
     let current: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
     let known = i64::try_from(MIGRATIONS.len()).unwrap_or(i64::MAX);
     if current > known {
@@ -452,6 +514,7 @@ fn migrate(connection: &mut Connection) -> Result<(), StoreError> {
     for (index, sql) in MIGRATIONS
         .iter()
         .enumerate()
+        .take(last)
         .skip(usize::try_from(current).unwrap_or(0))
     {
         let version = i64::try_from(index).unwrap_or(i64::MAX).saturating_add(1);

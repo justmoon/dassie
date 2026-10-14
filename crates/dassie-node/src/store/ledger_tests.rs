@@ -105,7 +105,7 @@ fn the_journal_restores_the_ledger() {
 fn journal_rows_carry_their_references_and_paths() {
     let store = Store::open_in_memory().unwrap();
     scenario(&store);
-    let rows = store.transfers_after(None, 100).unwrap();
+    let rows = store.transfers_after(None, 100, None).unwrap();
     assert_eq!(
         rows.len(),
         3,
@@ -124,7 +124,9 @@ fn journal_rows_carry_their_references_and_paths() {
         })
     );
     assert_eq!(rows[2].state, TransferState::Pending);
-    let after = store.transfers_after(Some(rows[0].sequence), 1).unwrap();
+    let after = store
+        .transfers_after(Some(rows[0].sequence), 1, None)
+        .unwrap();
     assert_eq!(after.len(), 1);
     assert_eq!(after[0].transfer.id, rows[1].transfer.id);
 }
@@ -133,7 +135,7 @@ fn journal_rows_carry_their_references_and_paths() {
 fn a_batch_is_all_or_nothing() {
     let store = Store::open_in_memory().unwrap();
     let mut ledger = scenario(&store);
-    let before = store.transfers_after(None, 100).unwrap();
+    let before = store.transfers_after(None, 100, None).unwrap();
     let owner = ledger.find(&path(AccountName::EquityOwner)).unwrap();
     let suspense = ledger.open(path(AccountName::EquitySuspense)).unwrap();
     ledger
@@ -157,9 +159,11 @@ fn a_batch_is_all_or_nothing() {
         ledger: LedgerId::StubUsd,
         created_at_ms: 6,
         revoked_at_ms: None,
+        cap: None,
+        cap_usage: dassie_connector::CapUsage::default(),
     });
     assert!(store.commit_ledger(&batch).is_err());
-    assert_eq!(store.transfers_after(None, 100).unwrap(), before);
+    assert_eq!(store.transfers_after(None, 100, None).unwrap(), before);
     assert_eq!(store.load_ledger().unwrap().accounts.len(), 3);
 }
 
@@ -198,6 +202,8 @@ fn schemes_checkpoints_and_tokens_round_trip() {
         ledger: LedgerId::StubUsd,
         created_at_ms: 10,
         revoked_at_ms: None,
+        cap: None,
+        cap_usage: dassie_connector::CapUsage::default(),
     };
     let batch = LedgerBatch {
         at_ms: 10,
@@ -245,13 +251,13 @@ fn paging_sees_transfers_posted_out_of_order() {
     let fast = ledger.create(10, &spec(21)).unwrap();
     ledger.post(11, fast).unwrap();
     store.commit_ledger(&drain(&mut ledger, 11)).unwrap();
-    let seen = store.transfers_after(None, 100).unwrap();
+    let seen = store.transfers_after(None, 100, None).unwrap();
     let last = seen.last().unwrap();
     assert_eq!(last.transfer.id, fast);
     let cursor = last.sequence;
     ledger.post(12, slow).unwrap();
     store.commit_ledger(&drain(&mut ledger, 12)).unwrap();
-    let next = store.transfers_after(Some(cursor), 100).unwrap();
+    let next = store.transfers_after(Some(cursor), 100, None).unwrap();
     assert_eq!(next.len(), 1);
     assert_eq!(next[0].transfer.id, slow);
     assert!(slow < fast);
@@ -275,4 +281,97 @@ fn a_scheme_removed_and_added_in_one_batch_stays() {
     };
     store.commit_ledger(&again).unwrap();
     assert_eq!(store.settlement_schemes().unwrap(), [(stub, "{}".into())]);
+}
+
+// Spec 7 §4.5: a token's cap and what is used of it survive exactly, the
+// usage split into whole amounts and a remainder.
+#[test]
+fn token_caps_round_trip_exactly() {
+    let store = Store::open_in_memory().unwrap();
+    let cap = dassie_connector::SpendingCap {
+        amount: 1_000,
+        window_ms: 3_600_000,
+    };
+    let usage = dassie_connector::CapUsage {
+        used: 123 * 3_600_000 + 4_567,
+        as_of_ms: 99,
+    };
+    let token = BtpTokenRow {
+        id: 1,
+        token_hash: [7; 32],
+        label: "capped".into(),
+        ledger: LedgerId::StubUsd,
+        created_at_ms: 10,
+        revoked_at_ms: None,
+        cap: Some(cap),
+        cap_usage: dassie_connector::CapUsage::new(10),
+    };
+    let batch = LedgerBatch {
+        at_ms: 10,
+        tokens_created: vec![token.clone()],
+        ..LedgerBatch::default()
+    };
+    store.commit_ledger(&batch).unwrap();
+    assert_eq!(store.btp_tokens().unwrap(), std::slice::from_ref(&token));
+    let batch = LedgerBatch {
+        at_ms: 99,
+        token_caps: vec![TokenCap {
+            id: 1,
+            cap: Some(cap),
+            usage,
+        }],
+        ..LedgerBatch::default()
+    };
+    store.commit_ledger(&batch).unwrap();
+    let stored = &store.btp_tokens().unwrap()[0];
+    assert_eq!((stored.cap, stored.cap_usage), (Some(cap), usage));
+    let batch = LedgerBatch {
+        at_ms: 100,
+        token_caps: vec![TokenCap {
+            id: 1,
+            cap: None,
+            usage: dassie_connector::CapUsage::new(100),
+        }],
+        ..LedgerBatch::default()
+    };
+    store.commit_ledger(&batch).unwrap();
+    assert_eq!(store.btp_tokens().unwrap()[0].cap, None);
+}
+
+// The wallet's account page reads one account's transfers, newest last,
+// and pages on from there.
+#[test]
+fn transfers_of_one_account() {
+    let store = Store::open_in_memory().unwrap();
+    let ledger = scenario(&store);
+    let token = ledger
+        .find(&path(AccountName::EquityOwnerSub(OwnerSub::Btp(1))))
+        .unwrap();
+    let settlement = ledger.find(&path(AccountName::AssetsSettlement)).unwrap();
+    let all = store.transfers_after(None, 100, None).unwrap();
+    let of = |account| {
+        all.iter()
+            .filter(|row| row.transfer.debit == account || row.transfer.credit == account)
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        store.transfers_after(None, 100, Some(token)).unwrap(),
+        of(token)
+    );
+    assert_eq!(
+        store.transfers_after(None, 100, Some(settlement)).unwrap(),
+        of(settlement)
+    );
+    // Both sides of an account in one page, in order and bounded.
+    let owner = ledger.find(&path(AccountName::EquityOwner)).unwrap();
+    let first = store.transfers_after(None, 1, Some(owner)).unwrap();
+    assert_eq!(first, of(owner)[..1]);
+    let rest = store
+        .transfers_after(Some(first[0].sequence), 100, Some(owner))
+        .unwrap();
+    assert_eq!(rest, of(owner)[1..]);
+    let last = store.transfers_last(1, Some(owner)).unwrap();
+    assert_eq!(last, of(owner)[of(owner).len() - 1..]);
+    assert_eq!(store.transfers_last(100, None).unwrap(), all);
 }

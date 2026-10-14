@@ -146,6 +146,8 @@ impl Core {
             ledger,
             created_at_ms: self.now_ms(),
             revoked_at_ms: None,
+            cap: None,
+            cap_usage: dassie_connector::CapUsage::default(),
         };
         let account = self
             .ledger

@@ -156,6 +156,7 @@ fn list_transfers(node: &Node, request: &proto::ListTransfersRequest) -> Result<
         .transfers_after(
             request.after_sequence,
             u32::try_from(page(request.limit)).unwrap_or(MAX_PAGE),
+            None,
         )
         .map_err(RpcError::internal)?;
     Ok(Reply::Unary(response::Method::ListTransfers(
