@@ -16,7 +16,7 @@ use dassie_peer::wire::{
     Authentication, Content, Entry, NodeInfo, PeeringRequest, PeeringResponse, RefusalReason,
     ResponseEnvelope, SchemeId, SignedNodeInfo, encode_envelope, sign_node_info,
 };
-use dassie_peer::{Config, Event, OwnInfo, PeerNode, Sources, Stored};
+use dassie_peer::{Config, Event, OwnInfo, PeerNode, PeerStatus, RegisterError, Sources, Stored};
 use support::{Network, START, key, url};
 
 fn settle(network: &mut Network, ms: u64) {
@@ -59,7 +59,7 @@ fn two_nodes_register_peer_and_route() {
     settle(&mut network, 30_000);
     let (a, b) = (network.node(0), network.node(1));
     assert!(a.peering_of(b.own()).is_some() && b.peering_of(a.own()).is_some());
-    assert_eq!(a.routes()[b.own()], vec![*b.own()]);
+    assert_eq!(a.routes()[b.own()].first_hops, vec![*b.own()]);
     assert!(a.majority().contains(b.own()), "registered, so on the list");
     assert!(b.registration_status()[0].listed);
     let peering = a.peering_of(b.own()).unwrap();
@@ -67,6 +67,14 @@ fn two_nodes_register_peer_and_route() {
         (peering.credit_in, peering.credit_out),
         (support::CREDIT, support::CREDIT)
     );
+    let views = a.nodes();
+    let view = |id: &dassie_identity::NodeId| views.iter().find(|view| view.id == *id).unwrap();
+    let (own, peer) = (view(a.own()), view(b.own()));
+    assert_eq!((own.distance_hops, peer.distance_hops), (Some(0), Some(1)));
+    assert_eq!(peer.peer_status, PeerStatus::Peered);
+    assert_eq!(peer.neighbors, vec![*a.own()]);
+    assert_eq!(peer.public_key, Some(key(1).public_key()));
+    assert_eq!(peer.schemes, vec![SchemeId::parse("stub").unwrap()]);
 }
 
 // NET-3, NET-4: a peering request whose link state is not the sender's is
@@ -276,5 +284,50 @@ fn the_served_list_is_registrations_and_self() {
             .events
             .iter()
             .any(|(index, event)| *index == 0 && matches!(event, Event::Registered(_)))
+    );
+}
+
+// The owner can register with a bootstrap node now, whatever the timers
+// say (UI-4); only with a bootstrap node, and once at a time.
+#[test]
+fn the_owner_registers_now() {
+    // Once registered, renewing is not due for another 30 s.
+    let mut network = Network::new(1, 2, 1, Config::DEV);
+    while network.node(1).registration_status()[0]
+        .registered_ms
+        .is_none()
+    {
+        settle(&mut network, 100);
+    }
+    settle(&mut network, 5_000);
+    let bootstrap = *network.node(0).own();
+    let before = network.node(1).registration_status()[0]
+        .registered_ms
+        .unwrap();
+    let own = *network.node(1).own();
+    let stranger = key(7).node_id();
+    let mut results = vec![];
+    network.act(1, |node, now| {
+        results.push(node.register_now(now, &own));
+        results.push(node.register_now(now, &stranger));
+        results.push(node.register_now(now, &bootstrap));
+        results.push(node.register_now(now, &bootstrap));
+    });
+    assert_eq!(
+        results,
+        vec![
+            Err(RegisterError::NotBootstrap),
+            Err(RegisterError::NotBootstrap),
+            Ok(()),
+            Err(RegisterError::InFlight)
+        ]
+    );
+    settle(&mut network, 1_000);
+    let after = network.node(1).registration_status()[0]
+        .registered_ms
+        .unwrap();
+    assert!(
+        after >= before + 5_000,
+        "registered again: {before} → {after}"
     );
 }

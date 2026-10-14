@@ -30,8 +30,8 @@ use crate::table::{Bucket, Entry, Sources};
 use crate::wire::{Authentication, Content, ResponseEnvelope, SchemeId, encode_envelope};
 
 pub use lifecycle::BanError;
-pub use membership::RegistrationStatus;
-pub use state::NodeView;
+pub use membership::{RegisterError, RegistrationStatus};
+pub use state::{NodeView, PeerStatus};
 
 use membership::Lists;
 

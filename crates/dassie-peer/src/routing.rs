@@ -14,9 +14,18 @@ use dassie_identity::NodeId;
 /// Most first hops kept per destination.
 pub const MAX_FIRST_HOPS: usize = 4;
 
-/// The routes: for each reachable node, its first hops, sorted. There is
-/// none for ourselves (NET-34).
-pub type Routes = BTreeMap<NodeId, Vec<NodeId>>;
+/// The route to a node.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Route {
+    /// How many hops away it is: 1 for a neighbor.
+    pub distance_hops: u32,
+    /// Its first hops on shortest paths, sorted.
+    pub first_hops: Vec<NodeId>,
+}
+
+/// The routes: one for each reachable node. There is none for ourselves
+/// (NET-34).
+pub type Routes = BTreeMap<NodeId, Route>;
 
 /// Computes the routes from `own`. `neighbors` gives a node's advertised
 /// neighbors, sorted, if its link state is fresh.
@@ -32,7 +41,13 @@ pub fn compute<'a>(own: &NodeId, neighbors: impl Fn(&NodeId) -> Option<&'a [Node
     for neighbor in own_neighbors {
         if neighbor != own && is_edge(&neighbors, own, neighbor) && !level.contains_key(neighbor) {
             level.insert(*neighbor, 1);
-            routes.insert(*neighbor, alloc::vec![*neighbor]);
+            routes.insert(
+                *neighbor,
+                Route {
+                    distance_hops: 1,
+                    first_hops: alloc::vec![*neighbor],
+                },
+            );
             queue.push_back(*neighbor);
         }
     }
@@ -40,7 +55,10 @@ pub fn compute<'a>(own: &NodeId, neighbors: impl Fn(&NodeId) -> Option<&'a [Node
         let Some(&depth) = level.get(&current) else {
             continue;
         };
-        let hops = routes.get(&current).cloned().unwrap_or_default();
+        let hops = routes
+            .get(&current)
+            .map(|route| route.first_hops.clone())
+            .unwrap_or_default();
         for next in neighbors(&current).unwrap_or_default() {
             if !is_edge(&neighbors, &current, next) {
                 continue;
@@ -48,12 +66,18 @@ pub fn compute<'a>(own: &NodeId, neighbors: impl Fn(&NodeId) -> Option<&'a [Node
             match level.get(next) {
                 None => {
                     level.insert(*next, depth + 1);
-                    routes.insert(*next, hops.clone());
+                    routes.insert(
+                        *next,
+                        Route {
+                            distance_hops: depth + 1,
+                            first_hops: hops.clone(),
+                        },
+                    );
                     queue.push_back(*next);
                 }
                 Some(&other) if other == depth + 1 => {
                     if let Some(existing) = routes.get_mut(next) {
-                        merge(existing, &hops);
+                        merge(&mut existing.first_hops, &hops);
                     }
                 }
                 Some(_) => {}
@@ -121,9 +145,14 @@ mod tests {
             ("dd", "de"),
         ]);
         let routes = routes(&map, "da");
-        assert_eq!(routes[&id("db")], vec![id("db")]);
-        assert_eq!(routes[&id("dd")], vec![id("db"), id("dc")]);
-        assert_eq!(routes[&id("de")], vec![id("db"), id("dc")]);
+        assert_eq!(routes[&id("db")].first_hops, vec![id("db")]);
+        assert_eq!(routes[&id("dd")].first_hops, vec![id("db"), id("dc")]);
+        assert_eq!(routes[&id("de")].first_hops, vec![id("db"), id("dc")]);
+        let distances: Vec<u32> = ["db", "dc", "dd", "de"]
+            .iter()
+            .map(|name| routes[&id(name)].distance_hops)
+            .collect();
+        assert_eq!(distances, vec![1, 1, 2, 3]);
         assert!(
             !routes.contains_key(&id("da")),
             "no route to ourselves (NET-34)"
@@ -158,6 +187,9 @@ mod tests {
             edges.push((name, "dz"));
         }
         let map = graph(&edges);
-        assert_eq!(routes(&map, "da")[&id("dz")].len(), MAX_FIRST_HOPS);
+        assert_eq!(
+            routes(&map, "da")[&id("dz")].first_hops.len(),
+            MAX_FIRST_HOPS
+        );
     }
 }

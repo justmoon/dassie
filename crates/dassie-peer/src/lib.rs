@@ -42,6 +42,9 @@ pub use hooks::{Agreed, Declined, PeeringHooks};
 pub use io::{
     Event, Failure, Inbound, InboundId, Output, Reply, Request, RequestId, Response, Stats,
 };
-pub use node::{BanError, Bootstrap, NodeView, OwnInfo, PeerNode, RegistrationStatus, SendError};
+pub use node::{
+    BanError, Bootstrap, NodeView, OwnInfo, PeerNode, PeerStatus, RegisterError,
+    RegistrationStatus, SendError,
+};
 pub use persist::{PeerBatch, Stored, StoredChannel, StoredNode};
 pub use table::{Advertise, Network, Peering, Registration, Sources, Termination};

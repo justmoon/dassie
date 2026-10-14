@@ -576,8 +576,9 @@ impl Core {
             .peer
             .routes()
             .iter()
-            .map(|(destination, hops)| {
-                let endpoints = hops
+            .map(|(destination, route)| {
+                let endpoints = route
+                    .first_hops
                     .iter()
                     .filter_map(|hop| self.peer_endpoints.get(hop))
                     .map(|id| EndpointId::Peer(*id))
