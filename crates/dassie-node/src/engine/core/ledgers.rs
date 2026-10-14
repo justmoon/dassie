@@ -5,8 +5,8 @@ use dassie_ledger::{
 };
 use dassie_settlement::{Activation, Effect, SettlementScheme, activation};
 
+use super::Core;
 use super::packets::{RECEIVER, RECEIVER_SEGMENT, Receiver};
-use super::state::Core;
 use super::{Credentials, EngineError};
 use crate::log::target;
 use crate::store::Store;
@@ -46,19 +46,15 @@ impl Core {
     /// Activates the stored schemes, booking what changed while the node was
     /// down.
     pub(super) fn load_schemes(&mut self, store: &Store) -> Result<(), String> {
-        let checkpoints = store.checkpoints().map_err(|e| e.to_string())?;
         for (id, config) in store.settlement_schemes().map_err(|e| e.to_string())? {
-            let checkpoint = checkpoints
-                .iter()
-                .find(|(scheme, _)| *scheme == id)
-                .map(|&(_, balance)| balance);
+            let checkpoint = self.checkpoints.get(&id).copied();
             self.activate(id, config, checkpoint, false)
                 .map_err(|e| format!("settlement scheme {id}: {e}"))?;
         }
         Ok(())
     }
 
-    pub(super) fn add_scheme(
+    pub(in crate::engine) fn add_scheme(
         &mut self,
         id: &str,
         config: String,
@@ -68,13 +64,7 @@ impl Core {
         if self.schemes.contains_key(&id) {
             return Err(EngineError::Precondition("the scheme is active".into()));
         }
-        let checkpoint = self
-            .node
-            .store()
-            .checkpoints()?
-            .into_iter()
-            .find(|(scheme, _)| *scheme == id)
-            .map(|(_, balance)| balance);
+        let checkpoint = self.checkpoints.get(&id).copied();
         let ledger = self.activate(id, config, checkpoint, true)?;
         self.ledger_view(ledger)
             .ok_or_else(|| EngineError::Internal("the ledger vanished".into()))
@@ -132,6 +122,7 @@ impl Core {
             tracing::info!(target: target::SETTLEMENT, scheme = %id, ?reference, amount, "booked the scheme's balance");
         }
         self.batch.checkpoints.push((id, balance));
+        self.checkpoints.insert(id, balance);
         if new {
             self.batch.schemes_added.push((id, config));
         }
@@ -140,7 +131,7 @@ impl Core {
         Ok(ledger)
     }
 
-    pub(super) fn remove_scheme(&mut self, id: &str) -> Result<(), EngineError> {
+    pub(in crate::engine) fn remove_scheme(&mut self, id: &str) -> Result<(), EngineError> {
         let id =
             Name::new(id).map_err(|_| EngineError::NotFound("the scheme is not active".into()))?;
         let ledger = match self.schemes.get(&id) {
@@ -173,7 +164,10 @@ impl Core {
         Ok(())
     }
 
-    pub(super) fn stub_deposit(&mut self, amount: u64) -> Result<LedgerView, EngineError> {
+    pub(in crate::engine) fn stub_deposit(
+        &mut self,
+        amount: u64,
+    ) -> Result<LedgerView, EngineError> {
         let stub = Name::new("stub").map_err(|_| EngineError::Internal("name".into()))?;
         let inactive = || EngineError::Precondition("the stub scheme is not active".into());
         let ledger = self
@@ -202,6 +196,7 @@ impl Core {
         let balance = active.scheme.balance();
         self.apply_effects(ledger, &effects)?;
         self.batch.checkpoints.push((stub, balance));
+        self.checkpoints.insert(stub, balance);
         self.ledger_view(ledger)
             .ok_or_else(|| EngineError::Internal("the ledger vanished".into()))
     }
@@ -282,21 +277,22 @@ impl Core {
         Ok(())
     }
 
-    pub(super) fn stream_credentials(&mut self, tag: &str) -> Result<Credentials, EngineError> {
+    pub(in crate::engine) fn stream_credentials(
+        &mut self,
+        tag: &str,
+    ) -> Result<Credentials, EngineError> {
         if tag.len() > dassie_stream::token::MAX_CONNECTION_TAG_LENGTH {
             return Err(EngineError::Invalid("the tag is too long".into()));
         }
-        let Self { node, receiver, .. } = self;
+        let Self { rng, receiver, .. } = self;
         let Some(receiver) = receiver.as_ref() else {
             return Err(EngineError::Precondition(
                 "no settlement scheme is active".into(),
             ));
         };
-        let credentials = node.with_rng(|rng| {
-            receiver
-                .server
-                .generate_credentials(rng, tag.as_bytes(), None)
-        });
+        let credentials = receiver
+            .server
+            .generate_credentials(rng.as_mut(), tag.as_bytes(), None);
         Ok(Credentials {
             destination: credentials.destination,
             shared_secret: credentials.shared_secret,
@@ -304,14 +300,14 @@ impl Core {
         })
     }
 
-    pub(super) fn active_schemes(&self) -> Vec<String> {
+    pub(in crate::engine) fn active_schemes(&self) -> Vec<String> {
         self.schemes
             .keys()
             .map(|id| id.as_str().to_string())
             .collect()
     }
 
-    pub(super) fn ledger_views(&self) -> Vec<LedgerView> {
+    pub(in crate::engine) fn ledger_views(&self) -> Vec<LedgerView> {
         let mut ledgers: Vec<LedgerId> = self
             .schemes
             .values()

@@ -1,7 +1,7 @@
 //! Arbitrary frames never make an RPC connection panic, and anything that is
 //! not a `ClientMessage` ends it as a protocol error (D16, spec 7 §7).
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::disallowed_types)]
 
 use std::convert::Infallible;
 use std::sync::Arc;

@@ -1,6 +1,8 @@
 //! The Dassie daemon.
 
 #![forbid(unsafe_code)]
+// Allowed in the daemon, denied in the engine's core (see clippy.toml).
+#![allow(clippy::disallowed_types)]
 #![deny(missing_docs)]
 #![deny(
     clippy::indexing_slicing,

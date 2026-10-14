@@ -10,7 +10,7 @@ use dassie_ledger::LedgerId;
 use dassie_oer::Decode;
 use dassie_stream::{AssetDetails, ConnectionId, Event, Policy, Server, ServerConfig};
 
-use super::state::Core;
+use super::Core;
 use super::{EngineError, Outbound};
 use crate::log::target;
 
@@ -163,7 +163,7 @@ impl Core {
     /// Hands a Prepare to the receiver, which answers at once.
     fn deliver(&mut self, now: u64, forwarded: Forwarded) {
         let Self {
-            node,
+            rng,
             receiver,
             out,
             scratch,
@@ -176,11 +176,12 @@ impl Core {
         else {
             return;
         };
-        let length = node.with_rng(|rng| {
-            receiver
-                .server
-                .handle_prepare(Timestamp::from_unix_ms(now), rng, &prepare, scratch)
-        });
+        let length = receiver.server.handle_prepare(
+            Timestamp::from_unix_ms(now),
+            rng.as_mut(),
+            &prepare,
+            scratch,
+        );
         let upstream = self.connector.handle_response(
             now,
             RECEIVER,
@@ -291,7 +292,7 @@ impl Core {
         let at = Timestamp::from_unix_ms(now);
         loop {
             let Self {
-                node,
+                rng,
                 receiver,
                 scratch,
                 ..
@@ -302,8 +303,7 @@ impl Core {
             let Some(connection) = receiver.server.connection_mut(id) else {
                 return;
             };
-            let Some(transmit) = node.with_rng(|rng| connection.poll_transmit(at, rng, scratch))
-            else {
+            let Some(transmit) = connection.poll_transmit(at, rng.as_mut(), scratch) else {
                 return;
             };
             let local = receiver.next_request;
@@ -375,7 +375,7 @@ impl Core {
     }
 
     /// A BTP client went away: its packets in flight fail upstream.
-    pub(super) fn btp_closed(&mut self, link: u64) {
+    pub fn btp_closed(&mut self, link: u64) {
         let Some(removed) = self.links.remove(&link) else {
             return;
         };
@@ -388,10 +388,11 @@ impl Core {
         tracing::debug!(target: target::BTP, link, "BTP client gone");
     }
 
-    /// Ends a BTP connection from this side.
-    pub(super) fn close_link(&mut self, link: u64) {
-        if let Some(existing) = self.links.get(&link) {
-            let _ = existing.outbound.try_send(Outbound::Close);
+    /// Ends a BTP connection from this side: its client is told, after
+    /// the messages already queued for it.
+    pub fn close_link(&mut self, link: u64) {
+        if self.links.contains_key(&link) {
+            self.outputs.push((link, Outbound::Close));
         }
         self.btp_closed(link);
     }

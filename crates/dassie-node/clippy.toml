@@ -1,0 +1,17 @@
+# Functions stay short enough to read in one go (D16).
+too-many-lines-threshold = 70
+
+# The daemon does IO, so these are allowed in the crate as a whole. The
+# engine's core denies them (`engine/core`): it gets time, randomness and
+# its inputs from its driver, so a simulation can drive the same code
+# (D16).
+disallowed-types = [
+  { path = "std::collections::HashMap", reason = "random iteration order; use BTreeMap or a fixed table (D16)" },
+  { path = "std::collections::HashSet", reason = "random iteration order; use BTreeSet or a fixed table (D16)" },
+  { path = "std::time::SystemTime", reason = "time is an input, `now_ms` (D16)" },
+  { path = "std::time::Instant", reason = "time is an input, `now_ms` (D16)" },
+  { path = "tokio::sync::mpsc::Sender", reason = "the core hands outputs to its driver (D16)" },
+  { path = "tokio::sync::broadcast::Sender", reason = "the core hands outputs to its driver (D16)" },
+  { path = "dassie_node::node::Node", reason = "the core gets what it needs in `CoreParts` (D16)" },
+  { path = "dassie_node::clock::SystemClock", reason = "time is an input, `now_ms` (D16)" },
+]

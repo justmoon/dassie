@@ -170,9 +170,9 @@ impl Revocation {
 
 /// The node.
 pub struct Node {
-    store: Store,
+    store: Arc<Store>,
     clock: Arc<dyn Clock>,
-    rng: Mutex<Box<dyn SharedRng>>,
+    rng: Arc<Mutex<Box<dyn SharedRng>>>,
     config: watch::Sender<NodeConfig>,
     /// Held across each read, change and write of the configuration, so
     /// that concurrent changes cannot undo each other.
@@ -244,8 +244,8 @@ impl Node {
         }
         let setup_token = SetupToken::generate(rng.as_mut());
         Ok(Arc::new(Self {
-            store,
-            rng: Mutex::new(rng),
+            store: Arc::new(store),
+            rng: Arc::new(Mutex::new(rng)),
             config: watch::Sender::new(config),
             config_writer: Mutex::new(()),
             node_key: watch::Sender::new(node_key),
@@ -316,6 +316,12 @@ impl Node {
     /// Runs `f` with the node's RNG.
     pub fn with_rng<T>(&self, f: impl FnOnce(&mut dyn SharedRng) -> T) -> T {
         f(lock(&self.rng).as_mut())
+    }
+
+    /// The node's RNG, as one a task can own.
+    #[must_use]
+    pub fn shared_rng(&self) -> Box<dyn SharedRng> {
+        Box::new(LockedRng(Arc::clone(&self.rng)))
     }
 
     /// A place for one more BTP client, if any is left.
@@ -412,7 +418,36 @@ impl Node {
 
     /// The database.
     #[must_use]
-    pub const fn store(&self) -> &Store {
+    pub fn store(&self) -> &Store {
         &self.store
     }
+
+    /// The database, as a task can own it.
+    #[must_use]
+    pub fn store_handle(&self) -> Arc<Store> {
+        Arc::clone(&self.store)
+    }
 }
+
+/// The node's RNG behind its lock: each draw takes the lock, so a task may
+/// own one while others draw too.
+struct LockedRng(Arc<Mutex<Box<dyn SharedRng>>>);
+
+impl rand_core::TryRng for LockedRng {
+    type Error = std::convert::Infallible;
+
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        Ok(rand_core::Rng::next_u32(&mut **lock(&self.0)))
+    }
+
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        Ok(rand_core::Rng::next_u64(&mut **lock(&self.0)))
+    }
+
+    fn try_fill_bytes(&mut self, dst: &mut [u8]) -> Result<(), Self::Error> {
+        rand_core::Rng::fill_bytes(&mut **lock(&self.0), dst);
+        Ok(())
+    }
+}
+
+impl rand_core::TryCryptoRng for LockedRng {}
