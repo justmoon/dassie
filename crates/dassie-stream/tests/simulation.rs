@@ -341,3 +341,55 @@ fn events_report_the_remote_opening_streams() {
     assert_eq!(opened, 1);
     let _ = Event::Connected;
 }
+
+#[test]
+fn a_connection_receives_no_more_than_its_limit() {
+    // As an incoming payment of 600 would let in: the sender wants to send
+    // 1000, the receiver takes 600 and tells the sender so.
+    let mut sim = Simulation::new(11, Path::default(), Policy::DEFAULT);
+    sim.money_limit = Some(600);
+    sim.client.set_exchange_rate(Rate::ONE);
+    let stream = sim.client.open_stream().unwrap();
+    sim.client.set_send_max(stream, 1_000).unwrap();
+    sim.run_until(STEPS, |sim| server_received(sim) == 600);
+    for _ in 0..200 {
+        if !sim.step() {
+            break;
+        }
+    }
+    assert_eq!(server_received(&sim), 600);
+    assert_eq!(sim.money_limit, Some(0));
+    assert_eq!(sim.client.stats().amount_sent, 600);
+    assert_eq!(
+        sim.admitted_tags.first().map(Vec::as_slice),
+        Some(&b"payment-1"[..])
+    );
+}
+
+#[test]
+fn a_refused_connection_never_opens() {
+    let mut sim = Simulation::new(12, Path::default(), Policy::DEFAULT);
+    sim.refusal = Some(dassie_ilp::ErrorCode::F99_APPLICATION_ERROR);
+    sim.client.set_exchange_rate(Rate::ONE);
+    let stream = sim.client.open_stream().unwrap();
+    sim.client.set_send_max(stream, 1_000).unwrap();
+    sim.run_until(STEPS, |sim| sim.client.is_closed());
+    assert!(sim.server.connections().next().is_none());
+    assert_eq!(sim.client.stats().amount_sent, 0);
+    assert!(!sim.admitted_tags.is_empty());
+}
+
+#[test]
+fn a_kept_token_gives_the_same_credentials() {
+    // An Open Payments incoming payment shows the same credentials on
+    // every read: the application keeps the token, not the secret.
+    let mut sim = Simulation::new(13, Path::default(), Policy::DEFAULT);
+    let token = sim.server.issue_token(&mut sim.rng, b"payment-2", None);
+    let first = sim.server.credentials_for(&token);
+    assert_eq!(sim.server.credentials_for(&token), first);
+    let other = sim.server.issue_token(&mut sim.rng, b"payment-2", None);
+    assert_ne!(
+        sim.server.credentials_for(&other).shared_secret,
+        first.shared_secret
+    );
+}

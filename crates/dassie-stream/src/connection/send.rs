@@ -292,9 +292,18 @@ impl Connection {
         stream: &crate::stream::Stream,
         visit: &mut dyn FnMut(Frame<'_>),
     ) {
+        // Under a connection limit, a stream can take no more than what is
+        // left of it.
+        let receive_max = if self.money_limit == u64::MAX {
+            stream.receive_max
+        } else {
+            stream
+                .receive_max
+                .min(stream.received.saturating_add(self.money_limit))
+        };
         visit(Frame::StreamMaxMoney {
             stream_id: stream.id,
-            receive_max: stream.receive_max,
+            receive_max,
             total_received: stream.received,
         });
         visit(Frame::StreamMaxData {

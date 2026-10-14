@@ -128,7 +128,8 @@ impl Connection {
         }
         let fulfillable = dassie_ilp::condition_for(&fulfillment) == prepare.execution_condition;
         let enough = prepare.amount >= packet.prepare_amount;
-        if !(acceptable && fulfillable && enough) {
+        let within_limit = prepare.amount <= self.money_limit;
+        if !(acceptable && fulfillable && enough && within_limit) {
             return decision;
         }
         match self.check_incoming(prepare, packet) {
@@ -423,6 +424,9 @@ impl Connection {
         self.stats.packets_received_fulfilled =
             self.stats.packets_received_fulfilled.saturating_add(1);
         self.stats.amount_received = self.stats.amount_received.saturating_add(prepare.amount);
+        if self.money_limit != u64::MAX {
+            self.money_limit -= prepare.amount;
+        }
     }
 
     /// Produces the frames of a response. Called twice per response, to

@@ -211,6 +211,9 @@ pub struct Connection {
     local_asset: Option<(String, u8)>,
     remote_asset: Option<(String, u8)>,
     receipt: Option<ReceiptSecret>,
+    /// What the application lets the connection still receive, over all
+    /// its streams; `u64::MAX` for no limit beyond the streams' own.
+    money_limit: u64,
 
     state: State,
     close_attempts: u32,
@@ -296,6 +299,7 @@ impl Connection {
                 .map(|asset| (String::from(asset.code), asset.scale)),
             remote_asset: None,
             receipt: config.receipt,
+            money_limit: u64::MAX,
             state: State::Open,
             close_attempts: 0,
             close_acknowledged: false,
@@ -475,6 +479,22 @@ impl Connection {
         stream.receive_max = amount.max(stream.received);
         self.note_window_update();
         Ok(())
+    }
+
+    /// Sets how much more the connection may receive in total, over all its
+    /// streams: a packet that would exceed it is rejected, and each stream
+    /// advertises no more than it. `u64::MAX` removes the limit. The
+    /// application sets it before each packet when the connection pays
+    /// into something with a total, such as an incoming payment.
+    pub fn set_money_limit(&mut self, remaining: u64) {
+        self.money_limit = remaining;
+    }
+
+    /// What the connection may still receive (see
+    /// [`set_money_limit`](Self::set_money_limit)).
+    #[must_use]
+    pub fn money_limit(&self) -> u64 {
+        self.money_limit
     }
 
     /// Queues `data` on a stream and returns how much fit in its buffer.

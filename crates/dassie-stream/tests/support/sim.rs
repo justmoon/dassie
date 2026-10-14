@@ -19,8 +19,8 @@ use dassie_ilp::{
 };
 use dassie_oer::{Decode, Encode};
 use dassie_stream::{
-    AssetDetails, BUFFER_LENGTH, Config, Connection, ConnectionId, Event, Policy, Role, Server,
-    ServerConfig,
+    Admission, AssetDetails, BUFFER_LENGTH, Config, Connection, ConnectionId, Event, Policy, Role,
+    Server, ServerConfig,
 };
 use rand_core::{TryCryptoRng, TryRng};
 
@@ -141,6 +141,13 @@ pub struct Simulation {
     pub server_receive_max: u64,
     /// What the client accepts per stream the server opens.
     pub client_receive_max: u64,
+    /// What the server's application still lets in, over all connections,
+    /// as an incoming payment would: `None` for no limit.
+    pub money_limit: Option<u64>,
+    /// The error the server's application refuses packets with, if any.
+    pub refusal: Option<IlpErrorCode>,
+    /// The tags the server's application was asked about.
+    pub admitted_tags: Vec<Vec<u8>>,
     /// Data each side read, per stream.
     pub received_data: BTreeMap<(Side, u64), Vec<u8>>,
     pub trace: String,
@@ -197,6 +204,9 @@ impl Simulation {
             server,
             server_receive_max: u64::MAX,
             client_receive_max: u64::MAX,
+            money_limit: None,
+            refusal: None,
+            admitted_tags: Vec::new(),
             received_data: BTreeMap::new(),
             trace: String::new(),
             queue: BTreeMap::new(),
@@ -316,6 +326,31 @@ impl Simulation {
         Ok(u64::try_from(converted).unwrap_or(u64::MAX))
     }
 
+    /// Hands a Prepare to the server through its application's admission,
+    /// and takes what it received off the limit.
+    fn admitted(&mut self, prepare: &Prepare<'_>, buffer: &mut [u8]) -> usize {
+        let (refusal, limit) = (self.refusal, self.money_limit);
+        let tags = &mut self.admitted_tags;
+        let admit = |tag: &[u8]| {
+            if tags.len() < 64 {
+                tags.push(tag.to_vec());
+            }
+            match refusal {
+                Some(code) => Admission::Refuse(code),
+                None => Admission::Accept {
+                    money_limit: limit.unwrap_or(u64::MAX),
+                },
+            }
+        };
+        let handled =
+            self.server
+                .handle_prepare_admitted(self.now, &mut self.rng, prepare, admit, buffer);
+        if let Some(limit) = self.money_limit.as_mut() {
+            *limit -= handled.received;
+        }
+        handled.length
+    }
+
     fn deliver(&mut self, message: Message) {
         match message {
             Message::Prepare {
@@ -338,12 +373,7 @@ impl Simulation {
                         let forwarded = Prepare { amount, ..prepare };
                         let mut buffer = std::mem::take(&mut self.buffer);
                         let length = match to {
-                            None => self.server.handle_prepare(
-                                self.now,
-                                &mut self.rng,
-                                &forwarded,
-                                &mut buffer,
-                            ),
+                            None => self.admitted(&forwarded, &mut buffer),
                             Some(_) => self.client.handle_prepare(
                                 self.now,
                                 &mut self.rng,
