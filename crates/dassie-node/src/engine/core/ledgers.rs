@@ -57,7 +57,7 @@ impl RemovalBlocker {
 }
 
 /// The accounts every active ledger has (spec 5 §2.6).
-const COMMON_ACCOUNTS: [AccountName; 7] = [
+const COMMON_ACCOUNTS: [AccountName; 8] = [
     AccountName::AssetsSettlement,
     AccountName::EquityOwner,
     AccountName::EquitySuspense,
@@ -65,6 +65,7 @@ const COMMON_ACCOUNTS: [AccountName; 7] = [
     AccountName::RevenueFees,
     AccountName::ExpensesFx,
     AccountName::ExpensesFees,
+    AccountName::ExpensesLosses,
 ];
 
 impl Core {

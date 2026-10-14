@@ -159,6 +159,35 @@ impl Store {
             .collect()
     }
 
+    /// What was taken back from each open incoming payment that had any
+    /// (D17).
+    ///
+    /// # Errors
+    ///
+    /// The database failed, or holds an invalid row.
+    pub fn incoming_released(
+        &self,
+    ) -> Result<std::collections::BTreeMap<PaymentId, u64>, StoreError> {
+        let connection = self.lock();
+        let mut statement = connection.prepare(
+            "SELECT id, released_amount FROM incoming_payments \
+             WHERE released_amount > 0 AND completed_at_ms IS NULL",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        let mut released = std::collections::BTreeMap::new();
+        for row in rows {
+            let (id, amount_released) = row?;
+            let id = <[u8; 16]>::try_from(id.as_slice())
+                .map_err(|_| StoreError::Corrupt("payment ID"))?;
+            let amount_released = u64::try_from(amount_released)
+                .map_err(|_| StoreError::Corrupt("released amount"))?;
+            released.insert(PaymentId(id), amount_released);
+        }
+        Ok(released)
+    }
+
     /// One incoming payment.
     pub fn incoming_payment(&self, id: PaymentId) -> Result<Option<IncomingRow>, StoreError> {
         let connection = self.lock();
@@ -336,6 +365,7 @@ pub(super) fn write_incoming(
     transaction: &Transaction<'_>,
     created: &[IncomingRow],
     progress: &std::collections::BTreeMap<PaymentId, IncomingProgress>,
+    released: &std::collections::BTreeMap<PaymentId, u64>,
 ) -> Result<(), StoreError> {
     for row in created {
         transaction.execute(
@@ -374,6 +404,12 @@ pub(super) fn write_incoming(
         if updated != 1 {
             return Err(StoreError::Corrupt("incoming payment"));
         }
+    }
+    for (id, amount) in released {
+        transaction.execute(
+            "UPDATE incoming_payments SET released_amount = released_amount + ?2 WHERE id = ?1",
+            params![id.0.as_slice(), sql_amount(*amount)?],
+        )?;
     }
     Ok(())
 }

@@ -42,6 +42,10 @@ pub struct LedgerBatch {
     pub incoming_created: Vec<super::IncomingRow>,
     /// What packets paid into incoming payments, and completions.
     pub incoming_progress: std::collections::BTreeMap<super::PaymentId, super::IncomingProgress>,
+    /// What was taken back from incoming payments, to add (D17).
+    pub incoming_released: std::collections::BTreeMap<super::PaymentId, u64>,
+    /// Fulfills owed a verdict, verdicts come, and Fulfills taken (D17).
+    pub verdicts: super::VerdictBatch,
 }
 
 impl LedgerBatch {
@@ -58,6 +62,8 @@ impl LedgerBatch {
             && self.peer.is_empty()
             && self.incoming_created.is_empty()
             && self.incoming_progress.is_empty()
+            && self.verdicts.is_empty()
+            && self.incoming_released.is_empty()
     }
 
     /// Whether it changes Open Payments resources.
@@ -276,7 +282,9 @@ impl Store {
             &transaction,
             &batch.incoming_created,
             &batch.incoming_progress,
+            &batch.incoming_released,
         )?;
+        super::owed::write_verdicts(&transaction, &batch.verdicts, batch.at_ms)?;
         transaction.commit()?;
         Ok(())
     }
@@ -393,6 +401,10 @@ fn read_transfer(row: &Row<'_>) -> rusqlite::Result<TransferRow> {
                 epoch: amount(epoch)?,
                 sequence: amount(sequence)?,
             }),
+            ("refusal", Some(epoch), Some(sequence), None, None) => Reference::Refusal(TraceId {
+                epoch: amount(epoch)?,
+                sequence: amount(sequence)?,
+            }),
             ("settlement", None, None, Some(scheme), Some(id)) => Reference::Settlement {
                 scheme: name(&scheme, "settlement scheme")?,
                 id: name(&id, "settlement ID")?,
@@ -491,6 +503,13 @@ fn insert_transfer(
     let (kind, epoch, sequence, scheme, settlement) = match transfer.reference {
         Reference::Packet(trace) => (
             "packet",
+            Some(sql_amount(trace.epoch)?),
+            Some(sql_amount(trace.sequence)?),
+            None,
+            None,
+        ),
+        Reference::Refusal(trace) => (
+            "refusal",
             Some(sql_amount(trace.epoch)?),
             Some(sql_amount(trace.sequence)?),
             None,

@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use dassie_connector::{EndpointId, Forwarded, Outcome, Upstream};
+use dassie_connector::{EndpointId, Forwarded, Outcome, Responded, Upstream};
 use dassie_identity::SeedPath;
 use dassie_ilp::{Address, ErrorCode, Prepare, Timestamp};
 use dassie_ledger::LedgerId;
@@ -120,21 +120,32 @@ impl Core {
     }
 
     /// An ILP packet from a peer: a Prepare, or the response to one of
-    /// ours, told apart by its type.
+    /// ours, told apart by its type. Returns whether we took it, which for
+    /// a Fulfill is our verdict (D17): it posted the packet, now or before.
+    /// A response from a node no longer peered can only be a resend.
     pub(super) fn peer_packet(
         &mut self,
         from: dassie_identity::NodeId,
         request_id: u32,
         packet: &[u8],
-    ) {
-        let Some(&endpoint) = self.peer_endpoints.get(&from) else {
-            return;
-        };
-        let source = EndpointId::Peer(endpoint);
-        match packet.first() {
-            Some(&PREPARE_TYPE) => self.prepare_from(source, request_id, packet),
-            Some(_) => self.response_from(source, request_id, packet),
-            None => {}
+    ) -> bool {
+        let endpoint = self.peer_endpoints.get(&from).copied();
+        match (packet.first(), endpoint) {
+            (Some(&PREPARE_TYPE), Some(endpoint)) => {
+                let source = EndpointId::Peer(endpoint);
+                if self.owes_too_much(&from, source) {
+                    let now = self.now_ms();
+                    self.refuse_busy(now, source, request_id);
+                } else {
+                    self.prepare_from(source, request_id, packet);
+                }
+                false
+            }
+            (Some(&PREPARE_TYPE) | None, _) => false,
+            (Some(_), Some(endpoint)) => {
+                self.response_from(EndpointId::Peer(endpoint), request_id, packet)
+            }
+            (Some(_), None) => self.taken_before(&from, request_id, packet),
         }
     }
 
@@ -181,10 +192,11 @@ impl Core {
         }
     }
 
-    /// A response from an endpoint, through the connector.
-    fn response_from(&mut self, source: EndpointId, request_id: u32, packet: &[u8]) {
+    /// A response from an endpoint, through the connector. Returns
+    /// whether it posted the packet, now or, for a peer's resend, before.
+    fn response_from(&mut self, source: EndpointId, request_id: u32, packet: &[u8]) -> bool {
         let now = self.now_ms();
-        let upstream = self.connector.handle_response(
+        let responded = self.connector.handle_response(
             now,
             source,
             request_id,
@@ -192,9 +204,39 @@ impl Core {
             &mut self.ledger,
             &mut self.up,
         );
-        if let Some(upstream) = upstream {
+        self.responded(now, responded, request_id, None)
+            || match (responded, source) {
+                (Responded::Unmatched, EndpointId::Peer(endpoint)) => self
+                    .endpoint_peers
+                    .get(&endpoint)
+                    .copied()
+                    .is_some_and(|peer| self.taken_before(&peer, request_id, packet)),
+                _ => false,
+            }
+    }
+
+    /// Carries out what the connector did with a response: sends it
+    /// upstream, unless it is a Fulfill owed to a peer, which goes out for
+    /// its verdict. Returns whether it posted the packet.
+    fn responded(
+        &mut self,
+        now: u64,
+        responded: Responded,
+        request_id: u32,
+        incoming: Option<(crate::store::PaymentId, u64)>,
+    ) -> bool {
+        let Responded::Resolved { upstream, posted } = responded else {
+            return false;
+        };
+        let owed = posted.is_some_and(|posted| {
+            let length = upstream.map_or(0, |upstream| upstream.length);
+            let fulfill = self.up.get(..length).unwrap_or_default().to_vec();
+            self.posted(&posted, request_id, &fulfill, incoming)
+        });
+        if !owed && let Some(upstream) = upstream {
             self.upstream(now, upstream);
         }
+        posted.is_some()
     }
 
     /// Sends an ILP packet to a peer. A Prepare that cannot be sent fails
@@ -313,10 +355,11 @@ impl Core {
             admit,
             scratch,
         );
-        if let (Some(id), received @ 1..) = (paid, handled.received) {
-            self.incoming_received(id, received);
-        }
-        let upstream = self.connector.handle_response(
+        let incoming = match (paid, handled.received) {
+            (Some(id), received @ 1..) => Some((id, received)),
+            _ => None,
+        };
+        let responded = self.connector.handle_response(
             now,
             forwarded.to,
             forwarded.request_id,
@@ -324,9 +367,9 @@ impl Core {
             &mut self.ledger,
             &mut self.up,
         );
-        if let Some(upstream) = upstream {
-            self.upstream(now, upstream);
-        }
+        // What the receiver took counts once the packet is posted, and,
+        // from a peer, once the peer's verdict says so.
+        self.responded(now, responded, forwarded.request_id, incoming);
         self.pump(now);
     }
 

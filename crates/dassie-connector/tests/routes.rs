@@ -7,7 +7,7 @@
 
 mod support;
 
-use dassie_connector::{Config, EndpointId, Outcome, RoutesError};
+use dassie_connector::{Config, EndpointId, Outcome, Responded, RoutesError};
 use dassie_ilp::{ErrorCode, Fulfill, Response, ildcp};
 use dassie_oer::{Decode, Encode};
 use support::{Harness, NOW, OWN, decode_prepare, prepare};
@@ -227,4 +227,67 @@ fn draining_peers_finish_what_is_in_flight() {
     assert_eq!((upstream.to, upstream.request_id), (BTP, 1));
     assert_eq!(harness.connector.pending_for(ONE), 0);
     assert!(!harness.connector.set_draining(EndpointId::Peer(9), true));
+}
+
+fn fulfill_bytes(fulfillment: [u8; 32]) -> Vec<u8> {
+    Fulfill {
+        fulfillment,
+        data: b"",
+    }
+    .to_vec()
+}
+
+// D17: a peer's Fulfill that is not the packet's is a resend from before
+// a restart, for a request ID used again: it is unmatched, and the packet
+// waits for its own response.
+#[test]
+fn a_peers_stale_fulfill_leaves_the_packet_in_flight() {
+    let mut harness = harness();
+    set(&mut harness, &[("test.das.dfar", &[ONE])]);
+    let packet = prepare("test.das.dfar", 10, NOW + 20_000, [5; 32]);
+    let Outcome::Forward(forwarded) = harness.prepare(NOW, TWO, 1, &packet) else {
+        panic!("not forwarded");
+    };
+    let stale = harness.respond_full(NOW + 5, ONE, forwarded.request_id, &fulfill_bytes([6; 32]));
+    assert_eq!(stale, Responded::Unmatched);
+    assert_eq!(harness.connector.pending_count(), 1);
+    // Its own Fulfill posts it, and says what was posted for whom.
+    let responded =
+        harness.respond_full(NOW + 6, ONE, forwarded.request_id, &fulfill_bytes([5; 32]));
+    let Responded::Resolved {
+        upstream: Some(upstream),
+        posted: Some(posted),
+    } = responded
+    else {
+        panic!("not posted: {responded:?}");
+    };
+    assert_eq!((upstream.to, upstream.request_id), (TWO, 1));
+    assert_eq!((posted.source, posted.source_request_id), (TWO, 1));
+    assert_eq!(posted.destination, ONE);
+    assert_eq!(posted.condition, dassie_ilp::condition_for(&[5; 32]));
+    assert_eq!(posted.transfers[0].unwrap().amount, 10);
+    assert!(posted.transfers[1].is_none());
+    // Once resolved, the same Fulfill again is unmatched.
+    let again = harness.respond_full(NOW + 7, ONE, forwarded.request_id, &fulfill_bytes([5; 32]));
+    assert_eq!(again, Responded::Unmatched);
+}
+
+// A late Fulfill resolves the packet as expired: nothing is posted.
+#[test]
+fn a_late_fulfill_posts_nothing() {
+    let mut harness = harness();
+    set(&mut harness, &[("test.das.dfar", &[ONE])]);
+    let packet = prepare("test.das.dfar", 10, NOW + 20_000, [5; 32]);
+    let Outcome::Forward(forwarded) = harness.prepare(NOW, TWO, 1, &packet) else {
+        panic!("not forwarded");
+    };
+    let expiry = decode_prepare(&harness.written(forwarded.length))
+        .expires_at
+        .unix_ms;
+    let responded =
+        harness.respond_full(expiry, ONE, forwarded.request_id, &fulfill_bytes([5; 32]));
+    assert!(matches!(
+        responded,
+        Responded::Resolved { posted: None, .. }
+    ));
 }

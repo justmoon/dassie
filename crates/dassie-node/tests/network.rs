@@ -10,6 +10,12 @@
 //! pair of accounts mirrors each other, and the money is conserved: the
 //! owners', and the stubs' on their "underlying ledger". One payment's
 //! token has a spending cap, which the journal must show it kept to.
+//!
+//! A node also crashes mid-payment: a sender, a hop or a receiver. Its
+//! peers learn from each other's verdicts which Fulfills counted (D17), so
+//! their books still mirror each other; a hop whose Fulfill its upstream
+//! refused books the loss, and the losses are what receivers got beyond
+//! what senders paid.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
@@ -96,6 +102,11 @@ struct Sim {
     rng: SeededRng,
     loss_per_mille: u64,
     payments: Vec<Payment>,
+    /// Payments whose sender's node crashed: its client is gone.
+    abandoned: Vec<Payment>,
+    /// Pairs whose requests do not get through, from the first to the
+    /// second.
+    cut: BTreeSet<(usize, usize)>,
     trace: Vec<String>,
 }
 
@@ -117,6 +128,8 @@ impl Sim {
             rng: SeededRng::new(seed),
             loss_per_mille: 10,
             payments: Vec::new(),
+            abandoned: Vec::new(),
+            cut: BTreeSet::new(),
             trace: Vec::new(),
         };
         for _ in 0..count {
@@ -162,7 +175,11 @@ impl Sim {
 
     fn crash(&mut self, index: usize) {
         self.nodes[index].core = None;
-        self.payments.retain(|payment| payment.from != index);
+        let (gone, kept) = std::mem::take(&mut self.payments)
+            .into_iter()
+            .partition(|payment| payment.from == index);
+        self.payments = kept;
+        self.abandoned.extend::<Vec<Payment>>(gone);
         self.trace.push(format!("{} crash {index}", self.now));
     }
 
@@ -197,7 +214,9 @@ impl Sim {
                 let to = self.nodes.len();
                 let to = (0..to).find(|i| url(*i) == request.url).unwrap();
                 let generation = self.nodes[index].generation;
-                if self.rng.next_u64() % 1000 < self.loss_per_mille {
+                if self.rng.next_u64() % 1000 < self.loss_per_mille
+                    || self.cut.contains(&(index, to))
+                {
                     let delay = self.latency();
                     let result = Err(Failure::NotDelivered);
                     self.schedule(
@@ -292,10 +311,19 @@ impl Sim {
 
     /// Runs until `until`, also steering the payments.
     fn run_until(&mut self, until: u64) {
+        self.run_until_or(until, |_| false);
+    }
+
+    /// Runs until `until`, or until `stop` holds after an event; returns
+    /// whether it stopped.
+    fn run_until_or(&mut self, until: u64, stop: impl Fn(&Self) -> bool) -> bool {
         let mut steps = 0u64;
         loop {
             steps += 1;
             assert!(steps < 5_000_000, "no progress");
+            if stop(self) {
+                return true;
+            }
             self.drive_payments();
             let delivery = self.queue.keys().next().map(|(at, _)| *at);
             let timer = self
@@ -310,7 +338,7 @@ impl Sim {
                 .filter(|at| *at <= until)
             else {
                 self.now = until;
-                return;
+                return false;
             };
             self.now = self.now.max(next);
             if delivery == Some(next) {
@@ -502,9 +530,39 @@ fn seeds() -> std::ops::Range<u64> {
         .unwrap_or(0..6)
 }
 
+/// What a run did.
+struct Run {
+    /// Its trace, to compare runs by.
+    trace: Vec<String>,
+    /// Fulfills peers refused, as journal rows.
+    refusals: usize,
+    /// What hops lost to refusals.
+    lost: i128,
+}
+
+/// The refusals in every node's journal.
+fn refusals(sim: &Sim) -> usize {
+    let mut count = 0;
+    for node in &sim.nodes {
+        let mut after = None;
+        loop {
+            let page = node.store.transfers_after(after, 1_000, None).unwrap();
+            let Some(last) = page.last() else { break };
+            after = Some(last.sequence);
+            count += page
+                .iter()
+                .filter(|row| {
+                    matches!(row.transfer.reference, dassie_ledger::Reference::Refusal(_))
+                })
+                .count();
+        }
+    }
+    count
+}
+
 /// A run: the network forms, a node crashes and comes back, payments cross
-/// it, and the books are checked.
-fn run(seed: u64) -> Result<Vec<String>, String> {
+/// it while another node crashes, and the books are checked.
+fn run(seed: u64) -> Result<Run, String> {
     let mut rng = SeededRng::new(seed ^ 0xfeed);
     let count = 2 + usize::try_from(rng.next_u64() % 4).unwrap();
     let bootstraps = 1 + usize::try_from(rng.next_u64() % 2).unwrap().min(count - 1);
@@ -548,9 +606,13 @@ fn run(seed: u64) -> Result<Vec<String>, String> {
         window_ms: 10_000,
     };
     sim.pay(from, (from + 1) % count, 400_000_000, Some(cap), None);
-    // A receiver that crashes mid-payment waits for the fix of the books
-    // after a crash with packets in flight: a node that crashes forgets
-    // the responses it owes its peers, which then disagree with it.
+    // A node crashes mid-payment, with packets in flight: a sender, a hop
+    // or a receiver.
+    sim.run_until(sim.now + 500 + rng.next_u64() % 4_000);
+    let victim = usize::try_from(rng.next_u64() % count as u64).unwrap();
+    sim.crash(victim);
+    sim.run_until(sim.now + 1_000 + rng.next_u64() % 4_000);
+    sim.start(victim);
     sim.run_until(sim.now + 120_000);
     // An owner ends a peering: it drains, ends on both sides, and what is
     // owed is settled.
@@ -575,7 +637,11 @@ fn run(seed: u64) -> Result<Vec<String>, String> {
         }
     }
     check(&sim)?;
-    Ok(sim.trace)
+    Ok(Run {
+        refusals: refusals(&sim),
+        lost: (0..count).map(|index| -losses(&sim, index)).sum(),
+        trace: sim.trace,
+    })
 }
 
 /// A capped token spent at most its cap plus what refilled, over every
@@ -637,8 +703,18 @@ fn check_cap(sim: &Sim, payment: &Payment) -> Result<(), String> {
     Ok(())
 }
 
-/// An incoming payment received exactly what its sender sent, never more
-/// than it asked for, and is complete once it has that.
+/// What an incoming payment received.
+fn received(sim: &Sim, payment: &Payment) -> u64 {
+    sim.nodes[payment.to]
+        .store
+        .incoming_payment(payment.incoming)
+        .unwrap()
+        .map_or(0, |row| row.received_amount)
+}
+
+/// An incoming payment received at least what its sender sent, more only
+/// what hops lost (checked over all payments), never more than it asked
+/// for, and is complete once it has that.
 fn check_incoming(sim: &Sim, payment: &Payment) -> Result<(), String> {
     let row = sim.nodes[payment.to]
         .store
@@ -646,7 +722,7 @@ fn check_incoming(sim: &Sim, payment: &Payment) -> Result<(), String> {
         .unwrap()
         .ok_or("an incoming payment vanished")?;
     let sent = sent(payment);
-    if row.received_amount != sent {
+    if row.received_amount < sent {
         return Err(format!(
             "node {} received {} of the {sent} sent",
             payment.to, row.received_amount
@@ -670,36 +746,70 @@ fn sent(payment: &Payment) -> u64 {
         .map_or(0, |stream| stream.total_sent())
 }
 
-/// Each owner's funds moved by exactly what their incoming payments
-/// received and their clients sent.
+/// Each owner's pool moved by exactly what its incoming payments
+/// received, and each live client's token by what it sent. What receivers
+/// got beyond what senders paid is what hops lost to refusals.
 fn check_owner_books(sim: &Sim) -> Result<(), String> {
+    let all = || sim.payments.iter().chain(&sim.abandoned);
     for index in 0..sim.nodes.len() {
-        let owner: i128 = sim
-            .balances(index)
-            .iter()
-            .filter(|(path, _)| path.starts_with("stub+usd:equity/owner"))
-            .map(|(_, net)| *net)
-            .sum();
-        let received: i128 = sim
-            .payments
-            .iter()
+        let balances = sim.balances(index);
+        let pool = balances["stub+usd:equity/owner"];
+        let received: i128 = all()
             .filter(|payment| payment.to == index)
-            .map(|payment| i128::from(sent(payment)))
+            .map(|payment| i128::from(received(sim, payment)))
             .sum();
-        let paid: i128 = sim
-            .payments
-            .iter()
-            .filter(|payment| payment.from == index)
-            .map(|payment| i128::from(sent(payment)))
-            .sum();
-        if owner - DEPOSIT != received - paid {
+        if pool - DEPOSIT != received {
             return Err(format!(
-                "node {index}'s owner moved {} for {received} in and {paid} out",
-                owner - DEPOSIT
+                "node {index}'s owner gained {} for {received} received",
+                pool - DEPOSIT
+            ));
+        }
+        for payment in sim.payments.iter().filter(|payment| payment.from == index) {
+            let token = -balances[&format!("stub+usd:equity/owner/btp/{}", payment.token.0)];
+            if token != i128::from(sent(payment)) {
+                return Err(format!(
+                    "node {index}'s token {} paid {token} for {} sent",
+                    payment.token.0,
+                    sent(payment)
+                ));
+            }
+        }
+        if let Some(owed) = sim.nodes[index].store.owed_fulfills().unwrap().first() {
+            return Err(format!(
+                "node {index} still waits for {}'s verdict on {:?}",
+                owed.peer, owed.trace
             ));
         }
     }
+    let beyond: i128 = all()
+        .map(|payment| i128::from(received(sim, payment)) - i128::from(sent(payment)))
+        .sum();
+    let lost: i128 = (0..sim.nodes.len()).map(|index| -losses(sim, index)).sum();
+    // A client whose node crashed may have paid for packets it never heard
+    // were fulfilled: those count as sent too.
+    let unheard: i128 = sim
+        .abandoned
+        .iter()
+        .map(|payment| {
+            -sim.balances(payment.from)[&format!("stub+usd:equity/owner/btp/{}", payment.token.0)]
+                - i128::from(sent(payment))
+        })
+        .sum();
+    if beyond != lost + unheard {
+        return Err(format!(
+            "receivers got {beyond} beyond what clients heard they sent; hops lost {lost}, \
+             crashed nodes' clients paid {unheard} unheard"
+        ));
+    }
     Ok(())
+}
+
+/// What a node booked as lost to refusals, as a net credit (so negative).
+fn losses(sim: &Sim, index: usize) -> i128 {
+    sim.balances(index)
+        .get("stub+usd:expenses/losses")
+        .copied()
+        .unwrap_or(0)
 }
 
 fn check(sim: &Sim) -> Result<(), String> {
@@ -730,6 +840,11 @@ fn check(sim: &Sim) -> Result<(), String> {
         check_cap(sim, payment)?;
         check_incoming(sim, payment)?;
     }
+    check_books(sim)
+}
+
+/// The books: owners', settlements and every pair of accounts.
+fn check_books(sim: &Sim) -> Result<(), String> {
     check_owner_books(sim)?;
     let count = sim.nodes.len();
     let (mut owners, mut stubs) = (0i128, 0i128);
@@ -749,7 +864,8 @@ fn check(sim: &Sim) -> Result<(), String> {
             .iter()
             .filter(|(path, _)| path.starts_with("stub+usd:equity/owner"))
             .map(|(_, net)| *net)
-            .sum::<i128>();
+            .sum::<i128>()
+            + losses(sim, index);
         // The books follow the stub's balance: what settled was posted.
         let on_ledger = sim.core(index).ledger_views()[0].on_ledger_balance;
         let booked = -balances["stub+usd:assets/settlement"];
@@ -797,5 +913,120 @@ fn simulated_networks_pay_across_restarts() {
 
 #[test]
 fn a_seed_replays_the_same_run() {
-    assert_eq!(run(2).unwrap(), run(2).unwrap());
+    assert_eq!(run(2).unwrap().trace, run(2).unwrap().trace);
+}
+
+// The crashes mid-payment are not vacuous: some Fulfills are refused, and
+// some hop books a loss, which the checks then account for.
+#[test]
+fn crashes_mid_payment_bring_refusals_and_losses() {
+    let runs: Vec<Run> = (0..40).map(|seed| run(seed).unwrap()).collect();
+    assert!(
+        runs.iter().any(|run| run.refusals > 0),
+        "no refusal in 40 seeds"
+    );
+    assert!(runs.iter().any(|run| run.lost > 0), "no loss in 40 seeds");
+}
+
+/// Two nodes, peered, and a client of node 0 paying node 1's receiver,
+/// run until node 1 owes node 0 a verdict: it posted a packet and wrote
+/// the Fulfill down, which is on its way.
+fn owing(seed: u64) -> Sim {
+    owing_after(seed, |_| {})
+}
+
+/// As [`owing`], with `before` done to the network once the payment knows
+/// its rate, before any money moves.
+fn owing_after(seed: u64, before: impl FnOnce(&mut Sim)) -> Sim {
+    let mut sim = Sim::new(seed, 2, 1);
+    sim.loss_per_mille = 0;
+    sim.run_until(START + 60_000);
+    assert!(!sim.peers(0).is_empty(), "the nodes did not peer");
+    sim.pay(0, 1, 500_000_000, None, None);
+    let rate = |sim: &Sim| sim.payments[0].connection.exchange_rate().is_some();
+    assert!(sim.run_until_or(sim.now + 30_000, rate), "no rate");
+    before(&mut sim);
+    let owes = |sim: &Sim| !sim.nodes[1].store.owed_fulfills().unwrap().is_empty();
+    assert!(sim.run_until_or(sim.now + 30_000, owes), "nothing owed");
+    sim
+}
+
+// D17: the hop crashes once it posted, before the verdict comes back. The
+// upstream took the Fulfill; asked again after the restart, it says so
+// from its record, and nothing is refused.
+#[test]
+fn a_hop_that_crashes_after_posting_learns_the_verdict() {
+    let mut sim = owing(70);
+    sim.crash(1);
+    sim.run_until(sim.now + 2_000);
+    sim.start(1);
+    sim.run_until(sim.now + 120_000);
+    check(&sim).unwrap();
+    assert_eq!(refusals(&sim), 0);
+}
+
+// D17: the upstream crashes before the Fulfill reaches it, and forgets the
+// packet. Asked after its restart, it refuses: the receiver's side reverses
+// the packet, and the payment does not count it.
+#[test]
+fn an_upstream_that_forgot_the_packet_refuses_it() {
+    let mut sim = owing(71);
+    sim.crash(0);
+    sim.run_until(sim.now + 3_000);
+    sim.start(0);
+    sim.run_until(sim.now + 60_000);
+    check_books(&sim).unwrap();
+    assert!(refusals(&sim) > 0);
+    assert_eq!(losses(&sim, 1), 0, "a reversal, not a loss");
+}
+
+// D17: the Fulfill gets through only after the upstream's expiry, with no
+// crash at all: the upstream refuses it, and both sides agree.
+#[test]
+fn a_late_fulfill_is_refused_and_both_sides_agree() {
+    let mut sim = owing_after(72, |sim| {
+        sim.cut.insert((1, 0));
+    });
+    sim.run_until(sim.now + 40_000);
+    sim.cut.clear();
+    sim.run_until(sim.now + 120_000);
+    check(&sim).unwrap();
+    assert!(refusals(&sim) > 0);
+}
+
+// D17: a peering being ended waits for the verdicts it is owed, which
+// still come once the peers reach each other again.
+#[test]
+fn a_peering_ends_only_once_its_verdicts_came() {
+    let mut sim = owing_after(73, |sim| {
+        sim.cut.insert((1, 0));
+    });
+    let peer = key(1).node_id();
+    sim.step(0, |core| core.terminate_peering(peer).unwrap());
+    sim.run_until(sim.now + 40_000);
+    assert!(
+        sim.peers(1).contains(&key(0).node_id()),
+        "node 1 ended the peering with verdicts owed"
+    );
+    sim.cut.clear();
+    sim.run_until(sim.now + 60_000);
+    assert!(sim.peers(1).is_empty() && sim.peers(0).is_empty());
+    check_books(&sim).unwrap();
+}
+
+// D17: verdicts hold up an ending peering for 10 minutes at most; asked
+// for over the settlement channel after, they still come.
+#[test]
+fn a_silent_peer_holds_up_its_end_for_a_while_only() {
+    let mut sim = owing_after(74, |sim| {
+        sim.cut.insert((1, 0));
+    });
+    let peer = key(1).node_id();
+    sim.step(0, |core| core.terminate_peering(peer).unwrap());
+    sim.run_until(sim.now + 12 * 60_000);
+    assert!(sim.peers(1).is_empty(), "the peering never ended");
+    assert!(!sim.nodes[1].store.owed_fulfills().unwrap().is_empty());
+    sim.cut.clear();
+    sim.run_until(sim.now + 2 * 60 * 60_000);
+    check_books(&sim).unwrap();
 }

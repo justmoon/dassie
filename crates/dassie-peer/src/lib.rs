@@ -41,6 +41,7 @@ pub use config::{Config, Rate};
 pub use hooks::{Agreed, Declined, PeeringHooks};
 pub use io::{
     Event, Failure, Inbound, InboundId, Output, Reply, Request, RequestId, Response, Stats,
+    VERDICT_ACCEPTED, VERDICT_REFUSED, Verdicts,
 };
 pub use node::{
     BanError, Bootstrap, NodeView, OwnInfo, PeerNode, PeerStatus, RegisterError,

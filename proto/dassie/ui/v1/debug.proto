@@ -55,6 +55,9 @@ message Transfer {
     string settlement = 11;
     // "trust", "deposit", "withdrawal" or "reconciliation".
     string other = 12;
+    // The packet whose Fulfill the upstream peer refused: this row
+    // reverses it or books the loss (D17).
+    TraceId refusal = 14;
   }
   // Where the row is in the order rows were written or last changed: a
   // packet's transfer is written when it is posted, after transfers with

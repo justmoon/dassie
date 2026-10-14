@@ -1,7 +1,7 @@
 //! Responses from downstream, and packets that expire.
 
 use dassie_ilp::{Address, ErrorCode, MAX_PACKET_LENGTH, Reject, Response, condition_for};
-use dassie_ledger::{Ledger, LedgerError};
+use dassie_ledger::{Ledger, LedgerError, TraceId, Transfer};
 use dassie_oer::{Decode, Encode};
 
 use super::{Connector, Pending, Upstream};
@@ -18,10 +18,60 @@ enum Resolution<'a> {
     Failed(ErrorCode, &'static str),
 }
 
+/// What a response did.
+// Returned once per response and taken apart at once: boxing it would
+// allocate on the packet path (D16).
+#[allow(clippy::large_enum_variant)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Responded {
+    /// It resolved the packet in flight with its request ID.
+    Resolved {
+        /// What to send upstream, written into the buffer, if the source
+        /// is still there.
+        upstream: Option<Upstream>,
+        /// What was posted, if it fulfilled the packet in time.
+        posted: Option<Posted>,
+    },
+    /// No packet in flight is its: an unknown request ID, or a peer's
+    /// Fulfill whose fulfillment is not the packet's (a resend from
+    /// before, D17), which leaves the packet waiting for its own response.
+    Unmatched,
+}
+
+impl Responded {
+    /// What to send upstream, if anything.
+    #[must_use]
+    pub const fn upstream(&self) -> Option<Upstream> {
+        match self {
+            Self::Resolved { upstream, .. } => *upstream,
+            Self::Unmatched => None,
+        }
+    }
+}
+
+/// A fulfilled packet whose transfers were posted: what a node keeps to
+/// learn whether its upstream took the Fulfill too (D17).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Posted {
+    /// The packet.
+    pub trace: TraceId,
+    /// Where the Prepare came from, and the request ID it came with.
+    pub source: EndpointId,
+    /// The source's request ID.
+    pub source_request_id: u32,
+    /// Where it went.
+    pub destination: EndpointId,
+    /// Its condition.
+    pub condition: [u8; 32],
+    /// The outgoing packet's expiry.
+    pub expires_at_ms: u64,
+    /// Its transfers, as posted: the first debits the source's account.
+    pub transfers: [Option<Transfer>; 2],
+}
+
 impl Connector {
     /// Handles a response from `from` to the Prepare sent to it with
-    /// `request_id`. Returns what to send upstream, written into `out`, if
-    /// anything.
+    /// `request_id`. What to send upstream is written into `out`.
     ///
     /// A response after the outgoing expiry counts as the timeout it is;
     /// one that matches no packet in flight is dropped.
@@ -38,14 +88,26 @@ impl Connector {
         packet: &[u8],
         ledger: &mut Ledger,
         out: &mut [u8],
-    ) -> Option<Upstream> {
+    ) -> Responded {
         assert!(
             out.len() >= MAX_PACKET_LENGTH,
             "buffer shorter than a packet"
         );
-        let Some(entry) = self.take(from, request_id) else {
+        let stale = self.pending.get(&(from, request_id)).is_some_and(|entry| {
+            from.is_peer()
+                && matches!(
+                    Response::decode_exact(packet),
+                    Ok(Response::Fulfill(fulfill)) if condition_for(&fulfill.fulfillment) != entry.condition
+                )
+        });
+        let entry = if stale {
+            None
+        } else {
+            self.take(from, request_id)
+        };
+        let Some(entry) = entry else {
             self.stats.unexpected_responses += 1;
-            return None;
+            return Responded::Unmatched;
         };
         let resolution = if now_ms >= entry.expires_at_ms {
             // The timer just has not fired yet (ILP-1's other half).
@@ -68,7 +130,19 @@ impl Connector {
                 ),
             }
         };
-        self.resolve(now_ms, &entry, &resolution, ledger, out)
+        let posted = matches!(resolution, Resolution::Fulfilled(_)).then(|| Posted {
+            trace: entry.trace,
+            source: entry.source,
+            source_request_id: entry.source_request_id,
+            destination: from,
+            condition: entry.condition,
+            expires_at_ms: entry.expires_at_ms,
+            transfers: entry
+                .transfers
+                .map(|id| id.and_then(|id| ledger.pending(id).copied())),
+        });
+        let upstream = self.resolve(now_ms, &entry, &resolution, ledger, out);
+        Responded::Resolved { upstream, posted }
     }
 
     /// Fails the next packet whose deadline has come: R00 when it expired,

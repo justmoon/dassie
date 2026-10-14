@@ -27,6 +27,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_4,
     MIGRATION_5,
     MIGRATION_6,
+    MIGRATION_7,
 ];
 
 const MIGRATION_1: &str = "
@@ -329,6 +330,94 @@ CREATE TABLE payment_settings (
 INSERT INTO payment_settings VALUES (1, NULL);
 ";
 
+/// Verdicts on Fulfills between peers (D17, spec 7 §4.4): the Fulfills we
+/// sent peers and wait for a verdict on, written with the journal rows that
+/// post their packets; the Fulfills we took from peers, kept 30 days to
+/// answer a resend the same way; and refusals in the journal, the
+/// compensation booked when a peer refused a Fulfill, with the packet's
+/// trace.
+const MIGRATION_7: &str = "
+CREATE TABLE ledger_transfers_new (
+  id INTEGER PRIMARY KEY CHECK (id >= 0),
+  debit INTEGER NOT NULL REFERENCES ledger_accounts (id),
+  credit INTEGER NOT NULL REFERENCES ledger_accounts (id) CHECK (credit != debit),
+  amount INTEGER NOT NULL CHECK (amount > 0),
+  state TEXT NOT NULL CHECK (state IN ('pending', 'posted', 'voided')),
+  created_at_ms INTEGER NOT NULL,
+  resolved_at_ms INTEGER CHECK ((state = 'pending') = (resolved_at_ms IS NULL)),
+  reference TEXT NOT NULL CHECK (reference IN
+    ('packet', 'settlement', 'trust', 'deposit', 'withdrawal', 'reconciliation', 'refusal')),
+  packet_epoch INTEGER CHECK ((reference IN ('packet', 'refusal')) = (packet_epoch IS NOT NULL)),
+  packet_sequence INTEGER CHECK ((reference IN ('packet', 'refusal')) = (packet_sequence IS NOT NULL)),
+  settlement_scheme TEXT CHECK ((reference = 'settlement') = (settlement_scheme IS NOT NULL)),
+  settlement_id TEXT CHECK ((reference = 'settlement') = (settlement_id IS NOT NULL)),
+  -- The order rows were written or last changed in, for readers that page
+  -- through the journal: a packet's transfer is written when it is posted,
+  -- which is not the order of transfer IDs.
+  sequence INTEGER NOT NULL UNIQUE CHECK (sequence > 0)
+) STRICT;
+
+INSERT INTO ledger_transfers_new SELECT * FROM ledger_transfers;
+DROP TABLE ledger_transfers;
+ALTER TABLE ledger_transfers_new RENAME TO ledger_transfers;
+
+CREATE INDEX ledger_transfers_by_debit ON ledger_transfers (debit, state);
+CREATE INDEX ledger_transfers_by_credit ON ledger_transfers (credit, state);
+CREATE INDEX ledger_transfers_pending ON ledger_transfers (state) WHERE state = 'pending';
+CREATE INDEX ledger_transfers_by_debit_sequence ON ledger_transfers (debit, sequence);
+CREATE INDEX ledger_transfers_by_credit_sequence ON ledger_transfers (credit, sequence);
+CREATE INDEX ledger_transfers_refusals ON ledger_transfers (credit, created_at_ms)
+  WHERE reference = 'refusal';
+
+CREATE TABLE owed_fulfills (
+  -- The packet, by its trace.
+  packet_epoch INTEGER NOT NULL CHECK (packet_epoch >= 0),
+  packet_sequence INTEGER NOT NULL CHECK (packet_sequence >= 0),
+  -- The upstream peer, and the request ID its Prepare came with.
+  peer TEXT NOT NULL CHECK (length(peer) BETWEEN 2 AND 45),
+  request_id INTEGER NOT NULL CHECK (request_id BETWEEN 0 AND 4294967295),
+  fulfill BLOB NOT NULL CHECK (length(fulfill) BETWEEN 1 AND 32806),
+  -- What a refusal books: the packet reversed, when our own receiver took
+  -- it, or a loss, when someone we cannot take it back from did.
+  compensation TEXT NOT NULL CHECK (compensation IN ('reverse', 'loss')),
+  -- The packet's transfers as posted; the first debits the peer's account.
+  debit_1 INTEGER NOT NULL REFERENCES ledger_accounts (id),
+  credit_1 INTEGER NOT NULL REFERENCES ledger_accounts (id),
+  amount_1 INTEGER NOT NULL CHECK (amount_1 > 0),
+  debit_2 INTEGER REFERENCES ledger_accounts (id),
+  credit_2 INTEGER REFERENCES ledger_accounts (id),
+  amount_2 INTEGER CHECK (amount_2 IS NULL OR amount_2 > 0),
+  -- The incoming payment our receiver paid, and how much, which counts
+  -- once the verdict says so.
+  incoming_payment BLOB CHECK (incoming_payment IS NULL OR length(incoming_payment) = 16),
+  incoming_amount INTEGER CHECK (incoming_amount IS NULL OR incoming_amount > 0),
+  -- The expiry of the Prepare we sent on, and when the packet was posted.
+  expires_at_ms INTEGER NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  CHECK ((debit_2 IS NULL) = (credit_2 IS NULL) AND (credit_2 IS NULL) = (amount_2 IS NULL)),
+  CHECK ((incoming_payment IS NULL) = (incoming_amount IS NULL)),
+  PRIMARY KEY (packet_epoch, packet_sequence)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE peer_fulfills (
+  -- The downstream peer, the request ID we sent it the Prepare with, and
+  -- the packet's condition.
+  peer TEXT NOT NULL CHECK (length(peer) BETWEEN 2 AND 45),
+  request_id INTEGER NOT NULL CHECK (request_id BETWEEN 0 AND 4294967295),
+  condition BLOB NOT NULL CHECK (length(condition) = 32),
+  taken_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (peer, request_id, condition)
+) STRICT, WITHOUT ROWID;
+
+CREATE INDEX peer_fulfills_by_time ON peer_fulfills (taken_at_ms);
+
+-- What arrived for an incoming payment and was taken back when a peer
+-- refused its Fulfill: its STREAM connections still count it, so what they
+-- report only grows.
+ALTER TABLE incoming_payments ADD COLUMN released_amount INTEGER NOT NULL DEFAULT 0
+  CHECK (released_amount >= 0);
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -573,6 +662,7 @@ pub const TABLES: &[Table] = &[
             ("expires_at_ms", "INTEGER", true, false),
             ("completed_at_ms", "INTEGER", false, false),
             ("revision", "INTEGER", true, false),
+            ("released_amount", "INTEGER", true, false),
         ],
     },
     Table {
@@ -602,6 +692,38 @@ pub const TABLES: &[Table] = &[
             ("manage_id", "BLOB", true, false),
             ("created_at_ms", "INTEGER", true, false),
             ("expires_at_ms", "INTEGER", true, false),
+        ],
+    },
+    Table {
+        name: "owed_fulfills",
+        without_rowid: true,
+        columns: &[
+            ("packet_epoch", "INTEGER", true, true),
+            ("packet_sequence", "INTEGER", true, true),
+            ("peer", "TEXT", true, false),
+            ("request_id", "INTEGER", true, false),
+            ("fulfill", "BLOB", true, false),
+            ("compensation", "TEXT", true, false),
+            ("debit_1", "INTEGER", true, false),
+            ("credit_1", "INTEGER", true, false),
+            ("amount_1", "INTEGER", true, false),
+            ("debit_2", "INTEGER", false, false),
+            ("credit_2", "INTEGER", false, false),
+            ("amount_2", "INTEGER", false, false),
+            ("incoming_payment", "BLOB", false, false),
+            ("incoming_amount", "INTEGER", false, false),
+            ("expires_at_ms", "INTEGER", true, false),
+            ("created_at_ms", "INTEGER", true, false),
+        ],
+    },
+    Table {
+        name: "peer_fulfills",
+        without_rowid: true,
+        columns: &[
+            ("peer", "TEXT", true, true),
+            ("request_id", "INTEGER", true, true),
+            ("condition", "BLOB", true, true),
+            ("taken_at_ms", "INTEGER", true, false),
         ],
     },
     Table {

@@ -456,6 +456,7 @@ fn transfer(row: &JournalRow) -> proto::Transfer {
         Reference::Deposit => proto::transfer::Reference::Other("deposit".into()),
         Reference::Withdrawal => proto::transfer::Reference::Other("withdrawal".into()),
         Reference::Reconciliation => proto::transfer::Reference::Other("reconciliation".into()),
+        Reference::Refusal(trace) => proto::transfer::Reference::Refusal(trace_id(trace)),
     };
     let state = match row.state {
         TransferState::Pending => proto::TransferState::Pending,

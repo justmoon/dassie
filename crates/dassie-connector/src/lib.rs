@@ -11,7 +11,8 @@
 //!
 //! - packets time out at their outgoing expiry, not after a fixed 5 s
 //!   (ILP-1);
-//! - an invalid fulfillment is rejected with F05 at once (ILP-2);
+//! - an invalid fulfillment is rejected with F05 at once (ILP-2), except
+//!   a peer's, which may be a resend from before (D17);
 //! - malformed packets get F01 and unroutable ones F02; nothing panics on
 //!   the packet path (ILP-3);
 //! - F08 carries the amounts (ILP-4);
@@ -53,7 +54,8 @@ mod trace;
 pub use cap::{CapError, CapUsage, CapView, SpendingCap, replay};
 pub use config::Config;
 pub use connector::{
-    Connector, Forwarded, MAX_ROUTE_OPTIONS, Outcome, RoutesError, Stats, Upstream,
+    Connector, Forwarded, MAX_ROUTE_OPTIONS, Outcome, Posted, Responded, RoutesError, Stats,
+    Upstream,
 };
 pub use endpoint::{EndpointError, EndpointId};
 pub use fx::{RATE_PRECISION, Rates, convert};

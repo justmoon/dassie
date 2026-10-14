@@ -196,6 +196,7 @@ fn peer(view: &PeerView) -> proto::NetworkPeer {
         owed: view.owed.map_or(0, |owed| {
             i64::try_from(owed).unwrap_or(if owed < 0 { i64::MIN } else { i64::MAX })
         }),
+        refused_24h: view.refused_24h,
     }
 }
 

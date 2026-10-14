@@ -14,7 +14,9 @@ use super::gossip::{Processed, Retransmit};
 use super::{PeerNode, Problem, Purpose};
 use crate::auth::{Accepted, AuthError};
 use crate::hooks::PeeringHooks;
-use crate::io::{Event, Inbound, InboundId, Output, Reply};
+use crate::io::{
+    Event, Inbound, InboundId, Output, Reply, VERDICT_ACCEPTED, VERDICT_REFUSED, Verdicts,
+};
 use crate::table::{Network, Registration, Sources};
 use crate::wire::{
     Content, Envelope, EnvelopeError, LinkStateResponse, SignedNodeInfo, encode_expiry,
@@ -23,6 +25,9 @@ use crate::wire::{
 
 /// The ILP packet type of a Prepare (spec 4 §1).
 const PREPARE_TYPE: u8 = 12;
+
+/// The ILP packet type of a Fulfill.
+const FULFILL_TYPE: u8 = 13;
 
 /// What an inbound request waits on a probe for.
 #[derive(Clone, Debug)]
@@ -93,23 +98,7 @@ impl PeerNode {
         }
         match content {
             Content::InterledgerPacket { request_id, packet } => {
-                let Some(entry) = self.table.get(&accepted.sender) else {
-                    return refuse(409, "not peered");
-                };
-                if entry.peering().is_none() {
-                    return refuse(409, "not peered");
-                }
-                // A peering being ended takes no new Prepares: refused here,
-                // they leave nothing to answer, so the drain can finish.
-                if entry.termination().is_some() && packet.first() == Some(&PREPARE_TYPE) {
-                    return refuse(409, "the peering is ending");
-                }
-                Inbound::Packet {
-                    from: accepted.sender,
-                    request_id,
-                    packet,
-                    reply: ok(&accepted, &[]),
-                }
+                self.packet_request(&accepted, request_id, packet)
             }
             Content::Registration(info) => {
                 self.registration_request(accepted, &info, id, source.map(Network::of))
@@ -138,6 +127,43 @@ impl PeerNode {
                 Inbound::Reply(self.termination_request(&accepted, reason))
             }
             other => Inbound::Reply(self.answer(hooks, &accepted, other)),
+        }
+    }
+
+    /// An ILP packet. A Prepare needs a peering that is not ending. A
+    /// response also comes from a node we hold a settlement channel with,
+    /// peered or not: a verdict on it may be owed after the peering ended
+    /// (D17).
+    fn packet_request<'a>(
+        &self,
+        accepted: &Accepted,
+        request_id: u32,
+        packet: &'a [u8],
+    ) -> Inbound<'a> {
+        let entry = self.table.get(&accepted.sender);
+        let peered = entry.is_some_and(|entry| entry.peering().is_some());
+        if packet.first() == Some(&PREPARE_TYPE) {
+            if !peered {
+                return refuse(409, "not peered");
+            }
+            // A peering being ended takes no new Prepares: refused here,
+            // they leave nothing to answer, so the drain can finish.
+            if entry.is_some_and(|entry| entry.termination().is_some()) {
+                return refuse(409, "the peering is ending");
+            }
+        } else if !peered && !self.channels.contains_key(&accepted.sender) {
+            return refuse(409, "not peered");
+        }
+        let verdicts = (packet.first() == Some(&FULFILL_TYPE)).then(|| Verdicts {
+            accepted: ok(accepted, &[VERDICT_ACCEPTED]),
+            refused: ok(accepted, &[VERDICT_REFUSED]),
+        });
+        Inbound::Packet {
+            from: accepted.sender,
+            request_id,
+            packet,
+            reply: ok(accepted, &[]),
+            verdicts,
         }
     }
 

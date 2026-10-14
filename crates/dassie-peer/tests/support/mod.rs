@@ -17,7 +17,7 @@ use dassie_node_core::testing::SeededRng;
 use dassie_peer::wire::{RefusalReason, SchemeId};
 use dassie_peer::{
     Agreed, Bootstrap, Config, Declined, Event, Failure, Inbound, InboundId, Output, OwnInfo,
-    PeerBatch, PeerNode, PeeringHooks, Request, RequestId, Response, Stored,
+    PeerBatch, PeerNode, PeeringHooks, Request, RequestId, Response, Stored, Termination,
 };
 
 pub const START: u64 = 1_800_000_000_000;
@@ -89,7 +89,7 @@ impl PeeringHooks for StubHooks {
         })
     }
 
-    fn drained(&self, peer: NodeId) -> bool {
+    fn drained(&self, peer: NodeId, _termination: &Termination, _now_ms: u64) -> bool {
         !self.busy.contains(&peer)
     }
 }
@@ -196,6 +196,8 @@ pub struct Network {
     /// Whether a node settles everything it owes when a peering ends, as
     /// the node's core does: one unit, here.
     pub settle_on_end: bool,
+    /// The request IDs whose Fulfills are refused.
+    pub refused: BTreeSet<u32>,
 }
 
 impl Network {
@@ -225,6 +227,7 @@ impl Network {
             applied: Vec::new(),
             settled: Vec::new(),
             settle_on_end: false,
+            refused: BTreeSet::new(),
         };
         for index in 0..count {
             let skew = i64::try_from(rng.next_u64() % 20_001).unwrap() - 10_000;
@@ -523,10 +526,16 @@ impl Network {
                 reply,
                 from: sender,
                 request_id,
+                verdicts,
                 ..
             } => {
                 self.packets.push((to, sender, request_id));
-                Some(reply)
+                // A Fulfill is taken, unless its ID is one to refuse.
+                Some(match verdicts {
+                    Some(verdicts) if self.refused.contains(&request_id) => verdicts.refused,
+                    Some(verdicts) => verdicts.accepted,
+                    None => reply,
+                })
             }
             Inbound::Settlement {
                 from: sender,

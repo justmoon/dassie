@@ -94,6 +94,11 @@ message NetworkPeer {
   // What this node owes the peer net, in the scheme ledger's units:
   // negative when the peer owes this node.
   int64 owed = 12;
+  // What the peer refused of this node's Fulfills in the last 24 hours, in
+  // the scheme ledger's units (D17): money this node paid on, or its
+  // receiver took, that the peer did not count. Honest peers refuse only
+  // after crashes or late Fulfills.
+  uint64 refused_24h = 13;
 }
 
 message ListPeersRequest {}

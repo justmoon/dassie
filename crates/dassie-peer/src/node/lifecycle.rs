@@ -224,8 +224,9 @@ impl PeerNode {
             .table
             .iter()
             .filter(|(id, entry)| {
-                entry.termination().is_some_and(|t| t.told(now, timeout))
-                    && hooks.drained(**id)
+                entry
+                    .termination()
+                    .is_some_and(|t| t.told(now, timeout) && hooks.drained(**id, t, now))
                     && !self.answering(id)
             })
             .map(|(id, _)| *id)
