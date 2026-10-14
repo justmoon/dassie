@@ -184,6 +184,9 @@
               # server, and systemd's socket activation without systemd.
               pkgs.pebble
               pkgs.systemd
+              # The dev environment's and the scenarios' certificates
+              # (apps/dev).
+              pkgs.mkcert
               # For regenerating the golden vectors (testdata/original).
               pkgs.nodejs
               pkgs.pnpm

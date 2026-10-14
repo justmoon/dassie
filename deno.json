@@ -4,6 +4,7 @@
     "./packages/identity-wasm",
     "./packages/rpc",
     "./packages/ui",
+    "./apps/dev",
     "./tests/e2e",
     "./tests/interop"
   ],
@@ -19,7 +20,7 @@
   ],
   "fmt": {
     "include": ["apps/", "packages/", "tests/", "scripts/", "deno.json"],
-    "exclude": ["**/*.md"]
+    "exclude": ["**/*.md", "apps/dev/vanity.json"]
   },
   "tasks": {
     "build:wasm": "deno run --allow-run --allow-read --allow-write --allow-env scripts/build-wasm.ts",
