@@ -53,9 +53,11 @@ async function pay(scenario: Scenario, from: ScenarioNode, to: ScenarioNode) {
     label: "e2e",
     ledger: "stub+usd",
   });
-  const credentials = await to.rpc.call("createStreamCredentials", {
-    tag: "e2e",
-  });
+  const { payment: credentials } = await to.rpc.call(
+    "createIncomingPayment",
+    {},
+  );
+  assert(credentials);
   // At `localhost`, which the node's certificate names too: Deno need not
   // resolve `dN.localhost`.
   const server = token.url.replace(`@${from.hostname}:`, "@localhost:");

@@ -51,5 +51,5 @@ pub use event::{Event, Stats};
 pub use frame::{ErrorCode, Frame};
 pub use policy::Policy;
 pub use rate::Rate;
-pub use server::{ConnectionId, Credentials, Server, ServerConfig};
+pub use server::{Admission, ConnectionId, Credentials, Handled, Server, ServerConfig};
 pub use stream::Stream;

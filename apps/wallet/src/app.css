@@ -176,6 +176,47 @@
 .pointer {
   font-family: var(--mono);
   font-size: 1.25rem;
+  overflow-wrap: anywhere;
+}
+
+/* Payments */
+.addresses,
+.activity {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.addresses li,
+.activity li {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.addresses li:last-child,
+.activity li:last-child {
+  border-bottom: 0;
+}
+
+.address-head,
+.activity-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.activity-head strong {
+  flex: 1;
+}
+
+.request-payment {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 /* Ledgers */

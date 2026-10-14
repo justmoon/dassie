@@ -7,6 +7,7 @@
 
 #![deny(clippy::disallowed_types)]
 
+mod incoming;
 mod ledgers;
 mod packets;
 mod peers;
@@ -22,14 +23,17 @@ use std::sync::Arc;
 use dassie_connector::{Config as ConnectorConfig, Connector, PacketRecord, Rates, TraceEvent};
 use dassie_identity::NodeKey;
 use dassie_ilp::MAX_PACKET_LENGTH;
-use dassie_ledger::{Account, AccountId, Asset, Ledger, Name, TraceId};
+use dassie_ledger::{Account, AccountId, Ledger, Name, TraceId};
 use dassie_node_core::config::Realm;
 use dassie_stream::BUFFER_LENGTH;
 
+pub use incoming::{IncomingPolicy, NewIncoming};
 pub use ledgers::{LedgerView, RemovalBlocker};
+pub use packets::ledger_slug;
 pub use peers::{NetworkView, PeerView};
 pub use tokens::{BtpSession, NewToken, TokenView, token_hash};
 
+use incoming::OpenIncoming;
 use ledgers::ActiveScheme;
 use packets::Receiver;
 use settlement::Settlements;
@@ -38,7 +42,7 @@ use tokens::{BtpLink, TokenState};
 use crate::clock::SharedRng;
 use crate::log::target;
 use crate::node::Policies;
-use crate::store::{LedgerBatch, Store, StoreError};
+use crate::store::{LedgerBatch, PaymentId, Store, StoreError};
 
 /// Why the engine did not do something.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -130,17 +134,8 @@ pub struct Changes {
     pub ledger: bool,
     /// The node table, peers, routes or registrations.
     pub network: bool,
-}
-
-/// Credentials for the STREAM receiver.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Credentials {
-    /// The address to pay.
-    pub destination: String,
-    /// The shared secret.
-    pub shared_secret: [u8; 32],
-    /// What the receiver is paid in.
-    pub asset: Asset,
+    /// Open Payments resources.
+    pub payments: bool,
 }
 
 /// What the core is made from.
@@ -176,7 +171,13 @@ pub struct Core {
     schemes: BTreeMap<Name, ActiveScheme>,
     /// Each scheme's last booked on-ledger balance.
     checkpoints: BTreeMap<Name, u64>,
-    receiver: Option<Receiver>,
+    /// Each active ledger's STREAM receiver.
+    receivers: BTreeMap<dassie_ledger::LedgerId, Receiver>,
+    /// The next local endpoint's number.
+    next_local: u16,
+    /// The open incoming payments.
+    incoming: BTreeMap<PaymentId, OpenIncoming>,
+    incoming_policy: IncomingPolicy,
     tokens: BTreeMap<u64, TokenState>,
     by_hash: BTreeMap<[u8; 32], u64>,
     links: BTreeMap<u64, BtpLink>,
@@ -267,7 +268,10 @@ impl Core {
             rates: Rates::new(0),
             schemes: BTreeMap::new(),
             checkpoints,
-            receiver: None,
+            receivers: BTreeMap::new(),
+            next_local: 0,
+            incoming: BTreeMap::new(),
+            incoming_policy: policies.incoming,
             tokens: BTreeMap::new(),
             by_hash: BTreeMap::new(),
             links: BTreeMap::new(),
@@ -300,6 +304,7 @@ impl Core {
         let store = Arc::clone(&self.store);
         self.load_tokens(&store).map_err(text)?;
         self.load_schemes(&store)?;
+        self.load_incoming()?;
         self.update_peer_schemes();
         let peers: Vec<dassie_identity::NodeId> = self.peer.peers().map(|(id, _)| *id).collect();
         let active: std::collections::BTreeSet<dassie_identity::NodeId> =
@@ -363,7 +368,7 @@ impl Core {
     /// The next time something expires.
     #[must_use]
     pub fn deadline(&self) -> Option<u64> {
-        let receiver = self.receiver.as_ref().and_then(Receiver::deadline);
+        let receiver = self.receivers.values().filter_map(Receiver::deadline).min();
         let settlement = self.peer.peers().next().map(|_| self.settle.at_ms);
         let finals = self
             .peer
@@ -442,6 +447,7 @@ impl Core {
             && batch.tokens_revoked.is_empty()
             && batch.token_caps.is_empty());
         self.changes.network |= !batch.peer.is_empty();
+        self.changes.payments |= batch.changes_payments();
         self.batch.at_ms = self.now_ms;
         let batch = std::mem::take(&mut self.batch);
         if let Err(error) = self.store.commit_ledger(&batch) {
@@ -460,6 +466,7 @@ impl Core {
             self.ledger.check_invariants();
             self.connector.check_invariants(&self.ledger);
             self.peer.check_invariants();
+            self.check_incoming();
         }
     }
 
@@ -495,15 +502,20 @@ fn check_bounds(policies: &Policies) {
         "the ledger needs room for every packet's transfers, and settlements"
     );
     let peers = policies.peer.max_peers;
+    let local = MAX_LOCAL_ENDPOINTS;
     assert!(
         connector.max_pending
-            >= connector.max_pending_per_endpoint * (policies.max_btp_connections + 1)
+            >= connector.max_pending_per_endpoint * (policies.max_btp_connections + local)
                 + connector.max_pending_per_peer * peers,
-        "every BTP client, the receiver and every peer can fill their share of the table at once"
+        "every BTP client, local endpoint and peer can fill their share of the table at once"
     );
     assert!(
-        connector.max_endpoints > policies.max_btp_connections + 1 + peers,
-        "every BTP connection, the receiver and every peer is an endpoint"
+        connector.max_endpoints > policies.max_btp_connections + local + peers,
+        "every BTP connection, local endpoint and peer is an endpoint"
+    );
+    assert!(
+        policies.incoming.max_open_owner > 0 && policies.incoming.max_open_clients > 0,
+        "incoming payments need room"
     );
     assert!(
         policies.peer_credit <= dassie_ledger::MAX_TOTAL,
@@ -514,6 +526,10 @@ fn check_bounds(policies: &Policies) {
         "a command's journal entries fit the journal"
     );
 }
+
+/// Most local endpoints at once: a receiver and a payer for each ledger
+/// there is.
+pub const MAX_LOCAL_ENDPOINTS: usize = 8;
 
 /// The ledger, from its journal.
 fn restore_ledger(store: &Store, config: dassie_ledger::Config) -> Result<Ledger, String> {

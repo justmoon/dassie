@@ -38,6 +38,10 @@ pub struct LedgerBatch {
     pub token_caps: Vec<TokenCap>,
     /// What the peer protocol changed.
     pub peer: dassie_peer::PeerBatch,
+    /// Incoming payments created.
+    pub incoming_created: Vec<super::IncomingRow>,
+    /// What packets paid into incoming payments, and completions.
+    pub incoming_progress: std::collections::BTreeMap<super::PaymentId, super::IncomingProgress>,
 }
 
 impl LedgerBatch {
@@ -52,6 +56,14 @@ impl LedgerBatch {
             && self.tokens_revoked.is_empty()
             && self.token_caps.is_empty()
             && self.peer.is_empty()
+            && self.incoming_created.is_empty()
+            && self.incoming_progress.is_empty()
+    }
+
+    /// Whether it changes Open Payments resources.
+    #[must_use]
+    pub fn changes_payments(&self) -> bool {
+        !(self.incoming_created.is_empty() && self.incoming_progress.is_empty())
     }
 }
 
@@ -260,6 +272,11 @@ impl Store {
         write_settlement(&transaction, batch)?;
         write_tokens(&transaction, batch)?;
         super::peer::write_peer(&transaction, &batch.peer)?;
+        super::payments::write_incoming(
+            &transaction,
+            &batch.incoming_created,
+            &batch.incoming_progress,
+        )?;
         transaction.commit()?;
         Ok(())
     }

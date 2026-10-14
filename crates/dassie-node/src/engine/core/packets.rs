@@ -1,5 +1,5 @@
-//! Packets: from BTP clients into the connector, to the STREAM receiver,
-//! and back.
+//! Packets: from BTP clients and peers into the connector, to the STREAM
+//! receivers, and back.
 
 use std::collections::BTreeMap;
 
@@ -17,24 +17,32 @@ use crate::log::target;
 /// The type byte of an ILP Prepare.
 const PREPARE_TYPE: u8 = 12;
 
-/// The STREAM receiver's endpoint.
-pub(super) const RECEIVER: EndpointId = EndpointId::Local(0);
+/// The prefix of a receiver's address segment below the node's own; the
+/// ledger's slug follows. BTP clients' segments have no `-`, so they never
+/// collide with one.
+pub(super) const RECEIVER_SEGMENT: &str = "stream-";
 
-/// The receiver's address segment below the node's own.
-pub(super) const RECEIVER_SEGMENT: &str = "stream";
+/// The prefix of a receiver's seed path: its server secret derives from the
+/// node key, so credentials stay valid across restarts (ILP-11).
+const RECEIVER_SECRET_PATH: &str = "node/stream-server/";
 
-/// The seed path of the receiver's server secret: credentials derive from
-/// the node key, so they stay valid across restarts (ILP-11).
-const RECEIVER_SECRET_PATH: &str = "node/stream-server";
-
-/// Most STREAM connections the receiver keeps.
+/// Most STREAM connections a receiver keeps.
 const MAX_RECEIVER_CONNECTIONS: usize = 256;
 
-/// The node's STREAM receiver, a local endpoint paying into the owner's
-/// pool on its ledger.
+/// The part of a ledger's ID before the `+`: its name in wallet addresses
+/// and receiver addresses.
+#[must_use]
+pub fn ledger_slug(ledger: LedgerId) -> &'static str {
+    let id = ledger.as_str();
+    id.split_once('+').map_or(id, |(slug, _)| slug)
+}
+
+/// A STREAM receiver: the local endpoint through which incoming payments
+/// on one ledger are paid, into the owner's pool.
 pub(super) struct Receiver {
     pub server: Server,
     pub ledger: LedgerId,
+    pub endpoint: EndpointId,
     /// The receiver's own packets in flight: the connector's request ID for
     /// each, and the connection and request it is.
     requests: BTreeMap<u32, (ConnectionId, u64)>,
@@ -47,13 +55,15 @@ impl Receiver {
         key: &dassie_identity::NodeKey,
         own_address: &str,
         ledger: LedgerId,
+        endpoint: EndpointId,
     ) -> Result<Self, EngineError> {
-        let path = SeedPath::parse(RECEIVER_SECRET_PATH)
+        let path = format!("{RECEIVER_SECRET_PATH}{}", ledger_slug(ledger));
+        let path = SeedPath::parse(&path)
             .map_err(|_| EngineError::Internal("receiver seed path".into()))?;
         let secret = key
             .derive(&path)
             .map_err(|_| EngineError::Internal("receiver secret".into()))?;
-        let address = format!("{own_address}.{RECEIVER_SEGMENT}");
+        let address = receiver_address(own_address, ledger);
         let address = Address::parse(&address)
             .map_err(|_| EngineError::Internal("receiver address".into()))?;
         let asset = ledger.asset();
@@ -64,8 +74,8 @@ impl Receiver {
                 code: asset.code,
                 scale: asset.scale,
             }),
-            // Money on every stream, from its first packet: the receiver
-            // takes whatever it is paid.
+            // Money on every stream, from its first packet: each incoming
+            // payment limits its connection instead (see `admission`).
             policy: Policy {
                 remote_stream_receive_max: u64::MAX,
                 ..Policy::DEFAULT
@@ -75,6 +85,7 @@ impl Receiver {
         Ok(Self {
             server,
             ledger,
+            endpoint,
             requests: BTreeMap::new(),
             next_request: 0,
             connections: Vec::new(),
@@ -88,6 +99,11 @@ impl Receiver {
             .min()
             .map(|at| at.unix_ms)
     }
+}
+
+/// A ledger's receiver address.
+pub(super) fn receiver_address(own_address: &str, ledger: LedgerId) -> String {
+    format!("{own_address}.{RECEIVER_SEGMENT}{}", ledger_slug(ledger))
 }
 
 impl Core {
@@ -241,7 +257,7 @@ impl Core {
                     },
                 ));
             }
-            RECEIVER => self.deliver(now, forwarded),
+            EndpointId::Local(_) => self.deliver(now, forwarded),
             EndpointId::Peer(endpoint) => {
                 self.send_to_peer(
                     now,
@@ -251,37 +267,60 @@ impl Core {
                     None,
                 );
             }
-            EndpointId::Local(_) => {}
         }
     }
 
-    /// Hands a Prepare to the receiver, which answers at once.
+    /// The ledger whose receiver is `endpoint`.
+    fn receiver_ledger(&self, endpoint: EndpointId) -> Option<LedgerId> {
+        self.receivers
+            .values()
+            .find(|receiver| receiver.endpoint == endpoint)
+            .map(|receiver| receiver.ledger)
+    }
+
+    /// Hands a Prepare to its receiver, which answers at once: through the
+    /// admission of the incoming payment it pays, which bounds what it may
+    /// take.
     fn deliver(&mut self, now: u64, forwarded: Forwarded) {
+        let Some(ledger) = self.receiver_ledger(forwarded.to) else {
+            return;
+        };
         let Self {
             rng,
-            receiver,
+            receivers,
+            incoming,
             out,
             scratch,
             ..
         } = self;
-        let Some(receiver) = receiver.as_mut() else {
+        let Some(receiver) = receivers.get_mut(&ledger) else {
             return;
         };
         let Ok(prepare) = Prepare::decode_exact(out.get(..forwarded.length).unwrap_or_default())
         else {
             return;
         };
-        let length = receiver.server.handle_prepare(
+        let mut paid = None;
+        let admit = |tag: &[u8]| {
+            let (admission, id) = super::incoming::admission(incoming, ledger, now, tag);
+            paid = id;
+            admission
+        };
+        let handled = receiver.server.handle_prepare_admitted(
             Timestamp::from_unix_ms(now),
             rng.as_mut(),
             &prepare,
+            admit,
             scratch,
         );
+        if let (Some(id), received @ 1..) = (paid, handled.received) {
+            self.incoming_received(id, received);
+        }
         let upstream = self.connector.handle_response(
             now,
-            RECEIVER,
+            forwarded.to,
             forwarded.request_id,
-            self.scratch.get(..length).unwrap_or_default(),
+            self.scratch.get(..handled.length).unwrap_or_default(),
             &mut self.ledger,
             &mut self.up,
         );
@@ -305,11 +344,17 @@ impl Core {
                     },
                 ));
             }
-            RECEIVER => {
+            EndpointId::Local(_) => {
+                let Some(ledger) = self.receiver_ledger(upstream.to) else {
+                    return;
+                };
                 let Self {
-                    receiver, up, work, ..
+                    receivers,
+                    up,
+                    work,
+                    ..
                 } = self;
-                let Some(receiver) = receiver.as_mut() else {
+                let Some(receiver) = receivers.get_mut(&ledger) else {
                     return;
                 };
                 let Some((id, request)) = receiver.requests.remove(&upstream.request_id) else {
@@ -335,37 +380,41 @@ impl Core {
                     Some(upstream.length),
                 );
             }
-            EndpointId::Local(_) => {}
         }
     }
 
-    /// Lets the receiver's connections do what they have to: drain their
+    /// Lets the receivers' connections do what they have to: drain their
     /// events and data, and send their own packets (closes, mostly).
     pub(super) fn pump(&mut self, now: u64) {
-        let Some(receiver) = self.receiver.as_mut() else {
-            return;
-        };
-        while let Some(id) = receiver.server.poll_opened() {
-            receiver.connections.push(id);
-        }
-        let ids = receiver.connections.clone();
-        for id in ids {
-            self.drain_events(id);
-            self.transmit(now, id);
-        }
-        if let Some(receiver) = self.receiver.as_mut() {
-            receiver.server.remove_closed();
-            let server = &receiver.server;
-            receiver
-                .connections
-                .retain(|id| server.connection(*id).is_some());
+        let ledgers: Vec<LedgerId> = self.receivers.keys().copied().collect();
+        for ledger in ledgers {
+            let Some(receiver) = self.receivers.get_mut(&ledger) else {
+                continue;
+            };
+            while let Some(id) = receiver.server.poll_opened() {
+                receiver.connections.push(id);
+            }
+            let ids = receiver.connections.clone();
+            for id in ids {
+                self.drain_events(ledger, id);
+                self.transmit(now, ledger, id);
+            }
+            if let Some(receiver) = self.receivers.get_mut(&ledger) {
+                receiver.server.remove_closed();
+                let server = &receiver.server;
+                receiver
+                    .connections
+                    .retain(|id| server.connection(*id).is_some());
+            }
         }
     }
 
-    fn drain_events(&mut self, id: ConnectionId) {
-        let Self { receiver, work, .. } = self;
-        let Some(connection) = receiver
-            .as_mut()
+    fn drain_events(&mut self, ledger: LedgerId, id: ConnectionId) {
+        let Self {
+            receivers, work, ..
+        } = self;
+        let Some(connection) = receivers
+            .get_mut(&ledger)
             .and_then(|receiver| receiver.server.connection_mut(id))
         else {
             return;
@@ -373,8 +422,8 @@ impl Core {
         while let Some(event) = connection.poll_event() {
             match event {
                 Event::DataReadable { stream_id } => {
-                    // Nobody reads stream data yet (M6): drop it, which
-                    // reopens the window.
+                    // Nobody reads stream data: drop it, which reopens the
+                    // window.
                     while connection.read(stream_id, work).is_ok_and(|read| read > 0) {}
                 }
                 Event::MoneyReceived { stream_id } => {
@@ -392,18 +441,19 @@ impl Core {
     }
 
     /// Sends a receiver connection's packets through the connector.
-    fn transmit(&mut self, now: u64, id: ConnectionId) {
+    fn transmit(&mut self, now: u64, ledger: LedgerId, id: ConnectionId) {
         let at = Timestamp::from_unix_ms(now);
         loop {
             let Self {
                 rng,
-                receiver,
+                receivers,
                 scratch,
                 ..
             } = self;
-            let Some(receiver) = receiver.as_mut() else {
+            let Some(receiver) = receivers.get_mut(&ledger) else {
                 return;
             };
+            let endpoint = receiver.endpoint;
             let Some(connection) = receiver.server.connection_mut(id) else {
                 return;
             };
@@ -415,43 +465,55 @@ impl Core {
             receiver.requests.insert(local, (id, transmit.request_id));
             let outcome = self.connector.handle_prepare(
                 now,
-                RECEIVER,
+                endpoint,
                 local,
                 self.scratch.get(..transmit.length).unwrap_or_default(),
                 &mut self.ledger,
                 &self.rates,
                 &mut self.out,
             );
-            let Some(receiver) = self.receiver.as_mut() else {
-                return;
-            };
-            match outcome {
-                Outcome::Forward(forwarded) if forwarded.to != RECEIVER => {
-                    self.forwarded(now, forwarded);
+            self.transmitted(now, ledger, outcome, local, transmit.request_id, id);
+        }
+    }
+
+    /// What the connector did with a receiver's own packet.
+    fn transmitted(
+        &mut self,
+        now: u64,
+        ledger: LedgerId,
+        outcome: Outcome,
+        local: u32,
+        request_id: u64,
+        id: ConnectionId,
+    ) {
+        let Some(receiver) = self.receivers.get_mut(&ledger) else {
+            return;
+        };
+        match outcome {
+            // Not to a receiver, which cannot pay one: such a packet expires.
+            Outcome::Forward(forwarded) if !matches!(forwarded.to, EndpointId::Local(_)) => {
+                self.forwarded(now, forwarded);
+            }
+            Outcome::Forward(_) => {}
+            Outcome::Respond(length) => {
+                receiver.requests.remove(&local);
+                if let Some(connection) = receiver.server.connection_mut(id) {
+                    let response = self.out.get(..length).unwrap_or_default();
+                    connection.handle_response(
+                        Timestamp::from_unix_ms(now),
+                        request_id,
+                        response,
+                        &mut self.work,
+                    );
                 }
-                // Back to the receiver, which cannot pay itself: the packet
-                // expires.
-                Outcome::Forward(_) => {}
-                Outcome::Respond(length) => {
-                    receiver.requests.remove(&local);
-                    if let Some(connection) = receiver.server.connection_mut(id) {
-                        let response = self.out.get(..length).unwrap_or_default();
-                        connection.handle_response(
-                            at,
-                            transmit.request_id,
-                            response,
-                            &mut self.work,
-                        );
-                    }
-                }
-                Outcome::Duplicate | Outcome::UnknownSource => {
-                    receiver.requests.remove(&local);
-                }
+            }
+            Outcome::Duplicate | Outcome::UnknownSource => {
+                receiver.requests.remove(&local);
             }
         }
     }
 
-    /// Expires what is due: packets in flight, and the receiver's timers.
+    /// Expires what is due: packets in flight, and the receivers' timers.
     pub(super) fn expire(&mut self, now: u64) {
         while let Some(upstream) =
             self.connector
@@ -459,8 +521,8 @@ impl Core {
         {
             self.upstream(now, upstream);
         }
-        if let Some(receiver) = self.receiver.as_mut() {
-            let at = Timestamp::from_unix_ms(now);
+        let at = Timestamp::from_unix_ms(now);
+        for receiver in self.receivers.values_mut() {
             for id in receiver.connections.clone() {
                 if let Some(connection) = receiver.server.connection_mut(id)
                     && connection.poll_timeout().is_some_and(|due| due <= at)
@@ -468,8 +530,8 @@ impl Core {
                     connection.handle_timeout(at);
                 }
             }
-            self.pump(now);
         }
+        self.pump(now);
         self.take_journal();
     }
 

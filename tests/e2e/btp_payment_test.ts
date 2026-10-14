@@ -1,6 +1,7 @@
 /**
  * The M3 done criterion (spec 7 §8): a BTP client pays the node's STREAM
- * receiver, and the journal matches the packet trace.
+ * receiver, and the journal matches the packet trace. Since M6 the client
+ * pays an incoming payment, whose credentials the owner creates.
  *
  * The client is the JavaScript reference stack: `ilp-plugin-btp` connects
  * with a token the node issued, and `ilp-protocol-stream` learns its
@@ -110,11 +111,13 @@ async function setUp(owner: RpcClient) {
   client.close();
 }
 
-/** Pays the receiver through a BTP connection with `url`. */
+/** Pays an incoming payment through a BTP connection with `url`. */
 async function pay(owner: RpcClient, url: string) {
-  const credentials = await owner.call("createStreamCredentials", {
-    tag: "e2e",
-  });
+  // Open Payments' URLs need a hostname.
+  await owner.call("setHostname", { hostname: "localhost" });
+  const { payment } = await owner.call("createIncomingPayment", {});
+  assert(payment);
+  const credentials = payment;
   const plugin = new BtpPlugin({ server: url }, {
     WebSocket: TrustingWebSocket,
   });

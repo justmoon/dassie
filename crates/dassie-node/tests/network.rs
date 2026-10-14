@@ -20,9 +20,10 @@ use std::sync::Arc;
 use dassie_connector::{CapUsage, SpendingCap, replay};
 use dassie_identity::{NodeId, NodeKey};
 use dassie_ilp::{Address, Prepare, Timestamp};
-use dassie_node::engine::{Core, CoreParts, Outbound, Output};
+use dassie_ledger::LedgerId;
+use dassie_node::engine::{Core, CoreParts, NewIncoming, Outbound, Output};
 use dassie_node::node::Policies;
-use dassie_node::store::Store;
+use dassie_node::store::{PaymentId, Store};
 use dassie_node_core::config::Realm;
 use dassie_node_core::testing::SeededRng;
 use dassie_oer::Decode;
@@ -61,6 +62,10 @@ enum Delivery {
 
 struct Payment {
     from: usize,
+    to: usize,
+    /// The incoming payment it pays, and the most that one takes.
+    incoming: PaymentId,
+    limit: Option<u64>,
     /// The token's ID, and its cap if it has one.
     token: (u64, Option<SpendingCap>),
     link: u64,
@@ -329,12 +334,29 @@ impl Sim {
 
     /// Starts a payment of `amount` from a BTP client of `from` to the
     /// receiver of `to`.
-    fn pay(&mut self, from: usize, to: usize, amount: u64, cap: Option<SpendingCap>) {
+    fn pay(
+        &mut self,
+        from: usize,
+        to: usize,
+        amount: u64,
+        cap: Option<SpendingCap>,
+        limit: Option<u64>,
+    ) {
         let mut credentials = None;
         self.step(to, |core| {
-            credentials = Some(core.stream_credentials("sim").unwrap())
+            let payment = core
+                .create_incoming_payment(NewIncoming {
+                    ledger: LedgerId::StubUsd,
+                    wallet_address: "https://sim.example/.well-known/pay".into(),
+                    client: None,
+                    incoming_amount: limit,
+                    expires_at_ms: None,
+                    metadata: None,
+                })
+                .unwrap();
+            credentials = Some((payment.id, payment.ilp_address, payment.shared_secret));
         });
-        let credentials = credentials.unwrap();
+        let (incoming, destination, shared_secret) = credentials.unwrap();
         let mut session = None;
         self.step(from, |core| {
             let token = core.create_token("sim".into(), "stub+usd", cap).unwrap();
@@ -343,9 +365,9 @@ impl Sim {
         let (token, session) = session.unwrap();
         let mut connection = Connection::new(&Config {
             role: Role::Client,
-            shared_secret: &credentials.shared_secret,
+            shared_secret: &shared_secret,
             local_address: Some(Address::parse(&session.address).unwrap()),
-            remote_address: Some(Address::parse(&credentials.destination).unwrap()),
+            remote_address: Some(Address::parse(&destination).unwrap()),
             local_asset: Some(AssetDetails {
                 code: "USD",
                 scale: 9,
@@ -356,6 +378,9 @@ impl Sim {
         connection.measure_exchange_rate();
         self.payments.push(Payment {
             from,
+            to,
+            incoming,
+            limit,
             token: (token, cap),
             link: session.link,
             connection,
@@ -384,11 +409,13 @@ impl Sim {
                 payment.connection.set_send_max(id, payment.amount).unwrap();
                 payment.stream = Some(id);
             }
+            // An incoming payment that takes less stops the stream there.
+            let expected = payment.amount.min(payment.limit.unwrap_or(u64::MAX));
             if let Some(id) = payment.stream
                 && payment
                     .connection
                     .stream(id)
-                    .is_some_and(|s| s.total_sent() == payment.amount)
+                    .is_some_and(|s| s.total_sent() == expected)
             {
                 payment.done = true;
                 continue;
@@ -502,13 +529,16 @@ fn run(seed: u64) -> Result<Vec<String>, String> {
             return Err(format!("node {index} has no peer"));
         }
     }
-    for _ in 0..3 {
+    for round in 0..3 {
         let from = usize::try_from(rng.next_u64() % count as u64).unwrap();
         let to = (from + 1 + usize::try_from(rng.next_u64() % (count as u64 - 1)).unwrap()) % count;
         // Up to three times the credit a peer extends: only settling lets
         // it through.
         let amount = 100_000_000 + rng.next_u64() % 3_300_000_000;
-        sim.pay(from, to, amount, None);
+        // One incoming payment asks for half of what its sender has: it
+        // takes that, and no more.
+        let limit = (round == 1).then_some(amount / 2);
+        sim.pay(from, to, amount, None, limit);
     }
     // A token capped at 0.1 USD per 10 s pays 0.4 USD: it must wait for
     // its cap to refill.
@@ -517,7 +547,10 @@ fn run(seed: u64) -> Result<Vec<String>, String> {
         amount: 100_000_000,
         window_ms: 10_000,
     };
-    sim.pay(from, (from + 1) % count, 400_000_000, Some(cap));
+    sim.pay(from, (from + 1) % count, 400_000_000, Some(cap), None);
+    // A receiver that crashes mid-payment waits for the fix of the books
+    // after a crash with packets in flight: a node that crashes forgets
+    // the responses it owes its peers, which then disagree with it.
     sim.run_until(sim.now + 120_000);
     // An owner ends a peering: it drains, ends on both sides, and what is
     // owed is settled.
@@ -604,16 +637,100 @@ fn check_cap(sim: &Sim, payment: &Payment) -> Result<(), String> {
     Ok(())
 }
 
+/// An incoming payment received exactly what its sender sent, never more
+/// than it asked for, and is complete once it has that.
+fn check_incoming(sim: &Sim, payment: &Payment) -> Result<(), String> {
+    let row = sim.nodes[payment.to]
+        .store
+        .incoming_payment(payment.incoming)
+        .unwrap()
+        .ok_or("an incoming payment vanished")?;
+    let sent = sent(payment);
+    if row.received_amount != sent {
+        return Err(format!(
+            "node {} received {} of the {sent} sent",
+            payment.to, row.received_amount
+        ));
+    }
+    if let Some(limit) = payment.limit
+        && (row.received_amount != limit || row.completed_at_ms.is_none())
+    {
+        return Err(format!(
+            "an incoming payment of {limit} received {} (completed {:?})",
+            row.received_amount, row.completed_at_ms
+        ));
+    }
+    Ok(())
+}
+
+fn sent(payment: &Payment) -> u64 {
+    payment
+        .stream
+        .and_then(|id| payment.connection.stream(id))
+        .map_or(0, |stream| stream.total_sent())
+}
+
+/// Each owner's funds moved by exactly what their incoming payments
+/// received and their clients sent.
+fn check_owner_books(sim: &Sim) -> Result<(), String> {
+    for index in 0..sim.nodes.len() {
+        let owner: i128 = sim
+            .balances(index)
+            .iter()
+            .filter(|(path, _)| path.starts_with("stub+usd:equity/owner"))
+            .map(|(_, net)| *net)
+            .sum();
+        let received: i128 = sim
+            .payments
+            .iter()
+            .filter(|payment| payment.to == index)
+            .map(|payment| i128::from(sent(payment)))
+            .sum();
+        let paid: i128 = sim
+            .payments
+            .iter()
+            .filter(|payment| payment.from == index)
+            .map(|payment| i128::from(sent(payment)))
+            .sum();
+        if owner - DEPOSIT != received - paid {
+            return Err(format!(
+                "node {index}'s owner moved {} for {received} in and {paid} out",
+                owner - DEPOSIT
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn check(sim: &Sim) -> Result<(), String> {
     if let Some(payment) = sim.payments.iter().find(|payment| !payment.done) {
         return Err(format!(
-            "a payment from node {} did not finish",
-            payment.from
+            "a payment from node {} to {} did not finish: sent {} of {} (limit {:?}), {:?}",
+            payment.from,
+            payment.to,
+            sent(payment),
+            payment.amount,
+            payment.limit,
+            payment.connection.stats(),
+        ) + &format!(
+            ", received {:?}, remote received {:?}, closed {}",
+            sim.nodes[payment.to]
+                .store
+                .incoming_payment(payment.incoming)
+                .unwrap()
+                .map(|row| row.received_amount),
+            payment
+                .stream
+                .and_then(|id| payment.connection.stream(id))
+                .map(|stream| stream.remote_received()),
+            payment.connection.is_closed(),
         ));
     }
     for payment in &sim.payments {
         check_cap(sim, payment)?;
+        check_incoming(sim, payment)?;
     }
+    check_owner_books(sim)?;
     let count = sim.nodes.len();
     let (mut owners, mut stubs) = (0i128, 0i128);
     for index in 0..count {

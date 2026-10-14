@@ -1,38 +1,38 @@
 /**
- * Receive (spec 6 §1.6.6): the payment pointer, STREAM credentials until
- * Open Payments arrives (M6), and a tab per ledger with a deposit method:
- * the stub's test money.
+ * Receive (spec 6 §1.6.6): the wallet addresses other wallets pay through
+ * Open Payments, a request for a payment, and a tab per ledger with a
+ * deposit method: the stub's test money.
  */
 
 import type { JSX } from "@solidjs/web";
-import type {
-  CreateStreamCredentialsResponse,
-  Ledger,
-} from "@dassie/rpc/proto";
+import type { Ledger } from "@dassie/rpc/proto";
 import { createSignal, Show } from "solid-js";
 import { formatAmount } from "@dassie/ui/currency";
 import { ledgerCurrency } from "@dassie/ui/amount";
-import { hex } from "@dassie/ui/format";
 import { useNodeData } from "@dassie/ui/node-data";
 import { describe, useClient } from "@dassie/ui/rpc";
 import { Link, useRouter, useSearchParam } from "@dassie/ui/router";
 import { useToast } from "@dassie/ui/toast";
-import {
-  Card,
-  CopyButton,
-  ErrorText,
-  Masked,
-  PageTitle,
-  Tabs,
-} from "@dassie/ui/ui";
+import { Card, ErrorText, PageTitle, Tabs } from "@dassie/ui/ui";
 import { schemeName } from "./schemes.ts";
+import { RequestPayment } from "./payments/RequestPayment.tsx";
+import { WalletAddresses } from "./payments/WalletAddresses.tsx";
 
 export function Receive(): JSX.Element {
   const data = useNodeData();
   const tab = useSearchParam("tab");
-  const [selected, setSelected] = createSignal(tab() ?? "interledger");
+  const [selected, setSelected] = createSignal(tab() ?? "open-payments");
   const tabs = () => [
-    { id: "interledger", title: "Interledger", panel: () => <Interledger /> },
+    {
+      id: "open-payments",
+      title: "Open Payments",
+      panel: () => (
+        <div class="stack">
+          <WalletAddresses />
+          <RequestPayment />
+        </div>
+      ),
+    },
     ...(data.ledgers() ?? []).map((ledger) => ({
       id: ledger.settlementScheme,
       title: schemeName(ledger.settlementScheme),
@@ -53,66 +53,6 @@ export function Receive(): JSX.Element {
           <Link href="/" class="button" testid="receive-back">Back</Link>
         </div>
       </Card>
-    </div>
-  );
-}
-
-function Interledger(): JSX.Element {
-  const data = useNodeData();
-  const client = useClient();
-  const [credentials, setCredentials] = createSignal<
-    CreateStreamCredentialsResponse
-  >();
-  const [error, setError] = createSignal<string>();
-  const show = async () => {
-    setError(undefined);
-    try {
-      setCredentials(
-        await client.call("createStreamCredentials", { tag: "wallet" }),
-      );
-    } catch (failure) {
-      setError(describe(failure));
-    }
-  };
-  return (
-    <div class="stack">
-      <p>Send money to the following payment pointer:</p>
-      <p class="pointer boxed" data-testid="receive-pointer">
-        {data.hostname ? `$${data.hostname}` : "???"}
-      </p>
-      <p class="muted">
-        Other wallets can pay this address once your node supports Open
-        Payments. Until then, a STREAM sender can pay your node with these
-        credentials.
-      </p>
-      <Show
-        when={credentials()}
-        fallback={
-          <button type="button" data-testid="stream-credentials" onClick={show}>
-            Show STREAM credentials
-          </button>
-        }
-      >
-        {(c) => (
-          <dl class="facts">
-            <dt>Destination</dt>
-            <dd>
-              <code data-testid="stream-destination">
-                {c().destinationAccount}
-              </code>
-              <CopyButton text={c().destinationAccount} />
-            </dd>
-            <dt>Shared secret</dt>
-            <dd>
-              <Masked text={hex(c().sharedSecret)} testid="stream-secret" />
-              <CopyButton text={hex(c().sharedSecret)} />
-            </dd>
-            <dt>Asset</dt>
-            <dd>{c().assetCode}, scale {c().assetScale}</dd>
-          </dl>
-        )}
-      </Show>
-      <ErrorText message={error()} />
     </div>
   );
 }

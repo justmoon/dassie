@@ -1,0 +1,24 @@
+[package]
+name = "dassie-payments"
+version = "0.1.0"
+description = "Open Payments without IO: resources, GNAP grants, HTTP message signatures, payment pointers and time"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Standard and URL-safe base64 for signatures, digests, keys and secrets.
+base64 = { version = "0.22.1", default-features = false, features = ["alloc"] }
+# Signing with the node's client key and verifying clients' keys. Open
+# Payments uses plain RFC 8032 Ed25519, so verification is dalek's strict
+# check, not the ZIP-215 rules of the peer protocol.
+ed25519-dalek = { version = "3.0", default-features = false, features = ["fast", "zeroize"] }
+serde = { version = "1.0.229", default-features = false, features = ["alloc", "derive"] }
+# Without `preserve_order`, objects are BTreeMaps: a defined order (D16).
+serde_json = { version = "1.0.154", default-features = false, features = ["alloc"] }
+sha2 = { version = "0.11", default-features = false }
+subtle = { version = "2.6", default-features = false }
+
+[dev-dependencies]
+proptest = "1.12"

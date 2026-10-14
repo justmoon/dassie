@@ -28,6 +28,36 @@ pub struct Credentials {
     pub shared_secret: [u8; 32],
 }
 
+/// Whether the application lets a packet into a connection, decided from
+/// the connection's tag before the server opens or feeds it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Admission {
+    /// Reject the packet with this ILP error, without opening a connection.
+    Refuse(IlpErrorCode),
+    /// Let it in. The connection may receive at most `money_limit` more in
+    /// total, over all its streams; `u64::MAX` means no limit beyond the
+    /// streams' own. `received` is what the application already counts as
+    /// received for this tag, over earlier connections too (see
+    /// [`Connection::set_money_limit`]).
+    Accept {
+        /// What the connection may still receive.
+        money_limit: u64,
+        /// What was received before, as the application counts it.
+        received: u64,
+    },
+}
+
+/// What [`Server::handle_prepare_admitted`] did with a packet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Handled {
+    /// The length of the ILP response written into the buffer.
+    pub length: usize,
+    /// The connection the packet went to, if one took it.
+    pub connection: Option<ConnectionId>,
+    /// The money the packet brought, if it was fulfilled.
+    pub received: u64,
+}
+
 /// Everything a server needs at creation.
 #[derive(Clone, Copy, Debug)]
 pub struct ServerConfig<'a> {
@@ -111,13 +141,40 @@ impl Server {
         connection_tag: &[u8],
         receipt: Option<ReceiptSecret>,
     ) -> Credentials {
+        let token = self.issue_token(rng, connection_tag, receipt);
+        self.credentials_for(&token)
+    }
+
+    /// Issues the token of new credentials, for an application that keeps
+    /// it and gives out the same credentials again with
+    /// [`credentials_for`](Self::credentials_for).
+    ///
+    /// # Panics
+    ///
+    /// If the tag is longer than [`crate::token::MAX_CONNECTION_TAG_LENGTH`].
+    pub fn issue_token(
+        &self,
+        rng: &mut (impl CryptoRng + ?Sized),
+        connection_tag: &[u8],
+        receipt: Option<ReceiptSecret>,
+    ) -> Vec<u8> {
         let mut token = [0u8; MAX_TOKEN_LENGTH];
         let contents = TokenContents {
             connection_tag,
             receipt,
         };
         let length = self.secret.issue_token(rng, &contents, &mut token);
-        let token = token.get(..length).unwrap_or_default();
+        Vec::from(token.get(..length).unwrap_or_default())
+    }
+
+    /// The credentials of a token this server issued.
+    ///
+    /// # Panics
+    ///
+    /// If the token is longer than [`MAX_TOKEN_LENGTH`].
+    #[must_use]
+    pub fn credentials_for(&self, token: &[u8]) -> Credentials {
+        assert!(token.len() <= MAX_TOKEN_LENGTH, "token too long");
         let mut encoded = [0u8; base64url::encoded_len(MAX_TOKEN_LENGTH)];
         let encoded_length = base64url::encode(token, &mut encoded);
         let mut destination = String::with_capacity(self.address.len() + 1 + encoded_length);
@@ -146,26 +203,87 @@ impl Server {
         prepare: &Prepare<'_>,
         buffer: &mut [u8],
     ) -> usize {
+        let admit = |_: &[u8]| Admission::Accept {
+            money_limit: u64::MAX,
+            received: 0,
+        };
+        self.handle_prepare_admitted(now, rng, prepare, admit, buffer)
+            .length
+    }
+
+    /// Like [`handle_prepare`](Self::handle_prepare), but asks `admit`
+    /// first, with the connection's tag, whether the packet may in and how
+    /// much money its connection may still receive. A refused packet opens
+    /// no connection.
+    ///
+    /// # Panics
+    ///
+    /// If `buffer` is shorter than [`BUFFER_LENGTH`].
+    pub fn handle_prepare_admitted(
+        &mut self,
+        now: Timestamp,
+        rng: &mut (impl CryptoRng + ?Sized),
+        prepare: &Prepare<'_>,
+        admit: impl FnOnce(&[u8]) -> Admission,
+        buffer: &mut [u8],
+    ) -> Handled {
         assert!(
             buffer.len() >= BUFFER_LENGTH,
             "buffer shorter than BUFFER_LENGTH"
         );
+        let refused = |server: &Self, code, buffer: &mut [u8]| Handled {
+            length: server.reject(code, buffer),
+            connection: None,
+            received: 0,
+        };
         let mut token = [0u8; MAX_TOKEN_LENGTH];
         let Some(token_length) = self.token_of(prepare.destination, &mut token) else {
-            return self.reject(IlpErrorCode::F02_UNREACHABLE, buffer);
+            return refused(self, IlpErrorCode::F02_UNREACHABLE, buffer);
         };
         let token = token.get(..token_length).unwrap_or_default();
-        let index = match self.entries.iter().position(|entry| entry.token == token) {
+        let existing = self.entries.iter().position(|entry| entry.token == token);
+        let admission = match existing.and_then(|index| self.entries.get(index)) {
+            Some(entry) => admit(&entry.tag),
+            None => {
+                let mut scratch = [0u8; MAX_TOKEN_LENGTH];
+                match self.secret.open_token(token, &mut scratch) {
+                    Ok(contents) => admit(contents.connection_tag),
+                    Err(_) => Admission::Refuse(IlpErrorCode::F02_UNREACHABLE),
+                }
+            }
+        };
+        let (money_limit, received_before) = match admission {
+            Admission::Refuse(code) => return refused(self, code, buffer),
+            Admission::Accept {
+                money_limit,
+                received,
+            } => (money_limit, received),
+        };
+        let index = match existing {
             Some(index) => index,
             None => match self.open(token) {
                 Ok(index) => index,
-                Err(code) => return self.reject(code, buffer),
+                Err(code) => return refused(self, code, buffer),
             },
         };
         let Some(entry) = self.entries.get_mut(index) else {
-            return self.reject(IlpErrorCode::T00_INTERNAL_ERROR, buffer);
+            return refused(self, IlpErrorCode::T00_INTERNAL_ERROR, buffer);
         };
-        entry.connection.handle_prepare(now, rng, prepare, buffer)
+        entry
+            .connection
+            .set_money_limit(money_limit, received_before);
+        let before = entry.connection.stats().amount_received;
+        let length = entry.connection.handle_prepare(now, rng, prepare, buffer);
+        let received = entry.connection.stats().amount_received - before;
+        assert!(
+            received <= money_limit,
+            "connection took more than its limit"
+        );
+        Handled {
+            length,
+            connection: Some(entry.id),
+            received,
+        }
     }
 
     /// Extracts and decodes the token: the first segment after the server's
@@ -193,6 +311,9 @@ impl Server {
             .map_err(|_| IlpErrorCode::F02_UNREACHABLE)?;
         if self.entries.len() >= self.max_connections {
             self.remove_closed();
+        }
+        if self.entries.len() >= self.max_connections {
+            self.evict_least_active();
         }
         if self.entries.len() >= self.max_connections {
             return Err(IlpErrorCode::T03_CONNECTOR_BUSY);
@@ -224,6 +345,22 @@ impl Server {
         }
         self.opened.push_back(id);
         Ok(self.entries.len() - 1)
+    }
+
+    /// Makes room in a full table by forgetting the connection heard from
+    /// least recently. Its sender's next packet opens it again: the
+    /// application's admission says what it may still receive. So no
+    /// remote can keep the table full by keeping idle connections alive.
+    fn evict_least_active(&mut self) {
+        let oldest = self
+            .entries
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, entry)| entry.connection.last_activity())
+            .map(|(index, _)| index);
+        if let Some(index) = oldest {
+            self.entries.remove(index);
+        }
     }
 
     fn reject(&self, code: IlpErrorCode, buffer: &mut [u8]) -> usize {

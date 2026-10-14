@@ -481,6 +481,7 @@ dependencies = [
 name = "dassie-node"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "bytes",
  "dassie-connector",
  "dassie-identity",
@@ -488,6 +489,7 @@ dependencies = [
  "dassie-ledger",
  "dassie-node-core",
  "dassie-oer",
+ "dassie-payments",
  "dassie-peer",
  "dassie-settlement",
  "dassie-stream",
@@ -543,6 +545,19 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "serde_json",
+]
+
+[[package]]
+name = "dassie-payments"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "ed25519-dalek",
+ "proptest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "subtle",
 ]
 
 [[package]]

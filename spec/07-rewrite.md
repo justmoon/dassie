@@ -29,7 +29,7 @@ Chapters 1–6 describe what the original Dassie does. This chapter describes wh
 | STREAM ([4 §11](04-interledger.md)) | **Yes**, per RFC 29 | Must interoperate with `ilp-protocol-stream` and other STREAM implementations. Skip unknown frames instead of rejecting them (ILP-11). |
 | BTP 2.0 ([3 §14](03-peer-network.md), [4 §10](04-interledger.md)) | **Yes** | Existing ILP clients (`ilp-plugin-btp`) connect with `btp+wss://:<token>@host/btp`. |
 | ILP-over-HTTP ([4 §8](04-interledger.md)) | Per RFC 35, adding synchronous mode | Standard. The original's version is a stub. |
-| Open Payments wallet address and incoming payments, SPSP ([4 §9](04-interledger.md)) | Per the specs | Other wallets resolve `$host`. Add SPSP ([D9](08-decisions.md#d9-open-payments-and-spsp-scope)). |
+| Open Payments ([4 §9](04-interledger.md)) | Per the specs, v1.4.0: wallet address, GNAP authorization server, resource server, HTTP message signatures | Other wallets resolve `$host` and pay it, and third-party clients use the node with the owner's consent. SPSP is dropped ([D9](08-decisions.md#d9-open-payments-fully-and-no-spsp)). |
 | XRPL settlement memo type and the `settlement` message semantics | Yes within one network version | Both sides of a peering must agree; it changes only with the peer protocol version. |
 | Dassie peer protocol ([3 §5–§8](03-peer-network.md)) | **No**: v1 keeps the OER message set and fixes authentication | v0 does not authenticate senders (NET-8). The network is a two-node test network. [D2](08-decisions.md#d2-peer-protocol-v0-or-v1). |
 | OIDs, the `application/dassie-message` media type, `POST /peer` | Yes, with the envelope `version` byte set to 1 | Lets a v1 node recognise and refuse a v0 message cleanly (400 "unsupported version"). |
@@ -64,7 +64,7 @@ crates/
   dassie-xrpl/          XRPL module: binary codec (Payment+Memos), signing, WebSocket client
   dassie-peer/          peer protocol v1, node table, link state, membership, peering, routing
   dassie-connector/     ILP connector pipeline, endpoints (peer/BTP/local/HTTP/ILDCP), FX
-  dassie-payments/      Open Payments + SPSP server and client, payment pointer resolution
+  dassie-payments/      Open Payments, sans-IO: resources, GNAP, HTTP message signatures, intervals, quotes
   dassie-node-core/     the node's decisions without IO: config, setup, sessions, rate limits, ACME/TLS policy
   dassie-node/          daemon composition: config, DB, HTTP(S)/IPC listeners, TLS, ACME, auth, RPC
   dassie-cli/           the `dassie` binary: daemon | init | update | verify-install
@@ -152,6 +152,21 @@ The route table of [2 §6.3](02-node-runtime.md) is kept, including routes that 
 - an `Origin` check on `/rpc` and on the `/api/*` POSTs (RT-6): `Origin` must be `https://` plus the request's `Host`. `Host` must be the configured hostname, `localhost` or an IP literal, which stops DNS rebinding;
 - WebSocket sessions are re-validated on every call, so logout takes effect immediately. Logging out also closes that session's open sockets.
 
+**Open Payments routes** ([D9](08-decisions.md#d9-open-payments-fully-and-no-spsp)) come before the wallet's fallback to `index.html`:
+- **Wallet addresses:** `GET /.well-known/pay` and `GET /pay/<scheme>`, each with `/jwks.json`.
+- **The authorization server** at `/gnap`: `POST /gnap`, `POST|DELETE /gnap/continue/{id}`, `POST|DELETE /gnap/token/{id}`, and `GET /gnap/interact/{id}/{nonce}`, which leads the owner to the consent page.
+- **The resource server:**
+  - `/incoming-payments[/{id}[/complete]]`;
+  - `/quotes[/{id}]`;
+  - `/outgoing-payments[/{id}]`;
+  - `/outgoing-payment-grant`.
+
+They differ from the rest of the surface in four ways:
+- **No `Origin` check.** Clients authenticate by GNAP token and signature, not by cookie.
+- **CORS.** They answer `Access-Control-Allow-Origin: *` without credentials, and a preflight `OPTIONS`.
+- **Errors** follow the Open Payments shape, `{"error": {"code", "description"}}`. A 401 carries `WWW-Authenticate: GNAP as_uri=…`.
+- **Bounds.** Bodies are at most 16 KiB. Every route is rate-limited per IP, and grant requests and new incoming payments are also limited per client.
+
 **The daemon drives ACME**, for the first certificate as for renewals. In the original, `dassie init` ran its own ACME client and asked the daemon over RPC to publish challenge tokens. That meant two ACME implementations, with token RPCs that could fail on duplicates (RT-13). Now `dassie init` calls `acme.ObtainCertificate` and shows the progress the daemon streams back.
 - Challenge tokens live in memory, in a bounded table whose expiry is enforced.
 - Only one order runs at a time.
@@ -181,7 +196,8 @@ Most of the original's integrity gaps come from state it keeps only in memory, o
 | Pending outgoing settlements | memory | journal rows with module-specific reference (tx hash), reconciled on startup (ACC-16) |
 | Settlement-module balance checkpoints | none (full balance re-deposited at every start) | last reconciled on-ledger balance per module; startup books only the difference, through `equity/suspense` (ACC-6, ACC-2) |
 | Peer trust lines | re-posted at every start | posted once when the peer account is created; changes are explicit transfers (ACC-5) |
-| Incoming and outgoing payments | rows without state | full Open Payments state: received/sent amounts, completion, expiry, STREAM credentials tied to the payment (ILP-10) |
+| Incoming and outgoing payments, quotes | rows without state | full Open Payments state, written with the journal rows that move the money: received/sent amounts, completion, expiry, the STREAM token tied to the incoming payment (ILP-10). An outgoing payment also records what is in flight before a packet leaves, so a restart never sends it again |
+| GNAP grants and access tokens | none | grants with their access, client key and interaction state; tokens as SHA-256 hashes ([D10](08-decisions.md#d10-secrets-at-rest)). The amount of each grant spent in its current interval goes with the payments |
 | Exchange rates | memory | last good snapshot with timestamp; refreshed periodically ([D7](08-decisions.md#d7-exchange-rates-fees-and-spread)) |
 
 The database has a new application ID, `0x7DA5E2C9` (like the original's, a random positive int32 with nibbles 2–4 set to `DA5`). A file with the v0 ID `0x1DA53B81` is refused with a message telling the owner to set the node up again with their passphrase ([D3](08-decisions.md#d3-database-continuity)). Configuration is typed columns with CHECK constraints in single-row tables, not a key/value table, so that SQLite itself refuses an invalid port or realm.
@@ -212,6 +228,10 @@ Mainnet stays disabled until the [D8](08-decisions.md#d8-real-money) criteria ar
 - a BTP client paying the node's own STREAM receiver books Dr `equity/owner/btp/<token>`, Cr `equity/owner`: the group total is unchanged, and the journal still has a transfer per packet (ACC-8);
 - a transfer within the group never needs free funds, since its effect on the total is zero;
 - each token's spending can be read from the journal, which is what the per-token spending caps of M5 (an amount per window, refilling continuously) are computed from. Caps are limits, not allocations, so they may add up to more than the funds.
+
+**Open Payments on the books ([D9](08-decisions.md#d9-open-payments-fully-and-no-spsp)).** Each ledger has its own STREAM receiver and its own payer, two local endpoints.
+- **The receiver** credits `L:equity/owner`. A packet is fulfilled only for an open incoming payment on that ledger, and only up to what that payment still expects. The payment's new received amount is written in the same transaction as the journal row.
+- **The payer** debits `L:equity/owner/local/pay`, a sub-account in the owner's group, so the group's limit is the outgoing payments' limit too. Grant limits are checked when an outgoing payment is created, not by the connector.
 
 **Spending caps.** A BTP token may carry a cap of `A` per window `W`, refilling continuously.
 - **What counts** is a packet that debits the token's account and credits an account outside the owner's group: a peer, or `revenue/fx`. A payment to the node's own receiver, or to another token's client, moves no money out of the owner's funds and does not count.
@@ -478,7 +498,11 @@ settle balance − midpoint when balance ≥ midpoint · 1.1; on termination, se
 - **The debug pages stay** (logs, nodes, ledger, routing, database), and a packets page joins them. The "State" page that introspected `lib-reactive` becomes a service and cell inspector fed by the supervisor (§4.1).
   - The logs page reads a ring of the node's last 1000 lines (at most 1 MiB), kept whatever `DASSIE_LOG_LEVEL` says: info and above, and debug for the targets `DEBUG` names. Fields named like secrets are redacted.
   - The database page never reads a secret column: the node key, the TLS key, the ACME credentials, session IDs and token hashes are shown as redacted.
-- **Send and payment status come with M6**, which brings payment pointers. Until then the wallet offers Receive only.
+- **Payments come with M6:**
+  - **M6a:** Receive, with the wallet addresses and incoming payments, and an activity list.
+  - **M6b:** the consent page for third-party grants, and a grants page to revoke them.
+  - **M6c:** Send and payment status.
+  - Until then the wallet offers Receive only.
 - **The dev dashboard** reuses the wallet's debug components (`packages/ui`). It talks to each node over the same contract, through the node's IPC socket, which the dev server relays to it; nothing in the node accepts a dev token.
 
 ## 6. Developer environment (Deno)
@@ -514,14 +538,15 @@ Every crate is written so that a simulation can drive it ([D16](08-decisions.md#
    - ILP and ILDCP packets, every STREAM frame, STREAM crypto ([4 §1.9, §6.1, §11.2, §11.3](04-interledger.md));
    - node IDs of the bootstrap nodes ([3 §2.2](03-peer-network.md));
    - the BIP-39 → node key → login secret chain;
-   - the XRPL wallet derivation for a fixed passphrase.
+   - the XRPL wallet derivation for a fixed passphrase;
+   - for Open Payments, the examples of the standards: RFC 9421 (Ed25519 signatures), RFC 9530 (`Content-Digest`), RFC 8941 (structured fields), the interaction hash of the Open Payments docs, and the repeating intervals of its specs.
 
    The vectors are generated from the original code by `testdata/original/` (this includes the independently computed ones of [3 §5.5](03-peer-network.md), now confirmed).
 2. **Property tests** for `dassie-oer` (round trip, canonical-only parse), the ledger (no transfer breaks a limit; balances equal the journal), and STREAM allocation ([4 §11.11](04-interledger.md)).
 3. **Interop.** A Deno test harness runs:
    - `dassie-stream` (native and WASM) against the npm `ilp-protocol-stream`, both directions;
    - the BTP server against `ilp-plugin-btp`;
-   - Open Payments and SPSP against the reference clients.
+   - Open Payments against the reference client `@interledger/open-payments`, as a third-party client of the node; and the node as a client of another node.
 4. **Deterministic network simulation.** N nodes are wired in-process through the sans-IO crates with a mock clock and seeded RNG. They cover discovery, majority computation, flooding suppression, peering, routing convergence, settlement thresholds, and restart recovery.
    - The simulated network injects latency, loss, reordering, duplication, partitions, crashes and restarts.
    - It checks every state machine's invariants after each step, and global properties such as conservation of money across all ledgers.
@@ -540,7 +565,7 @@ Every crate is written so that a simulation can drive it ([D16](08-decisions.md#
 | M3 | Ledger journal, connector, local endpoints, ILDCP, BTP, stub settlement module. Exchange-rate math and its T00 rule; the rate fetcher comes in M7 with the first second currency | A BTP client pays the node's STREAM receiver. The journal matches the packet trace. |
 | M4 | Peer protocol v1, node table, membership, registration, auto-peering, link state, routing, settlement loop. Delivered in two PRs: **M4a** (v1, membership, peering, routing, packets over peers) and **M4b** (settlement loop, the D12 lifecycle: termination, bans, the advertise flag) | The `two-nodes` and `six-nodes` scenarios converge and route payments across hops. Restarts keep peerings and balances. M4a stops at payments within the credit peers extend, with restarts that keep peerings; M4b pays several times the credit across hops, so every hop must settle. Child peers move to the milestone that adds registration fees ([D12](08-decisions.md#d12-peering-lifecycle-and-liveness)). |
 | M5 | Wallet (Solid 2) and dev environment (Deno) with dashboard, including BTP token spending caps. Delivered in two PRs: **M5a** (the node's live streams and inspectors, `GET /stats`, spending caps, every wallet page) and **M5b** (`deno task dev`, the dev dashboard, `packages/ui`) | All pages of [6 §1.6](06-user-interfaces-and-tooling.md) but Send and payment status work against M4. `deno task dev` brings up any scenario that M4 can run (the XRPL ones come with M7). |
-| M6 | Open Payments + SPSP, payment pointers, outgoing payments with quotes and status, and the wallet's Send and payment status pages | Pays to and from another Open Payments/SPSP wallet. |
+| M6 | Open Payments ([D9](08-decisions.md#d9-open-payments-fully-and-no-spsp)): wallet addresses, GNAP, incoming payments, quotes, outgoing payments, and the wallet's Send, payment status and grant pages. Delivered in three PRs: **M6a** (`dassie-payments`, HTTP message signatures, non-interactive grants, wallet addresses, incoming payments, Receive and Activity), **M6b** (quotes, outgoing payments, grant limits, interactive grants with the owner's consent, token management) and **M6c** (the node as a client of other wallets, Send and payment status) | Two nodes pay each other through Open Payments, and the reference client runs the full third-party flow against a node. M6a stops at the reference client paying into an incoming payment, with state and books exact. |
 | M7 | XRPL testnet module with reserve and fee accounting; the exchange-rate fetcher of D7, fees and spread | The `xrpl-settlement` and `cross-currency` scenarios settle and reconcile across restarts. |
 | M8 | Release: static binaries (x64, arm64), signed artifacts, installer, updater, systemd units | Installer and updater tests pass on Debian, Ubuntu, Fedora and CentOS images. A tampered bundle is refused. |
 | M9 | Website and STREAM toy | `dassie.land` builds from `apps/website`. The toy runs on `dassie-stream` WASM. |

@@ -87,7 +87,12 @@ Deno.test({
       await signIn(page, d1);
 
       await t.step("the dashboard follows the balance live", async () => {
-        assertEquals(await text(page, "payment-pointer"), `$${d1.hostname}`);
+        await until(
+          page,
+          "the default wallet address",
+          () => text(page, "payment-pointer"),
+          (pointer) => pointer === `$${d1.hostname}:${d1.httpsPort}`,
+        );
         assertEquals(
           await attribute(page, "balance-stub+usd", "data-value"),
           "100000000000",
@@ -116,7 +121,7 @@ Deno.test({
       });
 
       await t.step(
-        "receive: the stub's test money, and STREAM credentials",
+        "receive: the stub's test money, and a request for a payment",
         async () => {
           await click(page, "receive-button");
           await click(page, "tab-stub");
@@ -128,13 +133,40 @@ Deno.test({
             (value) => value === "205000000000",
           );
           await click(page, "receive-button");
+          assertEquals(
+            await text(page, "receive-pointer"),
+            `$${d1.hostname}:${d1.httpsPort}`,
+          );
+          await type(page, "request-amount", "1.5");
+          await type(page, "request-description", "e2e request");
+          await click(page, "request-create");
+          const url = await text(page, "request-url");
+          assertMatch(url, /\/incoming-payments\/[0-9a-f-]{36}$/);
           await click(page, "stream-credentials");
           assertMatch(await text(page, "stream-destination"), /^test\.das\./);
-          // A change of balance does not take the credentials away.
+          // A change of balance does not take the request away.
           await d1.rpc.call("stubDeposit", { amount: 1n });
           await new Promise((resolve) => setTimeout(resolve, 1_500));
           assertEquals(await count(page, "stream-destination"), 1);
           await picture(page, "02-receive");
+          // Activity shows it, and completes it.
+          await click(page, "request-activity");
+          const id = url.split("/").at(-1);
+          await until(
+            page,
+            "the request is listed",
+            () => attribute(page, `incoming-${id}`, "data-state"),
+            (state) => state === "open",
+          );
+          await click(page, "incoming-complete");
+          await click(page, "incoming-complete-confirm");
+          await until(
+            page,
+            "the request is completed",
+            () => attribute(page, `incoming-${id}`, "data-state"),
+            (state) => state === "completed",
+          );
+          await picture(page, "02-activity");
         },
       );
 

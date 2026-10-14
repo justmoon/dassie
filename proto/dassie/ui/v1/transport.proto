@@ -69,6 +69,9 @@ message ClientMessage {
 message Cancel {}
 
 message Request {
+  // 70 was CreateStreamCredentials, which incoming payments replaced.
+  reserved 70;
+
   oneof method {
     // Public: the only method an unauthenticated socket may call.
     GetBasicStateRequest get_basic_state = 1;
@@ -106,7 +109,13 @@ message Request {
     RevokeBtpTokenRequest revoke_btp_token = 62;
     SetBtpTokenCapRequest set_btp_token_cap = 63;
 
-    CreateStreamCredentialsRequest create_stream_credentials = 70;
+    ListWalletAddressesRequest list_wallet_addresses = 71;
+    SetDefaultLedgerRequest set_default_ledger = 72;
+    CreateIncomingPaymentRequest create_incoming_payment = 73;
+    CompleteIncomingPaymentRequest complete_incoming_payment = 74;
+    ListIncomingPaymentsRequest list_incoming_payments = 75;
+    // Streaming.
+    SubscribeIncomingPaymentsRequest subscribe_incoming_payments = 76;
 
     ListAccountsRequest list_accounts = 80;
     ListTransfersRequest list_transfers = 81;
@@ -154,6 +163,8 @@ message ServerMessage {
 }
 
 message Response {
+  reserved 70;
+
   oneof method {
     GetBasicStateResponse get_basic_state = 1;
     GetStatusResponse get_status = 2;
@@ -184,7 +195,11 @@ message Response {
     RevokeBtpTokenResponse revoke_btp_token = 62;
     SetBtpTokenCapResponse set_btp_token_cap = 63;
 
-    CreateStreamCredentialsResponse create_stream_credentials = 70;
+    ListWalletAddressesResponse list_wallet_addresses = 71;
+    SetDefaultLedgerResponse set_default_ledger = 72;
+    CreateIncomingPaymentResponse create_incoming_payment = 73;
+    CompleteIncomingPaymentResponse complete_incoming_payment = 74;
+    ListIncomingPaymentsResponse list_incoming_payments = 75;
 
     ListAccountsResponse list_accounts = 80;
     ListTransfersResponse list_transfers = 81;
@@ -212,6 +227,7 @@ message StreamItem {
     AcmeProgress obtain_certificate = 30;
     // The ledgers, whole, each time they change.
     ListLedgersResponse subscribe_ledgers = 55;
+    IncomingPaymentEvent subscribe_incoming_payments = 76;
     PacketEvent subscribe_packets = 83;
     TransferEvent subscribe_transfers = 84;
     NodeTableEvent subscribe_nodes = 100;

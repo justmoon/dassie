@@ -8,6 +8,7 @@ import { For, Show } from "solid-js";
 import { Amount, ledgerCurrency } from "@dassie/ui/amount";
 import { useNodeData } from "@dassie/ui/node-data";
 import { Link } from "@dassie/ui/router";
+import { useWalletAddresses } from "./payments/WalletAddresses.tsx";
 import { Card, LiveNote, PageTitle } from "@dassie/ui/ui";
 import { schemeName } from "./schemes.ts";
 
@@ -55,17 +56,20 @@ export function Account(): JSX.Element {
   );
 }
 
-/** The node's payment pointer, `$hostname`. */
+/** The node's payment pointer: its default wallet address, `$hostname`. */
 export function PaymentPointer(props: { testid?: string }): JSX.Element {
   const data = useNodeData();
+  const state = useWalletAddresses();
+  const pointer = () =>
+    state.addresses()?.find((address) => address.isDefault)?.paymentPointer ??
+      (data.hostname ? `$${data.hostname}` : "???");
   return (
     <Card title="Payment Pointer">
       <p class="pointer" data-testid={props.testid ?? "payment-pointer"}>
-        {data.hostname ? `$${data.hostname}` : "???"}
+        {pointer()}
       </p>
       <p class="muted" data-testid="pointer-note">
-        Other wallets can pay this address once your node supports Open
-        Payments.
+        Other wallets pay this address through Open Payments.
       </p>
     </Card>
   );

@@ -292,10 +292,24 @@ impl Connection {
         stream: &crate::stream::Stream,
         visit: &mut dyn FnMut(Frame<'_>),
     ) {
+        // Under a connection limit, a stream reports the application's
+        // count, which survives reconnections, and no more room than what
+        // is left of the limit.
+        let (receive_max, total_received) = if self.money_limit == u64::MAX {
+            (stream.receive_max, stream.received)
+        } else {
+            let received = self.money_received.max(stream.received);
+            (
+                stream
+                    .receive_max
+                    .min(received.saturating_add(self.money_limit)),
+                received,
+            )
+        };
         visit(Frame::StreamMaxMoney {
             stream_id: stream.id,
-            receive_max: stream.receive_max,
-            total_received: stream.received,
+            receive_max,
+            total_received,
         });
         visit(Frame::StreamMaxData {
             stream_id: stream.id,

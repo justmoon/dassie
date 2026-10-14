@@ -86,6 +86,30 @@ fn server(policy: Policy) -> Server {
 }
 
 #[test]
+fn a_full_server_forgets_its_least_active_connection() {
+    // Two connections fill the table. A third still gets in: the one heard
+    // from least recently goes, and comes back when its sender returns.
+    let mut server = server(Policy::DEFAULT);
+    let mut rng = TestRng::new(9);
+    let mut buffer = vec![0; BUFFER_LENGTH];
+    let mut send = |server: &mut Server, rng: &mut TestRng, tag: u8, at_ms: u64| {
+        let credentials = server.generate_credentials(rng, &[tag], None);
+        let keys = Keys::derive(&credentials.shared_secret);
+        let bytes = hostile_prepare(&keys, &credentials.destination, 0, 0, &[]);
+        let prepare = Prepare::decode_exact(&bytes).unwrap();
+        server.handle_prepare(NOW.saturating_add_ms(at_ms), rng, &prepare, &mut buffer);
+    };
+    send(&mut server, &mut rng, 1, 0);
+    send(&mut server, &mut rng, 2, 10);
+    send(&mut server, &mut rng, 3, 20);
+    let tags: Vec<Vec<u8>> = server
+        .connections()
+        .map(|(id, _)| server.connection_tag(id).unwrap().to_vec())
+        .collect();
+    assert_eq!(tags, vec![vec![2], vec![3]]);
+}
+
+#[test]
 fn hostile_reply_amounts_do_not_overflow_counters() {
     // Finding 1: replies claiming u64::MAX delivered overflowed the stats.
     let secret = [3u8; 32];

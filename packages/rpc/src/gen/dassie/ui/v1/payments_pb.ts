@@ -10,65 +10,425 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file dassie/ui/v1/payments.proto.
  */
 export const file_dassie_ui_v1_payments: GenFile = /*@__PURE__*/
-  fileDesc("ChtkYXNzaWUvdWkvdjEvcGF5bWVudHMucHJvdG8SDGRhc3NpZS51aS52MSItCh5DcmVhdGVTdHJlYW1DcmVkZW50aWFsc1JlcXVlc3QSCwoDdGFnGAEgASgJIn4KH0NyZWF0ZVN0cmVhbUNyZWRlbnRpYWxzUmVzcG9uc2USGwoTZGVzdGluYXRpb25fYWNjb3VudBgBIAEoCRIVCg1zaGFyZWRfc2VjcmV0GAIgASgMEhIKCmFzc2V0X2NvZGUYAyABKAkSEwoLYXNzZXRfc2NhbGUYBCABKA1iBnByb3RvMw");
+  fileDesc("ChtkYXNzaWUvdWkvdjEvcGF5bWVudHMucHJvdG8SDGRhc3NpZS51aS52MSKCAQoNV2FsbGV0QWRkcmVzcxILCgN1cmwYASABKAkSFwoPcGF5bWVudF9wb2ludGVyGAIgASgJEg4KBmxlZGdlchgDIAEoCRISCgphc3NldF9jb2RlGAQgASgJEhMKC2Fzc2V0X3NjYWxlGAUgASgNEhIKCmlzX2RlZmF1bHQYBiABKAgiHAoaTGlzdFdhbGxldEFkZHJlc3Nlc1JlcXVlc3QiVAobTGlzdFdhbGxldEFkZHJlc3Nlc1Jlc3BvbnNlEjUKEHdhbGxldF9hZGRyZXNzZXMYASADKAsyGy5kYXNzaWUudWkudjEuV2FsbGV0QWRkcmVzcyIpChdTZXREZWZhdWx0TGVkZ2VyUmVxdWVzdBIOCgZsZWRnZXIYASABKAkiUQoYU2V0RGVmYXVsdExlZGdlclJlc3BvbnNlEjUKEHdhbGxldF9hZGRyZXNzZXMYASADKAsyGy5kYXNzaWUudWkudjEuV2FsbGV0QWRkcmVzcyKBAwoPSW5jb21pbmdQYXltZW50EgoKAmlkGAEgASgJEgsKA3VybBgCIAEoCRIWCg53YWxsZXRfYWRkcmVzcxgDIAEoCRIOCgZsZWRnZXIYBCABKAkSEgoKYXNzZXRfY29kZRgFIAEoCRITCgthc3NldF9zY2FsZRgGIAEoDRIcCg9pbmNvbWluZ19hbW91bnQYByABKARIAIgBARIXCg9yZWNlaXZlZF9hbW91bnQYCCABKAQSDgoGY2xpZW50GAkgASgJEhUKDW1ldGFkYXRhX2pzb24YCiABKAkSFQoNY3JlYXRlZF9hdF9tcxgLIAEoBBIVCg1leHBpcmVzX2F0X21zGAwgASgEEhwKD2NvbXBsZXRlZF9hdF9tcxgNIAEoBEgBiAEBEhsKE2Rlc3RpbmF0aW9uX2FjY291bnQYDiABKAkSFQoNc2hhcmVkX3NlY3JldBgPIAEoDEISChBfaW5jb21pbmdfYW1vdW50QhIKEF9jb21wbGV0ZWRfYXRfbXMijAEKHENyZWF0ZUluY29taW5nUGF5bWVudFJlcXVlc3QSDgoGbGVkZ2VyGAEgASgJEhwKD2luY29taW5nX2Ftb3VudBgCIAEoBEgAiAEBEhUKDWV4cGlyZXNfYXRfbXMYAyABKAQSEwoLZGVzY3JpcHRpb24YBCABKAlCEgoQX2luY29taW5nX2Ftb3VudCJPCh1DcmVhdGVJbmNvbWluZ1BheW1lbnRSZXNwb25zZRIuCgdwYXltZW50GAEgASgLMh0uZGFzc2llLnVpLnYxLkluY29taW5nUGF5bWVudCIsCh5Db21wbGV0ZUluY29taW5nUGF5bWVudFJlcXVlc3QSCgoCaWQYASABKAkiUQofQ29tcGxldGVJbmNvbWluZ1BheW1lbnRSZXNwb25zZRIuCgdwYXltZW50GAEgASgLMh0uZGFzc2llLnVpLnYxLkluY29taW5nUGF5bWVudCIsChtMaXN0SW5jb21pbmdQYXltZW50c1JlcXVlc3QSDQoFbGltaXQYASABKA0iTwocTGlzdEluY29taW5nUGF5bWVudHNSZXNwb25zZRIvCghwYXltZW50cxgBIAMoCzIdLmRhc3NpZS51aS52MS5JbmNvbWluZ1BheW1lbnQiMQogU3Vic2NyaWJlSW5jb21pbmdQYXltZW50c1JlcXVlc3QSDQoFbGltaXQYASABKA0iZwoUSW5jb21pbmdQYXltZW50RXZlbnQSDQoFcmVzZXQYASABKAgSLwoIdXBzZXJ0ZWQYAiADKAsyHS5kYXNzaWUudWkudjEuSW5jb21pbmdQYXltZW50Eg8KB3JlbW92ZWQYAyADKAliBnByb3RvMw");
 
 /**
- * Credentials for paying the node's STREAM receiver, which credits the
- * owner's funds on the owner's first active ledger. A stand-in until Open
- * Payments and SPSP (M6), which issue them per incoming payment.
- * FAILED_PRECONDITION while no settlement scheme is active.
+ * A wallet address.
  *
- * @generated from message dassie.ui.v1.CreateStreamCredentialsRequest
+ * @generated from message dassie.ui.v1.WalletAddress
  */
-export type CreateStreamCredentialsRequest = Message<"dassie.ui.v1.CreateStreamCredentialsRequest"> & {
+export type WalletAddress = Message<"dassie.ui.v1.WalletAddress"> & {
   /**
-   * Labels the connection; at most 64 bytes.
+   * Its URL, as other wallets and clients use it: https://host/pay/<slug>,
+   * or https://host/.well-known/pay for the default ledger.
    *
-   * @generated from field: string tag = 1;
+   * @generated from field: string url = 1;
    */
-  tag: string;
-};
+  url: string;
 
-/**
- * Describes the message dassie.ui.v1.CreateStreamCredentialsRequest.
- * Use `create(CreateStreamCredentialsRequestSchema)` to create a new message.
- */
-export const CreateStreamCredentialsRequestSchema: GenMessage<CreateStreamCredentialsRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_payments, 0);
-
-/**
- * @generated from message dassie.ui.v1.CreateStreamCredentialsResponse
- */
-export type CreateStreamCredentialsResponse = Message<"dassie.ui.v1.CreateStreamCredentialsResponse"> & {
   /**
-   * The ILP address to pay.
+   * The same as a payment pointer: $host, or $host/pay/<slug>.
    *
-   * @generated from field: string destination_account = 1;
+   * @generated from field: string payment_pointer = 2;
    */
-  destinationAccount: string;
+  paymentPointer: string;
 
   /**
-   * The connection's 32-byte shared secret.
-   *
-   * @generated from field: bytes shared_secret = 2;
+   * @generated from field: string ledger = 3;
    */
-  sharedSecret: Uint8Array;
+  ledger: string;
 
   /**
-   * @generated from field: string asset_code = 3;
+   * @generated from field: string asset_code = 4;
    */
   assetCode: string;
 
   /**
-   * @generated from field: uint32 asset_scale = 4;
+   * @generated from field: uint32 asset_scale = 5;
    */
   assetScale: number;
+
+  /**
+   * Whether $host names it. The default ledger's address is also at
+   * https://host/pay/<slug>; this is the one listed.
+   *
+   * @generated from field: bool is_default = 6;
+   */
+  isDefault: boolean;
 };
 
 /**
- * Describes the message dassie.ui.v1.CreateStreamCredentialsResponse.
- * Use `create(CreateStreamCredentialsResponseSchema)` to create a new message.
+ * Describes the message dassie.ui.v1.WalletAddress.
+ * Use `create(WalletAddressSchema)` to create a new message.
  */
-export const CreateStreamCredentialsResponseSchema: GenMessage<CreateStreamCredentialsResponse> = /*@__PURE__*/
+export const WalletAddressSchema: GenMessage<WalletAddress> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 0);
+
+/**
+ * @generated from message dassie.ui.v1.ListWalletAddressesRequest
+ */
+export type ListWalletAddressesRequest = Message<"dassie.ui.v1.ListWalletAddressesRequest"> & {
+};
+
+/**
+ * Describes the message dassie.ui.v1.ListWalletAddressesRequest.
+ * Use `create(ListWalletAddressesRequestSchema)` to create a new message.
+ */
+export const ListWalletAddressesRequestSchema: GenMessage<ListWalletAddressesRequest> = /*@__PURE__*/
   messageDesc(file_dassie_ui_v1_payments, 1);
+
+/**
+ * @generated from message dassie.ui.v1.ListWalletAddressesResponse
+ */
+export type ListWalletAddressesResponse = Message<"dassie.ui.v1.ListWalletAddressesResponse"> & {
+  /**
+   * By ledger.
+   *
+   * @generated from field: repeated dassie.ui.v1.WalletAddress wallet_addresses = 1;
+   */
+  walletAddresses: WalletAddress[];
+};
+
+/**
+ * Describes the message dassie.ui.v1.ListWalletAddressesResponse.
+ * Use `create(ListWalletAddressesResponseSchema)` to create a new message.
+ */
+export const ListWalletAddressesResponseSchema: GenMessage<ListWalletAddressesResponse> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 2);
+
+/**
+ * Chooses the ledger $host names. NOT_FOUND unless it is active.
+ *
+ * @generated from message dassie.ui.v1.SetDefaultLedgerRequest
+ */
+export type SetDefaultLedgerRequest = Message<"dassie.ui.v1.SetDefaultLedgerRequest"> & {
+  /**
+   * Empty to go back to the lowest active ledger.
+   *
+   * @generated from field: string ledger = 1;
+   */
+  ledger: string;
+};
+
+/**
+ * Describes the message dassie.ui.v1.SetDefaultLedgerRequest.
+ * Use `create(SetDefaultLedgerRequestSchema)` to create a new message.
+ */
+export const SetDefaultLedgerRequestSchema: GenMessage<SetDefaultLedgerRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 3);
+
+/**
+ * @generated from message dassie.ui.v1.SetDefaultLedgerResponse
+ */
+export type SetDefaultLedgerResponse = Message<"dassie.ui.v1.SetDefaultLedgerResponse"> & {
+  /**
+   * @generated from field: repeated dassie.ui.v1.WalletAddress wallet_addresses = 1;
+   */
+  walletAddresses: WalletAddress[];
+};
+
+/**
+ * Describes the message dassie.ui.v1.SetDefaultLedgerResponse.
+ * Use `create(SetDefaultLedgerResponseSchema)` to create a new message.
+ */
+export const SetDefaultLedgerResponseSchema: GenMessage<SetDefaultLedgerResponse> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 4);
+
+/**
+ * An incoming payment.
+ *
+ * @generated from message dassie.ui.v1.IncomingPayment
+ */
+export type IncomingPayment = Message<"dassie.ui.v1.IncomingPayment"> & {
+  /**
+   * A UUID.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * Its URL.
+   *
+   * @generated from field: string url = 2;
+   */
+  url: string;
+
+  /**
+   * The wallet address it was created at.
+   *
+   * @generated from field: string wallet_address = 3;
+   */
+  walletAddress: string;
+
+  /**
+   * @generated from field: string ledger = 4;
+   */
+  ledger: string;
+
+  /**
+   * @generated from field: string asset_code = 5;
+   */
+  assetCode: string;
+
+  /**
+   * @generated from field: uint32 asset_scale = 6;
+   */
+  assetScale: number;
+
+  /**
+   * The most it accepts; none for no limit.
+   *
+   * @generated from field: optional uint64 incoming_amount = 7;
+   */
+  incomingAmount?: bigint | undefined;
+
+  /**
+   * @generated from field: uint64 received_amount = 8;
+   */
+  receivedAmount: bigint;
+
+  /**
+   * The wallet address or key of the client that created it; empty for
+   * the owner.
+   *
+   * @generated from field: string client = 9;
+   */
+  client: string;
+
+  /**
+   * Its metadata, as JSON; empty for none.
+   *
+   * @generated from field: string metadata_json = 10;
+   */
+  metadataJson: string;
+
+  /**
+   * @generated from field: uint64 created_at_ms = 11;
+   */
+  createdAtMs: bigint;
+
+  /**
+   * @generated from field: uint64 expires_at_ms = 12;
+   */
+  expiresAtMs: bigint;
+
+  /**
+   * When it was completed: it received all it asked for, or its creator
+   * said so.
+   *
+   * @generated from field: optional uint64 completed_at_ms = 13;
+   */
+  completedAtMs?: bigint | undefined;
+
+  /**
+   * Its STREAM credentials: the ILP address to pay, and the 32-byte
+   * shared secret.
+   *
+   * @generated from field: string destination_account = 14;
+   */
+  destinationAccount: string;
+
+  /**
+   * @generated from field: bytes shared_secret = 15;
+   */
+  sharedSecret: Uint8Array;
+};
+
+/**
+ * Describes the message dassie.ui.v1.IncomingPayment.
+ * Use `create(IncomingPaymentSchema)` to create a new message.
+ */
+export const IncomingPaymentSchema: GenMessage<IncomingPayment> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 5);
+
+/**
+ * Creates an incoming payment, as the owner: to ask for a payment, or to
+ * pay the node from a STREAM client. RESOURCE_EXHAUSTED when too many are
+ * open.
+ *
+ * @generated from message dassie.ui.v1.CreateIncomingPaymentRequest
+ */
+export type CreateIncomingPaymentRequest = Message<"dassie.ui.v1.CreateIncomingPaymentRequest"> & {
+  /**
+   * Empty for the default ledger.
+   *
+   * @generated from field: string ledger = 1;
+   */
+  ledger: string;
+
+  /**
+   * The most it accepts; none for no limit.
+   *
+   * @generated from field: optional uint64 incoming_amount = 2;
+   */
+  incomingAmount?: bigint | undefined;
+
+  /**
+   * When it stops accepting money; 0 for a day from now. At most 30 days.
+   *
+   * @generated from field: uint64 expires_at_ms = 3;
+   */
+  expiresAtMs: bigint;
+
+  /**
+   * Goes into its metadata as "description"; at most 256 bytes.
+   *
+   * @generated from field: string description = 4;
+   */
+  description: string;
+};
+
+/**
+ * Describes the message dassie.ui.v1.CreateIncomingPaymentRequest.
+ * Use `create(CreateIncomingPaymentRequestSchema)` to create a new message.
+ */
+export const CreateIncomingPaymentRequestSchema: GenMessage<CreateIncomingPaymentRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 6);
+
+/**
+ * @generated from message dassie.ui.v1.CreateIncomingPaymentResponse
+ */
+export type CreateIncomingPaymentResponse = Message<"dassie.ui.v1.CreateIncomingPaymentResponse"> & {
+  /**
+   * @generated from field: dassie.ui.v1.IncomingPayment payment = 1;
+   */
+  payment?: IncomingPayment | undefined;
+};
+
+/**
+ * Describes the message dassie.ui.v1.CreateIncomingPaymentResponse.
+ * Use `create(CreateIncomingPaymentResponseSchema)` to create a new message.
+ */
+export const CreateIncomingPaymentResponseSchema: GenMessage<CreateIncomingPaymentResponse> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 7);
+
+/**
+ * Completes an incoming payment: it takes no more money. NOT_FOUND for an
+ * unknown one, FAILED_PRECONDITION for an expired one.
+ *
+ * @generated from message dassie.ui.v1.CompleteIncomingPaymentRequest
+ */
+export type CompleteIncomingPaymentRequest = Message<"dassie.ui.v1.CompleteIncomingPaymentRequest"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+};
+
+/**
+ * Describes the message dassie.ui.v1.CompleteIncomingPaymentRequest.
+ * Use `create(CompleteIncomingPaymentRequestSchema)` to create a new message.
+ */
+export const CompleteIncomingPaymentRequestSchema: GenMessage<CompleteIncomingPaymentRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 8);
+
+/**
+ * @generated from message dassie.ui.v1.CompleteIncomingPaymentResponse
+ */
+export type CompleteIncomingPaymentResponse = Message<"dassie.ui.v1.CompleteIncomingPaymentResponse"> & {
+  /**
+   * @generated from field: dassie.ui.v1.IncomingPayment payment = 1;
+   */
+  payment?: IncomingPayment | undefined;
+};
+
+/**
+ * Describes the message dassie.ui.v1.CompleteIncomingPaymentResponse.
+ * Use `create(CompleteIncomingPaymentResponseSchema)` to create a new message.
+ */
+export const CompleteIncomingPaymentResponseSchema: GenMessage<CompleteIncomingPaymentResponse> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 9);
+
+/**
+ * @generated from message dassie.ui.v1.ListIncomingPaymentsRequest
+ */
+export type ListIncomingPaymentsRequest = Message<"dassie.ui.v1.ListIncomingPaymentsRequest"> & {
+  /**
+   * How many, newest first, up to 1000; 0 means 100.
+   *
+   * @generated from field: uint32 limit = 1;
+   */
+  limit: number;
+};
+
+/**
+ * Describes the message dassie.ui.v1.ListIncomingPaymentsRequest.
+ * Use `create(ListIncomingPaymentsRequestSchema)` to create a new message.
+ */
+export const ListIncomingPaymentsRequestSchema: GenMessage<ListIncomingPaymentsRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 10);
+
+/**
+ * @generated from message dassie.ui.v1.ListIncomingPaymentsResponse
+ */
+export type ListIncomingPaymentsResponse = Message<"dassie.ui.v1.ListIncomingPaymentsResponse"> & {
+  /**
+   * Newest first.
+   *
+   * @generated from field: repeated dassie.ui.v1.IncomingPayment payments = 1;
+   */
+  payments: IncomingPayment[];
+};
+
+/**
+ * Describes the message dassie.ui.v1.ListIncomingPaymentsResponse.
+ * Use `create(ListIncomingPaymentsResponseSchema)` to create a new message.
+ */
+export const ListIncomingPaymentsResponseSchema: GenMessage<ListIncomingPaymentsResponse> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 11);
+
+/**
+ * Streaming: the newest incoming payments, then each change.
+ *
+ * @generated from message dassie.ui.v1.SubscribeIncomingPaymentsRequest
+ */
+export type SubscribeIncomingPaymentsRequest = Message<"dassie.ui.v1.SubscribeIncomingPaymentsRequest"> & {
+  /**
+   * How many it follows, newest first, up to 1000; 0 means 100.
+   *
+   * @generated from field: uint32 limit = 1;
+   */
+  limit: number;
+};
+
+/**
+ * Describes the message dassie.ui.v1.SubscribeIncomingPaymentsRequest.
+ * Use `create(SubscribeIncomingPaymentsRequestSchema)` to create a new message.
+ */
+export const SubscribeIncomingPaymentsRequestSchema: GenMessage<SubscribeIncomingPaymentsRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 12);
+
+/**
+ * @generated from message dassie.ui.v1.IncomingPaymentEvent
+ */
+export type IncomingPaymentEvent = Message<"dassie.ui.v1.IncomingPaymentEvent"> & {
+  /**
+   * Set on the first item.
+   *
+   * @generated from field: bool reset = 1;
+   */
+  reset: boolean;
+
+  /**
+   * Payments added or changed, whole.
+   *
+   * @generated from field: repeated dassie.ui.v1.IncomingPayment upserted = 2;
+   */
+  upserted: IncomingPayment[];
+
+  /**
+   * IDs of payments no longer among the newest.
+   *
+   * @generated from field: repeated string removed = 3;
+   */
+  removed: string[];
+};
+
+/**
+ * Describes the message dassie.ui.v1.IncomingPaymentEvent.
+ * Use `create(IncomingPaymentEventSchema)` to create a new message.
+ */
+export const IncomingPaymentEventSchema: GenMessage<IncomingPaymentEvent> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 13);
 

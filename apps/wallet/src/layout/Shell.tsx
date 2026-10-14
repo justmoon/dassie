@@ -1,7 +1,7 @@
 /**
  * The wallet's frame: the navigation, a notice while the connection is
  * down, and the page (spec 6 §1.5's routes; Send and payment status come
- * with M6).
+ * with M6c).
  */
 
 import type { JSX } from "@solidjs/web";
@@ -32,6 +32,9 @@ const Register = lazy(() => import("../pages/network/Register.tsx"), {
 const Settings = lazy(() => import("../pages/settings/Settings.tsx"), {
   export: "Settings",
 });
+const Activity = lazy(() => import("../pages/payments/Activity.tsx"), {
+  export: "Activity",
+});
 const DebugPage = lazy(() => import("@dassie/ui/debug"), {
   export: "DebugPage",
 });
@@ -44,6 +47,7 @@ const ROUTES = [
   { path: "/ledgers/delete/:scheme", component: DeleteLedger },
   { path: "/ledgers", component: Ledgers },
   { path: "/receive", component: Receive },
+  { path: "/payments", component: Activity },
   { path: "/settings", component: Settings },
   { path: "/debug", component: DebugPage },
   { path: "/debug/*rest", component: DebugPage },
