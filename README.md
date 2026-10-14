@@ -20,18 +20,19 @@ The work starts from the specification in [`spec/`](spec/README.md):
 | `crates/dassie-stream` | STREAM as sans-IO connection and server state machines |
 | `crates/dassie-ledger` | The internal double-entry ledger and its transfer journal |
 | `crates/dassie-settlement` | The settlement scheme interface, activation reconciliation, the stub scheme |
-| `crates/dassie-connector` | The ILP connector: endpoints, routing, ILDCP, amounts, the packet trace |
+| `crates/dassie-connector` | The ILP connector: endpoints, peers and the route table, ILDCP, amounts, the packet trace |
+| `crates/dassie-peer` | The peer protocol v1: wire format, authentication, node table, link state, membership, registration, peering, routing |
 | `crates/dassie-node-core` | The node's decisions without IO: config, setup, sessions, origins, rate limits, ACME and TLS policy |
-| `crates/dassie-node` | The daemon: database, HTTP(S) and IPC listeners, TLS, ACME, owner login, RPC, the ledger's engine, the BTP server and the STREAM receiver |
+| `crates/dassie-node` | The daemon: database, HTTP(S) and IPC listeners, TLS, ACME, owner login, RPC, the ledger's engine with the peer protocol, `/peer` and the peer client, the BTP server and the STREAM receiver |
 | `crates/dassie-cli` | The `dassie` binary: `daemon`, `init`, `verify-install` |
 | `proto/dassie/ui/v1` | The RPC contract between the node and its owner's clients |
 | `apps/wallet` | The wallet (Solid 2), embedded in the binary; so far setup and login |
 | `packages/identity-wasm` | The core crates for Deno and browsers, with a STREAM driver |
 | `packages/rpc` | The client for the RPC contract, over WebSocket (browsers) or the IPC socket (Deno) |
 | `tests/interop` | Interop with `ilp-protocol-stream`, WASM vectors, browser test |
-| `tests/e2e` | A fresh install through `dassie init` and browser setup, with Pebble as the ACME CA; a BTP client paying the node's STREAM receiver |
+| `tests/e2e` | A fresh install through `dassie init` and browser setup, with Pebble as the ACME CA; a BTP client paying the node's STREAM receiver; the `two-nodes` and `six-nodes` scenarios |
 | `testdata/original` | Generator for the golden vectors, run against the original |
-| `testdata/pebble` | Configuration and API certificate for Pebble, Let's Encrypt's test server, also served by the node in the BTP test |
+| `testdata/pebble` | Configuration and API certificate for Pebble, Let's Encrypt's test server, also served by the nodes in the BTP, peer and scenario tests |
 
 ## Building and testing
 
@@ -59,5 +60,7 @@ DASSIE_IPC_SOCKET_PATH=/tmp/dassie.sock target/e2e/dassie init --hostname localh
 and open the setup URL it prints. The certificate is self-signed until `dassie init` obtains one (it needs a public hostname with port 80 reachable).
 
 Once set up, the node keeps books once a settlement scheme is active. The stub scheme gives the owner 100 test USD; a BTP token lets an ILP client such as `ilp-plugin-btp` spend them through the node. Over RPC (the wallet's pages for this come in M5): `addSettlementScheme` with `stub`, then `createBtpToken`, whose answer holds the `btp+wss://` URL to connect with.
+
+Nodes find each other through bootstrap nodes. There are none by default until the v1 network's exist ([D15](spec/08-decisions.md#d15-bootstrap-network-for-v1)), so a node runs alone until `DASSIE_BOOTSTRAP_NODES` names some, as JSON: `[{"id": "d…", "url": "https://host:port", "publicKey": "<base64url>"}]`. A node needs a hostname to take part. For a local network, `DASSIE_PEER_ALLOW_PRIVATE=1` lets nodes reach each other on `localhost`, `DASSIE_PEER_CA_FILE` names the CA their certificates come from, and `DASSIE_DEV_TIMINGS=1` makes the protocol poll every second; `tests/e2e/scenarios.ts` sets up such networks. The RPC methods `listNodes`, `listPeers`, `listRoutes` and `getRegistrationStatus` show what a node knows.
 
 The code follows a pragmatic TigerStyle and is built for deterministic simulation testing ([D16](spec/08-decisions.md#d16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation)): the core crates never read a clock or the OS RNG, bound every table and queue, and check their invariants after every step of their simulations.
