@@ -361,8 +361,9 @@ export type PeerCost = Message<"dassie.ui.v1.PeerCost"> & {
   refused: bigint;
 
   /**
-   * What it owes this node and has not settled, once it has owed more than
-   * half its credit for longer than the grace for settling.
+   * What it owes this node and has not settled, once it has owed past the
+   * point where it should have settled for longer than the grace for
+   * settling.
    *
    * @generated from field: uint64 overdue = 5;
    */
@@ -864,7 +865,7 @@ export type PeerSettings = Message<"dassie.ui.v1.PeerSettings"> & {
   /**
    * The share of the credit this node extends to a peer that the peer may
    * cost it in 30 days before it is banned, in parts per million: 1 to
-   * 1 000 000.
+   * 10 000 000 (ten times the credit).
    *
    * @generated from field: uint32 grace_share_ppm = 1;
    */

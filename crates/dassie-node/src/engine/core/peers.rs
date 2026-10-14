@@ -422,13 +422,20 @@ impl Core {
             BanError::Ourselves => EngineError::Invalid("a node cannot ban itself".into()),
             BanError::Full => EngineError::Exhausted("too many banned nodes".into()),
         })?;
-        self.record_ban(crate::store::BanRecord {
-            node,
-            reason: crate::store::BanReason::Owner,
-            banned_at_ms: now,
-            cost: None,
-            unbanned_at_ms: None,
-        });
+        // A ban made already keeps its record: its reason, and what the
+        // peer cost if that was why.
+        let kept = self
+            .ban_record(&node)
+            .is_some_and(|record| record.unbanned_at_ms.is_none());
+        if !kept {
+            self.record_ban(crate::store::BanRecord {
+                node,
+                reason: crate::store::BanReason::Owner,
+                banned_at_ms: now,
+                cost: None,
+                unbanned_at_ms: None,
+            });
+        }
         self.after_peer();
         Ok(())
     }

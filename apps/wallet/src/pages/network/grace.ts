@@ -76,8 +76,7 @@ export function recentAutomaticBans<T extends { id: string; ban?: BanInfo }>(
 
 /** The share of the credit, in parts per million, as a percentage. */
 export function shareText(ppm: number): string {
-  const percent = ppm / 10_000;
-  return `${Number.isInteger(percent) ? percent : percent.toFixed(2)}%`;
+  return `${(ppm / 10_000).toFixed(4).replace(/\.?0+$/, "")}%`;
 }
 
 /** A percentage the owner typed, in parts per million; `undefined` if it

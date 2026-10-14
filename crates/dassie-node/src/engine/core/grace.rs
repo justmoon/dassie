@@ -5,10 +5,14 @@
 //! - **Refused:** the losses its refused Fulfills booked (D17) in the
 //!   window, or since the owner last lifted a ban on it. Refusals our own
 //!   receiver took back cost nothing and do not count.
-//! - **Overdue:** what it owes us, posted, once that has stayed above half
-//!   the credit we extend for longer than the grace for settling, while
-//!   our scheme could see its settlements. Not while the peering is being
-//!   ended: it cannot settle until it is over.
+//! - **Overdue:** what it owes us, posted, once that has stayed past the
+//!   point where it should have settled for longer than the grace for
+//!   settling, while our scheme could see its settlements. That point is
+//!   its own settlement threshold, at the default ratio or ours if higher,
+//!   and never below half the credit we extend. Only while peered: a
+//!   peering being ended cannot settle until it is over, and one that
+//!   ended without the peer hearing of it never settles at all; its debt
+//!   stays on the books.
 //!
 //! The limit is a share of the credit we extend, with a floor. A peer can
 //! cost us at most its limit plus what it has in flight before its ban:
@@ -80,10 +84,18 @@ pub(super) struct Grace {
     at_ms: u64,
     /// Peers to check at the end of this step.
     queued: BTreeSet<NodeId>,
-    /// Since when each peer has owed us more than half its credit.
+    /// Since when each peer has owed us past the point where it should
+    /// have settled.
     due_since: BTreeMap<NodeId, u64>,
-    /// Since when each scheme has seen its ledger.
-    synced_since: BTreeMap<Name, u64>,
+    /// The schemes that see their ledgers, as of the last check.
+    synced: BTreeSet<Name>,
+    /// Peers past their limit whose peering was ended without a ban, the
+    /// ban list being full: not ended again at each check.
+    over_limit: BTreeSet<NodeId>,
+    /// The settlement ratio a peer is held to: the default or ours,
+    /// whichever is higher, so a peer that settles later than we do is
+    /// not overdue for it.
+    ratio_ppm: u32,
     /// Each peer's cost at its last check, for the owner's view.
     costs: BTreeMap<NodeId, PeerCost>,
     /// The lies this node tells, in a simulation.
@@ -91,13 +103,15 @@ pub(super) struct Grace {
 }
 
 impl Grace {
-    pub(super) const fn new(now_ms: u64, policy: GracePolicy) -> Self {
+    pub(super) fn new(now_ms: u64, policy: GracePolicy, ratio_ppm: u32) -> Self {
         Self {
             policy,
             at_ms: now_ms.saturating_add(policy.check_every_ms),
             queued: BTreeSet::new(),
             due_since: BTreeMap::new(),
-            synced_since: BTreeMap::new(),
+            synced: BTreeSet::new(),
+            over_limit: BTreeSet::new(),
+            ratio_ppm: ratio_ppm.max(policy::DEFAULT_RATIO_PPM),
             costs: BTreeMap::new(),
             lies: BTreeSet::new(),
         }
@@ -130,12 +144,33 @@ const fn grace_floor(ledger: LedgerId) -> u64 {
     }
 }
 
-/// `credit_out` times the owner's share, at least the floor.
+/// `credit_out` times the owner's share, at least the floor, and within
+/// what the ledger holds.
 fn grace_limit(ledger: LedgerId, credit_out: u64, share_ppm: u32) -> u64 {
     let share = u128::from(credit_out) * u128::from(share_ppm) / 1_000_000;
     u64::try_from(share)
         .unwrap_or(u64::MAX)
+        .min(dassie_ledger::MAX_TOTAL)
         .max(grace_floor(ledger))
+}
+
+/// What a peer may owe us before it should have settled: past its own
+/// threshold at `ratio_ppm` (spec 5 §4.6, with the credits as it sees
+/// them), and never below half the credit we extend.
+fn due_point(credit_in: u64, credit_out: u64, ratio_ppm: u32) -> u64 {
+    let middle = (u128::from(credit_in) + u128::from(credit_out)) / 2;
+    let threshold = middle + middle * u128::from(ratio_ppm) / 2_000_000;
+    let owes = threshold.saturating_sub(u128::from(credit_in));
+    u64::try_from(owes).unwrap_or(u64::MAX).max(credit_out / 2)
+}
+
+/// A peer's debt to us on a ledger: what it owes, posted, and the credit
+/// we extend.
+struct Debt {
+    ledger: LedgerId,
+    interledger: dassie_ledger::AccountId,
+    owes: u64,
+    credit_out: u64,
 }
 
 impl Core {
@@ -175,8 +210,8 @@ impl Core {
 
     /// Checks what peers cost us, after this step's books are on disk:
     /// every peer when it is time, and those whose refusals were just
-    /// booked. Bans any past its limit; returns whether it did, which is
-    /// for the disk in turn.
+    /// booked. Bans any past its limit; returns whether that changed the
+    /// peering, which is for the disk in turn.
     pub(super) fn grace_checks(&mut self) -> bool {
         let now = self.now_ms;
         let periodic = self.grace.at_ms <= now;
@@ -191,12 +226,13 @@ impl Core {
         } else {
             std::mem::take(&mut self.grace.queued).into_iter().collect()
         };
-        let mut banned = false;
+        let active: BTreeSet<NodeId> = self.peer.active_peers().map(|(id, _)| *id).collect();
+        let mut changed = false;
         for node in &subjects {
-            let cost = if self.peer.is_banned(node) {
+            let cost = if self.peer.is_banned(node) || self.grace.over_limit.contains(node) {
                 None
             } else {
-                self.peer_cost(*node)
+                self.peer_cost(*node, &active)
             };
             let Some(cost) = cost else {
                 self.grace.due_since.remove(node);
@@ -204,8 +240,7 @@ impl Core {
                 continue;
             };
             if cost.over() {
-                self.ban_for(*node, cost);
-                banned = true;
+                changed |= self.ban_for(*node, cost);
             } else {
                 self.grace.costs.insert(*node, cost);
             }
@@ -216,36 +251,29 @@ impl Core {
                 .due_since
                 .retain(|node, _| checked.contains(node));
             self.grace.costs.retain(|node, _| checked.contains(node));
+            self.grace.over_limit.retain(|node| checked.contains(node));
         }
-        banned
+        changed
     }
 
-    /// Notes which schemes see their ledgers, and since when. A scheme that
-    /// does not stops every clock of what is due on its ledger.
+    /// Notes which schemes see their ledgers. A scheme that does not stops
+    /// every clock of what is due on its ledger.
     pub(super) fn update_synced(&mut self) {
-        let now = self.now_ms;
-        let synced: Vec<(Name, bool)> = self
+        let synced: BTreeSet<Name> = self
             .schemes
             .iter()
-            .map(|(name, active)| (*name, active.scheme.synced()))
+            .filter(|(_, active)| active.scheme.synced())
+            .map(|(name, _)| *name)
             .collect();
-        self.grace
-            .synced_since
-            .retain(|name, _| synced.iter().any(|(s, ok)| s == name && *ok));
-        for (name, ok) in synced {
-            if ok {
-                self.grace.synced_since.entry(name).or_insert(now);
-            }
-        }
+        self.grace.synced = synced;
     }
 
     /// The scheme `node`'s accounts are on and how it stands with us: the
     /// peering's, or for a peering that ended, the first active scheme
     /// whose ledger holds its accounts.
-    fn standing(&self, node: &NodeId) -> Option<(SchemeId, Standing)> {
+    fn standing(&self, node: &NodeId, active: &BTreeSet<NodeId>) -> Option<(SchemeId, Standing)> {
         if let Some(peering) = self.peer.peering_of(node) {
-            let active = self.peer.active_peers().any(|(id, _)| id == node);
-            let standing = if active {
+            let standing = if active.contains(node) {
                 Standing::Peered
             } else {
                 Standing::Terminating
@@ -264,11 +292,10 @@ impl Core {
         })
     }
 
-    /// What `node` cost us, as the books have it now; `None` if it has no
-    /// accounts on an active ledger.
-    pub(super) fn peer_cost(&mut self, node: NodeId) -> Option<PeerCost> {
-        let (scheme_id, standing) = self.standing(&node)?;
-        let scheme = Name::new(scheme_id.as_str()).ok()?;
+    /// What `node` owes us on `scheme`'s ledger, posted: packets in flight
+    /// and our own settlements on their way are not debts yet.
+    fn debt(&self, node: NodeId, scheme: SchemeId) -> Option<Debt> {
+        let scheme = Name::new(scheme.as_str()).ok()?;
         let ledger = self.schemes.get(&scheme)?.scheme.ledger();
         let name = Name::new(node.as_str()).ok()?;
         let interledger = self.ledger.find(&AccountPath::new(
@@ -280,17 +307,58 @@ impl Core {
             .find(&AccountPath::new(ledger, AccountName::ContraTrust(name)))?;
         let credit_out = policy::trust(self.ledger.account(trust)?.balance());
         let balance = self.ledger.account(interledger)?.balance();
-        // Posted only: packets in flight, and our own settlements on their
-        // way, are not debts yet.
         let position = balance.credits_posted.saturating_sub(balance.debits_posted);
         let owes = u64::try_from(u128::from(credit_out).saturating_sub(position)).unwrap_or(0);
+        Some(Debt {
+            ledger,
+            interledger,
+            owes,
+            credit_out,
+        })
+    }
 
+    /// Whether `node`, peered on `scheme`, owes us past the point where it
+    /// should have settled, as `debt` says.
+    fn past_due(&self, node: &NodeId, scheme: SchemeId, debt: &Debt) -> bool {
+        let Some(peering) = self.peer.peering_of(node) else {
+            return false;
+        };
+        let Ok(name) = Name::new(scheme.as_str()) else {
+            return false;
+        };
+        self.grace.synced.contains(&name)
+            && debt.owes > due_point(peering.credit_in, debt.credit_out, self.grace.ratio_ppm)
+    }
+
+    /// A settlement from `node` came: if it no longer owes past the point
+    /// where it should have settled, the clock of what is due stops now,
+    /// not at the next check.
+    pub(super) fn grace_settled(&mut self, node: NodeId) {
+        let Some(scheme) = self.peer.peering_of(&node).map(|peering| peering.scheme) else {
+            return;
+        };
+        let due = self
+            .debt(node, scheme)
+            .is_some_and(|debt| self.past_due(&node, scheme, &debt));
+        if !due {
+            self.grace.due_since.remove(&node);
+        }
+    }
+
+    /// What `node` cost us, as the books have it now; `None` if it has no
+    /// accounts on an active ledger.
+    pub(super) fn peer_cost(
+        &mut self,
+        node: NodeId,
+        active: &BTreeSet<NodeId>,
+    ) -> Option<PeerCost> {
+        let (scheme, standing) = self.standing(&node, active)?;
+        let debt = self.debt(node, scheme)?;
         let now = self.now_ms;
-        let synced = self.grace.synced_since.contains_key(&scheme);
-        let overdue = if standing != Standing::Terminating && synced && owes > credit_out / 2 {
+        let overdue = if standing == Standing::Peered && self.past_due(&node, scheme, &debt) {
             let since = *self.grace.due_since.entry(node).or_insert(now);
             if now.saturating_sub(since) >= self.grace.policy.settle_grace_ms {
-                owes
+                debt.owes
             } else {
                 0
             }
@@ -301,7 +369,7 @@ impl Core {
 
         let losses = self
             .ledger
-            .find(&AccountPath::new(ledger, AccountName::ExpensesLosses));
+            .find(&AccountPath::new(debt.ledger, AccountName::ExpensesLosses));
         let refused = match losses {
             Some(losses) => {
                 let window = now.saturating_sub(self.grace.policy.window_ms);
@@ -311,7 +379,7 @@ impl Core {
                     .and_then(|record| record.unbanned_at_ms)
                     .map_or(window, |lifted| lifted.max(window));
                 self.store
-                    .losses_since(interledger, losses, since)
+                    .losses_since(debt.interledger, losses, since)
                     .unwrap_or_else(|error| {
                         tracing::error!(target: target::PEER, %error, "reading what a peer refused");
                         0
@@ -320,16 +388,21 @@ impl Core {
             None => 0,
         };
         Some(PeerCost {
-            ledger,
+            ledger: debt.ledger,
             refused,
             overdue,
-            grace: grace_limit(ledger, credit_out, self.peer_settings.grace_share_ppm),
+            grace: grace_limit(
+                debt.ledger,
+                debt.credit_out,
+                self.peer_settings.grace_share_ppm,
+            ),
         })
     }
 
     /// Bans `node`, which cost us more than its limit, and keeps why. A
-    /// full ban list does not save it: its peering ends all the same.
-    pub(super) fn ban_for(&mut self, node: NodeId, cost: PeerCost) {
+    /// full ban list does not save it: its peering ends all the same, once.
+    /// Returns whether the peering changed.
+    pub(super) fn ban_for(&mut self, node: NodeId, cost: PeerCost) -> bool {
         let now = self.now_ms;
         tracing::warn!(
             target: target::PEER,
@@ -340,16 +413,19 @@ impl Core {
             grace = cost.grace,
             "a peer cost us more than its grace limit: banned",
         );
+        self.grace.costs.remove(&node);
+        self.grace.due_since.remove(&node);
         match self.peer.ban(now, node) {
             Ok(()) => {}
             Err(BanError::Full) => {
                 tracing::error!(target: target::PEER, %node, "the ban list is full: the peering ends, but the node is not banned");
-                self.peer.terminate(now, &node, TerminationReason::Owner);
+                self.grace.over_limit.insert(node);
+                let ended = self.peer.terminate(now, &node, TerminationReason::Owner);
+                self.after_peer();
+                return ended;
             }
-            Err(BanError::Ourselves) => return,
+            Err(BanError::Ourselves) => return false,
         }
-        self.grace.costs.remove(&node);
-        self.grace.due_since.remove(&node);
         self.record_ban(BanRecord {
             node,
             reason: BanReason::GraceLimit,
@@ -358,6 +434,7 @@ impl Core {
             unbanned_at_ms: None,
         });
         self.after_peer();
+        true
     }
 
     /// Keeps why `record.node` was banned, within [`MAX_BAN_RECORDS`]: the
@@ -380,8 +457,9 @@ impl Core {
         self.changes.network = true;
     }
 
-    /// Notes that the ban on `node` was lifted, so what it cost before
-    /// does not count again.
+    /// Notes that the ban on `node` was lifted, so what its refusals cost
+    /// before does not count again. A ban without a record, from before
+    /// the node kept them or forgotten since, gets one now.
     pub(super) fn record_unban(&mut self, node: NodeId) {
         let now = self.now_ms;
         if let Some(record) = self.ban_records.get_mut(&node) {
@@ -389,6 +467,14 @@ impl Core {
             self.batch
                 .bans
                 .push(BanChange::Unbanned { node, at_ms: now });
+        } else {
+            self.record_ban(BanRecord {
+                node,
+                reason: BanReason::Owner,
+                banned_at_ms: now,
+                cost: None,
+                unbanned_at_ms: Some(now),
+            });
         }
     }
 
@@ -409,10 +495,22 @@ mod tests {
             550_000_000
         );
         assert_eq!(grace_limit(LedgerId::StubUsd, 0, 500_000), 10_000_000);
+        // Within what the ledger holds, so it can be stored.
         assert_eq!(
-            grace_limit(LedgerId::StubUsd, u64::MAX, 1_000_000),
-            u64::MAX
+            grace_limit(LedgerId::StubUsd, dassie_ledger::MAX_TOTAL, 10_000_000),
+            dassie_ledger::MAX_TOTAL
         );
+    }
+
+    #[test]
+    fn a_peer_is_due_past_its_own_threshold() {
+        let c = 1_100_000_000;
+        // Even credit: its threshold is low, so half our credit decides.
+        assert_eq!(due_point(c, c, 200_000), c / 2);
+        // It extends us nothing: it settles only past 1.1 × half of ours.
+        assert_eq!(due_point(0, c, 200_000), 605_000_000);
+        // It extends us more: half our credit still decides.
+        assert_eq!(due_point(10 * c, c, 200_000), c / 2);
     }
 
     #[test]

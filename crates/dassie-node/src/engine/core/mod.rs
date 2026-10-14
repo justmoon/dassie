@@ -308,7 +308,7 @@ impl Core {
             ledger_stats: dassie_ledger::Stats::default(),
             owed: verdicts::Owed::new(now_ms),
             spending: payers::Spending::default(),
-            grace: grace::Grace::new(now_ms, policies.grace),
+            grace: grace::Grace::new(now_ms, policies.grace, policies.settlement_ratio_ppm),
             peer_settings: PeerSettings::DEFAULT,
             ban_records: BTreeMap::new(),
         };
@@ -574,6 +574,10 @@ fn check_bounds(policies: &Policies) {
     assert!(
         verdicts::MAX_OWED_PER_PEER > connector.max_pending_per_peer,
         "a peer can fill its share of the table without owing too many verdicts"
+    );
+    assert!(
+        policies.peer.max_bans + policies.peer.max_channels <= crate::store::MAX_BAN_RECORDS,
+        "every ban, and every peer that could be banned, has room for its record"
     );
 }
 

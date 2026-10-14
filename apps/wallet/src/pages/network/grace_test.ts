@@ -53,7 +53,13 @@ Deno.test("the dashboard tells of automatic bans of the last week", () => {
 
 Deno.test("shares are percentages of the credit", () => {
   assertEquals(shareText(1_000_000), "100%");
-  assertEquals(shareText(12_345), "1.23%");
+  assertEquals(shareText(12_345), "1.2345%");
+  assertEquals(shareText(1), "0.0001%");
+  assertEquals(shareText(750_000), "75%");
+  // What it shows, it takes back unchanged.
+  for (const ppm of [1, 12_345, 750_000, 10_000_000]) {
+    assertEquals(parseShare(shareText(ppm)), ppm);
+  }
   assertEquals(parseShare("100"), 1_000_000);
   assertEquals(parseShare(" 50 % "), 500_000);
   assertEquals(parseShare("0.0001"), 1);

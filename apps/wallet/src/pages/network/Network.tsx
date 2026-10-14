@@ -279,7 +279,7 @@ function NodeDetail(props: { node: NetworkNode }): JSX.Element {
           <button
             type="button"
             data-testid="unban-node"
-            title="What it cost before counts no more."
+            title="What its refusals cost before counts no more; what it still owes does."
             onClick={act(
               "Ban lifted",
               () => client.call("unbanNode", { node: node().id }),

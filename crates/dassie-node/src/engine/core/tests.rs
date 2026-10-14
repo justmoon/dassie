@@ -243,34 +243,22 @@ fn costly_peer(core: &mut Core, owed: u64, lost: u64, reversed: u64) -> dassie_i
     node
 }
 
-// D18: what a peer owes counts once it has stayed above half its credit
-// for the grace for settling, and as a whole; its refusals count as their
-// losses, never what our receiver took back.
+// D18: a peer's refusals count as their losses, never what our receiver
+// took back. A peering that ended without the peer settling stays owed on
+// the books, but is not overdue: the peer may never have heard it ended.
 #[test]
-fn a_peer_costs_its_losses_and_what_it_owes_past_its_grace() {
+fn a_peer_costs_its_losses_and_not_an_ended_peerings_debt() {
     let mut core = core(8);
-    core.grace_checks();
     let node = costly_peer(&mut core, 800, 30, 40);
     core.update_synced();
-    let cost = core.peer_cost(node).unwrap();
-    assert_eq!((cost.refused, cost.overdue), (30, 0), "not overdue yet");
+    let none = std::collections::BTreeSet::new();
+    let cost = core.peer_cost(node, &none).unwrap();
+    assert_eq!((cost.refused, cost.overdue), (30, 0));
     // The floor: a hundredth of a unit.
     assert_eq!(cost.grace, 10_000_000);
-    core.begin_step(NOW + Policies::DEFAULT.grace.settle_grace_ms);
-    let cost = core.peer_cost(node).unwrap();
-    // Its refusals credited it back: it owes 800 less 70.
-    assert_eq!((cost.refused, cost.overdue), (30, 730));
-}
-
-// D18: owing half the credit or less is never overdue, however long.
-#[test]
-fn owing_half_the_credit_is_not_overdue() {
-    let mut core = core(9);
-    let node = costly_peer(&mut core, 500, 0, 0);
-    core.update_synced();
-    core.peer_cost(node).unwrap();
     core.begin_step(NOW + 10 * Policies::DEFAULT.grace.settle_grace_ms);
-    assert_eq!(core.peer_cost(node).unwrap().overdue, 0);
+    let cost = core.peer_cost(node, &none).unwrap();
+    assert_eq!((cost.refused, cost.overdue), (30, 0));
 }
 
 // D18: a peer past its limit is banned, with what it cost, and the owner
@@ -286,9 +274,10 @@ fn a_ban_keeps_what_the_peer_cost_and_an_unban_forgets_it() {
         .unwrap();
     let node = costly_peer(&mut core, 0, 20_000_000, 0);
     core.update_synced();
-    let cost = core.peer_cost(node).unwrap();
+    let none = std::collections::BTreeSet::new();
+    let cost = core.peer_cost(node, &none).unwrap();
     assert!(cost.over());
-    core.ban_for(node, cost);
+    assert!(core.ban_for(node, cost));
     core.flush();
     assert!(core.peer.is_banned(&node));
     let record = core.ban_record(&node).unwrap();
@@ -299,7 +288,7 @@ fn a_ban_keeps_what_the_peer_cost_and_an_unban_forgets_it() {
     core.begin_step(NOW + 1_000);
     core.unban_node(&node).unwrap();
     core.flush();
-    assert_eq!(core.peer_cost(node).unwrap().refused, 0);
+    assert_eq!(core.peer_cost(node, &none).unwrap().refused, 0);
     assert_eq!(
         store.ban_records().unwrap()[0].unbanned_at_ms,
         Some(NOW + 1_000)
@@ -310,6 +299,43 @@ fn a_ban_keeps_what_the_peer_cost_and_an_unban_forgets_it() {
     assert_eq!(
         core.ban_record(&node).unwrap().unbanned_at_ms,
         Some(NOW + 1_000)
+    );
+}
+
+// Found in review: lifting a ban the node has no record of, from before
+// it kept them, still starts the peer's window anew.
+#[test]
+fn an_unban_without_a_record_makes_one() {
+    use crate::store::BanReason;
+
+    let mut core = core(14);
+    let node = NodeKey::from_bytes(&[9; 32]).node_id();
+    core.peer.ban(NOW, node).unwrap();
+    core.unban_node(&node).unwrap();
+    let record = core.ban_record(&node).unwrap();
+    assert_eq!(record.reason, BanReason::Owner);
+    assert_eq!(record.unbanned_at_ms, Some(NOW));
+}
+
+// Found in review: the owner banning a node the node banned already keeps
+// the record of why.
+#[test]
+fn an_owner_ban_keeps_an_automatic_bans_record() {
+    use crate::store::{BanReason, PeerSettings};
+
+    let mut core = core(15);
+    core.set_peer_settings(PeerSettings { grace_share_ppm: 1 })
+        .unwrap();
+    let node = costly_peer(&mut core, 0, 20_000_000, 0);
+    core.update_synced();
+    let cost = core
+        .peer_cost(node, &std::collections::BTreeSet::new())
+        .unwrap();
+    core.ban_for(node, cost);
+    core.ban_node(node).unwrap();
+    assert_eq!(
+        core.ban_record(&node).unwrap().reason,
+        BanReason::GraceLimit
     );
 }
 
