@@ -351,6 +351,9 @@ CREATE TABLE ledger_transfers_new (
   packet_sequence INTEGER CHECK ((reference IN ('packet', 'refusal')) = (packet_sequence IS NOT NULL)),
   settlement_scheme TEXT CHECK ((reference = 'settlement') = (settlement_scheme IS NOT NULL)),
   settlement_id TEXT CHECK ((reference = 'settlement') = (settlement_id IS NOT NULL)),
+  -- The order rows were written or last changed in, for readers that page
+  -- through the journal: a packet's transfer is written when it is posted,
+  -- which is not the order of transfer IDs.
   sequence INTEGER NOT NULL UNIQUE CHECK (sequence > 0)
 ) STRICT;
 

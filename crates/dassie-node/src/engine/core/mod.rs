@@ -533,6 +533,10 @@ fn check_bounds(policies: &Policies) {
         policies.ledger.max_journal >= 64,
         "a command's journal entries fit the journal"
     );
+    assert!(
+        verdicts::MAX_OWED_PER_PEER > connector.max_pending_per_peer,
+        "a peer can fill its share of the table without owing too many verdicts"
+    );
 }
 
 /// Most local endpoints at once: a receiver and a payer for each ledger

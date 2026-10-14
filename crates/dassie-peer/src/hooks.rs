@@ -7,7 +7,8 @@ use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
 
-use crate::wire::{RefusalReason, SchemeId, TerminationReason};
+use crate::table::Termination;
+use crate::wire::{RefusalReason, SchemeId};
 
 /// The scheme would not go on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -90,11 +91,11 @@ pub trait PeeringHooks {
         data: &[u8],
     ) -> Result<Agreed, Declined>;
 
-    /// Whether nothing is in flight with `peer` any more: no packet waits
-    /// for its response, in either direction, and no Fulfill for its
-    /// verdict, unless the peering ends for `reason`
-    /// [`Unresponsive`](TerminationReason::Unresponsive), when that verdict
-    /// may never come (D17). A terminating peering ends only then, so both
+    /// Whether nothing is in flight with `peer` any more, as of `now_ms`:
+    /// no packet waits for its response, in either direction, and no
+    /// Fulfill for its verdict (D17). The node decides from `termination`
+    /// how long verdicts are waited for: one that stopped answering may
+    /// never give them. A terminating peering ends only then, so both
     /// sides' books agree.
-    fn drained(&self, peer: NodeId, reason: TerminationReason) -> bool;
+    fn drained(&self, peer: NodeId, termination: &Termination, now_ms: u64) -> bool;
 }

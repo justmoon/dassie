@@ -115,7 +115,10 @@ pub(super) fn admission(
                 money_limit: payment.remaining(),
                 // What its connections have seen arrive, waiting, or taken
                 // back, so what they report only grows.
-                received: payment.received + payment.waiting + payment.released,
+                received: payment
+                    .received
+                    .saturating_add(payment.waiting)
+                    .saturating_add(payment.released),
             },
             Some(id),
         ),

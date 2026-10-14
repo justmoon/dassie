@@ -598,10 +598,11 @@ impl PeerNode {
         self.event(event);
     }
 
-    /// Sends an ILP Reject to a peer, answering its Prepare `request_id`.
-    /// It is sent again until it arrives or the longest a Prepare is held
-    /// has passed; a copy that arrives twice is dropped by the peer. One
-    /// that never arrives has the effect of the packet's expiry.
+    /// Sends an ILP Reject to a peer, or a Fulfill that moved no money,
+    /// answering its Prepare `request_id`. It is sent again until it
+    /// arrives or the longest a Prepare is held has passed; a copy that
+    /// arrives twice is dropped by the peer. One that never arrives has
+    /// the effect of the packet's expiry.
     pub fn send_response(&mut self, now_ms: u64, peer: &NodeId, request_id: u32, packet: &[u8]) {
         self.advance(now_ms);
         let answer = Answer {

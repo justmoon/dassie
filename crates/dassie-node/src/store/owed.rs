@@ -56,7 +56,8 @@ pub struct VerdictBatch {
     pub settled: Vec<TraceId>,
     /// Fulfills taken.
     pub taken: Vec<TakenFulfill>,
-    /// Forget the Fulfills taken before this time.
+    /// Forget Fulfills taken before this time, the oldest first, at most
+    /// [`FORGET_AT_MOST`] at once.
     pub forget_before_ms: Option<u64>,
 }
 
@@ -70,6 +71,10 @@ impl VerdictBatch {
             && self.forget_before_ms.is_none()
     }
 }
+
+/// Most Fulfills taken that one batch forgets, so that forgetting never
+/// holds up the engine for long; it forgets again every minute.
+pub const FORGET_AT_MOST: u32 = 10_000;
 
 const OWED_COLUMNS: &str = "packet_epoch, packet_sequence, peer, request_id, fulfill, \
      compensation, debit_1, credit_1, amount_1, debit_2, credit_2, amount_2, \
@@ -91,6 +96,22 @@ impl Store {
             .map(|row| row?)
             .collect::<Result<Vec<_>, StoreError>>()?;
         Ok(rows)
+    }
+
+    /// The bytes of a Fulfill owed a verdict.
+    ///
+    /// # Errors
+    ///
+    /// The database failed.
+    pub fn owed_fulfill_bytes(&self, trace: TraceId) -> Result<Option<Vec<u8>>, StoreError> {
+        let connection = self.lock();
+        Ok(connection
+            .query_row(
+                "SELECT fulfill FROM owed_fulfills WHERE packet_epoch = ?1 AND packet_sequence = ?2",
+                params![sql(trace.epoch)?, sql(trace.sequence)?],
+                |row| row.get(0),
+            )
+            .optional()?)
     }
 
     /// Whether we took the Fulfill of `condition` that `peer` sent for our
@@ -213,8 +234,10 @@ pub(super) fn write_verdicts(
     }
     if let Some(before) = batch.forget_before_ms {
         transaction.execute(
-            "DELETE FROM peer_fulfills WHERE taken_at_ms < ?1",
-            params![to_sql_time(before)],
+            "DELETE FROM peer_fulfills WHERE (peer, request_id, condition) IN \
+             (SELECT peer, request_id, condition FROM peer_fulfills \
+              WHERE taken_at_ms < ?1 ORDER BY taken_at_ms LIMIT ?2)",
+            params![to_sql_time(before), FORGET_AT_MOST],
         )?;
     }
     for (peer, request_id, condition) in &batch.taken {

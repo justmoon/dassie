@@ -1013,3 +1013,20 @@ fn a_peering_ends_only_once_its_verdicts_came() {
     assert!(sim.peers(1).is_empty() && sim.peers(0).is_empty());
     check_books(&sim).unwrap();
 }
+
+// D17: verdicts hold up an ending peering for 10 minutes at most; asked
+// for over the settlement channel after, they still come.
+#[test]
+fn a_silent_peer_holds_up_its_end_for_a_while_only() {
+    let mut sim = owing_after(74, |sim| {
+        sim.cut.insert((1, 0));
+    });
+    let peer = key(1).node_id();
+    sim.step(0, |core| core.terminate_peering(peer).unwrap());
+    sim.run_until(sim.now + 12 * 60_000);
+    assert!(sim.peers(1).is_empty(), "the peering never ended");
+    assert!(!sim.nodes[1].store.owed_fulfills().unwrap().is_empty());
+    sim.cut.clear();
+    sim.run_until(sim.now + 2 * 60 * 60_000);
+    check_books(&sim).unwrap();
+}

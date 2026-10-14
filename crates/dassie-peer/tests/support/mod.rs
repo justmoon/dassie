@@ -14,10 +14,10 @@ use std::sync::Arc;
 
 use dassie_identity::{NodeId, NodeKey};
 use dassie_node_core::testing::SeededRng;
-use dassie_peer::wire::{RefusalReason, SchemeId, TerminationReason};
+use dassie_peer::wire::{RefusalReason, SchemeId};
 use dassie_peer::{
     Agreed, Bootstrap, Config, Declined, Event, Failure, Inbound, InboundId, Output, OwnInfo,
-    PeerBatch, PeerNode, PeeringHooks, Request, RequestId, Response, Stored,
+    PeerBatch, PeerNode, PeeringHooks, Request, RequestId, Response, Stored, Termination,
 };
 
 pub const START: u64 = 1_800_000_000_000;
@@ -89,7 +89,7 @@ impl PeeringHooks for StubHooks {
         })
     }
 
-    fn drained(&self, peer: NodeId, _reason: TerminationReason) -> bool {
+    fn drained(&self, peer: NodeId, _termination: &Termination, _now_ms: u64) -> bool {
         !self.busy.contains(&peer)
     }
 }

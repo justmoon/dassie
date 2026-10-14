@@ -159,14 +159,17 @@ impl PeeringHooks for Hooks<'_> {
         Ok(Agreed { state, credit_out })
     }
 
-    fn drained(&self, peer: NodeId, reason: TerminationReason) -> bool {
+    fn drained(&self, peer: NodeId, termination: &dassie_peer::Termination, now_ms: u64) -> bool {
         let packets = self
             .endpoints
             .get(&peer)
             .is_none_or(|id| self.connector.pending_for(EndpointId::Peer(*id)) == 0);
-        // A peer that stopped answering may never give its verdicts; they
-        // are still asked for over the settlement channel.
-        packets && (reason == TerminationReason::Unresponsive || self.owed.count(&peer) == 0)
+        // Verdicts normally come back in seconds; a peer that stopped
+        // answering, or keeps us waiting, may never give them. They are
+        // still asked for over the settlement channel.
+        let verdicts = termination.reason != TerminationReason::Unresponsive
+            && self.owed.holds(&peer, termination.since_ms, now_ms);
+        packets && !verdicts
     }
 
     fn credit(&self, peer: NodeId, scheme: SchemeId) -> u64 {
