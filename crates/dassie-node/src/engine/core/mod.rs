@@ -26,7 +26,7 @@ use dassie_ledger::{Account, AccountId, Asset, Ledger, Name, TraceId};
 use dassie_node_core::config::Realm;
 use dassie_stream::BUFFER_LENGTH;
 
-pub use ledgers::LedgerView;
+pub use ledgers::{LedgerView, RemovalBlocker};
 pub use peers::{NetworkView, PeerView};
 pub use tokens::{BtpSession, NewToken, TokenView, token_hash};
 
@@ -122,6 +122,16 @@ pub enum Output {
     },
 }
 
+/// What a step changed that live views show: they fetch again when it
+/// did (spec 7 §4.6).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Changes {
+    /// The ledgers, balances, tokens or the journal.
+    pub ledger: bool,
+    /// The node table, peers, routes or registrations.
+    pub network: bool,
+}
+
 /// Credentials for the STREAM receiver.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Credentials {
@@ -200,6 +210,11 @@ pub struct Core {
     outputs_peer: Vec<Output>,
     /// Settling with peers.
     settle: Settlements,
+    /// What changed since the driver last asked.
+    changes: Changes,
+    /// The ledger's counters when last looked at: pending transfers move
+    /// balances without a journal entry.
+    ledger_stats: dassie_ledger::Stats,
 }
 
 impl Core {
@@ -272,6 +287,8 @@ impl Core {
             peer_credit: policies.peer_credit,
             outputs_peer: Vec::new(),
             settle: Settlements::new(now_ms, &policies),
+            changes: Changes::default(),
+            ledger_stats: dassie_ledger::Stats::default(),
         };
         core.restore()?;
         Ok(core)
@@ -406,16 +423,36 @@ impl Core {
     /// the disk.
     pub(super) fn flush(&mut self) {
         self.take_journal();
+        self.take_cap_changes();
         self.peer.take_changes(&mut self.batch.peer);
+        let stats = self.ledger.stats();
+        if stats != self.ledger_stats {
+            self.ledger_stats = stats;
+            self.changes.ledger = true;
+        }
         if self.batch.is_empty() {
             return;
         }
+        let batch = &self.batch;
+        self.changes.ledger |= !(batch.journal.is_empty()
+            && batch.schemes_added.is_empty()
+            && batch.schemes_removed.is_empty()
+            && batch.checkpoints.is_empty()
+            && batch.tokens_created.is_empty()
+            && batch.tokens_revoked.is_empty()
+            && batch.token_caps.is_empty());
+        self.changes.network |= !batch.peer.is_empty();
         self.batch.at_ms = self.now_ms;
         let batch = std::mem::take(&mut self.batch);
         if let Err(error) = self.store.commit_ledger(&batch) {
             tracing::error!(target: target::ENGINE, %error, "persisting the ledger failed; restarting it");
             panic!("persisting the ledger failed: {error}");
         }
+    }
+
+    /// What changed since the last call, persisted.
+    pub fn take_changes(&mut self) -> Changes {
+        std::mem::take(&mut self.changes)
     }
 
     fn check_invariants(&self) {

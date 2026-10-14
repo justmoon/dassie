@@ -203,6 +203,24 @@ pub trait SettlementScheme: Send {
     fn deposit(&mut self, amount: u64, effects: &mut Vec<Effect>) -> Result<(), SchemeError>;
 }
 
+/// A scheme [`create`] can make.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SchemeInfo {
+    /// Its ID, which [`create`] takes.
+    pub id: &'static str,
+    /// Its name for people.
+    pub name: &'static str,
+    /// The ledger it serves.
+    pub ledger: LedgerId,
+}
+
+/// Every scheme [`create`] can make, in a fixed order.
+pub const SCHEMES: &[SchemeInfo] = &[SchemeInfo {
+    id: "stub",
+    name: "Stub",
+    ledger: LedgerId::StubUsd,
+}];
+
 /// The scheme `id`, set up with `config` and the balance the books last
 /// checkpointed for it, if any. The original stored config and never passed
 /// it on (ACC-12).

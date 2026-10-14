@@ -62,7 +62,9 @@ async fn dispatch_more(
 ) -> Result<Reply, RpcError> {
     let reply = match method {
         Method::CreateBtpToken(request) => {
-            let created = engine.create_token(request.label, request.ledger).await?;
+            let created = engine
+                .create_token(request.label, request.ledger, None)
+                .await?;
             let url = btp_url(node, &created.secret);
             response::Method::CreateBtpToken(proto::CreateBtpTokenResponse {
                 token: Some(token(&created.view)),

@@ -8,7 +8,8 @@
 //! survive restarts, payments of several times the credit cross hops, so
 //! every hop settles, an owner's termination ends a peering settled, every
 //! pair of accounts mirrors each other, and the money is conserved: the
-//! owners', and the stubs' on their "underlying ledger".
+//! owners', and the stubs' on their "underlying ledger". One payment's
+//! token has a spending cap, which the journal must show it kept to.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
@@ -16,6 +17,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
+use dassie_connector::{CapUsage, SpendingCap, replay};
 use dassie_identity::{NodeId, NodeKey};
 use dassie_ilp::{Address, Prepare, Timestamp};
 use dassie_node::engine::{Core, CoreParts, Outbound, Output};
@@ -59,6 +61,8 @@ enum Delivery {
 
 struct Payment {
     from: usize,
+    /// The token's ID, and its cap if it has one.
+    token: (u64, Option<SpendingCap>),
     link: u64,
     connection: Connection,
     amount: u64,
@@ -325,7 +329,7 @@ impl Sim {
 
     /// Starts a payment of `amount` from a BTP client of `from` to the
     /// receiver of `to`.
-    fn pay(&mut self, from: usize, to: usize, amount: u64) {
+    fn pay(&mut self, from: usize, to: usize, amount: u64, cap: Option<SpendingCap>) {
         let mut credentials = None;
         self.step(to, |core| {
             credentials = Some(core.stream_credentials("sim").unwrap())
@@ -333,10 +337,10 @@ impl Sim {
         let credentials = credentials.unwrap();
         let mut session = None;
         self.step(from, |core| {
-            let token = core.create_token("sim".into(), "stub+usd").unwrap();
-            session = Some(core.btp_connect(&token.secret).unwrap());
+            let token = core.create_token("sim".into(), "stub+usd", cap).unwrap();
+            session = Some((token.view.id, core.btp_connect(&token.secret).unwrap()));
         });
-        let session = session.unwrap();
+        let (token, session) = session.unwrap();
         let mut connection = Connection::new(&Config {
             role: Role::Client,
             shared_secret: &credentials.shared_secret,
@@ -352,6 +356,7 @@ impl Sim {
         connection.measure_exchange_rate();
         self.payments.push(Payment {
             from,
+            token: (token, cap),
             link: session.link,
             connection,
             amount,
@@ -503,8 +508,16 @@ fn run(seed: u64) -> Result<Vec<String>, String> {
         // Up to three times the credit a peer extends: only settling lets
         // it through.
         let amount = 100_000_000 + rng.next_u64() % 3_300_000_000;
-        sim.pay(from, to, amount);
+        sim.pay(from, to, amount, None);
     }
+    // A token capped at 0.1 USD per 10 s pays 0.4 USD: it must wait for
+    // its cap to refill.
+    let from = usize::try_from(rng.next_u64() % count as u64).unwrap();
+    let cap = SpendingCap {
+        amount: 100_000_000,
+        window_ms: 10_000,
+    };
+    sim.pay(from, (from + 1) % count, 400_000_000, Some(cap));
     sim.run_until(sim.now + 120_000);
     // An owner ends a peering: it drains, ends on both sides, and what is
     // owed is settled.
@@ -532,12 +545,74 @@ fn run(seed: u64) -> Result<Vec<String>, String> {
     Ok(sim.trace)
 }
 
+/// A capped token spent at most its cap plus what refilled, over every
+/// period the journal shows, and its checkpoint is the journal's replay.
+fn check_cap(sim: &Sim, payment: &Payment) -> Result<(), String> {
+    let (id, Some(cap)) = payment.token else {
+        return Ok(());
+    };
+    let store = &sim.nodes[payment.from].store;
+    let row = store
+        .btp_tokens()
+        .unwrap()
+        .into_iter()
+        .find(|row| row.id == id)
+        .unwrap();
+    let path = format!("stub+usd:equity/owner/btp/{id}");
+    let mut spent: Vec<(u64, u64)> = Vec::new();
+    let mut after = None;
+    loop {
+        let page = store.transfers_after(after, 1_000, None).unwrap();
+        let Some(last) = page.last() else { break };
+        after = Some(last.sequence);
+        spent.extend(
+            page.iter()
+                .filter(|row| row.debit_path == path)
+                .filter(|row| !row.credit_path.starts_with("stub+usd:equity/owner"))
+                .filter(|row| row.state == dassie_ledger::TransferState::Posted)
+                .map(|row| (row.resolved_at_ms.unwrap(), row.transfer.amount)),
+        );
+    }
+    spent.sort_unstable();
+    let total: u64 = spent.iter().map(|(_, amount)| amount).sum();
+    if total != payment.amount {
+        return Err(format!(
+            "the capped token spent {total} of {}",
+            payment.amount
+        ));
+    }
+    let window = u128::from(cap.window_ms);
+    for (i, &(start, _)) in spent.iter().enumerate() {
+        let mut total = 0u128;
+        for &(at, amount) in &spent[i..] {
+            total += u128::from(amount);
+            let allowed = u128::from(cap.amount) * (window + u128::from(at - start));
+            if total * window > allowed {
+                return Err(format!(
+                    "the capped token spent {total} from {start} to {at}"
+                ));
+            }
+        }
+    }
+    let expected = replay(cap, CapUsage::new(row.created_at_ms), spent.iter().copied());
+    if row.cap_usage != expected {
+        return Err(format!(
+            "the cap's checkpoint {:?} is not the journal's {expected:?}",
+            row.cap_usage
+        ));
+    }
+    Ok(())
+}
+
 fn check(sim: &Sim) -> Result<(), String> {
     if let Some(payment) = sim.payments.iter().find(|payment| !payment.done) {
         return Err(format!(
             "a payment from node {} did not finish",
             payment.from
         ));
+    }
+    for payment in &sim.payments {
+        check_cap(sim, payment)?;
     }
     let count = sim.nodes.len();
     let (mut owners, mut stubs) = (0i128, 0i128);

@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use dassie_connector::{EndpointError, EndpointId};
+use dassie_connector::{CapError, CapUsage, EndpointError, EndpointId, SpendingCap};
 use dassie_ledger::{AccountId, AccountName, AccountPath, LedgerId, OwnerSub};
 use sha2::{Digest, Sha256};
 
@@ -10,7 +10,7 @@ use super::Core;
 use super::EngineError;
 use super::packets::RECEIVER_SEGMENT;
 use crate::log::target;
-use crate::store::{BtpTokenRow, Store, StoreError};
+use crate::store::{BtpTokenRow, Store, StoreError, TokenCap};
 
 /// Most tokens not revoked.
 pub const MAX_TOKENS: usize = 64;
@@ -55,6 +55,14 @@ pub struct TokenView {
     pub net_received: i128,
     /// Clients connected with it.
     pub connections: usize,
+    /// Its spending cap, if it has one.
+    pub cap: Option<SpendingCap>,
+    /// What it could spend now under its cap.
+    pub cap_available: u64,
+    /// What its packets in flight hold of the cap.
+    pub cap_reserved: u128,
+    /// When the cap is whole again, if it is not.
+    pub cap_full_at_ms: Option<u64>,
 }
 
 /// A token just made: the only time its secret is known.
@@ -91,6 +99,11 @@ impl Core {
                 .ok_or(StoreError::Corrupt("BTP token account"))?;
             if row.revoked_at_ms.is_none() {
                 self.by_hash.insert(row.token_hash, row.id);
+                if let Some(cap) = row.cap {
+                    self.connector
+                        .restore_cap(account, cap, row.cap_usage)
+                        .map_err(|_| StoreError::Corrupt("BTP token cap"))?;
+                }
             }
             self.tokens.insert(
                 row.id,
@@ -104,12 +117,21 @@ impl Core {
         Ok(())
     }
 
-    /// Creates a BTP token.
+    /// Creates a BTP token, with a spending cap if given.
     ///
     /// # Errors
     ///
-    /// The label or ledger is invalid, or the tokens are at their bound.
-    pub fn create_token(&mut self, label: String, ledger: &str) -> Result<NewToken, EngineError> {
+    /// The label, ledger or cap is invalid, or the tokens are at their
+    /// bound.
+    pub fn create_token(
+        &mut self,
+        label: String,
+        ledger: &str,
+        cap: Option<SpendingCap>,
+    ) -> Result<NewToken, EngineError> {
+        if cap.is_some_and(|cap| !cap.is_valid()) {
+            return Err(invalid_cap());
+        }
         if label.len() > MAX_LABEL_BYTES {
             return Err(EngineError::Invalid(
                 "the label is longer than 64 bytes".into(),
@@ -146,13 +168,18 @@ impl Core {
             ledger,
             created_at_ms: self.now_ms(),
             revoked_at_ms: None,
-            cap: None,
-            cap_usage: dassie_connector::CapUsage::default(),
+            cap,
+            cap_usage: CapUsage::new(self.now_ms()),
         };
         let account = self
             .ledger
             .open(token_path(&row))
             .map_err(|e| EngineError::Exhausted(e.to_string()))?;
+        if let Some(cap) = cap {
+            self.connector
+                .restore_cap(account, cap, row.cap_usage)
+                .map_err(cap_error)?;
+        }
         self.take_journal();
         self.batch.tokens_created.push(row.clone());
         self.by_hash.insert(row.token_hash, id);
@@ -187,8 +214,10 @@ impl Core {
         };
         token.row.revoked_at_ms = Some(now);
         self.by_hash.remove(&token.row.token_hash);
+        let account = token.account;
         let links: Vec<u64> = token.connections.iter().copied().collect();
         self.batch.tokens_revoked.push(id);
+        let _ = self.connector.set_cap(now, account, None);
         // Their messages of this batch go out first; then they end.
         for link in links {
             if !self.closing.contains(&link) {
@@ -197,6 +226,58 @@ impl Core {
         }
         tracing::info!(target: target::BTP, id, "BTP token revoked");
         Ok(())
+    }
+
+    /// Sets a token's spending cap, or lifts it (spec 7 §4.5).
+    ///
+    /// # Errors
+    ///
+    /// There is no such token, or the cap is invalid.
+    pub fn set_token_cap(
+        &mut self,
+        id: u64,
+        cap: Option<SpendingCap>,
+    ) -> Result<TokenView, EngineError> {
+        let now = self.now_ms();
+        let Some(token) = self
+            .tokens
+            .get_mut(&id)
+            .filter(|t| t.row.revoked_at_ms.is_none())
+        else {
+            return Err(EngineError::NotFound("no such token".into()));
+        };
+        let account = token.account;
+        self.connector
+            .set_cap(now, account, cap)
+            .map_err(cap_error)?;
+        let usage = self
+            .connector
+            .cap(account, now)
+            .map_or(CapUsage::new(now), |view| view.usage);
+        token.row.cap = cap;
+        token.row.cap_usage = usage;
+        self.batch.token_caps.retain(|change| change.id != id);
+        self.batch.token_caps.push(TokenCap { id, cap, usage });
+        tracing::info!(target: target::BTP, id, ?cap, "BTP token cap set");
+        self.token_view(id)
+            .ok_or_else(|| EngineError::Internal("token".into()))
+    }
+
+    /// Moves the caps' usage that packets changed into the batch.
+    pub(super) fn take_cap_changes(&mut self) {
+        while let Some((account, cap, usage)) = self.connector.poll_cap_change() {
+            let Some((&id, token)) = self.tokens.iter_mut().find(|(_, t)| t.account == account)
+            else {
+                continue;
+            };
+            token.row.cap_usage = usage;
+            self.batch.token_caps.retain(|change| change.id != id);
+            self.batch.token_caps.push(TokenCap {
+                id,
+                cap: Some(cap),
+                usage,
+            });
+        }
     }
 
     /// The BTP tokens not revoked.
@@ -211,6 +292,7 @@ impl Core {
     fn token_view(&self, id: u64) -> Option<TokenView> {
         let token = self.tokens.get(&id)?;
         let account = self.ledger.account(token.account)?;
+        let cap = self.connector.cap(token.account, self.now_ms());
         Some(TokenView {
             id,
             label: token.row.label.clone(),
@@ -218,6 +300,10 @@ impl Core {
             created_at_ms: token.row.created_at_ms,
             net_received: account.balance().net_credit(),
             connections: token.connections.len(),
+            cap: cap.map(|view| view.cap),
+            cap_available: cap.map_or(0, |view| view.available),
+            cap_reserved: cap.map_or(0, |view| view.reserved),
+            cap_full_at_ms: cap.and_then(|view| view.full_at_ms),
         })
     }
 
@@ -275,6 +361,19 @@ impl Core {
             }
         }
         Err(EngineError::Internal("no free address".into()))
+    }
+}
+
+fn invalid_cap() -> EngineError {
+    EngineError::Invalid(
+        "a cap needs an amount up to 2^63 - 1 and a window from 1 s to 366 days".into(),
+    )
+}
+
+fn cap_error(error: CapError) -> EngineError {
+    match error {
+        CapError::Invalid => invalid_cap(),
+        CapError::Full => EngineError::Exhausted("too many capped tokens".into()),
     }
 }
 
