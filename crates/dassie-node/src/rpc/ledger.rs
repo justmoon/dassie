@@ -13,6 +13,7 @@ use super::proto::{self, request::Method, response, stream_item};
 use super::{RpcError, convert};
 use crate::engine::{Engine, EngineError, LedgerView, RemovalBlocker, TokenView};
 use crate::node::Node;
+use crate::open_payments::auth::OpError;
 use crate::store::JournalRow;
 
 /// Page sizes for the list methods.
@@ -108,6 +109,9 @@ async fn dispatch_more(
         }
         other if super::grants::is_grants(&other) => {
             return super::grants::dispatch(node, engine, other, items).await;
+        }
+        other if super::send::is_send(&other) => {
+            return super::send::dispatch(node, engine, other, items).await;
         }
         other if super::payments::is_payments(&other) => {
             return super::payments::dispatch(node, engine, other, items).await;
@@ -361,6 +365,21 @@ fn btp_url(node: &Node, secret: &str) -> String {
     match node.ports() {
         (_, 443) => format!("btp+wss://:{secret}@{host}/btp"),
         (_, port) => format!("btp+wss://:{secret}@{host}:{port}/btp"),
+    }
+}
+
+impl From<OpError> for RpcError {
+    /// An Open Payments error, by its status.
+    fn from(error: OpError) -> Self {
+        match error.status {
+            400 => Self::invalid(error.description),
+            401 | 403 | 409 => Self::precondition(error.description),
+            404 => Self::not_found(error.description),
+            429 => Self::exhausted(error.description),
+            502 | 503 => Self::unavailable(error.description),
+            // Logged where it was made.
+            _ => Self::new(proto::ErrorCode::Internal, error.description),
+        }
     }
 }
 

@@ -84,11 +84,7 @@ fn grant_id(text: &str) -> Result<PaymentId, RpcError> {
 }
 
 fn op_error(error: OpError) -> RpcError {
-    match error.status {
-        404 => RpcError::not_found(error.description),
-        503 => RpcError::precondition(error.description),
-        _ => RpcError::internal(error.description),
-    }
+    error.into()
 }
 
 async fn list(node: &Node, urls: &Urls) -> Result<proto::ListGrantsResponse, RpcError> {

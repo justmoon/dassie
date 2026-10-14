@@ -11,6 +11,7 @@ pub mod auth;
 pub mod client;
 pub mod consent;
 pub mod keys;
+pub mod spending;
 
 use std::net::IpAddr;
 use std::sync::{Mutex, OnceLock};
@@ -48,6 +49,10 @@ const CREATIONS: RateLimitPolicy = RateLimitPolicy {
     client_slots: 1024,
 };
 
+/// Most of the owner's lookups of recipients at once: each may fetch from
+/// other wallets as the node.
+const MAX_LOOKUPS: usize = 4;
+
 /// What Open Payments keeps beside the database: clients' key sets, the
 /// node's own key, its tokens at other wallets, and the rate limits.
 pub struct State {
@@ -55,6 +60,8 @@ pub struct State {
     pub keys: Mutex<keys::KeyCache>,
     /// The node's own tokens at other wallets' authorization servers.
     pub tokens: client::Tokens,
+    /// Permits for the owner's lookups of recipients; the rest wait.
+    pub lookups: tokio::sync::Semaphore,
     client_key: OnceLock<Result<keys::ClientKey, String>>,
     requests: Mutex<RateLimiter>,
     creations: Mutex<RateLimiter>,
@@ -65,6 +72,7 @@ impl Default for State {
         Self {
             keys: Mutex::new(keys::KeyCache::default()),
             tokens: Mutex::new(client::TokenCache::default()),
+            lookups: tokio::sync::Semaphore::new(MAX_LOOKUPS),
             client_key: OnceLock::new(),
             requests: Mutex::new(RateLimiter::new(REQUESTS)),
             creations: Mutex::new(RateLimiter::new(CREATIONS)),

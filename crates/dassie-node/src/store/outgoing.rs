@@ -57,6 +57,8 @@ pub struct QuoteRow {
     pub created_at_ms: u64,
     /// When it can no longer be paid.
     pub expires_at_ms: u64,
+    /// The wallet address it pays, when the owner named one.
+    pub recipient: Option<String>,
 }
 
 /// Where an outgoing payment is.
@@ -130,6 +132,8 @@ pub struct OutgoingRow {
     pub deadline_ms: u64,
     /// When it completed or failed.
     pub finished_at_ms: Option<u64>,
+    /// The wallet address it pays, when the owner named one.
+    pub recipient: Option<String>,
 }
 
 /// What a step changed of an outgoing payment.
@@ -167,12 +171,12 @@ impl OutgoingBatch {
 
 const QUOTE_COLUMNS: &str = "id, ledger, wallet_address, client, receiver, destination, \
      shared_secret, debit_amount, receive_amount, receive_asset_code, receive_asset_scale, \
-     created_at_ms, expires_at_ms";
+     created_at_ms, expires_at_ms, recipient";
 
 const OUTGOING_COLUMNS: &str = "id, ledger, wallet_address, client, grant_id, grant_window_ms, \
      quote_id, receiver, destination, shared_secret, debit_amount, receive_amount, \
      receive_asset_code, receive_asset_scale, sent_amount, state, failure, metadata, \
-     created_at_ms, deadline_ms, finished_at_ms";
+     created_at_ms, deadline_ms, finished_at_ms, recipient";
 
 const NEXT_REVISION: &str = "(SELECT coalesce(max(revision), 0) + 1 FROM outgoing_payments)";
 
@@ -198,7 +202,7 @@ impl Store {
         transaction.execute(
             &format!(
                 "INSERT INTO quotes ({QUOTE_COLUMNS}) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"
             ),
             params![
                 quote.id.0.as_slice(),
@@ -214,6 +218,7 @@ impl Store {
                 quote.receive_amount.asset_scale,
                 to_sql_time(quote.created_at_ms),
                 to_sql_time(quote.expires_at_ms),
+                quote.recipient,
             ],
         )?;
         transaction.commit()?;
@@ -369,7 +374,7 @@ fn insert_outgoing(transaction: &Transaction<'_>, row: &OutgoingRow) -> Result<(
         &format!(
             "INSERT INTO outgoing_payments ({OUTGOING_COLUMNS}, revision) VALUES \
              (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, \
-             ?18, ?19, ?20, ?21, {NEXT_REVISION})"
+             ?18, ?19, ?20, ?21, ?22, {NEXT_REVISION})"
         ),
         params![
             row.id.0.as_slice(),
@@ -393,6 +398,7 @@ fn insert_outgoing(transaction: &Transaction<'_>, row: &OutgoingRow) -> Result<(
             to_sql_time(row.created_at_ms),
             to_sql_time(row.deadline_ms),
             row.finished_at_ms.map(to_sql_time),
+            row.recipient,
         ],
     )?;
     Ok(())
@@ -412,6 +418,7 @@ fn read_quote(row: &Row<'_>) -> rusqlite::Result<Result<QuoteRow, StoreError>> {
     let scale: i64 = row.get(10)?;
     let created: i64 = row.get(11)?;
     let expires: i64 = row.get(12)?;
+    let recipient: Option<String> = row.get(13)?;
     Ok((|| {
         Ok(QuoteRow {
             id: payment_id(id)?,
@@ -425,6 +432,7 @@ fn read_quote(row: &Row<'_>) -> rusqlite::Result<Result<QuoteRow, StoreError>> {
             receive_amount: foreign(receive, code, scale)?,
             created_at_ms: from_sql_time(created),
             expires_at_ms: from_sql_time(expires),
+            recipient,
         })
     })())
 }
@@ -444,6 +452,7 @@ fn read_outgoing(row: &Row<'_>) -> rusqlite::Result<Result<OutgoingRow, StoreErr
     let (wallet_address, client, receiver, destination) =
         (row.get(2)?, row.get(3)?, row.get(7)?, row.get(8)?);
     let (failure, metadata) = (row.get(16)?, row.get(17)?);
+    let recipient: Option<String> = row.get(21)?;
     Ok((|| {
         let grant = match (grant, window) {
             (Some(grant), Some(window)) => Some((payment_id(grant)?, from_sql_time(window))),
@@ -469,6 +478,7 @@ fn read_outgoing(row: &Row<'_>) -> rusqlite::Result<Result<OutgoingRow, StoreErr
             created_at_ms: from_sql_time(created),
             deadline_ms: from_sql_time(deadline),
             finished_at_ms: finished.map(from_sql_time),
+            recipient,
         })
     })())
 }

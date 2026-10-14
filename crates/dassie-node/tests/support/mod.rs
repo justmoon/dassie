@@ -11,6 +11,7 @@
 
 pub mod btp_client;
 pub mod op;
+pub mod pair;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;

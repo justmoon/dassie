@@ -110,6 +110,8 @@ pub struct NewOutgoing {
     pub receive_amount: ForeignAmount,
     /// The creator's metadata, as JSON.
     pub metadata: Option<String>,
+    /// The wallet address it pays, when the owner named one.
+    pub recipient: Option<String>,
 }
 
 /// A new outgoing payment, and what its grant has spent in the window
@@ -253,6 +255,7 @@ impl Core {
             created_at_ms: now,
             deadline_ms: now + OUTGOING_DEADLINE_MS,
             finished_at_ms: None,
+            recipient: new.recipient,
         };
         self.batch.outgoing.created.push(row.clone());
         self.spending.waiting.insert((now, row.id));
@@ -778,8 +781,9 @@ fn check_new(new: &NewOutgoing) -> Result<(), EngineError> {
     if new.destination.len() > 1_023 || Address::parse(&new.destination).is_err() {
         return invalid("the receiver's ILP address is invalid");
     }
-    let urls_valid = [&new.receiver, &new.wallet_address]
+    let urls_valid = [Some(&new.receiver), Some(&new.wallet_address), new.recipient.as_ref()]
         .iter()
+        .flatten()
         .all(|url| (1..=2_048).contains(&url.len()));
     if !urls_valid {
         return invalid("a URL is too long");

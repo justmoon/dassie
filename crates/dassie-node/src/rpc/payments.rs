@@ -240,6 +240,12 @@ pub fn outgoing(urls: &Urls, row: &OutgoingRow) -> proto::OutgoingPayment {
         metadata_json: row.metadata.clone().unwrap_or_default(),
         created_at_ms: row.created_at_ms,
         finished_at_ms: row.finished_at_ms,
+        recipient_url: row.recipient.clone().unwrap_or_default(),
+        recipient_pointer: row
+            .recipient
+            .as_deref()
+            .and_then(dassie_payments::pointer::payment_pointer)
+            .unwrap_or_default(),
     }
 }
 
