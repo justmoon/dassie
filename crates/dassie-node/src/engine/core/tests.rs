@@ -15,8 +15,12 @@ use crate::store::Store;
 const NOW: u64 = 1_800_000_000_000;
 
 fn core(seed: u64) -> Core {
+    core_on(Arc::new(Store::open_in_memory().unwrap()), seed)
+}
+
+fn core_on(store: Arc<Store>, seed: u64) -> Core {
     let parts = CoreParts {
-        store: Arc::new(Store::open_in_memory().unwrap()),
+        store,
         key: Arc::new(NodeKey::from_bytes(&[7; 32])),
         realm: Realm::Test,
         policies: Policies::DEFAULT,
@@ -72,4 +76,52 @@ fn time_only_moves_forward() {
     core.begin_step(NOW + 100);
     core.begin_step(NOW);
     assert_eq!(core.now_ms(), NOW + 100);
+}
+
+// ACC-16: a settlement whose pending transfer reached the disk, but which
+// a crash stopped before it executed, is handed to its scheme at the next
+// start. The stub never executed it, so its money never moved: it is
+// voided, and what we owe the peer is as before.
+#[test]
+fn a_settlement_cut_short_by_a_crash_is_reconciled() {
+    use dassie_ledger::{AccountName, AccountPath, LedgerId, Name, Reference, TransferSpec};
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let peer = Name::new("dpeer").unwrap();
+    let path = AccountPath::new(LedgerId::StubUsd, AccountName::AssetsInterledger(peer));
+    {
+        let mut core = core_on(Arc::clone(&store), 5);
+        core.add_scheme("stub", String::new()).unwrap();
+        let (interledger, _) = core
+            .ledger
+            .open_peer(NOW, LedgerId::StubUsd, peer, 1_000)
+            .unwrap();
+        let settlement = core
+            .account(LedgerId::StubUsd, AccountName::AssetsSettlement)
+            .unwrap();
+        let id = Name::new("0123456789abcdef0123456789abcdef").unwrap();
+        let spec = TransferSpec {
+            debit: interledger,
+            credit: settlement,
+            amount: 400,
+            pending: true,
+            reference: Reference::Settlement {
+                scheme: Name::new("stub").unwrap(),
+                id,
+            },
+        };
+        core.ledger.create(NOW, &spec).unwrap();
+        // On disk, and then the crash: never executed.
+        core.flush();
+    }
+    assert_eq!(store.load_ledger().unwrap().pending.len(), 1);
+    let core = core_on(Arc::clone(&store), 6);
+    assert_eq!(core.ledger.pending_transfers().count(), 0);
+    assert_eq!(store.load_ledger().unwrap().pending.len(), 0);
+    let account = core.ledger.find(&path).unwrap();
+    assert_eq!(
+        dassie_settlement::policy::position(core.ledger.account(account).unwrap().balance()),
+        1_000
+    );
+    assert_eq!(core.ledger_views()[0].on_ledger_balance, 100_000_000_000);
 }
