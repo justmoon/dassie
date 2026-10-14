@@ -34,14 +34,21 @@ export interface Layout {
   readonly scenarioFile: string;
   /** The PIDs of the processes the dev server started. */
   readonly pidsFile: string;
+  /** The PID of the dev server using it. */
+  readonly lockFile: string;
   /** The nodes' data. */
   readonly data: string;
   /** The nodes' IPC sockets. */
   readonly sockets: string;
+  /** mkcert's CA directory, if not its own default. */
+  readonly caRoot?: string;
 }
 
 /** The layout under `state`, by default `local/dev/` in the repository. */
-export async function layout(state = `${ROOT}local/dev`): Promise<Layout> {
+export async function layout(
+  state = `${ROOT}local/dev`,
+  caRoot?: string,
+): Promise<Layout> {
   // A short name for the sockets' directory, the same for the same state
   // directory, so that runs side by side do not meet.
   const digest = await crypto.subtle.digest(
@@ -55,8 +62,10 @@ export async function layout(state = `${ROOT}local/dev`): Promise<Layout> {
     tls: `${state}/tls`,
     scenarioFile: `${state}/scenario.txt`,
     pidsFile: `${state}/pids`,
+    lockFile: `${state}/dev.pid`,
     data: `${state}/data`,
     sockets: `${runtime}/dassie-dev-${tag}`,
+    caRoot,
   };
 }
 

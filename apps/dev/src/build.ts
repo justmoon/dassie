@@ -139,6 +139,8 @@ export class ViteBuild {
     readonly dir: string,
     readonly watch: boolean,
     readonly onLine: (stream: Stream, line: string) => void,
+    /** Its process runs: for the PID file. */
+    readonly onSpawn: () => void = () => {},
   ) {}
 
   /** Starts it; resolves once the first build is done. */
@@ -165,6 +167,7 @@ export class ViteBuild {
         this.onLine(stream, line);
       },
     });
+    this.onSpawn();
     const exited = this.#child.exited.then((exit) => {
       if (exit.code !== 0) {
         throw new Error(`vite build in ${this.dir} failed:\n${exit.output}`);

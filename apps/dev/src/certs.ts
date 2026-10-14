@@ -2,8 +2,9 @@
  * The dev environment's certificates (spec 6 §6.3), made by mkcert from its
  * local CA, so that a browser trusting that CA (`mkcert -install`) trusts
  * every dev page, and the nodes trust each other through
- * `DASSIE_PEER_CA_FILE`. mkcert makes the CA on first use; `CAROOT` puts it
- * elsewhere, as the tests do.
+ * `DASSIE_PEER_CA_FILE`. mkcert makes the CA on first use; a `caRoot`
+ * (mkcert's `CAROOT`) puts it elsewhere, as the tests do, so that they
+ * never touch the developer's own CA.
  *
  * Certificates are kept across runs, and made again when one of the two
  * files is missing.
@@ -21,11 +22,12 @@ export interface Certificate {
   readonly keyFile: string;
 }
 
-async function mkcert(args: string[]): Promise<string> {
+async function mkcert(args: string[], caRoot?: string): Promise<string> {
   let output: Deno.CommandOutput;
   try {
     output = await new Deno.Command("mkcert", {
       args,
+      env: caRoot ? { CAROOT: caRoot } : undefined,
       stdin: "null",
       stdout: "piped",
       stderr: "piped",
@@ -43,8 +45,8 @@ async function mkcert(args: string[]): Promise<string> {
 }
 
 /** mkcert's CA directory. */
-export function caRoot(): Promise<string> {
-  return mkcert(["-CAROOT"]);
+export function caRoot(root?: string): Promise<string> {
+  return mkcert(["-CAROOT"], root);
 }
 
 /**
@@ -52,8 +54,9 @@ export function caRoot(): Promise<string> {
  * none yet. The certificates in `dir` are dropped if another CA made them:
  * after `CAROOT` changed, or the CA was made anew.
  */
-export async function caFile(dir: string): Promise<string> {
-  const file = `${await caRoot()}/rootCA.pem`;
+export async function caFile(dir: string, root?: string): Promise<string> {
+  if (root) await Deno.mkdir(root, { recursive: true });
+  const file = `${await caRoot(root)}/rootCA.pem`;
   if (!(await exists(file))) {
     // mkcert makes its CA with the first certificate; this one is thrown
     // away.
@@ -65,7 +68,7 @@ export async function caFile(dir: string): Promise<string> {
         "-key-file",
         `${scratch}/k.pem`,
         "localhost",
-      ]);
+      ], root);
     } finally {
       await Deno.remove(scratch, { recursive: true });
     }
@@ -89,6 +92,7 @@ export async function certificate(
   dir: string,
   name: string,
   hosts: readonly string[],
+  root?: string,
 ): Promise<Certificate> {
   const certificateFile = `${dir}/${name}.pem`;
   const keyFile = `${dir}/${name}-key.pem`;
@@ -103,7 +107,7 @@ export async function certificate(
       "-key-file",
       keyFile,
       ...hosts,
-    ]);
+    ], root);
   }
   return {
     certificatePem: await Deno.readTextFile(certificateFile),
@@ -114,13 +118,16 @@ export async function certificate(
 }
 
 /** The dashboard's certificate: `localhost` and `dev-rpc.localhost`. */
-export function dashboardCertificate(dir: string): Promise<Certificate> {
+export function dashboardCertificate(
+  dir: string,
+  root?: string,
+): Promise<Certificate> {
   return certificate(dir, "localhost", [
     "localhost",
     "dev-rpc.localhost",
     "127.0.0.1",
     "::1",
-  ]);
+  ], root);
 }
 
 /**
@@ -130,10 +137,11 @@ export function dashboardCertificate(dir: string): Promise<Certificate> {
 export function nodeCertificate(
   dir: string,
   name: string,
+  root?: string,
 ): Promise<Certificate> {
   return certificate(dir, `${name}.localhost`, [
     `${name}.localhost`,
     "localhost",
     "127.0.0.1",
-  ]);
+  ], root);
 }

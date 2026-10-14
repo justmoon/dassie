@@ -41,8 +41,17 @@ export interface ScenarioOptions {
   readonly withoutLedger?: readonly number[];
   /** Each line a node prints. */
   readonly onLine?: (node: string, stream: Stream, line: string) => void;
-  /** Each node's progress: started, then set up. */
-  readonly onNode?: (node: ScenarioNode, phase: NodePhase) => void;
+  /** Each node's process, as soon as it is spawned. */
+  readonly onSpawn?: (node: ScenarioNode) => void;
+  /**
+   * Each node's progress: started, then set up; or failed, with why and
+   * the end of its output.
+   */
+  readonly onNode?: (
+    node: ScenarioNode,
+    phase: NodePhase,
+    error?: string,
+  ) => void;
 }
 
 /** How far a node got. */
@@ -82,7 +91,8 @@ export class Scenario {
     const dir = await Deno.makeTempDir({ prefix: `dassie-${id}-` });
     return await Scenario.#start(
       id,
-      { ...options, layout: await defaultLayout(dir) },
+      // A CA of its own: the developer's stays untouched.
+      { ...options, layout: await defaultLayout(dir, `${dir}/ca`) },
       true,
     );
   }
@@ -95,7 +105,7 @@ export class Scenario {
     const def = findScenario(id);
     if (!def) throw new Error(`no scenario ${id}`);
     if (def.unavailable) throw new Error(`${id} ${def.unavailable}`);
-    const ca = await caFile(options.layout.tls);
+    const ca = await caFile(options.layout.tls, options.layout.caRoot);
     const environment: NodeEnvironment = {
       dassie: options.dassie,
       layout: options.layout,
@@ -103,6 +113,7 @@ export class Scenario {
       portOffset: options.portOffset ?? 0,
       env: options.env ?? {},
       onLine: options.onLine,
+      onSpawn: options.onSpawn,
     };
     const scenario = new Scenario(def, options, environment, temporary);
     try {
@@ -153,7 +164,11 @@ export class Scenario {
       const withoutLedger = this.options.withoutLedger?.includes(index);
       await node.setUp(withoutLedger ? [] : schemes);
     } catch (error) {
-      report(node, "failed");
+      // A node that failed is stopped and dropped, so its index is free.
+      const exit = await node.stop();
+      this.nodes.splice(this.nodes.indexOf(node), 1);
+      const output = exit?.output ? `\n${exit.output}` : "";
+      report(node, "failed", `${(error as Error).message}${output}`);
       throw error;
     }
     report(node, "running");

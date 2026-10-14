@@ -5,6 +5,7 @@
 
 import type { JSX } from "@solidjs/web";
 import { For } from "solid-js";
+import type { Node } from "@dassie/rpc/dev";
 import { seedIndex } from "@dassie/ui/network/nodes";
 import { Link, useRouter } from "@dassie/ui/router";
 import { ThemeToggle } from "@dassie/ui/theme-toggle";
@@ -16,7 +17,6 @@ const BRAND_SUFFIX = "//dev";
 
 export function Sidebar(): JSX.Element {
   const dev = useDev();
-  const router = useRouter();
   return (
     <nav class="dev-sidebar" aria-label="Dashboard">
       <p class="dev-brand">
@@ -55,48 +55,57 @@ export function Sidebar(): JSX.Element {
           </Link>
         </li>
         <For each={dev.state().nodes} keyed={(node) => node.name}>
-          {(node) => (
-            <li
-              data-testid={`node-${node().name}`}
-              data-state={stateName(node().state)}
-            >
-              <a
-                href={nodePath(node().name, location.pathname)}
-                onClick={(event: MouseEvent) => {
-                  if (event.button !== 0 || event.metaKey || event.ctrlKey) {
-                    return;
-                  }
-                  event.preventDefault();
-                  router.navigate(nodePath(node().name, location.pathname));
-                }}
-              >
-                <span
-                  class={`dot seed-${seedIndex(node().name)}`}
-                  aria-hidden="true"
-                />{" "}
-                {node().name}{" "}
-                <span class={`muted node-state state-${node().state}`}>
-                  {stateName(node().state)}
-                </span>
-              </a>
-              <a
-                class="wallet-link"
-                href={walletLink(node())}
-                target="_blank"
-                rel="noopener"
-                data-testid={`wallet-${node().name}`}
-                aria-label={`Open ${node().name}'s wallet`}
-                title="Open its wallet, signed in"
-              >
-                ↗
-              </a>
-            </li>
-          )}
+          {(node) => <NodeEntry node={node()} />}
         </For>
       </ul>
       <div class="dev-sidebar-foot">
         <ThemeToggle />
       </div>
     </nav>
+  );
+}
+
+/** A node: its page, keeping the debug tab shown, and its wallet. */
+function NodeEntry(props: { node: Node }): JSX.Element {
+  const router = useRouter();
+  const target = () => nodePath(props.node.name, router.path());
+  return (
+    <li
+      data-testid={`node-${props.node.name}`}
+      data-state={stateName(props.node.state)}
+    >
+      <a
+        href={router.href(target())}
+        aria-current={router.path().startsWith(`/nodes/${props.node.name}/`) ||
+            router.path() === `/nodes/${props.node.name}`
+          ? "page"
+          : undefined}
+        onClick={(event: MouseEvent) => {
+          if (event.button !== 0 || event.metaKey || event.ctrlKey) return;
+          event.preventDefault();
+          router.navigate(target());
+        }}
+      >
+        <span
+          class={`dot seed-${seedIndex(props.node.name)}`}
+          aria-hidden="true"
+        />{" "}
+        {props.node.name}{" "}
+        <span class={`muted node-state state-${props.node.state}`}>
+          {stateName(props.node.state)}
+        </span>
+      </a>
+      <a
+        class="wallet-link"
+        href={walletLink(props.node)}
+        target="_blank"
+        rel="noopener"
+        data-testid={`wallet-${props.node.name}`}
+        aria-label={`Open ${props.node.name}'s wallet`}
+        title="Open its wallet, signed in"
+      >
+        ↗
+      </a>
+    </li>
   );
 }

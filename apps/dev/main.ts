@@ -39,9 +39,9 @@ import { layout as makeLayout, ROOT } from "./src/paths.ts";
 import { missingPrerequisites } from "./src/prereqs.ts";
 import { type Proxy, proxyHint, startProxy } from "./src/proxy.ts";
 import { MAX_NODES } from "./src/scenario/scenarios.ts";
-import { startServer } from "./src/server.ts";
+import { type Server, startServer } from "./src/server.ts";
 import { upstreamPort } from "./src/sni.ts";
-import { stopStale } from "./src/stale.ts";
+import { releaseLock, stopStale, takeLock } from "./src/stale.ts";
 
 const DASHBOARD_PORT = 10100;
 const CONTROL_PORT = 10101;
@@ -52,6 +52,7 @@ const args = parseArgs(Deno.args, {
   string: ["scenario", "dassie", "port-offset", "state-dir"],
 });
 const offset = Number(args["port-offset"] ?? "0");
+const watch = !args["no-watch"];
 if (!Number.isSafeInteger(offset) || offset < 0 || offset > 40_000) {
   console.error("--port-offset must be a number from 0 to 40000");
   Deno.exit(2);
@@ -68,123 +69,28 @@ if (missing.length > 0) {
   for (const line of missing) console.error(`  ✗ ${line}`);
   Deno.exit(1);
 }
+const other = await takeLock(layout.lockFile);
+if (other !== undefined) {
+  console.error(
+    `another dev environment (PID ${other}) runs on ${layout.state}: stop it first`,
+  );
+  Deno.exit(1);
+}
 for (const stale of await stopStale(layout.pidsFile)) {
   print(`stopped ${stale}, left by an earlier run`);
 }
 
-await caFile(layout.tls);
-const certificate = await dashboardCertificate(layout.tls);
-
-// The proxy first: the wallet links depend on whether it runs.
+// What runs so far, to stop on the way out, whenever that is.
 let proxy: Proxy | undefined;
-const proxyPort = PROXY_PORT + offset;
-const dashboardPort = DASHBOARD_PORT + offset;
-if (!args["no-proxy"]) {
-  try {
-    proxy = startProxy({
-      port: proxyPort,
-      upstream: (name) =>
-        upstreamPort(name, {
-          dashboard: dashboardPort,
-          node: (index) => 5001 + index + offset,
-        }, MAX_NODES),
-      log: print,
-    });
-  } catch (error) {
-    print(proxyHint(error, proxyPort));
-  }
-}
-
-const dassie = args.dassie ?? DEV_BINARY;
-const environment = new Environment({
-  layout,
-  dassie: () => dassie,
-  portOffset: offset,
-  walletDir: `${ROOT}apps/wallet/dist-dev`,
-  proxyPort: proxy ? proxyPort : undefined,
-  debug: Deno.env.get("DEBUG") ?? "das:*",
-  print,
-});
-
-// The node binary.
-let builder: CargoBuilder | undefined;
-if (args.dassie === undefined) {
-  builder = new CargoBuilder(
-    () => environment.buildStarted(),
-    (_, line) => {
-      if (/^(error|warning: unused)/.test(line)) print(`[cargo] ${line}`);
-    },
-  );
-  print("building the node…");
-  const result = await builder.build();
-  environment.buildFinished(result);
-  if (!result.ok) {
-    console.error(result.excerpt);
-    Deno.exit(1);
-  }
-}
-
-// The wallet and the dashboard.
-const watch = !args["no-watch"];
-const viteLine = (app: string) => (_: unknown, line: string) => {
-  if (/error|built in/i.test(line)) print(`[${app}] ${line}`);
-};
-const builds = [
-  new ViteBuild(`${ROOT}apps/wallet`, watch, viteLine("wallet")),
-  new ViteBuild(`${ROOT}apps/dev-dashboard`, watch, viteLine("dashboard")),
-];
-print("building the wallet and the dashboard…");
-await Promise.all(builds.map((build) => build.start()));
-environment.extraPids = () => builds.flatMap((build) => build.pids());
-
-const server = startServer({
-  ports: [dashboardPort, CONTROL_PORT + offset],
-  certificatePem: certificate.certificatePem,
-  keyPem: certificate.keyPem,
-  dashboardDir: `${ROOT}apps/dev-dashboard/dist-dev`,
-  control: environment.hub,
-  nodeSocket: (name) => environment.nodeSocket(name),
-});
-
-await environment.restoreScenario(args.scenario);
-await environment.start();
-
-// Rebuild and restart the nodes when the Rust sources change.
-const watcher = watch && builder
-  ? watchSources([`${ROOT}crates`, `${ROOT}proto`], async (paths) => {
-    environment.log(LogLevel.INFO, `changed: ${paths.slice(0, 3).join(", ")}`);
-    if (paths.some((path) => path.endsWith(".proto"))) await regenerate();
-    const result = await builder!.build();
-    environment.buildFinished(result);
-    if (result.ok) await environment.restart();
-    else environment.log(LogLevel.ERROR, "the node did not build");
-  })
-  : undefined;
-
-const dashboardUrl = proxy && proxyPort === 443
-  ? "https://localhost/"
-  : `https://localhost:${proxy ? proxyPort : dashboardPort}/`;
-print(`\n  Dashboard: ${dashboardUrl}  <- Start here`);
-if (!args.headless) {
-  print(
-    "  If the browser warns about the certificate, run `mkcert -install` once.",
-  );
-}
-
-// Shutting down: once politely, a second time at once.
+let environment: Environment | undefined;
+let builds: ViteBuild[] = [];
+let server: Server | undefined;
+let watcher: { close(): void } | undefined;
+let keys: { close(): void } | undefined;
 let quitting: Promise<void> | undefined;
-const keys = !args.headless && Deno.stdin.isTerminal()
-  ? listenKeys({
-    open: () => openBrowser(dashboardUrl),
-    restart: () => void environment.restart(),
-    quit: () => void quit(),
-  })
-  : undefined;
-if (keys) {
-  print("  Keys: space opens the dashboard, r restarts the nodes, q quits\n");
-}
 
-function quit(): Promise<void> {
+/** Stops everything; a second call quits at once. */
+function quit(code = 0): Promise<void> {
   if (quitting) {
     print("quitting at once");
     Deno.exit(130);
@@ -193,12 +99,13 @@ function quit(): Promise<void> {
     print("stopping…");
     keys?.close();
     watcher?.close();
-    await environment.stop();
+    await environment?.stop();
     await Promise.all(builds.map((build) => build.stop()));
     proxy?.close();
-    await server.close();
+    await server?.close();
     await Deno.remove(layout.pidsFile).catch(() => {});
-    Deno.exit(0);
+    await releaseLock(layout.lockFile);
+    Deno.exit(code);
   })();
   return quitting;
 }
@@ -207,14 +114,148 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   Deno.addSignalListener(signal, () => void quit());
 }
 
-async function regenerate(): Promise<void> {
+try {
+  await start();
+} catch (error) {
+  console.error(
+    `the dev environment did not start: ${(error as Error).message}`,
+  );
+  await quit(1);
+}
+
+async function start(): Promise<void> {
+  await caFile(layout.tls, layout.caRoot);
+  const certificate = await dashboardCertificate(layout.tls, layout.caRoot);
+
+  // The proxy first: the wallet links depend on whether it runs.
+  const proxyPort = PROXY_PORT + offset;
+  const dashboardPort = DASHBOARD_PORT + offset;
+  if (!args["no-proxy"]) {
+    try {
+      proxy = startProxy({
+        port: proxyPort,
+        upstream: (name) =>
+          upstreamPort(name, {
+            dashboard: dashboardPort,
+            node: (index) => 5001 + index + offset,
+          }, MAX_NODES),
+        log: print,
+      });
+    } catch (error) {
+      print(proxyHint(error, proxyPort));
+    }
+  }
+
+  const dassie = args.dassie ?? DEV_BINARY;
+  const env = new Environment({
+    layout,
+    dassie: () => dassie,
+    portOffset: offset,
+    walletDir: `${ROOT}apps/wallet/dist-dev`,
+    proxyPort: proxy ? proxyPort : undefined,
+    debug: Deno.env.get("DEBUG") ?? "das:*",
+    print,
+  });
+  environment = env;
+  env.extraPids = () => builds.flatMap((build) => build.pids());
+
+  const builder = args.dassie === undefined ? await buildNode(env) : undefined;
+  await buildPages(env);
+
+  server = startServer({
+    ports: [dashboardPort, CONTROL_PORT + offset],
+    certificatePem: certificate.certificatePem,
+    keyPem: certificate.keyPem,
+    dashboardDir: `${ROOT}apps/dev-dashboard/dist-dev`,
+    control: env.hub,
+    nodeSocket: (name) => env.nodeSocket(name),
+  });
+
+  const fresh = await env.restoreScenario(args.scenario);
+  await env.start(fresh);
+  if (watch && builder) watcher = watchNode(env, builder);
+
+  const dashboardUrl = proxy && proxyPort === 443
+    ? "https://localhost/"
+    : `https://localhost:${proxy ? proxyPort : dashboardPort}/`;
+  print(`\n  Dashboard: ${dashboardUrl}  <- Start here`);
+  if (args.headless) return;
+  print(
+    "  If the browser warns about the certificate, run `mkcert -install` once.",
+  );
+  if (!Deno.stdin.isTerminal()) return;
+  keys = listenKeys({
+    open: () => openBrowser(dashboardUrl),
+    restart: () => void env.restart(),
+    quit: () => void quit(),
+  });
+  print("  Keys: space opens the dashboard, r restarts the nodes, q quits\n");
+}
+
+/** Builds the node binary; throws if it does not build. */
+async function buildNode(env: Environment): Promise<CargoBuilder> {
+  const builder = new CargoBuilder(
+    () => env.buildStarted(),
+    (_, line) => {
+      if (/^(error|warning: unused)/.test(line)) print(`[cargo] ${line}`);
+    },
+  );
+  print("building the node…");
+  const result = await builder.build();
+  env.buildFinished(result);
+  if (!result.ok) throw new Error(`the node did not build:\n${result.excerpt}`);
+  return builder;
+}
+
+/**
+ * Builds the wallet and the dashboard into `dist-dev/`, emptied first: a
+ * watch build keeps old files, so they pile up for one run at most.
+ */
+async function buildPages(env: Environment): Promise<void> {
+  const viteLine = (app: string) => (_: unknown, line: string) => {
+    if (/error|built in/i.test(line)) print(`[${app}] ${line}`);
+  };
+  const recorded = () => void env.recordPids();
+  builds = ["wallet", "dev-dashboard"].map((app) =>
+    new ViteBuild(`${ROOT}apps/${app}`, watch, viteLine(app), recorded)
+  );
+  for (const app of ["wallet", "dev-dashboard"]) {
+    await Deno.remove(`${ROOT}apps/${app}/dist-dev`, { recursive: true })
+      .catch(() => {});
+  }
+  print("building the wallet and the dashboard…");
+  const results = await Promise.allSettled(
+    builds.map((build) => build.start()),
+  );
+  for (const result of results) {
+    if (result.status === "rejected") throw result.reason;
+  }
+}
+
+/** Rebuilds the node and restarts the nodes when the Rust sources change. */
+function watchNode(env: Environment, builder: CargoBuilder) {
+  return watchSources([`${ROOT}crates`, `${ROOT}proto`], async (paths) => {
+    try {
+      env.log(LogLevel.INFO, `changed: ${paths.slice(0, 3).join(", ")}`);
+      if (paths.some((path) => path.endsWith(".proto"))) await regenerate(env);
+      const result = await builder.build();
+      env.buildFinished(result);
+      if (result.ok) await env.restart();
+      else env.log(LogLevel.ERROR, "the node did not build");
+    } catch (error) {
+      env.log(LogLevel.ERROR, `rebuilding failed: ${error}`);
+    }
+  });
+}
+
+async function regenerate(env: Environment): Promise<void> {
   const { success } = await new Deno.Command(Deno.execPath(), {
     args: ["run", "--no-lock", "-A", "scripts/gen.ts"],
     cwd: `${ROOT}packages/rpc`,
     stdout: "null",
     stderr: "piped",
   }).output();
-  environment.log(
+  env.log(
     success ? LogLevel.INFO : LogLevel.WARN,
     success
       ? "regenerated packages/rpc from proto/"

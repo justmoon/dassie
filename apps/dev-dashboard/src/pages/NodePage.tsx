@@ -90,13 +90,27 @@ function Connected(props: { name: string }): JSX.Element {
   const client = new RpcClient({
     url: `wss://${location.host}/nodes/${props.name}/rpc`,
   });
-  onCleanup(() => client.close());
   const [basic, setBasic] = createSignal<GetBasicStateResponse>();
   const [failure, setFailure] = createSignal<string>();
-  client.call("getBasicState", {}).then(
-    (state) => setBasic(state),
-    (error: unknown) => setFailure(describe(error)),
-  );
+  // The node may be between restarts: ask again, more slowly each time.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let closed = false;
+  const ask = (delayMs: number) => {
+    client.call("getBasicState", {}).then(
+      (state) => setBasic(state),
+      (error: unknown) => {
+        if (closed) return;
+        setFailure(describe(error));
+        timer = setTimeout(() => ask(Math.min(delayMs * 2, 10_000)), delayMs);
+      },
+    );
+  };
+  ask(1_000);
+  onCleanup(() => {
+    closed = true;
+    clearTimeout(timer);
+    client.close();
+  });
   return (
     <RpcContext value={client}>
       <Show
@@ -107,7 +121,7 @@ function Connected(props: { name: string }): JSX.Element {
             fallback={<Spinner label={`Connecting to ${props.name}…`} />}
           >
             <Alert title={`Cannot reach ${props.name}`} tone="danger">
-              {failure()}
+              {failure()}. Trying again…
             </Alert>
           </Show>
         }

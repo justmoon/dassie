@@ -40,7 +40,7 @@ import {
 } from "./scenario/mod.ts";
 import { MAX_NODES } from "./scenario/scenarios.ts";
 import { recordPids } from "./stale.ts";
-import { identity, loadTable } from "./vanity.ts";
+import { type Identity, identity, loadTable } from "./vanity.ts";
 
 /** How often gathered logs and traffic go out to the dashboards. */
 const FLUSH_MS = 100;
@@ -50,6 +50,10 @@ const ADDED_NODE_GAP_MS = 500;
 const MAX_ERROR_BYTES = 4 * 1024;
 /** The longest message of the dev server's own log. */
 const MAX_HOST_MESSAGE_BYTES = 1024;
+/** Commands waiting behind the one running; more are refused. */
+const MAX_PENDING_COMMANDS = 4;
+/** Hops waiting for the next flush; more are dropped. */
+const MAX_PENDING_HOPS = 1_000;
 
 export interface EnvironmentOptions {
   readonly layout: Layout;
@@ -85,11 +89,16 @@ export class Environment {
   readonly #peerings = new Map<string, string[]>();
   readonly #collectors = new Map<string, Collector>();
   readonly #statuses = new Map<string, NodeStatus>();
+  /** Nodes whose process runs, from the moment it is spawned. */
+  readonly #live = new Map<string, ScenarioNode>();
+  /** Identities derived so far: deriving one takes a while. */
+  readonly #identities = new Map<number, Identity>();
   #scenarioId = DEFAULT_SCENARIO;
   #scenario?: Scenario;
   #added = 0;
   #build: Build = create(BuildSchema, { state: BuildState.IDLE });
   #queue: Promise<void> = Promise.resolve();
+  #pending = 0;
   #pendingLogs: SourcedLogLine[] = [];
   #pendingHops: Hop[] = [];
   #flusher: ReturnType<typeof setInterval>;
@@ -110,13 +119,31 @@ export class Environment {
     this.#flusher = setInterval(() => this.#flush(), FLUSH_MS);
   }
 
-  /** The scenario last chosen, from the state directory. */
-  async restoreScenario(override?: string): Promise<void> {
-    const saved = override ??
-      await Deno.readTextFile(this.options.layout.scenarioFile)
-        .then((text) => text.trim(), () => DEFAULT_SCENARIO);
-    const def = findScenario(saved);
+  /**
+   * The scenario last chosen, from the state directory, or `override`.
+   * Whether that is another scenario than the data was left by, which then
+   * must not be resumed.
+   */
+  async restoreScenario(override?: string): Promise<boolean> {
+    const saved = await Deno.readTextFile(this.options.layout.scenarioFile)
+      .then((text) => text.trim(), () => undefined);
+    const def = findScenario(override ?? saved ?? DEFAULT_SCENARIO);
     this.#scenarioId = def && !def.unavailable ? def.id : DEFAULT_SCENARIO;
+    if (saved === this.#scenarioId) return false;
+    await Deno.writeTextFile(
+      this.options.layout.scenarioFile,
+      `${this.#scenarioId}\n`,
+    );
+    return saved !== undefined;
+  }
+
+  #identity(index: number): Identity {
+    let found = this.#identities.get(index);
+    if (!found) {
+      found = identity(this.#table, index);
+      this.#identities.set(index, found);
+    }
+    return found;
   }
 
   // ---- The dashboards' view ----
@@ -125,7 +152,7 @@ export class Environment {
     const nodes: NodeMessage[] = [];
     for (const [name, status] of this.#statuses) {
       const index = Number(name.slice(1)) - 1;
-      const node = identity(this.#table, index);
+      const node = this.#identity(index);
       nodes.push(create(NodeSchema, {
         name,
         id: node.id,
@@ -229,11 +256,19 @@ export class Environment {
 
   // ---- Commands ----
 
-  /** Runs `step` after every command before it. */
+  /** Runs `step` after every command before it, if not too many wait. */
   #enqueue(what: string, step: () => Promise<void>): Promise<void> {
+    if (this.#pending >= MAX_PENDING_COMMANDS) {
+      this.log(
+        LogLevel.WARN,
+        `${what} refused: ${this.#pending} commands wait`,
+      );
+      return this.#queue;
+    }
+    this.#pending++;
     const run = this.#queue.then(step).catch((error) => {
       this.log(LogLevel.ERROR, `${what} failed: ${error?.message ?? error}`);
-    });
+    }).finally(() => this.#pending--);
     this.#queue = run;
     return run;
   }
@@ -286,12 +321,15 @@ export class Environment {
     return this.#enqueue("restart", () => this.#run(false));
   }
 
-  /** Starts the scenario, keeping data from before, but added nodes'. */
-  start(): Promise<void> {
+  /**
+   * Starts the scenario, keeping data from before but added nodes', or
+   * from scratch if `fresh`.
+   */
+  start(fresh: boolean): Promise<void> {
     return this.#enqueue("start", async () => {
       this.#added = 0;
       await this.#wipeAdded();
-      await this.#run(false);
+      await this.#run(fresh);
     });
   }
 
@@ -302,8 +340,8 @@ export class Environment {
       if (scenario.nodes.length >= MAX_NODES) {
         throw new Error(`at most ${MAX_NODES} nodes`);
       }
-      this.#added++;
       await this.#addOne(scenario);
+      this.#added++;
     });
   }
 
@@ -312,7 +350,10 @@ export class Environment {
     this.#follow(node);
   }
 
-  /** Stops everything, without waiting for commands queued. */
+  /**
+   * Stops everything, once the command running is done; commands queued
+   * behind it find no scenario and do nothing.
+   */
   async stop(): Promise<void> {
     this.#stopping = true;
     await this.#queue;
@@ -350,7 +391,8 @@ export class Environment {
           DEBUG: this.options.debug,
         },
         onLine: (node, stream, line) => this.nodeLine(node, stream, line),
-        onNode: (node, phase) => this.#phase(node, phase),
+        onSpawn: (node) => this.#spawned(node),
+        onNode: (node, phase, error) => this.#phase(node, phase, error),
       });
     } catch (error) {
       this.log(
@@ -371,7 +413,7 @@ export class Environment {
         }
       }
       this.#changed();
-      await this.#recordPids();
+      await this.recordPids();
       return;
     }
     this.#scenario = scenario;
@@ -383,15 +425,22 @@ export class Environment {
     this.log(LogLevel.INFO, `${def.id} is running`);
   }
 
-  #phase(node: ScenarioNode, phase: NodePhase): void {
+  /** A node's process runs: into the PID file at once. */
+  #spawned(node: ScenarioNode): void {
+    this.#live.set(node.name, node);
+    void this.recordPids();
+  }
+
+  #phase(node: ScenarioNode, phase: NodePhase, error?: string): void {
     const status = this.#statuses.get(node.name) ??
       { state: NodeState.STOPPED, lastError: "" };
     status.state = PHASES[phase];
     if (phase === "failed") {
-      status.lastError = (node.daemon?.tail() ?? "").slice(-MAX_ERROR_BYTES);
+      status.lastError = (error ?? "").slice(-MAX_ERROR_BYTES);
+      this.#live.delete(node.name);
+      void this.recordPids();
     }
     this.#statuses.set(node.name, status);
-    void this.#recordPids();
     this.#changed();
   }
 
@@ -406,7 +455,10 @@ export class Environment {
           value: this.#peeringsMessage(),
         });
       },
-      traffic: (hops) => this.#pendingHops.push(...hops),
+      traffic: (hops) => {
+        const room = MAX_PENDING_HOPS - this.#pendingHops.length;
+        if (room > 0) this.#pendingHops.push(...hops.slice(0, room));
+      },
       failed: (name, what, message) =>
         this.log(LogLevel.WARN, `${name}: no ${what}: ${message}`),
     }, shortName);
@@ -414,7 +466,11 @@ export class Environment {
     this.#collectors.set(node.name, collector);
     const daemon = node.daemon;
     daemon?.exited.then((exit) => {
-      // Stopped on purpose: the collector is gone already.
+      this.#live.delete(node.name);
+      void this.recordPids();
+      // Stopped on purpose, or everything is stopping (ctrl+c reaches the
+      // nodes too): not a crash.
+      if (this.#stopping) return;
       if (this.#collectors.get(node.name) !== collector) return;
       collector.stop();
       this.#collectors.delete(node.name);
@@ -441,9 +497,10 @@ export class Environment {
     for (const status of this.#statuses.values()) {
       if (status.state !== NodeState.FAILED) status.state = NodeState.STOPPED;
     }
+    this.#live.clear();
     this.hub.broadcast({ case: "peerings", value: this.#peeringsMessage() });
     this.#changed();
-    await this.#recordPids();
+    await this.recordPids();
   }
 
   async #wipe(): Promise<void> {
@@ -460,10 +517,11 @@ export class Environment {
     }
   }
 
-  async #recordPids(): Promise<void> {
+  /** Writes the PIDs of every child running, for the next start. */
+  async recordPids(): Promise<void> {
     const pids = [
       ...this.extraPids(),
-      ...(this.#scenario?.nodes ?? []).flatMap((node) =>
+      ...[...this.#live.values()].flatMap((node) =>
         node.daemon ? [node.daemon.pid] : []
       ),
     ];

@@ -12,7 +12,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  onCleanup,
+  type Signal,
   useContext,
 } from "solid-js";
 import {
@@ -49,15 +49,32 @@ export function useSearchParam(name: string): Accessor<string | null> {
 }
 
 /** Follows the browser's location for its subtree. */
+const readLocation = () => ({
+  pathname: location.pathname,
+  search: location.search,
+});
+
+let shared: Signal<{ pathname: string; search: string }> | undefined;
+
+/**
+ * The page's location, one signal for every router: a router nested in
+ * another (the dev dashboard's node pages) moves the outer one along.
+ */
+function locationSignal(): Signal<{ pathname: string; search: string }> {
+  if (!shared) {
+    const signal = createSignal(readLocation());
+    addEventListener("popstate", () => signal[1](readLocation()));
+    shared = signal;
+  }
+  return shared;
+}
+
 export function Router(
   props: { base?: string; children: JSX.Element },
 ): JSX.Element {
   const base = props.base ?? "";
-  const read = () => ({ pathname: location.pathname, search: location.search });
-  const [current, setCurrent] = createSignal(read());
-  const onPop = () => setCurrent(read());
-  addEventListener("popstate", onPop);
-  onCleanup(() => removeEventListener("popstate", onPop));
+  const read = readLocation;
+  const [current, setCurrent] = locationSignal();
   const state: RouterState = {
     path: () => within(base, current().pathname) ?? "/",
     search: () => current().search,

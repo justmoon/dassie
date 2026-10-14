@@ -34,6 +34,26 @@ async function commandOf(pid: number): Promise<string | undefined> {
 }
 
 /**
+ * Takes the state directory for this dev server: refuses, with the PID of
+ * the other one, while another dev server runs on it, since stopping its
+ * children would pull its network from under it.
+ */
+export async function takeLock(file: string): Promise<number | undefined> {
+  const other = Number((await Deno.readTextFile(file).catch(() => "")).trim());
+  if (Number.isSafeInteger(other) && other > 1 && other !== Deno.pid) {
+    const command = await commandOf(other);
+    if (command && /apps\/dev\/main\.ts/.test(command)) return other;
+  }
+  await Deno.writeTextFile(file, `${Deno.pid}\n`);
+  return undefined;
+}
+
+/** Gives the state directory up. */
+export async function releaseLock(file: string): Promise<void> {
+  await Deno.remove(file).catch(() => {});
+}
+
+/**
  * Stops the processes in `file` that are still a dassie node or a Vite
  * build; a PID used again by something else is left alone. Their names.
  */

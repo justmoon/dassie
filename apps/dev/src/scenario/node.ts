@@ -43,6 +43,8 @@ export interface NodeEnvironment {
   readonly env: Readonly<Record<string, string>>;
   /** Each line a node prints. */
   readonly onLine?: (node: string, stream: Stream, line: string) => void;
+  /** Each node's process, as soon as it is spawned. */
+  readonly onSpawn?: (node: ScenarioNode) => void;
 }
 
 export class ScenarioNode {
@@ -109,6 +111,8 @@ export class ScenarioNode {
       recursive: true,
       mode: 0o700,
     });
+    // A socket left by a node that was killed would look published.
+    await Deno.remove(this.socket).catch(() => {});
     const onLine = this.environment.onLine;
     this.daemon = new ChildProcess(this.name, this.environment.dassie, {
       args: [
@@ -117,6 +121,9 @@ export class ScenarioNode {
         `${this.httpPort}`,
         "--https-port",
         `${this.httpsPort}`,
+        // Its key is public (the vanity table): loopback only.
+        "--listen",
+        "127.0.0.1",
       ],
       env: {
         ...this.environment.env,
@@ -129,6 +136,7 @@ export class ScenarioNode {
       },
       onLine: onLine && ((stream, line) => onLine(this.name, stream, line)),
     });
+    this.environment.onSpawn?.(this);
     const gone = this.daemon.exited;
     try {
       await waitForPort(this.httpsPort, START_TIMEOUT_MS, gone);
@@ -168,6 +176,7 @@ export class ScenarioNode {
     const certificate = await nodeCertificate(
       this.environment.layout.tls,
       this.name,
+      this.environment.layout.caRoot,
     );
     // Again on every start: the CA may have been made anew.
     await owner.call("setCertificate", {

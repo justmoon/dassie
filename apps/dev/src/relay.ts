@@ -38,10 +38,17 @@ export async function relay(request: Request, path: string): Promise<Response> {
     ipc.close();
     return new Response("the node does not answer", { status: 502 });
   }
-  const { socket, response } = Deno.upgradeWebSocket(request, {
-    protocol: SUBPROTOCOL,
-    idleTimeout: 0,
-  });
+  let upgraded: ReturnType<typeof Deno.upgradeWebSocket>;
+  try {
+    upgraded = Deno.upgradeWebSocket(request, {
+      protocol: SUBPROTOCOL,
+      idleTimeout: 0,
+    });
+  } catch {
+    ipc.close();
+    return new Response("not a WebSocket upgrade", { status: 400 });
+  }
+  const { socket, response } = upgraded;
   socket.binaryType = "arraybuffer";
   const end = (code: number, reason: string) => {
     ipc.close();

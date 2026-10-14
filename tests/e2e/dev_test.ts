@@ -31,7 +31,7 @@ class DevServer {
   readonly child: ChildProcess;
   readonly #lines: string[] = [];
 
-  constructor(state: string, caRoot: string) {
+  constructor(state: string, caRoot: string, more: string[] = []) {
     this.child = new ChildProcess("dev", Deno.execPath(), {
       args: [
         "run",
@@ -45,6 +45,7 @@ class DevServer {
         `${OFFSET}`,
         "--state-dir",
         state,
+        ...more,
       ],
       env: { CAROOT: caRoot },
       onLine: (_, line) => this.#lines.push(line),
@@ -285,6 +286,32 @@ Deno.test({
         after.close();
         assertEquals(again.ownerBalance, ledger.ownerBalance);
       });
+
+      await t.step(
+        "a second dev server on the same state stops at once",
+        async () => {
+          const second = new DevServer(state, caRoot);
+          const exit = await second.child.exited;
+          assertEquals(exit.code, 1);
+          assertMatch(exit.output, /another dev environment \(PID \d+\) runs/);
+          // The first one runs on.
+          const d1 = await owner(state, "d1");
+          await d1.call("listLedgers", {});
+          d1.close();
+        },
+      );
+
+      await t.step(
+        "naming another scenario starts it from scratch",
+        async () => {
+          const exit = await dev.child.stop();
+          assertEquals(exit.code, 0, exit.output);
+          dev = new DevServer(state, caRoot, ["--scenario", "two-nodes"]);
+          await dev.said(/two-nodes is running/);
+          assertMatch(dev.output, /starting two-nodes from scratch/);
+          assert(await closed(httpsPort(2)), "d3 of six-nodes still runs");
+        },
+      );
 
       assertEquals(errors, [], "the dashboard threw");
       await page.close();

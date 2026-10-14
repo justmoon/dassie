@@ -33,9 +33,10 @@ export async function waitForPort(
 }
 
 /**
- * Waits until the daemon publishes its IPC socket. It binds its TCP ports
+ * Waits until the daemon answers on its IPC socket. It binds its TCP ports
  * first and publishes the socket only once it answers, so an open port does
- * not mean the socket is there yet.
+ * not mean the socket is there yet; and a socket file left by a daemon that
+ * was killed is there but answers nobody.
  */
 export async function waitForSocket(
   path: string,
@@ -46,8 +47,11 @@ export async function waitForSocket(
   let exited = false;
   gone?.then(() => exited = true, () => exited = true);
   for (;;) {
-    const found = await Deno.stat(path).then(
-      (info) => info.isSocket,
+    const found = await Deno.connect({ transport: "unix", path }).then(
+      (conn) => {
+        conn.close();
+        return true;
+      },
       () => false,
     );
     if (found) return;
