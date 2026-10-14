@@ -426,6 +426,7 @@ impl Connection {
         self.stats.amount_received = self.stats.amount_received.saturating_add(prepare.amount);
         if self.money_limit != u64::MAX {
             self.money_limit -= prepare.amount;
+            self.money_received = self.money_received.saturating_add(prepare.amount);
         }
     }
 

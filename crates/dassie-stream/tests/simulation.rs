@@ -367,6 +367,34 @@ fn a_connection_receives_no_more_than_its_limit() {
 }
 
 #[test]
+fn a_limit_holds_across_a_server_restart() {
+    // The server forgets its connection mid-payment, as a node does when it
+    // restarts. The application's count of what arrived survives, and the
+    // new connection reports it: the sender learns what is left, which is
+    // less than a packet at the end, and neither stalls nor overpays.
+    let path = Path {
+        max_packet_amount: 100,
+        ..Path::default()
+    };
+    let mut sim = Simulation::new(14, path, Policy::DEFAULT);
+    sim.money_limit = Some(650);
+    sim.client.set_exchange_rate(Rate::ONE);
+    let stream = sim.client.open_stream().unwrap();
+    sim.client.set_send_max(stream, 1_000).unwrap();
+    sim.run_until(STEPS, |sim| sim.money_received >= 300);
+    sim.restart_server();
+    sim.run_until(STEPS, |sim| sim.client.stats().amount_sent == 650);
+    for _ in 0..200 {
+        if !sim.step() {
+            break;
+        }
+    }
+    assert_eq!(sim.money_received, 650);
+    assert_eq!(sim.money_limit, Some(0));
+    assert_eq!(sim.client.stats().amount_sent, 650, "{}", sim.trace);
+}
+
+#[test]
 fn a_refused_connection_never_opens() {
     let mut sim = Simulation::new(12, Path::default(), Policy::DEFAULT);
     sim.refusal = Some(dassie_ilp::ErrorCode::F99_APPLICATION_ERROR);

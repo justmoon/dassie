@@ -144,8 +144,12 @@ pub struct Simulation {
     /// What the server's application still lets in, over all connections,
     /// as an incoming payment would: `None` for no limit.
     pub money_limit: Option<u64>,
+    /// What the server's application counts as received, over every
+    /// connection and restart.
+    pub money_received: u64,
     /// The error the server's application refuses packets with, if any.
     pub refusal: Option<IlpErrorCode>,
+    server_config: (u64, [u8; 32], Policy),
     /// The tags the server's application was asked about.
     pub admitted_tags: Vec<Vec<u8>>,
     /// Data each side read, per stream.
@@ -205,7 +209,9 @@ impl Simulation {
             server_receive_max: u64::MAX,
             client_receive_max: u64::MAX,
             money_limit: None,
+            money_received: 0,
             refusal: None,
+            server_config: (seed, secret, policy),
             admitted_tags: Vec::new(),
             received_data: BTreeMap::new(),
             trace: String::new(),
@@ -329,7 +335,7 @@ impl Simulation {
     /// Hands a Prepare to the server through its application's admission,
     /// and takes what it received off the limit.
     fn admitted(&mut self, prepare: &Prepare<'_>, buffer: &mut [u8]) -> usize {
-        let (refusal, limit) = (self.refusal, self.money_limit);
+        let (refusal, limit, received) = (self.refusal, self.money_limit, self.money_received);
         let tags = &mut self.admitted_tags;
         let admit = |tag: &[u8]| {
             if tags.len() < 64 {
@@ -339,6 +345,7 @@ impl Simulation {
                 Some(code) => Admission::Refuse(code),
                 None => Admission::Accept {
                     money_limit: limit.unwrap_or(u64::MAX),
+                    received,
                 },
             }
         };
@@ -348,7 +355,25 @@ impl Simulation {
         if let Some(limit) = self.money_limit.as_mut() {
             *limit -= handled.received;
         }
+        self.money_received += handled.received;
         handled.length
+    }
+
+    /// The server restarts: its connections are gone, its secret is not,
+    /// so the client's next packet opens a connection anew.
+    pub fn restart_server(&mut self) {
+        let (_, secret, policy) = self.server_config;
+        self.server = Server::new(&ServerConfig {
+            secret,
+            address: Address::parse(SERVER_ADDRESS).unwrap(),
+            asset: Some(AssetDetails {
+                code: "XRP",
+                scale: 9,
+            }),
+            policy,
+            max_connections: 4,
+        });
+        let _ = writeln!(self.trace, "{} server restarts", self.now.unix_ms);
     }
 
     fn deliver(&mut self, message: Message) {

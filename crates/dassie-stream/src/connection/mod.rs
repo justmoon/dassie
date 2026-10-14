@@ -214,6 +214,9 @@ pub struct Connection {
     /// What the application lets the connection still receive, over all
     /// its streams; `u64::MAX` for no limit beyond the streams' own.
     money_limit: u64,
+    /// What the application counts as received already, over earlier
+    /// connections too, while it sets a limit.
+    money_received: u64,
 
     state: State,
     close_attempts: u32,
@@ -300,6 +303,7 @@ impl Connection {
             remote_asset: None,
             receipt: config.receipt,
             money_limit: u64::MAX,
+            money_received: 0,
             state: State::Open,
             close_attempts: 0,
             close_acknowledged: false,
@@ -482,12 +486,18 @@ impl Connection {
     }
 
     /// Sets how much more the connection may receive in total, over all its
-    /// streams: a packet that would exceed it is rejected, and each stream
-    /// advertises no more than it. `u64::MAX` removes the limit. The
-    /// application sets it before each packet when the connection pays
-    /// into something with a total, such as an incoming payment.
-    pub fn set_money_limit(&mut self, remaining: u64) {
+    /// streams, and what was received before: a packet that would exceed
+    /// the limit is rejected. The application sets both before each packet
+    /// when the connection pays into something with a total, such as an
+    /// incoming payment; `u64::MAX` removes the limit.
+    ///
+    /// Under a limit, each stream reports the application's count as what
+    /// it received, and that count plus the limit as its maximum. Both only
+    /// grow, as senders expect, even when the sender's earlier connection
+    /// is forgotten: after a restart, or when the server dropped it.
+    pub fn set_money_limit(&mut self, remaining: u64, received: u64) {
         self.money_limit = remaining;
+        self.money_received = received;
     }
 
     /// What the connection may still receive (see

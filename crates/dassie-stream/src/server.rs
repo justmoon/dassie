@@ -36,10 +36,14 @@ pub enum Admission {
     Refuse(IlpErrorCode),
     /// Let it in. The connection may receive at most `money_limit` more in
     /// total, over all its streams; `u64::MAX` means no limit beyond the
-    /// streams' own.
+    /// streams' own. `received` is what the application already counts as
+    /// received for this tag, over earlier connections too (see
+    /// [`Connection::set_money_limit`]).
     Accept {
         /// What the connection may still receive.
         money_limit: u64,
+        /// What was received before, as the application counts it.
+        received: u64,
     },
 }
 
@@ -201,6 +205,7 @@ impl Server {
     ) -> usize {
         let admit = |_: &[u8]| Admission::Accept {
             money_limit: u64::MAX,
+            received: 0,
         };
         self.handle_prepare_admitted(now, rng, prepare, admit, buffer)
             .length
@@ -247,9 +252,12 @@ impl Server {
                 }
             }
         };
-        let money_limit = match admission {
+        let (money_limit, received_before) = match admission {
             Admission::Refuse(code) => return refused(self, code, buffer),
-            Admission::Accept { money_limit } => money_limit,
+            Admission::Accept {
+                money_limit,
+                received,
+            } => (money_limit, received),
         };
         let index = match existing {
             Some(index) => index,
@@ -261,7 +269,9 @@ impl Server {
         let Some(entry) = self.entries.get_mut(index) else {
             return refused(self, IlpErrorCode::T00_INTERNAL_ERROR, buffer);
         };
-        entry.connection.set_money_limit(money_limit);
+        entry
+            .connection
+            .set_money_limit(money_limit, received_before);
         let before = entry.connection.stats().amount_received;
         let length = entry.connection.handle_prepare(now, rng, prepare, buffer);
         let received = entry.connection.stats().amount_received - before;

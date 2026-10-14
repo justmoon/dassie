@@ -93,6 +93,7 @@ pub(super) fn admission(
         Some(payment) if payment.ledger == ledger && now_ms < payment.expires_at_ms => (
             Admission::Accept {
                 money_limit: payment.remaining(),
+                received: payment.received,
             },
             Some(id),
         ),
