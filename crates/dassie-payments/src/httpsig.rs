@@ -7,6 +7,10 @@
 //! between: [`Signature::find`] picks the signature, checks its components
 //! and time and names the key; [`Signature::verify`] checks it with that
 //! key.
+//!
+//! A covered `content-length` that the transport dropped, as clients do
+//! that send their body chunked, is the length of the body received. The
+//! digest, which a body needs covered, binds the body itself.
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -138,7 +142,7 @@ pub fn sign(
         ("keyid".to_string(), BareItem::String(keyid.to_string())),
     ]);
     let params = sf::serialize_inner_list(&items, &parameters);
-    let base = signature_base(request, &items, &params)?;
+    let base = signature_base(request, &items, &params, None)?;
     let signature = key.sign(base.as_bytes()).to_bytes();
     let mut signature_input = String::from(LABEL);
     signature_input.push('=');
@@ -274,7 +278,7 @@ impl Signature {
         body: &[u8],
         key: &VerifyingKey,
     ) -> Result<(), SignatureError> {
-        let base = signature_base(request, &self.items, &self.params)?;
+        let base = signature_base(request, &self.items, &self.params, Some(body.len()))?;
         let signature = ed25519_dalek::Signature::from_bytes(&self.bytes);
         key.verify_strict(base.as_bytes(), &signature)
             .map_err(|_| SignatureError::Invalid)?;
@@ -335,6 +339,7 @@ fn signature_base(
     request: &Request<'_>,
     items: &[Item],
     params: &str,
+    body_length: Option<usize>,
 ) -> Result<String, SignatureError> {
     let mut base = String::new();
     for (index, item) in items.iter().enumerate() {
@@ -349,7 +354,12 @@ fn signature_base(
         if !item.parameters.is_empty() || duplicate {
             return Err(SignatureError::Malformed);
         }
-        let value = component(request, name)?;
+        let value = match (component(request, name), body_length) {
+            (Err(SignatureError::Malformed), Some(length)) if name == "content-length" => {
+                alloc::format!("{length}")
+            }
+            (value, _) => value?,
+        };
         if value.contains(['\n', '\r']) {
             return Err(SignatureError::Malformed);
         }
@@ -453,6 +463,45 @@ mod tests {
         assert_eq!(
             Signature::find(&request, &["@method", "@authority"], 1_000).map(|_| ()),
             Err(SignatureError::Components)
+        );
+    }
+
+    #[test]
+    fn a_dropped_content_length_is_the_body_length() {
+        let body = br#"{"a":1}"#;
+        let digest = content_digest(body);
+        let signed_fields = [
+            ("Content-Type", "application/json"),
+            ("Content-Digest", digest.as_str()),
+            ("Content-Length", "7"),
+        ];
+        let request = Request {
+            method: "POST",
+            target_uri: "https://b.example/gnap",
+            fields: &signed_fields,
+        };
+        let components = profile(&request, true);
+        let signed = sign(&request, &components, &key(), "k1", 1_000).unwrap();
+        // Sent chunked: no Content-Length arrives.
+        let fields = [
+            ("Content-Type", "application/json"),
+            ("Content-Digest", digest.as_str()),
+            ("Transfer-Encoding", "chunked"),
+            ("Signature-Input", signed.signature_input.as_str()),
+            ("Signature", signed.signature.as_str()),
+        ];
+        let received = Request {
+            fields: &fields,
+            ..request
+        };
+        let found = Signature::find(&received, &components, 1_000).unwrap();
+        assert_eq!(
+            found.verify(&received, body, &key().verifying_key()),
+            Ok(())
+        );
+        assert_eq!(
+            found.verify(&received, br#"{"a":12}"#, &key().verifying_key()),
+            Err(SignatureError::Invalid)
         );
     }
 

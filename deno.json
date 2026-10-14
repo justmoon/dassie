@@ -33,7 +33,7 @@
     "dev": "deno run -A apps/dev/main.ts",
     "cli": "deno run -A apps/dev/cli.ts",
     "check": "deno fmt --check && deno lint && deno check",
-    "test": "deno test --allow-read --allow-write --allow-env --allow-net --allow-run",
+    "test": "deno test --allow-read --allow-write --allow-env --allow-net --allow-run --allow-sys=hostname",
     "ci": "deno task build:wasm && deno task build:wallet && deno task build:dashboard && deno task build:e2e && deno task check && deno task test"
   }
 }
