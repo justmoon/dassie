@@ -35,11 +35,12 @@ use dassie_node_core::config::{Alias, DirectoryUrl, Hostname, NodeConfig, Ports,
 use dassie_node_core::session::{SessionId, SessionPolicy, SessionTimes};
 use rusqlite::{Connection, OptionalExtension, params};
 
-pub use gnap::{GrantRow, GrantState, MAX_PENDING_GRANTS, TokenRow};
+pub use gnap::{GrantRow, GrantState, MAX_GRANTS, TokenRow};
 pub use inspect::{BLOB_CUT, Cell, ColumnInfo, MAX_ROWS, RowsPage, TEXT_CUT, TableInfo, Value};
 pub use ledger::{BtpTokenRow, JournalRow, LedgerBatch, StoredLedger, TokenCap};
 pub use payments::{
     IncomingPage, IncomingProgress, IncomingQuery, IncomingRow, MAX_OPEN_LOADED, PaymentId,
+    UNPAID_RETENTION_MS,
 };
 pub use schema::{APPLICATION_ID, V0_APPLICATION_ID};
 

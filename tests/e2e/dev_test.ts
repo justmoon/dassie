@@ -218,7 +218,13 @@ Deno.test({
         );
         const wallet = await browser.newPage();
         await wallet.goto(href!, { waitUntil: "load" });
-        assertEquals(await text(wallet, "payment-pointer"), "$d1.localhost");
+        // The node's default wallet address, at its own port.
+        await until(
+          wallet,
+          "the payment pointer",
+          () => text(wallet, "payment-pointer"),
+          (pointer) => pointer === `$d1.localhost:${httpsPort(0)}`,
+        );
         assertEquals(await wallet.evaluate(() => location.hash), "");
         await picture(wallet, "dev-04-wallet");
         await wallet.close();

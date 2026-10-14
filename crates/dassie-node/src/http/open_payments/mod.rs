@@ -79,6 +79,9 @@ async fn route(
             wallet::wallet_address(node, urls, path).await
         }
         (&Method::POST, GRANT_PATH) => grants::request(node, peer, urls, request).await,
+        (&Method::POST | &Method::DELETE, path) if path.starts_with("/gnap/") => {
+            grants::manage(node, urls, &method, path, request).await
+        }
         (_, path) if path == INCOMING_PREFIX || path.starts_with("/incoming-payments/") => {
             incoming::route(node, peer, urls, request).await
         }
@@ -98,11 +101,11 @@ pub struct ReadRequest {
 
 impl ReadRequest {
     /// Reads the head and a body of at most [`MAX_BODY_BYTES`] in time.
-    async fn read(node: &Node, request: Request<Incoming>) -> Result<Self, OpError> {
-        let host = header_str(request.headers(), &header::HOST)
-            .ok_or_else(|| OpError::invalid("the request has no Host"))?;
+    /// The URL signatures must cover is the node's own, whatever `Host`
+    /// says, so a request signed for another server never verifies here.
+    async fn read(node: &Node, urls: &Urls, request: Request<Incoming>) -> Result<Self, OpError> {
         let path_and_query = request.uri().path_and_query().map_or("/", |pq| pq.as_str());
-        let target_uri = format!("https://{host}{path_and_query}");
+        let target_uri = format!("{}{path_and_query}", urls.origin());
         let fields = request
             .headers()
             .iter()

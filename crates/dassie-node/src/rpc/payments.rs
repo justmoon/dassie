@@ -19,8 +19,9 @@ use crate::store::{IncomingRow, PaymentId};
 const DEFAULT_LIMIT: u32 = 100;
 const MAX_LIMIT: u32 = 1_000;
 
-/// The longest description of an incoming payment the owner creates.
-const MAX_DESCRIPTION_BYTES: usize = 256;
+/// The longest description of an incoming payment the owner creates, in
+/// characters, as the wallet counts them.
+const MAX_DESCRIPTION_CHARS: usize = 256;
 
 /// Answers the Open Payments methods.
 pub async fn dispatch(
@@ -156,19 +157,22 @@ async fn create(
         LedgerId::parse(&request.ledger).filter(|ledger| addresses.ledgers.contains(ledger))
     }
     .ok_or_else(|| RpcError::precondition("the ledger is not active"))?;
-    if request.description.len() > MAX_DESCRIPTION_BYTES {
+    if request.description.chars().count() > MAX_DESCRIPTION_CHARS {
         return Err(RpcError::invalid("the description is too long"));
     }
     let metadata = (!request.description.is_empty())
         .then(|| serde_json::json!({ "description": request.description }).to_string());
     let new = NewIncoming {
         ledger,
-        wallet_address: urls.wallet_address(ledger, addresses.is_default(ledger)),
+        wallet_address: urls.wallet_address(ledger, false),
         client: None,
         incoming_amount: request.incoming_amount,
         expires_at_ms: (request.expires_at_ms != 0).then_some(request.expires_at_ms),
         metadata,
     };
+    node.store()
+        .prune_incoming(node.now_ms())
+        .map_err(RpcError::internal)?;
     Ok(engine.create_incoming_payment(new).await?)
 }
 

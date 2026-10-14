@@ -8,6 +8,12 @@
 //! added to the payment in the step that books the packet, and written
 //! with its journal row, so the payment never shows money the books lack,
 //! nor the other way round.
+//!
+//! The owner's payments and clients' are bounded apart, so that clients,
+//! whom anyone can be, never crowd out the owner's own requests. When the
+//! clients' share is full, the oldest of their payments that received
+//! nothing is closed to make room: a flood of requests pushes out only
+//! other unpaid requests.
 
 use std::collections::BTreeMap;
 
@@ -22,23 +28,26 @@ use crate::store::{IncomingProgress, IncomingRow, PaymentId};
 /// The bounds on incoming payments.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IncomingPolicy {
-    /// Most open at once, over all ledgers.
-    pub max_open: usize,
-    /// Most open at once for one client.
-    pub max_open_per_client: usize,
+    /// Most of the owner's open at once, over all ledgers.
+    pub max_open_owner: usize,
+    /// Most of clients' open at once, over all ledgers.
+    pub max_open_clients: usize,
     /// How long one lasts when its creator names no expiry.
     pub default_expiry_ms: u64,
-    /// The longest one may last.
+    /// The longest one of the owner's may last.
     pub max_expiry_ms: u64,
+    /// The longest one of a client's may last.
+    pub max_client_expiry_ms: u64,
 }
 
 impl IncomingPolicy {
     /// The production values.
     pub const DEFAULT: Self = Self {
-        max_open: 4096,
-        max_open_per_client: 256,
+        max_open_owner: 1024,
+        max_open_clients: 4096,
         default_expiry_ms: 24 * 60 * 60 * 1_000,
         max_expiry_ms: 30 * 24 * 60 * 60 * 1_000,
+        max_client_expiry_ms: 7 * 24 * 60 * 60 * 1_000,
     };
 }
 
@@ -48,6 +57,7 @@ pub(super) struct OpenIncoming {
     ledger: LedgerId,
     incoming_amount: Option<u64>,
     received: u64,
+    created_at_ms: u64,
     expires_at_ms: u64,
     client: Option<String>,
 }
@@ -108,8 +118,29 @@ impl Core {
             .store
             .open_incoming_payments(self.now_ms)
             .map_err(|e| e.to_string())?;
-        for row in rows.into_iter().take(self.incoming_policy.max_open) {
+        let policy = self.incoming_policy;
+        let (mut owner, mut clients, mut dropped) = (0usize, 0usize, 0usize);
+        for row in rows {
+            let count = if row.client.is_none() {
+                &mut owner
+            } else {
+                &mut clients
+            };
+            let limit = if row.client.is_none() {
+                policy.max_open_owner
+            } else {
+                policy.max_open_clients
+            };
+            if *count >= limit {
+                dropped += 1;
+                continue;
+            }
+            *count += 1;
             self.incoming.insert(row.id, open_of(&row));
+        }
+        if dropped > 0 {
+            // Only after the bounds were lowered: they take no more money.
+            tracing::warn!(target: target::PAYMENT, dropped, "more incoming payments are open than the bounds allow");
         }
         Ok(())
     }
@@ -129,10 +160,14 @@ impl Core {
         let expires_at_ms = new
             .expires_at_ms
             .unwrap_or(now.saturating_add(policy.default_expiry_ms));
-        if expires_at_ms <= now || expires_at_ms - now > policy.max_expiry_ms {
-            return Err(EngineError::Invalid(
-                "the expiry must be in the future, and at most 30 days away".into(),
-            ));
+        let (longest, days) = match new.client {
+            None => (policy.max_expiry_ms, "30"),
+            Some(_) => (policy.max_client_expiry_ms, "7"),
+        };
+        if expires_at_ms <= now || expires_at_ms - now > longest {
+            return Err(EngineError::Invalid(format!(
+                "the expiry must be in the future, and at most {days} days away"
+            )));
         }
         if new
             .incoming_amount
@@ -140,7 +175,7 @@ impl Core {
         {
             return Err(EngineError::Invalid("the amount is out of range".into()));
         }
-        self.make_room(now, new.client.as_deref())?;
+        self.make_room(now, new.client.is_none())?;
         let id = self.new_payment_id();
         let Self { rng, receivers, .. } = self;
         let receiver = receivers
@@ -168,33 +203,63 @@ impl Core {
         Ok(row)
     }
 
-    /// Frees the slots of expired payments, then checks there is room for
-    /// one more, for `client` too.
-    fn make_room(&mut self, now: u64, client: Option<&str>) -> Result<(), EngineError> {
+    /// How many of the owner's, or of clients', are open.
+    fn open_count(&self, owner: bool) -> usize {
+        self.incoming
+            .values()
+            .filter(|payment| payment.client.is_none() == owner)
+            .count()
+    }
+
+    /// Makes room for one more of the owner's or of a client's: forgets
+    /// expired payments, and for a client closes the oldest client payment
+    /// that received nothing, if need be.
+    fn make_room(&mut self, now: u64, owner: bool) -> Result<(), EngineError> {
         let policy = self.incoming_policy;
-        if self.incoming.len() >= policy.max_open {
+        let limit = if owner {
+            policy.max_open_owner
+        } else {
+            policy.max_open_clients
+        };
+        if self.open_count(owner) >= limit {
             self.incoming
                 .retain(|_, payment| now < payment.expires_at_ms);
         }
-        if self.incoming.len() >= policy.max_open {
+        if self.open_count(owner) < limit {
+            return Ok(());
+        }
+        let unpaid = (!owner)
+            .then(|| {
+                self.incoming
+                    .iter()
+                    .filter(|(_, payment)| payment.client.is_some() && payment.received == 0)
+                    .min_by_key(|(id, payment)| (payment.created_at_ms, **id))
+                    .map(|(id, _)| *id)
+            })
+            .flatten();
+        let Some(oldest) = unpaid else {
             return Err(EngineError::Exhausted(
                 "too many incoming payments are open".into(),
             ));
-        }
-        if let Some(client) = client {
-            let open = self
-                .incoming
-                .values()
-                .filter(|payment| payment.client.as_deref() == Some(client))
-                .filter(|payment| now < payment.expires_at_ms)
-                .count();
-            if open >= policy.max_open_per_client {
-                return Err(EngineError::Exhausted(
-                    "the client has too many incoming payments open".into(),
-                ));
-            }
-        }
+        };
+        self.close_incoming(oldest, now);
+        tracing::debug!(target: target::PAYMENT, id = %oldest, "an unpaid incoming payment closed to make room");
         Ok(())
+    }
+
+    /// Closes an open payment: it is complete as of now, or as of when it
+    /// was made if the clock went back since.
+    fn close_incoming(&mut self, id: PaymentId, now: u64) {
+        let Some(payment) = self.incoming.remove(&id) else {
+            return;
+        };
+        self.batch.incoming_progress.insert(
+            id,
+            IncomingProgress {
+                received_amount: payment.received,
+                completed_at_ms: Some(now.max(payment.created_at_ms)),
+            },
+        );
     }
 
     fn new_payment_id(&mut self) -> PaymentId {
@@ -238,7 +303,9 @@ impl Core {
             ));
         }
         self.incoming.remove(&id);
-        row.completed_at_ms = Some(now);
+        // A clock that went back since it was made must not date its end
+        // before its start.
+        row.completed_at_ms = Some(now.max(row.created_at_ms));
         self.batch.incoming_progress.insert(
             id,
             IncomingProgress {
@@ -264,7 +331,7 @@ impl Core {
         let complete = payment.incoming_amount == Some(payment.received);
         let progress = IncomingProgress {
             received_amount: payment.received,
-            completed_at_ms: complete.then_some(now),
+            completed_at_ms: complete.then_some(now.max(payment.created_at_ms)),
         };
         if complete {
             self.incoming.remove(&id);
@@ -275,8 +342,10 @@ impl Core {
 
     /// Checks the open payments against their bounds.
     pub(super) fn check_incoming(&self) {
+        let policy = self.incoming_policy;
         assert!(
-            self.incoming.len() <= self.incoming_policy.max_open,
+            self.open_count(true) <= policy.max_open_owner
+                && self.open_count(false) <= policy.max_open_clients,
             "too many open incoming payments"
         );
         for payment in self.incoming.values() {
@@ -295,6 +364,7 @@ fn open_of(row: &IncomingRow) -> OpenIncoming {
         ledger: row.ledger,
         incoming_amount: row.incoming_amount,
         received: row.received_amount,
+        created_at_ms: row.created_at_ms,
         expires_at_ms: row.expires_at_ms,
         client: row.client.clone(),
     }

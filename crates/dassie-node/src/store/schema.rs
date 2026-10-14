@@ -281,7 +281,11 @@ CREATE TABLE incoming_payments (
 ) STRICT, WITHOUT ROWID;
 
 CREATE INDEX incoming_payments_by_ledger ON incoming_payments (ledger, created_at_ms, id);
+CREATE INDEX incoming_payments_by_client ON incoming_payments (ledger, client, created_at_ms, id);
+CREATE INDEX incoming_payments_by_time ON incoming_payments (created_at_ms, id);
 CREATE INDEX incoming_payments_open ON incoming_payments (expires_at_ms) WHERE completed_at_ms IS NULL;
+CREATE INDEX incoming_payments_unpaid ON incoming_payments (coalesce(completed_at_ms, expires_at_ms))
+  WHERE received_amount = 0;
 
 CREATE TABLE gnap_grants (
   id BLOB PRIMARY KEY CHECK (length(id) = 16),
@@ -314,6 +318,7 @@ CREATE TABLE gnap_tokens (
 ) STRICT, WITHOUT ROWID;
 
 CREATE INDEX gnap_tokens_by_grant ON gnap_tokens (grant_id);
+CREATE INDEX gnap_tokens_by_expiry ON gnap_tokens (expires_at_ms);
 
 CREATE TABLE payment_settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -333,6 +338,7 @@ pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("btp_tokens", "token_hash"),
     ("incoming_payments", "shared_secret"),
     ("gnap_grants", "continue_token_hash"),
+    ("gnap_grants", "interaction"),
     ("gnap_tokens", "token_hash"),
 ];
 

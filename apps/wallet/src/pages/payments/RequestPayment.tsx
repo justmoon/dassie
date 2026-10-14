@@ -14,6 +14,7 @@ import { useNodeData } from "@dassie/ui/node-data";
 import { Link } from "@dassie/ui/router";
 import { describe, useClient } from "@dassie/ui/rpc";
 import { CopyButton, ErrorText, Field, Masked } from "@dassie/ui/ui";
+import { useWalletAddresses } from "./WalletAddresses.tsx";
 
 export function RequestPayment(): JSX.Element {
   const client = useClient();
@@ -25,9 +26,15 @@ export function RequestPayment(): JSX.Element {
   const [error, setError] = createSignal<string>();
   const [pending, setPending] = createSignal(false);
   const [created, setCreated] = createSignal<IncomingPayment>();
-  const chosen = () =>
-    data.ledgers()?.find((entry) => entry.id === ledger()) ??
+  const addresses = useWalletAddresses();
+  // The ledger the form shows, and sends: the one chosen, else the
+  // default, `$host`'s.
+  const chosen = () => {
+    const wanted = ledger() ??
+      addresses.addresses()?.find((address) => address.isDefault)?.ledger;
+    return data.ledgers()?.find((entry) => entry.id === wanted) ??
       data.ledgers()?.[0];
+  };
   const create = async (event: SubmitEvent) => {
     event.preventDefault();
     if (pending()) return;
@@ -43,7 +50,7 @@ export function RequestPayment(): JSX.Element {
     setPending(true);
     try {
       const response = await client.call("createIncomingPayment", {
-        ledger: ledger() ?? "",
+        ledger: chosen()?.id ?? "",
         incomingAmount,
         description: text(),
       });

@@ -310,11 +310,23 @@ impl Core {
         if self.receivers.contains_key(&ledger) {
             return Ok(());
         }
-        let endpoint = dassie_connector::EndpointId::Local(self.next_local);
-        self.next_local = self
-            .next_local
-            .checked_add(1)
-            .ok_or_else(|| EngineError::Exhausted("no local endpoint left".into()))?;
+        // The next number, skipping any in use: a number comes back only
+        // after 65 536 activations, long after anything for it is gone.
+        let taken = |n: u16| {
+            self.receivers
+                .values()
+                .any(|receiver| receiver.endpoint == dassie_connector::EndpointId::Local(n))
+        };
+        let mut free = self.next_local;
+        for _ in 0..=super::MAX_LOCAL_ENDPOINTS {
+            if !taken(free) {
+                break;
+            }
+            free = free.wrapping_add(1);
+        }
+        assert!(!taken(free), "more receivers than local endpoints");
+        self.next_local = free.wrapping_add(1);
+        let endpoint = dassie_connector::EndpointId::Local(free);
         let own = self.connector.own_address().to_string();
         let receiver = Receiver::new(&self.key, &own, ledger, endpoint)?;
         let owner = self.account(ledger, AccountName::EquityOwner)?;

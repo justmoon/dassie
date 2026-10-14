@@ -31,7 +31,7 @@ pub async fn route(
     request: Request<Incoming>,
 ) -> Response<Body> {
     let method = request.method().clone();
-    let read = match ReadRequest::read(node, request).await {
+    let read = match ReadRequest::read(node, urls, request).await {
         Ok(read) => read,
         Err(failure) => return error(&failure, Some(urls)),
     };
@@ -101,7 +101,11 @@ async fn create(
     {
         return Err(OpError::new(429, "too_many_requests", "slow down"));
     }
-    let new = new_incoming(ledger, &authorized, body)?;
+    let mut new = new_incoming(ledger, &authorized, body)?;
+    // As grants do: `$host` and `/pay/<slug>` are one wallet address,
+    // which `$host` stops naming when the default ledger changes.
+    new.wallet_address = urls.wallet_address(ledger, false);
+    node.store().prune_incoming(node.now_ms())?;
     let engine = node.engine().ok_or_else(OpError::unavailable)?;
     let row = engine
         .create_incoming_payment(new)
@@ -276,13 +280,16 @@ async fn list(node: &Node, urls: &Urls, read: &ReadRequest) -> Result<Response<B
         .map(|cursor| PaymentId::parse(cursor).ok_or_else(|| OpError::invalid("unknown cursor")))
         .transpose()?;
     let client = (scope == Scope::Own).then_some(authorized.grant.client.as_str());
-    let page = node.store().incoming_page(&IncomingQuery {
-        ledger,
-        client,
-        cursor,
-        forward: query.direction == Direction::Forward,
-        count: u32::from(query.count),
-    })?;
+    let page = node
+        .store()
+        .incoming_page(&IncomingQuery {
+            ledger,
+            client,
+            cursor,
+            forward: query.direction == Direction::Forward,
+            count: u32::from(query.count),
+        })?
+        .ok_or_else(|| OpError::invalid("unknown cursor"))?;
     let pagination = PageInfo {
         start_cursor: page.rows.first().map(|row| row.id.to_string()),
         end_cursor: page.rows.last().map(|row| row.id.to_string()),

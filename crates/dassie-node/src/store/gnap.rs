@@ -7,8 +7,12 @@ use rusqlite::{OptionalExtension, Row, params};
 
 use super::{PaymentId, Store, StoreError, from_sql_time, to_sql_time};
 
-/// Most grants kept that the owner has not decided.
-pub const MAX_PENDING_GRANTS: u32 = 64;
+/// Most grants kept at once: past it, grant requests are refused until
+/// old ones are pruned.
+pub const MAX_GRANTS: u32 = 16_384;
+
+/// How long a grant that needed no owner is kept once its tokens are gone.
+const SPENT_GRANT_MS: u64 = 60 * 60 * 1_000;
 
 /// Where a grant is in its life.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -127,19 +131,6 @@ impl Store {
         Ok(())
     }
 
-    /// One grant.
-    pub fn grant(&self, id: PaymentId) -> Result<Option<GrantRow>, StoreError> {
-        let connection = self.lock();
-        connection
-            .query_row(
-                &format!("SELECT {GRANT_COLUMNS} FROM gnap_grants WHERE id = ?1"),
-                [id.0.as_slice()],
-                read_grant,
-            )
-            .optional()?
-            .transpose()
-    }
-
     /// The token with this hash, unexpired at `now_ms`, with its grant.
     pub fn access_token(
         &self,
@@ -168,23 +159,116 @@ impl Store {
             .transpose()
     }
 
-    /// How many grants wait for the owner.
-    pub fn pending_grants(&self) -> Result<u32, StoreError> {
-        let count: i64 = self.lock().query_row(
-            "SELECT count(*) FROM gnap_grants WHERE state = 'pending'",
-            [],
-            |row| row.get(0),
+    /// The grant `id`, if `continue_hash` is its continuation token's hash.
+    pub fn continued_grant(
+        &self,
+        id: PaymentId,
+        continue_hash: &[u8; 32],
+    ) -> Result<Option<GrantRow>, StoreError> {
+        let connection = self.lock();
+        connection
+            .query_row(
+                &format!(
+                    "SELECT {GRANT_COLUMNS} FROM gnap_grants \
+                     WHERE id = ?1 AND continue_token_hash = ?2"
+                ),
+                params![id.0.as_slice(), continue_hash.as_slice()],
+                read_grant,
+            )
+            .optional()?
+            .transpose()
+    }
+
+    /// The token at management ID `manage_id`, if `hash` is its hash, with
+    /// its grant; expired or not, since an expired token may be rotated.
+    pub fn managed_token(
+        &self,
+        manage_id: PaymentId,
+        hash: &[u8; 32],
+    ) -> Result<Option<(TokenRow, GrantRow)>, StoreError> {
+        let connection = self.lock();
+        let columns = GRANT_COLUMNS
+            .split(", ")
+            .map(|column| format!("g.{column}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        connection
+            .query_row(
+                &format!(
+                    "SELECT t.token_hash, t.grant_id, t.manage_id, t.created_at_ms, \
+                     t.expires_at_ms, {columns} FROM gnap_tokens t \
+                     JOIN gnap_grants g ON g.id = t.grant_id \
+                     WHERE t.manage_id = ?1 AND t.token_hash = ?2"
+                ),
+                params![manage_id.0.as_slice(), hash.as_slice()],
+                |row| Ok((read_token(row), read_grant_at(row, 5)?)),
+            )
+            .optional()?
+            .map(|(token, grant)| Ok((token?, grant?)))
+            .transpose()
+    }
+
+    /// Replaces a token with a new one of the same grant, in one
+    /// transaction; false if the old one is gone.
+    pub fn rotate_token(&self, old_hash: &[u8; 32], new: &TokenRow) -> Result<bool, StoreError> {
+        let mut connection = self.lock();
+        let transaction = connection.transaction()?;
+        let removed = transaction.execute(
+            "DELETE FROM gnap_tokens WHERE token_hash = ?1",
+            [old_hash.as_slice()],
         )?;
+        if removed != 1 {
+            return Ok(false);
+        }
+        insert_token(&transaction, new)?;
+        transaction.commit()?;
+        Ok(true)
+    }
+
+    /// Revokes a token; false if it was gone.
+    pub fn revoke_token(&self, hash: &[u8; 32]) -> Result<bool, StoreError> {
+        let removed = self.lock().execute(
+            "DELETE FROM gnap_tokens WHERE token_hash = ?1",
+            [hash.as_slice()],
+        )?;
+        Ok(removed == 1)
+    }
+
+    /// Revokes a grant and every token it issued.
+    pub fn revoke_grant(&self, id: PaymentId, now_ms: u64) -> Result<(), StoreError> {
+        let mut connection = self.lock();
+        let transaction = connection.transaction()?;
+        transaction.execute(
+            "DELETE FROM gnap_tokens WHERE grant_id = ?1",
+            [id.0.as_slice()],
+        )?;
+        transaction.execute(
+            &format!(
+                "UPDATE gnap_grants SET state = 'revoked', \
+                 decided_at_ms = coalesce(decided_at_ms, ?2), revision = {NEXT_REVISION} \
+                 WHERE id = ?1"
+            ),
+            params![id.0.as_slice(), to_sql_time(now_ms)],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    /// How many grants are kept.
+    pub fn grant_count(&self) -> Result<u32, StoreError> {
+        let count: i64 = self
+            .lock()
+            .query_row("SELECT count(*) FROM gnap_grants", [], |row| row.get(0))?;
         u32::try_from(count).map_err(|_| StoreError::Corrupt("grant count"))
     }
 
     /// Forgets what no request can use any more: grants the owner did not
     /// decide in time, denied and revoked ones, expired tokens, and grants
-    /// that needed no owner once their tokens are gone a day. Returns how
-    /// many grants went.
+    /// that needed no owner once their tokens are gone and an hour has
+    /// passed since they were made. Returns how many grants went.
     pub fn prune_grants(&self, now_ms: u64) -> Result<u32, StoreError> {
         let now = to_sql_time(now_ms);
-        let day_ago = to_sql_time(now_ms.saturating_sub(24 * 60 * 60 * 1_000));
+        let day_ago = to_sql_time(now_ms.saturating_sub(SPENT_GRANT_MS));
         let mut connection = self.lock();
         let transaction = connection.transaction()?;
         transaction.execute("DELETE FROM gnap_tokens WHERE expires_at_ms <= ?1", [now])?;

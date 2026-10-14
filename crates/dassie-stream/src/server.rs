@@ -313,6 +313,9 @@ impl Server {
             self.remove_closed();
         }
         if self.entries.len() >= self.max_connections {
+            self.evict_least_active();
+        }
+        if self.entries.len() >= self.max_connections {
             return Err(IlpErrorCode::T03_CONNECTOR_BUSY);
         }
         let shared_secret = self.secret.shared_secret(token);
@@ -342,6 +345,22 @@ impl Server {
         }
         self.opened.push_back(id);
         Ok(self.entries.len() - 1)
+    }
+
+    /// Makes room in a full table by forgetting the connection heard from
+    /// least recently. Its sender's next packet opens it again: the
+    /// application's admission says what it may still receive. So no
+    /// remote can keep the table full by keeping idle connections alive.
+    fn evict_least_active(&mut self) {
+        let oldest = self
+            .entries
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, entry)| entry.connection.last_activity())
+            .map(|(index, _)| index);
+        if let Some(index) = oldest {
+            self.entries.remove(index);
+        }
     }
 
     fn reject(&self, code: IlpErrorCode, buffer: &mut [u8]) -> usize {

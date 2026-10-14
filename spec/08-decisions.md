@@ -178,7 +178,9 @@ Revised on 2026-10-14; it first served SPSP and deferred GNAP, quotes and outgoi
     - `$host` (`https://host/.well-known/pay`) names the default ledger, a setting.
   - **Authorization:** every resource-server and authorization-server call needs a GNAP token and an HTTP message signature (RFC 9421) by the client's key, as the specs require.
     - **Non-interactive:** incoming-payment and quote grants are approved without interaction.
-    - **The owner's consent in the wallet** is needed for outgoing-payment, `subject`, `read-all` and `list-all` grants.
+    - **The owner's consent in the wallet** is needed for outgoing-payment, `subject` and `list-all` grants, and to read others' quotes. Reading any incoming payment needs none: a sender's wallet reads a payment it did not create to learn how to pay it.
+    - **What a client reaches:** `read`, `list` and `complete` reach only the incoming payments the client created; `read-all` reaches any.
+    - **Bounds:** the owner's incoming payments and clients' are bounded apart, so that clients never crowd out the owner. When clients' share is full, the oldest of their payments that received nothing is closed. Clients' payments last at most 7 days, and unpaid ones are forgotten a week after they close.
     - **Grant limits** (amounts per repeating interval) are reserved when an outgoing payment is created.
   - **Client side:** the wallet's Send is an Open Payments client of the receiver's servers. It gets a non-interactive grant, creates the incoming payment there, then quotes and pays from the node's own resources.
     - It quotes through STREAM rate probing.

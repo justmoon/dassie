@@ -23,7 +23,7 @@ use super::keys::{self, KeyError};
 use super::{GRANT_PATH, Urls, WalletAddresses};
 use crate::log::target;
 use crate::node::Node;
-use crate::store::{GrantRow, GrantState, PaymentId, StoreError, TokenRow};
+use crate::store::{GrantRow, GrantState, MAX_GRANTS, PaymentId, StoreError, TokenRow};
 
 /// How long an access token works.
 pub const ACCESS_TOKEN_LIFETIME_MS: u64 = 60 * 60 * 1_000;
@@ -291,6 +291,13 @@ fn approve(
     let now = node.now_ms();
     let store = node.store();
     store.prune_grants(now)?;
+    if store.grant_count()? >= MAX_GRANTS {
+        return Err(OpError::gnap(
+            503,
+            ErrorCode::RequestDenied,
+            "too many grants; try again later",
+        ));
+    }
     let id = PaymentId::from_random(random_bytes(node));
     let (continue_token, continue_hash) = new_token(node);
     let (access_token, access_hash) = new_token(node);
@@ -334,6 +341,150 @@ fn approve(
         },
         subject: None,
     })
+}
+
+/// The GNAP token a request carries, and the hash the database keeps.
+fn presented_token(request: &SignedRequest<'_>) -> Result<[u8; 32], OpError> {
+    request
+        .header("authorization")
+        .and_then(gnap::bearer)
+        .map(token_hash)
+        .ok_or_else(|| OpError::gnap(401, ErrorCode::InvalidClient, "a GNAP token is required"))
+}
+
+/// Checks a management request's signature against the grant's key.
+fn signed_by_client(
+    node: &Node,
+    request: &SignedRequest<'_>,
+    grant: &GrantRow,
+) -> Result<(), OpError> {
+    let jwk: Jwk = serde_json::from_str(&grant.client_key).map_err(OpError::internal)?;
+    let key = jwk
+        .verifying_key()
+        .map_err(|_| OpError::internal("a stored client key is invalid"))?;
+    check_signature(request, &jwk, &key, node.now_ms(), |description| {
+        OpError::gnap(401, ErrorCode::InvalidClient, description)
+    })
+}
+
+/// `POST /gnap/token/{id}`: a new token for the same access, in place of
+/// the one presented, which stops working.
+///
+/// # Errors
+///
+/// 401 without the token and its client's signature, 404 for an unknown
+/// one, 400 when its grant is no longer approved.
+pub fn rotate_token(
+    node: &Node,
+    urls: &Urls,
+    manage_id: PaymentId,
+    request: &SignedRequest<'_>,
+) -> Result<AccessToken, OpError> {
+    let hash = presented_token(request)?;
+    let (_, grant) = node
+        .store()
+        .managed_token(manage_id, &hash)?
+        .ok_or_else(|| OpError::gnap(404, ErrorCode::InvalidRotation, "no such token"))?;
+    signed_by_client(node, request, &grant)?;
+    if grant.state != GrantState::Approved {
+        return Err(OpError::gnap(
+            400,
+            ErrorCode::InvalidRotation,
+            "the grant is not approved",
+        ));
+    }
+    let now = node.now_ms();
+    let (value, new_hash) = new_token(node);
+    let new_manage = PaymentId::from_random(random_bytes(node));
+    let row = TokenRow {
+        token_hash: new_hash,
+        grant: grant.id,
+        manage_id: new_manage,
+        created_at_ms: now,
+        expires_at_ms: now + ACCESS_TOKEN_LIFETIME_MS,
+    };
+    if !node.store().rotate_token(&hash, &row)? {
+        return Err(OpError::gnap(
+            404,
+            ErrorCode::InvalidRotation,
+            "no such token",
+        ));
+    }
+    Ok(AccessToken {
+        value,
+        manage: format!("{}{GRANT_PATH}/token/{new_manage}", urls.origin()),
+        expires_in: Some(ACCESS_TOKEN_LIFETIME_MS / 1_000),
+        access: serde_json::from_str(&grant.access).map_err(OpError::internal)?,
+    })
+}
+
+/// `DELETE /gnap/token/{id}`: revokes the token presented.
+///
+/// # Errors
+///
+/// 401 without the token and its client's signature.
+pub fn revoke_token(
+    node: &Node,
+    manage_id: PaymentId,
+    request: &SignedRequest<'_>,
+) -> Result<(), OpError> {
+    let hash = presented_token(request)?;
+    // An unknown token is gone already: revoking is idempotent.
+    if let Some((_, grant)) = node.store().managed_token(manage_id, &hash)? {
+        signed_by_client(node, request, &grant)?;
+        node.store().revoke_token(&hash)?;
+    }
+    Ok(())
+}
+
+/// `DELETE /gnap/continue/{id}`: revokes the grant, and its tokens, with
+/// its continuation token.
+///
+/// # Errors
+///
+/// 401 without the continuation token and the client's signature.
+pub fn revoke_grant(
+    node: &Node,
+    grant_id: PaymentId,
+    request: &SignedRequest<'_>,
+) -> Result<(), OpError> {
+    let hash = presented_token(request)?;
+    let grant = node
+        .store()
+        .continued_grant(grant_id, &hash)?
+        .ok_or_else(|| {
+            OpError::gnap(401, ErrorCode::InvalidContinuation, "no such continuation")
+        })?;
+    signed_by_client(node, request, &grant)?;
+    node.store().revoke_grant(grant.id, node.now_ms())?;
+    tracing::debug!(target: target::PAYMENT, grant = %grant.id, "grant revoked by its client");
+    Ok(())
+}
+
+/// `POST /gnap/continue/{id}`: continuing a grant. Grants that need the
+/// owner come with M6b; the ones issued now are final.
+///
+/// # Errors
+///
+/// Always, for now: there is nothing to continue.
+pub fn continue_grant(
+    node: &Node,
+    grant_id: PaymentId,
+    request: &SignedRequest<'_>,
+) -> Result<GrantResponse, OpError> {
+    let hash = presented_token(request)?;
+    let grant = node
+        .store()
+        .continued_grant(grant_id, &hash)?
+        .ok_or_else(|| {
+            OpError::gnap(401, ErrorCode::InvalidContinuation, "no such continuation")
+        })?;
+    signed_by_client(node, request, &grant)?;
+    Err(OpError::gnap(
+        400,
+        ErrorCode::InvalidContinuation,
+        "the grant is final: there is nothing to continue",
+    ))
 }
 
 /// What a request's token allows.

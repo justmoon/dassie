@@ -11,6 +11,13 @@ use super::{Store, StoreError, from_sql_time, to_sql_time};
 /// Most open incoming payments read back at a start.
 pub const MAX_OPEN_LOADED: u32 = 65_536;
 
+/// How long an incoming payment that received nothing is kept after it
+/// closed or expired.
+pub const UNPAID_RETENTION_MS: u64 = 7 * 24 * 60 * 60 * 1_000;
+
+/// Most rows one pruning deletes.
+const PRUNE_BATCH: u32 = 1_000;
+
 /// A resource's ID: 16 random bytes, written as a UUID.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PaymentId(pub [u8; 16]);
@@ -165,25 +172,26 @@ impl Store {
         row.transpose()
     }
 
-    /// A page of incoming payments (Open Payments pagination).
-    pub fn incoming_page(&self, query: &IncomingQuery<'_>) -> Result<IncomingPage, StoreError> {
+    /// A page of incoming payments (Open Payments pagination), or `None`
+    /// when the cursor is not an item the query could list.
+    pub fn incoming_page(
+        &self,
+        query: &IncomingQuery<'_>,
+    ) -> Result<Option<IncomingPage>, StoreError> {
         let connection = self.lock();
         let anchor: Option<(i64, Vec<u8>)> = match query.cursor {
             Some(cursor) => connection
                 .query_row(
-                    "SELECT created_at_ms, id FROM incoming_payments WHERE id = ?1 AND ledger = ?2",
-                    params![cursor.0.as_slice(), query.ledger.as_str()],
+                    "SELECT created_at_ms, id FROM incoming_payments \
+                     WHERE id = ?1 AND ledger = ?2 AND (?3 IS NULL OR client = ?3)",
+                    params![cursor.0.as_slice(), query.ledger.as_str(), query.client],
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 )
                 .optional()?,
             None => None,
         };
         if query.cursor.is_some() && anchor.is_none() {
-            return Ok(IncomingPage {
-                rows: Vec::new(),
-                has_newer: false,
-                has_older: false,
-            });
+            return Ok(None);
         }
         let (created, id) = anchor.unzip();
         let (comparison, order) = if query.forward {
@@ -216,35 +224,25 @@ impl Store {
             rows.reverse();
             (beyond, query.cursor.is_some())
         };
-        Ok(IncomingPage {
+        Ok(Some(IncomingPage {
             rows,
             has_newer,
             has_older,
-        })
+        }))
     }
 
-    /// Up to `limit` incoming payments written or changed after revision
-    /// `after`, in that order, with their revisions: a reader that pages
-    /// with the last revision it saw sees every change once.
-    pub fn incoming_after(
-        &self,
-        after: u64,
-        limit: u32,
-    ) -> Result<Vec<(u64, IncomingRow)>, StoreError> {
-        let connection = self.lock();
-        let mut statement = connection.prepare(&format!(
-            "SELECT {COLUMNS}, revision FROM incoming_payments WHERE revision > ?1 \
-             ORDER BY revision LIMIT ?2"
-        ))?;
-        statement
-            .query_map(params![to_sql_time(after), limit], |row| {
-                Ok((row.get::<_, i64>(12)?, read_incoming(row)?))
-            })?
-            .map(|row| {
-                let (revision, payment) = row?;
-                Ok((from_sql_time(revision), payment?))
-            })
-            .collect()
+    /// Forgets incoming payments that received nothing, a while after they
+    /// closed or expired: anyone may create them, so they must not pile
+    /// up. Returns how many went.
+    pub fn prune_incoming(&self, now_ms: u64) -> Result<u32, StoreError> {
+        let before = to_sql_time(now_ms.saturating_sub(UNPAID_RETENTION_MS));
+        let removed = self.lock().execute(
+            "DELETE FROM incoming_payments WHERE id IN (SELECT id FROM incoming_payments \
+             WHERE received_amount = 0 AND coalesce(completed_at_ms, expires_at_ms) <= ?1 \
+             LIMIT ?2)",
+            params![before, PRUNE_BATCH],
+        )?;
+        u32::try_from(removed).map_err(|_| StoreError::Corrupt("row count"))
     }
 
     /// The newest `limit` incoming payments, newest first, and the highest

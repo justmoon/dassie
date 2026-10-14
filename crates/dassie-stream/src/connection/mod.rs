@@ -678,6 +678,12 @@ impl Connection {
             .min()
     }
 
+    /// When the remote last showed signs of life, if ever.
+    #[must_use]
+    pub const fn last_activity(&self) -> Option<Timestamp> {
+        self.last_activity
+    }
+
     fn idle_deadline(&self) -> Option<Timestamp> {
         if matches!(self.state, State::Closed) {
             return None;

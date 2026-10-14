@@ -173,7 +173,7 @@ pub struct Core {
     checkpoints: BTreeMap<Name, u64>,
     /// Each active ledger's STREAM receiver.
     receivers: BTreeMap<dassie_ledger::LedgerId, Receiver>,
-    /// The next local endpoint's number; never reused.
+    /// The next local endpoint's number.
     next_local: u16,
     /// The open incoming payments.
     incoming: BTreeMap<PaymentId, OpenIncoming>,
@@ -514,7 +514,7 @@ fn check_bounds(policies: &Policies) {
         "every BTP connection, local endpoint and peer is an endpoint"
     );
     assert!(
-        policies.incoming.max_open > 0 && policies.incoming.max_open_per_client > 0,
+        policies.incoming.max_open_owner > 0 && policies.incoming.max_open_clients > 0,
         "incoming payments need room"
     );
     assert!(

@@ -318,7 +318,12 @@ impl GrantRequest {
     /// owner.
     pub fn validate(&self) -> Result<(), ErrorCode> {
         let access = self.access();
+        let empty_access = self
+            .access_token
+            .as_ref()
+            .is_some_and(|token| token.access.is_empty());
         if (self.access_token.is_none() && self.subject.is_none())
+            || empty_access
             || access.len() > MAX_ACCESS_ITEMS
             || !unique(access)
         {
@@ -372,14 +377,18 @@ impl GrantRequest {
     }
 
     /// Whether the owner must approve: for outgoing payments, for proof of
-    /// a wallet address, and for reading or listing what others created.
+    /// a wallet address, for listing what others created, and for reading
+    /// others' quotes. Reading any incoming payment needs no owner: that is
+    /// how a sender's wallet learns how to pay a payment it did not create,
+    /// and all it shows is what paying needs.
     #[must_use]
     pub fn needs_owner(&self) -> bool {
         self.subject.is_some()
             || self.access().iter().any(|access| {
                 access.kind == AccessType::OutgoingPayment
-                    || access.actions.contains(&Action::ReadAll)
                     || access.actions.contains(&Action::ListAll)
+                    || (access.kind == AccessType::Quote
+                        && access.actions.contains(&Action::ReadAll))
             })
     }
 }
@@ -395,7 +404,9 @@ pub enum Scope {
 
 /// What a grant's access allows for `action` on resources of `kind` of
 /// one wallet address: nothing, its client's own resources, or all. The
-/// `*-all` actions include their plain forms.
+/// `*-all` actions include their plain forms. Creating reaches the whole
+/// wallet address; completing, which has no `-all` form, only what the
+/// client created.
 #[must_use]
 pub fn permits(
     access: &[Access],
@@ -407,6 +418,11 @@ pub fn permits(
         Action::Read => Some(Action::ReadAll),
         Action::List => Some(Action::ListAll),
         _ => None,
+    };
+    let narrow = if broader.is_some() || action == Action::Complete {
+        Scope::Own
+    } else {
+        Scope::All
     };
     access
         .iter()
@@ -420,11 +436,7 @@ pub fn permits(
             if broader.is_some_and(|broader| item.actions.contains(&broader)) {
                 Some(Scope::All)
             } else if item.actions.contains(&action) {
-                Some(if broader.is_some() {
-                    Scope::Own
-                } else {
-                    Scope::All
-                })
+                Some(narrow)
             } else {
                 None
             }
@@ -661,6 +673,17 @@ mod tests {
     }
 
     #[test]
+    fn reading_any_incoming_payment_needs_no_owner_but_listing_does() {
+        let read_all = request(
+            r#"{"access_token":{"access":[{"type":"incoming-payment","actions":["read-all"]}]},"client":"https://a.example/pay"}"#,
+        );
+        assert_eq!(read_all.validate(), Ok(()));
+        assert!(!read_all.needs_owner());
+        let empty = request(r#"{"access_token":{"access":[]},"client":"https://a.example/pay"}"#);
+        assert_eq!(empty.validate(), Err(ErrorCode::InvalidRequest));
+    }
+
+    #[test]
     fn a_bare_key_cannot_ask_for_the_owner() {
         let jwk = r#"{"kid":"k","alg":"EdDSA","kty":"OKP","crv":"Ed25519","x":"AAAA"}"#;
         let json = alloc::format!(
@@ -695,6 +718,13 @@ mod tests {
         assert_eq!(
             permits(&access, AccessType::Quote, Action::Read, "x"),
             Some(Scope::All)
+        );
+        let complete: Vec<Access> =
+            serde_json::from_str(r#"[{"type":"incoming-payment","actions":["complete"]}]"#)
+                .unwrap();
+        assert_eq!(
+            permits(&complete, ip, Action::Complete, "x"),
+            Some(Scope::Own)
         );
     }
 

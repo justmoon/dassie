@@ -16,8 +16,11 @@ pub const MAX_KID_BYTES: usize = 256;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct InvalidKey;
 
-/// A public key (`json-web-key` in the specs).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// A public key (`json-web-key` in the specs). Fields are read leniently,
+/// so that a key set with other kinds of keys still yields its Ed25519
+/// ones; [`Jwk::verifying_key`] says whether a key is usable.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Jwk {
     /// The key's ID, which signatures name in `keyid`.
     pub kid: String,
@@ -77,9 +80,9 @@ impl Jwk {
     }
 }
 
-/// A key set, as `/jwks.json` serves it.
+/// A key set, as `/jwks.json` serves it. Members besides `keys` are
+/// ignored.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Jwks {
     /// The keys.
     pub keys: Vec<Jwk>,
@@ -116,6 +119,19 @@ mod tests {
         let parsed: Jwks = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.find("k1"), Some(key));
         assert_eq!(parsed.find("k2"), None);
+    }
+
+    #[test]
+    fn a_set_with_other_keys_still_yields_its_ed25519_key() {
+        let key = SigningKey::from_bytes(&[3; 32]).verifying_key();
+        let ours = serde_json::to_value(Jwk::ed25519("k1", &key)).unwrap();
+        let json = serde_json::json!({
+            "keys": [{ "kid": "rsa", "kty": "RSA", "n": "AQAB", "e": "AQAB" }, ours],
+            "extra": true,
+        });
+        let set: Jwks = serde_json::from_value(json).unwrap();
+        assert_eq!(set.find("k1"), Some(key));
+        assert_eq!(set.find("rsa"), None);
     }
 
     #[test]
