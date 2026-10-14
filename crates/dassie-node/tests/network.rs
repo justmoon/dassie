@@ -5,8 +5,10 @@
 //! names it, and `DASSIE_SIM_SEEDS=from..to` runs others.
 //!
 //! It checks what only the whole node can show: peerings and balances
-//! survive restarts, payments cross hops, every peering's two accounts
-//! mirror each other, and the owners' money is conserved.
+//! survive restarts, payments of several times the credit cross hops, so
+//! every hop settles, an owner's termination ends a peering settled, every
+//! pair of accounts mirrors each other, and the money is conserved: the
+//! owners', and the stubs' on their "underlying ledger".
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
@@ -444,7 +446,7 @@ impl Sim {
             .network()
             .peers
             .iter()
-            .map(|(id, _)| *id)
+            .map(|peer| peer.id)
             .collect()
     }
 
@@ -490,13 +492,42 @@ fn run(seed: u64) -> Result<Vec<String>, String> {
     }
     sim.loss_per_mille = 0;
     sim.run_until(sim.now + 60_000);
+    for index in 0..count {
+        if sim.peers(index).is_empty() {
+            return Err(format!("node {index} has no peer"));
+        }
+    }
     for _ in 0..3 {
         let from = usize::try_from(rng.next_u64() % count as u64).unwrap();
         let to = (from + 1 + usize::try_from(rng.next_u64() % (count as u64 - 1)).unwrap()) % count;
-        let amount = 10_000_000 + rng.next_u64() % 200_000_000;
+        // Up to three times the credit a peer extends: only settling lets
+        // it through.
+        let amount = 100_000_000 + rng.next_u64() % 3_300_000_000;
         sim.pay(from, to, amount);
     }
     sim.run_until(sim.now + 120_000);
+    // An owner ends a peering: it drains, ends on both sides, and what is
+    // owed is settled.
+    let ender = usize::try_from(rng.next_u64() % count as u64).unwrap();
+    if let Some(peer) = sim.peers(ender).into_iter().next() {
+        sim.trace
+            .push(format!("{} {ender} terminates {peer}", sim.now));
+        sim.step(ender, |core| core.terminate_peering(peer).unwrap());
+        sim.run_until(sim.now + 60_000);
+        if sim.peers(ender).contains(&peer) {
+            return Err(format!("node {ender}'s peering with {peer} did not end"));
+        }
+        // Each side settled everything it owed the other.
+        let other = (0..count).find(|i| key(*i).node_id() == peer).unwrap();
+        let mine = sim.balances(ender)[&format!("stub+usd:assets/interledger/{peer}")];
+        let theirs =
+            sim.balances(other)[&format!("stub+usd:assets/interledger/{}", key(ender).node_id())];
+        if (mine, theirs) != (CREDIT, CREDIT) {
+            return Err(format!(
+                "nodes {ender} and {other} parted owing: {mine}, {theirs}"
+            ));
+        }
+    }
     check(&sim)?;
     Ok(sim.trace)
 }
@@ -509,22 +540,39 @@ fn check(sim: &Sim) -> Result<(), String> {
         ));
     }
     let count = sim.nodes.len();
-    let mut owners = 0i128;
+    let (mut owners, mut stubs) = (0i128, 0i128);
     for index in 0..count {
-        if sim.peers(index).is_empty() {
-            return Err(format!("node {index} has no peer"));
+        let network = sim.core(index).network();
+        if let Some((peer, _)) = network
+            .channels
+            .iter()
+            .find(|(_, channel)| channel.outbox.is_some())
+        {
+            return Err(format!(
+                "node {index}'s settlement to {peer} is still on its way"
+            ));
         }
-    }
-    for index in 0..count {
         let balances = sim.balances(index);
         owners += balances
             .iter()
             .filter(|(path, _)| path.starts_with("stub+usd:equity/owner"))
             .map(|(_, net)| *net)
             .sum::<i128>();
-        for peer in sim.peers(index) {
-            let other = (0..count).find(|i| key(*i).node_id() == peer).unwrap();
-            let mine = balances[&format!("stub+usd:assets/interledger/{peer}")];
+        // The books follow the stub's balance: what settled was posted.
+        let on_ledger = sim.core(index).ledger_views()[0].on_ledger_balance;
+        let booked = -balances["stub+usd:assets/settlement"];
+        if booked != i128::from(on_ledger) {
+            return Err(format!(
+                "node {index} books {booked} in settlement, its stub holds {on_ledger}"
+            ));
+        }
+        stubs += booked;
+        // Every pair of accounts mirrors the other, peered or no longer.
+        for other in (0..count).filter(|other| *other != index) {
+            let peer = key(other).node_id();
+            let Some(mine) = balances.get(&format!("stub+usd:assets/interledger/{peer}")) else {
+                continue;
+            };
             let theirs = sim.balances(other)
                 [&format!("stub+usd:assets/interledger/{}", key(index).node_id())];
             if mine + theirs != 2 * CREDIT {
@@ -534,8 +582,12 @@ fn check(sim: &Sim) -> Result<(), String> {
             }
         }
     }
-    if owners != DEPOSIT * i128::try_from(count).unwrap() {
+    let total = DEPOSIT * i128::try_from(count).unwrap();
+    if owners != total {
         return Err(format!("the owners hold {owners}, not {} each", DEPOSIT));
+    }
+    if stubs != total {
+        return Err(format!("the stubs hold {stubs}, not {} each", DEPOSIT));
     }
     Ok(())
 }

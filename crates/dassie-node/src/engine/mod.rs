@@ -30,7 +30,7 @@ use tokio_util::sync::CancellationToken;
 
 pub use self::core::{
     BtpSession, Core, CoreParts, Credentials, EngineError, LedgerView, NetworkView, NewToken,
-    Outbound, Output, TokenView,
+    Outbound, Output, PeerView, TokenView,
 };
 
 use crate::log::target;
@@ -187,6 +187,24 @@ impl Engine {
     /// The network: the node table, peers and registrations.
     pub async fn network(&self) -> Result<NetworkView, EngineError> {
         self.call(|core| Ok(core.network())).await
+    }
+
+    /// Ends the peering with `node`, as its owner.
+    pub async fn terminate_peering(
+        &self,
+        node: dassie_identity::NodeId,
+    ) -> Result<(), EngineError> {
+        self.call(move |core| core.terminate_peering(node)).await
+    }
+
+    /// Bans `node`, ending a peering with it.
+    pub async fn ban_node(&self, node: dassie_identity::NodeId) -> Result<(), EngineError> {
+        self.call(move |core| core.ban_node(node)).await
+    }
+
+    /// Lifts a ban.
+    pub async fn unban_node(&self, node: dassie_identity::NodeId) -> Result<(), EngineError> {
+        self.call(move |core| core.unban_node(&node)).await
     }
 
     /// Every ledger account.

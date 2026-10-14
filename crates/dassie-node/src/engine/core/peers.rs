@@ -4,28 +4,48 @@
 
 use std::collections::BTreeMap;
 
-use dassie_connector::EndpointId;
+use dassie_connector::{Connector, EndpointId};
 use dassie_identity::NodeId;
 use dassie_ilp::ErrorCode;
-use dassie_ledger::{Ledger, LedgerId, MAX_TOTAL, Name};
-use dassie_peer::wire::{RefusalReason, SchemeId};
-use dassie_peer::{Agreed, Declined, Event, InboundId, Output as PeerOutput, PeeringHooks};
+use dassie_ledger::{AccountName, AccountPath, Ledger, LedgerId, MAX_TOTAL, Name};
+use dassie_peer::wire::{RefusalReason, SchemeId, TerminationReason};
+use dassie_peer::{
+    Agreed, BanError, Declined, Event, InboundId, Output as PeerOutput, PeeringHooks, Reply,
+};
 
 use super::ledgers::ActiveScheme;
-use super::{Core, Output};
+use super::{Core, EngineError, Output};
 use crate::log::target;
 
-/// What peering needs, over the core's schemes and ledger.
+/// What peering needs, over the core's schemes, ledger and connector.
 pub(super) struct Hooks<'a> {
     pub schemes: &'a mut BTreeMap<Name, ActiveScheme>,
     pub ledger: &'a mut Ledger,
     pub credit: u64,
+    pub connector: &'a Connector,
+    pub endpoints: &'a BTreeMap<NodeId, u64>,
 }
 
 impl Hooks<'_> {
     fn scheme(&mut self, scheme: SchemeId) -> Option<&mut ActiveScheme> {
         let name = Name::new(scheme.as_str()).ok()?;
         self.schemes.get_mut(&name)
+    }
+
+    /// The credit we extend to `peer` on `ledger`: what was posted to its
+    /// trust account, if it has one from an earlier peering, which is not
+    /// posted again (ACC-5); otherwise what we would extend now.
+    fn credit_for(&self, peer: NodeId, ledger: LedgerId) -> u64 {
+        Name::new(peer.as_str())
+            .ok()
+            .and_then(|name| {
+                self.ledger
+                    .find(&AccountPath::new(ledger, AccountName::ContraTrust(name)))
+            })
+            .and_then(|id| self.ledger.account(id))
+            .map_or(self.credit, |account| {
+                dassie_settlement::policy::trust(account.balance())
+            })
     }
 
     /// Opens the peer's accounts and extends it our credit, once (ACC-5).
@@ -36,6 +56,15 @@ impl Hooks<'_> {
             .map(|_| ())
             .map_err(|_| ())
     }
+}
+
+/// What an inbound request gave, owned, for after the peer node is done.
+enum Inbound {
+    Reply(Reply),
+    Deferred,
+    Packet(NodeId, u32, Vec<u8>, Reply),
+    Settlement(NodeId, SchemeId, u64, Vec<u8>, u64, Reply),
+    SchemeMessage(NodeId, SchemeId, Vec<u8>, Reply),
 }
 
 /// A node's name in the ledger.
@@ -49,10 +78,6 @@ impl PeeringHooks for Hooks<'_> {
             .ok()
             .and_then(|name| self.schemes.get(&name))
             .map_or(&[], |active| active.scheme.supported_versions())
-    }
-
-    fn credit(&self, _: SchemeId) -> u64 {
-        self.credit
     }
 
     fn peering_info(&mut self, scheme: SchemeId, out: &mut Vec<u8>) -> Result<(), Declined> {
@@ -90,11 +115,14 @@ impl PeeringHooks for Hooks<'_> {
             return Err(RefusalReason::SchemeRefused);
         }
         let peer_name = name(peer).ok_or(RefusalReason::Unspecified)?;
-        let credit_out = self.credit;
         let active = self
             .scheme(scheme)
             .ok_or(RefusalReason::UnsupportedScheme)?;
         let ledger = active.scheme.ledger();
+        let credit_out = self.credit_for(peer, ledger);
+        let active = self
+            .scheme(scheme)
+            .ok_or(RefusalReason::UnsupportedScheme)?;
         let state = active
             .scheme
             .accept_peering_request(peer_name, data, response)
@@ -118,9 +146,10 @@ impl PeeringHooks for Hooks<'_> {
             return Err(Declined);
         }
         let peer_name = name(peer).ok_or(Declined)?;
-        let credit_out = self.credit;
         let active = self.scheme(scheme).ok_or(Declined)?;
         let ledger = active.scheme.ledger();
+        let credit_out = self.credit_for(peer, ledger);
+        let active = self.scheme(scheme).ok_or(Declined)?;
         let state = active
             .scheme
             .finalize_peering_request(peer_name, info, data)
@@ -128,6 +157,36 @@ impl PeeringHooks for Hooks<'_> {
         self.open(now_ms, peer, ledger).map_err(|()| Declined)?;
         Ok(Agreed { state, credit_out })
     }
+
+    fn drained(&self, peer: NodeId) -> bool {
+        self.endpoints
+            .get(&peer)
+            .is_none_or(|id| self.connector.pending_for(EndpointId::Peer(*id)) == 0)
+    }
+
+    fn credit(&self, peer: NodeId, scheme: SchemeId) -> u64 {
+        Name::new(scheme.as_str())
+            .ok()
+            .and_then(|name| self.schemes.get(&name))
+            .map_or(self.credit, |active| {
+                self.credit_for(peer, active.scheme.ledger())
+            })
+    }
+}
+
+/// A peering as the owner sees it.
+#[derive(Clone, Debug)]
+pub struct PeerView {
+    /// The peer.
+    pub id: NodeId,
+    /// The peering.
+    pub peering: dassie_peer::Peering,
+    /// Its termination, while it is being ended.
+    pub termination: Option<dassie_peer::Termination>,
+    /// Whether it is listed as our neighbor.
+    pub advertised: bool,
+    /// What we owe the peer net; negative when it owes us.
+    pub owed: Option<i128>,
 }
 
 /// The network as the owner sees it.
@@ -140,9 +199,13 @@ pub struct NetworkView {
     /// The node table.
     pub nodes: Vec<dassie_peer::NodeView>,
     /// Our peerings.
-    pub peers: Vec<(NodeId, dassie_peer::Peering)>,
+    pub peers: Vec<PeerView>,
     /// Our standing with the bootstrap nodes.
     pub registration: Vec<dassie_peer::RegistrationStatus>,
+    /// Settlement channels, with nodes peered with now or before.
+    pub channels: Vec<(NodeId, dassie_peer::Channel)>,
+    /// Banned nodes.
+    pub bans: Vec<NodeId>,
 }
 
 impl Core {
@@ -154,10 +217,26 @@ impl Core {
             nodes: self.peer.nodes(),
             peers: self
                 .peer
-                .peers()
-                .map(|(id, peering)| (*id, peering.clone()))
+                .nodes()
+                .into_iter()
+                .filter_map(|view| {
+                    let peering = view.peering?;
+                    Some(PeerView {
+                        id: view.id,
+                        owed: self.owed(view.id, peering.scheme),
+                        peering,
+                        termination: view.termination,
+                        advertised: view.advertised,
+                    })
+                })
                 .collect(),
             registration: self.peer.registration_status(),
+            channels: self
+                .peer
+                .channels()
+                .map(|(id, channel)| (*id, channel.clone()))
+                .collect(),
+            bans: self.peer.bans().copied().collect(),
         }
     }
 
@@ -171,6 +250,8 @@ impl Core {
             schemes: &mut self.schemes,
             ledger: &mut self.ledger,
             credit: self.peer_credit,
+            connector: &self.connector,
+            endpoints: &self.peer_endpoints,
         };
         f(&mut self.peer, &mut hooks, now)
     }
@@ -185,24 +266,120 @@ impl Core {
     ) {
         let outcome = self.with_peer(|peer, hooks, now| {
             match peer.handle_inbound(now, hooks, inbound, body, source) {
-                dassie_peer::Inbound::Reply(reply) => (Some(reply), None),
-                dassie_peer::Inbound::Deferred => (None, None),
+                dassie_peer::Inbound::Reply(reply) => Inbound::Reply(reply),
+                dassie_peer::Inbound::Deferred => Inbound::Deferred,
                 dassie_peer::Inbound::Packet {
                     from,
                     request_id,
                     packet,
                     reply,
-                } => (Some(reply), Some((from, request_id, packet.to_vec()))),
+                } => Inbound::Packet(from, request_id, packet.to_vec(), reply),
+                dassie_peer::Inbound::Settlement {
+                    from,
+                    scheme,
+                    amount,
+                    data,
+                    sequence,
+                    reply,
+                } => Inbound::Settlement(from, scheme, amount, data.to_vec(), sequence, reply),
+                dassie_peer::Inbound::SchemeMessage {
+                    from,
+                    scheme,
+                    message,
+                    reply,
+                } => Inbound::SchemeMessage(from, scheme, message.to_vec(), reply),
             }
         });
-        let (reply, packet) = outcome;
+        let reply = match outcome {
+            Inbound::Reply(reply) => Some(reply),
+            Inbound::Deferred => None,
+            Inbound::Packet(from, request_id, packet, reply) => {
+                self.peer_packet(from, request_id, &packet);
+                Some(reply)
+            }
+            Inbound::Settlement(from, scheme, amount, data, sequence, reply) => {
+                Some(self.settlement_from(from, scheme, amount, &data, sequence, reply))
+            }
+            Inbound::SchemeMessage(from, scheme, message, reply) => {
+                self.scheme_message(from, scheme, &message);
+                Some(reply)
+            }
+        };
         if let Some(reply) = reply {
             self.outputs_peer.push(Output::PeerReply { inbound, reply });
         }
-        if let Some((from, request_id, packet)) = packet {
-            self.peer_packet(from, request_id, &packet);
+        self.after_peer();
+    }
+
+    /// Applies a peer's settlement, once: refused with 400 if the books
+    /// cannot take it, which changes nothing.
+    fn settlement_from(
+        &mut self,
+        from: NodeId,
+        scheme: SchemeId,
+        amount: u64,
+        data: &[u8],
+        sequence: u64,
+        reply: Reply,
+    ) -> Reply {
+        match self.incoming_settlement(from, scheme, amount, data) {
+            Ok(()) => {
+                self.peer.settlement_applied(self.now_ms, &from, sequence);
+                reply
+            }
+            Err(error) => {
+                tracing::warn!(target: target::SETTLEMENT, %from, %error, "a settlement was refused");
+                Reply::refuse(400, "the settlement cannot be booked")
+            }
+        }
+    }
+
+    /// Ends the peering with `node`, as its owner.
+    ///
+    /// # Errors
+    ///
+    /// There is no peering with it.
+    pub fn terminate_peering(&mut self, node: NodeId) -> Result<(), EngineError> {
+        let now = self.now_ms;
+        if !self.peer.terminate(now, &node, TerminationReason::Owner) {
+            return Err(EngineError::NotFound("no peering with that node".into()));
         }
         self.after_peer();
+        Ok(())
+    }
+
+    /// Bans `node`, ending a peering with it.
+    ///
+    /// # Errors
+    ///
+    /// It is us, or the list is full.
+    pub fn ban_node(&mut self, node: NodeId) -> Result<(), EngineError> {
+        let now = self.now_ms;
+        self.peer.ban(now, node).map_err(|error| match error {
+            BanError::Ourselves => EngineError::Invalid("a node cannot ban itself".into()),
+            BanError::Full => EngineError::Exhausted("too many banned nodes".into()),
+        })?;
+        self.after_peer();
+        Ok(())
+    }
+
+    /// Lifts a ban.
+    ///
+    /// # Errors
+    ///
+    /// The node is not banned.
+    pub fn unban_node(&mut self, node: &NodeId) -> Result<(), EngineError> {
+        let now = self.now_ms;
+        if !self.peer.unban(now, node) {
+            return Err(EngineError::NotFound("the node is not banned".into()));
+        }
+        self.after_peer();
+        Ok(())
+    }
+
+    /// The banned nodes.
+    pub fn bans(&self) -> Vec<NodeId> {
+        self.peer.bans().copied().collect()
     }
 
     /// The result of one of our peer requests.
@@ -300,6 +477,61 @@ impl Core {
             Event::PeeringFailed { node, reason } => {
                 tracing::debug!(target: target::PEER, %node, reason, "peering failed");
             }
+            other => self.lifecycle_event(other),
+        }
+    }
+
+    /// What a peering's lifecycle and its settlements bring about.
+    fn lifecycle_event(&mut self, event: Event) {
+        match event {
+            Event::Terminating {
+                peer,
+                reason,
+                by_us,
+            } => {
+                tracing::info!(target: target::PEER, %peer, ?reason, by_us, "ending a peering");
+                if let Some(&endpoint) = self.peer_endpoints.get(&peer) {
+                    self.connector
+                        .set_draining(EndpointId::Peer(endpoint), true);
+                }
+                self.update_routes();
+            }
+            Event::PeeringEnded { peer, settle } => {
+                tracing::info!(target: target::PEER, %peer, settle, "peering ended");
+                self.remove_peer_endpoint(&peer);
+                if settle {
+                    // The final settlement, at once rather than at the next
+                    // check.
+                    self.settle.at_ms = self.now_ms;
+                }
+                self.update_routes();
+            }
+            Event::Advertised { peer, on } => {
+                tracing::debug!(target: target::PEER, %peer, on, "advertised");
+            }
+            Event::SettlementDelivered { peer, sequence } => {
+                tracing::debug!(target: target::SETTLEMENT, %peer, sequence, "the peer has our settlement");
+            }
+            Event::SettlementRefused {
+                peer,
+                sequence,
+                status,
+            } => {
+                tracing::error!(target: target::SETTLEMENT, %peer, sequence, status, "the peer refused our settlement; it is kept and sent again later");
+            }
+            _ => {}
+        }
+    }
+
+    /// Takes a peer's endpoint away. Nothing is in flight with it by now,
+    /// since the peering ended only once drained.
+    fn remove_peer_endpoint(&mut self, peer: &NodeId) {
+        if let Some(endpoint) = self.peer_endpoints.remove(peer) {
+            self.endpoint_peers.remove(&endpoint);
+            let now = self.now_ms;
+            self.connector
+                .remove_endpoint(now, EndpointId::Peer(endpoint));
+            self.expire(now);
         }
     }
 

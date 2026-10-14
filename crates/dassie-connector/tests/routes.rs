@@ -194,3 +194,37 @@ fn the_route_table_is_bounded() {
     assert_eq!(harness.connector.routes().count(), 0);
     let _ = decode_prepare;
 }
+
+// A peer whose peering is ending takes no new Prepares, either way, while
+// the packets in flight finish: then nothing is pending with it, and it
+// can go without either side's books parting.
+#[test]
+fn draining_peers_finish_what_is_in_flight() {
+    let mut harness = harness();
+    set(&mut harness, &[("test.das.dfar", &[ONE, TWO])]);
+    let packet = prepare("test.das.dfar", 10, NOW + 20_000, [1; 32]);
+    let Outcome::Forward(forwarded) = harness.prepare(NOW, BTP, 1, &packet) else {
+        panic!()
+    };
+    assert_eq!(forwarded.to, ONE);
+    assert_eq!(harness.connector.pending_for(ONE), 1);
+    assert!(harness.connector.set_draining(ONE, true));
+    // New packets go around it, and its own are refused.
+    let next = prepare("test.das.dfar", 10, NOW + 20_000, [2; 32]);
+    assert_eq!(forwarded_to(harness.prepare(NOW, BTP, 2, &next)), TWO);
+    let from_it = prepare(&format!("{OWN}.alice"), 10, NOW + 20_000, [3; 32]);
+    let outcome = harness.prepare(NOW, ONE, 1, &from_it);
+    assert_eq!(rejected(&harness, outcome), ErrorCode::T01_PEER_UNREACHABLE);
+    // The packet in flight still completes.
+    let upstream = harness
+        .respond(
+            NOW + 1,
+            ONE,
+            forwarded.request_id,
+            &support::fulfill([1; 32]),
+        )
+        .unwrap();
+    assert_eq!((upstream.to, upstream.request_id), (BTP, 1));
+    assert_eq!(harness.connector.pending_for(ONE), 0);
+    assert!(!harness.connector.set_draining(EndpointId::Peer(9), true));
+}

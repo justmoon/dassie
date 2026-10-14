@@ -28,9 +28,10 @@ pub trait PeeringHooks {
     /// active.
     fn versions(&self, scheme: SchemeId) -> &'static [u16];
 
-    /// The credit the node extends to a new peer on `scheme`, in its
-    /// ledger's units.
-    fn credit(&self, scheme: SchemeId) -> u64;
+    /// The credit the node extends to `peer` on `scheme`, in its ledger's
+    /// units: what it posted before, if they were peered, else what it
+    /// extends now.
+    fn credit(&self, peer: NodeId, scheme: SchemeId) -> u64;
 
     /// The scheme's peering info, for a node about to ask.
     ///
@@ -88,4 +89,9 @@ pub trait PeeringHooks {
         info: &[u8],
         data: &[u8],
     ) -> Result<Agreed, Declined>;
+
+    /// Whether nothing is in flight with `peer` any more: no packet waits
+    /// for its response, in either direction. A terminating peering ends
+    /// only then, so both sides' books agree.
+    fn drained(&self, peer: NodeId) -> bool;
 }

@@ -10,6 +10,7 @@
 //! - [`activation`] decides what to book when a scheme starts, from its
 //!   balance and the last checkpoint, so that restarts book nothing twice
 //!   (ACC-6).
+//! - [`policy`] decides when to settle with a peer, and how much.
 //! - [`Stub`] is the test-realm scheme without an underlying ledger.
 //!
 //! The XRPL scheme (M7) does network IO; it will keep the same interface,
@@ -33,6 +34,7 @@ extern crate alloc;
 extern crate std;
 
 mod activation;
+pub mod policy;
 mod scheme;
 mod stub;
 

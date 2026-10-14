@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file dassie/ui/v1/network.proto.
  */
 export const file_dassie_ui_v1_network: GenFile = /*@__PURE__*/
-  fileDesc("ChpkYXNzaWUvdWkvdjEvbmV0d29yay5wcm90bxIMZGFzc2llLnVpLnYxItUBCgtOZXR3b3JrTm9kZRIKCgJpZBgBIAEoCRILCgN1cmwYAiABKAkSDQoFYWxpYXMYAyABKAkSEAoIc2VxdWVuY2UYBCABKAQSDwoHaXNfc2VsZhgFIAEoCBIRCglib290c3RyYXAYBiABKAgSEAoIbWFqb3JpdHkYByABKAgSEgoKcmVnaXN0ZXJlZBgIIAEoCBIMCgRwZWVyGAkgASgIEiAKGHJlZ2lzdGVyZWRfdW50aWxfdW5peF9tcxgKIAEoAxISCgpmaXJzdF9ob3BzGAsgAygJIhIKEExpc3ROb2Rlc1JlcXVlc3QiPQoRTGlzdE5vZGVzUmVzcG9uc2USKAoFbm9kZXMYASADKAsyGS5kYXNzaWUudWkudjEuTmV0d29ya05vZGUipgEKC05ldHdvcmtQZWVyEgwKBG5vZGUYASABKAkSDgoGc2NoZW1lGAIgASgJEg8KB3ZlcnNpb24YAyABKA0SEQoJY3JlZGl0X2luGAQgASgEEhIKCmNyZWRpdF9vdXQYBSABKAQSFQoNc2luY2VfdW5peF9tcxgGIAEoAxIZChFsYXN0X3NlZW5fdW5peF9tcxgHIAEoAxIPCgdpbmJvdW5kGAggASgIIhIKEExpc3RQZWVyc1JlcXVlc3QiPQoRTGlzdFBlZXJzUmVzcG9uc2USKAoFcGVlcnMYASADKAsyGS5kYXNzaWUudWkudjEuTmV0d29ya1BlZXIiQAoMTmV0d29ya1JvdXRlEgwKBG5vZGUYASABKAkSDgoGcHJlZml4GAIgASgJEhIKCmZpcnN0X2hvcHMYAyADKAkiEwoRTGlzdFJvdXRlc1JlcXVlc3QiQAoSTGlzdFJvdXRlc1Jlc3BvbnNlEioKBnJvdXRlcxgBIAMoCzIaLmRhc3NpZS51aS52MS5OZXR3b3JrUm91dGUibAoPQm9vdHN0cmFwU3RhdHVzEgwKBG5vZGUYASABKAkSDgoGbGlzdGVkGAIgASgIEh0KFXJlZ2lzdGVyZWRfYXRfdW5peF9tcxgDIAEoAxIcChRsaXN0X2ZldGNoZWRfdW5peF9tcxgEIAEoAyIeChxHZXRSZWdpc3RyYXRpb25TdGF0dXNSZXF1ZXN0Il8KHUdldFJlZ2lzdHJhdGlvblN0YXR1c1Jlc3BvbnNlEgwKBG5vZGUYASABKAkSMAoJYm9vdHN0cmFwGAIgAygLMh0uZGFzc2llLnVpLnYxLkJvb3RzdHJhcFN0YXR1c2IGcHJvdG8z");
+  fileDesc("ChpkYXNzaWUvdWkvdjEvbmV0d29yay5wcm90bxIMZGFzc2llLnVpLnYxItUBCgtOZXR3b3JrTm9kZRIKCgJpZBgBIAEoCRILCgN1cmwYAiABKAkSDQoFYWxpYXMYAyABKAkSEAoIc2VxdWVuY2UYBCABKAQSDwoHaXNfc2VsZhgFIAEoCBIRCglib290c3RyYXAYBiABKAgSEAoIbWFqb3JpdHkYByABKAgSEgoKcmVnaXN0ZXJlZBgIIAEoCBIMCgRwZWVyGAkgASgIEiAKGHJlZ2lzdGVyZWRfdW50aWxfdW5peF9tcxgKIAEoAxISCgpmaXJzdF9ob3BzGAsgAygJIhIKEExpc3ROb2Rlc1JlcXVlc3QiPQoRTGlzdE5vZGVzUmVzcG9uc2USKAoFbm9kZXMYASADKAsyGS5kYXNzaWUudWkudjEuTmV0d29ya05vZGUi8wEKC05ldHdvcmtQZWVyEgwKBG5vZGUYASABKAkSDgoGc2NoZW1lGAIgASgJEg8KB3ZlcnNpb24YAyABKA0SEQoJY3JlZGl0X2luGAQgASgEEhIKCmNyZWRpdF9vdXQYBSABKAQSFQoNc2luY2VfdW5peF9tcxgGIAEoAxIZChFsYXN0X3NlZW5fdW5peF9tcxgHIAEoAxIPCgdpbmJvdW5kGAggASgIEg0KBXN0YXRlGAkgASgJEhoKEnRlcm1pbmF0aW9uX3JlYXNvbhgKIAEoCRISCgphZHZlcnRpc2VkGAsgASgIEgwKBG93ZWQYDCABKAMiEgoQTGlzdFBlZXJzUmVxdWVzdCI9ChFMaXN0UGVlcnNSZXNwb25zZRIoCgVwZWVycxgBIAMoCzIZLmRhc3NpZS51aS52MS5OZXR3b3JrUGVlciJACgxOZXR3b3JrUm91dGUSDAoEbm9kZRgBIAEoCRIOCgZwcmVmaXgYAiABKAkSEgoKZmlyc3RfaG9wcxgDIAMoCSITChFMaXN0Um91dGVzUmVxdWVzdCJAChJMaXN0Um91dGVzUmVzcG9uc2USKgoGcm91dGVzGAEgAygLMhouZGFzc2llLnVpLnYxLk5ldHdvcmtSb3V0ZSJsCg9Cb290c3RyYXBTdGF0dXMSDAoEbm9kZRgBIAEoCRIOCgZsaXN0ZWQYAiABKAgSHQoVcmVnaXN0ZXJlZF9hdF91bml4X21zGAMgASgDEhwKFGxpc3RfZmV0Y2hlZF91bml4X21zGAQgASgDIh4KHEdldFJlZ2lzdHJhdGlvblN0YXR1c1JlcXVlc3QiXwodR2V0UmVnaXN0cmF0aW9uU3RhdHVzUmVzcG9uc2USDAoEbm9kZRgBIAEoCRIwCglib290c3RyYXAYAiADKAsyHS5kYXNzaWUudWkudjEuQm9vdHN0cmFwU3RhdHVzIicKF1Rlcm1pbmF0ZVBlZXJpbmdSZXF1ZXN0EgwKBG5vZGUYASABKAkiGgoYVGVybWluYXRlUGVlcmluZ1Jlc3BvbnNlIh4KDkJhbk5vZGVSZXF1ZXN0EgwKBG5vZGUYASABKAkiEQoPQmFuTm9kZVJlc3BvbnNlIiAKEFVuYmFuTm9kZVJlcXVlc3QSDAoEbm9kZRgBIAEoCSITChFVbmJhbk5vZGVSZXNwb25zZSIRCg9MaXN0QmFuc1JlcXVlc3QiIQoQTGlzdEJhbnNSZXNwb25zZRINCgVub2RlcxgBIAMoCSKNAQoRU2V0dGxlbWVudENoYW5uZWwSDAoEbm9kZRgBIAEoCRISCgpzZXR0bGVkX2luGAIgASgEEhMKC3NldHRsZWRfb3V0GAMgASgEEg8KB3NlbmRpbmcYBCABKAgSFgoOc2VuZGluZ19hbW91bnQYBSABKAQSGAoQc2VuZGluZ19hdHRlbXB0cxgGIAEoDSIfCh1MaXN0U2V0dGxlbWVudENoYW5uZWxzUmVxdWVzdCJTCh5MaXN0U2V0dGxlbWVudENoYW5uZWxzUmVzcG9uc2USMQoIY2hhbm5lbHMYASADKAsyHy5kYXNzaWUudWkudjEuU2V0dGxlbWVudENoYW5uZWxiBnByb3RvMw");
 
 /**
  * A node in the node table (spec 3 §9): what its link state says, and why
@@ -187,6 +187,37 @@ export type NetworkPeer = Message<"dassie.ui.v1.NetworkPeer"> & {
    * @generated from field: bool inbound = 8;
    */
   inbound: boolean;
+
+  /**
+   * "peered", or "terminating" while it is being ended (D12).
+   *
+   * @generated from field: string state = 9;
+   */
+  state: string;
+
+  /**
+   * Why it is being ended, if it is: "owner", "unresponsive", "not-peered"
+   * or "unspecified".
+   *
+   * @generated from field: string termination_reason = 10;
+   */
+  terminationReason: string;
+
+  /**
+   * Whether this node lists the peer as a neighbor in its link state, so
+   * others route through it: it is confirmed, and not held down.
+   *
+   * @generated from field: bool advertised = 11;
+   */
+  advertised: boolean;
+
+  /**
+   * What this node owes the peer net, in the scheme ledger's units:
+   * negative when the peer owes this node.
+   *
+   * @generated from field: int64 owed = 12;
+   */
+  owed: bigint;
 };
 
 /**
@@ -370,4 +401,221 @@ export type GetRegistrationStatusResponse = Message<"dassie.ui.v1.GetRegistratio
  */
 export const GetRegistrationStatusResponseSchema: GenMessage<GetRegistrationStatusResponse> = /*@__PURE__*/
   messageDesc(file_dassie_ui_v1_network, 11);
+
+/**
+ * Ends a peering, as its owner (D12): no new packets, then once those in
+ * flight are done it ends on both sides, and what is owed is settled. The
+ * pair does not peer again for a day.
+ *
+ * @generated from message dassie.ui.v1.TerminatePeeringRequest
+ */
+export type TerminatePeeringRequest = Message<"dassie.ui.v1.TerminatePeeringRequest"> & {
+  /**
+   * @generated from field: string node = 1;
+   */
+  node: string;
+};
+
+/**
+ * Describes the message dassie.ui.v1.TerminatePeeringRequest.
+ * Use `create(TerminatePeeringRequestSchema)` to create a new message.
+ */
+export const TerminatePeeringRequestSchema: GenMessage<TerminatePeeringRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_network, 12);
+
+/**
+ * @generated from message dassie.ui.v1.TerminatePeeringResponse
+ */
+export type TerminatePeeringResponse = Message<"dassie.ui.v1.TerminatePeeringResponse"> & {
+};
+
+/**
+ * Describes the message dassie.ui.v1.TerminatePeeringResponse.
+ * Use `create(TerminatePeeringResponseSchema)` to create a new message.
+ */
+export const TerminatePeeringResponseSchema: GenMessage<TerminatePeeringResponse> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_network, 13);
+
+/**
+ * Bans a node: it is never asked to peer, is refused when it asks, and a
+ * peering with it is ended.
+ *
+ * @generated from message dassie.ui.v1.BanNodeRequest
+ */
+export type BanNodeRequest = Message<"dassie.ui.v1.BanNodeRequest"> & {
+  /**
+   * @generated from field: string node = 1;
+   */
+  node: string;
+};
+
+/**
+ * Describes the message dassie.ui.v1.BanNodeRequest.
+ * Use `create(BanNodeRequestSchema)` to create a new message.
+ */
+export const BanNodeRequestSchema: GenMessage<BanNodeRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_network, 14);
+
+/**
+ * @generated from message dassie.ui.v1.BanNodeResponse
+ */
+export type BanNodeResponse = Message<"dassie.ui.v1.BanNodeResponse"> & {
+};
+
+/**
+ * Describes the message dassie.ui.v1.BanNodeResponse.
+ * Use `create(BanNodeResponseSchema)` to create a new message.
+ */
+export const BanNodeResponseSchema: GenMessage<BanNodeResponse> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_network, 15);
+
+/**
+ * @generated from message dassie.ui.v1.UnbanNodeRequest
+ */
+export type UnbanNodeRequest = Message<"dassie.ui.v1.UnbanNodeRequest"> & {
+  /**
+   * @generated from field: string node = 1;
+   */
+  node: string;
+};
+
+/**
+ * Describes the message dassie.ui.v1.UnbanNodeRequest.
+ * Use `create(UnbanNodeRequestSchema)` to create a new message.
+ */
+export const UnbanNodeRequestSchema: GenMessage<UnbanNodeRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_network, 16);
+
+/**
+ * @generated from message dassie.ui.v1.UnbanNodeResponse
+ */
+export type UnbanNodeResponse = Message<"dassie.ui.v1.UnbanNodeResponse"> & {
+};
+
+/**
+ * Describes the message dassie.ui.v1.UnbanNodeResponse.
+ * Use `create(UnbanNodeResponseSchema)` to create a new message.
+ */
+export const UnbanNodeResponseSchema: GenMessage<UnbanNodeResponse> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_network, 17);
+
+/**
+ * @generated from message dassie.ui.v1.ListBansRequest
+ */
+export type ListBansRequest = Message<"dassie.ui.v1.ListBansRequest"> & {
+};
+
+/**
+ * Describes the message dassie.ui.v1.ListBansRequest.
+ * Use `create(ListBansRequestSchema)` to create a new message.
+ */
+export const ListBansRequestSchema: GenMessage<ListBansRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_network, 18);
+
+/**
+ * @generated from message dassie.ui.v1.ListBansResponse
+ */
+export type ListBansResponse = Message<"dassie.ui.v1.ListBansResponse"> & {
+  /**
+   * By ID.
+   *
+   * @generated from field: repeated string nodes = 1;
+   */
+  nodes: string[];
+};
+
+/**
+ * Describes the message dassie.ui.v1.ListBansResponse.
+ * Use `create(ListBansResponseSchema)` to create a new message.
+ */
+export const ListBansResponseSchema: GenMessage<ListBansResponse> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_network, 19);
+
+/**
+ * Settlement with one node, both ways (spec 7 §4.7): kept from the first
+ * peering on, so a settlement arrives exactly once even after the peering
+ * ended.
+ *
+ * @generated from message dassie.ui.v1.SettlementChannel
+ */
+export type SettlementChannel = Message<"dassie.ui.v1.SettlementChannel"> & {
+  /**
+   * @generated from field: string node = 1;
+   */
+  node: string;
+
+  /**
+   * The highest settlement applied from the node.
+   *
+   * @generated from field: uint64 settled_in = 2;
+   */
+  settledIn: bigint;
+
+  /**
+   * The last settlement this node sent.
+   *
+   * @generated from field: uint64 settled_out = 3;
+   */
+  settledOut: bigint;
+
+  /**
+   * Whether that one is still on its way, unacknowledged.
+   *
+   * @generated from field: bool sending = 4;
+   */
+  sending: boolean;
+
+  /**
+   * Its amount, in the scheme ledger's units, if so.
+   *
+   * @generated from field: uint64 sending_amount = 5;
+   */
+  sendingAmount: bigint;
+
+  /**
+   * Its tries that failed so far.
+   *
+   * @generated from field: uint32 sending_attempts = 6;
+   */
+  sendingAttempts: number;
+};
+
+/**
+ * Describes the message dassie.ui.v1.SettlementChannel.
+ * Use `create(SettlementChannelSchema)` to create a new message.
+ */
+export const SettlementChannelSchema: GenMessage<SettlementChannel> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_network, 20);
+
+/**
+ * @generated from message dassie.ui.v1.ListSettlementChannelsRequest
+ */
+export type ListSettlementChannelsRequest = Message<"dassie.ui.v1.ListSettlementChannelsRequest"> & {
+};
+
+/**
+ * Describes the message dassie.ui.v1.ListSettlementChannelsRequest.
+ * Use `create(ListSettlementChannelsRequestSchema)` to create a new message.
+ */
+export const ListSettlementChannelsRequestSchema: GenMessage<ListSettlementChannelsRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_network, 21);
+
+/**
+ * @generated from message dassie.ui.v1.ListSettlementChannelsResponse
+ */
+export type ListSettlementChannelsResponse = Message<"dassie.ui.v1.ListSettlementChannelsResponse"> & {
+  /**
+   * By node ID.
+   *
+   * @generated from field: repeated dassie.ui.v1.SettlementChannel channels = 1;
+   */
+  channels: SettlementChannel[];
+};
+
+/**
+ * Describes the message dassie.ui.v1.ListSettlementChannelsResponse.
+ * Use `create(ListSettlementChannelsResponseSchema)` to create a new message.
+ */
+export const ListSettlementChannelsResponseSchema: GenMessage<ListSettlementChannelsResponse> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_network, 22);
 

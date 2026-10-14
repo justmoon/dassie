@@ -33,6 +33,7 @@ import {
   PEBBLE_DIR,
   Process,
   waitForPort,
+  waitForSocket,
 } from "./harness.ts";
 
 const HTTP_PORT = 18882;
@@ -209,8 +210,10 @@ Deno.test({
     let daemon = startDaemon(dir);
     const connect = ipcConnector(`${dir}/ipc.sock`);
     let owner: RpcClient | undefined;
+    let passed = false;
     try {
       await waitForPort(HTTPS_PORT);
+      await waitForSocket(`${dir}/ipc.sock`);
       owner = new RpcClient({ url: "ipc", connect });
       await setUp(owner);
       await waitForLedger(owner);
@@ -251,14 +254,17 @@ Deno.test({
       await daemon.stop();
       daemon = startDaemon(dir);
       await waitForPort(HTTPS_PORT);
+      await waitForSocket(`${dir}/ipc.sock`);
       owner = new RpcClient({ url: "ipc", connect });
       const [restarted] = (await waitForLedger(owner)).ledgers;
       assertEquals(restarted, ledger);
       assertEquals(await journal(owner), books);
+      passed = true;
     } finally {
       owner?.close();
       const { code, output } = await daemon.stop();
-      if (code !== 0) console.error(output);
+      // What the node said, to tell why a test failed.
+      if (code !== 0 || !passed) console.error(output);
       await Deno.remove(dir, { recursive: true });
     }
   },

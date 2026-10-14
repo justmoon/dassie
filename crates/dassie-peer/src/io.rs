@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
 
-use crate::wire::{Kind, SchemeId};
+use crate::wire::{Kind, SchemeId, TerminationReason};
 
 /// Our number for a request we send.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -98,6 +98,35 @@ pub enum Inbound<'a> {
         /// The acknowledgement.
         reply: Reply,
     },
+    /// A settlement not applied before. The node books it, then calls
+    /// [`PeerNode::settlement_applied`](crate::PeerNode::settlement_applied)
+    /// and sends `reply`; if it cannot book it, it refuses with 400 and
+    /// nothing changes.
+    Settlement {
+        /// The node that settled.
+        from: NodeId,
+        /// The scheme.
+        scheme: SchemeId,
+        /// The amount, in the scheme ledger's units.
+        amount: u64,
+        /// The scheme's data.
+        data: &'a [u8],
+        /// Its sequence.
+        sequence: u64,
+        /// The acknowledgement.
+        reply: Reply,
+    },
+    /// A scheme's message from a peer, for the scheme.
+    SchemeMessage {
+        /// The peer.
+        from: NodeId,
+        /// The scheme.
+        scheme: SchemeId,
+        /// The message.
+        message: &'a [u8],
+        /// The acknowledgement.
+        reply: Reply,
+    },
 }
 
 /// What the node hands its driver.
@@ -153,6 +182,48 @@ pub enum Event {
         /// Why, for people.
         reason: &'static str,
     },
+    /// A peering is being ended: no new packets to or from the peer.
+    Terminating {
+        /// The peer.
+        peer: NodeId,
+        /// Why.
+        reason: TerminationReason,
+        /// Whether we began it.
+        by_us: bool,
+    },
+    /// A peering ended. Its accounts and settlement channel stay.
+    PeeringEnded {
+        /// The peer.
+        peer: NodeId,
+        /// Whether everything owed is to be settled: the peer knew of the
+        /// end, so it is there to be paid. The channel's
+        /// [`FinalDue`](crate::FinalDue) says so until it is done.
+        settle: bool,
+    },
+    /// A peer is listed as our neighbor again, or no longer.
+    Advertised {
+        /// The peer.
+        peer: NodeId,
+        /// Whether it is listed.
+        on: bool,
+    },
+    /// A settlement message arrived.
+    SettlementDelivered {
+        /// The node.
+        peer: NodeId,
+        /// Its sequence.
+        sequence: u64,
+    },
+    /// A settlement message was refused for being malformed or out of
+    /// place, which is a bug: it is kept, and sent again later.
+    SettlementRefused {
+        /// The node.
+        peer: NodeId,
+        /// Its sequence.
+        sequence: u64,
+        /// The status.
+        status: u16,
+    },
 }
 
 /// What the node has counted, for the logs and the simulations.
@@ -175,4 +246,12 @@ pub struct Stats {
     /// ILP responses given up on: refused, out of time, or no room to
     /// retry.
     pub answers_dropped: u64,
+    /// Peerings ended.
+    pub terminations: u64,
+    /// Settlement messages acknowledged.
+    pub settlements_delivered: u64,
+    /// Settlement messages applied from others.
+    pub settlements_applied: u64,
+    /// Settlement messages that arrived again and were not applied twice.
+    pub settlements_duplicate: u64,
 }

@@ -20,7 +20,7 @@ pub const V0_APPLICATION_ID: i32 = 0x1DA5_3B81;
 
 /// The migrations, in order. Migration `n` (1-based) brings `user_version`
 /// to `n`. Never edit one that has shipped; add another.
-const MIGRATIONS: &[&str] = &[MIGRATION_1, MIGRATION_2, MIGRATION_3];
+const MIGRATIONS: &[&str] = &[MIGRATION_1, MIGRATION_2, MIGRATION_3, MIGRATION_4];
 
 const MIGRATION_1: &str = "
 CREATE TABLE node_config (
@@ -174,6 +174,45 @@ CREATE TABLE own_link_state (
 ) STRICT;
 
 INSERT INTO own_link_state VALUES (1, 0);
+";
+
+/// The peering lifecycle and settlement (spec 7 §4.4, §4.7): peerings
+/// being ended, settlement channels, which outlive peerings, and bans.
+const MIGRATION_4: &str = "
+CREATE TABLE peer_terminations (
+  node TEXT PRIMARY KEY REFERENCES peers (node) ON DELETE CASCADE,
+  since_ms INTEGER NOT NULL,
+  reason INTEGER NOT NULL CHECK (reason BETWEEN 0 AND 255),
+  by_us INTEGER NOT NULL CHECK (by_us IN (0, 1)),
+  acknowledged INTEGER NOT NULL CHECK (acknowledged IN (0, 1))
+) STRICT, WITHOUT ROWID;
+
+-- Not tied to peer_nodes: a channel stays when its node leaves the table.
+CREATE TABLE settlement_channels (
+  node TEXT PRIMARY KEY CHECK (length(node) BETWEEN 2 AND 45),
+  public_key BLOB NOT NULL CHECK (length(public_key) = 32),
+  url TEXT NOT NULL CHECK (length(url) <= 256),
+  settled_in INTEGER NOT NULL CHECK (settled_in >= 0),
+  settled_out INTEGER NOT NULL CHECK (settled_out >= 0),
+  -- The settlement message on its way, if any: always the last one.
+  outbox_sequence INTEGER CHECK (outbox_sequence IS NULL OR outbox_sequence = settled_out),
+  outbox_scheme TEXT,
+  outbox_amount INTEGER CHECK (outbox_amount IS NULL OR outbox_amount >= 0),
+  outbox_data BLOB,
+  outbox_attempts INTEGER CHECK (outbox_attempts IS NULL OR outbox_attempts >= 0),
+  -- A settlement of everything owed, due since a peering ended: its scheme
+  -- and the scheme's state for the peer.
+  final_scheme TEXT,
+  final_state BLOB CHECK ((final_scheme IS NULL) = (final_state IS NULL)),
+  CHECK ((outbox_sequence IS NULL) = (outbox_scheme IS NULL)
+     AND (outbox_scheme IS NULL) = (outbox_amount IS NULL)
+     AND (outbox_amount IS NULL) = (outbox_data IS NULL)
+     AND (outbox_data IS NULL) = (outbox_attempts IS NULL))
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE peer_bans (
+  node TEXT PRIMARY KEY CHECK (length(node) BETWEEN 2 AND 45)
+) STRICT, WITHOUT ROWID;
 ";
 
 /// A column as the code expects it: name, type, NOT NULL, part of the
@@ -346,6 +385,40 @@ const TABLES: &[Table] = &[
             ("id", "INTEGER", false, true),
             ("sequence", "INTEGER", true, false),
         ],
+    },
+    Table {
+        name: "peer_terminations",
+        without_rowid: true,
+        columns: &[
+            ("node", "TEXT", true, true),
+            ("since_ms", "INTEGER", true, false),
+            ("reason", "INTEGER", true, false),
+            ("by_us", "INTEGER", true, false),
+            ("acknowledged", "INTEGER", true, false),
+        ],
+    },
+    Table {
+        name: "settlement_channels",
+        without_rowid: true,
+        columns: &[
+            ("node", "TEXT", true, true),
+            ("public_key", "BLOB", true, false),
+            ("url", "TEXT", true, false),
+            ("settled_in", "INTEGER", true, false),
+            ("settled_out", "INTEGER", true, false),
+            ("outbox_sequence", "INTEGER", false, false),
+            ("outbox_scheme", "TEXT", false, false),
+            ("outbox_amount", "INTEGER", false, false),
+            ("outbox_data", "BLOB", false, false),
+            ("outbox_attempts", "INTEGER", false, false),
+            ("final_scheme", "TEXT", false, false),
+            ("final_state", "BLOB", false, false),
+        ],
+    },
+    Table {
+        name: "peer_bans",
+        without_rowid: true,
+        columns: &[("node", "TEXT", true, true)],
     },
 ];
 

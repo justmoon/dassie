@@ -72,6 +72,8 @@ pub(crate) struct Endpoint {
     pub next_request_id: u32,
     /// Packets from it in flight.
     pub pending_from: usize,
+    /// It takes no new Prepares, either way: its peering is ending.
+    pub draining: bool,
 }
 
 /// The endpoints, by ID. A child's address, below the node's own, is its

@@ -136,6 +136,27 @@ export async function waitForPort(
   }
 }
 
+/**
+ * Waits until the daemon publishes its IPC socket. It binds its TCP ports
+ * first and publishes the socket only once it answers, so an open port does
+ * not mean the socket is there yet.
+ */
+export async function waitForSocket(
+  path: string,
+  timeoutMs = 15_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const found = await Deno.stat(path).then(
+      (info) => info.isSocket,
+      () => false,
+    );
+    if (found) return;
+    if (Date.now() > deadline) throw new Error(`${path} did not appear`);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
 /** Starts Pebble and its DNS stand-in, which resolves every name to 127.0.0.1. */
 export async function startPebble(): Promise<Process[]> {
   const dns = new Process("challtestsrv", "pebble-challtestsrv", [

@@ -8,7 +8,7 @@ use dassie_oer::Decode;
 
 use super::{PeerNode, Problem, Purpose};
 use crate::config::Config;
-use crate::table::{LinkState, PeerState, Sources, backoff};
+use crate::table::{LinkState, Sources, backoff};
 use crate::wire::{
     Content, Entry, InvalidNodeInfo, LinkStateResponse, NodeInfo, SignedNodeInfo, sign_node_info,
 };
@@ -225,6 +225,7 @@ impl PeerNode {
         {
             return;
         }
+
         let now = self.now_ms;
         self.gossip.last_issue_ms = Some(now);
         let high = self.gossip.own_sequence;
@@ -235,8 +236,8 @@ impl PeerNode {
         } else {
             now.max(high.saturating_add(1))
         };
-        let mut neighbors: Vec<NodeId> = self.peers().map(|(id, _)| *id).collect();
-        neighbors.sort_unstable();
+        // Only advertised peers: confirmed, and not held down (D12).
+        let neighbors = self.advertised();
         let entries = neighbors
             .iter()
             .map(|id| Entry::Neighbor(*id))
@@ -336,7 +337,14 @@ impl PeerNode {
         self.gossip.heartbeat_at_ms = self
             .now_ms
             .saturating_add(self.config.heartbeat_min_ms + jitter);
-        let peers: Vec<NodeId> = self.peers().map(|(id, _)| *id).collect();
+        // Every peer that is not being ended, advertised or not, so both
+        // sides can confirm each other again.
+        let peers: Vec<NodeId> = self
+            .table
+            .iter()
+            .filter(|(_, entry)| entry.active_peering().is_some())
+            .map(|(id, _)| *id)
+            .collect();
         for peer in peers {
             self.heartbeat_to(peer);
         }
@@ -578,7 +586,7 @@ impl PeerNode {
         if self
             .table
             .get(node)
-            .is_some_and(|entry| matches!(entry.peer, PeerState::Peered(_)))
+            .is_some_and(|entry| entry.peering().is_some())
         {
             self.saw(node);
         }

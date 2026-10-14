@@ -74,6 +74,11 @@ pub struct Policies {
     /// The credit extended to a new peer, in its ledger's units: 1.1 units
     /// at scale 9 on the test network (spec 5 §2.7).
     pub peer_credit: u64,
+    /// How often what is owed to peers is checked (spec 5 §4.6).
+    pub settlement_interval_ms: u64,
+    /// How far above the middle of the credit range settling begins, in
+    /// parts per million, doubled: 200 000 is the original's 1.1 times.
+    pub settlement_ratio_ppm: u32,
 }
 
 impl Policies {
@@ -103,12 +108,15 @@ impl Policies {
         },
         peer: dassie_peer::Config::DEFAULT,
         peer_credit: 1_100_000_000,
+        settlement_interval_ms: 4_000,
+        settlement_ratio_ppm: dassie_settlement::policy::DEFAULT_RATIO_PPM,
     };
 
     /// The production values with the peer protocol's dev timers (spec 7
     /// §4.7), for dev environments and tests.
     pub const DEV: Self = Self {
         peer: dassie_peer::Config::DEV,
+        settlement_interval_ms: 1_000,
         ..Self::DEFAULT
     };
 }

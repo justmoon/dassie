@@ -15,7 +15,13 @@ import { RpcClient } from "@dassie/rpc";
 import { ipcConnector } from "@dassie/rpc/ipc";
 import { loginSecret, nodeId, publicKey } from "@dassie/identity-wasm";
 
-import { DASSIE, PEBBLE_DIR, Process, waitForPort } from "./harness.ts";
+import {
+  DASSIE,
+  PEBBLE_DIR,
+  Process,
+  waitForPort,
+  waitForSocket,
+} from "./harness.ts";
 
 /** Pebble's test root and its leaf for localhost, which every node serves. */
 export const ROOT = await Deno.readTextFile(`${PEBBLE_DIR}/root.pem`);
@@ -86,6 +92,7 @@ export class ScenarioNode {
       },
     });
     await waitForPort(this.httpsPort);
+    await waitForSocket(`${this.dir}/ipc.sock`);
     this.owner = new RpcClient({
       url: "ipc",
       connect: ipcConnector(`${this.dir}/ipc.sock`),

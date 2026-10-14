@@ -91,6 +91,28 @@ pub struct Config {
     pub peer_confirm_ms: u64,
     /// Least time between two route computations.
     pub route_debounce_ms: u64,
+    /// A peer not heard from for this long is terminated as unresponsive.
+    pub peer_dead_ms: u64,
+    /// The first hold-down of a peer that stopped being advertised; each
+    /// further one doubles it (damping, D12).
+    pub advertise_hold_min_ms: u64,
+    /// The longest hold-down.
+    pub advertise_hold_max_ms: u64,
+    /// Advertised this long without a break, a peer's flaps are forgotten.
+    pub advertise_stable_ms: u64,
+    /// How long the side that terminates keeps telling the other.
+    pub termination_timeout_ms: u64,
+    /// How long after an owner's termination the node does not ask the
+    /// peer again.
+    pub owner_termination_cooldown_ms: u64,
+    /// Most banned nodes.
+    pub max_bans: usize,
+    /// Most settlement channels: one per node ever peered with.
+    pub max_channels: usize,
+    /// The first wait before a settlement message is sent again.
+    pub settlement_retry_min_ms: u64,
+    /// The longest wait.
+    pub settlement_retry_max_ms: u64,
 }
 
 impl Config {
@@ -142,6 +164,16 @@ impl Config {
         unreachable_grace_ms: 120_000,
         peer_confirm_ms: 60_000,
         route_debounce_ms: 250,
+        peer_dead_ms: 86_400_000,
+        advertise_hold_min_ms: 30_000,
+        advertise_hold_max_ms: 3_600_000,
+        advertise_stable_ms: 3_600_000,
+        termination_timeout_ms: 120_000,
+        owner_termination_cooldown_ms: 86_400_000,
+        max_bans: 1024,
+        max_channels: 512,
+        settlement_retry_min_ms: 1_000,
+        settlement_retry_max_ms: 3_600_000,
     };
 
     /// The dev and test settings of spec 7 §4.7: the same rules, faster.
@@ -157,6 +189,13 @@ impl Config {
         unreachable_grace_ms: 4_000,
         min_backoff_ms: 1_000,
         max_backoff_ms: 30_000,
+        peer_dead_ms: 120_000,
+        advertise_hold_min_ms: 5_000,
+        advertise_hold_max_ms: 60_000,
+        advertise_stable_ms: 300_000,
+        termination_timeout_ms: 20_000,
+        owner_termination_cooldown_ms: 300_000,
+        settlement_retry_max_ms: 10_000,
         ..Self::DEFAULT
     };
 
@@ -197,5 +236,22 @@ impl Config {
             "buckets hold a token"
         );
         assert!(self.indirect_refresh_percent <= 100, "a percentage");
+        assert!(
+            self.advertise_hold_min_ms <= self.advertise_hold_max_ms
+                && self.settlement_retry_min_ms <= self.settlement_retry_max_ms,
+            "hold-down and retry bounds"
+        );
+        assert!(
+            self.peer_dead_ms > self.peer_confirm_ms,
+            "a peer is unconfirmed before it is dead"
+        );
+        assert!(
+            self.advertise_stable_ms > self.peer_confirm_ms,
+            "flaps are forgotten only after longer than a withdrawal takes"
+        );
+        assert!(
+            self.max_channels >= self.max_peers && self.max_bans >= 1,
+            "a channel for every peer, room for a ban"
+        );
     }
 }

@@ -1,6 +1,6 @@
 //! Peering (spec 3 §12, D12, spec 7 §4.7): looking for peers, asking, and
-//! answering. M4a has the states none, requesting and peered; termination,
-//! banning and the advertise flag come with M4b.
+//! answering. Termination, bans and the advertise flag are in
+//! [`lifecycle`](super::lifecycle).
 
 use alloc::vec::Vec;
 
@@ -13,7 +13,7 @@ use super::{PeerNode, Problem, Purpose};
 use crate::auth::Accepted;
 use crate::hooks::PeeringHooks;
 use crate::io::{Event, Inbound, InboundId, Reply};
-use crate::table::{PeerState, Peering as PeeringState, Sources, backoff};
+use crate::table::{Advertise, Entry, PeerState, Peering as PeeringState, Sources, backoff};
 use crate::wire::{
     Content, PeeringRequest, PeeringResponse, RefusalReason, SchemeId, SignedNodeInfo,
     decode_octets,
@@ -38,6 +38,17 @@ impl Peering {
 
     pub(crate) fn next_due(&self) -> Option<u64> {
         Some(self.check_at_ms.min(self.bridge_at_ms))
+    }
+
+    /// Holds off looking for peers until `at_ms`: after a restart, the
+    /// peers we have get a heartbeat's time to confirm themselves first.
+    pub(crate) const fn hold_until(&mut self, at_ms: u64) {
+        if self.check_at_ms < at_ms {
+            self.check_at_ms = at_ms;
+        }
+        if self.bridge_at_ms < at_ms {
+            self.bridge_at_ms = at_ms;
+        }
     }
 }
 
@@ -75,24 +86,13 @@ impl PeerNode {
             && self.peers().count() < self.config.max_peers
     }
 
-    /// Peers that are surely there: the edge is in both link states, or a
-    /// heartbeat came recently. Only these count toward the target, so a
-    /// node whose stored peerings went stale looks for new ones (D12).
+    /// Peers that count toward the target: advertised ones, confirmed by
+    /// a recent message and not held down. A node whose peers went silent,
+    /// or flap, looks for others (D12).
     pub(crate) fn confirmed_peers(&self) -> usize {
-        let (now, confirm) = (self.now_ms, self.config.peer_confirm_ms);
-        let (stale, future) = (self.config.stale_ms, self.config.max_future_ms);
         self.table
-            .iter()
-            .filter(|(_, entry)| {
-                entry.peering().is_some_and(|peering| {
-                    peering.last_seen_ms.saturating_add(confirm) >= now
-                        || (entry.advertises(&self.own)
-                            && entry
-                                .link
-                                .as_ref()
-                                .is_some_and(|l| l.is_fresh(now, stale, future)))
-                })
-            })
+            .values()
+            .filter(|entry| entry.active_peering().is_some() && entry.advertise.on)
             .count()
     }
 
@@ -112,6 +112,8 @@ impl PeerNode {
                 || entry.peer != PeerState::None
                 || entry.peering_at_ms > now
                 || !link.is_fresh(now, stale, future)
+                || self.bans.contains(id)
+                || !self.channel_room(id)
             {
                 continue;
             }
@@ -191,7 +193,7 @@ impl PeerNode {
             node_info,
             data: &data,
             versions: hooks.versions(scheme).to_vec(),
-            credit: hooks.credit(scheme),
+            credit: hooks.credit(node, scheme),
         });
         if let Some(entry) = self.table.get_mut(&node) {
             entry.peer = PeerState::Requesting {
@@ -225,7 +227,7 @@ impl PeerNode {
                 version,
                 credit,
                 data,
-            }) if self.peers().count() >= self.config.max_peers => {
+            }) if self.peers().count() >= self.config.max_peers || !self.channel_room(&node) => {
                 let _ = (version, credit, data);
                 self.fail_attempt(node, "no room left");
             }
@@ -319,6 +321,12 @@ impl PeerNode {
         }
         let since_ms = now;
         let fresh = true;
+        entry.advertise = Advertise {
+            on: true,
+            on_since_ms: now,
+            hold_until_ms: 0,
+            flaps: 0,
+        };
         entry.peer = PeerState::Peered(PeeringState {
             scheme,
             version,
@@ -331,6 +339,7 @@ impl PeerNode {
         });
         entry.peering_failures = 0;
         self.dirty.insert(node);
+        self.open_channel(node);
         if fresh {
             self.auth.pin(node);
             self.stats.peerings += 1;
@@ -378,7 +387,9 @@ impl PeerNode {
         // A repeat, after an answer that got lost: the stored peering, as
         // it is (D12).
         if let Some(peering) = self
-            .peering_of(&sender)
+            .table
+            .get(&sender)
+            .and_then(Entry::active_peering)
             .filter(|peering| peering.scheme == request.scheme)
         {
             let answer = PeeringResponse::Accepted {
@@ -409,12 +420,21 @@ impl PeerNode {
         sender: &NodeId,
         request: &PeeringRequest<'_>,
     ) -> Result<(), RefusalReason> {
+        if self.bans.contains(sender) {
+            return Err(RefusalReason::Banned);
+        }
         if !self.schemes.contains(&request.scheme) || hooks.versions(request.scheme).is_empty() {
             return Err(RefusalReason::UnsupportedScheme);
         }
         let Some(entry) = self.table.get(sender) else {
             return Err(RefusalReason::UnknownNode);
         };
+        if entry.termination().is_some() || entry.refuse_until_ms > self.now_ms {
+            return Err(RefusalReason::Terminating);
+        }
+        if !self.channel_room(sender) {
+            return Err(RefusalReason::Capacity);
+        }
         if let Some(peering) = entry.peering() {
             return if peering.scheme == request.scheme {
                 Ok(())
@@ -438,7 +458,7 @@ impl PeerNode {
         Ok(())
     }
 
-    fn abandon_attempt(&mut self, node: NodeId) {
+    pub(crate) fn abandon_attempt(&mut self, node: NodeId) {
         if self.peering.attempt == Some(node) {
             self.peering.attempt = None;
         }

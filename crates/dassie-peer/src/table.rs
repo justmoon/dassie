@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 use dassie_identity::{NodeId, PublicKey};
 
 use crate::config::Rate;
-use crate::wire::{SchemeId, SignedNodeInfo};
+use crate::wire::{SchemeId, SignedNodeInfo, TerminationReason};
 
 /// Why a node is in the table (NET-29). A node with none left is removed
 /// after a grace period (NET-18).
@@ -200,7 +200,29 @@ pub struct Peering {
     pub last_seen_ms: u64,
 }
 
-/// The peering lifecycle, as far as M4a has it (D12).
+/// A peering being ended (D12, spec 7 §4.7).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Termination {
+    /// When it began.
+    pub since_ms: u64,
+    /// Why.
+    pub reason: TerminationReason,
+    /// Whether we began it.
+    pub by_us: bool,
+    /// Whether the other side knows: it told us, or answered our message.
+    /// Only then is it settled with when the peering ends.
+    pub acknowledged: bool,
+}
+
+impl Termination {
+    /// Whether telling the other side is over: it knows, or we gave up.
+    #[must_use]
+    pub const fn told(&self, now_ms: u64, timeout_ms: u64) -> bool {
+        self.acknowledged || !self.by_us || self.since_ms.saturating_add(timeout_ms) <= now_ms
+    }
+}
+
+/// The peering lifecycle (D12).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PeerState {
     /// Not peered.
@@ -214,6 +236,21 @@ pub enum PeerState {
     },
     /// Peered.
     Peered(Peering),
+    /// Being ended: no new packets, waiting for those in flight.
+    Terminating(Peering, Termination),
+}
+
+/// Whether a peer is listed as our neighbor, with its damping (D12).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Advertise {
+    /// Whether it is listed now.
+    pub on: bool,
+    /// Since when it has been listed without a break.
+    pub on_since_ms: u64,
+    /// Not listed again before this.
+    pub hold_until_ms: u64,
+    /// Withdrawals not yet forgotten.
+    pub flaps: u32,
 }
 
 /// A registration with us, as a bootstrap node.
@@ -283,6 +320,13 @@ pub struct Entry {
     pub unreachable_ms: Option<u64>,
     /// Its link states' rate limit.
     pub bucket: Bucket,
+    /// Whether, as a peer, it is our advertised neighbor.
+    pub advertise: Advertise,
+    /// When we last told it that it holds a peering we do not.
+    pub one_sided_at_ms: Option<u64>,
+    /// Until when its peering requests are refused: an owner ended our
+    /// peering with it.
+    pub refuse_until_ms: u64,
 }
 
 impl Entry {
@@ -303,24 +347,42 @@ impl Entry {
             peering_failures: 0,
             unreachable_ms: None,
             bucket: Bucket::full(rate, now_ms),
+            advertise: Advertise {
+                on: false,
+                on_since_ms: 0,
+                hold_until_ms: 0,
+                flaps: 0,
+            },
+            one_sided_at_ms: None,
+            refuse_until_ms: 0,
         }
     }
 
-    /// The peering, if peered.
+    /// The peering, if peered or terminating.
     #[must_use]
     pub const fn peering(&self) -> Option<&Peering> {
+        match &self.peer {
+            PeerState::Peered(peering) | PeerState::Terminating(peering, _) => Some(peering),
+            _ => None,
+        }
+    }
+
+    /// The peering, if peered and not terminating.
+    #[must_use]
+    pub const fn active_peering(&self) -> Option<&Peering> {
         match &self.peer {
             PeerState::Peered(peering) => Some(peering),
             _ => None,
         }
     }
 
-    /// Whether its link state advertises `node`.
+    /// The termination under way, if any.
     #[must_use]
-    pub fn advertises(&self, node: &NodeId) -> bool {
-        self.link
-            .as_ref()
-            .is_some_and(|link| link.neighbors.binary_search(node).is_ok())
+    pub const fn termination(&self) -> Option<&Termination> {
+        match &self.peer {
+            PeerState::Terminating(_, termination) => Some(termination),
+            _ => None,
+        }
     }
 }
 

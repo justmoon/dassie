@@ -1,12 +1,16 @@
 //! The peer protocol's tables (spec 7 §4.4): the node table with each
-//! node's link state, registration and peering, and our own link-state
-//! sequence (NET-1, NET-2, NET-7, ACC-18). They are written in the same
-//! transaction as the ledger, so a peering and its accounts land together.
+//! node's link state, registration and peering, our own link-state
+//! sequence, settlement channels and bans (NET-1, NET-2, NET-7, ACC-18).
+//! They are written in the same transaction as the ledger, so a peering
+//! and its accounts, or a settlement and its message, land together.
 
-use dassie_identity::NodeId;
-use dassie_peer::wire::SchemeId;
-use dassie_peer::{Network, PeerBatch, Peering, Registration, Sources, Stored, StoredNode};
-use rusqlite::{Row, Transaction, params};
+use dassie_identity::{NodeId, PublicKey};
+use dassie_peer::wire::{SchemeId, TerminationReason};
+use dassie_peer::{
+    Channel, FinalDue, Network, Outgoing, PeerBatch, Peering, Registration, Sources, Stored,
+    StoredChannel, StoredNode, Termination,
+};
+use rusqlite::{Connection, Row, Transaction, params};
 
 use super::{Store, StoreError, from_sql_time, to_sql_time};
 
@@ -34,8 +38,10 @@ impl Store {
                     n.registered_at_ms, n.renewed_at_ms, n.registration_expires_ms,
                     n.registered_url, n.registered_network,
                     p.scheme, p.version, p.state, p.credit_in, p.credit_out, p.since_ms,
-                    p.inbound, p.last_seen_ms, p.replay_floor_ms
+                    p.inbound, p.last_seen_ms, p.replay_floor_ms,
+                    t.since_ms, t.reason, t.by_us, t.acknowledged
              FROM peer_nodes n LEFT JOIN peers p ON p.node = n.id
+               LEFT JOIN peer_terminations t ON t.node = n.id
              ORDER BY n.id",
         )?;
         let rows = statement.query_map([], read_node)?;
@@ -46,8 +52,73 @@ impl Store {
         Ok(Stored {
             nodes,
             own_sequence: from_sql_time(own_sequence),
+            channels: load_channels(&connection)?,
+            bans: load_bans(&connection)?,
         })
     }
+}
+
+fn load_channels(connection: &Connection) -> Result<Vec<StoredChannel>, StoreError> {
+    let mut statement = connection.prepare(
+        "SELECT node, public_key, url, settled_in, settled_out, outbox_sequence,
+                outbox_scheme, outbox_amount, outbox_data, outbox_attempts,
+                final_scheme, final_state
+         FROM settlement_channels ORDER BY node",
+    )?;
+    let rows = statement.query_map([], |row| Ok(read_channel(row)))?;
+    let mut channels = Vec::new();
+    for row in rows {
+        channels.push(row??);
+    }
+    Ok(channels)
+}
+
+fn read_channel(row: &Row<'_>) -> Result<StoredChannel, StoreError> {
+    let node: String = row.get(0)?;
+    let node = NodeId::parse(&node).map_err(|_| StoreError::Corrupt("node ID"))?;
+    let key: Vec<u8> = row.get(1)?;
+    let key = <[u8; 32]>::try_from(key.as_slice())
+        .ok()
+        .and_then(|key| PublicKey::from_bytes(&key).ok())
+        .ok_or(StoreError::Corrupt("public key"))?;
+    let outbox = match row.get::<_, Option<String>>(6)? {
+        Some(scheme) => Some(Outgoing {
+            sequence: from_sql_amount(row.get(5)?)?,
+            scheme: SchemeId::parse(&scheme).ok_or(StoreError::Corrupt("scheme ID"))?,
+            amount: from_sql_amount(row.get(7)?)?,
+            data: row.get(8)?,
+            attempts: u32::try_from(row.get::<_, i64>(9)?).unwrap_or(u32::MAX),
+        }),
+        None => None,
+    };
+    let final_due = match row.get::<_, Option<String>>(10)? {
+        Some(scheme) => Some(FinalDue {
+            scheme: SchemeId::parse(&scheme).ok_or(StoreError::Corrupt("scheme ID"))?,
+            state: row.get(11)?,
+        }),
+        None => None,
+    };
+    Ok(StoredChannel {
+        node,
+        channel: Channel {
+            key,
+            url: row.get(2)?,
+            settled_in: from_sql_amount(row.get(3)?)?,
+            settled_out: from_sql_amount(row.get(4)?)?,
+            outbox,
+            final_due,
+        },
+    })
+}
+
+fn load_bans(connection: &Connection) -> Result<Vec<NodeId>, StoreError> {
+    let mut statement = connection.prepare("SELECT node FROM peer_bans ORDER BY node")?;
+    let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+    let mut bans = Vec::new();
+    for row in rows {
+        bans.push(NodeId::parse(&row?).map_err(|_| StoreError::Corrupt("node ID"))?);
+    }
+    Ok(bans)
 }
 
 /// A row of the node table, joined with its peering.
@@ -83,6 +154,15 @@ fn read_node(row: &Row<'_>) -> rusqlite::Result<Result<StoredNode, StoreError>> 
         None => None,
     };
     let replay_floor: Option<i64> = row.get(17)?;
+    let termination = match row.get::<_, Option<i64>>(18)? {
+        Some(since) if peering.is_some() => Some(Termination {
+            since_ms: from_sql_time(since),
+            reason: TerminationReason::from_code(u8::try_from(row.get::<_, i64>(19)?).unwrap_or(0)),
+            by_us: row.get::<_, i64>(20)? != 0,
+            acknowledged: row.get::<_, i64>(21)? != 0,
+        }),
+        _ => None,
+    };
     Ok(Ok(StoredNode {
         id,
         link_state: row.get(1)?,
@@ -90,6 +170,7 @@ fn read_node(row: &Row<'_>) -> rusqlite::Result<Result<StoredNode, StoreError>> 
         first_seen_ms: from_sql_time(row.get(3)?),
         registration,
         peering,
+        termination,
         replay_floor_ms: replay_floor.map_or(0, from_sql_time),
     }))
 }
@@ -128,6 +209,47 @@ pub(super) fn write_peer(
             [to_sql_time(sequence)],
         )?;
     }
+    for channel in &batch.channels {
+        write_channel(transaction, channel)?;
+    }
+    for banned in &batch.banned {
+        transaction.execute(
+            "INSERT INTO peer_bans (node) VALUES (?1) ON CONFLICT DO NOTHING",
+            [banned.as_str()],
+        )?;
+    }
+    for unbanned in &batch.unbanned {
+        transaction.execute("DELETE FROM peer_bans WHERE node = ?1", [unbanned.as_str()])?;
+    }
+    Ok(())
+}
+
+fn write_channel(transaction: &Transaction<'_>, stored: &StoredChannel) -> Result<(), StoreError> {
+    let channel = &stored.channel;
+    let outbox = channel.outbox.as_ref();
+    transaction.execute(
+        "INSERT INTO settlement_channels (node, public_key, url, settled_in, settled_out,
+           outbox_sequence, outbox_scheme, outbox_amount, outbox_data, outbox_attempts,
+           final_scheme, final_state)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+         ON CONFLICT (node) DO UPDATE SET public_key = ?2, url = ?3, settled_in = ?4,
+           settled_out = ?5, outbox_sequence = ?6, outbox_scheme = ?7, outbox_amount = ?8,
+           outbox_data = ?9, outbox_attempts = ?10, final_scheme = ?11, final_state = ?12",
+        params![
+            stored.node.as_str(),
+            channel.key.as_bytes().to_vec(),
+            channel.url,
+            to_sql_amount(channel.settled_in)?,
+            to_sql_amount(channel.settled_out)?,
+            outbox.map(|o| to_sql_amount(o.sequence)).transpose()?,
+            outbox.map(|o| o.scheme.as_str()),
+            outbox.map(|o| to_sql_amount(o.amount)).transpose()?,
+            outbox.map(|o| o.data.as_slice()),
+            outbox.map(|o| i64::from(o.attempts)),
+            channel.final_due.as_ref().map(|f| f.scheme.as_str()),
+            channel.final_due.as_ref().map(|f| f.state.as_slice()),
+        ],
+    )?;
     Ok(())
 }
 
@@ -175,6 +297,26 @@ fn write_node(transaction: &Transaction<'_>, node: &StoredNode) -> Result<(), St
             i64::from(peering.inbound),
             to_sql_time(peering.last_seen_ms),
             to_sql_time(node.replay_floor_ms),
+        ],
+    )?;
+    let Some(termination) = &node.termination else {
+        transaction.execute(
+            "DELETE FROM peer_terminations WHERE node = ?1",
+            [node.id.as_str()],
+        )?;
+        return Ok(());
+    };
+    transaction.execute(
+        "INSERT INTO peer_terminations (node, since_ms, reason, by_us, acknowledged)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT (node) DO UPDATE SET since_ms = ?2, reason = ?3, by_us = ?4,
+           acknowledged = ?5",
+        params![
+            node.id.as_str(),
+            to_sql_time(termination.since_ms),
+            i64::from(termination.reason.code()),
+            i64::from(termination.by_us),
+            i64::from(termination.acknowledged),
         ],
     )?;
     Ok(())

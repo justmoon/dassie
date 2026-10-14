@@ -9,8 +9,8 @@ use dassie_oer::{Decode, Encode};
 use dassie_peer::wire::{
     Authentication, Content, Entry, Envelope, EnvelopeError, HmacAuthentication, InvalidNodeInfo,
     Kind, LinkStateResponse, NodeInfo, NodeListResponse, PeeringRequest, PeeringResponse,
-    RefusalReason, ResponseEnvelope, SchemeId, SignedNodeInfo, encode_envelope, encode_response,
-    peek_kind, sign_node_info,
+    RefusalReason, ResponseEnvelope, SchemeId, SignedNodeInfo, TerminationReason, encode_envelope,
+    encode_response, peek_kind, sign_node_info,
 };
 use proptest::prelude::*;
 use sha2::{Digest, Sha256};
@@ -299,12 +299,39 @@ fn link_state_requests_and_answers_are_bounded() {
     );
 }
 
-// Tag 10 is reserved for peering termination, which comes with its
-// behaviour (M4b); until then it is not a message.
+// Settlements carry their sequence, and tag 10 is `peeringTermination`
+// (spec 7 §4.7).
 #[test]
-fn tag_ten_is_reserved() {
-    assert!(Content::decode_exact(&[0x8a]).is_err());
-    assert_eq!(Kind::from_tag(10), None);
+fn settlements_and_terminations_are_pinned() {
+    let settlement = Content::Settlement {
+        scheme: stub(),
+        amount: 1_100_000_000,
+        data: &[0xab],
+        sequence: 7,
+    };
+    assert_eq!(
+        to_hex(&settlement.to_vec()),
+        "84047374756200000000419\
+         0ab0001ab0000000000000007"
+    );
+    let termination = Content::PeeringTermination(TerminationReason::Owner);
+    assert_eq!(to_hex(&termination.to_vec()), "8a01");
+    assert_eq!(
+        Content::decode_exact(&[0x8a, 0x03]).unwrap(),
+        Content::PeeringTermination(TerminationReason::NotPeered)
+    );
+    // Unknown reasons read as unspecified.
+    assert_eq!(
+        Content::decode_exact(&[0x8a, 0x63]).unwrap(),
+        Content::PeeringTermination(TerminationReason::Unspecified)
+    );
+    assert_eq!(Kind::from_tag(10), Some(Kind::PeeringTermination));
+    assert!(Kind::PeeringTermination.requires_authentication());
+    assert!(Content::decode_exact(&[0x8b]).is_err());
+    assert_eq!(
+        to_hex(&PeeringResponse::Refused(RefusalReason::Terminating).to_vec()),
+        "8109"
+    );
 }
 
 proptest! {
@@ -321,8 +348,12 @@ proptest! {
     }
 
     #[test]
-    fn settlements_round_trip(amount in any::<u64>(), data in proptest::collection::vec(any::<u8>(), 0..300)) {
-        let content = Content::Settlement { scheme: stub(), amount, data: &data };
+    fn settlements_round_trip(
+        amount in any::<u64>(),
+        data in proptest::collection::vec(any::<u8>(), 0..300),
+        sequence in any::<u64>(),
+    ) {
+        let content = Content::Settlement { scheme: stub(), amount, data: &data, sequence };
         let bytes = content.to_vec();
         prop_assert_eq!(Content::decode_exact(&bytes).unwrap(), content);
     }

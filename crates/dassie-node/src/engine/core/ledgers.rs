@@ -67,6 +67,8 @@ impl Core {
         }
         let checkpoint = self.checkpoints.get(&id).copied();
         let ledger = self.activate(id, config, checkpoint, true)?;
+        // Settlements left pending when it was last removed (ACC-16).
+        self.reconcile_settlements(Some(id));
         self.ledger_view(ledger)
             .ok_or_else(|| EngineError::Internal("the ledger vanished".into()))
     }
@@ -161,6 +163,16 @@ impl Core {
         {
             return Err(EngineError::Precondition("peers settle with it".into()));
         }
+        if self.peer.channels().any(|(_, channel)| {
+            channel
+                .final_due
+                .as_ref()
+                .is_some_and(|due| due.scheme.as_str() == id.as_str())
+        }) {
+            return Err(EngineError::Precondition(
+                "a peering that ended still has to be settled with it".into(),
+            ));
+        }
         self.schemes.remove(&id);
         self.update_peer_schemes();
         self.batch.schemes_added.retain(|(added, _)| *added != id);
@@ -210,16 +222,19 @@ impl Core {
             .scheme
             .deposit(amount, &mut effects)
             .map_err(|e| EngineError::Invalid(e.to_string()))?;
-        let balance = active.scheme.balance();
-        self.apply_effects(ledger, &effects)?;
-        self.batch.checkpoints.push((stub, balance));
-        self.checkpoints.insert(stub, balance);
+        self.apply_effects(stub, ledger, &effects)?;
         self.ledger_view(ledger)
             .ok_or_else(|| EngineError::Internal("the ledger vanished".into()))
     }
 
-    /// Books what a scheme reports. Settlements with peers come in M4.
-    fn apply_effects(&mut self, ledger: LedgerId, effects: &[Effect]) -> Result<(), EngineError> {
+    /// Books what a scheme reports, and checkpoints its balance in the
+    /// same batch (ACC-6).
+    pub(super) fn apply_effects(
+        &mut self,
+        scheme: Name,
+        ledger: LedgerId,
+        effects: &[Effect],
+    ) -> Result<(), EngineError> {
         let settlement = self.account(ledger, AccountName::AssetsSettlement)?;
         let owner = self.account(ledger, AccountName::EquityOwner)?;
         for effect in effects {
@@ -230,10 +245,32 @@ impl Core {
                 Effect::Withdrawal { amount } => {
                     self.post(owner, settlement, *amount, Reference::Withdrawal)?;
                 }
-                other => {
-                    tracing::warn!(target: target::SETTLEMENT, ?other, "settlement effect without peers");
+                Effect::IncomingSettlement { peer, amount } => {
+                    let interledger =
+                        self.account(ledger, AccountName::AssetsInterledger(*peer))?;
+                    let reference = self.incoming_reference(scheme);
+                    self.post(settlement, interledger, *amount, reference)?;
+                }
+                Effect::Finalize { settlement: id } => self.settlement_done(scheme, *id),
+                Effect::Cancel { settlement: id } => self.settlement_cancelled(scheme, *id),
+                Effect::SendMessage { peer, message } => {
+                    let peer = dassie_identity::NodeId::parse(peer.as_str());
+                    let id = dassie_peer::wire::SchemeId::parse(scheme.as_str());
+                    if let (Ok(peer), Some(id)) = (peer, id)
+                        && let Err(error) =
+                            self.peer
+                                .send_scheme_message(self.now_ms, &peer, id, message)
+                    {
+                        tracing::debug!(target: target::SETTLEMENT, %peer, ?error, "a scheme message was not sent");
+                    }
                 }
             }
+        }
+        self.take_journal();
+        if let Some(active) = self.schemes.get(&scheme) {
+            let balance = active.scheme.balance();
+            self.batch.checkpoints.push((scheme, balance));
+            self.checkpoints.insert(scheme, balance);
         }
         Ok(())
     }
