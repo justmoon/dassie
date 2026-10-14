@@ -20,7 +20,8 @@ use std::sync::Arc;
 use dassie_connector::{CapUsage, SpendingCap, replay};
 use dassie_identity::{NodeId, NodeKey};
 use dassie_ilp::{Address, Prepare, Timestamp};
-use dassie_node::engine::{Core, CoreParts, Outbound, Output};
+use dassie_ledger::LedgerId;
+use dassie_node::engine::{Core, CoreParts, NewIncoming, Outbound, Output};
 use dassie_node::node::Policies;
 use dassie_node::store::Store;
 use dassie_node_core::config::Realm;
@@ -332,9 +333,19 @@ impl Sim {
     fn pay(&mut self, from: usize, to: usize, amount: u64, cap: Option<SpendingCap>) {
         let mut credentials = None;
         self.step(to, |core| {
-            credentials = Some(core.stream_credentials("sim").unwrap())
+            let payment = core
+                .create_incoming_payment(NewIncoming {
+                    ledger: LedgerId::StubUsd,
+                    wallet_address: "https://sim.example/.well-known/pay".into(),
+                    client: None,
+                    incoming_amount: None,
+                    expires_at_ms: None,
+                    metadata: None,
+                })
+                .unwrap();
+            credentials = Some((payment.ilp_address, payment.shared_secret));
         });
-        let credentials = credentials.unwrap();
+        let (destination, shared_secret) = credentials.unwrap();
         let mut session = None;
         self.step(from, |core| {
             let token = core.create_token("sim".into(), "stub+usd", cap).unwrap();
@@ -343,9 +354,9 @@ impl Sim {
         let (token, session) = session.unwrap();
         let mut connection = Connection::new(&Config {
             role: Role::Client,
-            shared_secret: &credentials.shared_secret,
+            shared_secret: &shared_secret,
             local_address: Some(Address::parse(&session.address).unwrap()),
-            remote_address: Some(Address::parse(&credentials.destination).unwrap()),
+            remote_address: Some(Address::parse(&destination).unwrap()),
             local_asset: Some(AssetDetails {
                 code: "USD",
                 scale: 9,

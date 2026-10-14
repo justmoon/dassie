@@ -29,8 +29,8 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
 pub use self::core::{
-    BtpSession, Changes, Core, CoreParts, Credentials, EngineError, LedgerView, NetworkView,
-    NewToken, Outbound, Output, PeerView, RemovalBlocker, TokenView,
+    BtpSession, Changes, Core, CoreParts, EngineError, IncomingPolicy, LedgerView, NetworkView,
+    NewIncoming, NewToken, Outbound, Output, PeerView, RemovalBlocker, TokenView, ledger_slug,
 };
 
 use crate::log::target;
@@ -106,6 +106,8 @@ pub struct Versions {
     pub ledger: u64,
     /// The node table, peers, routes and registrations.
     pub network: u64,
+    /// Open Payments resources.
+    pub payments: u64,
 }
 
 /// A handle to the running engine. Cheap to clone; stale once its
@@ -206,9 +208,22 @@ impl Engine {
         self.call(move |core| core.revoke_token(id)).await
     }
 
-    /// Credentials for paying the node's STREAM receiver.
-    pub async fn stream_credentials(&self, tag: String) -> Result<Credentials, EngineError> {
-        self.call(move |core| core.stream_credentials(&tag)).await
+    /// Creates an incoming payment.
+    pub async fn create_incoming_payment(
+        &self,
+        new: NewIncoming,
+    ) -> Result<crate::store::IncomingRow, EngineError> {
+        self.call(move |core| core.create_incoming_payment(new))
+            .await
+    }
+
+    /// Completes an incoming payment.
+    pub async fn complete_incoming_payment(
+        &self,
+        id: crate::store::PaymentId,
+    ) -> Result<crate::store::IncomingRow, EngineError> {
+        self.call(move |core| core.complete_incoming_payment(id))
+            .await
     }
 
     /// The network: the node table, peers and registrations.
@@ -525,6 +540,7 @@ impl Driver<'_> {
             self.versions.send_modify(|versions| {
                 versions.ledger += u64::from(changes.ledger);
                 versions.network += u64::from(changes.network);
+                versions.payments += u64::from(changes.payments);
             });
         }
         for reply in self.replies.drain(..) {

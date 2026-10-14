@@ -164,14 +164,7 @@ async fn ildcp_hands_out_the_routed_address() {
 
 /// Pays `amount` to the receiver from a Rust STREAM client over BTP.
 async fn pay(node: &TestNode, client: &mut BtpClient, owner: &mut Owner, amount: u64) {
-    let Ok(response::Method::CreateStreamCredentials(credentials)) = owner
-        .call(Method::CreateStreamCredentials(
-            proto::CreateStreamCredentialsRequest { tag: "test".into() },
-        ))
-        .await
-    else {
-        panic!("no credentials")
-    };
+    let credentials = owner.incoming_payment(None).await;
     pay_stream(
         &node.clock,
         client,

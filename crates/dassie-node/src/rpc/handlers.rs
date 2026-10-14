@@ -11,7 +11,9 @@ use super::proto::{self, request::Method, response, stream_item};
 use super::{Caller, RpcError, convert};
 use crate::node::{Node, ObtainError, ObtainRequest, SettingsError};
 
-/// What a call ended with, short of an error.
+/// What a call ended with, short of an error. One per call, moved once:
+/// boxing the response would cost an allocation for nothing.
+#[allow(clippy::large_enum_variant)]
 pub enum Reply {
     /// A unary method's response.
     Unary(response::Method),

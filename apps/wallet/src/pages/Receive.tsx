@@ -1,14 +1,11 @@
 /**
- * Receive (spec 6 §1.6.6): the payment pointer, STREAM credentials until
- * Open Payments arrives (M6), and a tab per ledger with a deposit method:
- * the stub's test money.
+ * Receive (spec 6 §1.6.6): the payment pointer, STREAM credentials of a
+ * new incoming payment, and a tab per ledger with a deposit method: the
+ * stub's test money.
  */
 
 import type { JSX } from "@solidjs/web";
-import type {
-  CreateStreamCredentialsResponse,
-  Ledger,
-} from "@dassie/rpc/proto";
+import type { IncomingPayment, Ledger } from "@dassie/rpc/proto";
 import { createSignal, Show } from "solid-js";
 import { formatAmount } from "@dassie/ui/currency";
 import { ledgerCurrency } from "@dassie/ui/amount";
@@ -60,16 +57,13 @@ export function Receive(): JSX.Element {
 function Interledger(): JSX.Element {
   const data = useNodeData();
   const client = useClient();
-  const [credentials, setCredentials] = createSignal<
-    CreateStreamCredentialsResponse
-  >();
+  const [credentials, setCredentials] = createSignal<IncomingPayment>();
   const [error, setError] = createSignal<string>();
   const show = async () => {
     setError(undefined);
     try {
-      setCredentials(
-        await client.call("createStreamCredentials", { tag: "wallet" }),
-      );
+      const { payment } = await client.call("createIncomingPayment", {});
+      setCredentials(payment);
     } catch (failure) {
       setError(describe(failure));
     }
@@ -81,9 +75,8 @@ function Interledger(): JSX.Element {
         {data.hostname ? `$${data.hostname}` : "???"}
       </p>
       <p class="muted">
-        Other wallets can pay this address once your node supports Open
-        Payments. Until then, a STREAM sender can pay your node with these
-        credentials.
+        A STREAM sender can pay your node with the credentials of a new
+        incoming payment.
       </p>
       <Show
         when={credentials()}

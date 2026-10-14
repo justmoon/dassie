@@ -16,6 +16,7 @@ mod inspect;
 mod ledger;
 #[cfg(test)]
 mod ledger_tests;
+mod payments;
 mod peer;
 #[cfg(test)]
 mod peer_tests;
@@ -35,6 +36,9 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 pub use inspect::{BLOB_CUT, Cell, ColumnInfo, MAX_ROWS, RowsPage, TEXT_CUT, TableInfo, Value};
 pub use ledger::{BtpTokenRow, JournalRow, LedgerBatch, StoredLedger, TokenCap};
+pub use payments::{
+    IncomingPage, IncomingProgress, IncomingQuery, IncomingRow, MAX_OPEN_LOADED, PaymentId,
+};
 pub use schema::{APPLICATION_ID, V0_APPLICATION_ID};
 
 use crate::log::target;

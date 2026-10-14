@@ -79,6 +79,8 @@ pub struct Policies {
     /// How far above the middle of the credit range settling begins, in
     /// parts per million, doubled: 200 000 is the original's 1.1 times.
     pub settlement_ratio_ppm: u32,
+    /// Open Payments' incoming payments.
+    pub incoming: crate::engine::IncomingPolicy,
 }
 
 impl Policies {
@@ -95,14 +97,14 @@ impl Policies {
         btp_auth_attempts: RateLimitPolicy::DEFAULT,
         ledger: dassie_ledger::Config {
             max_accounts: 4096,
-            max_pending: 16_448,
+            max_pending: 16_960,
             max_journal: 1024,
         },
-        // Every BTP client, the receiver and every peer can fill their
-        // share of the packet table at once: 65 × 60 + 8 × 512 fits its
-        // 8192, and the ledger has two transfers for each, and 64 more.
+        // Every BTP client, the 8 local endpoints and every peer can fill
+        // their share of the packet table at once: 72 × 60 + 8 × 512 fits
+        // its 8448, and the ledger has two transfers for each, and 64 more.
         connector: dassie_connector::Config {
-            max_pending: 8192,
+            max_pending: 8448,
             max_pending_per_endpoint: 60,
             ..dassie_connector::Config::DEFAULT
         },
@@ -110,6 +112,7 @@ impl Policies {
         peer_credit: 1_100_000_000,
         settlement_interval_ms: 4_000,
         settlement_ratio_ppm: dassie_settlement::policy::DEFAULT_RATIO_PPM,
+        incoming: crate::engine::IncomingPolicy::DEFAULT,
     };
 
     /// The production values with the peer protocol's dev timers (spec 7

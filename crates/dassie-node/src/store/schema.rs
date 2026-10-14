@@ -26,6 +26,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_3,
     MIGRATION_4,
     MIGRATION_5,
+    MIGRATION_6,
 ];
 
 const MIGRATION_1: &str = "
@@ -254,6 +255,75 @@ CREATE INDEX ledger_transfers_by_debit_sequence ON ledger_transfers (debit, sequ
 CREATE INDEX ledger_transfers_by_credit_sequence ON ledger_transfers (credit, sequence);
 ";
 
+/// Open Payments (D9, spec 7 §4.4): incoming payments, written by the
+/// engine with the journal rows that pay them; GNAP grants and their
+/// access tokens, by hash (D10), written by the authorization server; and
+/// which ledger `$host` names.
+const MIGRATION_6: &str = "
+CREATE TABLE incoming_payments (
+  id BLOB PRIMARY KEY CHECK (length(id) = 16),
+  ledger TEXT NOT NULL,
+  wallet_address TEXT NOT NULL CHECK (length(wallet_address) BETWEEN 1 AND 2048),
+  -- The client that created it, as grants name clients; NULL for the owner.
+  client TEXT CHECK (client IS NULL OR length(client) BETWEEN 1 AND 2048),
+  incoming_amount INTEGER CHECK (incoming_amount IS NULL OR incoming_amount > 0),
+  received_amount INTEGER NOT NULL CHECK (received_amount >= 0
+    AND (incoming_amount IS NULL OR received_amount <= incoming_amount)),
+  -- STREAM credentials, the same on every read.
+  ilp_address TEXT NOT NULL CHECK (length(ilp_address) BETWEEN 1 AND 1023),
+  shared_secret BLOB NOT NULL CHECK (length(shared_secret) = 32),
+  metadata TEXT CHECK (metadata IS NULL OR length(CAST(metadata AS BLOB)) <= 4096),
+  created_at_ms INTEGER NOT NULL,
+  expires_at_ms INTEGER NOT NULL CHECK (expires_at_ms > created_at_ms),
+  completed_at_ms INTEGER CHECK (completed_at_ms IS NULL OR completed_at_ms >= created_at_ms),
+  -- The order rows were written or last changed in, for live views.
+  revision INTEGER NOT NULL UNIQUE CHECK (revision > 0)
+) STRICT, WITHOUT ROWID;
+
+CREATE INDEX incoming_payments_by_ledger ON incoming_payments (ledger, created_at_ms, id);
+CREATE INDEX incoming_payments_open ON incoming_payments (expires_at_ms) WHERE completed_at_ms IS NULL;
+
+CREATE TABLE gnap_grants (
+  id BLOB PRIMARY KEY CHECK (length(id) = 16),
+  state TEXT NOT NULL CHECK (state IN ('pending', 'approved', 'denied', 'revoked')),
+  -- The client as resources record it: its wallet address, or its key.
+  client TEXT NOT NULL CHECK (length(client) BETWEEN 1 AND 2048),
+  -- The JWK every later request of the grant must be signed with.
+  client_key TEXT NOT NULL CHECK (length(client_key) BETWEEN 1 AND 1024),
+  access TEXT NOT NULL CHECK (length(access) BETWEEN 2 AND 16384),
+  needs_owner INTEGER NOT NULL CHECK (needs_owner IN (0, 1)),
+  continue_token_hash BLOB NOT NULL UNIQUE CHECK (length(continue_token_hash) = 32),
+  -- The interaction, for grants the owner decides: nonces, the client's
+  -- return address, the reference and the subject asked about.
+  interaction TEXT CHECK (interaction IS NULL OR length(interaction) <= 4096),
+  created_at_ms INTEGER NOT NULL,
+  decided_at_ms INTEGER CHECK ((state = 'pending') = (decided_at_ms IS NULL)),
+  -- When a pending grant lapses.
+  expires_at_ms INTEGER NOT NULL CHECK (expires_at_ms > created_at_ms),
+  revision INTEGER NOT NULL UNIQUE CHECK (revision > 0)
+) STRICT, WITHOUT ROWID;
+
+CREATE INDEX gnap_grants_by_state ON gnap_grants (state, created_at_ms);
+
+CREATE TABLE gnap_tokens (
+  token_hash BLOB PRIMARY KEY CHECK (length(token_hash) = 32),
+  grant_id BLOB NOT NULL REFERENCES gnap_grants (id) ON DELETE CASCADE,
+  manage_id BLOB NOT NULL UNIQUE CHECK (length(manage_id) = 16),
+  created_at_ms INTEGER NOT NULL,
+  expires_at_ms INTEGER NOT NULL CHECK (expires_at_ms > created_at_ms)
+) STRICT, WITHOUT ROWID;
+
+CREATE INDEX gnap_tokens_by_grant ON gnap_tokens (grant_id);
+
+CREATE TABLE payment_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  -- The ledger `$host` names; NULL for the lowest active one.
+  default_ledger TEXT
+) STRICT;
+
+INSERT INTO payment_settings VALUES (1, NULL);
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -261,6 +331,9 @@ pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("acme_account", "credentials"),
     ("sessions", "id"),
     ("btp_tokens", "token_hash"),
+    ("incoming_payments", "shared_secret"),
+    ("gnap_grants", "continue_token_hash"),
+    ("gnap_tokens", "token_hash"),
 ];
 
 /// A column as the code expects it: name, type, NOT NULL, part of the
@@ -476,6 +549,62 @@ pub const TABLES: &[Table] = &[
         name: "peer_bans",
         without_rowid: true,
         columns: &[("node", "TEXT", true, true)],
+    },
+    Table {
+        name: "incoming_payments",
+        without_rowid: true,
+        columns: &[
+            ("id", "BLOB", true, true),
+            ("ledger", "TEXT", true, false),
+            ("wallet_address", "TEXT", true, false),
+            ("client", "TEXT", false, false),
+            ("incoming_amount", "INTEGER", false, false),
+            ("received_amount", "INTEGER", true, false),
+            ("ilp_address", "TEXT", true, false),
+            ("shared_secret", "BLOB", true, false),
+            ("metadata", "TEXT", false, false),
+            ("created_at_ms", "INTEGER", true, false),
+            ("expires_at_ms", "INTEGER", true, false),
+            ("completed_at_ms", "INTEGER", false, false),
+            ("revision", "INTEGER", true, false),
+        ],
+    },
+    Table {
+        name: "gnap_grants",
+        without_rowid: true,
+        columns: &[
+            ("id", "BLOB", true, true),
+            ("state", "TEXT", true, false),
+            ("client", "TEXT", true, false),
+            ("client_key", "TEXT", true, false),
+            ("access", "TEXT", true, false),
+            ("needs_owner", "INTEGER", true, false),
+            ("continue_token_hash", "BLOB", true, false),
+            ("interaction", "TEXT", false, false),
+            ("created_at_ms", "INTEGER", true, false),
+            ("decided_at_ms", "INTEGER", false, false),
+            ("expires_at_ms", "INTEGER", true, false),
+            ("revision", "INTEGER", true, false),
+        ],
+    },
+    Table {
+        name: "gnap_tokens",
+        without_rowid: true,
+        columns: &[
+            ("token_hash", "BLOB", true, true),
+            ("grant_id", "BLOB", true, false),
+            ("manage_id", "BLOB", true, false),
+            ("created_at_ms", "INTEGER", true, false),
+            ("expires_at_ms", "INTEGER", true, false),
+        ],
+    },
+    Table {
+        name: "payment_settings",
+        without_rowid: false,
+        columns: &[
+            ("id", "INTEGER", false, true),
+            ("default_ledger", "TEXT", false, false),
+        ],
     },
 ];
 

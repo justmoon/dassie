@@ -488,6 +488,7 @@ dependencies = [
  "dassie-ledger",
  "dassie-node-core",
  "dassie-oer",
+ "dassie-payments",
  "dassie-peer",
  "dassie-settlement",
  "dassie-stream",

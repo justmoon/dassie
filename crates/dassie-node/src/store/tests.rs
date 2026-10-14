@@ -95,7 +95,7 @@ fn refuses_foreign_and_newer_databases() {
         Store::open(temp.path()),
         Err(StoreError::TooNew {
             found: 99,
-            known: 5
+            known: 6
         })
     ));
 }
@@ -331,7 +331,11 @@ fn the_inspector_pages_through_tables() {
 // is not shown by accident.
 #[test]
 fn columns_named_like_secrets_are_classified() {
-    const PUBLIC: &[(&str, &str)] = &[("settlement_channels", "public_key")];
+    const PUBLIC: &[(&str, &str)] = &[
+        ("settlement_channels", "public_key"),
+        // A client's public key, as its JWKS publishes it.
+        ("gnap_grants", "client_key"),
+    ];
     for table in schema::TABLES {
         for column in table.columns {
             let name = column.0;

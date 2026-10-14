@@ -493,6 +493,40 @@ impl<T: Transport> RpcClient<T> {
         }
     }
 
+    /// A new incoming payment on the default ledger, of at most `amount`:
+    /// the STREAM credentials to pay it with. Gives the node the hostname
+    /// `localhost` first if it has none, since Open Payments' URLs need one.
+    pub async fn incoming_payment(&mut self, amount: Option<u64>) -> proto::IncomingPayment {
+        let Ok(response::Method::GetConfig(config)) = self
+            .call(request::Method::GetConfig(proto::GetConfigRequest {}))
+            .await
+        else {
+            panic!("no config")
+        };
+        if config
+            .config
+            .is_none_or(|config| config.hostname.is_empty())
+        {
+            self.call(request::Method::SetHostname(proto::SetHostnameRequest {
+                hostname: "localhost".into(),
+            }))
+            .await
+            .unwrap();
+        }
+        match self
+            .call(request::Method::CreateIncomingPayment(
+                proto::CreateIncomingPaymentRequest {
+                    incoming_amount: amount,
+                    ..proto::CreateIncomingPaymentRequest::default()
+                },
+            ))
+            .await
+        {
+            Ok(response::Method::CreateIncomingPayment(created)) => created.payment.unwrap(),
+            other => panic!("no incoming payment: {other:?}"),
+        }
+    }
+
     /// `GetBasicState`'s state.
     pub async fn state(&mut self) -> proto::NodeState {
         match self

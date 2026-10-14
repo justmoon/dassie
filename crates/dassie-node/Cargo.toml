@@ -14,6 +14,7 @@ dassie-ilp = { path = "../dassie-ilp" }
 dassie-ledger = { path = "../dassie-ledger" }
 dassie-node-core = { path = "../dassie-node-core" }
 dassie-oer = { path = "../dassie-oer" }
+dassie-payments = { path = "../dassie-payments" }
 dassie-peer = { path = "../dassie-peer" }
 dassie-settlement = { path = "../dassie-settlement" }
 dassie-stream = { path = "../dassie-stream" }

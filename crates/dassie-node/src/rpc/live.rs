@@ -43,14 +43,20 @@ pub enum Follow {
     Network,
     /// Both.
     Both,
+    /// Open Payments resources.
+    Payments,
 }
 
+/// The counts a stream has seen.
+pub type Seen = (u64, u64, u64);
+
 impl Follow {
-    const fn count(self, versions: Versions) -> (u64, u64) {
+    const fn count(self, versions: Versions) -> Seen {
         match self {
-            Self::Ledger => (versions.ledger, 0),
-            Self::Network => (0, versions.network),
-            Self::Both => (versions.ledger, versions.network),
+            Self::Ledger => (versions.ledger, 0, 0),
+            Self::Network => (0, versions.network, 0),
+            Self::Both => (versions.ledger, versions.network, 0),
+            Self::Payments => (0, 0, versions.payments),
         }
     }
 }
@@ -65,13 +71,13 @@ pub struct Source {
 
 impl Source {
     /// Marks the counts seen, before a fetch.
-    pub fn seen(&mut self, follow: Follow) -> (u64, u64) {
+    pub fn seen(&mut self, follow: Follow) -> Seen {
         follow.count(*self.versions.borrow_and_update())
     }
 
     /// Waits until the counts `follow` names moved past `seen`, or a
     /// refresh is due.
-    pub async fn wait(&mut self, follow: Follow, seen: (u64, u64)) -> Result<(), RpcError> {
+    pub async fn wait(&mut self, follow: Follow, seen: Seen) -> Result<(), RpcError> {
         let ended = || RpcError::unavailable(EngineError::Unavailable);
         tokio::select! {
             () = self.ended.cancelled() => return Err(ended()),

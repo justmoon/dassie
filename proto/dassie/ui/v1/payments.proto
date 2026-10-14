@@ -2,20 +2,121 @@ syntax = "proto3";
 
 package dassie.ui.v1;
 
-// Credentials for paying the node's STREAM receiver, which credits the
-// owner's funds on the owner's first active ledger. A stand-in until Open
-// Payments and SPSP (M6), which issue them per incoming payment.
-// FAILED_PRECONDITION while no settlement scheme is active.
-message CreateStreamCredentialsRequest {
-  // Labels the connection; at most 64 bytes.
-  string tag = 1;
+// Open Payments (D9): the node's wallet addresses, one per active ledger,
+// and their incoming payments. FAILED_PRECONDITION until the node has a
+// hostname, which every URL names.
+
+// A wallet address.
+message WalletAddress {
+  // Its URL, as other wallets and clients use it: https://host/pay/<slug>,
+  // or https://host/.well-known/pay for the default ledger.
+  string url = 1;
+  // The same as a payment pointer: $host, or $host/pay/<slug>.
+  string payment_pointer = 2;
+  string ledger = 3;
+  string asset_code = 4;
+  uint32 asset_scale = 5;
+  // Whether $host names it. The default ledger's address is also at
+  // https://host/pay/<slug>; this is the one listed.
+  bool is_default = 6;
 }
 
-message CreateStreamCredentialsResponse {
-  // The ILP address to pay.
-  string destination_account = 1;
-  // The connection's 32-byte shared secret.
-  bytes shared_secret = 2;
-  string asset_code = 3;
-  uint32 asset_scale = 4;
+message ListWalletAddressesRequest {}
+
+message ListWalletAddressesResponse {
+  // By ledger.
+  repeated WalletAddress wallet_addresses = 1;
+}
+
+// Chooses the ledger $host names. NOT_FOUND unless it is active.
+message SetDefaultLedgerRequest {
+  // Empty to go back to the lowest active ledger.
+  string ledger = 1;
+}
+
+message SetDefaultLedgerResponse {
+  repeated WalletAddress wallet_addresses = 1;
+}
+
+// An incoming payment.
+message IncomingPayment {
+  // A UUID.
+  string id = 1;
+  // Its URL.
+  string url = 2;
+  // The wallet address it was created at.
+  string wallet_address = 3;
+  string ledger = 4;
+  string asset_code = 5;
+  uint32 asset_scale = 6;
+  // The most it accepts; none for no limit.
+  optional uint64 incoming_amount = 7;
+  uint64 received_amount = 8;
+  // The wallet address or key of the client that created it; empty for
+  // the owner.
+  string client = 9;
+  // Its metadata, as JSON; empty for none.
+  string metadata_json = 10;
+  uint64 created_at_ms = 11;
+  uint64 expires_at_ms = 12;
+  // When it was completed: it received all it asked for, or its creator
+  // said so.
+  optional uint64 completed_at_ms = 13;
+  // Its STREAM credentials: the ILP address to pay, and the 32-byte
+  // shared secret.
+  string destination_account = 14;
+  bytes shared_secret = 15;
+}
+
+// Creates an incoming payment, as the owner: to ask for a payment, or to
+// pay the node from a STREAM client. RESOURCE_EXHAUSTED when too many are
+// open.
+message CreateIncomingPaymentRequest {
+  // Empty for the default ledger.
+  string ledger = 1;
+  // The most it accepts; none for no limit.
+  optional uint64 incoming_amount = 2;
+  // When it stops accepting money; 0 for a day from now. At most 30 days.
+  uint64 expires_at_ms = 3;
+  // Goes into its metadata as "description"; at most 256 bytes.
+  string description = 4;
+}
+
+message CreateIncomingPaymentResponse {
+  IncomingPayment payment = 1;
+}
+
+// Completes an incoming payment: it takes no more money. NOT_FOUND for an
+// unknown one, FAILED_PRECONDITION for an expired one.
+message CompleteIncomingPaymentRequest {
+  string id = 1;
+}
+
+message CompleteIncomingPaymentResponse {
+  IncomingPayment payment = 1;
+}
+
+message ListIncomingPaymentsRequest {
+  // How many, newest first, up to 1000; 0 means 100.
+  uint32 limit = 1;
+}
+
+message ListIncomingPaymentsResponse {
+  // Newest first.
+  repeated IncomingPayment payments = 1;
+}
+
+// Streaming: the newest incoming payments, then each change.
+message SubscribeIncomingPaymentsRequest {
+  // How many it follows, newest first, up to 1000; 0 means 100.
+  uint32 limit = 1;
+}
+
+message IncomingPaymentEvent {
+  // Set on the first item.
+  bool reset = 1;
+  // Payments added or changed, whole.
+  repeated IncomingPayment upserted = 2;
+  // IDs of payments no longer among the newest.
+  repeated string removed = 3;
 }

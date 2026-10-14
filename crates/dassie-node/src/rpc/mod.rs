@@ -14,6 +14,7 @@ mod inspect;
 mod ledger;
 mod live;
 mod network;
+mod payments;
 
 use std::fmt;
 
@@ -50,6 +51,7 @@ pub const fn is_live(method: &proto::request::Method) -> bool {
             | Method::SubscribeRoutes(_)
             | Method::SubscribeRegistration(_)
             | Method::SubscribeLogs(_)
+            | Method::SubscribeIncomingPayments(_)
     )
 }
 

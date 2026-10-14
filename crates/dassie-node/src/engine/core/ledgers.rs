@@ -6,8 +6,8 @@ use dassie_ledger::{
 use dassie_settlement::{Activation, Effect, SettlementScheme, activation};
 
 use super::Core;
-use super::packets::{RECEIVER, RECEIVER_SEGMENT, Receiver};
-use super::{Credentials, EngineError};
+use super::EngineError;
+use super::packets::{Receiver, receiver_address};
 use crate::log::target;
 use crate::store::Store;
 
@@ -156,7 +156,7 @@ impl Core {
         }
         self.schemes.insert(id, ActiveScheme { scheme });
         self.update_peer_schemes();
-        self.ensure_receiver()?;
+        self.add_receiver(ledger)?;
         Ok(ledger)
     }
 
@@ -179,16 +179,10 @@ impl Core {
         self.update_peer_schemes();
         self.batch.schemes_added.retain(|(added, _)| *added != id);
         self.batch.schemes_removed.push(id);
-        if self
-            .receiver
-            .as_ref()
-            .is_some_and(|receiver| receiver.ledger == ledger)
-        {
+        if let Some(receiver) = self.receivers.remove(&ledger) {
             let now = self.now_ms();
-            self.connector.remove_endpoint(now, RECEIVER);
-            self.receiver = None;
+            self.connector.remove_endpoint(now, receiver.endpoint);
             self.expire(now);
-            self.ensure_receiver()?;
         }
         Ok(())
     }
@@ -310,52 +304,25 @@ impl Core {
             .ok_or_else(|| EngineError::Internal(format!("{ledger}:{name} is missing")))
     }
 
-    /// Gives the receiver the first active ledger, if it has none.
-    fn ensure_receiver(&mut self) -> Result<(), EngineError> {
-        if self.receiver.is_some() {
+    /// Gives a ledger its STREAM receiver, a local endpoint paying into the
+    /// owner's pool.
+    fn add_receiver(&mut self, ledger: LedgerId) -> Result<(), EngineError> {
+        if self.receivers.contains_key(&ledger) {
             return Ok(());
         }
-        let Some(ledger) = self
-            .schemes
-            .values()
-            .map(|active| active.scheme.ledger())
-            .min()
-        else {
-            return Ok(());
-        };
-        let receiver = Receiver::new(&self.key, self.connector.own_address(), ledger)?;
+        let endpoint = dassie_connector::EndpointId::Local(self.next_local);
+        self.next_local = self
+            .next_local
+            .checked_add(1)
+            .ok_or_else(|| EngineError::Exhausted("no local endpoint left".into()))?;
+        let own = self.connector.own_address().to_string();
+        let receiver = Receiver::new(&self.key, &own, ledger, endpoint)?;
         let owner = self.account(ledger, AccountName::EquityOwner)?;
-        let address = format!("{}.{RECEIVER_SEGMENT}", self.connector.own_address());
         self.connector
-            .add_endpoint(RECEIVER, &address, owner, ledger)
+            .add_endpoint(endpoint, &receiver_address(&own, ledger), owner, ledger)
             .map_err(|e| EngineError::Internal(e.to_string()))?;
-        self.receiver = Some(receiver);
+        self.receivers.insert(ledger, receiver);
         Ok(())
-    }
-
-    /// Credentials for paying the node's STREAM receiver.
-    ///
-    /// # Errors
-    ///
-    /// No scheme is active, or the tag is too long.
-    pub fn stream_credentials(&mut self, tag: &str) -> Result<Credentials, EngineError> {
-        if tag.len() > dassie_stream::token::MAX_CONNECTION_TAG_LENGTH {
-            return Err(EngineError::Invalid("the tag is too long".into()));
-        }
-        let Self { rng, receiver, .. } = self;
-        let Some(receiver) = receiver.as_ref() else {
-            return Err(EngineError::Precondition(
-                "no settlement scheme is active".into(),
-            ));
-        };
-        let credentials = receiver
-            .server
-            .generate_credentials(rng.as_mut(), tag.as_bytes(), None);
-        Ok(Credentials {
-            destination: credentials.destination,
-            shared_secret: credentials.shared_secret,
-            asset: receiver.ledger.asset(),
-        })
     }
 
     /// The active schemes' IDs.

@@ -303,16 +303,7 @@ async fn two_daemons_peer_and_keep_their_peering() {
     else {
         panic!("no token")
     };
-    let Ok(response::Method::CreateStreamCredentials(credentials)) = b
-        .ipc()
-        .await
-        .call(Method::CreateStreamCredentials(
-            proto::CreateStreamCredentialsRequest { tag: "hop".into() },
-        ))
-        .await
-    else {
-        panic!("no credentials")
-    };
+    let credentials = b.ipc().await.incoming_payment(None).await;
     let mut client = BtpClient::connect(&a, &token.secret).await.unwrap();
     pay_stream(
         &clock,

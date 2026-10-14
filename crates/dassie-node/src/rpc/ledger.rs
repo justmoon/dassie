@@ -83,15 +83,6 @@ async fn dispatch_more(
             engine.revoke_token(request.id).await?;
             response::Method::RevokeBtpToken(proto::RevokeBtpTokenResponse {})
         }
-        Method::CreateStreamCredentials(request) => {
-            let credentials = engine.stream_credentials(request.tag).await?;
-            response::Method::CreateStreamCredentials(proto::CreateStreamCredentialsResponse {
-                destination_account: credentials.destination,
-                shared_secret: credentials.shared_secret.to_vec(),
-                asset_code: credentials.asset.code.into(),
-                asset_scale: credentials.asset.scale.into(),
-            })
-        }
         Method::ListAccounts(_) => response::Method::ListAccounts(proto::ListAccountsResponse {
             accounts: engine
                 .accounts()
@@ -114,6 +105,9 @@ async fn dispatch_more(
         Method::SubscribePackets(_) => {
             let _permit = permit(node)?;
             return subscribe_packets(engine, items).await;
+        }
+        other if super::payments::is_payments(&other) => {
+            return super::payments::dispatch(node, engine, other, items).await;
         }
         other => return super::network::dispatch(node, engine, other, items).await,
     };

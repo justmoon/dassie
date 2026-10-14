@@ -8,7 +8,6 @@ use sha2::{Digest, Sha256};
 
 use super::Core;
 use super::EngineError;
-use super::packets::RECEIVER_SEGMENT;
 use crate::log::target;
 use crate::store::{BtpTokenRow, Store, StoreError, TokenCap};
 
@@ -360,9 +359,6 @@ impl Core {
                     char::from(SEGMENT_ALPHABET.get(index).copied().unwrap_or(b'a'))
                 })
                 .collect();
-            if segment == RECEIVER_SEGMENT {
-                continue;
-            }
             let address = format!("{}.{segment}", self.connector.own_address());
             match self
                 .connector
