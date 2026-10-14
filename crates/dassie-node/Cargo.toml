@@ -72,6 +72,8 @@ listenfd = "1.0.2"
 getrandom = { version = "0.4.3", features = ["sys_rng"] }
 rand_core = { version = "0.10", default-features = false }
 sha2 = "0.11"
+# Tokens and keys in Open Payments' JSON.
+base64 = "0.22.1"
 
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std", "ansi", "registry"] }

@@ -39,3 +39,5 @@ pub mod resources;
 pub mod sf;
 pub mod time;
 pub mod uri;
+
+pub use ed25519_dalek::{SigningKey, VerifyingKey};

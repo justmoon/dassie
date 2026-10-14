@@ -1,5 +1,7 @@
-//! Sending peer requests (spec 7 §4.7): `POST {url}/peer` over HTTPS to
-//! public addresses only, with bounded concurrency and response sizes.
+//! The node's outbound HTTPS client: peer requests (spec 7 §4.7), `POST
+//! {url}/peer`, and Open Payments' requests to other servers (D9), over
+//! HTTPS to public addresses only, with bounded concurrency and response
+//! sizes, and no redirects.
 //!
 //! The node owns one client, so its connection pool outlives restarts of
 //! the engine. Whether a failure means the request surely did not arrive
@@ -40,6 +42,58 @@ const MAX_RESPONSE_BYTES: usize = 256 * 1024;
 /// Most requests in flight, in total and to one host.
 const MAX_IN_FLIGHT: usize = 128;
 const MAX_PER_HOST: usize = 16;
+
+/// A request to another server, for Open Payments.
+#[derive(Clone, Debug)]
+pub struct WebRequest {
+    /// The method.
+    pub method: http::Method,
+    /// An `https` URL.
+    pub url: String,
+    /// Extra headers.
+    pub headers: Vec<(http::HeaderName, String)>,
+    /// The body, if any.
+    pub body: Option<Vec<u8>>,
+    /// How long the whole exchange may take.
+    pub timeout_ms: u64,
+    /// The longest response body read.
+    pub max_response_bytes: usize,
+}
+
+/// What another server answered.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WebResponse {
+    /// The status.
+    pub status: u16,
+    /// The media type, without parameters, in lower case.
+    pub media_type: Option<String>,
+    /// The body.
+    pub body: Vec<u8>,
+}
+
+/// Why a request to another server failed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WebError {
+    /// The URL is not `https`, or names a private address.
+    Refused,
+    /// Too many requests are in flight.
+    Busy,
+    /// The connection or the exchange failed, or took too long.
+    Failed(String),
+    /// The response was larger than allowed.
+    TooLarge,
+}
+
+impl fmt::Display for WebError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Refused => f.write_str("the URL is not one the node may fetch"),
+            Self::Busy => f.write_str("too many requests in flight"),
+            Self::Failed(error) => write!(f, "the request failed: {error}"),
+            Self::TooLarge => f.write_str("the response is too large"),
+        }
+    }
+}
 
 /// Resolves names, keeping only addresses the node may send to.
 #[derive(Clone, Debug)]
@@ -247,6 +301,72 @@ impl PeerClient {
             });
         }
         Ok(Response { status, body })
+    }
+}
+
+impl PeerClient {
+    /// Sends a request to another server and reads its response, bounded
+    /// in time and size.
+    ///
+    /// # Errors
+    ///
+    /// See [`WebError`].
+    pub async fn web(&self, request: WebRequest) -> Result<WebResponse, WebError> {
+        let authority = request
+            .url
+            .strip_prefix("https://")
+            .and_then(|rest| rest.split(['/', '?', '#']).next())
+            .filter(|authority| !authority.is_empty() && !authority.contains('@'))
+            .ok_or(WebError::Refused)?;
+        if !self.allow_private && literal_is_private(authority) {
+            return Err(WebError::Refused);
+        }
+        let _slot = self.slot(authority).ok_or(WebError::Busy)?;
+        let mut builder = http::Request::builder()
+            .method(request.method)
+            .uri(&request.url);
+        for (name, value) in &request.headers {
+            builder = builder.header(name, value);
+        }
+        let body = Full::new(Bytes::from(request.body.unwrap_or_default()));
+        let http_request = builder
+            .body(body)
+            .map_err(|error| WebError::Failed(error.to_string()))?;
+        let timeout = Duration::from_millis(request.timeout_ms.max(1));
+        let exchange = self.web_exchange(http_request, request.max_response_bytes);
+        tokio::time::timeout(timeout, exchange)
+            .await
+            .map_err(|_| WebError::Failed("timed out".into()))?
+    }
+
+    async fn web_exchange(
+        &self,
+        request: http::Request<Full<Bytes>>,
+        max_bytes: usize,
+    ) -> Result<WebResponse, WebError> {
+        let response = self
+            .http
+            .request(request)
+            .await
+            .map_err(|error| WebError::Failed(error.to_string()))?;
+        let status = response.status().as_u16();
+        let media_type = response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.split(';').next())
+            .map(|media| media.trim().to_ascii_lowercase());
+        let body = Limited::new(response.into_body(), max_bytes)
+            .collect()
+            .await
+            .map_err(|_| WebError::TooLarge)?
+            .to_bytes()
+            .to_vec();
+        Ok(WebResponse {
+            status,
+            media_type,
+            body,
+        })
     }
 }
 

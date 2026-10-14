@@ -296,6 +296,7 @@ pub struct Node {
     live_streams: Arc<Semaphore>,
     dev_wallet_dir: Option<PathBuf>,
     stats_cache: crate::http::stats::StatsCache,
+    open_payments: crate::open_payments::State,
 }
 
 impl std::fmt::Debug for Node {
@@ -308,7 +309,7 @@ impl std::fmt::Debug for Node {
 
 /// Locks a mutex, carrying on past a panic of another holder: none of the
 /// node's mutexes guard an update that a panic could leave half done.
-fn lock<T: ?Sized>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+pub(crate) fn lock<T: ?Sized>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
@@ -378,7 +379,14 @@ impl Node {
             live_streams: Arc::new(Semaphore::new(MAX_LIVE_STREAMS)),
             dev_wallet_dir,
             stats_cache: crate::http::stats::StatsCache::default(),
+            open_payments: crate::open_payments::State::default(),
         }))
+    }
+
+    /// What Open Payments keeps beside the database.
+    #[must_use]
+    pub const fn open_payments(&self) -> &crate::open_payments::State {
+        &self.open_payments
     }
 
     /// The bootstrap nodes.

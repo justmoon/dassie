@@ -179,8 +179,8 @@ pub fn entry<'a>(
     }
 }
 
-/// Pays `amount` over STREAM to `destination`, with `client` as the
-/// sender's connector, moving `clock` on while nothing is in flight.
+/// Pays `amount` over STREAM, from `client` to `destination`, until it is
+/// all sent.
 pub async fn pay_stream(
     clock: &ManualClock,
     client: &mut BtpClient,
@@ -188,6 +188,20 @@ pub async fn pay_stream(
     shared_secret: &[u8],
     amount: u64,
 ) {
+    let sent = send_stream(clock, client, destination, shared_secret, amount, 10_000).await;
+    assert_eq!(sent, amount, "the payment did not finish");
+}
+
+/// Sends up to `amount` over STREAM for at most `rounds` rounds, and
+/// returns what the receiver took.
+pub async fn send_stream(
+    clock: &ManualClock,
+    client: &mut BtpClient,
+    destination: &str,
+    shared_secret: &[u8],
+    amount: u64,
+    rounds: usize,
+) -> u64 {
     let (own, ..) = client.ildcp(clock.now_ms()).await;
     let mut connection = Connection::new(&Config {
         role: Role::Client,
@@ -206,7 +220,12 @@ pub async fn pay_stream(
     let mut buffer = vec![0u8; BUFFER_LENGTH];
     let mut in_flight: BTreeMap<u32, u64> = BTreeMap::new();
     let mut stream = None;
-    for _ in 0..10_000 {
+    let sent = |connection: &Connection, stream: Option<u64>| {
+        stream
+            .and_then(|id| connection.stream(id))
+            .map_or(0, |s| s.total_sent())
+    };
+    for _ in 0..rounds {
         let now = Timestamp::from_unix_ms(clock.now_ms());
         while let Some(transmit) = connection.poll_transmit(now, &mut rng, &mut buffer) {
             let id = client.prepare(&buffer[..transmit.length]).await;
@@ -217,13 +236,9 @@ pub async fn pay_stream(
             connection.set_send_max(id, amount).unwrap();
             stream = Some(id);
         }
-        if let Some(id) = stream
-            && connection
-                .stream(id)
-                .is_some_and(|s| s.total_sent() == amount)
-        {
+        if sent(&connection, stream) == amount || connection.is_closed() {
             connection.close(now, ErrorCode::NO_ERROR);
-            return;
+            return sent(&connection, stream);
         }
         if in_flight.is_empty() {
             clock.advance(100);
@@ -238,5 +253,5 @@ pub async fn pay_stream(
             client.send(reply.request_id, &buffer[..length], true).await;
         }
     }
-    panic!("the payment did not finish");
+    sent(&connection, stream)
 }

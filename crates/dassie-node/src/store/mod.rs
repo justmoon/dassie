@@ -12,6 +12,7 @@
 //! loss included; the ledger's engine commits a whole batch of packets at
 //! once to keep that affordable.
 
+mod gnap;
 mod inspect;
 mod ledger;
 #[cfg(test)]
@@ -34,6 +35,7 @@ use dassie_node_core::config::{Alias, DirectoryUrl, Hostname, NodeConfig, Ports,
 use dassie_node_core::session::{SessionId, SessionPolicy, SessionTimes};
 use rusqlite::{Connection, OptionalExtension, params};
 
+pub use gnap::{GrantRow, GrantState, MAX_PENDING_GRANTS, TokenRow};
 pub use inspect::{BLOB_CUT, Cell, ColumnInfo, MAX_ROWS, RowsPage, TEXT_CUT, TableInfo, Value};
 pub use ledger::{BtpTokenRow, JournalRow, LedgerBatch, StoredLedger, TokenCap};
 pub use payments::{

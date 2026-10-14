@@ -7,7 +7,15 @@
 //! URL is built from the configured hostname, so the node serves Open
 //! Payments only once it has one.
 
+pub mod auth;
+pub mod keys;
+
+use std::net::IpAddr;
+use std::sync::{Mutex, OnceLock};
+
+use dassie_identity::NodeKey;
 use dassie_ledger::LedgerId;
+use dassie_node_core::rate_limit::{ClientKey as RateKey, RateLimitPolicy, RateLimiter};
 use dassie_node_core::urls;
 
 use crate::engine::ledger_slug;
@@ -22,6 +30,67 @@ pub const PAY_PREFIX: &str = "/pay/";
 pub const GRANT_PATH: &str = "/gnap";
 /// The prefix of incoming payments' paths.
 pub const INCOMING_PREFIX: &str = "/incoming-payments";
+
+/// Every Open Payments request, per client address.
+const REQUESTS: RateLimitPolicy = RateLimitPolicy {
+    client_burst: 120,
+    client_refill_ms: 250,
+    client_slots: 1024,
+};
+
+/// Grant requests and new incoming payments, per client address: each
+/// makes the node fetch a key set or keep a row.
+const CREATIONS: RateLimitPolicy = RateLimitPolicy {
+    client_burst: 20,
+    client_refill_ms: 3_000,
+    client_slots: 1024,
+};
+
+/// What Open Payments keeps beside the database: clients' key sets, the
+/// node's own key, and the rate limits.
+pub struct State {
+    /// Clients' key sets.
+    pub keys: Mutex<keys::KeyCache>,
+    client_key: OnceLock<Result<keys::ClientKey, String>>,
+    requests: Mutex<RateLimiter>,
+    creations: Mutex<RateLimiter>,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            keys: Mutex::new(keys::KeyCache::default()),
+            client_key: OnceLock::new(),
+            requests: Mutex::new(RateLimiter::new(REQUESTS)),
+            creations: Mutex::new(RateLimiter::new(CREATIONS)),
+        }
+    }
+}
+
+impl State {
+    /// The node's Open Payments key, derived on first use.
+    pub fn client_key(&self, node_key: &NodeKey) -> Option<&keys::ClientKey> {
+        self.client_key
+            .get_or_init(|| keys::ClientKey::derive(node_key))
+            .as_ref()
+            .ok()
+    }
+
+    /// Charges a request from `address`; false once it is over its limit.
+    pub fn allow_request(&self, address: IpAddr, now_ms: u64) -> bool {
+        crate::node::lock(&self.requests)
+            .check(RateKey::from_ip(address), now_ms)
+            .is_ok()
+    }
+
+    /// Charges a grant request or a new incoming payment from `address`;
+    /// false once it is over its limit.
+    pub fn allow_creation(&self, address: IpAddr, now_ms: u64) -> bool {
+        crate::node::lock(&self.creations)
+            .check(RateKey::from_ip(address), now_ms)
+            .is_ok()
+    }
+}
 
 /// The node's public URLs.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -179,6 +248,8 @@ impl From<StoreError> for AddressError {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
+
     use super::*;
 
     #[test]
