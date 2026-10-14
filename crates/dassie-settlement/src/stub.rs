@@ -130,6 +130,19 @@ impl SettlementScheme for Stub {
         }
     }
 
+    fn reconcile(&mut self, pending: &[(Name, u64)], effects: &mut Vec<Effect>) {
+        // The stub executes right after the pending transfer is on disk,
+        // and its balance is checkpointed with the result. A settlement
+        // pending at a restart was never executed: its money never moved.
+        for (settlement, _) in pending {
+            if !self.prepared.contains_key(settlement) {
+                effects.push(Effect::Cancel {
+                    settlement: *settlement,
+                });
+            }
+        }
+    }
+
     fn handle_settlement(
         &mut self,
         peer: Name,
@@ -246,6 +259,19 @@ mod tests {
             ]
         );
         assert_eq!(stub.balance(), 6);
+    }
+
+    // ACC-16: a settlement pending across a restart stayed pending.
+    #[test]
+    fn settlements_pending_at_a_restart_are_cancelled() {
+        let mut stub = Stub::new("", Some(10)).unwrap();
+        let mut rng = SeededRng::new(3);
+        let known = stub.prepare_settlement(&mut rng, peer(), 4, &[]).unwrap();
+        let lost = Name::new("0123456789abcdef0123456789abcdef").unwrap();
+        let mut effects = Vec::new();
+        stub.reconcile(&[(known.id, 4), (lost, 7)], &mut effects);
+        assert_eq!(effects, [Effect::Cancel { settlement: lost }]);
+        assert_eq!(stub.balance(), 10);
     }
 
     #[test]

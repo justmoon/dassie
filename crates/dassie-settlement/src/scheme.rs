@@ -168,8 +168,14 @@ pub trait SettlementScheme: Send {
     ) -> Result<PreparedSettlement, SchemeError>;
 
     /// Executes a prepared settlement. Reports the outcome as
-    /// [`Effect::Finalize`] or [`Effect::Cancel`], now or later.
+    /// [`Effect::Finalize`] or [`Effect::Cancel`], now or later. The node
+    /// calls it only once the settlement's pending transfer is on disk.
     fn execute_settlement(&mut self, settlement: Name, effects: &mut Vec<Effect>);
+
+    /// Settles the outcome of settlements whose pending transfers survived
+    /// a restart, given by ID and amount, at activation (ACC-16): each gets
+    /// [`Effect::Finalize`] or [`Effect::Cancel`], now or later.
+    fn reconcile(&mut self, pending: &[(Name, u64)], effects: &mut Vec<Effect>);
 
     /// Handles a peer's settlement message.
     ///
