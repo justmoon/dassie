@@ -11,6 +11,7 @@ use sha2::{Digest as _, Sha256};
 use subtle::ConstantTimeEq as _;
 
 use crate::amount::Amount;
+use crate::interval::Interval;
 use crate::jwk::Jwk;
 use crate::uri::Uri;
 
@@ -166,11 +167,39 @@ impl Limits {
             .into_iter()
             .flatten()
             .all(|amount| amount.value > 0);
-        if receiver_valid && amounts_valid {
+        let interval_valid = self
+            .interval
+            .as_deref()
+            .is_none_or(|interval| Interval::parse(interval).is_ok());
+        if receiver_valid && amounts_valid && interval_valid {
             Ok(())
         } else {
             Err(ErrorCode::InvalidRequest)
         }
+    }
+
+    /// The window of the limits' interval that holds `now_ms`, as
+    /// `(start, end)`: all time without an interval, and `None` when no
+    /// window holds it, which no payment may be made in.
+    #[must_use]
+    pub fn window(&self, now_ms: u64) -> Option<(u64, u64)> {
+        match self.interval.as_deref() {
+            None => Some((0, u64::MAX)),
+            Some(text) => Interval::parse(text).ok()?.window(now_ms),
+        }
+    }
+
+    /// Whether a payment debiting `debit` and delivering `receive` fits,
+    /// on top of what the window has spent: `spent` as `(debit, receive)`.
+    /// The asset of each limit is the caller's to check.
+    #[must_use]
+    pub fn admit(&self, spent: (u64, u64), debit: u64, receive: u64) -> bool {
+        let fits = |limit: &Option<Amount>, spent: u64, more: u64| {
+            limit
+                .as_ref()
+                .is_none_or(|limit| u128::from(spent) + u128::from(more) <= u128::from(limit.value))
+        };
+        fits(&self.debit_amount, spent.0, debit) && fits(&self.receive_amount, spent.1, receive)
     }
 }
 

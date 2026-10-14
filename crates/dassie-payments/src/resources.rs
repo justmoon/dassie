@@ -110,6 +110,117 @@ pub struct CreateIncomingPayment {
     pub metadata: Option<Map<String, Value>>,
 }
 
+/// A quote (`quote`): what an outgoing payment to `receiver` debits and
+/// delivers, until it expires.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Quote {
+    /// The quote's URL.
+    pub id: String,
+    /// The wallet address that pays.
+    pub wallet_address: String,
+    /// The incoming payment it pays.
+    pub receiver: String,
+    /// What the receiver gets.
+    pub receive_amount: Amount,
+    /// What the wallet address is debited.
+    pub debit_amount: Amount,
+    /// Always `ilp`.
+    pub method: String,
+    /// When it can no longer be paid.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+    /// When it was made.
+    pub created_at: String,
+}
+
+/// `POST /quotes`: by the receiver's own amount, or with the amount to
+/// debit or to deliver, never both (`create-quote-request`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreateQuote {
+    /// The wallet address that pays.
+    pub wallet_address: String,
+    /// The incoming payment to pay.
+    pub receiver: String,
+    /// Always `ilp`.
+    pub method: String,
+    /// What to debit, for a fixed-send quote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub debit_amount: Option<Amount>,
+    /// What to deliver, for a fixed-receive quote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receive_amount: Option<Amount>,
+}
+
+/// An outgoing payment (`outgoing-payment`, and with the grant's spent
+/// amounts once created).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutgoingPayment {
+    /// The payment's URL.
+    pub id: String,
+    /// The wallet address that pays.
+    pub wallet_address: String,
+    /// The quote it pays, if made from one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quote_id: Option<String>,
+    /// Whether it failed.
+    pub failed: bool,
+    /// The incoming payment it pays.
+    pub receiver: String,
+    /// What the receiver is to get.
+    pub receive_amount: Amount,
+    /// What the wallet address is to be debited.
+    pub debit_amount: Amount,
+    /// What was debited so far.
+    pub sent_amount: Amount,
+    /// The creator's metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Map<String, Value>>,
+    /// When it was made.
+    pub created_at: String,
+    /// What the grant has spent in its current interval, with this
+    /// payment; only in the response that creates it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grant_spent_debit_amount: Option<Amount>,
+    /// As `grant_spent_debit_amount`, as the receivers count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grant_spent_receive_amount: Option<Amount>,
+}
+
+/// `POST /outgoing-payments`: from a quote, or from an incoming payment
+/// with the amount to debit (`create-outgoing-payment-request`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreateOutgoingPayment {
+    /// The wallet address that pays.
+    pub wallet_address: String,
+    /// The quote to pay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quote_id: Option<String>,
+    /// The incoming payment to pay, without a quote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub incoming_payment: Option<String>,
+    /// What to debit, without a quote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub debit_amount: Option<Amount>,
+    /// The creator's metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Map<String, Value>>,
+}
+
+/// What the grant behind a token has spent in its current interval
+/// (`GET /outgoing-payment-grant`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutgoingPaymentGrant {
+    /// What it debited, if anything.
+    pub spent_debit_amount: Option<Amount>,
+    /// What it delivered, if anything.
+    pub spent_receive_amount: Option<Amount>,
+}
+
 /// Whether a `metadata` object is within [`MAX_METADATA_BYTES`].
 #[must_use]
 pub fn metadata_fits(metadata: &Map<String, Value>) -> bool {
