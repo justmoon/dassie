@@ -32,7 +32,7 @@ Every fix gets a test that would have failed against the original's behaviour.
 | Ed25519 verification accepts ZIP-215 | [3 §2.1](03-peer-network.md) | Harmless. Being stricter could split the network on edge-case signatures. Kept for v1 as well (confirmed with D2). ed25519-dalek's `verify` is *not* ZIP-215: it is cofactorless and checks R by its encoding. So v1 verifies with `ed25519-zebra`, the ZIP-215 reference implementation (decided 2026-10-14). Small-order public keys are refused for link states, since under ZIP-215 one signature verifies for every message under such a key. |
 | Majority rule: strictly more than N/2 of *configured* bootstrap nodes | [3 §11.4](03-peer-network.md) (NET-16) | The code is right and the doc's "N/2 + 1" is the outlier. Fix the doc, not the code. |
 | Gossip parameters: suppress after 3 copies, 1–500 ms forward jitter, 5–20 s heartbeats, 3 h staleness, 1 h re-issue | [3 §17](03-peer-network.md) | Sound defaults. Make them configurable for tests. |
-| Settlement trigger: every 4 s, threshold = credit midpoint × 1.1, settle down to the midpoint | [5 §4.6](05-accounting-and-settlement.md) | Keep the policy. Fix the credit asymmetry (ACC-24) with D6. |
+| Settlement trigger: every 4 s, threshold = credit midpoint × 1.1, settle down to the midpoint | [5 §4.6](05-accounting-and-settlement.md) | Keep the policy. Fix the credit asymmetry (ACC-24): the credit the peer extends is announced when peering ([7 §4.7](07-rewrite.md#47-peer-protocol-v1)). |
 | Default trust line 1.1 units per peer, `MAX_PACKET_AMOUNT` 0.1 units | [5 §2.7](05-accounting-and-settlement.md), [4 §4.3](04-interledger.md) | Test-network values. Become per-ledger config under D6. |
 | STREAM extensions: AIMD concurrency, redistributing over-allocation, bigint amounts | [4 §11.13](04-interledger.md) | Deliberate improvements, compatible on the wire. |
 | `__Host-` cookie with HttpOnly, Secure, SameSite=Strict | [2 §8](02-node-runtime.md) | Correct as is. Add expiry (RT-11). |
@@ -213,7 +213,13 @@ All decisions below were confirmed on 2026-10-11. Each states the **decision** a
     - a peering request from a node that is already peered is accepted again idempotently, which covers an accept that got lost;
     - when two nodes ask each other at once, the request from the lower node ID wins.
   - **The responder probes the requester's URL before accepting,** as the design note intended.
-- **Delivery:** M4a builds the `none`, `request-peering` and `peered` states with the rules above. M4b adds termination, banning, the advertise flag and child peers.
+- **Delivery:** M4a builds the `none`, `request-peering` and `peered` states with the rules above. M4b adds termination, banning and the advertise flag ([7 §4.7](07-rewrite.md#47-peer-protocol-v1)).
+- **Refinements (2026-10-14, from the M4b design review):**
+  - **The advertise flag follows liveness only:** a recent authenticated message, with a hold-down that doubles per flap. Liquidity and failed deliveries are left out, because withdrawing an edge removes it both ways for the whole network, turning a temporary T04 into a final F02, while the traffic coming back is what restores liquidity.
+  - **Termination ends a peering, not a relationship.** The accounts stay, with what is owed, and the settlement sequence carries on, so a settlement that arrives after the peering ended is still credited once. Peering with the node again reuses both, without posting trust twice.
+  - **`banned` is a list, not a peering state,** since a node can be banned while its peering is still terminating.
+- **Child peers deferred (2026-10-14).** Child peers (NET-21, NET-23) need a node's ILP address to follow its uplink, which touches the connector, BTP and the STREAM receiver. They only matter once registration costs something (NET-17): today any node with a URL registers automatically and becomes a member within minutes. They move to the milestone that adds registration fees.
+- **Known limit:** a node never closes a peer's accounts or settlement channel. With 1024 accounts, about 500 distinct peers fit in a node's lifetime; after that, peering is refused for capacity.
 
 ### D13. Connector timing and packet limits
 

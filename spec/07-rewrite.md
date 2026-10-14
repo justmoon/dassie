@@ -173,6 +173,8 @@ Most of the original's integrity gaps come from state it keeps only in memory, o
 | BTP tokens | plaintext | hashed, plus a label and created time; shown once at creation |
 | Node table: nodes, link states (signed bytes), registrations, peers with scheme state | written only by dev prefill | written on every change (NET-1, NET-2, ACC-18) |
 | Own link-state sequence | memory | persisted high-water mark (NET-7) |
+| Settlement channels: per node ever peered with, the highest settlement sequence applied and sent, and the settlement message not yet acknowledged | none | in the batch that changes them; kept after the peering ends ([§4.7](#47-peer-protocol-v1)) |
+| Bans | none | a table of node IDs |
 | Replay state of peer messages | none (no replay protection) | per peer, the newest accepted message timestamp, written with the batch it took effect in ([§4.7](#47-peer-protocol-v1)) |
 | Ledger | cumulative posted totals | append-only **transfer journal** (id, debit, credit, amount, state, timestamps, reference to packet or settlement), with account balances cached in the same transaction. Only transfers that reach posted balances are journaled, plus pending settlements; a voided packet transfer never touched a posted balance and leaves no row |
 | Pending ILP transfers | memory | memory only: in-flight packets cannot survive a restart, so a restarted ledger has none |
@@ -339,13 +341,23 @@ PeeringResponse ::= CHOICE {
   accepted [0] SEQUENCE { version UINT16, credit UINT64, data OCTET STRING },
   refused  [1] SEQUENCE { reason UINT8 } }
   -- 0 unspecified, 1 unknown node, 2 unsupported scheme, 3 no common version, 4 capacity,
-  -- 5 concurrent request, 6 refused by the scheme, 7 unreachable, 8 banned; unknown values read as 0
+  -- 5 concurrent request, 6 refused by the scheme, 7 unreachable, 8 banned,
+  -- 9 terminating (the responder is still ending a peering with the requester); unknown values read as 0
 
 registration [8] SEQUENCE { nodeInfo SignedPeerNodeInfo }  -- unchanged
 -- response body, was empty
 RegistrationResponse ::= SEQUENCE { expiresAtMs UINT64 }
 
-peeringTermination [10]  -- reserved; its layout comes with termination in M4b
+settlement [4] SEQUENCE {
+  settlementSchemeId   SettlementSchemeId,
+  amount               UINT64,
+  settlementSchemeData OCTET STRING,
+  sequence             UINT64 }   -- per sender and recipient, increasing, never reset
+
+peeringTermination [10] SEQUENCE { reason UINT8 }
+  -- 0 unspecified, 1 by the owner, 2 unresponsive, 3 not peered (the sender holds no peering
+  -- with the recipient); unknown values read as 0
+-- both responses are empty
 ```
 
 **Membership** ([D4](08-decisions.md#d4-network-membership-economics)):
@@ -376,6 +388,33 @@ peeringTermination [10]  -- reserved; its layout comes with termination in M4b
 - **Backoff:** failed candidates back off exponentially, from 10 s to 1 h. "Unknown node" is retried after one list-poll period instead.
 - **Durability:** a peering is persisted before the acceptance is sent and before the requester uses it.
 
+**Lifecycle** ([D12](08-decisions.md#d12-peering-lifecycle-and-liveness)). A peering is `requesting`, `peered` or `terminating`.
+- **Advertised.** A peer is listed as a neighbor in our link state while it is peered, has sent an authenticated message within the last 60 s, and is not held down. Each time it stops being advertised, it is held down for `30 s · 2^flaps`, at most 1 h; `flaps` resets after 1 h advertised without a break. After a restart, the flag starts from the persisted time the peer was last heard from, without a hold-down. Only advertised peers count toward the target. Liquidity does not withdraw a peer: withdrawing removes the edge both ways for the whole network and turns T04 into F02, while the traffic that comes back is what restores it.
+- **Termination** starts when the owner asks, when the owner bans the node, or when the peer has not been heard from for 24 h (counted from the later of the last message and the node's start).
+  1. The peer is no longer advertised, and the connector takes no new Prepares to or from it. Responses still flow.
+  2. The side that started sends `peeringTermination`, again until a 200 or a 409 arrives or 2 min have passed. The other side answers at once and terminates too.
+  3. Once no packet is in flight with the peer and no response to it is waiting to be sent again, the peering ends. Its accounts stay, with their balances: they are the record of what is owed, and a later peering with the node uses them again without posting trust a second time.
+  4. If the exchange of step 2 completed, each side then settles everything it owes. An unresponsive peer is not settled with; the debt stays on the books.
+  5. The node does not ask the peer again for 24 h after an owner's termination, or after its usual backoff otherwise. A request from a node we are terminating with is refused with reason 9.
+- **Bans** are a list the owner keeps. A banned node is never asked, is refused with reason 8, and its messages do not confirm it as a peer. Its link states still flood.
+- **One-sided peerings.** A node that holds no peering with a sender, and is not asking for one, answers an authenticated heartbeat that lists it as a neighbor with a `peeringTermination` of reason 3, at most once per backoff period. The other side then ends its peering.
+
+**Settlement** ([5 §4.6](05-accounting-and-settlement.md), kept with the credit the peer extends; ACC-24):
+
+```
+balance    = IL.credits_posted − IL.debits_posted − IL.debits_pending     -- IL = L:assets/interledger/<peer>
+credit_out = TR.debits_posted − TR.credits_posted                          -- TR = L:contra/trust/<peer>
+midpoint   = (credit_in + credit_out) / 2                                  -- credit_in as the peer announced it
+settle balance − midpoint when balance ≥ midpoint · 1.1; on termination, settle balance − credit_out
+```
+
+- Every 4 s, for each peer with nothing in flight: no pending settlement transfer and no undelivered `settlement` message (ACC-17).
+- A settlement is prepared, booked as a durable pending transfer (Dr IL, Cr `assets/settlement`), and executed only once that transfer is on disk. A restart in between hands the scheme its pending settlements to reconcile (ACC-16).
+- Only a settlement that executed is posted and announced to the peer. A cancelled one is voided, and the node backs off settling with that peer, from 1 s up to 1 h.
+- **Delivery is exactly once.** The `settlement` message is sent again until a 200 arrives, with a backoff from 1 s up to 1 h, and is never dropped; it survives restarts. Its `sequence` belongs to the pair of nodes, not to the peering. The receiver keeps the highest sequence it applied from each sender, acknowledges anything at or below it without applying it again, and applies anything above.
+- A `settlement` is accepted from any authenticated node we hold accounts for, peered or not, so a final settlement that arrives after the peering ended is still credited. `settlementMessage` needs a peering.
+- The receiver checks that it can book the settlement before the scheme sees it, so the scheme's balance never moves without the books.
+
 **Routing.** Routing runs a breadth-first search over edges that both ends advertise and whose link states are fresh.
 - The route for `<scheme>.das.<id>` lists up to 4 first hops on shortest paths.
 - There is no route for the node's own address (NET-34). Destinations under our own address go only to our own endpoints, or get F02.
@@ -398,6 +437,13 @@ peeringTermination [10]  -- reserved; its layout comes with termination in M4b
 | Registration lifetime and renewal | 24 h and 6 h (2 min and 30 s) |
 | Removal grace | 1 h (10 s) |
 | Peering check, bridge check | 1 s, 60 s (2 s) |
+| Peer confirmed by a message within | 60 s |
+| Advertise hold-down | 30 s doubling to 1 h; reset after 1 h stable (5 s to 1 min; 1 min) |
+| Peer unresponsive after | 24 h (2 min) |
+| Termination message retries | 2 min (20 s) |
+| No new peering after an owner's termination | 24 h (5 min) |
+| Settlement check | 4 s (1 s) |
+| Settlement message retries | 1 s doubling to 1 h, never dropped (1 s to 10 s) |
 | Request body | 64 KiB |
 
 ## 5. Wallet and dashboard (Solid 2)
@@ -470,7 +516,7 @@ Every crate is written so that a simulation can drive it ([D16](08-decisions.md#
 | M1 | Core crates: `dassie-oer`, `dassie-identity`, `dassie-ilp`, `dassie-stream` | All golden vectors pass. STREAM interoperates with `ilp-protocol-stream`. WASM builds load in Deno and the browser. |
 | M2 | Node skeleton: config, DB, listeners (plain and socket-activated), TLS, ACME, setup/login/logout, RPC contract, `dassie init`/`daemon`/`verify-install` | A fresh install reaches "setup complete" in a browser with a Let's Encrypt staging cert. |
 | M3 | Ledger journal, connector, local endpoints, ILDCP, BTP, stub settlement module. Exchange-rate math and its T00 rule; the rate fetcher comes in M7 with the first second currency | A BTP client pays the node's STREAM receiver. The journal matches the packet trace. |
-| M4 | Peer protocol v1, node table, membership, registration, auto-peering, link state, routing, settlement loop. Delivered in two PRs: **M4a** (v1, membership, peering, routing, packets over peers) and **M4b** (settlement loop, the full D12 lifecycle, child peers) | The `two-nodes` and `six-nodes` scenarios converge and route payments across hops. Restarts keep peerings and balances. M4a stops at payments within the credit peers extend, with restarts that keep peerings. |
+| M4 | Peer protocol v1, node table, membership, registration, auto-peering, link state, routing, settlement loop. Delivered in two PRs: **M4a** (v1, membership, peering, routing, packets over peers) and **M4b** (settlement loop, the D12 lifecycle: termination, bans, the advertise flag) | The `two-nodes` and `six-nodes` scenarios converge and route payments across hops. Restarts keep peerings and balances. M4a stops at payments within the credit peers extend, with restarts that keep peerings; M4b pays several times the credit across hops, so every hop must settle. Child peers move to the milestone that adds registration fees ([D12](08-decisions.md#d12-peering-lifecycle-and-liveness)). |
 | M5 | Wallet (Solid 2) and dev environment (Deno) with dashboard, including BTP token spending caps | All pages of [6 §1.6](06-user-interfaces-and-tooling.md) work against M4. `deno task dev` brings up any scenario. |
 | M6 | Open Payments + SPSP, payment pointers, outgoing payments with quotes and status | Pays to and from another Open Payments/SPSP wallet. |
 | M7 | XRPL testnet module with reserve and fee accounting; the exchange-rate fetcher of D7, fees and spread | The `xrpl-settlement` and `cross-currency` scenarios settle and reconcile across restarts. |
