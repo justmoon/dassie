@@ -23,7 +23,7 @@ export {
   type ScenarioDef,
   SCENARIOS,
 } from "./scenarios.ts";
-export { type Layout, layout } from "../paths.ts";
+export { type Layout, layout, socketPath } from "../paths.ts";
 export { caFile } from "../certs.ts";
 export { until, waitForPort, waitForSocket } from "../wait.ts";
 export type { Exit } from "../process.ts";
