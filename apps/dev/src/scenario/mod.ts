@@ -1,0 +1,211 @@
+/**
+ * The scenarios of spec 6 §6.8 as real `dassie` binaries on this machine,
+ * set up through their own API. The dev environment runs them, and so do
+ * the end-to-end tests, in a directory of their own
+ * ({@linkcode Scenario.temporary}).
+ *
+ * @module
+ */
+
+import { caFile } from "../certs.ts";
+import { type Layout, layout as defaultLayout } from "../paths.ts";
+import type { Stream } from "../process.ts";
+import { identity, loadTable, type Table } from "../vanity.ts";
+import { until } from "../wait.ts";
+import { type NodeEnvironment, ScenarioNode } from "./node.ts";
+import { findScenario, MAX_NODES, type ScenarioDef } from "./scenarios.ts";
+
+export { ScenarioNode } from "./node.ts";
+export {
+  DEFAULT_SCENARIO,
+  findScenario,
+  MAX_NODES,
+  type ScenarioDef,
+  SCENARIOS,
+} from "./scenarios.ts";
+export { type Layout, layout } from "../paths.ts";
+export { caFile } from "../certs.ts";
+export { until, waitForPort, waitForSocket } from "../wait.ts";
+export type { Exit } from "../process.ts";
+
+/** How a scenario runs. */
+export interface ScenarioOptions {
+  /** The `dassie` binary. */
+  readonly dassie: string;
+  readonly layout: Layout;
+  /** Added to every port, so that environments can run side by side. */
+  readonly portOffset?: number;
+  /** More environment for every node. */
+  readonly env?: Readonly<Record<string, string>>;
+  /** Nodes left without a settlement scheme, by index. */
+  readonly withoutLedger?: readonly number[];
+  /** Each line a node prints. */
+  readonly onLine?: (node: string, stream: Stream, line: string) => void;
+}
+
+/** A running scenario. */
+export class Scenario {
+  readonly nodes: ScenarioNode[] = [];
+  #table: Table;
+  #environment: NodeEnvironment;
+  #temporary: boolean;
+
+  private constructor(
+    readonly def: ScenarioDef,
+    readonly options: ScenarioOptions,
+    environment: NodeEnvironment,
+    temporary: boolean,
+  ) {
+    this.#table = loadTable();
+    this.#environment = environment;
+    this.#temporary = temporary;
+  }
+
+  /**
+   * Starts scenario `id` and sets each node up. Data left in the layout by
+   * an earlier run of the same scenario is kept: each node resumes.
+   */
+  static async start(id: string, options: ScenarioOptions): Promise<Scenario> {
+    return await Scenario.#start(id, options, false);
+  }
+
+  /** {@linkcode start} in a new directory, deleted when it stops. */
+  static async temporary(
+    id: string,
+    options: Omit<ScenarioOptions, "layout">,
+  ): Promise<Scenario> {
+    const dir = await Deno.makeTempDir({ prefix: `dassie-${id}-` });
+    return await Scenario.#start(
+      id,
+      { ...options, layout: await defaultLayout(dir) },
+      true,
+    );
+  }
+
+  static async #start(
+    id: string,
+    options: ScenarioOptions,
+    temporary: boolean,
+  ): Promise<Scenario> {
+    const def = findScenario(id);
+    if (!def) throw new Error(`no scenario ${id}`);
+    if (def.unavailable) throw new Error(`${id} ${def.unavailable}`);
+    const ca = await caFile(options.layout.tls);
+    const environment: NodeEnvironment = {
+      dassie: options.dassie,
+      layout: options.layout,
+      caFile: ca,
+      portOffset: options.portOffset ?? 0,
+      env: options.env ?? {},
+      onLine: options.onLine,
+    };
+    const scenario = new Scenario(def, options, environment, temporary);
+    try {
+      for (let index = 0; index < def.schemes.length; index++) {
+        await scenario.#startNode(index, def.schemes[index]);
+      }
+    } catch (error) {
+      await scenario.stop();
+      throw error;
+    }
+    return scenario;
+  }
+
+  /** The CA the nodes' certificates come from. */
+  get caFile(): string {
+    return this.#environment.caFile;
+  }
+
+  /** The bootstrap nodes, as `DASSIE_BOOTSTRAP_NODES` names them. */
+  #bootstrapNodes(): string {
+    return JSON.stringify(
+      this.def.bootstrap.map((index) => {
+        const node = new ScenarioNode(
+          identity(this.#table, index),
+          this.#environment,
+        );
+        return node.bootstrapEntry();
+      }),
+    );
+  }
+
+  async #startNode(
+    index: number,
+    schemes: readonly string[],
+  ): Promise<ScenarioNode> {
+    if (index >= MAX_NODES) throw new Error(`at most ${MAX_NODES} nodes`);
+    const node = new ScenarioNode(
+      identity(this.#table, index),
+      this.#environment,
+      { DASSIE_BOOTSTRAP_NODES: this.#bootstrapNodes() },
+    );
+    this.nodes.push(node);
+    await node.start();
+    const withoutLedger = this.options.withoutLedger?.includes(index);
+    await node.setUp(withoutLedger ? [] : schemes);
+    return node;
+  }
+
+  /** Starts one more node, with the scenario's schemes for added nodes. */
+  async addNode(): Promise<ScenarioNode> {
+    return await this.#startNode(this.nodes.length, this.def.addedSchemes);
+  }
+
+  /**
+   * Stops every node; the output of those that did not exit cleanly. A
+   * temporary scenario's files are deleted.
+   */
+  async stop(): Promise<string[]> {
+    const failures: string[] = [];
+    for (const node of this.nodes) {
+      const exit = await node.stop();
+      if (exit && exit.code !== 0) {
+        failures.push(`${node.name} exited ${exit.code}:\n${exit.output}`);
+      }
+    }
+    if (this.#temporary) {
+      const { state, sockets } = this.options.layout;
+      await Deno.remove(state, { recursive: true }).catch(() => {});
+      await Deno.remove(sockets, { recursive: true }).catch(() => {});
+    }
+    return failures;
+  }
+
+  /** Waits until `done` holds, polling. */
+  until(
+    what: string,
+    done: () => Promise<boolean>,
+    timeoutMs?: number,
+  ): Promise<void> {
+    return until(what, done, timeoutMs);
+  }
+
+  /**
+   * Whether the network has converged: every node knows every other's link
+   * state, has a route to each, and as many peers as it looks for.
+   */
+  async converged(): Promise<boolean> {
+    const count = this.nodes.length;
+    for (const node of this.nodes) {
+      const { routes } = await node.rpc.call("listRoutes", {});
+      const { peers } = await node.rpc.call("listPeers", {});
+      if (routes.length < count - 1) return false;
+      if (peers.length < Math.min(2, count - 1)) return false;
+    }
+    return true;
+  }
+
+  /** Each node's peers, by node name. */
+  async peerings(): Promise<Map<string, string[]>> {
+    const byId = new Map(this.nodes.map((node) => [node.id, node.name]));
+    const peerings = new Map<string, string[]>();
+    for (const node of this.nodes) {
+      const { peers } = await node.rpc.call("listPeers", {});
+      peerings.set(
+        node.name,
+        peers.map((peer) => byId.get(peer.node) ?? peer.node).sort(),
+      );
+    }
+    return peerings;
+  }
+}

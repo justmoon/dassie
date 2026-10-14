@@ -1,7 +1,7 @@
 // Milestone M5a's done criterion (spec 7 §8): every page of the wallet
 // (spec 6 §1.6, but Send and payment status, which come with M6) works
 // against real nodes. A `two-nodes` scenario runs, and a headless browser
-// signed in to `d0` goes through the pages; live data must arrive without a
+// signed in to `d1` goes through the pages; live data must arrive without a
 // reload. `DASSIE_E2E_WALLET_DIR` serves a wallet build other than the one
 // embedded in the binary, for working on the wallet, and
 // `DASSIE_E2E_SCREENSHOTS` names a directory for a picture of each step.
@@ -11,8 +11,13 @@ import { encodeHex } from "@std/encoding/hex";
 import { loginSecret } from "@dassie/identity-wasm";
 import type { Page } from "@astral/astral";
 import { attribute, click, count, text, type, until } from "./browser.ts";
-import { missingTools, startBrowser } from "./harness.ts";
-import { Scenario, type ScenarioNode } from "./scenarios.ts";
+import {
+  DASSIE,
+  missingTools,
+  SCENARIO_PORT_OFFSET,
+  startBrowser,
+} from "./harness.ts";
+import { Scenario, type ScenarioNode } from "@dassie/dev/scenario";
 
 const missing = await missingTools();
 if (missing) console.warn(`skipping the wallet tests: ${missing}`);
@@ -67,18 +72,22 @@ Deno.test({
   sanitizeResources: false,
   sanitizeOps: false,
   async fn(t) {
-    const scenario = await Scenario.start("two-nodes", { env });
+    const scenario = await Scenario.temporary("two-nodes", {
+      dassie: DASSIE,
+      portOffset: SCENARIO_PORT_OFFSET,
+      env,
+    });
     const dir = await Deno.makeTempDir({ prefix: "dassie-wallet-" });
     const browser = await startBrowser(dir);
     try {
       await scenario.until("the nodes peer", () => scenario.converged());
-      const [d0, d1] = scenario.nodes;
+      const [d1, d2] = scenario.nodes;
       const page = await browser.newPage();
       const errors = watchErrors(page);
-      await signIn(page, d0);
+      await signIn(page, d1);
 
       await t.step("the dashboard follows the balance live", async () => {
-        assertEquals(await text(page, "payment-pointer"), "$localhost");
+        assertEquals(await text(page, "payment-pointer"), `$${d1.hostname}`);
         assertEquals(
           await attribute(page, "balance-stub+usd", "data-value"),
           "100000000000",
@@ -96,7 +105,7 @@ Deno.test({
           "status",
         );
         // A deposit made elsewhere shows without a reload.
-        await d0.rpc.call("stubDeposit", { amount: 5_000_000_000n });
+        await d1.rpc.call("stubDeposit", { amount: 5_000_000_000n });
         await until(
           page,
           "the deposit shows",
@@ -122,7 +131,7 @@ Deno.test({
           await click(page, "stream-credentials");
           assertMatch(await text(page, "stream-destination"), /^test\.das\./);
           // A change of balance does not take the credentials away.
-          await d0.rpc.call("stubDeposit", { amount: 1n });
+          await d1.rpc.call("stubDeposit", { amount: 1n });
           await new Promise((resolve) => setTimeout(resolve, 1_500));
           assertEquals(await count(page, "stream-destination"), 1);
           await picture(page, "02-receive");
@@ -130,7 +139,7 @@ Deno.test({
       );
 
       await t.step("ledgers: a peered ledger cannot be removed", async () => {
-        await visit(page, d0, "/ledgers");
+        await visit(page, d1, "/ledgers");
         await text(page, "ledger-stub+usd");
         await picture(page, "03-ledgers");
         await click(page, "ledger-delete-stub");
@@ -152,7 +161,7 @@ Deno.test({
       await t.step(
         "network: the graph, the listing and a peer's details",
         async () => {
-          await visit(page, d0, "/network");
+          await visit(page, d1, "/network");
           await until(
             page,
             "two nodes drawn",
@@ -162,16 +171,16 @@ Deno.test({
             ) => n === 2,
           );
           assertEquals(await count(page, "graph-link"), 1);
-          await click(page, `node-row-${d1.id}`);
+          await click(page, `node-row-${d2.id}`);
           assertEquals(await text(page, "peer-state"), "peered");
-          assertEquals(await text(page, "node-url"), d1.url);
+          assertEquals(await text(page, "node-url"), d2.url);
           await picture(page, "04-network");
         },
       );
 
       await t.step("register: renewing now", async () => {
-        await visit(page, d0, "/network/register");
-        await click(page, `renew-${d1.id}`);
+        await visit(page, d1, "/network/register");
+        await click(page, `renew-${d2.id}`);
         assertEquals(await text(page, "toast-title"), "Registration sent");
         await picture(page, "05-register");
       });
@@ -179,16 +188,16 @@ Deno.test({
       await t.step(
         "settings: alias, sessions, and a capped token",
         async () => {
-          await visit(page, d0, "/settings");
-          assertEquals(await text(page, "settings-node-id"), d0.id);
+          await visit(page, d1, "/settings");
+          assertEquals(await text(page, "settings-node-id"), d1.id);
           await text(page, "session-current");
           await type(page, "alias-input", "alpha");
           await click(page, "alias-save");
           // The peer hears of it through the link state.
-          await scenario.until("d1 sees the alias", async () => {
-            const { nodes } = await d1.rpc.call("listNodes", {});
+          await scenario.until("d2 sees the alias", async () => {
+            const { nodes } = await d2.rpc.call("listNodes", {});
             return nodes.some((node) =>
-              node.id === d0.id && node.alias === "alpha"
+              node.id === d1.id && node.alias === "alpha"
             );
           });
           await type(page, "token-label", "shop");
@@ -198,7 +207,7 @@ Deno.test({
           assertMatch(await text(page, "new-token-url"), /^btp\+wss:\/\/:/);
           await picture(page, "06-new-token");
           await click(page, "new-token-close");
-          const { tokens } = await d0.rpc.call("listBtpTokens", {});
+          const { tokens } = await d1.rpc.call("listBtpTokens", {});
           assertEquals(tokens[0].cap?.amount, 1_000_000_000n);
           assertMatch(
             await text(page, `btp-token-cap-${tokens[0].id}`),
@@ -242,7 +251,7 @@ Deno.test({
       });
 
       await t.step("debug pages show the node", async () => {
-        await visit(page, d0, "/debug/logs");
+        await visit(page, d1, "/debug/logs");
         await until(
           page,
           "log lines",
@@ -250,9 +259,9 @@ Deno.test({
           (n) => n > 0,
         );
         await picture(page, "09-logs");
-        await visit(page, d0, "/debug/nodes");
-        await text(page, `debug-node-${d1.id}`);
-        await visit(page, d0, "/debug/ledger");
+        await visit(page, d1, "/debug/nodes");
+        await text(page, `debug-node-${d2.id}`);
+        await visit(page, d1, "/debug/ledger");
         await click(page, "account-link-stub+usd:equity/owner");
         await until(
           page,
@@ -269,7 +278,7 @@ Deno.test({
           () => text(page, "account-path"),
           (path) => path === "assets/settlement",
         );
-        await visit(page, d0, "/debug/routing");
+        await visit(page, d1, "/debug/routing");
         await until(
           page,
           "a route",
@@ -277,19 +286,19 @@ Deno.test({
           (n) => n === 1,
         );
         await picture(page, "11-routing");
-        await visit(page, d0, "/debug/state");
+        await visit(page, d1, "/debug/state");
         await text(page, "service-engine");
         await picture(page, "12-state");
-        await visit(page, d0, "/debug/database");
+        await visit(page, d1, "/debug/database");
         await click(page, "db-table-node_config");
         await until(page, "a row", () => count(page, "db-row"), (n) => n === 1);
         await picture(page, "13-database");
-        await visit(page, d0, "/debug/packets");
+        await visit(page, d1, "/debug/packets");
         await text(page, "debug-packets");
       });
 
       await t.step("ending a peering, and a ban", async () => {
-        await visit(page, d0, `/network/${d1.id}`);
+        await visit(page, d1, `/network/${d2.id}`);
         await click(page, "terminate-peering");
         await click(page, "terminate-peering-confirm");
         await until(page, "terminating", () => text(page, "peer-state"), (
@@ -324,7 +333,9 @@ Deno.test({
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    const scenario = await Scenario.start("one-node", {
+    const scenario = await Scenario.temporary("one-node", {
+      dassie: DASSIE,
+      portOffset: SCENARIO_PORT_OFFSET,
       env,
       withoutLedger: [0],
     });

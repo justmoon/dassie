@@ -7,6 +7,9 @@
  */
 
 import { launch } from "@astral/astral";
+import { waitForPort } from "@dassie/dev/scenario";
+
+export { waitForPort, waitForSocket } from "@dassie/dev/scenario";
 
 const root = new URL("../../", import.meta.url).pathname;
 
@@ -49,11 +52,42 @@ export async function findChrome(): Promise<string | undefined> {
 export async function missingTools(): Promise<string | undefined> {
   const missing = [];
   for (
-    const tool of ["pebble", "pebble-challtestsrv", "systemd-socket-activate"]
+    const tool of [
+      "pebble",
+      "pebble-challtestsrv",
+      "systemd-socket-activate",
+      "mkcert",
+    ]
   ) {
     if (!(await which(tool))) missing.push(tool);
   }
   if (!(await findChrome())) missing.push("Chrome (CHROME_BIN)");
+  try {
+    await Deno.stat(DASSIE);
+  } catch {
+    missing.push(`${DASSIE} (deno task build:e2e)`);
+  }
+  if (missing.length === 0) return undefined;
+  const reason = `missing ${missing.join(", ")}`;
+  if (Deno.env.get("CI")) {
+    throw new Error(`end-to-end tests cannot run: ${reason}`);
+  }
+  return reason;
+}
+
+/**
+ * The ports of the scenarios' nodes are moved by this much, away from the
+ * dev environment's (d1 has 18001 and 19001).
+ */
+export const SCENARIO_PORT_OFFSET = 14_000;
+
+/**
+ * Why the scenario tests cannot run here, if they cannot: they need the
+ * binary, and mkcert for the nodes' certificates.
+ */
+export async function missingScenarioTools(): Promise<string | undefined> {
+  const missing = [];
+  if (!(await which("mkcert"))) missing.push("mkcert");
   try {
     await Deno.stat(DASSIE);
   } catch {
@@ -114,46 +148,6 @@ export class Process {
     const { code, stdout, stderr } = await this.#output;
     const decoder = new TextDecoder();
     return { code, output: decoder.decode(stdout) + decoder.decode(stderr) };
-  }
-}
-
-/** Waits until a TCP port accepts connections. */
-export async function waitForPort(
-  port: number,
-  timeoutMs = 15_000,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    try {
-      (await Deno.connect({ hostname: "127.0.0.1", port })).close();
-      return;
-    } catch (error) {
-      if (Date.now() > deadline) {
-        throw new Error(`port ${port} did not open: ${error}`);
-      }
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-  }
-}
-
-/**
- * Waits until the daemon publishes its IPC socket. It binds its TCP ports
- * first and publishes the socket only once it answers, so an open port does
- * not mean the socket is there yet.
- */
-export async function waitForSocket(
-  path: string,
-  timeoutMs = 15_000,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const found = await Deno.stat(path).then(
-      (info) => info.isSocket,
-      () => false,
-    );
-    if (found) return;
-    if (Date.now() > deadline) throw new Error(`${path} did not appear`);
-    await new Promise((resolve) => setTimeout(resolve, 50));
   }
 }
 

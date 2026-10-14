@@ -10,7 +10,7 @@
 import { encodeHex } from "@std/encoding/hex";
 
 /** The repository's root. */
-export const ROOT = new URL("../../../", import.meta.url).pathname;
+export const ROOT: string = new URL("../../../", import.meta.url).pathname;
 
 /**
  * The longest socket path that works everywhere: `sun_path` holds 104 bytes

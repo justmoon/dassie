@@ -127,7 +127,10 @@ export function dashboardCertificate(dir: string): Promise<Certificate> {
  * A node's certificate: its name, and `localhost`, at which the dev server
  * sets it up without resolving `dN.localhost` itself.
  */
-export function nodeCertificate(dir: string, name: string) {
+export function nodeCertificate(
+  dir: string,
+  name: string,
+): Promise<Certificate> {
   return certificate(dir, `${name}.localhost`, [
     `${name}.localhost`,
     "localhost",

@@ -2,7 +2,6 @@
   "name": "@dassie/dev",
   "version": "0.0.0",
   "exports": {
-    ".": "./main.ts",
     "./scenario": "./src/scenario/mod.ts"
   },
   "imports": {
