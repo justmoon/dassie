@@ -209,6 +209,7 @@ Deno.test({
     let daemon = startDaemon(dir);
     const connect = ipcConnector(`${dir}/ipc.sock`);
     let owner: RpcClient | undefined;
+    let passed = false;
     try {
       await waitForPort(HTTPS_PORT);
       owner = new RpcClient({ url: "ipc", connect });
@@ -255,10 +256,12 @@ Deno.test({
       const [restarted] = (await waitForLedger(owner)).ledgers;
       assertEquals(restarted, ledger);
       assertEquals(await journal(owner), books);
+      passed = true;
     } finally {
       owner?.close();
       const { code, output } = await daemon.stop();
-      if (code !== 0) console.error(output);
+      // What the node said, to tell why a test failed.
+      if (code !== 0 || !passed) console.error(output);
       await Deno.remove(dir, { recursive: true });
     }
   },
