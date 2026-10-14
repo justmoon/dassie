@@ -19,6 +19,8 @@ export function NetworkGraph(props: {
   selected?: string;
   onSelect?: (id: string) => void;
   hrefFor: (id: string) => string;
+  /** Links with traffic just now, drawn highlighted (the dev dashboard). */
+  active?: (link: Link) => boolean;
 }): JSX.Element {
   const layout = new Layout();
   const [frame, setFrame] = createSignal(0);
@@ -68,7 +70,7 @@ export function NetworkGraph(props: {
       <For each={props.links}>
         {(link) => (
           <line
-            class="graph-link"
+            class={props.active?.(link) ? "graph-link active" : "graph-link"}
             data-testid="graph-link"
             x1={at(link.a).x}
             y1={at(link.a).y}

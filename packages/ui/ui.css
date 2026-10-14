@@ -605,6 +605,13 @@ meter {
 .graph-link {
   stroke: var(--line);
   stroke-width: 1.5;
+  transition: stroke 0.4s, stroke-width 0.4s;
+}
+
+.graph-link.active {
+  stroke: var(--accent);
+  stroke-width: 3;
+  transition: none;
 }
 
 .graph-node-group {
@@ -731,6 +738,16 @@ meter {
 
 .log-level {
   width: 3.5em;
+}
+
+.log-source {
+  flex: none;
+  width: 3.5em;
+}
+
+.log-source a,
+.log-message a {
+  color: inherit;
 }
 
 .log-debug {

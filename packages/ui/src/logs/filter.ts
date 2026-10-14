@@ -25,15 +25,19 @@ export function parseFilter(text: string): Filter {
   return { include, exclude };
 }
 
-function haystack(line: LogLine): string {
+function haystack(line: LogLine, source: string): string {
   const fields = line.fields.map((field) => `${field.name}=${field.value}`);
-  return [line.target, line.message, ...fields].join(" ").toLowerCase();
+  return [source, line.target, line.message, ...fields].join(" ")
+    .toLowerCase();
 }
 
-/** Whether `line` passes `filter`. */
-export function matches(line: LogLine, filter: Filter): boolean {
+/**
+ * Whether `line` passes `filter`; its source, where lines have one (the dev
+ * dashboard's node names), counts as part of it.
+ */
+export function matches(line: LogLine, filter: Filter, source = ""): boolean {
   if (filter.include.length === 0 && filter.exclude.length === 0) return true;
-  const text = haystack(line);
+  const text = haystack(line, source);
   return filter.include.every((word) => text.includes(word)) &&
     !filter.exclude.some((word) => text.includes(word));
 }
@@ -51,4 +55,23 @@ export function visibleRange(
   const start = Math.max(0, first - overscan);
   const end = Math.min(count, first + visible + overscan);
   return { start, end: Math.max(start, end) };
+}
+
+/** A piece of a log message: text, or a dev node's vanity ID. */
+export type Piece = string | { readonly id: string; readonly name: string };
+
+/**
+ * `text` with the dev nodes' vanity IDs (`d12_…`) picked out, so the dev
+ * dashboard can show them as links named `d12` (spec 6 §2).
+ */
+export function splitIds(text: string): Piece[] {
+  const pieces: Piece[] = [];
+  let last = 0;
+  for (const match of text.matchAll(/\b(d[1-9]\d{0,3})_[\w-]{25,30}\b/g)) {
+    if (match.index > last) pieces.push(text.slice(last, match.index));
+    pieces.push({ id: match[0], name: match[1] });
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) pieces.push(text.slice(last));
+  return pieces;
 }

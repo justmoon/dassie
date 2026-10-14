@@ -1,0 +1,139 @@
+/*
+ * The dashboard's own rules: its frame. The theme and the shared
+ * components' rules come from `@dassie/ui/ui.css`, imported first.
+ */
+
+@import "@dassie/ui/ui.css";
+
+.dev-shell {
+  display: grid;
+  grid-template-columns: 16rem minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.dev-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+}
+
+.dev-brand {
+  margin: 0 0 8px;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.dev-brand-suffix {
+  color: #84cc16;
+}
+
+.dev-links,
+.dev-nodes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dev-links a,
+.dev-nodes a {
+  display: block;
+  padding: 4px 8px;
+  color: var(--text);
+  text-decoration: none;
+  border-radius: var(--radius);
+}
+
+.dev-links a[aria-current="page"],
+.dev-nodes a[aria-current="page"] {
+  background: var(--surface-2);
+  font-weight: 600;
+}
+
+.dev-nodes li {
+  display: flex;
+  align-items: center;
+}
+
+.dev-nodes li > a:first-child {
+  flex: 1;
+}
+
+.dev-nodes .wallet-link {
+  flex: none;
+}
+
+.dev-nodes-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.dev-nodes-head h2 {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+button.icon {
+  padding: 2px 10px;
+}
+
+.dot {
+  display: inline-block;
+  vertical-align: middle;
+  background: currentColor;
+}
+
+.node-state {
+  font-size: 0.8rem;
+}
+
+.state-5 {
+  color: var(--danger);
+}
+
+.dev-sidebar-foot {
+  margin-top: auto;
+}
+
+.theme-toggle {
+  padding: 4px 10px;
+  border-color: transparent;
+}
+
+.banner {
+  margin: 0 0 16px;
+  padding: 8px 16px;
+  background: var(--warning-bg);
+  border: 1px solid var(--warning-line);
+  border-radius: var(--radius);
+}
+
+.node-head,
+.scenario-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.scenario.current {
+  border-color: var(--accent);
+}
+
+@media (max-width: 720px) {
+  .dev-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dev-sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
+}
