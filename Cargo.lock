@@ -446,6 +446,7 @@ dependencies = [
  "curve25519-dalek",
  "dassie-oer",
  "ed25519-dalek",
+ "ed25519-zebra",
  "getrandom 0.4.3",
  "hmac",
  "pbkdf2",
@@ -634,6 +635,20 @@ checksum = "6ebaa1a2bf1290ab3bfe5a7b771d050ebffab2711c19a81691c683a5144a25de"
 dependencies = [
  "curve25519-dalek",
  "ed25519",
+ "sha2",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "ed25519-zebra"
+version = "5.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa764ad1bb0a84aaed1575b6d426ce927f610225bd9aeee88d02e08a6fea8215"
+dependencies = [
+ "curve25519-dalek",
+ "ed25519",
+ "rand_core",
  "sha2",
  "subtle",
  "zeroize",

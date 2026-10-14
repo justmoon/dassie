@@ -2,7 +2,7 @@
 
 use core::fmt;
 
-use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 use sha2::{Digest, Sha512};
 use zeroize::Zeroize;
 
@@ -45,15 +45,22 @@ secret_bytes!(
 /// original (spec 3 §2.1).
 pub struct NodeKey {
     signing: SigningKey,
+    public: PublicKey,
 }
 
 impl NodeKey {
     /// The key with Ed25519 seed `seed`.
     #[must_use]
     pub fn from_bytes(seed: &[u8; 32]) -> Self {
-        Self {
-            signing: SigningKey::from_bytes(seed),
-        }
+        let signing = SigningKey::from_bytes(seed);
+        // The same derivation (RFC 8032) in the verifying library, so that
+        // no fallible decoding of our own key is needed.
+        let zip215 = ed25519_zebra::VerificationKey::from(&ed25519_zebra::SigningKey::from(*seed));
+        let public = PublicKey {
+            key: signing.verifying_key(),
+            zip215,
+        };
+        Self { signing, public }
     }
 
     /// The Ed25519 seed (the "raw private key" of spec 3 §2.1).
@@ -65,15 +72,13 @@ impl NodeKey {
     /// The public key.
     #[must_use]
     pub fn public_key(&self) -> PublicKey {
-        PublicKey {
-            key: self.signing.verifying_key(),
-        }
+        self.public
     }
 
     /// The node ID of the public key.
     #[must_use]
     pub fn node_id(&self) -> NodeId {
-        NodeId::from_public_key(self.signing.verifying_key().as_bytes())
+        self.public.node_id()
     }
 
     /// Signs `message`.
@@ -125,24 +130,51 @@ impl fmt::Debug for NodeKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // The public half identifies the key without revealing it.
         f.debug_struct("NodeKey")
-            .field("public_key", &Hex(self.signing.verifying_key().as_bytes()))
+            .field("public_key", &Hex(self.public.as_bytes()))
             .finish_non_exhaustive()
     }
 }
 
 /// An Ed25519 public key, decompressed once so that verifying many messages
 /// from the same peer does not repeat the work.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy)]
 pub struct PublicKey {
     key: VerifyingKey,
+    /// The same key for ZIP-215 verification.
+    zip215: ed25519_zebra::VerificationKey,
+}
+
+impl PartialEq for PublicKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_bytes() == other.as_bytes()
+    }
+}
+
+impl Eq for PublicKey {}
+
+impl core::hash::Hash for PublicKey {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.as_bytes().hash(state);
+    }
 }
 
 impl PublicKey {
-    /// Parses a 32-byte compressed Edwards point.
+    /// Parses a 32-byte compressed Edwards point. Non-canonical encodings
+    /// are accepted, as ZIP-215 accepts them; the node ID is computed over
+    /// the bytes as given.
     pub fn from_bytes(bytes: &[u8; 32]) -> Result<Self, Error> {
-        VerifyingKey::from_bytes(bytes)
-            .map(|key| Self { key })
-            .map_err(|_| Error::InvalidPublicKey)
+        let key = VerifyingKey::from_bytes(bytes).map_err(|_| Error::InvalidPublicKey)?;
+        let zip215 = ed25519_zebra::VerificationKey::try_from(*bytes)
+            .map_err(|_| Error::InvalidPublicKey)?;
+        Ok(Self { key, zip215 })
+    }
+
+    /// Whether the key is a point of small order. Under ZIP-215 a signature
+    /// with `s = 0` and a small-order `R` verifies for every message under
+    /// such a key, so it proves nothing; link states refuse these keys.
+    #[must_use]
+    pub fn is_weak(&self) -> bool {
+        self.key.is_weak()
     }
 
     /// The 32 bytes as received, which is what node IDs and signatures are
@@ -158,16 +190,16 @@ impl PublicKey {
         NodeId::from_public_key(self.as_bytes())
     }
 
-    /// Verifies `signature` over `message`.
-    ///
-    /// This is the lenient (cofactored, ZIP-215-style) check the original
-    /// performed, deliberately not `verify_strict`: being stricter than the
-    /// rest of the network could split it on edge-case signatures (spec 8
-    /// §2).
+    /// Verifies `signature` over `message` by the ZIP-215 rules (spec 8
+    /// §2): cofactored, accepting non-canonical encodings of `R` and of the
+    /// key, requiring a canonical `s`. These rules are exactly specified, so
+    /// every implementation can agree on every signature, edge cases
+    /// included; ed25519-dalek's own `verify` is cofactorless and would
+    /// refuse some signatures that ZIP-215 accepts.
     pub fn verify(&self, message: &[u8], signature: &Signature) -> Result<(), Error> {
-        let signature = ed25519_dalek::Signature::from_bytes(&signature.0);
-        self.key
-            .verify(message, &signature)
+        let signature = ed25519_zebra::Signature::from_bytes(&signature.0);
+        self.zip215
+            .verify(&signature, message)
             .map_err(|_| Error::InvalidSignature)
     }
 
