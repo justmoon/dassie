@@ -1,0 +1,143 @@
+syntax = "proto3";
+
+package dassie.dev.v1;
+
+import "dassie/ui/v1/inspect.proto";
+
+// The dev environment's control channel (spec 7 §6): between the dev
+// server (apps/dev) and its dashboard, over one WebSocket at `/control` on
+// the dashboard's own origin. Each binary message is one ServerMessage or
+// ClientMessage, of at most 1 MiB.
+//
+// The dev server sends State whenever it changes, and the logs, peerings
+// and traffic it gathers from the nodes' own RPC. The first messages on a
+// new connection are State, Logs with `reset`, and Peerings.
+
+message ServerMessage {
+  oneof message {
+    State state = 1;
+    Logs logs = 2;
+    Peerings peerings = 3;
+    Traffic traffic = 4;
+  }
+}
+
+message State {
+  // The scenario running, for example "two-nodes".
+  string scenario = 1;
+  repeated Scenario scenarios = 2;
+  // The nodes of the scenario and those added, by index.
+  repeated Node nodes = 3;
+  Build build = 4;
+  // Whether the SNI proxy runs on 443; links go through it then.
+  bool proxy = 5;
+}
+
+message Scenario {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  // Whether it can run yet; if not, `unavailable` says why.
+  bool available = 4;
+  string unavailable = 5;
+}
+
+enum NodeState {
+  NODE_STATE_UNSPECIFIED = 0;
+  // The process is starting.
+  NODE_STATE_STARTING = 1;
+  // It answers, and is being set up.
+  NODE_STATE_SETTING_UP = 2;
+  NODE_STATE_RUNNING = 3;
+  NODE_STATE_STOPPED = 4;
+  // It exited or could not be set up; `last_error` says how.
+  NODE_STATE_FAILED = 5;
+}
+
+message Node {
+  // The short name, "d1" for the first.
+  string name = 1;
+  // Its node ID, from the vanity table.
+  string id = 2;
+  // Its URL, for example "https://d1.localhost:5001".
+  string url = 3;
+  NodeState state = 4;
+  // The proof that logs its owner in, as hex: for the wallet links.
+  string login_proof_hex = 5;
+  // The end of its output when it failed, cut at 4 KiB.
+  string last_error = 6;
+}
+
+enum BuildState {
+  BUILD_STATE_UNSPECIFIED = 0;
+  // The last build of the node binary succeeded.
+  BUILD_STATE_IDLE = 1;
+  BUILD_STATE_BUILDING = 2;
+  // It failed; the nodes keep running the binary built before.
+  BUILD_STATE_FAILED = 3;
+}
+
+message Build {
+  BuildState state = 1;
+  // Where it failed, cut at 8 KiB.
+  string error_excerpt = 2;
+  // When it ended; 0 while none has.
+  int64 finished_at_unix_ms = 3;
+}
+
+// Log lines of the dev server and its nodes, oldest first.
+message Logs {
+  // Set on the first message: what the dev server holds now (its last
+  // 10,000 lines at most).
+  bool reset = 1;
+  repeated SourcedLogLine lines = 2;
+}
+
+message SourcedLogLine {
+  // "host" for the dev server, or a node's short name.
+  string source = 1;
+  dassie.ui.v1.LogLine line = 2;
+}
+
+// Each node's peers, by short name, sent whole when they change.
+message Peerings {
+  map<string, PeerList> peers = 1;
+}
+
+message PeerList {
+  repeated string peers = 1;
+}
+
+// ILP packets that went between peers since the last message.
+message Traffic {
+  repeated Hop hops = 1;
+}
+
+message Hop {
+  // Short names.
+  string from = 1;
+  string to = 2;
+}
+
+message ClientMessage {
+  oneof message {
+    SetScenario set_scenario = 1;
+    AddNode add_node = 2;
+    RestartNodes restart_nodes = 3;
+    Reset reset = 4;
+  }
+}
+
+// Stops every node, wipes their data and starts the scenario.
+message SetScenario {
+  string id = 1;
+}
+
+// Starts one more node, which joins the scenario's network.
+message AddNode {}
+
+// Restarts every node, keeping its data.
+message RestartNodes {}
+
+// Starts the scenario again from scratch.
+message Reset {}

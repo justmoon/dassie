@@ -1,12 +1,13 @@
 /**
- * Regenerates src/gen from proto/dassie/ui/v1 (with buf and protoc-gen-es,
- * per proto/buf.gen.yaml), and records the contract's hash so that the
- * drift test notices a contract change that was not regenerated.
+ * Regenerates src/gen from proto/dassie/ui/v1 and proto/dassie/dev/v1 (with
+ * buf and protoc-gen-es, per proto/buf.gen.yaml), and records each
+ * contract's hash so that the drift test notices a contract change that was
+ * not regenerated.
  *
  * Run from packages/rpc: `deno task gen` (needs the network once, for buf).
  */
 
-import { contractHash } from "./hash.ts";
+import { contractHash, CONTRACTS } from "./hash.ts";
 
 const protoDir = new URL("../../../proto/", import.meta.url);
 const genDir = new URL("../src/gen/", import.meta.url);
@@ -21,7 +22,9 @@ const buf = new Deno.Command(Deno.execPath(), {
 const { success } = await buf.output();
 if (!success) Deno.exit(1);
 
-await Deno.writeTextFile(
-  new URL("dassie/ui/v1/contract.sha256", genDir),
-  (await contractHash()) + "\n",
-);
+for (const contract of CONTRACTS) {
+  await Deno.writeTextFile(
+    new URL(`${contract}/contract.sha256`, genDir),
+    (await contractHash(contract)) + "\n",
+  );
+}

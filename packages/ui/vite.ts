@@ -22,6 +22,7 @@ import manifest from "./deno.json" with { type: "json" };
 const OTHERS = [
   "@dassie/rpc",
   "@dassie/rpc/proto",
+  "@dassie/rpc/dev",
   "@dassie/identity-wasm/web",
 ];
 
