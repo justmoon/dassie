@@ -235,7 +235,7 @@ Mainnet stays disabled until the [D8](08-decisions.md#d8-real-money) criteria ar
 - **The payer** debits `L:equity/owner/local/pay`, a sub-account in the owner's group, so the group's limit is the outgoing payments' limit too. Grant limits are checked when an outgoing payment is created, not by the connector.
   - Each outgoing payment that is sending has one STREAM connection; at most 16 send at once, and the rest wait their turn.
   - A payment to the node's own receiver goes through the connector like any other, through a bounded queue drained at the end of the step, so nothing recurses.
-  - A payment completes once it has sent its debit amount, and fails when the receiver refuses it for good or 10 minutes after it was created. What it did not send is released from its grant's window.
+  - A payment completes once it has sent its debit amount, or once its receiver says it has all it asked for; it fails when the receiver keeps refusing it, or 10 minutes after it was created. It ends only with none of its packets in flight. What it did not send is released from its grant's window.
 
 **Spending caps.** A BTP token may carry a cap of `A` per window `W`, refilling continuously.
 - **What counts** is a packet that debits the token's account and credits an account outside the owner's group: a peer, or `revenue/fx`. A payment to the node's own receiver, or to another token's client, moves no money out of the owner's funds and does not count.
