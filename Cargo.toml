@@ -8,6 +8,7 @@ members = [
   "crates/dassie-node",
   "crates/dassie-node-core",
   "crates/dassie-oer",
+  "crates/dassie-peer",
   "crates/dassie-settlement",
   "crates/dassie-stream",
 ]

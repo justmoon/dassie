@@ -319,6 +319,8 @@ A sender uses one session per destination and starts a new one every hour. The r
   - Each subject may issue at most 8 states in a burst, then one per 5 s; the excess is neither stored nor forwarded.
   - A node's own sequence is `max(now, last + 1)` with the last value persisted (NET-7). It is re-issued when its neighbors, schemes, URL or alias change (NET-6), and every hour (NET-5).
 - **Requests:** `linkStateRequest` carries at most 16 distinct node IDs.
+- **Scheme IDs:** `SettlementSchemeId` is at most 64 characters, down from 128. The alphabet is unchanged.
+- **Public key:** the `publicKey` field is exactly 32 bytes.
 
 **Changed messages.**
 

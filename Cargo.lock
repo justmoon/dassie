@@ -543,6 +543,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "dassie-peer"
+version = "0.1.0"
+dependencies = [
+ "dassie-identity",
+ "dassie-node-core",
+ "dassie-oer",
+ "proptest",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "dassie-settlement"
 version = "0.1.0"
 dependencies = [

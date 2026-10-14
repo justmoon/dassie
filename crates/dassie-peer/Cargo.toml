@@ -1,0 +1,18 @@
+[package]
+name = "dassie-peer"
+version = "0.1.0"
+description = "Dassie's peer protocol v1 as a sans-IO state machine: wire format, authentication, node table, link state, membership, peering and routing"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+dassie-identity = { path = "../dassie-identity" }
+dassie-oer = { path = "../dassie-oer", default-features = false, features = ["alloc"] }
+sha2 = { version = "0.11", default-features = false }
+
+[dev-dependencies]
+dassie-node-core = { path = "../dassie-node-core", features = ["testing"] }
+proptest = "1.12"
+serde_json = "1.0.154"
