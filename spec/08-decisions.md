@@ -246,7 +246,7 @@ Revised on 2026-10-14; it first served SPSP and deferred GNAP, quotes and outgoi
 - **Facts:** the internal timeout is 5 s, independent of the packet expiry (up to 30 s), so fulfills that arrive late are lost (ILP-1). Invalid fulfills are dropped (ILP-2).
 - **Decision:**
   - Time out at the outgoing packet's expiry.
-  - Reject invalid fulfillments with F05 at once, and stop waiting.
+  - Reject invalid fulfillments with F05 at once, and stop waiting. From a peer, a fulfillment that does not match the packet in flight with that request ID is treated as a stale resend instead ([D17](#d17-the-upstream-decides-whether-a-fulfill-counted)): it is answered from the record of Fulfills taken, and the packet waits for its own response or its expiry.
   - F08 carries amount data.
   - Malformed packets get F01, unroutable ones F02. Nothing throws on the packet path (ILP-3).
   - Prefix matching is segment-aware (NET-33).
@@ -299,6 +299,44 @@ Confirmed on 2026-10-12, after the others.
 - **Tooling is not simulated.** The dev environment (`apps/dev`) and the dashboard are tools around the node, not part of it. Their pure parts (the SNI parser, the vanity table, the reducers) get unit tests, and the rest is tested end to end against real binaries. They are still bounded: rings, frames and queues have limits.
 - **Testing consequences:** see [7 §7](07-rewrite.md#7-testing-strategy). Every decoder gets a "never panics on arbitrary input" property test. Every simulation failure reports the seed that reproduces it.
 - **Rejected:** conventional style with determinism added later, when DST starts. Clocks, RNGs, unordered maps and unbounded queues spread into every crate, and removing them afterwards costs more than avoiding them.
+
+### D17. The upstream decides whether a Fulfill counted
+
+Decided on 2026-10-14, after M6a.
+
+- **Facts:** each hop books one transfer per packet, pending in memory while the packet is in flight. Two peers' books part when a Fulfill one side posted never counts on the other:
+  - the downstream crashes after posting, before its Fulfill reaches the upstream, which expires the packet;
+  - the upstream crashes with the Prepare in flight, and drops the Fulfill for a packet it no longer knows;
+  - the Fulfill arrives after the upstream's expiry, with no crash at all.
+
+  Sending responses again for 30 s from memory narrowed the first case only. The node simulation found the others when a payer, then a receiver, crashed mid-payment.
+- **Decision:** only the upstream can know whether a Fulfill came in time, so it decides, says so, and the downstream books what it says.
+  - **The verdict.** The reply to an `interledgerPacket` carrying a Fulfill says `accepted` or `refused`. `accepted` means the upstream posted the packet's transfers; it is only said once they are on disk. A packet in flight with a matching fulfillment before its expiry is accepted. Anything else (a resend, a packet the upstream no longer knows) is answered from a durable record of the Fulfills it took from that peer, kept 30 days: found means `accepted`, missing means `refused`.
+  - **The downstream posts at once**, as before, and keeps what it owes: a durable row with the Fulfill, sent until a verdict comes back, with a backoff from 1 s to 1 h, across restarts and after the peering has ended. Anything but a verdict (no answer, 401, 409, a timeout) is tried again.
+  - **On `refused`** the downstream books one compensation, `Reference::Refusal`, which reports what happened and so is recorded even past a limit. If its own receiver took the packet, the transfers are reversed: the owner was not paid, and the incoming payment does not count it. If anyone else took it (a peer, or a BTP client, both told it was fulfilled), the downstream books `expenses/losses` against the upstream's account. Either way that account ends where the upstream's books have it.
+  - **Who bears a loss** is ILP's rule: the hop whose Fulfill its upstream did not take. Each hop decides on its own and answers its downstream at once; verdicts do not wait on each other along the path.
+  - **Incoming payments** count only what was confirmed. What waits for a verdict still counts against what a payment may take, so a refusal lets the sender send it again.
+  - **Rejects** stay best effort: a lost Reject has the effect of expiry, and both sides void.
+  - **Bounds:** at most 1024 Fulfills owed to one peer and 8192 in all; a peer at its cap gets T03 on new Prepares until it answers. At most 16 verdicts asked of one peer at once. A Fulfill owed for longer than its expiry plus 29 days is booked as refused, with an error for the owner: from then on the upstream may have forgotten it.
+- **Rejected:**
+  - *The downstream decides*, with the upstream taking any valid Fulfill however late: the upstream would have to persist every Prepare, and the downstream would hold a free option on every packet.
+  - *Holding the downstream's transfers pending until the verdict:* pending transfers would pile up in the ledger while a peer is silent, blocking everyone's packets, and each pair of books would differ while they wait.
+  - *Persisting packets in flight on both sides:* a write per Prepare, and the late Fulfill still parts the books.
+- **The verdict is the upstream's word.** A dishonest upstream could refuse Fulfills it forwarded and keep the difference. What a peer refused is in the journal, and counts against the peer's grace limit ([D18](#d18-one-grace-limit-per-peer)).
+
+### D18. One grace limit per peer
+
+Decided on 2026-10-14, with D17.
+
+- **Facts:** a peer can cost us money in several ways: Fulfills it refuses (D17), debt it never settles, settlements it announces that never arrive. The credit we extend caps what it owes us at any moment, not what it takes over time.
+- **Decision:** each peer has **one** grace limit, a share of the credit we extend to it (a setting). Everything a peer cost us in a rolling window counts against the same limit, not a budget per kind:
+  - Fulfills it refused;
+  - what it owes us past the point where it should have settled, once its settlement is due and the peering's grace has passed;
+  - any later kind of loss attributable to a peer, which joins the same sum.
+
+  Each kind is measured from the books, journal queries over the window plus the debt now unpaid, never kept as separate counters, so the sum is exact across restarts. A peer past its limit loses its peering as if banned ([D12](#d12-peering-lifecycle-and-liveness)), and the owner is told. Honest peers cost us only through crashes and late Fulfills, which stay well below it.
+- **When:** D17 makes refusals measurable and shows them per peer. The limit itself is enforced before real money, in M7 ([7 §8](07-rewrite.md#8-milestones)).
+- **Rejected:** a budget per kind of loss, which lets a peer spread what it takes across kinds.
 
 ## 4. Gaps by decision
 
