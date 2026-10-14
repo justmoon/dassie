@@ -295,8 +295,12 @@ fn make_node(
         acme_ca_file: settings.acme_ca_file.clone(),
         policies,
         peer: peer_options(settings),
+        dev_wallet_dir: settings.dev_wallet_dir.clone(),
     })
     .map_err(DaemonError::Node)?;
+    if let Some(dir) = &settings.dev_wallet_dir {
+        tracing::warn!(target: target::HTTP, dir = %dir.display(), "serving a development build of the wallet");
+    }
     if settings.bootstrap_nodes.is_empty() {
         tracing::warn!(target: target::PEER, "no bootstrap nodes: the node runs alone (set DASSIE_BOOTSTRAP_NODES)");
     }
@@ -352,40 +356,69 @@ fn start_services(
         Arc::new(listeners.1),
         Arc::new(listeners.2),
     );
+    let spawn = |name, service| supervise(node, services, shutdown, name, service);
+    spawn(
+        "http",
+        Box::new(move |node, shutdown| {
+            Box::pin(http::serve(node, Arc::clone(&http), None, shutdown))
+        }),
+    );
+    spawn(
+        "https",
+        Box::new(move |node, shutdown| {
+            Box::pin(http::serve(
+                node,
+                Arc::clone(&https),
+                Some(Arc::clone(&tls)),
+                shutdown,
+            ))
+        }),
+    );
+    spawn(
+        "ipc",
+        Box::new(move |node, shutdown| Box::pin(ipc::serve(node, Arc::clone(&ipc), shutdown))),
+    );
+    spawn(
+        "acme",
+        Box::new(|node, shutdown| Box::pin(node.run_renewal(shutdown))),
+    );
+    spawn(
+        "sessions",
+        Box::new(|node, shutdown| Box::pin(prune_sessions(node, shutdown))),
+    );
+    spawn(
+        "engine",
+        Box::new(|node, shutdown| Box::pin(crate::engine::run(node, shutdown))),
+    );
+}
+
+/// A service: started again, with the node and the shutdown token, after
+/// it stops.
+type Service = Box<
+    dyn Fn(
+            Arc<Node>,
+            CancellationToken,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+        + Send
+        + Sync,
+>;
+
+/// Runs `service` under the supervisor, as `name`.
+fn supervise(
+    node: &Arc<Node>,
+    services: &TaskTracker,
+    shutdown: &CancellationToken,
+    name: &'static str,
+    service: Service,
+) {
     let (node_, shutdown_) = (Arc::clone(node), shutdown.clone());
-    supervisor::spawn(services, "http", shutdown.clone(), move || {
-        http::serve(
-            Arc::clone(&node_),
-            Arc::clone(&http),
-            None,
-            shutdown_.clone(),
-        )
-    });
-    let (node_, shutdown_) = (Arc::clone(node), shutdown.clone());
-    supervisor::spawn(services, "https", shutdown.clone(), move || {
-        http::serve(
-            Arc::clone(&node_),
-            Arc::clone(&https),
-            Some(Arc::clone(&tls)),
-            shutdown_.clone(),
-        )
-    });
-    let (node_, shutdown_) = (Arc::clone(node), shutdown.clone());
-    supervisor::spawn(services, "ipc", shutdown.clone(), move || {
-        ipc::serve(Arc::clone(&node_), Arc::clone(&ipc), shutdown_.clone())
-    });
-    let (node_, shutdown_) = (Arc::clone(node), shutdown.clone());
-    supervisor::spawn(services, "acme", shutdown.clone(), move || {
-        Arc::clone(&node_).run_renewal(shutdown_.clone())
-    });
-    let (node_, shutdown_) = (Arc::clone(node), shutdown.clone());
-    supervisor::spawn(services, "sessions", shutdown.clone(), move || {
-        prune_sessions(Arc::clone(&node_), shutdown_.clone())
-    });
-    let (node_, shutdown_) = (Arc::clone(node), shutdown.clone());
-    supervisor::spawn(services, "engine", shutdown.clone(), move || {
-        crate::engine::run(Arc::clone(&node_), shutdown_.clone())
-    });
+    supervisor::spawn(
+        services,
+        node.services(),
+        name,
+        shutdown.clone(),
+        move || service(Arc::clone(&node_), shutdown_.clone()),
+    );
 }
 
 async fn prune_sessions(node: Arc<Node>, shutdown: CancellationToken) {
@@ -408,7 +441,8 @@ fn report_ready(node: &Node, notifier: Option<&Notifier>) {
     let (http_port, https_port) = node.ports();
     tracing::info!(target: target::DAEMON, version = crate::VERSION, runtime = ?node.runtime(), http_port, https_port, "listening");
     if let Some(url) = node.setup_url() {
-        tracing::warn!(target: target::DAEMON, "Node identity is not configured, visit {url}");
+        // A field, so that the log ring of the debug pages redacts it.
+        tracing::warn!(target: target::DAEMON, setup_url = %url, "Node identity is not configured; visit the setup URL");
     }
     if let Some(notifier) = notifier
         && let Err(error) = notifier.notify("READY=1")

@@ -25,6 +25,8 @@ struct ListState {
     register_at_ms: u64,
     register_failures: u32,
     registering: bool,
+    /// The owner asked to register now, whatever the timers say.
+    forced: bool,
 }
 
 /// Our standing with one bootstrap node.
@@ -38,6 +40,17 @@ pub struct RegistrationStatus {
     pub registered_ms: Option<u64>,
     /// When its list was last fetched.
     pub list_fetched_ms: Option<u64>,
+}
+
+/// Why registering now was refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RegisterError {
+    /// The node is not one of our bootstrap nodes.
+    NotBootstrap,
+    /// We have no link state to register yet: no URL is configured.
+    NoLinkState,
+    /// A registration with it is on its way.
+    InFlight,
 }
 
 /// The membership side of the node's state.
@@ -242,6 +255,29 @@ impl PeerNode {
         }
     }
 
+    /// Registers with the bootstrap node `node` now, whatever the timers
+    /// say: the owner asked.
+    pub fn register_now(&mut self, now_ms: u64, node: &NodeId) -> Result<(), RegisterError> {
+        self.advance(now_ms);
+        if *node == self.own || !self.lists.states.contains_key(node) {
+            return Err(RegisterError::NotBootstrap);
+        }
+        if self.own_link_bytes().is_none() {
+            return Err(RegisterError::NoLinkState);
+        }
+        let state = self
+            .lists
+            .states
+            .get_mut(node)
+            .ok_or(RegisterError::NotBootstrap)?;
+        if state.registering {
+            return Err(RegisterError::InFlight);
+        }
+        state.forced = true;
+        self.register_with_bootstrap();
+        Ok(())
+    }
+
     /// Registers with every bootstrap node that should hear from us: once
     /// at start, again before the registration lapses, and again if its
     /// list has not had us for a while (D4).
@@ -262,12 +298,13 @@ impl PeerNode {
             .filter(|(id, state)| {
                 **id != own
                     && !state.registering
-                    && state.register_at_ms <= now
-                    && state.registered_ms.is_none_or(|at| {
-                        at.saturating_add(renew) <= now
-                            || (state.ids.binary_search(&own).is_err()
-                                && at.saturating_add(recheck) <= now)
-                    })
+                    && (state.forced
+                        || state.register_at_ms <= now
+                            && state.registered_ms.is_none_or(|at| {
+                                at.saturating_add(renew) <= now
+                                    || (state.ids.binary_search(&own).is_err()
+                                        && at.saturating_add(recheck) <= now)
+                            }))
             })
             .map(|(id, _)| *id)
             .collect();
@@ -287,6 +324,7 @@ impl PeerNode {
                 .is_some();
             if let Some(state) = self.lists.states.get_mut(&target) {
                 state.registering = sent;
+                state.forced = false;
                 if !sent {
                     state.register_failures = state.register_failures.saturating_add(1);
                     state.register_at_ms =
@@ -356,6 +394,9 @@ impl PeerNode {
             .iter()
             .filter(|(id, state)| **id != self.own && !state.registering)
             .map(|(_, state)| {
+                if state.forced {
+                    return self.now_ms;
+                }
                 state.registered_ms.map_or(state.register_at_ms, |at| {
                     let renew = at.saturating_add(self.config.registration_renew_ms);
                     let listed = state.ids.binary_search(&self.own).is_ok();

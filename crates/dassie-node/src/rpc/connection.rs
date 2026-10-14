@@ -29,7 +29,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::handlers::{self, Items, Reply};
 use super::proto::{self, client_message, server_message};
-use super::{Caller, MAX_CALLS_IN_FLIGHT, RpcError};
+use super::{Caller, MAX_CALLS_IN_FLIGHT, MAX_STREAMS_IN_FLIGHT, RpcError, is_live};
 use crate::log::target;
 use crate::node::{Node, Revocation};
 
@@ -68,6 +68,8 @@ struct Connection {
     caller: Caller,
     /// Calls in flight: call ID to generation and cancellation.
     calls: BTreeMap<u32, (u64, CancellationToken)>,
+    /// Which of them are live streams.
+    streams: std::collections::BTreeSet<u32>,
     next_generation: u64,
     tasks: JoinSet<()>,
     sender: mpsc::Sender<Queued>,
@@ -98,6 +100,7 @@ where
         node,
         caller,
         calls: BTreeMap::new(),
+        streams: std::collections::BTreeSet::new(),
         next_generation: 1,
         tasks: JoinSet::new(),
         sender,
@@ -172,6 +175,7 @@ impl Connection {
                 if let Some((_, call)) = self.calls.remove(&call_id) {
                     call.cancel();
                 }
+                self.streams.remove(&call_id);
                 Ok(())
             }
             None => Err(Closed::ProtocolError),
@@ -188,6 +192,13 @@ impl Connection {
             Some(RpcError::new(
                 proto::ErrorCode::ResourceExhausted,
                 "too many calls in flight",
+            ))
+        } else if request.method.as_ref().is_some_and(is_live)
+            && self.streams.len() >= MAX_STREAMS_IN_FLIGHT
+        {
+            Some(RpcError::new(
+                proto::ErrorCode::ResourceExhausted,
+                "too many streams open",
             ))
         } else if request.method.is_none() {
             Some(RpcError::new(
@@ -209,6 +220,9 @@ impl Connection {
         let Some(method) = request.method else {
             return Ok(());
         };
+        if is_live(&method) {
+            self.streams.insert(call_id);
+        }
         let token = self.shutdown.child_token();
         let generation = self.next_generation;
         self.next_generation = self.next_generation.saturating_add(1);
@@ -247,6 +261,7 @@ impl Connection {
         }
         if !matches!(message.kind, Some(server_message::Kind::Item(_))) {
             self.calls.remove(&message.call_id);
+            self.streams.remove(&message.call_id);
         }
         true
     }

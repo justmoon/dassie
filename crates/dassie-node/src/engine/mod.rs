@@ -29,8 +29,8 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
 pub use self::core::{
-    BtpSession, Core, CoreParts, Credentials, EngineError, LedgerView, NetworkView, NewToken,
-    Outbound, Output, PeerView, TokenView,
+    BtpSession, Changes, Core, CoreParts, Credentials, EngineError, LedgerView, NetworkView,
+    NewToken, Outbound, Output, PeerView, RemovalBlocker, TokenView,
 };
 
 use crate::log::target;
@@ -98,6 +98,16 @@ impl std::fmt::Debug for Command {
     }
 }
 
+/// How often each kind of state has changed, on disk: live views fetch
+/// again when the count they follow moves.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Versions {
+    /// The ledgers, balances, tokens and journal.
+    pub ledger: u64,
+    /// The node table, peers, routes and registrations.
+    pub network: u64,
+}
+
 /// A handle to the running engine. Cheap to clone; stale once its
 /// generation ends.
 #[derive(Clone, Debug)]
@@ -105,6 +115,7 @@ pub struct Engine {
     commands: mpsc::Sender<Command>,
     generation: CancellationToken,
     packets: broadcast::Sender<TraceEvent>,
+    versions: watch::Receiver<Versions>,
 }
 
 impl Engine {
@@ -159,14 +170,30 @@ impl Engine {
         self.call(|core| Ok(core.active_schemes())).await
     }
 
-    /// Creates a BTP token.
+    /// Creates a BTP token, with a spending cap if given.
     pub async fn create_token(
         &self,
         label: String,
         ledger: String,
+        cap: Option<dassie_connector::SpendingCap>,
     ) -> Result<NewToken, EngineError> {
-        self.call(move |core| core.create_token(label, &ledger))
+        self.call(move |core| core.create_token(label, &ledger, cap))
             .await
+    }
+
+    /// Sets a BTP token's spending cap, or lifts it.
+    pub async fn set_token_cap(
+        &self,
+        id: u64,
+        cap: Option<dassie_connector::SpendingCap>,
+    ) -> Result<TokenView, EngineError> {
+        self.call(move |core| core.set_token_cap(id, cap)).await
+    }
+
+    /// Follows how often the state has changed.
+    #[must_use]
+    pub fn versions(&self) -> watch::Receiver<Versions> {
+        self.versions.clone()
     }
 
     /// The BTP tokens not revoked.
@@ -197,6 +224,15 @@ impl Engine {
         self.call(move |core| core.terminate_peering(node)).await
     }
 
+    /// Registers with the bootstrap node `node` now.
+    pub async fn register_with_bootstrap(
+        &self,
+        node: dassie_identity::NodeId,
+    ) -> Result<(), EngineError> {
+        self.call(move |core| core.register_with_bootstrap(node))
+            .await
+    }
+
     /// Bans `node`, ending a peering with it.
     pub async fn ban_node(&self, node: dassie_identity::NodeId) -> Result<(), EngineError> {
         self.call(move |core| core.ban_node(node)).await
@@ -205,6 +241,11 @@ impl Engine {
     /// Lifts a ban.
     pub async fn unban_node(&self, node: dassie_identity::NodeId) -> Result<(), EngineError> {
         self.call(move |core| core.unban_node(&node)).await
+    }
+
+    /// One ledger account.
+    pub async fn account(&self, id: AccountId) -> Result<Option<Account>, EngineError> {
+        self.call(move |core| Ok(core.account_of(id))).await
     }
 
     /// Every ledger account.
@@ -329,10 +370,12 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
     let (commands, receiver) = mpsc::channel(QUEUE);
     let generation = CancellationToken::new();
     let packets = broadcast::Sender::new(PACKET_EVENTS);
+    let (versions, versions_receiver) = watch::channel(Versions::default());
     let engine = Engine {
         commands: commands.clone(),
         generation: generation.clone(),
         packets: packets.clone(),
+        versions: versions_receiver,
     };
     let _published = Published::new(&node, engine, generation);
     tracing::info!(target: target::ENGINE, address = core.own_address(), "the ledger is running");
@@ -346,6 +389,7 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
         commands,
         peer_replies: BTreeMap::new(),
         next_inbound: 0,
+        versions,
     };
     driver.run(receiver, config, &shutdown).await;
 }
@@ -365,6 +409,8 @@ struct Driver<'a> {
     /// Inbound peer requests waiting for their reply.
     peer_replies: BTreeMap<dassie_peer::InboundId, oneshot::Sender<dassie_peer::Reply>>,
     next_inbound: u64,
+    /// What changed, counted, for live views.
+    versions: watch::Sender<Versions>,
 }
 
 impl Driver<'_> {
@@ -473,6 +519,13 @@ impl Driver<'_> {
             for link in failed {
                 self.core.close_link(link);
             }
+        }
+        let changes = self.core.take_changes();
+        if changes != Changes::default() {
+            self.versions.send_modify(|versions| {
+                versions.ledger += u64::from(changes.ledger);
+                versions.network += u64::from(changes.network);
+            });
         }
         for reply in self.replies.drain(..) {
             reply();

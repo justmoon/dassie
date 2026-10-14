@@ -95,7 +95,7 @@ fn refuses_foreign_and_newer_databases() {
         Store::open(temp.path()),
         Err(StoreError::TooNew {
             found: 99,
-            known: 4
+            known: 5
         })
     ));
 }
@@ -241,5 +241,108 @@ fn a_new_session_survives_eviction_on_a_tie() {
             .map(|s| s.id.0[0])
             .collect();
         assert_eq!(ids, [byte]);
+    }
+}
+
+// Migration 5 rebuilds the token table: tokens from before keep everything,
+// revoked or not, and have no cap.
+#[test]
+fn tokens_survive_the_upgrade_to_caps() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
+    connection
+        .pragma_update(None, "application_id", APPLICATION_ID)
+        .unwrap();
+    schema::migrate_until(&mut connection, 4).unwrap();
+    connection
+        .execute_batch(
+            "INSERT INTO btp_tokens VALUES (1, zeroblob(32), 'old', 'stub+usd', 5, NULL); \
+             INSERT INTO btp_tokens VALUES (2, randomblob(32), 'gone', 'stub+usd', 6, 7);",
+        )
+        .unwrap();
+    drop(connection);
+    let store = Store::open(temp.path()).unwrap();
+    let tokens = store.btp_tokens().unwrap();
+    assert_eq!(tokens.len(), 2);
+    assert_eq!((tokens[0].label.as_str(), tokens[0].cap), ("old", None));
+    assert_eq!(tokens[1].revoked_at_ms, Some(7));
+}
+
+// Spec 7 §5: the inspector shows every table but never reads a secret.
+#[test]
+fn the_inspector_never_reads_secrets() {
+    let store = Store::open_in_memory().unwrap();
+    store
+        .set_node_key_once(&NodeKey::from_bytes(&[1; 32]), 5)
+        .unwrap();
+    let certificate = StoredCertificate {
+        source: CertificateSource::Manual,
+        chain_pem: "c".repeat(5_000),
+        key_pem: "secret".into(),
+    };
+    store.set_certificate(&certificate, 1).unwrap();
+    store
+        .insert_session(&session(3, 1, 1), &SessionPolicy::DEFAULT)
+        .unwrap();
+    let tables = store.inspect_tables().unwrap();
+    assert_eq!(tables.len(), schema::TABLES.len());
+    let node_key = tables.iter().find(|t| t.name == "node_key").unwrap();
+    assert_eq!(node_key.rows, 1);
+    assert!(node_key.columns[1].redacted);
+    let rows = |table| store.inspect_rows(table, 0, 10).unwrap().unwrap().rows;
+    assert_eq!(rows("node_key")[0][1].value, Value::Redacted);
+    assert_eq!(rows("sessions")[0][0].value, Value::Redacted);
+    let tls = &rows("tls_certificate")[0];
+    assert_eq!(tls[3].value, Value::Redacted);
+    assert_eq!(tls[2].full_length, Some(5_000));
+    assert!(matches!(&tls[2].value, Value::Text(text) if text.len() == TEXT_CUT));
+    assert!(
+        store
+            .inspect_rows("sqlite_master", 0, 10)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn the_inspector_pages_through_tables() {
+    let store = Store::open_in_memory().unwrap();
+    for byte in 0..25 {
+        store
+            .insert_session(&session(byte, 1, 1), &SessionPolicy::DEFAULT)
+            .unwrap();
+    }
+    let mut cursor = 0;
+    let mut seen = 0;
+    loop {
+        let page = store.inspect_rows("sessions", cursor, 10).unwrap().unwrap();
+        seen += page.rows.len();
+        match page.next_cursor {
+            Some(next) => cursor = next,
+            None => break,
+        }
+    }
+    assert_eq!(seen, 25);
+    let page = store.inspect_rows("node_config", 0, 10).unwrap().unwrap();
+    assert_eq!((page.rows.len(), page.next_cursor), (1, None));
+}
+
+// Any column named like a secret must be classified, so that a new one
+// is not shown by accident.
+#[test]
+fn columns_named_like_secrets_are_classified() {
+    const PUBLIC: &[(&str, &str)] = &[("settlement_channels", "public_key")];
+    for table in schema::TABLES {
+        for column in table.columns {
+            let name = column.0;
+            let suspicious = ["key", "secret", "token", "credential", "password", "hash"]
+                .iter()
+                .any(|word| name.contains(word));
+            let classified = schema::SECRET_COLUMNS
+                .iter()
+                .chain(PUBLIC)
+                .any(|entry| *entry == (table.name, name));
+            assert!(!suspicious || classified, "{}.{name}", table.name);
+        }
     }
 }

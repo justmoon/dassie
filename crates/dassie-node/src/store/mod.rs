@@ -12,6 +12,7 @@
 //! loss included; the ledger's engine commits a whole batch of packets at
 //! once to keep that affordable.
 
+mod inspect;
 mod ledger;
 #[cfg(test)]
 mod ledger_tests;
@@ -32,7 +33,8 @@ use dassie_node_core::config::{Alias, DirectoryUrl, Hostname, NodeConfig, Ports,
 use dassie_node_core::session::{SessionId, SessionPolicy, SessionTimes};
 use rusqlite::{Connection, OptionalExtension, params};
 
-pub use ledger::{BtpTokenRow, JournalRow, LedgerBatch, StoredLedger};
+pub use inspect::{BLOB_CUT, Cell, ColumnInfo, MAX_ROWS, RowsPage, TEXT_CUT, TableInfo, Value};
+pub use ledger::{BtpTokenRow, JournalRow, LedgerBatch, StoredLedger, TokenCap};
 pub use schema::{APPLICATION_ID, V0_APPLICATION_ID};
 
 use crate::log::target;

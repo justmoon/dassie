@@ -29,6 +29,31 @@ pub struct LedgerView {
     pub owner_pending: u128,
     /// The scheme's balance on the underlying ledger.
     pub on_ledger_balance: u64,
+    /// What keeps the scheme from being removed now.
+    pub removal_blockers: Vec<RemovalBlocker>,
+}
+
+/// What keeps a scheme from being removed, with how many.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RemovalBlocker {
+    /// BTP tokens use its ledger.
+    BtpTokens(u32),
+    /// Peers settle with it, or are ending a peering that does.
+    Peers(u32),
+    /// Peerings that ended still have to be settled with it.
+    FinalSettlements(u32),
+}
+
+impl RemovalBlocker {
+    /// The reason, for people.
+    #[must_use]
+    pub const fn message(self) -> &'static str {
+        match self {
+            Self::BtpTokens(_) => "BTP tokens use its ledger",
+            Self::Peers(_) => "peers settle with it",
+            Self::FinalSettlements(_) => "a peering that ended still has to be settled with it",
+        }
+    }
 }
 
 /// The accounts every active ledger has (spec 5 §2.6).
@@ -147,31 +172,8 @@ impl Core {
             Some(active) => active.scheme.ledger(),
             None => return Err(EngineError::NotFound("the scheme is not active".into())),
         };
-        if self
-            .tokens
-            .values()
-            .any(|token| token.row.revoked_at_ms.is_none() && token.row.ledger == ledger)
-        {
-            return Err(EngineError::Precondition(
-                "BTP tokens use its ledger".into(),
-            ));
-        }
-        if self
-            .peer
-            .peers()
-            .any(|(_, peering)| peering.scheme.as_str() == id.as_str())
-        {
-            return Err(EngineError::Precondition("peers settle with it".into()));
-        }
-        if self.peer.channels().any(|(_, channel)| {
-            channel
-                .final_due
-                .as_ref()
-                .is_some_and(|due| due.scheme.as_str() == id.as_str())
-        }) {
-            return Err(EngineError::Precondition(
-                "a peering that ended still has to be settled with it".into(),
-            ));
+        if let Some(blocker) = self.removal_blockers(id, ledger).first() {
+            return Err(EngineError::Precondition(blocker.message().into()));
         }
         self.schemes.remove(&id);
         self.update_peer_schemes();
@@ -378,6 +380,42 @@ impl Core {
             .collect()
     }
 
+    /// What keeps scheme `id`, serving `ledger`, from being removed: the
+    /// one list both the wallet and [`remove_scheme`](Self::remove_scheme)
+    /// go by.
+    fn removal_blockers(&self, id: Name, ledger: LedgerId) -> Vec<RemovalBlocker> {
+        let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+        let tokens = self
+            .tokens
+            .values()
+            .filter(|token| token.row.revoked_at_ms.is_none() && token.row.ledger == ledger)
+            .count();
+        let peers = self
+            .peer
+            .peers()
+            .filter(|(_, peering)| peering.scheme.as_str() == id.as_str())
+            .count();
+        let finals = self
+            .peer
+            .channels()
+            .filter(|(_, channel)| {
+                channel
+                    .final_due
+                    .as_ref()
+                    .is_some_and(|due| due.scheme.as_str() == id.as_str())
+            })
+            .count();
+        [
+            (tokens, RemovalBlocker::BtpTokens(count(tokens))),
+            (peers, RemovalBlocker::Peers(count(peers))),
+            (finals, RemovalBlocker::FinalSettlements(count(finals))),
+        ]
+        .into_iter()
+        .filter(|(n, _)| *n > 0)
+        .map(|(_, blocker)| blocker)
+        .collect()
+    }
+
     fn ledger_view(&self, ledger: LedgerId) -> Option<LedgerView> {
         let (id, active) = self
             .schemes
@@ -391,6 +429,7 @@ impl Core {
             owner_balance: group.net_credit(),
             owner_pending: group.debits_pending,
             on_ledger_balance: active.scheme.balance(),
+            removal_blockers: self.removal_blockers(*id, ledger),
         })
     }
 }

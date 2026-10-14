@@ -14,7 +14,20 @@ use crate::io::Event;
 use crate::persist::{PeerBatch, Stored, StoredChannel, StoredNode};
 use crate::routing;
 use crate::table::{Advertise, Entry, LinkState, PeerState, Peering, Sources, Termination};
-use crate::wire::SignedNodeInfo;
+use crate::wire::{SchemeId, SignedNodeInfo};
+
+/// How far our peering with a node has come.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PeerStatus {
+    /// Not peered.
+    None,
+    /// We asked, and wait for the answer.
+    Requesting,
+    /// Peered.
+    Peered,
+    /// Being ended.
+    Terminating,
+}
 
 /// A node as the owner sees it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -25,6 +38,12 @@ pub struct NodeView {
     pub url: Option<String>,
     /// Its alias.
     pub alias: Option<String>,
+    /// Its public key, once known.
+    pub public_key: Option<PublicKey>,
+    /// The neighbors its link state advertises, sorted.
+    pub neighbors: Vec<NodeId>,
+    /// The settlement schemes its link state lists.
+    pub schemes: Vec<SchemeId>,
     /// Its link state's sequence.
     pub sequence: Option<u64>,
     /// Why it is in the table.
@@ -41,6 +60,10 @@ pub struct NodeView {
     pub banned: bool,
     /// Its registration with us, if it expires: when.
     pub registered_until_ms: Option<u64>,
+    /// How far our peering with it has come.
+    pub peer_status: PeerStatus,
+    /// How many hops away it is, if reachable: 0 for ourselves.
+    pub distance_hops: Option<u32>,
     /// Its first hops, if reachable.
     pub first_hops: Vec<NodeId>,
 }
@@ -280,6 +303,17 @@ impl PeerNode {
                 id: *id,
                 url: entry.link.as_ref().map(|link| link.url.clone()),
                 alias: entry.link.as_ref().map(|link| link.alias.clone()),
+                public_key: entry.key,
+                neighbors: entry
+                    .link
+                    .as_ref()
+                    .map(|link| link.neighbors.clone())
+                    .unwrap_or_default(),
+                schemes: entry
+                    .link
+                    .as_ref()
+                    .map(|link| link.schemes.clone())
+                    .unwrap_or_default(),
                 sequence: entry.link.as_ref().map(|link| link.sequence),
                 sources: entry.sources,
                 peering: entry.peering().cloned(),
@@ -288,7 +322,22 @@ impl PeerNode {
                 advertise: entry.advertise,
                 banned: self.bans.contains(id),
                 registered_until_ms: entry.registration.as_ref().map(|r| r.expires_ms),
-                first_hops: self.routes.get(id).cloned().unwrap_or_default(),
+                peer_status: match entry.peer {
+                    PeerState::None => PeerStatus::None,
+                    PeerState::Requesting { .. } => PeerStatus::Requesting,
+                    PeerState::Peered(_) => PeerStatus::Peered,
+                    PeerState::Terminating(..) => PeerStatus::Terminating,
+                },
+                distance_hops: if *id == self.own {
+                    Some(0)
+                } else {
+                    self.routes.get(id).map(|route| route.distance_hops)
+                },
+                first_hops: self
+                    .routes
+                    .get(id)
+                    .map(|route| route.first_hops.clone())
+                    .unwrap_or_default(),
             })
             .collect()
     }
@@ -446,11 +495,12 @@ impl PeerNode {
                 "no route to ourselves"
             );
         }
-        for hops in self.routes.values() {
+        for route in self.routes.values() {
             assert!(
-                !hops.is_empty() && hops.len() <= routing::MAX_FIRST_HOPS,
+                !route.first_hops.is_empty() && route.first_hops.len() <= routing::MAX_FIRST_HOPS,
                 "routes have first hops"
             );
+            assert!(route.distance_hops >= 1, "routes lead away from us");
         }
     }
 

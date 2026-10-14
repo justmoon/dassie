@@ -39,5 +39,7 @@ mod scheme;
 mod stub;
 
 pub use activation::{Activation, activation};
-pub use scheme::{Effect, PreparedSettlement, SchemeError, SettlementScheme, create};
+pub use scheme::{
+    Effect, PreparedSettlement, SCHEMES, SchemeError, SchemeInfo, SettlementScheme, create,
+};
 pub use stub::{STUB_INITIAL_BALANCE, Stub};

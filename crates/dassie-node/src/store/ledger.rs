@@ -5,6 +5,7 @@
 //! [`Store::commit_ledger`] after every batch of work, and acts on the work's
 //! outcome only once that returns: what the journal says is what happened.
 
+use dassie_connector::{CapUsage, SpendingCap};
 use dassie_ledger::{
     AccountId, AccountPath, JournalEntry, LedgerId, Name, Reference, StoredAccount, TraceId,
     Transfer, TransferId, TransferState,
@@ -33,6 +34,8 @@ pub struct LedgerBatch {
     pub tokens_created: Vec<BtpTokenRow>,
     /// BTP tokens revoked, by ID.
     pub tokens_revoked: Vec<u64>,
+    /// BTP tokens whose cap, or what is used of it, changed.
+    pub token_caps: Vec<TokenCap>,
     /// What the peer protocol changed.
     pub peer: dassie_peer::PeerBatch,
 }
@@ -47,6 +50,7 @@ impl LedgerBatch {
             && self.checkpoints.is_empty()
             && self.tokens_created.is_empty()
             && self.tokens_revoked.is_empty()
+            && self.token_caps.is_empty()
             && self.peer.is_empty()
     }
 }
@@ -66,6 +70,21 @@ pub struct BtpTokenRow {
     pub created_at_ms: u64,
     /// When it was revoked, if it was.
     pub revoked_at_ms: Option<u64>,
+    /// Its spending cap, if it has one.
+    pub cap: Option<SpendingCap>,
+    /// What is used of the cap.
+    pub cap_usage: CapUsage,
+}
+
+/// A token's cap, and what is used of it, as of a batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TokenCap {
+    /// The token.
+    pub id: u64,
+    /// Its cap; none lifts it.
+    pub cap: Option<SpendingCap>,
+    /// What is used of it.
+    pub usage: CapUsage,
 }
 
 /// What the ledger restores from.
@@ -194,22 +213,27 @@ impl Store {
     pub fn btp_tokens(&self) -> Result<Vec<BtpTokenRow>, StoreError> {
         let connection = self.lock();
         let mut statement = connection.prepare(
-            "SELECT id, token_hash, label, ledger, created_at_ms, revoked_at_ms \
+            "SELECT id, token_hash, label, ledger, created_at_ms, revoked_at_ms, cap_amount, \
+             cap_window_ms, cap_used_amount, cap_used_remainder, cap_as_of_ms \
              FROM btp_tokens ORDER BY id",
         )?;
         statement
             .query_map([], |row| {
                 Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, Vec<u8>>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, i64>(4)?,
-                    row.get::<_, Option<i64>>(5)?,
+                    (
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, Vec<u8>>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, i64>(4)?,
+                        row.get::<_, Option<i64>>(5)?,
+                    ),
+                    read_cap(row, 6)?,
                 ))
             })?
             .map(|row| {
-                let (id, hash, label, ledger, created, revoked) = row?;
+                let ((id, hash, label, ledger, created, revoked), cap) = row?;
+                let (cap, cap_usage) = cap?;
                 Ok(BtpTokenRow {
                     id: amount(id)?,
                     token_hash: hash
@@ -219,6 +243,8 @@ impl Store {
                     ledger: LedgerId::parse(&ledger).ok_or(StoreError::Corrupt("token ledger"))?,
                     created_at_ms: from_sql_time(created),
                     revoked_at_ms: revoked.map(from_sql_time),
+                    cap,
+                    cap_usage,
                 })
             })
             .collect()
@@ -239,22 +265,68 @@ impl Store {
     }
 
     /// Up to `limit` journal rows written or changed after `after`, a
-    /// sequence number, in that order. A reader that pages with the last
-    /// sequence it saw sees every row, and every change of a row, once.
+    /// sequence number, in that order; only those of `account` if given. A
+    /// reader that pages with the last sequence it saw sees every row, and
+    /// every change of a row, once.
     pub fn transfers_after(
         &self,
         after: Option<u64>,
         limit: u32,
+        account: Option<AccountId>,
+    ) -> Result<Vec<JournalRow>, StoreError> {
+        let after = after.map_or(0, |after| i64::try_from(after).unwrap_or(i64::MAX));
+        let (filter, order) = match account {
+            // Each half is a range scan of an index on (account, sequence).
+            Some(_) => (
+                "t.id IN (SELECT id FROM (SELECT id FROM ledger_transfers \
+                   WHERE debit = ?3 AND sequence > ?1 ORDER BY sequence LIMIT ?2) \
+                 UNION ALL SELECT id FROM (SELECT id FROM ledger_transfers \
+                   WHERE credit = ?3 AND sequence > ?1 ORDER BY sequence LIMIT ?2))",
+                "ASC",
+            ),
+            None => ("t.sequence > ?1 AND ?3 IS NULL", "ASC"),
+        };
+        self.journal_rows(filter, order, after, limit, account)
+    }
+
+    /// The last `limit` journal rows, of `account` if given, in sequence
+    /// order: where a live view of the journal starts.
+    pub fn transfers_last(
+        &self,
+        limit: u32,
+        account: Option<AccountId>,
+    ) -> Result<Vec<JournalRow>, StoreError> {
+        let filter = match account {
+            Some(_) => {
+                "t.id IN (SELECT id FROM (SELECT id FROM ledger_transfers \
+                   WHERE debit = ?3 AND sequence > ?1 ORDER BY sequence DESC LIMIT ?2) \
+                 UNION ALL SELECT id FROM (SELECT id FROM ledger_transfers \
+                   WHERE credit = ?3 AND sequence > ?1 ORDER BY sequence DESC LIMIT ?2))"
+            }
+            None => "t.sequence > ?1 AND ?3 IS NULL",
+        };
+        let mut rows = self.journal_rows(filter, "DESC", 0, limit, account)?;
+        rows.reverse();
+        Ok(rows)
+    }
+
+    fn journal_rows(
+        &self,
+        filter: &str,
+        order: &str,
+        after: i64,
+        limit: u32,
+        account: Option<AccountId>,
     ) -> Result<Vec<JournalRow>, StoreError> {
         let connection = self.lock();
-        let after = after.map_or(0, |after| i64::try_from(after).unwrap_or(i64::MAX));
         let mut statement = connection.prepare(&format!(
             "SELECT {TRANSFER_COLUMNS}, d.path, c.path FROM ledger_transfers t \
              JOIN ledger_accounts d ON d.id = t.debit JOIN ledger_accounts c ON c.id = t.credit \
-             WHERE t.sequence > ?1 ORDER BY t.sequence LIMIT ?2"
+             WHERE {filter} ORDER BY t.sequence {order} LIMIT ?2"
         ))?;
+        let account = account.map(|id| id.0);
         statement
-            .query_map(params![after, limit], |row| {
+            .query_map(params![after, limit, account], |row| {
                 Ok((
                     read_transfer(row)?,
                     row.get::<_, i64>(12)?,
@@ -481,6 +553,17 @@ fn write_tokens(transaction: &Transaction<'_>, batch: &LedgerBatch) -> Result<()
                 to_sql_time(token.created_at_ms),
             ],
         )?;
+        write_cap(
+            transaction,
+            &TokenCap {
+                id: token.id,
+                cap: token.cap,
+                usage: token.cap_usage,
+            },
+        )?;
+    }
+    for cap in &batch.token_caps {
+        write_cap(transaction, cap)?;
     }
     for id in &batch.tokens_revoked {
         transaction.execute(
@@ -489,6 +572,70 @@ fn write_tokens(transaction: &Transaction<'_>, batch: &LedgerBatch) -> Result<()
         )?;
     }
     Ok(())
+}
+
+/// Writes a token's cap and what is used of it. The usage is split into
+/// whole amounts and a remainder, which together keep it exact.
+fn write_cap(transaction: &Transaction<'_>, cap: &TokenCap) -> Result<(), StoreError> {
+    let (amount, window, used, remainder) = match cap.cap {
+        Some(limit) => {
+            let window = u128::from(limit.window_ms);
+            (
+                Some(sql_amount(limit.amount)?),
+                Some(sql_amount(limit.window_ms)?),
+                // Above i64::MAX only through absurd amounts in flight;
+                // rounding up keeps it on the safe side.
+                i64::try_from(cap.usage.used / window).unwrap_or(i64::MAX),
+                i64::try_from(cap.usage.used % window).unwrap_or(0),
+            )
+        }
+        None => (None, None, 0, 0),
+    };
+    transaction.execute(
+        "UPDATE btp_tokens SET cap_amount = ?2, cap_window_ms = ?3, cap_used_amount = ?4, \
+         cap_used_remainder = ?5, cap_as_of_ms = ?6 WHERE id = ?1",
+        params![
+            sql_amount(cap.id)?,
+            amount,
+            window,
+            used,
+            remainder,
+            to_sql_time(cap.usage.as_of_ms),
+        ],
+    )?;
+    Ok(())
+}
+
+type CapColumns = Result<(Option<SpendingCap>, CapUsage), StoreError>;
+
+/// Reads a token's cap from the five columns at `at`.
+fn read_cap(row: &Row<'_>, at: usize) -> rusqlite::Result<CapColumns> {
+    let amount_column: Option<i64> = row.get(at)?;
+    let window: Option<i64> = row.get(at + 1)?;
+    let used: i64 = row.get(at + 2)?;
+    let remainder: i64 = row.get(at + 3)?;
+    let as_of: i64 = row.get(at + 4)?;
+    Ok((|| {
+        let usage = |window_ms: u64| CapUsage {
+            used: u128::from(amount(used).unwrap_or(0)) * u128::from(window_ms)
+                + u128::from(amount(remainder).unwrap_or(0)),
+            as_of_ms: from_sql_time(as_of),
+        };
+        match (amount_column, window) {
+            (Some(limit), Some(window_ms)) => {
+                let cap = SpendingCap {
+                    amount: amount(limit)?,
+                    window_ms: amount(window_ms)?,
+                };
+                if !cap.is_valid() {
+                    return Err(StoreError::Corrupt("token cap"));
+                }
+                Ok((Some(cap), usage(cap.window_ms)))
+            }
+            (None, None) => Ok((None, CapUsage::new(from_sql_time(as_of)))),
+            _ => Err(StoreError::Corrupt("token cap")),
+        }
+    })())
 }
 
 /// Fails unless every account's cached totals are the sums of its posted

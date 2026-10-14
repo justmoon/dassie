@@ -297,6 +297,7 @@ async fn two_daemons_peer_and_keep_their_peering() {
         .call(Method::CreateBtpToken(proto::CreateBtpTokenRequest {
             label: "wallet".into(),
             ledger: "stub+usd".into(),
+            cap: None,
         }))
         .await
     else {

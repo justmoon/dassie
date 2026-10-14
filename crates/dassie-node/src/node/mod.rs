@@ -141,6 +141,9 @@ pub struct NodeOptions {
     pub policies: Policies,
     /// The peer protocol's settings.
     pub peer: PeerOptions,
+    /// A development build of the wallet to serve instead of the embedded
+    /// one.
+    pub dev_wallet_dir: Option<PathBuf>,
 }
 
 /// The peer protocol's settings, from the environment.
@@ -285,6 +288,11 @@ pub struct Node {
     https_port: u16,
     started_at_ms: u64,
     peer: PeerSide,
+    services: Arc<crate::supervisor::Registry>,
+    logs: Arc<crate::log::LogRing>,
+    live_streams: Arc<Semaphore>,
+    dev_wallet_dir: Option<PathBuf>,
+    stats_cache: crate::http::stats::StatsCache,
 }
 
 impl std::fmt::Debug for Node {
@@ -301,6 +309,9 @@ fn lock<T: ?Sized>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// Most live streams the node serves at once, over all connections.
+pub const MAX_LIVE_STREAMS: usize = 64;
+
 impl Node {
     /// Loads the node from its database, making a self-signed certificate if
     /// the stored one won't do.
@@ -315,6 +326,7 @@ impl Node {
             acme_ca_file,
             policies,
             peer,
+            dev_wallet_dir,
         } = options;
         let peer = PeerSide::new(peer)?;
         let now_ms = clock.now_ms();
@@ -356,8 +368,13 @@ impl Node {
             http_port,
             https_port,
             started_at_ms: now_ms,
+            services: Arc::new(crate::supervisor::Registry::new(Arc::clone(&clock))),
             clock,
             peer,
+            logs: crate::log::ring(),
+            live_streams: Arc::new(Semaphore::new(MAX_LIVE_STREAMS)),
+            dev_wallet_dir,
+            stats_cache: crate::http::stats::StatsCache::default(),
         }))
     }
 
@@ -544,6 +561,34 @@ impl Node {
     #[must_use]
     pub const fn ports(&self) -> (u16, u16) {
         (self.http_port, self.https_port)
+    }
+
+    /// The services and what became of them.
+    #[must_use]
+    pub const fn services(&self) -> &Arc<crate::supervisor::Registry> {
+        &self.services
+    }
+
+    /// A place for one more live stream, if any is left.
+    #[must_use]
+    pub fn live_stream_permit(&self) -> Option<OwnedSemaphorePermit> {
+        Arc::clone(&self.live_streams).try_acquire_owned().ok()
+    }
+
+    /// The development build of the wallet, if it serves one.
+    #[must_use]
+    pub fn dev_wallet_dir(&self) -> Option<&std::path::Path> {
+        self.dev_wallet_dir.as_deref()
+    }
+
+    pub(crate) const fn stats_cache(&self) -> &crate::http::stats::StatsCache {
+        &self.stats_cache
+    }
+
+    /// The node's last log lines.
+    #[must_use]
+    pub const fn logs(&self) -> &Arc<crate::log::LogRing> {
+        &self.logs
     }
 
     /// When the node started, in ms since the Unix epoch.

@@ -206,6 +206,11 @@ pub struct NetworkView {
     pub channels: Vec<(NodeId, dassie_peer::Channel)>,
     /// Banned nodes.
     pub bans: Vec<NodeId>,
+    /// Routes to the node's own endpoints other than peers: address,
+    /// endpoint and ledger.
+    pub local_routes: Vec<(String, EndpointId, dassie_ledger::LedgerId)>,
+    /// Whether we are on a majority of the bootstrap nodes' lists.
+    pub member: bool,
 }
 
 impl Core {
@@ -237,6 +242,13 @@ impl Core {
                 .map(|(id, channel)| (*id, channel.clone()))
                 .collect(),
             bans: self.peer.bans().copied().collect(),
+            local_routes: self
+                .connector
+                .endpoints()
+                .filter(|(id, _, _)| !id.is_peer())
+                .map(|(id, address, ledger)| (address.to_string(), id, ledger))
+                .collect(),
+            member: self.peer.majority().contains(self.peer.own()),
         }
     }
 
@@ -348,6 +360,32 @@ impl Core {
         Ok(())
     }
 
+    /// Registers with the bootstrap node `node` now.
+    ///
+    /// # Errors
+    ///
+    /// It is not one of our bootstrap nodes, we have no link state yet, or
+    /// a registration with it is on its way.
+    pub fn register_with_bootstrap(&mut self, node: NodeId) -> Result<(), EngineError> {
+        let now = self.now_ms;
+        self.peer
+            .register_now(now, &node)
+            .map_err(|error| match error {
+                dassie_peer::RegisterError::NotBootstrap => {
+                    EngineError::NotFound("not a bootstrap node".into())
+                }
+                dassie_peer::RegisterError::NoLinkState => EngineError::Precondition(
+                    "the node has no link state to register yet: set its hostname".into(),
+                ),
+                dassie_peer::RegisterError::InFlight => {
+                    EngineError::Precondition("a registration with it is on its way".into())
+                }
+            })?;
+        self.changes.network = true;
+        self.after_peer();
+        Ok(())
+    }
+
     /// Bans `node`, ending a peering with it.
     ///
     /// # Errors
@@ -435,6 +473,7 @@ impl Core {
     }
 
     fn peer_event(&mut self, event: Event) {
+        self.changes.network = true;
         match event {
             Event::Peered {
                 node,
@@ -576,8 +615,9 @@ impl Core {
             .peer
             .routes()
             .iter()
-            .map(|(destination, hops)| {
-                let endpoints = hops
+            .map(|(destination, route)| {
+                let endpoints = route
+                    .first_hops
                     .iter()
                     .filter_map(|hop| self.peer_endpoints.get(hop))
                     .map(|id| EndpointId::Peer(*id))

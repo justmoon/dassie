@@ -26,9 +26,6 @@ use crate::log::{LogFilter, LogLevel};
 /// runs alone, and says so.
 pub const DEFAULT_BOOTSTRAP_NODES: &str = "[]";
 
-/// Length of `DASSIE_DEV_SECURITY_TOKEN`.
-pub const DEV_SECURITY_TOKEN_LENGTH: usize = 64;
-
 /// Most bootstrap nodes accepted.
 pub const MAX_BOOTSTRAP_NODES: usize = 64;
 
@@ -116,9 +113,9 @@ pub struct Settings {
     pub ipc_socket_path: Option<PathBuf>,
     /// What reaches standard output.
     pub log_filter: LogFilter,
-    /// A token that authenticates RPC sockets in development. Read and
-    /// checked now; used from M5.
-    pub dev_security_token: Option<String>,
+    /// Where a development build of the wallet is written, to serve
+    /// instead of the embedded one (`DASSIE_DEV_WALLET_DIR`).
+    pub dev_wallet_dir: Option<PathBuf>,
     /// The network's bootstrap nodes.
     pub bootstrap_nodes: Vec<BootstrapNode>,
     /// An extra root the ACME client trusts, for test CAs such as Pebble.
@@ -141,7 +138,7 @@ impl Settings {
             data_dir: data_dir(env)?,
             ipc_socket_path: env.path("DASSIE_IPC_SOCKET_PATH"),
             log_filter: log_filter(env)?,
-            dev_security_token: dev_security_token(env)?,
+            dev_wallet_dir: dev_wallet_dir(env)?,
             bootstrap_nodes: bootstrap_nodes(env)?,
             acme_ca_file: env.path("DASSIE_ACME_CA_FILE"),
             peer_ca_file: env.path("DASSIE_PEER_CA_FILE"),
@@ -197,16 +194,21 @@ fn flag(env: &Env, variable: &'static str) -> Result<bool, EnvError> {
     }
 }
 
-fn dev_security_token(env: &Env) -> Result<Option<String>, EnvError> {
-    match env.get("DASSIE_DEV_SECURITY_TOKEN")? {
-        None => Ok(None),
-        Some(token) if token.len() == DEV_SECURITY_TOKEN_LENGTH && token.is_ascii() => {
-            Ok(Some(token.into()))
-        }
-        Some(_) => Err(EnvError {
-            variable: "DASSIE_DEV_SECURITY_TOKEN",
-            problem: format!("must be {DEV_SECURITY_TOKEN_LENGTH} ASCII characters"),
-        }),
+/// An absolute path, made canonical; the directory must exist.
+fn dev_wallet_dir(env: &Env) -> Result<Option<PathBuf>, EnvError> {
+    let Some(path) = env.path("DASSIE_DEV_WALLET_DIR") else {
+        return Ok(None);
+    };
+    let error = |problem: &str| EnvError {
+        variable: "DASSIE_DEV_WALLET_DIR",
+        problem: problem.into(),
+    };
+    if !path.is_absolute() {
+        return Err(error("must be an absolute path"));
+    }
+    match std::fs::canonicalize(&path) {
+        Ok(path) if path.is_dir() => Ok(Some(path)),
+        _ => Err(error("must be a directory that exists")),
     }
 }
 
@@ -317,7 +319,8 @@ mod tests {
     fn bad_values_are_errors_that_name_the_variable() {
         let bad = [
             ("DASSIE_LOG_LEVEL", "verbose"),
-            ("DASSIE_DEV_SECURITY_TOKEN", "short"),
+            ("DASSIE_DEV_WALLET_DIR", "relative/dist"),
+            ("DASSIE_DEV_WALLET_DIR", "/no/such/directory"),
             ("DASSIE_PEER_ALLOW_PRIVATE", "yes"),
             ("DASSIE_BOOTSTRAP_NODES", "{"),
             (

@@ -5,20 +5,28 @@
  * - uninitialized: the setup wizard at `/setup/<token>`, otherwise a note
  *   on where to find that URL;
  * - anonymous: the login page, whatever the URL;
- * - authenticated: the wallet.
+ * - authenticated: the forced choice of a first ledger without one, the
+ *   wallet otherwise.
  */
 
 import { RpcClient } from "@dassie/rpc";
-import { type GetBasicStateResponse, NodeState } from "@dassie/rpc/proto";
+import type { GetBasicStateResponse } from "@dassie/rpc/proto";
 import type { JSX } from "@solidjs/web";
-import { createSignal, Match, Switch } from "solid-js";
-import { Home } from "./Home.tsx";
-import { Login } from "./Login.tsx";
-import { Setup } from "./Setup.tsx";
-import { Card } from "./ui.tsx";
+import { createSignal, Errored, lazy, Loading, Match, Switch } from "solid-js";
+import { decideScreen, isSetupPath, ownerScreen } from "./gate.ts";
+import { Shell } from "./layout/Shell.tsx";
+import { Onboarding } from "./pages/ledgers/CreateLedger.tsx";
+import { createNodeData, NodeDataContext } from "./shared/node-data.ts";
+import { RpcContext } from "./shared/rpc.ts";
+import { Router } from "./shared/router/Router.tsx";
+import { Toaster } from "./shared/ui/toast.tsx";
+import { PageError } from "./shared/ui/ui.tsx";
+import { Card, Spinner } from "./ui.tsx";
 
-/** The token of a setup URL, `/setup/<64 hex digits>`. */
-const SETUP_PATH = /^\/setup\/([0-9a-fA-F]{64})\/?$/;
+// The setup and login screens, with the identity WASM, load only when
+// needed.
+const Setup = lazy(() => import("./onboard/Setup.tsx"), { export: "Setup" });
+const Login = lazy(() => import("./onboard/Login.tsx"), { export: "Login" });
 
 /** The wallet: asks the node for its state, then shows the matching screen. */
 export default function App(): JSX.Element {
@@ -35,58 +43,106 @@ export default function App(): JSX.Element {
     (error: unknown) =>
       setFailure(error instanceof Error ? error.message : String(error)),
   );
+  const screen = () => decideScreen(basic(), failure(), location.pathname);
 
   return (
-    <Switch>
-      <Match when={failure()}>
-        {(message) => (
-          <Card title="Cannot reach your node">
-            <p>
-              The wallet could not ask your Dassie node for its state:{" "}
-              {message()}.
-            </p>
-            <div class="actions">
-              <button
-                type="button"
-                class="primary"
-                onClick={() => location.reload()}
-              >
-                Try again
-              </button>
-            </div>
-          </Card>
-        )}
-      </Match>
-      <Match when={basic()}>
-        {(state) => <Gate basic={state()} />}
-      </Match>
-    </Switch>
+    <RpcContext value={client}>
+      <Toaster>
+        <Errored
+          fallback={(error, reset) => (
+            <PageError error={error()} reset={reset} />
+          )}
+        >
+          <Loading fallback={<Spinner label="Loading…" />}>
+            <Switch
+              fallback={
+                <Card title="Unexpected node state">
+                  <p>
+                    Your Dassie node reported a state this wallet does not know.
+                    Is the wallet older than the node?
+                  </p>
+                </Card>
+              }
+            >
+              <Match when={screen().kind === "loading"}>
+                <Spinner label="Connecting to your node…" />
+              </Match>
+              <Match when={screen().kind === "unreachable"}>
+                <Unreachable message={failure() ?? ""} />
+              </Match>
+              <Match when={screen().kind === "setup-info"}>
+                <SetupInfo />
+              </Match>
+              <Match when={screen().kind === "setup"}>
+                <Setup token={(screen() as { token: string }).token} />
+              </Match>
+              <Match when={screen().kind === "login"}>
+                <Login />
+              </Match>
+              <Match when={screen().kind === "owner" && basic()}>
+                {(state) => <Owner basic={state()} />}
+              </Match>
+            </Switch>
+          </Loading>
+        </Errored>
+      </Toaster>
+    </RpcContext>
   );
 }
 
-function Gate(props: { basic: GetBasicStateResponse }): JSX.Element {
-  const token = SETUP_PATH.exec(location.pathname)?.[1]?.toLowerCase();
+/** The signed-in owner's wallet, over the node's live data. */
+function Owner(props: { basic: GetBasicStateResponse }): JSX.Element {
+  // A setup URL means nothing once the node is set up.
+  if (isSetupPath(location.pathname)) history.replaceState(null, "", "/");
+  const data = createNodeData({
+    nodeId: props.basic.nodeId,
+    ilpAllocationScheme: props.basic.ilpAllocationScheme,
+    hostname: props.basic.hostname,
+  });
+  const screen = () => ownerScreen(data.ledgers());
   return (
-    <Switch
-      fallback={
-        <Card title="Unexpected node state">
-          <p>
-            Your Dassie node reported a state this wallet does not know. Is the
-            wallet older than the node?
-          </p>
-        </Card>
-      }
-    >
-      <Match when={props.basic.state === NodeState.UNINITIALIZED}>
-        {token === undefined ? <SetupInfo /> : <Setup token={token} />}
-      </Match>
-      <Match when={props.basic.state === NodeState.ANONYMOUS}>
-        <Login />
-      </Match>
-      <Match when={props.basic.state === NodeState.AUTHENTICATED}>
-        <Home nodeId={props.basic.nodeId} hostname={props.basic.hostname} />
-      </Match>
-    </Switch>
+    <NodeDataContext value={data}>
+      <Router>
+        <Switch>
+          <Match when={data.ledgersStatus().kind === "failed"}>
+            <Card title="Cannot load your ledgers">
+              <p data-testid="ledgers-failed">
+                {(data.ledgersStatus() as { message?: string }).message}
+              </p>
+            </Card>
+          </Match>
+          <Match when={screen() === "loading"}>
+            <Spinner label="Loading your ledgers…" />
+          </Match>
+          <Match when={screen() === "onboarding"}>
+            <Onboarding />
+          </Match>
+          <Match when={screen() === "wallet"}>
+            <Shell />
+          </Match>
+        </Switch>
+      </Router>
+    </NodeDataContext>
+  );
+}
+
+function Unreachable(props: { message: string }): JSX.Element {
+  return (
+    <Card title="Cannot reach your node">
+      <p>
+        The wallet could not ask your Dassie node for its state:{" "}
+        {props.message}.
+      </p>
+      <div class="actions">
+        <button
+          type="button"
+          class="primary"
+          onClick={() => location.reload()}
+        >
+          Try again
+        </button>
+      </div>
+    </Card>
   );
 }
 

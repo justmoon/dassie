@@ -24,12 +24,45 @@ message NetworkNode {
   int64 registered_until_unix_ms = 10;
   // Its first hops, if a route reaches it.
   repeated string first_hops = 11;
+  // The neighbors its link state lists, by ID.
+  repeated string neighbors = 12;
+  // The settlement schemes its link state lists.
+  repeated string settlement_schemes = 13;
+  // How many hops away it is: 0 for this node; unset when no route
+  // reaches it.
+  optional uint32 distance = 14;
+  PeerState peer_state = 15;
+  bool banned = 16;
+  // The peering, while there is one.
+  NetworkPeer peering = 17;
+}
+
+enum PeerState {
+  PEER_STATE_UNSPECIFIED = 0;
+  PEER_STATE_NONE = 1;
+  // This node asked, and waits for the answer.
+  PEER_STATE_REQUESTING = 2;
+  PEER_STATE_PEERED = 3;
+  PEER_STATE_TERMINATING = 4;
+}
+
+// Streams the node table: first all of it (`reset`), then the nodes that
+// changed and those that left.
+message SubscribeNodesRequest {}
+
+message NodeTableEvent {
+  bool reset = 1;
+  // Nodes added or changed, whole.
+  repeated NetworkNode upserted = 2;
+  // IDs of nodes that left the table.
+  repeated string removed = 3;
 }
 
 message ListNodesRequest {}
 
 message ListNodesResponse {
-  // By ID.
+  // By ID; without their neighbors, settlement schemes and peering, which
+  // could pass the message limit: SubscribeNodes has them.
   repeated NetworkNode nodes = 1;
 }
 
@@ -77,6 +110,18 @@ message NetworkRoute {
   // For example "test.das.dNKbw…".
   string prefix = 2;
   repeated string first_hops = 3;
+  // How many hops away the node is.
+  uint32 distance = 4;
+}
+
+// A route to one of this node's own endpoints.
+message LocalRoute {
+  // The endpoint's address.
+  string prefix = 1;
+  // For example "btp:3" or "local:0".
+  string endpoint = 2;
+  // Its ledger, for example "stub+usd".
+  string ledger = 3;
 }
 
 message ListRoutesRequest {}
@@ -84,7 +129,12 @@ message ListRoutesRequest {}
 message ListRoutesResponse {
   // By node ID.
   repeated NetworkRoute routes = 1;
+  // By prefix.
+  repeated LocalRoute local_routes = 2;
 }
+
+// Streams the routes, whole, each time they change.
+message SubscribeRoutesRequest {}
 
 // This node's standing with one bootstrap node (D4).
 message BootstrapStatus {
@@ -104,7 +154,23 @@ message GetRegistrationStatusResponse {
   string node = 1;
   // One per configured bootstrap node.
   repeated BootstrapStatus bootstrap = 2;
+  // Whether this node is on a majority of their lists: a member of the
+  // network others peer with.
+  bool member = 3;
 }
+
+// Streams the registration status, whole, each time it changes.
+message SubscribeRegistrationRequest {}
+
+// Registers with a bootstrap node now, rather than when the node next
+// would. NOT_FOUND if it is not a bootstrap node; FAILED_PRECONDITION
+// before the node has a hostname, or while a registration with it is on
+// its way.
+message RegisterWithBootstrapRequest {
+  string node = 1;
+}
+
+message RegisterWithBootstrapResponse {}
 
 // Ends a peering, as its owner (D12): no new packets, then once those in
 // flight are done it ends on both sides, and what is owed is settled. The

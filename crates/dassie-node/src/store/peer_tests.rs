@@ -125,6 +125,8 @@ fn peer_rows_share_the_ledgers_transaction() {
             ledger: dassie_ledger::LedgerId::StubUsd,
             created_at_ms: 1,
             revoked_at_ms: None,
+            cap: None,
+            cap_usage: dassie_connector::CapUsage::default(),
         }],
         ..LedgerBatch::default()
     };

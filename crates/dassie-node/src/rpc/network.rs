@@ -2,18 +2,73 @@
 //! settlement channels, and ending peerings and banning nodes (spec 7
 //! §4.7).
 
+use std::collections::BTreeMap;
+
 use dassie_identity::NodeId;
 use dassie_peer::wire::TerminationReason;
-use dassie_peer::{Channel, NodeView, RegistrationStatus, Sources};
+use dassie_peer::{Channel, NodeView, PeerStatus, RegistrationStatus, Sources};
 
-use super::handlers::Reply;
-use super::proto::{self, request::Method, response};
+use super::handlers::{Items, Reply};
+use super::ledger::{permit, source};
+use super::live::{self, Follow};
+use super::proto::{self, request::Method, response, stream_item};
 use super::{RpcError, convert};
 use crate::engine::{Engine, NetworkView, PeerView};
+use crate::node::Node;
 
 /// Answers the network's methods.
-pub async fn dispatch(engine: &Engine, method: Method) -> Result<Reply, RpcError> {
+pub async fn dispatch(
+    node: &Node,
+    engine: &Engine,
+    method: Method,
+    items: &Items,
+) -> Result<Reply, RpcError> {
     let reply = match method {
+        Method::SubscribeNodes(_) => {
+            let _permit = permit(node)?;
+            return live::table(
+                source(engine),
+                items,
+                Follow::Network,
+                || async { Ok(node_table(&engine.network().await?)) },
+                |reset, upserted, removed| {
+                    stream_item::Method::SubscribeNodes(proto::NodeTableEvent {
+                        reset,
+                        upserted,
+                        removed,
+                    })
+                },
+            )
+            .await;
+        }
+        Method::SubscribeRoutes(_) => {
+            let _permit = permit(node)?;
+            return live::values(
+                source(engine),
+                items,
+                Follow::Network,
+                || async { Ok(routes(&engine.network().await?)) },
+                stream_item::Method::SubscribeRoutes,
+            )
+            .await;
+        }
+        Method::SubscribeRegistration(_) => {
+            let _permit = permit(node)?;
+            return live::values(
+                source(engine),
+                items,
+                Follow::Network,
+                || async { Ok(registration(&engine.network().await?)) },
+                stream_item::Method::SubscribeRegistration,
+            )
+            .await;
+        }
+        Method::RegisterWithBootstrap(request) => {
+            engine
+                .register_with_bootstrap(node_id(&request.node)?)
+                .await?;
+            response::Method::RegisterWithBootstrap(proto::RegisterWithBootstrapResponse {})
+        }
         Method::TerminatePeering(request) => {
             engine.terminate_peering(node_id(&request.node)?).await?;
             response::Method::TerminatePeering(proto::TerminatePeeringResponse {})
@@ -34,20 +89,25 @@ pub async fn dispatch(engine: &Engine, method: Method) -> Result<Reply, RpcError
 /// The methods that only read the network.
 fn view(view: &NetworkView, method: Method) -> response::Method {
     match method {
+        // A table of 1024 nodes with their neighbors could pass the message
+        // limit; SubscribeNodes splits it, a unary answer cannot.
         Method::ListNodes(_) => response::Method::ListNodes(proto::ListNodesResponse {
-            nodes: view.nodes.iter().map(node).collect(),
+            nodes: view
+                .nodes
+                .iter()
+                .map(|entry| proto::NetworkNode {
+                    neighbors: Vec::new(),
+                    settlement_schemes: Vec::new(),
+                    ..node(entry)
+                })
+                .collect(),
         }),
         Method::ListPeers(_) => response::Method::ListPeers(proto::ListPeersResponse {
             peers: view.peers.iter().map(peer).collect(),
         }),
-        Method::ListRoutes(_) => response::Method::ListRoutes(proto::ListRoutesResponse {
-            routes: routes(view),
-        }),
+        Method::ListRoutes(_) => response::Method::ListRoutes(routes(view)),
         Method::GetRegistrationStatus(_) => {
-            response::Method::GetRegistrationStatus(proto::GetRegistrationStatusResponse {
-                node: view.own.to_string(),
-                bootstrap: view.registration.iter().map(bootstrap).collect(),
-            })
+            response::Method::GetRegistrationStatus(registration(view))
         }
         Method::ListBans(_) => response::Method::ListBans(proto::ListBansResponse {
             nodes: view.bans.iter().map(ToString::to_string).collect(),
@@ -65,8 +125,35 @@ fn node_id(text: &str) -> Result<NodeId, RpcError> {
     NodeId::parse(text).map_err(|_| RpcError::invalid("not a node ID"))
 }
 
+/// The node table by ID, each node with its peering if there is one.
+fn node_table(view: &NetworkView) -> BTreeMap<String, proto::NetworkNode> {
+    let peers: BTreeMap<NodeId, &PeerView> = view.peers.iter().map(|p| (p.id, p)).collect();
+    view.nodes
+        .iter()
+        .map(|entry| {
+            let mut message = node(entry);
+            message.peering = peers.get(&entry.id).map(|p| peer(p));
+            (message.id.clone(), message)
+        })
+        .collect()
+}
+
+fn registration(view: &NetworkView) -> proto::GetRegistrationStatusResponse {
+    proto::GetRegistrationStatusResponse {
+        node: view.own.to_string(),
+        bootstrap: view.registration.iter().map(bootstrap).collect(),
+        member: view.member,
+    }
+}
+
 fn node(view: &NodeView) -> proto::NetworkNode {
     let sources = view.sources;
+    let peer_state = match view.peer_status {
+        PeerStatus::None => proto::PeerState::None,
+        PeerStatus::Requesting => proto::PeerState::Requesting,
+        PeerStatus::Peered => proto::PeerState::Peered,
+        PeerStatus::Terminating => proto::PeerState::Terminating,
+    };
     proto::NetworkNode {
         id: view.id.to_string(),
         url: view.url.clone().unwrap_or_default(),
@@ -79,6 +166,12 @@ fn node(view: &NodeView) -> proto::NetworkNode {
         peer: sources.contains(Sources::PEER),
         registered_until_unix_ms: view.registered_until_ms.map_or(0, convert::time),
         first_hops: view.first_hops.iter().map(ToString::to_string).collect(),
+        neighbors: view.neighbors.iter().map(ToString::to_string).collect(),
+        settlement_schemes: view.schemes.iter().map(ToString::to_string).collect(),
+        distance: view.distance_hops,
+        peer_state: peer_state.into(),
+        banned: view.banned,
+        peering: None,
     }
 }
 
@@ -127,16 +220,32 @@ fn channel(id: &NodeId, channel: &Channel) -> proto::SettlementChannel {
     }
 }
 
-fn routes(view: &NetworkView) -> Vec<proto::NetworkRoute> {
-    view.nodes
+fn routes(view: &NetworkView) -> proto::ListRoutesResponse {
+    let routes = view
+        .nodes
         .iter()
         .filter(|node| !node.first_hops.is_empty())
         .map(|node| proto::NetworkRoute {
             node: node.id.to_string(),
             prefix: format!("{}.das.{}", view.allocation_scheme, node.id),
             first_hops: node.first_hops.iter().map(ToString::to_string).collect(),
+            distance: node.distance_hops.unwrap_or(0),
         })
-        .collect()
+        .collect();
+    let mut local_routes: Vec<proto::LocalRoute> = view
+        .local_routes
+        .iter()
+        .map(|(prefix, endpoint, ledger)| proto::LocalRoute {
+            prefix: prefix.clone(),
+            endpoint: endpoint.to_string(),
+            ledger: ledger.as_str().into(),
+        })
+        .collect();
+    local_routes.sort_by(|a, b| a.prefix.cmp(&b.prefix));
+    proto::ListRoutesResponse {
+        routes,
+        local_routes,
+    }
 }
 
 fn bootstrap(status: &RegistrationStatus) -> proto::BootstrapStatus {

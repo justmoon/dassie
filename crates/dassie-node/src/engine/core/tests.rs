@@ -40,7 +40,9 @@ fn session(seed: u64) -> Vec<Output> {
     let mut core = core(seed);
     let mut outputs = Vec::new();
     core.add_scheme("stub", String::new()).unwrap();
-    let token = core.create_token("wallet".into(), "stub+usd").unwrap();
+    let token = core
+        .create_token("wallet".into(), "stub+usd", None)
+        .unwrap();
     let link = core.btp_connect(&token.secret).unwrap().link;
     core.finish_step(&mut outputs);
     core.begin_step(NOW + 5);
@@ -124,4 +126,76 @@ fn a_settlement_cut_short_by_a_crash_is_reconciled() {
         1_000
     );
     assert_eq!(core.ledger_views()[0].on_ledger_balance, 100_000_000_000);
+}
+
+// What keeps a ledger from being removed is what the wallet shows, and
+// what removing it refuses with.
+#[test]
+fn removal_blockers_match_the_refusal() {
+    use super::RemovalBlocker;
+
+    let mut core = core(2);
+    let view = core.add_scheme("stub", String::new()).unwrap();
+    assert!(view.removal_blockers.is_empty());
+    core.create_token("a".into(), "stub+usd", None).unwrap();
+    core.create_token("b".into(), "stub+usd", None).unwrap();
+    let blockers = core.ledger_views()[0].removal_blockers.clone();
+    assert_eq!(blockers, [RemovalBlocker::BtpTokens(2)]);
+    let refusal = core.remove_scheme("stub").unwrap_err();
+    assert_eq!(refusal.to_string(), blockers[0].message());
+}
+
+// Spec 7 §4.5: a token's cap is kept across a restart, and changing it
+// is persisted with the step.
+#[test]
+fn token_caps_survive_a_restart() {
+    use dassie_connector::SpendingCap;
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let cap = SpendingCap {
+        amount: 5_000,
+        window_ms: 60_000,
+    };
+    let id = {
+        let mut core = core_on(Arc::clone(&store), 3);
+        core.add_scheme("stub", String::new()).unwrap();
+        let token = core
+            .create_token("capped".into(), "stub+usd", Some(cap))
+            .unwrap();
+        assert_eq!(
+            (token.view.cap, token.view.cap_available),
+            (Some(cap), 5_000)
+        );
+        let other = core.create_token("free".into(), "stub+usd", None).unwrap();
+        let half = SpendingCap {
+            amount: 2_500,
+            ..cap
+        };
+        core.set_token_cap(other.view.id, Some(half)).unwrap();
+        core.set_token_cap(other.view.id, None).unwrap();
+        let invalid = SpendingCap { amount: 0, ..cap };
+        assert!(core.set_token_cap(token.view.id, Some(invalid)).is_err());
+        core.flush();
+        token.view.id
+    };
+    let core = core_on(store, 4);
+    let views = core.token_views();
+    assert_eq!(views[0].id, id);
+    assert_eq!((views[0].cap, views[0].cap_available), (Some(cap), 5_000));
+    assert_eq!(views[1].cap, None);
+}
+
+// Live views fetch again when the state they show changed, once it is on
+// disk.
+#[test]
+fn steps_report_what_they_changed() {
+    let mut core = core(5);
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    core.take_changes();
+    core.finish_step(&mut outputs);
+    assert_eq!(core.take_changes(), super::Changes::default());
+    core.add_scheme("stub", String::new()).unwrap();
+    core.finish_step(&mut outputs);
+    assert!(core.take_changes().ledger);
 }

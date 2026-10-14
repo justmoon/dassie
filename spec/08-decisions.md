@@ -114,7 +114,7 @@ All decisions below were confirmed on 2026-10-11. Each states the **decision** a
   - **Errors:** typed, never a success response that carries a failure (fixes RT-5).
 
   The same contract serves the IPC socket for the CLI.
-- **Procedure set:** that of [2 §10.3](02-node-runtime.md), extended by the missing setters (RT-4), XRPL ledger management, payment status, session management, and the service/cell inspector.
+- **Procedure set:** that of [2 §10.3](02-node-runtime.md), extended by the missing setters (RT-4), XRPL ledger management, payment status, session management, and the service/cell inspector. The live data of the wallet's pages comes from `Subscribe*` streams ([7 §4.6](07-rewrite.md#46-the-rpc-contract-in-practice)), which replace the original's polling.
 - **Rejected:** JSON over WebSocket with a JSON-Schema contract. It is easier to debug, but the codegen story is weaker on the Rust side.
 
 ### D6. Owner ledger and multi-currency accounts
@@ -135,6 +135,7 @@ All decisions below were confirmed on 2026-10-11. Each states the **decision** a
   - Per-ledger config for trust line, max packet amount and settlement threshold ratio.
   - Learn the credit the peer extends to us, for the settlement midpoint (ACC-24).
 - **Owner sub-accounts (confirmed 2026-10-13):** the owner's funds on a ledger stay in one pool. Each spending endpoint, such as a BTP token, gets a sub-account of the pool for attribution, and the limit applies to the group's total ([7 §4.5](07-rewrite.md#45-settlement-and-ledgers)). Per-token spending caps are policies computed from the journal, built in M5.
+  - **Caps (2026-10-14):** a cap counts what a token moves out of the owner's funds: packets to peers, not to the node's own receiver or another token. Packets in flight count as they are prepared. The usage is checkpointed with the journal rows that change it, because a window of recent rows cannot reproduce it ([7 §4.5](07-rewrite.md#45-settlement-and-ledgers)).
   - **Rejected:** an account per token holding its own balance, as `ilp-connector` child accounts do. Refilling a token means scheduled top-ups, and funds can't be committed to several tokens at once (a fractional reserve), so ten tokens that may each spend $10 would lock up $100.
 
 ### D7. Exchange rates, fees and spread

@@ -19,9 +19,10 @@ pub enum Reply {
     StreamEnd,
 }
 
-/// Where a streaming method sends its items. Items that would overflow the
-/// connection's queue are dropped: they are progress reports, and the
-/// call's outcome still arrives.
+/// Where a streaming method sends its items: dropped when the connection's
+/// queue is full ([`send`](Self::send)), for progress reports, or waiting
+/// for room ([`send_wait`](Self::send_wait)), for live state, which a lost
+/// item would corrupt. A client that stops reading is disconnected.
 pub struct Items {
     pub call_id: u32,
     pub generation: u64,
@@ -31,6 +32,20 @@ pub struct Items {
 impl Items {
     pub(super) fn send(&self, item: stream_item::Method) {
         let _ = self.try_send(item);
+    }
+
+    /// Queues an item, waiting for room.
+    pub(super) async fn send_wait(&self, item: stream_item::Method) -> Result<(), RpcError> {
+        let message = proto::ServerMessage {
+            call_id: self.call_id,
+            kind: Some(proto::server_message::Kind::Item(proto::StreamItem {
+                method: Some(item),
+            })),
+        };
+        self.sender
+            .send((self.generation, message))
+            .await
+            .map_err(|_| RpcError::unavailable("the connection closed"))
     }
 
     /// Queues an item; false if the connection's queue had no room for it.
@@ -172,7 +187,12 @@ async fn dispatch_more(
             let revoked = node.revoke_sessions(keep).map_err(RpcError::internal)?;
             response::Method::RevokeAllSessions(proto::RevokeAllSessionsResponse { revoked })
         }
-        other => return super::ledger::dispatch(node, other, items).await,
+        other => {
+            return match super::inspect::dispatch(node, other, items).await? {
+                Ok(reply) => Ok(reply),
+                Err(other) => super::ledger::dispatch(node, other, items).await,
+            };
+        }
     };
     Ok(Reply::Unary(reply))
 }

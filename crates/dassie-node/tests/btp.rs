@@ -69,6 +69,7 @@ async fn token(owner: &mut Owner) -> (u64, String) {
         .call(Method::CreateBtpToken(proto::CreateBtpTokenRequest {
             label: "test".into(),
             ledger: "stub+usd".into(),
+            cap: None,
         }))
         .await;
     let Ok(response::Method::CreateBtpToken(created)) = reply else {
@@ -98,6 +99,7 @@ async fn journal(owner: &mut Owner) -> Vec<proto::Transfer> {
         .call(Method::ListTransfers(proto::ListTransfersRequest {
             after_sequence: None,
             limit: 1000,
+            account: None,
         }))
         .await
     else {
