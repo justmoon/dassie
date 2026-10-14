@@ -62,6 +62,7 @@ export function chunkLines(
 
 export class ControlHub {
   readonly #clients = new Set<WebSocket>();
+  #closed = false;
 
   constructor(
     readonly source: ControlSource,
@@ -73,6 +74,11 @@ export class ControlHub {
   attach(socket: WebSocket): void {
     socket.binaryType = "arraybuffer";
     socket.onopen = () => {
+      // A dashboard reconnecting as everything stops.
+      if (this.#closed) {
+        socket.close(1001, "shutting down");
+        return;
+      }
       if (this.#clients.size >= MAX_CLIENTS) {
         socket.close(1013, "too many dashboards");
         return;
@@ -147,6 +153,7 @@ export class ControlHub {
 
   /** Closes every dashboard's socket. */
   close(): void {
+    this.#closed = true;
     for (const socket of this.#clients) socket.close(1001, "shutting down");
     this.#clients.clear();
   }

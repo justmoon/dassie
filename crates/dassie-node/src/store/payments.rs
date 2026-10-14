@@ -115,7 +115,7 @@ pub struct IncomingProgress {
     pub completed_at_ms: Option<u64>,
 }
 
-/// A page of a list of incoming payments, newest first.
+/// A page of a list of payments, newest first.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IncomingQuery<'a> {
     /// The ledger whose payments to list.
@@ -132,9 +132,9 @@ pub struct IncomingQuery<'a> {
 
 /// A page, with whether items lie beyond either end.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct IncomingPage {
+pub struct Page<T> {
     /// The items, newest first.
-    pub rows: Vec<IncomingRow>,
+    pub rows: Vec<T>,
     /// Whether newer items exist.
     pub has_newer: bool,
     /// Whether older items exist.
@@ -159,35 +159,6 @@ impl Store {
             .collect()
     }
 
-    /// What was taken back from each open incoming payment that had any
-    /// (D17).
-    ///
-    /// # Errors
-    ///
-    /// The database failed, or holds an invalid row.
-    pub fn incoming_released(
-        &self,
-    ) -> Result<std::collections::BTreeMap<PaymentId, u64>, StoreError> {
-        let connection = self.lock();
-        let mut statement = connection.prepare(
-            "SELECT id, released_amount FROM incoming_payments \
-             WHERE released_amount > 0 AND completed_at_ms IS NULL",
-        )?;
-        let rows = statement.query_map([], |row| {
-            Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, i64>(1)?))
-        })?;
-        let mut released = std::collections::BTreeMap::new();
-        for row in rows {
-            let (id, amount_released) = row?;
-            let id = <[u8; 16]>::try_from(id.as_slice())
-                .map_err(|_| StoreError::Corrupt("payment ID"))?;
-            let amount_released = u64::try_from(amount_released)
-                .map_err(|_| StoreError::Corrupt("released amount"))?;
-            released.insert(PaymentId(id), amount_released);
-        }
-        Ok(released)
-    }
-
     /// One incoming payment.
     pub fn incoming_payment(&self, id: PaymentId) -> Result<Option<IncomingRow>, StoreError> {
         let connection = self.lock();
@@ -207,57 +178,13 @@ impl Store {
         &self,
         query: &IncomingQuery<'_>,
     ) -> Result<Option<IncomingPage>, StoreError> {
-        let connection = self.lock();
-        let anchor: Option<(i64, Vec<u8>)> = match query.cursor {
-            Some(cursor) => connection
-                .query_row(
-                    "SELECT created_at_ms, id FROM incoming_payments \
-                     WHERE id = ?1 AND ledger = ?2 AND (?3 IS NULL OR client = ?3)",
-                    params![cursor.0.as_slice(), query.ledger.as_str(), query.client],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
-                )
-                .optional()?,
-            None => None,
-        };
-        if query.cursor.is_some() && anchor.is_none() {
-            return Ok(None);
-        }
-        let (created, id) = anchor.unzip();
-        let (comparison, order) = if query.forward {
-            ("<", "DESC")
-        } else {
-            (">", "ASC")
-        };
-        let filter = format!(
-            "ledger = ?1 AND (?2 IS NULL OR client = ?2) \
-             AND (?3 IS NULL OR (created_at_ms, id) {comparison} (?3, ?4))"
-        );
-        let mut statement = connection.prepare(&format!(
-            "SELECT {COLUMNS} FROM incoming_payments WHERE {filter} \
-             ORDER BY created_at_ms {order}, id {order} LIMIT ?5"
-        ))?;
-        let limit = query.count.saturating_add(1);
-        let ledger = query.ledger.as_str();
-        let mut rows = statement
-            .query_map(
-                params![ledger, query.client, created, id, limit],
-                read_incoming,
-            )?
-            .map(|row| row?)
-            .collect::<Result<Vec<_>, StoreError>>()?;
-        let beyond = rows.len() > usize::try_from(query.count).unwrap_or(usize::MAX);
-        rows.truncate(usize::try_from(query.count).unwrap_or(usize::MAX));
-        let (has_newer, has_older) = if query.forward {
-            (query.cursor.is_some(), beyond)
-        } else {
-            rows.reverse();
-            (beyond, query.cursor.is_some())
-        };
-        Ok(Some(IncomingPage {
-            rows,
-            has_newer,
-            has_older,
-        }))
+        page(
+            &self.lock(),
+            "incoming_payments",
+            COLUMNS,
+            read_incoming,
+            query,
+        )
     }
 
     /// Forgets incoming payments that received nothing, a while after they
@@ -314,6 +241,70 @@ impl Store {
     }
 }
 
+/// A page of incoming payments.
+pub type IncomingPage = Page<IncomingRow>;
+
+/// A page of `table`'s rows by `(created_at_ms, id)`, newest first, or
+/// `None` when the cursor is not an item the query could list.
+pub(super) fn page<T>(
+    connection: &rusqlite::Connection,
+    table: &str,
+    columns: &str,
+    read: fn(&Row<'_>) -> rusqlite::Result<Result<T, StoreError>>,
+    query: &IncomingQuery<'_>,
+) -> Result<Option<Page<T>>, StoreError> {
+    let anchor: Option<(i64, Vec<u8>)> = match query.cursor {
+        Some(cursor) => connection
+            .query_row(
+                &format!(
+                    "SELECT created_at_ms, id FROM {table} \
+                     WHERE id = ?1 AND ledger = ?2 AND (?3 IS NULL OR client = ?3)"
+                ),
+                params![cursor.0.as_slice(), query.ledger.as_str(), query.client],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?,
+        None => None,
+    };
+    if query.cursor.is_some() && anchor.is_none() {
+        return Ok(None);
+    }
+    let (created, id) = anchor.unzip();
+    let (comparison, order) = if query.forward {
+        ("<", "DESC")
+    } else {
+        (">", "ASC")
+    };
+    let filter = format!(
+        "ledger = ?1 AND (?2 IS NULL OR client = ?2) \
+         AND (?3 IS NULL OR (created_at_ms, id) {comparison} (?3, ?4))"
+    );
+    let mut statement = connection.prepare(&format!(
+        "SELECT {columns} FROM {table} WHERE {filter} \
+         ORDER BY created_at_ms {order}, id {order} LIMIT ?5"
+    ))?;
+    let limit = query.count.saturating_add(1);
+    let ledger = query.ledger.as_str();
+    let mut rows = statement
+        .query_map(params![ledger, query.client, created, id, limit], read)?
+        .map(|row| row?)
+        .collect::<Result<Vec<_>, StoreError>>()?;
+    let count = usize::try_from(query.count).unwrap_or(usize::MAX);
+    let beyond = rows.len() > count;
+    rows.truncate(count);
+    let (has_newer, has_older) = if query.forward {
+        (query.cursor.is_some(), beyond)
+    } else {
+        rows.reverse();
+        (beyond, query.cursor.is_some())
+    };
+    Ok(Some(Page {
+        rows,
+        has_newer,
+        has_older,
+    }))
+}
+
 type IncomingResult = Result<IncomingRow, StoreError>;
 
 fn read_incoming(row: &Row<'_>) -> rusqlite::Result<IncomingResult> {
@@ -365,7 +356,6 @@ pub(super) fn write_incoming(
     transaction: &Transaction<'_>,
     created: &[IncomingRow],
     progress: &std::collections::BTreeMap<PaymentId, IncomingProgress>,
-    released: &std::collections::BTreeMap<PaymentId, u64>,
 ) -> Result<(), StoreError> {
     for row in created {
         transaction.execute(
@@ -404,12 +394,6 @@ pub(super) fn write_incoming(
         if updated != 1 {
             return Err(StoreError::Corrupt("incoming payment"));
         }
-    }
-    for (id, amount) in released {
-        transaction.execute(
-            "UPDATE incoming_payments SET released_amount = released_amount + ?2 WHERE id = ?1",
-            params![id.0.as_slice(), sql_amount(*amount)?],
-        )?;
     }
     Ok(())
 }

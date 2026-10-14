@@ -64,9 +64,6 @@ pub(super) struct OpenIncoming {
     received: u64,
     /// What fulfilled packets brought that waits for a peer's verdict.
     waiting: u64,
-    /// What arrived and was taken back when a peer refused its Fulfill:
-    /// the payment's connections still count it.
-    released: u64,
     created_at_ms: u64,
     expires_at_ms: u64,
     client: Option<String>,
@@ -97,10 +94,37 @@ pub struct NewIncoming {
     pub metadata: Option<String>,
 }
 
+/// Most completed incoming payments remembered, to tell their senders.
+const MAX_FINISHED: usize = 4_096;
+
+/// Incoming payments completed lately, with what they received: a sender
+/// still sending is told the total and that no more fits, rather than
+/// refused without a word, so it learns the payment got what it asked
+/// for, which a hop that lost a packet may have paid for (D17).
+#[derive(Default)]
+pub(super) struct Finished {
+    payments: BTreeMap<PaymentId, (LedgerId, u64)>,
+    order: std::collections::VecDeque<PaymentId>,
+}
+
+impl Finished {
+    fn remember(&mut self, id: PaymentId, ledger: LedgerId, received: u64) {
+        if self.payments.insert(id, (ledger, received)).is_none() {
+            self.order.push_back(id);
+        }
+        while self.order.len() > MAX_FINISHED {
+            if let Some(oldest) = self.order.pop_front() {
+                self.payments.remove(&oldest);
+            }
+        }
+    }
+}
+
 /// Whether a packet for the connection tagged `tag` may into its receiver
 /// on `ledger`, and the payment it pays.
 pub(super) fn admission(
     incoming: &BTreeMap<PaymentId, OpenIncoming>,
+    finished: &Finished,
     ledger: LedgerId,
     now_ms: u64,
     tag: &[u8],
@@ -113,16 +137,23 @@ pub(super) fn admission(
         Some(payment) if payment.ledger == ledger && now_ms < payment.expires_at_ms => (
             Admission::Accept {
                 money_limit: payment.remaining(),
-                // What its connections have seen arrive, waiting, or taken
-                // back, so what they report only grows.
-                received: payment
-                    .received
-                    .saturating_add(payment.waiting)
-                    .saturating_add(payment.released),
+                // What it counts: not what waits for a peer's verdict, which
+                // a refusal may take back (D17).
+                received: payment.received,
             },
             Some(id),
         ),
-        _ => refused,
+        None => match finished.payments.get(&id) {
+            Some(&(paid_into, received)) if paid_into == ledger => (
+                Admission::Accept {
+                    money_limit: 0,
+                    received,
+                },
+                None,
+            ),
+            _ => refused,
+        },
+        Some(_) => refused,
     }
 }
 
@@ -152,12 +183,6 @@ impl Core {
             }
             *count += 1;
             self.incoming.insert(row.id, open_of(&row));
-        }
-        let released = self.store.incoming_released().map_err(|e| e.to_string())?;
-        for (id, amount) in released {
-            if let Some(payment) = self.incoming.get_mut(&id) {
-                payment.released = amount;
-            }
         }
         if dropped > 0 {
             // Only after the bounds were lowered: they take no more money.
@@ -276,6 +301,8 @@ impl Core {
         let Some(payment) = self.incoming.remove(&id) else {
             return;
         };
+        self.finished_incoming
+            .remember(id, payment.ledger, payment.received);
         self.batch.incoming_progress.insert(
             id,
             IncomingProgress {
@@ -285,7 +312,7 @@ impl Core {
         );
     }
 
-    fn new_payment_id(&mut self) -> PaymentId {
+    pub(super) fn new_payment_id(&mut self) -> PaymentId {
         let mut bytes = [0u8; 16];
         self.rng.fill_bytes(&mut bytes);
         PaymentId::from_random(bytes)
@@ -325,7 +352,10 @@ impl Core {
                 "the incoming payment has expired".into(),
             ));
         }
-        self.incoming.remove(&id);
+        if let Some(payment) = self.incoming.remove(&id) {
+            self.finished_incoming
+                .remember(id, payment.ledger, payment.received);
+        }
         // A clock that went back since it was made must not date its end
         // before its start.
         row.completed_at_ms = Some(now.max(row.created_at_ms));
@@ -382,13 +412,29 @@ impl Core {
         );
     }
 
-    /// The peer refused: what was waiting is free to arrive again.
+    /// The peer refused: what was waiting is free to arrive again. The
+    /// payment's STREAM connections counted it, and would tell senders
+    /// more arrived than did: they are closed, and a sender starts anew.
     pub(super) fn incoming_released(&mut self, id: PaymentId, amount: u64) {
-        if let Some(payment) = self.incoming.get_mut(&id) {
-            assert!(payment.waiting >= amount, "released more than waited");
-            payment.waiting -= amount;
-            payment.released = payment.released.saturating_add(amount);
-            *self.batch.incoming_released.entry(id).or_default() += amount;
+        let Some(payment) = self.incoming.get_mut(&id) else {
+            return;
+        };
+        assert!(payment.waiting >= amount, "released more than waited");
+        payment.waiting -= amount;
+        let at = dassie_ilp::Timestamp::from_unix_ms(self.now_ms);
+        let Some(receiver) = self.receivers.get_mut(&payment.ledger) else {
+            return;
+        };
+        let tagged: Vec<dassie_stream::ConnectionId> = receiver
+            .server
+            .connections()
+            .map(|(connection, _)| connection)
+            .filter(|connection| receiver.server.connection_tag(*connection) == Some(&id.0[..]))
+            .collect();
+        for connection in tagged {
+            if let Some(connection) = receiver.server.connection_mut(connection) {
+                connection.close(at, dassie_stream::ErrorCode::NO_ERROR);
+            }
         }
     }
 
@@ -410,7 +456,10 @@ impl Core {
             completed_at_ms: complete.then_some(now.max(payment.created_at_ms)),
         };
         if complete {
+            let ledger = payment.ledger;
+            let received = payment.received;
             self.incoming.remove(&id);
+            self.finished_incoming.remember(id, ledger, received);
             tracing::debug!(target: target::PAYMENT, %id, "incoming payment completed");
         }
         self.batch.incoming_progress.insert(id, progress);
@@ -445,7 +494,6 @@ fn open_of(row: &IncomingRow) -> OpenIncoming {
         incoming_amount: row.incoming_amount,
         received: row.received_amount,
         waiting: 0,
-        released: 0,
         created_at_ms: row.created_at_ms,
         expires_at_ms: row.expires_at_ms,
         client: row.client.clone(),

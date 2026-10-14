@@ -40,7 +40,7 @@ The work starts from the specification in [`spec/`](spec/README.md):
 
 ## Building and testing
 
-With [Nix](https://nixos.org), `nix develop` provides every tool at the pinned versions, and `nix flake check` runs what CI runs in the sandbox. Without it, install the Rust toolchain named in `rust-toolchain.toml` with the `wasm32-unknown-unknown` target, the `wasm-bindgen` CLI at the version in `Cargo.lock`, Deno, and Chrome or Chromium; the end-to-end tests also need `pebble`, `pebble-challtestsrv`, `systemd-socket-activate` and `mkcert`, and are skipped without them outside CI.
+With [Nix](https://nixos.org), `nix develop` provides every tool at the pinned versions, and `nix flake check` runs what CI runs in the sandbox (CI builds those checks on [nixbuild.net](https://nixbuild.net)). Without it, install the Rust toolchain named in `rust-toolchain.toml` with the `wasm32-unknown-unknown` target, the `wasm-bindgen` CLI at the version in `Cargo.lock`, Deno, and Chrome or Chromium; the end-to-end tests also need `pebble`, `pebble-challtestsrv`, `systemd-socket-activate` and `mkcert`, and are skipped without them outside CI.
 
 ```sh
 cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test

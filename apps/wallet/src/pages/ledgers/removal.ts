@@ -51,6 +51,14 @@ export function removalChecklist(
         } still to be settled with it`,
         state: "invalid",
       });
+    } else if (blocker.kind === Kind.OUTGOING_PAYMENTS) {
+      items.push({
+        id: "outgoing-payments",
+        label: `${
+          plural(blocker.count, "payment from it is", "payments from it are")
+        } still being sent`,
+        state: "invalid",
+      });
     } else if (blocker.kind !== Kind.PEERS) {
       items.push({
         id: `other-${blocker.kind}`,

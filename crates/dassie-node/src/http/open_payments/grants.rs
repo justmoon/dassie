@@ -10,6 +10,7 @@ use crate::http::response::Body;
 use crate::node::Node;
 use crate::open_payments::Urls;
 use crate::open_payments::auth::{self, OpError};
+use crate::open_payments::consent;
 use crate::store::PaymentId;
 
 /// `POST|DELETE /gnap/continue/{id}` and `POST|DELETE /gnap/token/{id}`.
@@ -37,9 +38,9 @@ pub async fn manage(
         return error(&OpError::not_found("Not Found"), None);
     };
     let result = match (continuation, method) {
-        (true, &Method::POST) => {
-            auth::continue_grant(node, id, &signed).map(|grant| json(StatusCode::OK, &grant))
-        }
+        (true, &Method::POST) => auth::continue_grant(node, urls, id, &signed)
+            .await
+            .map(|grant| json(StatusCode::OK, &grant)),
         (true, &Method::DELETE) => auth::revoke_grant(node, id, &signed).map(|()| no_content()),
         (false, &Method::POST) => auth::rotate_token(node, urls, id, &signed).map(|access_token| {
             json(
@@ -51,6 +52,32 @@ pub async fn manage(
         _ => Err(OpError::not_found("Not Found")),
     };
     result.unwrap_or_else(|failure| error(&failure, None))
+}
+
+/// `GET /gnap/interact/{id}/{key}`: sends the owner to the wallet's
+/// consent page for the grant. A person reads what this answers, so an
+/// error is plain text.
+pub fn interact(node: &Node, urls: &Urls, path: &str) -> Response<Body> {
+    let target = path
+        .strip_prefix("/gnap/interact/")
+        .and_then(|rest| rest.split_once('/'))
+        .and_then(|(id, key)| Some((PaymentId::parse(id)?, key)));
+    let location = target.and_then(|(id, key)| consent::start(node, urls, id, key).ok());
+    match location.and_then(|location| http::HeaderValue::from_str(&location).ok()) {
+        Some(location) => {
+            let mut response =
+                crate::http::response::with_body(StatusCode::FOUND, "text/plain", "");
+            response
+                .headers_mut()
+                .insert(http::header::LOCATION, location);
+            response
+        }
+        None => crate::http::response::with_body(
+            StatusCode::NOT_FOUND,
+            "text/plain; charset=utf-8",
+            "This request for your consent is no longer waiting: it was decided, or it lapsed after 10 minutes. Ask the app to start again.",
+        ),
+    }
 }
 
 fn no_content() -> Response<Body> {

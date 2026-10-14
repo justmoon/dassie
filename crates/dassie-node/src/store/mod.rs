@@ -17,6 +17,7 @@ mod inspect;
 mod ledger;
 #[cfg(test)]
 mod ledger_tests;
+mod outgoing;
 mod owed;
 #[cfg(test)]
 mod owed_tests;
@@ -41,9 +42,13 @@ use rusqlite::{Connection, OptionalExtension, params};
 pub use gnap::{GrantRow, GrantState, MAX_GRANTS, TokenRow};
 pub use inspect::{BLOB_CUT, Cell, ColumnInfo, MAX_ROWS, RowsPage, TEXT_CUT, TableInfo, Value};
 pub use ledger::{BtpTokenRow, JournalRow, LedgerBatch, StoredLedger, TokenCap};
+pub use outgoing::{
+    ForeignAmount, MAX_LIVE_QUOTES, OutgoingBatch, OutgoingProgress, OutgoingRow, OutgoingState,
+    QuoteRow,
+};
 pub use owed::{Compensation, OwedFulfill, PostedTransfer, TakenFulfill, VerdictBatch};
 pub use payments::{
-    IncomingPage, IncomingProgress, IncomingQuery, IncomingRow, MAX_OPEN_LOADED, PaymentId,
+    IncomingPage, IncomingProgress, IncomingQuery, IncomingRow, MAX_OPEN_LOADED, Page, PaymentId,
     UNPAID_RETENTION_MS,
 };
 pub use schema::{APPLICATION_ID, V0_APPLICATION_ID};

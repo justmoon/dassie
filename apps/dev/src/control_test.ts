@@ -4,7 +4,7 @@ import {
   MAX_CONTROL_MESSAGE_BYTES,
   SourcedLogLineSchema,
 } from "@dassie/rpc/dev";
-import { chunkLines } from "./control.ts";
+import { chunkLines, ControlHub, type ControlSource } from "./control.ts";
 
 const line = (n: number, bytes = 100) =>
   create(SourcedLogLineSchema, {
@@ -33,4 +33,18 @@ Deno.test("log lines go out in chunks that fit a message", () => {
 Deno.test("no lines, no chunks; one line too large still goes alone", () => {
   assertEquals(chunkLines([]), []);
   assertEquals(chunkLines([line(1, 2_000)], 1_000).length, 1);
+});
+
+Deno.test("a dashboard that reconnects as everything stops is closed", () => {
+  // Only what the hub touches before it greets.
+  const closes: number[] = [];
+  const socket = {
+    close: (code: number) => closes.push(code),
+  } as unknown as WebSocket;
+  const source = {} as ControlSource;
+  const hub = new ControlHub(source, () => {}, () => {});
+  hub.close();
+  hub.attach(socket);
+  socket.onopen!(new Event("open"));
+  assertEquals(closes, [1001]);
 });

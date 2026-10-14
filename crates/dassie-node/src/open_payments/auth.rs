@@ -4,9 +4,10 @@
 //! A client asks for a grant at `POST /gnap`, signing the request with its
 //! key: the key its wallet address publishes, or one it sends along
 //! ("directed identity"). Grants the owner need not approve, for incoming
-//! payments and quotes, are approved at once. Every later request carries
-//! the grant's access token and is signed with the same key, which the
-//! grant keeps: a stolen token is of no use without the key.
+//! payments and quotes, are approved at once; the others wait for the
+//! owner ([`super::consent`]). Every later request carries the grant's
+//! access token and is signed with the same key, which the grant keeps: a
+//! stolen token is of no use without the key.
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -123,14 +124,14 @@ impl From<StoreError> for OpError {
     }
 }
 
-fn random_bytes<const N: usize>(node: &Node) -> [u8; N] {
+pub(super) fn random_bytes<const N: usize>(node: &Node) -> [u8; N] {
     let mut bytes = [0u8; N];
     node.with_rng(|rng| rng.fill_bytes(&mut bytes));
     bytes
 }
 
 /// A new token: its text, and the hash the database keeps.
-fn new_token(node: &Node) -> (String, [u8; 32]) {
+pub(super) fn new_token(node: &Node) -> (String, [u8; 32]) {
     let token = URL_SAFE_NO_PAD.encode(random_bytes::<32>(node));
     let hash = token_hash(&token);
     (token, hash)
@@ -261,13 +262,6 @@ pub async fn request_grant(
     grant
         .validate()
         .map_err(|code| OpError::gnap(400, code, "the grant request is not accepted"))?;
-    if grant.needs_owner() {
-        return Err(OpError::gnap(
-            400,
-            ErrorCode::InvalidRequest,
-            "grants that need the owner's consent are not offered yet",
-        ));
-    }
     let addresses = WalletAddresses::of(node)
         .await
         .map_err(|_| OpError::unavailable())?;
@@ -277,6 +271,9 @@ pub async fn request_grant(
     check_signature(request, &jwk, &key, now, |description| {
         OpError::gnap(401, ErrorCode::InvalidClient, description)
     })?;
+    if grant.needs_owner() {
+        return super::consent::request(node, urls, client, &jwk, access, &grant).await;
+    }
     approve(node, urls, client, &jwk, access)
 }
 
@@ -345,10 +342,13 @@ fn approve(
 
 /// The GNAP token a request carries, and the hash the database keeps.
 fn presented_token(request: &SignedRequest<'_>) -> Result<[u8; 32], OpError> {
+    presented(request).map(token_hash)
+}
+
+fn presented<'a>(request: &SignedRequest<'a>) -> Result<&'a str, OpError> {
     request
         .header("authorization")
         .and_then(gnap::bearer)
-        .map(token_hash)
         .ok_or_else(|| OpError::gnap(401, ErrorCode::InvalidClient, "a GNAP token is required"))
 }
 
@@ -461,30 +461,36 @@ pub fn revoke_grant(
     Ok(())
 }
 
-/// `POST /gnap/continue/{id}`: continuing a grant. Grants that need the
-/// owner come with M6b; the ones issued now are final.
+/// `POST /gnap/continue/{id}`: continuing a grant the owner decides. The
+/// others are final when issued.
 ///
 /// # Errors
 ///
-/// Always, for now: there is nothing to continue.
-pub fn continue_grant(
+/// 401 without the continuation token and the client's signature; what
+/// [`super::consent::continue_grant`] answers for one the owner decides;
+/// 400 for any other.
+pub async fn continue_grant(
     node: &Node,
+    urls: &Urls,
     grant_id: PaymentId,
     request: &SignedRequest<'_>,
 ) -> Result<GrantResponse, OpError> {
-    let hash = presented_token(request)?;
+    let token = presented(request)?;
     let grant = node
         .store()
-        .continued_grant(grant_id, &hash)?
+        .continued_grant(grant_id, &token_hash(token))?
         .ok_or_else(|| {
             OpError::gnap(401, ErrorCode::InvalidContinuation, "no such continuation")
         })?;
     signed_by_client(node, request, &grant)?;
-    Err(OpError::gnap(
-        400,
-        ErrorCode::InvalidContinuation,
-        "the grant is final: there is nothing to continue",
-    ))
+    if !grant.needs_owner {
+        return Err(OpError::gnap(
+            400,
+            ErrorCode::InvalidContinuation,
+            "the grant is final: there is nothing to continue",
+        ));
+    }
+    super::consent::continue_grant(node, urls, grant, request.body, token.to_string()).await
 }
 
 /// What a request's token allows.

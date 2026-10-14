@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file dassie/ui/v1/payments.proto.
  */
 export const file_dassie_ui_v1_payments: GenFile = /*@__PURE__*/
-  fileDesc("ChtkYXNzaWUvdWkvdjEvcGF5bWVudHMucHJvdG8SDGRhc3NpZS51aS52MSKCAQoNV2FsbGV0QWRkcmVzcxILCgN1cmwYASABKAkSFwoPcGF5bWVudF9wb2ludGVyGAIgASgJEg4KBmxlZGdlchgDIAEoCRISCgphc3NldF9jb2RlGAQgASgJEhMKC2Fzc2V0X3NjYWxlGAUgASgNEhIKCmlzX2RlZmF1bHQYBiABKAgiHAoaTGlzdFdhbGxldEFkZHJlc3Nlc1JlcXVlc3QiVAobTGlzdFdhbGxldEFkZHJlc3Nlc1Jlc3BvbnNlEjUKEHdhbGxldF9hZGRyZXNzZXMYASADKAsyGy5kYXNzaWUudWkudjEuV2FsbGV0QWRkcmVzcyIpChdTZXREZWZhdWx0TGVkZ2VyUmVxdWVzdBIOCgZsZWRnZXIYASABKAkiUQoYU2V0RGVmYXVsdExlZGdlclJlc3BvbnNlEjUKEHdhbGxldF9hZGRyZXNzZXMYASADKAsyGy5kYXNzaWUudWkudjEuV2FsbGV0QWRkcmVzcyKBAwoPSW5jb21pbmdQYXltZW50EgoKAmlkGAEgASgJEgsKA3VybBgCIAEoCRIWCg53YWxsZXRfYWRkcmVzcxgDIAEoCRIOCgZsZWRnZXIYBCABKAkSEgoKYXNzZXRfY29kZRgFIAEoCRITCgthc3NldF9zY2FsZRgGIAEoDRIcCg9pbmNvbWluZ19hbW91bnQYByABKARIAIgBARIXCg9yZWNlaXZlZF9hbW91bnQYCCABKAQSDgoGY2xpZW50GAkgASgJEhUKDW1ldGFkYXRhX2pzb24YCiABKAkSFQoNY3JlYXRlZF9hdF9tcxgLIAEoBBIVCg1leHBpcmVzX2F0X21zGAwgASgEEhwKD2NvbXBsZXRlZF9hdF9tcxgNIAEoBEgBiAEBEhsKE2Rlc3RpbmF0aW9uX2FjY291bnQYDiABKAkSFQoNc2hhcmVkX3NlY3JldBgPIAEoDEISChBfaW5jb21pbmdfYW1vdW50QhIKEF9jb21wbGV0ZWRfYXRfbXMijAEKHENyZWF0ZUluY29taW5nUGF5bWVudFJlcXVlc3QSDgoGbGVkZ2VyGAEgASgJEhwKD2luY29taW5nX2Ftb3VudBgCIAEoBEgAiAEBEhUKDWV4cGlyZXNfYXRfbXMYAyABKAQSEwoLZGVzY3JpcHRpb24YBCABKAlCEgoQX2luY29taW5nX2Ftb3VudCJPCh1DcmVhdGVJbmNvbWluZ1BheW1lbnRSZXNwb25zZRIuCgdwYXltZW50GAEgASgLMh0uZGFzc2llLnVpLnYxLkluY29taW5nUGF5bWVudCIsCh5Db21wbGV0ZUluY29taW5nUGF5bWVudFJlcXVlc3QSCgoCaWQYASABKAkiUQofQ29tcGxldGVJbmNvbWluZ1BheW1lbnRSZXNwb25zZRIuCgdwYXltZW50GAEgASgLMh0uZGFzc2llLnVpLnYxLkluY29taW5nUGF5bWVudCIsChtMaXN0SW5jb21pbmdQYXltZW50c1JlcXVlc3QSDQoFbGltaXQYASABKA0iTwocTGlzdEluY29taW5nUGF5bWVudHNSZXNwb25zZRIvCghwYXltZW50cxgBIAMoCzIdLmRhc3NpZS51aS52MS5JbmNvbWluZ1BheW1lbnQiMQogU3Vic2NyaWJlSW5jb21pbmdQYXltZW50c1JlcXVlc3QSDQoFbGltaXQYASABKA0iZwoUSW5jb21pbmdQYXltZW50RXZlbnQSDQoFcmVzZXQYASABKAgSLwoIdXBzZXJ0ZWQYAiADKAsyHS5kYXNzaWUudWkudjEuSW5jb21pbmdQYXltZW50Eg8KB3JlbW92ZWQYAyADKAliBnByb3RvMw");
+  fileDesc("ChtkYXNzaWUvdWkvdjEvcGF5bWVudHMucHJvdG8SDGRhc3NpZS51aS52MSKCAQoNV2FsbGV0QWRkcmVzcxILCgN1cmwYASABKAkSFwoPcGF5bWVudF9wb2ludGVyGAIgASgJEg4KBmxlZGdlchgDIAEoCRISCgphc3NldF9jb2RlGAQgASgJEhMKC2Fzc2V0X3NjYWxlGAUgASgNEhIKCmlzX2RlZmF1bHQYBiABKAgiHAoaTGlzdFdhbGxldEFkZHJlc3Nlc1JlcXVlc3QiVAobTGlzdFdhbGxldEFkZHJlc3Nlc1Jlc3BvbnNlEjUKEHdhbGxldF9hZGRyZXNzZXMYASADKAsyGy5kYXNzaWUudWkudjEuV2FsbGV0QWRkcmVzcyIpChdTZXREZWZhdWx0TGVkZ2VyUmVxdWVzdBIOCgZsZWRnZXIYASABKAkiUQoYU2V0RGVmYXVsdExlZGdlclJlc3BvbnNlEjUKEHdhbGxldF9hZGRyZXNzZXMYASADKAsyGy5kYXNzaWUudWkudjEuV2FsbGV0QWRkcmVzcyKBAwoPSW5jb21pbmdQYXltZW50EgoKAmlkGAEgASgJEgsKA3VybBgCIAEoCRIWCg53YWxsZXRfYWRkcmVzcxgDIAEoCRIOCgZsZWRnZXIYBCABKAkSEgoKYXNzZXRfY29kZRgFIAEoCRITCgthc3NldF9zY2FsZRgGIAEoDRIcCg9pbmNvbWluZ19hbW91bnQYByABKARIAIgBARIXCg9yZWNlaXZlZF9hbW91bnQYCCABKAQSDgoGY2xpZW50GAkgASgJEhUKDW1ldGFkYXRhX2pzb24YCiABKAkSFQoNY3JlYXRlZF9hdF9tcxgLIAEoBBIVCg1leHBpcmVzX2F0X21zGAwgASgEEhwKD2NvbXBsZXRlZF9hdF9tcxgNIAEoBEgBiAEBEhsKE2Rlc3RpbmF0aW9uX2FjY291bnQYDiABKAkSFQoNc2hhcmVkX3NlY3JldBgPIAEoDEISChBfaW5jb21pbmdfYW1vdW50QhIKEF9jb21wbGV0ZWRfYXRfbXMijAEKHENyZWF0ZUluY29taW5nUGF5bWVudFJlcXVlc3QSDgoGbGVkZ2VyGAEgASgJEhwKD2luY29taW5nX2Ftb3VudBgCIAEoBEgAiAEBEhUKDWV4cGlyZXNfYXRfbXMYAyABKAQSEwoLZGVzY3JpcHRpb24YBCABKAlCEgoQX2luY29taW5nX2Ftb3VudCJPCh1DcmVhdGVJbmNvbWluZ1BheW1lbnRSZXNwb25zZRIuCgdwYXltZW50GAEgASgLMh0uZGFzc2llLnVpLnYxLkluY29taW5nUGF5bWVudCIsCh5Db21wbGV0ZUluY29taW5nUGF5bWVudFJlcXVlc3QSCgoCaWQYASABKAkiUQofQ29tcGxldGVJbmNvbWluZ1BheW1lbnRSZXNwb25zZRIuCgdwYXltZW50GAEgASgLMh0uZGFzc2llLnVpLnYxLkluY29taW5nUGF5bWVudCIsChtMaXN0SW5jb21pbmdQYXltZW50c1JlcXVlc3QSDQoFbGltaXQYASABKA0iTwocTGlzdEluY29taW5nUGF5bWVudHNSZXNwb25zZRIvCghwYXltZW50cxgBIAMoCzIdLmRhc3NpZS51aS52MS5JbmNvbWluZ1BheW1lbnQiMQogU3Vic2NyaWJlSW5jb21pbmdQYXltZW50c1JlcXVlc3QSDQoFbGltaXQYASABKA0iZwoUSW5jb21pbmdQYXltZW50RXZlbnQSDQoFcmVzZXQYASABKAgSLwoIdXBzZXJ0ZWQYAiADKAsyHS5kYXNzaWUudWkudjEuSW5jb21pbmdQYXltZW50Eg8KB3JlbW92ZWQYAyADKAkiTAoST3BlblBheW1lbnRzQW1vdW50Eg0KBXZhbHVlGAEgASgEEhIKCmFzc2V0X2NvZGUYAiABKAkSEwoLYXNzZXRfc2NhbGUYAyABKA0ikwMKD091dGdvaW5nUGF5bWVudBIKCgJpZBgBIAEoCRILCgN1cmwYAiABKAkSFgoOd2FsbGV0X2FkZHJlc3MYAyABKAkSDgoGbGVkZ2VyGAQgASgJEhIKCmFzc2V0X2NvZGUYBSABKAkSEwoLYXNzZXRfc2NhbGUYBiABKA0SEAoIcmVjZWl2ZXIYByABKAkSFAoMZGViaXRfYW1vdW50GAggASgEEjgKDnJlY2VpdmVfYW1vdW50GAkgASgLMiAuZGFzc2llLnVpLnYxLk9wZW5QYXltZW50c0Ftb3VudBITCgtzZW50X2Ftb3VudBgKIAEoBBINCgVzdGF0ZRgLIAEoCRIPCgdmYWlsdXJlGAwgASgJEg4KBmNsaWVudBgNIAEoCRIRCglxdW90ZV91cmwYDiABKAkSFQoNbWV0YWRhdGFfanNvbhgPIAEoCRIVCg1jcmVhdGVkX2F0X21zGBAgASgEEhsKDmZpbmlzaGVkX2F0X21zGBEgASgESACIAQFCEQoPX2ZpbmlzaGVkX2F0X21zIiwKG0xpc3RPdXRnb2luZ1BheW1lbnRzUmVxdWVzdBINCgVsaW1pdBgBIAEoDSJPChxMaXN0T3V0Z29pbmdQYXltZW50c1Jlc3BvbnNlEi8KCHBheW1lbnRzGAEgAygLMh0uZGFzc2llLnVpLnYxLk91dGdvaW5nUGF5bWVudCIxCiBTdWJzY3JpYmVPdXRnb2luZ1BheW1lbnRzUmVxdWVzdBINCgVsaW1pdBgBIAEoDSJnChRPdXRnb2luZ1BheW1lbnRFdmVudBINCgVyZXNldBgBIAEoCBIvCgh1cHNlcnRlZBgCIAMoCzIdLmRhc3NpZS51aS52MS5PdXRnb2luZ1BheW1lbnQSDwoHcmVtb3ZlZBgDIAMoCSKPAQoLR3JhbnRBY2Nlc3MSDAoEdHlwZRgBIAEoCRIPCgdhY3Rpb25zGAIgAygJEhYKDndhbGxldF9hZGRyZXNzGAMgASgJEg4KBmxlZGdlchgEIAEoCRIuCgZsaW1pdHMYBSABKAsyGS5kYXNzaWUudWkudjEuR3JhbnRMaW1pdHNIAIgBAUIJCgdfbGltaXRzIt0CCgtHcmFudExpbWl0cxIQCghyZWNlaXZlchgBIAEoCRIQCghpbnRlcnZhbBgCIAEoCRI7CgxkZWJpdF9hbW91bnQYAyABKAsyIC5kYXNzaWUudWkudjEuT3BlblBheW1lbnRzQW1vdW50SACIAQESPQoOcmVjZWl2ZV9hbW91bnQYBCABKAsyIC5kYXNzaWUudWkudjEuT3BlblBheW1lbnRzQW1vdW50SAGIAQESHAoPd2luZG93X3N0YXJ0X21zGAUgASgESAKIAQESGgoNd2luZG93X2VuZF9tcxgGIAEoBEgDiAEBEhMKC3NwZW50X2RlYml0GAcgASgEEhUKDXNwZW50X3JlY2VpdmUYCCABKARCDwoNX2RlYml0X2Ftb3VudEIRCg9fcmVjZWl2ZV9hbW91bnRCEgoQX3dpbmRvd19zdGFydF9tc0IQCg5fd2luZG93X2VuZF9tcyLfAQoFR3JhbnQSCgoCaWQYASABKAkSDgoGY2xpZW50GAIgASgJEhMKC2NsaWVudF9uYW1lGAMgASgJEikKBmFjY2VzcxgEIAMoCzIZLmRhc3NpZS51aS52MS5HcmFudEFjY2VzcxIPCgdzdWJqZWN0GAUgASgJEg0KBXN0YXRlGAYgASgJEhUKDWNyZWF0ZWRfYXRfbXMYByABKAQSGgoNZGVjaWRlZF9hdF9tcxgIIAEoBEgAiAEBEhUKDWV4cGlyZXNfYXRfbXMYCSABKARCEAoOX2RlY2lkZWRfYXRfbXMiMQoWR2V0R3JhbnRSZXF1ZXN0UmVxdWVzdBIKCgJpZBgBIAEoCRILCgNrZXkYAiABKAkiPQoXR2V0R3JhbnRSZXF1ZXN0UmVzcG9uc2USIgoFZ3JhbnQYASABKAsyEy5kYXNzaWUudWkudjEuR3JhbnQiPgoSRGVjaWRlR3JhbnRSZXF1ZXN0EgoKAmlkGAEgASgJEgsKA2tleRgCIAEoCRIPCgdhcHByb3ZlGAMgASgIIikKE0RlY2lkZUdyYW50UmVzcG9uc2USEgoKZmluaXNoX3VybBgBIAEoCSITChFMaXN0R3JhbnRzUmVxdWVzdCI5ChJMaXN0R3JhbnRzUmVzcG9uc2USIwoGZ3JhbnRzGAEgAygLMhMuZGFzc2llLnVpLnYxLkdyYW50IhgKFlN1YnNjcmliZUdyYW50c1JlcXVlc3QiIAoSUmV2b2tlR3JhbnRSZXF1ZXN0EgoKAmlkGAEgASgJIhUKE1Jldm9rZUdyYW50UmVzcG9uc2ViBnByb3RvMw");
 
 /**
  * A wallet address.
@@ -431,4 +431,610 @@ export type IncomingPaymentEvent = Message<"dassie.ui.v1.IncomingPaymentEvent"> 
  */
 export const IncomingPaymentEventSchema: GenMessage<IncomingPaymentEvent> = /*@__PURE__*/
   messageDesc(file_dassie_ui_v1_payments, 13);
+
+/**
+ * An amount in an asset: what a limit or a payment names. Its asset may
+ * differ from the ledger's for what a receiver gets.
+ *
+ * @generated from message dassie.ui.v1.OpenPaymentsAmount
+ */
+export type OpenPaymentsAmount = Message<"dassie.ui.v1.OpenPaymentsAmount"> & {
+  /**
+   * @generated from field: uint64 value = 1;
+   */
+  value: bigint;
+
+  /**
+   * @generated from field: string asset_code = 2;
+   */
+  assetCode: string;
+
+  /**
+   * @generated from field: uint32 asset_scale = 3;
+   */
+  assetScale: number;
+};
+
+/**
+ * Describes the message dassie.ui.v1.OpenPaymentsAmount.
+ * Use `create(OpenPaymentsAmountSchema)` to create a new message.
+ */
+export const OpenPaymentsAmountSchema: GenMessage<OpenPaymentsAmount> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 14);
+
+/**
+ * An outgoing payment: a client's, with the owner's consent (M6b), or the
+ * owner's own (M6c).
+ *
+ * @generated from message dassie.ui.v1.OutgoingPayment
+ */
+export type OutgoingPayment = Message<"dassie.ui.v1.OutgoingPayment"> & {
+  /**
+   * A UUID.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * Its URL.
+   *
+   * @generated from field: string url = 2;
+   */
+  url: string;
+
+  /**
+   * The wallet address that pays.
+   *
+   * @generated from field: string wallet_address = 3;
+   */
+  walletAddress: string;
+
+  /**
+   * @generated from field: string ledger = 4;
+   */
+  ledger: string;
+
+  /**
+   * @generated from field: string asset_code = 5;
+   */
+  assetCode: string;
+
+  /**
+   * @generated from field: uint32 asset_scale = 6;
+   */
+  assetScale: number;
+
+  /**
+   * The incoming payment it pays.
+   *
+   * @generated from field: string receiver = 7;
+   */
+  receiver: string;
+
+  /**
+   * What it debits at most, in the ledger's units.
+   *
+   * @generated from field: uint64 debit_amount = 8;
+   */
+  debitAmount: bigint;
+
+  /**
+   * What the receiver is to get, in its asset.
+   *
+   * @generated from field: dassie.ui.v1.OpenPaymentsAmount receive_amount = 9;
+   */
+  receiveAmount?: OpenPaymentsAmount | undefined;
+
+  /**
+   * What it debited so far.
+   *
+   * @generated from field: uint64 sent_amount = 10;
+   */
+  sentAmount: bigint;
+
+  /**
+   * "sending", "completed" or "failed".
+   *
+   * @generated from field: string state = 11;
+   */
+  state: string;
+
+  /**
+   * Why it failed, for people.
+   *
+   * @generated from field: string failure = 12;
+   */
+  failure: string;
+
+  /**
+   * The wallet address of the client that created it; empty for the
+   * owner.
+   *
+   * @generated from field: string client = 13;
+   */
+  client: string;
+
+  /**
+   * The quote it pays; empty if made without one.
+   *
+   * @generated from field: string quote_url = 14;
+   */
+  quoteUrl: string;
+
+  /**
+   * Its metadata, as JSON; empty for none.
+   *
+   * @generated from field: string metadata_json = 15;
+   */
+  metadataJson: string;
+
+  /**
+   * @generated from field: uint64 created_at_ms = 16;
+   */
+  createdAtMs: bigint;
+
+  /**
+   * When it completed or failed.
+   *
+   * @generated from field: optional uint64 finished_at_ms = 17;
+   */
+  finishedAtMs?: bigint | undefined;
+};
+
+/**
+ * Describes the message dassie.ui.v1.OutgoingPayment.
+ * Use `create(OutgoingPaymentSchema)` to create a new message.
+ */
+export const OutgoingPaymentSchema: GenMessage<OutgoingPayment> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 15);
+
+/**
+ * @generated from message dassie.ui.v1.ListOutgoingPaymentsRequest
+ */
+export type ListOutgoingPaymentsRequest = Message<"dassie.ui.v1.ListOutgoingPaymentsRequest"> & {
+  /**
+   * How many, newest first, up to 1000; 0 means 100.
+   *
+   * @generated from field: uint32 limit = 1;
+   */
+  limit: number;
+};
+
+/**
+ * Describes the message dassie.ui.v1.ListOutgoingPaymentsRequest.
+ * Use `create(ListOutgoingPaymentsRequestSchema)` to create a new message.
+ */
+export const ListOutgoingPaymentsRequestSchema: GenMessage<ListOutgoingPaymentsRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 16);
+
+/**
+ * @generated from message dassie.ui.v1.ListOutgoingPaymentsResponse
+ */
+export type ListOutgoingPaymentsResponse = Message<"dassie.ui.v1.ListOutgoingPaymentsResponse"> & {
+  /**
+   * Newest first.
+   *
+   * @generated from field: repeated dassie.ui.v1.OutgoingPayment payments = 1;
+   */
+  payments: OutgoingPayment[];
+};
+
+/**
+ * Describes the message dassie.ui.v1.ListOutgoingPaymentsResponse.
+ * Use `create(ListOutgoingPaymentsResponseSchema)` to create a new message.
+ */
+export const ListOutgoingPaymentsResponseSchema: GenMessage<ListOutgoingPaymentsResponse> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 17);
+
+/**
+ * Streaming: the newest outgoing payments, then each change.
+ *
+ * @generated from message dassie.ui.v1.SubscribeOutgoingPaymentsRequest
+ */
+export type SubscribeOutgoingPaymentsRequest = Message<"dassie.ui.v1.SubscribeOutgoingPaymentsRequest"> & {
+  /**
+   * How many it follows, newest first, up to 1000; 0 means 100.
+   *
+   * @generated from field: uint32 limit = 1;
+   */
+  limit: number;
+};
+
+/**
+ * Describes the message dassie.ui.v1.SubscribeOutgoingPaymentsRequest.
+ * Use `create(SubscribeOutgoingPaymentsRequestSchema)` to create a new message.
+ */
+export const SubscribeOutgoingPaymentsRequestSchema: GenMessage<SubscribeOutgoingPaymentsRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 18);
+
+/**
+ * @generated from message dassie.ui.v1.OutgoingPaymentEvent
+ */
+export type OutgoingPaymentEvent = Message<"dassie.ui.v1.OutgoingPaymentEvent"> & {
+  /**
+   * Set on the first item.
+   *
+   * @generated from field: bool reset = 1;
+   */
+  reset: boolean;
+
+  /**
+   * Payments added or changed, whole.
+   *
+   * @generated from field: repeated dassie.ui.v1.OutgoingPayment upserted = 2;
+   */
+  upserted: OutgoingPayment[];
+
+  /**
+   * IDs of payments no longer among the newest.
+   *
+   * @generated from field: repeated string removed = 3;
+   */
+  removed: string[];
+};
+
+/**
+ * Describes the message dassie.ui.v1.OutgoingPaymentEvent.
+ * Use `create(OutgoingPaymentEventSchema)` to create a new message.
+ */
+export const OutgoingPaymentEventSchema: GenMessage<OutgoingPaymentEvent> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 19);
+
+/**
+ * What a grant's access item allows, as the owner reads it.
+ *
+ * @generated from message dassie.ui.v1.GrantAccess
+ */
+export type GrantAccess = Message<"dassie.ui.v1.GrantAccess"> & {
+  /**
+   * "incoming-payment", "outgoing-payment" or "quote".
+   *
+   * @generated from field: string type = 1;
+   */
+  type: string;
+
+  /**
+   * "create", "read", "read-all", "list", "list-all", "complete".
+   *
+   * @generated from field: repeated string actions = 2;
+   */
+  actions: string[];
+
+  /**
+   * The wallet address it reaches, and its ledger; empty for any of the
+   * node's.
+   *
+   * @generated from field: string wallet_address = 3;
+   */
+  walletAddress: string;
+
+  /**
+   * @generated from field: string ledger = 4;
+   */
+  ledger: string;
+
+  /**
+   * Its limits, for outgoing payments.
+   *
+   * @generated from field: optional dassie.ui.v1.GrantLimits limits = 5;
+   */
+  limits?: GrantLimits | undefined;
+};
+
+/**
+ * Describes the message dassie.ui.v1.GrantAccess.
+ * Use `create(GrantAccessSchema)` to create a new message.
+ */
+export const GrantAccessSchema: GenMessage<GrantAccess> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 20);
+
+/**
+ * The limits of an outgoing-payment grant, and what it spent.
+ *
+ * @generated from message dassie.ui.v1.GrantLimits
+ */
+export type GrantLimits = Message<"dassie.ui.v1.GrantLimits"> & {
+  /**
+   * The only incoming payment it may pay; empty for any.
+   *
+   * @generated from field: string receiver = 1;
+   */
+  receiver: string;
+
+  /**
+   * The ISO 8601 repeating interval the amounts apply to; empty for all
+   * time.
+   *
+   * @generated from field: string interval = 2;
+   */
+  interval: string;
+
+  /**
+   * The most it may debit, and deliver, per interval.
+   *
+   * @generated from field: optional dassie.ui.v1.OpenPaymentsAmount debit_amount = 3;
+   */
+  debitAmount?: OpenPaymentsAmount | undefined;
+
+  /**
+   * @generated from field: optional dassie.ui.v1.OpenPaymentsAmount receive_amount = 4;
+   */
+  receiveAmount?: OpenPaymentsAmount | undefined;
+
+  /**
+   * The interval's window now, if now is in one.
+   *
+   * @generated from field: optional uint64 window_start_ms = 5;
+   */
+  windowStartMs?: bigint | undefined;
+
+  /**
+   * @generated from field: optional uint64 window_end_ms = 6;
+   */
+  windowEndMs?: bigint | undefined;
+
+  /**
+   * What it spent in that window: debited, and delivered.
+   *
+   * @generated from field: uint64 spent_debit = 7;
+   */
+  spentDebit: bigint;
+
+  /**
+   * @generated from field: uint64 spent_receive = 8;
+   */
+  spentReceive: bigint;
+};
+
+/**
+ * Describes the message dassie.ui.v1.GrantLimits.
+ * Use `create(GrantLimitsSchema)` to create a new message.
+ */
+export const GrantLimitsSchema: GenMessage<GrantLimits> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 21);
+
+/**
+ * A grant the owner decides, or decided.
+ *
+ * @generated from message dassie.ui.v1.Grant
+ */
+export type Grant = Message<"dassie.ui.v1.Grant"> & {
+  /**
+   * A UUID.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * The client's wallet address.
+   *
+   * @generated from field: string client = 2;
+   */
+  client: string;
+
+  /**
+   * Its public name, if its wallet address has one; else empty.
+   *
+   * @generated from field: string client_name = 3;
+   */
+  clientName: string;
+
+  /**
+   * @generated from field: repeated dassie.ui.v1.GrantAccess access = 4;
+   */
+  access: GrantAccess[];
+
+  /**
+   * The wallet address the client asks the owner to prove, if any.
+   *
+   * @generated from field: string subject = 5;
+   */
+  subject: string;
+
+  /**
+   * "pending" or "approved".
+   *
+   * @generated from field: string state = 6;
+   */
+  state: string;
+
+  /**
+   * @generated from field: uint64 created_at_ms = 7;
+   */
+  createdAtMs: bigint;
+
+  /**
+   * @generated from field: optional uint64 decided_at_ms = 8;
+   */
+  decidedAtMs?: bigint | undefined;
+
+  /**
+   * When a pending one lapses.
+   *
+   * @generated from field: uint64 expires_at_ms = 9;
+   */
+  expiresAtMs: bigint;
+};
+
+/**
+ * Describes the message dassie.ui.v1.Grant.
+ * Use `create(GrantSchema)` to create a new message.
+ */
+export const GrantSchema: GenMessage<Grant> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 22);
+
+/**
+ * The grant waiting for the owner at the consent page: its ID and key come
+ * from the URL the client sent the owner to. NOT_FOUND once decided,
+ * lapsed or with a wrong key.
+ *
+ * @generated from message dassie.ui.v1.GetGrantRequestRequest
+ */
+export type GetGrantRequestRequest = Message<"dassie.ui.v1.GetGrantRequestRequest"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string key = 2;
+   */
+  key: string;
+};
+
+/**
+ * Describes the message dassie.ui.v1.GetGrantRequestRequest.
+ * Use `create(GetGrantRequestRequestSchema)` to create a new message.
+ */
+export const GetGrantRequestRequestSchema: GenMessage<GetGrantRequestRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 23);
+
+/**
+ * @generated from message dassie.ui.v1.GetGrantRequestResponse
+ */
+export type GetGrantRequestResponse = Message<"dassie.ui.v1.GetGrantRequestResponse"> & {
+  /**
+   * @generated from field: dassie.ui.v1.Grant grant = 1;
+   */
+  grant?: Grant | undefined;
+};
+
+/**
+ * Describes the message dassie.ui.v1.GetGrantRequestResponse.
+ * Use `create(GetGrantRequestResponseSchema)` to create a new message.
+ */
+export const GetGrantRequestResponseSchema: GenMessage<GetGrantRequestResponse> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 24);
+
+/**
+ * The owner approves or denies a waiting grant. NOT_FOUND as for
+ * GetGrantRequest.
+ *
+ * @generated from message dassie.ui.v1.DecideGrantRequest
+ */
+export type DecideGrantRequest = Message<"dassie.ui.v1.DecideGrantRequest"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string key = 2;
+   */
+  key: string;
+
+  /**
+   * @generated from field: bool approve = 3;
+   */
+  approve: boolean;
+};
+
+/**
+ * Describes the message dassie.ui.v1.DecideGrantRequest.
+ * Use `create(DecideGrantRequestSchema)` to create a new message.
+ */
+export const DecideGrantRequestSchema: GenMessage<DecideGrantRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 25);
+
+/**
+ * @generated from message dassie.ui.v1.DecideGrantResponse
+ */
+export type DecideGrantResponse = Message<"dassie.ui.v1.DecideGrantResponse"> & {
+  /**
+   * Where to send the owner back to the client; empty if it named nowhere.
+   *
+   * @generated from field: string finish_url = 1;
+   */
+  finishUrl: string;
+};
+
+/**
+ * Describes the message dassie.ui.v1.DecideGrantResponse.
+ * Use `create(DecideGrantResponseSchema)` to create a new message.
+ */
+export const DecideGrantResponseSchema: GenMessage<DecideGrantResponse> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 26);
+
+/**
+ * The grants the owner approved and has not revoked.
+ *
+ * @generated from message dassie.ui.v1.ListGrantsRequest
+ */
+export type ListGrantsRequest = Message<"dassie.ui.v1.ListGrantsRequest"> & {
+};
+
+/**
+ * Describes the message dassie.ui.v1.ListGrantsRequest.
+ * Use `create(ListGrantsRequestSchema)` to create a new message.
+ */
+export const ListGrantsRequestSchema: GenMessage<ListGrantsRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 27);
+
+/**
+ * @generated from message dassie.ui.v1.ListGrantsResponse
+ */
+export type ListGrantsResponse = Message<"dassie.ui.v1.ListGrantsResponse"> & {
+  /**
+   * Newest first.
+   *
+   * @generated from field: repeated dassie.ui.v1.Grant grants = 1;
+   */
+  grants: Grant[];
+};
+
+/**
+ * Describes the message dassie.ui.v1.ListGrantsResponse.
+ * Use `create(ListGrantsResponseSchema)` to create a new message.
+ */
+export const ListGrantsResponseSchema: GenMessage<ListGrantsResponse> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 28);
+
+/**
+ * Streaming: the approved grants, whole, each time they change.
+ *
+ * @generated from message dassie.ui.v1.SubscribeGrantsRequest
+ */
+export type SubscribeGrantsRequest = Message<"dassie.ui.v1.SubscribeGrantsRequest"> & {
+};
+
+/**
+ * Describes the message dassie.ui.v1.SubscribeGrantsRequest.
+ * Use `create(SubscribeGrantsRequestSchema)` to create a new message.
+ */
+export const SubscribeGrantsRequestSchema: GenMessage<SubscribeGrantsRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 29);
+
+/**
+ * Revokes a grant and its tokens. NOT_FOUND for an unknown one.
+ *
+ * @generated from message dassie.ui.v1.RevokeGrantRequest
+ */
+export type RevokeGrantRequest = Message<"dassie.ui.v1.RevokeGrantRequest"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+};
+
+/**
+ * Describes the message dassie.ui.v1.RevokeGrantRequest.
+ * Use `create(RevokeGrantRequestSchema)` to create a new message.
+ */
+export const RevokeGrantRequestSchema: GenMessage<RevokeGrantRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 30);
+
+/**
+ * @generated from message dassie.ui.v1.RevokeGrantResponse
+ */
+export type RevokeGrantResponse = Message<"dassie.ui.v1.RevokeGrantResponse"> & {
+};
+
+/**
+ * Describes the message dassie.ui.v1.RevokeGrantResponse.
+ * Use `create(RevokeGrantResponseSchema)` to create a new message.
+ */
+export const RevokeGrantResponseSchema: GenMessage<RevokeGrantResponse> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_payments, 31);
 

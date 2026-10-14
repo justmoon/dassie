@@ -10,6 +10,7 @@
 mod incoming;
 mod ledgers;
 mod packets;
+mod payers;
 mod peers;
 mod settlement;
 mod tokens;
@@ -31,6 +32,7 @@ use dassie_stream::BUFFER_LENGTH;
 pub use incoming::{IncomingPolicy, NewIncoming};
 pub use ledgers::{LedgerView, RemovalBlocker};
 pub use packets::ledger_slug;
+pub use payers::{CreatedOutgoing, NewOutgoing};
 pub use peers::{NetworkView, PeerView};
 pub use tokens::{BtpSession, NewToken, TokenView, token_hash};
 
@@ -58,6 +60,8 @@ pub enum EngineError {
     NotFound(String),
     /// A limit is reached.
     Exhausted(String),
+    /// What it would spend is more than the funds or a grant allow.
+    Refused(String),
     /// A bug; the details are logged.
     Internal(String),
 }
@@ -70,6 +74,7 @@ impl std::fmt::Display for EngineError {
             | Self::Precondition(message)
             | Self::NotFound(message)
             | Self::Exhausted(message)
+            | Self::Refused(message)
             | Self::Internal(message) => f.write_str(message),
         }
     }
@@ -178,6 +183,8 @@ pub struct Core {
     next_local: u16,
     /// The open incoming payments.
     incoming: BTreeMap<PaymentId, OpenIncoming>,
+    /// Those completed lately.
+    finished_incoming: incoming::Finished,
     incoming_policy: IncomingPolicy,
     tokens: BTreeMap<u64, TokenState>,
     by_hash: BTreeMap<[u8; 32], u64>,
@@ -219,6 +226,8 @@ pub struct Core {
     ledger_stats: dassie_ledger::Stats,
     /// The Fulfills owed a verdict (D17).
     owed: verdicts::Owed,
+    /// What sends outgoing payments.
+    spending: payers::Spending,
 }
 
 impl Core {
@@ -250,16 +259,8 @@ impl Core {
             Box::new(peer_rng),
             now_ms,
         );
-        let epoch = store.next_boot_epoch().map_err(text)?;
         let ledger = restore_ledger(&store, policies.ledger)?;
-        let own_address = format!("{}.das.{}", realm.ilp_allocation_scheme(), key.node_id());
-        let connector = Connector::new(
-            ConnectorConfig {
-                epoch,
-                ..policies.connector
-            },
-            &own_address,
-        );
+        let connector = new_connector(&store, &key, realm, &policies)?;
         let checkpoints = store.checkpoints().map_err(text)?.into_iter().collect();
         let mut core = Self {
             store,
@@ -274,6 +275,7 @@ impl Core {
             receivers: BTreeMap::new(),
             next_local: 0,
             incoming: BTreeMap::new(),
+            finished_incoming: incoming::Finished::default(),
             incoming_policy: policies.incoming,
             tokens: BTreeMap::new(),
             by_hash: BTreeMap::new(),
@@ -297,6 +299,7 @@ impl Core {
             changes: Changes::default(),
             ledger_stats: dassie_ledger::Stats::default(),
             owed: verdicts::Owed::new(now_ms),
+            spending: payers::Spending::default(),
         };
         core.restore()?;
         Ok(core)
@@ -310,6 +313,7 @@ impl Core {
         self.load_schemes(&store)?;
         self.load_incoming()?;
         self.load_owed()?;
+        self.load_outgoing()?;
         self.update_peer_schemes();
         let peers: Vec<dassie_identity::NodeId> = self.peer.peers().map(|(id, _)| *id).collect();
         let active: std::collections::BTreeSet<dassie_identity::NodeId> =
@@ -387,6 +391,7 @@ impl Core {
             settlement,
             finals,
             self.owed.deadline(),
+            self.outgoing_deadline(),
         ]
         .into_iter()
         .flatten()
@@ -401,6 +406,8 @@ impl Core {
             self.peer_timers();
             self.settlement_timers();
             self.expire(self.now_ms);
+            self.drain_local(self.now_ms);
+            self.pump_outgoing(self.now_ms);
             self.verdict_timers();
             self.flush();
             // Settlements run once their pending transfers are on disk;
@@ -463,6 +470,11 @@ impl Core {
         }
     }
 
+    /// Marks payments changed, for what changes them outside the engine.
+    pub fn payments_changed(&mut self) {
+        self.changes.payments = true;
+    }
+
     /// What changed since the last call, persisted.
     pub fn take_changes(&mut self) -> Changes {
         std::mem::take(&mut self.changes)
@@ -474,6 +486,7 @@ impl Core {
             self.connector.check_invariants(&self.ledger);
             self.peer.check_invariants();
             self.check_incoming();
+            self.check_outgoing();
             self.owed.check();
         }
     }
@@ -542,6 +555,22 @@ fn check_bounds(policies: &Policies) {
 /// Most local endpoints at once: a receiver and a payer for each ledger
 /// there is.
 pub const MAX_LOCAL_ENDPOINTS: usize = 8;
+
+/// The connector, at the node's address, with this boot's epoch.
+fn new_connector(
+    store: &Store,
+    key: &NodeKey,
+    realm: Realm,
+    policies: &Policies,
+) -> Result<Connector, String> {
+    let epoch = store.next_boot_epoch().map_err(text)?;
+    let own_address = format!("{}.das.{}", realm.ilp_allocation_scheme(), key.node_id());
+    let config = ConnectorConfig {
+        epoch,
+        ..policies.connector
+    };
+    Ok(Connector::new(config, &own_address))
+}
 
 /// The ledger, from its journal.
 fn restore_ledger(store: &Store, config: dassie_ledger::Config) -> Result<Ledger, String> {

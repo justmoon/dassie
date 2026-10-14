@@ -9,6 +9,7 @@
 
 pub mod connection;
 mod convert;
+mod grants;
 mod handlers;
 mod inspect;
 mod ledger;
@@ -52,6 +53,8 @@ pub const fn is_live(method: &proto::request::Method) -> bool {
             | Method::SubscribeRegistration(_)
             | Method::SubscribeLogs(_)
             | Method::SubscribeIncomingPayments(_)
+            | Method::SubscribeOutgoingPayments(_)
+            | Method::SubscribeGrants(_)
     )
 }
 

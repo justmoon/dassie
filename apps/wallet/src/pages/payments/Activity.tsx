@@ -1,10 +1,11 @@
 /**
- * Activity: the incoming payments, newest first, as they receive money
- * (D9). Outgoing payments join them with Send (M6c).
+ * Activity: the incoming and outgoing payments, newest first, as they
+ * receive and send money (D9). Apps the owner approved send outgoing
+ * payments; the owner's own Send comes with M6c.
  */
 
 import type { JSX } from "@solidjs/web";
-import type { IncomingPayment } from "@dassie/rpc/proto";
+import type { IncomingPayment, OutgoingPayment } from "@dassie/rpc/proto";
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import { Amount, ledgerCurrency } from "@dassie/ui/amount";
 import { dateTime } from "@dassie/ui/format";
@@ -60,8 +61,96 @@ export function Activity(): JSX.Element {
           </ul>
         </Show>
       </Card>
+      <OutgoingPayments />
     </div>
   );
+}
+
+/** The outgoing payments, live. */
+function OutgoingPayments(): JSX.Element {
+  const live = createLiveTable(
+    "subscribeOutgoingPayments",
+    () => ({ limit: LIMIT }),
+    (item) => item,
+    (payment: OutgoingPayment) => payment.id,
+  );
+  const payments = () =>
+    [...Object.values(live.state.byId)].sort((a, b) =>
+      a.createdAtMs === b.createdAtMs
+        ? a.id.localeCompare(b.id)
+        : a.createdAtMs > b.createdAtMs
+        ? -1
+        : 1
+    );
+  return (
+    <Card title="Outgoing Payments" testid="outgoing-payments">
+      <LiveNote status={live.status()} />
+      <Show
+        when={payments().length > 0}
+        fallback={
+          <p class="muted" data-testid="outgoing-empty">
+            No outgoing payments yet.
+          </p>
+        }
+      >
+        <ul class="activity">
+          <For each={payments()} keyed={(payment) => payment.id}>
+            {(payment) => <OutgoingRow payment={payment()} />}
+          </For>
+        </ul>
+      </Show>
+    </Card>
+  );
+}
+
+function OutgoingRow(props: { payment: OutgoingPayment }): JSX.Element {
+  const currency = () => ledgerCurrency(props.payment);
+  const tone = () =>
+    props.payment.state === "completed"
+      ? "good"
+      : props.payment.state === "failed"
+      ? "bad"
+      : "plain";
+  return (
+    <li
+      data-testid={`outgoing-${props.payment.id}`}
+      data-state={props.payment.state}
+    >
+      <div class="activity-head">
+        <strong>To {receiverLabel(props.payment.receiver)}</strong>
+        <Badge tone={tone()} testid="outgoing-state">
+          {props.payment.state}
+        </Badge>
+      </div>
+      <p>
+        <Amount
+          value={props.payment.sentAmount}
+          currency={currency()}
+          testid="outgoing-sent"
+        />
+        {" of "}
+        <Amount value={props.payment.debitAmount} currency={currency()} />
+      </p>
+      <p class="muted">
+        Sent by {clientLabel(props.payment.client)},{" "}
+        {dateTime(props.payment.createdAtMs)}
+      </p>
+      <Show when={props.payment.failure !== ""}>
+        <p class="muted" data-testid="outgoing-failure">
+          {props.payment.failure}
+        </p>
+      </Show>
+    </li>
+  );
+}
+
+/** Where a payment goes: the receiving wallet's host. */
+function receiverLabel(receiver: string): string {
+  try {
+    return new URL(receiver).host;
+  } catch {
+    return receiver;
+  }
 }
 
 function Row(props: { payment: IncomingPayment; now: number }): JSX.Element {

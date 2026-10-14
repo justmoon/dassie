@@ -1,5 +1,5 @@
 //! Open Payments for the owner (D9): the wallet addresses, the default
-//! ledger, and incoming payments.
+//! ledger, and incoming and outgoing payments.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -13,7 +13,7 @@ use super::proto::{self, request::Method, response, stream_item};
 use crate::engine::{Engine, EngineError, NewIncoming};
 use crate::node::Node;
 use crate::open_payments::{AddressError, Urls, WalletAddresses};
-use crate::store::{IncomingRow, PaymentId};
+use crate::store::{IncomingRow, OutgoingRow, PaymentId};
 
 /// Page sizes for incoming payments.
 const DEFAULT_LIMIT: u32 = 100;
@@ -65,6 +65,18 @@ pub async fn dispatch(
         Method::SubscribeIncomingPayments(request) => {
             return subscribe(node, engine, urls, limit(request.limit), items).await;
         }
+        Method::ListOutgoingPayments(request) => {
+            let (_, rows) = node
+                .store()
+                .outgoing_latest(limit(request.limit))
+                .map_err(RpcError::internal)?;
+            response::Method::ListOutgoingPayments(proto::ListOutgoingPaymentsResponse {
+                payments: rows.iter().map(|row| outgoing(&urls, row)).collect(),
+            })
+        }
+        Method::SubscribeOutgoingPayments(request) => {
+            return subscribe_outgoing(node, engine, urls, limit(request.limit), items).await;
+        }
         _ => return Err(RpcError::internal("not a payments method")),
     };
     Ok(Reply::Unary(reply))
@@ -80,6 +92,8 @@ pub const fn is_payments(method: &Method) -> bool {
             | Method::CompleteIncomingPayment(_)
             | Method::ListIncomingPayments(_)
             | Method::SubscribeIncomingPayments(_)
+            | Method::ListOutgoingPayments(_)
+            | Method::SubscribeOutgoingPayments(_)
     )
 }
 
@@ -196,6 +210,82 @@ pub fn incoming(urls: &Urls, row: &IncomingRow) -> proto::IncomingPayment {
         destination_account: row.ilp_address.clone(),
         shared_secret: row.shared_secret.to_vec(),
     }
+}
+
+/// An outgoing payment, for the owner.
+pub fn outgoing(urls: &Urls, row: &OutgoingRow) -> proto::OutgoingPayment {
+    let asset = row.ledger.asset();
+    proto::OutgoingPayment {
+        id: row.id.to_string(),
+        url: format!("{}/outgoing-payments/{}", urls.origin(), row.id),
+        wallet_address: row.wallet_address.clone(),
+        ledger: row.ledger.as_str().into(),
+        asset_code: asset.code.into(),
+        asset_scale: asset.scale.into(),
+        receiver: row.receiver.clone(),
+        debit_amount: row.debit_amount,
+        receive_amount: Some(proto::OpenPaymentsAmount {
+            value: row.receive_amount.value,
+            asset_code: row.receive_amount.asset_code.clone(),
+            asset_scale: row.receive_amount.asset_scale.into(),
+        }),
+        sent_amount: row.sent_amount,
+        state: row.state.as_str().into(),
+        failure: row.failure.clone().unwrap_or_default(),
+        client: row.client.clone().unwrap_or_default(),
+        quote_url: row
+            .quote_id
+            .map(|quote| format!("{}/quotes/{quote}", urls.origin()))
+            .unwrap_or_default(),
+        metadata_json: row.metadata.clone().unwrap_or_default(),
+        created_at_ms: row.created_at_ms,
+        finished_at_ms: row.finished_at_ms,
+    }
+}
+
+/// The newest outgoing payments, then their changes.
+async fn subscribe_outgoing(
+    node: &Arc<Node>,
+    engine: &Engine,
+    urls: Urls,
+    limit: u32,
+    items: &Items,
+) -> Result<Reply, RpcError> {
+    let _permit = node
+        .live_stream_permit()
+        .ok_or_else(|| RpcError::exhausted("too many live streams"))?;
+    let source = Source {
+        versions: engine.versions(),
+        ended: engine.generation().clone(),
+    };
+    let store_node = Arc::clone(node);
+    let urls = &urls;
+    live::table(
+        source,
+        items,
+        Follow::Payments,
+        || {
+            let node = Arc::clone(&store_node);
+            async move {
+                let (_, rows) = node
+                    .store()
+                    .outgoing_latest(limit)
+                    .map_err(RpcError::internal)?;
+                Ok(rows
+                    .iter()
+                    .map(|row| (row.id, outgoing(urls, row)))
+                    .collect::<BTreeMap<_, _>>())
+            }
+        },
+        |reset, upserted, removed: Vec<PaymentId>| {
+            stream_item::Method::SubscribeOutgoingPayments(proto::OutgoingPaymentEvent {
+                reset,
+                upserted,
+                removed: removed.iter().map(PaymentId::to_string).collect(),
+            })
+        },
+    )
+    .await
 }
 
 /// The newest incoming payments, then their changes, until the call ends

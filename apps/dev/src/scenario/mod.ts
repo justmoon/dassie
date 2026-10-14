@@ -181,17 +181,19 @@ export class Scenario {
   }
 
   /**
-   * Stops every node; the output of those that did not exit cleanly. A
-   * temporary scenario's files are deleted.
+   * Stops every node, all at once, so stopping takes as long as the
+   * slowest; the output of those that did not exit cleanly. A temporary
+   * scenario's files are deleted.
    */
   async stop(): Promise<string[]> {
+    const exits = await Promise.all(this.nodes.map((node) => node.stop()));
     const failures: string[] = [];
-    for (const node of this.nodes) {
-      const exit = await node.stop();
+    this.nodes.forEach((node, index) => {
+      const exit = exits[index];
       if (exit && exit.code !== 0) {
         failures.push(`${node.name} exited ${exit.code}:\n${exit.output}`);
       }
-    }
+    });
     if (this.#temporary) {
       const { state, sockets } = this.options.layout;
       await Deno.remove(state, { recursive: true }).catch(() => {});

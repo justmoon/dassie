@@ -91,18 +91,26 @@
             ];
           };
 
+          # The checks build with the ci profile (Cargo.toml), as a local
+          # `cargo test` does. crane's default, release, gives every test
+          # binary fat LTO and one codegen unit, which took the tests minutes
+          # to link. Release builds (M8) will set their own profile.
           common = {
             inherit src;
             pname = "dassie";
             version = "0.1.0";
             strictDeps = true;
             cargoExtraArgs = "--locked";
+            CARGO_PROFILE = "ci";
           };
           cargoArtifacts = craneLib.buildDepsOnly common;
           wasmArtifacts = craneLib.buildDepsOnly (
             common
             // {
               pname = "dassie-wasm";
+              # The profile identity-wasm builds with, so that it reuses
+              # these dependencies rather than building them again.
+              CARGO_PROFILE = "wasm";
               CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
               cargoExtraArgs = "--locked --features wasm -p dassie-identity -p dassie-ilp -p dassie-stream";
               doCheck = false;
@@ -157,6 +165,7 @@
               common
               // {
                 cargoArtifacts = wasmArtifacts;
+                CARGO_PROFILE = "wasm";
                 CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
                 cargoExtraArgs = "--locked --features wasm -p dassie-identity -p dassie-ilp -p dassie-stream";
                 cargoClippyExtraArgs = "-- -D warnings";

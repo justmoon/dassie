@@ -9,6 +9,7 @@
 
 mod grants;
 mod incoming;
+mod spending;
 mod wallet;
 
 use std::net::SocketAddr;
@@ -42,6 +43,16 @@ pub fn is_open_payments_path(path: &str) -> bool {
         || path.starts_with("/gnap/")
         || path == INCOMING_PREFIX
         || path.starts_with("/incoming-payments/")
+        || is_spending_path(path)
+}
+
+/// Whether `path` is one of quotes', outgoing payments' or a grant's spend.
+fn is_spending_path(path: &str) -> bool {
+    path == "/quotes"
+        || path.starts_with("/quotes/")
+        || path == "/outgoing-payments"
+        || path.starts_with("/outgoing-payments/")
+        || path == "/outgoing-payment-grant"
 }
 
 /// Answers an Open Payments request.
@@ -79,12 +90,16 @@ async fn route(
             wallet::wallet_address(node, urls, path).await
         }
         (&Method::POST, GRANT_PATH) => grants::request(node, peer, urls, request).await,
+        (&Method::GET, path) if path.starts_with("/gnap/interact/") => {
+            grants::interact(node, urls, path)
+        }
         (&Method::POST | &Method::DELETE, path) if path.starts_with("/gnap/") => {
             grants::manage(node, urls, &method, path, request).await
         }
         (_, path) if path == INCOMING_PREFIX || path.starts_with("/incoming-payments/") => {
             incoming::route(node, peer, urls, request).await
         }
+        (_, path) if is_spending_path(path) => spending::route(node, peer, urls, request).await,
         _ => error(&OpError::not_found("Not Found"), None),
     }
 }

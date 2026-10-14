@@ -283,7 +283,7 @@ impl Core {
     }
 
     /// Sends a Prepare the connector forwarded.
-    fn forwarded(&mut self, now: u64, forwarded: Forwarded) {
+    pub(super) fn forwarded(&mut self, now: u64, forwarded: Forwarded) {
         match forwarded.to {
             EndpointId::Btp(link) => {
                 let packet = self
@@ -325,12 +325,31 @@ impl Core {
     /// take.
     fn deliver(&mut self, now: u64, forwarded: Forwarded) {
         let Some(ledger) = self.receiver_ledger(forwarded.to) else {
+            // A payer takes no money: refused at once, so nothing waits on
+            // it until its expiry.
+            let reject = dassie_ilp::Reject {
+                code: ErrorCode::F02_UNREACHABLE,
+                triggered_by: Address::parse(self.connector.own_address()).ok(),
+                message: "a payer takes no packets",
+                data: &[],
+            };
+            let length = dassie_oer::Encode::encode(&reject, &mut self.scratch);
+            let responded = self.connector.handle_response(
+                now,
+                forwarded.to,
+                forwarded.request_id,
+                self.scratch.get(..length).unwrap_or_default(),
+                &mut self.ledger,
+                &mut self.up,
+            );
+            self.responded(now, responded, forwarded.request_id, None);
             return;
         };
         let Self {
             rng,
             receivers,
             incoming,
+            finished_incoming,
             out,
             scratch,
             ..
@@ -344,7 +363,8 @@ impl Core {
         };
         let mut paid = None;
         let admit = |tag: &[u8]| {
-            let (admission, id) = super::incoming::admission(incoming, ledger, now, tag);
+            let (admission, id) =
+                super::incoming::admission(incoming, finished_incoming, ledger, now, tag);
             paid = id;
             admission
         };
@@ -389,6 +409,10 @@ impl Core {
             }
             EndpointId::Local(_) => {
                 let Some(ledger) = self.receiver_ledger(upstream.to) else {
+                    if self.payer_ledger(upstream.to).is_some() {
+                        let response = packet.to_vec();
+                        self.payer_response(now, upstream.request_id, &response);
+                    }
                     return;
                 };
                 let Self {
@@ -564,6 +588,7 @@ impl Core {
         {
             self.upstream(now, upstream);
         }
+        self.outgoing_timers(now);
         let at = Timestamp::from_unix_ms(now);
         for receiver in self.receivers.values_mut() {
             for id in receiver.connections.clone() {

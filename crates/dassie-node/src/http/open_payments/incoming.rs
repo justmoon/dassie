@@ -64,7 +64,7 @@ async fn addresses(node: &Node) -> Result<WalletAddresses, OpError> {
         .map_err(|_| OpError::unavailable())
 }
 
-fn engine_error(error: EngineError) -> OpError {
+pub(super) fn engine_error(error: EngineError) -> OpError {
     match error {
         EngineError::Unavailable => OpError::unavailable(),
         EngineError::Invalid(message) | EngineError::Precondition(message) => {
@@ -72,6 +72,7 @@ fn engine_error(error: EngineError) -> OpError {
         }
         EngineError::NotFound(message) => OpError::not_found(message),
         EngineError::Exhausted(message) => OpError::new(429, "too_many_requests", message),
+        EngineError::Refused(message) => OpError::new(403, "invalid_request", message),
         EngineError::Internal(message) => OpError::internal(message),
     }
 }

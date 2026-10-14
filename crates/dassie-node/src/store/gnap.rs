@@ -14,6 +14,10 @@ pub const MAX_GRANTS: u32 = 16_384;
 /// How long a grant that needed no owner is kept once its tokens are gone.
 const SPENT_GRANT_MS: u64 = 60 * 60 * 1_000;
 
+/// How long after it expires a token of a grant the owner approved may
+/// still be rotated.
+pub const ROTATABLE_MS: u64 = 90 * 24 * 60 * 60 * 1_000;
+
 /// Where a grant is in its life.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GrantState {
@@ -28,7 +32,9 @@ pub enum GrantState {
 }
 
 impl GrantState {
-    const fn as_str(self) -> &'static str {
+    /// As stored.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Pending => "pending",
             Self::Approved => "approved",
@@ -254,6 +260,102 @@ impl Store {
         Ok(())
     }
 
+    /// The grant `id`.
+    pub fn grant(&self, id: PaymentId) -> Result<Option<GrantRow>, StoreError> {
+        let connection = self.lock();
+        connection
+            .query_row(
+                &format!("SELECT {GRANT_COLUMNS} FROM gnap_grants WHERE id = ?1"),
+                [id.0.as_slice()],
+                read_grant,
+            )
+            .optional()?
+            .transpose()
+    }
+
+    /// How many grants wait for the owner.
+    pub fn pending_grant_count(&self) -> Result<u32, StoreError> {
+        let count: i64 = self.lock().query_row(
+            "SELECT count(*) FROM gnap_grants WHERE state = 'pending'",
+            [],
+            |row| row.get(0),
+        )?;
+        u32::try_from(count).map_err(|_| StoreError::Corrupt("grant count"))
+    }
+
+    /// The owner's decision on a pending grant, with its interaction as it
+    /// now is; false if it was no longer pending.
+    pub fn decide_grant(
+        &self,
+        id: PaymentId,
+        state: GrantState,
+        interaction: &str,
+        at_ms: u64,
+    ) -> Result<bool, StoreError> {
+        let changed = self.lock().execute(
+            &format!(
+                "UPDATE gnap_grants SET state = ?2, interaction = ?3, decided_at_ms = ?4, \
+                 revision = {NEXT_REVISION} WHERE id = ?1 AND state = 'pending'"
+            ),
+            params![
+                id.0.as_slice(),
+                state.as_str(),
+                interaction,
+                to_sql_time(at_ms)
+            ],
+        )?;
+        Ok(changed == 1)
+    }
+
+    /// Writes a grant's interaction, and the token its continuation issued
+    /// if any, in one transaction, if the interaction and state are still
+    /// what the caller read: false otherwise, when another request or the
+    /// owner's decision came first.
+    pub fn update_interaction(
+        &self,
+        grant: &GrantRow,
+        interaction: &str,
+        token: Option<&TokenRow>,
+    ) -> Result<bool, StoreError> {
+        let mut connection = self.lock();
+        let transaction = connection.transaction()?;
+        let changed = transaction.execute(
+            &format!(
+                "UPDATE gnap_grants SET interaction = ?2, revision = {NEXT_REVISION} \
+                 WHERE id = ?1 AND interaction IS ?3 AND state = ?4"
+            ),
+            params![
+                grant.id.0.as_slice(),
+                interaction,
+                grant.interaction,
+                grant.state.as_str()
+            ],
+        )?;
+        if changed != 1 {
+            return Ok(false);
+        }
+        if let Some(token) = token {
+            insert_token(&transaction, token)?;
+        }
+        transaction.commit()?;
+        Ok(true)
+    }
+
+    /// The grants the owner approved and has not revoked, newest first, at
+    /// most `limit`.
+    pub fn consented_grants(&self, limit: u32) -> Result<Vec<GrantRow>, StoreError> {
+        let connection = self.lock();
+        let mut statement = connection.prepare(&format!(
+            "SELECT {GRANT_COLUMNS} FROM gnap_grants \
+             WHERE state = 'approved' AND needs_owner = 1 \
+             ORDER BY decided_at_ms DESC, id LIMIT ?1"
+        ))?;
+        statement
+            .query_map([limit], read_grant)?
+            .map(|row| row?)
+            .collect()
+    }
+
     /// How many grants are kept.
     pub fn grant_count(&self) -> Result<u32, StoreError> {
         let count: i64 = self
@@ -263,21 +365,35 @@ impl Store {
     }
 
     /// Forgets what no request can use any more: grants the owner did not
-    /// decide in time, denied and revoked ones, expired tokens, and grants
-    /// that needed no owner once their tokens are gone and an hour has
-    /// passed since they were made. Returns how many grants went.
+    /// decide in time, denied and revoked ones, and expired tokens, except
+    /// those of grants the owner approved, which may be rotated for
+    /// [`ROTATABLE_MS`] after they expire, as such grants are meant to
+    /// last. A grant goes once its tokens are gone and an hour has passed
+    /// since it was made or decided. Returns how many grants went.
     pub fn prune_grants(&self, now_ms: u64) -> Result<u32, StoreError> {
         let now = to_sql_time(now_ms);
-        let day_ago = to_sql_time(now_ms.saturating_sub(SPENT_GRANT_MS));
+        let hour_ago = to_sql_time(now_ms.saturating_sub(SPENT_GRANT_MS));
+        let rotatable = to_sql_time(now_ms.saturating_sub(ROTATABLE_MS));
         let mut connection = self.lock();
         let transaction = connection.transaction()?;
-        transaction.execute("DELETE FROM gnap_tokens WHERE expires_at_ms <= ?1", [now])?;
+        transaction.execute(
+            "DELETE FROM gnap_tokens WHERE expires_at_ms <= ?1 AND (expires_at_ms <= ?2 \
+             OR NOT EXISTS (SELECT 1 FROM gnap_grants g \
+               WHERE g.id = gnap_tokens.grant_id AND g.needs_owner = 1))",
+            params![now, rotatable],
+        )?;
+        // A denied grant stays until its time, so its client learns why.
         let removed = transaction.execute(
-            "DELETE FROM gnap_grants WHERE (state = 'pending' AND expires_at_ms <= ?1) \
-             OR state IN ('denied', 'revoked') \
-             OR (state = 'approved' AND needs_owner = 0 AND created_at_ms <= ?2 \
+            "DELETE FROM gnap_grants WHERE (state IN ('pending', 'denied') AND expires_at_ms <= ?1) \
+             OR state = 'revoked' \
+             OR (state = 'approved' AND coalesce(decided_at_ms, created_at_ms) <= ?2 \
                  AND NOT EXISTS (SELECT 1 FROM gnap_tokens t WHERE t.grant_id = gnap_grants.id))",
-            params![now, day_ago],
+            params![now, hour_ago],
+        )?;
+        // What grants that are gone spent, they no longer need.
+        transaction.execute(
+            "DELETE FROM grant_spend WHERE grant_id NOT IN (SELECT id FROM gnap_grants)",
+            [],
         )?;
         transaction.commit()?;
         u32::try_from(removed).map_err(|_| StoreError::Corrupt("grant count"))

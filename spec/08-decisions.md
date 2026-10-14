@@ -182,9 +182,21 @@ Revised on 2026-10-14; it first served SPSP and deferred GNAP, quotes and outgoi
     - **What a client reaches:** `read`, `list` and `complete` reach only the incoming payments the client created; `read-all` reaches any.
     - **Bounds:** the owner's incoming payments and clients' are bounded apart, so that clients never crowd out the owner. When clients' share is full, the oldest of their payments that received nothing is closed. Clients' payments last at most 7 days, and unpaid ones are forgotten a week after they close.
     - **Grant limits** (amounts per repeating interval) are reserved when an outgoing payment is created.
-  - **Client side:** the wallet's Send is an Open Payments client of the receiver's servers. It gets a non-interactive grant, creates the incoming payment there, then quotes and pays from the node's own resources.
-    - It quotes through STREAM rate probing.
-    - It never debits more than the quote, across crashes too.
+  - **The owner's consent** (M6b):
+    - A grant that needs the owner is pending until decided. The client is sent to `GET /gnap/interact/{id}/{key}`, a random key per grant, which leads to the wallet's consent page.
+    - The page shows who asks (the client's wallet address and public name: a client known only by its key is refused for such grants), the access, and its limits in plain words; payments without limits read as "of any amount".
+    - Limits' intervals have windows of at least a minute, since each window spent in is kept. Approving or denying sends the client to its finish URI, with the interaction hash and `interact_ref`, or with `result=grant_rejected`.
+    - The client continues with `interact_ref` to get its token, no sooner than the `wait` it was given (`too_fast`).
+    - A pending grant lapses after 10 minutes. At most 256 are pending at once.
+  - **Quotes and outgoing payments** (M6b):
+    - Until M7 every ledger has one asset and the connector charges no fees, so a quote is same-asset at a rate of 1 and needs no probe. A receiver in another asset is refused. STREAM rate probing comes with M7's exchange rates; the quote math already takes a rate.
+    - A quote lasts 5 minutes, or less if its receiver expires sooner, and pays one outgoing payment.
+    - An outgoing payment never debits more than its debit amount, across crashes too: its sent amount is what was posted (D17).
+    - It completes once it has sent that, or once its receiver says it has all it asked for, which a hop that lost a packet may have paid for (D17): a completed incoming payment tells a sender its total and that no more fits. A connection that closes early is opened again for the rest, up to 8 times, a while later each time.
+    - Grant limits are reserved in the interval window the payment is created in; a failed payment releases what it did not send.
+  - **Client side:**
+    - To pay an incoming payment on another node, the node reads it with a non-interactive `incoming-payment` `read-all` grant from that node's authorization server, as its own `$host` wallet address and key (M6b).
+    - The wallet's Send also creates the incoming payment there, from a wallet address or payment pointer (M6c).
   - **Payment pointers** stay only as input syntax: `$host/path` means `https://host/path`, and a bare `$host` means `https://host/.well-known/pay`.
   - **Not supported:** card authorization (v1.4.0), since the node has no cards. STREAM receipts are not part of Open Payments and are not issued.
 - **Rejected:**
@@ -315,7 +327,7 @@ Decided on 2026-10-14, after M6a.
   - **The downstream posts at once**, as before, and keeps what it owes: a durable row with the Fulfill, sent until a verdict comes back, with a backoff from 1 s to 1 h, across restarts and after the peering has ended. Anything but a verdict (no answer, 401, 409, a timeout) is tried again.
   - **On `refused`** the downstream books one compensation, `Reference::Refusal`, which reports what happened and so is recorded even past a limit. If its own receiver took the packet, the transfers are reversed: the owner was not paid, and the incoming payment does not count it. If anyone else took it (a peer, or a BTP client, both told it was fulfilled), the downstream books `expenses/losses` against the upstream's account. Either way that account ends where the upstream's books have it.
   - **Who bears a loss** is ILP's rule: the hop whose Fulfill its upstream did not take. Each hop decides on its own and answers its downstream at once; verdicts do not wait on each other along the path.
-  - **Incoming payments** count only what was confirmed. What waits for a verdict still counts against what a payment may take, so a refusal lets the sender send it again.
+  - **Incoming payments** count only what was confirmed, and tell their senders only that. What waits for a verdict still counts against what a payment may take. A refusal closes the payment's STREAM connections, which counted what it took back: a sender starts anew, and may send that part again.
   - **Rejects** stay best effort, as do Fulfills of packets that moved no money: a lost one has the effect of expiry, and both sides void.
   - **Ending a peering** waits for the verdicts it is owed for at most 10 minutes, and not at all when the peer stopped answering; they are still asked for after. A banned node is not asked.
   - **Bounds:** at most 1024 Fulfills owed by one peer, counting the packets in flight from it; a peer at its cap gets T03 on new Prepares until it answers. Every peer holds a settlement channel, so all that is owed is bounded by the channels. At most 16 verdicts asked of one peer at once. A Fulfill owed for longer than its expiry plus 29 days is booked as refused and logged as an error: from then on the upstream may have forgotten it. Fulfills taken are forgotten after 30 days, 10,000 at a time each minute.

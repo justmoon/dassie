@@ -11,7 +11,7 @@ import { assert, assertEquals, assertMatch } from "@std/assert";
 import type { Page } from "@astral/astral";
 import { RpcClient } from "@dassie/rpc";
 import { ipcConnector } from "@dassie/rpc/ipc";
-import { ChildProcess, type Exit } from "@dassie/dev/process";
+import { ChildProcess, type Exit, STOP_GRACE_MS } from "@dassie/dev/process";
 import { layout, socketPath } from "@dassie/dev/scenario";
 import { attribute, click, count, text, until } from "./browser.ts";
 import { DASSIE, missingTools, startBrowser } from "./harness.ts";
@@ -25,6 +25,14 @@ const OFFSET = 16_000;
 const PROXY = 443 + OFFSET;
 const DASHBOARD = 10_100 + OFFSET;
 const httpsPort = (index: number) => 5_001 + index + OFFSET;
+/** How soon a second dev server on the same state exits. */
+const STOPS_AT_ONCE_MS = 30_000;
+/**
+ * How long the dev server gets to stop cleanly: its nodes stop at once,
+ * each within {@linkcode STOP_GRACE_MS}, and its server within a second
+ * more; the rest is room for a slow machine.
+ */
+const DEV_STOP_MS = 2 * STOP_GRACE_MS + 10_000;
 
 /** The dev server, as `deno task dev` starts it, with test flags. */
 class DevServer {
@@ -70,6 +78,21 @@ class DevServer {
       }
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
+  }
+
+  /** How it exited, within `timeoutMs`; stopped and thrown at otherwise. */
+  async exitedWithin(timeoutMs: number): Promise<Exit> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<"late">((resolve) => {
+      timer = setTimeout(() => resolve("late"), timeoutMs);
+    });
+    const first = await Promise.race([this.child.exited, late]);
+    clearTimeout(timer);
+    if (first !== "late") return first;
+    const exit = await this.child.stop();
+    throw new Error(
+      `the dev server ran on for ${timeoutMs} ms:\n${exit.output}`,
+    );
   }
 
   get output(): string {
@@ -279,7 +302,7 @@ Deno.test({
         await before.call("stubDeposit", { amount: 7n });
         const [ledger] = (await before.call("listLedgers", {})).ledgers;
         before.close();
-        const exit = await dev.child.stop();
+        const exit = await dev.child.stop(DEV_STOP_MS);
         assertEquals(exit.code, 0, exit.output);
         for (let index = 0; index < 6; index++) {
           assert(await closed(httpsPort(index)), `d${index + 1} still runs`);
@@ -297,7 +320,8 @@ Deno.test({
         "a second dev server on the same state stops at once",
         async () => {
           const second = new DevServer(state, caRoot);
-          const exit = await second.child.exited;
+          // Bounded: if the first one is gone, the second runs on.
+          const exit = await second.exitedWithin(STOPS_AT_ONCE_MS);
           assertEquals(exit.code, 1);
           assertMatch(exit.output, /another dev environment \(PID \d+\) runs/);
           // The first one runs on.
@@ -310,7 +334,7 @@ Deno.test({
       await t.step(
         "naming another scenario starts it from scratch",
         async () => {
-          const exit = await dev.child.stop();
+          const exit = await dev.child.stop(DEV_STOP_MS);
           assertEquals(exit.code, 0, exit.output);
           dev = new DevServer(state, caRoot, ["--scenario", "two-nodes"]);
           await dev.said(/two-nodes is running/);
@@ -323,7 +347,7 @@ Deno.test({
       await page.close();
     } finally {
       await browser.close();
-      const exit = await dev.child.stop();
+      const exit = await dev.child.stop(DEV_STOP_MS);
       for (let index = 0; index < 6; index++) {
         assert(await closed(httpsPort(index)), `d${index + 1} still runs`);
       }
