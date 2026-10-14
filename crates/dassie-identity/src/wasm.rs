@@ -43,6 +43,14 @@ pub fn validate_mnemonic(phrase: &str) -> bool {
     Mnemonic::parse(phrase).is_ok()
 }
 
+/// The phrase of `entropy` (16 to 32 bytes, in steps of 4): how the dev
+/// environment turns its vanity table into node keys.
+#[wasm_bindgen(js_name = mnemonicFromEntropy)]
+pub fn mnemonic_from_entropy(entropy: &[u8]) -> Result<String, JsError> {
+    let mnemonic = Mnemonic::from_entropy(entropy).map_err(js)?;
+    Ok(String::from(mnemonic.phrase().as_str()))
+}
+
 /// The phrase in canonical form: lowercase, single spaces.
 #[wasm_bindgen(js_name = normalizeMnemonic)]
 pub fn normalize_mnemonic(phrase: &str) -> Result<String, JsError> {
