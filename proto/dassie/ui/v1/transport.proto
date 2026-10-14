@@ -26,6 +26,18 @@
 //
 // The method numbers in `Request`, `Response` and `StreamItem` are shared:
 // a method's response or items always carry its request's number.
+//
+// Live streams
+// ------------
+// The `Subscribe*` methods stream live state (spec 7 §4.6), either the
+// whole value each time, or a snapshot followed by changes: an item with
+// `reset` set replaces what the client holds (a large snapshot comes as
+// several items, the first with `reset`), and later items upsert and remove
+// entries by key. The node publishes only what is on disk, sends at most
+// 4 items a second, coalescing what changed in between, and an item at
+// least every 60 s even when nothing did. A stream ends with UNAVAILABLE
+// when the node's engine restarts; the client subscribes again. A
+// connection may hold 12 streams, and the node 64 in all.
 
 syntax = "proto3";
 
@@ -35,6 +47,7 @@ import "dassie/ui/v1/acme.proto";
 import "dassie/ui/v1/btp.proto";
 import "dassie/ui/v1/config.proto";
 import "dassie/ui/v1/debug.proto";
+import "dassie/ui/v1/inspect.proto";
 import "dassie/ui/v1/ledger.proto";
 import "dassie/ui/v1/network.proto";
 import "dassie/ui/v1/node.proto";
@@ -84,10 +97,14 @@ message Request {
     AddSettlementSchemeRequest add_settlement_scheme = 51;
     RemoveSettlementSchemeRequest remove_settlement_scheme = 52;
     StubDepositRequest stub_deposit = 53;
+    ListSettlementSchemesRequest list_settlement_schemes = 54;
+    // Streaming.
+    SubscribeLedgersRequest subscribe_ledgers = 55;
 
     CreateBtpTokenRequest create_btp_token = 60;
     ListBtpTokensRequest list_btp_tokens = 61;
     RevokeBtpTokenRequest revoke_btp_token = 62;
+    SetBtpTokenCapRequest set_btp_token_cap = 63;
 
     CreateStreamCredentialsRequest create_stream_credentials = 70;
 
@@ -96,6 +113,8 @@ message Request {
     ListPacketsRequest list_packets = 82;
     // Streaming.
     SubscribePacketsRequest subscribe_packets = 83;
+    // Streaming.
+    SubscribeTransfersRequest subscribe_transfers = 84;
 
     ListNodesRequest list_nodes = 90;
     ListPeersRequest list_peers = 91;
@@ -106,6 +125,19 @@ message Request {
     UnbanNodeRequest unban_node = 96;
     ListBansRequest list_bans = 97;
     ListSettlementChannelsRequest list_settlement_channels = 98;
+    RegisterWithBootstrapRequest register_with_bootstrap = 99;
+    // Streaming.
+    SubscribeNodesRequest subscribe_nodes = 100;
+    // Streaming.
+    SubscribeRoutesRequest subscribe_routes = 101;
+    // Streaming.
+    SubscribeRegistrationRequest subscribe_registration = 102;
+
+    // Streaming; works before setup too.
+    SubscribeLogsRequest subscribe_logs = 110;
+    ListDatabaseTablesRequest list_database_tables = 111;
+    ListDatabaseRowsRequest list_database_rows = 112;
+    ListServicesRequest list_services = 113;
   }
 }
 
@@ -145,10 +177,12 @@ message Response {
     AddSettlementSchemeResponse add_settlement_scheme = 51;
     RemoveSettlementSchemeResponse remove_settlement_scheme = 52;
     StubDepositResponse stub_deposit = 53;
+    ListSettlementSchemesResponse list_settlement_schemes = 54;
 
     CreateBtpTokenResponse create_btp_token = 60;
     ListBtpTokensResponse list_btp_tokens = 61;
     RevokeBtpTokenResponse revoke_btp_token = 62;
+    SetBtpTokenCapResponse set_btp_token_cap = 63;
 
     CreateStreamCredentialsResponse create_stream_credentials = 70;
 
@@ -165,13 +199,27 @@ message Response {
     UnbanNodeResponse unban_node = 96;
     ListBansResponse list_bans = 97;
     ListSettlementChannelsResponse list_settlement_channels = 98;
+    RegisterWithBootstrapResponse register_with_bootstrap = 99;
+
+    ListDatabaseTablesResponse list_database_tables = 111;
+    ListDatabaseRowsResponse list_database_rows = 112;
+    ListServicesResponse list_services = 113;
   }
 }
 
 message StreamItem {
   oneof method {
     AcmeProgress obtain_certificate = 30;
+    // The ledgers, whole, each time they change.
+    ListLedgersResponse subscribe_ledgers = 55;
     PacketEvent subscribe_packets = 83;
+    TransferEvent subscribe_transfers = 84;
+    NodeTableEvent subscribe_nodes = 100;
+    // The routes, whole, each time they change.
+    ListRoutesResponse subscribe_routes = 101;
+    // The registration status, whole, each time it changes.
+    GetRegistrationStatusResponse subscribe_registration = 102;
+    LogEvent subscribe_logs = 110;
   }
 }
 

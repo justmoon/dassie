@@ -69,6 +69,8 @@ message ListTransfersRequest {
   optional uint64 after_sequence = 1;
   // At most this many, up to 1000; 0 means 100.
   uint32 limit = 2;
+  // Only those debiting or crediting this account.
+  optional uint32 account = 3;
 }
 
 message ListTransfersResponse {
@@ -127,4 +129,23 @@ message PacketEvent {
     // This many events were dropped because the subscriber fell behind.
     uint64 lagged = 2;
   }
+}
+
+// Streams the journal: first its last rows, then each row written or
+// changed. A settlement's row comes again when it is resolved; clients
+// replace rows by ID.
+message SubscribeTransfersRequest {
+  // Only those debiting or crediting this account.
+  optional uint32 account = 1;
+  // How many of the last rows come first, up to 1000; 0 means 100.
+  uint32 history = 2;
+}
+
+message TransferEvent {
+  // Set on the first item.
+  bool reset = 1;
+  // In sequence order.
+  repeated Transfer transfers = 2;
+  // The account, as it is now, when the stream follows one.
+  Account account = 3;
 }

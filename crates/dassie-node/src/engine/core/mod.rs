@@ -463,6 +463,11 @@ impl Core {
         }
     }
 
+    /// One ledger account.
+    pub fn account_of(&self, id: AccountId) -> Option<Account> {
+        self.ledger.account(id).copied()
+    }
+
     /// Every ledger account.
     pub fn account_list(&self) -> Vec<(AccountId, Account)> {
         self.ledger

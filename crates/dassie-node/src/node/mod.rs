@@ -287,6 +287,7 @@ pub struct Node {
     peer: PeerSide,
     services: Arc<crate::supervisor::Registry>,
     logs: Arc<crate::log::LogRing>,
+    live_streams: Arc<Semaphore>,
 }
 
 impl std::fmt::Debug for Node {
@@ -302,6 +303,9 @@ impl std::fmt::Debug for Node {
 fn lock<T: ?Sized>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
+
+/// Most live streams the node serves at once, over all connections.
+pub const MAX_LIVE_STREAMS: usize = 64;
 
 impl Node {
     /// Loads the node from its database, making a self-signed certificate if
@@ -362,6 +366,7 @@ impl Node {
             clock,
             peer,
             logs: crate::log::ring(),
+            live_streams: Arc::new(Semaphore::new(MAX_LIVE_STREAMS)),
         }))
     }
 
@@ -554,6 +559,12 @@ impl Node {
     #[must_use]
     pub const fn services(&self) -> &Arc<crate::supervisor::Registry> {
         &self.services
+    }
+
+    /// A place for one more live stream, if any is left.
+    #[must_use]
+    pub fn live_stream_permit(&self) -> Option<OwnedSemaphorePermit> {
+        Arc::clone(&self.live_streams).try_acquire_owned().ok()
     }
 
     /// The node's last log lines.

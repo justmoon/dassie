@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package dassie.ui.v1;
 
+import "dassie/ui/v1/config.proto";
+
 // A ledger the node keeps books for, with the settlement scheme that moves
 // its money. Amounts are integers in the asset's smallest unit: an amount of
 // 1 is 10^-asset_scale units of the asset.
@@ -20,6 +22,49 @@ message Ledger {
   uint64 owner_pending = 6;
   // The balance on the underlying ledger, as the scheme last reported it.
   uint64 on_ledger_balance = 7;
+  // What keeps its scheme from being removed now; empty when it can be.
+  repeated LedgerRemovalBlocker removal_blockers = 8;
+}
+
+// Something that keeps a scheme from being removed, and how many of it.
+message LedgerRemovalBlocker {
+  Kind kind = 1;
+  uint32 count = 2;
+
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    // Peers settle with it, or are ending a peering that does.
+    KIND_PEERS = 1;
+    // BTP tokens use its ledger.
+    KIND_BTP_TOKENS = 2;
+    // Peerings that ended still have to be settled with it.
+    KIND_FINAL_SETTLEMENTS = 3;
+  }
+}
+
+// Streams the ledgers, whole, each time they change: balances included.
+message SubscribeLedgersRequest {}
+
+// A settlement scheme this node can run.
+message SettlementSchemeInfo {
+  // For example "stub".
+  string id = 1;
+  // For people, for example "Stub".
+  string name = 2;
+  // The ledger it serves, for example "stub+usd".
+  string ledger = 3;
+  string asset_code = 4;
+  uint32 asset_scale = 5;
+  // The realm its money belongs to.
+  Realm realm = 6;
+  bool active = 7;
+}
+
+message ListSettlementSchemesRequest {}
+
+message ListSettlementSchemesResponse {
+  // In a fixed order.
+  repeated SettlementSchemeInfo schemes = 1;
 }
 
 message ListLedgersRequest {}

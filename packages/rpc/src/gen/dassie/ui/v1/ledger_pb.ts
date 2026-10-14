@@ -2,15 +2,17 @@
 // @generated from file dassie/ui/v1/ledger.proto (package dassie.ui.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { Realm } from "./config_pb.ts";
+import { file_dassie_ui_v1_config } from "./config_pb.ts";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file dassie/ui/v1/ledger.proto.
  */
 export const file_dassie_ui_v1_ledger: GenFile = /*@__PURE__*/
-  fileDesc("ChlkYXNzaWUvdWkvdjEvbGVkZ2VyLnByb3RvEgxkYXNzaWUudWkudjEioQEKBkxlZGdlchIKCgJpZBgBIAEoCRIZChFzZXR0bGVtZW50X3NjaGVtZRgCIAEoCRISCgphc3NldF9jb2RlGAMgASgJEhMKC2Fzc2V0X3NjYWxlGAQgASgNEhUKDW93bmVyX2JhbGFuY2UYBSABKAMSFQoNb3duZXJfcGVuZGluZxgGIAEoBBIZChFvbl9sZWRnZXJfYmFsYW5jZRgHIAEoBCIUChJMaXN0TGVkZ2Vyc1JlcXVlc3QiPAoTTGlzdExlZGdlcnNSZXNwb25zZRIlCgdsZWRnZXJzGAEgAygLMhQuZGFzc2llLnVpLnYxLkxlZGdlciI4ChpBZGRTZXR0bGVtZW50U2NoZW1lUmVxdWVzdBIKCgJpZBgBIAEoCRIOCgZjb25maWcYAiABKAkiQwobQWRkU2V0dGxlbWVudFNjaGVtZVJlc3BvbnNlEiQKBmxlZGdlchgBIAEoCzIULmRhc3NpZS51aS52MS5MZWRnZXIiKwodUmVtb3ZlU2V0dGxlbWVudFNjaGVtZVJlcXVlc3QSCgoCaWQYASABKAkiIAoeUmVtb3ZlU2V0dGxlbWVudFNjaGVtZVJlc3BvbnNlIiQKElN0dWJEZXBvc2l0UmVxdWVzdBIOCgZhbW91bnQYASABKAQiOwoTU3R1YkRlcG9zaXRSZXNwb25zZRIkCgZsZWRnZXIYASABKAsyFC5kYXNzaWUudWkudjEuTGVkZ2VyYgZwcm90bzM");
+  fileDesc("ChlkYXNzaWUvdWkvdjEvbGVkZ2VyLnByb3RvEgxkYXNzaWUudWkudjEi3wEKBkxlZGdlchIKCgJpZBgBIAEoCRIZChFzZXR0bGVtZW50X3NjaGVtZRgCIAEoCRISCgphc3NldF9jb2RlGAMgASgJEhMKC2Fzc2V0X3NjYWxlGAQgASgNEhUKDW93bmVyX2JhbGFuY2UYBSABKAMSFQoNb3duZXJfcGVuZGluZxgGIAEoBBIZChFvbl9sZWRnZXJfYmFsYW5jZRgHIAEoBBI8ChByZW1vdmFsX2Jsb2NrZXJzGAggAygLMiIuZGFzc2llLnVpLnYxLkxlZGdlclJlbW92YWxCbG9ja2VyIrsBChRMZWRnZXJSZW1vdmFsQmxvY2tlchI1CgRraW5kGAEgASgOMicuZGFzc2llLnVpLnYxLkxlZGdlclJlbW92YWxCbG9ja2VyLktpbmQSDQoFY291bnQYAiABKA0iXQoES2luZBIUChBLSU5EX1VOU1BFQ0lGSUVEEAASDgoKS0lORF9QRUVSUxABEhMKD0tJTkRfQlRQX1RPS0VOUxACEhoKFktJTkRfRklOQUxfU0VUVExFTUVOVFMQAyIZChdTdWJzY3JpYmVMZWRnZXJzUmVxdWVzdCKdAQoUU2V0dGxlbWVudFNjaGVtZUluZm8SCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIOCgZsZWRnZXIYAyABKAkSEgoKYXNzZXRfY29kZRgEIAEoCRITCgthc3NldF9zY2FsZRgFIAEoDRIiCgVyZWFsbRgGIAEoDjITLmRhc3NpZS51aS52MS5SZWFsbRIOCgZhY3RpdmUYByABKAgiHgocTGlzdFNldHRsZW1lbnRTY2hlbWVzUmVxdWVzdCJUCh1MaXN0U2V0dGxlbWVudFNjaGVtZXNSZXNwb25zZRIzCgdzY2hlbWVzGAEgAygLMiIuZGFzc2llLnVpLnYxLlNldHRsZW1lbnRTY2hlbWVJbmZvIhQKEkxpc3RMZWRnZXJzUmVxdWVzdCI8ChNMaXN0TGVkZ2Vyc1Jlc3BvbnNlEiUKB2xlZGdlcnMYASADKAsyFC5kYXNzaWUudWkudjEuTGVkZ2VyIjgKGkFkZFNldHRsZW1lbnRTY2hlbWVSZXF1ZXN0EgoKAmlkGAEgASgJEg4KBmNvbmZpZxgCIAEoCSJDChtBZGRTZXR0bGVtZW50U2NoZW1lUmVzcG9uc2USJAoGbGVkZ2VyGAEgASgLMhQuZGFzc2llLnVpLnYxLkxlZGdlciIrCh1SZW1vdmVTZXR0bGVtZW50U2NoZW1lUmVxdWVzdBIKCgJpZBgBIAEoCSIgCh5SZW1vdmVTZXR0bGVtZW50U2NoZW1lUmVzcG9uc2UiJAoSU3R1YkRlcG9zaXRSZXF1ZXN0Eg4KBmFtb3VudBgBIAEoBCI7ChNTdHViRGVwb3NpdFJlc3BvbnNlEiQKBmxlZGdlchgBIAEoCzIULmRhc3NpZS51aS52MS5MZWRnZXJiBnByb3RvMw", [file_dassie_ui_v1_config]);
 
 /**
  * A ledger the node keeps books for, with the settlement scheme that moves
@@ -66,6 +68,13 @@ export type Ledger = Message<"dassie.ui.v1.Ledger"> & {
    * @generated from field: uint64 on_ledger_balance = 7;
    */
   onLedgerBalance: bigint;
+
+  /**
+   * What keeps its scheme from being removed now; empty when it can be.
+   *
+   * @generated from field: repeated dassie.ui.v1.LedgerRemovalBlocker removal_blockers = 8;
+   */
+  removalBlockers: LedgerRemovalBlocker[];
 };
 
 /**
@@ -74,6 +83,171 @@ export type Ledger = Message<"dassie.ui.v1.Ledger"> & {
  */
 export const LedgerSchema: GenMessage<Ledger> = /*@__PURE__*/
   messageDesc(file_dassie_ui_v1_ledger, 0);
+
+/**
+ * Something that keeps a scheme from being removed, and how many of it.
+ *
+ * @generated from message dassie.ui.v1.LedgerRemovalBlocker
+ */
+export type LedgerRemovalBlocker = Message<"dassie.ui.v1.LedgerRemovalBlocker"> & {
+  /**
+   * @generated from field: dassie.ui.v1.LedgerRemovalBlocker.Kind kind = 1;
+   */
+  kind: LedgerRemovalBlocker_Kind;
+
+  /**
+   * @generated from field: uint32 count = 2;
+   */
+  count: number;
+};
+
+/**
+ * Describes the message dassie.ui.v1.LedgerRemovalBlocker.
+ * Use `create(LedgerRemovalBlockerSchema)` to create a new message.
+ */
+export const LedgerRemovalBlockerSchema: GenMessage<LedgerRemovalBlocker> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_ledger, 1);
+
+/**
+ * @generated from enum dassie.ui.v1.LedgerRemovalBlocker.Kind
+ */
+export enum LedgerRemovalBlocker_Kind {
+  /**
+   * @generated from enum value: KIND_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * Peers settle with it, or are ending a peering that does.
+   *
+   * @generated from enum value: KIND_PEERS = 1;
+   */
+  PEERS = 1,
+
+  /**
+   * BTP tokens use its ledger.
+   *
+   * @generated from enum value: KIND_BTP_TOKENS = 2;
+   */
+  BTP_TOKENS = 2,
+
+  /**
+   * Peerings that ended still have to be settled with it.
+   *
+   * @generated from enum value: KIND_FINAL_SETTLEMENTS = 3;
+   */
+  FINAL_SETTLEMENTS = 3,
+}
+
+/**
+ * Describes the enum dassie.ui.v1.LedgerRemovalBlocker.Kind.
+ */
+export const LedgerRemovalBlocker_KindSchema: GenEnum<LedgerRemovalBlocker_Kind> = /*@__PURE__*/
+  enumDesc(file_dassie_ui_v1_ledger, 1, 0);
+
+/**
+ * Streams the ledgers, whole, each time they change: balances included.
+ *
+ * @generated from message dassie.ui.v1.SubscribeLedgersRequest
+ */
+export type SubscribeLedgersRequest = Message<"dassie.ui.v1.SubscribeLedgersRequest"> & {
+};
+
+/**
+ * Describes the message dassie.ui.v1.SubscribeLedgersRequest.
+ * Use `create(SubscribeLedgersRequestSchema)` to create a new message.
+ */
+export const SubscribeLedgersRequestSchema: GenMessage<SubscribeLedgersRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_ledger, 2);
+
+/**
+ * A settlement scheme this node can run.
+ *
+ * @generated from message dassie.ui.v1.SettlementSchemeInfo
+ */
+export type SettlementSchemeInfo = Message<"dassie.ui.v1.SettlementSchemeInfo"> & {
+  /**
+   * For example "stub".
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * For people, for example "Stub".
+   *
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * The ledger it serves, for example "stub+usd".
+   *
+   * @generated from field: string ledger = 3;
+   */
+  ledger: string;
+
+  /**
+   * @generated from field: string asset_code = 4;
+   */
+  assetCode: string;
+
+  /**
+   * @generated from field: uint32 asset_scale = 5;
+   */
+  assetScale: number;
+
+  /**
+   * The realm its money belongs to.
+   *
+   * @generated from field: dassie.ui.v1.Realm realm = 6;
+   */
+  realm: Realm;
+
+  /**
+   * @generated from field: bool active = 7;
+   */
+  active: boolean;
+};
+
+/**
+ * Describes the message dassie.ui.v1.SettlementSchemeInfo.
+ * Use `create(SettlementSchemeInfoSchema)` to create a new message.
+ */
+export const SettlementSchemeInfoSchema: GenMessage<SettlementSchemeInfo> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_ledger, 3);
+
+/**
+ * @generated from message dassie.ui.v1.ListSettlementSchemesRequest
+ */
+export type ListSettlementSchemesRequest = Message<"dassie.ui.v1.ListSettlementSchemesRequest"> & {
+};
+
+/**
+ * Describes the message dassie.ui.v1.ListSettlementSchemesRequest.
+ * Use `create(ListSettlementSchemesRequestSchema)` to create a new message.
+ */
+export const ListSettlementSchemesRequestSchema: GenMessage<ListSettlementSchemesRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_ledger, 4);
+
+/**
+ * @generated from message dassie.ui.v1.ListSettlementSchemesResponse
+ */
+export type ListSettlementSchemesResponse = Message<"dassie.ui.v1.ListSettlementSchemesResponse"> & {
+  /**
+   * In a fixed order.
+   *
+   * @generated from field: repeated dassie.ui.v1.SettlementSchemeInfo schemes = 1;
+   */
+  schemes: SettlementSchemeInfo[];
+};
+
+/**
+ * Describes the message dassie.ui.v1.ListSettlementSchemesResponse.
+ * Use `create(ListSettlementSchemesResponseSchema)` to create a new message.
+ */
+export const ListSettlementSchemesResponseSchema: GenMessage<ListSettlementSchemesResponse> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_ledger, 5);
 
 /**
  * @generated from message dassie.ui.v1.ListLedgersRequest
@@ -86,7 +260,7 @@ export type ListLedgersRequest = Message<"dassie.ui.v1.ListLedgersRequest"> & {
  * Use `create(ListLedgersRequestSchema)` to create a new message.
  */
 export const ListLedgersRequestSchema: GenMessage<ListLedgersRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_ledger, 1);
+  messageDesc(file_dassie_ui_v1_ledger, 6);
 
 /**
  * @generated from message dassie.ui.v1.ListLedgersResponse
@@ -105,7 +279,7 @@ export type ListLedgersResponse = Message<"dassie.ui.v1.ListLedgersResponse"> & 
  * Use `create(ListLedgersResponseSchema)` to create a new message.
  */
 export const ListLedgersResponseSchema: GenMessage<ListLedgersResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_ledger, 2);
+  messageDesc(file_dassie_ui_v1_ledger, 7);
 
 /**
  * Activates a settlement scheme and its ledger. On its first activation the
@@ -136,7 +310,7 @@ export type AddSettlementSchemeRequest = Message<"dassie.ui.v1.AddSettlementSche
  * Use `create(AddSettlementSchemeRequestSchema)` to create a new message.
  */
 export const AddSettlementSchemeRequestSchema: GenMessage<AddSettlementSchemeRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_ledger, 3);
+  messageDesc(file_dassie_ui_v1_ledger, 8);
 
 /**
  * @generated from message dassie.ui.v1.AddSettlementSchemeResponse
@@ -153,7 +327,7 @@ export type AddSettlementSchemeResponse = Message<"dassie.ui.v1.AddSettlementSch
  * Use `create(AddSettlementSchemeResponseSchema)` to create a new message.
  */
 export const AddSettlementSchemeResponseSchema: GenMessage<AddSettlementSchemeResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_ledger, 4);
+  messageDesc(file_dassie_ui_v1_ledger, 9);
 
 /**
  * Deactivates a scheme. Its books stay, and come back when it is added
@@ -174,7 +348,7 @@ export type RemoveSettlementSchemeRequest = Message<"dassie.ui.v1.RemoveSettleme
  * Use `create(RemoveSettlementSchemeRequestSchema)` to create a new message.
  */
 export const RemoveSettlementSchemeRequestSchema: GenMessage<RemoveSettlementSchemeRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_ledger, 5);
+  messageDesc(file_dassie_ui_v1_ledger, 10);
 
 /**
  * @generated from message dassie.ui.v1.RemoveSettlementSchemeResponse
@@ -187,7 +361,7 @@ export type RemoveSettlementSchemeResponse = Message<"dassie.ui.v1.RemoveSettlem
  * Use `create(RemoveSettlementSchemeResponseSchema)` to create a new message.
  */
 export const RemoveSettlementSchemeResponseSchema: GenMessage<RemoveSettlementSchemeResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_ledger, 6);
+  messageDesc(file_dassie_ui_v1_ledger, 11);
 
 /**
  * Adds test money through the stub scheme. FAILED_PRECONDITION if the stub
@@ -209,7 +383,7 @@ export type StubDepositRequest = Message<"dassie.ui.v1.StubDepositRequest"> & {
  * Use `create(StubDepositRequestSchema)` to create a new message.
  */
 export const StubDepositRequestSchema: GenMessage<StubDepositRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_ledger, 7);
+  messageDesc(file_dassie_ui_v1_ledger, 12);
 
 /**
  * @generated from message dassie.ui.v1.StubDepositResponse
@@ -226,5 +400,5 @@ export type StubDepositResponse = Message<"dassie.ui.v1.StubDepositResponse"> & 
  * Use `create(StubDepositResponseSchema)` to create a new message.
  */
 export const StubDepositResponseSchema: GenMessage<StubDepositResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_ledger, 8);
+  messageDesc(file_dassie_ui_v1_ledger, 13);
 

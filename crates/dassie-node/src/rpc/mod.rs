@@ -10,7 +10,9 @@
 pub mod connection;
 mod convert;
 mod handlers;
+mod inspect;
 mod ledger;
+mod live;
 mod network;
 
 use std::fmt;
@@ -31,6 +33,25 @@ pub const MAX_MESSAGE_BYTES: usize = 1 << 20;
 
 /// Most calls a connection may have in flight.
 pub const MAX_CALLS_IN_FLIGHT: usize = 16;
+
+/// Most live streams a connection may hold, among its calls.
+pub const MAX_STREAMS_IN_FLIGHT: usize = 12;
+
+/// Whether a method is a live stream, which stays open.
+#[must_use]
+pub const fn is_live(method: &proto::request::Method) -> bool {
+    use proto::request::Method;
+    matches!(
+        method,
+        Method::SubscribeLedgers(_)
+            | Method::SubscribePackets(_)
+            | Method::SubscribeTransfers(_)
+            | Method::SubscribeNodes(_)
+            | Method::SubscribeRoutes(_)
+            | Method::SubscribeRegistration(_)
+            | Method::SubscribeLogs(_)
+    )
+}
 
 /// Who is on the other end.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

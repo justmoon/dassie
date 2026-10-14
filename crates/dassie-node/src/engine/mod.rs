@@ -243,6 +243,11 @@ impl Engine {
         self.call(move |core| core.unban_node(&node)).await
     }
 
+    /// One ledger account.
+    pub async fn account(&self, id: AccountId) -> Result<Option<Account>, EngineError> {
+        self.call(move |core| Ok(core.account_of(id))).await
+    }
+
     /// Every ledger account.
     pub async fn accounts(&self) -> Result<Vec<(AccountId, Account)>, EngineError> {
         self.call(|core| Ok(core.account_list())).await

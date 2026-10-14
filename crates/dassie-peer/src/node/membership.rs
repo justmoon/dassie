@@ -259,7 +259,7 @@ impl PeerNode {
     /// say: the owner asked.
     pub fn register_now(&mut self, now_ms: u64, node: &NodeId) -> Result<(), RegisterError> {
         self.advance(now_ms);
-        if *node == self.own {
+        if *node == self.own || !self.lists.states.contains_key(node) {
             return Err(RegisterError::NotBootstrap);
         }
         if self.own_link_bytes().is_none() {

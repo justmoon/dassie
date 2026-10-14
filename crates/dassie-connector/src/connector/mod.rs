@@ -436,6 +436,13 @@ impl Connector {
         None
     }
 
+    /// Every endpoint: its ID, address and ledger.
+    pub fn endpoints(&self) -> impl Iterator<Item = (EndpointId, &str, LedgerId)> {
+        self.endpoints
+            .iter()
+            .map(|(id, endpoint)| (*id, endpoint.address.as_str(), endpoint.ledger))
+    }
+
     /// The address an endpoint was added with.
     #[must_use]
     pub fn endpoint_address(&self, id: EndpointId) -> Option<&str> {

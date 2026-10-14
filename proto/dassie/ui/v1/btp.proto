@@ -18,6 +18,26 @@ message BtpToken {
   int64 net_received = 5;
   // Clients connected with it now.
   uint32 connections = 6;
+  // Its spending cap; unset if it has none.
+  SpendingCap cap = 7;
+  // What it could spend now under its cap.
+  uint64 cap_available = 8;
+  // What its packets in flight hold of the cap.
+  uint64 cap_reserved = 9;
+  // When the cap is whole again; 0 if it is, or there is none.
+  int64 cap_full_at_unix_ms = 10;
+}
+
+// At most `amount` per `window_ms`, refilling continuously (spec 7 §4.5):
+// what the token's clients send out of the owner's funds. Paying the
+// node's own receiver, or another token's client, does not count. A packet
+// larger than the amount is refused with F08, one the cap has no room for
+// now with T04.
+message SpendingCap {
+  // In the ledger's units; 1 to 2^63 - 1.
+  uint64 amount = 1;
+  // 1 s to 366 days.
+  uint64 window_ms = 2;
 }
 
 // INVALID_ARGUMENT for an unknown ledger or a label over 64 bytes;
@@ -26,6 +46,8 @@ message BtpToken {
 message CreateBtpTokenRequest {
   string label = 1;
   string ledger = 2;
+  // Optional.
+  SpendingCap cap = 3;
 }
 
 // The token itself is shown only here: the node keeps only its hash.
@@ -50,3 +72,17 @@ message RevokeBtpTokenRequest {
 }
 
 message RevokeBtpTokenResponse {}
+
+// Sets a token's spending cap, or lifts it. A new cap starts with nothing
+// used; a changed one keeps what is used, rounded up to the new window.
+// NOT_FOUND if there is no such token; INVALID_ARGUMENT for a cap out of
+// range.
+message SetBtpTokenCapRequest {
+  uint64 id = 1;
+  // Unset lifts the cap.
+  SpendingCap cap = 2;
+}
+
+message SetBtpTokenCapResponse {
+  BtpToken token = 1;
+}

@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file dassie/ui/v1/btp.proto.
  */
 export const file_dassie_ui_v1_btp: GenFile = /*@__PURE__*/
-  fileDesc("ChZkYXNzaWUvdWkvdjEvYnRwLnByb3RvEgxkYXNzaWUudWkudjEifAoIQnRwVG9rZW4SCgoCaWQYASABKAQSDQoFbGFiZWwYAiABKAkSDgoGbGVkZ2VyGAMgASgJEhoKEmNyZWF0ZWRfYXRfdW5peF9tcxgEIAEoAxIUCgxuZXRfcmVjZWl2ZWQYBSABKAMSEwoLY29ubmVjdGlvbnMYBiABKA0iNgoVQ3JlYXRlQnRwVG9rZW5SZXF1ZXN0Eg0KBWxhYmVsGAEgASgJEg4KBmxlZGdlchgCIAEoCSJcChZDcmVhdGVCdHBUb2tlblJlc3BvbnNlEiUKBXRva2VuGAEgASgLMhYuZGFzc2llLnVpLnYxLkJ0cFRva2VuEg4KBnNlY3JldBgCIAEoCRILCgN1cmwYAyABKAkiFgoUTGlzdEJ0cFRva2Vuc1JlcXVlc3QiPwoVTGlzdEJ0cFRva2Vuc1Jlc3BvbnNlEiYKBnRva2VucxgBIAMoCzIWLmRhc3NpZS51aS52MS5CdHBUb2tlbiIjChVSZXZva2VCdHBUb2tlblJlcXVlc3QSCgoCaWQYASABKAQiGAoWUmV2b2tlQnRwVG9rZW5SZXNwb25zZWIGcHJvdG8z");
+  fileDesc("ChZkYXNzaWUvdWkvdjEvYnRwLnByb3RvEgxkYXNzaWUudWkudjEi7gEKCEJ0cFRva2VuEgoKAmlkGAEgASgEEg0KBWxhYmVsGAIgASgJEg4KBmxlZGdlchgDIAEoCRIaChJjcmVhdGVkX2F0X3VuaXhfbXMYBCABKAMSFAoMbmV0X3JlY2VpdmVkGAUgASgDEhMKC2Nvbm5lY3Rpb25zGAYgASgNEiYKA2NhcBgHIAEoCzIZLmRhc3NpZS51aS52MS5TcGVuZGluZ0NhcBIVCg1jYXBfYXZhaWxhYmxlGAggASgEEhQKDGNhcF9yZXNlcnZlZBgJIAEoBBIbChNjYXBfZnVsbF9hdF91bml4X21zGAogASgDIjAKC1NwZW5kaW5nQ2FwEg4KBmFtb3VudBgBIAEoBBIRCgl3aW5kb3dfbXMYAiABKAQiXgoVQ3JlYXRlQnRwVG9rZW5SZXF1ZXN0Eg0KBWxhYmVsGAEgASgJEg4KBmxlZGdlchgCIAEoCRImCgNjYXAYAyABKAsyGS5kYXNzaWUudWkudjEuU3BlbmRpbmdDYXAiXAoWQ3JlYXRlQnRwVG9rZW5SZXNwb25zZRIlCgV0b2tlbhgBIAEoCzIWLmRhc3NpZS51aS52MS5CdHBUb2tlbhIOCgZzZWNyZXQYAiABKAkSCwoDdXJsGAMgASgJIhYKFExpc3RCdHBUb2tlbnNSZXF1ZXN0Ij8KFUxpc3RCdHBUb2tlbnNSZXNwb25zZRImCgZ0b2tlbnMYASADKAsyFi5kYXNzaWUudWkudjEuQnRwVG9rZW4iIwoVUmV2b2tlQnRwVG9rZW5SZXF1ZXN0EgoKAmlkGAEgASgEIhgKFlJldm9rZUJ0cFRva2VuUmVzcG9uc2UiSwoVU2V0QnRwVG9rZW5DYXBSZXF1ZXN0EgoKAmlkGAEgASgEEiYKA2NhcBgCIAEoCzIZLmRhc3NpZS51aS52MS5TcGVuZGluZ0NhcCI/ChZTZXRCdHBUb2tlbkNhcFJlc3BvbnNlEiUKBXRva2VuGAEgASgLMhYuZGFzc2llLnVpLnYxLkJ0cFRva2VuYgZwcm90bzM");
 
 /**
  * A token that lets an ILP client connect over BTP
@@ -59,6 +59,34 @@ export type BtpToken = Message<"dassie.ui.v1.BtpToken"> & {
    * @generated from field: uint32 connections = 6;
    */
   connections: number;
+
+  /**
+   * Its spending cap; unset if it has none.
+   *
+   * @generated from field: dassie.ui.v1.SpendingCap cap = 7;
+   */
+  cap?: SpendingCap | undefined;
+
+  /**
+   * What it could spend now under its cap.
+   *
+   * @generated from field: uint64 cap_available = 8;
+   */
+  capAvailable: bigint;
+
+  /**
+   * What its packets in flight hold of the cap.
+   *
+   * @generated from field: uint64 cap_reserved = 9;
+   */
+  capReserved: bigint;
+
+  /**
+   * When the cap is whole again; 0 if it is, or there is none.
+   *
+   * @generated from field: int64 cap_full_at_unix_ms = 10;
+   */
+  capFullAtUnixMs: bigint;
 };
 
 /**
@@ -67,6 +95,38 @@ export type BtpToken = Message<"dassie.ui.v1.BtpToken"> & {
  */
 export const BtpTokenSchema: GenMessage<BtpToken> = /*@__PURE__*/
   messageDesc(file_dassie_ui_v1_btp, 0);
+
+/**
+ * At most `amount` per `window_ms`, refilling continuously (spec 7 §4.5):
+ * what the token's clients send out of the owner's funds. Paying the
+ * node's own receiver, or another token's client, does not count. A packet
+ * larger than the amount is refused with F08, one the cap has no room for
+ * now with T04.
+ *
+ * @generated from message dassie.ui.v1.SpendingCap
+ */
+export type SpendingCap = Message<"dassie.ui.v1.SpendingCap"> & {
+  /**
+   * In the ledger's units; 1 to 2^63 - 1.
+   *
+   * @generated from field: uint64 amount = 1;
+   */
+  amount: bigint;
+
+  /**
+   * 1 s to 366 days.
+   *
+   * @generated from field: uint64 window_ms = 2;
+   */
+  windowMs: bigint;
+};
+
+/**
+ * Describes the message dassie.ui.v1.SpendingCap.
+ * Use `create(SpendingCapSchema)` to create a new message.
+ */
+export const SpendingCapSchema: GenMessage<SpendingCap> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_btp, 1);
 
 /**
  * INVALID_ARGUMENT for an unknown ledger or a label over 64 bytes;
@@ -85,6 +145,13 @@ export type CreateBtpTokenRequest = Message<"dassie.ui.v1.CreateBtpTokenRequest"
    * @generated from field: string ledger = 2;
    */
   ledger: string;
+
+  /**
+   * Optional.
+   *
+   * @generated from field: dassie.ui.v1.SpendingCap cap = 3;
+   */
+  cap?: SpendingCap | undefined;
 };
 
 /**
@@ -92,7 +159,7 @@ export type CreateBtpTokenRequest = Message<"dassie.ui.v1.CreateBtpTokenRequest"
  * Use `create(CreateBtpTokenRequestSchema)` to create a new message.
  */
 export const CreateBtpTokenRequestSchema: GenMessage<CreateBtpTokenRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_btp, 1);
+  messageDesc(file_dassie_ui_v1_btp, 2);
 
 /**
  * The token itself is shown only here: the node keeps only its hash.
@@ -123,7 +190,7 @@ export type CreateBtpTokenResponse = Message<"dassie.ui.v1.CreateBtpTokenRespons
  * Use `create(CreateBtpTokenResponseSchema)` to create a new message.
  */
 export const CreateBtpTokenResponseSchema: GenMessage<CreateBtpTokenResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_btp, 2);
+  messageDesc(file_dassie_ui_v1_btp, 3);
 
 /**
  * @generated from message dassie.ui.v1.ListBtpTokensRequest
@@ -136,7 +203,7 @@ export type ListBtpTokensRequest = Message<"dassie.ui.v1.ListBtpTokensRequest"> 
  * Use `create(ListBtpTokensRequestSchema)` to create a new message.
  */
 export const ListBtpTokensRequestSchema: GenMessage<ListBtpTokensRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_btp, 3);
+  messageDesc(file_dassie_ui_v1_btp, 4);
 
 /**
  * @generated from message dassie.ui.v1.ListBtpTokensResponse
@@ -155,7 +222,7 @@ export type ListBtpTokensResponse = Message<"dassie.ui.v1.ListBtpTokensResponse"
  * Use `create(ListBtpTokensResponseSchema)` to create a new message.
  */
 export const ListBtpTokensResponseSchema: GenMessage<ListBtpTokensResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_btp, 4);
+  messageDesc(file_dassie_ui_v1_btp, 5);
 
 /**
  * Disconnects the token's clients and refuses it from now on. Its account
@@ -175,7 +242,7 @@ export type RevokeBtpTokenRequest = Message<"dassie.ui.v1.RevokeBtpTokenRequest"
  * Use `create(RevokeBtpTokenRequestSchema)` to create a new message.
  */
 export const RevokeBtpTokenRequestSchema: GenMessage<RevokeBtpTokenRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_btp, 5);
+  messageDesc(file_dassie_ui_v1_btp, 6);
 
 /**
  * @generated from message dassie.ui.v1.RevokeBtpTokenResponse
@@ -188,5 +255,51 @@ export type RevokeBtpTokenResponse = Message<"dassie.ui.v1.RevokeBtpTokenRespons
  * Use `create(RevokeBtpTokenResponseSchema)` to create a new message.
  */
 export const RevokeBtpTokenResponseSchema: GenMessage<RevokeBtpTokenResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_btp, 6);
+  messageDesc(file_dassie_ui_v1_btp, 7);
+
+/**
+ * Sets a token's spending cap, or lifts it. A new cap starts with nothing
+ * used; a changed one keeps what is used, rounded up to the new window.
+ * NOT_FOUND if there is no such token; INVALID_ARGUMENT for a cap out of
+ * range.
+ *
+ * @generated from message dassie.ui.v1.SetBtpTokenCapRequest
+ */
+export type SetBtpTokenCapRequest = Message<"dassie.ui.v1.SetBtpTokenCapRequest"> & {
+  /**
+   * @generated from field: uint64 id = 1;
+   */
+  id: bigint;
+
+  /**
+   * Unset lifts the cap.
+   *
+   * @generated from field: dassie.ui.v1.SpendingCap cap = 2;
+   */
+  cap?: SpendingCap | undefined;
+};
+
+/**
+ * Describes the message dassie.ui.v1.SetBtpTokenCapRequest.
+ * Use `create(SetBtpTokenCapRequestSchema)` to create a new message.
+ */
+export const SetBtpTokenCapRequestSchema: GenMessage<SetBtpTokenCapRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_btp, 8);
+
+/**
+ * @generated from message dassie.ui.v1.SetBtpTokenCapResponse
+ */
+export type SetBtpTokenCapResponse = Message<"dassie.ui.v1.SetBtpTokenCapResponse"> & {
+  /**
+   * @generated from field: dassie.ui.v1.BtpToken token = 1;
+   */
+  token?: BtpToken | undefined;
+};
+
+/**
+ * Describes the message dassie.ui.v1.SetBtpTokenCapResponse.
+ * Use `create(SetBtpTokenCapResponseSchema)` to create a new message.
+ */
+export const SetBtpTokenCapResponseSchema: GenMessage<SetBtpTokenCapResponse> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_btp, 9);
 

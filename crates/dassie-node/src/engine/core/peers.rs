@@ -206,6 +206,11 @@ pub struct NetworkView {
     pub channels: Vec<(NodeId, dassie_peer::Channel)>,
     /// Banned nodes.
     pub bans: Vec<NodeId>,
+    /// Routes to the node's own endpoints other than peers: address,
+    /// endpoint and ledger.
+    pub local_routes: Vec<(String, EndpointId, dassie_ledger::LedgerId)>,
+    /// Whether we are on a majority of the bootstrap nodes' lists.
+    pub member: bool,
 }
 
 impl Core {
@@ -237,6 +242,13 @@ impl Core {
                 .map(|(id, channel)| (*id, channel.clone()))
                 .collect(),
             bans: self.peer.bans().copied().collect(),
+            local_routes: self
+                .connector
+                .endpoints()
+                .filter(|(id, _, _)| !id.is_peer())
+                .map(|(id, address, ledger)| (address.to_string(), id, ledger))
+                .collect(),
+            member: self.peer.majority().contains(self.peer.own()),
         }
     }
 
