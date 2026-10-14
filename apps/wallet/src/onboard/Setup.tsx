@@ -8,13 +8,13 @@
 import { type Identity, loadIdentity } from "@dassie/identity-wasm/web";
 import type { JSX } from "@solidjs/web";
 import { createSignal, Match, Show, Switch } from "solid-js";
-import { checkPassphrase, submitSetup } from "./auth.ts";
+import { checkPassphrase, submitSetup } from "../auth.ts";
 import {
   IDENTITY_FAILED,
   INVALID_PASSPHRASE,
   setupFailure,
-} from "./messages.ts";
-import { Card, Spinner } from "./ui.tsx";
+} from "../messages.ts";
+import { Card, Spinner } from "../ui.tsx";
 
 type Step =
   | { readonly name: "intro" }

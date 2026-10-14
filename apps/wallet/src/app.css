@@ -1,42 +1,51 @@
 /*
  * The wallet's only stylesheet. The page CSP allows styles from the node's
  * own origin only (`style-src 'self'`), so every rule lives here, in a file
- * the bundle links, never in a style attribute. Dark mode follows the
- * system setting; there is no toggle, so no script is involved.
+ * the bundle links, never in a style attribute. The theme follows the
+ * system, or the owner's choice as `data-theme` on the root (UI-6); every
+ * color is written once, for both, with `light-dark()`.
  */
 
 :root {
-  --bg: #f4f4f5;
-  --surface: #ffffff;
-  --text: #18181b;
-  --muted: #52525b;
-  --line: #d4d4d8;
-  --accent: #1d4ed8;
-  --accent-text: #ffffff;
-  --danger: #b91c1c;
-  --danger-bg: #fef2f2;
-  --warning-bg: #fff7ed;
-  --warning-line: #ea580c;
+  color-scheme: light dark;
+  --bg: light-dark(#f4f4f5, #09090b);
+  --surface: light-dark(#ffffff, #18181b);
+  --surface-2: light-dark(#f4f4f5, #27272a);
+  --text: light-dark(#18181b, #f4f4f5);
+  --muted: light-dark(#52525b, #a1a1aa);
+  --line: light-dark(#d4d4d8, #3f3f46);
+  --accent: light-dark(#1d4ed8, #60a5fa);
+  --accent-text: light-dark(#ffffff, #09090b);
+  --danger: light-dark(#b91c1c, #f87171);
+  --danger-bg: light-dark(#fef2f2, #2a1215);
+  --success: light-dark(#15803d, #4ade80);
+  --success-bg: light-dark(#f0fdf4, #0f2a19);
+  --warning-bg: light-dark(#fff7ed, #2a1a0e);
+  --warning-line: light-dark(#ea580c, #fb923c);
   --radius: 8px;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  color-scheme: light dark;
+  /* Adobe Spectrum's categorical palette, as the original's (spec 6 §1.2). */
+  --palette-0: #0fb5ae;
+  --palette-1: #4046ca;
+  --palette-2: #f68511;
+  --palette-3: #de3d82;
+  --palette-4: #7e84fa;
+  --palette-5: #72e06a;
+  --palette-6: #147af3;
+  --palette-7: #9a4dff;
+  --palette-8: #e8c600;
+  --palette-9: #cb5d00;
+  --palette-10: #008f5d;
+  --palette-11: #bce931;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #09090b;
-    --surface: #18181b;
-    --text: #f4f4f5;
-    --muted: #a1a1aa;
-    --line: #3f3f46;
-    --accent: #60a5fa;
-    --accent-text: #09090b;
-    --danger: #f87171;
-    --danger-bg: #2a1215;
-    --warning-bg: #2a1a0e;
-    --warning-line: #fb923c;
-  }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
 }
 
 *,
@@ -57,7 +66,51 @@ body {
   font: 16px/1.5 var(--font);
 }
 
-/* One centered column: brand, card, footer. */
+h1 {
+  margin: 0 0 16px;
+  font-size: 1.6rem;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+}
+
+h1:focus {
+  outline: none;
+}
+
+h2 {
+  margin: 0 0 12px;
+  font-size: 1.15rem;
+}
+
+h3 {
+  margin: 12px 0 8px;
+  font-size: 1rem;
+}
+
+a {
+  color: var(--accent);
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Onboarding: one centered column with brand and card. */
 .page {
   display: flex;
   flex-direction: column;
@@ -73,22 +126,25 @@ body {
   font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--muted);
+  text-decoration: none;
 }
 
 .card {
   width: 100%;
-  max-width: 480px;
-  padding: 28px;
+  padding: 24px;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
 }
 
+.page .card {
+  max-width: 480px;
+  padding: 28px;
+}
+
 .card h1 {
   margin: 0 0 12px;
   font-size: 1.5rem;
-  line-height: 1.25;
-  letter-spacing: -0.015em;
 }
 
 .card p {
@@ -104,14 +160,171 @@ body {
   font-size: 0.875rem;
 }
 
-a {
-  color: var(--accent);
+/* The wallet's frame. */
+.skip {
+  position: absolute;
+  left: -9999px;
 }
 
-code {
-  font-family: var(--mono);
-  font-size: 0.9em;
-  overflow-wrap: anywhere;
+.skip:focus {
+  left: 16px;
+  top: 8px;
+  z-index: 10;
+  padding: 8px 12px;
+  background: var(--surface);
+}
+
+.nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 12px 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.nav-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.nav-toggle {
+  display: none;
+}
+
+.nav-links {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+
+.nav-links a,
+.subnav a {
+  padding: 6px 10px;
+  color: var(--text);
+  text-decoration: none;
+  border-radius: var(--radius);
+}
+
+.nav-links a[aria-current="page"],
+.subnav a[aria-current="page"] {
+  background: var(--surface-2);
+  font-weight: 600;
+}
+
+.nav-spacer {
+  flex: 1;
+}
+
+.menu {
+  position: relative;
+}
+
+.menu > button {
+  padding: 6px 10px;
+  font-weight: 400;
+  border-color: transparent;
+}
+
+.menu-list {
+  position: absolute;
+  z-index: 5;
+  min-width: 160px;
+  margin: 4px 0 0;
+  padding: 6px;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.menu-list a {
+  display: block;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.dot-connected {
+  background: var(--success);
+}
+
+.dot-reconnecting {
+  background: var(--warning-line);
+}
+
+.dot-failed {
+  background: var(--danger);
+}
+
+.theme-toggle {
+  padding: 4px 10px;
+  border-color: transparent;
+}
+
+.banner {
+  margin: 0;
+  padding: 8px 24px;
+  background: var(--warning-bg);
+  border-bottom: 1px solid var(--warning-line);
+}
+
+main#content {
+  padding: 24px;
+}
+
+.page-wide {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.page-narrow {
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.onboarding {
+  padding: 32px 16px;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.breadcrumb {
+  margin: 0 0 8px;
+  color: var(--muted);
 }
 
 /* Forms */
@@ -120,16 +333,27 @@ form {
   flex-direction: column;
 }
 
+.field {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 12px;
+}
+
 label {
   margin-bottom: 6px;
   font-weight: 600;
 }
 
+.hint {
+  margin: 4px 0 0;
+  font-size: 0.875rem;
+}
+
 input,
-textarea {
+textarea,
+select {
   width: 100%;
-  margin-bottom: 16px;
-  padding: 10px 12px;
+  padding: 9px 12px;
   font: inherit;
   color: inherit;
   background: var(--bg);
@@ -137,19 +361,42 @@ textarea {
   border-radius: var(--radius);
 }
 
+.page input,
+.page textarea {
+  margin-bottom: 16px;
+}
+
+input[type="radio"] {
+  width: auto;
+}
+
 textarea {
   resize: vertical;
 }
 
+fieldset {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.radios label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 400;
+}
+
 input:focus-visible,
 textarea:focus-visible,
+select:focus-visible,
 button:focus-visible,
 a:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-/* Buttons */
+/* Buttons, and links that look like them. */
 .actions {
   display: flex;
   flex-wrap: wrap;
@@ -158,24 +405,35 @@ a:focus-visible {
   margin-top: 8px;
 }
 
-button {
+button,
+a.button {
+  display: inline-block;
   padding: 9px 16px;
   font: inherit;
   font-weight: 600;
   color: var(--text);
+  text-decoration: none;
   background: transparent;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   cursor: pointer;
 }
 
-button.primary {
+button.primary,
+a.button.primary {
   color: var(--accent-text);
   background: var(--accent);
   border-color: var(--accent);
 }
 
+button.danger,
+a.button.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
 button.link {
+  padding: 2px 6px;
   color: var(--accent);
   border-color: transparent;
 }
@@ -205,7 +463,49 @@ button:disabled {
   border-radius: var(--radius);
 }
 
-/* Facts about the node: label above value. */
+.alert {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.alert-warning {
+  background: var(--warning-bg);
+  border-color: var(--warning-line);
+}
+
+.alert-danger {
+  color: var(--danger);
+  background: var(--danger-bg);
+  border-color: var(--danger);
+}
+
+.badge {
+  display: inline-block;
+  padding: 1px 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.badge-good {
+  color: var(--success);
+  background: var(--success-bg);
+  border-color: var(--success);
+}
+
+.badge-bad {
+  color: var(--danger);
+  background: var(--danger-bg);
+  border-color: var(--danger);
+}
+
+/* Facts: label above value. */
 .facts {
   margin: 0 0 16px;
 }
@@ -217,6 +517,7 @@ button:disabled {
 
 .facts dd {
   margin: 0 0 8px;
+  overflow-wrap: anywhere;
 }
 
 /* Work in progress */
@@ -242,8 +543,454 @@ button:disabled {
   }
 }
 
+.live-note {
+  margin: 0 0 8px;
+  font-size: 0.875rem;
+}
+
+/* Amounts: the digits beyond cents are muted (spec 6 §1.6.4). */
+.amount {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.amount-lg {
+  font-size: 2rem;
+  font-weight: 700;
+}
+
+.amount-extra {
+  color: var(--muted);
+  font-size: 0.75em;
+}
+
+.balances {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.balances li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.pointer {
+  font-family: var(--mono);
+  font-size: 1.25rem;
+}
+
+.boxed {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+/* Ledgers */
+.ledger-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+a.button.icon {
+  padding: 4px 10px;
+}
+
+.choices {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.choice {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.checklist {
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.check-valid {
+  color: var(--success);
+}
+
+.check-invalid {
+  color: var(--danger);
+}
+
+/* Tabs */
+[role="tablist"] {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+[role="tab"] {
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+}
+
+[role="tab"][aria-selected="true"] {
+  border-bottom-color: var(--accent);
+}
+
+/* Dialogs and notices */
+dialog {
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 24px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+dialog::backdrop {
+  background: rgb(0 0 0 / 0.5);
+}
+
+.toasts {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: calc(100vw - 32px);
+}
+
+.toast {
+  display: flex;
+  align-items: start;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.toast p {
+  margin: 0;
+}
+
+.toast-destructive {
+  border-color: var(--danger);
+}
+
+.masked {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Tables */
+.table-scroll {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+th,
+td {
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--line);
+}
+
+th {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.is-pending {
+  opacity: 0.6;
+}
+
+.is-voided {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+.split {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 16px;
+}
+
+.table-list,
+.cells,
+.sessions,
+.tokens,
+.bootstrap-list,
+.node-group ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sessions li,
+.tokens li,
+.bootstrap-list li {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.node-group li {
+  padding: 4px 0;
+}
+
+.distance {
+  display: inline-block;
+  min-width: 2em;
+  font-family: var(--mono);
+  color: var(--muted);
+}
+
+.cap-inputs {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+meter {
+  width: 120px;
+  vertical-align: middle;
+}
+
+/* The network graph */
+.graph-card {
+  padding: 8px;
+}
+
+.network-graph {
+  display: block;
+  width: 100%;
+  height: 420px;
+}
+
+.graph-link {
+  stroke: var(--line);
+  stroke-width: 1.5;
+}
+
+.graph-node-group {
+  cursor: pointer;
+}
+
+.graph-node-group:focus-visible {
+  outline: 2px solid var(--accent);
+}
+
+.graph-node {
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.graph-node.selected {
+  stroke: var(--text);
+  stroke-width: 3;
+}
+
+.graph-label {
+  fill: var(--muted);
+  font-size: 10px;
+  text-anchor: middle;
+}
+
+.seed-0 {
+  fill: var(--palette-0);
+  color: var(--palette-0);
+}
+.seed-1 {
+  fill: var(--palette-1);
+  color: var(--palette-1);
+}
+.seed-2 {
+  fill: var(--palette-2);
+  color: var(--palette-2);
+}
+.seed-3 {
+  fill: var(--palette-3);
+  color: var(--palette-3);
+}
+.seed-4 {
+  fill: var(--palette-4);
+  color: var(--palette-4);
+}
+.seed-5 {
+  fill: var(--palette-5);
+  color: var(--palette-5);
+}
+.seed-6 {
+  fill: var(--palette-6);
+  color: var(--palette-6);
+}
+.seed-7 {
+  fill: var(--palette-7);
+  color: var(--palette-7);
+}
+.seed-8 {
+  fill: var(--palette-8);
+  color: var(--palette-8);
+}
+.seed-9 {
+  fill: var(--palette-9);
+  color: var(--palette-9);
+}
+.seed-10 {
+  fill: var(--palette-10);
+  color: var(--palette-10);
+}
+.seed-11 {
+  fill: var(--palette-11);
+  color: var(--palette-11);
+}
+
+/* The log viewer (spec 6 §1.7): fixed rows, so only those in view render. */
+.log-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.log-controls input {
+  flex: 1;
+  min-width: 160px;
+}
+
+.log-controls select {
+  width: auto;
+}
+
+.log-controls label {
+  margin: 0;
+}
+
+.log-viewport {
+  height: 60vh;
+  overflow-y: auto;
+  font: 12px/20px var(--mono);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.log-spacer {
+  position: relative;
+}
+
+.log-row {
+  display: flex;
+  gap: 8px;
+  height: 20px;
+  padding: 0 8px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.log-time,
+.log-fields {
+  color: var(--muted);
+}
+
+.log-level {
+  width: 3.5em;
+}
+
+.log-debug {
+  color: #7e84fa;
+}
+.log-info {
+  color: #147af3;
+}
+.log-warn {
+  color: #e8c600;
+}
+.log-error {
+  color: #de3d82;
+}
+
+.log-message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+pre {
+  overflow-x: auto;
+  padding: 8px;
+  background: var(--surface-2);
+  border-radius: var(--radius);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .spinner {
     animation-duration: 3s;
+  }
+}
+
+/* Phones: one column, and the navigation behind a button. */
+@media (max-width: 720px) {
+  main#content {
+    padding: 16px;
+  }
+
+  .nav {
+    padding: 8px 16px;
+  }
+
+  .nav-bar {
+    width: 100%;
+  }
+
+  .nav-toggle {
+    display: inline-block;
+  }
+
+  .nav-links {
+    display: none;
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .nav-links.open {
+    display: flex;
+  }
+
+  .menu-list {
+    position: static;
+  }
+
+  .grid-2,
+  .split,
+  .cap-inputs {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .network-graph {
+    height: 320px;
   }
 }

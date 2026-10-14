@@ -965,6 +965,9 @@
     "members": {
       "apps/wallet": {
         "dependencies": [
+          "jsr:@std/assert@1",
+          "jsr:@std/testing@1",
+          "npm:@bufbuild/protobuf@^2.16.0",
           "npm:@solidjs/vite-plugin@3.0.0-next.44",
           "npm:@solidjs/web@2.0.0-rc.9",
           "npm:solid-js@2.0.0-rc.9",

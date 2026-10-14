@@ -7,13 +7,13 @@
 import { type Identity, loadIdentity } from "@dassie/identity-wasm/web";
 import type { JSX } from "@solidjs/web";
 import { createSignal, Show } from "solid-js";
-import { checkPassphrase, submitLogin } from "./auth.ts";
+import { checkPassphrase, submitLogin } from "../auth.ts";
 import {
   IDENTITY_FAILED,
   INVALID_PASSPHRASE,
   loginFailure,
-} from "./messages.ts";
-import { Card } from "./ui.tsx";
+} from "../messages.ts";
+import { Card } from "../ui.tsx";
 
 /** Asks for the passphrase and signs the owner in with its proof. */
 export function Login(): JSX.Element {
