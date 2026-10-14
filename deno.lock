@@ -37,6 +37,7 @@
     "npm:ilp-plugin-btp@1.5.0": "1.5.0",
     "npm:ilp-protocol-stream@2.7.2-alpha.2": "2.7.2-alpha.2",
     "npm:solid-js@2.0.0-rc.9": "2.0.0-rc.9",
+    "npm:uqr@0.1.2": "0.1.2",
     "npm:vite@8.3.1": "8.3.1_@types+node@24.19.0",
     "npm:ws@^6.2.2": "6.2.6"
   },
@@ -1480,6 +1481,9 @@
       ],
       "bin": true
     },
+    "uqr@0.1.2": {
+      "integrity": "sha512-MJu7ypHq6QasgF5YRTjqscSzQp/W11zoUk6kvmlH+fmWEs63Y0Eib13hYFwAzagRJcVY8WVnlV+eBDUGMJ5IbA=="
+    },
     "uuid@8.3.2": {
       "integrity": "sha512-+NYs2QeMWy+GWFOEm9xnn6HCDp0l7QBD7ml8zLUmJ+93Q5NF0NocErnwkTkXVFNiX3/fpC6afS8Dhb/gz7R7eg==",
       "deprecated": true,
@@ -1583,6 +1587,7 @@
           "npm:@bufbuild/protobuf@^2.16.0",
           "npm:@solidjs/web@2.0.0-rc.9",
           "npm:solid-js@2.0.0-rc.9",
+          "npm:uqr@0.1.2",
           "npm:vite@8.3.1"
         ]
       },

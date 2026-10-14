@@ -226,6 +226,24 @@
   align-items: center;
 }
 
+/* A deposit address with its QR code; the code stays black on white,
+   which readers need, in either theme. */
+.deposit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+}
+
+.deposit code {
+  word-break: break-all;
+}
+
+.qr {
+  border-radius: 4px;
+  flex: none;
+}
+
 a.button.icon {
   padding: 4px 10px;
 }
