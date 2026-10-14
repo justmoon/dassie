@@ -38,6 +38,11 @@ pub fn bootstrap(node: &NodeKey, port: u16) -> String {
 
 /// Sets a node up as a peer: owner, hostname, certificate, stub scheme.
 pub async fn prepare(node: &TestNode, key: &NodeKey) {
+    prepare_with(node, key, "stub", "").await;
+}
+
+/// Sets a node up as a peer, settling with `scheme` set up with `config`.
+pub async fn prepare_with(node: &TestNode, key: &NodeKey, scheme: &str, config: &str) {
     set_up(node, key).await;
     let mut owner = node.ipc().await;
     let hostname = owner
@@ -57,8 +62,8 @@ pub async fn prepare(node: &TestNode, key: &NodeKey) {
         let added = owner
             .call(Method::AddSettlementScheme(
                 proto::AddSettlementSchemeRequest {
-                    id: "stub".into(),
-                    config: String::new(),
+                    id: scheme.into(),
+                    config: config.into(),
                 },
             ))
             .await;
@@ -67,7 +72,7 @@ pub async fn prepare(node: &TestNode, key: &NodeKey) {
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    panic!("the stub scheme did not start");
+    panic!("the {scheme} scheme did not start");
 }
 
 /// The node's ledger accounts' paths.
@@ -117,7 +122,12 @@ pub async fn settle(clock: &ManualClock) {
 }
 
 pub async fn peered(a: &TestNode, b: &NodeKey) -> bool {
-    let path = format!("stub+usd:assets/interledger/{}", b.node_id());
+    peered_on(a, b, "stub+usd").await
+}
+
+/// Whether `a` holds accounts for `b` on `ledger`.
+pub async fn peered_on(a: &TestNode, b: &NodeKey, ledger: &str) -> bool {
+    let path = format!("{ledger}:assets/interledger/{}", b.node_id());
     accounts(a).await.contains(&path)
 }
 

@@ -1,0 +1,228 @@
+//! Two daemons settling on the XRP Ledger testnet scheme, over a real
+//! WebSocket to the fake ledger and its faucet over HTTPS (M7b): funded by
+//! the faucet, they peer, pay several times the credit, so they settle on
+//! the ledger, and after both restart the books still match each account,
+//! less its reserve. A deposit from outside is booked once.
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+
+mod support;
+
+use std::time::Duration;
+
+use dassie_identity::NodeKey;
+use dassie_node::clock::ManualClock;
+use dassie_node::fake_ledger::{Options, Server};
+use dassie_node::node::Policies;
+use dassie_node::rpc::proto::{self, request::Method, response};
+use dassie_node::store::StoredCertificate;
+use dassie_node_core::certificate::CertificateSource;
+use dassie_xrpl::{AccountId, Wallet};
+use support::btp_client::{BtpClient, pay_stream_waiting};
+use support::pair::{CA, CERT, KEY, bootstrap, key, peered_on, prepare_with, settle, until};
+use support::{Bound, START_MS, TestNode};
+
+const LEDGER: &str = "xrpl-testnet+xrp";
+/// What the faucet gives, less the reserve, in internal units.
+const FUNDED: i64 = 999_000_000_000;
+/// 5 XRP: over four times the credit, so it only gets through if A
+/// settles with B as it goes.
+const PAYMENT: u64 = 5_000_000_000;
+
+async fn fake_ledger() -> Server {
+    Server::start(Options {
+        listen: "127.0.0.1:0".parse().unwrap(),
+        faucet: Some((
+            "127.0.0.1:0".parse().unwrap(),
+            StoredCertificate {
+                source: CertificateSource::Manual,
+                chain_pem: std::fs::read_to_string(CERT).unwrap(),
+                key_pem: std::fs::read_to_string(KEY).unwrap(),
+            },
+        )),
+        close_every: Duration::from_millis(100),
+    })
+    .await
+    .unwrap()
+}
+
+fn account_of(key: &NodeKey) -> AccountId {
+    let entropy = key
+        .settlement_entropy("xrpl-testnet", "seed-testnet")
+        .unwrap();
+    Wallet::from_entropy(entropy.as_bytes()).account()
+}
+
+async fn ledger_of(node: &TestNode) -> Option<proto::Ledger> {
+    let reply = node
+        .ipc()
+        .await
+        .call(Method::ListLedgers(proto::ListLedgersRequest {}))
+        .await;
+    match reply {
+        Ok(response::Method::ListLedgers(list)) => {
+            list.ledgers.into_iter().find(|l| l.id == LEDGER)
+        }
+        _ => None,
+    }
+}
+
+/// Every transfer in the node's journal.
+async fn journal(node: &TestNode) -> Vec<proto::Transfer> {
+    let mut owner = node.ipc().await;
+    let mut all = Vec::new();
+    let mut after = None;
+    loop {
+        let Ok(response::Method::ListTransfers(page)) = owner
+            .call(Method::ListTransfers(proto::ListTransfersRequest {
+                after_sequence: after,
+                limit: 1_000,
+                account: None,
+            }))
+            .await
+        else {
+            panic!("no journal")
+        };
+        let Some(last) = page.transfers.last() else {
+            return all;
+        };
+        after = Some(last.sequence);
+        all.extend(page.transfers);
+    }
+}
+
+/// The deposits the node booked, in order.
+async fn deposits(node: &TestNode) -> Vec<u64> {
+    journal(node)
+        .await
+        .into_iter()
+        .filter(|t| t.reference == Some(proto::transfer::Reference::Other("deposit".into())))
+        .map(|t| t.amount)
+        .collect()
+}
+
+/// The fees the node booked, in all.
+async fn fees(node: &TestNode) -> i64 {
+    let total: u64 = journal(node)
+        .await
+        .into_iter()
+        .filter(|t| matches!(t.reference, Some(proto::transfer::Reference::Fee(_))))
+        .map(|t| t.amount)
+        .sum();
+    i64::try_from(total).unwrap()
+}
+
+/// Whether the node is up to date with the ledger, with its books matching
+/// its account less the reserve.
+async fn in_step(node: &TestNode, key: &NodeKey, server: &Server) -> bool {
+    let Some(ledger) = ledger_of(node).await else {
+        return false;
+    };
+    let drops = server.ledger().balance(account_of(key)).unwrap_or(0);
+    ledger.connection() == proto::LedgerConnection::Synced
+        && ledger.on_ledger_balance == drops * 1_000 - ledger.reserve
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn two_daemons_settle_on_the_xrp_ledger_across_restarts() {
+    let server = fake_ledger().await;
+    let config = serde_json::json!({
+        "server": server.url,
+        "faucet": server.faucet_url,
+    })
+    .to_string();
+    let (key_a, key_b) = (key(31), key(32));
+    let (bound_a, bound_b) = (Bound::new(), Bound::new());
+    let nodes = bootstrap(&key_a, bound_a.https_port());
+    let env = [
+        ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
+        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
+    ];
+    let clock = ManualClock::new(START_MS);
+    let a = bound_a.start(clock.clone(), 1, Policies::DEV, &env).await;
+    let b = bound_b.start(clock.clone(), 2, Policies::DEV, &env).await;
+    prepare_with(&a, &key_a, "xrpl-testnet", &config).await;
+    prepare_with(&b, &key_b, "xrpl-testnet", &config).await;
+    // The faucet funds both: a deposit of all but the reserve.
+    until(&clock, async || {
+        in_step(&a, &key_a, &server).await && in_step(&b, &key_b, &server).await
+    })
+    .await;
+    let ledger = ledger_of(&a).await.unwrap();
+    assert_eq!(ledger.owner_balance, FUNDED);
+    assert_eq!(ledger.deposit_address, account_of(&key_a).to_address());
+    assert_eq!(ledger.reserve, 1_000_000_000);
+    until(&clock, async || {
+        peered_on(&a, &key_b, LEDGER).await && peered_on(&b, &key_a, LEDGER).await
+    })
+    .await;
+    settle(&clock).await;
+
+    // A client of A pays B's receiver beyond the credit: A settles on the
+    // ledger as it goes.
+    let Ok(response::Method::CreateBtpToken(token)) = a
+        .ipc()
+        .await
+        .call(Method::CreateBtpToken(proto::CreateBtpTokenRequest {
+            label: "wallet".into(),
+            ledger: LEDGER.into(),
+            cap: None,
+        }))
+        .await
+    else {
+        panic!("no token")
+    };
+    let credentials = b.ipc().await.incoming_payment(None).await;
+    let mut client = BtpClient::connect(&a, &token.secret).await.unwrap();
+    pay_stream_waiting(
+        &clock,
+        &mut client,
+        &credentials.destination_account,
+        &credentials.shared_secret,
+        PAYMENT,
+        Duration::from_millis(5),
+    )
+    .await;
+    until(&clock, async || {
+        in_step(&a, &key_a, &server).await && in_step(&b, &key_b, &server).await
+    })
+    .await;
+    let settled = server.ledger().balance(account_of(&key_b)).unwrap() * 1_000 - 1_000_000_000_000;
+    assert!(settled >= PAYMENT - 1_100_000_000, "settled {settled}");
+    let owner_a = ledger_of(&a).await.unwrap().owner_balance;
+    let owner_b = ledger_of(&b).await.unwrap().owner_balance;
+    let fees_before = (fees(&a).await, fees(&b).await);
+
+    // Both restart: they connect again, catch up, and book nothing twice.
+    let (dir_a, _) = a.stop().await;
+    let (dir_b, _) = b.stop().await;
+    // Meanwhile, someone sends A 3 XRP.
+    server.ledger().deposit(account_of(&key_a), 3_000_000);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let a = Bound::bind_in(dir_a)
+        .start(clock.clone(), 3, Policies::DEV, &env)
+        .await;
+    let b = Bound::bind_in(dir_b)
+        .start(clock.clone(), 4, Policies::DEV, &env)
+        .await;
+    until(&clock, async || {
+        in_step(&a, &key_a, &server).await && in_step(&b, &key_b, &server).await
+    })
+    .await;
+    settle(&clock).await;
+    // The deposit is booked once; the owners' funds moved only by it, and
+    // by the fees of settlements made since.
+    assert_eq!(deposits(&a).await, [FUNDED as u64, 3_000_000_000]);
+    assert_eq!(deposits(&b).await, [FUNDED as u64]);
+    let fees_a = fees(&a).await - fees_before.0;
+    let fees_b = fees(&b).await - fees_before.1;
+    assert_eq!(
+        ledger_of(&a).await.unwrap().owner_balance,
+        owner_a + 3_000_000_000 - fees_a
+    );
+    assert_eq!(ledger_of(&b).await.unwrap().owner_balance, owner_b - fees_b);
+    a.stop().await;
+    b.stop().await;
+    server.stop();
+}

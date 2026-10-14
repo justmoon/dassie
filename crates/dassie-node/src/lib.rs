@@ -28,6 +28,8 @@ pub mod tls;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub mod daemon;
 pub mod engine;
+#[cfg(feature = "testing")]
+pub mod fake_ledger;
 pub mod http;
 pub mod ipc;
 pub mod supervisor;

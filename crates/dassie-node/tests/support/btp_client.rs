@@ -192,6 +192,29 @@ pub async fn pay_stream(
     assert_eq!(sent, amount, "the payment did not finish");
 }
 
+/// As [`pay_stream`], waiting `idle` of real time whenever nothing is in
+/// flight: for settlements that take real time, on a ledger outside.
+pub async fn pay_stream_waiting(
+    clock: &ManualClock,
+    client: &mut BtpClient,
+    destination: &str,
+    shared_secret: &[u8],
+    amount: u64,
+    idle: std::time::Duration,
+) {
+    let sent = send(
+        clock,
+        client,
+        destination,
+        shared_secret,
+        amount,
+        10_000,
+        idle,
+    )
+    .await;
+    assert_eq!(sent, amount, "the payment did not finish");
+}
+
 /// Sends up to `amount` over STREAM for at most `rounds` rounds, and
 /// returns what the receiver took.
 pub async fn send_stream(
@@ -201,6 +224,28 @@ pub async fn send_stream(
     shared_secret: &[u8],
     amount: u64,
     rounds: usize,
+) -> u64 {
+    let idle = std::time::Duration::ZERO;
+    send(
+        clock,
+        client,
+        destination,
+        shared_secret,
+        amount,
+        rounds,
+        idle,
+    )
+    .await
+}
+
+async fn send(
+    clock: &ManualClock,
+    client: &mut BtpClient,
+    destination: &str,
+    shared_secret: &[u8],
+    amount: u64,
+    rounds: usize,
+    idle: std::time::Duration,
 ) -> u64 {
     let (own, ..) = client.ildcp(clock.now_ms()).await;
     let mut connection = Connection::new(&Config {
@@ -242,6 +287,9 @@ pub async fn send_stream(
         }
         if in_flight.is_empty() {
             clock.advance(100);
+            if !idle.is_zero() {
+                tokio::time::sleep(idle).await;
+            }
             continue;
         }
         let reply = client.receive().await.unwrap();

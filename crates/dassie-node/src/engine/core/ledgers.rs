@@ -3,17 +3,20 @@
 use dassie_ledger::{
     AccountId, AccountName, AccountPath, LedgerId, Name, Realm, Reference, TransferSpec,
 };
-use dassie_settlement::{Activation, Effect, SettlementScheme, activation};
+use dassie_settlement::{Activation, Effect, LedgerStatus, SettlementScheme, activation};
 
 use super::Core;
 use super::EngineError;
 use super::packets::{Receiver, receiver_address};
 use crate::log::target;
-use crate::store::Store;
+use crate::store::{Checkpoint, Store};
 
 /// An active scheme.
 pub(super) struct ActiveScheme {
     pub scheme: Box<dyn SettlementScheme>,
+    /// Its connection to its ledger, if it follows one; 0 before the
+    /// first.
+    pub epoch: u64,
 }
 
 /// A ledger as the owner sees it.
@@ -27,8 +30,15 @@ pub struct LedgerView {
     pub owner_balance: i128,
     /// What packets in flight hold of it.
     pub owner_pending: u128,
-    /// The scheme's balance on the underlying ledger.
+    /// The scheme's balance on the underlying ledger, as the books have
+    /// it: less what the ledger holds back.
     pub on_ledger_balance: u64,
+    /// What the underlying ledger holds back, never spendable.
+    pub reserve: u64,
+    /// Where the owner sends money to fund it, if anywhere.
+    pub deposit_address: Option<String>,
+    /// How the scheme stands with its ledger.
+    pub status: LedgerStatus,
     /// What keeps the scheme from being removed now.
     pub removal_blockers: Vec<RemovalBlocker>,
 }
@@ -76,7 +86,7 @@ impl Core {
     /// down.
     pub(super) fn load_schemes(&mut self, store: &Store) -> Result<(), String> {
         for (id, config) in store.settlement_schemes().map_err(|e| e.to_string())? {
-            let checkpoint = self.checkpoints.get(&id).copied();
+            let checkpoint = self.checkpoints.get(&id).cloned();
             self.activate(id, config, checkpoint, false)
                 .map_err(|e| format!("settlement scheme {id}: {e}"))?;
         }
@@ -94,7 +104,7 @@ impl Core {
         if self.schemes.contains_key(&id) {
             return Err(EngineError::Precondition("the scheme is active".into()));
         }
-        let checkpoint = self.checkpoints.get(&id).copied();
+        let checkpoint = self.checkpoints.get(&id).cloned();
         let ledger = self.activate(id, config, checkpoint, true)?;
         // Settlements left pending when it was last removed (ACC-16).
         self.reconcile_settlements(Some(id));
@@ -108,10 +118,10 @@ impl Core {
         &mut self,
         id: Name,
         config: String,
-        checkpoint: Option<u64>,
+        checkpoint: Option<Checkpoint>,
         new: bool,
     ) -> Result<LedgerId, EngineError> {
-        let scheme = dassie_settlement::create(id.as_str(), &config, checkpoint)
+        let scheme = super::schemes::create(id.as_str(), &config, checkpoint.as_ref(), &self.key)
             .map_err(|e| EngineError::Invalid(e.to_string()))?;
         let ledger = scheme.ledger();
         if ledger.realm() != Realm::Test {
@@ -137,7 +147,7 @@ impl Core {
         let settlement = self.account(ledger, AccountName::AssetsSettlement)?;
         let owner = self.account(ledger, AccountName::EquityOwner)?;
         let suspense = self.account(ledger, AccountName::EquitySuspense)?;
-        let booking = match activation(checkpoint, balance) {
+        let booking = match activation(checkpoint.map(|c| c.balance), balance) {
             Activation::InStep => None,
             Activation::FirstDeposit(amount) => {
                 Some((settlement, owner, amount, Reference::Deposit))
@@ -153,12 +163,12 @@ impl Core {
             self.post(debit, credit, amount, reference)?;
             tracing::info!(target: target::SETTLEMENT, scheme = %id, ?reference, amount, "booked the scheme's balance");
         }
-        self.batch.checkpoints.push((id, balance));
-        self.checkpoints.insert(id, balance);
         if new {
             self.batch.schemes_added.push((id, config));
         }
-        self.schemes.insert(id, ActiveScheme { scheme });
+        self.schemes.insert(id, ActiveScheme { scheme, epoch: 0 });
+        self.checkpoint(id);
+        self.connect_scheme(id);
         self.update_peer_schemes();
         self.add_receiver(ledger)?;
         self.add_payer(ledger)?;
@@ -180,7 +190,9 @@ impl Core {
         if let Some(blocker) = self.removal_blockers(id, ledger).first() {
             return Err(EngineError::Precondition(blocker.message().into()));
         }
-        self.schemes.remove(&id);
+        if let Some(active) = self.schemes.remove(&id) {
+            self.disconnect_scheme(id, active.epoch);
+        }
         self.update_peer_schemes();
         self.batch.schemes_added.retain(|(added, _)| *added != id);
         self.batch.schemes_removed.push(id);
@@ -241,6 +253,7 @@ impl Core {
     ) -> Result<(), EngineError> {
         let settlement = self.account(ledger, AccountName::AssetsSettlement)?;
         let owner = self.account(ledger, AccountName::EquityOwner)?;
+        let suspense = self.account(ledger, AccountName::EquitySuspense)?;
         for effect in effects {
             match effect {
                 Effect::Deposit { amount } => {
@@ -249,15 +262,26 @@ impl Core {
                 Effect::Withdrawal { amount } => {
                     self.post(owner, settlement, *amount, Reference::Withdrawal)?;
                 }
-                Effect::IncomingSettlement { peer, amount } => {
-                    let interledger =
-                        self.account(ledger, AccountName::AssetsInterledger(*peer))?;
-                    let reference = self.incoming_reference(scheme);
-                    self.post(settlement, interledger, *amount, reference)?;
-                    if let Ok(node) = dassie_identity::NodeId::parse(peer.as_str()) {
-                        self.grace_settled(node);
-                    }
+                Effect::Reconcile { amount, gain } => {
+                    let (debit, credit) = if *gain {
+                        (settlement, suspense)
+                    } else {
+                        (suspense, settlement)
+                    };
+                    tracing::warn!(target: target::SETTLEMENT, %scheme, amount, gain, "the underlying ledger differs from the books: reconciled");
+                    self.post(debit, credit, *amount, Reference::Reconciliation)?;
                 }
+                Effect::Fee { amount, id } => {
+                    let fees = self.account(ledger, AccountName::ExpensesFees)?;
+                    let reference = Reference::Fee { scheme, id: *id };
+                    self.post(fees, settlement, *amount, reference)?;
+                }
+                Effect::IncomingSettlement { peer, amount, id } => {
+                    self.settlement_in(scheme, ledger, *peer, *amount, *id)?;
+                }
+                Effect::LedgerSend { message } => self.ledger_send(scheme, message.clone()),
+                Effect::Reconnect => self.connect_scheme(scheme),
+                Effect::Fund { url, body } => self.ledger_fund(scheme, url.clone(), body.clone()),
                 Effect::Finalize { settlement: id } => self.settlement_done(scheme, *id),
                 Effect::Cancel { settlement: id } => self.settlement_cancelled(scheme, *id),
                 Effect::SendMessage { peer, message } => {
@@ -274,10 +298,35 @@ impl Core {
             }
         }
         self.take_journal();
-        if let Some(active) = self.schemes.get(&scheme) {
-            let balance = active.scheme.balance();
-            self.batch.checkpoints.push((scheme, balance));
-            self.checkpoints.insert(scheme, balance);
+        self.checkpoint(scheme);
+        Ok(())
+    }
+
+    /// A peer's settlement, as the scheme saw it arrive: credits the peer's
+    /// account, keyed by the scheme's ID for it where it has one. A peer
+    /// with no accounts on the ledger cannot have settled with us: what it
+    /// sent is a deposit.
+    fn settlement_in(
+        &mut self,
+        scheme: Name,
+        ledger: LedgerId,
+        peer: Name,
+        amount: u64,
+        id: Option<Name>,
+    ) -> Result<(), EngineError> {
+        let settlement = self.account(ledger, AccountName::AssetsSettlement)?;
+        let Ok(interledger) = self.account(ledger, AccountName::AssetsInterledger(peer)) else {
+            tracing::warn!(target: target::SETTLEMENT, %peer, amount, "a settlement from a node without accounts: booked as a deposit");
+            let owner = self.account(ledger, AccountName::EquityOwner)?;
+            return self.post(settlement, owner, amount, Reference::Deposit);
+        };
+        let reference = match id {
+            Some(id) => Reference::Settlement { scheme, id },
+            None => self.incoming_reference(scheme),
+        };
+        self.post(settlement, interledger, amount, reference)?;
+        if let Ok(node) = dassie_identity::NodeId::parse(peer.as_str()) {
+            self.grace_settled(node);
         }
         Ok(())
     }
@@ -289,6 +338,10 @@ impl Core {
         amount: u64,
         reference: Reference,
     ) -> Result<(), EngineError> {
+        // Nothing to book; the journal holds no empty transfers.
+        if amount == 0 {
+            return Ok(());
+        }
         let now = self.now_ms();
         let spec = TransferSpec {
             debit,
@@ -433,6 +486,9 @@ impl Core {
             owner_balance: group.net_credit(),
             owner_pending: group.debits_pending,
             on_ledger_balance: active.scheme.balance(),
+            reserve: active.scheme.reserve(),
+            deposit_address: active.scheme.deposit_address(),
+            status: active.scheme.status(),
             removal_blockers: self.removal_blockers(*id, ledger),
         })
     }

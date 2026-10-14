@@ -12,6 +12,7 @@ members = [
   "crates/dassie-peer",
   "crates/dassie-settlement",
   "crates/dassie-stream",
+  "crates/dassie-xrpl",
 ]
 resolver = "3"
 

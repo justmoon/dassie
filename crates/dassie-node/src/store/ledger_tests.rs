@@ -208,7 +208,13 @@ fn schemes_checkpoints_and_tokens_round_trip() {
     let batch = LedgerBatch {
         at_ms: 10,
         schemes_added: vec![(stub, "{}".into())],
-        checkpoints: vec![(stub, 100)],
+        checkpoints: vec![(
+            stub,
+            Checkpoint {
+                balance: 100,
+                state: vec![1, 2],
+            },
+        )],
         tokens_created: vec![token.clone()],
         ..LedgerBatch::default()
     };
@@ -218,7 +224,13 @@ fn schemes_checkpoints_and_tokens_round_trip() {
     let batch = LedgerBatch {
         at_ms: 20,
         schemes_removed: vec![stub],
-        checkpoints: vec![(stub, 150)],
+        checkpoints: vec![(
+            stub,
+            Checkpoint {
+                balance: 150,
+                state: Vec::new(),
+            },
+        )],
         tokens_revoked: vec![1],
         ..LedgerBatch::default()
     };
@@ -226,7 +238,16 @@ fn schemes_checkpoints_and_tokens_round_trip() {
     assert!(store.settlement_schemes().unwrap().is_empty());
     // The checkpoint outlives the scheme, so adding it again books nothing
     // twice (ACC-6).
-    assert_eq!(store.checkpoints().unwrap(), [(stub, 150)]);
+    assert_eq!(
+        store.checkpoints().unwrap(),
+        [(
+            stub,
+            Checkpoint {
+                balance: 150,
+                state: Vec::new(),
+            }
+        )]
+    );
     assert_eq!(store.btp_tokens().unwrap()[0].revoked_at_ms, Some(20));
 }
 

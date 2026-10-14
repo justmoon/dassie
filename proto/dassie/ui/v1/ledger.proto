@@ -20,10 +20,32 @@ message Ledger {
   int64 owner_balance = 5;
   // Of that, what packets in flight hold.
   uint64 owner_pending = 6;
-  // The balance on the underlying ledger, as the scheme last reported it.
+  // The balance on the underlying ledger, as the books have it: less what
+  // the ledger holds back.
   uint64 on_ledger_balance = 7;
   // What keeps its scheme from being removed now; empty when it can be.
   repeated LedgerRemovalBlocker removal_blockers = 8;
+  // What the underlying ledger holds back, never spendable: XRPL's
+  // reserve.
+  uint64 reserve = 9;
+  // Where the owner sends money to fund it, if anywhere: an XRPL address.
+  string deposit_address = 10;
+  // How the scheme stands with its underlying ledger.
+  LedgerConnection connection = 11;
+  // Why, when it is FAILED.
+  string connection_problem = 12;
+}
+
+enum LedgerConnection {
+  LEDGER_CONNECTION_UNSPECIFIED = 0;
+  // No ledger to follow, or it is followed and up to date.
+  LEDGER_CONNECTION_SYNCED = 1;
+  LEDGER_CONNECTION_CONNECTING = 2;
+  // Connected, booking what happened meanwhile.
+  LEDGER_CONNECTION_SYNCING = 3;
+  // Its account does not exist yet: it waits for funds.
+  LEDGER_CONNECTION_UNFUNDED = 4;
+  LEDGER_CONNECTION_FAILED = 5;
 }
 
 // Something that keeps a scheme from being removed, and how many of it.

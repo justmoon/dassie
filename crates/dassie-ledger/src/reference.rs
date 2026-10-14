@@ -41,6 +41,13 @@ pub enum Reference {
     /// refused after it was posted here (D17): it reverses the packet, or
     /// books the loss.
     Refusal(TraceId),
+    /// A fee the underlying ledger charged for one of our transactions.
+    Fee {
+        /// The settlement scheme.
+        scheme: Name,
+        /// The transaction.
+        id: Name,
+    },
 }
 
 impl Reference {
@@ -51,7 +58,11 @@ impl Reference {
     pub const fn is_report(&self) -> bool {
         matches!(
             self,
-            Self::Deposit | Self::Withdrawal | Self::Reconciliation | Self::Refusal(_)
+            Self::Deposit
+                | Self::Withdrawal
+                | Self::Reconciliation
+                | Self::Refusal(_)
+                | Self::Fee { .. }
         )
     }
 

@@ -115,7 +115,7 @@ impl Core {
                 credit_out: at.credit_out,
                 ratio_ppm: self.settle.ratio_ppm,
             };
-            let amount = policy::amount(at.position, terms);
+            let amount = self.whole_units(&at.scheme, policy::amount(at.position, terms));
             if amount > 0 {
                 self.prepare_settlement(node, &at, amount, &state);
             }
@@ -141,7 +141,9 @@ impl Core {
             let Some(at) = self.position(node, due.scheme) else {
                 continue;
             };
-            let amount = policy::final_amount(at.position, at.credit_out);
+            // What is less than the ledger can move stays owed for good.
+            let amount =
+                self.whole_units(&at.scheme, policy::final_amount(at.position, at.credit_out));
             if amount == 0 {
                 self.peer.final_settled(&node);
                 continue;
@@ -157,6 +159,15 @@ impl Core {
                 settling.last = true;
             }
         }
+    }
+
+    /// `amount`, less what `scheme`'s ledger cannot move.
+    fn whole_units(&self, scheme: &Name, amount: u64) -> u64 {
+        let unit = self
+            .schemes
+            .get(scheme)
+            .map_or(1, |active| active.scheme.unit().max(1));
+        amount - amount % unit
     }
 
     /// Whether nothing is on its way to `node`: no message, no settlement
@@ -247,20 +258,14 @@ impl Core {
             tracing::warn!(target: target::SETTLEMENT, %node, %error, "the books cannot take a settlement now");
             return;
         }
-        let Self { schemes, rng, .. } = self;
-        let Some(active) = schemes.get_mut(&at.scheme) else {
+        let Some(prepared) = self.scheme_prepare(node, at.scheme, amount, state) else {
             return;
         };
-        let prepared = match active
-            .scheme
-            .prepare_settlement(rng.as_mut(), name, amount, state)
-        {
-            Ok(prepared) => prepared,
-            Err(error) => {
-                tracing::warn!(target: target::SETTLEMENT, %node, %error, "the scheme could not prepare a settlement");
-                return;
-            }
-        };
+        assert!(
+            prepared.amount > 0 && prepared.amount <= amount,
+            "a scheme settles at most what was asked"
+        );
+        spec.amount = prepared.amount;
         spec.reference = Reference::Settlement {
             scheme: at.scheme,
             id: prepared.id,
@@ -275,6 +280,7 @@ impl Core {
         if let Some(state) = prepared.peer_state {
             self.peer.set_scheme_state(&node, state);
         }
+        let amount = prepared.amount;
         tracing::info!(target: target::SETTLEMENT, %node, amount, id = %prepared.id, "settling");
         self.settle.settling.insert(
             (at.scheme, prepared.id),
@@ -288,6 +294,37 @@ impl Core {
         );
         self.settle.to_execute.push((at.scheme, prepared.id));
         self.take_journal();
+        // What the scheme signed is kept with its pending transfer.
+        self.checkpoint(at.scheme);
+    }
+
+    /// Asks `scheme` to prepare a settlement of `amount` to `node`.
+    fn scheme_prepare(
+        &mut self,
+        node: NodeId,
+        scheme: Name,
+        amount: u64,
+        state: &[u8],
+    ) -> Option<dassie_settlement::PreparedSettlement> {
+        let name = Name::new(node.as_str()).ok()?;
+        let Self { schemes, rng, .. } = self;
+        let active = schemes.get_mut(&scheme)?;
+        match active
+            .scheme
+            .prepare_settlement(rng.as_mut(), name, amount, state)
+        {
+            Ok(prepared) => Some(prepared),
+            // Not now: asked again at the next check, with no backoff, so
+            // a slow ledger does not make us overdue to our peers (D18).
+            Err(dassie_settlement::SchemeError::Unavailable) => {
+                tracing::debug!(target: target::SETTLEMENT, %node, "the scheme cannot settle now");
+                None
+            }
+            Err(error) => {
+                tracing::warn!(target: target::SETTLEMENT, %node, %error, "the scheme could not prepare a settlement");
+                None
+            }
+        }
     }
 
     /// Executes the settlements whose pending transfers are now on disk.
@@ -366,13 +403,17 @@ impl Core {
         let AccountName::AssetsInterledger(peer) = path.name else {
             return None;
         };
-        // The scheme's message did not survive the restart; a scheme that
-        // finalizes after one (XRPL, M7) needs it persisted.
+        // The scheme makes its message again from the settlement's ID.
+        let message = self
+            .schemes
+            .get(&scheme)
+            .map(|active| active.scheme.settlement_message(id))
+            .unwrap_or_default();
         Some(Settling {
             peer: NodeId::parse(peer.as_str()).ok()?,
             transfer: transfer.id,
             amount: transfer.amount,
-            message: Vec::new(),
+            message,
             last: false,
         })
     }

@@ -21,6 +21,11 @@
 //! sends exactly its debit amount, across a crash of its node too, and
 //! its receiver gets what it sent.
 //!
+//! Each run settles over the stub, or over the XRP Ledger testnet scheme
+//! against a fake ledger in the same process (M7b): its connections lag,
+//! lose requests and drop, and the books must still match every node's
+//! account, less its reserve, with no XRP made or lost.
+//!
 //! An honest network never bans a peer for what it cost (D18), crashes and
 //! all. A node that lies to its peers, refusing Fulfills it took or never
 //! settling, is banned by the peer it cost, which loses at most its grace
@@ -36,7 +41,9 @@ use dassie_connector::{CapUsage, SpendingCap, replay};
 use dassie_identity::{NodeId, NodeKey};
 use dassie_ilp::{Address, Prepare, Timestamp};
 use dassie_ledger::LedgerId;
-use dassie_node::engine::{Core, CoreParts, Lie, NewIncoming, NewOutgoing, Outbound, Output};
+use dassie_node::engine::{
+    Core, CoreParts, LedgerEvent, Lie, NewIncoming, NewOutgoing, Outbound, Output,
+};
 use dassie_node::node::Policies;
 use dassie_node::store::{BanReason, ForeignAmount, OutgoingState, PaymentId, PeerSettings, Store};
 use dassie_node_core::config::Realm;
@@ -44,10 +51,54 @@ use dassie_node_core::testing::SeededRng;
 use dassie_oer::Decode;
 use dassie_peer::{Bootstrap, Failure, InboundId, OwnInfo, RequestId, Response};
 use dassie_stream::{AssetDetails, BUFFER_LENGTH, Config, Connection, Policy, Role};
+use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger};
 
 const START: u64 = 1_800_000_000_000;
-const DEPOSIT: i128 = 100_000_000_000;
 const CREDIT: i128 = 1_100_000_000;
+/// How often the fake ledger closes a ledger.
+const LEDGER_CLOSE_MS: u64 = 3_500;
+
+/// What a run settles over.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Settling {
+    Stub,
+    Xrpl,
+}
+
+impl Settling {
+    const fn ledger(self) -> LedgerId {
+        match self {
+            Self::Stub => LedgerId::StubUsd,
+            Self::Xrpl => LedgerId::XrplTestnetXrp,
+        }
+    }
+
+    /// What each node's owner starts with: the stub's balance, or what the
+    /// faucet gives above the reserve.
+    const fn deposit(self) -> i128 {
+        match self {
+            Self::Stub => 100_000_000_000,
+            Self::Xrpl => (FAUCET_DROPS as i128 - 1_000_000) * 1_000,
+        }
+    }
+
+    const fn scheme(self) -> (&'static str, &'static str) {
+        match self {
+            Self::Stub => ("stub", ""),
+            Self::Xrpl => (
+                "xrpl-testnet",
+                r#"{"server":"ws://ledger.test","faucet":"https://faucet.test/accounts"}"#,
+            ),
+        }
+    }
+}
+
+/// A node's connection to the fake ledger.
+#[derive(Clone, Copy, Debug)]
+struct LedgerLink {
+    epoch: u64,
+    connection: u64,
+}
 
 fn key(index: usize) -> Arc<NodeKey> {
     Arc::new(NodeKey::from_bytes(
@@ -72,6 +123,20 @@ enum Delivery {
         generation: u64,
         id: RequestId,
         result: Result<Response, Failure>,
+    },
+    /// A request on a node's connection to the ledger.
+    LedgerRequest {
+        from: usize,
+        connection: u64,
+        message: Vec<u8>,
+    },
+    /// What the ledger said, or that the connection is up or down, or what
+    /// the faucet did, for a node's connection `epoch`.
+    LedgerEvent {
+        to: usize,
+        generation: u64,
+        epoch: u64,
+        event: LedgerEvent,
     },
 }
 
@@ -126,12 +191,21 @@ struct Sim {
     cut: BTreeSet<(usize, usize)>,
     /// The credit each node extends to its peers, where not the default.
     credits: BTreeMap<usize, u64>,
+    /// What the run settles over.
+    settling: Settling,
+    /// The fake XRP Ledger, and each node's connection to it.
+    ledger: FakeLedger,
+    links: BTreeMap<usize, LedgerLink>,
+    /// When the last message on each node's connection arrives, each way.
+    fifo: BTreeMap<(usize, bool), u64>,
+    next_connection: u64,
+    next_close: u64,
     trace: Vec<String>,
 }
 
 impl Sim {
     fn new(seed: u64, count: usize, bootstraps: usize) -> Self {
-        Self::with_credits(seed, count, bootstraps, BTreeMap::new())
+        Self::with(seed, count, bootstraps, BTreeMap::new(), Settling::Stub)
     }
 
     /// As [`Sim::new`], with some nodes extending other credit to peers.
@@ -140,6 +214,16 @@ impl Sim {
         count: usize,
         bootstraps: usize,
         credits: BTreeMap<usize, u64>,
+    ) -> Self {
+        Self::with(seed, count, bootstraps, credits, Settling::Stub)
+    }
+
+    fn with(
+        seed: u64,
+        count: usize,
+        bootstraps: usize,
+        credits: BTreeMap<usize, u64>,
+        settling: Settling,
     ) -> Self {
         let bootstrap = (0..bootstraps)
             .map(|index| Bootstrap {
@@ -161,6 +245,12 @@ impl Sim {
             outgoing: Vec::new(),
             cut: BTreeSet::new(),
             credits,
+            settling,
+            ledger: FakeLedger::new(),
+            links: BTreeMap::new(),
+            fifo: BTreeMap::new(),
+            next_connection: 0,
+            next_close: START + LEDGER_CLOSE_MS,
             trace: Vec::new(),
         };
         for _ in 0..count {
@@ -172,10 +262,11 @@ impl Sim {
                 inbound: BTreeMap::new(),
             });
         }
+        let (scheme, config) = settling.scheme();
         for index in 0..count {
             sim.start(index);
             sim.step(index, |core| {
-                core.add_scheme("stub", String::new()).unwrap();
+                core.add_scheme(scheme, config.into()).unwrap();
             });
         }
         sim
@@ -213,6 +304,9 @@ impl Sim {
 
     fn crash(&mut self, index: usize) {
         self.nodes[index].core = None;
+        if let Some(link) = self.links.remove(&index) {
+            self.ledger.disconnect(link.connection);
+        }
         let (gone, kept) = std::mem::take(&mut self.payments)
             .into_iter()
             .partition(|payment| payment.from == index);
@@ -223,8 +317,20 @@ impl Sim {
 
     fn schedule(&mut self, delay: u64, delivery: Delivery) {
         self.sequence += 1;
-        self.queue
-            .insert((self.now + delay, self.sequence), delivery);
+        let mut at = self.now + delay;
+        // A connection to the ledger is one WebSocket: what goes over it,
+        // either way, arrives in order.
+        let fifo = match &delivery {
+            Delivery::LedgerRequest { from, .. } => Some((*from, false)),
+            Delivery::LedgerEvent { to, .. } => Some((*to, true)),
+            _ => None,
+        };
+        if let Some(fifo) = fifo {
+            let last = self.fifo.entry(fifo).or_insert(0);
+            at = at.max(*last);
+            *last = at;
+        }
+        self.queue.insert((at, self.sequence), delivery);
     }
 
     fn latency(&mut self) -> u64 {
@@ -302,6 +408,133 @@ impl Sim {
             }
             Output::Btp { link, message } => self.deliver_to_client(index, link, message),
             Output::Trace(_) => {}
+            Output::LedgerConnect { epoch, .. } => self.ledger_connect(index, epoch),
+            Output::LedgerClose { epoch, .. } => {
+                if self
+                    .links
+                    .get(&index)
+                    .is_some_and(|link| link.epoch == epoch)
+                    && let Some(link) = self.links.remove(&index)
+                {
+                    self.ledger.disconnect(link.connection);
+                }
+            }
+            Output::LedgerSend { epoch, message, .. } => {
+                let Some(link) = self.links.get(&index).filter(|link| link.epoch == epoch) else {
+                    return;
+                };
+                let connection = link.connection;
+                // A request may be lost; the scheme hears nothing, and
+                // connects anew.
+                if self.rng.next_u64() % 1000 < self.loss_per_mille {
+                    return;
+                }
+                let delay = self.latency();
+                self.schedule(
+                    delay,
+                    Delivery::LedgerRequest {
+                        from: index,
+                        connection,
+                        message,
+                    },
+                );
+            }
+            Output::Fund { epoch, body, .. } => {
+                let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                let to = dassie_xrpl::AccountId::parse(request["destination"].as_str().unwrap())
+                    .unwrap();
+                self.ledger.fund(to);
+                let generation = self.nodes[index].generation;
+                let delay = self.latency();
+                self.schedule(
+                    delay,
+                    Delivery::LedgerEvent {
+                        to: index,
+                        generation,
+                        epoch,
+                        event: LedgerEvent::Funded(true),
+                    },
+                );
+            }
+        }
+    }
+
+    /// Opens a node's connection to the fake ledger.
+    fn ledger_connect(&mut self, index: usize, epoch: u64) {
+        if let Some(link) = self.links.remove(&index) {
+            self.ledger.disconnect(link.connection);
+        }
+        self.next_connection += 1;
+        let connection = self.next_connection;
+        self.links.insert(index, LedgerLink { epoch, connection });
+        let generation = self.nodes[index].generation;
+        let delay = self.latency();
+        self.schedule(
+            delay,
+            Delivery::LedgerEvent {
+                to: index,
+                generation,
+                epoch,
+                event: LedgerEvent::Connected,
+            },
+        );
+    }
+
+    /// A node's connection to the ledger drops; it comes back after a
+    /// while, as the driver's would.
+    fn drop_ledger_link(&mut self, index: usize) {
+        let Some(link) = self.links.get(&index).copied() else {
+            return;
+        };
+        self.ledger.disconnect(link.connection);
+        let generation = self.nodes[index].generation;
+        self.step(index, |core| {
+            core.ledger_event("xrpl-testnet", link.epoch, &LedgerEvent::Disconnected);
+        });
+        self.trace
+            .push(format!("{} ledger link {index} drops", self.now));
+        self.next_connection += 1;
+        let connection = self.next_connection;
+        self.links.insert(
+            index,
+            LedgerLink {
+                epoch: link.epoch,
+                connection,
+            },
+        );
+        self.schedule(
+            5_000,
+            Delivery::LedgerEvent {
+                to: index,
+                generation,
+                epoch: link.epoch,
+                event: LedgerEvent::Connected,
+            },
+        );
+    }
+
+    /// The fake ledger closes a ledger, and its streams go out.
+    fn close_ledger(&mut self) {
+        self.next_close = self.now + LEDGER_CLOSE_MS;
+        for (connection, message) in self.ledger.close() {
+            let Some((&to, link)) = self
+                .links
+                .iter()
+                .find(|(_, link)| link.connection == connection)
+            else {
+                continue;
+            };
+            let (epoch, generation) = (link.epoch, self.nodes[to].generation);
+            let delay = self.latency();
+            self.schedule(
+                delay,
+                Delivery::LedgerEvent {
+                    to,
+                    generation,
+                    epoch,
+                    event: LedgerEvent::Message(message),
+                },
+            );
         }
     }
 
@@ -333,6 +566,41 @@ impl Sim {
                 node.next_inbound += 1;
                 node.inbound.insert(inbound, (from, generation, id));
                 self.step(to, |core| core.peer_inbound(inbound, &body, None));
+            }
+            Delivery::LedgerRequest {
+                from,
+                connection,
+                message,
+            } => {
+                let Some(link) = self.links.get(&from).copied() else {
+                    return;
+                };
+                if link.connection != connection {
+                    return;
+                }
+                let reply = self.ledger.request(connection, &message);
+                let generation = self.nodes[from].generation;
+                let delay = self.latency();
+                self.schedule(
+                    delay,
+                    Delivery::LedgerEvent {
+                        to: from,
+                        generation,
+                        epoch: link.epoch,
+                        event: LedgerEvent::Message(reply),
+                    },
+                );
+            }
+            Delivery::LedgerEvent {
+                to,
+                generation,
+                epoch,
+                event,
+            } => {
+                if self.nodes[to].generation == generation {
+                    let (scheme, _) = self.settling.scheme();
+                    self.step(to, |core| core.ledger_event(scheme, epoch, &event));
+                }
             }
             Delivery::Result {
                 to,
@@ -369,6 +637,13 @@ impl Sim {
                 .iter()
                 .filter_map(|node| node.core.as_ref()?.deadline())
                 .min();
+            let earliest = [delivery, timer].into_iter().flatten().min();
+            let close = (self.settling == Settling::Xrpl).then_some(self.next_close);
+            if close.is_some_and(|at| at <= until && earliest.is_none_or(|e| at <= e)) {
+                self.now = self.now.max(self.next_close);
+                self.close_ledger();
+                continue;
+            }
             let Some(next) = [delivery, timer]
                 .into_iter()
                 .flatten()
@@ -408,11 +683,12 @@ impl Sim {
         cap: Option<SpendingCap>,
         limit: Option<u64>,
     ) {
+        let ledger = self.settling.ledger();
         let mut credentials = None;
         self.step(to, |core| {
             let payment = core
                 .create_incoming_payment(NewIncoming {
-                    ledger: LedgerId::StubUsd,
+                    ledger,
                     wallet_address: "https://sim.example/.well-known/pay".into(),
                     client: None,
                     incoming_amount: limit,
@@ -425,7 +701,9 @@ impl Sim {
         let (incoming, destination, shared_secret) = credentials.unwrap();
         let mut session = None;
         self.step(from, |core| {
-            let token = core.create_token("sim".into(), "stub+usd", cap).unwrap();
+            let token = core
+                .create_token("sim".into(), ledger.as_str(), cap)
+                .unwrap();
             session = Some((token.view.id, core.btp_connect(&token.secret).unwrap()));
         });
         let (token, session) = session.unwrap();
@@ -454,11 +732,12 @@ impl Sim {
     /// An outgoing payment of `amount` from node `from` to an incoming
     /// payment of node `to`, which may be the same node.
     fn pay_outgoing(&mut self, from: usize, to: usize, amount: u64) {
+        let ledger = self.settling.ledger();
         let mut incoming = None;
         self.step(to, |core| {
             let payment = core
                 .create_incoming_payment(NewIncoming {
-                    ledger: LedgerId::StubUsd,
+                    ledger,
                     wallet_address: "https://sim.example/.well-known/pay".into(),
                     client: None,
                     incoming_amount: Some(amount),
@@ -473,7 +752,7 @@ impl Sim {
         self.step(from, |core| {
             let created = core
                 .create_outgoing_payment(NewOutgoing {
-                    ledger: LedgerId::StubUsd,
+                    ledger,
                     wallet_address: "https://sim.example/.well-known/pay".into(),
                     client: None,
                     grant: None,
@@ -484,7 +763,7 @@ impl Sim {
                     debit_amount: amount,
                     receive_amount: ForeignAmount {
                         value: amount,
-                        asset_code: "USD".into(),
+                        asset_code: ledger.asset().code.into(),
                         asset_scale: 9,
                     },
                     metadata: None,
@@ -590,12 +869,16 @@ impl Sim {
             .collect()
     }
 
-    /// Each account's net credit, by path.
+    /// Each account's net credit, by name: a run has one ledger.
     fn balances(&self, index: usize) -> BTreeMap<String, i128> {
         self.core(index)
             .account_list()
             .iter()
-            .map(|(_, account)| (account.path().to_string(), account.balance().net_credit()))
+            .map(|(_, account)| {
+                let path = account.path().to_string();
+                let name = path.split_once(':').map_or(path.as_str(), |(_, name)| name);
+                (name.to_string(), account.balance().net_credit())
+            })
             .collect()
     }
 }
@@ -680,10 +963,15 @@ fn refusals(sim: &Sim) -> usize {
 /// A run: the network forms, a node crashes and comes back, payments cross
 /// it while another node crashes, and the books are checked.
 fn run(seed: u64) -> Result<Run, String> {
+    run_on(seed, Settling::Stub)
+}
+
+/// A run, settling over `settling`.
+fn run_on(seed: u64, settling: Settling) -> Result<Run, String> {
     let mut rng = SeededRng::new(seed ^ 0xfeed);
     let count = 2 + usize::try_from(rng.next_u64() % 4).unwrap();
     let bootstraps = 1 + usize::try_from(rng.next_u64() % 2).unwrap().min(count - 1);
-    let mut sim = Sim::new(seed, count, bootstraps);
+    let mut sim = Sim::with(seed, count, bootstraps, BTreeMap::new(), settling);
     sim.run_until(START + 60_000);
     // A node crashes; what it persisted brings it back.
     let victim = usize::try_from(rng.next_u64() % count as u64).unwrap();
@@ -731,6 +1019,12 @@ fn run(seed: u64) -> Result<Run, String> {
         50_000_000 + rng.next_u64() % 2_000_000_000,
     );
     sim.pay_outgoing(from, from, 10_000_000 + rng.next_u64() % 100_000_000);
+    // A node's connection to its ledger drops while it settles.
+    if settling == Settling::Xrpl {
+        sim.run_until(sim.now + rng.next_u64() % 4_000);
+        let dropped = usize::try_from(rng.next_u64() % count as u64).unwrap();
+        sim.drop_ledger_link(dropped);
+    }
     // A node crashes mid-payment, with packets in flight: a sender, a hop
     // or a receiver.
     sim.run_until(sim.now + 500 + rng.next_u64() % 4_000);
@@ -752,10 +1046,12 @@ fn run(seed: u64) -> Result<Run, String> {
         }
         // Each side settled everything it owed the other.
         let other = (0..count).find(|i| key(*i).node_id() == peer).unwrap();
-        let mine = sim.balances(ender)[&format!("stub+usd:assets/interledger/{peer}")];
-        let theirs =
-            sim.balances(other)[&format!("stub+usd:assets/interledger/{}", key(ender).node_id())];
-        if (mine, theirs) != (CREDIT, CREDIT) {
+        let mine = sim.balances(ender)[&format!("assets/interledger/{peer}")];
+        let theirs = sim.balances(other)[&format!("assets/interledger/{}", key(ender).node_id())];
+        // Less than the ledger can move stays owed: a drop on the XRP
+        // Ledger.
+        let unit = if settling == Settling::Xrpl { 1_000 } else { 1 };
+        if (mine - CREDIT).abs() >= unit || (theirs - CREDIT).abs() >= unit {
             return Err(format!(
                 "nodes {ender} and {other} parted owing: {mine}, {theirs}"
             ));
@@ -783,7 +1079,8 @@ fn check_cap(sim: &Sim, payment: &Payment) -> Result<(), String> {
         .into_iter()
         .find(|row| row.id == id)
         .unwrap();
-    let path = format!("stub+usd:equity/owner/btp/{id}");
+    let ledger = sim.settling.ledger();
+    let path = format!("{ledger}:equity/owner/btp/{id}");
     let mut spent: Vec<(u64, u64)> = Vec::new();
     let mut after = None;
     loop {
@@ -793,7 +1090,10 @@ fn check_cap(sim: &Sim, payment: &Payment) -> Result<(), String> {
         spent.extend(
             page.iter()
                 .filter(|row| row.debit_path == path)
-                .filter(|row| !row.credit_path.starts_with("stub+usd:equity/owner"))
+                .filter(|row| {
+                    !row.credit_path
+                        .starts_with(&format!("{ledger}:equity/owner"))
+                })
                 .filter(|row| row.state == dassie_ledger::TransferState::Posted)
                 .map(|row| (row.resolved_at_ms.unwrap(), row.transfer.amount)),
         );
@@ -899,7 +1199,7 @@ fn check_owner_books(sim: &Sim) -> Result<(), String> {
     let all = || sim.payments.iter().chain(&sim.abandoned);
     for index in 0..sim.nodes.len() {
         let balances = sim.balances(index);
-        let pool = balances["stub+usd:equity/owner"];
+        let pool = balances["equity/owner"];
         let received: i128 = all()
             .filter(|payment| payment.to == index)
             .map(|payment| i128::from(received(sim, payment)))
@@ -908,14 +1208,15 @@ fn check_owner_books(sim: &Sim) -> Result<(), String> {
                 .filter(|flow| flow.to == index)
                 .map(|flow| i128::from(flow.received))
                 .sum::<i128>();
-        if pool - DEPOSIT != received {
+        let deposit = sim.settling.deposit();
+        if pool - deposit != received {
             return Err(format!(
                 "node {index}'s owner gained {} for {received} received",
-                pool - DEPOSIT
+                pool - deposit
             ));
         }
         for payment in sim.payments.iter().filter(|payment| payment.from == index) {
-            let token = -balances[&format!("stub+usd:equity/owner/btp/{}", payment.token.0)];
+            let token = -balances[&format!("equity/owner/btp/{}", payment.token.0)];
             if token != i128::from(sent(payment)) {
                 return Err(format!(
                     "node {index}'s token {} paid {token} for {} sent",
@@ -928,10 +1229,7 @@ fn check_owner_books(sim: &Sim) -> Result<(), String> {
             .filter(|flow| flow.from == index)
             .map(|flow| i128::from(flow.sent))
             .sum();
-        let payer = -balances
-            .get("stub+usd:equity/owner/local/pay")
-            .copied()
-            .unwrap_or(0);
+        let payer = -balances.get("equity/owner/local/pay").copied().unwrap_or(0);
         if payer != paid {
             return Err(format!(
                 "node {index}'s payer paid {payer} for {paid} its outgoing payments sent"
@@ -957,7 +1255,7 @@ fn check_owner_books(sim: &Sim) -> Result<(), String> {
         .abandoned
         .iter()
         .map(|payment| {
-            -sim.balances(payment.from)[&format!("stub+usd:equity/owner/btp/{}", payment.token.0)]
+            -sim.balances(payment.from)[&format!("equity/owner/btp/{}", payment.token.0)]
                 - i128::from(sent(payment))
         })
         .sum();
@@ -1000,7 +1298,7 @@ fn outgoing_flows(sim: &Sim) -> impl Iterator<Item = Flow> + '_ {
 /// What a node booked as lost to refusals, as a net credit (so negative).
 fn losses(sim: &Sim, index: usize) -> i128 {
     sim.balances(index)
-        .get("stub+usd:expenses/losses")
+        .get("expenses/losses")
         .copied()
         .unwrap_or(0)
 }
@@ -1098,29 +1396,46 @@ fn check_books(sim: &Sim) -> Result<(), String> {
             ));
         }
         let balances = sim.balances(index);
+        // The owner's group: everything the node gains or loses.
         owners += balances
             .iter()
-            .filter(|(path, _)| path.starts_with("stub+usd:equity/owner"))
+            .filter(|(path, _)| {
+                path.starts_with("equity/")
+                    || path.starts_with("revenue/fees")
+                    || path.starts_with("expenses/fees")
+                    || path.starts_with("expenses/losses")
+            })
             .map(|(_, net)| *net)
-            .sum::<i128>()
-            + losses(sim, index);
-        // The books follow the stub's balance: what settled was posted.
-        let on_ledger = sim.core(index).ledger_views()[0].on_ledger_balance;
-        let booked = -balances["stub+usd:assets/settlement"];
-        if booked != i128::from(on_ledger) {
+            .sum::<i128>();
+        // The books follow the scheme's balance: what settled was posted.
+        let view = &sim.core(index).ledger_views()[0];
+        let booked = -balances["assets/settlement"];
+        if booked != i128::from(view.on_ledger_balance) {
             return Err(format!(
-                "node {index} books {booked} in settlement, its stub holds {on_ledger}"
+                "node {index} books {booked} in settlement, its scheme holds {}",
+                view.on_ledger_balance
             ));
+        }
+        // On the XRP Ledger, that is the account's balance less its
+        // reserve, exactly.
+        if sim.settling == Settling::Xrpl {
+            let drops = sim.ledger.balance(xrpl_account(index)).unwrap_or(0);
+            let bookable = i128::from(drops) * 1_000 - i128::from(view.reserve);
+            if booked != bookable.max(0) {
+                return Err(format!(
+                    "node {index} books {booked}; its account holds {drops} drops"
+                ));
+            }
         }
         stubs += booked;
         // Every pair of accounts mirrors the other, peered or no longer.
         for other in (0..count).filter(|other| *other != index) {
             let peer = key(other).node_id();
-            let Some(mine) = balances.get(&format!("stub+usd:assets/interledger/{peer}")) else {
+            let Some(mine) = balances.get(&format!("assets/interledger/{peer}")) else {
                 continue;
             };
-            let theirs = sim.balances(other)
-                [&format!("stub+usd:assets/interledger/{}", key(index).node_id())];
+            let theirs =
+                sim.balances(other)[&format!("assets/interledger/{}", key(index).node_id())];
             if mine + theirs != 2 * CREDIT {
                 return Err(format!(
                     "nodes {index} and {other} disagree: {mine} + {theirs}"
@@ -1128,20 +1443,53 @@ fn check_books(sim: &Sim) -> Result<(), String> {
             }
         }
     }
-    let total = DEPOSIT * i128::try_from(count).unwrap();
-    if owners != total {
-        return Err(format!("the owners hold {owners}, not {} each", DEPOSIT));
+    // What the owners hold is what the schemes hold: fees, losses and
+    // reconciliations are the owners'.
+    if owners != stubs {
+        return Err(format!("the owners hold {owners}, the schemes {stubs}"));
     }
-    if stubs != total {
-        return Err(format!("the stubs hold {stubs}, not {} each", DEPOSIT));
+    match sim.settling {
+        Settling::Stub => {
+            let total = sim.settling.deposit() * i128::try_from(count).unwrap();
+            if stubs != total {
+                return Err(format!("the stubs hold {stubs}, not {total}"));
+            }
+        }
+        Settling::Xrpl => {
+            if sim.ledger.total() != dassie_xrpl::MAX_DROPS {
+                return Err("the ledger made or lost XRP".into());
+            }
+        }
     }
     Ok(())
+}
+
+/// Node `index`'s account on the XRP Ledger: the original's wallet of its
+/// key.
+fn xrpl_account(index: usize) -> dassie_xrpl::AccountId {
+    let entropy = key(index)
+        .settlement_entropy("xrpl-testnet", "seed-testnet")
+        .unwrap();
+    dassie_xrpl::Wallet::from_entropy(entropy.as_bytes()).account()
 }
 
 #[test]
 fn simulated_networks_pay_across_restarts() {
     for seed in seeds() {
         match catch_unwind(AssertUnwindSafe(|| run(seed))) {
+            Ok(Ok(_)) => {}
+            Ok(Err(problem)) => panic!("seed {seed}: {problem}"),
+            Err(_) => panic!("seed {seed} panicked"),
+        }
+    }
+}
+
+// M7b: the same runs, settling on the XRP Ledger testnet scheme against
+// the fake ledger.
+#[test]
+fn simulated_networks_settle_on_the_xrp_ledger() {
+    for seed in seeds() {
+        match catch_unwind(AssertUnwindSafe(|| run_on(seed, Settling::Xrpl))) {
             Ok(Ok(_)) => {}
             Ok(Err(problem)) => panic!("seed {seed}: {problem}"),
             Err(_) => panic!("seed {seed} panicked"),
@@ -1376,7 +1724,7 @@ fn check_exposure(sim: &Sim, seed: u64) {
     let liar = key(1).node_id();
     let balances = sim.balances(0);
     let lost = -losses(sim, 0);
-    let position = balances[&format!("stub+usd:assets/interledger/{liar}")];
+    let position = balances[&format!("assets/interledger/{liar}")];
     let owes = (CREDIT - position).max(0);
     let grace = CREDIT * i128::from(PeerSettings::DEFAULT.grace_share_ppm) / 1_000_000;
     assert!(
@@ -1428,8 +1776,7 @@ fn a_peer_that_never_settles_is_banned() {
         sim.pay(1, 0, LIAR_PAYS, None, None);
         // The liar owes past where it should have settled from here on.
         let due = |sim: &Sim| {
-            let position =
-                sim.balances(0)[&format!("stub+usd:assets/interledger/{}", key(1).node_id())];
+            let position = sim.balances(0)[&format!("assets/interledger/{}", key(1).node_id())];
             CREDIT - position > CREDIT * 55 / 100
         };
         assert!(sim.run_until_or(sim.now + 120_000, due), "seed {seed}");
