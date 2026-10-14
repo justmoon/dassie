@@ -14,38 +14,38 @@ export function Ledgers(): JSX.Element {
     <div class="page-wide stack">
       <PageTitle>Active Ledgers</PageTitle>
       <LiveNote status={data.ledgersStatus()} />
-      <For each={data.ledgers() ?? []}>
+      <For each={data.ledgers() ?? []} keyed={(ledger) => ledger.id}>
         {(ledger) => (
-          <Card testid={`ledger-${ledger.id}`} class="ledger">
+          <Card testid={`ledger-${ledger().id}`} class="ledger">
             <div class="ledger-head">
-              <h2>{schemeName(ledger.settlementScheme)}</h2>
+              <h2>{schemeName(ledger().settlementScheme)}</h2>
               <Link
-                href={`/ledgers/delete/${ledger.settlementScheme}`}
+                href={`/ledgers/delete/${ledger().settlementScheme}`}
                 class="button danger icon"
-                testid={`ledger-delete-${ledger.settlementScheme}`}
-                aria-label={`Remove ${schemeName(ledger.settlementScheme)}`}
+                testid={`ledger-delete-${ledger().settlementScheme}`}
+                aria-label={`Remove ${schemeName(ledger().settlementScheme)}`}
               >
                 🗑
               </Link>
             </div>
             <Amount
-              value={ledger.ownerBalance}
-              currency={ledgerCurrency(ledger)}
+              value={ledger().ownerBalance}
+              currency={ledgerCurrency(ledger())}
               size="lg"
-              testid={`ledger-balance-${ledger.id}`}
+              testid={`ledger-balance-${ledger().id}`}
             />
             <p class="muted">
               On the underlying ledger:{" "}
               <Amount
-                value={ledger.onLedgerBalance}
-                currency={ledgerCurrency(ledger)}
+                value={ledger().onLedgerBalance}
+                currency={ledgerCurrency(ledger())}
               />
             </p>
             <div class="actions">
               <Link
-                href={`/receive?tab=${ledger.settlementScheme}`}
+                href={`/receive?tab=${ledger().settlementScheme}`}
                 class="button"
-                testid={`ledger-receive-${ledger.settlementScheme}`}
+                testid={`ledger-receive-${ledger().settlementScheme}`}
               >
                 Receive
               </Link>

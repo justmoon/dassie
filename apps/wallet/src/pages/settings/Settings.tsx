@@ -229,8 +229,19 @@ function Sessions(): JSX.Element {
           type="button"
           data-testid="revoke-others"
           onClick={async () => {
-            await client.call("revokeAllSessions", { keepCurrent: true });
-            setVersion((n) => n + 1);
+            try {
+              const { revoked } = await client.call("revokeAllSessions", {
+                keepCurrent: true,
+              });
+              toast({ title: `Logged out ${revoked} other sessions` });
+              setVersion((n) => n + 1);
+            } catch (failure) {
+              toast({
+                title: "That did not work",
+                description: describe(failure),
+                tone: "destructive",
+              });
+            }
           }}
         >
           Log out all other sessions

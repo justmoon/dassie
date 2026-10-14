@@ -10,6 +10,7 @@ import {
   For,
   type ParentProps,
   Show,
+  untrack,
 } from "solid-js";
 import type { LiveStatus } from "../live/subscription.ts";
 
@@ -86,6 +87,26 @@ export function ErrorText(
         {props.message}
       </p>
     </Show>
+  );
+}
+
+/** A page that failed, with a way to try again. */
+export function PageError(
+  props: { error: unknown; reset: () => void },
+): JSX.Element {
+  const message = () =>
+    props.error instanceof Error ? props.error.message : String(props.error);
+  return (
+    <div class="page-narrow" data-testid="page-error">
+      <Alert title="This page could not be shown" tone="danger">
+        {message()}
+      </Alert>
+      <div class="actions">
+        <button type="button" class="primary" onClick={() => props.reset()}>
+          Try again
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -166,24 +187,31 @@ export function Tabs(props: {
   return (
     <div class="tabs">
       <div role="tablist" aria-label={props.label} onKeyDown={keys}>
-        <For each={props.tabs}>
+        <For each={props.tabs} keyed={(tab) => tab.id}>
           {(tab) => (
             <button
               type="button"
               role="tab"
-              id={`${base}-${tab.id}`}
-              data-testid={`tab-${tab.id}`}
-              aria-selected={current()?.id === tab.id ? "true" : "false"}
-              tabindex={current()?.id === tab.id ? 0 : -1}
-              onClick={() => props.onSelect(tab.id)}
+              id={`${base}-${tab().id}`}
+              data-testid={`tab-${tab().id}`}
+              aria-selected={current()?.id === tab().id ? "true" : "false"}
+              tabindex={current()?.id === tab().id ? 0 : -1}
+              onClick={() => props.onSelect(tab().id)}
             >
-              {tab.title}
+              {tab().title}
             </button>
           )}
         </For>
       </div>
       <div role="tabpanel" aria-labelledby={`${base}-${current()?.id}`}>
-        {current()?.panel()}
+        {
+          /* The tabs are made again as data changes; the panel only when
+            another tab is chosen, so what it shows stays. */
+        }
+        <Show when={current()?.id} keyed>
+          {(id) =>
+            untrack(() => props.tabs.find((tab) => tab.id === id)?.panel())}
+        </Show>
       </div>
     </div>
   );
@@ -204,13 +232,14 @@ export function ConfirmButton(props: {
   onConfirm: () => void | Promise<void>;
 }): JSX.Element {
   let dialog: HTMLDialogElement | undefined;
+  const [pending, setPending] = createSignal(false);
   return (
     <>
       <button
         type="button"
         class={props.tone === "danger" ? "danger" : ""}
         data-testid={props.testid}
-        disabled={props.disabled}
+        disabled={props.disabled || pending()}
         onClick={() => dialog?.showModal()}
       >
         {props.label}
@@ -224,9 +253,16 @@ export function ConfirmButton(props: {
             type="button"
             class={props.tone === "danger" ? "danger" : "primary"}
             data-testid={`${props.testid}-confirm`}
+            disabled={pending()}
             onClick={async () => {
+              if (pending()) return;
+              setPending(true);
               dialog?.close();
-              await props.onConfirm();
+              try {
+                await props.onConfirm();
+              } finally {
+                setPending(false);
+              }
             }}
           >
             {props.confirm}

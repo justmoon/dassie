@@ -9,12 +9,20 @@ import type { JSX } from "@solidjs/web";
 import {
   type Account,
   type DatabaseValue,
+  type ListPacketsResponse,
   type Packet,
   PacketState,
   type ServiceState,
   TransferState,
 } from "@dassie/rpc/proto";
-import { createMemo, createSignal, For, Loading, Show } from "solid-js";
+import {
+  createMemo,
+  createSignal,
+  For,
+  Loading,
+  Show,
+  untrack,
+} from "solid-js";
 import { Amount } from "../amount/Amount.tsx";
 import { type Currency, currencyOf } from "../amount/currency.ts";
 import { dateTime, hex, prettyJson, shortId } from "../format.ts";
@@ -32,6 +40,9 @@ import {
   netBalance,
   splitPath,
 } from "./ledger.ts";
+
+/** How many packets the packets page keeps. */
+const MAX_PACKETS = 500;
 
 /** How many lines the logs page keeps. */
 const MAX_LOG_LINES = 10_000;
@@ -254,10 +265,24 @@ export function LedgerPage(): JSX.Element {
   );
 }
 
+/** An account's page: made again when the route names another account. */
 export function AccountPage(props: RouteProps): JSX.Element {
+  return (
+    <Show when={`${props.params.ledger}:${props.params.path}`} keyed>
+      {(_account) => (
+        <AccountView
+          ledger={untrack(() => props.params.ledger)}
+          path={untrack(() => props.params.path)}
+        />
+      )}
+    </Show>
+  );
+}
+
+function AccountView(props: { ledger: string; path: string }): JSX.Element {
   const client = useClient();
   const currency = useCurrency();
-  const path = `${props.params.ledger}:${props.params.path}`;
+  const path = `${props.ledger}:${props.path}`;
   // Undefined while asking, null if there is no such account.
   const [id, setId] = createSignal<number | null>();
   client.call("listAccounts", {}).then(
@@ -268,8 +293,8 @@ export function AccountPage(props: RouteProps): JSX.Element {
   return (
     <>
       <p class="breadcrumb">
-        <Link href="/debug/ledger">{props.params.ledger}</Link> »{" "}
-        <code>{props.params.path}</code>
+        <Link href="/debug/ledger">{props.ledger}</Link> »{" "}
+        <code data-testid="account-path">{props.path}</code>
       </p>
       <PageTitle>Account</PageTitle>
       <Show when={id() !== undefined} fallback={<Spinner label="Loading…" />}>
@@ -281,7 +306,7 @@ export function AccountPage(props: RouteProps): JSX.Element {
           {(account) => (
             <Transfers
               account={account}
-              currency={currency(props.params.ledger)}
+              currency={currency(props.ledger)}
             />
           )}
         </Show>
@@ -351,7 +376,12 @@ function Transfers(
                   >
                     <td>{row.credit ? "CR" : "DR"}</td>
                     <td>
-                      <Link href={accountHref(row.counter)}>{row.counter}</Link>
+                      <Link
+                        href={accountHref(row.counter)}
+                        testid="counter-link"
+                      >
+                        {row.counter}
+                      </Link>
                     </td>
                     <td>
                       <Amount
@@ -432,22 +462,43 @@ export function PacketsPage(): JSX.Element {
   const add = (incoming: readonly Packet[]) =>
     setPackets((all) => {
       const byKey = new Map(all.map((packet) => [key(packet), packet]));
-      for (const packet of incoming) byKey.set(key(packet), packet);
-      return [...byKey.values()].slice(-500);
+      for (const packet of incoming) {
+        const held = byKey.get(key(packet));
+        const resolved = held && held.state !== PacketState.PENDING;
+        if (!(resolved && packet.state === PacketState.PENDING)) {
+          byKey.set(key(packet), packet);
+        }
+      }
+      return [...byKey.values()].slice(-MAX_PACKETS);
     });
-  client.call("listPackets", { limit: 200 }).then(
-    (list) => add(list.packets),
-    () => {},
-  );
-  const live = createLiveValue("subscribePackets", () => ({}), (item) => {
-    const event = item.event;
-    if (event.case === "packet") add([event.value]);
-    if (event.case === "lagged") {
-      const missed = event.value;
-      setLagged((n) => n + missed);
+  // The trace lists oldest first, so the newest take paging to its end.
+  const listNewest = async () => {
+    let after: Packet["trace"] = undefined;
+    for (let page = 0; page < 8; page++) {
+      const list: ListPacketsResponse = await client.call("listPackets", {
+        after,
+        limit: 1000,
+      });
+      add(list.packets);
+      if (list.packets.length < 1000) return;
+      after = list.packets.at(-1)?.trace;
     }
-    return item;
-  });
+  };
+  const live = createLiveValue(
+    "subscribePackets",
+    () => ({}),
+    (item, fresh) => {
+      // Each subscription starts by listing what it may have missed.
+      if (fresh) listNewest().catch(() => {});
+      const event = item.event;
+      if (event.case === "packet") add([event.value]);
+      if (event.case === "lagged") {
+        const missed = event.value;
+        setLagged((n) => n + missed);
+      }
+      return item;
+    },
+  );
   const state = (packet: Packet) =>
     packet.state === PacketState.PENDING
       ? "pending"

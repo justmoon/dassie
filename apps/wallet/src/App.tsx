@@ -12,7 +12,7 @@
 import { RpcClient } from "@dassie/rpc";
 import type { GetBasicStateResponse } from "@dassie/rpc/proto";
 import type { JSX } from "@solidjs/web";
-import { createSignal, lazy, Loading, Match, Switch } from "solid-js";
+import { createSignal, Errored, lazy, Loading, Match, Switch } from "solid-js";
 import { decideScreen, isSetupPath, ownerScreen } from "./gate.ts";
 import { Shell } from "./layout/Shell.tsx";
 import { Onboarding } from "./pages/ledgers/CreateLedger.tsx";
@@ -20,6 +20,7 @@ import { createNodeData, NodeDataContext } from "./shared/node-data.ts";
 import { RpcContext } from "./shared/rpc.ts";
 import { Router } from "./shared/router/Router.tsx";
 import { Toaster } from "./shared/ui/toast.tsx";
+import { PageError } from "./shared/ui/ui.tsx";
 import { Card, Spinner } from "./ui.tsx";
 
 // The setup and login screens, with the identity WASM, load only when
@@ -47,37 +48,43 @@ export default function App(): JSX.Element {
   return (
     <RpcContext value={client}>
       <Toaster>
-        <Loading fallback={<Spinner label="Loading…" />}>
-          <Switch
-            fallback={
-              <Card title="Unexpected node state">
-                <p>
-                  Your Dassie node reported a state this wallet does not know.
-                  Is the wallet older than the node?
-                </p>
-              </Card>
-            }
-          >
-            <Match when={screen().kind === "loading"}>
-              <Spinner label="Connecting to your node…" />
-            </Match>
-            <Match when={screen().kind === "unreachable"}>
-              <Unreachable message={failure() ?? ""} />
-            </Match>
-            <Match when={screen().kind === "setup-info"}>
-              <SetupInfo />
-            </Match>
-            <Match when={screen().kind === "setup"}>
-              <Setup token={(screen() as { token: string }).token} />
-            </Match>
-            <Match when={screen().kind === "login"}>
-              <Login />
-            </Match>
-            <Match when={screen().kind === "owner" && basic()}>
-              {(state) => <Owner basic={state()} />}
-            </Match>
-          </Switch>
-        </Loading>
+        <Errored
+          fallback={(error, reset) => (
+            <PageError error={error()} reset={reset} />
+          )}
+        >
+          <Loading fallback={<Spinner label="Loading…" />}>
+            <Switch
+              fallback={
+                <Card title="Unexpected node state">
+                  <p>
+                    Your Dassie node reported a state this wallet does not know.
+                    Is the wallet older than the node?
+                  </p>
+                </Card>
+              }
+            >
+              <Match when={screen().kind === "loading"}>
+                <Spinner label="Connecting to your node…" />
+              </Match>
+              <Match when={screen().kind === "unreachable"}>
+                <Unreachable message={failure() ?? ""} />
+              </Match>
+              <Match when={screen().kind === "setup-info"}>
+                <SetupInfo />
+              </Match>
+              <Match when={screen().kind === "setup"}>
+                <Setup token={(screen() as { token: string }).token} />
+              </Match>
+              <Match when={screen().kind === "login"}>
+                <Login />
+              </Match>
+              <Match when={screen().kind === "owner" && basic()}>
+                {(state) => <Owner basic={state()} />}
+              </Match>
+            </Switch>
+          </Loading>
+        </Errored>
       </Toaster>
     </RpcContext>
   );
@@ -97,6 +104,13 @@ function Owner(props: { basic: GetBasicStateResponse }): JSX.Element {
     <NodeDataContext value={data}>
       <Router>
         <Switch>
+          <Match when={data.ledgersStatus().kind === "failed"}>
+            <Card title="Cannot load your ledgers">
+              <p data-testid="ledgers-failed">
+                {(data.ledgersStatus() as { message?: string }).message}
+              </p>
+            </Card>
+          </Match>
           <Match when={screen() === "loading"}>
             <Spinner label="Loading your ledgers…" />
           </Match>

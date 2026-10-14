@@ -84,17 +84,58 @@ export function formatAmount(
 }
 
 /** Why a typed amount is not one. */
-export type ParseFailure = "empty" | "invalid" | "negative" | "too-precise";
+export type ParseFailure =
+  | "empty"
+  | "invalid"
+  | "negative"
+  | "too-precise"
+  | "too-large";
+
+/** An amount as a person would type it again: exact, without groups. */
+export function amountText(value: bigint, scale: number): string {
+  const unit = pow10(scale);
+  const fraction = (value % unit).toString().padStart(scale, "0").replace(
+    /0+$/,
+    "",
+  );
+  return fraction ? `${value / unit}.${fraction}` : `${value / unit}`;
+}
+
+/** Why a typed amount is not one, for people. */
+export function parseFailureText(reason: ParseFailure, scale: number): string {
+  switch (reason) {
+    case "empty":
+      return "Enter an amount.";
+    case "invalid":
+      return "Enter digits, with a decimal point or comma.";
+    case "negative":
+      return "The amount cannot be negative.";
+    case "too-precise":
+      return `At most ${scale} digits after the decimal point.`;
+    case "too-large":
+      return "That amount is too large.";
+  }
+}
+
+/** The largest amount the node takes, 2^63 - 1. */
+export const MAX_AMOUNT = (1n << 63n) - 1n;
 
 /**
- * Parses an amount typed by a person, in units of the asset: digits, an
- * optional point and up to `scale` decimals, with optional group commas.
+ * Parses an amount typed by a person, in units of the asset: digits, then
+ * a decimal point and up to `scale` decimals. A comma is a decimal point
+ * too, as many keyboards type it; there are no group separators, since
+ * `1,500` would mean a thousand times more on one keyboard than on
+ * another.
  */
 export function parseAmount(
   text: string,
   scale: number,
 ): { ok: true; value: bigint } | { ok: false; reason: ParseFailure } {
-  const trimmed = text.trim().replaceAll(",", "");
+  const raw = text.trim();
+  if (raw.includes(",") && raw.includes(".")) {
+    return { ok: false, reason: "invalid" };
+  }
+  const trimmed = raw.replace(",", ".");
   if (trimmed === "") return { ok: false, reason: "empty" };
   if (trimmed.startsWith("-")) return { ok: false, reason: "negative" };
   const parts = /^(\d*)(?:\.(\d*))?$/.exec(trimmed);
@@ -105,5 +146,7 @@ export function parseAmount(
   if (decimals.length > scale) return { ok: false, reason: "too-precise" };
   const whole = BigInt(parts[1] === "" ? "0" : parts[1]);
   const fraction = BigInt(decimals.padEnd(scale, "0") || "0");
-  return { ok: true, value: whole * pow10(scale) + fraction };
+  const value = whole * pow10(scale) + fraction;
+  if (value > MAX_AMOUNT) return { ok: false, reason: "too-large" };
+  return { ok: true, value };
 }

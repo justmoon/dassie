@@ -235,3 +235,14 @@ Deno.test("the connection's state is reported", async () => {
   client.close();
   assertEquals(states, ["connecting", "open", "waiting", "idle", "closed"]);
 });
+
+Deno.test("a request that does not encode leaves nothing behind", async () => {
+  using time = new FakeTime();
+  const { client, sockets } = setUp();
+  const failed = client.call("stubDeposit", { amount: 2n ** 70n });
+  const error = await assertRejects(() => failed, RpcError);
+  assertEquals(error.code, ErrorCode.INVALID_ARGUMENT);
+  time.tick(60_000);
+  assertEquals(sockets.length, 0, "nothing was sent, not even a Cancel");
+  client.close();
+});

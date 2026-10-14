@@ -121,6 +121,10 @@ Deno.test({
           await click(page, "receive-button");
           await click(page, "stream-credentials");
           assertMatch(await text(page, "stream-destination"), /^test\.das\./);
+          // A change of balance does not take the credentials away.
+          await d0.rpc.call("stubDeposit", { amount: 1n });
+          await new Promise((resolve) => setTimeout(resolve, 1_500));
+          assertEquals(await count(page, "stream-destination"), 1);
           await picture(page, "02-receive");
         },
       );
@@ -201,6 +205,28 @@ Deno.test({
             /\$ 1\.00 per day/,
           );
           await picture(page, "07-settings");
+          // The cap editor starts from the cap; a new window keeps the
+          // amount.
+          await click(page, `edit-cap-${tokens[0].id}`);
+          const editor = await page.evaluate(() => {
+            const form = document.querySelector('[data-testid="cap-editor"]')!;
+            const window = form.querySelector<HTMLSelectElement>(
+              '[data-testid="token-cap-window"]',
+            )!;
+            window.value = "week";
+            window.dispatchEvent(new Event("change", { bubbles: true }));
+            return form.querySelector<HTMLInputElement>(
+              '[data-testid="token-cap-amount"]',
+            )!.value;
+          });
+          assertEquals(editor, "1");
+          await click(page, "save-cap");
+          await until(
+            page,
+            "the new window",
+            () => text(page, `btp-token-cap-${tokens[0].id}`),
+            (cap) => /\$ 1\.00 per week/.test(cap),
+          );
         },
       );
 
@@ -235,6 +261,14 @@ Deno.test({
           (n) => n > 0,
         );
         await picture(page, "10-account");
+        // Another account's link shows that account.
+        await click(page, "counter-link");
+        await until(
+          page,
+          "the other account",
+          () => text(page, "account-path"),
+          (path) => path === "assets/settlement",
+        );
         await visit(page, d0, "/debug/routing");
         await until(
           page,

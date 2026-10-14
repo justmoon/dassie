@@ -15,7 +15,12 @@ import {
   Show,
 } from "solid-js";
 import { Amount, ledgerCurrency } from "../../shared/amount/Amount.tsx";
-import { currencyOf, parseAmount } from "../../shared/amount/currency.ts";
+import {
+  amountText,
+  currencyOf,
+  parseAmount,
+  parseFailureText,
+} from "../../shared/amount/currency.ts";
 import { dateTime } from "../../shared/format.ts";
 import { useNodeData } from "../../shared/node-data.ts";
 import { describe, useClient } from "../../shared/rpc.ts";
@@ -52,11 +57,11 @@ export function ApiKeys(): JSX.Element {
         fallback={<p class="muted">No API keys created yet. Add one below.</p>}
       >
         <ul class="tokens">
-          <For each={tokens()}>
+          <For each={tokens()} keyed={(token) => token.id}>
             {(token) => (
               <TokenRow
-                token={token}
-                currency={currency(token.ledger)}
+                token={token()}
+                currency={currency(token().ledger)}
                 onChange={refresh}
               />
             )}
@@ -207,11 +212,15 @@ function readCap(
 ): { cap?: { amount: bigint; windowMs: bigint }; error?: string } {
   if (amount.trim() === "") return {};
   const parsed = parseAmount(amount, scale);
-  if (!parsed.ok || parsed.value === 0n) {
-    return { error: "The cap must be an amount above zero." };
-  }
+  if (!parsed.ok) return { error: parseFailureText(parsed.reason, scale) };
+  if (parsed.value === 0n) return { error: "The cap must be above zero." };
   const ms = WINDOWS.find((entry) => entry.id === window)?.ms ?? WINDOWS[1].ms;
   return { cap: { amount: parsed.value, windowMs: ms } };
+}
+
+/** The window input's choice for a cap's window: day if it is none of ours. */
+function windowId(ms: bigint | undefined): string {
+  return WINDOWS.find((entry) => entry.ms === ms)?.id ?? "day";
 }
 
 function CreateToken(props: {
@@ -225,9 +234,12 @@ function CreateToken(props: {
   const [amount, setAmount] = createSignal("");
   const [window, setWindow] = createSignal("day");
   const [error, setError] = createSignal<string>();
+  const [pending, setPending] = createSignal(false);
   const chosen = () => ledger() ?? data.ledgers()?.[0]?.id ?? "";
   const create = async (event: SubmitEvent) => {
     event.preventDefault();
+    // A second token's secret would hide the first's for good.
+    if (pending()) return;
     setError(undefined);
     const scale = data.ledgers()?.find((l) => l.id === chosen())?.assetScale ??
       9;
@@ -236,6 +248,7 @@ function CreateToken(props: {
       setError(cap.error);
       return;
     }
+    setPending(true);
     try {
       props.onCreated(
         await client.call("createBtpToken", {
@@ -249,6 +262,7 @@ function CreateToken(props: {
     } catch (failure) {
       setError(describe(failure));
     }
+    setPending(false);
   };
   return (
     <form class="create-token" onSubmit={create}>
@@ -285,7 +299,12 @@ function CreateToken(props: {
         onWindow={setWindow}
       />
       <div class="actions">
-        <button type="submit" class="primary" data-testid="create-token">
+        <button
+          type="submit"
+          class="primary"
+          data-testid="create-token"
+          disabled={pending()}
+        >
           Create BTP Token
         </button>
       </div>
@@ -306,21 +325,38 @@ function CapEditor(props: {
   const [amount, setAmount] = createSignal("");
   const [window, setWindow] = createSignal("day");
   const [error, setError] = createSignal<string>();
-  const save = async (event: SubmitEvent) => {
-    event.preventDefault();
-    const cap = readCap(amount(), window(), props.currency.scale);
-    if (cap.error) {
-      setError(cap.error);
-      return;
-    }
+  const [pending, setPending] = createSignal(false);
+  // The editor starts from the cap the token has.
+  const edit = () => {
+    const cap = props.token.cap;
+    setAmount(cap ? amountText(cap.amount, props.currency.scale) : "");
+    setWindow(windowId(cap?.windowMs));
+    setError(undefined);
+    setOpen(true);
+  };
+  const apply = async (
+    cap: { amount: bigint; windowMs: bigint } | undefined,
+  ) => {
+    setPending(true);
     try {
-      await client.call("setBtpTokenCap", { id: props.token.id, cap: cap.cap });
-      toast({ title: cap.cap ? "Cap set" : "Cap lifted" });
+      await client.call("setBtpTokenCap", { id: props.token.id, cap });
+      toast({ title: cap ? "Cap set" : "Cap removed" });
       setOpen(false);
       props.onChange();
     } catch (failure) {
       setError(describe(failure));
     }
+    setPending(false);
+  };
+  const save = async (event: SubmitEvent) => {
+    event.preventDefault();
+    if (pending()) return;
+    const cap = readCap(amount(), window(), props.currency.scale);
+    if (cap.error || !cap.cap) {
+      setError(cap.error ?? "Enter an amount, or remove the cap.");
+      return;
+    }
+    await apply(cap.cap);
   };
   return (
     <Show
@@ -329,13 +365,13 @@ function CapEditor(props: {
         <button
           type="button"
           data-testid={`edit-cap-${props.token.id}`}
-          onClick={() => setOpen(true)}
+          onClick={edit}
         >
-          Edit cap
+          {props.token.cap ? "Edit cap" : "Set a cap"}
         </button>
       }
     >
-      <form class="cap-editor" onSubmit={save}>
+      <form class="cap-editor" data-testid="cap-editor" onSubmit={save}>
         <CapInputs
           id={id}
           amount={amount()}
@@ -345,7 +381,23 @@ function CapEditor(props: {
         />
         <div class="actions">
           <button type="button" onClick={() => setOpen(false)}>Cancel</button>
-          <button type="submit" class="primary" data-testid="save-cap">
+          <Show when={props.token.cap}>
+            <button
+              type="button"
+              class="danger"
+              data-testid="remove-cap"
+              disabled={pending()}
+              onClick={() => apply(undefined)}
+            >
+              Remove cap
+            </button>
+          </Show>
+          <button
+            type="submit"
+            class="primary"
+            data-testid="save-cap"
+            disabled={pending()}
+          >
             Save cap
           </button>
         </div>

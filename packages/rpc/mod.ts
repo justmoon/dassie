@@ -272,6 +272,21 @@ export class RpcClient {
         value: { method: { case: method, value: request } as RequestInit },
       },
     });
+    // Encoded before the call is registered: a request that does not
+    // encode, such as an amount beyond 64 bits, leaves nothing behind.
+    let bytes: Uint8Array;
+    try {
+      bytes = toBinary(ClientMessageSchema, message);
+    } catch (error) {
+      return Promise.reject(
+        new RpcError(
+          ErrorCode.INVALID_ARGUMENT,
+          `the request cannot be sent: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        ),
+      );
+    }
     return new Promise((resolve, reject) => {
       const pending: Pending = {
         onItem,
@@ -293,7 +308,7 @@ export class RpcClient {
       signal?.addEventListener("abort", abort, { once: true });
       this.#pending.set(callId, pending);
       this.#arm(callId, pending);
-      this.#send(callId, toBinary(ClientMessageSchema, message));
+      this.#send(callId, bytes);
     });
   }
 

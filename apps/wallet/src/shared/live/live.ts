@@ -41,7 +41,7 @@ function follow<M extends StreamMethod>(
 export function createLiveValue<M extends StreamMethod, T>(
   method: M,
   request: () => RequestFor<M>,
-  select: (item: ItemFor<M>) => T,
+  select: (item: ItemFor<M>, fresh: boolean) => T,
   client: RpcClient = useClient(),
 ): { value: Accessor<T | undefined>; status: Accessor<LiveStatus> } {
   const [value, setValue] = createSignal<T | undefined>(undefined, {
@@ -52,7 +52,7 @@ export function createLiveValue<M extends StreamMethod, T>(
     client,
     method,
     request,
-    (item) => setValue(() => select(item)),
+    (item, fresh) => setValue(() => select(item, fresh)),
     setStatus,
   );
   return { value, status };

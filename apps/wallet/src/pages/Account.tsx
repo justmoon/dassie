@@ -20,21 +20,23 @@ export function Account(): JSX.Element {
       <Card title="Balance" testid="page-account">
         <LiveNote status={data.ledgersStatus()} />
         <ul class="balances">
-          <For each={data.ledgers() ?? []}>
+          <For each={data.ledgers() ?? []} keyed={(ledger) => ledger.id}>
             {(ledger) => (
               <li>
-                <span class="muted">{schemeName(ledger.settlementScheme)}</span>
+                <span class="muted">
+                  {schemeName(ledger().settlementScheme)}
+                </span>
                 <Amount
-                  value={ledger.ownerBalance}
-                  currency={ledgerCurrency(ledger)}
+                  value={ledger().ownerBalance}
+                  currency={ledgerCurrency(ledger())}
                   size="lg"
-                  testid={`balance-${ledger.id}`}
+                  testid={`balance-${ledger().id}`}
                 />
-                <Show when={ledger.ownerPending > 0n}>
+                <Show when={ledger().ownerPending > 0n}>
                   <span class="muted">
                     (<Amount
-                      value={ledger.ownerPending}
-                      currency={ledgerCurrency(ledger)}
+                      value={ledger().ownerPending}
+                      currency={ledgerCurrency(ledger())}
                     />{" "}
                     in flight)
                   </span>

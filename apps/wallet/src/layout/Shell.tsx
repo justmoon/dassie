@@ -5,7 +5,14 @@
  */
 
 import type { JSX } from "@solidjs/web";
-import { createSignal, lazy, Loading, onCleanup, Show } from "solid-js";
+import {
+  createSignal,
+  Errored,
+  lazy,
+  Loading,
+  onCleanup,
+  Show,
+} from "solid-js";
 import { Account } from "../pages/Account.tsx";
 import { CreateLedger } from "../pages/ledgers/CreateLedger.tsx";
 import { DeleteLedger } from "../pages/ledgers/DeleteLedger.tsx";
@@ -13,7 +20,7 @@ import { Ledgers } from "../pages/ledgers/Ledgers.tsx";
 import { Receive } from "../pages/Receive.tsx";
 import { useClient } from "../shared/rpc.ts";
 import { Routes } from "../shared/router/Router.tsx";
-import { Spinner } from "../shared/ui/ui.tsx";
+import { PageError, Spinner } from "../shared/ui/ui.tsx";
 import { MainNav } from "./MainNav.tsx";
 
 const Network = lazy(() => import("../pages/network/Network.tsx"), {
@@ -49,9 +56,15 @@ export function Shell(): JSX.Element {
       <MainNav />
       <ConnectionNotice />
       <main id="content">
-        <Loading fallback={<Spinner label="Loading…" />}>
-          <Routes routes={ROUTES} fallback={Account} />
-        </Loading>
+        <Errored
+          fallback={(error, reset) => (
+            <PageError error={error()} reset={reset} />
+          )}
+        >
+          <Loading fallback={<Spinner label="Loading…" />}>
+            <Routes routes={ROUTES} fallback={Account} />
+          </Loading>
+        </Errored>
       </main>
     </div>
   );
@@ -62,10 +75,16 @@ function ConnectionNotice(): JSX.Element {
   const client = useClient();
   const [down, setDown] = createSignal(false);
   let timer: ReturnType<typeof setTimeout> | undefined;
+  // Retries pass through "connecting"; only an open connection, or none
+  // needed, ends the notice.
   const stop = client.onConnectionChange((state) => {
-    clearTimeout(timer);
-    if (state === "waiting") timer = setTimeout(() => setDown(true), 2_000);
-    else setDown(false);
+    if (state === "waiting" && timer === undefined) {
+      timer = setTimeout(() => setDown(true), 2_000);
+    } else if (state !== "waiting" && state !== "connecting") {
+      clearTimeout(timer);
+      timer = undefined;
+      setDown(false);
+    }
   });
   onCleanup(() => {
     stop();
