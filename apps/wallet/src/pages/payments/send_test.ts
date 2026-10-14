@@ -9,13 +9,31 @@ import {
 } from "./send.ts";
 
 Deno.test("a recipient is named by its name and pointer, or its pointer", () => {
+  const address = "https://wallet.example/.well-known/pay";
   assertEquals(
-    recipientName({ publicName: "Alice", paymentPointer: "$wallet.example" }),
+    recipientName({
+      publicName: "Alice",
+      paymentPointer: "$wallet.example",
+      walletAddress: address,
+    }),
     "Alice ($wallet.example)",
   );
   assertEquals(
-    recipientName({ publicName: "", paymentPointer: "$d2.localhost:5002" }),
+    recipientName({
+      publicName: "",
+      paymentPointer: "$d2.localhost:5002",
+      walletAddress: address,
+    }),
     "$d2.localhost:5002",
+  );
+  // No pointer names it: its URL.
+  assertEquals(
+    recipientName({
+      publicName: "",
+      paymentPointer: "",
+      walletAddress: "https://wallet.example",
+    }),
+    "https://wallet.example",
   );
 });
 

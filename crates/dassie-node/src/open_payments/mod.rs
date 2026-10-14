@@ -176,6 +176,17 @@ impl Urls {
     pub fn incoming_payment(&self, id: PaymentId) -> String {
         format!("{}{INCOMING_PREFIX}/{id}", self.origin)
     }
+
+    /// The path of `url` if it is at this node's origin, compared as
+    /// origins are: whatever the case, and with or without the scheme's
+    /// own port.
+    #[must_use]
+    pub fn own_path(&self, url: &str) -> Option<String> {
+        use dassie_payments::uri::Uri;
+        let uri = Uri::parse(url).ok()?;
+        let ours = Uri::parse(&self.origin).ok()?;
+        (uri.origin() == ours.origin()).then(|| uri.path.to_string())
+    }
 }
 
 /// The node's wallet addresses as of one moment: the active ledgers and

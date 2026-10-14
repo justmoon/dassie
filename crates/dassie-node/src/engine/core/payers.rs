@@ -781,10 +781,14 @@ fn check_new(new: &NewOutgoing) -> Result<(), EngineError> {
     if new.destination.len() > 1_023 || Address::parse(&new.destination).is_err() {
         return invalid("the receiver's ILP address is invalid");
     }
-    let urls_valid = [Some(&new.receiver), Some(&new.wallet_address), new.recipient.as_ref()]
-        .iter()
-        .flatten()
-        .all(|url| (1..=2_048).contains(&url.len()));
+    let urls_valid = [
+        Some(&new.receiver),
+        Some(&new.wallet_address),
+        new.recipient.as_ref(),
+    ]
+    .iter()
+    .flatten()
+    .all(|url| (1..=2_048).contains(&url.len()));
     if !urls_valid {
         return invalid("a URL is too long");
     }

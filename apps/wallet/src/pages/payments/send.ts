@@ -6,13 +6,21 @@
 /** The steps of a Send. */
 export type Step = "recipient" | "amount" | "review";
 
-/** Whom a recipient is, in a few words. */
+/** Whom a recipient is, in a few words: its name and payment pointer,
+ * or its wallet address where no pointer names it. */
 export function recipientName(
-  recipient: { publicName: string; paymentPointer: string },
+  recipient: {
+    publicName: string;
+    paymentPointer: string;
+    walletAddress: string;
+  },
 ): string {
+  const address = recipient.paymentPointer !== ""
+    ? recipient.paymentPointer
+    : recipient.walletAddress;
   return recipient.publicName !== ""
-    ? `${recipient.publicName} (${recipient.paymentPointer})`
-    : recipient.paymentPointer;
+    ? `${recipient.publicName} (${address})`
+    : address;
 }
 
 /** Where an outgoing payment goes: the payment pointer the owner named,

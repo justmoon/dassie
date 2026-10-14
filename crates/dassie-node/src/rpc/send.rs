@@ -9,6 +9,7 @@
 //! from other wallets as the node, so few run at once.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use dassie_ledger::LedgerId;
 use dassie_payments::amount::Amount;
@@ -26,7 +27,7 @@ use crate::engine::{Engine, NewIncoming};
 use crate::node::Node;
 use crate::open_payments::client::{self, ClientError};
 use crate::open_payments::spending::{self, NewQuote, Receiver};
-use crate::open_payments::{Urls, WalletAddresses};
+use crate::open_payments::{Urls, WELL_KNOWN_PATH, WalletAddresses};
 use crate::store::PaymentId;
 
 /// How long the incoming payment a Send creates accepts money: the quote's
@@ -34,6 +35,8 @@ use crate::store::PaymentId;
 const SEND_RECEIVER_LIFETIME_MS: u64 = 30 * 60 * 1_000;
 /// The longest note, in characters, as the wallet counts them.
 const MAX_NOTE_CHARS: usize = 256;
+/// How long a lookup waits for its turn.
+const LOOKUP_WAIT: Duration = Duration::from_secs(30);
 
 /// Answers the Send methods.
 pub async fn dispatch(
@@ -84,12 +87,30 @@ pub const fn is_send(method: &Method) -> bool {
     )
 }
 
+/// Waits for a turn to look up, for a while.
 async fn lookup_permit(node: &Node) -> Result<tokio::sync::SemaphorePermit<'_>, RpcError> {
-    node.open_payments()
-        .lookups
-        .acquire()
-        .await
-        .map_err(RpcError::internal)
+    match tokio::time::timeout(LOOKUP_WAIT, node.open_payments().lookups.acquire()).await {
+        Ok(Ok(permit)) => Ok(permit),
+        Ok(Err(error)) => Err(RpcError::internal(error)),
+        Err(_) => Err(RpcError::exhausted(
+            "too many lookups at once; try again in a moment",
+        )),
+    }
+}
+
+/// Text from another wallet, as the owner reads it: without control or
+/// direction-changing characters, which could make it read as something
+/// else beside the payment pointer.
+fn plain(text: &str) -> String {
+    text.chars()
+        .filter(|c| {
+            !c.is_control()
+                && !matches!(
+                    c,
+                    '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'
+                )
+        })
+        .collect()
 }
 
 /// What another wallet's failure means to the owner.
@@ -139,10 +160,8 @@ impl Found {
                     .as_ref()
                     .and_then(|metadata| metadata.get("description"))
                     .and_then(|description| description.as_str())
-                    .unwrap_or_default()
-                    .chars()
-                    .take(MAX_NOTE_CHARS)
-                    .collect(),
+                    .map(|description| plain(description).chars().take(MAX_NOTE_CHARS).collect())
+                    .unwrap_or_default(),
             }
         });
         proto::Recipient {
@@ -175,7 +194,23 @@ async fn find(node: &Node, urls: &Urls, input: &str) -> Result<Found, RpcError> 
         }),
         Recipient::IncomingPayment(url) => {
             let payment = spending::incoming_payment(node, urls, &url).await?;
+            // Paid in full, expired, or not payable over ILP: said now.
+            spending::receiver_of(node, payment.clone())?;
             let wallet = wallet(node, urls, &payment.wallet_address).await?;
+            // A request speaks only for its own wallet: one here for one of
+            // this node's, one elsewhere for a wallet whose resource
+            // server is where the request is. Else it could name anyone,
+            // the owner too, and be paid as them.
+            let here = urls.own_path(&url).is_some();
+            let bound = match &wallet.remote {
+                None => here,
+                Some(remote) => !here && origin_of(&remote.resource_server) == origin_of(&url),
+            };
+            if !bound {
+                return Err(RpcError::invalid(
+                    "the payment request names a wallet address that is not its own",
+                ));
+            }
             Ok(Found {
                 wallet,
                 request: Some((url, payment)),
@@ -187,10 +222,7 @@ async fn find(node: &Node, urls: &Urls, input: &str) -> Result<Found, RpcError> 
 /// The wallet address at `url`: one of this node's, read from its ledgers,
 /// or another wallet's, read from it.
 async fn wallet(node: &Node, urls: &Urls, url: &str) -> Result<Wallet, RpcError> {
-    if origin_of(url) == origin_of(urls.origin()) {
-        let path = Uri::parse(url)
-            .map(|uri| uri.path.to_string())
-            .unwrap_or_default();
+    if let Some(path) = urls.own_path(url) {
         let ledger = WalletAddresses::of(node)
             .await
             .map_err(|_| RpcError::unavailable("the ledgers are not running"))?
@@ -198,8 +230,9 @@ async fn wallet(node: &Node, urls: &Urls, url: &str) -> Result<Wallet, RpcError>
             .ok_or_else(|| RpcError::invalid("this node has no such wallet address"))?;
         let asset = ledger.asset();
         let alias = node.config().alias;
+        // `$host` stays `$host`, as the owner wrote it.
         return Ok(Wallet {
-            url: urls.wallet_address(ledger, false),
+            url: urls.wallet_address(ledger, path == WELL_KNOWN_PATH),
             public_name: (!alias.as_str().is_empty()).then(|| alias.as_str().to_string()),
             asset_code: asset.code.into(),
             asset_scale: asset.scale,
@@ -212,7 +245,7 @@ async fn wallet(node: &Node, urls: &Urls, url: &str) -> Result<Wallet, RpcError>
         .map_err(|error| client_error(&error))?;
     Ok(Wallet {
         url: remote.id.clone(),
-        public_name: remote.public_name.clone(),
+        public_name: remote.public_name.as_deref().map(plain),
         asset_code: remote.asset_code.clone(),
         asset_scale: remote.asset_scale,
         own: None,
@@ -340,7 +373,7 @@ async fn create_receiver(
         let row = engine
             .create_incoming_payment(NewIncoming {
                 ledger,
-                wallet_address: wallet.url.clone(),
+                wallet_address: urls.wallet_address(ledger, false),
                 client: None,
                 incoming_amount: Some(amount),
                 expires_at_ms: Some(expires_at_ms),

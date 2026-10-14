@@ -20,6 +20,7 @@ import {
   recipientName,
   type Step,
 } from "./send.ts";
+import { useWalletAddresses } from "./WalletAddresses.tsx";
 
 /** How long typing pauses before the recipient is looked up. */
 const LOOKUP_PAUSE_MS = 400;
@@ -30,13 +31,11 @@ export function Send(): JSX.Element {
   const router = useRouter();
   const id = createUniqueId();
   const to = useSearchParam("to");
-  const wantedLedger = useSearchParam("ledger");
+  const addresses = useWalletAddresses();
   const [step, setStep] = createSignal<Step>("recipient");
   const [input, setInput] = createSignal(to() ?? "");
   const [recipient, setRecipient] = createSignal<Recipient>();
-  const [ledger, setLedger] = createSignal<string | undefined>(
-    wantedLedger() ?? undefined,
-  );
+  const [ledger, setLedger] = createSignal<string>();
   const [amount, setAmount] = createSignal("");
   const [note, setNote] = createSignal("");
   const [quote, setQuote] = createSignal<SendQuote>();
@@ -46,14 +45,18 @@ export function Send(): JSX.Element {
   const ticker = setInterval(() => setNow(Date.now()), 1_000);
   onCleanup(() => clearInterval(ticker));
 
-  // The ledgers in the recipient's asset, and the one that pays.
+  // The ledgers in the recipient's asset, and the one that pays: the one
+  // chosen, else the default, `$host`'s, if it is among them.
   const ledgers = () =>
     (data.ledgers() ?? []).filter((entry) =>
       entry.assetCode === recipient()?.assetCode &&
       entry.assetScale === recipient()?.assetScale
     );
-  const chosen = () =>
-    ledgers().find((entry) => entry.id === ledger()) ?? ledgers()[0];
+  const chosen = () => {
+    const wanted = ledger() ??
+      addresses.addresses()?.find((address) => address.isDefault)?.ledger;
+    return ledgers().find((entry) => entry.id === wanted) ?? ledgers()[0];
+  };
   const scale = () => recipient()?.assetScale ?? 9;
 
   // Looks the recipient up: after a pause in typing, or on Continue. Only
@@ -87,6 +90,9 @@ export function Send(): JSX.Element {
     setRecipient(undefined);
     setError(undefined);
     clearTimeout(pause);
+    // A lookup still on its way is for what was there before.
+    asked++;
+    setPending(false);
     if (looksLikeRecipient(text)) {
       pause = setTimeout(() => void lookUp(text), LOOKUP_PAUSE_MS);
     }
@@ -123,8 +129,9 @@ export function Send(): JSX.Element {
     }
     setPending(true);
     try {
+      // What was found, not what the box says now.
       const response = await client.call("quoteSend", {
-        recipient: input(),
+        recipient: found.request?.url ?? found.walletAddress,
         ledger: chosen()?.id ?? "",
         amount: value,
         note: note(),
@@ -319,7 +326,8 @@ export function Send(): JSX.Element {
                   {recipientName(
                     quoted().recipient ?? {
                       publicName: "",
-                      paymentPointer: input(),
+                      paymentPointer: "",
+                      walletAddress: input(),
                     },
                   )}
                 </dd>
@@ -351,7 +359,7 @@ export function Send(): JSX.Element {
               </p>
               <div class="actions">
                 <Show
-                  when={!lapsed()}
+                  when={!lapsed() && error() === undefined}
                   fallback={
                     <button
                       type="button"
@@ -399,7 +407,7 @@ function RecipientFacts(props: { recipient: Recipient }): JSX.Element {
       <dt>Recipient</dt>
       <dd data-testid="send-recipient-name">
         {recipientName(props.recipient)}
-        <Show when={props.recipient.isOwn}>(one of yours)</Show>
+        <Show when={props.recipient.isOwn}>{` (one of yours)`}</Show>
       </dd>
       <dt>Currency</dt>
       <dd>{props.recipient.assetCode}</dd>
@@ -408,10 +416,14 @@ function RecipientFacts(props: { recipient: Recipient }): JSX.Element {
           <>
             <dt>Request</dt>
             <dd data-testid="send-request">
-              <Show when={request().remaining} fallback="any amount">
-                {(remaining) => (
-                  <Amount value={remaining()} currency={currency()} />
-                )}
+              <Show
+                when={request().remaining !== undefined}
+                fallback="any amount"
+              >
+                <Amount
+                  value={request().remaining ?? 0n}
+                  currency={currency()}
+                />
               </Show>
               <Show when={request().description !== ""}>
                 {` for ${request().description}`}

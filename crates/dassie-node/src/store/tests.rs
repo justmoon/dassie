@@ -3,6 +3,7 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
+use dassie_ledger::LedgerId;
 use dassie_node_core::DAY_MS;
 use dassie_node_core::config::Hostname;
 
@@ -95,7 +96,7 @@ fn refuses_foreign_and_newer_databases() {
         Store::open(temp.path()),
         Err(StoreError::TooNew {
             found: 99,
-            known: 8
+            known: 9
         })
     ));
 }
@@ -349,4 +350,62 @@ fn columns_named_like_secrets_are_classified() {
             assert!(!suspicious || classified, "{}.{name}", table.name);
         }
     }
+}
+
+fn quote_row(n: u32, client: Option<&str>, now: u64) -> QuoteRow {
+    let mut id = [0u8; 16];
+    id[..4].copy_from_slice(&n.to_be_bytes());
+    id[4] = u8::from(client.is_some());
+    QuoteRow {
+        id: PaymentId(id),
+        ledger: LedgerId::StubUsd,
+        wallet_address: "https://localhost/pay/stub".into(),
+        client: client.map(String::from),
+        receiver: "https://elsewhere.example/incoming-payments/1".into(),
+        destination: "test.elsewhere".into(),
+        shared_secret: [1; 32],
+        debit_amount: 1,
+        receive_amount: ForeignAmount {
+            value: 1,
+            asset_code: "USD".into(),
+            asset_scale: 9,
+        },
+        created_at_ms: now,
+        expires_at_ms: now + 60_000,
+        recipient: client
+            .is_none()
+            .then(|| "https://elsewhere.example/.well-known/pay".into()),
+    }
+}
+
+// Found in review: clients' quotes, which need no owner, could fill the
+// one cap and leave the owner's Send none.
+#[test]
+fn clients_quotes_do_not_crowd_out_the_owners() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = Store::open(temp.path()).unwrap();
+    let now = 1_800_000_000_000;
+    let client = Some("jwk:x");
+    for n in 0..MAX_LIVE_QUOTES {
+        assert!(store.insert_quote(&quote_row(n, client, now), now).unwrap());
+    }
+    let one_more = quote_row(MAX_LIVE_QUOTES, client, now);
+    assert!(!store.insert_quote(&one_more, now).unwrap());
+    for n in 0..MAX_LIVE_OWNER_QUOTES {
+        assert!(store.insert_quote(&quote_row(n, None, now), now).unwrap());
+    }
+    let one_more = quote_row(MAX_LIVE_OWNER_QUOTES, None, now);
+    assert!(!store.insert_quote(&one_more, now).unwrap());
+    // Each keeps what it pays; expired, they make room again.
+    let kept = store.quote(quote_row(0, None, now).id).unwrap().unwrap();
+    assert_eq!(
+        kept.recipient.as_deref(),
+        Some("https://elsewhere.example/.well-known/pay")
+    );
+    let later = now + 60_000;
+    assert!(
+        store
+            .insert_quote(&quote_row(0, None, later), later)
+            .unwrap()
+    );
 }

@@ -81,14 +81,19 @@ impl Recipient {
 }
 
 /// A wallet address URL written as a payment pointer: `$host` for the
-/// well-known path, `$host/path` otherwise; none if it is not one.
+/// well-known path, `$host/path` otherwise. None if it is not a wallet
+/// address, or has no path, which no pointer names: `$host` is the
+/// well-known path.
 #[must_use]
 pub fn payment_pointer(url: &str) -> Option<String> {
     check_wallet_address(url).ok()?;
     let uri = Uri::parse(url).ok()?;
+    if uri.path.is_empty() || uri.path == "/" {
+        return None;
+    }
     let mut pointer = String::from("$");
-    pointer.push_str(uri.authority);
-    if uri.path != WELL_KNOWN_PATH && !uri.path.is_empty() && uri.path != "/" {
+    pointer.push_str(&uri.authority.to_ascii_lowercase());
+    if uri.path != WELL_KNOWN_PATH {
         pointer.push_str(uri.path);
     }
     Some(pointer)
@@ -136,16 +141,23 @@ mod tests {
     #[test]
     fn writes_wallet_addresses_as_payment_pointers() {
         for (url, pointer) in [
-            ("https://d2.localhost:5002/.well-known/pay", "$d2.localhost:5002"),
+            (
+                "https://d2.localhost:5002/.well-known/pay",
+                "$d2.localhost:5002",
+            ),
             ("https://d2.localhost/pay/stub", "$d2.localhost/pay/stub"),
-            ("https://ilp.example", "$ilp.example"),
         ] {
             assert_eq!(payment_pointer(url).as_deref(), Some(pointer), "{url}");
-            assert_eq!(
-                wallet_address_url(pointer).ok().and_then(|url| payment_pointer(&url)),
-                Some(pointer.into())
-            );
+            // Both ways, the same.
+            assert_eq!(wallet_address_url(pointer).as_deref(), Ok(url));
         }
+        assert_eq!(
+            payment_pointer("https://ILP.example/alice").as_deref(),
+            Some("$ilp.example/alice")
+        );
+        // `$ilp.example` is the well-known path, not these.
+        assert_eq!(payment_pointer("https://ilp.example"), None);
+        assert_eq!(payment_pointer("https://ilp.example/"), None);
         assert_eq!(payment_pointer("http://ilp.example/a"), None);
     }
 
@@ -182,7 +194,11 @@ mod tests {
             "http://d2.localhost/incoming-payments/abc",
             "https://d2.localhost/incoming-payments/abc?x=1",
         ] {
-            assert_eq!(Recipient::parse(input), Err(InvalidWalletAddress), "{input}");
+            assert_eq!(
+                Recipient::parse(input),
+                Err(InvalidWalletAddress),
+                "{input}"
+            );
         }
         let long = alloc::format!("https://wallet.example/{}", "a".repeat(MAX_URI_BYTES));
         assert_eq!(Recipient::parse(&long), Err(InvalidWalletAddress));

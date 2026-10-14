@@ -7,7 +7,6 @@
 
 mod support;
 
-
 use dassie_identity::NodeKey;
 use dassie_node::clock::{Clock, ManualClock};
 use dassie_node::node::Policies;

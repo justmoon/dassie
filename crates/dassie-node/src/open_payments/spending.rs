@@ -16,7 +16,8 @@ use dassie_payments::resources::{self, IncomingPayment};
 use dassie_payments::time;
 
 use super::auth::OpError;
-use super::{Urls, client};
+use super::client::{self, ClientError};
+use super::{INCOMING_PREFIX, Urls};
 use crate::engine::NewOutgoing;
 use crate::node::Node;
 use crate::store::{ForeignAmount, PaymentId, QuoteRow};
@@ -59,11 +60,25 @@ pub async fn incoming_payment(
     if url.len() > MAX_URL_BYTES || !dassie_payments::gnap::is_receiver(url) {
         return Err(OpError::invalid("the receiver is not an incoming payment"));
     }
-    match url.strip_prefix(&format!("{}/incoming-payments/", urls.origin())) {
-        Some(id) => local_receiver(node, urls, id),
-        None => client::read_incoming(node, url).await.map_err(|failure| {
-            OpError::invalid(format!("the receiver cannot be read: {failure}"))
-        }),
+    let local = urls.own_path(url).and_then(|path| {
+        path.strip_prefix(&format!("{INCOMING_PREFIX}/"))
+            .map(str::to_string)
+    });
+    match local {
+        Some(id) => local_receiver(node, urls, &id),
+        None => client::read_incoming(node, url)
+            .await
+            .map_err(|failure| match failure {
+                ClientError::Unreachable(_) => OpError::new(
+                    502,
+                    "unreachable",
+                    format!("the receiver cannot be read: {failure}"),
+                ),
+                ClientError::Unavailable => OpError::unavailable(),
+                ClientError::Invalid(_) | ClientError::Refused(_) => {
+                    OpError::invalid(format!("the receiver cannot be read: {failure}"))
+                }
+            }),
     }
 }
 

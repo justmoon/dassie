@@ -14,8 +14,11 @@ use rusqlite::{OptionalExtension, Row, Transaction, params};
 use super::payments::{IncomingQuery, Page, page};
 use super::{PaymentId, Store, StoreError, from_sql_time, to_sql_time};
 
-/// Most quotes not yet expired.
+/// Most clients' quotes not yet expired.
 pub const MAX_LIVE_QUOTES: u32 = 4_096;
+/// Most of the owner's quotes not yet expired: apart from clients', so
+/// they cannot crowd the owner out.
+pub const MAX_LIVE_OWNER_QUOTES: u32 = 256;
 
 /// Most outgoing payments still sending that are loaded at a start.
 pub const MAX_SENDING_LOADED: u32 = 4_096;
@@ -182,7 +185,7 @@ const NEXT_REVISION: &str = "(SELECT coalesce(max(revision), 0) + 1 FROM outgoin
 
 impl Store {
     /// Stores a quote, after forgetting expired ones; false when too many
-    /// are live.
+    /// of its kind, the owner's or clients', are live.
     pub fn insert_quote(&self, quote: &QuoteRow, now_ms: u64) -> Result<bool, StoreError> {
         let mut connection = self.lock();
         let transaction = connection.transaction()?;
@@ -191,12 +194,18 @@ impl Store {
              AND id NOT IN (SELECT quote_id FROM outgoing_payments WHERE quote_id IS NOT NULL)",
             [to_sql_time(now_ms)],
         )?;
+        let owner = quote.client.is_none();
         let live: i64 = transaction.query_row(
-            "SELECT count(*) FROM quotes WHERE expires_at_ms > ?1",
-            [to_sql_time(now_ms)],
+            "SELECT count(*) FROM quotes WHERE expires_at_ms > ?1 AND (client IS NULL) = ?2",
+            params![to_sql_time(now_ms), owner],
             |row| row.get(0),
         )?;
-        if live >= i64::from(MAX_LIVE_QUOTES) {
+        let most = if owner {
+            MAX_LIVE_OWNER_QUOTES
+        } else {
+            MAX_LIVE_QUOTES
+        };
+        if live >= i64::from(most) {
             return Ok(false);
         }
         transaction.execute(

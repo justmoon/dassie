@@ -88,7 +88,14 @@ impl<'a> Uri<'a> {
     pub fn origin(&self) -> String {
         let mut origin = String::from(self.scheme);
         origin.push_str("://");
-        origin.push_str(&self.authority.to_ascii_lowercase());
+        let authority = self.authority.to_ascii_lowercase();
+        // The scheme's own port says nothing more.
+        let default = if self.scheme == "https" {
+            ":443"
+        } else {
+            ":80"
+        };
+        origin.push_str(authority.strip_suffix(default).unwrap_or(&authority));
         origin
     }
 }
@@ -181,6 +188,19 @@ mod tests {
         assert_eq!(Uri::parse("https://[::1]:443/").unwrap().host(), "[::1]");
         assert_eq!(Uri::parse("https://[::1]/").unwrap().host(), "[::1]");
         assert_eq!(Uri::parse("https://example.com").unwrap().path, "");
+        // The scheme's own port is the same origin.
+        assert_eq!(
+            Uri::parse("https://Example.com:443/a").unwrap().origin(),
+            "https://example.com"
+        );
+        assert_eq!(
+            Uri::parse("https://example.com:4430/").unwrap().origin(),
+            "https://example.com:4430"
+        );
+        assert_eq!(
+            Uri::parse("http://example.com:80/").unwrap().origin(),
+            "http://example.com"
+        );
     }
 
     #[test]

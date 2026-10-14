@@ -4,21 +4,21 @@
 //!
 //! An incoming payment's `methods`, the STREAM credentials, are readable
 //! only with a grant. The node asks the payment's authorization server for
-//! a non-interactive `incoming-payment` grant with `create` and
-//! `read-all`, as its own `$host` wallet address, whose `jwks.json`
-//! publishes its key, and signs every request with that key. Tokens are
-//! kept per authorization server, origin and access until they expire, in
-//! a bounded cache. Requests go through the guarded HTTPS client: public
+//! a non-interactive `incoming-payment` grant, `read-all` to read one and
+//! `create` to create one, as its own `$host` wallet address, whose
+//! `jwks.json` publishes its key, and signs every request with that key.
+//! Tokens are kept per authorization server, origin and action until they
+//! expire, in a bounded cache. Requests go through the guarded HTTPS client: public
 //! addresses only, no redirects, bounded bodies.
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
+use dassie_payments::amount::Amount;
 use dassie_payments::gnap::{
     Access, AccessTokenRequest, AccessType, Action, Client, ClientWalletAddress, GrantRequest,
     GrantResponse,
 };
-use dassie_payments::amount::Amount;
 use dassie_payments::resources::{
     CreateIncomingPayment, IncomingPayment, PublicIncomingPayment, WalletAddress,
 };
@@ -216,7 +216,7 @@ pub async fn create_incoming(
     .map_err(|error| ClientError::Invalid(error.to_string()))?;
     let mut retried = false;
     loop {
-        let token = incoming_token(node, &urls, &wallet.auth_server, &origin).await?;
+        let token = incoming_token(node, &urls, &wallet.auth_server, &origin, Want::Create).await?;
         let response = signed(
             node,
             http::Method::POST,
@@ -226,7 +226,7 @@ pub async fn create_incoming(
         )
         .await?;
         if response.status == 401 && !retried {
-            forget_incoming_token(node, &wallet.auth_server, &origin);
+            forget_incoming_token(node, &wallet.auth_server, &origin, Want::Create);
             retried = true;
             continue;
         }
@@ -307,29 +307,59 @@ async fn signed(
         .await?)
 }
 
-/// The cache key of the incoming-payment token for `auth_server` and
-/// resources at `origin`. It names the access, so a token cached for less
-/// is never used for more.
-fn incoming_key(auth_server: &str, origin: &str) -> String {
-    format!("{auth_server} {origin} incoming-payment:create,read-all")
+/// What the node asks other wallets for: one action on incoming payments.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Want {
+    /// `read-all`: to pay an incoming payment.
+    Read,
+    /// `create`: to make the one the owner's Send pays.
+    Create,
 }
 
-fn forget_incoming_token(node: &Node, auth_server: &str, origin: &str) {
-    crate::node::lock(&node.open_payments().tokens).forget(&incoming_key(auth_server, origin));
+impl Want {
+    const fn action(self) -> Action {
+        match self {
+            Self::Read => Action::ReadAll,
+            Self::Create => Action::Create,
+        }
+    }
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Read => "read-all",
+            Self::Create => "create",
+        }
+    }
 }
 
-/// A token to create and read incoming payments at `auth_server` for
-/// resources at `origin`: cached, or asked for anew. The cache keys by
-/// both, so a payment that names another wallet's authorization server
-/// is never sent that wallet's token.
+/// The cache key of the incoming-payment token for `auth_server`,
+/// resources at `origin`, and `want`: a token is used only for what it
+/// was asked for.
+fn incoming_key(auth_server: &str, origin: &str, want: Want) -> String {
+    format!("{auth_server} {origin} incoming-payment:{}", want.as_str())
+}
+
+fn forget_incoming_token(node: &Node, auth_server: &str, origin: &str, want: Want) {
+    crate::node::lock(&node.open_payments().tokens).forget(&incoming_key(
+        auth_server,
+        origin,
+        want,
+    ));
+}
+
+/// A token for `want` on incoming payments at `auth_server` for resources
+/// at `origin`: cached, or asked for anew. The cache keys by both, so a
+/// payment that names another wallet's authorization server is never sent
+/// that wallet's token.
 async fn incoming_token(
     node: &Node,
     urls: &Urls,
     auth_server: &str,
     origin: &str,
+    want: Want,
 ) -> Result<String, ClientError> {
     let now = node.now_ms();
-    let key = incoming_key(auth_server, origin);
+    let key = incoming_key(auth_server, origin, want);
     if let Some(token) = crate::node::lock(&node.open_payments().tokens).get(&key, now) {
         return Ok(token);
     }
@@ -337,7 +367,7 @@ async fn incoming_token(
         access_token: Some(AccessTokenRequest {
             access: vec![Access {
                 kind: AccessType::IncomingPayment,
-                actions: vec![Action::Create, Action::ReadAll],
+                actions: vec![want.action()],
                 identifier: None,
                 limits: None,
                 card_authorization: None,
@@ -383,11 +413,11 @@ pub async fn read_incoming(node: &Node, url: &str) -> Result<IncomingPayment, Cl
         origin_of(url).ok_or_else(|| ClientError::Invalid("the receiver is not a URL".into()))?;
     let mut retried = false;
     loop {
-        let token = incoming_token(node, &urls, &public.auth_server, &origin).await?;
+        let token = incoming_token(node, &urls, &public.auth_server, &origin, Want::Read).await?;
         let response = signed(node, http::Method::GET, url, Some(&token), None).await?;
         if response.status == 401 && !retried {
             // The token was revoked or rotated away: ask once more.
-            forget_incoming_token(node, &public.auth_server, &origin);
+            forget_incoming_token(node, &public.auth_server, &origin, Want::Read);
             retried = true;
             continue;
         }

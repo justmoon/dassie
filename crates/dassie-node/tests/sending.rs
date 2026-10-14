@@ -22,9 +22,9 @@ use hyper::{Request, Response};
 use hyper_util::rt::TokioIo;
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use support::TestNode;
 use support::op::{CERT, KEY, start};
 use support::pair::{Pair, until};
-use support::TestNode;
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 
@@ -144,7 +144,10 @@ async fn the_owner_sends_to_a_payment_pointer_on_a_peer() {
         format!("{}/.well-known/pay", b.origin())
     );
     assert_eq!(recipient.payment_pointer, pointer);
-    assert_eq!((recipient.asset_code.as_str(), recipient.asset_scale), ("USD", 9));
+    assert_eq!(
+        (recipient.asset_code.as_str(), recipient.asset_scale),
+        ("USD", 9)
+    );
     assert!(!recipient.is_own && recipient.request.is_none());
 
     let before_a = ledger_balance(a).await;
@@ -210,10 +213,16 @@ async fn the_owner_sends_to_a_payment_pointer_on_a_peer() {
         ledger_balance(b).await == before_b + i64::try_from(AMOUNT).unwrap()
     })
     .await;
-    assert_eq!(ledger_balance(a).await, before_a - i64::try_from(AMOUNT).unwrap());
+    assert_eq!(
+        ledger_balance(a).await,
+        before_a - i64::try_from(AMOUNT).unwrap()
+    );
 
     // A quote pays once.
-    assert_eq!(code(send(a, &quoted.id).await), proto::ErrorCode::InvalidArgument);
+    assert_eq!(
+        code(send(a, &quoted.id).await),
+        proto::ErrorCode::InvalidArgument
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -296,16 +305,30 @@ async fn sends_that_cannot_be_made_are_refused_and_say_why() {
     for input in ["", "alice", "http://localhost/.well-known/pay"] {
         let error = resolve(&node, input).await.unwrap_err();
         assert_eq!(error.code(), proto::ErrorCode::InvalidArgument, "{input}");
-        assert!(error.message.contains("payment pointer"), "{}", error.message);
+        assert!(
+            error.message.contains("payment pointer"),
+            "{}",
+            error.message
+        );
     }
     // Nobody there.
     let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = closed.local_addr().unwrap().port();
     drop(closed);
-    let error = resolve(&node, &format!("$localhost:{port}")).await.unwrap_err();
-    assert_eq!(error.code(), proto::ErrorCode::Unavailable, "{}", error.message);
+    let error = resolve(&node, &format!("$localhost:{port}"))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.code(),
+        proto::ErrorCode::Unavailable,
+        "{}",
+        error.message
+    );
     // A wallet address needs an amount, and a note fits in 256 characters.
-    assert_eq!(code(quote(&node, &own, None, "").await), proto::ErrorCode::InvalidArgument);
+    assert_eq!(
+        code(quote(&node, &own, None, "").await),
+        proto::ErrorCode::InvalidArgument
+    );
     assert_eq!(
         code(quote(&node, &own, Some(1), &"x".repeat(257)).await),
         proto::ErrorCode::InvalidArgument
@@ -317,7 +340,9 @@ async fn sends_that_cannot_be_made_are_refused_and_say_why() {
     assert_eq!(error.code(), proto::ErrorCode::InvalidArgument);
     assert!(error.message.contains("expired"), "{}", error.message);
     // More than the funds.
-    let quoted = quote(&node, &own, Some(1_000_000_000_000), "").await.unwrap();
+    let quoted = quote(&node, &own, Some(1_000_000_000_000), "")
+        .await
+        .unwrap();
     assert_eq!(
         code(send(&node, &quoted.id).await),
         proto::ErrorCode::FailedPrecondition
@@ -343,10 +368,11 @@ async fn sends_that_cannot_be_made_are_refused_and_say_why() {
     assert_eq!(error.code(), proto::ErrorCode::NotFound);
 }
 
-/// A wallet that answers each request with what `answer` says, by method
-/// and path, over HTTPS at `localhost`; its port.
+/// A wallet that answers each request with what `answer` says, by method,
+/// path, its own port, and whether the request carried a token, over HTTPS
+/// at `localhost`; its port.
 async fn fake_wallet(
-    answer: impl Fn(&str, &str, u16) -> (u16, String) + Send + Sync + 'static,
+    answer: impl Fn(&str, &str, u16, bool) -> (u16, String) + Send + Sync + 'static,
 ) -> u16 {
     let certs = CertificateDer::pem_file_iter(CERT)
         .unwrap()
@@ -376,18 +402,25 @@ async fn fake_wallet(
                 let Ok(tls) = acceptor.accept(stream).await else {
                     return;
                 };
-                let service = hyper::service::service_fn(move |request: Request<hyper::body::Incoming>| {
-                    let (status, body) = answer(request.method().as_str(), request.uri().path(), port);
-                    async move {
-                        Ok::<_, Infallible>(
-                            Response::builder()
-                                .status(status)
-                                .header("content-type", "application/json")
-                                .body(Full::new(Bytes::from(body)))
-                                .unwrap(),
-                        )
-                    }
-                });
+                let service =
+                    hyper::service::service_fn(move |request: Request<hyper::body::Incoming>| {
+                        let authorized = request.headers().contains_key("authorization");
+                        let (status, body) = answer(
+                            request.method().as_str(),
+                            request.uri().path(),
+                            port,
+                            authorized,
+                        );
+                        async move {
+                            Ok::<_, Infallible>(
+                                Response::builder()
+                                    .status(status)
+                                    .header("content-type", "application/json")
+                                    .body(Full::new(Bytes::from(body)))
+                                    .unwrap(),
+                            )
+                        }
+                    });
                 let _ = hyper::server::conn::http1::Builder::new()
                     .serve_connection(TokioIo::new(tls), service)
                     .await;
@@ -412,12 +445,17 @@ fn wallet_document(id: &str, port: u16) -> String {
 async fn wallets_that_misbehave_are_not_paid() {
     let (node, _) = start().await;
     // One that says it is another.
-    let port = fake_wallet(|_, path, port| match path {
-        "/.well-known/pay" => (200, wallet_document("https://elsewhere.example/.well-known/pay", port)),
+    let port = fake_wallet(|_, path, port, _| match path {
+        "/.well-known/pay" => (
+            200,
+            wallet_document("https://elsewhere.example/.well-known/pay", port),
+        ),
         _ => (404, "{}".into()),
     })
     .await;
-    let error = resolve(&node, &format!("$localhost:{port}")).await.unwrap_err();
+    let error = resolve(&node, &format!("$localhost:{port}"))
+        .await
+        .unwrap_err();
     assert_eq!(error.code(), proto::ErrorCode::InvalidArgument);
     assert!(error.message.contains("names another"), "{}", error.message);
 
@@ -426,7 +464,7 @@ async fn wallets_that_misbehave_are_not_paid() {
     let grants = Arc::new(AtomicU32::new(0));
     let seen = Arc::new(Mutex::new(Vec::new()));
     let (counted, log) = (Arc::clone(&grants), Arc::clone(&seen));
-    let port = fake_wallet(move |method, path, port| {
+    let port = fake_wallet(move |method, path, port, _| {
         log.lock().unwrap().push(format!("{method} {path}"));
         match (method, path) {
             ("GET", "/.well-known/pay") => (
@@ -452,14 +490,128 @@ async fn wallets_that_misbehave_are_not_paid() {
                     .to_string(),
                 )
             }
-            _ => (401, r#"{"error":{"code":"unauthorized","description":"no"}}"#.into()),
+            _ => (
+                401,
+                r#"{"error":{"code":"unauthorized","description":"no"}}"#.into(),
+            ),
         }
     })
     .await;
     let pointer = format!("$localhost:{port}");
     assert!(resolve(&node, &pointer).await.is_ok());
     let error = quote(&node, &pointer, Some(AMOUNT), "").await.unwrap_err();
-    assert_eq!(error.code(), proto::ErrorCode::InvalidArgument, "{}", error.message);
+    assert_eq!(
+        error.code(),
+        proto::ErrorCode::InvalidArgument,
+        "{}",
+        error.message
+    );
     assert!(error.message.contains("401"), "{}", error.message);
-    assert_eq!(grants.load(Ordering::SeqCst), 2, "{:?}", seen.lock().unwrap());
+    assert_eq!(
+        grants.load(Ordering::SeqCst),
+        2,
+        "{:?}",
+        seen.lock().unwrap()
+    );
+}
+
+/// A grant, as an authorization server answers one.
+fn granted(port: u16) -> String {
+    serde_json::json!({
+        "access_token": {
+            "value": "token",
+            "manage": format!("https://localhost:{port}/gnap/token/1"),
+            "expires_in": 600,
+            "access": [],
+        },
+        "continue": {
+            "access_token": { "value": "c" },
+            "uri": format!("https://localhost:{port}/gnap/continue/1"),
+        },
+    })
+    .to_string()
+}
+
+// Found in review: a payment request's wallet address came from the
+// request, so a request elsewhere could name any wallet, the owner's too,
+// and be shown, and kept, as a payment to it.
+#[tokio::test(flavor = "multi_thread")]
+async fn payment_requests_speak_only_for_their_own_wallet() {
+    let (node, _) = start().await;
+    // A wallet that is what it says.
+    let shop = fake_wallet(|_, path, port, _| match path {
+        "/.well-known/pay" => (
+            200,
+            wallet_document(&format!("https://localhost:{port}/.well-known/pay"), port),
+        ),
+        _ => (404, "{}".into()),
+    })
+    .await;
+    // A request elsewhere that names whatever `claims` holds.
+    let claims = Arc::new(Mutex::new(String::new()));
+    let named = Arc::clone(&claims);
+    let evil = fake_wallet(move |method, path, port, authorized| {
+        let url = format!("https://localhost:{port}/incoming-payments/1");
+        match (method, path, authorized) {
+            ("GET", "/incoming-payments/1", false) => (
+                200,
+                serde_json::json!({
+                    "receivedAmount": { "value": "0", "assetCode": "USD", "assetScale": 9 },
+                    "authServer": format!("https://localhost:{port}/gnap"),
+                })
+                .to_string(),
+            ),
+            ("GET", "/incoming-payments/1", true) => (
+                200,
+                serde_json::json!({
+                    "id": url,
+                    "walletAddress": named.lock().unwrap().clone(),
+                    "completed": false,
+                    "receivedAmount": { "value": "0", "assetCode": "USD", "assetScale": 9 },
+                    "createdAt": "2027-01-15T08:00:00.000Z",
+                    "methods": [{
+                        "type": "ilp",
+                        "ilpAddress": "test.evil",
+                        "sharedSecret": "A".repeat(43),
+                    }],
+                })
+                .to_string(),
+            ),
+            ("POST", "/gnap", _) => (200, granted(port)),
+            _ => (404, "{}".into()),
+        }
+    })
+    .await;
+    let request = format!("https://localhost:{evil}/incoming-payments/1");
+    for wallet in [
+        format!("https://localhost:{shop}/.well-known/pay"),
+        format!("{}/.well-known/pay", node.origin()),
+    ] {
+        *claims.lock().unwrap() = wallet.clone();
+        let error = resolve(&node, &request).await.unwrap_err();
+        assert_eq!(error.code(), proto::ErrorCode::InvalidArgument, "{wallet}");
+        assert!(error.message.contains("not its own"), "{}", error.message);
+        assert_eq!(
+            code(quote(&node, &request, Some(1), "").await),
+            proto::ErrorCode::InvalidArgument
+        );
+    }
+}
+
+// Found in review: the node's own URLs in another case, or with the
+// scheme's port, were taken for another node's.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_nodes_own_urls_are_its_own_in_any_case() {
+    let (node, _) = start().await;
+    let shouted = node.origin().replace("localhost", "LOCALHOST");
+    let recipient = resolve(&node, &format!("{shouted}/.well-known/pay"))
+        .await
+        .unwrap();
+    assert!(recipient.is_own);
+    assert_eq!(recipient.payment_pointer, format!("${}", node.host()));
+    let request = node.ipc().await.incoming_payment(Some(AMOUNT)).await;
+    let shouted_request = request.url.replace("localhost", "LOCALHOST");
+    let found = resolve(&node, &shouted_request).await.unwrap();
+    assert!(found.is_own);
+    assert_eq!(found.request.unwrap().remaining, Some(AMOUNT));
 }
