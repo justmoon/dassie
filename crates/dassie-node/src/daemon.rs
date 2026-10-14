@@ -278,7 +278,8 @@ fn make_node(
     let settings = &parts.settings;
     let policies = if settings.dev_timings {
         Policies {
-            peer: dassie_peer::Config::DEV,
+            peer: Policies::DEV.peer,
+            settlement_interval_ms: Policies::DEV.settlement_interval_ms,
             ..parts.policies
         }
     } else {
