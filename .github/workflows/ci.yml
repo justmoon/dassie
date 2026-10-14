@@ -23,13 +23,29 @@ jobs:
   # and dependencies it pins: the Rust side (fmt, clippy native and wasm32,
   # tests, the WASM bindings) and the Deno side (nix/deno: fmt, lint, type
   # check, each member's tests, and each interop and end-to-end test file,
-  # against the wallet and the end-to-end binary built in Nix). Each check is
-  # its own job, built on nixbuild.net, which keeps what it built: checks
-  # whose inputs have not changed are not run again.
+  # against the wallet and the end-to-end binary built in Nix).
+  #
+  # One build of all checks, in nixbuild.net's store: it builds whatever is
+  # stale, each derivation on its own machine and all at once, and keeps
+  # what it built, so checks whose inputs have not changed are not run
+  # again. Nothing is copied back to the runner.
   nix:
-    uses: nixbuild/nixbuild-action/.github/workflows/ci-workflow.yml@v27
-    secrets:
-      nixbuild_token: ${{ secrets.NIXBUILD_TOKEN }}
-    with:
-      # What `nix flake check` builds on an x86_64 runner.
-      filter_builds: '.top_attr == "checks" and .system == "x86_64-linux"'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: nixbuild/nix-quick-install-action@v35
+      - uses: nixbuild/nixbuild-action@v27
+        with:
+          nixbuild_token: ${{ secrets.NIXBUILD_TOKEN }}
+          generate_summary_for: job
+      # What `nix flake check` builds on an x86_64 runner. --keep-going
+      # reports every failing check, not just the first.
+      - name: Nix checks
+        run: |
+          names=$(nix eval --json .#checks.x86_64-linux --apply builtins.attrNames)
+          mapfile -t checks < <(jq -r '.[] | ".#checks.x86_64-linux." + .' <<<"$names")
+          nix build "${checks[@]}" \
+            --print-build-logs --keep-going --no-link \
+            --eval-store auto --store ssh-ng://nixbuild \
+            --builders "" --max-jobs 2
