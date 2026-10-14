@@ -184,7 +184,8 @@ Revised on 2026-10-14; it first served SPSP and deferred GNAP, quotes and outgoi
     - **Grant limits** (amounts per repeating interval) are reserved when an outgoing payment is created.
   - **The owner's consent** (M6b):
     - A grant that needs the owner is pending until decided. The client is sent to `GET /gnap/interact/{id}/{key}`, a random key per grant, which leads to the wallet's consent page.
-    - The page shows who asks (the client's wallet address and public name, or "unverified key"), the access, and its limits in plain words. Approving or denying sends the client to its finish URI, with the interaction hash and `interact_ref`, or with `result=grant_rejected`.
+    - The page shows who asks (the client's wallet address and public name: a client known only by its key is refused for such grants), the access, and its limits in plain words; payments without limits read as "of any amount".
+    - Limits' intervals have windows of at least a minute, since each window spent in is kept. Approving or denying sends the client to its finish URI, with the interaction hash and `interact_ref`, or with `result=grant_rejected`.
     - The client continues with `interact_ref` to get its token, no sooner than the `wait` it was given (`too_fast`).
     - A pending grant lapses after 10 minutes. At most 256 are pending at once.
   - **Quotes and outgoing payments** (M6b):

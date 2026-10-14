@@ -35,6 +35,9 @@ use crate::store::{ForeignAmount, IncomingQuery, OutgoingRow, OutgoingState, Pay
 
 /// How long a quote may be paid.
 const QUOTE_LIFETIME_MS: u64 = 5 * 60 * 1_000;
+/// The longest receiver URL and ILP address kept.
+const MAX_URL_BYTES: usize = 2_048;
+const MAX_ILP_ADDRESS_BYTES: usize = 1_023;
 
 /// Routes `/quotes[/{id}]`, `/outgoing-payments[/{id}]` and
 /// `/outgoing-payment-grant`.
@@ -54,7 +57,7 @@ pub async fn route(
     let result = match (&method, segments.as_slice()) {
         (&Method::POST, ["quotes"]) => create_quote(node, peer, urls, &read).await,
         (&Method::GET | &Method::HEAD, ["quotes", id]) => get_quote(node, urls, &read, id).await,
-        (&Method::POST, ["outgoing-payments"]) => create_outgoing(node, urls, &read).await,
+        (&Method::POST, ["outgoing-payments"]) => create_outgoing(node, peer, urls, &read).await,
         (&Method::GET, ["outgoing-payments"]) => list_outgoing(node, urls, &read).await,
         (&Method::GET | &Method::HEAD, ["outgoing-payments", id]) => {
             get_outgoing(node, urls, &read, id).await
@@ -94,7 +97,7 @@ struct Receiver {
 
 /// Reads the incoming payment at `url`, here or on another node.
 async fn receiver(node: &Node, urls: &Urls, url: &str) -> Result<Receiver, OpError> {
-    if !dassie_payments::gnap::is_receiver(url) {
+    if url.len() > MAX_URL_BYTES || !dassie_payments::gnap::is_receiver(url) {
         return Err(OpError::invalid("the receiver is not an incoming payment"));
     }
     let payment = match url.strip_prefix(&format!("{}/incoming-payments/", urls.origin())) {
@@ -121,6 +124,12 @@ async fn receiver(node: &Node, urls: &Urls, url: &str) -> Result<Receiver, OpErr
         .into_iter()
         .find(|method| method.kind == "ilp")
         .ok_or_else(|| OpError::invalid("the receiver cannot be paid over ILP"))?;
+    // Another wallet says what it is: it must be an address.
+    if method.ilp_address.len() > MAX_ILP_ADDRESS_BYTES
+        || dassie_ilp::Address::parse(&method.ilp_address).is_err()
+    {
+        return Err(OpError::invalid("the receiver's ILP address is invalid"));
+    }
     let shared_secret = URL_SAFE_NO_PAD
         .decode(&method.shared_secret)
         .ok()
@@ -202,6 +211,9 @@ fn amounts(
     let (Some(debit), Some(receive)) = (debit, receive) else {
         return Err(OpError::invalid("the amount is out of range"));
     };
+    if debit > dassie_ledger::MAX_TOTAL || receive > dassie_ledger::MAX_TOTAL {
+        return Err(OpError::invalid("the amount is out of range"));
+    }
     if debit == 0 || receive == 0 {
         return Err(OpError::invalid("the amount is zero"));
     }
@@ -348,6 +360,7 @@ fn limits_of(authorized: &Authorized, urls: &Urls, ledger: LedgerId) -> Limits {
 /// incoming payment with the amount to debit.
 async fn create_outgoing(
     node: &Node,
+    peer: SocketAddr,
     urls: &Urls,
     read: &ReadRequest,
 ) -> Result<Response<Body>, OpError> {
@@ -358,6 +371,13 @@ async fn create_outgoing(
     authorized
         .permits(urls, AccessType::OutgoingPayment, Action::Create, ledger)
         .ok_or_else(|| OpError::forbidden("the grant does not allow payments from here"))?;
+    // It may read another wallet, and moves money: as limited as quotes.
+    if !node
+        .open_payments()
+        .allow_creation(peer.ip(), node.now_ms())
+    {
+        return Err(OpError::new(429, "too_many_requests", "slow down"));
+    }
     let metadata = match &body.metadata {
         Some(metadata) if !resources::metadata_fits(metadata) => {
             return Err(OpError::invalid("the metadata is too large"));

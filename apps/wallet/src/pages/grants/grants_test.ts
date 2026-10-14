@@ -40,7 +40,7 @@ Deno.test("limits read as a sentence", () => {
       ledger: "stub+usd",
       limits,
     }),
-    "Send payments of up to $ 10.00 a day",
+    "Send payments of up to $ 10.00 a day from your USD wallet",
   );
   assertEquals(spentText(limits), "$ 2.50 of $ 10.00 spent this period");
   assertEquals(

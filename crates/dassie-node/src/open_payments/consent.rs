@@ -319,13 +319,20 @@ pub async fn continue_grant(
     let now = node.now_ms();
     let mut interaction = Interaction::of(&grant)?;
     match grant.state {
+        GrantState::Pending if grant.expires_at_ms <= now => Err(invalid(
+            ErrorCode::InvalidContinuation,
+            401,
+            "the grant lapsed: the owner did not decide in time",
+        )),
         GrantState::Pending => {
             if now < interaction.continued_at_ms + CONTINUE_WAIT_S * 1_000 {
                 return Err(invalid(ErrorCode::TooFast, 400, "continued too soon"));
             }
             interaction.continued_at_ms = now;
+            // The owner may decide meanwhile: the decision stands, and the
+            // next continuation sees it.
             node.store()
-                .update_interaction(grant.id, &interaction.json()?, None)?;
+                .update_interaction(&grant, &interaction.json()?, None)?;
             Ok(GrantResponse {
                 interact: None,
                 access_token: None,
@@ -357,7 +364,7 @@ async fn finalize(
 ) -> Result<GrantResponse, OpError> {
     let invalid = |description: &str| {
         OpError::new(
-            400,
+            401,
             ErrorCode::InvalidContinuation.as_str(),
             description.to_string(),
         )
@@ -390,11 +397,14 @@ async fn finalize(
     });
     interaction.finalized = true;
     interaction.continued_at_ms = now;
-    node.store().update_interaction(
-        grant.id,
+    // Once: of two continuations at the same moment, one issues it.
+    if !node.store().update_interaction(
+        &grant,
         &interaction.json()?,
         token.as_ref().map(|(_, row)| row),
-    )?;
+    )? {
+        return Err(invalid("the grant was continued already; rotate its token"));
+    }
     changed(node).await;
     let subject = match &interaction.subject {
         Some(asked) => Some(proven(node, urls, asked).await?),

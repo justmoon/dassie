@@ -20,6 +20,9 @@ use crate::time::{self, Civil, MS_PER_DAY, days_in_month};
 /// Most windows stepped through for a duration with years or months.
 pub const MAX_CALENDAR_STEPS: u64 = 1_200;
 
+/// The shortest window a limit may have: each window spent in is a row.
+pub const MIN_WINDOW_MS: u64 = 60_000;
+
 const MS_PER_SECOND: u64 = 1_000;
 const MS_PER_MINUTE: u64 = 60 * MS_PER_SECOND;
 const MS_PER_HOUR: u64 = 60 * MS_PER_MINUTE;
@@ -171,6 +174,12 @@ impl Interval {
             anchor,
             duration,
         })
+    }
+
+    /// Whether its windows last at least [`MIN_WINDOW_MS`].
+    #[must_use]
+    pub const fn windows_are_long_enough(&self) -> bool {
+        self.duration.months > 0 || self.duration.fixed_ms >= MIN_WINDOW_MS
     }
 
     /// The window that contains `now_ms`, as `(start, end)`: `None` before

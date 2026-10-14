@@ -121,8 +121,18 @@ async fn grant(
             .identifier
             .as_deref()
             .and_then(|identifier| addresses.ledger_of_url(urls, identifier));
-        let limits = match (&item.limits, item.kind) {
-            (Some(limits), AccessType::OutgoingPayment) => Some(spent(node, row.id, limits)?),
+        // Outgoing payments without limits are of any amount: the page says
+        // so, rather than nothing.
+        let limits = match item.kind {
+            AccessType::OutgoingPayment => {
+                let none = dassie_payments::gnap::Limits {
+                    receiver: None,
+                    interval: None,
+                    debit_amount: None,
+                    receive_amount: None,
+                };
+                Some(spent(node, row.id, item.limits.as_ref().unwrap_or(&none))?)
+            }
             _ => None,
         };
         items.push(proto::GrantAccess {

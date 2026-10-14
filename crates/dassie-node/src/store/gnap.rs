@@ -308,26 +308,37 @@ impl Store {
     }
 
     /// Writes a grant's interaction, and the token its continuation issued
-    /// if any, in one transaction.
+    /// if any, in one transaction, if the interaction and state are still
+    /// what the caller read: false otherwise, when another request or the
+    /// owner's decision came first.
     pub fn update_interaction(
         &self,
-        id: PaymentId,
+        grant: &GrantRow,
         interaction: &str,
         token: Option<&TokenRow>,
-    ) -> Result<(), StoreError> {
+    ) -> Result<bool, StoreError> {
         let mut connection = self.lock();
         let transaction = connection.transaction()?;
-        transaction.execute(
+        let changed = transaction.execute(
             &format!(
-                "UPDATE gnap_grants SET interaction = ?2, revision = {NEXT_REVISION} WHERE id = ?1"
+                "UPDATE gnap_grants SET interaction = ?2, revision = {NEXT_REVISION} \
+                 WHERE id = ?1 AND interaction IS ?3 AND state = ?4"
             ),
-            params![id.0.as_slice(), interaction],
+            params![
+                grant.id.0.as_slice(),
+                interaction,
+                grant.interaction,
+                grant.state.as_str()
+            ],
         )?;
+        if changed != 1 {
+            return Ok(false);
+        }
         if let Some(token) = token {
             insert_token(&transaction, token)?;
         }
         transaction.commit()?;
-        Ok(())
+        Ok(true)
     }
 
     /// The grants the owner approved and has not revoked, newest first, at
@@ -371,12 +382,18 @@ impl Store {
                WHERE g.id = gnap_tokens.grant_id AND g.needs_owner = 1))",
             params![now, rotatable],
         )?;
+        // A denied grant stays until its time, so its client learns why.
         let removed = transaction.execute(
-            "DELETE FROM gnap_grants WHERE (state = 'pending' AND expires_at_ms <= ?1) \
-             OR state IN ('denied', 'revoked') \
+            "DELETE FROM gnap_grants WHERE (state IN ('pending', 'denied') AND expires_at_ms <= ?1) \
+             OR state = 'revoked' \
              OR (state = 'approved' AND coalesce(decided_at_ms, created_at_ms) <= ?2 \
                  AND NOT EXISTS (SELECT 1 FROM gnap_tokens t WHERE t.grant_id = gnap_grants.id))",
             params![now, hour_ago],
+        )?;
+        // What grants that are gone spent, they no longer need.
+        transaction.execute(
+            "DELETE FROM grant_spend WHERE grant_id NOT IN (SELECT id FROM gnap_grants)",
+            [],
         )?;
         transaction.commit()?;
         u32::try_from(removed).map_err(|_| StoreError::Corrupt("grant count"))

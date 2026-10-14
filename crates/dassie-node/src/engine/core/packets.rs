@@ -325,6 +325,24 @@ impl Core {
     /// take.
     fn deliver(&mut self, now: u64, forwarded: Forwarded) {
         let Some(ledger) = self.receiver_ledger(forwarded.to) else {
+            // A payer takes no money: refused at once, so nothing waits on
+            // it until its expiry.
+            let reject = dassie_ilp::Reject {
+                code: ErrorCode::F02_UNREACHABLE,
+                triggered_by: Address::parse(self.connector.own_address()).ok(),
+                message: "a payer takes no packets",
+                data: &[],
+            };
+            let length = dassie_oer::Encode::encode(&reject, &mut self.scratch);
+            let responded = self.connector.handle_response(
+                now,
+                forwarded.to,
+                forwarded.request_id,
+                self.scratch.get(..length).unwrap_or_default(),
+                &mut self.ledger,
+                &mut self.up,
+            );
+            self.responded(now, responded, forwarded.request_id, None);
             return;
         };
         let Self {

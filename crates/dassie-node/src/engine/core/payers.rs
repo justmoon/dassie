@@ -225,6 +225,10 @@ impl Core {
                 "too many outgoing payments are unfinished".into(),
             ));
         }
+        check_new(&new)?;
+        if let Some(quote) = new.quote_id {
+            self.check_quote_unpaid(quote)?;
+        }
         self.check_funds(new.ledger, new.debit_amount)?;
         let grant = match &new.grant {
             Some((grant, limits)) => Some(self.reserve(*grant, limits, &new, now)?),
@@ -294,9 +298,27 @@ impl Core {
             .map(|payment| u128::from(payment.row.debit_amount - payment.row.sent_amount))
             .sum();
         if available < promised + u128::from(debit) {
-            return Err(EngineError::Refused(
+            return Err(EngineError::Precondition(
                 "the funds do not cover the payment".into(),
             ));
+        }
+        Ok(())
+    }
+
+    /// Whether a quote is unpaid: by no payment on disk, none unfinished,
+    /// and none made in this step. Checked here, where payments are made
+    /// one at a time, so two at once cannot both pay it.
+    fn check_quote_unpaid(&self, quote: PaymentId) -> Result<(), EngineError> {
+        let pays = |row: &OutgoingRow| row.quote_id == Some(quote);
+        let paid = self.store.quote_used(quote)?
+            || self
+                .spending
+                .outgoing
+                .values()
+                .any(|payment| pays(&payment.row))
+            || self.batch.outgoing.created.iter().any(pays);
+        if paid {
+            return Err(EngineError::Invalid("the quote was paid already".into()));
         }
         Ok(())
     }
@@ -680,7 +702,11 @@ impl Core {
                     .as_ref()
                     .and_then(|connection| connection.poll_timeout())
                     .map(|at| at.unix_ms);
-                [Some(payment.row.deadline_ms), timer]
+                let deadline = payment
+                    .stopping
+                    .is_none()
+                    .then_some(payment.row.deadline_ms);
+                [deadline, timer]
             })
             .chain([waiting])
             .flatten()
@@ -742,6 +768,38 @@ fn closed_early(payment: &mut Unfinished) {
             });
         }
     }
+}
+
+/// What the rows of outgoing payments require, checked before anything
+/// enters the engine: the receiver's details may come from another
+/// wallet.
+fn check_new(new: &NewOutgoing) -> Result<(), EngineError> {
+    let invalid = |what: &str| Err(EngineError::Invalid(what.to_string()));
+    if new.destination.len() > 1_023 || Address::parse(&new.destination).is_err() {
+        return invalid("the receiver's ILP address is invalid");
+    }
+    let urls_valid = [&new.receiver, &new.wallet_address]
+        .iter()
+        .all(|url| (1..=2_048).contains(&url.len()));
+    if !urls_valid {
+        return invalid("a URL is too long");
+    }
+    let code = &new.receive_amount.asset_code;
+    if code.is_empty() || code.len() > 32 {
+        return invalid("the receiver's asset code is invalid");
+    }
+    let max = dassie_ledger::MAX_TOTAL;
+    if new.debit_amount > max || new.receive_amount.value > max {
+        return invalid("the amount is out of range");
+    }
+    if new
+        .metadata
+        .as_ref()
+        .is_some_and(|metadata| metadata.len() > 4_096)
+    {
+        return invalid("the metadata is too large");
+    }
+    Ok(())
 }
 
 fn progress(row: &OutgoingRow) -> OutgoingProgress {

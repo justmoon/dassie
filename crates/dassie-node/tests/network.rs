@@ -1192,3 +1192,38 @@ fn a_silent_peer_holds_up_its_end_for_a_while_only() {
     sim.run_until(sim.now + 2 * 60 * 60_000);
     check_books(&sim).unwrap();
 }
+
+// Found in review: a receiver's details may come from another wallet, and
+// what the rows cannot hold must be refused before the engine takes it,
+// or its commit fails and the engine stops.
+#[test]
+fn outgoing_payments_refuse_what_their_rows_cannot_hold() {
+    let mut sim = Sim::new(80, 1, 1);
+    sim.run_until(START + 1_000);
+    let long = "g.x".repeat(400);
+    let mut refusals = Vec::new();
+    for destination in ["", "not an address", long.as_str()] {
+        sim.step(0, |core| {
+            let created = core.create_outgoing_payment(NewOutgoing {
+                ledger: LedgerId::StubUsd,
+                wallet_address: "https://sim.example/.well-known/pay".into(),
+                client: None,
+                grant: None,
+                quote_id: None,
+                receiver: "https://elsewhere.example/incoming-payments/1".into(),
+                destination: destination.to_string(),
+                shared_secret: [1; 32],
+                debit_amount: 10,
+                receive_amount: ForeignAmount {
+                    value: 10,
+                    asset_code: "USD".into(),
+                    asset_scale: 9,
+                },
+                metadata: None,
+            });
+            refusals.push(created.is_err());
+        });
+    }
+    assert_eq!(refusals, [true, true, true]);
+    assert!(sim.nodes[0].core.is_some(), "the engine kept running");
+}

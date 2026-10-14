@@ -377,3 +377,29 @@ async fn a_quote_reads_a_receiver_on_another_node() {
     payer.stop().await;
     payee.stop().await;
 }
+
+// Found in review: two payments of one quote at once. The engine checks the
+// quote itself, so one is made and the other refused, and nothing breaks.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_quote_pays_once_even_twice_at_once() {
+    let (node, key) = start().await;
+    let client = own_client(&node, &key);
+    let token = approved(&node, &client, 1_000).await;
+    let target = receiver(&node, 100).await;
+    let quote = json!({ "walletAddress": host(&node), "receiver": target, "method": "ilp" });
+    let quote = body(&post(&node, &client, "/quotes", &token, &quote).await);
+    let pay = json!({ "walletAddress": host(&node), "quoteId": quote["id"] });
+    let (first, second) = tokio::join!(
+        post(&node, &client, "/outgoing-payments", &token, &pay),
+        post(&node, &client, "/outgoing-payments", &token, &pay),
+    );
+    let mut statuses = [first.status, second.status];
+    statuses.sort();
+    assert_eq!(statuses, [StatusCode::CREATED, StatusCode::BAD_REQUEST]);
+    // The engine still answers.
+    let target = receiver(&node, 100).await;
+    let quote = json!({ "walletAddress": host(&node), "receiver": target, "method": "ilp" });
+    let reply = post(&node, &client, "/quotes", &token, &quote).await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.text());
+    node.stop().await;
+}

@@ -31,6 +31,8 @@ const MAX_RESPONSE_BYTES: usize = 64 * 1024;
 const MAX_CACHED_TOKENS: usize = 64;
 /// How long before its expiry a cached token is no longer used.
 const TOKEN_MARGIN_MS: u64 = 30_000;
+/// The longest a cached token is kept, whatever its server says.
+const MAX_TOKEN_LIFETIME_MS: u64 = 60 * 60 * 1_000;
 
 /// Why another wallet could not be read.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -197,11 +199,19 @@ async fn signed(
         .await?)
 }
 
-/// A token to read incoming payments at `auth_server`: cached, or asked
-/// for anew.
-async fn read_token(node: &Node, urls: &Urls, auth_server: &str) -> Result<String, ClientError> {
+/// A token to read incoming payments at `auth_server` for resources at
+/// `origin`: cached, or asked for anew. The cache keys by both, so a
+/// payment that names another wallet's authorization server is never
+/// sent that wallet's token.
+async fn read_token(
+    node: &Node,
+    urls: &Urls,
+    auth_server: &str,
+    origin: &str,
+) -> Result<String, ClientError> {
     let now = node.now_ms();
-    if let Some(token) = crate::node::lock(&node.open_payments().tokens).get(auth_server, now) {
+    let key = format!("{auth_server} {origin}");
+    if let Some(token) = crate::node::lock(&node.open_payments().tokens).get(&key, now) {
         return Ok(token);
     }
     let request = GrantRequest {
@@ -227,11 +237,15 @@ async fn read_token(node: &Node, urls: &Urls, auth_server: &str) -> Result<Strin
     let token = grant
         .access_token
         .ok_or_else(|| ClientError::Invalid("the grant needs interaction".into()))?;
-    let expires = now + token.expires_in.unwrap_or(60) * 1_000;
+    let lifetime = token
+        .expires_in
+        .unwrap_or(60)
+        .saturating_mul(1_000)
+        .min(MAX_TOKEN_LIFETIME_MS);
     crate::node::lock(&node.open_payments().tokens).put(
-        auth_server.to_string(),
+        key,
         token.value.clone(),
-        expires,
+        now.saturating_add(lifetime),
         now,
     );
     Ok(token.value)
@@ -246,13 +260,17 @@ pub async fn read_incoming(node: &Node, url: &str) -> Result<IncomingPayment, Cl
     let urls = Urls::of(node).ok_or(ClientError::Unavailable)?;
     let client = node.peer_client().ok_or(ClientError::Unavailable)?;
     let public: PublicIncomingPayment = get_json(client, url).await?;
+    let origin = dassie_payments::uri::Uri::parse(url)
+        .map(|uri| format!("{}://{}", uri.scheme, uri.authority))
+        .map_err(|_| ClientError::Invalid("the receiver is not a URL".into()))?;
     let mut retried = false;
     loop {
-        let token = read_token(node, &urls, &public.auth_server).await?;
+        let token = read_token(node, &urls, &public.auth_server, &origin).await?;
         let response = signed(node, http::Method::GET, url, Some(&token), None).await?;
         if response.status == 401 && !retried {
             // The token was revoked or rotated away: ask once more.
-            crate::node::lock(&node.open_payments().tokens).forget(&public.auth_server);
+            crate::node::lock(&node.open_payments().tokens)
+                .forget(&format!("{} {origin}", public.auth_server));
             retried = true;
             continue;
         }

@@ -167,10 +167,9 @@ impl Limits {
             .into_iter()
             .flatten()
             .all(|amount| amount.value > 0);
-        let interval_valid = self
-            .interval
-            .as_deref()
-            .is_none_or(|interval| Interval::parse(interval).is_ok());
+        let interval_valid = self.interval.as_deref().is_none_or(|interval| {
+            Interval::parse(interval).is_ok_and(|interval| interval.windows_are_long_enough())
+        });
         if receiver_valid && amounts_valid && interval_valid {
             Ok(())
         } else {

@@ -104,7 +104,15 @@ export function accessText(access: AccessFields): string {
   const what = creates ? base : `See ${access.type.replace("-", " ")}s`;
   const limits = access.limits ? limitText(access.limits) : "";
   const scope = reads ? ", and see all of them, not only its own" : "";
-  return `${what}${limits}${scope}`;
+  return `${what}${limits}${walletText(access)}${scope}`;
+}
+
+/** Which of the owner's wallets it reaches: by the ledger's currency. */
+function walletText(access: AccessFields): string {
+  const currency = access.ledger.split("+")[1];
+  if (currency === undefined || currency === "") return "";
+  const from = access.type === "outgoing-payment" ? "from" : "in";
+  return ` ${from} your ${currency.toUpperCase()} wallet`;
 }
 
 /** The limits of an outgoing-payment grant, after "Send payments". */
