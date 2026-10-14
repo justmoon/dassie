@@ -546,6 +546,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "dassie-payments"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "ed25519-dalek",
+ "proptest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "subtle",
+]
+
+[[package]]
 name = "dassie-peer"
 version = "0.1.0"
 dependencies = [

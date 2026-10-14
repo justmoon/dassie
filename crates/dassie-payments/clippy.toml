@@ -1,0 +1,17 @@
+# Functions stay short enough to read in one go (D16).
+too-many-lines-threshold = 70
+
+# The crate is no_std, which already keeps clocks, the OS RNG and hash maps
+# out of its code. These catch them in its tests too, which link std: a test
+# that reads the clock is a test that can't be replayed (D16).
+disallowed-types = [
+  { path = "std::collections::HashMap", reason = "random iteration order; use BTreeMap or a fixed table (D16)" },
+  { path = "std::collections::HashSet", reason = "random iteration order; use BTreeSet or a fixed table (D16)" },
+  { path = "std::time::SystemTime", reason = "time is an input, `now_ms` (D16)" },
+  { path = "std::time::Instant", reason = "time is an input, `now_ms` (D16)" },
+]
+
+# Tests may unwrap and index: a panic there is a failed test.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-indexing-slicing-in-tests = true
