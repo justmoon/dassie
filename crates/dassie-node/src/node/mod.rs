@@ -285,6 +285,8 @@ pub struct Node {
     https_port: u16,
     started_at_ms: u64,
     peer: PeerSide,
+    services: Arc<crate::supervisor::Registry>,
+    logs: Arc<crate::log::LogRing>,
 }
 
 impl std::fmt::Debug for Node {
@@ -356,8 +358,10 @@ impl Node {
             http_port,
             https_port,
             started_at_ms: now_ms,
+            services: Arc::new(crate::supervisor::Registry::new(Arc::clone(&clock))),
             clock,
             peer,
+            logs: crate::log::ring(),
         }))
     }
 
@@ -544,6 +548,18 @@ impl Node {
     #[must_use]
     pub const fn ports(&self) -> (u16, u16) {
         (self.http_port, self.https_port)
+    }
+
+    /// The services and what became of them.
+    #[must_use]
+    pub const fn services(&self) -> &Arc<crate::supervisor::Registry> {
+        &self.services
+    }
+
+    /// The node's last log lines.
+    #[must_use]
+    pub const fn logs(&self) -> &Arc<crate::log::LogRing> {
+        &self.logs
     }
 
     /// When the node started, in ms since the Unix epoch.

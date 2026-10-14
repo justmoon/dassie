@@ -353,39 +353,67 @@ fn start_services(
         Arc::new(listeners.2),
     );
     let (node_, shutdown_) = (Arc::clone(node), shutdown.clone());
-    supervisor::spawn(services, "http", shutdown.clone(), move || {
-        http::serve(
-            Arc::clone(&node_),
-            Arc::clone(&http),
-            None,
-            shutdown_.clone(),
-        )
-    });
+    supervisor::spawn(
+        services,
+        node.services(),
+        "http",
+        shutdown.clone(),
+        move || {
+            http::serve(
+                Arc::clone(&node_),
+                Arc::clone(&http),
+                None,
+                shutdown_.clone(),
+            )
+        },
+    );
     let (node_, shutdown_) = (Arc::clone(node), shutdown.clone());
-    supervisor::spawn(services, "https", shutdown.clone(), move || {
-        http::serve(
-            Arc::clone(&node_),
-            Arc::clone(&https),
-            Some(Arc::clone(&tls)),
-            shutdown_.clone(),
-        )
-    });
+    supervisor::spawn(
+        services,
+        node.services(),
+        "https",
+        shutdown.clone(),
+        move || {
+            http::serve(
+                Arc::clone(&node_),
+                Arc::clone(&https),
+                Some(Arc::clone(&tls)),
+                shutdown_.clone(),
+            )
+        },
+    );
     let (node_, shutdown_) = (Arc::clone(node), shutdown.clone());
-    supervisor::spawn(services, "ipc", shutdown.clone(), move || {
-        ipc::serve(Arc::clone(&node_), Arc::clone(&ipc), shutdown_.clone())
-    });
+    supervisor::spawn(
+        services,
+        node.services(),
+        "ipc",
+        shutdown.clone(),
+        move || ipc::serve(Arc::clone(&node_), Arc::clone(&ipc), shutdown_.clone()),
+    );
     let (node_, shutdown_) = (Arc::clone(node), shutdown.clone());
-    supervisor::spawn(services, "acme", shutdown.clone(), move || {
-        Arc::clone(&node_).run_renewal(shutdown_.clone())
-    });
+    supervisor::spawn(
+        services,
+        node.services(),
+        "acme",
+        shutdown.clone(),
+        move || Arc::clone(&node_).run_renewal(shutdown_.clone()),
+    );
     let (node_, shutdown_) = (Arc::clone(node), shutdown.clone());
-    supervisor::spawn(services, "sessions", shutdown.clone(), move || {
-        prune_sessions(Arc::clone(&node_), shutdown_.clone())
-    });
+    supervisor::spawn(
+        services,
+        node.services(),
+        "sessions",
+        shutdown.clone(),
+        move || prune_sessions(Arc::clone(&node_), shutdown_.clone()),
+    );
     let (node_, shutdown_) = (Arc::clone(node), shutdown.clone());
-    supervisor::spawn(services, "engine", shutdown.clone(), move || {
-        crate::engine::run(Arc::clone(&node_), shutdown_.clone())
-    });
+    supervisor::spawn(
+        services,
+        node.services(),
+        "engine",
+        shutdown.clone(),
+        move || crate::engine::run(Arc::clone(&node_), shutdown_.clone()),
+    );
 }
 
 async fn prune_sessions(node: Arc<Node>, shutdown: CancellationToken) {
