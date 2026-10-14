@@ -13,7 +13,8 @@ import {
   nodeId,
   publicKey,
 } from "@dassie/identity-wasm";
-import type { ElementHandle, Page } from "@astral/astral";
+import type { Page } from "@astral/astral";
+import { click, text, type } from "./browser.ts";
 import {
   DASSIE,
   dassie,
@@ -30,48 +31,6 @@ import {
 
 const missing = await missingTools();
 if (missing) console.warn(`skipping the end-to-end tests: ${missing}`);
-
-/**
- * The text of the element with `testid`, once it appears. It polls in
- * whatever document the page shows, since setup and login end by reloading
- * the page, which a pending `waitForSelector` does not survive.
- */
-async function text(page: Page, testid: string): Promise<string> {
-  const deadline = Date.now() + 20_000;
-  for (;;) {
-    const found = await page.evaluate(
-      (id: string) =>
-        document.querySelector(`[data-testid="${id}"]`)?.textContent ?? null,
-      { args: [testid] },
-    ).catch(() => null);
-    if (found !== null) return found.trim();
-    if (Date.now() > deadline) {
-      const body = await page.evaluate(() => document.body.innerText)
-        .catch(() => "(no document)");
-      throw new Error(`no ${testid} on ${page.url}:\n${body}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-}
-
-/** The element with `testid`, once it is in the current document. */
-async function element(page: Page, testid: string): Promise<ElementHandle> {
-  await text(page, testid);
-  const found = await page.$(`[data-testid="${testid}"]`);
-  if (!found) throw new Error(`${testid} vanished`);
-  return found;
-}
-
-async function click(page: Page, testid: string): Promise<void> {
-  await (await element(page, testid)).click();
-}
-
-/** Replaces the value of the input with `testid`. */
-async function type(page: Page, testid: string, value: string): Promise<void> {
-  const input = await element(page, testid);
-  await input.evaluate((node: HTMLInputElement) => (node.value = ""));
-  await input.type(value);
-}
 
 function expectedNodeId(phrase: string): string {
   return nodeId(publicKey(deriveNodeKey(phrase)));
@@ -166,7 +125,8 @@ Deno.test({
       // The browser sets the node up.
       const page = await browser.newPage(setupUrl);
       const phrase = await generateWallet(page);
-      await text(page, "setup-complete");
+      // Without a ledger yet, the owner first chooses one.
+      await text(page, "page-create-ledger");
       assertEquals(await text(page, "node-id"), expectedNodeId(phrase));
 
       // Logging out and in again, with a wrong phrase first.

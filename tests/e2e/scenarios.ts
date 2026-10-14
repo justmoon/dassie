@@ -33,9 +33,18 @@ const BASE_PORT = 19100;
 
 /** The scenarios: how many nodes, and which are bootstrap nodes. */
 export const SCENARIOS = {
+  "one-node": { nodes: 1, bootstrap: [] },
   "two-nodes": { nodes: 2, bootstrap: [0, 1] },
   "six-nodes": { nodes: 6, bootstrap: [0, 1] },
 } as const;
+
+/** How a scenario starts. */
+export interface ScenarioOptions {
+  /** More environment for every node. */
+  env?: Record<string, string>;
+  /** Nodes left without a ledger, by index. */
+  withoutLedger?: number[];
+}
 
 export type ScenarioName = keyof typeof SCENARIOS;
 
@@ -113,8 +122,11 @@ export class ScenarioNode {
     return this.owner;
   }
 
-  /** Claims the node: certificate, hostname, setup, and the stub scheme. */
-  async setUp() {
+  /**
+   * Claims the node: certificate, hostname, setup, and the stub scheme
+   * unless `ledger` is false.
+   */
+  async setUp(ledger = true) {
     const owner = this.rpc;
     await owner.call("setCertificate", {
       certificateChainPem: CERTIFICATE,
@@ -137,6 +149,7 @@ export class ScenarioNode {
     assertEquals(response.status, 200, await response.text());
     client.close();
     await this.waitForEngine();
+    if (!ledger) return;
     const added = await owner.call("addSettlementScheme", {
       id: "stub",
       config: "",
@@ -163,7 +176,10 @@ export class Scenario {
   constructor(readonly nodes: ScenarioNode[], readonly dir: string) {}
 
   /** Starts a scenario's nodes and sets each up. */
-  static async start(name: ScenarioName): Promise<Scenario> {
+  static async start(
+    name: ScenarioName,
+    options: ScenarioOptions = {},
+  ): Promise<Scenario> {
     const scenario = SCENARIOS[name];
     const dir = await Deno.makeTempDir({ prefix: `dassie-${name}-` });
     const nodes: ScenarioNode[] = [];
@@ -171,19 +187,22 @@ export class Scenario {
       DASSIE_PEER_CA_FILE: `${PEBBLE_DIR}/root.pem`,
       DASSIE_PEER_ALLOW_PRIVATE: "1",
       DASSIE_DEV_TIMINGS: "1",
+      ...options.env,
     };
     for (let index = 0; index < scenario.nodes; index++) {
       nodes.push(new ScenarioNode(index, `${dir}/d${index}`, env));
     }
     env.DASSIE_BOOTSTRAP_NODES = JSON.stringify(
-      scenario.bootstrap.map((index) => nodes[index].bootstrapEntry()),
+      (scenario.bootstrap as readonly number[]).map((index) =>
+        nodes[index].bootstrapEntry()
+      ),
     );
     const running = new Scenario(nodes, dir);
     try {
       for (const node of nodes) {
         await Deno.mkdir(node.dir, { recursive: true });
         await node.start();
-        await node.setUp();
+        await node.setUp(!options.withoutLedger?.includes(node.index));
       }
     } catch (error) {
       await running.stop();
@@ -192,7 +211,7 @@ export class Scenario {
     return running;
   }
 
-  /** Stops every node; returns the output of those that failed. */
+  /** Stops every node and deletes their files; returns the output of those that failed. */
   async stop(): Promise<string[]> {
     const failures: string[] = [];
     for (const node of this.nodes) {
@@ -201,6 +220,7 @@ export class Scenario {
         failures.push(`${node.name} exited ${result.code}:\n${result.output}`);
       }
     }
+    await Deno.remove(this.dir, { recursive: true }).catch(() => {});
     return failures;
   }
 
