@@ -33,6 +33,8 @@ pub struct LedgerBatch {
     pub tokens_created: Vec<BtpTokenRow>,
     /// BTP tokens revoked, by ID.
     pub tokens_revoked: Vec<u64>,
+    /// What the peer protocol changed.
+    pub peer: dassie_peer::PeerBatch,
 }
 
 impl LedgerBatch {
@@ -45,6 +47,7 @@ impl LedgerBatch {
             && self.checkpoints.is_empty()
             && self.tokens_created.is_empty()
             && self.tokens_revoked.is_empty()
+            && self.peer.is_empty()
     }
 }
 
@@ -230,6 +233,7 @@ impl Store {
         }
         write_settlement(&transaction, batch)?;
         write_tokens(&transaction, batch)?;
+        super::peer::write_peer(&transaction, &batch.peer)?;
         transaction.commit()?;
         Ok(())
     }
