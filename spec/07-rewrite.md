@@ -78,7 +78,7 @@ apps/
   website/              dassie.land static site + STREAM toy (6 §3)
 packages/
   rpc/                  TS client for proto/dassie/ui/v1 (generated + transport)
-  ui/                   shared Solid components: amount, log viewer, network graph, forms
+  ui/                   shared Solid components: amount, log viewer, network graph, debug pages, router, live data
   identity-wasm/        wasm-bindgen output of dassie-identity / dassie-stream for Deno + browser
 resources/
   systemd/  installer/  launcher-less (the binary is the entry point)
@@ -485,16 +485,20 @@ settle balance − midpoint when balance ≥ midpoint · 1.1; on termination, se
 
 `apps/dev` reproduces [6 §6](06-user-interfaces-and-tooling.md):
 
-- the same hostnames (`dN.localhost`) and ports (SNI proxy on 443, dashboard 10100, control 10101, nodes `5000+N`);
+- the same hostnames (`dN.localhost`) and ports (SNI proxy on 443, dashboard 10100, nodes `5000+N` for HTTPS and `4000+N` for HTTP);
 - mkcert certificates, vanity node identities, the database prefill and auto-login links;
-- the four scenarios, plus "add node" and file-watch restart.
+- the four scenarios, plus "add node" and file-watch restart. `xrpl-settlement` and `cross-currency` are listed from the start and can be chosen once the XRPL module lands (M7).
 
 The differences:
 
-- **Nodes are real `dassie` binaries** built by `cargo build`, restarted when the Rust sources change. The wallet is rebuilt by `vite build --watch`, and in dev the node serves it from that directory (`DASSIE_DEV_WALLET_DIR`) instead of its embedded copy. A change shows after a reload, under the same CSP as in production; there is no HMR proxy in the node.
-- **Prefill goes through the node's own RPC and HTTP API**, as the end-to-end tests set nodes up, not by writing the database directly. That keeps the schema private to the node.
-- **Logs, peer traffic and peering state reach the dashboard** from the nodes' own RPC (`SubscribeLogs`, `SubscribePackets`, `SubscribeNodes`), not by patching the logger.
-- **The vanity identity table is regenerated** with `dassie-identity` (same derivation, so the existing table stays valid).
+- **Nodes are real `dassie` binaries** built by `cargo build`, restarted when the Rust sources change; a restart keeps their data, while changing scenario or "reset" starts from scratch. The wallet is rebuilt by `vite build --watch`, and in dev the node serves it from that directory (`DASSIE_DEV_WALLET_DIR`) instead of its embedded copy. A change shows after a reload, under the same CSP as in production; there is no HMR proxy in the node.
+- **Prefill goes through the node's own RPC and HTTP API**, as the end-to-end tests set nodes up, not by writing the database directly. That keeps the schema private to the node. It can run again on a node that is set up already, which it then leaves as it is. The end-to-end tests use the same scenario code.
+- **One origin for the dashboard.** The dashboard, its control channel (`proto/dassie/dev/v1`) and the relay to the nodes are served on one port (10100; 10101 answers the same, and the proxy sends `dev-rpc.localhost` there too), so the dashboard keeps the strict CSP with `connect-src 'self'`. Everything listens on loopback only, and every WebSocket upgrade needs a `Host` of `localhost` or `dev-rpc.localhost` and an `Origin` of the same site, so that no other page and no rebound name can reach the nodes as their owner.
+- **Logs, peer traffic and peering state come from the nodes' own RPC** (`SubscribeLogs`, `SubscribePackets`, `SubscribeNodes`), not by patching the logger. The dev server subscribes once per node over IPC and passes them on to every open dashboard, together with its own log. The node pages of the dashboard reach their node through the relay instead. Peer traffic is ILP packets between peers; the peer protocol's own messages are not shown.
+- **Auto-login links** carry the node's login proof in the URL fragment (`#dassie-dev-login=…`), which only a wallet built in development mode reads; the node checks it like any other login. The production wallet has no such code.
+- **`*.localhost` resolves to loopback** in the node's peer client (RFC 6761), when private addresses are allowed, so dev nodes reach each other by name on any system.
+- **The vanity identity table is regenerated** with `dassie-identity` (same derivation, so the existing table stays valid). It keeps each node's BIP-39 entropy and ID.
+- **No exchange-rate file yet.** `rates.json` comes back with the rate fetcher in M7.
 
 ## 7. Testing strategy
 
@@ -535,7 +539,7 @@ Every crate is written so that a simulation can drive it ([D16](08-decisions.md#
 | M2 | Node skeleton: config, DB, listeners (plain and socket-activated), TLS, ACME, setup/login/logout, RPC contract, `dassie init`/`daemon`/`verify-install` | A fresh install reaches "setup complete" in a browser with a Let's Encrypt staging cert. |
 | M3 | Ledger journal, connector, local endpoints, ILDCP, BTP, stub settlement module. Exchange-rate math and its T00 rule; the rate fetcher comes in M7 with the first second currency | A BTP client pays the node's STREAM receiver. The journal matches the packet trace. |
 | M4 | Peer protocol v1, node table, membership, registration, auto-peering, link state, routing, settlement loop. Delivered in two PRs: **M4a** (v1, membership, peering, routing, packets over peers) and **M4b** (settlement loop, the D12 lifecycle: termination, bans, the advertise flag) | The `two-nodes` and `six-nodes` scenarios converge and route payments across hops. Restarts keep peerings and balances. M4a stops at payments within the credit peers extend, with restarts that keep peerings; M4b pays several times the credit across hops, so every hop must settle. Child peers move to the milestone that adds registration fees ([D12](08-decisions.md#d12-peering-lifecycle-and-liveness)). |
-| M5 | Wallet (Solid 2) and dev environment (Deno) with dashboard, including BTP token spending caps. Delivered in two PRs: **M5a** (the node's live streams and inspectors, `GET /stats`, spending caps, every wallet page) and **M5b** (`deno task dev`, the dev dashboard, `packages/ui`) | All pages of [6 §1.6](06-user-interfaces-and-tooling.md) but Send and payment status work against M4. `deno task dev` brings up any scenario. |
+| M5 | Wallet (Solid 2) and dev environment (Deno) with dashboard, including BTP token spending caps. Delivered in two PRs: **M5a** (the node's live streams and inspectors, `GET /stats`, spending caps, every wallet page) and **M5b** (`deno task dev`, the dev dashboard, `packages/ui`) | All pages of [6 §1.6](06-user-interfaces-and-tooling.md) but Send and payment status work against M4. `deno task dev` brings up any scenario that M4 can run (the XRPL ones come with M7). |
 | M6 | Open Payments + SPSP, payment pointers, outgoing payments with quotes and status, and the wallet's Send and payment status pages | Pays to and from another Open Payments/SPSP wallet. |
 | M7 | XRPL testnet module with reserve and fee accounting; the exchange-rate fetcher of D7, fees and spread | The `xrpl-settlement` and `cross-currency` scenarios settle and reconcile across restarts. |
 | M8 | Release: static binaries (x64, arm64), signed artifacts, installer, updater, systemd units | Installer and updater tests pass on Debian, Ubuntu, Fedora and CentOS images. A tampered bundle is refused. |

@@ -276,6 +276,7 @@ Confirmed on 2026-10-12, after the others.
     - No panicking indexing or `unwrap` outside tests.
     - No lossy integer casts.
     - Explicit units in names.
+- **Tooling is not simulated.** The dev environment (`apps/dev`) and the dashboard are tools around the node, not part of it. Their pure parts (the SNI parser, the vanity table, the reducers) get unit tests, and the rest is tested end to end against real binaries. They are still bounded: rings, frames and queues have limits.
 - **Testing consequences:** see [7 §7](07-rewrite.md#7-testing-strategy). Every decoder gets a "never panics on arbitrary input" property test. Every simulation failure reports the seed that reproduces it.
 - **Rejected:** conventional style with determinism added later, when DST starts. Clocks, RNGs, unordered maps and unbounded queues spread into every crate, and removing them afterwards costs more than avoiding them.
 
