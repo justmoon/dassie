@@ -10,9 +10,16 @@
 //! - files that shrink are served gzipped to clients that accept it;
 //! - other paths get `index.html`, for the wallet's own routing, except
 //!   under `/assets/`, where a missing file is a 404.
+//!
+//! In development (`DASSIE_DEV_WALLET_DIR`), the wallet is read from a
+//! directory that `vite build --watch` writes, under the same CSP, so a
+//! change shows after a reload ([`serve_dir`]).
+
+use std::path::{Component, Path, PathBuf};
 
 use hyper::header::{self, HeaderMap, HeaderValue};
 use hyper::{Method, Response, StatusCode};
+use sha2::{Digest, Sha256};
 
 use super::response::{self, Body, header_values};
 
@@ -89,6 +96,92 @@ pub fn serve(method: &Method, path: &str, headers: &HeaderMap) -> Response<Body>
     response
 }
 
+/// The largest file served from a directory.
+const MAX_DEV_FILE_BYTES: u64 = 64 << 20;
+
+/// Answers `GET` or `HEAD` for `path` from the directory `root`, which a
+/// development build of the wallet keeps writing: nothing is cached, and
+/// nothing outside `root` is ever read.
+pub async fn serve_dir(
+    root: &Path,
+    method: &Method,
+    path: &str,
+    headers: &HeaderMap,
+) -> Response<Body> {
+    let file = match resolve(root, path).await {
+        Some(file) => Some(file),
+        None if path.starts_with(HASHED_PREFIX) => return response::not_found(),
+        None => resolve(root, "/index.html").await,
+    };
+    let Some(file) = file else {
+        return response::text(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "The wallet is being built; reload in a moment.",
+        );
+    };
+    let body = match tokio::fs::metadata(&file).await {
+        Ok(meta) if meta.len() <= MAX_DEV_FILE_BYTES => tokio::fs::read(&file).await.ok(),
+        _ => None,
+    };
+    let Some(body) = body else {
+        return response::text(StatusCode::INTERNAL_SERVER_ERROR, "unreadable file");
+    };
+    let extension = file
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default();
+    let (content_type, _) = super::mime::content_type(extension);
+    let digest = Sha256::digest(&body);
+    let etag = format!("\"{}\"", hex(digest.get(..16).unwrap_or_default()));
+    let not_modified = header_values(headers, &header::IF_NONE_MATCH)
+        .flat_map(|value| value.split(','))
+        .any(|tag| tag.trim() == etag);
+    let mut response = if not_modified {
+        let mut response = response::with_body(StatusCode::NOT_MODIFIED, content_type, "");
+        response.headers_mut().remove(header::CONTENT_TYPE);
+        response
+    } else {
+        response::with_body(StatusCode::OK, content_type, body)
+    };
+    let headers = response.headers_mut();
+    if let Ok(value) = HeaderValue::from_str(&etag) {
+        headers.insert(header::ETAG, value);
+    }
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    if method == Method::HEAD {
+        *response.body_mut() = Body::default();
+    }
+    response
+}
+
+/// The file `path` names under `root`, if it is a file there: only plain
+/// segments of safe characters, and after symlinks are followed, still
+/// under `root` (which is itself canonical).
+async fn resolve(root: &Path, path: &str) -> Option<PathBuf> {
+    let relative = path.strip_prefix('/')?;
+    if relative.is_empty() {
+        return None;
+    }
+    let safe = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '/');
+    if !relative.chars().all(safe) {
+        return None;
+    }
+    let relative = Path::new(relative);
+    if !relative
+        .components()
+        .all(|component| matches!(component, Component::Normal(_)))
+    {
+        return None;
+    }
+    let file = tokio::fs::canonicalize(root.join(relative)).await.ok()?;
+    let meta = tokio::fs::metadata(&file).await.ok()?;
+    (file.starts_with(root) && meta.is_file()).then_some(file)
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
 /// Whether `Accept-Encoding` allows gzip: listed, and not with `q=0`.
 fn accepts_gzip(headers: &HeaderMap) -> bool {
     header_values(headers, &header::ACCEPT_ENCODING)
@@ -162,6 +255,49 @@ mod tests {
             serve(&Method::GET, "/", &conditional).status(),
             StatusCode::NOT_MODIFIED
         );
+    }
+
+    // DASSIE_DEV_WALLET_DIR: files under the root only, the index for
+    // other paths, and nothing cached.
+    #[tokio::test]
+    async fn a_directory_serves_only_what_is_in_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret.txt"), "no").unwrap();
+        let root = temp.path().join("dist");
+        std::fs::create_dir_all(root.join("assets")).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        std::fs::write(root.join("index.html"), "<p>wallet</p>").unwrap();
+        std::fs::write(root.join("assets/app.js"), "x").unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.join("escape")).unwrap();
+        let get = |path: &'static str| {
+            let root = root.clone();
+            async move { serve_dir(&root, &Method::GET, path, &headers(&[])).await }
+        };
+        let script = get("/assets/app.js").await;
+        assert_eq!(script.status(), StatusCode::OK);
+        assert_eq!(
+            script.headers()[header::CONTENT_TYPE],
+            "text/javascript; charset=utf-8"
+        );
+        assert_eq!(script.headers()[header::CACHE_CONTROL], "no-cache");
+        assert_eq!(get("/assets/gone.js").await.status(), StatusCode::NOT_FOUND);
+        for path in [
+            "/escape/secret.txt",
+            "/../dist/index.html",
+            "/%2e%2e/x",
+            "//x",
+        ] {
+            let response = get(path).await;
+            assert_eq!(
+                response.headers()[header::CONTENT_TYPE],
+                "text/html; charset=utf-8",
+                "{path} gets the index"
+            );
+        }
+        assert_eq!(get("/network/d1").await.status(), StatusCode::OK);
+        std::fs::remove_file(root.join("index.html")).unwrap();
+        assert_eq!(get("/").await.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 
     #[test]

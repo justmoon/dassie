@@ -141,6 +141,9 @@ pub struct NodeOptions {
     pub policies: Policies,
     /// The peer protocol's settings.
     pub peer: PeerOptions,
+    /// A development build of the wallet to serve instead of the embedded
+    /// one.
+    pub dev_wallet_dir: Option<PathBuf>,
 }
 
 /// The peer protocol's settings, from the environment.
@@ -288,6 +291,8 @@ pub struct Node {
     services: Arc<crate::supervisor::Registry>,
     logs: Arc<crate::log::LogRing>,
     live_streams: Arc<Semaphore>,
+    dev_wallet_dir: Option<PathBuf>,
+    stats_cache: crate::http::stats::StatsCache,
 }
 
 impl std::fmt::Debug for Node {
@@ -321,6 +326,7 @@ impl Node {
             acme_ca_file,
             policies,
             peer,
+            dev_wallet_dir,
         } = options;
         let peer = PeerSide::new(peer)?;
         let now_ms = clock.now_ms();
@@ -367,6 +373,8 @@ impl Node {
             peer,
             logs: crate::log::ring(),
             live_streams: Arc::new(Semaphore::new(MAX_LIVE_STREAMS)),
+            dev_wallet_dir,
+            stats_cache: crate::http::stats::StatsCache::default(),
         }))
     }
 
@@ -565,6 +573,16 @@ impl Node {
     #[must_use]
     pub fn live_stream_permit(&self) -> Option<OwnedSemaphorePermit> {
         Arc::clone(&self.live_streams).try_acquire_owned().ok()
+    }
+
+    /// The development build of the wallet, if it serves one.
+    #[must_use]
+    pub fn dev_wallet_dir(&self) -> Option<&std::path::Path> {
+        self.dev_wallet_dir.as_deref()
+    }
+
+    pub(crate) const fn stats_cache(&self) -> &crate::http::stats::StatsCache {
+        &self.stats_cache
     }
 
     /// The node's last log lines.

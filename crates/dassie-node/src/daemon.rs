@@ -295,8 +295,12 @@ fn make_node(
         acme_ca_file: settings.acme_ca_file.clone(),
         policies,
         peer: peer_options(settings),
+        dev_wallet_dir: settings.dev_wallet_dir.clone(),
     })
     .map_err(DaemonError::Node)?;
+    if let Some(dir) = &settings.dev_wallet_dir {
+        tracing::warn!(target: target::HTTP, dir = %dir.display(), "serving a development build of the wallet");
+    }
     if settings.bootstrap_nodes.is_empty() {
         tracing::warn!(target: target::PEER, "no bootstrap nodes: the node runs alone (set DASSIE_BOOTSTRAP_NODES)");
     }

@@ -9,6 +9,10 @@
 //!   page saying the binary has no wallet, so `cargo build` and `cargo test`
 //!   need no Deno.
 
+#[path = "src/http/mime.rs"]
+mod mime;
+
+use mime::content_type;
 use std::fmt::Write as _;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -156,24 +160,4 @@ fn gzip(bytes: &[u8]) -> BuildResult<Option<Vec<u8>>> {
     encoder.write_all(bytes)?;
     let compressed = encoder.finish()?;
     Ok((compressed.len() < bytes.len()).then_some(compressed))
-}
-
-/// The media type of an extension, and whether it compresses.
-fn content_type(extension: &str) -> (&'static str, bool) {
-    match extension {
-        "html" => ("text/html; charset=utf-8", true),
-        "js" | "mjs" => ("text/javascript; charset=utf-8", true),
-        "css" => ("text/css; charset=utf-8", true),
-        "json" | "map" => ("application/json", true),
-        "webmanifest" => ("application/manifest+json", true),
-        "svg" => ("image/svg+xml", true),
-        "txt" => ("text/plain; charset=utf-8", true),
-        // instantiateStreaming refuses WebAssembly of any other type.
-        "wasm" => ("application/wasm", true),
-        "png" => ("image/png", false),
-        "ico" => ("image/x-icon", true),
-        "woff2" => ("font/woff2", false),
-        "woff" => ("font/woff", false),
-        _ => ("application/octet-stream", false),
-    }
 }

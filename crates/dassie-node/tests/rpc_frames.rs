@@ -28,6 +28,7 @@ fn node() -> Arc<Node> {
         acme_ca_file: None,
         policies: Policies::DEFAULT,
         peer: PeerOptions::default(),
+        dev_wallet_dir: None,
     })
     .unwrap()
 }

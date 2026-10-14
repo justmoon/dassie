@@ -318,3 +318,25 @@ async fn a_connection_holds_at_most_twelve_streams() {
         }
     }
 }
+
+async fn get_stats(node: &TestNode) -> Reply {
+    let request = hyper::Request::get("/stats")
+        .header("host", node.host())
+        .body(http_body_util::Full::new(bytes::Bytes::new()))
+        .unwrap();
+    send(node.https, true, request).await
+}
+
+// Spec 2 §14: who the node is, for anyone, once it is set up.
+#[tokio::test]
+async fn stats_name_the_node_once_set_up() {
+    let node = TestNode::start().await;
+    assert_eq!(get_stats(&node).await.status, hyper::StatusCode::NOT_FOUND);
+    let _owner = ready(&node).await;
+    let reply = get_stats(&node).await;
+    assert_eq!(reply.status, hyper::StatusCode::OK);
+    assert_eq!(reply.header("content-type"), Some("application/json"));
+    let stats: serde_json::Value = serde_json::from_str(&reply.text()).unwrap();
+    assert_eq!(stats["node"]["id"], key().node_id().as_str());
+    assert_eq!(stats["peers"], serde_json::json!([]));
+}
