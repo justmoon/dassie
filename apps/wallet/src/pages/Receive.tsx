@@ -10,13 +10,13 @@ import type {
   Ledger,
 } from "@dassie/rpc/proto";
 import { createSignal, Show } from "solid-js";
-import { formatAmount } from "../shared/amount/currency.ts";
-import { ledgerCurrency } from "../shared/amount/Amount.tsx";
-import { hex } from "../shared/format.ts";
-import { useNodeData } from "../shared/node-data.ts";
-import { describe, useClient } from "../shared/rpc.ts";
-import { Link, useRouter, useSearchParam } from "../shared/router/Router.tsx";
-import { useToast } from "../shared/ui/toast.tsx";
+import { formatAmount } from "@dassie/ui/currency";
+import { ledgerCurrency } from "@dassie/ui/amount";
+import { hex } from "@dassie/ui/format";
+import { useNodeData } from "@dassie/ui/node-data";
+import { describe, useClient } from "@dassie/ui/rpc";
+import { Link, useRouter, useSearchParam } from "@dassie/ui/router";
+import { useToast } from "@dassie/ui/toast";
 import {
   Card,
   CopyButton,
@@ -24,7 +24,7 @@ import {
   Masked,
   PageTitle,
   Tabs,
-} from "../shared/ui/ui.tsx";
+} from "@dassie/ui/ui";
 import { schemeName } from "./schemes.ts";
 
 export function Receive(): JSX.Element {

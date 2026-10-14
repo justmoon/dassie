@@ -5,10 +5,10 @@
 
 import type { JSX } from "@solidjs/web";
 import { For, Show } from "solid-js";
-import { Amount, ledgerCurrency } from "../shared/amount/Amount.tsx";
-import { useNodeData } from "../shared/node-data.ts";
-import { Link } from "../shared/router/Router.tsx";
-import { Card, LiveNote, PageTitle } from "../shared/ui/ui.tsx";
+import { Amount, ledgerCurrency } from "@dassie/ui/amount";
+import { useNodeData } from "@dassie/ui/node-data";
+import { Link } from "@dassie/ui/router";
+import { Card, LiveNote, PageTitle } from "@dassie/ui/ui";
 import { schemeName } from "./schemes.ts";
 
 export function Account(): JSX.Element {

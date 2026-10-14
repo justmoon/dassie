@@ -8,7 +8,7 @@ import {
   nextTheme,
   saveTheme,
   type ThemeSetting,
-} from "../theme.ts";
+} from "./theme.ts";
 
 const LABELS: Record<ThemeSetting, string> = {
   system: "Theme: system",

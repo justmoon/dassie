@@ -1,6 +1,6 @@
 import { render } from "@solidjs/web";
 import App from "./App.tsx";
-import { applyTheme, loadTheme } from "./theme.ts";
+import { applyTheme, loadTheme } from "@dassie/ui/theme";
 import "./app.css";
 
 // From the bundle, as the CSP allows no inline script (spec 7 §5).

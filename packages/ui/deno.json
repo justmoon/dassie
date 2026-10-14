@@ -1,0 +1,43 @@
+{
+  "name": "@dassie/ui",
+  "version": "0.0.0",
+  "exports": {
+    "./amount": "./src/amount/Amount.tsx",
+    "./currency": "./src/amount/currency.ts",
+    "./debug": "./src/debug/pages.tsx",
+    "./format": "./src/format.ts",
+    "./live": "./src/live/live.ts",
+    "./live/reduce": "./src/live/reduce.ts",
+    "./live/subscription": "./src/live/subscription.ts",
+    "./logs": "./src/logs/LogViewer.tsx",
+    "./network": "./src/network/NetworkGraph.tsx",
+    "./network/nodes": "./src/network/nodes.ts",
+    "./node-data": "./src/node-data.ts",
+    "./router": "./src/router/Router.tsx",
+    "./rpc": "./src/rpc.ts",
+    "./theme": "./src/theme/theme.ts",
+    "./theme-toggle": "./src/theme/ThemeToggle.tsx",
+    "./toast": "./src/ui/toast.tsx",
+    "./ui": "./src/ui/ui.tsx",
+    "./ui.css": "./ui.css",
+    "./testing/csp": "./testing/csp.ts",
+    "./vite": "./vite.ts"
+  },
+  "imports": {
+    "@bufbuild/protobuf": "npm:@bufbuild/protobuf@^2.16.0",
+    "@solidjs/web": "npm:@solidjs/web@2.0.0-rc.9",
+    "@std/assert": "jsr:@std/assert@^1",
+    "@std/testing": "jsr:@std/testing@^1",
+    "solid-js": "npm:solid-js@2.0.0-rc.9",
+    "vite": "npm:vite@8.3.1"
+  },
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "@solidjs/web",
+    "lib": [
+      "deno.window",
+      "dom",
+      "dom.iterable"
+    ]
+  }
+}

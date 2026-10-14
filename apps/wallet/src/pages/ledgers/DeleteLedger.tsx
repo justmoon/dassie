@@ -5,14 +5,10 @@
 
 import type { JSX } from "@solidjs/web";
 import { createSignal, createUniqueId, Show } from "solid-js";
-import { useNodeData } from "../../shared/node-data.ts";
-import { describe, useClient } from "../../shared/rpc.ts";
-import {
-  Navigate,
-  type RouteProps,
-  useRouter,
-} from "../../shared/router/Router.tsx";
-import { useToast } from "../../shared/ui/toast.tsx";
+import { useNodeData } from "@dassie/ui/node-data";
+import { describe, useClient } from "@dassie/ui/rpc";
+import { Navigate, type RouteProps, useRouter } from "@dassie/ui/router";
+import { useToast } from "@dassie/ui/toast";
 import {
   Alert,
   Card,
@@ -20,7 +16,7 @@ import {
   ErrorText,
   Field,
   PageTitle,
-} from "../../shared/ui/ui.tsx";
+} from "@dassie/ui/ui";
 import { schemeName } from "../schemes.ts";
 import { expectedConfirmation, removalChecklist } from "./removal.ts";
 

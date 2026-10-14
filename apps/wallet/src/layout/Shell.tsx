@@ -18,9 +18,9 @@ import { CreateLedger } from "../pages/ledgers/CreateLedger.tsx";
 import { DeleteLedger } from "../pages/ledgers/DeleteLedger.tsx";
 import { Ledgers } from "../pages/ledgers/Ledgers.tsx";
 import { Receive } from "../pages/Receive.tsx";
-import { useClient } from "../shared/rpc.ts";
-import { Routes } from "../shared/router/Router.tsx";
-import { PageError, Spinner } from "../shared/ui/ui.tsx";
+import { useClient } from "@dassie/ui/rpc";
+import { Routes } from "@dassie/ui/router";
+import { PageError, Spinner } from "@dassie/ui/ui";
 import { MainNav } from "./MainNav.tsx";
 
 const Network = lazy(() => import("../pages/network/Network.tsx"), {
@@ -32,7 +32,7 @@ const Register = lazy(() => import("../pages/network/Register.tsx"), {
 const Settings = lazy(() => import("../pages/settings/Settings.tsx"), {
   export: "Settings",
 });
-const DebugPage = lazy(() => import("../shared/debug/pages.tsx"), {
+const DebugPage = lazy(() => import("@dassie/ui/debug"), {
   export: "DebugPage",
 });
 

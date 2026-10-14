@@ -8,16 +8,10 @@ import type { JSX } from "@solidjs/web";
 import { Realm, type SettlementSchemeInfo } from "@dassie/rpc/proto";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { submitLogout } from "../../auth.ts";
-import { useNodeData } from "../../shared/node-data.ts";
-import { describe, useClient } from "../../shared/rpc.ts";
-import { useRouter } from "../../shared/router/Router.tsx";
-import {
-  Alert,
-  Card,
-  ErrorText,
-  PageTitle,
-  Spinner,
-} from "../../shared/ui/ui.tsx";
+import { useNodeData } from "@dassie/ui/node-data";
+import { describe, useClient } from "@dassie/ui/rpc";
+import { useRouter } from "@dassie/ui/router";
+import { Alert, Card, ErrorText, PageTitle, Spinner } from "@dassie/ui/ui";
 import { schemeDescription, schemeName } from "../schemes.ts";
 
 export function CreateLedger(): JSX.Element {

@@ -26,7 +26,8 @@ The work starts from the specification in [`spec/`](spec/README.md):
 | `crates/dassie-node` | The daemon: database, HTTP(S) and IPC listeners, TLS, ACME, owner login, RPC with its live streams, the ledger's engine with the peer protocol, `/peer` and the peer client, the BTP server, the STREAM receiver, `/stats`, the log ring |
 | `crates/dassie-cli` | The `dassie` binary: `daemon`, `init`, `verify-install` |
 | `proto/dassie/ui/v1` | The RPC contract between the node and its owner's clients |
-| `apps/wallet` | The wallet (Solid 2), embedded in the binary: every page of the original but Send and payment status (M6), with live data; `src/shared` becomes `packages/ui` in M5b |
+| `apps/wallet` | The wallet (Solid 2), embedded in the binary: every page of the original but Send and payment status (M6), with live data |
+| `packages/ui` | The Solid components the wallet and the dev dashboard share: amounts, the log viewer, the network graph, the debug pages, the router, live data, the theme |
 | `packages/identity-wasm` | The core crates for Deno and browsers, with a STREAM driver |
 | `packages/rpc` | The client for the RPC contract, over WebSocket (browsers) or the IPC socket (Deno) |
 | `tests/interop` | Interop with `ilp-protocol-stream`, WASM vectors, browser test |

@@ -3,6 +3,7 @@
     "./apps/wallet",
     "./packages/identity-wasm",
     "./packages/rpc",
+    "./packages/ui",
     "./tests/e2e",
     "./tests/interop"
   ],

@@ -7,6 +7,7 @@
 import type { Ledger, NetworkNode } from "@dassie/rpc/proto";
 import {
   type Accessor,
+  type Context,
   createContext,
   createSignal,
   type Store,
@@ -33,7 +34,7 @@ export interface NodeData {
   hostname: string;
 }
 
-export const NodeDataContext = createContext<NodeData>();
+export const NodeDataContext: Context<NodeData> = createContext<NodeData>();
 
 /** The node's live state. */
 export function useNodeData(): NodeData {

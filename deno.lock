@@ -982,6 +982,16 @@
           "npm:@bufbuild/protobuf@^2.16.0"
         ]
       },
+      "packages/ui": {
+        "dependencies": [
+          "jsr:@std/assert@1",
+          "jsr:@std/testing@1",
+          "npm:@bufbuild/protobuf@^2.16.0",
+          "npm:@solidjs/web@2.0.0-rc.9",
+          "npm:solid-js@2.0.0-rc.9",
+          "npm:vite@8.3.1"
+        ]
+      },
       "tests/e2e": {
         "dependencies": [
           "jsr:@astral/astral@~0.5.3",
