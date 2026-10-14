@@ -18,7 +18,7 @@ Many more are marked inline as "Deviation" or "Open question / known gap". This 
 **Every gap is fixed** unless it is listed in §2 (kept on purpose) or depends on a decision in §3. "Fixed" means:
 
 - implement what the original's design notes or code comments say was intended; or, where there is no stated intent,
-- implement the governing standard (X.696, ILPv4, RFC 29 STREAM, RFC 31 ILDCP, RFC 23 BTP, RFC 35 ILP-over-HTTP, SPSP, Open Payments) or the obvious safe behaviour.
+- implement the governing standard (X.696, ILPv4, RFC 29 STREAM, RFC 31 ILDCP, RFC 23 BTP, RFC 35 ILP-over-HTTP, Open Payments) or the obvious safe behaviour.
 
 Every fix gets a test that would have failed against the original's behaviour.
 
@@ -161,17 +161,34 @@ All decisions below were confirmed on 2026-10-11. Each states the **decision** a
 
   A mainnet bootstrap node list must exist before `live` makes sense.
 
-### D9. Open Payments and SPSP scope
+### D9. Open Payments, fully, and no SPSP
+
+Revised on 2026-10-14; it first served SPSP and deferred GNAP, quotes and outgoing payments.
 
 - **Facts:**
   - The node serves an Open-Payments-style wallet address and unauthenticated incoming payments, with hard-coded amounts.
   - There is no SPSP, no GNAP auth server, no quotes and no outgoing-payment resources (ILP-10).
-- **Decision:**
-  - **Serve SPSP** (`application/spsp4+json` on the payment-pointer URL), so the node is payable by any ILP wallet.
-  - **Serve Open Payments incoming payments with correct state:** received amount, completion, expiry, `GET /incoming-payments/{id}`, pagination, and the correct asset.
-  - **Client side:** pay SPSP and Open Payments receivers, quoting through STREAM rate probing, and track payment status.
-  - **Defer** GNAP and the outgoing-payment and quote resources (the third-party-client use case).
-- **Creating incoming payments** stays open to anyone, as Open Payments allows for receivers. It is rate-limited, and unused incoming payments expire. (Rejected: requiring a token, which would stop some third-party senders from paying without extra setup.)
+- **Decision:** implement [Open Payments](https://github.com/interledger/open-payments-specifications) v1.4.0 as the specs define it.
+  - **Serve all three servers:**
+    - the wallet address server, with its `jwks.json`;
+    - the GNAP authorization server: grants, continuation, interaction and token management;
+    - the resource server: incoming payments, quotes, outgoing payments and grant spend.
+  - **One wallet address per ledger**, since a wallet address has one asset:
+    - each ledger is at `https://host/pay/<scheme>`;
+    - `$host` (`https://host/.well-known/pay`) names the default ledger, a setting.
+  - **Authorization:** every resource-server and authorization-server call needs a GNAP token and an HTTP message signature (RFC 9421) by the client's key, as the specs require.
+    - **Non-interactive:** incoming-payment and quote grants are approved without interaction.
+    - **The owner's consent in the wallet** is needed for outgoing-payment, `subject`, `read-all` and `list-all` grants.
+    - **Grant limits** (amounts per repeating interval) are reserved when an outgoing payment is created.
+  - **Client side:** the wallet's Send is an Open Payments client of the receiver's servers. It gets a non-interactive grant, creates the incoming payment there, then quotes and pays from the node's own resources.
+    - It quotes through STREAM rate probing.
+    - It never debits more than the quote, across crashes too.
+  - **Payment pointers** stay only as input syntax: `$host/path` means `https://host/path`, and a bare `$host` means `https://host/.well-known/pay`.
+  - **Not supported:** card authorization (v1.4.0), since the node has no cards. STREAM receipts are not part of Open Payments and are not issued.
+- **Rejected:**
+  - **SPSP:** Open Payments has replaced it, and its specs no longer mention it. Wallets that speak only SPSP cannot pay the node.
+  - **Creating incoming payments without a token,** which the first version of this decision chose: the specs require GNAP, and a non-interactive grant costs a client one request. Grant requests and incoming payments are rate-limited, and unused incoming payments expire.
+  - **Deferring GNAP and outgoing payments:** without them no third-party client, and no other wallet's user, can pay from the node.
 
 ### D10. Secrets at rest
 
@@ -276,6 +293,7 @@ Confirmed on 2026-10-12, after the others.
     - No panicking indexing or `unwrap` outside tests.
     - No lossy integer casts.
     - Explicit units in names.
+- **Open Payments follows the same split.** `dassie-payments` is sans-IO: it holds the JSON shapes, HTTP message signatures, GNAP rules, intervals and quote math, and gets golden vectors and never-panics properties. The node's engine owns the money side (receivers, payers, quotes, grant spend) and is simulated. The HTTP and GNAP services around it are tested over real HTTPS and end to end.
 - **Tooling is not simulated.** The dev environment (`apps/dev`) and the dashboard are tools around the node, not part of it. Their pure parts (the SNI parser, the vanity table, the reducers) get unit tests, and the rest is tested end to end against real binaries. They are still bounded: rings, frames and queues have limits.
 - **Testing consequences:** see [7 §7](07-rewrite.md#7-testing-strategy). Every decoder gets a "never panics on arbitrary input" property test. Every simulation failure reports the seed that reproduces it.
 - **Rejected:** conventional style with determinism added later, when DST starts. Clocks, RNGs, unordered maps and unbounded queues spread into every crate, and removing them afterwards costs more than avoiding them.
