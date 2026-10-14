@@ -144,8 +144,13 @@ CREATE TABLE peer_nodes (
   registered_at_ms INTEGER,
   renewed_at_ms INTEGER,
   registration_expires_ms INTEGER,
+  -- The URL the registration was probed at, and the /24 or /48 it came
+  -- from, which registrations are capped by.
+  registered_url TEXT,
+  registered_network BLOB CHECK (registered_network IS NULL OR length(registered_network) = 7),
   CHECK ((registered_at_ms IS NULL) = (renewed_at_ms IS NULL)
-     AND (renewed_at_ms IS NULL) = (registration_expires_ms IS NULL))
+     AND (renewed_at_ms IS NULL) = (registration_expires_ms IS NULL)
+     AND (registration_expires_ms IS NULL) = (registered_url IS NULL))
 ) STRICT, WITHOUT ROWID;
 
 CREATE TABLE peers (
@@ -314,6 +319,8 @@ const TABLES: &[Table] = &[
             ("registered_at_ms", "INTEGER", false, false),
             ("renewed_at_ms", "INTEGER", false, false),
             ("registration_expires_ms", "INTEGER", false, false),
+            ("registered_url", "TEXT", false, false),
+            ("registered_network", "BLOB", false, false),
         ],
     },
     Table {

@@ -264,7 +264,7 @@ impl Sim {
                 let inbound = InboundId(node.next_inbound);
                 node.next_inbound += 1;
                 node.inbound.insert(inbound, (from, generation, id));
-                self.step(to, |core| core.peer_inbound(inbound, &body));
+                self.step(to, |core| core.peer_inbound(inbound, &body, None));
             }
             Delivery::Result {
                 to,

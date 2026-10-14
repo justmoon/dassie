@@ -229,8 +229,9 @@ impl PeerNode {
             .collect();
         let added: Vec<NodeId> = majority.difference(&self.lists.majority).copied().collect();
         for id in added {
-            self.ensure(id, Sources::MAJORITY);
-            self.lists.majority.insert(id);
+            if self.ensure(id, Sources::MAJORITY) {
+                self.lists.majority.insert(id);
+            }
         }
         if fresh * 2 > total {
             let lost: Vec<NodeId> = self.lists.majority.difference(&majority).copied().collect();
@@ -275,18 +276,29 @@ impl PeerNode {
         };
         let content = Content::Registration(signed);
         let timeout = self.config.request_timeout_ms;
+        let (now, min, max) = (
+            self.now_ms,
+            self.config.min_backoff_ms,
+            self.config.max_backoff_ms,
+        );
         for target in due {
             let sent = self
                 .send(target, &content, Purpose::Registration, timeout)
                 .is_some();
             if let Some(state) = self.lists.states.get_mut(&target) {
                 state.registering = sent;
+                if !sent {
+                    state.register_failures = state.register_failures.saturating_add(1);
+                    state.register_at_ms =
+                        now.saturating_add(backoff(min, max, state.register_failures));
+                }
             }
         }
     }
 
     pub(super) fn on_registered(&mut self, with: NodeId, result: Result<Vec<u8>, Problem>) {
         let (now, renew) = (self.now_ms, self.config.registration_renew_ms);
+        let recheck = self.config.list_poll_interval_ms.saturating_mul(5);
         let (min, max) = (self.config.min_backoff_ms, self.config.max_backoff_ms);
         let Some(state) = self.lists.states.get_mut(&with) else {
             return;
@@ -298,7 +310,7 @@ impl PeerNode {
         {
             state.registered_ms = Some(now);
             state.register_failures = 0;
-            state.register_at_ms = now.saturating_add(renew);
+            state.register_at_ms = now.saturating_add(recheck.min(renew));
             self.event(Event::RegisteredWith(with));
         } else {
             state.register_failures = state.register_failures.saturating_add(1);

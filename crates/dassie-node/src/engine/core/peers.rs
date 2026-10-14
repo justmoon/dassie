@@ -177,9 +177,14 @@ impl Core {
 
     /// An inbound peer request: its reply goes out once the batch is on
     /// disk, as a peer accepting a peering must have recorded it first.
-    pub fn peer_inbound(&mut self, inbound: InboundId, body: &[u8]) {
+    pub fn peer_inbound(
+        &mut self,
+        inbound: InboundId,
+        body: &[u8],
+        source: Option<std::net::IpAddr>,
+    ) {
         let outcome = self.with_peer(|peer, hooks, now| {
-            match peer.handle_inbound(now, hooks, inbound, body) {
+            match peer.handle_inbound(now, hooks, inbound, body, source) {
                 dassie_peer::Inbound::Reply(reply) => (Some(reply), None),
                 dassie_peer::Inbound::Deferred => (None, None),
                 dassie_peer::Inbound::Packet {

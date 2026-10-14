@@ -288,8 +288,11 @@ impl Core {
         self.update_peer_schemes();
         let peers: Vec<dassie_identity::NodeId> = self.peer.peers().map(|(id, _)| *id).collect();
         for node in peers {
-            self.add_peer_endpoint(node)
-                .map_err(|error| format!("peer {node}: {error}"))?;
+            // A peer whose scheme is gone has no ledger to book on: it gets
+            // no endpoint, which the rest of the node does without.
+            if let Err(error) = self.add_peer_endpoint(node) {
+                tracing::error!(target: target::PEER, %node, %error, "a peer without an endpoint");
+            }
         }
         self.update_routes();
         self.after_peer();

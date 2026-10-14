@@ -51,12 +51,13 @@ pub async fn handle(node: &Node, peer: SocketAddr, request: Request<Incoming>) -
     };
     let anonymous = Envelope::decode(&body)
         .is_ok_and(|envelope| envelope.authentication == Authentication::None);
-    let Ok(reply) = engine.peer_inbound(body.to_vec()).await else {
+    let Ok(reply) = engine.peer_inbound(body.to_vec(), Some(peer.ip())).await else {
         return response::text(StatusCode::SERVICE_UNAVAILABLE, "Service Unavailable");
     };
-    // Unauthenticated requests are for tools; failing ones may be someone
-    // making the node do a key exchange per request. Both are rationed.
-    if anonymous || reply.status == 401 {
+    // Unauthenticated requests are for tools; refused ones may be someone
+    // making the node verify signatures, exchange keys or probe URLs for
+    // nothing. All are rationed.
+    if anonymous || matches!(reply.status, 400 | 401 | 409 | 429) {
         node.peer_charge(peer.ip());
     }
     let status = StatusCode::from_u16(reply.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);

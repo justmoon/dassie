@@ -303,6 +303,7 @@ A sender uses one session per destination and starts a new one every hour. The r
 - For other senders, the floor after a restart is the start time.
 - A message's effects only become visible after the transaction that records it, so a message lost in a crash can be accepted once more, but never twice.
 - Keys are cached per sender, at most 1024 of them. An entry is added only after a MAC verifies (NET-9).
+- Peers and bootstrap nodes always keep their replay state. Every other sender shares 1024 places, so a flood of new identities cannot crowd out the nodes that matter: once the places are full, new senders get 503 until one goes idle.
 
 **Link state.**
 - **New OID.** `PeerNodeInfo` uses OID `1.3.6.1.4.1.54392.5.1399.1.3`, so a node info signed under v0 is not a v1 link state. Verification is ZIP-215 ([8 §2](08-decisions.md#2-original-behaviour-kept-on-purpose)), and small-order public keys are refused.
@@ -356,7 +357,10 @@ peeringTermination [10]  -- reserved; its layout comes with termination in M4b
   - it lasts 24 h, and clients renew every 6 h;
   - before accepting a new registration, or one whose URL changed, the bootstrap node asks that URL for the registrant's link state, with authentication, and must get the registered sequence back;
   - new registrations are throttled globally (a bucket of 20, refilled at 60 per hour);
-  - there is one registration per URL host and port, and at most 8 per /24 (IPv4) or /48 (IPv6).
+  - there is one registration per URL host and port (443 counts as no port), and at most 8 per /24 (IPv4) or /48 (IPv6) of the address the registration came from;
+  - only bootstrap nodes take registrations; others answer 409;
+  - a renewal is a registration from the URL that was probed; one from another URL is probed again;
+  - a probe of the same node or host is never made twice at once, and probes are rate-limited (a bucket of 32, refilled at one per second).
 - **The node table** removes a node 1 h after its last reason to be there is gone: self, bootstrap, majority, registration or peering (NET-18).
 
 **Peering.**
@@ -367,7 +371,7 @@ peeringTermination [10]  -- reserved; its layout comes with termination in M4b
 - **Bridge rule:** if a majority node with a fresh link state has been unreachable for 2 min, the node starts one more outbound peering, with that node if it can.
 - **Before accepting,** the responder probes the requester's URL as for registration.
 - **Repeats and crossings:**
-  - a request from a node that is already peered on the same scheme is accepted again with the stored state;
+  - a request from a node that is already peered on the same scheme is answered from the stored peering, which it does not change;
   - crossed requests resolve in favour of the lower node ID.
 - **Backoff:** failed candidates back off exponentially, from 10 s to 1 h. "Unknown node" is retried after one list-poll period instead.
 - **Durability:** a peering is persisted before the acceptance is sent and before the requester uses it.
@@ -376,6 +380,8 @@ peeringTermination [10]  -- reserved; its layout comes with termination in M4b
 - The route for `<scheme>.das.<id>` lists up to 4 first hops on shortest paths.
 - There is no route for the node's own address (NET-34). Destinations under our own address go only to our own endpoints, or get F02.
 - A packet is never forwarded back to the endpoint it came from.
+
+**Packets.** A Prepare that surely did not reach its peer (a refused connection, or 400, 401, 409 or 503 in reply) is rejected at once. One that may have reached it is left to expire. A Fulfill or Reject for a peer is sent again, every second, until it arrives or 30 s have passed: the peer's books depend on it, and a copy that arrives twice is dropped by its connector.
 
 **Outbound requests** go only to `https` URLs. Requests to private, loopback, link-local or similar addresses are refused, after DNS resolution, unless the operator allows them (for dev and tests). The node never follows redirects.
 

@@ -10,7 +10,7 @@
 mod keys;
 mod replay;
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::sync::Arc;
 
 use dassie_identity::{NodeId, NodeKey, PublicKey};
@@ -148,6 +148,10 @@ pub struct Authenticator {
     config: AuthConfig,
     keys: BTreeMap<NodeId, CachedKeys>,
     guards: BTreeMap<NodeId, Guard>,
+    /// Senders whose replay state is never given up: peers and bootstrap
+    /// nodes. Everyone else shares `max_senders` places, so a flood of new
+    /// identities cannot crowd out the nodes that matter.
+    pinned: BTreeSet<NodeId>,
     sessions: BTreeMap<NodeId, Session>,
     /// The floor of senders without one of their own: the start time.
     default_floor_ms: u64,
@@ -165,6 +169,7 @@ impl Authenticator {
             config,
             keys: BTreeMap::new(),
             guards: BTreeMap::new(),
+            pinned: BTreeSet::new(),
             sessions: BTreeMap::new(),
             default_floor_ms: started_ms,
         }
@@ -182,15 +187,27 @@ impl Authenticator {
         &self.key
     }
 
-    /// Restores a sender's floor, persisted from [`newest`](Self::newest)
-    /// before a restart.
+    /// Restores a peer's floor, persisted from [`newest`](Self::newest)
+    /// before a restart, and pins it.
     pub fn restore_floor(&mut self, sender: NodeId, floor_ms: u64) {
         let floor = floor_ms.max(self.default_floor_ms);
-        // Only peers have a persisted floor, and they are far fewer than the
-        // senders kept; past the bound, the start time is the floor.
-        if self.guards.contains_key(&sender) || self.guards.len() < self.config.max_senders {
-            self.guards.insert(sender, Guard::new(floor));
+        self.pinned.insert(sender);
+        self.guards.insert(sender, Guard::new(floor));
+    }
+
+    /// Keeps `sender`'s replay state for good: a peer or a bootstrap node.
+    pub fn pin(&mut self, sender: NodeId) {
+        if sender != self.own {
+            self.pinned.insert(sender);
         }
+    }
+
+    /// Replay states of senders that are not pinned.
+    fn strangers(&self) -> usize {
+        self.guards
+            .keys()
+            .filter(|id| !self.pinned.contains(id))
+            .count()
     }
 
     /// The newest timestamp accepted from `sender`, which is what to
@@ -266,7 +283,9 @@ impl Authenticator {
         let guard = match self.guards.get(sender) {
             Some(guard) => guard,
             None => {
-                if self.guards.len() >= self.config.max_senders && self.idle_guard(now_ms).is_none()
+                if !self.pinned.contains(sender)
+                    && self.strangers() >= self.config.max_senders
+                    && self.idle_guard(now_ms).is_none()
                 {
                     return Err(AuthError::Busy);
                 }
@@ -290,7 +309,10 @@ impl Authenticator {
         slot: replay::Slot,
         hmac: &HmacAuthentication,
     ) {
-        if !self.guards.contains_key(&sender) && self.guards.len() >= self.config.max_senders {
+        if !self.guards.contains_key(&sender)
+            && !self.pinned.contains(&sender)
+            && self.strangers() >= self.config.max_senders
+        {
             // Its messages are all stale: forgetting it opens nothing.
             if let Some(idle) = self.idle_guard(now_ms) {
                 self.guards.remove(&idle);
@@ -306,7 +328,9 @@ impl Authenticator {
     fn idle_guard(&self, now_ms: u64) -> Option<NodeId> {
         self.guards
             .iter()
-            .find(|(_, guard)| guard.is_idle(now_ms, self.config.skew_ms))
+            .find(|(id, guard)| {
+                !self.pinned.contains(id) && guard.is_idle(now_ms, self.config.skew_ms)
+            })
             .map(|(id, _)| *id)
     }
 
@@ -425,9 +449,10 @@ impl Authenticator {
             "key cache within bounds"
         );
         assert!(
-            self.guards.len() <= self.config.max_senders,
+            self.strangers() <= self.config.max_senders,
             "replay state within bounds"
         );
+        assert!(!self.pinned.contains(&self.own), "we are not pinned");
         assert!(
             self.sessions.len() <= self.config.max_senders,
             "sessions within bounds"

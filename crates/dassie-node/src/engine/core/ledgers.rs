@@ -154,6 +154,13 @@ impl Core {
                 "BTP tokens use its ledger".into(),
             ));
         }
+        if self
+            .peer
+            .peers()
+            .any(|(_, peering)| peering.scheme.as_str() == id.as_str())
+        {
+            return Err(EngineError::Precondition("peers settle with it".into()));
+        }
         self.schemes.remove(&id);
         self.update_peer_schemes();
         self.batch.schemes_added.retain(|(added, _)| *added != id);

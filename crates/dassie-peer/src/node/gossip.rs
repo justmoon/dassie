@@ -53,6 +53,14 @@ impl Gossip {
         }
     }
 
+    /// Brings the next heartbeat forward to now: a new peer hears from us
+    /// at once.
+    pub(crate) const fn heartbeat_soon(&mut self, now_ms: u64) {
+        if self.heartbeat_at_ms > now_ms {
+            self.heartbeat_at_ms = now_ms;
+        }
+    }
+
     pub(crate) const fn routes_due(&self, now_ms: u64) -> bool {
         (self.routes_dirty && now_ms >= self.routes_at_ms) || now_ms >= self.routes_by_ms
     }
@@ -95,7 +103,7 @@ impl Gossip {
             retransmit,
             issue,
             heartbeat,
-            Some(self.refresh_at_ms),
+            Some(self.refresh_at_ms.min(self.sweep_at_ms)),
             Some(routes),
         ]
         .into_iter()
@@ -159,8 +167,11 @@ impl PeerNode {
                 return Processed::Old;
             }
         }
+        // The subject's rate is checked before the signature, which is the
+        // costly part, but spent only on a state that verifies: forged
+        // states cannot use up the real node's allowance.
         if signed.info.sequence > now.saturating_add(self.config.max_future_ms)
-            || (id != self.own && !entry.bucket.take(rate, now))
+            || (id != self.own && !entry.bucket.has_token(rate, now))
         {
             self.stats.link_states_dropped += 1;
             return Processed::Dropped;
@@ -172,6 +183,9 @@ impl PeerNode {
                 return Processed::Invalid(invalid);
             }
         };
+        if id != self.own {
+            entry.bucket.take(rate, now);
+        }
         let mut link = LinkState::from_signed(signed);
         link.from = from;
         link.retransmit_at_ms = match mode {
@@ -212,6 +226,7 @@ impl PeerNode {
             return;
         }
         let now = self.now_ms;
+        self.gossip.last_issue_ms = Some(now);
         let high = self.gossip.own_sequence;
         // A sequence far ahead of the clock was never accepted by anyone
         // whose clock is right: start again from now.
@@ -354,12 +369,13 @@ impl PeerNode {
     /// another node.
     pub(super) fn refresh(&mut self) {
         if self.gossip.refresh_at_ms > self.now_ms {
+            self.sweep();
             return;
         }
         self.gossip.refresh_at_ms = self.now_ms.saturating_add(self.config.refresh_interval_ms);
+        self.sweep();
         let stale = self.stale_nodes();
         if stale.is_empty() {
-            self.sweep();
             return;
         }
         let pick = usize::try_from(self.rng.next_u64() % (stale.len() as u64)).unwrap_or(0);
@@ -515,14 +531,13 @@ impl PeerNode {
                 .iter()
                 .flatten()
                 .find(|signed| signed.info.node_id == *asked);
-            match found {
-                Some(signed) => {
-                    if self.process_link_state(signed, None, Retransmit::Never) == Processed::Old {
-                        // Nothing newer anywhere: wait before asking again.
-                        missing.push(*asked);
-                    }
-                }
-                None => missing.push(*asked),
+            // Anything but a newer state, whether old, dropped, invalid or
+            // missing, waits before asking again.
+            let accepted = found.is_some_and(|signed| {
+                self.process_link_state(signed, None, Retransmit::Never) == Processed::Accepted
+            });
+            if !accepted {
+                missing.push(*asked);
             }
         }
         self.refresh_failed(&missing);

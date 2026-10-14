@@ -172,4 +172,7 @@ pub struct Stats {
     pub link_states_dropped: u64,
     /// Peerings begun.
     pub peerings: u64,
+    /// ILP responses given up on: refused, out of time, or no room to
+    /// retry.
+    pub answers_dropped: u64,
 }

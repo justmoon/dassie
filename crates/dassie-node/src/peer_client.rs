@@ -191,8 +191,16 @@ impl PeerClient {
         if !self.allow_private && literal_is_private(host) {
             return Err(Failure::NotDelivered);
         }
-        let Some(_slot) = self.slot(host) else {
-            return Err(Failure::NotDelivered);
+        // ILP packets are bounded by the connector's tables, and their
+        // responses must get through: only the protocol's own requests
+        // count against the limits here.
+        let _slot = if request.kind == dassie_peer::wire::Kind::InterledgerPacket {
+            None
+        } else {
+            match self.slot(host) {
+                Some(slot) => Some(slot),
+                None => return Err(Failure::NotDelivered),
+            }
         };
         let Ok(http_request) = http::Request::post(&url)
             .header(ACCEPT, MESSAGE_CONTENT_TYPE)

@@ -167,6 +167,8 @@ pub struct Network {
     /// What happened, for comparing runs.
     pub trace: Vec<String>,
     pub events: Vec<(usize, Event)>,
+    /// ILP packets received: by which node, from whom, with which ID.
+    pub packets: Vec<(usize, NodeId, u32)>,
 }
 
 impl Network {
@@ -192,6 +194,7 @@ impl Network {
             cut: BTreeSet::new(),
             trace: Vec::new(),
             events: Vec::new(),
+            packets: Vec::new(),
         };
         for index in 0..count {
             let skew = i64::try_from(rng.next_u64() % 20_001).unwrap() - 10_000;
@@ -423,13 +426,21 @@ impl Network {
         };
         let inbound = InboundId(sim.next_inbound);
         sim.next_inbound += 1;
-        let reply = match node.handle_inbound(now, &mut sim.hooks, inbound, body) {
+        let reply = match node.handle_inbound(now, &mut sim.hooks, inbound, body, None) {
             Inbound::Reply(reply) => Some(reply),
             Inbound::Deferred => {
                 sim.deferred.insert(inbound, (from, generation, request));
                 None
             }
-            Inbound::Packet { reply, .. } => Some(reply),
+            Inbound::Packet {
+                reply,
+                from: sender,
+                request_id,
+                ..
+            } => {
+                self.packets.push((to, sender, request_id));
+                Some(reply)
+            }
         };
         self.drain(to);
         if let Some(reply) = reply {
@@ -552,7 +563,7 @@ impl Network {
         let inbound = InboundId(sim.next_inbound);
         sim.next_inbound += 1;
         let node = sim.node.as_mut().unwrap();
-        let reply = match node.handle_inbound(now, &mut sim.hooks, inbound, body) {
+        let reply = match node.handle_inbound(now, &mut sim.hooks, inbound, body, None) {
             Inbound::Reply(reply) | Inbound::Packet { reply, .. } => reply,
             Inbound::Deferred => dassie_peer::Reply {
                 status: 0,
@@ -565,5 +576,14 @@ impl Network {
 
     pub fn clock(&self, index: usize) -> u64 {
         self.local_now(index)
+    }
+}
+
+impl Network {
+    /// Runs `f` on node `index` at its clock, then carries out its outputs.
+    pub fn act(&mut self, index: usize, f: impl FnOnce(&mut PeerNode, u64)) {
+        let now = self.local_now(index);
+        f(self.nodes[index].node.as_mut().unwrap(), now);
+        self.drain(index);
     }
 }

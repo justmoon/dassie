@@ -73,6 +73,7 @@ enum Command {
     /// A peer's request; the reply comes once the batch is persisted.
     PeerInbound {
         body: Vec<u8>,
+        source: Option<std::net::IpAddr>,
         reply: oneshot::Sender<dassie_peer::Reply>,
     },
     /// The result of one of our peer requests.
@@ -257,10 +258,18 @@ impl Engine {
 
     /// Hands in a peer's request, and waits for the reply, which comes once
     /// what the request changed is on disk.
-    pub async fn peer_inbound(&self, body: Vec<u8>) -> Result<dassie_peer::Reply, EngineError> {
+    pub async fn peer_inbound(
+        &self,
+        body: Vec<u8>,
+        source: Option<std::net::IpAddr>,
+    ) -> Result<dassie_peer::Reply, EngineError> {
         let (reply, result) = oneshot::channel();
         self.commands
-            .send(Command::PeerInbound { body, reply })
+            .send(Command::PeerInbound {
+                body,
+                source,
+                reply,
+            })
             .await
             .map_err(|_| EngineError::Unavailable)?;
         result.await.map_err(|_| EngineError::Unavailable)
@@ -414,11 +423,15 @@ impl Driver<'_> {
                     let _ = reply.send(outcome);
                 }));
             }
-            Command::PeerInbound { body, reply } => {
+            Command::PeerInbound {
+                body,
+                source,
+                reply,
+            } => {
                 let inbound = dassie_peer::InboundId(self.next_inbound);
                 self.next_inbound += 1;
                 self.peer_replies.insert(inbound, reply);
-                self.core.peer_inbound(inbound, &body);
+                self.core.peer_inbound(inbound, &body, source);
             }
             Command::PeerResponse { id, result } => self.core.peer_response(id, result),
             Command::Call(call) => {

@@ -225,6 +225,14 @@ impl PeerNode {
                 version,
                 credit,
                 data,
+            }) if self.peers().count() >= self.config.max_peers => {
+                let _ = (version, credit, data);
+                self.fail_attempt(node, "no room left");
+            }
+            Ok(PeeringResponse::Accepted {
+                version,
+                credit,
+                data,
             }) if hooks.versions(scheme).contains(&version) => {
                 let info = match self.table.get(&node).map(|e| &e.peer) {
                     Some(PeerState::Requesting {
@@ -305,8 +313,12 @@ impl PeerNode {
         let Some(entry) = self.table.get_mut(&node) else {
             return;
         };
-        let since_ms = entry.peering().map_or(now, |existing| existing.since_ms);
-        let fresh = entry.peering().is_none();
+        if entry.peering().is_some() {
+            // A peering stays as it was made (D12).
+            return;
+        }
+        let since_ms = now;
+        let fresh = true;
         entry.peer = PeerState::Peered(PeeringState {
             scheme,
             version,
@@ -320,7 +332,9 @@ impl PeerNode {
         entry.peering_failures = 0;
         self.dirty.insert(node);
         if fresh {
+            self.auth.pin(node);
             self.stats.peerings += 1;
+            self.gossip.heartbeat_soon(now);
             self.gossip.own_changed = true;
             self.gossip.routes_dirty = true;
             self.event(Event::Peered {
@@ -351,15 +365,28 @@ impl PeerNode {
         let Ok(key) = request.node_info.verify() else {
             return Inbound::Reply(Reply::refuse(400, "invalid link state"));
         };
+        if request.node_info.info.sequence > self.now_ms.saturating_add(self.config.max_future_ms) {
+            return Inbound::Reply(Reply::refuse(400, "the link state is from the future"));
+        }
         if let Err(reason) = self.check_request(hooks, &sender, &request) {
             return Inbound::Reply(refused(&accepted, reason));
         }
         self.process_link_state(&request.node_info, None, Retransmit::Never);
-        let already = self
+        if let Some(entry) = self.table.get_mut(&sender) {
+            entry.key.get_or_insert(key);
+        }
+        // A repeat, after an answer that got lost: the stored peering, as
+        // it is (D12).
+        if let Some(peering) = self
             .peering_of(&sender)
-            .is_some_and(|peering| peering.scheme == request.scheme);
-        if already {
-            return Inbound::Reply(self.complete_peering(hooks, &accepted, content, true));
+            .filter(|peering| peering.scheme == request.scheme)
+        {
+            let answer = PeeringResponse::Accepted {
+                version: peering.version,
+                credit: peering.credit_out,
+                data: &[],
+            };
+            return Inbound::Reply(ok(&accepted, &answer.to_vec()));
         }
         let probe = Probe {
             inbound,
@@ -419,6 +446,7 @@ impl PeerNode {
             && matches!(entry.peer, PeerState::Requesting { .. })
         {
             entry.peer = PeerState::None;
+            self.drop_source(&node, Sources::PEER);
         }
     }
 

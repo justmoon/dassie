@@ -42,4 +42,4 @@ pub use io::{
 };
 pub use node::{Bootstrap, NodeView, OwnInfo, PeerNode, RegistrationStatus, SendError};
 pub use persist::{PeerBatch, Stored, StoredNode};
-pub use table::{Peering, Registration, Sources};
+pub use table::{Network, Peering, Registration, Sources};

@@ -69,6 +69,10 @@ pub struct Config {
     pub registration_renew_ms: u64,
     /// New registrations a bootstrap node takes.
     pub registration_rate: Rate,
+    /// Most registrations from one /24 or /48 (D4).
+    pub max_registrations_per_network: usize,
+    /// Probes of registrants' and peers' URLs a node makes.
+    pub probe_rate: Rate,
     /// Link states one subject may issue.
     pub link_state_rate: Rate,
     /// How long a node with no reason to be in the table stays.
@@ -124,6 +128,11 @@ impl Config {
         link_state_rate: Rate {
             burst: 8,
             refill_ms: 5_000,
+        },
+        max_registrations_per_network: 8,
+        probe_rate: Rate {
+            burst: 32,
+            refill_ms: 1_000,
         },
         removal_grace_ms: 3_600_000,
         peer_target: 2,

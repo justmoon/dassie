@@ -217,7 +217,7 @@ pub enum PeerState {
 }
 
 /// A registration with us, as a bootstrap node.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Registration {
     /// When the node first registered.
     pub registered_ms: u64,
@@ -225,6 +225,33 @@ pub struct Registration {
     pub renewed_ms: u64,
     /// When it lapses without renewal.
     pub expires_ms: u64,
+    /// The URL that was probed: a renewal from another URL is probed
+    /// again.
+    pub url: String,
+    /// The network the registration came from, for the cap per network
+    /// (D4): a /24 or /48.
+    pub network: Option<Network>,
+}
+
+/// A /24 of IPv4 or a /48 of IPv6, from which registrations are capped.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Network(pub [u8; 7]);
+
+impl Network {
+    /// The network of `address`.
+    #[must_use]
+    pub const fn of(address: core::net::IpAddr) -> Self {
+        match address {
+            core::net::IpAddr::V4(v4) => {
+                let [a, b, c, _] = v4.octets();
+                Self([4, a, b, c, 0, 0, 0])
+            }
+            core::net::IpAddr::V6(v6) => {
+                let o = v6.octets();
+                Self([6, o[0], o[1], o[2], o[3], o[4], o[5]])
+            }
+        }
+    }
 }
 
 /// A node, as the table holds it.

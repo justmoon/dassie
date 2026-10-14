@@ -43,6 +43,21 @@ pub struct OwnInfo {
     pub alias: String,
 }
 
+impl OwnInfo {
+    /// The same, without a URL that is not a valid node URL (too long, for
+    /// one): a link state could not carry it, so the node goes without.
+    #[must_use]
+    pub fn checked(self) -> Self {
+        let url = self.url.filter(|url| crate::wire::is_valid_url(url));
+        let alias = if self.alias.len() <= crate::wire::MAX_ALIAS_BYTES {
+            self.alias
+        } else {
+            String::new()
+        };
+        Self { url, alias }
+    }
+}
+
 /// A configured bootstrap node (spec 3 §11.1).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bootstrap {
@@ -69,7 +84,7 @@ impl Problem {
     /// Whether the request surely had no effect at the other end.
     pub(crate) const fn is_definite(self) -> bool {
         match self {
-            Self::Status(status) => matches!(status, 400..=499 | 503),
+            Self::Status(status) => matches!(status, 400 | 401 | 409 | 503),
             Self::Failed(failure) => matches!(failure, Failure::NotDelivered),
             Self::Invalid => false,
         }
@@ -97,9 +112,25 @@ pub(crate) enum Purpose {
     PeeringRequest,
     /// Checking that an inbound request's sender is reachable at its URL.
     Probe(Box<inbound::Probe>),
-    /// An ILP packet.
-    Packet(u32),
+    /// An ILP Prepare, by its request ID.
+    Prepare(u32),
+    /// An ILP Fulfill or Reject, by the request ID of the Prepare it
+    /// answers, kept to be sent again.
+    Response(Box<Answer>),
 }
+
+/// An ILP response for a peer: sent again until it arrives or `until_ms`,
+/// since the peer's books depend on it.
+#[derive(Clone, Debug)]
+pub(crate) struct Answer {
+    pub peer: NodeId,
+    pub request_id: u32,
+    pub packet: Vec<u8>,
+    pub until_ms: u64,
+}
+
+/// How long after a failed try a response is sent again.
+const ANSWER_RETRY_MS: u64 = 1_000;
 
 /// A request of ours in flight.
 pub(crate) struct Outstanding {
@@ -128,6 +159,11 @@ pub struct PeerNode {
     pub(crate) deadlines: BTreeSet<(u64, RequestId)>,
     next_request: u64,
     pub(crate) deferred: usize,
+    /// Responses waiting to be sent again.
+    pub(crate) answers: Vec<(u64, Answer)>,
+    /// Probes in flight: the node and the host probed.
+    pub(crate) probing: Vec<(NodeId, String)>,
+    pub(crate) probes: Bucket,
     pub(crate) outputs: VecDeque<Output>,
     events: VecDeque<Event>,
     pub(crate) dirty: BTreeSet<NodeId>,
@@ -157,7 +193,7 @@ impl PeerNode {
         let mut node = Self {
             auth: Authenticator::new(Arc::clone(&key), config.auth, now_ms),
             own,
-            own_info,
+            own_info: own_info.checked(),
             schemes: Vec::new(),
             rng,
             now_ms,
@@ -171,6 +207,9 @@ impl PeerNode {
             deadlines: BTreeSet::new(),
             next_request: 0,
             deferred: 0,
+            answers: Vec::new(),
+            probing: Vec::new(),
+            probes: Bucket::full(config.probe_rate, now_ms),
             outputs: VecDeque::new(),
             events: VecDeque::new(),
             dirty: BTreeSet::new(),
@@ -180,6 +219,10 @@ impl PeerNode {
             config,
         };
         node.restore(stored);
+        let bootstrap: Vec<NodeId> = node.bootstrap.iter().map(|b| b.id).collect();
+        for id in bootstrap {
+            node.auth.pin(id);
+        }
         node
     }
 
@@ -211,6 +254,7 @@ impl PeerNode {
     /// (NET-6).
     pub fn set_own_info(&mut self, now_ms: u64, info: OwnInfo) {
         self.advance(now_ms);
+        let info = info.checked();
         if info != self.own_info {
             self.own_info = info;
             self.gossip.own_changed = true;
@@ -374,13 +418,24 @@ impl PeerNode {
             Purpose::PeeringInfo => self.on_peering_info(hooks, to, result),
             Purpose::PeeringRequest => self.on_peering_response(hooks, to, result),
             Purpose::Probe(probe) => self.on_probe(hooks, to, probe, result),
-            Purpose::Packet(request_id) => {
+            Purpose::Prepare(request_id) => {
                 if let Err(problem) = result {
                     self.event(Event::PacketFailed {
                         peer: to,
                         request_id,
                         definite: problem.is_definite(),
                     });
+                }
+            }
+            Purpose::Response(answer) => {
+                // A refusal after reading it will not change; anything
+                // else is tried again, and a copy that arrives twice is
+                // dropped by the peer's connector.
+                let refused = matches!(result, Err(Problem::Status(400 | 401 | 409)));
+                if result.is_err() && !refused {
+                    self.retry_answer(*answer);
+                } else if refused {
+                    self.stats.answers_dropped += 1;
                 }
             }
         }
@@ -401,6 +456,7 @@ impl PeerNode {
     pub fn handle_timeout(&mut self, now_ms: u64, hooks: &mut dyn crate::hooks::PeeringHooks) {
         self.advance(now_ms);
         self.expire_requests(hooks);
+        self.retry_answers();
         self.issue_own();
         self.flood();
         self.heartbeat();
@@ -422,6 +478,7 @@ impl PeerNode {
             self.registration_due(),
             self.peering.next_due(),
             self.next_maintenance(),
+            self.answers.iter().map(|(at, _)| *at).min(),
         ];
         candidates.into_iter().flatten().min()
     }
@@ -445,9 +502,66 @@ impl PeerNode {
         }
         let content = Content::InterledgerPacket { request_id, packet };
         let timeout = timeout_ms.min(self.config.request_timeout_ms);
-        self.send(*peer, &content, Purpose::Packet(request_id), timeout)
+        self.send(*peer, &content, Purpose::Prepare(request_id), timeout)
             .map(|_| ())
             .ok_or(SendError::Busy)
+    }
+
+    /// Sends an ILP Fulfill or Reject to a peer, answering its Prepare
+    /// `request_id`. The peer's books depend on it, so it is sent again
+    /// until it arrives or the longest a Prepare is held has passed; a
+    /// copy that arrives twice is dropped by the peer.
+    pub fn send_response(&mut self, now_ms: u64, peer: &NodeId, request_id: u32, packet: &[u8]) {
+        self.advance(now_ms);
+        let answer = Answer {
+            peer: *peer,
+            request_id,
+            packet: packet.to_vec(),
+            until_ms: self.now_ms.saturating_add(self.config.request_timeout_ms),
+        };
+        self.try_answer(answer);
+    }
+
+    fn try_answer(&mut self, answer: Answer) {
+        if self.peering_of(&answer.peer).is_none() || answer.until_ms <= self.now_ms {
+            self.stats.answers_dropped += 1;
+            return;
+        }
+        let content = Content::InterledgerPacket {
+            request_id: answer.request_id,
+            packet: &answer.packet,
+        };
+        let timeout = answer
+            .until_ms
+            .saturating_sub(self.now_ms)
+            .min(self.config.request_timeout_ms);
+        let peer = answer.peer;
+        let purpose = Purpose::Response(Box::new(answer.clone()));
+        if self.send(peer, &content, purpose, timeout).is_none() {
+            self.retry_answer(answer);
+        }
+    }
+
+    /// Queues a response to be tried again soon, if there is room.
+    fn retry_answer(&mut self, answer: Answer) {
+        if self.answers.len() >= self.config.max_requests || answer.until_ms <= self.now_ms {
+            self.stats.answers_dropped += 1;
+            return;
+        }
+        let at = self.now_ms.saturating_add(ANSWER_RETRY_MS);
+        self.answers.push((at, answer));
+    }
+
+    /// Sends the responses whose retry is due.
+    fn retry_answers(&mut self) {
+        let now = self.now_ms;
+        let (due, waiting): (Vec<_>, Vec<_>) = core::mem::take(&mut self.answers)
+            .into_iter()
+            .partition(|(at, _)| *at <= now);
+        self.answers = waiting;
+        for (_, answer) in due {
+            self.try_answer(answer);
+        }
     }
 
     /// Ensures `node` is in the table with `source`, making room by
@@ -466,6 +580,7 @@ impl PeerNode {
             return false;
         }
         let rate = self.config.link_state_rate;
+        self.removed.retain(|removed| *removed != node);
         self.table
             .insert(node, Entry::new(source, self.now_ms, rate));
         self.dirty.insert(node);
@@ -503,6 +618,9 @@ impl PeerNode {
     }
 
     pub(crate) fn remove(&mut self, node: &NodeId) {
+        // Out of the majority set too, so the node is added again if it
+        // still has a majority.
+        self.lists.majority.remove(node);
         if self.table.remove(node).is_some() {
             self.dirty.remove(node);
             self.removed.push(*node);

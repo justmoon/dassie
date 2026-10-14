@@ -17,6 +17,8 @@ fn node(seed: u8) -> StoredNode {
             registered_ms: 11,
             renewed_ms: 12,
             expires_ms: 13,
+            url: "https://a.example".into(),
+            network: Some(dassie_peer::Network([4, 10, 0, 0, 0, 0, 0])),
         }),
         peering: Some(Peering {
             scheme: SchemeId::parse("stub").unwrap(),
@@ -122,4 +124,27 @@ fn peer_rows_share_the_ledgers_transaction() {
     };
     assert!(store.commit_ledger(&batch).is_err());
     assert!(store.load_peer().unwrap().nodes.is_empty());
+}
+
+// Found in review: a node removed and added again in one batch was
+// written, then deleted.
+#[test]
+fn a_node_removed_and_added_in_one_batch_stays() {
+    let store = Store::open_in_memory().unwrap();
+    commit(
+        &store,
+        PeerBatch {
+            nodes: vec![node(1)],
+            ..PeerBatch::default()
+        },
+    );
+    commit(
+        &store,
+        PeerBatch {
+            nodes: vec![node(1)],
+            removed: vec![node(1).id],
+            own_sequence: None,
+        },
+    );
+    assert_eq!(store.load_peer().unwrap().nodes, [node(1)]);
 }

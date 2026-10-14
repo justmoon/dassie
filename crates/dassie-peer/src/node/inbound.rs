@@ -15,7 +15,7 @@ use super::{PeerNode, Problem, Purpose};
 use crate::auth::{Accepted, AuthError};
 use crate::hooks::PeeringHooks;
 use crate::io::{Event, Inbound, InboundId, Output, Reply};
-use crate::table::{Registration, Sources};
+use crate::table::{Network, Registration, Sources};
 use crate::wire::{
     Content, Envelope, EnvelopeError, LinkStateResponse, SignedNodeInfo, encode_expiry,
     encode_link_states, encode_octets, encode_response,
@@ -24,8 +24,9 @@ use crate::wire::{
 /// What an inbound request waits on a probe for.
 #[derive(Clone, Debug)]
 pub(crate) enum ProbeFor {
-    /// A registration, with the registrant's link state.
-    Registration(Vec<u8>),
+    /// A registration, with the registrant's link state and the network it
+    /// came from.
+    Registration(Vec<u8>, Option<Network>),
     /// A peering request, with its content.
     Peering(Vec<u8>),
 }
@@ -48,9 +49,10 @@ impl PeerNode {
         hooks: &mut dyn PeeringHooks,
         id: InboundId,
         body: &'a [u8],
+        source: Option<core::net::IpAddr>,
     ) -> Inbound<'a> {
         self.advance(now_ms);
-        let inbound = self.decode_inbound(hooks, id, body);
+        let inbound = self.decode_inbound(hooks, id, body, source);
         if let Inbound::Reply(reply) = &inbound
             && !reply.is_ok()
         {
@@ -64,6 +66,7 @@ impl PeerNode {
         hooks: &mut dyn PeeringHooks,
         id: InboundId,
         body: &'a [u8],
+        source: Option<core::net::IpAddr>,
     ) -> Inbound<'a> {
         let envelope = match Envelope::decode(body) {
             Ok(envelope) => envelope,
@@ -73,6 +76,9 @@ impl PeerNode {
         let Ok(content) = Content::decode_exact(envelope.content) else {
             return refuse(400, "malformed message");
         };
+        if envelope.sender == self.own {
+            return refuse(400, "the sender is the recipient");
+        }
         let required = content.kind().requires_authentication();
         let accepted = match self.auth.accept(self.now_ms, &envelope, required) {
             Ok(accepted) => accepted,
@@ -94,7 +100,9 @@ impl PeerNode {
                     reply: ok(&accepted, &[]),
                 }
             }
-            Content::Registration(info) => self.registration_request(accepted, &info, id),
+            Content::Registration(info) => {
+                self.registration_request(accepted, &info, id, source.map(Network::of))
+            }
             Content::PeeringRequest(_) => {
                 self.peering_request(hooks, accepted, envelope.content, id)
             }
@@ -173,38 +181,55 @@ impl PeerNode {
         accepted: Accepted,
         info: &SignedNodeInfo<'_>,
         inbound: InboundId,
+        network: Option<Network>,
     ) -> Inbound<'static> {
         let sender = accepted.sender;
+        if !self
+            .bootstrap
+            .iter()
+            .any(|bootstrap| bootstrap.id == self.own)
+        {
+            return refuse(409, "not a bootstrap node");
+        }
         if info.info.node_id != sender {
             return refuse(400, "the link state is not the sender's");
         }
         let Ok(key) = info.verify() else {
             return refuse(400, "invalid link state");
         };
+        if info.info.sequence > self.now_ms.saturating_add(self.config.max_future_ms) {
+            return refuse(400, "the link state is from the future");
+        }
+        // A renewal from the URL that was probed: anything else is probed
+        // again (spec 7 §4.7).
         let renewal = self.table.get(&sender).is_some_and(|entry| {
-            entry.registration.is_some()
-                && entry
-                    .link
-                    .as_ref()
-                    .is_some_and(|link| link.url == info.info.url)
+            entry
+                .registration
+                .as_ref()
+                .is_some_and(|registration| registration.url == info.info.url)
         });
         if renewal {
-            return Inbound::Reply(self.register(&accepted, info));
+            return Inbound::Reply(self.register(&accepted, info, network, key));
         }
-        if let Some(refusal) = self.registration_refusal(&sender, info.info.url) {
+        if let Some(refusal) = self.registration_refusal(&sender, info.info.url, network) {
             return Inbound::Reply(refusal);
         }
         let probe = Probe {
             inbound,
             accepted,
             sequence: info.info.sequence,
-            purpose: ProbeFor::Registration(info.bytes.to_vec()),
+            purpose: ProbeFor::Registration(info.bytes.to_vec(), network),
         };
         self.start_probe(sender, key, info.info.url, Box::new(probe))
     }
 
     /// Why a new registration is refused, if it is.
-    fn registration_refusal(&mut self, sender: &NodeId, url: &str) -> Option<Reply> {
+    fn registration_refusal(
+        &mut self,
+        sender: &NodeId,
+        url: &str,
+        network: Option<Network>,
+    ) -> Option<Reply> {
         let registered = self
             .table
             .values()
@@ -214,18 +239,27 @@ impl PeerNode {
             return Some(Reply::refuse(503, "registrations are full"));
         }
         let host = url_host(url);
-        let taken = self.table.iter().any(|(id, entry)| {
-            id != sender
-                && entry.registration.is_some()
-                && entry
-                    .link
-                    .as_ref()
-                    .is_some_and(|link| url_host(&link.url) == host)
-        });
-        if taken {
+        let others = self
+            .table
+            .iter()
+            .filter(|(id, _)| *id != sender)
+            .filter_map(|(_, entry)| entry.registration.as_ref());
+        let mut from_network = 0;
+        for registration in others {
+            if url_host(&registration.url) == host {
+                return Some(Reply::refuse(
+                    409,
+                    "another node is registered at that host",
+                ));
+            }
+            if network.is_some() && registration.network == network {
+                from_network += 1;
+            }
+        }
+        if from_network >= self.config.max_registrations_per_network {
             return Some(Reply::refuse(
                 409,
-                "another node is registered at that host",
+                "too many registrations from that network",
             ));
         }
         // A token is spent when a registration succeeds, not on attempts
@@ -252,6 +286,18 @@ impl PeerNode {
         if self.deferred >= self.config.max_deferred {
             return refuse(503, "busy");
         }
+        let host = String::from(url_host(url));
+        if self
+            .probing
+            .iter()
+            .any(|(id, probed)| *id == node || *probed == host)
+        {
+            return refuse(429, "a probe of that node or host is in flight");
+        }
+        if !self.probes.take(self.config.probe_rate, self.now_ms) {
+            return refuse(429, "too many probes");
+        }
+        self.probing.push((node, host));
         let content = Content::LinkStateRequest(alloc::vec![node]);
         let timeout = self.config.poll_timeout_ms;
         let sent = self.send_to(
@@ -280,6 +326,7 @@ impl PeerNode {
     ) {
         let probe = *probe;
         self.deferred = self.deferred.saturating_sub(1);
+        self.probing.retain(|(id, _)| *id != node);
         let reachable = result.ok().is_some_and(|body| {
             LinkStateResponse::decode_exact(&body).is_ok_and(|response| {
                 response
@@ -294,7 +341,7 @@ impl PeerNode {
             })
         });
         let reply = match probe.purpose {
-            ProbeFor::Registration(bytes) => match SignedNodeInfo::decode_exact(&bytes) {
+            ProbeFor::Registration(bytes, network) => match SignedNodeInfo::decode_exact(&bytes) {
                 Ok(_)
                     if reachable
                         && !self
@@ -303,7 +350,10 @@ impl PeerNode {
                 {
                     Reply::refuse(429, "too many new registrations")
                 }
-                Ok(info) if reachable => self.register(&probe.accepted, &info),
+                Ok(info) if reachable => match info.verify() {
+                    Ok(key) => self.register(&probe.accepted, &info, network, key),
+                    Err(_) => Reply::refuse(400, "invalid link state"),
+                },
                 _ => Reply::refuse(409, "not reachable at its URL"),
             },
             ProbeFor::Peering(content) => {
@@ -317,7 +367,13 @@ impl PeerNode {
     }
 
     /// Registers the sender, or renews its registration.
-    fn register(&mut self, accepted: &Accepted, info: &SignedNodeInfo<'_>) -> Reply {
+    fn register(
+        &mut self,
+        accepted: &Accepted,
+        info: &SignedNodeInfo<'_>,
+        network: Option<Network>,
+        key: PublicKey,
+    ) -> Reply {
         let sender = accepted.sender;
         if !self.ensure(sender, Sources::REGISTERED) {
             return Reply::refuse(503, "the table is full");
@@ -328,11 +384,14 @@ impl PeerNode {
         let now = self.now_ms;
         let expires_ms = now.saturating_add(self.config.registration_ttl_ms);
         if let Some(entry) = self.table.get_mut(&sender) {
-            let registered_ms = entry.registration.map_or(now, |r| r.registered_ms);
+            entry.key.get_or_insert(key);
+            let registered_ms = entry.registration.as_ref().map_or(now, |r| r.registered_ms);
             entry.registration = Some(Registration {
                 registered_ms,
                 renewed_ms: now,
                 expires_ms,
+                url: String::from(info.info.url),
+                network,
             });
         }
         self.dirty.insert(sender);
@@ -368,9 +427,11 @@ fn refuse(status: u16, reason: &str) -> Inbound<'static> {
 }
 
 /// A URL's host and port: everything after `https://`, since valid node
-/// URLs have nothing else.
+/// URLs have nothing else, with the default port left out, so one host is
+/// one host.
 fn url_host(url: &str) -> &str {
-    url.strip_prefix("https://").unwrap_or(url)
+    let authority = url.strip_prefix("https://").unwrap_or(url);
+    authority.strip_suffix(":443").unwrap_or(authority)
 }
 
 const fn auth_reason(error: AuthError) -> &'static str {

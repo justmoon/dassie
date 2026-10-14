@@ -203,10 +203,16 @@ impl Core {
             (None, Some(length)) => (self.up.get(..length).unwrap_or_default(), u64::MAX),
             (None, None) => return,
         };
+        if prepare.is_none() {
+            // A response is retried by the peer node until it arrives.
+            self.peer.send_response(now, &node, request_id, packet);
+            self.after_peer();
+            return;
+        }
         let sent = self
             .peer
             .send_packet(now, &node, request_id, packet, timeout_ms);
-        if sent.is_err() && prepare.is_some() {
+        if sent.is_err() {
             self.connector.fail_forwarded(
                 now,
                 EndpointId::Peer(endpoint),

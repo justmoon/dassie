@@ -226,6 +226,19 @@ async fn two_daemons_peer_and_keep_their_peering() {
     settle(&clock).await;
     check_network(&a, &key_a, &key_b).await;
     check_network(&b, &key_b, &key_a).await;
+    // Found in review: removing a scheme that peers use left their
+    // peerings without a ledger, and the engine could not start again.
+    let removed = a
+        .ipc()
+        .await
+        .call(Method::RemoveSettlementScheme(
+            proto::RemoveSettlementSchemeRequest { id: "stub".into() },
+        ))
+        .await;
+    assert_eq!(
+        removed.unwrap_err().code(),
+        proto::ErrorCode::FailedPrecondition
+    );
     // A client of A pays B's receiver, one hop away, within B's credit.
     let mut owner_a = a.ipc().await;
     let Ok(response::Method::CreateBtpToken(token)) = owner_a

@@ -56,6 +56,19 @@ impl PeerNode {
             if let Some(peering) = node.peering {
                 self.auth.restore_floor(node.id, node.replay_floor_ms);
                 entry.peer = PeerState::Peered(peering);
+            } else {
+                // An attempt cut short by the restart.
+                entry.sources.remove(Sources::PEER);
+            }
+            if !self
+                .bootstrap
+                .iter()
+                .any(|bootstrap| bootstrap.id == node.id)
+            {
+                entry.sources.remove(Sources::BOOTSTRAP);
+            }
+            if entry.sources.contains(Sources::MAJORITY) {
+                self.lists.majority.insert(node.id);
             }
             if entry.sources.is_empty() {
                 entry.orphaned_ms = Some(self.now_ms);
@@ -99,7 +112,7 @@ impl PeerNode {
                 link_state: entry.link.as_ref().map(|link| link.bytes.clone()),
                 sources: entry.sources,
                 first_seen_ms: entry.first_seen_ms,
-                registration: entry.registration,
+                registration: entry.registration.clone(),
                 replay_floor_ms: if peering.is_some() {
                     self.auth.newest(&id).unwrap_or(0)
                 } else {
@@ -152,7 +165,7 @@ impl PeerNode {
                 sequence: entry.link.as_ref().map(|link| link.sequence),
                 sources: entry.sources,
                 peering: entry.peering().cloned(),
-                registered_until_ms: entry.registration.map(|r| r.expires_ms),
+                registered_until_ms: entry.registration.as_ref().map(|r| r.expires_ms),
                 first_hops: self.routes.get(id).cloned().unwrap_or_default(),
             })
             .collect()
@@ -164,7 +177,12 @@ impl PeerNode {
         let expired: Vec<NodeId> = self
             .table
             .iter()
-            .filter(|(_, entry)| entry.registration.is_some_and(|r| r.expires_ms <= now))
+            .filter(|(_, entry)| {
+                entry
+                    .registration
+                    .as_ref()
+                    .is_some_and(|r| r.expires_ms <= now)
+            })
             .map(|(id, _)| *id)
             .collect();
         for id in expired {
@@ -197,7 +215,7 @@ impl PeerNode {
         self.table
             .values()
             .filter_map(|entry| {
-                let expiry = entry.registration.map(|r| r.expires_ms);
+                let expiry = entry.registration.as_ref().map(|r| r.expires_ms);
                 let removal = entry
                     .orphaned_ms
                     .filter(|_| entry.sources.is_empty())
@@ -267,6 +285,10 @@ impl PeerNode {
         assert!(
             self.deferred <= self.config.max_deferred,
             "deferred within bounds"
+        );
+        assert!(
+            self.answers.len() <= self.config.max_requests,
+            "retries within bounds"
         );
         let own = self.table.get(&self.own);
         assert!(
