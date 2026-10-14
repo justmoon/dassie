@@ -170,6 +170,21 @@ impl PeeringHooks for Hooks<'_> {
     }
 }
 
+/// A peering as the owner sees it.
+#[derive(Clone, Debug)]
+pub struct PeerView {
+    /// The peer.
+    pub id: NodeId,
+    /// The peering.
+    pub peering: dassie_peer::Peering,
+    /// Its termination, while it is being ended.
+    pub termination: Option<dassie_peer::Termination>,
+    /// Whether it is listed as our neighbor.
+    pub advertised: bool,
+    /// What we owe the peer net; negative when it owes us.
+    pub owed: Option<i128>,
+}
+
 /// The network as the owner sees it.
 #[derive(Clone, Debug)]
 pub struct NetworkView {
@@ -180,9 +195,13 @@ pub struct NetworkView {
     /// The node table.
     pub nodes: Vec<dassie_peer::NodeView>,
     /// Our peerings.
-    pub peers: Vec<(NodeId, dassie_peer::Peering)>,
+    pub peers: Vec<PeerView>,
     /// Our standing with the bootstrap nodes.
     pub registration: Vec<dassie_peer::RegistrationStatus>,
+    /// Settlement channels, with nodes peered with now or before.
+    pub channels: Vec<(NodeId, dassie_peer::Channel)>,
+    /// Banned nodes.
+    pub bans: Vec<NodeId>,
 }
 
 impl Core {
@@ -194,10 +213,26 @@ impl Core {
             nodes: self.peer.nodes(),
             peers: self
                 .peer
-                .peers()
-                .map(|(id, peering)| (*id, peering.clone()))
+                .nodes()
+                .into_iter()
+                .filter_map(|view| {
+                    let peering = view.peering?;
+                    Some(PeerView {
+                        id: view.id,
+                        owed: self.owed(view.id, peering.scheme),
+                        peering,
+                        termination: view.termination,
+                        advertised: view.advertised,
+                    })
+                })
                 .collect(),
             registration: self.peer.registration_status(),
+            channels: self
+                .peer
+                .channels()
+                .map(|(id, channel)| (*id, channel.clone()))
+                .collect(),
+            bans: self.peer.bans().copied().collect(),
         }
     }
 

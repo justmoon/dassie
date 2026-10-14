@@ -101,6 +101,11 @@ message Request {
     ListPeersRequest list_peers = 91;
     ListRoutesRequest list_routes = 92;
     GetRegistrationStatusRequest get_registration_status = 93;
+    TerminatePeeringRequest terminate_peering = 94;
+    BanNodeRequest ban_node = 95;
+    UnbanNodeRequest unban_node = 96;
+    ListBansRequest list_bans = 97;
+    ListSettlementChannelsRequest list_settlement_channels = 98;
   }
 }
 
@@ -155,6 +160,11 @@ message Response {
     ListPeersResponse list_peers = 91;
     ListRoutesResponse list_routes = 92;
     GetRegistrationStatusResponse get_registration_status = 93;
+    TerminatePeeringResponse terminate_peering = 94;
+    BanNodeResponse ban_node = 95;
+    UnbanNodeResponse unban_node = 96;
+    ListBansResponse list_bans = 97;
+    ListSettlementChannelsResponse list_settlement_channels = 98;
   }
 }
 

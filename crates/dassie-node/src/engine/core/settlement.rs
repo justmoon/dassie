@@ -168,6 +168,14 @@ impl Core {
         })
     }
 
+    /// What we owe `node` net on `scheme`'s ledger: negative when it owes
+    /// us.
+    pub(super) fn owed(&self, node: NodeId, scheme: SchemeId) -> Option<i128> {
+        let at = self.position(node, scheme)?;
+        let position = i128::try_from(at.position).ok()?;
+        Some(position - i128::from(at.credit_out))
+    }
+
     /// Prepares a settlement and books its pending transfer; it executes
     /// once that is on disk (ACC-16).
     fn prepare_settlement(&mut self, node: NodeId, at: &Position, amount: u64, state: &[u8]) {

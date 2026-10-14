@@ -1,29 +1,47 @@
-//! The network's methods: the node table, peers, routes and registration
-//! (spec 7 §4.7).
+//! The network's methods: the node table, peers, routes, registration,
+//! settlement channels, and ending peerings and banning nodes (spec 7
+//! §4.7).
 
-use dassie_peer::{NodeView, Peering, RegistrationStatus, Sources};
+use dassie_identity::NodeId;
+use dassie_peer::wire::TerminationReason;
+use dassie_peer::{Channel, NodeView, RegistrationStatus, Sources};
 
 use super::handlers::Reply;
 use super::proto::{self, request::Method, response};
 use super::{RpcError, convert};
-use crate::engine::{Engine, NetworkView};
+use crate::engine::{Engine, NetworkView, PeerView};
 
 /// Answers the network's methods.
 pub async fn dispatch(engine: &Engine, method: Method) -> Result<Reply, RpcError> {
-    let view = engine.network().await?;
     let reply = match method {
+        Method::TerminatePeering(request) => {
+            engine.terminate_peering(node_id(&request.node)?).await?;
+            response::Method::TerminatePeering(proto::TerminatePeeringResponse {})
+        }
+        Method::BanNode(request) => {
+            engine.ban_node(node_id(&request.node)?).await?;
+            response::Method::BanNode(proto::BanNodeResponse {})
+        }
+        Method::UnbanNode(request) => {
+            engine.unban_node(node_id(&request.node)?).await?;
+            response::Method::UnbanNode(proto::UnbanNodeResponse {})
+        }
+        other => view(&engine.network().await?, other),
+    };
+    Ok(Reply::Unary(reply))
+}
+
+/// The methods that only read the network.
+fn view(view: &NetworkView, method: Method) -> response::Method {
+    match method {
         Method::ListNodes(_) => response::Method::ListNodes(proto::ListNodesResponse {
             nodes: view.nodes.iter().map(node).collect(),
         }),
         Method::ListPeers(_) => response::Method::ListPeers(proto::ListPeersResponse {
-            peers: view
-                .peers
-                .iter()
-                .map(|(id, peering)| peer(id.as_str(), peering))
-                .collect(),
+            peers: view.peers.iter().map(peer).collect(),
         }),
         Method::ListRoutes(_) => response::Method::ListRoutes(proto::ListRoutesResponse {
-            routes: routes(&view),
+            routes: routes(view),
         }),
         Method::GetRegistrationStatus(_) => {
             response::Method::GetRegistrationStatus(proto::GetRegistrationStatusResponse {
@@ -31,9 +49,20 @@ pub async fn dispatch(engine: &Engine, method: Method) -> Result<Reply, RpcError
                 bootstrap: view.registration.iter().map(bootstrap).collect(),
             })
         }
+        Method::ListBans(_) => response::Method::ListBans(proto::ListBansResponse {
+            nodes: view.bans.iter().map(ToString::to_string).collect(),
+        }),
+        Method::ListSettlementChannels(_) => {
+            response::Method::ListSettlementChannels(proto::ListSettlementChannelsResponse {
+                channels: view.channels.iter().map(|(id, c)| channel(id, c)).collect(),
+            })
+        }
         _ => unreachable!("the RPC dispatch answers the other methods"),
-    };
-    Ok(Reply::Unary(reply))
+    }
+}
+
+fn node_id(text: &str) -> Result<NodeId, RpcError> {
+    NodeId::parse(text).map_err(|_| RpcError::invalid("not a node ID"))
 }
 
 fn node(view: &NodeView) -> proto::NetworkNode {
@@ -53,9 +82,14 @@ fn node(view: &NodeView) -> proto::NetworkNode {
     }
 }
 
-fn peer(id: &str, peering: &Peering) -> proto::NetworkPeer {
+fn peer(view: &PeerView) -> proto::NetworkPeer {
+    let peering = &view.peering;
+    let (state, reason) = match view.termination {
+        Some(termination) => ("terminating", reason(termination.reason)),
+        None => ("peered", ""),
+    };
     proto::NetworkPeer {
-        node: id.to_owned(),
+        node: view.id.to_string(),
         scheme: peering.scheme.to_string(),
         version: peering.version.into(),
         credit_in: peering.credit_in,
@@ -63,6 +97,33 @@ fn peer(id: &str, peering: &Peering) -> proto::NetworkPeer {
         since_unix_ms: convert::time(peering.since_ms),
         last_seen_unix_ms: convert::time(peering.last_seen_ms),
         inbound: peering.inbound,
+        state: state.into(),
+        termination_reason: reason.into(),
+        advertised: view.advertised,
+        owed: view.owed.map_or(0, |owed| {
+            i64::try_from(owed).unwrap_or(if owed < 0 { i64::MIN } else { i64::MAX })
+        }),
+    }
+}
+
+const fn reason(reason: TerminationReason) -> &'static str {
+    match reason {
+        TerminationReason::Unspecified => "unspecified",
+        TerminationReason::Owner => "owner",
+        TerminationReason::Unresponsive => "unresponsive",
+        TerminationReason::NotPeered => "not-peered",
+    }
+}
+
+fn channel(id: &NodeId, channel: &Channel) -> proto::SettlementChannel {
+    let outbox = channel.outbox.as_ref();
+    proto::SettlementChannel {
+        node: id.to_string(),
+        settled_in: channel.settled_in,
+        settled_out: channel.settled_out,
+        sending: outbox.is_some(),
+        sending_amount: outbox.map_or(0, |o| o.amount),
+        sending_attempts: outbox.map_or(0, |o| o.attempts),
     }
 }
 
