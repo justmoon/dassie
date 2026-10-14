@@ -11,6 +11,9 @@
  *    payment, and pays it with an outgoing payment.
  * 4. The payment completes, the receiver got it, and the grant's spend
  *    reads back.
+ * 5. The owner revokes the grant on the Connected Apps page, and its token
+ *    stops working.
+ * 6. A second request is denied: the app learns it, and cannot continue.
  */
 
 import { assert, assertEquals } from "@std/assert";
@@ -108,6 +111,16 @@ async function interactionHash(parts: string[]): Promise<string> {
     new TextEncoder().encode(parts.join("\n")),
   );
   return encodeBase64Url(new Uint8Array(digest));
+}
+
+/** The HTTP status a client call failed with; it must fail. */
+async function status(call: Promise<unknown>): Promise<number | undefined> {
+  try {
+    await call;
+  } catch (error) {
+    return (error as { status?: number }).status;
+  }
+  throw new Error("the call succeeded");
 }
 
 /** Signs the browser in to `node`'s wallet at `origin`. */
@@ -300,6 +313,59 @@ Deno.test({
       "the connected app shows what it spent",
       () => text(page, "grant-spent"),
       (spent) => spent.includes("$ 0.25 of $ 1.00 spent"),
+    );
+
+    // 5. The owner revokes it: the app's token no longer works.
+    await click(page, "grant-revoke");
+    await click(page, "grant-revoke-confirm");
+    await until(
+      page,
+      "no app is connected",
+      () => text(page, "grants-empty"),
+      (empty) => empty !== "",
+    );
+    assertEquals(
+      await status(op.outgoingPayment.get({ url: created.id, accessToken })),
+      401,
+    );
+
+    // 6. Asked again, the owner denies: the app learns it on its return,
+    // and continuing is refused.
+    const again = await op.grant.request({ url: payerAddress.authServer }, {
+      access_token: {
+        access: [{
+          type: "outgoing-payment",
+          actions: ["create"],
+          identifier: payerAddress.id,
+        }],
+      },
+      interact: {
+        start: ["redirect"],
+        finish: { method: "redirect", uri: app.finish, nonce: "deny-nonce" },
+      },
+    });
+    assert(isPendingGrant(again));
+    await page.goto(again.interact.redirect, { waitUntil: "load" });
+    await until(
+      page,
+      "the consent page asks again",
+      () => text(page, "consent-client"),
+      (name) => name === "Budget App",
+    );
+    await click(page, "consent-deny");
+    for (let tries = 0; app.finished.length < 2 && tries < 100; tries++) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assertEquals(app.finished[1]?.get("result"), "grant_rejected");
+    await new Promise((resolve) =>
+      setTimeout(resolve, (again.continue.wait ?? 0) * 1_000)
+    );
+    assertEquals(
+      await status(op.grant.continue({
+        url: again.continue.uri,
+        accessToken: again.continue.access_token.value,
+      })),
+      401,
     );
   } finally {
     await browser.close();
