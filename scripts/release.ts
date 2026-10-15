@@ -2,17 +2,20 @@
 //
 //   deno run -A scripts/release.ts <built tree> <out dir> \
 //     --secret-key <file> --public-key resources/minisign.pub \
-//     [--version <expected version>]
+//     --verifier <dassie-release binary> [--version <expected version>]
 //
 // The built tree is `nix build .#release` or `.#canary`: meta/<channel>
 // and <version>/ with the bundles and SHA256SUMS. The script copies it to
-// <out dir>, checks every bundle against SHA256SUMS, signs SHA256SUMS with
-// minisign (SHA256SUMS.minisig, trusted comment "dassie <version>"), and
-// verifies the signature with the public key the binaries are built with,
-// so a release signed with any other key never reaches the mirror. The
-// secret key's password, if it has one, comes from MINISIGN_PASSWORD.
+// <out dir>, checks every bundle against SHA256SUMS, and signs SHA256SUMS
+// with minisign (SHA256SUMS.minisig, trusted comment "dassie <version>").
+// Then `dassie-release verify` checks the signed tree with the public key
+// the binaries trust, and with the code the updater trusts a release with:
+// a release signed with any other key, or in a way the updater refuses,
+// never reaches the mirror. The secret key's password, if it has one,
+// comes from MINISIGN_PASSWORD.
 //
-// minisign comes from the flake's dev shell.
+// minisign comes from the flake's dev shell, and dassie-release from
+// `nix build .#release-tool` or `deno task build:e2e`.
 
 import { parseArgs } from "@std/cli/parse-args";
 
@@ -43,7 +46,7 @@ export async function readRelease(tree: string): Promise<Release> {
   const version = await Deno.readTextFile(`${tree}/meta/${channel}`);
   const shape = channel === "latest"
     ? /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/
-    : /^canary-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9a-f]{7,40}$/;
+    : /^canary-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}-[0-9a-f]{7,40}$/;
   if (!shape.test(version)) {
     throw new Error(
       `${channel} names ${JSON.stringify(version)}, not a ${channel} version`,
@@ -146,25 +149,22 @@ export async function sign(
   );
 }
 
-/** Verifies SHA256SUMS.minisig with `publicKey`, and that it signs the sums
- * of `version`. */
+/** Verifies a signed tree with `dassie-release verify`. */
 export async function verify(
-  dir: string,
-  version: string,
+  tree: string,
   publicKey: string,
+  verifier: string,
 ): Promise<void> {
-  const output = await minisign([
-    "-V",
-    "-p",
-    publicKey,
-    "-m",
-    `${dir}/SHA256SUMS`,
-    "-x",
-    `${dir}/SHA256SUMS.minisig`,
-  ]);
-  if (!output.split("\n").includes(`Trusted comment: dassie ${version}`)) {
+  const { success, stderr } = await new Deno.Command(verifier, {
+    args: ["verify", tree, publicKey],
+    stdout: "null",
+    stderr: "piped",
+  }).output();
+  if (!success) {
     throw new Error(
-      `SHA256SUMS.minisig does not sign dassie ${version}:\n${output}`,
+      `dassie-release verify failed: ${
+        new TextDecoder().decode(stderr).trim()
+      }`,
     );
   }
 }
@@ -175,6 +175,7 @@ export async function release(options: {
   out: string;
   secretKey: string;
   publicKey: string;
+  verifier: string;
   password?: string;
   expect?: string;
 }): Promise<Release> {
@@ -197,18 +198,21 @@ export async function release(options: {
   const dir = `${options.out}/${built.version}`;
   await checkSums(dir, built.version);
   await sign(dir, built.version, options.secretKey, options.password);
-  await verify(dir, built.version, options.publicKey);
+  await verify(options.out, options.publicKey, options.verifier);
   return built;
 }
 
 if (import.meta.main) {
   const args = parseArgs(Deno.args, {
-    string: ["secret-key", "public-key", "version"],
+    string: ["secret-key", "public-key", "verifier", "version"],
   });
   const [tree, out] = args._.map(String);
-  if (!tree || !out || !args["secret-key"] || !args["public-key"]) {
+  if (
+    !tree || !out || !args["secret-key"] || !args["public-key"] ||
+    !args.verifier
+  ) {
     console.error(
-      "usage: release.ts <built tree> <out dir> --secret-key <file> --public-key <file> [--version <v>]",
+      "usage: release.ts <built tree> <out dir> --secret-key <file> --public-key <file> --verifier <dassie-release> [--version <v>]",
     );
     Deno.exit(2);
   }
@@ -217,6 +221,7 @@ if (import.meta.main) {
     out,
     secretKey: args["secret-key"],
     publicKey: args["public-key"],
+    verifier: args.verifier,
     password: Deno.env.get("MINISIGN_PASSWORD") || undefined,
     expect: args.version,
   });

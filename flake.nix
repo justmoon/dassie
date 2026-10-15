@@ -145,6 +145,18 @@
             }
           );
 
+          # `dassie-release verify`, with which the release workflow checks
+          # what it signed.
+          release-tool = craneLib.buildPackage (
+            common
+            // {
+              pname = "dassie-release";
+              inherit cargoArtifacts;
+              cargoExtraArgs = "--locked -p dassie-release --features tool";
+              doCheck = false;
+            }
+          );
+
           # The release builds (nix/release.nix), made on x86_64-linux only.
           release = lib.optionalAttrs (system == "x86_64-linux") (
             import ./nix/release.nix {
@@ -163,7 +175,7 @@
         in
         {
           packages = {
-            inherit identity-wasm wasm-bindgen;
+            inherit identity-wasm wasm-bindgen release-tool;
             default = identity-wasm;
           }
           // (release.packages or { });

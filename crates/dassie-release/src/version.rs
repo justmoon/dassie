@@ -8,7 +8,7 @@ use alloc::string::{String, ToString};
 use core::fmt;
 
 /// The longest version accepted.
-pub const MAX_LEN: usize = 64;
+pub const MAX_LEN: usize = 80;
 
 /// The shortest commit hash a canary names, as `git rev-parse --short`.
 const MIN_COMMIT: usize = 7;
@@ -29,17 +29,16 @@ pub enum Version {
         /// The patch version.
         patch: u32,
     },
-    /// `canary-YYYY-MM-DD-<commit>`, published on [`Channel::Canary`]: the
-    /// day of the commit it was built from, and its hash (7 to 40 lowercase
-    /// hex digits, then `-dirty` for a local build with uncommitted changes).
+    /// `canary-YYYY-MM-DD-HHMMSS-<commit>`, published on
+    /// [`Channel::Canary`]: when the commit it was built from was made, in
+    /// UTC, and its hash (7 to 40 lowercase hex digits, then `-dirty` for a
+    /// local build with uncommitted changes).
     Canary {
-        /// The year of the commit.
-        year: u16,
-        /// Its month, 1 to 12.
-        month: u8,
-        /// Its day, 1 to 31.
-        day: u8,
-        /// The commit's hash.
+        /// The commit's date: year, month (1 to 12), day (1 to 31).
+        date: (u16, u8, u8),
+        /// Its time of day: hour (0 to 23), minute, second (0 to 59).
+        time: (u8, u8, u8),
+        /// Its hash.
         commit: String,
     },
 }
@@ -59,7 +58,7 @@ impl fmt::Display for VersionError {
             Self::TooLong => write!(f, "the version is longer than {MAX_LEN} bytes"),
             Self::Malformed => write!(
                 f,
-                "the version is not of the form 1.2.3 or canary-YYYY-MM-DD-<commit>"
+                "the version is not of the form 1.2.3 or canary-YYYY-MM-DD-HHMMSS-<commit>"
             ),
         }
     }
@@ -87,12 +86,11 @@ impl Version {
     }
 
     /// Whether the updater may replace `installed` with this version on its
-    /// own. A release supersedes an older release, and a canary a canary of
-    /// an earlier day, or another commit of the same day, since the day is
-    /// all that orders them. Moving between channels is the owner's choice:
-    /// a version of the other channel supersedes, as the owner asked for it.
-    /// So does nothing else: a mirror that offers an older version does not
-    /// take a node back to it.
+    /// own: a later version of the same channel. A release supersedes an
+    /// older release, and a canary one of an earlier commit time. Nothing
+    /// else does: `meta/<channel>` is not signed, so a mirror that offers
+    /// an older version, or one of the other channel, does not take a node
+    /// there. Only the owner moves a node back or to another channel.
     pub fn supersedes(&self, installed: &Version) -> bool {
         match (self, installed) {
             (
@@ -108,23 +106,14 @@ impl Version {
                 },
             ) => (major, minor, patch) > (old_major, old_minor, old_patch),
             (
+                Self::Canary { date, time, .. },
                 Self::Canary {
-                    year,
-                    month,
-                    day,
-                    commit,
+                    date: old_date,
+                    time: old_time,
+                    ..
                 },
-                Self::Canary {
-                    year: old_year,
-                    month: old_month,
-                    day: old_day,
-                    commit: old_commit,
-                },
-            ) => {
-                let (date, old_date) = ((year, month, day), (old_year, old_month, old_day));
-                date > old_date || (date == old_date && commit != old_commit)
-            }
-            _ => true,
+            ) => (date, time) > (old_date, old_time),
+            _ => false,
         }
     }
 }
@@ -138,11 +127,13 @@ impl fmt::Display for Version {
                 patch,
             } => write!(f, "{major}.{minor}.{patch}"),
             Self::Canary {
-                year,
-                month,
-                day,
+                date: (year, month, day),
+                time: (hour, minute, second),
                 commit,
-            } => write!(f, "canary-{year:04}-{month:02}-{day:02}-{commit}"),
+            } => write!(
+                f,
+                "canary-{year:04}-{month:02}-{day:02}-{hour:02}{minute:02}{second:02}-{commit}"
+            ),
         }
     }
 }
@@ -172,36 +163,53 @@ fn parse_number(text: &str) -> Option<u32> {
     text.parse().ok()
 }
 
-/// `YYYY-MM-DD-<commit>`, after `canary-`.
+/// `YYYY-MM-DD-HHMMSS-<commit>`, after `canary-`.
 fn parse_canary(text: &str) -> Option<Version> {
-    let mut parts = text.splitn(4, '-');
-    let year = fixed_digits(parts.next()?, 4)?;
-    let month = fixed_digits(parts.next()?, 2)?;
-    let day = fixed_digits(parts.next()?, 2)?;
+    let mut parts = text.splitn(5, '-');
+    let year = fixed_digits(parts.next()?)?;
+    let month = fixed_digits(parts.next()?)?;
+    let day = fixed_digits(parts.next()?)?;
+    let [hour, minute, second] = time_of_day(parts.next()?)?;
     let commit = parts.next()?;
     let hash = commit.strip_suffix(DIRTY).unwrap_or(commit);
     let hex = hash
         .bytes()
         .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
-    let valid = (1..=12).contains(&month)
-        && (1..=31).contains(&day)
+    let valid = year.len() == 4
+        && month.len() == 2
+        && day.len() == 2
         && (MIN_COMMIT..=MAX_COMMIT).contains(&hash.len())
         && hex;
-    if !valid {
-        return None;
-    }
-    Some(Version::Canary {
-        year: u16::try_from(year).ok()?,
-        month: u8::try_from(month).ok()?,
-        day: u8::try_from(day).ok()?,
+    let date = (
+        year.parse().ok()?,
+        month.parse().ok().filter(|m| (1..=12).contains(m))?,
+        day.parse().ok().filter(|d| (1..=31).contains(d))?,
+    );
+    valid.then(|| Version::Canary {
+        date,
+        time: (hour, minute, second),
         commit: commit.to_string(),
     })
 }
 
-/// Exactly `len` decimal digits.
-fn fixed_digits(text: &str, len: usize) -> Option<u32> {
-    let digits = text.len() == len && text.bytes().all(|byte| byte.is_ascii_digit());
-    digits.then(|| text.parse().ok()).flatten()
+/// `HHMMSS`, a time of day.
+fn time_of_day(text: &str) -> Option<[u8; 3]> {
+    if text.len() != 6 {
+        return None;
+    }
+    let field = |range: core::ops::Range<usize>, max: u8| {
+        fixed_digits(text.get(range)?)?
+            .parse::<u8>()
+            .ok()
+            .filter(|value| *value <= max)
+    };
+    Some([field(0..2, 23)?, field(2..4, 59)?, field(4..6, 59)?])
+}
+
+/// Decimal digits only, as they are.
+fn fixed_digits(text: &str) -> Option<&str> {
+    let digits = !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
+    digits.then_some(text)
 }
 
 /// Where a version is published: the mirror's `meta/<channel>` names the
@@ -254,16 +262,15 @@ mod tests {
             }
         );
         assert_eq!(
-            version("canary-2026-10-15-15bd7aa"),
+            version("canary-2026-10-15-041530-15bd7aa"),
             Version::Canary {
-                year: 2026,
-                month: 10,
-                day: 15,
+                date: (2026, 10, 15),
+                time: (4, 15, 30),
                 commit: "15bd7aa".into()
             }
         );
         assert_eq!(
-            version("canary-2026-10-15-15bd7aa-dirty").channel(),
+            version("canary-2026-10-15-235959-15bd7aa-dirty").channel(),
             Channel::Canary
         );
         assert_eq!(version("4294967295.0.10").channel(), Channel::Latest);
@@ -285,25 +292,35 @@ mod tests {
             "1.2.3/",
             "canary",
             "canary-2026-10-15",
-            "canary-2026-10-15-",
-            "canary-2026-10-15-15bd7a",
-            "canary-2026-10-15-15BD7AA",
-            "canary-2026-13-15-15bd7aa",
-            "canary-2026-10-00-15bd7aa",
-            "canary-2026-1-15-15bd7aa",
-            "canary-2026-10-15-15bd7aa-",
-            "canary-2026-10-15-15bd7aa-clean",
-            "canary-2026-10-15-15bd7aa/..",
-            "canary-2026-10-15-0123456789012345678901234567890123456789a",
+            "canary-2026-10-15-041530",
+            "canary-2026-10-15-041530-",
+            "canary-2026-10-15-15bd7aa",
+            "canary-2026-10-15-041530-15bd7a",
+            "canary-2026-10-15-041530-15BD7AA",
+            "canary-2026-13-15-041530-15bd7aa",
+            "canary-2026-10-00-041530-15bd7aa",
+            "canary-2026-10-32-041530-15bd7aa",
+            "canary-2026-1-15-041530-15bd7aa",
+            "canary-2026-10-15-240000-15bd7aa",
+            "canary-2026-10-15-046000-15bd7aa",
+            "canary-2026-10-15-041560-15bd7aa",
+            "canary-2026-10-15-04153-15bd7aa",
+            "canary-2026-10-15-+41530-15bd7aa",
+            "canary-2026-10-15-041530-15bd7aa-",
+            "canary-2026-10-15-041530-15bd7aa-clean",
+            "canary-2026-10-15-041530-15bd7aa/..",
+            "canary-2026-10-15-041530-0123456789012345678901234567890123456789a",
         ] {
             assert!(Version::parse(text).is_err(), "{text:?} was accepted");
         }
-        let long = format!("canary-2026-10-15-{}", "a".repeat(MAX_LEN));
+        let long = format!("canary-2026-10-15-041530-{}", "a".repeat(MAX_LEN));
         assert_eq!(Version::parse(&long), Err(VersionError::TooLong));
+        let longest = format!("canary-2026-10-15-041530-{}-dirty", "a".repeat(MAX_COMMIT));
+        assert!(Version::parse(&longest).is_ok());
     }
 
     #[test]
-    fn newer_versions_supersede() {
+    fn later_versions_of_a_channel_supersede() {
         let cases = [
             ("0.1.1", "0.1.0", true),
             ("0.2.0", "0.1.9", true),
@@ -311,27 +328,33 @@ mod tests {
             ("0.1.0", "0.1.0", false),
             ("0.1.0", "0.1.1", false),
             (
-                "canary-2026-10-16-aaaaaaa",
-                "canary-2026-10-15-bbbbbbb",
+                "canary-2026-10-16-000000-aaaaaaa",
+                "canary-2026-10-15-235959-bbbbbbb",
                 true,
             ),
             (
-                "canary-2026-10-15-aaaaaaa",
-                "canary-2026-10-15-bbbbbbb",
+                "canary-2026-10-15-041531-aaaaaaa",
+                "canary-2026-10-15-041530-bbbbbbb",
                 true,
             ),
             (
-                "canary-2026-10-15-aaaaaaa",
-                "canary-2026-10-15-aaaaaaa",
+                "canary-2026-10-15-041530-aaaaaaa",
+                "canary-2026-10-15-041530-bbbbbbb",
                 false,
             ),
             (
-                "canary-2026-09-30-aaaaaaa",
-                "canary-2026-10-15-bbbbbbb",
+                "canary-2026-10-15-041529-aaaaaaa",
+                "canary-2026-10-15-041530-bbbbbbb",
                 false,
             ),
-            ("canary-2025-12-31-aaaaaaa", "0.1.0", true),
-            ("0.0.1", "canary-2026-10-15-aaaaaaa", true),
+            (
+                "canary-2026-09-30-120000-aaaaaaa",
+                "canary-2026-10-15-000000-bbbbbbb",
+                false,
+            ),
+            // Another channel, whatever its age: only the owner moves there.
+            ("canary-2099-12-31-000000-aaaaaaa", "0.1.0", false),
+            ("9.0.0", "canary-2026-10-15-041530-aaaaaaa", false),
         ];
         for (offered, installed, expected) in cases {
             assert_eq!(
@@ -362,16 +385,32 @@ mod tests {
             year in 1000u16..=9999,
             month in 1u8..=12,
             day in 1u8..=31,
+            hour in 0u8..=23,
+            minute in 0u8..=59,
+            second in 0u8..=59,
             commit in "[0-9a-f]{7,40}(-dirty)?",
         ) {
-            let canary = Version::Canary { year, month, day, commit };
+            let canary = Version::Canary {
+                date: (year, month, day),
+                time: (hour, minute, second),
+                commit,
+            };
             prop_assert_eq!(Version::parse(&canary.to_string()), Ok(canary));
+        }
+
+        /// Superseding is a strict order within a channel.
+        #[test]
+        fn supersedes_is_strict(a in "canary-2026-10-1[0-9]-0[0-9]0000-aaaaaaa",
+                                b in "canary-2026-10-1[0-9]-0[0-9]0000-bbbbbbb") {
+            let (a, b) = (version(&a), version(&b));
+            prop_assert!(!(a.supersedes(&b) && b.supersedes(&a)));
+            prop_assert!(!a.supersedes(&a));
         }
 
         /// Whatever it accepts is a safe path component, and reads back as
         /// it was written.
         #[test]
-        fn never_panics(text in "\\PC{0,80}") {
+        fn never_panics(text in "\\PC{0,90}") {
             if let Ok(version) = Version::parse(&text) {
                 prop_assert_eq!(version.to_string(), text.clone());
                 prop_assert!(text.bytes().all(|b| b.is_ascii_digit()

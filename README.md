@@ -27,7 +27,7 @@ The work starts from the specification in [`spec/`](spec/README.md):
 | `crates/dassie-cli` | The `dassie` binary: `daemon`, `init`, `verify-install` |
 | `crates/dassie-release` | What a release is and how to trust one: versions and channels, the mirror's layout, `SHA256SUMS` and its minisign signature |
 | `nix/release.nix` | The release builds: the wallet, static binaries for x64 and arm64, their bundles, the mirror tree |
-| `scripts/release.ts` | Signs a built release for the mirror, as the release workflow does |
+| `scripts/release.ts` | Signs a built release for the mirror and checks it with `dassie-release verify`, as the release workflow does |
 | `proto/dassie/ui/v1` | The RPC contract between the node and its owner's clients |
 | `proto/dassie/dev/v1` | The dev environment's control channel, between the dev server and its dashboard |
 | `apps/wallet` | The wallet (Solid 2), embedded in the binary: every page of the original but Send and payment status (M6), with live data |

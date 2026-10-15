@@ -596,6 +596,7 @@ dependencies = [
  "blake2",
  "ed25519-dalek",
  "proptest",
+ "sha2",
 ]
 
 [[package]]

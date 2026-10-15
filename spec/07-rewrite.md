@@ -83,7 +83,7 @@ packages/
   identity-wasm/        wasm-bindgen output of dassie-identity / dassie-stream for Deno + browser
 resources/
   systemd/  installer/  launcher-less (the binary is the entry point)
-  minisign.pub          the release key the binaries and the installer trust (D11)
+  minisign.pub          the release key: releases must verify with it, and from M8b the binaries and the installer trust it (D11)
 nix/release.nix         the release builds: wallet, static binaries, bundles, the mirror tree (§4.8)
 scripts/release.ts      signs a built release for the mirror
 ```
@@ -533,8 +533,9 @@ A release is one static binary per platform, with the wallet built in ([D11](08-
 
 **Versions and channels** (`dassie-release`):
 - A release is `major.minor.patch`, dassie-cli's version, published on `latest`.
-- A canary is `canary-YYYY-MM-DD-<commit>`, the day and short hash of the commit it is built from, published on `canary`.
-- A version names a directory on the mirror and in `/opt/dassie`, so only these two shapes parse: digits, lowercase letters, dots and dashes, at most 64 bytes.
+- A canary is `canary-YYYY-MM-DD-HHMMSS-<commit>`: when the commit it is built from was made, in UTC, and its short hash. It is published on `canary`.
+- A version names a directory on the mirror and in `/opt/dassie`, so only these two shapes parse: digits, lowercase letters, dots and dashes, at most 80 bytes.
+- **The updater moves on its own only to a later version of the same channel:** a higher release, or a canary of a later commit time (`Version::supersedes`). `meta/<channel>` is not signed, so a mirror cannot take a node back, or to the other channel; only the owner can.
 
 **The mirror** keeps the original's paths (§2), plus the signature:
 
@@ -548,12 +549,15 @@ meta/canary                                  the newest canary
 
 - **A bundle** holds `dassie/bin/dassie`, which becomes `/opt/dassie/<version>/bin/dassie`. Its archives are the same bytes for the same input: sorted, with fixed times and owners.
 - **The signature** is minisign's default, Ed25519 over the BLAKE2b-512 of `SHA256SUMS`. Its trusted comment names the version, so the signed sums of one release cannot pass for another's. Legacy signatures (of the file itself) are refused.
-- **`dassie-release` verifies it** with `ed25519-dalek`'s strict verification, and parses `SHA256SUMS` only once the signature holds. Every parser there is bounded: a version at most 64 bytes, a signature at most 1 KiB, `SHA256SUMS` at most 4 KiB and 16 lines of plain file names.
+- **`dassie-release` verifies it** with `ed25519-dalek`'s strict verification, and parses `SHA256SUMS` only once the signature holds. Every parser there is bounded: a version at most 80 bytes, a signature at most 1 KiB, `SHA256SUMS` at most 4 KiB and 16 lines of plain file names.
 
 **Publishing** (`.github/workflows/release.yml`):
 - Every push to the main branch builds a canary, and every tag `v<version>` a release, whose version must be the tag's.
-- `scripts/release.ts` checks each bundle against `SHA256SUMS`, signs it with the release key (a repository secret), and verifies the signature with `resources/minisign.pub`, the key the binaries trust, before anything is uploaded.
-- The upload goes to the bucket behind `get.dassie.land`, through workload identity. A version's files are uploaded once and cached for good; `meta/<channel>` goes last, uncached, so it names a version only once its files are there.
+- `scripts/release.ts` checks each bundle against `SHA256SUMS` and signs it with the release key. Then `dassie-release verify` checks the signed tree with `resources/minisign.pub`, using the code the updater trusts a release with, before anything is uploaded.
+- The key and the bucket's credentials belong to the `release` environment, which admits only the main branch and `v*` tags. The job's actions are pinned to commits.
+- The upload goes to the bucket behind `get.dassie.land`, through workload identity.
+  - A version's files are uploaded once, the signature last, and cached for good. A file already there must be the same bytes, so a run again completes what an interrupted one left.
+  - Only then does `meta/<channel>` name the version, uncached. It never moves to a version older than the one it names.
 
 ## 5. Wallet and dashboard (Solid 2)
 

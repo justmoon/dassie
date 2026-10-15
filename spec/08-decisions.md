@@ -234,7 +234,8 @@ Revised on 2026-10-14; it first served SPSP and deferred GNAP, quotes and outgoi
 - **Decision:**
   - Each release publishes `SHA256SUMS` and a minisign signature. The public key is compiled into the binary and printed in the install script. (Rejected: Sigstore, whose verification needs the network or a bundled trust root and is heavier to embed.)
   - The signature's trusted comment is `dassie <version>`, and both are checked: the signed sums of an old release, served under a new version's path, are refused ([7 §4.8](07-rewrite.md#48-releases)).
-  - The release key's secret half is a repository secret that only the release workflow reads. The workflow verifies what it signed with `resources/minisign.pub` before it uploads, so a release signed with another key never reaches the mirror.
+  - The release key's secret half lives in the `release` environment of the repository, which only the release workflow on the main branch or a `v*` tag may use. The workflow verifies what it signed with `resources/minisign.pub`, using `dassie-release`, before it uploads, so a release signed with another key never reaches the mirror.
+  - `meta/<channel>` is not signed, so it is not trusted to say which way to move: the updater moves on its own only to a later version of the same channel.
   - The installer and the updater verify before extracting.
   - The symlink swap is atomic (`rename`).
   - CI builds and publishes releases, reproducibly through the Nix flake of D14.

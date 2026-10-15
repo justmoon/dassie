@@ -1,6 +1,7 @@
 // scripts/release.ts against a stand-in release, signed with the test key
-// of testdata/release. minisign comes from the flake's dev shell; without
-// it the tests skip, except in CI, where they fail.
+// of testdata/release. minisign comes from the flake's dev shell, and
+// dassie-release from `deno task build:e2e`; without them the tests skip,
+// except in CI, where they fail.
 
 import { assertEquals, assertRejects } from "@std/assert";
 import { bundles, release } from "./release.ts";
@@ -15,8 +16,22 @@ const hasMinisign = await new Deno.Command("minisign", {
 })
   .output()
   .then((result) => result.success, () => false);
-if (!hasMinisign && Deno.env.get("CI")) {
-  throw new Error("minisign is missing: run the tests in `nix develop`");
+const root = new URL("../", import.meta.url).pathname;
+const verifier = [
+  `${root}target/e2e/dassie-release`,
+  `${root}target/debug/dassie-release`,
+]
+  .find((path) => {
+    try {
+      return Deno.statSync(path).isFile;
+    } catch {
+      return false;
+    }
+  });
+if ((!hasMinisign || !verifier) && Deno.env.get("CI")) {
+  throw new Error(
+    "minisign or dassie-release is missing: run `deno task build:e2e` in `nix develop`",
+  );
 }
 
 /** A built tree as `nix build .#release` makes it, with stand-in bundles. */
@@ -40,7 +55,8 @@ async function builtTree(version: string, channel = "latest"): Promise<string> {
   return tree;
 }
 
-const options = { ignore: !hasMinisign };
+const options = { ignore: !hasMinisign || !verifier };
+const tools = { secretKey, publicKey, verifier: verifier ?? "" };
 
 Deno.test(
   "signs a release, and the signature names its version",
@@ -48,7 +64,7 @@ Deno.test(
   async () => {
     const tree = await builtTree("0.1.0");
     const out = `${tree}-out`;
-    const built = await release({ tree, out, secretKey, publicKey });
+    const built = await release({ tree, out, ...tools });
     assertEquals(built, { channel: "latest", version: "0.1.0" });
     assertEquals(await Deno.readTextFile(`${out}/meta/latest`), "0.1.0");
     const signature = await Deno.readTextFile(
@@ -69,16 +85,15 @@ Deno.test(
 );
 
 Deno.test("signs a canary", options, async () => {
-  const tree = await builtTree("canary-2026-10-15-15bd7aa", "canary");
+  const tree = await builtTree("canary-2026-10-15-041530-15bd7aa", "canary");
   const built = await release({
     tree,
     out: `${tree}-out`,
-    secretKey,
-    publicKey,
+    ...tools,
   });
   assertEquals(built, {
     channel: "canary",
-    version: "canary-2026-10-15-15bd7aa",
+    version: "canary-2026-10-15-041530-15bd7aa",
   });
 });
 
@@ -89,7 +104,7 @@ Deno.test("refuses a bundle that does not match its sum", options, async () => {
     "tampered",
   );
   await assertRejects(
-    () => release({ tree, out: `${tree}-out`, secretKey, publicKey }),
+    () => release({ tree, out: `${tree}-out`, ...tools }),
     Error,
     "dassie-0.1.0-linux-arm64.tar.xz does not match SHA256SUMS",
   );
@@ -118,11 +133,11 @@ Deno.test(
         release({
           tree,
           out: `${tree}-out`,
-          secretKey,
+          ...tools,
           publicKey: `${other}/other.pub`,
         }),
       Error,
-      "minisign -V failed",
+      "dassie-release verify failed",
     );
   },
 );
@@ -137,8 +152,7 @@ Deno.test(
         release({
           tree,
           out: `${tree}-out`,
-          secretKey,
-          publicKey,
+          ...tools,
           expect: "0.1.1",
         }),
       Error,
@@ -148,9 +162,9 @@ Deno.test(
 );
 
 Deno.test("refuses a channel file that names no version", options, async () => {
-  const tree = await builtTree("canary-2026-10-15-15bd7aa-dirty", "canary");
+  const tree = await builtTree("canary-2026-10-15-15bd7aa", "canary");
   await assertRejects(
-    () => release({ tree, out: `${tree}-out`, secretKey, publicKey }),
+    () => release({ tree, out: `${tree}-out`, ...tools }),
     Error,
     "not a canary version",
   );

@@ -15,15 +15,17 @@
   identity-wasm,
 }:
 let
-  # A release's version is dassie-cli's. A canary's names the day and the
-  # commit it was built from: `canary-2026-10-15-15bd7aa`.
+  # A release's version is dassie-cli's. A canary's names when the commit it
+  # was built from was made, in UTC, and the commit:
+  # `canary-2026-10-15-041530-15bd7aa`. A source without a commit gives
+  # "unknown", which is no version: such a tree cannot be signed.
   releaseVersion = (lib.importTOML ../crates/dassie-cli/Cargo.toml).package.version;
   canaryVersion =
     let
-      date = self.lastModifiedDate;
-      day = "${lib.substring 0 4 date}-${lib.substring 4 2 date}-${lib.substring 6 2 date}";
+      part = start: length: lib.substring start length self.lastModifiedDate;
+      commit = self.shortRev or self.dirtyShortRev or "unknown";
     in
-    "canary-${day}-${self.shortRev or self.dirtyShortRev}";
+    "canary-${part 0 4}-${part 4 2}-${part 6 2}-${part 8 6}-${commit}";
 
   # The Deno workspace's manifests: `deno install` needs every member's.
   denoManifests = lib.fileset.unions [
@@ -44,15 +46,16 @@ let
   # same bytes from run to run (Deno's own cache is not, so it is left
   # behind). After a change to deno.lock, set the hash the build reports.
   #
-  # Its name carries a digest of the manifests: Nix finds a fixed output by
-  # its hash alone, so without it a stale hash would quietly keep the old
-  # packages rather than fail.
+  # Its name carries Deno's version and a digest of the manifests: Nix finds
+  # a fixed output by its hash alone, so without them a stale hash would
+  # quietly keep the old packages rather than fail.
   denoSource = lib.fileset.toSource {
     root = ../.;
     fileset = denoManifests;
   };
+  manifestDigest = lib.substring 0 12 (builtins.hashString "sha256" (toString denoSource));
   denoDeps = pkgs.stdenvNoCC.mkDerivation {
-    name = "dassie-deno-deps-${lib.substring 0 12 (builtins.hashString "sha256" (toString denoSource))}";
+    name = "dassie-deno-deps-${pkgs.deno.version}-${manifestDigest}";
     src = denoSource;
     nativeBuildInputs = [ pkgs.deno ];
     SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";

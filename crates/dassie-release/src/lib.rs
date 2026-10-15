@@ -2,7 +2,7 @@
 //! one ([D11](../../spec/08-decisions.md#d11-release-integrity)), sans-IO.
 //!
 //! - [`Version`]: a release (`0.1.0`) or a canary
-//!   (`canary-2026-10-15-15bd7aa`), and the [`Channel`] it is published on.
+//!   (`canary-2026-10-15-041530-15bd7aa`), and the [`Channel`] it is published on.
 //! - [`layout`]: where the mirror keeps what: `meta/<channel>`, and
 //!   `<version>/` with the bundles, `SHA256SUMS` and `SHA256SUMS.minisig`.
 //! - [`Sums`]: a release's `SHA256SUMS`, as `sha256sum` writes it.

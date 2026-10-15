@@ -42,7 +42,7 @@
     "build:wasm": "deno run --allow-run --allow-read --allow-write --allow-env scripts/build-wasm.ts",
     "build:wallet": "cd apps/wallet && deno task build",
     "build:dashboard": "cd apps/dev-dashboard && deno task build",
-    "build:e2e": "DASSIE_WALLET_DIST=$(pwd)/apps/wallet/dist cargo build --locked --profile e2e -p dassie-cli && cargo build --locked --profile e2e -p dassie-node --features testing --example fake_ledger",
+    "build:e2e": "DASSIE_WALLET_DIST=$(pwd)/apps/wallet/dist cargo build --locked --profile e2e -p dassie-cli && cargo build --locked --profile e2e -p dassie-node --features testing --example fake_ledger && cargo build --locked --profile e2e -p dassie-release --features tool",
     "dev": "deno run -A apps/dev/main.ts",
     "cli": "deno run -A apps/dev/cli.ts",
     "check": "deno fmt --check && deno lint && deno check",

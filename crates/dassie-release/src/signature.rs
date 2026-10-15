@@ -152,6 +152,9 @@ pub fn verify_sums(
     signature: &str,
     version: &Version,
 ) -> Result<Sums, VerifyError> {
+    if sums.len() > crate::sums::MAX_SIZE {
+        return Err(VerifyError::Sums(SumsError::TooLarge));
+    }
     let signed = verify(key, sums, signature).map_err(VerifyError::Signature)?;
     if signed != trusted_comment(version) {
         return Err(VerifyError::Version { signed });
@@ -260,6 +263,12 @@ mod tests {
 
     #[test]
     fn refuses_tampered_sums() {
+        // Too large to be sums: refused before it is hashed.
+        let huge = "0".repeat(crate::sums::MAX_SIZE + 1);
+        assert_eq!(
+            verify_sums(&key(), huge.as_bytes(), SIGNATURE, &version("0.1.0")),
+            Err(VerifyError::Sums(SumsError::TooLarge))
+        );
         let tampered = SUMS.replacen('4', "5", 1);
         assert_eq!(
             verify_sums(&key(), tampered.as_bytes(), SIGNATURE, &version("0.1.0")),
@@ -338,8 +347,8 @@ mod tests {
     #[test]
     fn signs_for_the_version() {
         assert_eq!(
-            trusted_comment(&version("canary-2026-10-15-15bd7aa")),
-            "dassie canary-2026-10-15-15bd7aa"
+            trusted_comment(&version("canary-2026-10-15-041530-15bd7aa")),
+            "dassie canary-2026-10-15-041530-15bd7aa"
         );
         assert_eq!(
             VerifyError::Version { signed: "x".into() }.to_string(),
