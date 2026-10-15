@@ -101,7 +101,7 @@ Once, run `mkcert -install` so the browser trusts the certificates. Port 443 nee
 
 To work on the wallet alone, run `deno task dev` in `apps/wallet` and start a node with `DASSIE_DEV_WALLET_DIR` set to the absolute path of `apps/wallet/dist-dev`. `DASSIE_E2E_WALLET_DIR` does the same for the wallet's browser test, and `DASSIE_E2E_SCREENSHOTS` keeps a picture of each step of the wallet's and the dev environment's browser tests.
 
-To work on the website, run `deno task dev` in `apps/website`, which rebuilds `dist/` on every change, and `deno task preview` beside it to serve it. Vercel deploys every branch from `apps/website` ([spec 7 §5](spec/07-rewrite.md#5-wallet-and-dashboard-solid-2)); the CSP and the cache headers are in its `vercel.json`.
+To work on the website, run `deno task dev` in `apps/website`, which rebuilds `dist/` on every change, and `deno task preview` beside it to serve it. Vercel deploys every branch from `apps/website` ([spec 7 §5](spec/07-rewrite.md#5-wallet-and-dashboard-solid-2)); the CSP and the cache headers are in its `vercel.json`, and `vercel-ignore.sh` skips deployments that change nothing the site is built from.
 
 ## Engineering style
 

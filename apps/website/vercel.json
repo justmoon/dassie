@@ -3,6 +3,7 @@
   "framework": null,
   "installCommand": "dnf install -y --setopt=install_weak_deps=False gcc gzip tar unzip",
   "buildCommand": "sh vercel-build.sh",
+  "ignoreCommand": "sh vercel-ignore.sh",
   "outputDirectory": "dist",
   "trailingSlash": true,
   "headers": [
