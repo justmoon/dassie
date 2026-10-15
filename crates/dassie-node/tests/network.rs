@@ -114,11 +114,11 @@ impl Settling {
     }
 }
 
-/// The rates of runs across currencies: a dollar buys two XRP. They never
-/// age.
-const RATES: [(&str, u128, u64); 2] = [
-    ("USD", 1_000_000_000_000_000, u64::MAX),
-    ("XRP", 2_000_000_000_000_000, u64::MAX),
+/// The rates of runs across currencies: a dollar buys two XRP. A node
+/// learns them when it starts, and a run is shorter than they take to age.
+const RATES: [(&str, u128); 2] = [
+    ("USD", 1_000_000_000_000_000),
+    ("XRP", 2_000_000_000_000_000),
 ];
 
 /// What node 1 charges for what passes between its peers, in runs across
@@ -342,7 +342,8 @@ impl Sim {
         };
         node.core = Some(Core::start(parts, self.now).unwrap());
         self.trace.push(format!("{} start {index}", self.now));
-        let rates = (self.settling == Settling::Cross).then_some(RATES);
+        let now = self.now;
+        let rates = (self.settling == Settling::Cross).then(|| RATES.map(|(c, r)| (c, r, now)));
         self.step(index, |core| {
             if let Some(rates) = rates {
                 core.set_rates(&rates);

@@ -149,8 +149,10 @@ impl Stream {
             .saturating_sub(self.held)
     }
 
-    /// Destination amount the remote still accepts.
-    pub(crate) const fn remote_room(&self) -> u64 {
+    /// Destination amount the remote still accepts: unlimited until it
+    /// says, and nothing once it has all it takes.
+    #[must_use]
+    pub const fn remote_room(&self) -> u64 {
         self.remote_receive_max.saturating_sub(self.remote_received)
     }
 

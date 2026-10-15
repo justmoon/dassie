@@ -73,7 +73,8 @@ impl Rates {
     }
 
     /// Whether converting between `from` and `to` uses only rates learned
-    /// at most `max_age_ms` before `now_ms`. The same currency needs none.
+    /// at most `max_age_ms` before `now_ms`, and not after: a clock that
+    /// went back cannot make a rate young. The same currency needs none.
     #[must_use]
     pub fn fresh(&self, from: &str, to: &str, now_ms: u64, max_age_ms: u64) -> bool {
         if from == to {
@@ -81,7 +82,7 @@ impl Rates {
         }
         let young = |code| {
             self.as_of(code)
-                .is_some_and(|at| now_ms.saturating_sub(at) <= max_age_ms)
+                .is_some_and(|at| at <= now_ms && now_ms - at <= max_age_ms)
         };
         young(from) && young(to)
     }
@@ -183,8 +184,10 @@ mod tests {
         assert!(rates.fresh("USD", "XRP", 1_000, 1_000));
         assert!(!rates.fresh("USD", "XRP", 1_001, 1_000));
         assert!(rates.fresh("EUR", "EUR", u64::MAX, 0));
-        assert!(rates.fresh("EUR", "USD", 1_000, 1_000), "younger than now");
-        assert!(!rates.fresh("EUR", "USD", 1_001, 1_000));
+        assert!(!rates.fresh("EUR", "XRP", 1_000, 1_000), "from the future");
+        rates.set_at("USD", 10u128.pow(RATE_PRECISION), 5_500);
+        assert!(rates.fresh("EUR", "USD", 6_000, 1_000));
+        assert!(!rates.fresh("EUR", "USD", 6_001, 1_000));
         assert!(!rates.fresh("EUR", "GBP", 5_000, 1_000), "never learned");
         assert_eq!(rates.as_of("EUR"), Some(5_000));
         assert_eq!(rates.iter().count(), 3);

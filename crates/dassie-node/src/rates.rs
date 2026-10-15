@@ -297,7 +297,12 @@ pub fn combine(wanted: &[&'static str], answers: &[Answer]) -> Vec<(&'static str
             let median = if said.len() % 2 == 1 {
                 said.get(middle).copied()
             } else {
+                // Two in the middle must agree, within 1%: else one wrong
+                // source would move the rate halfway to it.
                 let (low, high) = (said.get(middle - 1)?, said.get(middle)?);
+                if (high - low) * 100 > *high {
+                    return None;
+                }
                 Some(low / 2 + high / 2 + (low % 2 + high % 2) / 2)
             };
             median.map(|rate| (code, rate))
@@ -411,13 +416,19 @@ mod tests {
             combined,
             [("USD", ONE), ("XRP", rate("2")), ("EUR", rate("0.9"))]
         );
-        // Two of three answered: the middle of two.
+        // Two of three answered: the middle of two, if they agree.
         let two = [
+            answers[0].clone(),
+            (SourceKind::Kraken, said(&[("XRP", "1.99")])),
+            (SourceKind::Bitstamp, None),
+        ];
+        assert_eq!(combine(&["XRP"], &two), [("XRP", rate("1.995"))]);
+        let apart = [
             answers[0].clone(),
             answers[1].clone(),
             (SourceKind::Bitstamp, None),
         ];
-        assert_eq!(combine(&["XRP"], &two), [("XRP", rate("1.95"))]);
+        assert_eq!(combine(&["XRP"], &apart), [], "1.9 and 2 are 5% apart");
         // One of three is not more than half: the last rate stays.
         let one = [
             answers[0].clone(),

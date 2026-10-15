@@ -27,7 +27,10 @@ export function RateSettings(): JSX.Element {
     return (await client.call("getRateSources", {})).sources;
   });
   const [edited, setEdited] = createSignal<RateSource[]>();
-  const sources = () => edited() ?? stored() ?? [];
+  // Until the stored sources are read, there is nothing to edit: else a
+  // source added would replace them all.
+  const loaded = () => edited() ?? stored();
+  const sources = () => loaded() ?? [];
   const [kind, setKind] = createSignal("coinbase");
   const [url, setUrl] = createSignal("");
   const [error, setError] = createSignal<string>();
@@ -144,7 +147,12 @@ export function RateSettings(): JSX.Element {
           </Field>
         </Show>
         <div class="actions">
-          <button type="button" data-testid="rate-source-add" onClick={add}>
+          <button
+            type="button"
+            data-testid="rate-source-add"
+            disabled={loaded() === undefined}
+            onClick={add}
+          >
             Add
           </button>
           <button

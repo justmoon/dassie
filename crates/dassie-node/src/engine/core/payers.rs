@@ -595,13 +595,22 @@ impl Core {
         // One of a fixed amount to deliver also ends once the receiver has
         // it, which a hop that lost a packet may have paid for (D17), or
         // all of it but less than a unit sent is worth: no packet can be
-        // sized to deliver that, as the hops round down.
-        let receive = payment.row.receive_amount.value;
-        let unit_worth = receive.div_ceil(payment.row.debit_amount.max(1));
-        let delivered_enough =
-            delivered >= receive || (delivered > 0 && receive - delivered <= unit_worth);
-        let done =
-            sent == payment.row.debit_amount || (!payment.row.fixed_debit && delivered_enough);
+        // sized to deliver that, as the hops round down. One of a fixed
+        // amount to send ends once it delivered what its quote said, and
+        // the receiver takes no more: a request it filled. (A receiver
+        // also takes no more while packets wait for a peer's verdict, so
+        // that alone does not end one.)
+        let receive = u128::from(payment.row.receive_amount.value);
+        let debit = u128::from(payment.row.debit_amount.max(1));
+        let short = receive.saturating_sub(u128::from(delivered));
+        let delivered_enough = short == 0 || (delivered > 0 && short * debit < receive);
+        let full = stream.is_some_and(|stream| stream.remote_room() == 0);
+        let done = sent == payment.row.debit_amount
+            || if payment.row.fixed_debit {
+                short == 0 && full
+            } else {
+                delivered_enough
+            };
         if (done || payment.stopping.is_some())
             && let Some(connection) = payment.connection.as_mut()
         {

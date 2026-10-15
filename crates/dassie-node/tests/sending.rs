@@ -655,3 +655,55 @@ async fn the_owner_sends_a_fixed_amount() {
     let named = a.ipc().await.call(fixed("xrpl-testnet+xrp")).await;
     assert_eq!(code(named), proto::ErrorCode::InvalidArgument);
 }
+
+// Found in review: a fixed amount to send, to a request that takes a
+// little less than it buys at the real rate, fills the request and ends
+// there, rather than waiting to send the rest until it runs out of time.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_fixed_amount_to_send_ends_when_the_request_is_full() {
+    let pair = Pair::start(49, 50).await;
+    let (a, b) = (&pair.a, &pair.b);
+    let Ok(response::Method::CreateIncomingPayment(created)) = b
+        .ipc()
+        .await
+        .call(Method::CreateIncomingPayment(
+            proto::CreateIncomingPaymentRequest {
+                incoming_amount: Some(AMOUNT),
+                description: "invoice".into(),
+                ..proto::CreateIncomingPaymentRequest::default()
+            },
+        ))
+        .await
+    else {
+        panic!("no request")
+    };
+    let request = created.payment.unwrap();
+    // 1.51 buys 1.4949 at the quote's rate, which the request takes; at
+    // the real one for one it buys more than the 1.50 it asks.
+    let quoted = match a
+        .ipc()
+        .await
+        .call(Method::QuoteSend(proto::QuoteSendRequest {
+            recipient: request.url.clone(),
+            ledger: String::new(),
+            amount: Some(proto::quote_send_request::Amount::DebitAmount(
+                AMOUNT + 10_000_000,
+            )),
+            note: String::new(),
+        }))
+        .await
+    {
+        Ok(response::Method::QuoteSend(quoted)) => quoted.quote.unwrap(),
+        other => panic!("{other:?}"),
+    };
+    let sent = send(a, &quoted.id).await.unwrap();
+    let done = finished(&pair.clock, a, &sent.id).await;
+    assert_eq!(done.state, "completed", "{}", done.failure);
+    assert_eq!(done.sent_amount, AMOUNT);
+    let paid = incoming(b)
+        .await
+        .into_iter()
+        .find(|payment| payment.id == request.id)
+        .unwrap();
+    assert_eq!(paid.received_amount, AMOUNT);
+}

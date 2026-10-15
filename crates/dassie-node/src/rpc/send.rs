@@ -287,14 +287,18 @@ async fn quote(
     }
     let found = find(node, urls, &request.recipient).await?;
     let (debit_amount, receive_amount) = fixed_amounts(request.amount)?;
-    let (receiver_url, receiver) = match &found.request {
+    let (receiver_url, receiver, created) = match &found.request {
         Some((url, payment)) => {
             if !request.note.is_empty() {
                 return Err(RpcError::invalid(
                     "a payment request has its own description",
                 ));
             }
-            (url.clone(), spending::receiver_of(node, payment.clone())?)
+            (
+                url.clone(),
+                spending::receiver_of(node, payment.clone())?,
+                None,
+            )
         }
         None => {
             if debit_amount.is_none() && receive_amount.is_none() {
@@ -313,7 +317,42 @@ async fn quote(
             .await?
         }
     };
-    let ledger = ledger_for(engine, &request.ledger, &receiver).await?;
+    let quoted = price(
+        node,
+        engine,
+        urls,
+        &request.ledger,
+        (debit_amount, receive_amount),
+        &found,
+        receiver_url,
+        receiver,
+    )
+    .await;
+    // An incoming payment made here for a quote that failed takes nothing
+    // more. One made on another wallet lapses with its expiry.
+    if quoted.is_err()
+        && let Some(id) = created
+        && let Err(error) = engine.complete_incoming_payment(id).await
+    {
+        tracing::debug!(target: crate::log::target::PAYMENT, %error, "closing an unquoted incoming payment");
+    }
+    quoted
+}
+
+/// What paying `receiver` debits and delivers, as a quote kept for the
+/// owner.
+#[allow(clippy::too_many_arguments)]
+async fn price(
+    node: &Node,
+    engine: &Engine,
+    urls: &Urls,
+    named: &str,
+    (debit_amount, receive_amount): (Option<u64>, Option<u64>),
+    found: &Found,
+    receiver_url: String,
+    receiver: Receiver,
+) -> Result<proto::SendQuote, RpcError> {
+    let ledger = ledger_for(engine, named, &receiver).await?;
     let rate = spending::quote_rate(node, ledger, &receiver).await?;
     let wallet = &found.wallet;
     let asset = ledger.asset();
@@ -371,7 +410,8 @@ fn fixed_amounts(amount: Option<Amount_>) -> Result<(Option<u64>, Option<u64>), 
 }
 
 /// Creates the incoming payment a Send pays, at `wallet`, expecting
-/// `amount` or any, with the note as its description.
+/// `amount` or any, with the note as its description; its ID, when it is
+/// this node's.
 async fn create_receiver(
     node: &Node,
     engine: &Engine,
@@ -379,7 +419,7 @@ async fn create_receiver(
     wallet: &Wallet,
     amount: Option<u64>,
     note: &str,
-) -> Result<(String, Receiver), RpcError> {
+) -> Result<(String, Receiver, Option<PaymentId>), RpcError> {
     let expires_at_ms = node.now_ms() + SEND_RECEIVER_LIFETIME_MS;
     let metadata = (!note.is_empty()).then(|| {
         let mut metadata = serde_json::Map::new();
@@ -401,6 +441,7 @@ async fn create_receiver(
         return Ok((
             urls.incoming_payment(row.id),
             spending::receiver_of(node, payment)?,
+            Some(row.id),
         ));
     }
     let remote = wallet
@@ -411,7 +452,7 @@ async fn create_receiver(
         .await
         .map_err(|error| client_error(&error))?;
     let url = payment.id.clone();
-    Ok((url, spending::receiver_of(node, payment)?))
+    Ok((url, spending::receiver_of(node, payment)?, None))
 }
 
 /// One outgoing payment, whole, each time it changes.
