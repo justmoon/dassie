@@ -5,7 +5,7 @@ name: Release
 # (meta/canary), and every tag v<version> as a release (meta/latest). The
 # rewrite's main branch is `rewrite` until it replaces `main`.
 #
-# It runs in the `release` environment. What it needs:
+# It runs in the `Release` environment. What it needs:
 # - secrets.NIXBUILD_TOKEN: the builds run on nixbuild.net, as CI's do.
 # - secrets.MINISIGN_SECRET_KEY: the release key file (`minisign -G`), and
 #   secrets.MINISIGN_PASSWORD if it has one. Its public key is
@@ -44,7 +44,7 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
-    environment: release
+    environment: Release
     timeout-minutes: 90
     env:
       BUCKET: ${{ vars.MIRROR_BUCKET || 'get.dassie.land' }}

@@ -554,7 +554,7 @@ meta/canary                                  the newest canary
 **Publishing** (`.github/workflows/release.yml`):
 - Every push to the main branch builds a canary, and every tag `v<version>` a release, whose version must be the tag's.
 - `scripts/release.ts` checks each bundle against `SHA256SUMS` and signs it with the release key. Then `dassie-release verify` checks the signed tree with `resources/minisign.pub`, using the code the updater trusts a release with, before anything is uploaded.
-- The key and the bucket's credentials belong to the `release` environment, which admits only the main branch and `v*` tags. The job's actions are pinned to commits.
+- The key and the bucket's credentials belong to the `Release` environment, which admits only the main branch and `v*` tags. The job's actions are pinned to commits.
 - The upload goes to the bucket behind `get.dassie.land`, through workload identity.
   - A version's files are uploaded once, the signature last, and cached for good. A file already there must be the same bytes, so a run again completes what an interrupted one left.
   - Only then does `meta/<channel>` name the version, uncached. It never moves to a version older than the one it names.
