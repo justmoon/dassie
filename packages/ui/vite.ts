@@ -24,6 +24,7 @@ const OTHERS = [
   "@dassie/rpc/proto",
   "@dassie/rpc/dev",
   "@dassie/identity-wasm/web",
+  "@dassie/identity-wasm/web/stream",
 ];
 
 function exact(specifier: string, path: string): Alias {

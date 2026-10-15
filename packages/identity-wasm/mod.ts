@@ -5,7 +5,7 @@
  * here is the key the node derives.
  *
  * Build the bindings first with `deno task build:wasm`. Browsers load the
- * `gen/web` build instead; see `tests/interop/browser_test.ts`.
+ * `gen/web` build instead, through `./web` and `./web/stream`.
  *
  * @module
  */
@@ -24,7 +24,10 @@ export {
 } from "./gen/deno/dassie_identity.js";
 
 export {
+  decodeAmountTooLarge,
   decodeIlpPacket,
+  decodeStreamPacket,
+  encodeAmountTooLarge,
   encodeFulfill,
   encodePrepare,
   encodeReject,
@@ -32,6 +35,8 @@ export {
   StreamConnection,
   StreamCredentials,
   StreamEvent,
+  StreamFrameView,
+  StreamPacketView,
   StreamServer,
   StreamTransmit,
 } from "./gen/deno/dassie_stream.js";

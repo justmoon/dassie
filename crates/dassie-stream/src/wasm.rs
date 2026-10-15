@@ -16,8 +16,10 @@ use rand_core::UnwrapErr;
 use wasm_bindgen::prelude::*;
 
 use crate::connection::{AssetDetails, BUFFER_LENGTH, Config, Connection, Role};
+use crate::crypto::Keys;
 use crate::event::Event;
-use crate::frame::ErrorCode;
+use crate::frame::{ErrorCode, Frame};
+use crate::packet::Packet;
 use crate::policy::Policy;
 use crate::rate::Rate;
 use crate::receipt::ReceiptSecret;
@@ -725,4 +727,225 @@ impl StreamServer {
             .min()
             .map(|time| time.unix_ms as f64)
     }
+}
+
+/// A decoded STREAM frame, for display. Fields a frame type lacks are zero
+/// or empty.
+#[wasm_bindgen]
+#[derive(Clone)]
+pub struct StreamFrameView {
+    kind: &'static str,
+    stream_id: u64,
+    code: u8,
+    text: String,
+    first: u64,
+    second: u64,
+    length: usize,
+}
+
+#[wasm_bindgen]
+impl StreamFrameView {
+    /// The frame type as RFC 29 names it, in camel case: `streamMoney`,
+    /// `connectionClose` and so on.
+    #[wasm_bindgen(getter)]
+    #[must_use]
+    pub fn kind(&self) -> String {
+        self.kind.to_string()
+    }
+
+    /// The stream of a `stream*` frame.
+    #[wasm_bindgen(getter, js_name = streamId)]
+    #[must_use]
+    pub fn stream_id(&self) -> u64 {
+        self.stream_id
+    }
+
+    /// The error code of a close frame.
+    #[wasm_bindgen(getter)]
+    #[must_use]
+    pub fn code(&self) -> u8 {
+        self.code
+    }
+
+    /// The message of a close frame, the address of `connectionNewAddress`,
+    /// or the asset code of `connectionAssetDetails`.
+    #[wasm_bindgen(getter)]
+    #[must_use]
+    pub fn text(&self) -> String {
+        self.text.clone()
+    }
+
+    /// The frame's first number: shares, an offset, a maximum, or the asset
+    /// scale.
+    #[wasm_bindgen(getter)]
+    #[must_use]
+    pub fn first(&self) -> u64 {
+        self.first
+    }
+
+    /// The frame's second number: what was received or sent so far.
+    #[wasm_bindgen(getter)]
+    #[must_use]
+    pub fn second(&self) -> u64 {
+        self.second
+    }
+
+    /// How many bytes a `streamData` or `streamReceipt` frame carries.
+    #[wasm_bindgen(getter)]
+    #[must_use]
+    pub fn length(&self) -> usize {
+        self.length
+    }
+}
+
+impl StreamFrameView {
+    fn new(kind: &'static str, stream_id: u64, first: u64, second: u64) -> Self {
+        Self {
+            kind,
+            stream_id,
+            code: 0,
+            text: String::new(),
+            first,
+            second,
+            length: 0,
+        }
+    }
+}
+
+impl From<Frame<'_>> for StreamFrameView {
+    fn from(frame: Frame<'_>) -> Self {
+        let new = Self::new;
+        match frame {
+            Frame::ConnectionClose { code, message } => Self {
+                code: code.0,
+                text: message.into(),
+                ..new("connectionClose", 0, 0, 0)
+            },
+            Frame::ConnectionNewAddress { source_account } => Self {
+                text: source_account.map_or_else(String::new, |a| a.as_str().into()),
+                ..new("connectionNewAddress", 0, 0, 0)
+            },
+            Frame::ConnectionMaxData { max_offset } => new("connectionMaxData", 0, max_offset, 0),
+            Frame::ConnectionDataBlocked { max_offset } => {
+                new("connectionDataBlocked", 0, max_offset, 0)
+            }
+            Frame::ConnectionMaxStreamId { max_stream_id } => {
+                new("connectionMaxStreamId", 0, max_stream_id, 0)
+            }
+            Frame::ConnectionStreamIdBlocked { max_stream_id } => {
+                new("connectionStreamIdBlocked", 0, max_stream_id, 0)
+            }
+            Frame::ConnectionAssetDetails {
+                asset_code,
+                asset_scale,
+            } => Self {
+                text: asset_code.into(),
+                ..new("connectionAssetDetails", 0, u64::from(asset_scale), 0)
+            },
+            Frame::StreamClose {
+                stream_id,
+                code,
+                message,
+            } => Self {
+                code: code.0,
+                text: message.into(),
+                ..new("streamClose", stream_id, 0, 0)
+            },
+            Frame::StreamMoney { stream_id, shares } => new("streamMoney", stream_id, shares, 0),
+            Frame::StreamMaxMoney {
+                stream_id,
+                receive_max,
+                total_received,
+            } => new("streamMaxMoney", stream_id, receive_max, total_received),
+            Frame::StreamMoneyBlocked {
+                stream_id,
+                send_max,
+                total_sent,
+            } => new("streamMoneyBlocked", stream_id, send_max, total_sent),
+            Frame::StreamData {
+                stream_id,
+                offset,
+                data,
+            } => Self {
+                length: data.len(),
+                ..new("streamData", stream_id, offset, 0)
+            },
+            Frame::StreamMaxData {
+                stream_id,
+                max_offset,
+            } => new("streamMaxData", stream_id, max_offset, 0),
+            Frame::StreamDataBlocked {
+                stream_id,
+                max_offset,
+            } => new("streamDataBlocked", stream_id, max_offset, 0),
+            Frame::StreamReceipt { stream_id, receipt } => Self {
+                length: receipt.len(),
+                ..new("streamReceipt", stream_id, 0, 0)
+            },
+        }
+    }
+}
+
+/// A decrypted STREAM packet, for display.
+#[wasm_bindgen]
+pub struct StreamPacketView {
+    packet_type: u8,
+    sequence: u64,
+    prepare_amount: u64,
+    frames: Vec<StreamFrameView>,
+}
+
+#[wasm_bindgen]
+impl StreamPacketView {
+    /// The ILP packet type it travels on: 12 Prepare, 13 Fulfill, 14 Reject.
+    #[wasm_bindgen(getter, js_name = type)]
+    #[must_use]
+    pub fn packet_type(&self) -> u8 {
+        self.packet_type
+    }
+
+    /// Identifies a request and its response.
+    #[wasm_bindgen(getter)]
+    #[must_use]
+    pub fn sequence(&self) -> u64 {
+        self.sequence
+    }
+
+    /// In a request, the least the receiver must get; in a response, what
+    /// it got.
+    #[wasm_bindgen(getter, js_name = prepareAmount)]
+    #[must_use]
+    pub fn prepare_amount(&self) -> u64 {
+        self.prepare_amount
+    }
+
+    /// The known frames in order; unknown ones are left out.
+    #[wasm_bindgen(getter)]
+    #[must_use]
+    pub fn frames(&self) -> Vec<StreamFrameView> {
+        self.frames.clone()
+    }
+}
+
+/// Decrypts and parses the STREAM packet in an ILP packet's `data` with the
+/// connection's shared secret. Fails on data that is not a STREAM packet of
+/// that connection.
+#[wasm_bindgen(js_name = decodeStreamPacket)]
+pub fn decode_stream_packet(
+    shared_secret: &[u8],
+    data: &[u8],
+) -> Result<StreamPacketView, JsError> {
+    let keys = Keys::derive(shared_secret);
+    let mut buffer = vec![0; data.len()];
+    let plaintext = keys
+        .cipher
+        .decrypt(data, &mut buffer)
+        .map_err(|_| JsError::new("not a STREAM packet of this connection"))?;
+    let packet = Packet::parse(plaintext).map_err(|error| JsError::new(&error.to_string()))?;
+    Ok(StreamPacketView {
+        packet_type: packet.packet_type.octet(),
+        sequence: packet.sequence,
+        prepare_amount: packet.prepare_amount,
+        frames: packet.frames.iter().map(StreamFrameView::from).collect(),
+    })
 }
