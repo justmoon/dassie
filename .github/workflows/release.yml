@@ -1,0 +1,129 @@
+name: Release
+
+# Builds, signs and publishes Dassie to the mirror, get.dassie.land
+# (spec D11, D14): every push to the main branch as a canary
+# (meta/canary), and every tag v<version> as a release (meta/latest). The
+# rewrite's main branch is `rewrite` until it replaces `main`.
+#
+# What it needs, set in the repository's settings:
+# - secrets.NIXBUILD_TOKEN: the builds run on nixbuild.net, as CI's do.
+# - secrets.MINISIGN_SECRET_KEY: the release key file (`minisign -G`), and
+#   secrets.MINISIGN_PASSWORD if it has one. Its public key is
+#   resources/minisign.pub, which the binaries and the installer trust.
+# - vars.GCP_WORKLOAD_IDENTITY_PROVIDER and vars.GCP_SERVICE_ACCOUNT: a
+#   service account that may create objects in the bucket (vars.MIRROR_BUCKET,
+#   by default get.dassie.land), through workload identity federation.
+#
+# Without the key it builds and stops; without the bucket it signs, and the
+# signed tree stays an artifact of the run.
+
+on:
+  push:
+    branches: [main, rewrite]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  # Workload identity: GitHub's OIDC token is what GCP trusts.
+  id-token: write
+
+# One release at a time per ref, each to its end: a canary superseded
+# while uploading would leave meta/canary behind its files.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      BUCKET: ${{ vars.MIRROR_BUCKET || 'get.dassie.land' }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: nixbuild/nix-quick-install-action@v35
+      - uses: nixbuild/nixbuild-action@v27
+        with:
+          nixbuild_token: ${{ secrets.NIXBUILD_TOKEN }}
+
+      # The tree of nix/release.nix: the bundles for x64 and arm64,
+      # SHA256SUMS and meta/<channel>. A tag must name the version the
+      # tree was built as.
+      - name: Build
+        id: build
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            attr=release expect="${GITHUB_REF_NAME#v}"
+          else
+            attr=canary expect=""
+          fi
+          nix build ".#$attr" --out-link built --print-build-logs
+          echo "expect=$expect" >> "$GITHUB_OUTPUT"
+
+      # scripts/release.ts checks every bundle against SHA256SUMS, signs it,
+      # and verifies the signature with resources/minisign.pub.
+      - name: Sign
+        id: sign
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+          MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
+          EXPECT: ${{ steps.build.outputs.expect }}
+        run: |
+          if [ -z "$MINISIGN_SECRET_KEY" ]; then
+            echo "::notice::No MINISIGN_SECRET_KEY: built, but neither signed nor published"
+            exit 0
+          fi
+          if [ ! -f resources/minisign.pub ]; then
+            echo "::error::resources/minisign.pub is missing: the binaries would trust no key"
+            exit 1
+          fi
+          key="$RUNNER_TEMP/minisign.key"
+          (umask 077 && printf '%s\n' "$MINISIGN_SECRET_KEY" > "$key")
+          nix shell --inputs-from . nixpkgs#deno nixpkgs#minisign --command \
+            deno run --allow-read --allow-write --allow-run --allow-env \
+            scripts/release.ts built signed --secret-key "$key" \
+            --public-key resources/minisign.pub ${EXPECT:+--version "$EXPECT"}
+          rm "$key"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v7
+        if: steps.sign.outputs.signed == 'true'
+        with:
+          name: mirror
+          path: signed/
+          retention-days: 14
+
+      - id: gcp
+        if: steps.sign.outputs.signed == 'true' && vars.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+      - if: steps.gcp.outcome == 'success'
+        uses: google-github-actions/setup-gcloud@v3
+
+      # A version's files are published once and never change, so they are
+      # cached for good; a run again of the same commit finds them there,
+      # and the same (the build is reproducible, and so is an Ed25519
+      # signature). meta/<channel> goes last, and is never cached, so it
+      # names a version only once all of its files are there.
+      - name: Publish
+        if: steps.gcp.outcome == 'success'
+        run: |
+          channel=$(ls signed/meta)
+          version=$(cat "signed/meta/$channel")
+          remote="gs://$BUCKET/$version"
+          if gcloud storage cat "$remote/SHA256SUMS" > "$RUNNER_TEMP/published" 2>/dev/null; then
+            if ! cmp -s "$RUNNER_TEMP/published" "signed/$version/SHA256SUMS"; then
+              echo "::error::$version is already published, with other bundles"
+              exit 1
+            fi
+            echo "$version is already published"
+          else
+            gcloud storage cp --recursive \
+              --cache-control="public, max-age=31536000, immutable" \
+              "signed/$version" "gs://$BUCKET/"
+          fi
+          gcloud storage cp --cache-control="no-cache, max-age=0" \
+            "signed/meta/$channel" "gs://$BUCKET/meta/$channel"
+          echo "::notice::Published dassie $version on $channel"
