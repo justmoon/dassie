@@ -13,6 +13,7 @@ use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::Path;
 use std::pin::Pin;
+use std::str::FromStr;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -136,6 +137,9 @@ type Https = HyperClient<HttpsConnector<HttpConnector<GuardedResolver>>, Full<By
 #[derive(Clone)]
 pub struct PeerClient {
     http: Https,
+    /// The TLS client config, for connections that are not HTTP requests:
+    /// the settlement schemes' WebSockets.
+    tls: Arc<rustls::ClientConfig>,
     allow_private: bool,
     in_flight: Arc<Mutex<InFlight>>,
 }
@@ -199,6 +203,7 @@ impl PeerClient {
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(verifier))
             .with_no_client_auth();
+        let tls = Arc::new(config.clone());
         let mut http = HttpConnector::new_with_resolver(GuardedResolver { allow_private });
         http.set_connect_timeout(Some(CONNECT_TIMEOUT));
         http.enforce_http(false);
@@ -212,9 +217,39 @@ impl PeerClient {
             .build(connector);
         Ok(Self {
             http,
+            tls,
             allow_private,
             in_flight: Arc::new(Mutex::new(InFlight::default())),
         })
+    }
+
+    /// The TLS config the client trusts servers by.
+    #[must_use]
+    pub fn tls(&self) -> Arc<rustls::ClientConfig> {
+        Arc::clone(&self.tls)
+    }
+
+    /// Whether the client may reach private addresses (dev and tests).
+    #[must_use]
+    pub const fn allows_private(&self) -> bool {
+        self.allow_private
+    }
+
+    /// The addresses of `host` the node may connect to, as for its
+    /// requests: public ones only, unless private ones are allowed.
+    ///
+    /// # Errors
+    ///
+    /// The name does not resolve, or only to addresses refused.
+    pub async fn resolve(&self, host: &str, port: u16) -> std::io::Result<Vec<SocketAddr>> {
+        let mut resolver = GuardedResolver {
+            allow_private: self.allow_private,
+        };
+        let name = Name::from_str(host).map_err(std::io::Error::other)?;
+        let found = tower_service::Service::call(&mut resolver, name).await?;
+        Ok(found
+            .map(|address| SocketAddr::new(address.ip(), port))
+            .collect())
     }
 
     /// Takes a place for a request to `host`, if the bounds allow.

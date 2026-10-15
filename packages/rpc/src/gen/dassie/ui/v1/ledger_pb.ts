@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file dassie/ui/v1/ledger.proto.
  */
 export const file_dassie_ui_v1_ledger: GenFile = /*@__PURE__*/
-  fileDesc("ChlkYXNzaWUvdWkvdjEvbGVkZ2VyLnByb3RvEgxkYXNzaWUudWkudjEi3wEKBkxlZGdlchIKCgJpZBgBIAEoCRIZChFzZXR0bGVtZW50X3NjaGVtZRgCIAEoCRISCgphc3NldF9jb2RlGAMgASgJEhMKC2Fzc2V0X3NjYWxlGAQgASgNEhUKDW93bmVyX2JhbGFuY2UYBSABKAMSFQoNb3duZXJfcGVuZGluZxgGIAEoBBIZChFvbl9sZWRnZXJfYmFsYW5jZRgHIAEoBBI8ChByZW1vdmFsX2Jsb2NrZXJzGAggAygLMiIuZGFzc2llLnVpLnYxLkxlZGdlclJlbW92YWxCbG9ja2VyItcBChRMZWRnZXJSZW1vdmFsQmxvY2tlchI1CgRraW5kGAEgASgOMicuZGFzc2llLnVpLnYxLkxlZGdlclJlbW92YWxCbG9ja2VyLktpbmQSDQoFY291bnQYAiABKA0ieQoES2luZBIUChBLSU5EX1VOU1BFQ0lGSUVEEAASDgoKS0lORF9QRUVSUxABEhMKD0tJTkRfQlRQX1RPS0VOUxACEhoKFktJTkRfRklOQUxfU0VUVExFTUVOVFMQAxIaChZLSU5EX09VVEdPSU5HX1BBWU1FTlRTEAQiGQoXU3Vic2NyaWJlTGVkZ2Vyc1JlcXVlc3QinQEKFFNldHRsZW1lbnRTY2hlbWVJbmZvEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSDgoGbGVkZ2VyGAMgASgJEhIKCmFzc2V0X2NvZGUYBCABKAkSEwoLYXNzZXRfc2NhbGUYBSABKA0SIgoFcmVhbG0YBiABKA4yEy5kYXNzaWUudWkudjEuUmVhbG0SDgoGYWN0aXZlGAcgASgIIh4KHExpc3RTZXR0bGVtZW50U2NoZW1lc1JlcXVlc3QiVAodTGlzdFNldHRsZW1lbnRTY2hlbWVzUmVzcG9uc2USMwoHc2NoZW1lcxgBIAMoCzIiLmRhc3NpZS51aS52MS5TZXR0bGVtZW50U2NoZW1lSW5mbyIUChJMaXN0TGVkZ2Vyc1JlcXVlc3QiPAoTTGlzdExlZGdlcnNSZXNwb25zZRIlCgdsZWRnZXJzGAEgAygLMhQuZGFzc2llLnVpLnYxLkxlZGdlciI4ChpBZGRTZXR0bGVtZW50U2NoZW1lUmVxdWVzdBIKCgJpZBgBIAEoCRIOCgZjb25maWcYAiABKAkiQwobQWRkU2V0dGxlbWVudFNjaGVtZVJlc3BvbnNlEiQKBmxlZGdlchgBIAEoCzIULmRhc3NpZS51aS52MS5MZWRnZXIiKwodUmVtb3ZlU2V0dGxlbWVudFNjaGVtZVJlcXVlc3QSCgoCaWQYASABKAkiIAoeUmVtb3ZlU2V0dGxlbWVudFNjaGVtZVJlc3BvbnNlIiQKElN0dWJEZXBvc2l0UmVxdWVzdBIOCgZhbW91bnQYASABKAQiOwoTU3R1YkRlcG9zaXRSZXNwb25zZRIkCgZsZWRnZXIYASABKAsyFC5kYXNzaWUudWkudjEuTGVkZ2VyYgZwcm90bzM", [file_dassie_ui_v1_config]);
+  fileDesc("ChlkYXNzaWUvdWkvdjEvbGVkZ2VyLnByb3RvEgxkYXNzaWUudWkudjEi2QIKBkxlZGdlchIKCgJpZBgBIAEoCRIZChFzZXR0bGVtZW50X3NjaGVtZRgCIAEoCRISCgphc3NldF9jb2RlGAMgASgJEhMKC2Fzc2V0X3NjYWxlGAQgASgNEhUKDW93bmVyX2JhbGFuY2UYBSABKAMSFQoNb3duZXJfcGVuZGluZxgGIAEoBBIZChFvbl9sZWRnZXJfYmFsYW5jZRgHIAEoBBI8ChByZW1vdmFsX2Jsb2NrZXJzGAggAygLMiIuZGFzc2llLnVpLnYxLkxlZGdlclJlbW92YWxCbG9ja2VyEg8KB3Jlc2VydmUYCSABKAQSFwoPZGVwb3NpdF9hZGRyZXNzGAogASgJEjIKCmNvbm5lY3Rpb24YCyABKA4yHi5kYXNzaWUudWkudjEuTGVkZ2VyQ29ubmVjdGlvbhIaChJjb25uZWN0aW9uX3Byb2JsZW0YDCABKAki1wEKFExlZGdlclJlbW92YWxCbG9ja2VyEjUKBGtpbmQYASABKA4yJy5kYXNzaWUudWkudjEuTGVkZ2VyUmVtb3ZhbEJsb2NrZXIuS2luZBINCgVjb3VudBgCIAEoDSJ5CgRLaW5kEhQKEEtJTkRfVU5TUEVDSUZJRUQQABIOCgpLSU5EX1BFRVJTEAESEwoPS0lORF9CVFBfVE9LRU5TEAISGgoWS0lORF9GSU5BTF9TRVRUTEVNRU5UUxADEhoKFktJTkRfT1VUR09JTkdfUEFZTUVOVFMQBCIZChdTdWJzY3JpYmVMZWRnZXJzUmVxdWVzdCKdAQoUU2V0dGxlbWVudFNjaGVtZUluZm8SCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIOCgZsZWRnZXIYAyABKAkSEgoKYXNzZXRfY29kZRgEIAEoCRITCgthc3NldF9zY2FsZRgFIAEoDRIiCgVyZWFsbRgGIAEoDjITLmRhc3NpZS51aS52MS5SZWFsbRIOCgZhY3RpdmUYByABKAgiHgocTGlzdFNldHRsZW1lbnRTY2hlbWVzUmVxdWVzdCJUCh1MaXN0U2V0dGxlbWVudFNjaGVtZXNSZXNwb25zZRIzCgdzY2hlbWVzGAEgAygLMiIuZGFzc2llLnVpLnYxLlNldHRsZW1lbnRTY2hlbWVJbmZvIhQKEkxpc3RMZWRnZXJzUmVxdWVzdCI8ChNMaXN0TGVkZ2Vyc1Jlc3BvbnNlEiUKB2xlZGdlcnMYASADKAsyFC5kYXNzaWUudWkudjEuTGVkZ2VyIjgKGkFkZFNldHRsZW1lbnRTY2hlbWVSZXF1ZXN0EgoKAmlkGAEgASgJEg4KBmNvbmZpZxgCIAEoCSJDChtBZGRTZXR0bGVtZW50U2NoZW1lUmVzcG9uc2USJAoGbGVkZ2VyGAEgASgLMhQuZGFzc2llLnVpLnYxLkxlZGdlciIrCh1SZW1vdmVTZXR0bGVtZW50U2NoZW1lUmVxdWVzdBIKCgJpZBgBIAEoCSIgCh5SZW1vdmVTZXR0bGVtZW50U2NoZW1lUmVzcG9uc2UiJAoSU3R1YkRlcG9zaXRSZXF1ZXN0Eg4KBmFtb3VudBgBIAEoBCI7ChNTdHViRGVwb3NpdFJlc3BvbnNlEiQKBmxlZGdlchgBIAEoCzIULmRhc3NpZS51aS52MS5MZWRnZXIq0gEKEExlZGdlckNvbm5lY3Rpb24SIQodTEVER0VSX0NPTk5FQ1RJT05fVU5TUEVDSUZJRUQQABIcChhMRURHRVJfQ09OTkVDVElPTl9TWU5DRUQQARIgChxMRURHRVJfQ09OTkVDVElPTl9DT05ORUNUSU5HEAISHQoZTEVER0VSX0NPTk5FQ1RJT05fU1lOQ0lORxADEh4KGkxFREdFUl9DT05ORUNUSU9OX1VORlVOREVEEAQSHAoYTEVER0VSX0NPTk5FQ1RJT05fRkFJTEVEEAViBnByb3RvMw", [file_dassie_ui_v1_config]);
 
 /**
  * A ledger the node keeps books for, with the settlement scheme that moves
@@ -63,7 +63,8 @@ export type Ledger = Message<"dassie.ui.v1.Ledger"> & {
   ownerPending: bigint;
 
   /**
-   * The balance on the underlying ledger, as the scheme last reported it.
+   * The balance on the underlying ledger, as the books have it: less what
+   * the ledger holds back.
    *
    * @generated from field: uint64 on_ledger_balance = 7;
    */
@@ -75,6 +76,35 @@ export type Ledger = Message<"dassie.ui.v1.Ledger"> & {
    * @generated from field: repeated dassie.ui.v1.LedgerRemovalBlocker removal_blockers = 8;
    */
   removalBlockers: LedgerRemovalBlocker[];
+
+  /**
+   * What the underlying ledger holds back, never spendable: XRPL's
+   * reserve.
+   *
+   * @generated from field: uint64 reserve = 9;
+   */
+  reserve: bigint;
+
+  /**
+   * Where the owner sends money to fund it, if anywhere: an XRPL address.
+   *
+   * @generated from field: string deposit_address = 10;
+   */
+  depositAddress: string;
+
+  /**
+   * How the scheme stands with its underlying ledger.
+   *
+   * @generated from field: dassie.ui.v1.LedgerConnection connection = 11;
+   */
+  connection: LedgerConnection;
+
+  /**
+   * Why, when it is FAILED.
+   *
+   * @generated from field: string connection_problem = 12;
+   */
+  connectionProblem: string;
 };
 
 /**
@@ -408,4 +438,51 @@ export type StubDepositResponse = Message<"dassie.ui.v1.StubDepositResponse"> & 
  */
 export const StubDepositResponseSchema: GenMessage<StubDepositResponse> = /*@__PURE__*/
   messageDesc(file_dassie_ui_v1_ledger, 13);
+
+/**
+ * @generated from enum dassie.ui.v1.LedgerConnection
+ */
+export enum LedgerConnection {
+  /**
+   * @generated from enum value: LEDGER_CONNECTION_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * No ledger to follow, or it is followed and up to date.
+   *
+   * @generated from enum value: LEDGER_CONNECTION_SYNCED = 1;
+   */
+  SYNCED = 1,
+
+  /**
+   * @generated from enum value: LEDGER_CONNECTION_CONNECTING = 2;
+   */
+  CONNECTING = 2,
+
+  /**
+   * Connected, booking what happened meanwhile.
+   *
+   * @generated from enum value: LEDGER_CONNECTION_SYNCING = 3;
+   */
+  SYNCING = 3,
+
+  /**
+   * Its account does not exist yet: it waits for funds.
+   *
+   * @generated from enum value: LEDGER_CONNECTION_UNFUNDED = 4;
+   */
+  UNFUNDED = 4,
+
+  /**
+   * @generated from enum value: LEDGER_CONNECTION_FAILED = 5;
+   */
+  FAILED = 5,
+}
+
+/**
+ * Describes the enum dassie.ui.v1.LedgerConnection.
+ */
+export const LedgerConnectionSchema: GenEnum<LedgerConnection> = /*@__PURE__*/
+  enumDesc(file_dassie_ui_v1_ledger, 0);
 

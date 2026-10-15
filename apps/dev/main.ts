@@ -19,7 +19,9 @@
  * - `--headless`: no keys, no hints for a person;
  * - `--port-offset <n>`: move every port by n;
  * - `--state-dir <dir>`: keep the state there instead of `local/dev`
- *   (also `DASSIE_DEV_STATE_DIR`).
+ *   (also `DASSIE_DEV_STATE_DIR`);
+ * - `--xrpl <testnet|fake>`: where the XRPL scenarios settle: the public
+ *   testnet (the default), or the fake ledger the tests use.
  *
  * @module
  */
@@ -33,6 +35,7 @@ import {
   watchSources,
 } from "./src/build.ts";
 import { caFile, dashboardCertificate } from "./src/certs.ts";
+import { buildFakeLedger, fakeLedgerBinary } from "./src/fake_ledger.ts";
 import { Environment } from "./src/environment.ts";
 import { listenKeys, openBrowser } from "./src/keys.ts";
 import { layout as makeLayout, ROOT } from "./src/paths.ts";
@@ -49,8 +52,13 @@ const PROXY_PORT = 443;
 
 const args = parseArgs(Deno.args, {
   boolean: ["headless", "no-watch", "no-proxy"],
-  string: ["scenario", "dassie", "port-offset", "state-dir"],
+  string: ["scenario", "dassie", "port-offset", "state-dir", "xrpl"],
 });
+const xrpl = args.xrpl ?? "testnet";
+if (xrpl !== "testnet" && xrpl !== "fake") {
+  console.error("--xrpl must be testnet or fake");
+  Deno.exit(2);
+}
 const offset = Number(args["port-offset"] ?? "0");
 const watch = !args["no-watch"];
 if (!Number.isSafeInteger(offset) || offset < 0 || offset > 40_000) {
@@ -154,12 +162,17 @@ async function start(): Promise<void> {
     walletDir: `${ROOT}apps/wallet/dist-dev`,
     proxyPort: proxy ? proxyPort : undefined,
     debug: Deno.env.get("DEBUG") ?? "das:*",
+    fakeLedger: xrpl === "fake" ? fakeLedgerBinary() : undefined,
     print,
   });
   environment = env;
   env.extraPids = () => builds.flatMap((build) => build.pids());
 
   const builder = args.dassie === undefined ? await buildNode(env) : undefined;
+  if (xrpl === "fake") {
+    print("building the fake XRP Ledger…");
+    await buildFakeLedger();
+  }
   await buildPages(env);
 
   server = startServer({

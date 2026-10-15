@@ -1,12 +1,14 @@
 /** Ledgers (spec 6 §1.6.7): each active ledger, with its balances. */
 
 import type { JSX } from "@solidjs/web";
-import { For } from "solid-js";
+import { For, Show } from "solid-js";
 import { Amount, ledgerCurrency } from "@dassie/ui/amount";
 import { useNodeData } from "@dassie/ui/node-data";
+import { Qr } from "@dassie/ui/qr";
 import { Link } from "@dassie/ui/router";
-import { Card, LiveNote, PageTitle } from "@dassie/ui/ui";
+import { Card, CopyButton, LiveNote, PageTitle } from "@dassie/ui/ui";
 import { schemeName } from "../schemes.ts";
+import { connectionText } from "./connection.ts";
 
 export function Ledgers(): JSX.Element {
   const data = useNodeData();
@@ -41,6 +43,43 @@ export function Ledgers(): JSX.Element {
                 currency={ledgerCurrency(ledger())}
               />
             </p>
+            <Show when={connectionText(ledger())}>
+              {(text) => (
+                <p data-testid={`ledger-connection-${ledger().id}`}>
+                  {text()}
+                </p>
+              )}
+            </Show>
+            <Show when={ledger().depositAddress}>
+              {(address) => (
+                <div class="deposit">
+                  <Qr
+                    text={address()}
+                    label={`Deposit address ${address()}`}
+                    testid={`ledger-qr-${ledger().id}`}
+                  />
+                  <div>
+                    <p>Deposit address</p>
+                    <p>
+                      <code data-testid={`ledger-address-${ledger().id}`}>
+                        {address()}
+                      </code>{" "}
+                      <CopyButton text={address()} label="Copy address" />
+                    </p>
+                    <Show when={ledger().reserve > 0n}>
+                      <p class="muted">
+                        The ledger holds back{" "}
+                        <Amount
+                          value={ledger().reserve}
+                          currency={ledgerCurrency(ledger())}
+                        />{" "}
+                        as a reserve: never spent, and not in the balance.
+                      </p>
+                    </Show>
+                  </div>
+                </div>
+              )}
+            </Show>
             <div class="actions">
               <Link
                 href={`/receive?tab=${ledger().settlementScheme}`}

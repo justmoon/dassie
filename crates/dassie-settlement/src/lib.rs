@@ -13,8 +13,10 @@
 //! - [`policy`] decides when to settle with a peer, and how much.
 //! - [`Stub`] is the test-realm scheme without an underlying ledger.
 //!
-//! The XRPL scheme (M7) does network IO; it will keep the same interface,
-//! with the node feeding it what the network says.
+//! A scheme with an underlying ledger to follow, such as XRPL's, does no
+//! IO of its own: it says what to send ([`Effect::LedgerSend`]) and the
+//! node feeds it what comes back ([`LedgerInput`]). The node keeps the
+//! registry of schemes, since they live in their own crates.
 
 #![no_std]
 #![forbid(unsafe_code)]
@@ -40,6 +42,7 @@ mod stub;
 
 pub use activation::{Activation, activation};
 pub use scheme::{
-    Effect, PreparedSettlement, SCHEMES, SchemeError, SchemeInfo, SettlementScheme, create,
+    Effect, LedgerInput, LedgerStatus, PreparedSettlement, SchemeError, SchemeInfo,
+    SettlementScheme,
 };
 pub use stub::{STUB_INITIAL_BALANCE, Stub};

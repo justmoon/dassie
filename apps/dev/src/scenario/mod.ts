@@ -7,7 +7,12 @@
  * @module
  */
 
-import { caFile } from "../certs.ts";
+import { caFile, certificate } from "../certs.ts";
+import {
+  type FakeLedger,
+  startFakeLedger,
+  xrplConfig,
+} from "../fake_ledger.ts";
 import { type Layout, layout as defaultLayout } from "../paths.ts";
 import type { Stream } from "../process.ts";
 import { identity, loadTable, type Table } from "../vanity.ts";
@@ -25,6 +30,7 @@ export {
 } from "./scenarios.ts";
 export { type Layout, layout, socketPath } from "../paths.ts";
 export { caFile, certificate } from "../certs.ts";
+export { fakeLedgerBinary } from "../fake_ledger.ts";
 export { until, waitForPort, waitForSocket } from "../wait.ts";
 export type { Exit } from "../process.ts";
 
@@ -39,6 +45,11 @@ export interface ScenarioOptions {
   readonly env?: Readonly<Record<string, string>>;
   /** Nodes left without a settlement scheme, by index. */
   readonly withoutLedger?: readonly number[];
+  /**
+   * The fake XRP Ledger's binary: a scenario that settles on the XRP
+   * Ledger runs one and settles on it, rather than on the public testnet.
+   */
+  readonly fakeLedger?: string;
   /** Each line a node prints. */
   readonly onLine?: (node: string, stream: Stream, line: string) => void;
   /** Each node's process, as soon as it is spawned. */
@@ -63,6 +74,10 @@ export class Scenario {
   #table: Table;
   #environment: NodeEnvironment;
   #temporary: boolean;
+  /** The fake XRP Ledger, if the scenario runs one. */
+  ledger?: FakeLedger;
+  /** What each scheme is set up with, by ID. */
+  #configs: Record<string, string> = {};
 
   private constructor(
     readonly def: ScenarioDef,
@@ -117,6 +132,22 @@ export class Scenario {
     };
     const scenario = new Scenario(def, options, environment, temporary);
     try {
+      const xrpl = [...def.schemes, def.addedSchemes]
+        .some((schemes) => schemes.includes("xrpl-testnet"));
+      if (xrpl && options.fakeLedger) {
+        // Its faucet is at `localhost`, under the scenario's CA, which the
+        // nodes trust.
+        const faucet = await certificate(options.layout.tls, "fake-ledger", [
+          "localhost",
+          "127.0.0.1",
+        ], options.layout.caRoot);
+        scenario.ledger = await startFakeLedger(
+          options.fakeLedger,
+          faucet,
+          options.portOffset ?? 0,
+        );
+        scenario.#configs["xrpl-testnet"] = xrplConfig(scenario.ledger);
+      }
       for (let index = 0; index < def.schemes.length; index++) {
         await scenario.#startNode(index, def.schemes[index]);
       }
@@ -162,7 +193,7 @@ export class Scenario {
       await node.start();
       report(node, "setting-up");
       const withoutLedger = this.options.withoutLedger?.includes(index);
-      await node.setUp(withoutLedger ? [] : schemes);
+      await node.setUp(withoutLedger ? [] : schemes, this.#configs);
     } catch (error) {
       // A node that failed is stopped and dropped, so its index is free.
       const exit = await node.stop();
@@ -187,6 +218,7 @@ export class Scenario {
    */
   async stop(): Promise<string[]> {
     const exits = await Promise.all(this.nodes.map((node) => node.stop()));
+    await this.ledger?.stop();
     const failures: string[] = [];
     this.nodes.forEach((node, index) => {
       const exit = exits[index];

@@ -50,9 +50,11 @@ impl GracePolicy {
         check_every_ms: 60 * 1_000,
     };
 
-    /// Shorter waits, for dev environments and tests.
+    /// Shorter waits, for dev environments and tests: still longer than a
+    /// settlement on the XRP Ledger takes to be given up on, once its
+    /// submission is lost (20 ledgers), and tried again.
     pub const DEV: Self = Self {
-        settle_grace_ms: 60 * 1_000,
+        settle_grace_ms: 5 * 60 * 1_000,
         check_every_ms: 5 * 1_000,
         ..Self::DEFAULT
     };

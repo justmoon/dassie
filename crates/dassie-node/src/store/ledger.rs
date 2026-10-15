@@ -28,8 +28,8 @@ pub struct LedgerBatch {
     /// before the additions; a scheme added and then removed within the
     /// batch is left out of `schemes_added`.
     pub schemes_removed: Vec<Name>,
-    /// Each scheme's balance as the books now record it.
-    pub checkpoints: Vec<(Name, u64)>,
+    /// Each scheme's balance as the books now record it, and its state.
+    pub checkpoints: Vec<(Name, Checkpoint)>,
     /// BTP tokens created.
     pub tokens_created: Vec<BtpTokenRow>,
     /// BTP tokens revoked, by ID.
@@ -79,6 +79,16 @@ impl LedgerBatch {
             && self.incoming_progress.is_empty()
             && self.outgoing.is_empty())
     }
+}
+
+/// What the books keep for a settlement scheme: the balance they record
+/// for it, and whatever else the scheme must find again after a restart.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Checkpoint {
+    /// The balance on the underlying ledger the books record.
+    pub balance: u64,
+    /// The scheme's state; empty for none.
+    pub state: Vec<u8>,
 }
 
 /// A BTP token as stored: its hash, never the token (D10).
@@ -219,18 +229,28 @@ impl Store {
             .collect()
     }
 
-    /// The balance each scheme's books last recorded.
-    pub fn checkpoints(&self) -> Result<Vec<(Name, u64)>, StoreError> {
+    /// What the books last kept for each scheme.
+    pub fn checkpoints(&self) -> Result<Vec<(Name, Checkpoint)>, StoreError> {
         let connection = self.lock();
         let mut statement = connection
-            .prepare("SELECT scheme, balance FROM settlement_checkpoints ORDER BY scheme")?;
+            .prepare("SELECT scheme, balance, state FROM settlement_checkpoints ORDER BY scheme")?;
         statement
             .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, Option<Vec<u8>>>(2)?,
+                ))
             })?
             .map(|row| {
-                let (scheme, balance) = row?;
-                Ok((name(&scheme, "scheme ID")?, amount(balance)?))
+                let (scheme, balance, state) = row?;
+                Ok((
+                    name(&scheme, "scheme ID")?,
+                    Checkpoint {
+                        balance: amount(balance)?,
+                        state: state.unwrap_or_default(),
+                    },
+                ))
             })
             .collect()
     }
@@ -414,6 +434,10 @@ fn read_transfer(row: &Row<'_>) -> rusqlite::Result<TransferRow> {
                 epoch: amount(epoch)?,
                 sequence: amount(sequence)?,
             }),
+            ("fee", None, None, Some(scheme), Some(id)) => Reference::Fee {
+                scheme: name(&scheme, "settlement scheme")?,
+                id: name(&id, "fee ID")?,
+            },
             ("settlement", None, None, Some(scheme), Some(id)) => Reference::Settlement {
                 scheme: name(&scheme, "settlement scheme")?,
                 id: name(&id, "settlement ID")?,
@@ -531,6 +555,13 @@ fn insert_transfer(
             Some(scheme.as_str().to_string()),
             Some(id.as_str().to_string()),
         ),
+        Reference::Fee { scheme, id } => (
+            "fee",
+            None,
+            None,
+            Some(scheme.as_str().to_string()),
+            Some(id.as_str().to_string()),
+        ),
         Reference::Trust => ("trust", None, None, None, None),
         Reference::Deposit => ("deposit", None, None, None, None),
         Reference::Withdrawal => ("withdrawal", None, None, None, None),
@@ -575,11 +606,13 @@ fn write_settlement(transaction: &Transaction<'_>, batch: &LedgerBatch) -> Resul
             params![id.as_str(), config, at],
         )?;
     }
-    for (scheme, balance) in &batch.checkpoints {
+    for (scheme, checkpoint) in &batch.checkpoints {
+        let state = (!checkpoint.state.is_empty()).then_some(checkpoint.state.as_slice());
         transaction.execute(
-            "INSERT INTO settlement_checkpoints (scheme, balance, updated_at_ms) VALUES (?1, ?2, ?3) \
-             ON CONFLICT (scheme) DO UPDATE SET balance = ?2, updated_at_ms = ?3",
-            params![scheme.as_str(), sql_amount(*balance)?, at],
+            "INSERT INTO settlement_checkpoints (scheme, balance, updated_at_ms, state) \
+             VALUES (?1, ?2, ?3, ?4) \
+             ON CONFLICT (scheme) DO UPDATE SET balance = ?2, updated_at_ms = ?3, state = ?4",
+            params![scheme.as_str(), sql_amount(checkpoint.balance)?, at, state],
         )?;
     }
     Ok(())

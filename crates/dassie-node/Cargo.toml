@@ -9,8 +9,13 @@ publish.workspace = true
 
 [features]
 default = []
-# Lets a simulation make a node lie to its peers (D18): never in a release.
-testing = []
+# Lets a simulation make a node lie to its peers (D18), and serves a fake
+# XRP Ledger for tests and dev environments: never in a release.
+testing = ["dassie-xrpl/fake"]
+
+[[example]]
+name = "fake_ledger"
+required-features = ["testing"]
 
 [dependencies]
 dassie-connector = { path = "../dassie-connector" }
@@ -23,6 +28,7 @@ dassie-payments = { path = "../dassie-payments" }
 dassie-peer = { path = "../dassie-peer" }
 dassie-settlement = { path = "../dassie-settlement" }
 dassie-stream = { path = "../dassie-stream" }
+dassie-xrpl = { path = "../dassie-xrpl" }
 
 # The async runtime and the cancellation tree of services.
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "signal", "fs"] }
@@ -94,6 +100,7 @@ sha2 = "0.11"
 
 [dev-dependencies]
 dassie-node = { path = ".", features = ["testing"] }
+dassie-xrpl = { path = "../dassie-xrpl", features = ["fake"] }
 dassie-node-core = { path = "../dassie-node-core", features = ["testing"] }
 proptest = "1.12"
 tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["connect", "handshake"] }

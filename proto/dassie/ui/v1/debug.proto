@@ -58,6 +58,9 @@ message Transfer {
     // The packet whose Fulfill the upstream peer refused: this row
     // reverses it or books the loss (D17).
     TraceId refusal = 14;
+    // "<scheme>:<transaction>": the fee the underlying ledger charged for
+    // one of this node's transactions.
+    string fee = 15;
   }
   // Where the row is in the order rows were written or last changed: a
   // packet's transfer is written when it is posted, after transfers with

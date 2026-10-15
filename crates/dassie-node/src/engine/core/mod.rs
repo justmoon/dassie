@@ -13,6 +13,7 @@ mod ledgers;
 mod packets;
 mod payers;
 mod peers;
+mod schemes;
 mod settlement;
 mod tokens;
 mod verdicts;
@@ -36,6 +37,7 @@ pub use ledgers::{LedgerView, RemovalBlocker};
 pub use packets::ledger_slug;
 pub use payers::{CreatedOutgoing, NewOutgoing};
 pub use peers::{NetworkView, PeerView};
+pub use schemes::{LedgerEvent, SCHEMES};
 pub use tokens::{BtpSession, NewToken, TokenView, token_hash};
 
 use incoming::OpenIncoming;
@@ -47,7 +49,9 @@ use tokens::{BtpLink, TokenState};
 use crate::clock::SharedRng;
 use crate::log::target;
 use crate::node::Policies;
-use crate::store::{BanRecord, LedgerBatch, PaymentId, PeerSettings, Store, StoreError};
+use crate::store::{
+    BanRecord, Checkpoint, LedgerBatch, PaymentId, PeerSettings, Store, StoreError,
+};
 
 /// Why the engine did not do something.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -132,6 +136,44 @@ pub enum Output {
         /// The reply.
         reply: dassie_peer::Reply,
     },
+    /// Open a settlement scheme's connection to its ledger, numbered
+    /// `epoch`; what comes over it is fed back with the same epoch.
+    LedgerConnect {
+        /// The scheme.
+        scheme: String,
+        /// The connection.
+        epoch: u64,
+        /// Where: a WebSocket URL.
+        url: String,
+    },
+    /// Close a scheme's connection.
+    LedgerClose {
+        /// The scheme.
+        scheme: String,
+        /// The connection.
+        epoch: u64,
+    },
+    /// Send a message over a scheme's connection.
+    LedgerSend {
+        /// The scheme.
+        scheme: String,
+        /// The connection.
+        epoch: u64,
+        /// The message.
+        message: Vec<u8>,
+    },
+    /// Ask a faucet for a scheme: an HTTPS POST, whose outcome comes back
+    /// as [`LedgerEvent::Funded`].
+    Fund {
+        /// The scheme.
+        scheme: String,
+        /// Its connection, which the outcome is for.
+        epoch: u64,
+        /// The faucet.
+        url: String,
+        /// What to post.
+        body: Vec<u8>,
+    },
 }
 
 /// What a step changed that live views show: they fetch again when it
@@ -177,8 +219,10 @@ pub struct Core {
     connector: Connector,
     rates: Rates,
     schemes: BTreeMap<Name, ActiveScheme>,
-    /// Each scheme's last booked on-ledger balance.
-    checkpoints: BTreeMap<Name, u64>,
+    /// What the books last kept for each scheme.
+    checkpoints: BTreeMap<Name, Checkpoint>,
+    /// The last connection number given to a scheme.
+    next_epoch: u64,
     /// Each active ledger's STREAM receiver.
     receivers: BTreeMap<dassie_ledger::LedgerId, Receiver>,
     /// The next local endpoint's number.
@@ -280,6 +324,7 @@ impl Core {
             rates: Rates::new(0),
             schemes: BTreeMap::new(),
             checkpoints,
+            next_epoch: 0,
             receivers: BTreeMap::new(),
             next_local: 0,
             incoming: BTreeMap::new(),
@@ -412,6 +457,7 @@ impl Core {
             self.owed.deadline(),
             self.outgoing_deadline(),
             grace,
+            self.schemes_deadline(),
         ]
         .into_iter()
         .flatten()
@@ -424,6 +470,7 @@ impl Core {
     pub fn finish_step(&mut self, out: &mut Vec<Output>) {
         loop {
             self.peer_timers();
+            self.scheme_timers();
             self.settlement_timers();
             self.expire(self.now_ms);
             self.drain_local(self.now_ms);
@@ -466,6 +513,7 @@ impl Core {
     /// nothing may act on: the core stops, and its successor starts from
     /// the disk.
     pub(super) fn flush(&mut self) {
+        self.checkpoint_schemes();
         self.take_journal();
         self.take_cap_changes();
         self.peer.take_changes(&mut self.batch.peer);

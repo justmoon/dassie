@@ -18,6 +18,7 @@
 //! from the node ID.
 
 pub mod core;
+mod links;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -30,8 +31,8 @@ use tokio_util::sync::CancellationToken;
 
 pub use self::core::{
     BtpSession, Changes, Core, CoreParts, CreatedOutgoing, EngineError, GracePolicy,
-    IncomingPolicy, LedgerView, Lie, NetworkView, NewIncoming, NewOutgoing, NewToken, Outbound,
-    Output, PeerView, RemovalBlocker, TokenView, ledger_slug,
+    IncomingPolicy, LedgerEvent, LedgerView, Lie, NetworkView, NewIncoming, NewOutgoing, NewToken,
+    Outbound, Output, PeerView, RemovalBlocker, SCHEMES, TokenView, ledger_slug,
 };
 
 use crate::log::target;
@@ -427,11 +428,13 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
         packets: packets.clone(),
         versions: versions_receiver,
     };
-    let _published = Published::new(&node, engine, generation);
+    let _published = Published::new(&node, engine, generation.clone());
     tracing::info!(target: target::ENGINE, address = core.own_address(), "the ledger is running");
     let mut driver = Driver {
         node: &node,
         core,
+        generation,
+        ledgers: links::Links::default(),
         links: BTreeMap::new(),
         packets,
         outputs: Vec::new(),
@@ -449,6 +452,10 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
 struct Driver<'a> {
     node: &'a Node,
     core: Core,
+    /// Ends with this engine: the tasks it starts end with it.
+    generation: CancellationToken,
+    /// The settlement schemes' connections to their ledgers.
+    ledgers: links::Links,
     /// Where each BTP connection's messages go.
     links: BTreeMap<u64, mpsc::Sender<Outbound>>,
     packets: broadcast::Sender<TraceEvent>,
@@ -471,6 +478,9 @@ impl Driver<'_> {
         shutdown: &CancellationToken,
     ) {
         let mut wake = self.node.clock().subscribe();
+        // What starting the core asked for, such as the schemes'
+        // connections, goes out now.
+        self.finish();
         loop {
             let delay = self
                 .core
@@ -602,6 +612,13 @@ impl Driver<'_> {
                     }
                     continue;
                 }
+                Output::LedgerConnect { .. }
+                | Output::LedgerClose { .. }
+                | Output::LedgerSend { .. }
+                | Output::Fund { .. } => {
+                    self.ledger_output(output);
+                    continue;
+                }
                 Output::Btp { link, message } => (link, message),
             };
             let closing = message == Outbound::Close;
@@ -631,6 +648,39 @@ impl Driver<'_> {
 }
 
 impl Driver<'_> {
+    /// Carries out what concerns a settlement scheme's ledger.
+    fn ledger_output(&mut self, output: Output) {
+        match output {
+            Output::LedgerConnect { scheme, epoch, url } => {
+                let client = self.node.peer_client().cloned();
+                self.ledgers.connect(
+                    client,
+                    self.commands.clone(),
+                    &self.generation,
+                    scheme,
+                    epoch,
+                    url,
+                );
+            }
+            Output::LedgerClose { scheme, epoch } => self.ledgers.close(&scheme, Some(epoch)),
+            Output::LedgerSend {
+                scheme,
+                epoch,
+                message,
+            } => self.ledgers.send(&scheme, epoch, message),
+            Output::Fund {
+                scheme,
+                epoch,
+                url,
+                body,
+            } => {
+                let client = self.node.peer_client().cloned();
+                links::fund(client, self.commands.clone(), scheme, epoch, url, body);
+            }
+            _ => {}
+        }
+    }
+
     /// Sends a peer request on a task of its own; its result comes back as
     /// a command. The peer node bounds the requests in flight.
     fn send_peer_request(&self, request: dassie_peer::Request) {

@@ -161,6 +161,7 @@ All decisions below were confirmed on 2026-10-11. Each states the **decision** a
   - there has been an external review.
 
   A mainnet bootstrap node list must exist before `live` makes sense.
+- **M7b (2026-10-15):** the testnet scheme settles ACC-19 (the reserve is never booked), ACC-20 (an account's creation is a deposit), ACC-21 (whole drops, fees booked) and ACC-22 (results checked, a failure's fee booked, the sender checked). Mainnet still needs its own memo type (ACC-13) and the rest of this list.
 
 ### D9. Open Payments, fully, and no SPSP
 

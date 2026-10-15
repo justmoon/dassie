@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use dassie_connector::{EndpointId, PacketRecord, PacketState, TraceEvent};
 use dassie_ledger::{Reference, TraceId, TransferState};
+use dassie_settlement::LedgerStatus;
 use tokio::sync::broadcast::error::RecvError;
 
 use super::handlers::{Items, Reply};
@@ -299,7 +300,7 @@ fn list_schemes(node: &Node) -> Result<Reply, RpcError> {
         .store()
         .settlement_schemes()
         .map_err(RpcError::internal)?;
-    let schemes = dassie_settlement::SCHEMES
+    let schemes = crate::engine::SCHEMES
         .iter()
         .map(|info| {
             let asset = info.ledger.asset();
@@ -413,6 +414,23 @@ fn ledger(view: &LedgerView) -> proto::Ledger {
         owner_pending: u64::try_from(view.owner_pending).unwrap_or(u64::MAX),
         on_ledger_balance: view.on_ledger_balance,
         removal_blockers: view.removal_blockers.iter().map(blocker).collect(),
+        reserve: view.reserve,
+        deposit_address: view.deposit_address.clone().unwrap_or_default(),
+        connection: connection(view.status).into(),
+        connection_problem: match view.status {
+            LedgerStatus::Failed(why) => why.into(),
+            _ => String::new(),
+        },
+    }
+}
+
+const fn connection(status: LedgerStatus) -> proto::LedgerConnection {
+    match status {
+        LedgerStatus::Synced => proto::LedgerConnection::Synced,
+        LedgerStatus::Connecting => proto::LedgerConnection::Connecting,
+        LedgerStatus::Syncing => proto::LedgerConnection::Syncing,
+        LedgerStatus::Unfunded => proto::LedgerConnection::Unfunded,
+        LedgerStatus::Failed(_) => proto::LedgerConnection::Failed,
     }
 }
 
@@ -482,6 +500,7 @@ fn transfer(row: &JournalRow) -> proto::Transfer {
         Reference::Withdrawal => proto::transfer::Reference::Other("withdrawal".into()),
         Reference::Reconciliation => proto::transfer::Reference::Other("reconciliation".into()),
         Reference::Refusal(trace) => proto::transfer::Reference::Refusal(trace_id(trace)),
+        Reference::Fee { scheme, id } => proto::transfer::Reference::Fee(format!("{scheme}:{id}")),
     };
     let state = match row.state {
         TransferState::Pending => proto::TransferState::Pending,

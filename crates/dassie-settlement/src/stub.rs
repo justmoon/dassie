@@ -111,6 +111,7 @@ impl SettlementScheme for Stub {
         self.prepared.insert(id, (peer, amount));
         Ok(PreparedSettlement {
             id,
+            amount,
             message: Vec::new(),
             peer_state: None,
         })
@@ -155,7 +156,11 @@ impl SettlementScheme for Stub {
             .balance
             .checked_add(amount)
             .ok_or(SchemeError::Overflow)?;
-        effects.push(Effect::IncomingSettlement { peer, amount });
+        effects.push(Effect::IncomingSettlement {
+            peer,
+            amount,
+            id: None,
+        });
         Ok(())
     }
 
@@ -222,7 +227,8 @@ mod tests {
                 Effect::Deposit { amount: 5 },
                 Effect::IncomingSettlement {
                     peer: peer(),
-                    amount: 3
+                    amount: 3,
+                    id: None,
                 }
             ]
         );
@@ -288,11 +294,12 @@ mod tests {
     }
 
     #[test]
-    fn only_the_stub_exists_so_far() {
-        assert!(crate::create("stub", "", None).is_ok());
-        assert!(matches!(
-            crate::create("xrpl-testnet", "", None),
-            Err(SchemeError::UnknownScheme)
-        ));
+    fn the_stub_takes_no_config() {
+        assert!(Stub::new("", None).is_ok());
+        assert!(Stub::new("{}", None).is_ok());
+        assert_eq!(
+            Stub::new("{\"x\":1}", None).err(),
+            Some(SchemeError::InvalidConfig)
+        );
     }
 }

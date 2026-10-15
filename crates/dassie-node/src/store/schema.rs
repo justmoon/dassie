@@ -31,6 +31,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_8,
     MIGRATION_9,
     MIGRATION_10,
+    MIGRATION_11,
 ];
 
 const MIGRATION_1: &str = "
@@ -537,6 +538,45 @@ CREATE INDEX peer_ban_records_unbanned ON peer_ban_records (unbanned_at_ms)
   WHERE unbanned_at_ms IS NOT NULL;
 ";
 
+/// The XRPL scheme (M7b): the fees ledgers charge for the node's
+/// transactions are journaled with their transaction, and a scheme keeps
+/// what it must across restarts (its transactions in flight, where it is in
+/// its ledger, its peers' addresses) with its checkpoint, written in the
+/// same batch. The journal is rebuilt, since its CHECKs change.
+const MIGRATION_11: &str = "
+CREATE TABLE ledger_transfers_new (
+  id INTEGER PRIMARY KEY CHECK (id >= 0),
+  debit INTEGER NOT NULL REFERENCES ledger_accounts (id),
+  credit INTEGER NOT NULL REFERENCES ledger_accounts (id) CHECK (credit != debit),
+  amount INTEGER NOT NULL CHECK (amount > 0),
+  state TEXT NOT NULL CHECK (state IN ('pending', 'posted', 'voided')),
+  created_at_ms INTEGER NOT NULL,
+  resolved_at_ms INTEGER CHECK ((state = 'pending') = (resolved_at_ms IS NULL)),
+  reference TEXT NOT NULL CHECK (reference IN
+    ('packet', 'settlement', 'trust', 'deposit', 'withdrawal', 'reconciliation', 'refusal', 'fee')),
+  packet_epoch INTEGER CHECK ((reference IN ('packet', 'refusal')) = (packet_epoch IS NOT NULL)),
+  packet_sequence INTEGER CHECK ((reference IN ('packet', 'refusal')) = (packet_sequence IS NOT NULL)),
+  settlement_scheme TEXT CHECK ((reference IN ('settlement', 'fee')) = (settlement_scheme IS NOT NULL)),
+  settlement_id TEXT CHECK ((reference IN ('settlement', 'fee')) = (settlement_id IS NOT NULL)),
+  sequence INTEGER NOT NULL UNIQUE CHECK (sequence > 0)
+) STRICT;
+
+INSERT INTO ledger_transfers_new SELECT * FROM ledger_transfers;
+DROP TABLE ledger_transfers;
+ALTER TABLE ledger_transfers_new RENAME TO ledger_transfers;
+
+CREATE INDEX ledger_transfers_by_debit ON ledger_transfers (debit, state);
+CREATE INDEX ledger_transfers_by_credit ON ledger_transfers (credit, state);
+CREATE INDEX ledger_transfers_pending ON ledger_transfers (state) WHERE state = 'pending';
+CREATE INDEX ledger_transfers_by_debit_sequence ON ledger_transfers (debit, sequence);
+CREATE INDEX ledger_transfers_by_credit_sequence ON ledger_transfers (credit, sequence);
+CREATE INDEX ledger_transfers_refusals ON ledger_transfers (credit, created_at_ms)
+  WHERE reference = 'refusal';
+
+ALTER TABLE settlement_checkpoints ADD COLUMN state BLOB
+  CHECK (state IS NULL OR length(state) <= 262144);
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -674,6 +714,7 @@ pub const TABLES: &[Table] = &[
             ("scheme", "TEXT", true, true),
             ("balance", "INTEGER", true, false),
             ("updated_at_ms", "INTEGER", true, false),
+            ("state", "BLOB", false, false),
         ],
     },
     Table {

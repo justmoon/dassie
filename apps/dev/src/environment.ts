@@ -66,6 +66,8 @@ export interface EnvironmentOptions {
   readonly proxyPort?: number;
   /** `DEBUG` for the nodes. */
   readonly debug: string;
+  /** The fake XRP Ledger's binary, to settle on it rather than the testnet. */
+  readonly fakeLedger?: string;
   /** Prints a line to the terminal. */
   readonly print: (line: string) => void;
 }
@@ -390,6 +392,7 @@ export class Environment {
           DASSIE_LOG_LEVEL: "warn",
           DEBUG: this.options.debug,
         },
+        fakeLedger: this.options.fakeLedger,
         onLine: (node, stream, line) => this.nodeLine(node, stream, line),
         onSpawn: (node) => this.#spawned(node),
         onNode: (node, phase, error) => this.#phase(node, phase, error),
