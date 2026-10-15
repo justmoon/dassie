@@ -49,7 +49,11 @@ fn owed(account: AccountId, owner: AccountId, fulfill: Vec<u8>) -> OwedFulfill {
         request_id: u32::MAX,
         fulfill,
         compensation: Compensation::Reverse,
-        transfers: [Some((account, owner, 40)), Some((owner, account, 1))],
+        transfers: [
+            Some((account, owner, 40)),
+            Some((owner, account, 1)),
+            Some((account, owner, 2)),
+        ],
         incoming: Some((PaymentId([7; 16]), 40)),
         expires_at_ms: 99,
         created_at_ms: 60,

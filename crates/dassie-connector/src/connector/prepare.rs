@@ -6,13 +6,14 @@ use dassie_ilp::{
     ildcp,
 };
 use dassie_ledger::{
-    AccountId, AccountName, AccountPath, Ledger, Reference, TraceId, TransferError, TransferId,
-    TransferSpec,
+    AccountId, AccountName, AccountPath, Ledger, Reference, TraceId, TransferError, TransferSpec,
 };
 use dassie_oer::{Decode, Encode};
 
 use super::{Connector, Forwarded, Outcome, Pending};
+use crate::PacketTransfers;
 use crate::cap::CapRefusal;
+use crate::charges::Charges;
 use crate::endpoint::EndpointId;
 use crate::fx::{Rates, convert};
 use crate::trace::{PacketRecord, PacketState};
@@ -41,12 +42,14 @@ const fn refuse(code: ErrorCode, message: &'static str) -> Refusal {
 struct Route {
     to: EndpointId,
     expires_at: Timestamp,
+    /// Our fee, out of the incoming amount: only on transit.
+    fee: u64,
     amount_out: u64,
 }
 
 /// A packet's pending transfers, and what a spending cap counts of it.
 struct Booked {
-    transfers: [Option<TransferId>; 2],
+    transfers: PacketTransfers,
     charge: Option<(AccountId, u64)>,
 }
 
@@ -244,37 +247,78 @@ impl Connector {
                 }),
             });
         }
-        let destination = self
-            .endpoints
-            .get(to)
-            .ok_or(refuse(ErrorCode::T00_INTERNAL_ERROR, "internal error"))?;
-        let amount_out = if from.ledger == destination.ledger || prepare.amount == 0 {
-            prepare.amount
-        } else {
-            if now_ms.saturating_sub(rates.as_of_ms) > config.max_rate_age_ms {
-                return Err(refuse(
-                    ErrorCode::T00_INTERNAL_ERROR,
-                    "exchange rates are stale",
-                ));
-            }
-            convert(
-                rates,
-                from.ledger.asset(),
-                destination.ledger.asset(),
-                prepare.amount,
-            )
-            .ok_or(refuse(ErrorCode::T00_INTERNAL_ERROR, "no exchange rate"))?
-        };
+        let (fee, amount_out) = self.amounts(now_ms, source, to, prepare.amount, rates)?;
         Ok(Route {
             to,
             expires_at,
+            fee,
             amount_out,
         })
     }
 
+    /// Our fee on a packet from `source` to `to`, and what goes on: only
+    /// transit from one peer to another is charged, and the owner's own
+    /// endpoints never convert, so what the owner holds on one ledger is
+    /// never spent on another by a packet (spec 7 §4.5). The first hop
+    /// that charges for it converts.
+    fn amounts(
+        &self,
+        now_ms: u64,
+        source: EndpointId,
+        to: EndpointId,
+        amount: u64,
+        rates: &Rates,
+    ) -> Result<(u64, u64), Refusal> {
+        let internal = refuse(ErrorCode::T00_INTERNAL_ERROR, "internal error");
+        let (Some(from), Some(destination)) = (self.endpoints.get(source), self.endpoints.get(to))
+        else {
+            return Err(internal);
+        };
+        let charges = if source.is_peer() && to.is_peer() {
+            self.charges
+        } else {
+            Charges::NONE
+        };
+        let fee = charges.fee(amount);
+        let net = amount - fee;
+        let converts = from.ledger != destination.ledger && amount > 0;
+        if converts && !source.is_peer() {
+            return Err(refuse(
+                ErrorCode::F02_UNREACHABLE,
+                "pay from the route's ledger",
+            ));
+        }
+        let (from_asset, to_asset) = (from.ledger.asset(), destination.ledger.asset());
+        if converts
+            && !rates.fresh(
+                from_asset.code,
+                to_asset.code,
+                now_ms,
+                self.config.max_rate_age_ms,
+            )
+        {
+            return Err(refuse(
+                ErrorCode::T00_INTERNAL_ERROR,
+                "exchange rates are stale",
+            ));
+        }
+        let amount_out = if converts {
+            let converted = convert(rates, from_asset, to_asset, net)
+                .ok_or(refuse(ErrorCode::T00_INTERNAL_ERROR, "no exchange rate"))?;
+            charges.after_spread(converted)
+        } else {
+            net
+        };
+        if amount > 0 && amount_out == 0 {
+            return Err(refuse(ErrorCode::F02_UNREACHABLE, "amount too small"));
+        }
+        Ok((fee, amount_out))
+    }
+
     /// The packet's pending transfers: one on a ledger, two across ledgers
-    /// through the FX accounts, none for nothing or between endpoints that
-    /// share an account. A packet that moves money out of its owner's funds
+    /// through the FX accounts, and our fee in a third, none for nothing or
+    /// between endpoints that share an account. A packet that moves money
+    /// out of its owner's funds
     /// must pass the source account's spending cap first, and holds its
     /// amount there while in flight.
     fn book(
@@ -293,7 +337,7 @@ impl Connector {
         };
         if amount_in == 0 || from.account == to.account {
             return Ok(Booked {
-                transfers: [None, None],
+                transfers: [None; 3],
                 charge: None,
             });
         }
@@ -311,7 +355,10 @@ impl Connector {
         Ok(Booked { transfers, charge })
     }
 
-    /// The pending transfers of a packet that moves money.
+    /// The pending transfers of a packet that moves money, linked: the
+    /// first debits the source's account; the second, across ledgers,
+    /// credits the destination's from the FX accounts; the third is our
+    /// fee, which debits the source's account too.
     fn book_transfers(
         &mut self,
         now_ms: u64,
@@ -320,7 +367,7 @@ impl Connector {
         route: &Route,
         amount_in: u64,
         ledger: &mut Ledger,
-    ) -> Result<[Option<TransferId>; 2], Refusal> {
+    ) -> Result<PacketTransfers, Refusal> {
         let internal = refuse(ErrorCode::T00_INTERNAL_ERROR, "internal error");
         let (Some(from), Some(to)) = (self.endpoints.get(source), self.endpoints.get(route.to))
         else {
@@ -334,33 +381,45 @@ impl Connector {
             pending: true,
             reference,
         };
-        if from.ledger == to.ledger {
-            let spec = pending(from.account, to.account, amount_in);
-            return match ledger.create(now_ms, &spec) {
-                Ok(id) => Ok([Some(id), None]),
-                Err(error) => Err(ledger_refusal(error)),
+        let net = amount_in - route.fee;
+        let (first, second) = if from.ledger == to.ledger {
+            (pending(from.account, to.account, net), None)
+        } else {
+            let revenue = ledger.find(&AccountPath::new(from.ledger, AccountName::RevenueFx));
+            let expenses = ledger.find(&AccountPath::new(to.ledger, AccountName::ExpensesFx));
+            let (Some(revenue), Some(expenses)) = (revenue, expenses) else {
+                return Err(internal);
             };
-        }
-        if route.amount_out == 0 {
-            return Err(refuse(
-                ErrorCode::F02_UNREACHABLE,
-                "amount too small to convert",
-            ));
-        }
-        let revenue = ledger.find(&AccountPath::new(from.ledger, AccountName::RevenueFx));
-        let expenses = ledger.find(&AccountPath::new(to.ledger, AccountName::ExpensesFx));
-        let (Some(revenue), Some(expenses)) = (revenue, expenses) else {
-            return Err(internal);
+            (
+                pending(from.account, revenue, net),
+                Some(pending(expenses, to.account, route.amount_out)),
+            )
         };
-        let specs = [
-            pending(from.account, revenue, amount_in),
-            pending(expenses, to.account, route.amount_out),
-        ];
-        self.scratch.clear();
-        match ledger.create_linked(now_ms, &specs, &mut self.scratch) {
-            Ok(()) => Ok([self.scratch.first().copied(), self.scratch.get(1).copied()]),
-            Err((_, error)) => Err(ledger_refusal(error)),
+        let fee = if route.fee > 0 {
+            let fees = ledger
+                .find(&AccountPath::new(from.ledger, AccountName::RevenueFees))
+                .ok_or(internal)?;
+            Some(pending(from.account, fees, route.fee))
+        } else {
+            None
+        };
+        let slots = [Some(first), second, fee];
+        let mut specs = [first; 3];
+        let mut count = 0;
+        for (target, spec) in specs.iter_mut().zip(slots.iter().flatten()) {
+            *target = *spec;
+            count += 1;
         }
+        self.scratch.clear();
+        if let Err((_, error)) = ledger.create_linked(
+            now_ms,
+            specs.get(..count).unwrap_or_default(),
+            &mut self.scratch,
+        ) {
+            return Err(ledger_refusal(error));
+        }
+        let mut ids = self.scratch.iter().copied();
+        Ok(slots.map(|slot| slot.and_then(|_| ids.next())))
     }
 
     /// Registers the packet as in flight and writes the outgoing Prepare.

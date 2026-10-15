@@ -366,6 +366,7 @@ impl Core {
     fn restore(&mut self) -> Result<(), String> {
         let store = Arc::clone(&self.store);
         self.peer_settings = store.peer_settings().map_err(text)?;
+        self.connector.set_charges(self.peer_settings.charges());
         self.ban_records = store
             .ban_records()
             .map_err(text)?

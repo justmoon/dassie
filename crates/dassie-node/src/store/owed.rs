@@ -32,9 +32,9 @@ pub struct OwedFulfill {
     pub fulfill: Vec<u8>,
     /// What a refusal books.
     pub compensation: Compensation,
-    /// The packet's transfers as posted; the first debits the peer's
-    /// account.
-    pub transfers: [Option<PostedTransfer>; 2],
+    /// The packet's transfers as posted, in the connector's slots: the
+    /// first debits the peer's account, and the third, our fee, too.
+    pub transfers: [Option<PostedTransfer>; 3],
     /// The incoming payment our receiver paid, and how much.
     pub incoming: Option<(PaymentId, u64)>,
     /// The expiry of the Prepare we sent on.
@@ -78,7 +78,8 @@ pub const FORGET_AT_MOST: u32 = 10_000;
 
 const OWED_COLUMNS: &str = "packet_epoch, packet_sequence, peer, request_id, fulfill, \
      compensation, debit_1, credit_1, amount_1, debit_2, credit_2, amount_2, \
-     incoming_payment, incoming_amount, expires_at_ms, created_at_ms";
+     incoming_payment, incoming_amount, expires_at_ms, created_at_ms, \
+     debit_3, credit_3, amount_3";
 
 impl Store {
     /// Every Fulfill waiting for its verdict, oldest first.
@@ -145,9 +146,8 @@ fn read_owed(row: &Row<'_>) -> rusqlite::Result<Result<OwedFulfill, StoreError>>
     let request_id: i64 = row.get(3)?;
     let fulfill: Vec<u8> = row.get(4)?;
     let compensation: String = row.get(5)?;
-    let mut raw = [(None, None, None); 2];
-    for (index, slot) in raw.iter_mut().enumerate() {
-        let base = 6 + index * 3;
+    let mut raw = [(None, None, None); 3];
+    for (slot, base) in raw.iter_mut().zip([6, 9, 16]) {
         *slot = (row.get(base)?, row.get(base + 1)?, row.get(base + 2)?);
     }
     let payment: Option<Vec<u8>> = row.get(12)?;
@@ -155,7 +155,7 @@ fn read_owed(row: &Row<'_>) -> rusqlite::Result<Result<OwedFulfill, StoreError>>
     let expires: i64 = row.get(14)?;
     let created: i64 = row.get(15)?;
     Ok((|| {
-        let mut transfers = [None; 2];
+        let mut transfers = [None; 3];
         for (slot, parts) in transfers.iter_mut().zip(raw) {
             *slot = match parts {
                 (Some(debit), Some(credit), Some(amount)) => {
@@ -239,7 +239,7 @@ pub(super) fn write_verdicts(
 }
 
 fn insert_owed(transaction: &Transaction<'_>, owed: &OwedFulfill) -> Result<(), StoreError> {
-    let [first, second] = owed.transfers;
+    let [first, second, third] = owed.transfers;
     let first = first.ok_or(StoreError::Corrupt("owed transfers"))?;
     let part = |transfer: Option<PostedTransfer>| -> Result<[Option<i64>; 3], StoreError> {
         Ok(match transfer {
@@ -252,6 +252,7 @@ fn insert_owed(transaction: &Transaction<'_>, owed: &OwedFulfill) -> Result<(), 
         })
     };
     let second = part(second)?;
+    let third = part(third)?;
     let (payment, incoming_amount) = match owed.incoming {
         Some((id, amount)) => (Some(id.0.to_vec()), Some(sql(amount)?)),
         None => (None, None),
@@ -259,7 +260,8 @@ fn insert_owed(transaction: &Transaction<'_>, owed: &OwedFulfill) -> Result<(), 
     transaction.execute(
         &format!(
             "INSERT INTO owed_fulfills ({OWED_COLUMNS}) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)"
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, \
+             ?17, ?18, ?19)"
         ),
         params![
             sql(owed.trace.epoch)?,
@@ -281,6 +283,9 @@ fn insert_owed(transaction: &Transaction<'_>, owed: &OwedFulfill) -> Result<(), 
             incoming_amount,
             to_sql_time(owed.expires_at_ms),
             to_sql_time(owed.created_at_ms),
+            third[0],
+            third[1],
+            third[2],
         ],
     )?;
     Ok(())

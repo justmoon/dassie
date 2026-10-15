@@ -217,11 +217,20 @@ impl Harness {
     /// A peer `peer:{id}`, extending `trust`, at `test.das.{node}`, with
     /// its first request ID `first`.
     pub fn add_peer(&mut self, id: u64, node: &str, trust: u64, first: u32) -> AccountId {
+        self.add_peer_on(LedgerId::StubUsd, id, node, trust, first)
+    }
+
+    /// A peer as [`add_peer`](Self::add_peer), on `ledger`.
+    pub fn add_peer_on(
+        &mut self,
+        ledger: LedgerId,
+        id: u64,
+        node: &str,
+        trust: u64,
+        first: u32,
+    ) -> AccountId {
         let name = dassie_ledger::Name::new(node).unwrap();
-        let (account, _) = self
-            .ledger
-            .open_peer(0, LedgerId::StubUsd, name, trust)
-            .unwrap();
+        let (account, _) = self.ledger.open_peer(0, ledger, name, trust).unwrap();
         while let Some(entry) = self.ledger.poll_journal() {
             self.journal.push(entry);
         }
@@ -230,10 +239,58 @@ impl Harness {
                 EndpointId::Peer(id),
                 &format!("test.das.{node}"),
                 account,
-                LedgerId::StubUsd,
+                ledger,
                 first,
             )
             .unwrap();
         account
+    }
+
+    /// Opens the accounts a ledger's fees and conversions book to, as the
+    /// node does when it activates the ledger.
+    pub fn open_books(&mut self, ledger: LedgerId) {
+        for name in [
+            AccountName::RevenueFees,
+            AccountName::RevenueFx,
+            AccountName::ExpensesFx,
+        ] {
+            self.ledger.open(AccountPath::new(ledger, name)).unwrap();
+        }
+        while let Some(entry) = self.ledger.poll_journal() {
+            self.journal.push(entry);
+        }
+    }
+
+    /// Deposits `amount` into the owner's funds on `ledger`, opening its
+    /// accounts: what the owner pays out on it, conversions included.
+    pub fn fund(&mut self, ledger: LedgerId, amount: u64) -> AccountId {
+        let settlement = self
+            .ledger
+            .open(AccountPath::new(ledger, AccountName::AssetsSettlement))
+            .unwrap();
+        let owner = self
+            .ledger
+            .open(AccountPath::new(ledger, AccountName::EquityOwner))
+            .unwrap();
+        let deposit = TransferSpec {
+            debit: settlement,
+            credit: owner,
+            amount,
+            pending: false,
+            reference: Reference::Deposit,
+        };
+        if amount > 0 {
+            self.ledger.create(0, &deposit).unwrap();
+        }
+        while let Some(entry) = self.ledger.poll_journal() {
+            self.journal.push(entry);
+        }
+        owner
+    }
+
+    /// The balance of the account at `name` on `ledger`.
+    pub fn net_at(&self, ledger: LedgerId, name: AccountName) -> i128 {
+        let id = self.ledger.find(&AccountPath::new(ledger, name)).unwrap();
+        self.net(id)
     }
 }

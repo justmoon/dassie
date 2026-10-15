@@ -17,6 +17,8 @@
 //!   the packet path (ILP-3);
 //! - F08 carries the amounts (ILP-4);
 //! - linked transfers are all or none (ILP-5, through the ledger);
+//! - the owner's own endpoints never convert, and only transit from one
+//!   peer to another is charged a fee and a spread (D7);
 //! - ILDCP answers the address that is routed and the endpoint's asset
 //!   (ILP-7, NET-25);
 //! - outgoing request IDs are unique per endpoint (ILP-8);
@@ -45,6 +47,7 @@ extern crate alloc;
 extern crate std;
 
 mod cap;
+mod charges;
 mod config;
 mod connector;
 mod endpoint;
@@ -52,6 +55,7 @@ mod fx;
 mod trace;
 
 pub use cap::{CapError, CapUsage, CapView, SpendingCap, replay};
+pub use charges::Charges;
 pub use config::Config;
 pub use connector::{
     Connector, Forwarded, MAX_ROUTE_OPTIONS, Outcome, Posted, Responded, RoutesError, Stats,
@@ -60,3 +64,9 @@ pub use connector::{
 pub use endpoint::{EndpointError, EndpointId};
 pub use fx::{RATE_PRECISION, Rates, convert};
 pub use trace::{MAX_TRACED_ADDRESS, PacketRecord, PacketState, TraceEvent};
+
+/// A packet's pending transfers: the first debits the source's account;
+/// the second, across ledgers, credits the destination's from the FX
+/// accounts; the third is our fee on transit, which debits the source's
+/// account too.
+pub type PacketTransfers = [Option<dassie_ledger::TransferId>; 3];

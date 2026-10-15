@@ -5,8 +5,9 @@ use alloc::collections::VecDeque;
 use core::fmt;
 
 use dassie_ilp::ErrorCode;
-use dassie_ledger::{TraceId, TransferId};
+use dassie_ledger::TraceId;
 
+use crate::PacketTransfers;
 use crate::endpoint::EndpointId;
 
 /// Destination addresses are kept up to this many bytes; longer ones are
@@ -46,8 +47,8 @@ pub struct PacketRecord {
     /// What became of it.
     pub state: PacketState,
     /// Its transfers: none for a zero amount or a packet refused before
-    /// the ledger, one on a ledger, two across ledgers.
-    pub transfers: [Option<TransferId>; 2],
+    /// the ledger, one on a ledger, two across ledgers, and our fee third.
+    pub transfers: PacketTransfers,
 }
 
 impl PacketRecord {
@@ -77,7 +78,7 @@ impl PacketRecord {
             received_at_ms: now_ms,
             resolved_at_ms: None,
             state: PacketState::Pending,
-            transfers: [None, None],
+            transfers: [None; 3],
         }
     }
 

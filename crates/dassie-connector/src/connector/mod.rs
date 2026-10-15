@@ -13,7 +13,9 @@ use alloc::vec::Vec;
 use dassie_ilp::{Address, ErrorCode};
 use dassie_ledger::{AccountId, LedgerId, TraceId, TransferId};
 
+use crate::PacketTransfers;
 use crate::cap::{CapError, CapState, CapUsage, CapView, SpendingCap};
+use crate::charges::Charges;
 use crate::config::Config;
 use crate::endpoint::{Endpoint, EndpointError, EndpointId, Endpoints};
 use crate::trace::{PacketRecord, Trace, TraceEvent};
@@ -103,7 +105,7 @@ pub(crate) struct Pending {
     pub condition: [u8; 32],
     /// The outgoing packet's expiry.
     pub expires_at_ms: u64,
-    pub transfers: [Option<TransferId>; 2],
+    pub transfers: PacketTransfers,
     /// Set when the packet cannot reach its next hop: the code and message
     /// it is rejected with at once.
     pub failure: Option<(ErrorCode, &'static str)>,
@@ -135,6 +137,8 @@ pub struct Connector {
     caps: BTreeMap<AccountId, CapState>,
     /// Caps whose usage changed since it was last polled.
     cap_changes: BTreeSet<AccountId>,
+    /// What transit from one peer to another is charged.
+    charges: Charges,
 }
 
 impl Connector {
@@ -158,10 +162,28 @@ impl Connector {
             trace: Trace::new(config.trace_capacity, config.max_events),
             next_sequence: 0,
             stats: Stats::default(),
-            scratch: Vec::with_capacity(2),
+            scratch: Vec::with_capacity(3),
             caps: BTreeMap::new(),
             cap_changes: BTreeSet::new(),
+            charges: Charges::NONE,
         }
+    }
+
+    /// Sets what transit from one peer to another is charged, from the
+    /// next packet on. Returns false, changing nothing, if the charges
+    /// are not valid.
+    pub fn set_charges(&mut self, charges: Charges) -> bool {
+        if !charges.is_valid() {
+            return false;
+        }
+        self.charges = charges;
+        true
+    }
+
+    /// What transit is charged.
+    #[must_use]
+    pub const fn charges(&self) -> Charges {
+        self.charges
     }
 
     /// The node's ILP address.

@@ -87,8 +87,10 @@ impl AccountPath {
     /// The root of the account's group, if it is in one. The owner's pool
     /// is the root of its own group, which holds what the node owns on the
     /// ledger beyond what it owes peers: the owner's sub-accounts, and what
-    /// reconciliations, fees and losses moved (M7). So whatever the node
-    /// gains or loses is the owner's to spend, or not.
+    /// reconciliations, fees, conversions and losses moved (M7). So
+    /// whatever the node gains or loses is the owner's to spend, or not.
+    /// The owner's own endpoints never convert (spec 7 §4.5), so money
+    /// moves through the FX accounts only for peers.
     #[must_use]
     pub const fn group_root(&self) -> Option<Self> {
         match self.name {
@@ -96,7 +98,9 @@ impl AccountPath {
             | AccountName::EquityOwnerSub(_)
             | AccountName::EquitySuspense
             | AccountName::RevenueFees
+            | AccountName::RevenueFx
             | AccountName::ExpensesFees
+            | AccountName::ExpensesFx
             | AccountName::ExpensesLosses => Some(Self::new(self.ledger, AccountName::EquityOwner)),
             _ => None,
         }
@@ -264,19 +268,20 @@ mod tests {
         for name in [
             AccountName::EquitySuspense,
             AccountName::RevenueFees,
+            AccountName::RevenueFx,
             AccountName::ExpensesFees,
+            AccountName::ExpensesFx,
             AccountName::ExpensesLosses,
         ] {
             let path = AccountPath::new(LedgerId::StubUsd, name);
             assert_eq!(path.group_root(), Some(root), "{path}");
             assert_eq!(path.limit(), Limit::None, "{path}");
         }
-        // Exchange joins with the rule that the owner's endpoints never
-        // convert (M7c); peers' accounts never join.
+        // Peers' accounts never join, nor the settlement account.
         for name in [
-            AccountName::RevenueFx,
-            AccountName::ExpensesFx,
             AccountName::AssetsInterledger(Name::new("n").unwrap()),
+            AccountName::ContraTrust(Name::new("n").unwrap()),
+            AccountName::AssetsSettlement,
         ] {
             assert_eq!(AccountPath::new(LedgerId::StubUsd, name).group_root(), None);
         }
