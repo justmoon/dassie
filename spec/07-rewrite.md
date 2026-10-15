@@ -547,17 +547,68 @@ meta/canary                                  the newest canary
 <version>/SHA256SUMS.minisig                 minisign, trusted comment "dassie <version>"
 ```
 
-- **A bundle** holds `dassie/bin/dassie`, which becomes `/opt/dassie/<version>/bin/dassie`. Its archives are the same bytes for the same input: sorted, with fixed times and owners.
+- **A bundle** holds `dassie/bin/dassie` and the systemd units in `dassie/share/systemd`; `dassie/` becomes `/opt/dassie/<version>`. Its archives are the same bytes for the same input: sorted, with fixed times and owners.
 - **The signature** is minisign's default, Ed25519 over the BLAKE2b-512 of `SHA256SUMS`. Its trusted comment names the version, so the signed sums of one release cannot pass for another's. Legacy signatures (of the file itself) are refused.
 - **`dassie-release` verifies it** with `ed25519-dalek`'s strict verification, and parses `SHA256SUMS` only once the signature holds. Every parser there is bounded: a version at most 80 bytes, a signature at most 1 KiB, `SHA256SUMS` at most 4 KiB and 16 lines of plain file names.
 
 **Publishing** (`.github/workflows/release.yml`):
 - Every push to the main branch builds a canary, and every tag `v<version>` a release, whose version must be the tag's.
 - `scripts/release.ts` checks each bundle against `SHA256SUMS` and signs it with the release key. Then `dassie-release verify` checks the signed tree with `resources/minisign.pub`, using the code the updater trusts a release with, before anything is uploaded.
-- The key and the bucket's credentials belong to the `release` environment, which admits only the main branch and `v*` tags. The job's actions are pinned to commits.
+- The key and the bucket's credentials belong to the `Release` environment, which admits only the main branch and `v*` tags. The job's actions are pinned to commits.
 - The upload goes to the bucket behind `get.dassie.land`, through workload identity.
   - A version's files are uploaded once, the signature last, and cached for good. A file already there must be the same bytes, so a run again completes what an interrupted one left.
   - Only then does `meta/<channel>` name the version, uncached. It never moves to a version older than the one it names.
+  - A release also publishes `install.sh`, with the release key in it, which `sh.dassie.land` serves.
+
+**The install** keeps the original's layout ([2 §3.1](02-node-runtime.md)): `/opt/dassie/<version>`, `/opt/dassie/current` pointing at the one that runs, `/usr/local/bin/dassie`, the group `dassie-users`, and the systemd units of `resources/systemd`, which each bundle carries in `share/systemd`.
+- **`dassie.service`** runs `dassie daemon --runtime=systemd`, which takes its sockets by name and reports readiness itself.
+  - It runs as a dynamic user, with `/var/lib/dassie` its state directory (0700).
+  - It is sandboxed: no capabilities, a read-only system, no home directories, private `/tmp` and devices, only Unix and IP sockets, no namespaces, no writable executable memory.
+  - It has 5 minutes to report readiness, so a node that never comes up after an update fails, and the update is rolled back.
+  - The socket units listen on ports 80 and 443 (IPv4 and IPv6) and on `/run/dassie.sock`, which root and `dassie-users` may use.
+- **`dassie-update.timer`** starts `dassie-update.service` daily, at a random time in the hour after 03:20. The service runs `dassie update`. A drop-in setting `DASSIE_MIRROR_URL` points it at another mirror.
+
+**`install.sh`** (`resources/installer`, POSIX sh, one function called on its last line):
+- It needs Linux, systemd (running, or still starting, as when cloud-init runs it), curl or wget, tar, and minisign or OpenSSL 1.1.1 or later. It takes the xz bundle where there is `xz`, and the gzip one otherwise.
+- It sets `umask 022`: on a hardened host, what it installs must still be readable by the node's own user.
+- Run again, it installs the channel's newest version, but not one older than the one installed: `meta/<channel>` is not signed. `--target` installs any version.
+- **Nothing is unpacked before it is verified.**
+  - The signature of `SHA256SUMS` is checked with the release key, built into the script at release. With minisign that is `minisign -V`; with OpenSSL it is minisign's format by hand: the key ID, Ed25519 over BLAKE2b-512 of the file, and the global signature over the trusted comment.
+  - The trusted comment must be `dassie <version>`, and the bundle must match its sum.
+  - The unpacked bundle may hold only files and directories, and its binary must name the version and pass `verify-install`, before anything is installed.
+- **It installs:**
+  - the version (one installed again is renamed aside first), then `sync`, then `current` with one rename (`mv -T`);
+  - the command's link and the group, adding the user who ran it, through sudo or with sudo for each step;
+  - the units, enabled and started.
+- **`uninstall`** stops and removes all six units, `/opt/dassie` and the command's link. It keeps the data and the group.
+- Options: `--channel latest|canary`, `--target <version>`, `--mirror <url>`, as `DASSIE_CHANNEL`, `DASSIE_VERSION` and `DASSIE_MIRROR_URL` too. Errors keep the original's `E_*` codes.
+
+**`dassie update`** (`dassie-cli`):
+- **The install:** it finds it from its own path, which must be `<base>/<its version>/bin/dassie`, and holds `<base>/.update.lock` while it works.
+- **What it moves to:** it reads `meta/<channel>` of its own channel and moves only to a version that supersedes its own. `--target-version`, `--channel` and `--force` let the owner go elsewhere.
+- **Verifying:**
+  - `SHA256SUMS` is verified with the release key built into the binary. The build takes it from `resources/minisign.pub`, or the file `DASSIE_RELEASE_KEY` names. A binary without one refuses to update, and `verify-install` says so.
+  - Then the bundle for its platform must match its sum. The downloads are bounded: 64 MiB for the bundle, 10 minutes.
+- **Unpacking:** only into a staging directory beside the versions. `dassie_release::bundle` admits only directories and regular files under `dassie/` with plain names, at most 64 entries and 256 MiB.
+  - Modes are set explicitly (0755 for directories and executables, 0644 for the rest), whatever the umask.
+  - Every file and directory is synced, so `current` never names a version a power cut left half written.
+- **Checking the new binary:** it must name the version and pass `verify-install`, each within 60 s.
+- **Switching:**
+  - the version moves into place;
+  - the units are installed, each only if it changed (`DASSIE_SYSTEMD_UNIT_DIR` for tests). The owner's changes belong in drop-ins, which the updater leaves alone;
+  - `current` moves with one rename, synced;
+  - systemd reloads if a unit changed, units new in the release are enabled, and the node restarts (unless `--no-restart`, or systemd is not running).
+- **Rolling back:** if the node does not come up, `current` goes back to the version that ran, with its units, and that version restarts. The update fails.
+- **Pruning:** it keeps the version it came from and the new one, and removes every other version and what an interrupted update or install left.
+- **The mirror** must be `https://`, and may be on a private network: the owner names it. `DASSIE_MIRROR_CA_FILE` adds roots to trust it by.
+
+**Tests:**
+- `crates/dassie-cli/tests/update.rs` runs the binary against a mirror served over TLS from an install in a temporary directory. The binary is built with the `test-key` feature, which trusts `testdata/release`'s key and is never in a release; the Nix check enables it. The tests check:
+  - installing, being up to date, and an older version on offer;
+  - tampered bundles, sums signed for another version, a bad or missing signature, links and paths outside `dassie/`, and a binary that names another version;
+  - one update at a time, and modes that let the node run under a strict umask.
+- `tests/e2e/install_test.ts` installs, updates and uninstalls on Debian 12, Ubuntu 24.04, Fedora 42 and CentOS Stream 9 (item 6 of §7), the installer under `umask 077`; a re-run installer does not go back to an older version the mirror offers.
+- The installer's ShellCheck runs with `nix flake check`.
 
 ## 5. Wallet and dashboard (Solid 2)
 
@@ -632,6 +683,10 @@ Every crate is written so that a simulation can drive it ([D16](08-decisions.md#
    - Every decoder also has a "never panics on arbitrary input" property test.
 5. **End to end.** The dev scenarios run headless in CI: start N nodes, set up through the HTTP API, add ledgers, peer, pay, settle, restart, and check that the balances are unchanged.
 6. **Installer and updater.** Containers with systemd, as the original's `test-in-docker:*` scripts did ([6 §5.5](06-user-interfaces-and-tooling.md)), including signature-verification failure cases.
+   - `tests/e2e/install_test.ts` boots Debian, Ubuntu, Fedora and CentOS images (pinned by digest, with systemd as PID 1). Caddy serves a mirror on a Docker network of the test's own.
+   - The releases come from `nix build .#install-test-mirror`: 1.0.0 and 1.0.1, built in a cheaper profile and signed with the test key.
+   - The images between them take both verifiers (OpenSSL and minisign), both downloaders (curl and wget) and both compressions.
+   - CI runs one job per distribution.
 
 ## 8. Milestones
 

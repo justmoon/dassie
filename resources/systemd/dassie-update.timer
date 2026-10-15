@@ -1,0 +1,11 @@
+# Looks for an update once a day, at a random time in the hour after 03:20.
+[Unit]
+Description=Daily Dassie update
+
+[Timer]
+OnCalendar=*-*-* 03:20:00
+RandomizedDelaySec=3600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

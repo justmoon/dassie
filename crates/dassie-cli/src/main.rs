@@ -2,9 +2,8 @@
 //!
 //! - `dassie daemon [--runtime standalone|systemd]` runs the node.
 //! - `dassie init` configures it, over the IPC socket.
+//! - `dassie update` installs a newer release from the mirror.
 //! - `dassie verify-install` checks that this binary works here.
-//!
-//! `dassie update` comes with the release work (milestone M8).
 
 #![forbid(unsafe_code)]
 #![deny(
@@ -18,6 +17,7 @@
 
 mod client;
 mod init;
+mod update;
 
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -53,6 +53,15 @@ Commands:
                       --acme-directory <url> another ACME directory
                       --acme-staging         Let's Encrypt's staging directory
                       --skip-acme            keep the current certificate
+  update            Update Dassie to the newest version of its channel, once
+                    its signature and sums check out.
+                      -f, --force                  install even if not newer
+                      -t, --target-version <v>     this version instead
+                      --channel latest|canary      this channel instead
+                      --mirror <url>               another mirror (default:
+                                                   DASSIE_MIRROR_URL, or
+                                                   https://get.dassie.land)
+                      --no-restart                 leave systemd alone
   verify-install    Verify that Dassie and its dependencies work here.
 
 Options:
@@ -91,6 +100,7 @@ fn run() -> Result<ExitCode, lexopt::Error> {
         Value(command) => match command.string()?.as_str() {
             "daemon" => Ok(daemon(daemon_args(&mut parser)?)),
             "init" => Ok(init(init_args(&mut parser)?)),
+            "update" => Ok(update::run(update_args(&mut parser)?)),
             "verify-install" => {
                 no_more(&mut parser)?;
                 Ok(verify_install())
@@ -146,6 +156,21 @@ fn init_args(parser: &mut lexopt::Parser) -> Result<init::Options, lexopt::Error
             Long("acme-directory") => options.acme_directory = Some(parser.value()?.string()?),
             Long("acme-staging") => options.use_staging(),
             Long("skip-acme") => options.skip_acme = true,
+            other => return Err(other.unexpected()),
+        }
+    }
+    Ok(options)
+}
+
+fn update_args(parser: &mut lexopt::Parser) -> Result<update::Options, lexopt::Error> {
+    let mut options = update::Options::default();
+    while let Some(argument) = parser.next()? {
+        match argument {
+            Short('f') | Long("force") => options.force = true,
+            Short('t') | Long("target-version") => options.target = Some(parser.value()?.string()?),
+            Long("channel") => options.channel = Some(parser.value()?.string()?),
+            Long("mirror") => options.mirror = Some(parser.value()?.string()?),
+            Long("no-restart") => options.no_restart = true,
             other => return Err(other.unexpected()),
         }
     }
@@ -241,12 +266,14 @@ fn init(options: init::Options) -> ExitCode {
 type Check = fn() -> Result<(), String>;
 
 /// Checks what the original checked, the database, and more: the schema
-/// check it skipped, TLS, and that the wallet is built into the binary.
+/// check it skipped, TLS, that the wallet is built into the binary, and
+/// that its version is one the updater understands.
 fn verify_install() -> ExitCode {
-    let checks: [(&str, Check); 3] = [
+    let checks: [(&str, Check); 4] = [
         ("Verifying that SQLite is working...", check_database),
         ("Verifying that TLS is working...", check_tls),
         ("Verifying that the wallet is built in...", check_wallet),
+        ("Verifying the version...", check_version),
     ];
     for (title, check) in checks {
         println!("{title}");
@@ -255,8 +282,20 @@ fn verify_install() -> ExitCode {
             return ExitCode::FAILURE;
         }
     }
+    // A build without the release key works, but cannot update itself.
+    match update::release_key() {
+        Ok(key) => println!("Updates are verified with release key {}.", key.id()),
+        Err(problem) => println!("Note: {problem}."),
+    }
     println!("Success! Dassie appears to be installed correctly.");
     ExitCode::SUCCESS
+}
+
+/// The version names a release or a canary, as the updater needs.
+fn check_version() -> Result<(), String> {
+    dassie_release::Version::parse(dassie_node::VERSION)
+        .map(|_| ())
+        .map_err(|e| format!("{:?}: {e}", dassie_node::VERSION))
 }
 
 fn check_database() -> Result<(), String> {
