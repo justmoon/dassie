@@ -1,0 +1,155 @@
+name: Release
+
+# Builds, signs and publishes Dassie to the mirror, get.dassie.land
+# (spec D11, D14): every push to the main branch as a canary
+# (meta/canary), and every tag v<version> as a release (meta/latest). The
+# rewrite's main branch is `rewrite` until it replaces `main`.
+#
+# It runs in the `release` environment. What it needs:
+# - secrets.NIXBUILD_TOKEN: the builds run on nixbuild.net, as CI's do.
+# - secrets.MINISIGN_SECRET_KEY: the release key file (`minisign -G`), and
+#   secrets.MINISIGN_PASSWORD if it has one. Its public key is
+#   resources/minisign.pub: what is signed must verify with it.
+# - vars.GCP_WORKLOAD_IDENTITY_PROVIDER and vars.GCP_SERVICE_ACCOUNT: a
+#   service account with roles/storage.objectUser on the bucket
+#   (vars.MIRROR_BUCKET, by default get.dassie.land), through workload
+#   identity federation.
+# Keep the key and the GCP variables in the environment, not the
+# repository: with deployment rules that admit only the main branch and
+# v* tags, no other branch's workflow can read them. Limit who may push v*
+# tags with a ruleset, and the workload identity provider to this
+# repository.
+#
+# Without the key it builds and stops; without the bucket it signs, and the
+# signed tree stays an artifact of the run.
+#
+# The actions are pinned to commits: this job holds the release key.
+
+on:
+  push:
+    branches: [main, rewrite]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  # Workload identity: GitHub's OIDC token is what GCP trusts.
+  id-token: write
+
+# One publish per channel at a time, each to its end. A canary waiting its
+# turn gives way to a newer one.
+concurrency:
+  group: release-${{ startsWith(github.ref, 'refs/tags/v') && 'latest' || 'canary' }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: release
+    timeout-minutes: 90
+    env:
+      BUCKET: ${{ vars.MIRROR_BUCKET || 'get.dassie.land' }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
+      - uses: nixbuild/nixbuild-action@ccd11ee76c26c018e8470835dc2e286a5a024a14 # v27
+        with:
+          nixbuild_token: ${{ secrets.NIXBUILD_TOKEN }}
+
+      # The tree of nix/release.nix: the bundles for x64 and arm64,
+      # SHA256SUMS and meta/<channel>; and dassie-release, which checks it
+      # as the updater would. A tag must name the version the tree was
+      # built as.
+      - name: Build
+        id: build
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            attr=release expect="${GITHUB_REF_NAME#v}"
+          else
+            attr=canary expect=""
+          fi
+          nix build ".#$attr" --out-link built --print-build-logs
+          nix build .#release-tool --out-link tool
+          echo "expect=$expect" >> "$GITHUB_OUTPUT"
+
+      # scripts/release.ts checks every bundle against SHA256SUMS, signs it,
+      # and verifies the signed tree with resources/minisign.pub.
+      - name: Sign
+        id: sign
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+          MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
+          EXPECT: ${{ steps.build.outputs.expect }}
+        run: |
+          if [ -z "$MINISIGN_SECRET_KEY" ]; then
+            echo "::notice::No MINISIGN_SECRET_KEY: built, but neither signed nor published"
+            exit 0
+          fi
+          if [ ! -f resources/minisign.pub ]; then
+            echo "::error::resources/minisign.pub is missing: nothing would trust the signature"
+            exit 1
+          fi
+          key="$RUNNER_TEMP/minisign.key"
+          trap 'rm -f "$key"' EXIT
+          (umask 077 && printf '%s\n' "$MINISIGN_SECRET_KEY" > "$key")
+          unset MINISIGN_SECRET_KEY
+          nix shell --inputs-from . nixpkgs#deno nixpkgs#minisign --command \
+            deno run --allow-read --allow-write --allow-run \
+            --allow-env=MINISIGN_PASSWORD \
+            scripts/release.ts built signed --secret-key "$key" \
+            --public-key resources/minisign.pub \
+            --verifier tool/bin/dassie-release ${EXPECT:+--version "$EXPECT"}
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: steps.sign.outputs.signed == 'true'
+        with:
+          name: mirror
+          path: signed/
+          retention-days: 14
+
+      - id: gcp
+        if: steps.sign.outputs.signed == 'true' && vars.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+      - if: steps.gcp.outcome == 'success'
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+
+      # A version's files are uploaded once and cached for good, the
+      # signature last. A file already there must be the same bytes (the
+      # build is reproducible, and so is an Ed25519 signature), so a run
+      # again completes what an interrupted one left. Only once every file
+      # is there does meta/<channel> name the version, uncached, and never
+      # one older than what it names.
+      - name: Publish
+        if: steps.gcp.outcome == 'success'
+        run: |
+          set -euo pipefail
+          channel=$(ls signed/meta)
+          version=$(cat "signed/meta/$channel")
+          remote="gs://$BUCKET/$version"
+          files=$(cd "signed/$version" && ls dassie-*)
+          for file in $files SHA256SUMS SHA256SUMS.minisig; do
+            if ! gcloud storage ls "$remote/$file" > /dev/null 2>&1; then
+              gcloud storage cp --cache-control="public, max-age=31536000, immutable" \
+                "signed/$version/$file" "$remote/$file"
+            fi
+            gcloud storage cp "$remote/$file" "$RUNNER_TEMP/published"
+            if ! cmp -s "$RUNNER_TEMP/published" "signed/$version/$file"; then
+              echo "::error::$version/$file is published with other bytes"
+              exit 1
+            fi
+          done
+          current=$(gcloud storage cat "gs://$BUCKET/meta/$channel" 2> /dev/null || true)
+          if [ -n "$current" ] && [ "$current" != "$version" ]; then
+            newer=0
+            tool/bin/dassie-release supersedes "$version" "$current" || newer=$?
+            if [ "$newer" -eq 1 ]; then
+              echo "::warning::meta/$channel names $current, later than $version: left as it is"
+              exit 0
+            fi
+          fi
+          gcloud storage cp --cache-control="no-cache, max-age=0" \
+            "signed/meta/$channel" "gs://$BUCKET/meta/$channel"
+          echo "::notice::Published dassie $version on $channel"

@@ -10,6 +10,7 @@ members = [
   "crates/dassie-oer",
   "crates/dassie-payments",
   "crates/dassie-peer",
+  "crates/dassie-release",
   "crates/dassie-settlement",
   "crates/dassie-stream",
   "crates/dassie-xrpl",

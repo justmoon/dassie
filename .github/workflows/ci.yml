@@ -28,7 +28,9 @@ jobs:
     secrets:
       nixbuild_token: ${{ secrets.NIXBUILD_TOKEN }}
     with:
-      # What `nix flake check` builds on an x86_64 runner.
+      # What `nix flake check` builds on an x86_64 runner. That includes the
+      # release binaries for x64 and arm64 (static-binaries), so every PR
+      # builds what a release would ship.
       filter_builds: '.top_attr == "checks" and .system == "x86_64-linux"'
 
   deno:

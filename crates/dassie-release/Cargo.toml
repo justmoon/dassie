@@ -1,0 +1,27 @@
+[package]
+name = "dassie-release"
+version = "0.1.0"
+description = "What a Dassie release is and how to trust one: versions, the mirror's layout, SHA256SUMS and its minisign signature"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+# The `dassie-release` binary, which the release workflow checks with.
+tool = ["dep:sha2"]
+
+[[bin]]
+name = "dassie-release"
+required-features = ["tool"]
+
+[dependencies]
+# minisign's format is small enough to read here; its Ed25519 is the
+# dalek crate the node already signs with, and its prehash BLAKE2b-512.
+ed25519-dalek = { version = "3.0", default-features = false, features = ["fast", "zeroize"] }
+blake2 = { version = "0.11", default-features = false }
+base64 = { version = "0.22.1", default-features = false, features = ["alloc"] }
+sha2 = { version = "0.11", default-features = false, optional = true }
+
+[dev-dependencies]
+proptest = "1.12"
