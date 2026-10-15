@@ -133,18 +133,33 @@ fn the_owners_packets_are_never_charged() {
     assert_eq!(h.net_at(USD, AccountName::RevenueFees), 0);
 }
 
+// A packet too small to carry a fee passes free: rounded up, the fee
+// would take a payment's last packets whole.
 #[test]
-fn what_the_charges_take_whole_is_refused() {
+fn a_packet_too_small_for_a_fee_passes_free() {
     let mut h = harness(USD, FEE);
-    let packet = prepare("test.das.dtwo.x", 1, NOW + 20_000, [1; 32]);
-    let Outcome::Respond(length) = h.prepare(NOW, ONE, 1, &packet) else {
+    let packet = prepare("test.das.dtwo.x", 99, NOW + 20_000, [1; 32]);
+    let sent = forwarded(h.prepare(NOW, ONE, 1, &packet));
+    assert_eq!(amount_sent(&h, sent), 99);
+    let packet = prepare("test.das.dtwo.x", 100, NOW + 20_000, [2; 32]);
+    let sent = forwarded(h.prepare(NOW, ONE, 2, &packet));
+    assert_eq!(amount_sent(&h, sent), 99);
+    // Nothing that moves no money is charged.
+    let packet = prepare("test.das.dtwo.x", 0, NOW + 20_000, [3; 32]);
+    let sent = forwarded(h.prepare(NOW, ONE, 3, &packet));
+    assert_eq!(amount_sent(&h, sent), 0);
+}
+
+// What converts to nothing is refused: half an XRP unit is no dollar unit.
+#[test]
+fn what_converts_to_nothing_is_refused() {
+    let mut h = harness(XRP, FEE);
+    h.fund(USD, TRUST);
+    let packet = prepare("test.das.done.x", 1, NOW + 20_000, [1; 32]);
+    let Outcome::Respond(length) = h.prepare(NOW, TWO, 1, &packet) else {
         panic!("forwarded");
     };
     assert_eq!(h.reject_written(length).0, ErrorCode::F02_UNREACHABLE);
-    // Nothing that moves no money is charged.
-    let packet = prepare("test.das.dtwo.x", 0, NOW + 20_000, [1; 32]);
-    let sent = forwarded(h.prepare(NOW, ONE, 2, &packet));
-    assert_eq!(amount_sent(&h, sent), 0);
 }
 
 #[test]

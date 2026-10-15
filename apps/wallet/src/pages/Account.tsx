@@ -1,6 +1,7 @@
 /**
  * Home (spec 6 §1.6.4): the payment pointer, and the owner's balance on
- * each ledger in its own currency (UI-2), as it changes.
+ * each ledger in its own currency (UI-2), as it changes, with the total in
+ * the display currency (D6) while the rates allow.
  */
 
 import type { JSX } from "@solidjs/web";
@@ -49,6 +50,18 @@ export function Account(): JSX.Element {
             )}
           </For>
         </ul>
+        <Show when={data.total()}>
+          {(total) => (
+            <p class="muted">
+              In all:{" "}
+              <Amount
+                value={total().amount}
+                currency={ledgerCurrency(total())}
+                testid="balance-total"
+              />
+            </p>
+          )}
+        </Show>
         <div class="actions">
           <Link href="/send" class="button primary" testid="send-button">
             Send

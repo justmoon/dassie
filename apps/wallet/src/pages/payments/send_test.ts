@@ -4,9 +4,19 @@ import {
   lapseText,
   looksLikeRecipient,
   progress,
+  quoteAmount,
   recipientName,
   stateText,
 } from "./send.ts";
+
+Deno.test("the amount of a quote is what is fixed, or none", () => {
+  assertEquals(quoteAmount("receive", 5n), {
+    case: "receiveAmount",
+    value: 5n,
+  });
+  assertEquals(quoteAmount("send", 5n), { case: "debitAmount", value: 5n });
+  assertEquals(quoteAmount("send", undefined), { case: undefined });
+});
 
 Deno.test("a recipient is named by its name and pointer, or its pointer", () => {
   const address = "https://wallet.example/.well-known/pay";

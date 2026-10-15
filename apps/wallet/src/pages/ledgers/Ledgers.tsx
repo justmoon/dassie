@@ -1,4 +1,5 @@
-/** Ledgers (spec 6 §1.6.7): each active ledger, with its balances. */
+/** Ledgers (spec 6 §1.6.7): each active ledger, with its balances, and
+ * the exchange rates the node converts at, with their age (D7). */
 
 import type { JSX } from "@solidjs/web";
 import { For, Show } from "solid-js";
@@ -8,6 +9,7 @@ import { Qr } from "@dassie/ui/qr";
 import { Link } from "@dassie/ui/router";
 import { Card, CopyButton, LiveNote, PageTitle } from "@dassie/ui/ui";
 import { schemeName } from "../schemes.ts";
+import { ageText, rateText } from "../settings/rates.ts";
 import { connectionText } from "./connection.ts";
 
 export function Ledgers(): JSX.Element {
@@ -97,6 +99,30 @@ export function Ledgers(): JSX.Element {
           + Add Ledger
         </Link>
       </div>
+      <Show when={data.rates().some((rate) => rate.assetCode !== "USD")}>
+        <Card title="Exchange Rates" testid="rates">
+          <ul>
+            <For
+              each={data.rates().filter((rate) => rate.assetCode !== "USD")}
+            >
+              {(rate) => (
+                <li
+                  data-testid={`rate-${rate.assetCode}`}
+                  data-stale={rate.stale ? "yes" : "no"}
+                >
+                  {rateText(rate.assetCode, rate.perUsd)}{" "}
+                  <span class="muted">
+                    ({ageText(rate.asOfUnixMs, Date.now(), rate.stale)})
+                  </span>
+                </li>
+              )}
+            </For>
+          </ul>
+          <p class="muted">
+            Change their sources in <Link href="/settings">Settings</Link>.
+          </p>
+        </Card>
+      </Show>
     </div>
   );
 }

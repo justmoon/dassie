@@ -169,12 +169,13 @@ export class ScenarioNode {
   /**
    * Sets the node up as its owner would, and adds the settlement schemes in
    * `schemes` it does not have yet, each with its config in `configs`, if
-   * any. On a node set up before, it checks the node is this one and
-   * leaves the rest as it is.
+   * any; its exchange rates come from `rates`, if given. On a node set up
+   * before, it checks the node is this one and leaves the rest as it is.
    */
   async setUp(
     schemes: readonly string[],
     configs: Readonly<Record<string, string>> = {},
+    rates?: string,
   ): Promise<void> {
     const owner = this.rpc;
     const certificate = await nodeCertificate(
@@ -200,6 +201,12 @@ export class ScenarioNode {
         `${this.dir} holds another node's data`,
       );
       await this.waitForEngine();
+    }
+    if (rates) {
+      // Again on every start: the port may have moved.
+      await owner.call("setRateSources", {
+        sources: [{ kind: "coinbase", url: rates }],
+      });
     }
     const active = (await owner.call("getBasicState", {}))
       .activeSettlementSchemes;

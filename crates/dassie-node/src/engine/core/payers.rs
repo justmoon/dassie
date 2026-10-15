@@ -593,9 +593,15 @@ impl Core {
             payment.stopping = Some("the payment ran out of time".into());
         }
         // One of a fixed amount to deliver also ends once the receiver has
-        // it, which a hop that lost a packet may have paid for (D17).
-        let done = sent == payment.row.debit_amount
-            || (!payment.row.fixed_debit && delivered >= payment.row.receive_amount.value);
+        // it, which a hop that lost a packet may have paid for (D17), or
+        // all of it but less than a unit sent is worth: no packet can be
+        // sized to deliver that, as the hops round down.
+        let receive = payment.row.receive_amount.value;
+        let unit_worth = receive.div_ceil(payment.row.debit_amount.max(1));
+        let delivered_enough =
+            delivered >= receive || (delivered > 0 && receive - delivered <= unit_worth);
+        let done =
+            sent == payment.row.debit_amount || (!payment.row.fixed_debit && delivered_enough);
         if (done || payment.stopping.is_some())
             && let Some(connection) = payment.connection.as_mut()
         {

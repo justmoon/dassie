@@ -190,4 +190,86 @@ async fn dollars_arrive_as_xrp() {
         usd_a - i64::try_from(paid).unwrap()
     );
     assert_eq!(owner_balance(b, XRP_LEDGER).await, xrp_b);
+
+    // B's source goes quiet for over an hour: its XRP rate is stale, and
+    // B refuses what would need it with T00 (D7). The rate cannot be
+    // measured, so there is no quote.
+    rates.answer(503, String::new());
+    pair.clock.advance(61 * 60 * 1_000);
+    until(&pair.clock, async || {
+        ledgers(b)
+            .await
+            .rates
+            .iter()
+            .any(|rate| rate.asset_code == "XRP" && rate.stale)
+    })
+    .await;
+    // The hour passed at once: the peers find each other again first.
+    until(&pair.clock, async || {
+        let Ok(response::Method::ListRoutes(list)) = a
+            .ipc()
+            .await
+            .call(Method::ListRoutes(proto::ListRoutesRequest {}))
+            .await
+        else {
+            return false;
+        };
+        !list.routes.is_empty()
+    })
+    .await;
+    let seen = packets(b).await.last().and_then(|packet| packet.trace);
+    let wallet = format!("{}/pay/xrpl-testnet", b.origin());
+    let quoting = {
+        let mut owner_a = a.ipc().await;
+        tokio::spawn(async move {
+            owner_a
+                .call(Method::QuoteSend(proto::QuoteSendRequest {
+                    recipient: wallet,
+                    ledger: String::new(),
+                    amount: Some(proto::quote_send_request::Amount::ReceiveAmount(RECEIVE)),
+                    note: String::new(),
+                }))
+                .await
+        })
+    };
+    // The probe's timers run on the nodes' clock.
+    while !quoting.is_finished() {
+        pair.clock.advance(500);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let refused = quoting.await.unwrap().unwrap_err();
+    assert_eq!(refused.code(), proto::ErrorCode::Unavailable, "{refused:?}");
+    let probes = packets_after(b, seen).await;
+    assert!(
+        probes.iter().any(|packet| packet.reject_code == "T00"),
+        "{probes:?}"
+    );
+}
+
+/// B's packet trace, oldest first: its last thousand packets.
+async fn packets(node: &TestNode) -> Vec<proto::Packet> {
+    packets_after(node, None).await
+}
+
+async fn packets_after(node: &TestNode, after: Option<proto::TraceId>) -> Vec<proto::Packet> {
+    let mut all = Vec::new();
+    let mut after = after;
+    loop {
+        let Ok(response::Method::ListPackets(page)) = node
+            .ipc()
+            .await
+            .call(Method::ListPackets(proto::ListPacketsRequest {
+                after,
+                limit: 1_000,
+            }))
+            .await
+        else {
+            panic!("no packets")
+        };
+        let Some(last) = page.packets.last() else {
+            return all;
+        };
+        after = last.trace;
+        all.extend(page.packets);
+    }
 }

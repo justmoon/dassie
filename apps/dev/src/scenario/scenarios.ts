@@ -23,8 +23,6 @@ export interface ScenarioDef {
   readonly unavailable?: string;
 }
 
-const RATES = "needs exchange rates (M7c)";
-
 export const SCENARIOS: readonly ScenarioDef[] = [
   {
     id: "two-nodes",
@@ -60,7 +58,6 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     schemes: [["stub"], ["stub", "xrpl-testnet"], ["xrpl-testnet"]],
     addedSchemes: ["stub"],
     bootstrap: [0, 1],
-    unavailable: RATES,
   },
   {
     id: "one-node",

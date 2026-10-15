@@ -1,6 +1,8 @@
 /**
  * Settings (spec 6 §1.6.12): the wallet and logging out, the theme, the
- * node's alias, the owner's sessions, and the BTP tokens with their caps.
+ * node's alias, peers' grace limit and what transit is charged, exchange
+ * rates and the display currency, the owner's sessions, and the BTP
+ * tokens with their caps.
  */
 
 import type { JSX } from "@solidjs/web";
@@ -22,6 +24,8 @@ import {
 } from "@dassie/ui/ui";
 import type { ThemeSetting } from "@dassie/ui/theme";
 import { ApiKeys } from "./ApiKeys.tsx";
+import { RateSettings } from "./RateSettings.tsx";
+import { chargeText, parseCharge } from "./rates.ts";
 import { parseShare, shareText } from "../network/grace.ts";
 
 export function Settings(): JSX.Element {
@@ -34,6 +38,7 @@ export function Settings(): JSX.Element {
           <Appearance />
           <NodeSettings />
           <PeerSettings />
+          <RateSettings />
         </div>
         <div class="stack">
           <Sessions />
@@ -170,7 +175,8 @@ function NodeSettings(): JSX.Element {
   );
 }
 
-/** The share of the credit a peer may cost before it is banned (D18). */
+/** The share of the credit a peer may cost before it is banned (D18),
+ * and what passing a packet from one peer to another is charged (D7). */
 function PeerSettings(): JSX.Element {
   const client = useClient();
   const toast = useToast();
@@ -181,10 +187,16 @@ function PeerSettings(): JSX.Element {
     return (await client.call("getPeerSettings", {})).settings;
   });
   const [share, setShare] = createSignal<string>();
+  const [fee, setFee] = createSignal<string>();
+  const [spread, setSpread] = createSignal<string>();
   const [error, setError] = createSignal<string>();
   const shown = () =>
     share() ??
       (settings() ? shareText(settings()!.graceSharePpm).replace("%", "") : "");
+  const shownFee = () =>
+    fee() ?? (settings() ? chargeText(settings()!.connectorFeePpm) : "");
+  const shownSpread = () =>
+    spread() ?? (settings() ? chargeText(settings()!.fxSpreadPpm) : "");
   const save = async (event: SubmitEvent) => {
     event.preventDefault();
     setError(undefined);
@@ -193,12 +205,26 @@ function PeerSettings(): JSX.Element {
       setError("A share is more than 0% and at most 1000%.");
       return;
     }
+    const [feePpm, spreadPpm] = [
+      parseCharge(shownFee()),
+      parseCharge(shownSpread()),
+    ];
+    if (feePpm === undefined || spreadPpm === undefined) {
+      setError("A fee or a spread is at most 10%.");
+      return;
+    }
     try {
       await client.call("setPeerSettings", {
-        settings: { graceSharePpm: ppm },
+        settings: {
+          graceSharePpm: ppm,
+          connectorFeePpm: feePpm,
+          fxSpreadPpm: spreadPpm,
+        },
       });
-      toast({ title: "Grace limit saved" });
+      toast({ title: "Peer settings saved" });
       setShare(undefined);
+      setFee(undefined);
+      setSpread(undefined);
       setVersion((n) => n + 1);
     } catch (failure) {
       setError(describe(failure));
@@ -218,6 +244,32 @@ function PeerSettings(): JSX.Element {
             inputmode="decimal"
             value={shown()}
             onInput={(event) => setShare(event.currentTarget.value)}
+          />
+        </Field>
+        <Field
+          label="Fee (% of what passes)"
+          for={`${id}-fee`}
+          hint="Charged on what you pass from one peer to another, never on your own payments."
+        >
+          <input
+            id={`${id}-fee`}
+            data-testid="connector-fee-input"
+            inputmode="decimal"
+            value={shownFee()}
+            onInput={(event) => setFee(event.currentTarget.value)}
+          />
+        </Field>
+        <Field
+          label="Spread (% of what is converted)"
+          for={`${id}-spread`}
+          hint="Kept from what you convert from one currency to another for peers."
+        >
+          <input
+            id={`${id}-spread`}
+            data-testid="fx-spread-input"
+            inputmode="decimal"
+            value={shownSpread()}
+            onInput={(event) => setSpread(event.currentTarget.value)}
           />
         </Field>
         <div class="actions">

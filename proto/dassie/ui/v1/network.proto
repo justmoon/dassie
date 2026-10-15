@@ -247,7 +247,7 @@ message PeerSettings {
   // 10 000 000 (ten times the credit).
   uint32 grace_share_ppm = 1;
   // The fee on what passes from one peer to another, in parts per million
-  // of what comes in, rounded up: 0 to 100 000 (10%).
+  // of what comes in, rounded down: 0 to 100 000 (10%).
   uint32 connector_fee_ppm = 2;
   // The spread on what such a packet converts, in parts per million of
   // what goes out: 0 to 100 000.

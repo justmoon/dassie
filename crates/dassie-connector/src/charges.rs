@@ -8,7 +8,11 @@ const MILLION: u128 = 1_000_000;
 /// or from the node's own endpoints are never charged.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Charges {
-    /// The fee, taken from the incoming amount, rounded up.
+    /// The fee, taken from the incoming amount, rounded down: a packet too
+    /// small to carry one passes free, which splitting a payment into such
+    /// packets to avoid fees costs more in packets than it saves. Rounded
+    /// up, the fee would take a payment's last packets whole, and strand
+    /// it short of its amount.
     pub fee_ppm: u32,
     /// The spread, taken from a converted amount, rounded down.
     pub spread_ppm: u32,
@@ -31,13 +35,14 @@ impl Charges {
         self.fee_ppm <= Self::MAX_PPM && self.spread_ppm <= Self::MAX_PPM
     }
 
-    /// The fee on `amount`: `ceil(amount × fee_ppm / 10^6)`, never more
+    /// The fee on `amount`: `floor(amount × fee_ppm / 10^6)`, never more
     /// than `amount`.
     #[must_use]
     pub fn fee(&self, amount: u64) -> u64 {
         let product = u128::from(amount) * u128::from(self.fee_ppm);
-        let fee = product.div_ceil(MILLION);
-        u64::try_from(fee).unwrap_or(amount).min(amount)
+        u64::try_from(product / MILLION)
+            .unwrap_or(amount)
+            .min(amount)
     }
 
     /// What is left of a converted `amount` after the spread:
@@ -55,16 +60,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_fee_rounds_up_and_the_spread_down() {
+    fn both_round_down() {
         let charges = Charges {
             fee_ppm: 1_000,
             spread_ppm: 2_500,
         };
         assert_eq!(charges.fee(0), 0);
-        assert_eq!(charges.fee(1), 1);
+        assert_eq!(charges.fee(1), 0);
+        assert_eq!(charges.fee(999), 0);
         assert_eq!(charges.fee(1_000), 1);
-        assert_eq!(charges.fee(1_001), 2);
-        assert_eq!(charges.fee(u64::MAX), u64::MAX.div_ceil(1_000));
+        assert_eq!(charges.fee(1_999), 1);
+        assert_eq!(charges.fee(u64::MAX), u64::MAX / 1_000);
         assert_eq!(charges.after_spread(0), 0);
         assert_eq!(charges.after_spread(1), 0);
         assert_eq!(charges.after_spread(1_000), 997);
