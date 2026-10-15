@@ -25,8 +25,12 @@ pub mod rpc;
 pub mod store;
 pub mod tls;
 
-/// The version of this build.
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// The version of this build: the release or canary it was built as
+/// (`DASSIE_VERSION`, set by the release build), or the crate's.
+pub const VERSION: &str = match option_env!("DASSIE_VERSION") {
+    Some(version) => version,
+    None => env!("CARGO_PKG_VERSION"),
+};
 pub mod daemon;
 pub mod engine;
 #[cfg(feature = "testing")]

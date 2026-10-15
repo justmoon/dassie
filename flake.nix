@@ -1,7 +1,7 @@
 {
   # Builds and checks for the Dassie rewrite (spec D14). Plain `cargo` and
   # `deno task` work locally as well; this flake pins the toolchain for CI
-  # and, from M8, release builds.
+  # and makes the releases (nix/release.nix).
   description = "Dassie: a multi-currency, peer-to-peer, Interledger-enabled payment network";
 
   inputs = {
@@ -77,8 +77,9 @@
             };
 
           # The Rust workspace, with the golden vectors the tests read, the
-          # RPC contract dassie-node generates its messages from, and the
-          # test certificates two in-process daemons peer with.
+          # RPC contract dassie-node generates its messages from, the test
+          # certificates two in-process daemons peer with, and minisign's
+          # signatures with the release test key.
           src = lib.fileset.toSource {
             root = ./.;
             fileset = lib.fileset.unions [
@@ -88,13 +89,14 @@
               ./crates
               ./proto
               ./testdata/pebble
+              ./testdata/release
             ];
           };
 
           # The checks build with the ci profile (Cargo.toml), as a local
           # `cargo test` does. crane's default, release, gives every test
           # binary fat LTO and one codegen unit, which took the tests minutes
-          # to link. Release builds (M8) will set their own profile.
+          # to link. The release builds use release (nix/release.nix).
           common = {
             inherit src;
             pname = "dassie";
@@ -142,12 +144,29 @@
               '';
             }
           );
+
+          # The release builds (nix/release.nix), made on x86_64-linux only.
+          release = lib.optionalAttrs (system == "x86_64-linux") (
+            import ./nix/release.nix {
+              inherit
+                lib
+                pkgs
+                nixpkgs
+                rust-overlay
+                crane
+                self
+                src
+                identity-wasm
+                ;
+            }
+          );
         in
         {
           packages = {
             inherit identity-wasm wasm-bindgen;
             default = identity-wasm;
-          };
+          }
+          // (release.packages or { });
 
           checks = {
             cargo-fmt = craneLib.cargoFmt {
@@ -181,7 +200,8 @@
               }
             );
             inherit identity-wasm;
-          };
+          }
+          // (release.checks or { });
 
           devShells.default = pkgs.mkShell {
             packages = [
@@ -196,6 +216,8 @@
               # The dev environment's and the scenarios' certificates
               # (apps/dev).
               pkgs.mkcert
+              # Signing releases (scripts/release.ts).
+              pkgs.minisign
               # For regenerating the golden vectors (testdata/original).
               pkgs.nodejs
               pkgs.pnpm
