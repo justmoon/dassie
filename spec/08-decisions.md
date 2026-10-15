@@ -233,6 +233,8 @@ Revised on 2026-10-14; it first served SPSP and deferred GNAP, quotes and outgoi
 - **Facts:** bundles are unsigned. `meta/latest` is plain text. The updater does not check HTTP status (RT-18, UI-11). Releases are uploaded by hand (UI-12).
 - **Decision:**
   - Each release publishes `SHA256SUMS` and a minisign signature. The public key is compiled into the binary and printed in the install script. (Rejected: Sigstore, whose verification needs the network or a bundled trust root and is heavier to embed.)
+  - The signature's trusted comment is `dassie <version>`, and both are checked: the signed sums of an old release, served under a new version's path, are refused ([7 §4.8](07-rewrite.md#48-releases)).
+  - The release key's secret half is a repository secret that only the release workflow reads. The workflow verifies what it signed with `resources/minisign.pub` before it uploads, so a release signed with another key never reaches the mirror.
   - The installer and the updater verify before extracting.
   - The symlink swap is atomic (`rename`).
   - CI builds and publishes releases, reproducibly through the Nix flake of D14.
@@ -284,6 +286,8 @@ Revised on 2026-10-14; it first served SPSP and deferred GNAP, quotes and outgoi
 ### D14. Build system
 
 - **Decision:** follow Vorstand: Nix flake for CI builds and release artifacts, plain `cargo` and `deno task` locally.
+  - The binaries are cross-compiled from x86_64-linux with nixpkgs' musl toolchains, so one builder makes both platforms.
+  - The wallet is built in the sandbox too, from a fixed-output derivation of its npm packages ([7 §4.8](07-rewrite.md#48-releases)).
 - **Rejected:** GitHub Actions with `cargo-zigbuild` or `cross` for musl x64/arm64, which gives no reproducible builds by default.
 
 ### D15. Bootstrap network for v1

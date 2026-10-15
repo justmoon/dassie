@@ -68,6 +68,7 @@ crates/
   dassie-node-core/     the node's decisions without IO: config, setup, sessions, rate limits, ACME/TLS policy
   dassie-node/          daemon composition: config, DB, HTTP(S)/IPC listeners, TLS, ACME, auth, RPC
   dassie-cli/           the `dassie` binary: daemon | init | update | verify-install
+  dassie-release/       versions, channels, the mirror's layout, SHA256SUMS and its minisign signature (sans-IO)
 proto/
   dassie/ui/v1/         UI and CLI RPC contract (normative; Rust and TS generated from it)
   dassie/dev/v1/        dev-environment control contract
@@ -82,6 +83,9 @@ packages/
   identity-wasm/        wasm-bindgen output of dassie-identity / dassie-stream for Deno + browser
 resources/
   systemd/  installer/  launcher-less (the binary is the entry point)
+  minisign.pub          the release key the binaries and the installer trust (D11)
+nix/release.nix         the release builds: wallet, static binaries, bundles, the mirror tree (§4.8)
+scripts/release.ts      signs a built release for the mirror
 ```
 
 ### 3.2 Original package → new home
@@ -518,6 +522,39 @@ settle balance − midpoint when balance ≥ midpoint · 1.1; on termination, se
 | Settlement message retries | 1 s doubling to 1 h, never dropped (1 s to 10 s) |
 | Request body | 64 KiB |
 
+### 4.8 Releases
+
+A release is one static binary per platform, with the wallet built in ([D11](08-decisions.md#d11-release-integrity), [D14](08-decisions.md#d14-build-system)).
+
+**The build** (`nix/release.nix`, on x86_64-linux):
+- **The wallet** is built by Vite in the Nix sandbox, offline. Its npm packages and JSR modules come from one fixed-output derivation: `deno install --frozen --vendor` lays out `node_modules/` and `vendor/`, the same bytes from run to run (Deno's own cache, with each response's headers, is left behind). A change to `deno.lock` changes its hash.
+- **The binary** is `dassie-cli` in the `release` profile (fat LTO), statically linked against musl, for `x86_64-unknown-linux-musl` and, cross-compiled, `aarch64-unknown-linux-musl`. It embeds the wallet (`DASSIE_WALLET_DIST`) and its version (`DASSIE_VERSION`).
+- **The check** `static-binaries` (`nix flake check`) confirms that both are static, name their version, and pass `verify-install`, the arm64 one under qemu.
+
+**Versions and channels** (`dassie-release`):
+- A release is `major.minor.patch`, dassie-cli's version, published on `latest`.
+- A canary is `canary-YYYY-MM-DD-<commit>`, the day and short hash of the commit it is built from, published on `canary`.
+- A version names a directory on the mirror and in `/opt/dassie`, so only these two shapes parse: digits, lowercase letters, dots and dashes, at most 64 bytes.
+
+**The mirror** keeps the original's paths (§2), plus the signature:
+
+```
+meta/latest                                  the newest release, no newline
+meta/canary                                  the newest canary
+<version>/dassie-<version>-linux-x64.tar.gz  and .tar.xz, and the same for arm64
+<version>/SHA256SUMS                         as sha256sum writes it
+<version>/SHA256SUMS.minisig                 minisign, trusted comment "dassie <version>"
+```
+
+- **A bundle** holds `dassie/bin/dassie`, which becomes `/opt/dassie/<version>/bin/dassie`. Its archives are the same bytes for the same input: sorted, with fixed times and owners.
+- **The signature** is minisign's default, Ed25519 over the BLAKE2b-512 of `SHA256SUMS`. Its trusted comment names the version, so the signed sums of one release cannot pass for another's. Legacy signatures (of the file itself) are refused.
+- **`dassie-release` verifies it** with `ed25519-dalek`'s strict verification, and parses `SHA256SUMS` only once the signature holds. Every parser there is bounded: a version at most 64 bytes, a signature at most 1 KiB, `SHA256SUMS` at most 4 KiB and 16 lines of plain file names.
+
+**Publishing** (`.github/workflows/release.yml`):
+- Every push to the main branch builds a canary, and every tag `v<version>` a release, whose version must be the tag's.
+- `scripts/release.ts` checks each bundle against `SHA256SUMS`, signs it with the release key (a repository secret), and verifies the signature with `resources/minisign.pub`, the key the binaries trust, before anything is uploaded.
+- The upload goes to the bucket behind `get.dassie.land`, through workload identity. A version's files are uploaded once and cached for good; `meta/<channel>` goes last, uncached, so it names a version only once its files are there.
+
 ## 5. Wallet and dashboard (Solid 2)
 
 - Same pages, flows and copy as [6 §1.5–§1.6](06-user-interfaces-and-tooling.md), with the listed UI gaps fixed (UI-1 to UI-8). In particular:
@@ -603,5 +640,5 @@ Every crate is written so that a simulation can drive it ([D16](08-decisions.md#
 | M5 | Wallet (Solid 2) and dev environment (Deno) with dashboard, including BTP token spending caps. Delivered in two PRs: **M5a** (the node's live streams and inspectors, `GET /stats`, spending caps, every wallet page) and **M5b** (`deno task dev`, the dev dashboard, `packages/ui`) | All pages of [6 §1.6](06-user-interfaces-and-tooling.md) but Send and payment status work against M4. `deno task dev` brings up any scenario that M4 can run (the XRPL ones come with M7). |
 | M6 | Open Payments ([D9](08-decisions.md#d9-open-payments-fully-and-no-spsp)): wallet addresses, GNAP, incoming payments, quotes, outgoing payments, and the wallet's Send, payment status and grant pages. Delivered in three PRs: **M6a** (`dassie-payments`, HTTP message signatures, non-interactive grants, wallet addresses, incoming payments, Receive and Activity), **M6b** (quotes, outgoing payments, grant limits, interactive grants with the owner's consent, token management, and reading incoming payments on other nodes to pay them) and **M6c** (creating incoming payments on other wallets, payment pointers as input, Send and payment status) | Two nodes pay each other through Open Payments, and the reference client runs the full third-party flow against a node. M6a stops at the reference client paying into an incoming payment, with state and books exact. M6b stops at the reference client's full third-party flow from one node to another, with consent given in the wallet. M6c closes it: two nodes pay each other from the wallet's Send, to a payment pointer and to a payment request. |
 | M7 | XRPL testnet module with reserve and fee accounting; the exchange-rate fetcher of D7, fees and spread; each peer's grace limit ([D18](08-decisions.md#d18-one-grace-limit-per-peer)), before any real money. Delivered in three PRs: **M7a** (grace limits, automatic bans, and the owner's group taking in what the node gains or loses), **M7b** (the XRPL testnet scheme, with a fake ledger for CI and the simulation) and **M7c** (the rate fetcher, fees and spread, cross-asset quotes) | The `xrpl-settlement` and `cross-currency` scenarios settle and reconcile across restarts. A peer past its grace limit loses its peering. M7a stops at liars banned, and no honest peer banned, in the simulation; M7b at `xrpl-settlement`; M7c at `cross-currency`. |
-| M8 | Release: static binaries (x64, arm64), signed artifacts, installer, updater, systemd units | Installer and updater tests pass on Debian, Ubuntu, Fedora and CentOS images. A tampered bundle is refused. |
+| M8 | Release: static binaries (x64, arm64), signed artifacts, installer, updater, systemd units. Delivered in two PRs: **M8a** (the static binaries with the wallet, the bundles and the mirror tree, SHA256SUMS signed with minisign, the release workflow) and **M8b** (the systemd units, the installer, `dassie update`, and their tests in containers) | Installer and updater tests pass on Debian, Ubuntu, Fedora and CentOS images. A tampered bundle is refused. M8a stops at signed releases built and published by CI, verified by `dassie-release`. |
 | M9 | Website and STREAM toy | `dassie.land` builds from `apps/website`. The toy runs on `dassie-stream` WASM. |
