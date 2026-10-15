@@ -1,11 +1,12 @@
 //! Spending, whoever asks (D9): a third-party client over HTTP, with a
 //! grant, or the owner over RPC, without one.
 //!
-//! A quote reads its receiver, here or on another node, and fixes what an
-//! outgoing payment debits and delivers. Until M7 every quote is
-//! same-asset at a rate of one, so it needs no probe. An outgoing payment
-//! pays a quote of the same client, or an incoming payment with the amount
-//! to debit.
+//! A quote reads its receiver, here or on another node, measures the rate
+//! of the path to it with a probe, and fixes what an outgoing payment
+//! debits and delivers (M7c). It pays from the ledger the route to the
+//! receiver starts on, since the node's own endpoints never convert. An
+//! outgoing payment pays a quote of the same client, or an incoming
+//! payment with the amount to debit, at the rate measured then.
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -174,24 +175,87 @@ pub fn local_receiver(node: &Node, urls: &Urls, id: &str) -> Result<IncomingPaym
     })
 }
 
-/// What a payment to `receiver` debits and delivers: from the amount to
-/// debit, the amount to deliver, or what the receiver still accepts.
+/// The rate a payment from `ledger` to `receiver` is quoted at: what the
+/// path delivers per unit sent, as a probe measures it, less STREAM's
+/// slippage. One for one to the node's own receivers, which convert and
+/// charge nothing.
 ///
 /// # Errors
 ///
-/// If the assets differ, both or neither amount is named where one must
-/// be, or the amounts are zero, out of range, or more than it accepts.
+/// If there is no route to the receiver, it starts on another ledger, or
+/// the rate cannot be measured.
+pub async fn quote_rate(
+    node: &Node,
+    ledger: LedgerId,
+    receiver: &Receiver,
+) -> Result<Rate, OpError> {
+    let engine = node.engine().ok_or_else(OpError::unavailable)?;
+    let route = engine
+        .route_of(receiver.destination.clone())
+        .await
+        .map_err(|_| OpError::unavailable())?;
+    let Some((route_ledger, own)) = route else {
+        return Err(OpError::new(
+            502,
+            "unreachable",
+            "there is no route to the receiver",
+        ));
+    };
+    if route_ledger != ledger {
+        return Err(OpError::invalid(format!(
+            "pay from {route_ledger}: the route to the receiver starts there"
+        )));
+    }
+    if own {
+        return Ok(Rate::ONE);
+    }
+    let measured = engine
+        .probe(ledger, receiver.destination.clone(), receiver.shared_secret)
+        .await
+        .map_err(|error| match error {
+            crate::engine::EngineError::Exhausted(message) => {
+                OpError::new(429, "too_many_requests", message)
+            }
+            _ => OpError::unavailable(),
+        })?
+        .ok_or_else(|| {
+            OpError::new(
+                502,
+                "unreachable",
+                "the rate to the receiver could not be measured",
+            )
+        })?
+        .with_slippage(dassie_stream::Policy::DEFAULT.slippage_permille);
+    if measured.is_zero() {
+        return Err(OpError::new(
+            502,
+            "unreachable",
+            "the path to the receiver delivers nothing",
+        ));
+    }
+    Ok(Rate {
+        destination: measured.numerator(),
+        source: measured.denominator(),
+    })
+}
+
+/// What a payment to `receiver` from `ledger` debits and delivers at
+/// `rate`: from the amount to debit, the amount to deliver, or what the
+/// receiver still accepts.
+///
+/// # Errors
+///
+/// If both or neither amount is named where one must be, an amount is in
+/// the wrong asset, or the amounts are zero, out of range, or more than
+/// it accepts.
 pub fn amounts(
     ledger: LedgerId,
     receiver: &Receiver,
+    rate: Rate,
     debit: Option<&Amount>,
     receive: Option<&Amount>,
 ) -> Result<(u64, u64), OpError> {
     let asset = ledger.asset();
-    if receiver.asset_code != asset.code || receiver.asset_scale != asset.scale {
-        return Err(OpError::invalid("payments across assets come with M7"));
-    }
-    let rate = Rate::ONE;
     let (debit, receive) = match (debit, receive) {
         (Some(_), Some(_)) => {
             return Err(OpError::invalid(
@@ -246,6 +310,8 @@ pub struct NewQuote {
     pub receive: u64,
     /// The wallet address it pays, when the owner named one.
     pub recipient: Option<String>,
+    /// Whether it fixes what is sent.
+    pub fixed_debit: bool,
 }
 
 /// Stores a quote: payable for [`QUOTE_LIFETIME_MS`], or until its
@@ -277,6 +343,7 @@ pub fn insert_quote(node: &Node, urls: &Urls, new: NewQuote) -> Result<QuoteRow,
             .expires_at_ms
             .map_or(lifetime, |at| at.min(lifetime)),
         recipient: new.recipient,
+        fixed_debit: new.fixed_debit,
     };
     if !node.store().insert_quote(&row, now)? {
         return Err(OpError::new(
@@ -326,14 +393,16 @@ pub fn from_quote(
         receive_amount: quote.receive_amount,
         metadata: None,
         recipient: quote.recipient,
+        fixed_debit: quote.fixed_debit,
     })
 }
 
-/// An outgoing payment that pays an incoming payment, debiting `debit`.
+/// An outgoing payment that pays an incoming payment, debiting `debit`,
+/// at the rate measured now.
 ///
 /// # Errors
 ///
-/// As [`receiver`] and [`amounts`].
+/// As [`receiver`], [`quote_rate`] and [`amounts`].
 pub async fn from_incoming(
     node: &Node,
     urls: &Urls,
@@ -342,7 +411,8 @@ pub async fn from_incoming(
     debit: &Amount,
 ) -> Result<NewOutgoing, OpError> {
     let receiver = receiver(node, urls, incoming).await?;
-    let (debit, receive) = amounts(ledger, &receiver, Some(debit), None)?;
+    let rate = quote_rate(node, ledger, &receiver).await?;
+    let (debit, receive) = amounts(ledger, &receiver, rate, Some(debit), None)?;
     Ok(NewOutgoing {
         ledger,
         wallet_address: urls.wallet_address(ledger, false),
@@ -360,5 +430,6 @@ pub async fn from_incoming(
         },
         metadata: None,
         recipient: None,
+        fixed_debit: true,
     })
 }

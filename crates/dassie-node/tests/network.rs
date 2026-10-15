@@ -407,7 +407,7 @@ impl Sim {
                 );
             }
             Output::Btp { link, message } => self.deliver_to_client(index, link, message),
-            Output::Trace(_) => {}
+            Output::Trace(_) | Output::ProbeDone { .. } => {}
             Output::LedgerConnect { epoch, .. } => self.ledger_connect(index, epoch),
             Output::LedgerClose { epoch, .. } => {
                 if self
@@ -768,6 +768,7 @@ impl Sim {
                     },
                     metadata: None,
                     recipient: Some(format!("https://n{to}.test/.well-known/pay")),
+                    fixed_debit: false,
                 })
                 .unwrap();
             outgoing = Some(created.row.id);
@@ -1645,6 +1646,7 @@ fn outgoing_payments_refuse_what_their_rows_cannot_hold() {
                 },
                 metadata: None,
                 recipient: None,
+                fixed_debit: false,
             });
             refusals.push(created.is_err());
         });

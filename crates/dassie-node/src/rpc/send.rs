@@ -22,12 +22,14 @@ use super::RpcError;
 use super::handlers::{Items, Reply};
 use super::live::{self, Follow, Source};
 use super::payments::outgoing;
+use super::proto::quote_send_request::Amount as Amount_;
 use super::proto::{self, request::Method, response, stream_item};
 use crate::engine::{Engine, NewIncoming};
 use crate::node::Node;
 use crate::open_payments::client::{self, ClientError};
 use crate::open_payments::spending::{self, NewQuote, Receiver};
 use crate::open_payments::{Urls, WELL_KNOWN_PATH, WalletAddresses};
+
 use crate::store::PaymentId;
 
 /// How long the incoming payment a Send creates accepts money: the quote's
@@ -253,36 +255,23 @@ async fn wallet(node: &Node, urls: &Urls, url: &str) -> Result<Wallet, RpcError>
     })
 }
 
-/// The ledger to pay `wallet` from: the one named, or the default if it is
-/// in the wallet's asset, or else the first that is.
-async fn ledger_for(node: &Node, named: &str, wallet: &Wallet) -> Result<LedgerId, RpcError> {
-    let addresses = WalletAddresses::of(node)
-        .await
-        .map_err(|_| RpcError::unavailable("the ledgers are not running"))?;
-    let fits = |ledger: &LedgerId| {
-        let asset = ledger.asset();
-        asset.code == wallet.asset_code && asset.scale == wallet.asset_scale
-    };
-    if !named.is_empty() {
-        let ledger = LedgerId::parse(named)
-            .filter(|ledger| addresses.ledgers.contains(ledger))
-            .ok_or_else(|| RpcError::precondition("the ledger is not active"))?;
-        return if fits(&ledger) {
-            Ok(ledger)
-        } else {
-            Err(RpcError::invalid("payments across assets come with M7"))
-        };
+/// The ledger to pay `receiver` from: the one the route to it starts on,
+/// since the node's own endpoints never convert. One named must be it.
+async fn ledger_for(
+    engine: &Engine,
+    named: &str,
+    receiver: &Receiver,
+) -> Result<LedgerId, RpcError> {
+    let (ledger, _) = engine
+        .route_of(receiver.destination.clone())
+        .await?
+        .ok_or_else(|| RpcError::precondition("there is no route to the recipient"))?;
+    if !named.is_empty() && named != ledger.as_str() {
+        return Err(RpcError::invalid(format!(
+            "pay from {ledger}: the route to the recipient starts there"
+        )));
     }
-    addresses
-        .default
-        .filter(fits)
-        .or_else(|| addresses.ledgers.iter().copied().find(fits))
-        .ok_or_else(|| {
-            RpcError::invalid(format!(
-                "no active ledger is in {}; payments across assets come with M7",
-                wallet.asset_code
-            ))
-        })
+    Ok(ledger)
 }
 
 /// Quotes a payment, creating the incoming payment at a wallet address
@@ -297,7 +286,7 @@ async fn quote(
         return Err(RpcError::invalid("the note is too long"));
     }
     let found = find(node, urls, &request.recipient).await?;
-    let ledger = ledger_for(node, &request.ledger, &found.wallet).await?;
+    let (debit_amount, receive_amount) = fixed_amounts(request.amount)?;
     let (receiver_url, receiver) = match &found.request {
         Some((url, payment)) => {
             if !request.note.is_empty() {
@@ -308,20 +297,31 @@ async fn quote(
             (url.clone(), spending::receiver_of(node, payment.clone())?)
         }
         None => {
-            let amount = request
-                .amount
-                .ok_or_else(|| RpcError::invalid("name an amount"))?;
-            if amount == 0 || amount > dassie_ledger::MAX_TOTAL {
-                return Err(RpcError::invalid("the amount is out of range"));
+            if debit_amount.is_none() && receive_amount.is_none() {
+                return Err(RpcError::invalid("name an amount"));
             }
-            create_receiver(node, engine, urls, &found.wallet, amount, &request.note).await?
+            // What is sent buys what it buys: the incoming payment takes
+            // any amount then.
+            create_receiver(
+                node,
+                engine,
+                urls,
+                &found.wallet,
+                receive_amount,
+                &request.note,
+            )
+            .await?
         }
     };
+    let ledger = ledger_for(engine, &request.ledger, &receiver).await?;
+    let rate = spending::quote_rate(node, ledger, &receiver).await?;
     let wallet = &found.wallet;
-    let receive = request
-        .amount
-        .map(|value| Amount::new(value, &wallet.asset_code, wallet.asset_scale));
-    let (debit, receive) = spending::amounts(ledger, &receiver, None, receive.as_ref())?;
+    let asset = ledger.asset();
+    let debit = debit_amount.map(|value| Amount::new(value, asset.code, asset.scale));
+    let receive =
+        receive_amount.map(|value| Amount::new(value, &wallet.asset_code, wallet.asset_scale));
+    let (debit, receive) =
+        spending::amounts(ledger, &receiver, rate, debit.as_ref(), receive.as_ref())?;
     let row = spending::insert_quote(
         node,
         urls,
@@ -333,9 +333,9 @@ async fn quote(
             debit,
             receive,
             recipient: Some(wallet.url.clone()),
+            fixed_debit: debit_amount.is_some(),
         },
     )?;
-    let asset = ledger.asset();
     Ok(proto::SendQuote {
         id: row.id.to_string(),
         ledger: ledger.as_str().into(),
@@ -353,14 +353,31 @@ async fn quote(
     })
 }
 
+/// The amount to send and the amount to deliver, at most one of them.
+fn fixed_amounts(amount: Option<Amount_>) -> Result<(Option<u64>, Option<u64>), RpcError> {
+    let (debit, receive) = match amount {
+        Some(Amount_::DebitAmount(value)) => (Some(value), None),
+        Some(Amount_::ReceiveAmount(value)) => (None, Some(value)),
+        None => (None, None),
+    };
+    if [debit, receive]
+        .into_iter()
+        .flatten()
+        .any(|value| value == 0 || value > dassie_ledger::MAX_TOTAL)
+    {
+        return Err(RpcError::invalid("the amount is out of range"));
+    }
+    Ok((debit, receive))
+}
+
 /// Creates the incoming payment a Send pays, at `wallet`, expecting
-/// `amount`, with the note as its description.
+/// `amount` or any, with the note as its description.
 async fn create_receiver(
     node: &Node,
     engine: &Engine,
     urls: &Urls,
     wallet: &Wallet,
-    amount: u64,
+    amount: Option<u64>,
     note: &str,
 ) -> Result<(String, Receiver), RpcError> {
     let expires_at_ms = node.now_ms() + SEND_RECEIVER_LIFETIME_MS;
@@ -375,7 +392,7 @@ async fn create_receiver(
                 ledger,
                 wallet_address: urls.wallet_address(ledger, false),
                 client: None,
-                incoming_amount: Some(amount),
+                incoming_amount: amount,
                 expires_at_ms: Some(expires_at_ms),
                 metadata: metadata.map(|metadata| serde_json::Value::Object(metadata).to_string()),
             })
@@ -390,7 +407,7 @@ async fn create_receiver(
         .remote
         .as_ref()
         .ok_or_else(|| RpcError::internal("a wallet address that is neither"))?;
-    let payment = client::create_incoming(node, remote, Some(amount), expires_at_ms, metadata)
+    let payment = client::create_incoming(node, remote, amount, expires_at_ms, metadata)
         .await
         .map_err(|error| client_error(&error))?;
     let url = payment.id.clone();

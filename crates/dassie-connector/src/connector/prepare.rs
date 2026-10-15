@@ -226,7 +226,7 @@ impl Connector {
         // Unroutable, including anything below our own address that is no
         // endpoint's and our own address itself (ILP-3, NET-34).
         let to = self
-            .next_hop(prepare.destination, source)
+            .next_hop(prepare.destination, Some(source))
             .ok_or(refuse(ErrorCode::F02_UNREACHABLE, "no route found"))?;
         let incoming_ms = prepare.expires_at.unix_ms;
         let latest_ms = incoming_ms.saturating_sub(config.message_window_ms);

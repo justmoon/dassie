@@ -605,6 +605,13 @@ CREATE TABLE rate_sources (
 
 INSERT INTO rate_sources VALUES (0, 'coinbase', NULL), (1, 'kraken', NULL), (2, 'bitstamp', NULL);
 
+-- A payment of a fixed amount to send sends all of it; one of a fixed
+-- amount to deliver stops once the receiver has it.
+ALTER TABLE quotes ADD COLUMN fixed_debit INTEGER NOT NULL DEFAULT 0
+  CHECK (fixed_debit IN (0, 1));
+ALTER TABLE outgoing_payments ADD COLUMN fixed_debit INTEGER NOT NULL DEFAULT 0
+  CHECK (fixed_debit IN (0, 1));
+
 CREATE TABLE exchange_rates (
   asset TEXT PRIMARY KEY CHECK (length(asset) BETWEEN 1 AND 8),
   -- Units of the asset one US dollar buys, times 10^15, in decimal: it may
@@ -946,6 +953,7 @@ pub const TABLES: &[Table] = &[
             ("created_at_ms", "INTEGER", true, false),
             ("expires_at_ms", "INTEGER", true, false),
             ("recipient", "TEXT", false, false),
+            ("fixed_debit", "INTEGER", true, false),
         ],
     },
     Table {
@@ -975,6 +983,7 @@ pub const TABLES: &[Table] = &[
             ("finished_at_ms", "INTEGER", false, false),
             ("revision", "INTEGER", true, false),
             ("recipient", "TEXT", false, false),
+            ("fixed_debit", "INTEGER", true, false),
         ],
     },
     Table {

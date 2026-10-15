@@ -360,7 +360,9 @@ async fn the_owner_revokes_a_grant() {
 }
 
 // A receiver on another node is read with a grant from that node's
-// authorization server, as this node's own wallet address.
+// authorization server, as this node's own wallet address. The quote then
+// measures the rate of the route to it (M7c): these nodes do not peer, so
+// there is none, and no quote.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_quote_reads_a_receiver_on_another_node() {
     let (payer, key) = start().await;
@@ -370,10 +372,13 @@ async fn a_quote_reads_a_receiver_on_another_node() {
     let target = receiver(&payee, 700).await;
     let quote = json!({ "walletAddress": host(&payer), "receiver": target, "method": "ilp" });
     let reply = post(&payer, &client, "/quotes", &token, &quote).await;
-    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.text());
-    let quote = body(&reply);
-    assert_eq!(quote["receiver"], target);
-    assert_eq!(quote["receiveAmount"], usd(700));
+    assert_eq!(reply.status, StatusCode::BAD_GATEWAY, "{}", reply.text());
+    let error = body(&reply);
+    assert_eq!(error["error"]["code"], "unreachable");
+    assert_eq!(
+        error["error"]["description"],
+        "there is no route to the receiver"
+    );
     payer.stop().await;
     payee.stop().await;
 }
@@ -432,7 +437,7 @@ async fn the_owners_quotes_and_a_clients_are_apart() {
         .call(Method::QuoteSend(proto::QuoteSendRequest {
             recipient: format!("${}", node.host()),
             ledger: String::new(),
-            amount: Some(100),
+            amount: Some(proto::quote_send_request::Amount::ReceiveAmount(100)),
             note: String::new(),
         }))
         .await

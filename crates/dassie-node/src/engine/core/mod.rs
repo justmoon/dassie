@@ -13,6 +13,7 @@ mod ledgers;
 mod packets;
 mod payers;
 mod peers;
+mod probes;
 mod schemes;
 mod settlement;
 mod tokens;
@@ -37,6 +38,7 @@ pub use ledgers::{LedgerView, RemovalBlocker};
 pub use packets::ledger_slug;
 pub use payers::{CreatedOutgoing, NewOutgoing};
 pub use peers::{NetworkView, PeerView};
+pub use probes::{MAX_PROBES, PROBE_TIMEOUT_MS};
 pub use schemes::{LedgerEvent, SCHEMES};
 pub use tokens::{BtpSession, NewToken, TokenView, token_hash};
 
@@ -135,6 +137,14 @@ pub enum Output {
         inbound: dassie_peer::InboundId,
         /// The reply.
         reply: dassie_peer::Reply,
+    },
+    /// A rate probe is done: what the path delivers per unit sent, or
+    /// nothing, when it could not be measured.
+    ProbeDone {
+        /// The probe.
+        id: u64,
+        /// What it measured.
+        rate: Option<dassie_stream::Rate>,
     },
     /// Open a settlement scheme's connection to its ledger, numbered
     /// `epoch`; what comes over it is fed back with the same epoch.
@@ -460,6 +470,7 @@ impl Core {
             finals,
             self.owed.deadline(),
             self.outgoing_deadline(),
+            self.probe_deadline(),
             grace,
             self.schemes_deadline(),
         ]
@@ -566,6 +577,14 @@ impl Core {
             self.check_outgoing();
             self.owed.check();
         }
+    }
+
+    /// The ledger a payment to `destination` goes out on, and whether it
+    /// goes to one of the node's own endpoints.
+    pub fn route_of(&self, destination: &str) -> Option<(dassie_ledger::LedgerId, bool)> {
+        self.connector
+            .first_hop(destination)
+            .map(|(hop, ledger)| (ledger, !hop.is_peer()))
     }
 
     /// The currencies of the active ledgers.

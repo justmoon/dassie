@@ -97,9 +97,11 @@ async fn create_quote(
         return Err(OpError::new(429, "too_many_requests", "slow down"));
     }
     let receiver = spending::receiver(node, urls, &body.receiver).await?;
+    let rate = spending::quote_rate(node, ledger, &receiver).await?;
     let (debit, receive) = spending::amounts(
         ledger,
         &receiver,
+        rate,
         body.debit_amount.as_ref(),
         body.receive_amount.as_ref(),
     )?;
@@ -114,6 +116,7 @@ async fn create_quote(
             debit,
             receive,
             recipient: None,
+            fixed_debit: body.debit_amount.is_some(),
         },
     )?;
     Ok(json(StatusCode::CREATED, &quote(urls, &row)))

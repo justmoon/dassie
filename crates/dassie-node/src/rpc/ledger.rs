@@ -40,6 +40,8 @@ pub async fn dispatch(node: &Arc<Node>, method: Method, items: &Items) -> Result
         }
         Method::AddSettlementScheme(request) => {
             let view = engine.add_scheme(request.id, request.config).await?;
+            // Its currency may need a rate.
+            node.wake_rates();
             response::Method::AddSettlementScheme(proto::AddSettlementSchemeResponse {
                 ledger: Some(ledger(&view)),
             })

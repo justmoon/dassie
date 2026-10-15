@@ -533,7 +533,7 @@ impl Connector {
     pub(crate) fn next_hop(
         &self,
         destination: Address<'_>,
-        source: EndpointId,
+        source: Option<EndpointId>,
     ) -> Option<EndpointId> {
         let own = Address::parse(&self.own_address).ok()?;
         if destination.has_prefix(own) {
@@ -547,7 +547,7 @@ impl Connector {
             let prefix = text.get(..end)?;
             if let Some(options) = self.routes.get(prefix) {
                 let hop = options.iter().flatten().find(|hop| {
-                    **hop != source
+                    Some(**hop) != source
                         && self
                             .endpoints
                             .get(**hop)
@@ -559,6 +559,19 @@ impl Connector {
             }
             end = prefix.rfind('.')?;
         }
+    }
+
+    /// Where a packet to `destination` from one of the node's own
+    /// endpoints would go first, and that endpoint's ledger: what such a
+    /// packet must be paid from, since the node's own endpoints never
+    /// convert.
+    #[must_use]
+    pub fn first_hop(&self, destination: &str) -> Option<(EndpointId, LedgerId)> {
+        let address = Address::parse(destination).ok()?;
+        let hop = self.next_hop(address, None)?;
+        self.endpoints
+            .get(hop)
+            .map(|endpoint| (hop, endpoint.ledger))
     }
 
     /// The routes, for inspection.

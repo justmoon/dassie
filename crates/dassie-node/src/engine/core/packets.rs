@@ -589,6 +589,7 @@ impl Core {
             self.upstream(now, upstream);
         }
         self.outgoing_timers(now);
+        self.probe_timers(now);
         let at = Timestamp::from_unix_ms(now);
         for receiver in self.receivers.values_mut() {
             for id in receiver.connections.clone() {

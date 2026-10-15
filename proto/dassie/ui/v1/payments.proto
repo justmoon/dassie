@@ -245,12 +245,19 @@ message ResolveRecipientResponse {
 message QuoteSendRequest {
   // As ResolveRecipientRequest.
   string recipient = 1;
-  // The ledger to pay from; empty for the default one if it is in the
-  // recipient's asset, or else the first that is.
+  // The ledger to pay from: the one the route to the recipient starts on,
+  // since the node's own endpoints never convert. Empty for that one;
+  // another is refused.
   string ledger = 2;
-  // What the recipient is to get, in its asset. Needed for a wallet
-  // address; for a payment request, none means what it still accepts.
-  optional uint64 amount = 3;
+  // Needed for a wallet address; for a payment request, none means what
+  // it still accepts.
+  oneof amount {
+    // What the recipient is to get, in its asset.
+    uint64 receive_amount = 3;
+    // What to send, in the ledger's asset; the recipient gets what it
+    // buys at the quote's rate.
+    uint64 debit_amount = 5;
+  }
   // For the recipient, at most 256 characters: the description of the
   // incoming payment created. Not for payment requests.
   string note = 4;
