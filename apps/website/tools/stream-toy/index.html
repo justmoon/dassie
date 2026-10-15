@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Watch a STREAM payment cross a simulated Interledger network, packet by packet."
+    />
+    <title>STREAM Toy · Dassie</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="site-main toy">
+      <h1>STREAM Toy</h1>
+      <p class="lede">
+        Watch a <a href="https://interledger.org/developers/rfcs/stream-protocol/">STREAM</a>
+        payment cross a simulated Interledger network, packet by packet. The
+        sender and receiver run Dassie's own STREAM implementation, compiled
+        to WebAssembly; the network between them is simulated in your
+        browser.
+      </p>
+      <div id="toy">
+        <noscript>The STREAM toy needs JavaScript and WebAssembly.</noscript>
+      </div>
+    </main>
+    <!-- footer -->
+    <script type="module" src="/src/toy/main.tsx"></script>
+  </body>
+</html>

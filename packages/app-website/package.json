@@ -1,7 +1,0 @@
-{
-  "name": "@dassie/website-placeholder",
-  "private": true,
-  "engines": {
-    "node": "24.x"
-  }
-}

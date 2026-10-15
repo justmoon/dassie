@@ -4,6 +4,7 @@
   "exports": {
     ".": "./mod.ts",
     "./stream": "./stream.ts",
-    "./web": "./web.ts"
+    "./web": "./web.ts",
+    "./web/stream": "./web_stream.ts"
   }
 }

@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 use dassie_oer::{Decode, Encode};
 use wasm_bindgen::prelude::*;
 
-use crate::{Address, ErrorCode, Fulfill, Packet, Prepare, Reject, Timestamp};
+use crate::{Address, AmountTooLarge, ErrorCode, Fulfill, Packet, Prepare, Reject, Timestamp};
 
 fn address(text: &str) -> Result<Address<'_>, JsError> {
     Address::parse(text).map_err(|error| JsError::new(&error.to_string()))
@@ -197,4 +197,25 @@ pub fn encode_reject(
         data,
     }
     .to_vec())
+}
+
+/// Encodes the data of an F08 Amount Too Large reject (RFC 27).
+#[wasm_bindgen(js_name = encodeAmountTooLarge)]
+#[must_use]
+pub fn encode_amount_too_large(received_amount: u64, maximum_amount: u64) -> Vec<u8> {
+    AmountTooLarge {
+        received_amount,
+        maximum_amount,
+    }
+    .to_bytes()
+    .to_vec()
+}
+
+/// Reads the data of an F08 reject as `[receivedAmount, maximumAmount]`, or
+/// nothing if it is malformed: the original sent F08 without data (ILP-4).
+#[wasm_bindgen(js_name = decodeAmountTooLarge)]
+#[must_use]
+pub fn decode_amount_too_large(data: &[u8]) -> Option<Vec<u64>> {
+    let parsed = AmountTooLarge::decode_exact(data).ok()?;
+    Some(alloc::vec![parsed.received_amount, parsed.maximum_amount])
 }
