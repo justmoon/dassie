@@ -28,6 +28,7 @@ mod payments;
 mod peer;
 #[cfg(test)]
 mod peer_tests;
+mod rates;
 mod schema;
 
 use std::fmt;
@@ -55,6 +56,7 @@ pub use payments::{
     IncomingPage, IncomingProgress, IncomingQuery, IncomingRow, MAX_OPEN_LOADED, Page, PaymentId,
     UNPAID_RETENTION_MS,
 };
+pub use rates::StoredRate;
 pub use schema::{APPLICATION_ID, V0_APPLICATION_ID};
 
 use crate::log::target;

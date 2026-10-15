@@ -20,6 +20,7 @@ pub mod log;
 pub mod node;
 pub mod open_payments;
 pub mod peer_client;
+pub mod rates;
 pub mod rpc;
 pub mod store;
 pub mod tls;

@@ -365,6 +365,9 @@ impl Core {
     /// accounts the journal must have (spec 7 §4.4).
     fn restore(&mut self) -> Result<(), String> {
         let store = Arc::clone(&self.store);
+        for (code, rate, as_of_ms) in store.exchange_rates().map_err(text)? {
+            self.rates.set_at(code, rate, as_of_ms);
+        }
         self.peer_settings = store.peer_settings().map_err(text)?;
         self.connector.set_charges(self.peer_settings.charges());
         self.ban_records = store
@@ -563,6 +566,38 @@ impl Core {
             self.check_outgoing();
             self.owed.check();
         }
+    }
+
+    /// The currencies of the active ledgers.
+    pub fn rate_currencies(&self) -> Vec<&'static str> {
+        let mut codes: Vec<&'static str> = self
+            .schemes
+            .values()
+            .map(|active| active.scheme.ledger().asset().code)
+            .collect();
+        codes.sort_unstable();
+        codes.dedup();
+        codes
+    }
+
+    /// Takes exchange rates just fetched; live views show them.
+    pub fn set_rates(&mut self, rates: &[crate::store::StoredRate]) {
+        for &(code, rate, as_of_ms) in rates {
+            if !self.rates.set_at(code, rate, as_of_ms) {
+                tracing::warn!(target: target::ENGINE, code, "no room for an exchange rate");
+            }
+        }
+        self.changes.ledger = true;
+    }
+
+    /// Marks the ledgers changed, for what live views show beside them.
+    pub const fn ledgers_changed(&mut self) {
+        self.changes.ledger = true;
+    }
+
+    /// The exchange rates the connector converts at.
+    pub const fn rates(&self) -> &Rates {
+        &self.rates
     }
 
     /// One ledger account.

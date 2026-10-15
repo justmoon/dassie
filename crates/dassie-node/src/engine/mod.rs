@@ -280,6 +280,35 @@ impl Engine {
         self.call(move |core| core.unban_node(&node)).await
     }
 
+    /// The currencies of the active ledgers, whose rates the node needs.
+    pub async fn rate_currencies(&self) -> Result<Vec<&'static str>, EngineError> {
+        self.call(|core| Ok(core.rate_currencies())).await
+    }
+
+    /// Takes exchange rates just fetched.
+    pub async fn set_rates(&self, rates: Vec<crate::store::StoredRate>) -> Result<(), EngineError> {
+        self.call(move |core| {
+            core.set_rates(&rates);
+            Ok(())
+        })
+        .await
+    }
+
+    /// Tells live views of the ledgers to fetch again: what they show
+    /// beside the engine changed.
+    pub async fn touch_ledgers(&self) -> Result<(), EngineError> {
+        self.call(|core| {
+            core.ledgers_changed();
+            Ok(())
+        })
+        .await
+    }
+
+    /// The exchange rates the connector converts at.
+    pub async fn rates(&self) -> Result<dassie_connector::Rates, EngineError> {
+        self.call(|core| Ok(core.rates().clone())).await
+    }
+
     /// The owner's peer settings.
     pub async fn peer_settings(&self) -> Result<crate::store::PeerSettings, EngineError> {
         self.call(|core| Ok(core.peer_settings())).await

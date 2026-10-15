@@ -96,7 +96,68 @@ message ListLedgersRequest {}
 message ListLedgersResponse {
   // The ledgers of active settlement schemes, in a fixed order.
   repeated Ledger ledgers = 1;
+  // The exchange rates the node converts at (D7), by currency.
+  repeated ExchangeRate rates = 2;
+  // The currency the owner sees totals in; empty for none.
+  string display_currency = 3;
+  // What the owner has on every ledger together, in the display currency
+  // at the current rates. Absent without a display currency, or while a
+  // rate it needs is missing or stale.
+  DisplayTotal total = 4;
 }
+
+// How many units of a currency one US dollar buys.
+message ExchangeRate {
+  string asset_code = 1;
+  // A decimal, such as "1.8656".
+  string per_usd = 2;
+  int64 as_of_unix_ms = 3;
+  // Older than an hour: packets that need it are refused.
+  bool stale = 4;
+}
+
+// An amount in the display currency.
+message DisplayTotal {
+  string asset_code = 1;
+  uint32 asset_scale = 2;
+  int64 amount = 3;
+}
+
+// Where the node fetches exchange rates (D7). A currency's rate is the
+// median of the sources that give one, once more than half of them did.
+message RateSource {
+  // "coinbase", "kraken" or "bitstamp".
+  string kind = 1;
+  // A server of Coinbase's format other than Coinbase's own, for
+  // "coinbase" only; empty for the kind's own server.
+  string url = 2;
+}
+
+message GetRateSourcesRequest {}
+
+message GetRateSourcesResponse {
+  repeated RateSource sources = 1;
+}
+
+// Replaces the sources, and fetches from them at once. INVALID_ARGUMENT
+// for more than 8, an unknown kind, or a URL that is not HTTPS or not for
+// "coinbase".
+message SetRateSourcesRequest {
+  repeated RateSource sources = 1;
+}
+
+message SetRateSourcesResponse {
+  repeated RateSource sources = 1;
+}
+
+// Chooses the currency totals are shown in. INVALID_ARGUMENT for one the
+// node keeps no rates for.
+message SetDisplayCurrencyRequest {
+  // Empty for none.
+  string currency = 1;
+}
+
+message SetDisplayCurrencyResponse {}
 
 // Activates a settlement scheme and its ledger. On its first activation the
 // scheme's balance becomes the owner's deposit; later activations book only
