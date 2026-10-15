@@ -141,7 +141,11 @@ export class Scenario {
           "localhost",
           "127.0.0.1",
         ], options.layout.caRoot);
-        scenario.ledger = await startFakeLedger(options.fakeLedger, faucet);
+        scenario.ledger = await startFakeLedger(
+          options.fakeLedger,
+          faucet,
+          options.portOffset ?? 0,
+        );
         scenario.#configs["xrpl-testnet"] = xrplConfig(scenario.ledger);
       }
       for (let index = 0; index < def.schemes.length; index++) {

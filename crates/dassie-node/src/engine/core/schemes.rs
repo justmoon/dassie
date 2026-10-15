@@ -86,7 +86,7 @@ impl Core {
         let Some(active) = self.schemes.get_mut(&scheme) else {
             return;
         };
-        if active.epoch != epoch {
+        if active.epoch != epoch || active.failed.is_some() {
             return;
         }
         let input = match event {
@@ -101,12 +101,18 @@ impl Core {
         self.scheme_effects(scheme, ledger, &effects);
     }
 
-    /// Books a scheme's effects; a failure is a bug, and the core stops
-    /// rather than leave the books behind the scheme.
+    /// Books a scheme's effects. A failure is a bug: the scheme is fed
+    /// nothing more, so the books do not drift further from it, and the
+    /// owner is told. Its state is not written, so a restart reads what
+    /// the ledger said again.
     fn scheme_effects(&mut self, scheme: Name, ledger: LedgerId, effects: &[Effect]) {
         if let Err(error) = self.apply_effects(scheme, ledger, effects) {
-            tracing::error!(target: target::SETTLEMENT, %scheme, %error, "a scheme's effects could not be booked");
-            panic!("a scheme's effects could not be booked: {error}");
+            tracing::error!(target: target::SETTLEMENT, %scheme, %error, "a scheme's effects could not be booked: it stops");
+            if let Some(active) = self.schemes.get_mut(&scheme) {
+                active.failed = Some(error.to_string());
+                let epoch = active.epoch;
+                self.disconnect_scheme(scheme, epoch);
+            }
         }
     }
 
@@ -116,7 +122,9 @@ impl Core {
         let due: Vec<Name> = self
             .schemes
             .iter()
-            .filter(|(_, active)| active.scheme.deadline().is_some_and(|at| at <= now))
+            .filter(|(_, active)| {
+                active.failed.is_none() && active.scheme.deadline().is_some_and(|at| at <= now)
+            })
             .map(|(name, _)| *name)
             .collect();
         for scheme in due {
@@ -134,6 +142,7 @@ impl Core {
     pub(super) fn schemes_deadline(&self) -> Option<u64> {
         self.schemes
             .values()
+            .filter(|active| active.failed.is_none())
             .filter_map(|active| active.scheme.deadline())
             .min()
     }
@@ -199,14 +208,44 @@ impl Core {
 
     /// Keeps a scheme's balance and state with this batch.
     pub(super) fn checkpoint(&mut self, scheme: Name) {
-        let Some(active) = self.schemes.get(&scheme) else {
+        let Some(active) = self.schemes.get_mut(&scheme) else {
             return;
         };
+        if active.failed.is_some() {
+            return;
+        }
+        active.version = active.scheme.state_version();
         let checkpoint = Checkpoint {
             balance: active.scheme.balance(),
             state: active.scheme.state(),
         };
         self.batch.checkpoints.push((scheme, checkpoint.clone()));
         self.checkpoints.insert(scheme, checkpoint);
+    }
+
+    /// Keeps a scheme's balance and state with this batch, if either
+    /// changed since last written: a ledger closing changes neither.
+    pub(super) fn checkpoint_if_changed(&mut self, scheme: Name) {
+        let Some(active) = self.schemes.get(&scheme) else {
+            return;
+        };
+        let balance = active.scheme.balance();
+        let changed = active.scheme.state_version() != active.version
+            || self
+                .checkpoints
+                .get(&scheme)
+                .is_none_or(|checkpoint| checkpoint.balance != balance);
+        if changed {
+            self.checkpoint(scheme);
+        }
+    }
+
+    /// Keeps what changed in any scheme, such as a peer's address learnt
+    /// when peering, with this batch.
+    pub(super) fn checkpoint_schemes(&mut self) {
+        let schemes: Vec<Name> = self.schemes.keys().copied().collect();
+        for scheme in schemes {
+            self.checkpoint_if_changed(scheme);
+        }
     }
 }

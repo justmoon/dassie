@@ -62,6 +62,11 @@ const MAX_PENDING: usize = 16;
 const MAX_BUFFERED: usize = 256;
 /// Most bytes of config.
 const MAX_CONFIG: usize = 1024;
+/// How long the connection may say nothing, no ledger closing, before it
+/// is made anew: a ledger closes every few seconds.
+const LEDGER_SILENCE_MS: u64 = 30_000;
+/// Most settlements of ours whose outcome is looked for after a restart.
+const MAX_RECOVERING: usize = 64;
 
 /// Where the scheme connects, and where it asks for test XRP.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -122,6 +127,9 @@ struct InFlight {
     sequence: u32,
     last_ledger: u32,
     submitted_at: u32,
+    /// Whether the node executed it: its pending transfer is on disk, so
+    /// it may be submitted. One the node never executed is never sent.
+    executed: bool,
     /// To submit when the connection allows.
     needs_submit: bool,
     /// Past its last ledger and looked for.
@@ -137,6 +145,9 @@ enum Request {
     AccountTx,
     Tx([u8; 32]),
     Submit([u8; 32]),
+    /// The outcome of a settlement of ours the node still holds pending
+    /// after a restart, though this state no longer has it in flight.
+    Recover([u8; 32]),
 }
 
 /// Where the scheme stands with its ledger.
@@ -144,8 +155,10 @@ enum Request {
 enum Phase {
     /// No connection.
     Disconnected,
-    /// Connected; waiting for the server's state and the account's.
+    /// Connected; waiting for the subscription, then the server's state
+    /// and the account's, as of a ledger the stream covers.
     Starting {
+        subscribed: bool,
         state: bool,
         info: Option<AccountInfo>,
     },
@@ -169,7 +182,11 @@ pub struct XrplScheme {
     cursor: Option<(u32, u32)>,
     sequence: u32,
     in_flight: Vec<InFlight>,
-    peers: BTreeMap<Name, AccountId>,
+    /// Peers' addresses, with when each was learnt: past [`MAX_PEERS`], the
+    /// longest known goes.
+    peers: BTreeMap<Name, (AccountId, u64)>,
+    next_learnt: u64,
+    recovering: Vec<[u8; 32]>,
     // Learnt from the ledger.
     phase: Phase,
     next_id: u64,
@@ -187,6 +204,8 @@ pub struct XrplScheme {
     funding: bool,
     failed: Option<&'static str>,
     now_ms: u64,
+    /// When the connection last said anything.
+    heard_ms: u64,
 }
 
 impl XrplScheme {
@@ -213,6 +232,8 @@ impl XrplScheme {
             sequence: 0,
             in_flight: Vec::new(),
             peers: BTreeMap::new(),
+            next_learnt: 0,
+            recovering: Vec::new(),
             phase: Phase::Disconnected,
             next_id: 1,
             pending: BTreeMap::new(),
@@ -229,6 +250,7 @@ impl XrplScheme {
             funding: false,
             failed: None,
             now_ms: 0,
+            heard_ms: 0,
         };
         if !state.is_empty() {
             scheme.restore(state).ok_or(SchemeError::InvalidData)?;
@@ -301,6 +323,7 @@ impl XrplScheme {
                 };
                 api::submit(id, &transaction.blob)
             }
+            Request::Recover(hash) => api::tx(id, &hash, 1, self.validated.max(1)),
         };
         self.pending.insert(id, (request, self.now_ms));
         effects.push(Effect::LedgerSend { message });
@@ -315,21 +338,27 @@ impl XrplScheme {
         self.phase = Phase::Disconnected;
         self.pending.clear();
         self.buffer.clear();
+        // A faucet's answer may come for an older connection, and be
+        // dropped: it is asked again in time.
+        self.funding = false;
         for transaction in &mut self.in_flight {
-            transaction.needs_submit = true;
+            transaction.needs_submit = transaction.executed;
             transaction.looked_up = false;
         }
     }
 
     fn connected(&mut self, effects: &mut Vec<Effect>) {
         self.disconnected();
+        self.heard_ms = self.now_ms;
         self.phase = Phase::Starting {
+            subscribed: false,
             state: false,
             info: None,
         };
+        // The account is read once the subscription is on, so nothing
+        // falls between what it says and what the stream says next.
         self.send(Request::Subscribe, effects);
         self.send(Request::ServerState, effects);
-        self.send(Request::AccountInfo, effects);
     }
 
     fn message(&mut self, bytes: &[u8], effects: &mut Vec<Effect>) {
@@ -365,6 +394,9 @@ impl XrplScheme {
             Request::Subscribe => {
                 if outcome.is_err() {
                     self.reconnect(effects);
+                } else if let Phase::Starting { subscribed, .. } = &mut self.phase {
+                    *subscribed = true;
+                    self.send(Request::AccountInfo, effects);
                 }
             }
             Request::ServerState => {
@@ -388,6 +420,7 @@ impl XrplScheme {
             Request::AccountTx => self.account_tx(outcome, effects),
             Request::Tx(hash) => self.looked_up(hash, outcome, effects),
             Request::Submit(hash) => self.submitted(hash, outcome.ok().as_ref(), effects),
+            Request::Recover(hash) => self.recovered(hash, outcome, effects),
         }
     }
 
@@ -398,6 +431,14 @@ impl XrplScheme {
                     self.reconnect(effects);
                     return;
                 };
+                // A server behind what was booked already says nothing
+                // new: asked again when the next ledger closes.
+                if self
+                    .cursor
+                    .is_some_and(|(ledger, _)| ledger > info.ledger_index)
+                {
+                    return;
+                }
                 let next = self
                     .in_flight
                     .iter()
@@ -409,6 +450,7 @@ impl XrplScheme {
                     Phase::Starting { info: slot, .. } => *slot = Some(info),
                     Phase::Unfunded => {
                         self.phase = Phase::Starting {
+                            subscribed: true,
                             state: true,
                             info: Some(info),
                         };
@@ -425,6 +467,15 @@ impl XrplScheme {
     /// The account does not exist: what the books hold is gone (a testnet
     /// reset), and the faucet is asked.
     fn unfunded(&mut self, effects: &mut Vec<Effect>) {
+        // What was in flight can never apply now: an account made again
+        // starts its sequence anew.
+        for transaction in core::mem::take(&mut self.in_flight) {
+            if transaction.executed {
+                effects.push(Effect::Cancel {
+                    settlement: hash_name(&transaction.hash),
+                });
+            }
+        }
         if self.booked > 0 {
             effects.push(Effect::Reconcile {
                 amount: self.booked,
@@ -458,12 +509,13 @@ impl XrplScheme {
         let Phase::Starting {
             state: true,
             info: Some(info),
+            ..
         } = self.phase.clone()
         else {
             return;
         };
         match self.cursor {
-            Some((ledger, _)) if ledger < info.ledger_index => {
+            Some(cursor) if cursor < (info.ledger_index, u32::MAX) => {
                 self.phase = Phase::CatchingUp { info };
                 self.send(Request::AccountTx, effects);
             }
@@ -475,32 +527,34 @@ impl XrplScheme {
         let Phase::CatchingUp { info } = self.phase.clone() else {
             return;
         };
-        let page = outcome.ok().as_ref().and_then(api::account_tx_result);
-        match page {
-            Some(page) => {
-                for record in &page.transactions {
-                    self.transaction(record, effects);
-                }
-                match page.marker {
-                    Some(marker) => {
-                        let id = self.next_id;
-                        self.next_id = self.next_id.wrapping_add(1).max(1);
-                        let from = self.cursor.map_or(0, |(ledger, _)| ledger);
-                        let message = api::account_tx(
-                            id,
-                            self.account(),
-                            from,
-                            info.ledger_index,
-                            Some(&marker),
-                        );
-                        self.pending.insert(id, (Request::AccountTx, self.now_ms));
-                        effects.push(Effect::LedgerSend { message });
-                    }
-                    None => self.synced(info, effects),
-                }
-            }
+        let page = match outcome {
+            Ok(result) => api::account_tx_result(&result),
             // The server's history does not reach back: the balance says
             // what changed, without who it was.
+            Err(error) if error.error.starts_with("lgr") => {
+                self.synced(info, effects);
+                return;
+            }
+            // Busy, or anything else: from the start, on a new connection.
+            Err(_) => None,
+        };
+        let Some(page) = page else {
+            self.reconnect(effects);
+            return;
+        };
+        for record in &page.transactions {
+            self.transaction(record, effects);
+        }
+        match page.marker {
+            Some(marker) => {
+                let id = self.next_id;
+                self.next_id = self.next_id.wrapping_add(1).max(1);
+                let from = self.cursor.map_or(0, |(ledger, _)| ledger);
+                let message =
+                    api::account_tx(id, self.account(), from, info.ledger_index, Some(&marker));
+                self.pending.insert(id, (Request::AccountTx, self.now_ms));
+                effects.push(Effect::LedgerSend { message });
+            }
             None => self.synced(info, effects),
         }
     }
@@ -524,6 +578,12 @@ impl XrplScheme {
         self.phase = Phase::Synced;
         for record in core::mem::take(&mut self.buffer) {
             self.transaction(&record, effects);
+        }
+        if self.phase != Phase::Synced {
+            return;
+        }
+        for hash in self.recovering.clone() {
+            self.send(Request::Recover(hash), effects);
         }
         let waiting: Vec<[u8; 32]> = self
             .in_flight
@@ -559,19 +619,32 @@ impl XrplScheme {
             (closed.reserve_base, closed.reserve_inc) != (self.reserve_base, self.reserve_inc);
         self.reserve_base = closed.reserve_base;
         self.reserve_inc = closed.reserve_inc;
+        let asking = self
+            .pending
+            .values()
+            .any(|(r, _)| *r == Request::AccountInfo);
         match self.phase {
             Phase::Synced => {
                 if reserve_changed {
                     self.reconcile(effects);
                 }
                 self.expire(effects);
-            }
-            Phase::Unfunded
-                if !self
+                let asking_recover = self
                     .pending
                     .values()
-                    .any(|(r, _)| *r == Request::AccountInfo) =>
-            {
+                    .any(|(r, _)| matches!(r, Request::Recover(_)));
+                if !asking_recover {
+                    for hash in self.recovering.clone() {
+                        self.send(Request::Recover(hash), effects);
+                    }
+                }
+            }
+            Phase::Unfunded
+            | Phase::Starting {
+                subscribed: true,
+                info: None,
+                ..
+            } if !asking => {
                 self.send(Request::AccountInfo, effects);
             }
             _ => {}
@@ -581,6 +654,14 @@ impl XrplScheme {
     /// Looks for our transactions past their last ledger.
     fn expire(&mut self, effects: &mut Vec<Effect>) {
         let validated = self.validated;
+        // One the node never executed was never sent: past its last ledger
+        // it is dropped, and its sequence read again.
+        let before = self.in_flight.len();
+        self.in_flight
+            .retain(|t| t.executed || validated <= t.last_ledger);
+        if self.in_flight.len() != before {
+            self.send(Request::AccountInfo, effects);
+        }
         let expired: Vec<[u8; 32]> = self
             .in_flight
             .iter_mut()
@@ -628,10 +709,16 @@ impl XrplScheme {
     ) {
         match outcome {
             Ok(result) => {
-                if let Some(record) = api::tx_result(&result).filter(|r| r.validated)
-                    && self.phase == Phase::Synced
-                {
-                    self.transaction(&record, effects);
+                match api::tx_result(&result).filter(|r| r.validated) {
+                    Some(record) if self.phase == Phase::Synced => {
+                        self.transaction(&record, effects);
+                    }
+                    // Not validated yet, or unreadable: ask again later.
+                    _ => {
+                        if let Some(t) = self.in_flight.iter_mut().find(|t| t.hash == hash) {
+                            t.looked_up = false;
+                        }
+                    }
                 }
             }
             Err(error) if error.error == "txnNotFound" && error.searched_all == Some(true) => {
@@ -665,7 +752,16 @@ impl XrplScheme {
             return;
         }
         let at = (record.ledger_index, record.index);
-        if self.cursor.is_some_and(|cursor| at <= cursor) {
+        let behind = self.cursor.is_some_and(|cursor| at <= cursor);
+        if behind {
+            // Booked already, by its balance at least. One of ours is
+            // still settled: what the balance booked through suspense
+            // comes back out of it.
+            if self.in_flight.iter().any(|t| t.hash == record.hash) {
+                let booked = self.resolve(record, effects);
+                self.booked = u64::try_from(booked.max(0)).unwrap_or(u64::MAX);
+                self.reconcile(effects);
+            }
             return;
         }
         self.cursor = Some(at);
@@ -682,20 +778,8 @@ impl XrplScheme {
         }
         let units = |drops: u64| drops.saturating_mul(UNITS_PER_DROP);
         let mut booked = i128::from(self.booked);
-        if let Some(position) = self.in_flight.iter().position(|t| t.hash == record.hash) {
-            let ours = self.in_flight.remove(position);
-            let settlement = hash_name(&ours.hash);
-            if record.succeeded() {
-                effects.push(Effect::Finalize { settlement });
-                booked -= i128::from(units(ours.drops));
-            } else {
-                effects.push(Effect::Cancel { settlement });
-            }
-            effects.push(Effect::Fee {
-                amount: units(record.fee),
-                id: settlement,
-            });
-            booked -= i128::from(units(record.fee));
+        if self.in_flight.iter().any(|t| t.hash == record.hash) {
+            booked = self.resolve(record, effects);
         } else if let Some(peer) = self.settled_by(record) {
             let amount = units(record.delivered.unwrap_or(0));
             effects.push(Effect::IncomingSettlement {
@@ -723,6 +807,54 @@ impl XrplScheme {
         self.reconcile(effects);
     }
 
+    /// Settles one of our transactions the ledger validated: posted or
+    /// voided, and its fee booked either way. Returns what the books then
+    /// hold.
+    fn resolve(&mut self, record: &TxRecord, effects: &mut Vec<Effect>) -> i128 {
+        let units = |drops: u64| i128::from(drops.saturating_mul(UNITS_PER_DROP));
+        let mut booked = i128::from(self.booked);
+        let Some(position) = self.in_flight.iter().position(|t| t.hash == record.hash) else {
+            return booked;
+        };
+        let ours = self.in_flight.remove(position);
+        let settlement = hash_name(&ours.hash);
+        if record.succeeded() {
+            effects.push(Effect::Finalize { settlement });
+            booked -= units(ours.drops);
+        } else {
+            effects.push(Effect::Cancel { settlement });
+        }
+        effects.push(Effect::Fee {
+            amount: record.fee.saturating_mul(UNITS_PER_DROP),
+            id: settlement,
+        });
+        booked - units(record.fee)
+    }
+
+    /// The outcome of a settlement of ours that a restart left pending in
+    /// the books, its fee and the balance booked already: posted or
+    /// voided now.
+    fn recovered(
+        &mut self,
+        hash: [u8; 32],
+        outcome: Result<Value, ApiError>,
+        effects: &mut Vec<Effect>,
+    ) {
+        let Ok(result) = outcome else {
+            return;
+        };
+        let Some(record) = api::tx_result(&result).filter(|r| r.validated) else {
+            return;
+        };
+        self.recovering.retain(|h| *h != hash);
+        let settlement = hash_name(&hash);
+        effects.push(if record.succeeded() {
+            Effect::Finalize { settlement }
+        } else {
+            Effect::Cancel { settlement }
+        });
+    }
+
     /// The peer a transaction settles from: a successful Payment of XRP to
     /// us with our memo, naming a peer whose known address sent it.
     fn settled_by(&self, record: &TxRecord) -> Option<Name> {
@@ -736,15 +868,49 @@ impl XrplScheme {
             return None;
         }
         let peer = Name::new(core::str::from_utf8(memo_data).ok()?).ok()?;
-        (self.peers.get(&peer) == Some(&record.account)).then_some(peer)
+        (self.peers.get(&peer).map(|(address, _)| *address) == Some(record.account)).then_some(peer)
     }
 
-    fn learn(&mut self, peer: Name, address: AccountId) -> Result<(), SchemeError> {
-        if !self.peers.contains_key(&peer) && self.peers.len() >= MAX_PEERS {
-            return Err(SchemeError::TooManyPrepared);
+    /// Keeps a peer's address; past [`MAX_PEERS`], the one learnt longest
+    /// ago goes.
+    fn learn(&mut self, peer: Name, address: AccountId) {
+        if !self.peers.contains_key(&peer)
+            && self.peers.len() >= MAX_PEERS
+            && let Some(oldest) = self
+                .peers
+                .iter()
+                .min_by_key(|(_, (_, learnt))| *learnt)
+                .map(|(name, _)| *name)
+        {
+            self.peers.remove(&oldest);
         }
-        self.peers.insert(peer, address);
-        Ok(())
+        self.next_learnt = self.next_learnt.wrapping_add(1);
+        self.peers.insert(peer, (address, self.next_learnt));
+    }
+
+    /// A number that changes whenever what [`state`](SettlementScheme::state)
+    /// keeps does, cheaply: the node writes the state only then.
+    fn fingerprint(&self) -> u64 {
+        let mut mix: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut add = |value: u64| {
+            mix ^= value;
+            mix = mix.wrapping_mul(0x0100_0000_01b3);
+        };
+        let (ledger, index) = self.cursor.unwrap_or((u32::MAX, u32::MAX));
+        add(u64::from(ledger) << 32 | u64::from(index));
+        add(u64::from(self.sequence));
+        add(self.next_learnt);
+        for transaction in &self.in_flight {
+            let mut head = [0u8; 8];
+            head.copy_from_slice(transaction.hash.get(..8).unwrap_or(&[0; 8]));
+            add(u64::from_be_bytes(head) ^ u64::from(transaction.executed));
+        }
+        add(self.in_flight.len() as u64);
+        for hash in &self.recovering {
+            add(u64::from(hash[0]) << 8 | u64::from(hash[1]));
+        }
+        add(self.recovering.len() as u64);
+        mix
     }
 
     fn state_value(&self) -> Value {
@@ -759,19 +925,26 @@ impl XrplScheme {
                     "sequence": t.sequence,
                     "last_ledger": t.last_ledger,
                     "submitted_at": t.submitted_at,
+                    "executed": t.executed,
                 })
             })
             .collect();
         let peers: serde_json::Map<String, Value> = self
             .peers
             .iter()
-            .map(|(peer, address)| (peer.as_str().to_string(), address.to_address().into()))
+            .map(|(peer, (address, _))| (peer.as_str().to_string(), address.to_address().into()))
+            .collect();
+        let recovering: Vec<Value> = self
+            .recovering
+            .iter()
+            .map(|hash| hex_upper(hash).into())
             .collect();
         json!({
             "cursor": self.cursor.map(|(ledger, index)| json!([ledger, index])),
             "sequence": self.sequence,
             "in_flight": in_flight,
             "peers": peers,
+            "recovering": recovering,
         })
     }
 
@@ -783,13 +956,26 @@ impl XrplScheme {
             cursor => Some((number(cursor.get(0)?)?, number(cursor.get(1)?)?)),
         };
         self.sequence = number(value.get("sequence")?)?;
-        for entry in value
-            .get("in_flight")?
-            .as_array()?
-            .iter()
-            .take(MAX_IN_FLIGHT)
+        // More than the scheme keeps is a state it did not write: refused,
+        // rather than orphaning a settlement by dropping it.
+        let in_flight = value.get("in_flight")?.as_array()?;
+        let peers = value.get("peers")?.as_object()?;
+        let recovering = value
+            .get("recovering")
+            .and_then(Value::as_array)
+            .map_or(&[][..], Vec::as_slice);
+        if in_flight.len() > MAX_IN_FLIGHT
+            || peers.len() > MAX_PEERS
+            || recovering.len() > MAX_RECOVERING
         {
+            return None;
+        }
+        for entry in in_flight {
             let blob = from_hex(entry.get("blob")?.as_str()?)?;
+            let executed = entry
+                .get("executed")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
             self.in_flight.push(InFlight {
                 hash: crate::codec::hash(&blob),
                 blob,
@@ -798,13 +984,17 @@ impl XrplScheme {
                 sequence: number(entry.get("sequence")?)?,
                 last_ledger: number(entry.get("last_ledger")?)?,
                 submitted_at: number(entry.get("submitted_at")?)?,
-                needs_submit: true,
+                executed,
+                needs_submit: executed,
                 looked_up: false,
             });
         }
-        for (peer, address) in value.get("peers")?.as_object()?.iter().take(MAX_PEERS) {
-            self.peers
-                .insert(Name::new(peer).ok()?, AccountId::parse(address.as_str()?)?);
+        for (peer, address) in peers {
+            self.learn(Name::new(peer).ok()?, AccountId::parse(address.as_str()?)?);
+        }
+        for hash in recovering {
+            self.recovering
+                .push(from_hex(hash.as_str()?)?.try_into().ok()?);
         }
         Some(())
     }
@@ -885,12 +1075,19 @@ impl SettlementScheme for XrplScheme {
         serde_json::to_vec(&self.state_value()).unwrap_or_default()
     }
 
+    fn state_version(&self) -> u64 {
+        self.fingerprint()
+    }
+
     fn on_ledger(&mut self, now_ms: u64, input: LedgerInput<'_>, effects: &mut Vec<Effect>) {
         self.now_ms = self.now_ms.max(now_ms);
         match input {
             LedgerInput::Connected => self.connected(effects),
             LedgerInput::Disconnected => self.disconnected(),
-            LedgerInput::Message(bytes) => self.message(bytes, effects),
+            LedgerInput::Message(bytes) => {
+                self.heard_ms = self.now_ms;
+                self.message(bytes, effects);
+            }
             LedgerInput::Funded(_) => {
                 self.funding = false;
                 if self.phase == Phase::Unfunded {
@@ -908,7 +1105,9 @@ impl SettlementScheme for XrplScheme {
             .min();
         let fund = (self.phase == Phase::Unfunded && !self.funding && self.config.faucet.is_some())
             .then_some(self.fund_at_ms);
-        [request, fund].into_iter().flatten().min()
+        let silence = (self.phase != Phase::Disconnected)
+            .then_some(self.heard_ms.saturating_add(LEDGER_SILENCE_MS));
+        [request, fund, silence].into_iter().flatten().min()
     }
 
     fn on_timer(&mut self, now_ms: u64, effects: &mut Vec<Effect>) {
@@ -917,7 +1116,10 @@ impl SettlementScheme for XrplScheme {
             .pending
             .values()
             .any(|(_, sent)| sent.saturating_add(REQUEST_TIMEOUT_MS) <= now_ms);
-        if late {
+        // A connection that went quiet may be half open: made anew.
+        let silent = self.phase != Phase::Disconnected
+            && self.heard_ms.saturating_add(LEDGER_SILENCE_MS) <= now_ms;
+        if late || silent {
             self.reconnect(effects);
             return;
         }
@@ -938,7 +1140,7 @@ impl SettlementScheme for XrplScheme {
     ) -> Result<(), SchemeError> {
         // The responder's address, learnt now; the original ignored it.
         let address = parse_address(peering_info)?;
-        self.learn(peer, address)?;
+        self.learn(peer, address);
         address_bytes(self.account(), out);
         Ok(())
     }
@@ -950,7 +1152,7 @@ impl SettlementScheme for XrplScheme {
         response: &mut Vec<u8>,
     ) -> Result<Vec<u8>, SchemeError> {
         let address = parse_address(data)?;
-        self.learn(peer, address)?;
+        self.learn(peer, address);
         response.clear();
         Ok(data.to_vec())
     }
@@ -962,7 +1164,7 @@ impl SettlementScheme for XrplScheme {
         _data: &[u8],
     ) -> Result<Vec<u8>, SchemeError> {
         let address = parse_address(peering_info)?;
-        self.learn(peer, address)?;
+        self.learn(peer, address);
         Ok(peering_info.to_vec())
     }
 
@@ -974,7 +1176,9 @@ impl SettlementScheme for XrplScheme {
         peer_state: &[u8],
     ) -> Result<PreparedSettlement, SchemeError> {
         let destination = parse_address(peer_state)?;
-        self.learn(peer, destination)?;
+        if self.peers.get(&peer).map(|(address, _)| *address) != Some(destination) {
+            self.learn(peer, destination);
+        }
         let drops = amount / UNITS_PER_DROP;
         let fee = self.fee();
         let in_flight: u64 = self
@@ -1022,6 +1226,7 @@ impl SettlementScheme for XrplScheme {
             sequence: signed.payment.sequence,
             last_ledger: signed.payment.last_ledger_sequence,
             submitted_at: self.validated,
+            executed: false,
             needs_submit: false,
             looked_up: false,
         });
@@ -1045,30 +1250,54 @@ impl SettlementScheme for XrplScheme {
             .iter()
             .find(|t| hash_name(&t.hash) == settlement)
             .map(|t| t.hash);
-        match found {
-            Some(hash) if self.phase == Phase::Synced => self.submit(hash, effects),
-            Some(hash) => {
-                if let Some(t) = self.in_flight.iter_mut().find(|t| t.hash == hash) {
-                    t.needs_submit = true;
-                }
+        if let Some(hash) = found
+            && let Some(t) = self.in_flight.iter_mut().find(|t| t.hash == hash)
+        {
+            t.executed = true;
+            if self.phase == Phase::Synced {
+                self.submit(hash, effects);
+            } else {
+                t.needs_submit = true;
             }
-            // Signed and then lost: it was never submitted.
-            None => effects.push(Effect::Cancel { settlement }),
+            return;
+        }
+        // Signed and then lost: it was never submitted.
+        effects.push(Effect::Cancel { settlement });
+    }
+
+    fn discard_settlement(&mut self, settlement: Name) {
+        let Some(position) = self
+            .in_flight
+            .iter()
+            .position(|t| hash_name(&t.hash) == settlement && !t.executed)
+        else {
+            return;
+        };
+        let transaction = self.in_flight.remove(position);
+        // Its sequence is free again, if it was the last one given.
+        if transaction.sequence.saturating_add(1) == self.sequence {
+            self.sequence = transaction.sequence;
         }
     }
 
     fn reconcile(&mut self, pending: &[(Name, u64)], _effects: &mut Vec<Effect>) {
-        // Every settlement prepared is in flight, kept with the books in the
-        // same batch; the ledger settles each. One not known here was never
-        // signed by this state, which only a damaged database explains: it
-        // stays pending, for the owner to look into.
+        // Every settlement the node holds pending is ours. One in flight is
+        // submitted again; one settled before the node could post it (its
+        // posting waited for an earlier announcement) is looked for by its
+        // hash, and posted or voided by what the ledger says.
         for (id, _) in pending {
             if let Some(t) = self
                 .in_flight
                 .iter_mut()
                 .find(|t| hash_name(&t.hash) == *id)
             {
+                t.executed = true;
                 t.needs_submit = true;
+            } else if let Some(hash) = from_hex(id.as_str()).and_then(|h| h.try_into().ok())
+                && !self.recovering.contains(&hash)
+                && self.recovering.len() < MAX_RECOVERING
+            {
+                self.recovering.push(hash);
             }
         }
     }

@@ -24,6 +24,9 @@ use crate::node::Policies;
 const CANCEL_BACKOFF_MIN_MS: u64 = 1_000;
 const CANCEL_BACKOFF_MAX_MS: u64 = 600_000;
 
+/// How often a scheme that cannot settle says so, at most.
+const UNAVAILABLE_WARN_MS: u64 = 10 * 60 * 1_000;
+
 /// The settling side of the core.
 pub(super) struct Settlements {
     /// When what is owed to peers is checked next.
@@ -40,6 +43,8 @@ pub(super) struct Settlements {
     /// Settlements that executed while an earlier one to the same peer was
     /// still being announced: posted and announced once that one arrives.
     pub announce: Vec<(Name, Name)>,
+    /// When each scheme last said it cannot settle.
+    pub unavailable_warned: BTreeMap<Name, u64>,
 }
 
 impl Settlements {
@@ -52,6 +57,7 @@ impl Settlements {
             to_execute: Vec::new(),
             backoff: BTreeMap::new(),
             announce: Vec::new(),
+            unavailable_warned: BTreeMap::new(),
         }
     }
 }
@@ -274,6 +280,9 @@ impl Core {
             Ok(transfer) => transfer,
             Err(error) => {
                 tracing::error!(target: target::SETTLEMENT, %node, %error, "a settlement's transfer was refused after it checked out");
+                if let Some(active) = self.schemes.get_mut(&at.scheme) {
+                    active.scheme.discard_settlement(prepared.id);
+                }
                 return;
             }
         };
@@ -307,8 +316,14 @@ impl Core {
         state: &[u8],
     ) -> Option<dassie_settlement::PreparedSettlement> {
         let name = Name::new(node.as_str()).ok()?;
-        let Self { schemes, rng, .. } = self;
-        let active = schemes.get_mut(&scheme)?;
+        let now = self.now_ms;
+        let Self {
+            schemes,
+            rng,
+            settle,
+            ..
+        } = self;
+        let active = schemes.get_mut(&scheme).filter(|a| a.failed.is_none())?;
         match active
             .scheme
             .prepare_settlement(rng.as_mut(), name, amount, state)
@@ -316,8 +331,15 @@ impl Core {
             Ok(prepared) => Some(prepared),
             // Not now: asked again at the next check, with no backoff, so
             // a slow ledger does not make us overdue to our peers (D18).
+            // Said now and then, for the owner: peers' grace is running.
             Err(dassie_settlement::SchemeError::Unavailable) => {
-                tracing::debug!(target: target::SETTLEMENT, %node, "the scheme cannot settle now");
+                let warned = settle.unavailable_warned.entry(scheme).or_insert(0);
+                if *warned == 0 || now.saturating_sub(*warned) >= UNAVAILABLE_WARN_MS {
+                    *warned = now.max(1);
+                    tracing::warn!(target: target::SETTLEMENT, %node, %scheme, status = ?active.scheme.status(), "the scheme cannot settle now: no funds above the reserve, or no ledger");
+                } else {
+                    tracing::debug!(target: target::SETTLEMENT, %node, "the scheme cannot settle now");
+                }
                 None
             }
             Err(error) => {

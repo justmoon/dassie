@@ -173,6 +173,10 @@ impl Task {
                 Ok(socket) => {
                     backoff = BACKOFF_MIN;
                     tracing::info!(target: target::SETTLEMENT, scheme = %self.scheme, url = %self.url, "connected to the ledger");
+                    // What was queued for an earlier connection goes
+                    // nowhere, before the scheme hears it is connected and
+                    // queues what it asks first.
+                    while queue.try_recv().is_ok() {}
                     self.event(LedgerEvent::Connected).await;
                     self.serve_any(socket, &mut queue, &cancel).await;
                     self.event(LedgerEvent::Disconnected).await;
@@ -204,9 +208,6 @@ impl Task {
     ) where
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
     {
-        // What was queued for an earlier connection goes nowhere: the
-        // scheme asks again once connected.
-        while queue.try_recv().is_ok() {}
         loop {
             tokio::select! {
                 () = cancel.cancelled() => {
@@ -252,13 +253,7 @@ impl Task {
         if authority.is_empty() || authority.contains('@') {
             return Err("not a WebSocket URL".into());
         }
-        let (host, port) = match authority.rsplit_once(':') {
-            Some((host, port)) if !host.ends_with(']') || host.starts_with('[') => {
-                (host, port.parse::<u16>().map_err(|e| e.to_string())?)
-            }
-            _ => (authority, if secure { 443 } else { 80 }),
-        };
-        let host = host.trim_start_matches('[').trim_end_matches(']');
+        let (host, port) = host_and_port(authority, if secure { 443 } else { 80 })?;
         let addresses = client
             .resolve(host, port)
             .await
@@ -306,5 +301,41 @@ impl Task {
             Socket::Tls(socket) => self.serve(*socket, queue, cancel).await,
             Socket::Plain(socket) => self.serve(*socket, queue, cancel).await,
         }
+    }
+}
+
+/// The host and port of a URL's authority: `host`, `host:port`, `[v6]` or
+/// `[v6]:port`.
+fn host_and_port(authority: &str, default: u16) -> Result<(&str, u16), String> {
+    let port = |text: &str| text.parse::<u16>().map_err(|e| e.to_string());
+    if let Some(rest) = authority.strip_prefix('[') {
+        let (host, after) = rest.split_once(']').ok_or("an unclosed IPv6 address")?;
+        return match after.strip_prefix(':') {
+            Some(number) => Ok((host, port(number)?)),
+            None if after.is_empty() => Ok((host, default)),
+            None => Err("not a WebSocket URL".into()),
+        };
+    }
+    match authority.rsplit_once(':') {
+        Some((host, number)) => Ok((host, port(number)?)),
+        None => Ok((authority, default)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::host_and_port;
+
+    #[test]
+    fn hosts_and_ports_are_read_as_written() {
+        assert_eq!(host_and_port("a.example", 443), Ok(("a.example", 443)));
+        assert_eq!(
+            host_and_port("a.example:51233", 443),
+            Ok(("a.example", 51233))
+        );
+        assert_eq!(host_and_port("[::1]", 80), Ok(("::1", 80)));
+        assert_eq!(host_and_port("[::1]:6006", 80), Ok(("::1", 6006)));
+        assert!(host_and_port("[::1", 80).is_err());
+        assert!(host_and_port("a.example:x", 80).is_err());
     }
 }

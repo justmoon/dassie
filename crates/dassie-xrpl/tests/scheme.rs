@@ -515,3 +515,122 @@ fn settlements_go_several_at_once() {
         assert_eq!(world.nodes[b].books.credited.len(), 1);
     }
 }
+
+// Found in review: a settlement of ours that the ledger validated while the
+// node was away, with an account history too short to read it from, is
+// still posted, once looked up by its hash: what the balance booked
+// through suspense comes back out of it.
+#[test]
+fn a_settlement_validated_while_away_is_still_posted() {
+    let (mut world, state_a, _) = funded_pair();
+    let id = world.settle(0, 1, 3_000_000_000, &state_a);
+    let state = world.nodes[0].scheme.state();
+    let checkpoint = world.nodes[0].scheme.balance();
+    world.disconnect(0);
+    world.closes(2);
+    world.ledger.shorten_account_history();
+    let node = world.nodes[0].name;
+    world.nodes[0].scheme =
+        XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
+    world.connect(0);
+    world.closes(40);
+    let books = &world.nodes[0].books;
+    assert_eq!(books.finalized, [id]);
+    assert!(books.pending.is_empty());
+    assert_eq!(books.suspense, 0, "the suspense entry came back out");
+}
+
+// Found in review: a settlement the node prepared but could not book, so
+// never executed, is never sent, even across a reconnect.
+#[test]
+fn a_settlement_never_executed_is_never_sent() {
+    let (mut world, state_a, _) = funded_pair();
+    let peer = world.nodes[1].name;
+    let mut rng = SeededRng::new(1);
+    world.nodes[0]
+        .scheme
+        .prepare_settlement(&mut rng, peer, 3_000_000_000, &state_a)
+        .unwrap();
+    world.disconnect(0);
+    world.connect(0);
+    world.closes(25);
+    assert_eq!(world.nodes[1].books.credited.len(), 0, "nothing was paid");
+    // One discarded at once frees its sequence for the next.
+    let prepared = world.nodes[0]
+        .scheme
+        .prepare_settlement(&mut rng, peer, 1_000_000_000, &state_a)
+        .unwrap();
+    world.nodes[0].scheme.discard_settlement(prepared.id);
+    let id = world.settle(0, 1, 1_000_000_000, &state_a);
+    world.close();
+    assert_eq!(world.nodes[0].books.finalized, [id]);
+}
+
+// Found in review: a connection that goes quiet is made anew, rather than
+// leaving the scheme synced to a ledger it no longer hears.
+#[test]
+fn a_silent_connection_is_made_anew() {
+    let (mut world, _, _) = funded_pair();
+    // The ledger forgets the connection; the scheme is not told.
+    let connection = world.nodes[0].connection;
+    world.ledger.disconnect(connection);
+    world.nodes[0].online = false;
+    world.now += 31_000;
+    let mut effects = Vec::new();
+    world.nodes[0].scheme.on_timer(world.now, &mut effects);
+    assert!(effects.contains(&Effect::Reconnect), "{effects:?}");
+    world.apply(0, effects);
+    world.closes(2);
+    assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Synced);
+}
+
+// Found in review: after a testnet reset, what was in flight can never
+// apply: it is cancelled, and settling starts anew.
+#[test]
+fn a_reset_cancels_what_was_in_flight() {
+    let (mut world, state_a, _) = funded_pair();
+    world.nodes[0].drop_submits = true;
+    let id = world.settle(0, 1, 3_000_000_000, &state_a);
+    world.ledger.reset();
+    world.disconnect(0);
+    world.connect(0);
+    world.closes(20);
+    assert_eq!(world.nodes[0].books.cancelled, [id]);
+    world.nodes[0].drop_submits = false;
+    let next = world.settle(0, 1, 1_000_000_000, &state_a);
+    world.close();
+    assert_eq!(world.nodes[0].books.finalized, [next]);
+}
+
+// Found in review: a settlement the node held pending across a restart
+// though the scheme had settled it (its posting waited for an earlier
+// announcement) is looked up by its hash, and posted.
+#[test]
+fn a_pending_settlement_unknown_to_the_scheme_is_recovered() {
+    let (mut world, state_a, _) = funded_pair();
+    let id = world.settle(0, 1, 3_000_000_000, &state_a);
+    world.close();
+    // The scheme settled it; the node did not post it.
+    let finalized = world.nodes[0].books.finalized.pop().unwrap();
+    assert_eq!(finalized, id);
+    let peer = world.nodes[1].name;
+    let books = &mut world.nodes[0].books;
+    books.pending.insert(id, (peer, 3_000_000_000));
+    books.settlement += 3_000_000_000;
+    *books.peers.get_mut(&peer).unwrap() += 3_000_000_000;
+    // A restart hands the scheme what the node holds pending.
+    let state = world.nodes[0].scheme.state();
+    let checkpoint = world.nodes[0].scheme.balance();
+    world.disconnect(0);
+    let node = world.nodes[0].name;
+    world.nodes[0].scheme =
+        XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
+    let mut effects = Vec::new();
+    world.nodes[0]
+        .scheme
+        .reconcile(&[(id, 3_000_000_000)], &mut effects);
+    world.connect(0);
+    world.closes(2);
+    assert_eq!(world.nodes[0].books.finalized, [id]);
+    assert!(world.nodes[0].books.pending.is_empty());
+}

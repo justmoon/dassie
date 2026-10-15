@@ -17,6 +17,11 @@ pub(super) struct ActiveScheme {
     /// Its connection to its ledger, if it follows one; 0 before the
     /// first.
     pub epoch: u64,
+    /// The state version last written with a checkpoint.
+    pub version: u64,
+    /// Why it stopped, if the books could not take what it said: it is fed
+    /// nothing more until the node starts again.
+    pub failed: Option<String>,
 }
 
 /// A ledger as the owner sees it.
@@ -166,7 +171,15 @@ impl Core {
         if new {
             self.batch.schemes_added.push((id, config));
         }
-        self.schemes.insert(id, ActiveScheme { scheme, epoch: 0 });
+        self.schemes.insert(
+            id,
+            ActiveScheme {
+                scheme,
+                epoch: 0,
+                version: 0,
+                failed: None,
+            },
+        );
         self.checkpoint(id);
         self.connect_scheme(id);
         self.update_peer_schemes();
@@ -298,7 +311,7 @@ impl Core {
             }
         }
         self.take_journal();
-        self.checkpoint(scheme);
+        self.checkpoint_if_changed(scheme);
         Ok(())
     }
 
@@ -488,7 +501,12 @@ impl Core {
             on_ledger_balance: active.scheme.balance(),
             reserve: active.scheme.reserve(),
             deposit_address: active.scheme.deposit_address(),
-            status: active.scheme.status(),
+            status: match active.failed {
+                Some(_) => dassie_settlement::LedgerStatus::Failed(
+                    "the books could not take what the ledger said; restart the node",
+                ),
+                None => active.scheme.status(),
+            },
             removal_blockers: self.removal_blockers(*id, ledger),
         })
     }

@@ -57,6 +57,8 @@ pub struct FakeLedger {
     /// The first ledger the history holds: before it, `account_tx` and
     /// `tx` know nothing.
     history_from: u32,
+    /// The first ledger `account_tx` reaches, at or after `history_from`.
+    account_tx_from: u32,
     history: Vec<Applied>,
     queued: Vec<Payment>,
     queued_hashes: BTreeSet<[u8; 32]>,
@@ -96,6 +98,7 @@ impl FakeLedger {
             accounts,
             ledger: FIRST_LEDGER,
             history_from: FIRST_LEDGER,
+            account_tx_from: FIRST_LEDGER,
             history: Vec::new(),
             queued: Vec::new(),
             queued_hashes: BTreeSet::new(),
@@ -142,7 +145,14 @@ impl FakeLedger {
     /// keeps little does.
     pub fn forget_history(&mut self) {
         self.history_from = self.ledger.saturating_add(1);
+        self.account_tx_from = self.history_from;
         self.history.clear();
+    }
+
+    /// Cuts `account_tx` at the current ledger, while `tx` still finds
+    /// what came before, as a server whose account index is behind does.
+    pub fn shorten_account_history(&mut self) {
+        self.account_tx_from = self.ledger.saturating_add(1);
     }
 
     /// Changes the reserve, as the network may vote to.
@@ -355,13 +365,14 @@ impl FakeLedger {
                 .and_then(Value::as_u64)
                 .and_then(|n| u32::try_from(n).ok())
         };
-        let min = number("ledger_index_min").unwrap_or(self.history_from);
+        // As rippled at API version 1: a range beyond the history is cut
+        // to it, and the answer says so.
+        let min = number("ledger_index_min")
+            .unwrap_or(self.account_tx_from)
+            .max(self.account_tx_from);
         let max = number("ledger_index_max")
             .unwrap_or(self.ledger)
             .min(self.ledger);
-        if min < self.history_from {
-            return Err(json!({ "error": "lgrIdxMalformed" }));
-        }
         let limit = usize::try_from(request.get("limit").and_then(Value::as_u64).unwrap_or(200))
             .unwrap_or(200)
             .clamp(1, 400);

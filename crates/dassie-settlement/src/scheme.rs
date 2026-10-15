@@ -235,6 +235,12 @@ pub trait SettlementScheme: Send {
         Vec::new()
     }
 
+    /// A number that changes whenever [`state`](Self::state) does: the
+    /// node writes the state with its next batch only then.
+    fn state_version(&self) -> u64 {
+        0
+    }
+
     /// Takes in what came from the underlying ledger, or the faucet.
     fn on_ledger(&mut self, now_ms: u64, input: LedgerInput<'_>, effects: &mut Vec<Effect>) {
         let _ = (now_ms, input, effects);
@@ -303,6 +309,12 @@ pub trait SettlementScheme: Send {
         amount: u64,
         peer_state: &[u8],
     ) -> Result<PreparedSettlement, SchemeError>;
+
+    /// Forgets a settlement prepared and never executed: the node could
+    /// not book it. It is never sent.
+    fn discard_settlement(&mut self, settlement: Name) {
+        let _ = settlement;
+    }
 
     /// The message for the peer for a settlement of ours, made again from
     /// its ID, after a restart lost the one [`PreparedSettlement`] gave.

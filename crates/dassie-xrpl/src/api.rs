@@ -14,9 +14,6 @@ use crate::{MAX_DROPS, from_hex, hex_upper};
 /// Most transactions an `account_tx` page asks for.
 pub const PAGE: u32 = 200;
 
-/// Most account balance changes read from one transaction's metadata.
-const MAX_CHANGES: usize = 16;
-
 fn request(id: u64, command: &str, mut params: Value) -> Vec<u8> {
     if let Some(object) = params.as_object_mut() {
         object.insert("id".into(), id.into());
@@ -360,7 +357,6 @@ fn balance_changes(meta: &Value) -> Vec<BalanceChange> {
                 owner_count: number(fields.get("OwnerCount")),
             })
         })
-        .take(MAX_CHANGES)
         .collect()
 }
 

@@ -18,6 +18,13 @@ export function fakeLedgerBinary(profile: "debug" | "e2e" = "debug"): string {
 /** How long the fake ledger may take to start. */
 const START_TIMEOUT_MS = 30_000;
 
+/**
+ * Where the fake ledger listens, with `portOffset` added: the same port
+ * every run, since the nodes keep it in their config. The faucet is on the
+ * next.
+ */
+export const FAKE_LEDGER_PORT = 10200;
+
 /** A running fake ledger. */
 export interface FakeLedger {
   /** Its WebSocket URL. */
@@ -60,20 +67,25 @@ export async function buildFakeLedger(): Promise<void> {
 }
 
 /**
- * Starts `binary`, with its faucet on HTTPS under the certificate in
- * `certificateFile` and `keyFile`, closing a ledger every `closeMs`.
+ * Starts `binary` on {@linkcode FAKE_LEDGER_PORT} plus `portOffset`, with
+ * its faucet on HTTPS under the certificate in `certificateFile` and
+ * `keyFile`, closing a ledger every `closeMs`. It is a new ledger every
+ * time: nodes that knew an earlier one find their accounts gone, as after
+ * a testnet reset, and the faucet funds them again.
  */
 export async function startFakeLedger(
   binary: string,
   certificate: { certificateFile: string; keyFile: string },
+  portOffset = 0,
   closeMs = 1_000,
 ): Promise<FakeLedger> {
+  const port = FAKE_LEDGER_PORT + portOffset;
   const child = new Deno.Command(binary, {
     args: [
       "--listen",
-      "127.0.0.1:0",
+      `127.0.0.1:${port}`,
       "--faucet-listen",
-      "127.0.0.1:0",
+      `127.0.0.1:${port + 1}`,
       "--cert",
       certificate.certificateFile,
       "--key",

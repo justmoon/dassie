@@ -513,6 +513,7 @@ impl Core {
     /// nothing may act on: the core stops, and its successor starts from
     /// the disk.
     pub(super) fn flush(&mut self) {
+        self.checkpoint_schemes();
         self.take_journal();
         self.take_cap_changes();
         self.peer.take_changes(&mut self.batch.peer);
