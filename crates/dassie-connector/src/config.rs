@@ -86,10 +86,10 @@ impl Config {
         }
     }
 
-    /// The pending transfers the ledger must have room for: two per packet
-    /// across ledgers.
+    /// The pending transfers the ledger must have room for: up to three
+    /// per packet, across ledgers with a fee.
     #[must_use]
     pub const fn ledger_pending_needed(&self) -> usize {
-        self.max_pending * 2
+        self.max_pending * 3
     }
 }

@@ -190,9 +190,10 @@ Deno.test({
           await type(page, "send-amount", "1.5");
           await type(page, "send-note", "e2e send");
           await click(page, "send-review");
+          // What a probe measured, less STREAM's 1% slippage.
           assertEquals(
             await attribute(page, "send-debit", "data-value"),
-            "1500000000",
+            "1515151516",
           );
           assertEquals(
             await attribute(page, "send-receive", "data-value"),

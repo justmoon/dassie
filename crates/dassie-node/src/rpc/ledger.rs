@@ -26,17 +26,22 @@ pub async fn dispatch(node: &Arc<Node>, method: Method, items: &Items) -> Result
     match method {
         Method::ListTransfers(request) => return list_transfers(node, &request),
         Method::ListSettlementSchemes(_) => return list_schemes(node),
+        Method::GetRateSources(_) | Method::SetRateSources(_) | Method::SetDisplayCurrency(_) => {
+            return super::rates::dispatch(node, method).await;
+        }
         _ => {}
     }
     let engine = node
         .engine()
         .ok_or_else(|| RpcError::unavailable(EngineError::Unavailable))?;
     let reply = match method {
-        Method::ListLedgers(_) => response::Method::ListLedgers(proto::ListLedgersResponse {
-            ledgers: engine.ledgers().await?.iter().map(ledger).collect(),
-        }),
+        Method::ListLedgers(_) => {
+            response::Method::ListLedgers(super::rates::ledgers(node, &engine).await?)
+        }
         Method::AddSettlementScheme(request) => {
             let view = engine.add_scheme(request.id, request.config).await?;
+            // Its currency may need a rate.
+            node.wake_rates();
             response::Method::AddSettlementScheme(proto::AddSettlementSchemeResponse {
                 ledger: Some(ledger(&view)),
             })
@@ -214,11 +219,8 @@ async fn subscribe_ledgers(node: &Node, engine: &Engine, items: &Items) -> Resul
         source(engine),
         items,
         Follow::Both,
-        || async {
-            let ledgers = engine.ledgers().await?;
-            Ok(ledgers.iter().map(ledger).collect::<Vec<_>>())
-        },
-        |ledgers| stream_item::Method::SubscribeLedgers(proto::ListLedgersResponse { ledgers }),
+        || super::rates::ledgers(node, engine),
+        stream_item::Method::SubscribeLedgers,
     )
     .await
 }
@@ -403,7 +405,7 @@ fn saturate(value: i128) -> i64 {
     i64::try_from(value).unwrap_or(if value < 0 { i64::MIN } else { i64::MAX })
 }
 
-fn ledger(view: &LedgerView) -> proto::Ledger {
+pub(super) fn ledger(view: &LedgerView) -> proto::Ledger {
     let asset = view.id.asset();
     proto::Ledger {
         id: view.id.as_str().into(),

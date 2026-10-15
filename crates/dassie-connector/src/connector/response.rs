@@ -65,8 +65,10 @@ pub struct Posted {
     pub condition: [u8; 32],
     /// The outgoing packet's expiry.
     pub expires_at_ms: u64,
-    /// Its transfers, as posted: the first debits the source's account.
-    pub transfers: [Option<Transfer>; 2],
+    /// Its transfers, as posted, in the slots of
+    /// [`PacketTransfers`](crate::PacketTransfers): the first and the
+    /// third debit the source's account.
+    pub transfers: [Option<Transfer>; 3],
 }
 
 impl Connector {

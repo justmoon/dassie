@@ -1,10 +1,16 @@
 /**
  * What the whole wallet follows while the owner is signed in: the ledgers,
- * with their balances, and the node table. The gate, the navigation and
- * most pages read them; the dev dashboard keeps one per node.
+ * with their balances, the exchange rates and the owner's total, and the
+ * node table. The gate, the navigation and most pages read them; the dev
+ * dashboard keeps one per node.
  */
 
-import type { Ledger, NetworkNode } from "@dassie/rpc/proto";
+import type {
+  DisplayTotal,
+  ExchangeRate,
+  Ledger,
+  NetworkNode,
+} from "@dassie/rpc/proto";
 import {
   type Accessor,
   type Context,
@@ -24,6 +30,13 @@ export interface NodeData {
   ledgersStatus: Accessor<LiveStatus>;
   /** Takes a ledger the node just reported, before the stream does. */
   applyLedger(ledger: Ledger): void;
+  /** The exchange rates the node converts at. */
+  rates: Accessor<readonly ExchangeRate[]>;
+  /** The currency the owner sees totals in; empty for none. */
+  displayCurrency: Accessor<string>;
+  /** What the owner has on every ledger, in that currency, while the
+   * rates allow. */
+  total: Accessor<DisplayTotal | undefined>;
   nodes: Store<Keyed<NetworkNode>>;
   nodesStatus: Accessor<LiveStatus>;
   /** This node's ID. */
@@ -53,10 +66,10 @@ export function createNodeData(basic: {
   const live = createLiveValue(
     "subscribeLedgers",
     () => ({}),
-    (item) => item.ledgers,
+    (item) => item,
   );
   const ledgers = () => {
-    const streamed = live.value();
+    const streamed = live.value()?.ledgers;
     const extra = added().filter((ledger) =>
       !streamed?.some((known) => known.id === ledger.id)
     );
@@ -79,6 +92,9 @@ export function createNodeData(basic: {
         5_000,
       );
     },
+    rates: () => live.value()?.rates ?? [],
+    displayCurrency: () => live.value()?.displayCurrency ?? "",
+    total: () => live.value()?.total,
     nodes: table.state,
     nodesStatus: table.status,
     selfId: basic.nodeId,

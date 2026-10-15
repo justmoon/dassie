@@ -30,6 +30,9 @@ use tokio_rustls::TlsAcceptor;
 
 /// 1.5 USD.
 const AMOUNT: u64 = 1_500_000_000;
+/// What a quote for it debits on a path that delivers one for one: STREAM's
+/// 1% slippage on the measured rate, rounded up.
+const QUOTED: u64 = 1_515_151_516;
 
 async fn resolve(node: &TestNode, recipient: &str) -> Result<proto::Recipient, proto::Error> {
     match node
@@ -57,7 +60,7 @@ async fn quote(
         .call(Method::QuoteSend(proto::QuoteSendRequest {
             recipient: recipient.into(),
             ledger: String::new(),
-            amount,
+            amount: amount.map(proto::quote_send_request::Amount::ReceiveAmount),
             note: note.into(),
         }))
         .await?
@@ -153,7 +156,7 @@ async fn the_owner_sends_to_a_payment_pointer_on_a_peer() {
     let before_a = ledger_balance(a).await;
     let before_b = ledger_balance(b).await;
     let quoted = quote(a, &pointer, Some(AMOUNT), "lunch").await.unwrap();
-    assert_eq!(quoted.debit_amount, AMOUNT);
+    assert_eq!(quoted.debit_amount, QUOTED);
     assert_eq!(quoted.receive_amount.as_ref().unwrap().value, AMOUNT);
     assert!(
         quoted
@@ -259,7 +262,7 @@ async fn the_owner_pays_a_payment_request_on_a_peer() {
     );
     // No amount: what it still accepts.
     let quoted = quote(a, &request.url, None, "").await.unwrap();
-    assert_eq!(quoted.debit_amount, AMOUNT);
+    assert_eq!(quoted.debit_amount, QUOTED);
     assert_eq!(quoted.receiver, request.url);
     let sent = send(a, &quoted.id).await.unwrap();
     let done = finished(&pair.clock, a, &sent.id).await;
@@ -614,4 +617,93 @@ async fn the_nodes_own_urls_are_its_own_in_any_case() {
     let found = resolve(&node, &shouted_request).await.unwrap();
     assert!(found.is_own);
     assert_eq!(found.request.unwrap().remaining, Some(AMOUNT));
+}
+
+// "You send" (M7c): what is sent is fixed and goes out whole; the incoming
+// payment created takes any amount, and the quote says what it buys at
+// the measured rate.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_owner_sends_a_fixed_amount() {
+    let pair = Pair::start(47, 48).await;
+    let (a, b) = (&pair.a, &pair.b);
+    let fixed = |ledger: &str| {
+        Method::QuoteSend(proto::QuoteSendRequest {
+            recipient: format!("${}", b.host()),
+            ledger: ledger.into(),
+            amount: Some(proto::quote_send_request::Amount::DebitAmount(AMOUNT)),
+            note: String::new(),
+        })
+    };
+    let quoted = match a.ipc().await.call(fixed("")).await {
+        Ok(response::Method::QuoteSend(quoted)) => quoted.quote.unwrap(),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(quoted.debit_amount, AMOUNT);
+    // At the measured one for one, less STREAM's 1% slippage.
+    assert_eq!(quoted.receive_amount.as_ref().unwrap().value, 1_485_000_000);
+    let sent = send(a, &quoted.id).await.unwrap();
+    let done = finished(&pair.clock, a, &sent.id).await;
+    assert_eq!(done.state, "completed", "{}", done.failure);
+    assert_eq!(done.sent_amount, AMOUNT);
+    let paid = incoming(b)
+        .await
+        .into_iter()
+        .find(|payment| quoted.receiver.ends_with(&payment.id))
+        .unwrap();
+    assert_eq!((paid.incoming_amount, paid.received_amount), (None, AMOUNT));
+    // Naming a ledger the route does not start on is refused.
+    let named = a.ipc().await.call(fixed("xrpl-testnet+xrp")).await;
+    assert_eq!(code(named), proto::ErrorCode::InvalidArgument);
+}
+
+// Found in review: a fixed amount to send, to a request that takes a
+// little less than it buys at the real rate, fills the request and ends
+// there, rather than waiting to send the rest until it runs out of time.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_fixed_amount_to_send_ends_when_the_request_is_full() {
+    let pair = Pair::start(49, 50).await;
+    let (a, b) = (&pair.a, &pair.b);
+    let Ok(response::Method::CreateIncomingPayment(created)) = b
+        .ipc()
+        .await
+        .call(Method::CreateIncomingPayment(
+            proto::CreateIncomingPaymentRequest {
+                incoming_amount: Some(AMOUNT),
+                description: "invoice".into(),
+                ..proto::CreateIncomingPaymentRequest::default()
+            },
+        ))
+        .await
+    else {
+        panic!("no request")
+    };
+    let request = created.payment.unwrap();
+    // 1.51 buys 1.4949 at the quote's rate, which the request takes; at
+    // the real one for one it buys more than the 1.50 it asks.
+    let quoted = match a
+        .ipc()
+        .await
+        .call(Method::QuoteSend(proto::QuoteSendRequest {
+            recipient: request.url.clone(),
+            ledger: String::new(),
+            amount: Some(proto::quote_send_request::Amount::DebitAmount(
+                AMOUNT + 10_000_000,
+            )),
+            note: String::new(),
+        }))
+        .await
+    {
+        Ok(response::Method::QuoteSend(quoted)) => quoted.quote.unwrap(),
+        other => panic!("{other:?}"),
+    };
+    let sent = send(a, &quoted.id).await.unwrap();
+    let done = finished(&pair.clock, a, &sent.id).await;
+    assert_eq!(done.state, "completed", "{}", done.failure);
+    assert_eq!(done.sent_amount, AMOUNT);
+    let paid = incoming(b)
+        .await
+        .into_iter()
+        .find(|payment| payment.id == request.id)
+        .unwrap();
+    assert_eq!(paid.received_amount, AMOUNT);
 }

@@ -16,6 +16,7 @@ mod ledger;
 mod live;
 mod network;
 mod payments;
+mod rates;
 mod send;
 
 use std::fmt;

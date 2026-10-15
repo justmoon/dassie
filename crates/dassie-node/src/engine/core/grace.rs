@@ -200,9 +200,12 @@ impl Core {
     pub fn set_peer_settings(&mut self, settings: PeerSettings) -> Result<(), super::EngineError> {
         if !settings.is_valid() {
             return Err(super::EngineError::Invalid(
-                "the grace share must be more than 0 and at most 10 000 000 ppm".into(),
+                "the grace share must be more than 0 and at most 10 000 000 ppm, \
+                 the fee and the spread at most 100 000 ppm"
+                    .into(),
             ));
         }
+        self.connector.set_charges(settings.charges());
         self.peer_settings = settings;
         self.batch.peer_settings = Some(settings);
         self.grace.at_ms = self.now_ms;

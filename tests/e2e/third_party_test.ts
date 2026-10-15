@@ -40,6 +40,10 @@ const PORT_OFFSET = SCENARIO_PORT_OFFSET + 400;
 const CLIENT_PORT = 18_961;
 /** Several packets, within the credit the nodes extend each other. */
 const AMOUNT = 250_000_000n;
+/** What a quote for it debits: the probed one for one, less STREAM's 1%
+ * slippage, rounded up. What the payment does not send goes back to the
+ * grant once it completes. */
+const QUOTED = 252_525_253n;
 
 const missing = await missingTools();
 
@@ -277,13 +281,13 @@ Deno.test({
       { url: payerAddress.resourceServer, accessToken },
       { walletAddress: payerAddress.id, receiver: incoming.id, method: "ilp" },
     );
-    assertEquals(quote.debitAmount.value, `${AMOUNT}`);
+    assertEquals(quote.debitAmount.value, `${QUOTED}`);
     assertEquals(quote.receiveAmount.value, `${AMOUNT}`);
     const created = await op.outgoingPayment.create(
       { url: payerAddress.resourceServer, accessToken },
       { walletAddress: payerAddress.id, quoteId: quote.id },
     );
-    assertEquals(created.grantSpentDebitAmount?.value, `${AMOUNT}`);
+    assertEquals(created.grantSpentDebitAmount?.value, `${QUOTED}`);
 
     // 4. It completes, and the receiver has it.
     let payment = created;

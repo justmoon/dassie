@@ -32,6 +32,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_9,
     MIGRATION_10,
     MIGRATION_11,
+    MIGRATION_12,
 ];
 
 const MIGRATION_1: &str = "
@@ -577,6 +578,50 @@ ALTER TABLE settlement_checkpoints ADD COLUMN state BLOB
   CHECK (state IS NULL OR length(state) <= 262144);
 ";
 
+/// Exchange rates, fees and spread (M7c, D7): a Fulfill owed a verdict
+/// keeps a third transfer, our fee on transit; the owner sets the fee and
+/// the spread, the sources of exchange rates, and the currency totals are
+/// shown in; the last rates fetched outlive a restart, each with when it
+/// was.
+const MIGRATION_12: &str = "
+ALTER TABLE owed_fulfills ADD COLUMN debit_3 INTEGER REFERENCES ledger_accounts (id);
+ALTER TABLE owed_fulfills ADD COLUMN credit_3 INTEGER REFERENCES ledger_accounts (id);
+ALTER TABLE owed_fulfills ADD COLUMN amount_3 INTEGER CHECK (amount_3 IS NULL OR amount_3 > 0);
+
+ALTER TABLE peer_settings ADD COLUMN connector_fee_ppm INTEGER NOT NULL DEFAULT 0
+  CHECK (connector_fee_ppm BETWEEN 0 AND 100000);
+ALTER TABLE peer_settings ADD COLUMN fx_spread_ppm INTEGER NOT NULL DEFAULT 0
+  CHECK (fx_spread_ppm BETWEEN 0 AND 100000);
+
+ALTER TABLE payment_settings ADD COLUMN display_currency TEXT
+  CHECK (display_currency IS NULL OR length(display_currency) BETWEEN 1 AND 8);
+
+CREATE TABLE rate_sources (
+  position INTEGER PRIMARY KEY CHECK (position BETWEEN 0 AND 7),
+  kind TEXT NOT NULL CHECK (kind IN ('coinbase', 'kraken', 'bitstamp')),
+  -- Only the Coinbase format is served by others too.
+  url TEXT CHECK (url IS NULL OR (kind = 'coinbase' AND length(url) BETWEEN 9 AND 2048))
+) STRICT;
+
+INSERT INTO rate_sources VALUES (0, 'coinbase', NULL), (1, 'kraken', NULL), (2, 'bitstamp', NULL);
+
+-- A payment of a fixed amount to send sends all of it; one of a fixed
+-- amount to deliver stops once the receiver has it.
+ALTER TABLE quotes ADD COLUMN fixed_debit INTEGER NOT NULL DEFAULT 0
+  CHECK (fixed_debit IN (0, 1));
+ALTER TABLE outgoing_payments ADD COLUMN fixed_debit INTEGER NOT NULL DEFAULT 0
+  CHECK (fixed_debit IN (0, 1));
+
+CREATE TABLE exchange_rates (
+  asset TEXT PRIMARY KEY CHECK (length(asset) BETWEEN 1 AND 8),
+  -- Units of the asset one US dollar buys, times 10^15, in decimal: it may
+  -- not fit 64 bits.
+  rate TEXT NOT NULL CHECK (length(rate) BETWEEN 1 AND 39
+    AND rate NOT GLOB '*[^0-9]*' AND rate NOT GLOB '0*'),
+  as_of_ms INTEGER NOT NULL CHECK (as_of_ms >= 0)
+) STRICT, WITHOUT ROWID;
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -875,6 +920,9 @@ pub const TABLES: &[Table] = &[
             ("incoming_amount", "INTEGER", false, false),
             ("expires_at_ms", "INTEGER", true, false),
             ("created_at_ms", "INTEGER", true, false),
+            ("debit_3", "INTEGER", false, false),
+            ("credit_3", "INTEGER", false, false),
+            ("amount_3", "INTEGER", false, false),
         ],
     },
     Table {
@@ -905,6 +953,7 @@ pub const TABLES: &[Table] = &[
             ("created_at_ms", "INTEGER", true, false),
             ("expires_at_ms", "INTEGER", true, false),
             ("recipient", "TEXT", false, false),
+            ("fixed_debit", "INTEGER", true, false),
         ],
     },
     Table {
@@ -934,6 +983,7 @@ pub const TABLES: &[Table] = &[
             ("finished_at_ms", "INTEGER", false, false),
             ("revision", "INTEGER", true, false),
             ("recipient", "TEXT", false, false),
+            ("fixed_debit", "INTEGER", true, false),
         ],
     },
     Table {
@@ -952,6 +1002,7 @@ pub const TABLES: &[Table] = &[
         columns: &[
             ("id", "INTEGER", false, true),
             ("default_ledger", "TEXT", false, false),
+            ("display_currency", "TEXT", false, false),
         ],
     },
     Table {
@@ -960,6 +1011,8 @@ pub const TABLES: &[Table] = &[
         columns: &[
             ("id", "INTEGER", false, true),
             ("grace_share_ppm", "INTEGER", true, false),
+            ("connector_fee_ppm", "INTEGER", true, false),
+            ("fx_spread_ppm", "INTEGER", true, false),
         ],
     },
     Table {
@@ -974,6 +1027,24 @@ pub const TABLES: &[Table] = &[
             ("cost_overdue", "INTEGER", false, false),
             ("cost_grace", "INTEGER", false, false),
             ("unbanned_at_ms", "INTEGER", false, false),
+        ],
+    },
+    Table {
+        name: "rate_sources",
+        without_rowid: false,
+        columns: &[
+            ("position", "INTEGER", false, true),
+            ("kind", "TEXT", true, false),
+            ("url", "TEXT", false, false),
+        ],
+    },
+    Table {
+        name: "exchange_rates",
+        without_rowid: true,
+        columns: &[
+            ("asset", "TEXT", true, true),
+            ("rate", "TEXT", true, false),
+            ("as_of_ms", "INTEGER", true, false),
         ],
     },
 ];

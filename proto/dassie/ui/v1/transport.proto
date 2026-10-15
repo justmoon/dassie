@@ -166,6 +166,10 @@ message Request {
 
     GetPeerSettingsRequest get_peer_settings = 123;
     SetPeerSettingsRequest set_peer_settings = 124;
+
+    GetRateSourcesRequest get_rate_sources = 125;
+    SetRateSourcesRequest set_rate_sources = 126;
+    SetDisplayCurrencyRequest set_display_currency = 127;
   }
 }
 
@@ -251,6 +255,10 @@ message Response {
 
     GetPeerSettingsResponse get_peer_settings = 123;
     SetPeerSettingsResponse set_peer_settings = 124;
+
+    GetRateSourcesResponse get_rate_sources = 125;
+    SetRateSourcesResponse set_rate_sources = 126;
+    SetDisplayCurrencyResponse set_display_currency = 127;
   }
 }
 

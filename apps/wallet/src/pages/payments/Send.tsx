@@ -1,8 +1,10 @@
 /**
- * Send (D9, M6c): to a payment pointer, a wallet address, or a payment
- * request, on this node or another. The node reads the recipient, quotes
- * what the payment debits and delivers, and pays once the owner confirms;
- * the payment's own page follows it from there.
+ * Send (D9, M6c, M7c): to a payment pointer, a wallet address, or a
+ * payment request, on this node or another, in any currency. The owner
+ * fixes what the recipient gets or what they send; the node reads the
+ * recipient, measures the rate of the route, quotes what the payment
+ * debits and delivers, and pays once the owner confirms; the payment's own
+ * page follows it from there.
  */
 
 import type { JSX } from "@solidjs/web";
@@ -15,8 +17,10 @@ import { useRouter, useSearchParam } from "@dassie/ui/router";
 import { describe, useClient } from "@dassie/ui/rpc";
 import { Card, ErrorText, Field, PageTitle } from "@dassie/ui/ui";
 import {
+  type Fixed,
   lapseText,
   looksLikeRecipient,
+  quoteAmount,
   recipientName,
   type Step,
 } from "./send.ts";
@@ -37,6 +41,7 @@ export function Send(): JSX.Element {
   const [recipient, setRecipient] = createSignal<Recipient>();
   const [ledger, setLedger] = createSignal<string>();
   const [amount, setAmount] = createSignal("");
+  const [fixed, setFixed] = createSignal<Fixed>("receive");
   const [note, setNote] = createSignal("");
   const [quote, setQuote] = createSignal<SendQuote>();
   const [error, setError] = createSignal<string>();
@@ -45,19 +50,29 @@ export function Send(): JSX.Element {
   const ticker = setInterval(() => setNow(Date.now()), 1_000);
   onCleanup(() => clearInterval(ticker));
 
-  // The ledgers in the recipient's asset, and the one that pays: the one
-  // chosen, else the default, `$host`'s, if it is among them.
-  const ledgers = () =>
-    (data.ledgers() ?? []).filter((entry) =>
+  // The ledger that pays: the one chosen, else one in the recipient's
+  // asset, else the default, `$host`'s. The node pays from the ledger the
+  // route starts on, and says so if it is another.
+  const ledgers = () => data.ledgers() ?? [];
+  const chosen = () => {
+    const all = ledgers();
+    const same = all.find((entry) =>
       entry.assetCode === recipient()?.assetCode &&
       entry.assetScale === recipient()?.assetScale
     );
-  const chosen = () => {
-    const wanted = ledger() ??
+    const wanted = ledger() ?? same?.id ??
       addresses.addresses()?.find((address) => address.isDefault)?.ledger;
-    return ledgers().find((entry) => entry.id === wanted) ?? ledgers()[0];
+    return all.find((entry) => entry.id === wanted) ?? all[0];
   };
-  const scale = () => recipient()?.assetScale ?? 9;
+  // The amount is in the recipient's asset, or the paying ledger's.
+  const scale = () =>
+    fixed() === "send"
+      ? chosen()?.assetScale ?? 9
+      : recipient()?.assetScale ?? 9;
+  const amountLabel = () =>
+    fixed() === "send"
+      ? `Amount you send (${chosen()?.assetCode ?? "?"})`
+      : `Amount they receive (${recipient()?.assetCode ?? "?"})`;
 
   // Looks the recipient up: after a pause in typing, or on Continue. Only
   // the latest lookup counts.
@@ -107,6 +122,7 @@ export function Send(): JSX.Element {
     if (!found) return;
     // A request that asks for an amount pays that, unless changed.
     const remaining = found.request?.remaining;
+    setFixed("receive");
     setAmount(
       remaining !== undefined ? amountText(remaining, found.assetScale) : "",
     );
@@ -130,10 +146,13 @@ export function Send(): JSX.Element {
     setPending(true);
     try {
       // What was found, not what the box says now.
+      // An amount to send is in the chosen ledger's asset, so it pays
+      // from that one; else the node pays from the route's.
+      const from = fixed() === "send" ? chosen()?.id : ledger();
       const response = await client.call("quoteSend", {
         recipient: found.request?.url ?? found.walletAddress,
-        ledger: chosen()?.id ?? "",
-        amount: value,
+        ledger: from ?? "",
+        amount: quoteAmount(fixed(), value),
         note: note(),
       });
       setQuote(response.quote);
@@ -230,8 +249,7 @@ export function Send(): JSX.Element {
                 when={ledgers().length > 0}
                 fallback={
                   <p class="error" role="alert">
-                    None of your ledgers is in{" "}
-                    {found().assetCode}; payments across currencies come later.
+                    You have no ledger to pay from.
                   </p>
                 }
               >
@@ -267,11 +285,39 @@ export function Send(): JSX.Element {
                     </p>
                   )}
                 </Show>
+                <fieldset class="radios">
+                  <legend>The amount is</legend>
+                  <For
+                    each={[
+                      ["receive", "What they receive"],
+                      ["send", "What you send"],
+                    ] as const}
+                  >
+                    {([value, label]) => (
+                      <label>
+                        <input
+                          type="radio"
+                          name={`${id}-fixed`}
+                          data-testid={`send-fixed-${value}`}
+                          checked={fixed() === value}
+                          onChange={() => {
+                            setFixed(value);
+                            setAmount("");
+                          }}
+                        />{" "}
+                        {label}
+                      </label>
+                    )}
+                  </For>
+                </fieldset>
                 <Field
-                  label={`Amount they receive (${found().assetCode})`}
+                  label={amountLabel()}
                   for={`${id}-amount`}
-                  hint={found().request?.remaining !== undefined
+                  hint={fixed() === "receive" &&
+                      found().request?.remaining !== undefined
                     ? "What the request asks for; less pays part of it."
+                    : fixed() === "send"
+                    ? "They receive what it buys at the rate of the route."
                     : undefined}
                 >
                   <input
@@ -331,6 +377,8 @@ export function Send(): JSX.Element {
                     },
                   )}
                 </dd>
+                <dt>From</dt>
+                <dd data-testid="send-review-ledger">{quoted().ledger}</dd>
                 <dt>You send</dt>
                 <dd>
                   <Amount

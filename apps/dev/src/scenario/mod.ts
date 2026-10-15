@@ -14,6 +14,7 @@ import {
   xrplConfig,
 } from "../fake_ledger.ts";
 import { type Layout, layout as defaultLayout } from "../paths.ts";
+import { type RateServer, startRates } from "../rates.ts";
 import type { Stream } from "../process.ts";
 import { identity, loadTable, type Table } from "../vanity.ts";
 import { until } from "../wait.ts";
@@ -31,6 +32,7 @@ export {
 export { type Layout, layout, socketPath } from "../paths.ts";
 export { caFile, certificate } from "../certs.ts";
 export { fakeLedgerBinary } from "../fake_ledger.ts";
+export { DEV_RATES, RATES_PORT, type RateTable } from "../rates.ts";
 export { until, waitForPort, waitForSocket } from "../wait.ts";
 export type { Exit } from "../process.ts";
 
@@ -76,6 +78,8 @@ export class Scenario {
   #temporary: boolean;
   /** The fake XRP Ledger, if the scenario runs one. */
   ledger?: FakeLedger;
+  /** The exchange rates every node fetches. */
+  rates?: RateServer;
   /** What each scheme is set up with, by ID. */
   #configs: Record<string, string> = {};
 
@@ -132,6 +136,12 @@ export class Scenario {
     };
     const scenario = new Scenario(def, options, environment, temporary);
     try {
+      // Every node's rates come from here, under the scenario's CA.
+      const rates = await certificate(options.layout.tls, "rates", [
+        "localhost",
+        "127.0.0.1",
+      ], options.layout.caRoot);
+      scenario.rates = startRates(rates, options.portOffset ?? 0);
       const xrpl = [...def.schemes, def.addedSchemes]
         .some((schemes) => schemes.includes("xrpl-testnet"));
       if (xrpl && options.fakeLedger) {
@@ -193,7 +203,11 @@ export class Scenario {
       await node.start();
       report(node, "setting-up");
       const withoutLedger = this.options.withoutLedger?.includes(index);
-      await node.setUp(withoutLedger ? [] : schemes, this.#configs);
+      await node.setUp(
+        withoutLedger ? [] : schemes,
+        this.#configs,
+        this.rates?.url,
+      );
     } catch (error) {
       // A node that failed is stopped and dropped, so its index is free.
       const exit = await node.stop();
@@ -219,6 +233,7 @@ export class Scenario {
   async stop(): Promise<string[]> {
     const exits = await Promise.all(this.nodes.map((node) => node.stop()));
     await this.ledger?.stop();
+    await this.rates?.stop();
     const failures: string[] = [];
     this.nodes.forEach((node, index) => {
       const exit = exits[index];

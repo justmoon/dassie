@@ -8,6 +8,7 @@
 
 mod access;
 mod certificates;
+mod rates;
 mod settings;
 
 use std::net::IpAddr;
@@ -83,6 +84,8 @@ pub struct Policies {
     pub incoming: crate::engine::IncomingPolicy,
     /// The timing of each peer's grace limit (D18).
     pub grace: crate::engine::GracePolicy,
+    /// How often exchange rates are fetched (D7).
+    pub rates_every_ms: u64,
 }
 
 impl Policies {
@@ -99,12 +102,13 @@ impl Policies {
         btp_auth_attempts: RateLimitPolicy::DEFAULT,
         ledger: dassie_ledger::Config {
             max_accounts: 4096,
-            max_pending: 16_960,
+            max_pending: 25_408,
             max_journal: 1024,
         },
         // Every BTP client, the 8 local endpoints and every peer can fill
         // their share of the packet table at once: 72 × 60 + 8 × 512 fits
-        // its 8448, and the ledger has two transfers for each, and 64 more.
+        // its 8448, and the ledger has three transfers for each (across
+        // ledgers, with our fee), and 64 more.
         connector: dassie_connector::Config {
             max_pending: 8448,
             max_pending_per_endpoint: 60,
@@ -116,6 +120,7 @@ impl Policies {
         settlement_ratio_ppm: dassie_settlement::policy::DEFAULT_RATIO_PPM,
         incoming: crate::engine::IncomingPolicy::DEFAULT,
         grace: crate::engine::GracePolicy::DEFAULT,
+        rates_every_ms: 60_000,
     };
 
     /// The production values with the peer protocol's dev timers (spec 7
@@ -301,6 +306,8 @@ pub struct Node {
     dev_wallet_dir: Option<PathBuf>,
     stats_cache: crate::http::stats::StatsCache,
     open_payments: crate::open_payments::State,
+    /// Wakes the rate fetcher.
+    rates_wake: Notify,
 }
 
 impl std::fmt::Debug for Node {
@@ -384,6 +391,7 @@ impl Node {
             dev_wallet_dir,
             stats_cache: crate::http::stats::StatsCache::default(),
             open_payments: crate::open_payments::State::default(),
+            rates_wake: Notify::new(),
         }))
     }
 

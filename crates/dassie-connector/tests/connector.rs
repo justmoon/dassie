@@ -343,14 +343,11 @@ fn removing_an_endpoint_fails_its_packets_and_forgets_its_answers() {
 #[test]
 fn cross_ledger_packets_convert_through_the_fx_accounts() {
     let mut h = Harness::new(Config::DEFAULT, UNIT);
-    let xrp = AccountPath::new(LedgerId::XrplTestnetXrp, AccountName::EquityOwner);
-    let xrp_owner = h.ledger.open(xrp).unwrap();
-    for (ledger, name) in [
-        (LedgerId::StubUsd, AccountName::RevenueFx),
-        (LedgerId::XrplTestnetXrp, AccountName::ExpensesFx),
-    ] {
-        h.ledger.open(AccountPath::new(ledger, name)).unwrap();
-    }
+    let xrp_owner = h.fund(LedgerId::XrplTestnetXrp, 0);
+    h.open_books(LedgerId::StubUsd);
+    h.open_books(LedgerId::XrplTestnetXrp);
+    let peer = EndpointId::Peer(1);
+    h.add_peer(1, "dpeer", UNIT, 0);
     h.connector
         .add_endpoint(
             EndpointId::Local(1),
@@ -360,7 +357,7 @@ fn cross_ledger_packets_convert_through_the_fx_accounts() {
         )
         .unwrap();
     let packet = prepare(&format!("{OWN}.xrp.x"), 1_000, NOW + 20_000, [3; 32]);
-    let length = answered(h.prepare(NOW, ALICE, 1, &packet));
+    let length = answered(h.prepare(NOW, peer, 1, &packet));
     assert_eq!(
         h.reject_written(length).0,
         ErrorCode::T00_INTERNAL_ERROR,
@@ -368,14 +365,24 @@ fn cross_ledger_packets_convert_through_the_fx_accounts() {
     );
     h.rates.set("USD", 10u128.pow(RATE_PRECISION));
     h.rates.set("XRP", 2 * 10u128.pow(RATE_PRECISION));
-    let sent = forwarded(h.prepare(NOW, ALICE, 2, &packet));
+    let sent = forwarded(h.prepare(NOW, peer, 2, &packet));
     assert_eq!(decode_prepare(&h.buffer[..sent.length]).amount, 2_000);
     h.respond(NOW + 1, sent.to, sent.request_id, &fulfill([3; 32]))
         .unwrap();
+    // The receiver's account shows what arrived; the owner's funds hold
+    // it where it is, in USD: on XRP, `expenses/fx` takes it back out.
     assert_eq!(h.net(xrp_owner), 2_000);
+    assert_eq!(h.net_at(LedgerId::StubUsd, AccountName::RevenueFx), 1_000);
+    assert_eq!(
+        h.net_at(LedgerId::XrplTestnetXrp, AccountName::ExpensesFx),
+        -2_000
+    );
+    // The owner's own endpoints never convert (spec 7 §4.5).
+    let length = answered(h.prepare(NOW, ALICE, 3, &packet));
+    assert_eq!(h.reject_written(length).0, ErrorCode::F02_UNREACHABLE);
     let stale = NOW + Config::DEFAULT.max_rate_age_ms + 1;
     let packet = prepare(&format!("{OWN}.xrp.x"), 1_000, stale + 20_000, [3; 32]);
-    let length = answered(h.prepare(stale, ALICE, 3, &packet));
+    let length = answered(h.prepare(stale, peer, 4, &packet));
     assert_eq!(
         h.reject_written(length).0,
         ErrorCode::T00_INTERNAL_ERROR,
@@ -390,6 +397,6 @@ fn zero_amounts_skip_the_ledger() {
     h.respond(NOW + 1, RECEIVER, sent.request_id, &fulfill([3; 32]))
         .unwrap();
     let record = *h.connector.packets_after(None).last().unwrap();
-    assert_eq!(record.transfers, [None, None]);
+    assert_eq!(record.transfers, [None; 3]);
     assert_eq!(record.state, PacketState::Fulfilled);
 }

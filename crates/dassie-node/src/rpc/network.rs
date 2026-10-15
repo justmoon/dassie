@@ -104,6 +104,8 @@ async fn set_peer_settings(
     engine
         .set_peer_settings(PeerSettings {
             grace_share_ppm: settings.grace_share_ppm,
+            connector_fee_ppm: settings.connector_fee_ppm,
+            fx_spread_ppm: settings.fx_spread_ppm,
         })
         .await?;
     Ok(response::Method::SetPeerSettings(
@@ -261,6 +263,8 @@ fn ban(node: &NodeId, record: Option<BanRecord>) -> proto::Ban {
 const fn peer_settings(settings: PeerSettings) -> proto::PeerSettings {
     proto::PeerSettings {
         grace_share_ppm: settings.grace_share_ppm,
+        connector_fee_ppm: settings.connector_fee_ppm,
+        fx_spread_ppm: settings.fx_spread_ppm,
     }
 }
 

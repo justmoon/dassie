@@ -501,12 +501,21 @@ impl Core {
     /// booking them back cannot fail but by a bug.
     fn compensate(&mut self, row: &OwedFulfill) {
         let reference = Reference::Refusal(row.trace);
-        let [first, second] = row.transfers;
-        let Some((peer_account, _, amount)) = first else {
+        let Some((peer_account, _, _)) = row.transfers[0] else {
             panic!("a Fulfill owed without its transfers");
         };
+        // What the peer's books never took: every leg that debited its
+        // account, our fee with the packet.
+        let amount: u64 = row
+            .transfers
+            .iter()
+            .flatten()
+            .filter(|(debit, _, _)| *debit == peer_account)
+            .map(|(_, _, amount)| amount)
+            .sum();
         let specs: Vec<TransferSpec> = match row.compensation {
-            Compensation::Reverse => [first, second]
+            Compensation::Reverse => row
+                .transfers
                 .into_iter()
                 .flatten()
                 .map(|(debit, credit, amount)| TransferSpec {

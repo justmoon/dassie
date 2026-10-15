@@ -17,6 +17,11 @@ pub struct PeerSettings {
     /// The share of the credit we extend to a peer that it may cost us in
     /// the window before it is banned, in parts per million.
     pub grace_share_ppm: u32,
+    /// Our fee on what passes from one peer to another, in parts per
+    /// million of what comes in (D7).
+    pub connector_fee_ppm: u32,
+    /// Our spread on what such a packet converts, in parts per million.
+    pub fx_spread_ppm: u32,
 }
 
 impl PeerSettings {
@@ -27,6 +32,8 @@ impl PeerSettings {
     /// never settles.
     pub const DEFAULT: Self = Self {
         grace_share_ppm: 750_000,
+        connector_fee_ppm: 0,
+        fx_spread_ppm: 0,
     };
 
     /// The largest share: ten times the credit.
@@ -35,7 +42,18 @@ impl PeerSettings {
     /// Whether the settings can be stored.
     #[must_use]
     pub const fn is_valid(&self) -> bool {
-        self.grace_share_ppm > 0 && self.grace_share_ppm <= Self::MAX_SHARE_PPM
+        self.grace_share_ppm > 0
+            && self.grace_share_ppm <= Self::MAX_SHARE_PPM
+            && self.charges().is_valid()
+    }
+
+    /// What transit is charged.
+    #[must_use]
+    pub const fn charges(&self) -> dassie_connector::Charges {
+        dassie_connector::Charges {
+            fee_ppm: self.connector_fee_ppm,
+            spread_ppm: self.fx_spread_ppm,
+        }
     }
 }
 
@@ -132,17 +150,21 @@ impl Store {
     ///
     /// The database failed, or holds what it may not.
     pub fn peer_settings(&self) -> Result<PeerSettings, StoreError> {
-        let share: i64 = self.lock().query_row(
-            "SELECT grace_share_ppm FROM peer_settings WHERE id = 1",
+        let (share, fee, spread): (i64, i64, i64) = self.lock().query_row(
+            "SELECT grace_share_ppm, connector_fee_ppm, fx_spread_ppm FROM peer_settings \
+             WHERE id = 1",
             [],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )?;
+        let ppm =
+            |value: i64| u32::try_from(value).map_err(|_| StoreError::Corrupt("peer settings"));
         let settings = PeerSettings {
-            grace_share_ppm: u32::try_from(share)
-                .map_err(|_| StoreError::Corrupt("grace share"))?,
+            grace_share_ppm: ppm(share)?,
+            connector_fee_ppm: ppm(fee)?,
+            fx_spread_ppm: ppm(spread)?,
         };
         if !settings.is_valid() {
-            return Err(StoreError::Corrupt("grace share"));
+            return Err(StoreError::Corrupt("peer settings"));
         }
         Ok(settings)
     }
@@ -230,8 +252,13 @@ pub(super) fn write_grace(
 ) -> Result<(), StoreError> {
     if let Some(settings) = settings {
         transaction.execute(
-            "UPDATE peer_settings SET grace_share_ppm = ?1 WHERE id = 1",
-            [settings.grace_share_ppm],
+            "UPDATE peer_settings SET grace_share_ppm = ?1, connector_fee_ppm = ?2, \
+             fx_spread_ppm = ?3 WHERE id = 1",
+            [
+                settings.grace_share_ppm,
+                settings.connector_fee_ppm,
+                settings.fx_spread_ppm,
+            ],
         )?;
     }
     for change in bans {

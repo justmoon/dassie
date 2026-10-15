@@ -400,6 +400,10 @@ fn start_services(
         "engine",
         Box::new(|node, shutdown| Box::pin(crate::engine::run(node, shutdown))),
     );
+    spawn(
+        "rates",
+        Box::new(|node, shutdown| Box::pin(node.run_rates(shutdown))),
+    );
 }
 
 /// A service: started again, with the node and the shutdown token, after

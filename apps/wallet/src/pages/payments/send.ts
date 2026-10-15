@@ -6,6 +6,24 @@
 /** The steps of a Send. */
 export type Step = "recipient" | "amount" | "review";
 
+/** Which amount the owner fixes: what the recipient gets, or what they
+ * send. */
+export type Fixed = "receive" | "send";
+
+/** The amount of a quote request: none for what a request still asks. */
+export function quoteAmount(
+  fixed: Fixed,
+  value: bigint | undefined,
+):
+  | { case: "receiveAmount"; value: bigint }
+  | { case: "debitAmount"; value: bigint }
+  | { case: undefined } {
+  if (value === undefined) return { case: undefined };
+  return fixed === "send"
+    ? { case: "debitAmount", value }
+    : { case: "receiveAmount", value };
+}
+
 /** Whom a recipient is, in a few words: its name and payment pointer,
  * or its wallet address where no pointer names it. */
 export function recipientName(

@@ -13,12 +13,13 @@ pub const RATE_PRECISION: u32 = 15;
 const MAX_RATES: usize = 64;
 
 /// A snapshot of exchange rates: for each currency, how many units of it
-/// one unit of a common base buys, times 10^[`RATE_PRECISION`].
+/// one unit of a common base buys, times 10^[`RATE_PRECISION`], and when
+/// that was learned.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Rates {
-    /// When the snapshot was taken.
+    /// When [`set`](Self::set) says its rates were learned.
     pub as_of_ms: u64,
-    rates: Vec<(&'static str, u128)>,
+    rates: Vec<(&'static str, u128, u64)>,
 }
 
 impl Rates {
@@ -31,30 +32,66 @@ impl Rates {
         }
     }
 
-    /// Sets the rate of `code`. Returns false when the snapshot is full or
-    /// the rate is zero.
+    /// Sets the rate of `code`, as of [`as_of_ms`](Self::as_of_ms).
+    /// Returns false when the snapshot is full or the rate is zero.
     pub fn set(&mut self, code: &'static str, rate: u128) -> bool {
+        self.set_at(code, rate, self.as_of_ms)
+    }
+
+    /// Sets the rate of `code`, learned at `as_of_ms`. Returns false when
+    /// the snapshot is full or the rate is zero.
+    pub fn set_at(&mut self, code: &'static str, rate: u128, as_of_ms: u64) -> bool {
         if rate == 0 {
             return false;
         }
-        if let Some(entry) = self.rates.iter_mut().find(|(c, _)| *c == code) {
-            entry.1 = rate;
+        if let Some(entry) = self.rates.iter_mut().find(|(c, _, _)| *c == code) {
+            *entry = (code, rate, as_of_ms);
             return true;
         }
         if self.rates.len() >= MAX_RATES {
             return false;
         }
-        self.rates.push((code, rate));
+        self.rates.push((code, rate, as_of_ms));
         true
     }
 
     /// The rate of `code`.
     #[must_use]
     pub fn get(&self, code: &str) -> Option<u128> {
+        self.entry(code).map(|(rate, _)| rate)
+    }
+
+    /// When the rate of `code` was learned.
+    #[must_use]
+    pub fn as_of(&self, code: &str) -> Option<u64> {
+        self.entry(code).map(|(_, as_of_ms)| as_of_ms)
+    }
+
+    /// Every rate: its currency, the rate, and when it was learned.
+    pub fn iter(&self) -> impl Iterator<Item = (&'static str, u128, u64)> + '_ {
+        self.rates.iter().copied()
+    }
+
+    /// Whether converting between `from` and `to` uses only rates learned
+    /// at most `max_age_ms` before `now_ms`, and not after: a clock that
+    /// went back cannot make a rate young. The same currency needs none.
+    #[must_use]
+    pub fn fresh(&self, from: &str, to: &str, now_ms: u64, max_age_ms: u64) -> bool {
+        if from == to {
+            return true;
+        }
+        let young = |code| {
+            self.as_of(code)
+                .is_some_and(|at| at <= now_ms && now_ms - at <= max_age_ms)
+        };
+        young(from) && young(to)
+    }
+
+    fn entry(&self, code: &str) -> Option<(u128, u64)> {
         self.rates
             .iter()
-            .find(|(c, _)| *c == code)
-            .map(|(_, rate)| *rate)
+            .find(|(c, _, _)| *c == code)
+            .map(|&(_, rate, as_of_ms)| (rate, as_of_ms))
     }
 }
 
@@ -138,6 +175,22 @@ mod tests {
             scale: 6,
         };
         assert_eq!(convert(&rates(), cents, drops, 100), Some(2_500_000));
+    }
+
+    #[test]
+    fn each_rate_ages_on_its_own() {
+        let mut rates = rates();
+        rates.set_at("EUR", 9 * 10u128.pow(RATE_PRECISION - 1), 5_000);
+        assert!(rates.fresh("USD", "XRP", 1_000, 1_000));
+        assert!(!rates.fresh("USD", "XRP", 1_001, 1_000));
+        assert!(rates.fresh("EUR", "EUR", u64::MAX, 0));
+        assert!(!rates.fresh("EUR", "XRP", 1_000, 1_000), "from the future");
+        rates.set_at("USD", 10u128.pow(RATE_PRECISION), 5_500);
+        assert!(rates.fresh("EUR", "USD", 6_000, 1_000));
+        assert!(!rates.fresh("EUR", "USD", 6_001, 1_000));
+        assert!(!rates.fresh("EUR", "GBP", 5_000, 1_000), "never learned");
+        assert_eq!(rates.as_of("EUR"), Some(5_000));
+        assert_eq!(rates.iter().count(), 3);
     }
 
     #[test]

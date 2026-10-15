@@ -46,19 +46,31 @@ const MAX_LOCAL_QUEUE: usize = 1_024;
 const LOCAL_PER_STEP: usize = 256;
 
 /// What sends outgoing payments: each active ledger's payer, the payments
-/// not yet finished, those waiting to start, the payers' packets in
-/// flight, and the packets for the node's own receiver.
+/// not yet finished, those waiting to start, the rates being measured,
+/// the payers' packets in flight, and the packets for the node's own
+/// receiver.
 #[derive(Default)]
 pub(super) struct Spending {
     pub payers: BTreeMap<LedgerId, Payer>,
     pub outgoing: BTreeMap<PaymentId, Unfinished>,
     /// By when each may start, and its ID.
     pub waiting: BTreeSet<(u64, PaymentId)>,
+    /// The probes measuring rates, by their ID.
+    pub probes: BTreeMap<u64, super::probes::Probe>,
     /// The connector's request ID for each packet in flight, and the
-    /// payment and STREAM request it is.
-    pub requests: BTreeMap<u32, (PaymentId, u64)>,
+    /// payment or probe and the STREAM request it is.
+    pub requests: BTreeMap<u32, (Sender, u64)>,
     pub next_request: u32,
     pub local_queue: VecDeque<(Forwarded, Vec<u8>)>,
+}
+
+/// What sent a payer's packet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Sender {
+    /// An outgoing payment.
+    Payment(PaymentId),
+    /// A rate probe.
+    Probe(u64),
 }
 
 /// A ledger's payer: the endpoint outgoing payments send from.
@@ -112,6 +124,9 @@ pub struct NewOutgoing {
     pub metadata: Option<String>,
     /// The wallet address it pays, when the owner named one.
     pub recipient: Option<String>,
+    /// Whether it sends all its debit amount, rather than stopping once
+    /// the receiver has its receive amount.
+    pub fixed_debit: bool,
 }
 
 /// A new outgoing payment, and what its grant has spent in the window
@@ -256,6 +271,7 @@ impl Core {
             deadline_ms: now + OUTGOING_DEADLINE_MS,
             finished_at_ms: None,
             recipient: new.recipient,
+            fixed_debit: new.fixed_debit,
         };
         self.batch.outgoing.created.push(row.clone());
         self.spending.waiting.insert((now, row.id));
@@ -434,8 +450,11 @@ impl Core {
             receipt: None,
             policy: Policy::DEFAULT,
         }));
-        // Same asset, and no fees yet (M7): one for one.
-        connection.set_exchange_rate(Rate::ONE);
+        // What each packet must deliver at least: the payment's own rate,
+        // its quote's, so a worse path fails rather than delivers less.
+        let rate = Rate::new(payment.row.receive_amount.value, payment.row.debit_amount)
+            .unwrap_or(Rate::ONE);
+        connection.set_exchange_rate(rate);
         let left = payment.row.debit_amount - payment.row.sent_amount;
         payment.stream = connection
             .open_stream()
@@ -474,18 +493,30 @@ impl Core {
             self.spending.next_request = local.wrapping_add(1);
             self.spending
                 .requests
-                .insert(local, (id, transmit.request_id));
-            let outcome = self.connector.handle_prepare(
-                now,
-                endpoint,
-                local,
-                self.scratch.get(..transmit.length).unwrap_or_default(),
-                &mut self.ledger,
-                &self.rates,
-                &mut self.out,
-            );
-            self.sent_out(now, outcome, local);
+                .insert(local, (Sender::Payment(id), transmit.request_id));
+            self.send_payer_packet(now, endpoint, local, transmit.length);
         }
+    }
+
+    /// Hands the connector a payer's packet, written into the scratch
+    /// buffer.
+    pub(super) fn send_payer_packet(
+        &mut self,
+        now: u64,
+        endpoint: EndpointId,
+        local: u32,
+        length: usize,
+    ) {
+        let outcome = self.connector.handle_prepare(
+            now,
+            endpoint,
+            local,
+            self.scratch.get(..length).unwrap_or_default(),
+            &mut self.ledger,
+            &self.rates,
+            &mut self.out,
+        );
+        self.sent_out(now, outcome, local);
     }
 
     /// What the connector did with a payer's packet.
@@ -517,8 +548,12 @@ impl Core {
 
     /// The response to a payer's packet: to its connection.
     pub(super) fn payer_response(&mut self, now: u64, local: u32, response: &[u8]) {
-        let Some((id, request)) = self.spending.requests.remove(&local) else {
+        let Some((sender, request)) = self.spending.requests.remove(&local) else {
             return;
+        };
+        let id = match sender {
+            Sender::Payment(id) => id,
+            Sender::Probe(probe) => return self.probe_response(now, probe, request, response),
         };
         let Self { spending, work, .. } = self;
         let Some(payment) = spending.outgoing.get_mut(&id) else {
@@ -557,8 +592,25 @@ impl Core {
         if now >= payment.row.deadline_ms && payment.stopping.is_none() {
             payment.stopping = Some("the payment ran out of time".into());
         }
-        let done =
-            sent == payment.row.debit_amount || delivered >= payment.row.receive_amount.value;
+        // One of a fixed amount to deliver also ends once the receiver has
+        // it, which a hop that lost a packet may have paid for (D17), or
+        // all of it but less than a unit sent is worth: no packet can be
+        // sized to deliver that, as the hops round down. One of a fixed
+        // amount to send ends once it delivered what its quote said, and
+        // the receiver takes no more: a request it filled. (A receiver
+        // also takes no more while packets wait for a peer's verdict, so
+        // that alone does not end one.)
+        let receive = u128::from(payment.row.receive_amount.value);
+        let debit = u128::from(payment.row.debit_amount.max(1));
+        let short = receive.saturating_sub(u128::from(delivered));
+        let delivered_enough = short == 0 || (delivered > 0 && short * debit < receive);
+        let full = stream.is_some_and(|stream| stream.remote_room() == 0);
+        let done = sent == payment.row.debit_amount
+            || if payment.row.fixed_debit {
+                short == 0 && full
+            } else {
+                delivered_enough
+            };
         if (done || payment.stopping.is_some())
             && let Some(connection) = payment.connection.as_mut()
         {
@@ -608,12 +660,15 @@ impl Core {
         row.failure = failure;
         row.finished_at_ms = Some(now.max(row.created_at_ms));
         // What it did not send goes back to its grant's window; what it did
-        // not deliver too, if it failed.
+        // not deliver too, if it failed, at the payment's own rate.
         if let Some((grant, window)) = row.grant {
             let unsent = row.debit_amount - row.sent_amount;
+            let receive = row.receive_amount.value;
+            let delivered = u128::from(row.sent_amount) * u128::from(receive)
+                / u128::from(row.debit_amount.max(1));
             let undelivered = match row.state {
                 OutgoingState::Failed => {
-                    row.receive_amount.value - row.sent_amount.min(row.receive_amount.value)
+                    receive - u64::try_from(delivered).unwrap_or(receive).min(receive)
                 }
                 _ => 0,
             };
@@ -739,7 +794,9 @@ impl Core {
             .spending
             .requests
             .values()
-            .filter(|(id, _)| self.spending.outgoing.contains_key(id))
+            .filter(|(sender, _)| {
+                matches!(sender, Sender::Payment(id) if self.spending.outgoing.contains_key(id))
+            })
             .count();
         assert_eq!(
             usize::try_from(in_flight).unwrap_or(usize::MAX),

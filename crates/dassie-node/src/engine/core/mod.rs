@@ -13,6 +13,7 @@ mod ledgers;
 mod packets;
 mod payers;
 mod peers;
+mod probes;
 mod schemes;
 mod settlement;
 mod tokens;
@@ -37,6 +38,7 @@ pub use ledgers::{LedgerView, RemovalBlocker};
 pub use packets::ledger_slug;
 pub use payers::{CreatedOutgoing, NewOutgoing};
 pub use peers::{NetworkView, PeerView};
+pub use probes::{MAX_PROBES, PROBE_TIMEOUT_MS};
 pub use schemes::{LedgerEvent, SCHEMES};
 pub use tokens::{BtpSession, NewToken, TokenView, token_hash};
 
@@ -135,6 +137,14 @@ pub enum Output {
         inbound: dassie_peer::InboundId,
         /// The reply.
         reply: dassie_peer::Reply,
+    },
+    /// A rate probe is done: what the path delivers per unit sent, or
+    /// nothing, when it could not be measured.
+    ProbeDone {
+        /// The probe.
+        id: u64,
+        /// What it measured.
+        rate: Option<dassie_stream::Rate>,
     },
     /// Open a settlement scheme's connection to its ledger, numbered
     /// `epoch`; what comes over it is fed back with the same epoch.
@@ -365,7 +375,11 @@ impl Core {
     /// accounts the journal must have (spec 7 §4.4).
     fn restore(&mut self) -> Result<(), String> {
         let store = Arc::clone(&self.store);
+        for (code, rate, as_of_ms) in store.exchange_rates().map_err(text)? {
+            self.rates.set_at(code, rate, as_of_ms);
+        }
         self.peer_settings = store.peer_settings().map_err(text)?;
+        self.connector.set_charges(self.peer_settings.charges());
         self.ban_records = store
             .ban_records()
             .map_err(text)?
@@ -456,6 +470,7 @@ impl Core {
             finals,
             self.owed.deadline(),
             self.outgoing_deadline(),
+            self.probe_deadline(),
             grace,
             self.schemes_deadline(),
         ]
@@ -562,6 +577,46 @@ impl Core {
             self.check_outgoing();
             self.owed.check();
         }
+    }
+
+    /// The ledger a payment to `destination` goes out on, and whether it
+    /// goes to one of the node's own endpoints.
+    pub fn route_of(&self, destination: &str) -> Option<(dassie_ledger::LedgerId, bool)> {
+        self.connector
+            .first_hop(destination)
+            .map(|(hop, ledger)| (ledger, !hop.is_peer()))
+    }
+
+    /// The currencies of the active ledgers.
+    pub fn rate_currencies(&self) -> Vec<&'static str> {
+        let mut codes: Vec<&'static str> = self
+            .schemes
+            .values()
+            .map(|active| active.scheme.ledger().asset().code)
+            .collect();
+        codes.sort_unstable();
+        codes.dedup();
+        codes
+    }
+
+    /// Takes exchange rates just fetched; live views show them.
+    pub fn set_rates(&mut self, rates: &[crate::store::StoredRate]) {
+        for &(code, rate, as_of_ms) in rates {
+            if !self.rates.set_at(code, rate, as_of_ms) {
+                tracing::warn!(target: target::ENGINE, code, "no room for an exchange rate");
+            }
+        }
+        self.changes.ledger = true;
+    }
+
+    /// Marks the ledgers changed, for what live views show beside them.
+    pub const fn ledgers_changed(&mut self) {
+        self.changes.ledger = true;
+    }
+
+    /// The exchange rates the connector converts at.
+    pub const fn rates(&self) -> &Rates {
+        &self.rates
     }
 
     /// One ledger account.

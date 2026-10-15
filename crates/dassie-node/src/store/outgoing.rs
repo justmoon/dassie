@@ -62,6 +62,8 @@ pub struct QuoteRow {
     pub expires_at_ms: u64,
     /// The wallet address it pays, when the owner named one.
     pub recipient: Option<String>,
+    /// Whether it fixes what is sent, rather than what is delivered.
+    pub fixed_debit: bool,
 }
 
 /// Where an outgoing payment is.
@@ -137,6 +139,9 @@ pub struct OutgoingRow {
     pub finished_at_ms: Option<u64>,
     /// The wallet address it pays, when the owner named one.
     pub recipient: Option<String>,
+    /// Whether it sends all its debit amount, rather than stopping once
+    /// the receiver has its receive amount.
+    pub fixed_debit: bool,
 }
 
 /// What a step changed of an outgoing payment.
@@ -174,12 +179,12 @@ impl OutgoingBatch {
 
 const QUOTE_COLUMNS: &str = "id, ledger, wallet_address, client, receiver, destination, \
      shared_secret, debit_amount, receive_amount, receive_asset_code, receive_asset_scale, \
-     created_at_ms, expires_at_ms, recipient";
+     created_at_ms, expires_at_ms, recipient, fixed_debit";
 
 const OUTGOING_COLUMNS: &str = "id, ledger, wallet_address, client, grant_id, grant_window_ms, \
      quote_id, receiver, destination, shared_secret, debit_amount, receive_amount, \
      receive_asset_code, receive_asset_scale, sent_amount, state, failure, metadata, \
-     created_at_ms, deadline_ms, finished_at_ms, recipient";
+     created_at_ms, deadline_ms, finished_at_ms, recipient, fixed_debit";
 
 const NEXT_REVISION: &str = "(SELECT coalesce(max(revision), 0) + 1 FROM outgoing_payments)";
 
@@ -211,7 +216,7 @@ impl Store {
         transaction.execute(
             &format!(
                 "INSERT INTO quotes ({QUOTE_COLUMNS}) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)"
             ),
             params![
                 quote.id.0.as_slice(),
@@ -228,6 +233,7 @@ impl Store {
                 to_sql_time(quote.created_at_ms),
                 to_sql_time(quote.expires_at_ms),
                 quote.recipient,
+                quote.fixed_debit,
             ],
         )?;
         transaction.commit()?;
@@ -383,7 +389,7 @@ fn insert_outgoing(transaction: &Transaction<'_>, row: &OutgoingRow) -> Result<(
         &format!(
             "INSERT INTO outgoing_payments ({OUTGOING_COLUMNS}, revision) VALUES \
              (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, \
-             ?18, ?19, ?20, ?21, ?22, {NEXT_REVISION})"
+             ?18, ?19, ?20, ?21, ?22, ?23, {NEXT_REVISION})"
         ),
         params![
             row.id.0.as_slice(),
@@ -408,6 +414,7 @@ fn insert_outgoing(transaction: &Transaction<'_>, row: &OutgoingRow) -> Result<(
             to_sql_time(row.deadline_ms),
             row.finished_at_ms.map(to_sql_time),
             row.recipient,
+            row.fixed_debit,
         ],
     )?;
     Ok(())
@@ -428,6 +435,7 @@ fn read_quote(row: &Row<'_>) -> rusqlite::Result<Result<QuoteRow, StoreError>> {
     let created: i64 = row.get(11)?;
     let expires: i64 = row.get(12)?;
     let recipient: Option<String> = row.get(13)?;
+    let fixed_debit: bool = row.get(14)?;
     Ok((|| {
         Ok(QuoteRow {
             id: payment_id(id)?,
@@ -442,6 +450,7 @@ fn read_quote(row: &Row<'_>) -> rusqlite::Result<Result<QuoteRow, StoreError>> {
             created_at_ms: from_sql_time(created),
             expires_at_ms: from_sql_time(expires),
             recipient,
+            fixed_debit,
         })
     })())
 }
@@ -462,6 +471,7 @@ fn read_outgoing(row: &Row<'_>) -> rusqlite::Result<Result<OutgoingRow, StoreErr
         (row.get(2)?, row.get(3)?, row.get(7)?, row.get(8)?);
     let (failure, metadata) = (row.get(16)?, row.get(17)?);
     let recipient: Option<String> = row.get(21)?;
+    let fixed_debit: bool = row.get(22)?;
     Ok((|| {
         let grant = match (grant, window) {
             (Some(grant), Some(window)) => Some((payment_id(grant)?, from_sql_time(window))),
@@ -488,6 +498,7 @@ fn read_outgoing(row: &Row<'_>) -> rusqlite::Result<Result<OutgoingRow, StoreErr
             deadline_ms: from_sql_time(deadline),
             finished_at_ms: finished.map(from_sql_time),
             recipient,
+            fixed_debit,
         })
     })())
 }

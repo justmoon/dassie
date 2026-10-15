@@ -83,9 +83,20 @@ enum Command {
         id: dassie_peer::RequestId,
         result: Result<dassie_peer::Response, dassie_peer::Failure>,
     },
+    /// Measure the rate to a receiver; the reply comes once the probe is
+    /// done.
+    Probe {
+        ledger: dassie_ledger::LedgerId,
+        destination: String,
+        shared_secret: [u8; 32],
+        reply: oneshot::Sender<ProbeResult>,
+    },
     /// Run this on the core.
     Call(Call),
 }
+
+/// What a probe measured: a rate, or nothing.
+type ProbeResult = Result<Option<dassie_stream::Rate>, EngineError>;
 
 impl std::fmt::Debug for Command {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -95,6 +106,7 @@ impl std::fmt::Debug for Command {
             Self::BtpConnect { .. } => f.write_str("BtpConnect"),
             Self::PeerInbound { .. } => f.write_str("PeerInbound"),
             Self::PeerResponse { id, .. } => write!(f, "PeerResponse({id:?})"),
+            Self::Probe { .. } => f.write_str("Probe"),
             Self::Call(_) => f.write_str("Call"),
         }
     }
@@ -280,6 +292,73 @@ impl Engine {
         self.call(move |core| core.unban_node(&node)).await
     }
 
+    /// The ledger a payment to `destination` goes out on, and whether it
+    /// goes to one of the node's own endpoints; none without a route.
+    pub async fn route_of(
+        &self,
+        destination: String,
+    ) -> Result<Option<(dassie_ledger::LedgerId, bool)>, EngineError> {
+        self.call(move |core| Ok(core.route_of(&destination))).await
+    }
+
+    /// The currencies of the active ledgers, whose rates the node needs.
+    pub async fn rate_currencies(&self) -> Result<Vec<&'static str>, EngineError> {
+        self.call(|core| Ok(core.rate_currencies())).await
+    }
+
+    /// Takes exchange rates just fetched.
+    pub async fn set_rates(&self, rates: Vec<crate::store::StoredRate>) -> Result<(), EngineError> {
+        self.call(move |core| {
+            core.set_rates(&rates);
+            Ok(())
+        })
+        .await
+    }
+
+    /// Tells live views of the ledgers to fetch again: what they show
+    /// beside the engine changed.
+    pub async fn touch_ledgers(&self) -> Result<(), EngineError> {
+        self.call(|core| {
+            core.ledgers_changed();
+            Ok(())
+        })
+        .await
+    }
+
+    /// The exchange rates the connector converts at.
+    pub async fn rates(&self) -> Result<dassie_connector::Rates, EngineError> {
+        self.call(|core| Ok(core.rates().clone())).await
+    }
+
+    /// Measures what the path from `ledger`'s payer to the receiver at
+    /// `destination` delivers per unit sent, with packets the receiver
+    /// cannot fulfill (D9). Nothing when it could not be measured in time.
+    pub async fn probe(
+        &self,
+        ledger: dassie_ledger::LedgerId,
+        destination: String,
+        shared_secret: [u8; 32],
+    ) -> Result<Option<dassie_stream::Rate>, EngineError> {
+        let (reply, receiver) = oneshot::channel();
+        self.commands
+            .send(Command::Probe {
+                ledger,
+                destination,
+                shared_secret,
+                reply,
+            })
+            .await
+            .map_err(|_| EngineError::Unavailable)?;
+        // The core gives up on a probe after its timeout; this waits a
+        // little longer, for the step that says so.
+        let wait = Duration::from_millis(self::core::PROBE_TIMEOUT_MS + 2_000);
+        match tokio::time::timeout(wait, receiver).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => Err(EngineError::Unavailable),
+            Err(_) => Ok(None),
+        }
+    }
+
     /// The owner's peer settings.
     pub async fn peer_settings(&self) -> Result<crate::store::PeerSettings, EngineError> {
         self.call(|core| Ok(core.peer_settings())).await
@@ -442,6 +521,8 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
         commands,
         peer_replies: BTreeMap::new(),
         next_inbound: 0,
+        probe_replies: BTreeMap::new(),
+        next_probe: 0,
         versions,
     };
     driver.run(receiver, config, &shutdown).await;
@@ -466,6 +547,9 @@ struct Driver<'a> {
     /// Inbound peer requests waiting for their reply.
     peer_replies: BTreeMap<dassie_peer::InboundId, oneshot::Sender<dassie_peer::Reply>>,
     next_inbound: u64,
+    /// Probes waiting for their result.
+    probe_replies: BTreeMap<u64, oneshot::Sender<ProbeResult>>,
+    next_probe: u64,
     /// What changed, counted, for live views.
     versions: watch::Sender<Versions>,
 }
@@ -558,6 +642,26 @@ impl Driver<'_> {
                 self.core.peer_inbound(inbound, &body, source);
             }
             Command::PeerResponse { id, result } => self.core.peer_response(id, result),
+            Command::Probe {
+                ledger,
+                destination,
+                shared_secret,
+                reply,
+            } => {
+                let id = self.next_probe;
+                self.next_probe += 1;
+                match self
+                    .core
+                    .start_probe(id, ledger, &destination, &shared_secret)
+                {
+                    Ok(()) => {
+                        self.probe_replies.insert(id, reply);
+                    }
+                    Err(error) => self.replies.push(Box::new(move || {
+                        let _ = reply.send(Err(error));
+                    })),
+                }
+            }
             Command::Call(call) => {
                 let reply = call(&mut self.core);
                 self.replies.push(reply);
@@ -609,6 +713,12 @@ impl Driver<'_> {
                 Output::PeerReply { inbound, reply } => {
                     if let Some(sender) = self.peer_replies.remove(&inbound) {
                         let _ = sender.send(reply);
+                    }
+                    continue;
+                }
+                Output::ProbeDone { id, rate } => {
+                    if let Some(sender) = self.probe_replies.remove(&id) {
+                        let _ = sender.send(Ok(rate));
                     }
                     continue;
                 }

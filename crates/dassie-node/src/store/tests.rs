@@ -96,7 +96,7 @@ fn refuses_foreign_and_newer_databases() {
         Store::open(temp.path()),
         Err(StoreError::TooNew {
             found: 99,
-            known: 11
+            known: 12
         })
     ));
 }
@@ -375,6 +375,7 @@ fn quote_row(n: u32, client: Option<&str>, now: u64) -> QuoteRow {
         recipient: client
             .is_none()
             .then(|| "https://elsewhere.example/.well-known/pay".into()),
+        fixed_debit: client.is_some(),
     }
 }
 

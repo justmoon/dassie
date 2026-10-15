@@ -284,17 +284,26 @@ async fn the_grace_share_is_the_owners() {
     };
     let get = || Method::GetPeerSettings(proto::GetPeerSettingsRequest {});
     assert_eq!(read(owner.call(get()).await), 750_000);
-    let set = |ppm| {
+    let set = |ppm, connector_fee_ppm| {
         Method::SetPeerSettings(proto::SetPeerSettingsRequest {
             settings: Some(proto::PeerSettings {
                 grace_share_ppm: ppm,
+                connector_fee_ppm,
+                fx_spread_ppm: 0,
             }),
         })
     };
-    assert_eq!(read(owner.call(set(2_000_000)).await), 2_000_000);
-    for refused in [0, 10_000_001] {
-        assert!(owner.call(set(refused)).await.is_err(), "{refused}");
+    assert_eq!(read(owner.call(set(2_000_000, 1_000)).await), 2_000_000);
+    for (refused, fee) in [(0, 0), (10_000_001, 0), (1, 100_001)] {
+        assert!(owner.call(set(refused, fee)).await.is_err(), "{refused}");
     }
-    assert_eq!(read(owner.call(get()).await), 2_000_000);
+    let Ok(response::Method::GetPeerSettings(reply)) = owner.call(get()).await else {
+        panic!("no settings");
+    };
+    let settings = reply.settings.unwrap();
+    assert_eq!(
+        (settings.grace_share_ppm, settings.connector_fee_ppm),
+        (2_000_000, 1_000)
+    );
     node.stop().await;
 }

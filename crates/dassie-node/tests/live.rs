@@ -230,7 +230,9 @@ async fn the_inspectors_show_the_node_without_its_secrets() {
     let names: Vec<&str> = services.services.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(
         names,
-        ["acme", "engine", "http", "https", "ipc", "sessions"]
+        [
+            "acme", "engine", "http", "https", "ipc", "rates", "sessions"
+        ]
     );
     assert!(
         services

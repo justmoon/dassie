@@ -21,6 +21,8 @@ fn the_peer_settings_start_at_the_default_and_change() {
     assert_eq!(store.peer_settings().unwrap(), PeerSettings::DEFAULT);
     let settings = PeerSettings {
         grace_share_ppm: 2_500_000,
+        connector_fee_ppm: 100_000,
+        fx_spread_ppm: 1,
     };
     commit(
         &store,
@@ -31,11 +33,22 @@ fn the_peer_settings_start_at_the_default_and_change() {
     );
     assert_eq!(store.peer_settings().unwrap(), settings);
     // The table refuses what the code would.
-    let refused = store.commit_ledger(&LedgerBatch {
-        peer_settings: Some(PeerSettings { grace_share_ppm: 0 }),
-        ..LedgerBatch::default()
-    });
-    assert!(refused.is_err());
+    for refused in [
+        PeerSettings {
+            grace_share_ppm: 0,
+            ..PeerSettings::DEFAULT
+        },
+        PeerSettings {
+            connector_fee_ppm: 100_001,
+            ..PeerSettings::DEFAULT
+        },
+    ] {
+        let refused = store.commit_ledger(&LedgerBatch {
+            peer_settings: Some(refused),
+            ..LedgerBatch::default()
+        });
+        assert!(refused.is_err());
+    }
     assert_eq!(store.peer_settings().unwrap(), settings);
 }
 

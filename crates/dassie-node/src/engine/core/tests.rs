@@ -270,8 +270,11 @@ fn a_ban_keeps_what_the_peer_cost_and_an_unban_forgets_it() {
     let store = Arc::new(Store::open_in_memory().unwrap());
     let mut core = core_on(Arc::clone(&store), 10);
     // A tiny share, so the floor decides: a hundredth of a unit.
-    core.set_peer_settings(PeerSettings { grace_share_ppm: 1 })
-        .unwrap();
+    core.set_peer_settings(PeerSettings {
+        grace_share_ppm: 1,
+        ..PeerSettings::DEFAULT
+    })
+    .unwrap();
     let node = costly_peer(&mut core, 0, 20_000_000, 0);
     core.update_synced();
     let none = std::collections::BTreeSet::new();
@@ -324,8 +327,11 @@ fn an_owner_ban_keeps_an_automatic_bans_record() {
     use crate::store::{BanReason, PeerSettings};
 
     let mut core = core(15);
-    core.set_peer_settings(PeerSettings { grace_share_ppm: 1 })
-        .unwrap();
+    core.set_peer_settings(PeerSettings {
+        grace_share_ppm: 1,
+        ..PeerSettings::DEFAULT
+    })
+    .unwrap();
     let node = costly_peer(&mut core, 0, 20_000_000, 0);
     core.update_synced();
     let cost = core
@@ -348,20 +354,39 @@ fn peer_settings_are_checked_and_kept() {
     let mut core = core_on(Arc::clone(&store), 12);
     assert_eq!(core.peer_settings(), PeerSettings::DEFAULT);
     assert!(
-        core.set_peer_settings(PeerSettings { grace_share_ppm: 0 })
-            .is_err()
-    );
-    assert!(
         core.set_peer_settings(PeerSettings {
-            grace_share_ppm: 10_000_001
+            grace_share_ppm: 0,
+            ..PeerSettings::DEFAULT
         })
         .is_err()
     );
+    for refused in [
+        PeerSettings {
+            grace_share_ppm: 10_000_001,
+            ..PeerSettings::DEFAULT
+        },
+        PeerSettings {
+            connector_fee_ppm: 100_001,
+            ..PeerSettings::DEFAULT
+        },
+        PeerSettings {
+            fx_spread_ppm: 100_001,
+            ..PeerSettings::DEFAULT
+        },
+    ] {
+        assert!(core.set_peer_settings(refused).is_err(), "{refused:?}");
+    }
     let settings = PeerSettings {
         grace_share_ppm: 750_000,
+        connector_fee_ppm: 1_000,
+        fx_spread_ppm: 2_000,
     };
     core.set_peer_settings(settings).unwrap();
+    assert_eq!(core.connector.charges(), settings.charges());
     core.flush();
     drop(core);
-    assert_eq!(core_on(store, 13).peer_settings(), settings);
+    // The connector charges what was kept.
+    let core = core_on(store, 13);
+    assert_eq!(core.peer_settings(), settings);
+    assert_eq!(core.connector.charges(), settings.charges());
 }
