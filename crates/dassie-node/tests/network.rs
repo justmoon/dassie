@@ -26,6 +26,11 @@
 //! lose requests and drop, and the books must still match every node's
 //! account, less its reserve, with no XRP made or lost.
 //!
+//! Runs across currencies (M7c) give some nodes dollars, some XRP and
+//! some both, at a fixed snapshot of rates, one charging a fee and a
+//! spread: BTP clients pay receivers in the other currency, through the
+//! nodes that convert. Each asset is conserved, the FX accounts counted.
+//!
 //! An honest network never bans a peer for what it cost (D18), crashes and
 //! all. A node that lies to its peers, refusing Fulfills it took or never
 //! settling, is banned by the peer it cost, which loses at most its grace
@@ -63,35 +68,66 @@ const LEDGER_CLOSE_MS: u64 = 3_500;
 enum Settling {
     Stub,
     Xrpl,
+    /// Node 0 on the stub, 2 on the XRP Ledger, 1 and 3 on both (M7c).
+    Cross,
 }
 
+const USD: LedgerId = LedgerId::StubUsd;
+const XRP: LedgerId = LedgerId::XrplTestnetXrp;
+
 impl Settling {
-    const fn ledger(self) -> LedgerId {
+    /// The ledger a run of one ledger settles over.
+    fn ledger(self) -> LedgerId {
         match self {
-            Self::Stub => LedgerId::StubUsd,
-            Self::Xrpl => LedgerId::XrplTestnetXrp,
+            Self::Stub => USD,
+            Self::Xrpl => XRP,
+            Self::Cross => panic!("a run across currencies has two ledgers"),
         }
     }
 
-    /// What each node's owner starts with: the stub's balance, or what the
-    /// faucet gives above the reserve.
-    const fn deposit(self) -> i128 {
-        match self {
-            Self::Stub => 100_000_000_000,
-            Self::Xrpl => (FAUCET_DROPS as i128 - 1_000_000) * 1_000,
+    /// The ledgers of node `index`: the one it pays from first.
+    fn ledgers(self, index: usize) -> &'static [LedgerId] {
+        match (self, index % 4) {
+            (Self::Stub, _) | (Self::Cross, 0) => &[USD],
+            (Self::Xrpl, _) | (Self::Cross, 2) => &[XRP],
+            (Self::Cross, _) => &[USD, XRP],
         }
     }
 
-    const fn scheme(self) -> (&'static str, &'static str) {
-        match self {
-            Self::Stub => ("stub", ""),
-            Self::Xrpl => (
+    /// What each node's owner starts with on `ledger`: the stub's balance,
+    /// or what the faucet gives above the reserve.
+    const fn deposit(ledger: LedgerId) -> i128 {
+        match ledger {
+            LedgerId::XrplTestnetXrp => (FAUCET_DROPS as i128 - 1_000_000) * 1_000,
+            _ => 100_000_000_000,
+        }
+    }
+
+    const fn scheme(ledger: LedgerId) -> (&'static str, &'static str) {
+        match ledger {
+            LedgerId::XrplTestnetXrp => (
                 "xrpl-testnet",
                 r#"{"server":"ws://ledger.test","faucet":"https://faucet.test/accounts"}"#,
             ),
+            _ => ("stub", ""),
         }
     }
 }
+
+/// The rates of runs across currencies: a dollar buys two XRP. They never
+/// age.
+const RATES: [(&str, u128, u64); 2] = [
+    ("USD", 1_000_000_000_000_000, u64::MAX),
+    ("XRP", 2_000_000_000_000_000, u64::MAX),
+];
+
+/// What node 1 charges for what passes between its peers, in runs across
+/// currencies: a 1% fee and a 0.5% spread.
+const CHARGES: PeerSettings = PeerSettings {
+    connector_fee_ppm: 10_000,
+    fx_spread_ppm: 5_000,
+    ..PeerSettings::DEFAULT
+};
 
 /// A node's connection to the fake ledger.
 #[derive(Clone, Copy, Debug)]
@@ -148,6 +184,8 @@ struct Payment {
     limit: Option<u64>,
     /// The token's ID, and its cap if it has one.
     token: (u64, Option<SpendingCap>),
+    /// The ledger it pays from.
+    ledger: LedgerId,
     link: u64,
     connection: Connection,
     /// Its address, the receiver's, and the shared secret: what a new
@@ -262,12 +300,17 @@ impl Sim {
                 inbound: BTreeMap::new(),
             });
         }
-        let (scheme, config) = settling.scheme();
         for index in 0..count {
             sim.start(index);
-            sim.step(index, |core| {
-                core.add_scheme(scheme, config.into()).unwrap();
-            });
+            for &ledger in settling.ledgers(index) {
+                let (scheme, config) = Settling::scheme(ledger);
+                sim.step(index, |core| {
+                    core.add_scheme(scheme, config.into()).unwrap();
+                });
+            }
+            if settling == Settling::Cross && index == 1 {
+                sim.step(index, |core| core.set_peer_settings(CHARGES).unwrap());
+            }
         }
         sim
     }
@@ -299,7 +342,12 @@ impl Sim {
         };
         node.core = Some(Core::start(parts, self.now).unwrap());
         self.trace.push(format!("{} start {index}", self.now));
-        self.step(index, |_| {});
+        let rates = (self.settling == Settling::Cross).then_some(RATES);
+        self.step(index, |core| {
+            if let Some(rates) = rates {
+                core.set_rates(&rates);
+            }
+        });
     }
 
     fn crash(&mut self, index: usize) {
@@ -598,8 +646,7 @@ impl Sim {
                 event,
             } => {
                 if self.nodes[to].generation == generation {
-                    let (scheme, _) = self.settling.scheme();
-                    self.step(to, |core| core.ledger_event(scheme, epoch, &event));
+                    self.step(to, |core| core.ledger_event("xrpl-testnet", epoch, &event));
                 }
             }
             Delivery::Result {
@@ -638,7 +685,7 @@ impl Sim {
                 .filter_map(|node| node.core.as_ref()?.deadline())
                 .min();
             let earliest = [delivery, timer].into_iter().flatten().min();
-            let close = (self.settling == Settling::Xrpl).then_some(self.next_close);
+            let close = (self.settling != Settling::Stub).then_some(self.next_close);
             if close.is_some_and(|at| at <= until && earliest.is_none_or(|e| at <= e)) {
                 self.now = self.now.max(self.next_close);
                 self.close_ledger();
@@ -683,12 +730,14 @@ impl Sim {
         cap: Option<SpendingCap>,
         limit: Option<u64>,
     ) {
-        let ledger = self.settling.ledger();
+        // Paid from the sender's first ledger, into the receiver's last.
+        let ledger = self.settling.ledgers(from)[0];
+        let into = *self.settling.ledgers(to).last().unwrap();
         let mut credentials = None;
         self.step(to, |core| {
             let payment = core
                 .create_incoming_payment(NewIncoming {
-                    ledger,
+                    ledger: into,
                     wallet_address: "https://sim.example/.well-known/pay".into(),
                     client: None,
                     incoming_amount: limit,
@@ -708,13 +757,14 @@ impl Sim {
         });
         let (token, session) = session.unwrap();
         let credentials = (session.address.clone(), destination, shared_secret);
-        let connection = client(&credentials);
+        let connection = client(&credentials, ledger);
         self.payments.push(Payment {
             from,
             to,
             incoming,
             limit,
             token: (token, cap),
+            ledger,
             link: session.link,
             connection,
             credentials,
@@ -799,7 +849,7 @@ impl Sim {
             // what it had counted: a sender starts anew for the rest.
             if payment.connection.is_closed() && payment.in_flight.is_empty() {
                 payment.sent_before = sent(payment);
-                payment.connection = client(&payment.credentials);
+                payment.connection = client(&payment.credentials, payment.ledger);
                 payment.stream = None;
             }
             if payment.stream.is_none() && payment.connection.exchange_rate().is_some() {
@@ -875,6 +925,20 @@ impl Sim {
         self.core(index)
             .account_list()
             .iter()
+            .map(|(_, account)| {
+                let path = account.path().to_string();
+                let name = path.split_once(':').map_or(path.as_str(), |(_, name)| name);
+                (name.to_string(), account.balance().net_credit())
+            })
+            .collect()
+    }
+
+    /// Each account's net credit on `ledger`, by name.
+    fn balances_on(&self, index: usize, ledger: LedgerId) -> BTreeMap<String, i128> {
+        self.core(index)
+            .account_list()
+            .iter()
+            .filter(|(_, account)| account.path().ledger == ledger)
             .map(|(_, account)| {
                 let path = account.path().to_string();
                 let name = path.split_once(':').map_or(path.as_str(), |(_, name)| name);
@@ -1174,17 +1238,18 @@ fn sent(payment: &Payment) -> u64 {
             .map_or(0, |stream| stream.total_sent())
 }
 
-/// A STREAM client paying the receiver at `credentials`.
-fn client(credentials: &(String, String, [u8; 32])) -> Connection {
+/// A STREAM client on `ledger` paying the receiver at `credentials`.
+fn client(credentials: &(String, String, [u8; 32]), ledger: LedgerId) -> Connection {
     let (own, destination, secret) = credentials;
+    let asset = ledger.asset();
     let mut connection = Connection::new(&Config {
         role: Role::Client,
         shared_secret: secret,
         local_address: Some(Address::parse(own).unwrap()),
         remote_address: Some(Address::parse(destination).unwrap()),
         local_asset: Some(AssetDetails {
-            code: "USD",
-            scale: 9,
+            code: asset.code,
+            scale: asset.scale,
         }),
         receipt: None,
         policy: Policy::DEFAULT,
@@ -1209,7 +1274,7 @@ fn check_owner_books(sim: &Sim) -> Result<(), String> {
                 .filter(|flow| flow.to == index)
                 .map(|flow| i128::from(flow.received))
                 .sum::<i128>();
-        let deposit = sim.settling.deposit();
+        let deposit = Settling::deposit(sim.settling.ledger());
         if pool - deposit != received {
             return Err(format!(
                 "node {index}'s owner gained {} for {received} received",
@@ -1451,7 +1516,7 @@ fn check_books(sim: &Sim) -> Result<(), String> {
     }
     match sim.settling {
         Settling::Stub => {
-            let total = sim.settling.deposit() * i128::try_from(count).unwrap();
+            let total = Settling::deposit(USD) * i128::try_from(count).unwrap();
             if stubs != total {
                 return Err(format!("the stubs hold {stubs}, not {total}"));
             }
@@ -1461,6 +1526,7 @@ fn check_books(sim: &Sim) -> Result<(), String> {
                 return Err("the ledger made or lost XRP".into());
             }
         }
+        Settling::Cross => return Err("a run across currencies is checked apart".into()),
     }
     Ok(())
 }
@@ -1834,4 +1900,228 @@ fn an_honest_peer_with_little_credit_is_not_overdue() {
     assert!(owes > CREDIT / 2, "it owes {owes}");
     assert_eq!(peer.cost.unwrap().overdue, 0);
     assert!(automatic_bans(&sim).is_empty());
+}
+
+impl Sim {
+    /// An outgoing payment across currencies, of a fixed `debit` from
+    /// `from`'s first ledger to a receiver on `to`'s last, at no worse than
+    /// 1.9 XRP a dollar, or 0.45 dollars an XRP.
+    fn pay_outgoing_across(&mut self, from: usize, to: usize, debit: u64) {
+        let ledger = self.settling.ledgers(from)[0];
+        let into = *self.settling.ledgers(to).last().unwrap();
+        let mut incoming = None;
+        self.step(to, |core| {
+            let payment = core
+                .create_incoming_payment(NewIncoming {
+                    ledger: into,
+                    wallet_address: "https://sim.example/.well-known/pay".into(),
+                    client: None,
+                    incoming_amount: None,
+                    expires_at_ms: None,
+                    metadata: None,
+                })
+                .unwrap();
+            incoming = Some(payment);
+        });
+        let incoming = incoming.unwrap();
+        let receive = match (ledger, into) {
+            (USD, XRP) => debit / 10 * 19,
+            (XRP, USD) => debit / 100 * 45,
+            _ => debit / 100 * 95,
+        };
+        let mut outgoing = None;
+        self.step(from, |core| {
+            let created = core
+                .create_outgoing_payment(NewOutgoing {
+                    ledger,
+                    wallet_address: "https://sim.example/.well-known/pay".into(),
+                    client: None,
+                    grant: None,
+                    quote_id: None,
+                    receiver: format!("https://n{to}.test/incoming-payments/{}", incoming.id),
+                    destination: incoming.ilp_address.clone(),
+                    shared_secret: incoming.shared_secret,
+                    debit_amount: debit,
+                    receive_amount: ForeignAmount {
+                        value: receive,
+                        asset_code: into.asset().code.into(),
+                        asset_scale: 9,
+                    },
+                    metadata: None,
+                    recipient: None,
+                    fixed_debit: true,
+                })
+                .unwrap();
+            outgoing = Some(created.row.id);
+        });
+        self.outgoing
+            .push((from, to, incoming.id, outgoing.unwrap()));
+        self.trace
+            .push(format!("{} across {from} -> {to} {debit}", self.now));
+    }
+}
+
+/// A run across currencies (M7c): node 0 has dollars, node 2 XRP, nodes 1
+/// and 3 both, node 1 charging for what passes. Clients pay receivers in
+/// the other currency, an outgoing payment crosses too, and a node
+/// crashes mid-payment.
+fn run_across(seed: u64) -> Result<Run, String> {
+    let mut rng = SeededRng::new(seed ^ 0xc055);
+    let count = 3 + usize::try_from(rng.next_u64() % 2).unwrap();
+    let mut sim = Sim::with(seed, count, 2, BTreeMap::new(), Settling::Cross);
+    sim.run_until(START + 60_000);
+    sim.loss_per_mille = 0;
+    sim.run_until(sim.now + 60_000);
+    // Dollars to XRP, and back; each up to twice the credit, so the hops
+    // settle on both ledgers.
+    let amount = |rng: &mut SeededRng| 100_000_000 + rng.next_u64() % 2_200_000_000;
+    let there = amount(&mut rng);
+    sim.pay(0, 2, there, None, None);
+    let back = amount(&mut rng);
+    sim.pay(2, 0, back, None, None);
+    // Into a node's own receiver in the other currency: it converts, and
+    // charges nothing.
+    let own = amount(&mut rng);
+    sim.pay(0, 1, own, None, None);
+    let debit = 50_000_000 + rng.next_u64() % 1_000_000_000;
+    sim.pay_outgoing_across(2, 0, debit);
+    // A node crashes mid-payment.
+    sim.run_until(sim.now + 500 + rng.next_u64() % 4_000);
+    let victim = usize::try_from(rng.next_u64() % count as u64).unwrap();
+    sim.crash(victim);
+    sim.run_until(sim.now + 1_000 + rng.next_u64() % 4_000);
+    sim.start(victim);
+    sim.run_until(sim.now + 180_000);
+    check_across(&sim)?;
+    Ok(Run {
+        refusals: refusals(&sim),
+        lost: 0,
+        worst_cost_ppm: worst_cost_ppm(&sim),
+        trace: sim.trace,
+    })
+}
+
+/// The books of a run across currencies: every payment finished, every
+/// pair of accounts mirrors the other on its ledger, and on each ledger
+/// the owners hold what the schemes hold, the FX accounts theirs: no
+/// asset was made or lost.
+fn check_across(sim: &Sim) -> Result<(), String> {
+    if let Some(payment) = sim.payments.iter().find(|payment| !payment.done) {
+        return Err(format!(
+            "a payment from node {} to {} did not finish: sent {} of {}",
+            payment.from,
+            payment.to,
+            sent(payment),
+            payment.amount
+        ));
+    }
+    // What arrived is what was sent at the rates, less what the hops
+    // charged; more only if a hop lost a Fulfill to a crash.
+    for payment in &sim.payments {
+        let into = *sim.settling.ledgers(payment.to).last().unwrap();
+        let (got, sent) = (
+            u128::from(received(sim, payment)),
+            u128::from(sent(payment)),
+        );
+        let least = match (payment.ledger, into) {
+            (USD, XRP) => sent * 19 / 10,
+            (XRP, USD) => sent * 45 / 100,
+            _ => sent * 95 / 100,
+        };
+        if got < least {
+            return Err(format!(
+                "node {} received {got} of node {}'s {sent}, {:?} to {into:?}",
+                payment.to, payment.from, payment.ledger
+            ));
+        }
+    }
+    for &(from, to, _, outgoing) in &sim.outgoing {
+        let row = sim.nodes[from]
+            .store
+            .outgoing_payment(outgoing)
+            .unwrap()
+            .ok_or("an outgoing payment vanished")?;
+        if row.state != OutgoingState::Completed || row.sent_amount != row.debit_amount {
+            return Err(format!(
+                "an outgoing payment from {from} to {to} ended {:?} ({:?}) having sent {} of {}",
+                row.state, row.failure, row.sent_amount, row.debit_amount
+            ));
+        }
+    }
+    if let Some((index, node)) = automatic_bans(sim).first() {
+        return Err(format!("node {index} banned {node} in an honest network"));
+    }
+    let count = sim.nodes.len();
+    for ledger in [USD, XRP] {
+        let (mut owners, mut schemes, mut nodes) = (0i128, 0i128, 0i128);
+        for index in (0..count).filter(|i| sim.settling.ledgers(*i).contains(&ledger)) {
+            nodes += 1;
+            let balances = sim.balances_on(index, ledger);
+            owners += balances
+                .iter()
+                .filter(|(path, _)| {
+                    ["equity/", "revenue/", "expenses/"]
+                        .iter()
+                        .any(|group| path.starts_with(group))
+                })
+                .map(|(_, net)| *net)
+                .sum::<i128>();
+            schemes -= balances["assets/settlement"];
+            for other in (0..count).filter(|other| *other != index) {
+                let peer = key(other).node_id();
+                let Some(mine) = balances.get(&format!("assets/interledger/{peer}")) else {
+                    continue;
+                };
+                let theirs = sim.balances_on(other, ledger)
+                    [&format!("assets/interledger/{}", key(index).node_id())];
+                if mine + theirs != 2 * CREDIT {
+                    return Err(format!(
+                        "nodes {index} and {other} disagree on {ledger}: {mine} + {theirs}"
+                    ));
+                }
+            }
+            if let Some(owed) = sim.nodes[index].store.owed_fulfills().unwrap().first() {
+                return Err(format!(
+                    "node {index} still waits for {}'s verdict on {:?}",
+                    owed.peer, owed.trace
+                ));
+            }
+        }
+        if owners != schemes {
+            return Err(format!(
+                "on {ledger} the owners hold {owners}, the schemes {schemes}"
+            ));
+        }
+        let made = match ledger {
+            USD => schemes != Settling::deposit(USD) * nodes,
+            _ => sim.ledger.total() != dassie_xrpl::MAX_DROPS,
+        };
+        if made {
+            return Err(format!(
+                "{ledger} was made or lost: the schemes hold {schemes}"
+            ));
+        }
+    }
+    // Node 1 charged for what passed between its peers.
+    let fees: i128 = [USD, XRP]
+        .iter()
+        .filter_map(|ledger| sim.balances_on(1, *ledger).get("revenue/fees").copied())
+        .sum();
+    let through_one =
+        sim.peers(0).contains(&key(1).node_id()) || sim.peers(2).contains(&key(1).node_id());
+    if through_one && fees <= 0 && count == 3 {
+        return Err("node 1 charged nothing for what passed".into());
+    }
+    Ok(())
+}
+
+#[test]
+fn simulated_networks_pay_across_currencies() {
+    for seed in seeds() {
+        match catch_unwind(AssertUnwindSafe(|| run_across(seed))) {
+            Ok(Ok(_)) => {}
+            Ok(Err(problem)) => panic!("seed {seed}: {problem}"),
+            Err(_) => panic!("seed {seed} panicked"),
+        }
+    }
 }
