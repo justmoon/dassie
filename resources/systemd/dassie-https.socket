@@ -1,0 +1,12 @@
+# Port 443 for the node, IPv4 and IPv6: the wallet, Open Payments, and its
+# peers.
+[Unit]
+Description=Dassie node, HTTPS
+
+[Socket]
+ListenStream=443
+NoDelay=true
+Service=dassie.service
+
+[Install]
+WantedBy=sockets.target

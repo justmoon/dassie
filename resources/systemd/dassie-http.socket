@@ -1,0 +1,12 @@
+# Port 80 for the node, IPv4 and IPv6: ACME's HTTP challenges, and
+# redirects to HTTPS.
+[Unit]
+Description=Dassie node, HTTP
+
+[Socket]
+ListenStream=80
+NoDelay=true
+Service=dassie.service
+
+[Install]
+WantedBy=sockets.target

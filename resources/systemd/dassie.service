@@ -1,0 +1,53 @@
+# The Dassie node (spec 2 §3, 7 §4.8). It takes its sockets from the socket
+# units, by name, and reports readiness itself (--runtime=systemd).
+[Unit]
+Description=Dassie node
+Documentation=https://dassie.land
+Requires=dassie-http.socket dassie-https.socket dassie-ipc.socket
+After=dassie-http.socket dassie-https.socket dassie-ipc.socket
+Wants=network-online.target
+After=network-online.target time-set.target
+
+[Service]
+Type=notify
+NotifyAccess=main
+ExecStart=/opt/dassie/current/bin/dassie daemon --runtime=systemd
+# The node's database lives in /var/lib/dassie (0700, D10), owned by a user
+# systemd makes for it: it holds no privilege, and privileged ports come
+# from the socket units.
+DynamicUser=yes
+StateDirectory=dassie
+StateDirectoryMode=0700
+CacheDirectory=dassie
+WorkingDirectory=/var/lib/dassie
+Environment=DASSIE_LOG_LEVEL=info
+Restart=always
+RestartSec=1
+# Bounded, so that an update whose node never comes up is rolled back.
+TimeoutStartSec=5min
+
+# Nothing the node does needs more than this.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

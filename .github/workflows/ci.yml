@@ -60,3 +60,29 @@ jobs:
       # makes the end-to-end tests fail rather than skip).
       - name: Deno checks
         run: nix develop --command deno task ci
+
+  # The installer and the updater on each distribution
+  # (tests/e2e/install_test.ts): privileged containers with systemd, and a
+  # mirror of releases built on nixbuild.net with the test key. In the deno
+  # job above, without a mirror, these tests are skipped.
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [debian, ubuntu, fedora, centos]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: nixbuild/nix-quick-install-action@v35
+      - uses: nixbuild/nixbuild-action@v27
+        with:
+          nixbuild_token: ${{ secrets.NIXBUILD_TOKEN }}
+      - name: Install tests
+        env:
+          DASSIE_INSTALL_DISTROS: ${{ matrix.distro }}
+        run: |
+          nix build .#install-test-mirror --out-link install-test-mirror --print-build-logs
+          DASSIE_INSTALL_MIRROR="$PWD/install-test-mirror" \
+            nix shell --inputs-from . nixpkgs#deno nixpkgs#mkcert --command \
+            deno test --allow-all tests/e2e/install_test.ts

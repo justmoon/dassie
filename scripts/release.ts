@@ -195,6 +195,11 @@ export async function release(options: {
       `${options.out}/${built.version}/${name}`,
     );
   }
+  // The installer, with the release key in it, once there is one.
+  await Deno.copyFile(`${options.tree}/install.sh`, `${options.out}/install.sh`)
+    .catch((error) => {
+      if (!(error instanceof Deno.errors.NotFound)) throw error;
+    });
   const dir = `${options.out}/${built.version}`;
   await checkSums(dir, built.version);
   await sign(dir, built.version, options.secretKey, options.password);
