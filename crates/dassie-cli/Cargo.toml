@@ -1,7 +1,7 @@
 [package]
 name = "dassie-cli"
 version = "0.1.0"
-description = "The dassie binary: daemon, init and verify-install"
+description = "The dassie binary: daemon, init, update and verify-install"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -11,9 +11,15 @@ publish.workspace = true
 name = "dassie"
 path = "src/main.rs"
 
+[features]
+# Trusts the test key of testdata/release instead of the release key, so
+# tests can sign releases: never in a release.
+test-key = []
+
 [dependencies]
 dassie-node = { path = "../dassie-node" }
 dassie-node-core = { path = "../dassie-node-core" }
+dassie-release = { path = "../dassie-release" }
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
 tokio-util = { version = "0.7.20", features = ["codec"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
@@ -24,6 +30,23 @@ lexopt = "0.3.2"
 # The init wizard's prompts, in the original's style.
 cliclack = "0.5.6"
 tracing = "0.1.44"
+# `dassie update`: the request method, the bundle's SHA-256, and reading
+# the bundle, a gzipped tar, without unpacking it blindly.
+http = "1"
+sha2 = "0.11"
+flate2 = "1"
+tar = { version = "0.4", default-features = false }
+
+[build-dependencies]
+dassie-release = { path = "../dassie-release" }
 
 [dev-dependencies]
 tempfile = "3"
+tokio = { version = "1.53.2", features = ["io-util"] }
+dassie-release = { path = "../dassie-release", features = ["testing"] }
+# The mirror the update tests serve, over TLS with testdata/pebble's
+# certificate.
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
+rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
+tar = { version = "0.4", default-features = false }
+flate2 = "1"
