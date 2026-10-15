@@ -646,7 +646,7 @@ meta/canary                                  the newest canary
   - Time dilation sets how fast the run plays, and the run can be paused, stepped one event at a time, or finished at once.
   - A run is bounded: at most 2000 packets, 10 minutes on its clock, and 10,000 log lines.
   - The packet log decrypts each STREAM packet with the connection's shared secret, through `decodeStreamPacket` of the same WASM build.
-- **Deployment.** Vercel builds the site from `apps/website` with `vercel-build.sh`, so each branch gets a preview. Vercel's build image has neither Deno nor Rust, so the script installs Deno, rustup and `wasm-bindgen`, each pinned by version and its download by SHA-256. rustup then installs the toolchain `rust-toolchain.toml` names, which rustup checks against the channel's manifest. A test keeps those versions equal to the flake's Deno and to `Cargo.lock`.
+- **Deployment.** Vercel builds the site from `apps/website` with `vercel-build.sh`, so each branch gets a preview. Vercel's build image has neither Deno nor Rust, so the script installs Deno, rustup and `wasm-bindgen`, each pinned by version and its download by SHA-256. rustup then installs the toolchain `rust-toolchain.toml` names, which rustup checks against the channel's manifest. A test keeps those versions equal to the flake's Deno and to `Cargo.lock`. `vercel-ignore.sh` skips a deployment when nothing the site is built from changed since the commit Vercel last deployed on that branch: the site, the packages it imports, the crates of its WASM modules, and the lockfiles and toolchain pins. A test keeps that list complete. Anything it cannot compare, such as a first deployment or a force push, builds.
 
 ## 6. Developer environment (Deno)
 
