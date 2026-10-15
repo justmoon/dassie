@@ -1,18 +1,16 @@
 name: CI
 
-# The rewrite lives on the `rewrite` branch until it replaces `main`.
-# Milestones stack as `rewrite-*` branches, each PR into the one before it,
-# so PRs into those run too.
+# Every push to `main`, and every pull request, whatever branch it targets,
+# so that stacked PRs run too.
 on:
   push:
-    branches: [rewrite]
+    branches: [main]
   pull_request:
-    branches: [rewrite, "rewrite-*"]
 
 permissions:
   contents: read
 
-# A new push to a PR supersedes the run before it. Pushes to `rewrite` each
+# A new push to a PR supersedes the run before it. Pushes to `main` each
 # run to the end.
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}

@@ -2,8 +2,7 @@ name: Release
 
 # Builds, signs and publishes Dassie to the mirror, get.dassie.land
 # (spec D11, D14): every push to the main branch as a canary
-# (meta/canary), and every tag v<version> as a release (meta/latest). The
-# rewrite's main branch is `rewrite` until it replaces `main`.
+# (meta/canary), and every tag v<version> as a release (meta/latest).
 #
 # It runs in the `Release` environment. What it needs:
 # - secrets.NIXBUILD_TOKEN: the builds run on nixbuild.net, as CI's do.
@@ -27,7 +26,7 @@ name: Release
 
 on:
   push:
-    branches: [main, rewrite]
+    branches: [main]
     tags: ["v*"]
 
 permissions:
