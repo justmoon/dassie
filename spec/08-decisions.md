@@ -236,8 +236,9 @@ Revised on 2026-10-14; it first served SPSP and deferred GNAP, quotes and outgoi
   - The signature's trusted comment is `dassie <version>`, and both are checked: the signed sums of an old release, served under a new version's path, are refused ([7 §4.8](07-rewrite.md#48-releases)).
   - The release key's secret half lives in the `release` environment of the repository, which only the release workflow on the main branch or a `v*` tag may use. The workflow verifies what it signed with `resources/minisign.pub`, using `dassie-release`, before it uploads, so a release signed with another key never reaches the mirror.
   - `meta/<channel>` is not signed, so it is not trusted to say which way to move: the updater moves on its own only to a later version of the same channel.
-  - The installer and the updater verify before extracting.
-  - The symlink swap is atomic (`rename`).
+  - The installer and the updater verify before extracting, and unpack only plain files and directories.
+  - The symlink swap is atomic (`rename`). The updater keeps the version it came from, so the owner can go back with `dassie update --target-version`.
+  - The installer verifies with minisign where there is minisign, and else with OpenSSL, which reads minisign's format by hand: no extra tool to install first.
   - CI builds and publishes releases, reproducibly through the Nix flake of D14.
   - Canary gets its own channel file (`meta/canary`).
 
