@@ -58,3 +58,10 @@ inherits = "dev"
 # and clippy in test mode, which would lint only cfg(test) code.
 [profile.ci]
 inherits = "test"
+
+# The binaries the install tests run in containers (nix/release.nix): the
+# release profile's code, without the link time of fat LTO.
+[profile.install-test]
+inherits = "release"
+lto = false
+codegen-units = 16

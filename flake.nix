@@ -78,8 +78,9 @@
 
           # The Rust workspace, with the golden vectors the tests read, the
           # RPC contract dassie-node generates its messages from, the test
-          # certificates two in-process daemons peer with, and minisign's
-          # signatures with the release test key.
+          # certificates two in-process daemons peer with, minisign's
+          # signatures with the release test key, and the release's
+          # resources: its key, once made, the systemd units and install.sh.
           src = lib.fileset.toSource {
             root = ./.;
             fileset = lib.fileset.unions [
@@ -88,6 +89,7 @@
               ./clippy.toml
               ./crates
               ./proto
+              ./resources
               ./testdata/pebble
               ./testdata/release
             ];
@@ -203,12 +205,13 @@
               }
             );
             # systemd-socket-activate, for dassie-cli's process tests, which
-            # skip without it.
+            # skip without it. The test key, for its update tests.
             cargo-test = craneLib.cargoTest (
               common
               // {
                 inherit cargoArtifacts;
                 nativeCheckInputs = [ pkgs.systemd ];
+                cargoTestExtraArgs = "--features dassie-cli/test-key";
               }
             );
             inherit identity-wasm;
