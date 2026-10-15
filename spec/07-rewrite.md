@@ -190,18 +190,18 @@ Most of the original's integrity gaps come from state it keeps only in memory, o
 | Own link-state sequence | memory | persisted high-water mark (NET-7) |
 | Settlement channels: per node ever peered with, the highest settlement sequence applied and sent, and the settlement message not yet acknowledged | none | in the batch that changes them; kept after the peering ends ([§4.7](#47-peer-protocol-v1)) |
 | Bans | none | a table of node IDs, and a record of each ban: by the owner or for what a peer cost ([D18](08-decisions.md#d18-one-grace-limit-per-peer)), with that cost, when, and when it was lifted. A record outlives its ban; at most 2048 are kept, the longest lifted going first |
-| Peer settings | none | the owner's grace share ([D18](08-decisions.md#d18-one-grace-limit-per-peer)), in a single-row table |
+| Peer settings | none | the owner's grace share ([D18](08-decisions.md#d18-one-grace-limit-per-peer)), fee and spread ([D7](08-decisions.md#d7-exchange-rates-fees-and-spread)), in a single-row table |
 | Replay state of peer messages | none (no replay protection) | per peer, the newest accepted message timestamp, written with the batch it took effect in ([§4.7](#47-peer-protocol-v1)) |
 | Ledger | cumulative posted totals | append-only **transfer journal** (id, debit, credit, amount, state, timestamps, reference to packet or settlement), with account balances cached in the same transaction. Only transfers that reach posted balances are journaled, plus pending settlements; a voided packet transfer never touched a posted balance and leaves no row |
 | Pending ILP transfers | memory | memory only: in-flight packets cannot survive a restart, so a restarted ledger has none |
-| Fulfills owed a verdict, and Fulfills taken | none | the downstream keeps each Fulfill it sent a peer until the peer's verdict comes back, written with the journal rows that post the packet; the upstream records each Fulfill it took from a peer for 30 days, so it answers a resend the same way ([D17](08-decisions.md#d17-the-upstream-decides-whether-a-fulfill-counted)) |
+| Fulfills owed a verdict, and Fulfills taken | none | the downstream keeps each Fulfill it sent a peer, with the packet's transfers as posted (three at most: the packet's two legs and our fee), until the peer's verdict comes back, written with the journal rows that post the packet; the upstream records each Fulfill it took from a peer for 30 days, so it answers a resend the same way ([D17](08-decisions.md#d17-the-upstream-decides-whether-a-fulfill-counted)) |
 | Pending outgoing settlements | memory | journal rows with module-specific reference (tx hash), reconciled on startup (ACC-16) |
 | Settlement-module balance checkpoints | none (full balance re-deposited at every start) | last reconciled on-ledger balance per module, with the module's state (for XRPL: its cursor, sequence, transactions in flight and peers' addresses), written in the batch they explain; startup books only the difference, through `equity/suspense` (ACC-6, ACC-2) |
 | Ledger fees | never booked | journal rows with their transaction (`fee`), Dr `expenses/fees` |
 | Peer trust lines | re-posted at every start | posted once when the peer account is created; changes are explicit transfers (ACC-5) |
-| Incoming and outgoing payments, quotes | rows without state | full Open Payments state, written with the journal rows that move the money: received/sent amounts, completion, expiry, the STREAM token tied to the incoming payment (ILP-10). An outgoing payment's sent amount is what was posted: a packet in flight at a crash was never posted, and its Fulfill is refused ([D17](08-decisions.md#d17-the-upstream-decides-whether-a-fulfill-counted)), so a restart sends only the rest. Each grant's spend in its current interval window, written with the payment that spends it. The owner's quotes and payments keep the wallet address they pay ([D9](08-decisions.md#d9-open-payments-fully-and-no-spsp)) |
+| Incoming and outgoing payments, quotes | rows without state | full Open Payments state, written with the journal rows that move the money: received/sent amounts, completion, expiry, the STREAM token tied to the incoming payment (ILP-10). An outgoing payment's sent amount is what was posted: a packet in flight at a crash was never posted, and its Fulfill is refused ([D17](08-decisions.md#d17-the-upstream-decides-whether-a-fulfill-counted)), so a restart sends only the rest. Each grant's spend in its current interval window, written with the payment that spends it. The owner's quotes and payments keep the wallet address they pay, and each quote and payment whether it fixes the amount to send or to deliver ([D9](08-decisions.md#d9-open-payments-fully-and-no-spsp)) |
 | GNAP grants and access tokens | none | grants with their access, client key and interaction state; tokens as SHA-256 hashes ([D10](08-decisions.md#d10-secrets-at-rest)). The amount of each grant spent in its current interval goes with the payments |
-| Exchange rates | memory | last good snapshot with timestamp; refreshed periodically ([D7](08-decisions.md#d7-exchange-rates-fees-and-spread)) |
+| Exchange rates | memory | the owner's sources (at most 8), and each currency's last rate with when it was fetched, restored at start; fetched every minute ([D7](08-decisions.md#d7-exchange-rates-fees-and-spread)). The currency the owner sees totals in ([D6](08-decisions.md#d6-owner-ledger-and-multi-currency-accounts)) |
 
 The database has a new application ID, `0x7DA5E2C9` (like the original's, a random positive int32 with nibbles 2–4 set to `DA5`). A file with the v0 ID `0x1DA53B81` is refused with a message telling the owner to set the node up again with their passphrase ([D3](08-decisions.md#d3-database-continuity)). Configuration is typed columns with CHECK constraints in single-row tables, not a key/value table, so that SQLite itself refuses an invalid port or realm.
 
@@ -242,10 +242,13 @@ Mainnet stays disabled until the [D8](08-decisions.md#d8-real-money) criteria ar
 - **Config:** empty for the testnet's server and faucet, or JSON with `server` (`wss://`, or `ws://` where private addresses are allowed) and `faucet` (HTTPS, or `null`).
 - **The fake ledger** (feature `fake`): accounts, reserves, fees, the checks the ledger makes on a Payment with its result codes, metadata, streams, history and a faucet. The node simulation settles on it in-process; `fake_ledger` serves it over WebSocket for the node's tests, the end-to-end tests and `deno task dev --xrpl fake`.
 
-**The owner's accounts ([D6](08-decisions.md#d6-owner-ledger-and-multi-currency-accounts)).** Each ledger `L` has one pool of owner funds, `L:equity/owner`. Every endpoint that spends for the owner gets a sub-account under it, for example `L:equity/owner/btp/<token>` for a BTP token. A sub-account holds no allocation and may go negative on its own; together with the pool it forms a **group** whose total carries the overspending limit (debits ≤ credits). The group also holds what the node gains or loses on the ledger: `equity/suspense`, `revenue/fees`, `expenses/fees` and `expenses/losses` (M7). So the owner's funds are everything the node holds on the ledger beyond what it owes peers: a loss, a network fee or a reconciliation that finds less money is the owner's, and the owner cannot spend money the node no longer has. `revenue/fx` and `expenses/fx` join in M7c, with the rule that the owner's own endpoints never convert. So:
+**The owner's accounts ([D6](08-decisions.md#d6-owner-ledger-and-multi-currency-accounts)).** Each ledger `L` has one pool of owner funds, `L:equity/owner`. Every endpoint that spends for the owner gets a sub-account under it, for example `L:equity/owner/btp/<token>` for a BTP token. A sub-account holds no allocation and may go negative on its own; together with the pool it forms a **group** whose total carries the overspending limit (debits ≤ credits). The group also holds what the node gains or loses on the ledger: `equity/suspense`, `revenue/fees`, `expenses/fees` and `expenses/losses` (M7). So the owner's funds are everything the node holds on the ledger beyond what it owes peers: a loss, a network fee or a reconciliation that finds less money is the owner's, and the owner cannot spend money the node no longer has. `revenue/fx` and `expenses/fx` are in the group too (M7c), with the rule that makes them coherent: **the owner's own endpoints never convert**. So:
 
 - a BTP client paying the node's own STREAM receiver books Dr `equity/owner/btp/<token>`, Cr `equity/owner`: the group total is unchanged, and the journal still has a transfer per packet (ACC-8);
 - a transfer within the group never needs free funds, since its effect on the total is zero;
+- a packet from a BTP token, a payer or a receiver goes out on its own ledger only: one whose first hop is on another ledger is refused (F02 "pay from the route's ledger"). The owner pays from the ledger the route starts on, and the first hop that charges for a conversion converts;
+- a packet from a peer on another ledger into the node's own receiver is converted at the node's rates and lands in the asset it came in: the receiver's account shows what arrived, `expenses/fx` takes it back out on that ledger, and `revenue/fx` keeps it on the ledger it came from;
+- a conversion between two peers pays out of the owner's funds on the outgoing ledger, so it needs them;
 - each token's spending can be read from the journal, which is what the per-token spending caps of M5 (an amount per window, refilling continuously) are computed from. Caps are limits, not allocations, so they may add up to more than the funds.
 
 **Open Payments on the books ([D9](08-decisions.md#d9-open-payments-fully-and-no-spsp)).** Each ledger has its own STREAM receiver and its own payer, two local endpoints.
@@ -253,7 +256,13 @@ Mainnet stays disabled until the [D8](08-decisions.md#d8-real-money) criteria ar
 - **The payer** debits `L:equity/owner/local/pay`, a sub-account in the owner's group, so the group's limit is the outgoing payments' limit too. Grant limits are checked when an outgoing payment is created, not by the connector.
   - Each outgoing payment that is sending has one STREAM connection; at most 16 send at once, and the rest wait their turn.
   - A payment to the node's own receiver goes through the connector like any other, through a bounded queue drained at the end of the step, so nothing recurses.
-  - A payment completes once it has sent its debit amount, or once its receiver says it has all it asked for; it fails when the receiver keeps refusing it, or 10 minutes after it was created. It ends only with none of its packets in flight. What it did not send is released from its grant's window.
+  - Each packet must deliver at least the payment's rate, its receive amount over its debit amount: a worse path fails it.
+  - A payment completes once it has sent its debit amount, or, unless it fixes the amount to send, once its receiver says it has all it asked for, or all of it but less than a unit sent is worth, which no packet can be sized to deliver as the hops round down. It fails when the receiver keeps refusing it, or 10 minutes after it was created. It ends only with none of its packets in flight. What it did not send is released from its grant's window.
+- **Quotes** measure the rate of the route to their receiver with a probe: a STREAM connection from the payer that sends only packets the receiver cannot fulfill, as STREAM measures rates. At most 8 probes run at once, for at most 10 s each; they hold the owner's funds while in flight, as the payment would. A quote is the measured rate less STREAM's 1% slippage, or one for one to the node's own receivers, which convert and charge nothing; without a route, or a measured rate, there is none.
+
+**Fees and spread ([D7](08-decisions.md#d7-exchange-rates-fees-and-spread)).** What passes from one peer to another is charged the owner's fee and spread, each 0 to 10% (default 0); the node's own endpoints are never charged.
+- `fee = floor(in × fee_ppm / 10^6)`, rounded down: rounded up, it would take a payment's last packets whole, and strand it short. `out = floor(convert(in − fee) × (10^6 − spread_ppm) / 10^6)`, the spread only on a conversion. A packet whose output rounds to nothing is refused (F02).
+- The fee is a third linked transfer, Dr the source's account, Cr `L1:revenue/fees`; the spread's gain is the FX accounts' net. The ledger has room for three pending transfers for every packet in flight.
 
 **Spending caps.** A BTP token may carry a cap of `A` per window `W`, refilling continuously.
 - **What counts** is a packet that debits the token's account and credits an account outside the owner's group: a peer, or `revenue/fx`. A payment to the node's own receiver, or to another token's client, moves no money out of the owner's funds and does not count.
@@ -267,7 +276,7 @@ Mainnet stays disabled until the [D8](08-decisions.md#d8-real-money) criteria ar
 
 **Fulfills a peer refused ([D17](08-decisions.md#d17-the-upstream-decides-whether-a-fulfill-counted)).** A packet from a peer is posted when it is fulfilled. If the peer then refuses the Fulfill, one compensation is booked with the packet's trace:
 - when the node's own receiver took the packet, its transfers are reversed, and the incoming payment does not count it;
-- when anyone else took it (a peer or a BTP client, who keep what they were paid), Dr `L:expenses/losses`, Cr `L:assets/interledger/<peer>`, for the incoming amount.
+- when anyone else took it (a peer or a BTP client, who keep what they were paid), Dr `L:expenses/losses`, Cr `L:assets/interledger/<peer>`, for the incoming amount: every leg that debited the peer, our fee with the packet.
 
 Either way the peer's account ends where the peer's books have it. What each peer refused is read from the journal, and its losses count against the peer's grace limit ([D18](08-decisions.md#d18-one-grace-limit-per-peer)); the reversals cost nothing and do not.
 
@@ -538,7 +547,7 @@ settle balance − midpoint when balance ≥ midpoint · 1.1; on termination, se
 
 - the same hostnames (`dN.localhost`) and ports (SNI proxy on 443, dashboard 10100, nodes `5000+N` for HTTPS and `4000+N` for HTTP);
 - mkcert certificates, vanity node identities, the database prefill and auto-login links;
-- the four scenarios, plus "add node" and file-watch restart. `xrpl-settlement` runs from M7b, on the public testnet or, with `--xrpl fake`, the fake ledger (on port 10200, a new ledger each run, which nodes treat as a testnet reset); `cross-currency` waits for exchange rates (M7c).
+- the four scenarios, plus "add node" and file-watch restart. `xrpl-settlement` runs from M7b, on the public testnet or, with `--xrpl fake`, the fake ledger (on port 10200, a new ledger each run, which nodes treat as a testnet reset); `cross-currency` runs from M7c, with d1 on the stub, d3 on the XRP Ledger and d2 on both.
 
 The differences:
 
@@ -549,7 +558,7 @@ The differences:
 - **Auto-login links** carry the node's login proof in the URL fragment (`#dassie-dev-login=…`), which only a wallet built in development mode reads; the node checks it like any other login. The production wallet has no such code.
 - **`*.localhost` resolves to loopback** in the node's peer client (RFC 6761), when private addresses are allowed, so dev nodes reach each other by name on any system.
 - **The vanity identity table is regenerated** with `dassie-identity` (same derivation, so the existing table stays valid). It keeps each node's BIP-39 entropy and ID.
-- **No exchange-rate file yet.** `rates.json` comes back with the rate fetcher in M7.
+- **Exchange rates.** Each scenario serves its own `rates.json`, in Coinbase's format (a dollar buys two XRP), over HTTPS under its CA on port 10210 plus its offset; the prefill makes it every node's only rate source.
 
 ## 7. Testing strategy
 
@@ -576,7 +585,7 @@ Every crate is written so that a simulation can drive it ([D16](08-decisions.md#
    - Open Payments against the reference client `@interledger/open-payments`, as a third-party client of the node; and the node as a client of another node.
 4. **Deterministic network simulation.** N nodes are wired in-process through the sans-IO crates with a mock clock and seeded RNG. They cover discovery, majority computation, flooding suppression, peering, routing convergence, settlement thresholds, and restart recovery.
    - The simulated network injects latency, loss, reordering, duplication, partitions, crashes and restarts.
-   - It checks every state machine's invariants after each step, and global properties such as conservation of money across all ledgers.
+   - It checks every state machine's invariants after each step, and global properties such as conservation of money across all ledgers: runs across currencies (M7c) conserve each asset, the FX accounts counted.
    - A run is reproducible from its seed, and two runs with the same seed must produce identical event traces.
    - Simulations start small in M1 (STREAM connections over a simulated connector) and grow with each milestone. In CI they run with fixed seeds, and longer randomized campaigns run outside CI.
    - Every decoder also has a "never panics on arbitrary input" property test.
