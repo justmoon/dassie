@@ -97,6 +97,17 @@ async function quiet(scenario: Scenario): Promise<boolean> {
   return accounts.size === 4;
 }
 
+/** Settling went quiet and stays so: a settlement that is due but not
+ * started yet shows only in a while, as the books move. */
+async function settled(scenario: Scenario): Promise<boolean> {
+  if (!(await quiet(scenario))) return false;
+  const before = await books(scenario);
+  await new Promise((resolve) => setTimeout(resolve, 10_000));
+  const after = await books(scenario);
+  return (await quiet(scenario)) &&
+    [...before].every(([key, value]) => after.get(key) === value);
+}
+
 /** What each node's books hold: per ledger, on the ledger and the
  * owner's. */
 async function books(scenario: Scenario) {
@@ -207,7 +218,7 @@ Deno.test({
         `fees ${fees} on ${sent.sentAmount}`,
       );
 
-      await scenario.until("settled", () => quiet(scenario), 120_000);
+      await scenario.until("settled", () => settled(scenario), 180_000);
       // Restarted, all three catch up and book nothing twice.
       const kept = await books(scenario);
       const accounts = await peerAccounts(scenario);
