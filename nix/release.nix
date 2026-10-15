@@ -34,6 +34,7 @@ let
     ../apps/dev/deno.json
     ../apps/dev-dashboard/deno.json
     ../apps/wallet/deno.json
+    ../apps/website/deno.json
     ../packages/identity-wasm/deno.json
     ../packages/rpc/deno.json
     ../packages/ui/deno.json
@@ -70,7 +71,7 @@ let
     dontFixup = true;
     outputHashMode = "recursive";
     outputHashAlgo = "sha256";
-    outputHash = "sha256-2ElJiNg5dsfHN2zGkOfcJR4toWSuaiOiQfx33DZpwRE=";
+    outputHash = "sha256-Nxa9zbIEkI5YYvExq0oLjtQ0GYyFkLLB41XFfvdgy0Y=";
   };
 
   # The wallet, as `deno task build:wallet` builds it, offline.

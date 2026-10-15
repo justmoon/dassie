@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Get up and running quickly with Dassie."
+    />
+    <title>Quick Start · Dassie</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="site-main doc">
+      <h1>Quick Start</h1>
+      <p>
+        So you want to try out Dassie. First, let us congratulate you on your
+        bravery. Second, let us warn you that Dassie is still early in its
+        development and not ready for real money. If you are still
+        interested, read on.
+      </p>
+
+      <h2 id="prerequisites">Prerequisites</h2>
+      <p>You need a server, or a virtual machine, with:</p>
+      <ul>
+        <li>
+          Linux with systemd, on x86-64 or arm64. We test the installer on
+          Debian 12, Ubuntu 24.04, Fedora 42 and CentOS Stream 9.
+        </li>
+        <li><code>curl</code> or <code>wget</code></li>
+        <li>
+          OpenSSL 1.1.1 or later, or <code>minisign</code>, to check the
+          release's signature
+        </li>
+        <li>a public IP address</li>
+        <li>a domain name that points to that address</li>
+        <li>TCP ports 80 and 443 open to the world</li>
+      </ul>
+
+      <h2 id="installation">Installation</h2>
+      <p>To install Dassie, run this command on your server:</p>
+      <pre><code>curl --proto =https --tlsv1.2 -sSf https://sh.dassie.land | sh</code></pre>
+      <p>
+        The installer downloads the newest release from
+        <code>get.dassie.land</code> and checks its signature against the
+        Dassie release key before it unpacks anything. It installs Dassie in
+        <code>/opt/dassie</code>, puts the <code>dassie</code> command on
+        your path and sets up its systemd units.
+      </p>
+      <p>
+        It also adds you to the group <code>dassie-users</code>, whose
+        members may talk to the node. Group membership changes take effect
+        the next time you log in, so if you want to use that, close your SSH
+        session and log in again.
+      </p>
+      <p>To check the installation, run:</p>
+      <pre><code>dassie verify-install</code></pre>
+
+      <h2 id="configuration">Configuration</h2>
+      <p>
+        Before you can open Dassie's web interface, the node needs a TLS
+        certificate. Dassie gets one from Let's Encrypt itself, so this is
+        quick. Run:
+      </p>
+      <pre><code>sudo dassie init</code></pre>
+      <p>
+        It asks for your server's domain name, your agreement to Let's
+        Encrypt's terms and an email address, and then fetches the
+        certificate. Once it has one, it prints a URL where you continue the
+        setup in your browser. If you miss the URL, run
+        <code>sudo dassie init</code> again, or find it in the logs:
+      </p>
+      <pre><code>journalctl -u dassie</code></pre>
+
+      <h2 id="updating">Updating Dassie</h2>
+      <p>
+        Dassie updates itself. Once a day, a systemd timer checks for a newer
+        release, verifies its signature, and switches to it; if the new
+        version does not start, it goes back to the old one. You should not
+        have to worry about updates.
+      </p>
+      <p>To update right away, run:</p>
+      <pre><code>sudo dassie update</code></pre>
+
+      <h2 id="uninstallation">Uninstallation</h2>
+      <p>If you ever need to uninstall Dassie, run:</p>
+      <pre><code>curl --proto =https --tlsv1.2 -sSf https://sh.dassie.land | sh -s -- uninstall</code></pre>
+      <p>
+        This removes Dassie and its systemd units. The node's data stays in
+        <code>/var/lib/private/dassie</code>, in case you change your mind.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

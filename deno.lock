@@ -24,6 +24,7 @@
     "jsr:@std/internal@^1.0.14": "1.0.14",
     "jsr:@std/io@0.225": "0.225.0",
     "jsr:@std/io@0.225.0": "0.225.0",
+    "jsr:@std/media-types@1": "1.1.0",
     "jsr:@std/path@1": "1.1.6",
     "jsr:@std/path@^1.0.8": "1.1.6",
     "jsr:@std/path@^1.1.5": "1.1.6",
@@ -124,6 +125,9 @@
       "dependencies": [
         "jsr:@std/bytes@^1.0.2"
       ]
+    },
+    "@std/media-types@1.1.0": {
+      "integrity": "c9d093f0c05c3512932b330e3cc1fe1d627b301db33a4c2c2185c02471d6eaa4"
     },
     "@std/path@1.1.6": {
       "integrity": "c68485c2a4dfbb5ae3cc74fae4e8c4e5d874cf8a8ed12927917235c758b46cbe",
@@ -1588,6 +1592,16 @@
           "npm:vite@8.3.1"
         ]
       },
+      "apps/website": {
+        "dependencies": [
+          "jsr:@std/assert@1",
+          "npm:@bufbuild/protobuf@^2.16.0",
+          "npm:@solidjs/vite-plugin@3.0.0-next.44",
+          "npm:@solidjs/web@2.0.0-rc.9",
+          "npm:solid-js@2.0.0-rc.9",
+          "npm:vite@8.3.1"
+        ]
+      },
       "packages/rpc": {
         "dependencies": [
           "jsr:@std/assert@1",
@@ -1612,6 +1626,8 @@
           "jsr:@astral/astral@~0.5.3",
           "jsr:@std/assert@1",
           "jsr:@std/encoding@1",
+          "jsr:@std/media-types@1",
+          "jsr:@std/path@1",
           "npm:@interledger/open-payments@7.4.0",
           "npm:@types/node@24",
           "npm:ilp-plugin-btp@1.5.0",

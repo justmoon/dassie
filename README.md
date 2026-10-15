@@ -34,11 +34,12 @@ The work starts from the specification in [`spec/`](spec/README.md):
 | `apps/wallet` | The wallet (Solid 2), embedded in the binary: every page of the original but Send and payment status (M6), with live data |
 | `apps/dev` | `deno task dev`: the scenarios on real binaries, certificates, vanity identities, the dev server with its SNI proxy and relay; also the scenario library the end-to-end tests use |
 | `apps/dev-dashboard` | The dev dashboard (Solid 2): the network, every node's log, the scenarios, each node's debug pages |
-| `packages/ui` | The Solid components the wallet and the dev dashboard share: amounts, the log viewer, the network graph, the debug pages, the router, live data, the theme |
+| `apps/website` | dassie.land: the home page, the Quick Start, and the STREAM toy, which runs `dassie-stream` in WASM over a simulated network; Vercel builds it with `vercel-build.sh` |
+| `packages/ui` | The Solid components the wallet, the dev dashboard and the STREAM toy share: amounts, the log viewer, the network graph, the debug pages, the router, live data, the theme |
 | `packages/identity-wasm` | The core crates for Deno and browsers, with a STREAM driver |
 | `packages/rpc` | The client for the RPC contract, over WebSocket (browsers) or the IPC socket (Deno) |
 | `tests/interop` | Interop with `ilp-protocol-stream`, WASM vectors, browser test |
-| `tests/e2e` | A fresh install through `dassie init` and browser setup, with Pebble as the ACME CA; a BTP client paying the node's STREAM receiver; the `two-nodes` and `six-nodes` scenarios; the wallet's pages in a browser against two nodes; `deno task dev` and its dashboard; the installer and the updater on Debian, Ubuntu, Fedora and CentOS, in containers |
+| `tests/e2e` | A fresh install through `dassie init` and browser setup, with Pebble as the ACME CA; a BTP client paying the node's STREAM receiver; the `two-nodes` and `six-nodes` scenarios; the wallet's pages in a browser against two nodes; `deno task dev` and its dashboard; the installer and the updater on Debian, Ubuntu, Fedora and CentOS, in containers; dassie.land and its STREAM toy in a browser, under the site's CSP |
 | `testdata/original` | Generator for the golden vectors, run against the original |
 | `testdata/pebble` | Configuration and API certificate for Pebble, Let's Encrypt's test server, also served by the nodes in the BTP and peer tests |
 | `testdata/release` | The release test key and what minisign signs with it |
@@ -52,6 +53,7 @@ cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 deno task build:wasm   # WASM modules and bindings into packages/identity-wasm/gen
 deno task build:wallet # the wallet into apps/wallet/dist
 deno task build:dashboard # the dev dashboard into apps/dev-dashboard/dist
+deno task build:website # dassie.land into apps/website/dist
 deno task build:e2e    # target/e2e/dassie, with the wallet built in
 deno task check        # fmt, lint, type check
 deno task test         # WASM vectors, STREAM interop, browser, end to end
@@ -98,6 +100,8 @@ Peers extend each other 1.1 units of credit, and a node settles with a peer once
 Once, run `mkcert -install` so the browser trusts the certificates. Port 443 needs `sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0` on Linux; without it the dev server says so and goes on without the proxy. `--port-offset`, `--state-dir`, `--no-proxy`, `--no-watch` and `--dassie <binary>` serve tests and special cases (see `apps/dev/main.ts`).
 
 To work on the wallet alone, run `deno task dev` in `apps/wallet` and start a node with `DASSIE_DEV_WALLET_DIR` set to the absolute path of `apps/wallet/dist-dev`. `DASSIE_E2E_WALLET_DIR` does the same for the wallet's browser test, and `DASSIE_E2E_SCREENSHOTS` keeps a picture of each step of the wallet's and the dev environment's browser tests.
+
+To work on the website, run `deno task dev` in `apps/website`, which rebuilds `dist/` on every change, and `deno task preview` beside it to serve it. Vercel deploys every branch from `apps/website` ([spec 7 §5](spec/07-rewrite.md#5-wallet-and-dashboard-solid-2)); the CSP and the cache headers are in its `vercel.json`.
 
 ## Engineering style
 

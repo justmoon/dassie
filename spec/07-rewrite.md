@@ -633,6 +633,21 @@ meta/canary                                  the newest canary
   - **M6c:** Send, to a payment pointer, a wallet address or a payment request, here or on another node, and the payment status page, which follows one payment live (UI-1). Activity's outgoing payments lead to it.
 - **The dev dashboard** reuses the wallet's debug components (`packages/ui`). It talks to each node over the same contract, through the node's IPC socket, which the dev server relays to it; nothing in the node accepts a dev token.
 
+**The website (M9).** `apps/website` builds `dassie.land`: the pages of [6 §3](06-user-interfaces-and-tooling.md), with the Quick Start rewritten for the installer and updater of §4.8.
+
+- **Static pages.** A Vite build with one HTML page each for the home page, the Quick Start and the STREAM toy. A build step adds the header and footer to each page. Only the toy runs a script; it is a Solid 2 island, styled by `packages/ui`, whose log viewer it shares.
+- **The same strict CSP as the wallet**, set in `vercel.json`: no inline script or style, nothing loaded from elsewhere, and WebAssembly may compile.
+- **The toy** runs the sender and the receiver on `dassie-stream`'s WASM build (`@dassie/identity-wasm/web/stream`), with the original's settings and defaults. Between them sits a connector, simulated event by event on a clock of its own:
+  - It refuses a packet above its largest amount with F08, with the amounts the receiver of an F08 reads.
+  - It refuses a packet beyond its packets in flight with T03.
+  - It forwards the rest. The answer comes back after a round trip drawn from a log-normal distribution, whose median is the latency and whose σ is the jitter.
+  - An answer that would come back at or after the Prepare's expiry never reaches the sender. The connector rejects the Prepare with R00 when it expires, as a real one does, and a Fulfill that comes later is its loss.
+  - The draws are seeded, so the same settings and seed replay the same run, as in the simulations of §7.
+  - Time dilation sets how fast the run plays, and the run can be paused, stepped one event at a time, or finished at once.
+  - A run is bounded: at most 2000 packets, 10 minutes on its clock, and 10,000 log lines.
+  - The packet log decrypts each STREAM packet with the connection's shared secret, through `decodeStreamPacket` of the same WASM build.
+- **Deployment.** Vercel builds the site from `apps/website` with `vercel-build.sh`, so each branch gets a preview. Vercel's build image has neither Deno nor Rust, so the script installs Deno, rustup and `wasm-bindgen`, each pinned by version and its download by SHA-256. rustup then installs the toolchain `rust-toolchain.toml` names, which rustup checks against the channel's manifest. A test keeps those versions equal to the flake's Deno and to `Cargo.lock`.
+
 ## 6. Developer environment (Deno)
 
 `apps/dev` reproduces [6 §6](06-user-interfaces-and-tooling.md):
@@ -687,6 +702,7 @@ Every crate is written so that a simulation can drive it ([D16](08-decisions.md#
    - The releases come from `nix build .#install-test-mirror`: 1.0.0 and 1.0.1, built in a cheaper profile and signed with the test key.
    - The images between them take both verifiers (OpenSSL and minisign), both downloaders (curl and wget) and both compressions.
    - CI runs one job per distribution.
+7. **Website.** `tests/e2e/website_test.ts` serves the built site with the headers of its `vercel.json`, so that its CSP applies, and drives it in headless Chrome. The toy runs a payment to the end, and its packets decrypt. The toy's simulation is also tested in Deno against the Deno build of the same WASM module.
 
 ## 8. Milestones
 

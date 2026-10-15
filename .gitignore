@@ -12,3 +12,5 @@ apps/*/dist-dev/
 /local/
 # Built by `deno task build:dashboard`.
 apps/dev-dashboard/dist/
+# Built by `deno task build:website`.
+apps/website/dist/
