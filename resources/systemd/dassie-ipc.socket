@@ -1,0 +1,14 @@
+# The node's IPC socket, for `dassie init` and other local tools. Whoever
+# may use it administers the node: root, and the group dassie-users.
+[Unit]
+Description=Dassie node, IPC
+
+[Socket]
+ListenStream=/run/dassie.sock
+SocketMode=0660
+SocketUser=root
+SocketGroup=dassie-users
+Service=dassie.service
+
+[Install]
+WantedBy=sockets.target
