@@ -101,6 +101,29 @@ async function books(scenario: Scenario) {
   return out;
 }
 
+/**
+ * Longer than a node's settlement interval (4 s, 1 s with dev timings): a
+ * settlement that is due starts within it.
+ */
+const SETTLE_CHECK_MS = 5_000;
+
+/**
+ * Settling is over: quiet, and still quiet with the same books once a
+ * settlement interval has passed. Quiet alone also holds between two
+ * settlements, while the next one is due but not yet started.
+ */
+async function settled(scenario: Scenario): Promise<boolean> {
+  if (!(await quiet(scenario))) return false;
+  const first = await books(scenario);
+  await new Promise((resolve) => setTimeout(resolve, SETTLE_CHECK_MS));
+  if (!(await quiet(scenario))) return false;
+  const second = await books(scenario);
+  return [...first].every(([name, [onLedger, owner]]) => {
+    const now = second.get(name);
+    return now !== undefined && now[0] === onLedger && now[1] === owner;
+  });
+}
+
 Deno.test({
   name:
     "xrpl-settlement settles on the XRP Ledger, and reconciles across restarts",
@@ -153,7 +176,7 @@ Deno.test({
       } finally {
         await plugin.disconnect();
       }
-      await scenario.until("settled", () => quiet(scenario), 120_000);
+      await scenario.until("settled", () => settled(scenario), 120_000);
       // d1 paid on the ledger: its books fell by what it settled, and
       // the fees; its owner by what it sent.
       const after = await ledger(d1);
@@ -174,7 +197,7 @@ Deno.test({
         await node.start();
         await node.waitForEngine();
       }
-      await scenario.until("caught up", () => quiet(scenario), 120_000);
+      await scenario.until("caught up", () => settled(scenario), 120_000);
       assertEquals(await books(scenario), kept, "the books after a restart");
       assertEquals(await peerAccounts(scenario), accounts, "peer accounts");
     } finally {
