@@ -23,7 +23,8 @@ WorkingDirectory=/var/lib/dassie
 Environment=DASSIE_LOG_LEVEL=info
 Restart=always
 RestartSec=1
-TimeoutStartSec=infinity
+# Bounded, so that an update whose node never comes up is rolled back.
+TimeoutStartSec=5min
 
 # Nothing the node does needs more than this.
 NoNewPrivileges=yes

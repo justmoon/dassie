@@ -1,6 +1,7 @@
 # Updates Dassie from its mirror when dassie-update.timer says so: to a
 # newer version on the installed one's channel, once its signature and sums
-# check out (spec D11). It then restarts dassie.service.
+# check out (spec D11). It then restarts dassie.service, and goes back to
+# the version that ran if the new one does not come up.
 [Unit]
 Description=Dassie updater
 Wants=network-online.target
@@ -8,4 +9,5 @@ After=network-online.target
 
 [Service]
 Type=oneshot
+TimeoutStartSec=30min
 ExecStart=/opt/dassie/current/bin/dassie update

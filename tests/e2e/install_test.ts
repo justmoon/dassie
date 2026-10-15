@@ -243,11 +243,12 @@ class Machine {
       `else wget -q -O ${file} ${url}; fi`;
   }
 
-  /** Runs install.sh from the mirror, as `curl … | sh` would. */
+  /** Runs install.sh from the mirror, as `curl … | sh` would, under the
+   * umask of a hardened host. */
   installer(mirror: Mirror, args = ""): Promise<Run> {
     return this.sh(
       `${this.fetch(`${mirror.url}/install.sh`, "/root/install.sh")} && ` +
-        `sh /root/install.sh --mirror ${mirror.url} ${args}`,
+        `umask 077 && sh /root/install.sh --mirror ${mirror.url} ${args}`,
     );
   }
 
@@ -397,6 +398,7 @@ async function steps(t: Deno.TestContext, machine: Machine, mirror: Mirror) {
       );
       assert(result.code !== 0, result.stdout);
       assertStringIncludes(result.stderr, "E_SIGNATURE_INVALID");
+      assertStringIncludes(result.stderr, "signed for another version");
       assertEquals((await machine.sh("test -e /opt/dassie")).code, 1);
     },
   );
@@ -499,6 +501,17 @@ async function steps(t: Deno.TestContext, machine: Machine, mirror: Mirror) {
     },
   );
 
+  await t.step(
+    "the installer does not go back to what the mirror offers",
+    async () => {
+      await mirror.offer("1.0.0");
+      const result = await machine.installer(mirror);
+      assert(result.code !== 0, result.stdout);
+      assertStringIncludes(result.stderr, "E_VERSION_OLDER");
+      assertEquals((await node(machine)).version, "dassie 1.0.1");
+    },
+  );
+
   await t.step("the installer uninstalls it", async () => {
     const result = await machine.installer(mirror, "uninstall");
     assertEquals(result.code, 0, `${result.stdout}${result.stderr}`);
@@ -507,13 +520,18 @@ async function steps(t: Deno.TestContext, machine: Machine, mirror: Mirror) {
         .code,
       1,
     );
-    const units =
-      "dassie.service dassie-http.socket dassie-https.socket dassie-ipc.socket " +
-      "dassie-update.service dassie-update.timer";
-    assertEquals(
-      (await machine.sh(`cd /etc/systemd/system && ls ${units}`)).code,
-      2,
-    );
+    for (
+      const unit of [
+        "dassie.service",
+        "dassie-http.socket",
+        "dassie-https.socket",
+        "dassie-ipc.socket",
+        "dassie-update.service",
+        "dassie-update.timer",
+      ]
+    ) {
+      await machine.must(`test ! -e /etc/systemd/system/${unit}`);
+    }
     assertEquals(
       await machine.must("systemctl is-active dassie.service || true"),
       "inactive",

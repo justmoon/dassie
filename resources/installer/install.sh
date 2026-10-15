@@ -20,9 +20,13 @@ RELEASE_KEY="@RELEASE_KEY@"
 
 main() {
   set -eu
+  # What it installs must be readable by the node's own user, whatever the
+  # umask of whoever runs it.
+  umask 022
   MIRROR="${DASSIE_MIRROR_URL:-https://get.dassie.land}"
   CHANNEL="${DASSIE_CHANNEL:-latest}"
   VERSION="${DASSIE_VERSION:-}"
+  TARGETED="${DASSIE_VERSION:+1}"
   COMMAND=install
   BASE=/opt/dassie
   UNITS="dassie.service dassie-http.socket dassie-https.socket dassie-ipc.socket dassie-update.service dassie-update.timer"
@@ -55,7 +59,7 @@ parse_arguments() {
     case "$1" in
       -h | --help) usage; exit 0 ;;
       -c | --channel) [ $# -ge 2 ] || fail E_SYNTAX "$1 needs a value"; CHANNEL=$2; shift ;;
-      -t | --target) [ $# -ge 2 ] || fail E_SYNTAX "$1 needs a value"; VERSION=$2; shift ;;
+      -t | --target) [ $# -ge 2 ] || fail E_SYNTAX "$1 needs a value"; VERSION=$2; TARGETED=1; shift ;;
       -m | --mirror) [ $# -ge 2 ] || fail E_SYNTAX "$1 needs a value"; MIRROR=$2; shift ;;
       install | uninstall) COMMAND=$1 ;;
       *) usage >&2; fail E_SYNTAX "unknown argument: $1" ;;
@@ -117,8 +121,9 @@ check_system() {
   esac
   command -v systemctl > /dev/null 2>&1 || fail E_SYSTEMD_REQUIRED "Dassie needs systemd"
   state=$(systemctl is-system-running 2> /dev/null || true)
+  # Still starting is fine: cloud-init runs scripts while the system boots.
   case "$state" in
-    running | degraded) ;;
+    running | degraded | starting | initializing) ;;
     *) fail E_SYSTEMD_NOT_RUNNING "systemd is not running (it says: ${state:-nothing})" ;;
   esac
   for tool in tar sha256sum base64 awk mktemp; do
@@ -152,6 +157,9 @@ download() {
 }
 
 valid_version() {
+  case "$1" in
+    "" | *[!0-9a-z.-]*) return 1 ;;
+  esac
   printf '%s\n' "$1" | grep -Eq '^((0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)|canary-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}-[0-9a-f]{7,40})$'
 }
 
@@ -163,7 +171,7 @@ verify_signature() {
   expected="dassie $VERSION"
   case "$VERIFIER" in
     minisign)
-      comment=$(minisign -V -Q -P "$RELEASE_KEY" -m "$TEMP/SHA256SUMS" -x "$TEMP/SHA256SUMS.minisig" 2> /dev/null) ||
+      comment=$(minisign -V -H -Q -P "$RELEASE_KEY" -m "$TEMP/SHA256SUMS" -x "$TEMP/SHA256SUMS.minisig" 2> /dev/null) ||
         fail E_SIGNATURE_INVALID "SHA256SUMS is not signed with the release key"
       ;;
     openssl) comment=$(verify_with_openssl) ;;
@@ -178,10 +186,11 @@ verify_signature() {
 # trusted comment.
 verify_with_openssl() {
   work="$TEMP/openssl"
-  mkdir "$work"
+  mkdir "$work" || fail E_TEMP_DIRECTORY_FAILED "cannot make $work"
   printf '%s' "$RELEASE_KEY" | base64 -d > "$work/key" 2> /dev/null || fail E_SIGNATURE_INVALID "the release key is malformed"
   # SubjectPublicKeyInfo for Ed25519, then the key's last 32 bytes.
-  { printf '\060\052\060\005\006\003\053\145\160\003\041\000'; tail -c 32 "$work/key"; } > "$work/key.der"
+  { printf '\060\052\060\005\006\003\053\145\160\003\041\000'; tail -c 32 "$work/key"; } > "$work/key.der" ||
+    fail E_SIGNATURE_INVALID "cannot read the release key"
   { echo '-----BEGIN PUBLIC KEY-----'; base64 < "$work/key.der" | tr -d '\n'; echo; echo '-----END PUBLIC KEY-----'; } > "$work/key.pem"
   sig="$TEMP/SHA256SUMS.minisig"
   [ "$(wc -l < "$sig")" -eq 4 ] || fail E_SIGNATURE_INVALID "SHA256SUMS.minisig is malformed"
@@ -193,15 +202,17 @@ verify_with_openssl() {
   # The key IDs, compared as base64: not every system has cmp.
   [ "$(head -c 10 "$work/signature" | tail -c 8 | base64)" = "$(head -c 10 "$work/key" | tail -c 8 | base64)" ] ||
     fail E_SIGNATURE_INVALID "SHA256SUMS is signed with another key"
-  tail -c 64 "$work/signature" > "$work/signature.ed25519"
-  openssl dgst -blake2b512 -binary "$TEMP/SHA256SUMS" > "$work/hash"
+  tail -c 64 "$work/signature" > "$work/signature.ed25519" || fail E_SIGNATURE_INVALID "cannot read SHA256SUMS.minisig"
+  openssl dgst -blake2b512 -binary "$TEMP/SHA256SUMS" > "$work/hash" ||
+    fail E_VERIFIER_REQUIRED "this OpenSSL cannot compute BLAKE2b-512; install minisign"
   openssl pkeyutl -verify -pubin -inkey "$work/key.pem" -rawin -in "$work/hash" \
     -sigfile "$work/signature.ed25519" > /dev/null 2>&1 ||
     fail E_SIGNATURE_INVALID "SHA256SUMS is not signed with the release key"
   line=$(sed -n 3p "$sig")
   comment=${line#trusted comment: }
   [ "$comment" != "$line" ] || fail E_SIGNATURE_INVALID "SHA256SUMS.minisig is malformed"
-  { cat "$work/signature.ed25519"; printf '%s' "$comment"; } > "$work/global.message"
+  { cat "$work/signature.ed25519"; printf '%s' "$comment"; } > "$work/global.message" ||
+    fail E_SIGNATURE_INVALID "cannot read SHA256SUMS.minisig"
   openssl pkeyutl -verify -pubin -inkey "$work/key.pem" -rawin -in "$work/global.message" \
     -sigfile "$work/global" > /dev/null 2>&1 ||
     fail E_SIGNATURE_INVALID "the trusted comment of SHA256SUMS.minisig is not signed"
@@ -213,6 +224,27 @@ verify_bundle() {
   [ -n "$expected" ] || fail E_BUNDLE_VERIFY_FAILED "SHA256SUMS lists no $BUNDLE"
   actual=$(sha256sum "$TEMP/$BUNDLE" | awk '{ print $1 }')
   [ "$actual" = "$expected" ] || fail E_BUNDLE_VERIFY_FAILED "$BUNDLE does not match its signed sum: refusing it"
+}
+
+# The mirror's meta/<channel> is not signed, so it does not choose the
+# direction: a version older than the one installed, of the same channel,
+# goes in only when asked for with --target.
+check_not_older() {
+  if [ -n "$TARGETED" ] || [ ! -x "$BASE/current/bin/dassie" ]; then return 0; fi
+  installed=$("$BASE/current/bin/dassie" --version 2> /dev/null | sed -n 's/^dassie //p')
+  case "$VERSION:$installed" in
+    canary-*:canary-*)
+      # The date and time of the commit order canaries.
+      offered=$(printf '%s' "$VERSION" | cut -c1-24)
+      now=$(printf '%s' "$installed" | cut -c1-24)
+      ;;
+    canary-*:* | *:canary-* | *:) return 0 ;;
+    *) offered=$VERSION now=$installed ;;
+  esac
+  [ "$offered" != "$now" ] || return 0
+  lowest=$(printf '%s\n%s\n' "$offered" "$now" | sort -V | head -n 1)
+  [ "$lowest" != "$offered" ] ||
+    fail E_VERSION_OLDER "the mirror offers $VERSION, older than the installed $installed; use --target to install it anyway"
 }
 
 # --- Install --------------------------------------------------------------------
@@ -229,6 +261,7 @@ install() {
   fi
   valid_version "$VERSION" || fail E_VERSION_INVALID "not a version: $VERSION"
   note "dassie $VERSION"
+  check_not_older
 
   step "Downloading and verifying dassie $VERSION for $ARCH"
   BUNDLE="dassie-$VERSION-linux-$ARCH.tar.$COMPRESSION"
@@ -250,13 +283,11 @@ install() {
     fail E_BUNDLE_EXTRACTION_FAILED "$BUNDLE does not hold what a release holds"
   [ "$("$unpacked/bin/dassie" --version)" = "dassie $VERSION" ] ||
     fail E_BUNDLE_EXTRACTION_FAILED "the binary in $BUNDLE is not dassie $VERSION"
+  "$unpacked/bin/dassie" verify-install > /dev/null || fail E_SELF_TEST_FAILED "dassie $VERSION fails verify-install here"
 
   step "Installing into $BASE/$VERSION"
   install_files "$unpacked"
   install_units "$unpacked"
-
-  step "Checking the install"
-  as_root "$BASE/current/bin/dassie" verify-install || fail E_SELF_TEST_FAILED "dassie verify-install failed"
 
   step "Dassie $VERSION is installed"
   note "Next, set up the node:  sudo dassie init"
@@ -266,21 +297,29 @@ install_files() {
   as_root mkdir -p "$BASE"
   as_root rm -rf "$BASE/.install-$VERSION"
   as_root cp -R "$1" "$BASE/.install-$VERSION" || fail E_BUNDLE_INSTALL_FAILED "cannot copy into $BASE"
+  # A version installed again is renamed aside first, so that current
+  # never names nothing.
   if [ -e "$BASE/$VERSION" ]; then
-    as_root rm -rf "$BASE/$VERSION" || fail E_BUNDLE_INSTALL_FAILED "cannot replace $BASE/$VERSION"
+    as_root mv -T "$BASE/$VERSION" "$BASE/.replaced-$VERSION-$$" || fail E_BUNDLE_INSTALL_FAILED "cannot replace $BASE/$VERSION"
   fi
-  as_root mv "$BASE/.install-$VERSION" "$BASE/$VERSION" || fail E_BUNDLE_INSTALL_FAILED "cannot move into $BASE/$VERSION"
-  # One rename points current at the new version.
+  as_root mv -T "$BASE/.install-$VERSION" "$BASE/$VERSION" || fail E_BUNDLE_INSTALL_FAILED "cannot move into $BASE/$VERSION"
+  as_root rm -rf "$BASE/.replaced-$VERSION-$$"
+  # On disk before current names it; then one rename points current at it.
+  as_root sync
   as_root ln -sfn "$VERSION" "$BASE/.current-$$"
   as_root mv -T "$BASE/.current-$$" "$BASE/current" || fail E_VERSION_SELECT_FAILED "cannot point $BASE/current at $VERSION"
+  as_root sync
   as_root ln -sfn "$BASE/current/bin/dassie" /usr/local/bin/dassie ||
     fail E_DASSIE_COMMAND_SYMLINK_FAILED "cannot link /usr/local/bin/dassie"
   if ! getent group dassie-users > /dev/null 2>&1; then
     as_root groupadd --system dassie-users || fail E_GROUP_CREATION_FAILED "cannot create the group dassie-users"
   fi
-  if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
-    as_root usermod -a -G dassie-users "$SUDO_USER" || fail E_GROUP_CREATION_FAILED "cannot add $SUDO_USER to dassie-users"
-    note "$SUDO_USER may now use dassie on this machine, once logged in again"
+  # Whoever ran this, through sudo or with sudo for each step, may use the
+  # node's socket.
+  if [ "$(id -u)" -ne 0 ]; then user=$(id -un); else user=${SUDO_USER:-root}; fi
+  if [ "$user" != root ]; then
+    as_root usermod -a -G dassie-users "$user" || fail E_GROUP_CREATION_FAILED "cannot add $user to dassie-users"
+    note "$user may now use dassie on this machine, once logged in again"
   fi
 }
 

@@ -154,7 +154,14 @@ impl Install {
     }
 
     fn update(&self, mirror: &MirrorServer, args: &[&str]) -> Output {
-        Command::new(self.base().join("current/bin/dassie"))
+        self.update_with_umask("022", mirror, args)
+    }
+
+    /// Runs the updater under `umask`, as an owner's shell might.
+    fn update_with_umask(&self, umask: &str, mirror: &MirrorServer, args: &[&str]) -> Output {
+        Command::new("sh")
+            .args(["-c", &format!("umask {umask} && exec \"$0\" \"$@\"")])
+            .arg(self.base().join("current/bin/dassie"))
             .arg("update")
             .args(["--mirror", &mirror.url, "--no-restart"])
             .args(args)
@@ -317,6 +324,33 @@ fn installs_a_newer_release() {
     assert_eq!(
         String::from_utf8_lossy(&named.stdout).trim(),
         "dassie 9.9.9"
+    );
+}
+
+/// Under a strict umask, as on a hardened host, the install is still one
+/// the node's own user can read and run.
+#[test]
+fn installs_for_others_to_run_whatever_the_umask() {
+    let (mirror, install) = (MirrorServer::start(), Install::new());
+    publish(&mirror, "9.9.9", &release("9.9.9"), None);
+    let output = install.update_with_umask("077", &mirror, &[]);
+    assert!(output.status.success(), "{}", text(&output));
+    let mode = |path: &str| {
+        fs::metadata(install.base().join(path))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777
+    };
+    for dir in ["9.9.9", "9.9.9/bin", "9.9.9/share", "9.9.9/share/systemd"] {
+        assert_eq!(mode(dir), 0o755, "{dir}");
+    }
+    assert_eq!(mode("9.9.9/bin/dassie"), 0o755);
+    assert_eq!(mode("9.9.9/share/systemd/dassie.service"), 0o644);
+    let unit = install.dir.path().join("units/dassie.service");
+    assert_eq!(
+        fs::metadata(unit).unwrap().permissions().mode() & 0o777,
+        0o644
     );
 }
 

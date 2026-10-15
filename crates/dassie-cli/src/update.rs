@@ -23,9 +23,10 @@
 
 use std::fs::{self, File};
 use std::io::{self, Read as _};
-use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _, symlink};
+use std::os::unix::fs::{PermissionsExt as _, symlink};
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::{Command, ExitCode, Output, Stdio};
+use std::time::{Duration, Instant};
 
 use dassie_node::peer_client::{PeerClient, WebRequest};
 use dassie_release::bundle::{self, Kind, Unpacking};
@@ -110,18 +111,50 @@ async fn update(options: Options) -> Result<(), Problem> {
     // The staging directory goes either way; what it held is in place.
     let _ = fs::remove_dir_all(&staging);
     let dir = installed?;
-    let units_changed = install_units(&dir.join("share/systemd"))?;
+    let units = install_units(&dir.join("share/systemd"))?;
     switch(&install.base, &target)?;
     println!("Installed dassie {target}.");
-    if !options.no_restart && systemd_running() {
-        if units_changed {
-            systemctl(&["daemon-reload"])?;
-        }
-        println!("Restarting {SERVICE}...");
-        systemctl(&["restart", SERVICE])?;
+    let restarted = if !options.no_restart && systemd_running() {
+        restart(&units)
+    } else {
+        Ok(())
+    };
+    if let Err(problem) = restarted {
+        eprintln!(
+            "dassie {target} did not start ({problem}); going back to {}.",
+            install.version
+        );
+        roll_back(&install)?;
+        return Err(format!(
+            "dassie {target} did not start, and {} runs again",
+            install.version
+        ));
     }
     prune(&install.base, &[&target, &install.version]);
     Ok(())
+}
+
+/// Makes systemd take in the units that changed, enables the new ones, and
+/// restarts the node, which must come up.
+fn restart(units: &Units) -> Result<(), Problem> {
+    if units.changed {
+        systemctl(&["daemon-reload"])?;
+    }
+    for unit in &units.added {
+        systemctl(&["enable", unit])?;
+    }
+    println!("Restarting {SERVICE}...");
+    systemctl(&["restart", SERVICE])
+}
+
+/// Points `current` back at the version that ran, with its units, and
+/// restarts it.
+fn roll_back(install: &Install) -> Result<(), Problem> {
+    let dir = install.base.join(install.version.to_string());
+    install_units(&dir.join("share/systemd"))?;
+    switch(&install.base, &install.version)?;
+    systemctl(&["daemon-reload"])?;
+    systemctl(&["restart", SERVICE])
 }
 
 /// Finds the install from this binary's path.
@@ -326,14 +359,37 @@ impl Mirror {
 }
 
 /// Unpacks `bundle` into `staging` and checks the binary in it. Returns the
-/// unpacked `dassie/`.
+/// unpacked `dassie/`, on disk.
 fn stage(bundle: &[u8], staging: &Path, version: &Version) -> Result<PathBuf, Problem> {
     let _ = fs::remove_dir_all(staging);
     let root = staging.join(bundle::ROOT);
-    fs::create_dir_all(&root).map_err(|e| permission(staging, &e))?;
+    make_dir(staging)?;
+    make_dir(&root)?;
     unpack(bundle, &root)?;
     check_binary(&root.join(bundle::BINARY), version)?;
+    sync_tree(&root)?;
     Ok(root)
+}
+
+/// Creates a directory others may read and enter, whatever the umask: the
+/// node runs as a user of its own.
+fn make_dir(path: &Path) -> Result<(), Problem> {
+    match fs::create_dir(path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists && path.is_dir() => {}
+        Err(error) => return Err(permission(path, &error)),
+    }
+    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).map_err(|e| permission(path, &e))
+}
+
+/// Creates the directories from `root` down to `inner`.
+fn make_dirs(root: &Path, inner: &Path) -> Result<(), Problem> {
+    let mut path = root.to_path_buf();
+    for component in inner.components() {
+        path.push(component);
+        make_dir(&path)?;
+    }
+    Ok(())
 }
 
 fn unpack(bundle: &[u8], root: &Path) -> Result<(), Problem> {
@@ -351,41 +407,44 @@ fn unpack(bundle: &[u8], root: &Path) -> Result<(), Problem> {
         let size = header.size().map_err(broken)?;
         let executable = header.mode().map_err(broken)? & 0o111 != 0;
         let path = String::from_utf8_lossy(&entry.path_bytes()).into_owned();
-        let inner = unpacking
-            .admit(&path, kind, size)
-            .map_err(|e| e.to_string())?;
-        let target = root.join(inner);
+        let inner = PathBuf::from(
+            unpacking
+                .admit(&path, kind, size)
+                .map_err(|e| e.to_string())?,
+        );
         if kind == Kind::Directory {
-            fs::create_dir_all(&target).map_err(|e| permission(&target, &e))?;
+            make_dirs(root, &inner)?;
             continue;
         }
-        if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent).map_err(|e| permission(parent, &e))?;
+        if let Some(parent) = inner.parent() {
+            make_dirs(root, parent)?;
         }
+        let target = root.join(&inner);
         let mut file = File::options()
             .write(true)
             .create_new(true)
-            .mode(if executable { 0o755 } else { 0o644 })
             .open(&target)
             .map_err(|e| permission(&target, &e))?;
         let copied = io::copy(&mut (&mut entry).take(size), &mut file).map_err(broken)?;
         if copied != size {
             return Err("the bundle is broken: a file is cut short".into());
         }
+        let mode = if executable { 0o755 } else { 0o644 };
+        file.set_permissions(fs::Permissions::from_mode(mode))
+            .and_then(|()| file.sync_all())
+            .map_err(|e| permission(&target, &e))?;
     }
     Ok(())
 }
 
+/// How long the new binary may take to name its version, or to verify its
+/// install.
+const CHECK_TIMEOUT: Duration = Duration::from_secs(60);
+
 /// The new binary must be a file that names `version`, and verify its
 /// install.
 fn check_binary(binary: &Path, version: &Version) -> Result<(), Problem> {
-    let run = |argument: &str| {
-        Command::new(binary)
-            .arg(argument)
-            .output()
-            .map_err(|e| format!("the new binary does not run: {e}"))
-    };
-    let output = run("--version")?;
+    let output = run_bounded(binary, "--version")?;
     let named = String::from_utf8_lossy(&output.stdout);
     if !output.status.success() || named.trim() != format!("dassie {version}") {
         return Err(format!(
@@ -393,7 +452,7 @@ fn check_binary(binary: &Path, version: &Version) -> Result<(), Problem> {
             named.trim()
         ));
     }
-    let verified = run("verify-install")?;
+    let verified = run_bounded(binary, "verify-install")?;
     if !verified.status.success() {
         return Err(format!(
             "the new binary failed verify-install:\n{}",
@@ -401,6 +460,47 @@ fn check_binary(binary: &Path, version: &Version) -> Result<(), Problem> {
         ));
     }
     Ok(())
+}
+
+/// Runs `binary argument`, killing it after [`CHECK_TIMEOUT`].
+fn run_bounded(binary: &Path, argument: &str) -> Result<Output, Problem> {
+    let does_not_run = |e: io::Error| format!("the new binary does not run: {e}");
+    let mut child = Command::new(binary)
+        .arg(argument)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(does_not_run)?;
+    let started = Instant::now();
+    while child.try_wait().map_err(does_not_run)?.is_none() {
+        if started.elapsed() > CHECK_TIMEOUT {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!(
+                "the new binary's {argument} did not finish in time"
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    child.wait_with_output().map_err(does_not_run)
+}
+
+/// Writes the unpacked tree's directories to disk, so that `current`
+/// never names a version a power cut could leave half written.
+fn sync_tree(dir: &Path) -> Result<(), Problem> {
+    for entry in fs::read_dir(dir).map_err(|e| permission(dir, &e))? {
+        let entry = entry.map_err(|e| permission(dir, &e))?;
+        if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            sync_tree(&entry.path())?;
+        }
+    }
+    sync_dir(dir)
+}
+
+fn sync_dir(dir: &Path) -> Result<(), Problem> {
+    File::open(dir)
+        .and_then(|file| file.sync_all())
+        .map_err(|e| permission(dir, &e))
 }
 
 /// Moves the unpacked `root` to `<base>/<version>`, replacing what was
@@ -413,46 +513,64 @@ fn place(base: &Path, root: &Path, version: &Version) -> Result<PathBuf, Problem
         let _ = fs::remove_dir_all(&old);
     }
     fs::rename(root, &dir).map_err(|e| permission(&dir, &e))?;
+    sync_dir(base)?;
     Ok(dir)
 }
 
+/// What installing a version's units changed.
+#[derive(Debug, Default)]
+struct Units {
+    /// Whether any unit file changed.
+    changed: bool,
+    /// The units that were not there before, to enable.
+    added: Vec<String>,
+}
+
 /// Installs the systemd units a version brings, each only if it changed.
-/// Returns whether any did.
-fn install_units(units: &Path) -> Result<bool, Problem> {
+/// An owner's changes belong in drop-ins, which this leaves alone.
+fn install_units(units: &Path) -> Result<Units, Problem> {
     let Ok(entries) = fs::read_dir(units) else {
-        return Ok(false);
+        return Ok(Units::default());
     };
     let dir = std::env::var_os("DASSIE_SYSTEMD_UNIT_DIR")
         .map_or_else(|| PathBuf::from(UNIT_DIR), PathBuf::from);
-    let mut changed = false;
+    let mut installed = Units::default();
     for entry in entries {
         let entry = entry.map_err(|e| permission(units, &e))?;
+        let name = entry.file_name().to_string_lossy().into_owned();
         let source = entry.path();
-        let target = dir.join(entry.file_name());
+        let target = dir.join(&name);
         let content = fs::read(&source).map_err(|e| permission(&source, &e))?;
-        if fs::read(&target).ok().as_deref() == Some(content.as_slice()) {
+        let before = fs::read(&target).ok();
+        if before.as_deref() == Some(content.as_slice()) {
             continue;
         }
-        let staged = dir.join(format!(
-            ".{}.dassie-update",
-            entry.file_name().to_string_lossy()
-        ));
-        fs::write(&staged, &content).map_err(|e| permission(&staged, &e))?;
-        fs::set_permissions(&staged, fs::Permissions::from_mode(0o644))
-            .map_err(|e| permission(&staged, &e))?;
+        let staged = dir.join(format!(".{name}.dassie-update"));
+        let write = || -> io::Result<()> {
+            let mut file = File::create(&staged)?;
+            io::Write::write_all(&mut file, &content)?;
+            file.set_permissions(fs::Permissions::from_mode(0o644))?;
+            file.sync_all()
+        };
+        write().map_err(|e| permission(&staged, &e))?;
         fs::rename(&staged, &target).map_err(|e| permission(&target, &e))?;
-        changed = true;
+        installed.changed = true;
+        if before.is_none() {
+            installed.added.push(name);
+        }
     }
-    Ok(changed)
+    sync_dir(&dir)?;
+    Ok(installed)
 }
 
-/// Points `<base>/current` at `version`, in one `rename`.
+/// Points `<base>/current` at `version`, in one `rename`, on disk.
 fn switch(base: &Path, version: &Version) -> Result<(), Problem> {
     let staged = base.join(format!(".current-{}", std::process::id()));
     let _ = fs::remove_file(&staged);
     symlink(version.to_string(), &staged).map_err(|e| permission(&staged, &e))?;
     let current = base.join("current");
-    fs::rename(&staged, &current).map_err(|e| permission(&current, &e))
+    fs::rename(&staged, &current).map_err(|e| permission(&current, &e))?;
+    sync_dir(base)
 }
 
 /// Whether this system runs systemd (`sd_booted`).
@@ -472,17 +590,25 @@ fn systemctl(args: &[&str]) -> Result<(), Problem> {
     }
 }
 
-/// Removes every version but `keep`, and what an interrupted update left.
+/// Removes every version but `keep`, and what an interrupted update or
+/// install left.
 fn prune(base: &Path, keep: &[&Version]) {
     let Ok(entries) = fs::read_dir(base) else {
         return;
     };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        let leftover = name.starts_with(".staging-") || name.starts_with(".replaced-");
+        let leftover = [".staging-", ".replaced-", ".install-", ".current-"]
+            .iter()
+            .any(|prefix| name.starts_with(prefix));
         let stale = Version::parse(&name).is_ok_and(|version| !keep.contains(&&version));
-        if (leftover || stale) && entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        if (leftover || stale) && kind.is_dir() {
             let _ = fs::remove_dir_all(entry.path());
+        } else if leftover && kind.is_symlink() {
+            let _ = fs::remove_file(entry.path());
         }
     }
 }
