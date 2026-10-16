@@ -932,3 +932,58 @@ async fn an_item_that_only_reads_does_not_lift_the_limit() {
     assert_eq!(reply.status, StatusCode::FORBIDDEN, "{}", reply.text());
     node.stop().await;
 }
+
+// A grant may limit what its payments deliver instead of what they debit,
+// but not both, as Open Payments has it. The receive limit binds as the
+// debit limit does.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_receive_limit_caps_what_is_delivered() {
+    let (node, key) = start().await;
+    let client = own_client(&node, &key);
+    let both = json!({
+        "access_token": { "access": [{
+            "type": "outgoing-payment",
+            "actions": ["create"],
+            "identifier": host(&node),
+            "limits": { "debitAmount": usd(500), "receiveAmount": usd(500) },
+        }] },
+        "client": client.identity,
+        "interact": { "start": ["redirect"] },
+    });
+    let reply = send(
+        node.https,
+        true,
+        signed(&node, &client, "POST", "/gnap", None, Some(&both)),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{}", reply.text());
+    assert_eq!(body(&reply)["error"]["code"], "invalid_request");
+    let access = json!([{
+        "type": "outgoing-payment",
+        "actions": ["create", "read"],
+        "identifier": host(&node),
+        "limits": { "receiveAmount": usd(500) },
+    }]);
+    let grant = ask_for(&node, &client, &access).await;
+    let token = approve(&node, &client, &grant).await;
+    let target = receiver(&node, 300).await;
+    let pay =
+        json!({ "walletAddress": host(&node), "incomingPayment": target, "debitAmount": usd(300) });
+    let reply = post(&node, &client, "/outgoing-payments", &token, &pay).await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.text());
+    let payment = body(&reply);
+    assert_eq!(payment["grantSpentReceiveAmount"], usd(300));
+    let paid = sent(&node, &client, &token, &path_of(&node, &payment["id"])).await;
+    assert_eq!(paid["sentAmount"], usd(300));
+    // 300 more would deliver past 500.
+    let target = receiver(&node, 300).await;
+    let more =
+        json!({ "walletAddress": host(&node), "incomingPayment": target, "debitAmount": usd(300) });
+    let refused = post(&node, &client, "/outgoing-payments", &token, &more).await;
+    assert_eq!(refused.status, StatusCode::FORBIDDEN, "{}", refused.text());
+    assert_eq!(
+        spent(&node, &client, &token).await["spentReceiveAmount"],
+        usd(300)
+    );
+    node.stop().await;
+}
