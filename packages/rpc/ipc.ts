@@ -1,8 +1,8 @@
 /**
- * The node's IPC socket as a transport for {@linkcode RpcClient}, for Deno:
- * the CLI's way in, which the owner's tools and tests can use too. Every
- * message is a frame with a 4-byte big-endian length; whoever can open the
- * socket is the owner, so every call is authenticated.
+ * The node's IPC socket as a transport for {@linkcode RpcClient}, outside
+ * the browser: the CLI's way in, which the owner's tools and tests can use
+ * too. Every message is a frame with a 4-byte big-endian length; whoever can
+ * open the socket is the owner, so every call is authenticated.
  *
  * ```ts
  * const client = new RpcClient({ url: "ipc", connect: ipcConnector(path) });
@@ -11,6 +11,7 @@
  * @module
  */
 
+import { connect, type Socket } from "node:net";
 import type { SocketLike } from "./mod.ts";
 
 /** The contract's limit on a message. */
@@ -34,33 +35,30 @@ class IpcSocket implements SocketLike {
   onmessage: ((event: MessageEvent) => void) | null = null;
   onclose: ((event: CloseEvent) => void) | null = null;
   onerror: ((event: Event) => void) | null = null;
-  #connection: Deno.UnixConn | undefined;
-  #writes: Promise<void> = Promise.resolve();
-  #queued = 0;
+  #socket: Socket;
+  #buffered: Uint8Array<ArrayBuffer> = new Uint8Array(0);
 
   constructor(path: string) {
-    Deno.connect({ transport: "unix", path }).then(
-      (connection) => {
-        // Closed while connecting: the connection is not wanted any more.
-        if (this.readyState === CLOSED) {
-          connection.close();
-          return;
-        }
-        this.#connection = connection;
-        this.readyState = OPEN;
-        this.onopen?.(new Event("open"));
-        this.#read(connection);
-      },
-      () => {
-        if (this.readyState !== CLOSED) this.#closed(1006);
-      },
-    );
+    const socket = connect({ path });
+    this.#socket = socket;
+    // A socket closed while connecting is destroyed, so it never connects.
+    socket.once("connect", () => {
+      this.readyState = OPEN;
+      this.onopen?.(new Event("open"));
+    });
+    socket.on("data", (chunk: Uint8Array) => this.#received(chunk));
+    socket.once("end", () => this.close(1006));
+    // The connection failed; "close" follows.
+    socket.on("error", () => {});
+    socket.once("close", () => {
+      if (this.readyState !== CLOSED) this.#closed(1006);
+    });
   }
 
   send(data: Uint8Array): void {
-    const connection = this.#connection;
-    if (this.readyState !== OPEN || !connection) return;
-    if (this.#queued + 4 + data.length > MAX_QUEUED_BYTES) {
+    if (this.readyState !== OPEN) return;
+    // What the kernel has not taken yet.
+    if (this.#socket.writableLength + 4 + data.length > MAX_QUEUED_BYTES) {
       // The node does not read: give up rather than buffer without end.
       this.close(1006);
       return;
@@ -68,50 +66,37 @@ class IpcSocket implements SocketLike {
     const frame = new Uint8Array(4 + data.length);
     new DataView(frame.buffer).setUint32(0, data.length);
     frame.set(data, 4);
-    this.#queued += frame.length;
-    this.#writes = this.#writes
-      .then(() => writeAll(connection, frame))
-      .then(() => {
-        this.#queued -= frame.length;
-      })
-      .catch(() => this.close());
+    this.#socket.write(frame, (error) => {
+      if (error) this.close();
+    });
   }
 
   close(code = 1000): void {
     if (this.readyState === CLOSED) return;
-    try {
-      this.#connection?.close();
-    } catch {
-      // Closed already.
-    }
+    // Closed first: destroying fails the writes still queued, at once.
+    this.readyState = CLOSED;
+    this.#socket.destroy();
     this.#closed(code);
   }
 
-  async #read(connection: Deno.UnixConn): Promise<void> {
-    let buffered: Uint8Array<ArrayBuffer> = new Uint8Array(0);
-    const chunk = new Uint8Array(64 * 1024);
+  #received(chunk: Uint8Array): void {
+    this.#buffered = concat(this.#buffered, chunk);
     try {
-      for (;;) {
-        const read = await connection.read(chunk);
-        if (read === null) break;
-        buffered = concat(buffered, chunk.subarray(0, read));
-        for (;;) {
-          if (buffered.length < 4) break;
-          const length = new DataView(buffered.buffer, buffered.byteOffset)
-            .getUint32(0);
-          if (length > MAX_MESSAGE_BYTES) throw new Error("frame too large");
-          if (buffered.length < 4 + length) break;
-          const message = buffered.slice(4, 4 + length);
-          buffered = buffered.slice(4 + length);
-          this.onmessage?.(
-            new MessageEvent("message", { data: message.buffer }),
-          );
-        }
+      while (this.readyState === OPEN && this.#buffered.length >= 4) {
+        const buffered = this.#buffered;
+        const length = new DataView(buffered.buffer).getUint32(0);
+        if (length > MAX_MESSAGE_BYTES) throw new Error("frame too large");
+        if (buffered.length < 4 + length) break;
+        const message = buffered.slice(4, 4 + length);
+        this.#buffered = buffered.slice(4 + length);
+        this.onmessage?.(
+          new MessageEvent("message", { data: message.buffer }),
+        );
       }
     } catch {
-      // The connection failed; it closes below.
+      // A frame too large, or a message its handler could not take.
+      this.close(1006);
     }
-    this.close(1006);
   }
 
   #closed(code: number): void {
@@ -125,11 +110,4 @@ function concat(a: Uint8Array, b: Uint8Array): Uint8Array<ArrayBuffer> {
   joined.set(a);
   joined.set(b, a.length);
   return joined;
-}
-
-async function writeAll(connection: Deno.UnixConn, bytes: Uint8Array) {
-  let written = 0;
-  while (written < bytes.length) {
-    written += await connection.write(bytes.subarray(written));
-  }
 }

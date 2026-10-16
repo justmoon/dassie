@@ -3,9 +3,9 @@
 // speaks length-prefixed frames over stdio.
 
 import { Buffer } from "node:buffer";
+import { type ChildProcess, spawn } from "node:child_process";
 
 import { assert, assertEquals } from "@std/assert";
-import { decodeHex, encodeHex } from "@std/encoding/hex";
 import {
   type Connection,
   createConnection,
@@ -21,21 +21,30 @@ import { createPlugin, Network } from "./network.ts";
 const options = { sanitizeOps: false, sanitizeResources: false };
 const root = new URL("../../", import.meta.url).pathname;
 
+/** Resolves with the exit code once `child` exited and its output ended. */
+function exited(child: ChildProcess): Promise<number | null> {
+  return new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", resolve);
+  });
+}
+
 async function buildPeer(): Promise<string> {
-  const build = await new Deno.Command("cargo", {
-    args: ["build", "--package", "dassie-stream", "--example", "interop_peer"],
-    cwd: root,
-    stdout: "inherit",
-    stderr: "inherit",
-  }).output();
-  assert(build.success, "building the interop peer failed");
+  const code = await exited(
+    spawn(
+      "cargo",
+      ["build", "--package", "dassie-stream", "--example", "interop_peer"],
+      { cwd: root, stdio: "inherit" },
+    ),
+  );
+  assert(code === 0, "building the interop peer failed");
   return `${root}target/debug/examples/interop_peer`;
 }
 
 /** A running peer and the frames it exchanges. */
 class Peer {
-  readonly #process: Deno.ChildProcess;
-  readonly #writer: WritableStreamDefaultWriter<Uint8Array>;
+  readonly #process: ChildProcess;
+  readonly #exited: Promise<number | null>;
   readonly #pending = new Map<bigint, (bytes: Uint8Array) => void>();
   readonly lines: string[] = [];
   #nextId = 0n;
@@ -44,19 +53,18 @@ class Peer {
   readonly finished: Promise<void>;
 
   constructor(binary: string, args: string[]) {
-    this.#process = new Deno.Command(binary, {
-      args,
-      stdin: "piped",
-      stdout: "piped",
-      stderr: "inherit",
-    }).spawn();
-    this.#writer = this.#process.stdin.getWriter();
+    this.#process = spawn(binary, args, {
+      stdio: ["pipe", "pipe", "inherit"],
+    });
+    this.#exited = exited(this.#process);
+    // A write after the peer exited fails; #write reports it to nobody.
+    this.#process.stdin!.on("error", () => {});
     this.finished = this.#read();
   }
 
   async #read() {
     let buffer = new Uint8Array();
-    for await (const chunk of this.#process.stdout) {
+    for await (const chunk of this.#process.stdout!) {
       buffer = Uint8Array.from([...buffer, ...chunk]);
       while (buffer.length >= 13) {
         const view = new DataView(buffer.buffer, buffer.byteOffset);
@@ -91,7 +99,11 @@ class Peer {
     frame.set(bytes, 13);
     // The client's send loop may still deliver a packet after the test
     // stopped the peer; that write fails, and nothing waits for it.
-    return this.#writer.write(frame).catch(() => {});
+    return new Promise<void>((resolve) => {
+      const stdin = this.#process.stdin!;
+      if (stdin.writableEnded) return resolve();
+      stdin.write(frame, () => resolve());
+    });
   }
 
   /** Delivers a Prepare to the peer and resolves with its answer. */
@@ -131,8 +143,8 @@ class Peer {
 
   async stop() {
     this.#stopped = true;
-    await this.#writer.close().catch(() => {});
-    await this.#process.status;
+    this.#process.stdin!.end();
+    await this.#exited;
     await this.finished;
     for (const answer of this.#pending.values()) answer(gone());
     this.#pending.clear();
@@ -177,7 +189,7 @@ Deno.test(
     const peer = new Peer(binary, [
       "client",
       destinationAccount,
-      encodeHex(new Uint8Array(sharedSecret)),
+      new Uint8Array(sharedSecret).toHex(),
       "1000000",
       "test.native",
     ]);
@@ -206,8 +218,8 @@ Deno.test(
     const peer = new Peer(binary, [
       "server",
       "test.native",
-      encodeHex(new Uint8Array(16).fill(5)),
-      encodeHex(receiptSecret),
+      new Uint8Array(16).fill(5).toHex(),
+      receiptSecret.toHex(),
     ]);
     network.register("test.native", (prepare) => peer.prepare(prepare));
     peer.onSend = (requestId, prepare) => {
@@ -223,7 +235,7 @@ Deno.test(
     const connection = await createConnection({
       plugin: createPlugin(network, "test.upstream"),
       destinationAccount: destination,
-      sharedSecret: Buffer.from(decodeHex(secret)),
+      sharedSecret: Buffer.from(Uint8Array.fromHex(secret)),
     });
     const stream = connection.createStream();
     await stream.sendTotal(4321);

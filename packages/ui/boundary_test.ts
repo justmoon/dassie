@@ -3,6 +3,7 @@
 // encoder without dependencies of its own (M7b, deposit addresses).
 
 import { assertEquals } from "@std/assert";
+import { readdir, readFile } from "node:fs/promises";
 
 const root = new URL(".", import.meta.url).pathname;
 
@@ -16,16 +17,16 @@ Deno.test("src imports only itself, Solid, the RPC packages and uqr", async () =
   ];
   const outside: string[] = [];
   const walk = async (dir: string) => {
-    for await (const entry of Deno.readDir(dir)) {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
       const path = `${dir}/${entry.name}`;
-      if (entry.isDirectory) {
+      if (entry.isDirectory()) {
         await walk(path);
         continue;
       }
       if (!/\.tsx?$/.test(entry.name) || entry.name.includes("_test.")) {
         continue;
       }
-      const code = await Deno.readTextFile(path);
+      const code = await readFile(path, "utf8");
       for (const [, specifier] of code.matchAll(/from "([^"]+)"/g)) {
         if (allowed.includes(specifier)) continue;
         if (!specifier.startsWith(".")) {

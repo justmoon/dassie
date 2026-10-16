@@ -7,6 +7,12 @@
  * `DASSIE_E2E_SCREENSHOTS` names a directory for a picture of each step.
  */
 
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { connect } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import process from "node:process";
+
 import { assert, assertEquals, assertMatch } from "@std/assert";
 import type { Page } from "@astral/astral";
 import { RpcClient } from "@dassie/rpc";
@@ -109,22 +115,24 @@ async function owner(state: string, name: string): Promise<RpcClient> {
 }
 
 /** Whether nothing listens on `port` any more. */
-async function closed(port: number): Promise<boolean> {
-  try {
-    (await Deno.connect({ hostname: "127.0.0.1", port })).close();
-    return false;
-  } catch {
-    return true;
-  }
+function closed(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = connect({ host: "127.0.0.1", port });
+    socket.once("connect", () => {
+      socket.destroy();
+      resolve(false);
+    });
+    socket.once("error", () => resolve(true));
+  });
 }
 
-const screenshots = Deno.env.get("DASSIE_E2E_SCREENSHOTS");
+const screenshots = process.env.DASSIE_E2E_SCREENSHOTS;
 
 /** Keeps a picture of the page, if pictures are asked for. */
 async function picture(page: Page, name: string): Promise<void> {
   if (!screenshots) return;
-  await Deno.mkdir(screenshots, { recursive: true });
-  await Deno.writeFile(`${screenshots}/${name}.png`, await page.screenshot());
+  await mkdir(screenshots, { recursive: true });
+  await writeFile(`${screenshots}/${name}.png`, await page.screenshot());
 }
 
 /** How many nodes the sidebar shows running. */
@@ -142,9 +150,9 @@ Deno.test({
   sanitizeResources: false,
   sanitizeOps: false,
   async fn(t) {
-    const state = await Deno.makeTempDir({ prefix: "dassie-dev-" });
-    const caRoot = await Deno.makeTempDir({ prefix: "dassie-dev-ca-" });
-    const browserDir = await Deno.makeTempDir({ prefix: "dassie-dev-chrome-" });
+    const state = await mkdtemp(join(tmpdir(), "dassie-dev-"));
+    const caRoot = await mkdtemp(join(tmpdir(), "dassie-dev-ca-"));
+    const browserDir = await mkdtemp(join(tmpdir(), "dassie-dev-chrome-"));
     let dev = new DevServer(state, caRoot);
     const browser = await startBrowser(browserDir);
     try {
@@ -190,7 +198,7 @@ Deno.test({
       await t.step(
         "the control channel and the relay refuse other pages",
         async () => {
-          const ca = await Deno.readTextFile(`${caRoot}/rootCA.pem`);
+          const ca = await readFile(`${caRoot}/rootCA.pem`, "utf8");
           const client = Deno.createHttpClient({ caCerts: [ca], http2: false });
           const upgrade = (path: string, origin?: string) =>
             fetch(`https://localhost:${DASHBOARD}${path}`, {
@@ -353,7 +361,7 @@ Deno.test({
       }
       const { sockets } = await layout(state);
       for (const dir of [state, caRoot, browserDir, sockets]) {
-        await Deno.remove(dir, { recursive: true }).catch(() => {});
+        await rm(dir, { recursive: true, force: true }).catch(() => {});
       }
       assertEquals(exit.code, 0, exit.output);
     }

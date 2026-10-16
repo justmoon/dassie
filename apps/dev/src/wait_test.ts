@@ -1,27 +1,34 @@
 import { assertRejects } from "@std/assert";
+import { once } from "node:events";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { waitForSocket } from "./wait.ts";
 
 Deno.test("a socket file nobody answers on is not a published socket", async () => {
-  const dir = await Deno.makeTempDir();
+  const dir = await mkdtemp(join(tmpdir(), "wait-"));
   const path = `${dir}/s.sock`;
   try {
     // A socket left behind: bound, then closed without unlinking.
-    const listener = Deno.listen({ transport: "unix", path });
+    const listener = createServer().listen(path);
+    await once(listener, "listening");
     listener.close();
+    await once(listener, "close");
     // Some systems unlink on close: a plain file stands in for the socket.
-    await Deno.stat(path).catch(() => Deno.writeTextFile(path, ""));
+    await stat(path).catch(() => writeFile(path, ""));
     await assertRejects(
       () => waitForSocket(path, 300),
       Error,
       "did not appear",
     );
-    await Deno.remove(path).catch(() => {});
-    const live = Deno.listen({ transport: "unix", path });
-    const accepting = live.accept().then((conn) => conn.close(), () => {});
+    await rm(path).catch(() => {});
+    const live = createServer((socket) => socket.destroy()).listen(path);
+    await once(live, "listening");
     await waitForSocket(path, 2_000);
     live.close();
-    await accepting;
+    await once(live, "close");
   } finally {
-    await Deno.remove(dir, { recursive: true });
+    await rm(dir, { recursive: true, force: true });
   }
 });

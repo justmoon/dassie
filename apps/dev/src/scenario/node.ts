@@ -11,8 +11,7 @@
  */
 
 import { assertEquals } from "@std/assert";
-import { encodeBase64Url } from "@std/encoding/base64url";
-import { encodeHex } from "@std/encoding/hex";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { RpcClient } from "@dassie/rpc";
 import { ipcConnector } from "@dassie/rpc/ipc";
 import { NodeState } from "@dassie/rpc/proto";
@@ -105,20 +104,23 @@ export class ScenarioNode {
     return {
       id: this.id,
       url: this.url,
-      publicKey: encodeBase64Url(this.identity.publicKey),
+      publicKey: this.identity.publicKey.toBase64({
+        alphabet: "base64url",
+        omitPadding: true,
+      }),
     };
   }
 
   /** Starts the daemon, and waits until it answers over IPC. */
   async start(): Promise<void> {
     if (this.daemon) throw new Error(`${this.name} is running`);
-    await Deno.mkdir(this.dir, { recursive: true });
-    await Deno.mkdir(this.environment.layout.sockets, {
+    await mkdir(this.dir, { recursive: true });
+    await mkdir(this.environment.layout.sockets, {
       recursive: true,
       mode: 0o700,
     });
     // A socket left by a node that was killed would look published.
-    await Deno.remove(this.socket).catch(() => {});
+    await rm(this.socket).catch(() => {});
     const onLine = this.environment.onLine;
     this.daemon = new ChildProcess(this.name, this.environment.dassie, {
       args: [
@@ -230,7 +232,7 @@ export class ScenarioNode {
     const { url } = await this.rpc.call("getSetupUrl", {});
     const token = url.split("/setup/")[1];
     const client = Deno.createHttpClient({
-      caCerts: [await Deno.readTextFile(this.environment.caFile)],
+      caCerts: [await readFile(this.environment.caFile, "utf8")],
     });
     try {
       const response = await fetch(`${this.localUrl}/api/setup`, {
@@ -242,7 +244,7 @@ export class ScenarioNode {
         },
         body: JSON.stringify({
           setupAuthorizationToken: token,
-          rawDassieKeyHex: encodeHex(this.key),
+          rawDassieKeyHex: this.key.toHex(),
           loginAuthorizationSignature: this.identity.loginProofHex,
         }),
       });

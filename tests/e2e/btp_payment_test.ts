@@ -11,8 +11,10 @@
  */
 
 import { assert, assertEquals } from "@std/assert";
-import { encodeHex } from "@std/encoding/hex";
 import { Buffer } from "node:buffer";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 // @ts-types="./types/ilp-plugin-btp.d.ts"
 import BtpPlugin from "ilp-plugin-btp";
 // @ts-types="./types/ws.d.ts"
@@ -45,9 +47,9 @@ const PHRASE =
   "pulp junk march life divorce celery flower bar one angry claw crush";
 
 /** Pebble's test root and its leaf for localhost, which the node serves. */
-const ROOT = await Deno.readTextFile(`${PEBBLE_DIR}/root.pem`);
-const CERTIFICATE = await Deno.readTextFile(`${PEBBLE_DIR}/cert.pem`);
-const PRIVATE_KEY = await Deno.readTextFile(`${PEBBLE_DIR}/key.pem`);
+const ROOT = await readFile(`${PEBBLE_DIR}/root.pem`, "utf8");
+const CERTIFICATE = await readFile(`${PEBBLE_DIR}/cert.pem`, "utf8");
+const PRIVATE_KEY = await readFile(`${PEBBLE_DIR}/key.pem`, "utf8");
 
 const missing = await missingBinary();
 
@@ -103,8 +105,8 @@ async function setUp(owner: RpcClient) {
     headers: { "content-type": "application/json", origin },
     body: JSON.stringify({
       setupAuthorizationToken: token,
-      rawDassieKeyHex: encodeHex(key),
-      loginAuthorizationSignature: encodeHex(loginSecret(key)),
+      rawDassieKeyHex: key.toHex(),
+      loginAuthorizationSignature: loginSecret(key).toHex(),
     }),
   });
   assertEquals(response.status, 200, await response.text());
@@ -209,7 +211,7 @@ Deno.test({
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    const dir = await Deno.makeTempDir({ prefix: "dassie-e2e-btp-" });
+    const dir = await mkdtemp(join(tmpdir(), "dassie-e2e-btp-"));
     let daemon = startDaemon(dir);
     const connect = ipcConnector(`${dir}/ipc.sock`);
     let owner: RpcClient | undefined;
@@ -268,7 +270,7 @@ Deno.test({
       const { code, output } = await daemon.stop();
       // What the node said, to tell why a test failed.
       if (code !== 0 || !passed) console.error(output);
-      await Deno.remove(dir, { recursive: true });
+      await rm(dir, { recursive: true, force: true });
     }
   },
 });

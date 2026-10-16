@@ -1,9 +1,26 @@
 /** Waiting for a process to come up. */
 
+import { connect, type NetConnectOpts } from "node:net";
+
 const POLL_MS = 50;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Connects to `to` and hangs up; rejects if nothing answers. */
+function probe(to: NetConnectOpts): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const socket = connect(to);
+    socket.once("connect", () => {
+      socket.destroy();
+      resolve();
+    });
+    socket.once("error", (error) => {
+      socket.destroy();
+      reject(error);
+    });
+  });
 }
 
 /**
@@ -20,7 +37,7 @@ export async function waitForPort(
   gone?.then(() => exited = true, () => exited = true);
   for (;;) {
     try {
-      (await Deno.connect({ hostname: "127.0.0.1", port })).close();
+      await probe({ host: "127.0.0.1", port });
       return;
     } catch (error) {
       if (exited) throw new Error(`the process for port ${port} exited`);
@@ -47,13 +64,7 @@ export async function waitForSocket(
   let exited = false;
   gone?.then(() => exited = true, () => exited = true);
   for (;;) {
-    const found = await Deno.connect({ transport: "unix", path }).then(
-      (conn) => {
-        conn.close();
-        return true;
-      },
-      () => false,
-    );
+    const found = await probe({ path }).then(() => true, () => false);
     if (found) return;
     if (exited) throw new Error(`the process for ${path} exited`);
     if (Date.now() > deadline) throw new Error(`${path} did not appear`);

@@ -7,7 +7,9 @@
  * @module
  */
 
+import process from "node:process";
 import { checkSocketPath, type Layout } from "./paths.ts";
+import { run } from "./process.ts";
 
 /** What is missing, as messages for the developer; empty if nothing. */
 export async function missingPrerequisites(
@@ -15,17 +17,13 @@ export async function missingPrerequisites(
   maxNodes: number,
 ): Promise<string[]> {
   const missing: string[] = [];
-  if (Deno.build.os !== "linux" && Deno.build.os !== "darwin") {
+  if (process.platform !== "linux" && process.platform !== "darwin") {
     missing.push(
       "the dev environment runs on Linux and macOS; on Windows, use WSL, a container or a VM",
     );
   }
   try {
-    const output = await new Deno.Command("mkcert", {
-      args: ["-version"],
-      stdout: "null",
-      stderr: "null",
-    }).output();
+    const output = await run("mkcert", ["-version"]);
     if (!output.success) missing.push("mkcert does not run");
   } catch {
     missing.push(

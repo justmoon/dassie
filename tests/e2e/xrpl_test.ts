@@ -13,6 +13,8 @@
 
 import { assert, assertEquals } from "@std/assert";
 import { Buffer } from "node:buffer";
+import { readFile } from "node:fs/promises";
+import process from "node:process";
 // @ts-types="./types/ilp-plugin-btp.d.ts"
 import BtpPlugin from "ilp-plugin-btp";
 // @ts-types="./types/ws.d.ts"
@@ -35,7 +37,7 @@ const PAYMENT = 5_000_000_000n;
 const CREDIT = 1_100_000_000n;
 
 const missing = await missingScenarioTools();
-const testnet = Deno.env.get("DASSIE_XRPL_TESTNET") === "1";
+const testnet = process.env.DASSIE_XRPL_TESTNET === "1";
 
 /** A node's XRPL ledger, as its owner sees it. */
 async function ledger(node: ScenarioNode) {
@@ -154,7 +156,7 @@ Deno.test({
       );
       assert(credentials);
       const server = token.url.replace(`@${d1.hostname}:`, "@localhost:");
-      const ca = await Deno.readTextFile(scenario.caFile);
+      const ca = await readFile(scenario.caFile, "utf8");
       const plugin = new BtpPlugin({ server }, {
         WebSocket: class extends WebSocket {
           constructor(url: string) {

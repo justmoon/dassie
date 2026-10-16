@@ -10,7 +10,6 @@
  * @module
  */
 
-import { decodeHex, encodeHex } from "@std/encoding/hex";
 import {
   deriveNodeKey,
   loginSecret,
@@ -81,7 +80,7 @@ export function indexOf(id: string): number | undefined {
 
 /** Derives the identity of `entropy`, which must give `id` (asserted). */
 export function derive(index: number, [entropy, id]: Entry): Identity {
-  const phrase = mnemonicFromEntropy(decodeHex(entropy));
+  const phrase = mnemonicFromEntropy(Uint8Array.fromHex(entropy));
   const key = deriveNodeKey(phrase);
   const pub = publicKey(key);
   const derived = nodeId(pub);
@@ -95,7 +94,7 @@ export function derive(index: number, [entropy, id]: Entry): Identity {
     phrase,
     key,
     publicKey: pub,
-    loginProofHex: encodeHex(loginSecret(key)),
+    loginProofHex: loginSecret(key).toHex(),
   };
 }
 

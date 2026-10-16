@@ -11,6 +11,7 @@
 
 import { assert, assertEquals } from "@std/assert";
 import { Buffer } from "node:buffer";
+import { readFile } from "node:fs/promises";
 // @ts-types="./types/ilp-plugin-btp.d.ts"
 import BtpPlugin from "ilp-plugin-btp";
 // @ts-types="./types/ws.d.ts"
@@ -39,7 +40,7 @@ const missing = await missingScenarioTools();
 
 /** A `ws` socket class that trusts the scenario's CA. */
 async function trusting(scenario: Scenario): Promise<typeof WebSocket> {
-  const ca = await Deno.readTextFile(scenario.caFile);
+  const ca = await readFile(scenario.caFile, "utf8");
   return class extends WebSocket {
     constructor(url: string) {
       super(url, { ca });

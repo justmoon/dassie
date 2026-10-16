@@ -6,6 +6,12 @@
  * except in CI, where a missing tool is a failure.
  */
 
+import { Buffer } from "node:buffer";
+import { type ChildProcess, spawn } from "node:child_process";
+import { stat } from "node:fs/promises";
+import { constants } from "node:os";
+import process from "node:process";
+
 import { launch } from "@astral/astral";
 import { waitForPort } from "@dassie/dev/scenario";
 
@@ -28,20 +34,67 @@ export const PEBBLE_DIRECTORY = "https://localhost:14000/dir";
 export const HTTP_PORT = 18780;
 export const HTTPS_PORT = 18743;
 
+/** Where a child runs, and what it gets beside this process's environment. */
+export interface ProcessOptions {
+  cwd?: string;
+  env?: Record<string, string>;
+}
+
+/** How a child exited, and what it wrote. */
+export interface Output {
+  code: number;
+  stdout: string;
+  stderr: string;
+}
+
+function start(
+  command: string,
+  args: string[],
+  options: ProcessOptions,
+): ChildProcess {
+  return spawn(command, args, {
+    cwd: options.cwd,
+    env: { ...process.env, ...options.env },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+/**
+ * Collects what `child` writes until it exits. Killed by a signal, its code
+ * is 128 and the signal's number, as a shell has it.
+ */
+function collect(child: ChildProcess): Promise<Output> {
+  const stdout: Buffer[] = [];
+  const stderr: Buffer[] = [];
+  child.stdout?.on("data", (chunk: Buffer) => stdout.push(chunk));
+  child.stderr?.on("data", (chunk: Buffer) => stderr.push(chunk));
+  return new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) =>
+      resolve({
+        code: code ?? 128 + constants.signals[signal!],
+        stdout: Buffer.concat(stdout).toString(),
+        stderr: Buffer.concat(stderr).toString(),
+      }));
+  });
+}
+
+/** Runs `command` to its end. */
+export function run(
+  command: string,
+  args: string[],
+  options: ProcessOptions = {},
+): Promise<Output> {
+  return collect(start(command, args, options));
+}
+
 async function which(name: string): Promise<string | undefined> {
-  const result = await new Deno.Command("which", {
-    args: [name],
-    stdout: "piped",
-    stderr: "null",
-  })
-    .output();
-  return result.success
-    ? new TextDecoder().decode(result.stdout).trim()
-    : undefined;
+  const result = await run("which", [name]);
+  return result.code === 0 ? result.stdout.trim() : undefined;
 }
 
 export async function findChrome(): Promise<string | undefined> {
-  const configured = Deno.env.get("CHROME_BIN");
+  const configured = process.env.CHROME_BIN;
   if (configured) return configured;
   for (const name of ["google-chrome", "chromium", "chromium-browser"]) {
     const path = await which(name);
@@ -65,13 +118,13 @@ export async function missingTools(): Promise<string | undefined> {
   }
   if (!(await findChrome())) missing.push("Chrome (CHROME_BIN)");
   try {
-    await Deno.stat(DASSIE);
+    await stat(DASSIE);
   } catch {
     missing.push(`${DASSIE} (deno task build:e2e)`);
   }
   if (missing.length === 0) return undefined;
   const reason = `missing ${missing.join(", ")}`;
-  if (Deno.env.get("CI")) {
+  if (process.env.CI) {
     throw new Error(`end-to-end tests cannot run: ${reason}`);
   }
   return reason;
@@ -92,14 +145,14 @@ export async function missingScenarioTools(): Promise<string | undefined> {
   if (!(await which("mkcert"))) missing.push("mkcert");
   for (const binary of [DASSIE, FAKE_LEDGER]) {
     try {
-      await Deno.stat(binary);
+      await stat(binary);
     } catch {
       missing.push(`${binary} (deno task build:e2e)`);
     }
   }
   if (missing.length === 0) return undefined;
   const reason = `missing ${missing.join(", ")}`;
-  if (Deno.env.get("CI")) {
+  if (process.env.CI) {
     throw new Error(`end-to-end tests cannot run: ${reason}`);
   }
   return reason;
@@ -108,11 +161,11 @@ export async function missingScenarioTools(): Promise<string | undefined> {
 /** Why tests that need only the binary cannot run here, if they cannot. */
 export async function missingBinary(): Promise<string | undefined> {
   try {
-    await Deno.stat(DASSIE);
+    await stat(DASSIE);
     return undefined;
   } catch {
     const reason = `missing ${DASSIE} (deno task build:e2e)`;
-    if (Deno.env.get("CI")) {
+    if (process.env.CI) {
       throw new Error(`end-to-end tests cannot run: ${reason}`);
     }
     return reason;
@@ -121,37 +174,27 @@ export async function missingBinary(): Promise<string | undefined> {
 
 /** A child process that is stopped with SIGTERM and awaited. */
 export class Process {
-  readonly #child: Deno.ChildProcess;
-  readonly #output: Promise<Deno.CommandOutput>;
+  readonly #child: ChildProcess;
+  readonly #output: Promise<Output>;
   readonly name: string;
 
   constructor(
     name: string,
     command: string,
     args: string[],
-    options: Deno.CommandOptions = {},
+    options: ProcessOptions = {},
   ) {
     this.name = name;
-    this.#child = new Deno.Command(command, {
-      args,
-      stdin: "null",
-      stdout: "piped",
-      stderr: "piped",
-      ...options,
-    }).spawn();
-    this.#output = this.#child.output();
+    this.#child = start(command, args, options);
+    this.#output = collect(this.#child);
   }
 
   /** Stops the process and returns its exit code and output. */
   async stop(): Promise<{ code: number; output: string }> {
-    try {
-      this.#child.kill("SIGTERM");
-    } catch {
-      // It exited already.
-    }
+    // Nothing happens if it exited already.
+    this.#child.kill("SIGTERM");
     const { code, stdout, stderr } = await this.#output;
-    const decoder = new TextDecoder();
-    return { code, output: decoder.decode(stdout) + decoder.decode(stderr) };
+    return { code, output: stdout + stderr };
   }
 }
 
@@ -210,23 +253,15 @@ export async function startActivated(dir: string): Promise<Process> {
 
 /** Runs the CLI against the daemon in `dir`, and returns its stdout. */
 export async function dassie(dir: string, args: string[]): Promise<string> {
-  const result = await new Deno.Command(DASSIE, {
-    args,
-    stdin: "null",
-    stdout: "piped",
-    stderr: "piped",
+  const result = await run(DASSIE, args, {
     env: { DASSIE_IPC_SOCKET_PATH: `${dir}/ipc.sock` },
-  }).output();
-  const decoder = new TextDecoder();
-  const stdout = decoder.decode(result.stdout);
-  if (!result.success) {
+  });
+  if (result.code !== 0) {
     throw new Error(
-      `dassie ${args.join(" ")} failed:\n${stdout}${
-        decoder.decode(result.stderr)
-      }`,
+      `dassie ${args.join(" ")} failed:\n${result.stdout}${result.stderr}`,
     );
   }
-  return stdout;
+  return result.stdout;
 }
 
 /** A headless Chrome that sends `dassie.test` to this machine. */
@@ -240,8 +275,8 @@ export async function startBrowser(
       "--no-sandbox",
       `--user-data-dir=${dir}/chrome`,
       "--host-resolver-rules=MAP dassie.test 127.0.0.1",
-      // The chain is checked against Pebble's root separately, with Deno's
-      // TLS; Chrome would need the root in its NSS database for that.
+      // The chain is checked against Pebble's root separately, with
+      // node:tls; Chrome would need the root in its NSS database for that.
       "--ignore-certificate-errors",
     ],
   });

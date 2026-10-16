@@ -2,8 +2,9 @@
 // the native tests check (crates/*/tests/data), so the wallet derives
 // exactly what the node derives.
 
+import { readFile } from "node:fs/promises";
+
 import { assert, assertEquals, assertFalse } from "@std/assert";
-import { decodeHex, encodeHex } from "@std/encoding/hex";
 
 import {
   decodeIlpPacket,
@@ -24,7 +25,7 @@ const crates = new URL("../../crates/", import.meta.url);
 
 // deno-lint-ignore no-explicit-any
 async function vectors(path: string): Promise<any> {
-  const document = JSON.parse(await Deno.readTextFile(new URL(path, crates)));
+  const document = JSON.parse(await readFile(new URL(path, crates), "utf8"));
   assertEquals(document.source, "e962ab78");
   return document;
 }
@@ -35,12 +36,12 @@ Deno.test("the passphrase chain matches the original", async () => {
   for (const entry of chain) {
     assert(validateMnemonic(entry.mnemonic));
     const nodeKey = deriveNodeKey(entry.mnemonic);
-    assertEquals(encodeHex(nodeKey), entry.nodeKey);
-    assertEquals(encodeHex(publicKey(nodeKey)), entry.publicKey);
+    assertEquals(nodeKey.toHex(), entry.nodeKey);
+    assertEquals(publicKey(nodeKey).toHex(), entry.publicKey);
     assertEquals(nodeId(publicKey(nodeKey)), entry.nodeId);
-    assertEquals(encodeHex(loginSecret(nodeKey)), entry.loginSecret);
+    assertEquals(loginSecret(nodeKey).toHex(), entry.loginSecret);
     assertEquals(
-      encodeHex(devSessionToken(entry.mnemonic)),
+      devSessionToken(entry.mnemonic).toHex(),
       entry.devSessionToken,
     );
   }
@@ -61,19 +62,22 @@ Deno.test("keys and node IDs match the original", async () => {
     "dassie-identity/tests/data/keys.json",
   );
   for (const node of bootstrap) {
-    assertEquals(nodeId(decodeHex(node.publicKey)), node.nodeId);
+    assertEquals(nodeId(Uint8Array.fromHex(node.publicKey)), node.nodeId);
   }
   for (const key of keys) {
-    const seed = decodeHex(key.seed);
-    assertEquals(encodeHex(publicKey(seed)), key.publicKey);
-    assertEquals(encodeHex(sign(seed, decodeHex(key.message))), key.signature);
+    const seed = Uint8Array.fromHex(key.seed);
+    assertEquals(publicKey(seed).toHex(), key.publicKey);
+    assertEquals(
+      sign(seed, Uint8Array.fromHex(key.message)).toHex(),
+      key.signature,
+    );
   }
 });
 
 Deno.test("ILP packets match the original", async () => {
   const { packets } = await vectors("dassie-ilp/tests/data/vectors.json");
   for (const vector of packets) {
-    const bytes = decodeHex(vector.encoded);
+    const bytes = Uint8Array.fromHex(vector.encoded);
     const packet = decodeIlpPacket(bytes);
     const data = vector.packet.data;
     let encoded: Uint8Array;
@@ -82,14 +86,14 @@ Deno.test("ILP packets match the original", async () => {
       encoded = encodePrepare(
         BigInt(data.amount),
         packet.expiresAt,
-        decodeHex(data.executionCondition),
+        Uint8Array.fromHex(data.executionCondition),
         data.destination,
-        decodeHex(data.data),
+        Uint8Array.fromHex(data.data),
       );
     } else if (packet.type === 13) {
       encoded = encodeFulfill(
-        decodeHex(data.fulfillment),
-        decodeHex(data.data),
+        Uint8Array.fromHex(data.fulfillment),
+        Uint8Array.fromHex(data.data),
       );
     } else {
       assertEquals(packet.code, data.code);
@@ -97,9 +101,9 @@ Deno.test("ILP packets match the original", async () => {
         data.code,
         data.triggeredBy,
         data.message,
-        decodeHex(data.data),
+        Uint8Array.fromHex(data.data),
       );
     }
-    assertEquals(encodeHex(encoded), vector.encoded, vector.name);
+    assertEquals(encoded.toHex(), vector.encoded, vector.name);
   }
 });

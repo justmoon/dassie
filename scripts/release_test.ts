@@ -4,18 +4,28 @@
 // except in CI, where they fail.
 
 import { assertEquals, assertRejects } from "@std/assert";
+import { spawn } from "node:child_process";
+import { statSync } from "node:fs";
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import process from "node:process";
 import { bundles, release } from "./release.ts";
 
 const testdata = new URL("../testdata/release/", import.meta.url).pathname;
 const secretKey = `${testdata}test.key`;
 const publicKey = `${testdata}test.pub`;
 
-const hasMinisign = await new Deno.Command("minisign", {
-  args: ["-v"],
-  stdout: "null",
-})
-  .output()
-  .then((result) => result.success, () => false);
+/** Whether `command` runs, and succeeds. */
+function succeeds(command: string, args: string[]): Promise<boolean> {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { stdio: "ignore" });
+    child.once("error", () => resolve(false));
+    child.once("close", (code) => resolve(code === 0));
+  });
+}
+
+const hasMinisign = await succeeds("minisign", ["-v"]);
 const root = new URL("../", import.meta.url).pathname;
 const verifier = [
   `${root}target/e2e/dassie-release`,
@@ -23,12 +33,12 @@ const verifier = [
 ]
   .find((path) => {
     try {
-      return Deno.statSync(path).isFile;
+      return statSync(path).isFile();
     } catch {
       return false;
     }
   });
-if ((!hasMinisign || !verifier) && Deno.env.get("CI")) {
+if ((!hasMinisign || !verifier) && process.env.CI) {
   throw new Error(
     "minisign or dassie-release is missing: run `deno task build:e2e` in `nix develop`",
   );
@@ -36,14 +46,14 @@ if ((!hasMinisign || !verifier) && Deno.env.get("CI")) {
 
 /** A built tree as `nix build .#release` makes it, with stand-in bundles. */
 async function builtTree(version: string, channel = "latest"): Promise<string> {
-  const tree = await Deno.makeTempDir({ prefix: "dassie-release-" });
-  await Deno.mkdir(`${tree}/meta`);
-  await Deno.mkdir(`${tree}/${version}`);
-  await Deno.writeTextFile(`${tree}/meta/${channel}`, version);
+  const tree = await mkdtemp(join(tmpdir(), "dassie-release-"));
+  await mkdir(`${tree}/meta`);
+  await mkdir(`${tree}/${version}`);
+  await writeFile(`${tree}/meta/${channel}`, version);
   const lines = [];
   for (const name of bundles(version)) {
     const bytes = new TextEncoder().encode(`stand-in for ${name}`);
-    await Deno.writeFile(`${tree}/${version}/${name}`, bytes);
+    await writeFile(`${tree}/${version}/${name}`, bytes);
     const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
     lines.push(
       `${
@@ -51,7 +61,7 @@ async function builtTree(version: string, channel = "latest"): Promise<string> {
       }  ${name}\n`,
     );
   }
-  await Deno.writeTextFile(`${tree}/${version}/SHA256SUMS`, lines.join(""));
+  await writeFile(`${tree}/${version}/SHA256SUMS`, lines.join(""));
   return tree;
 }
 
@@ -66,19 +76,14 @@ Deno.test(
     const out = `${tree}-out`;
     const built = await release({ tree, out, ...tools });
     assertEquals(built, { channel: "latest", version: "0.1.0" });
-    assertEquals(await Deno.readTextFile(`${out}/meta/latest`), "0.1.0");
-    const signature = await Deno.readTextFile(
+    assertEquals(await readFile(`${out}/meta/latest`, "utf8"), "0.1.0");
+    const signature = await readFile(
       `${out}/0.1.0/SHA256SUMS.minisig`,
+      "utf8",
     );
     assertEquals(signature.split("\n")[2], "trusted comment: dassie 0.1.0");
-    const files = [];
-    for await (const entry of Deno.readDir(`${out}/0.1.0`)) {
-      files.push(
-        entry.name,
-      );
-    }
     assertEquals(
-      files.sort(),
+      (await readdir(`${out}/0.1.0`)).sort(),
       [...bundles("0.1.0"), "SHA256SUMS", "SHA256SUMS.minisig"].sort(),
     );
   },
@@ -99,7 +104,7 @@ Deno.test("signs a canary", options, async () => {
 
 Deno.test("refuses a bundle that does not match its sum", options, async () => {
   const tree = await builtTree("0.1.0");
-  await Deno.writeTextFile(
+  await writeFile(
     `${tree}/0.1.0/dassie-0.1.0-linux-arm64.tar.xz`,
     "tampered",
   );
@@ -115,19 +120,16 @@ Deno.test(
   options,
   async () => {
     const tree = await builtTree("0.1.0");
-    const other = await Deno.makeTempDir({ prefix: "dassie-key-" });
-    const generated = await new Deno.Command("minisign", {
-      args: [
-        "-G",
-        "-W",
-        "-p",
-        `${other}/other.pub`,
-        "-s",
-        `${other}/other.key`,
-      ],
-      stdout: "null",
-    }).output();
-    assertEquals(generated.success, true);
+    const other = await mkdtemp(join(tmpdir(), "dassie-key-"));
+    const generated = await succeeds("minisign", [
+      "-G",
+      "-W",
+      "-p",
+      `${other}/other.pub`,
+      "-s",
+      `${other}/other.key`,
+    ]);
+    assertEquals(generated, true);
     await assertRejects(
       () =>
         release({

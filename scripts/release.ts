@@ -17,7 +17,11 @@
 // minisign comes from the flake's dev shell, and dassie-release from
 // `nix build .#release-tool` or `deno task build:e2e`.
 
-import { parseArgs } from "@std/cli/parse-args";
+import { spawn } from "node:child_process";
+import { copyFile, mkdir, readdir, readFile } from "node:fs/promises";
+import process from "node:process";
+import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
 
 /** The bundles of a release: two platforms, two compressions. */
 const ARCHES = ["x64", "arm64"];
@@ -30,10 +34,7 @@ export interface Release {
 
 /** Which release a built tree holds: its one meta/<channel> file. */
 export async function readRelease(tree: string): Promise<Release> {
-  const channels = [];
-  for await (const entry of Deno.readDir(`${tree}/meta`)) {
-    channels.push(entry.name);
-  }
+  const channels = await readdir(`${tree}/meta`);
   if (channels.length !== 1) {
     throw new Error(
       `${tree}/meta holds ${channels.join(", ")}, not one channel`,
@@ -43,7 +44,7 @@ export async function readRelease(tree: string): Promise<Release> {
   if (channel !== "latest" && channel !== "canary") {
     throw new Error(`unknown channel ${channel}`);
   }
-  const version = await Deno.readTextFile(`${tree}/meta/${channel}`);
+  const version = await readFile(`${tree}/meta/${channel}`, "utf8");
   const shape = channel === "latest"
     ? /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/
     : /^canary-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}-[0-9a-f]{7,40}$/;
@@ -65,7 +66,7 @@ export function bundles(version: string): string[] {
 async function sha256(path: string): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
-    await Deno.readFile(path),
+    await readFile(path),
   );
   return Array.from(
     new Uint8Array(digest),
@@ -76,7 +77,7 @@ async function sha256(path: string): Promise<string> {
 /** Checks that SHA256SUMS lists exactly the release's bundles, and that
  * each matches. */
 export async function checkSums(dir: string, version: string): Promise<void> {
-  const lines = (await Deno.readTextFile(`${dir}/SHA256SUMS`)).trimEnd().split(
+  const lines = (await readFile(`${dir}/SHA256SUMS`, "utf8")).trimEnd().split(
     "\n",
   );
   const listed = new Map(lines.map((line) => {
@@ -104,26 +105,37 @@ export async function checkSums(dir: string, version: string): Promise<void> {
   }
 }
 
+/** Runs `command` with `stdin`, if any, as a line on its standard input,
+ * and resolves with its exit code and what it printed. */
+function run(
+  command: string,
+  args: string[],
+  stdin?: string,
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  const child = spawn(command, args);
+  // A command that exits without reading its input fails on its own.
+  child.stdin.on("error", () => {});
+  child.stdin.end(stdin === undefined ? "" : `${stdin}\n`);
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8").on("data", (text: string) => {
+    stdout += text;
+  });
+  child.stderr.setEncoding("utf8").on("data", (text: string) => {
+    stderr += text;
+  });
+  return new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code) => resolve({ code, stdout, stderr }));
+  });
+}
+
 async function minisign(args: string[], stdin?: string): Promise<string> {
-  const child = new Deno.Command("minisign", {
-    args,
-    stdin: stdin === undefined ? "null" : "piped",
-    stdout: "piped",
-    stderr: "piped",
-  }).spawn();
-  if (stdin !== undefined) {
-    const writer = child.stdin.getWriter();
-    await writer.write(new TextEncoder().encode(`${stdin}\n`));
-    await writer.close();
+  const { code, stdout, stderr } = await run("minisign", args, stdin);
+  if (code !== 0) {
+    throw new Error(`minisign ${args[0]} failed: ${stderr.trim()}`);
   }
-  const { success, stdout, stderr } = await child.output();
-  const decoder = new TextDecoder();
-  if (!success) {
-    throw new Error(
-      `minisign ${args[0]} failed: ${decoder.decode(stderr).trim()}`,
-    );
-  }
-  return decoder.decode(stdout);
+  return stdout;
 }
 
 /** Signs SHA256SUMS in `dir` for `version`. */
@@ -155,17 +167,9 @@ export async function verify(
   publicKey: string,
   verifier: string,
 ): Promise<void> {
-  const { success, stderr } = await new Deno.Command(verifier, {
-    args: ["verify", tree, publicKey],
-    stdout: "null",
-    stderr: "piped",
-  }).output();
-  if (!success) {
-    throw new Error(
-      `dassie-release verify failed: ${
-        new TextDecoder().decode(stderr).trim()
-      }`,
-    );
+  const { code, stderr } = await run(verifier, ["verify", tree, publicKey]);
+  if (code !== 0) {
+    throw new Error(`dassie-release verify failed: ${stderr.trim()}`);
   }
 }
 
@@ -183,22 +187,22 @@ export async function release(options: {
   if (options.expect !== undefined && options.expect !== built.version) {
     throw new Error(`the tree holds ${built.version}, not ${options.expect}`);
   }
-  await Deno.mkdir(`${options.out}/meta`, { recursive: true });
-  await Deno.mkdir(`${options.out}/${built.version}`);
-  await Deno.copyFile(
+  await mkdir(`${options.out}/meta`, { recursive: true });
+  await mkdir(`${options.out}/${built.version}`);
+  await copyFile(
     `${options.tree}/meta/${built.channel}`,
     `${options.out}/meta/${built.channel}`,
   );
   for (const name of [...bundles(built.version), "SHA256SUMS"]) {
-    await Deno.copyFile(
+    await copyFile(
       `${options.tree}/${built.version}/${name}`,
       `${options.out}/${built.version}/${name}`,
     );
   }
   // The installer, with the release key in it, once there is one.
-  await Deno.copyFile(`${options.tree}/install.sh`, `${options.out}/install.sh`)
-    .catch((error) => {
-      if (!(error instanceof Deno.errors.NotFound)) throw error;
+  await copyFile(`${options.tree}/install.sh`, `${options.out}/install.sh`)
+    .catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error;
     });
   const dir = `${options.out}/${built.version}`;
   await checkSums(dir, built.version);
@@ -207,28 +211,41 @@ export async function release(options: {
   return built;
 }
 
-if (import.meta.main) {
-  const args = parseArgs(Deno.args, {
-    string: ["secret-key", "public-key", "verifier", "version"],
-  });
-  const [tree, out] = args._.map(String);
+const USAGE =
+  "usage: release.ts <built tree> <out dir> --secret-key <file> --public-key <file> --verifier <dassie-release> [--version <v>]";
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  let args;
+  try {
+    args = parseArgs({
+      options: {
+        "secret-key": { type: "string" },
+        "public-key": { type: "string" },
+        verifier: { type: "string" },
+        version: { type: "string" },
+      },
+      allowPositionals: true,
+    });
+  } catch (error) {
+    console.error(`${(error as Error).message}\n${USAGE}`);
+    process.exit(2);
+  }
+  const { values, positionals: [tree, out] } = args;
   if (
-    !tree || !out || !args["secret-key"] || !args["public-key"] ||
-    !args.verifier
+    !tree || !out || !values["secret-key"] || !values["public-key"] ||
+    !values.verifier
   ) {
-    console.error(
-      "usage: release.ts <built tree> <out dir> --secret-key <file> --public-key <file> --verifier <dassie-release> [--version <v>]",
-    );
-    Deno.exit(2);
+    console.error(USAGE);
+    process.exit(2);
   }
   const built = await release({
     tree,
     out,
-    secretKey: args["secret-key"],
-    publicKey: args["public-key"],
-    verifier: args.verifier,
-    password: Deno.env.get("MINISIGN_PASSWORD") || undefined,
-    expect: args.version,
+    secretKey: values["secret-key"],
+    publicKey: values["public-key"],
+    verifier: values.verifier,
+    password: process.env.MINISIGN_PASSWORD || undefined,
+    expect: values.version,
   });
   console.log(`signed dassie ${built.version} for ${built.channel} in ${out}`);
 }

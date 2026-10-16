@@ -6,8 +6,12 @@
 // embedded in the binary, for working on the wallet, and
 // `DASSIE_E2E_SCREENSHOTS` names a directory for a picture of each step.
 
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import process from "node:process";
+
 import { assert, assertEquals, assertMatch } from "@std/assert";
-import { encodeHex } from "@std/encoding/hex";
 import { loginSecret } from "@dassie/identity-wasm";
 import type { Page } from "@astral/astral";
 import { attribute, click, count, text, type, until } from "./browser.ts";
@@ -22,14 +26,14 @@ import { Scenario, type ScenarioNode } from "@dassie/dev/scenario";
 const missing = await missingTools();
 if (missing) console.warn(`skipping the wallet tests: ${missing}`);
 
-const devWallet = Deno.env.get("DASSIE_E2E_WALLET_DIR");
-const screenshots = Deno.env.get("DASSIE_E2E_SCREENSHOTS");
+const devWallet = process.env.DASSIE_E2E_WALLET_DIR;
+const screenshots = process.env.DASSIE_E2E_SCREENSHOTS;
 const env = devWallet ? { DASSIE_DEV_WALLET_DIR: devWallet } : undefined;
 
 /** Signs the browser in to `node` as its owner, with the node's key. */
 async function signIn(page: Page, node: ScenarioNode): Promise<void> {
   await page.goto(node.url, { waitUntil: "load" });
-  const proof = encodeHex(loginSecret(node.key));
+  const proof = loginSecret(node.key).toHex();
   const status = await page.evaluate(
     async (proof: string) => {
       const response = await fetch("/api/login", {
@@ -53,8 +57,8 @@ async function visit(page: Page, node: ScenarioNode, path: string) {
 /** Keeps a picture of the page, if pictures are asked for. */
 async function picture(page: Page, name: string): Promise<void> {
   if (!screenshots) return;
-  await Deno.mkdir(screenshots, { recursive: true });
-  await Deno.writeFile(`${screenshots}/${name}.png`, await page.screenshot());
+  await mkdir(screenshots, { recursive: true });
+  await writeFile(`${screenshots}/${name}.png`, await page.screenshot());
 }
 
 /** Fails on any error the page throws. */
@@ -77,7 +81,7 @@ Deno.test({
       portOffset: SCENARIO_PORT_OFFSET,
       env,
     });
-    const dir = await Deno.makeTempDir({ prefix: "dassie-wallet-" });
+    const dir = await mkdtemp(join(tmpdir(), "dassie-wallet-"));
     const browser = await startBrowser(dir);
     try {
       await scenario.until("the nodes peer", () => scenario.converged());
@@ -464,7 +468,7 @@ Deno.test({
     } finally {
       await browser.close();
       const failures = await scenario.stop();
-      await Deno.remove(dir, { recursive: true }).catch(() => {});
+      await rm(dir, { recursive: true, force: true }).catch(() => {});
       assertEquals(failures, []);
     }
   },
@@ -483,7 +487,7 @@ Deno.test({
       env,
       withoutLedger: [0],
     });
-    const dir = await Deno.makeTempDir({ prefix: "dassie-wallet-" });
+    const dir = await mkdtemp(join(tmpdir(), "dassie-wallet-"));
     const browser = await startBrowser(dir);
     try {
       const [node] = scenario.nodes;
@@ -511,7 +515,7 @@ Deno.test({
     } finally {
       await browser.close();
       const failures = await scenario.stop();
-      await Deno.remove(dir, { recursive: true }).catch(() => {});
+      await rm(dir, { recursive: true, force: true }).catch(() => {});
       assertEquals(failures, []);
     }
   },

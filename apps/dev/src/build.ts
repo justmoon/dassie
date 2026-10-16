@@ -6,6 +6,9 @@
  * @module
  */
 
+import { type FSWatcher, watch } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { ChildProcess, type Exit, type Stream } from "./process.ts";
 import { ROOT } from "./paths.ts";
 
@@ -87,35 +90,29 @@ export function watchSources(
   paths: readonly string[],
   onChange: (paths: string[]) => void,
 ): { close(): void } {
-  const watcher = Deno.watchFs([...paths], { recursive: true });
   let timer: ReturnType<typeof setTimeout> | undefined;
   let changed = new Set<string>();
-  (async () => {
-    for await (const event of watcher) {
-      if (event.kind === "access") continue;
-      for (const path of event.paths) {
-        if (path.includes("/target/")) continue;
-        changed.add(path);
-      }
-      if (changed.size === 0) continue;
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        const paths = [...changed];
-        changed = new Set();
-        onChange(paths);
-      }, DEBOUNCE_MS);
-    }
-  })().catch(() => {
-    // Closed.
-  });
+  const onEvent = (dir: string, file: string | null) => {
+    // Node names no file at times; the directory stands for it then.
+    const path = file === null ? dir : join(dir, file);
+    if (path.includes("/target/")) return;
+    changed.add(path);
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      const paths = [...changed];
+      changed = new Set();
+      onChange(paths);
+    }, DEBOUNCE_MS);
+  };
+  const watchers: FSWatcher[] = paths.map((dir) =>
+    watch(dir, { recursive: true }, (_, file) => onEvent(dir, file))
+      // Gone, or closed: nothing more to watch.
+      .on("error", () => {})
+  );
   return {
     close() {
       clearTimeout(timer);
-      try {
-        watcher.close();
-      } catch {
-        // Closed already.
-      }
+      for (const watcher of watchers) watcher.close();
     },
   };
 }
@@ -123,7 +120,7 @@ export function watchSources(
 /** The Vite version the apps pin, from the wallet's imports. */
 async function viteSpecifier(): Promise<string> {
   const manifest = JSON.parse(
-    await Deno.readTextFile(`${ROOT}apps/wallet/deno.json`),
+    await readFile(`${ROOT}apps/wallet/deno.json`, "utf8"),
   );
   const specifier: string | undefined = manifest.imports?.vite;
   if (!specifier?.startsWith("npm:vite@")) {

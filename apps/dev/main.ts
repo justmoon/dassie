@@ -26,7 +26,9 @@
  * @module
  */
 
-import { parseArgs } from "@std/cli/parse-args";
+import { mkdir, rm } from "node:fs/promises";
+import process from "node:process";
+import { parseArgs } from "node:util";
 import { LogLevel } from "@dassie/rpc/proto";
 import {
   CargoBuilder,
@@ -40,6 +42,7 @@ import { Environment } from "./src/environment.ts";
 import { listenKeys, openBrowser } from "./src/keys.ts";
 import { layout as makeLayout, ROOT } from "./src/paths.ts";
 import { missingPrerequisites } from "./src/prereqs.ts";
+import { run } from "./src/process.ts";
 import { type Proxy, proxyHint, startProxy } from "./src/proxy.ts";
 import { MAX_NODES } from "./src/scenario/scenarios.ts";
 import { type Server, startServer } from "./src/server.ts";
@@ -50,39 +53,36 @@ const DASHBOARD_PORT = 10100;
 const CONTROL_PORT = 10101;
 const PROXY_PORT = 443;
 
-const args = parseArgs(Deno.args, {
-  boolean: ["headless", "no-watch", "no-proxy"],
-  string: ["scenario", "dassie", "port-offset", "state-dir", "xrpl"],
-});
+const args = flags();
 const xrpl = args.xrpl ?? "testnet";
 if (xrpl !== "testnet" && xrpl !== "fake") {
   console.error("--xrpl must be testnet or fake");
-  Deno.exit(2);
+  process.exit(2);
 }
 const offset = Number(args["port-offset"] ?? "0");
 const watch = !args["no-watch"];
 if (!Number.isSafeInteger(offset) || offset < 0 || offset > 40_000) {
   console.error("--port-offset must be a number from 0 to 40000");
-  Deno.exit(2);
+  process.exit(2);
 }
 const print = (line: string) => console.log(line);
 const layout = await makeLayout(
-  args["state-dir"] ?? Deno.env.get("DASSIE_DEV_STATE_DIR"),
+  args["state-dir"] ?? process.env.DASSIE_DEV_STATE_DIR,
 );
-await Deno.mkdir(layout.state, { recursive: true });
+await mkdir(layout.state, { recursive: true });
 
 print("Dassie//dev  Starting the development environment…");
 const missing = await missingPrerequisites(layout, MAX_NODES);
 if (missing.length > 0) {
   for (const line of missing) console.error(`  ✗ ${line}`);
-  Deno.exit(1);
+  process.exit(1);
 }
 const other = await takeLock(layout.lockFile);
 if (other !== undefined) {
   console.error(
     `another dev environment (PID ${other}) runs on ${layout.state}: stop it first`,
   );
-  Deno.exit(1);
+  process.exit(1);
 }
 for (const stale of await stopStale(layout.pidsFile)) {
   print(`stopped ${stale}, left by an earlier run`);
@@ -101,7 +101,7 @@ let quitting: Promise<void> | undefined;
 function quit(code = 0): Promise<void> {
   if (quitting) {
     print("quitting at once");
-    Deno.exit(130);
+    process.exit(130);
   }
   quitting = (async () => {
     print("stopping…");
@@ -111,15 +111,15 @@ function quit(code = 0): Promise<void> {
     await Promise.all(builds.map((build) => build.stop()));
     proxy?.close();
     await server?.close();
-    await Deno.remove(layout.pidsFile).catch(() => {});
+    await rm(layout.pidsFile).catch(() => {});
     await releaseLock(layout.lockFile);
-    Deno.exit(code);
+    process.exit(code);
   })();
   return quitting;
 }
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  Deno.addSignalListener(signal, () => void quit());
+  process.on(signal, () => void quit());
 }
 
 try {
@@ -140,7 +140,7 @@ async function start(): Promise<void> {
   const dashboardPort = DASHBOARD_PORT + offset;
   if (!args["no-proxy"]) {
     try {
-      proxy = startProxy({
+      proxy = await startProxy({
         port: proxyPort,
         upstream: (name) =>
           upstreamPort(name, {
@@ -161,7 +161,7 @@ async function start(): Promise<void> {
     portOffset: offset,
     walletDir: `${ROOT}apps/wallet/dist-dev`,
     proxyPort: proxy ? proxyPort : undefined,
-    debug: Deno.env.get("DEBUG") ?? "das:*",
+    debug: process.env.DEBUG ?? "das:*",
     fakeLedger: xrpl === "fake" ? fakeLedgerBinary() : undefined,
     print,
   });
@@ -196,13 +196,36 @@ async function start(): Promise<void> {
   print(
     "  If the browser warns about the certificate, run `mkcert -install` once.",
   );
-  if (!Deno.stdin.isTerminal()) return;
+  if (!process.stdin.isTTY) return;
   keys = listenKeys({
     open: () => openBrowser(dashboardUrl),
     restart: () => void env.restart(),
     quit: () => void quit(),
   });
   print("  Keys: space opens the dashboard, r restarts the nodes, q quits\n");
+}
+
+/** The flags (see above); exits if they are not these. */
+function flags() {
+  try {
+    return parseArgs({
+      args: process.argv.slice(2),
+      options: {
+        headless: { type: "boolean" },
+        "no-watch": { type: "boolean" },
+        "no-proxy": { type: "boolean" },
+        scenario: { type: "string" },
+        dassie: { type: "string" },
+        "port-offset": { type: "string" },
+        "state-dir": { type: "string" },
+        xrpl: { type: "string" },
+      },
+      strict: true,
+    }).values;
+  } catch (error) {
+    console.error((error as Error).message);
+    process.exit(2);
+  }
 }
 
 /** Builds the node binary; throws if it does not build. */
@@ -233,7 +256,7 @@ async function buildPages(env: Environment): Promise<void> {
     new ViteBuild(`${ROOT}apps/${app}`, watch, viteLine(app), recorded)
   );
   for (const app of ["wallet", "dev-dashboard"]) {
-    await Deno.remove(`${ROOT}apps/${app}/dist-dev`, { recursive: true })
+    await rm(`${ROOT}apps/${app}/dist-dev`, { recursive: true, force: true })
       .catch(() => {});
   }
   print("building the wallet and the dashboard…");
@@ -262,12 +285,11 @@ function watchNode(env: Environment, builder: CargoBuilder) {
 }
 
 async function regenerate(env: Environment): Promise<void> {
-  const { success } = await new Deno.Command(Deno.execPath(), {
-    args: ["run", "--no-lock", "-A", "scripts/gen.ts"],
-    cwd: `${ROOT}packages/rpc`,
-    stdout: "null",
-    stderr: "piped",
-  }).output();
+  const { success } = await run(
+    Deno.execPath(),
+    ["run", "--no-lock", "-A", "scripts/gen.ts"],
+    { cwd: `${ROOT}packages/rpc` },
+  );
   env.log(
     success ? LogLevel.INFO : LogLevel.WARN,
     success

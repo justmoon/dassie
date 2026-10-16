@@ -17,8 +17,10 @@
  */
 
 import { assert, assertEquals } from "@std/assert";
-import { encodeBase64Url, encodeHex } from "@std/encoding";
 import { generateKeyPairSync } from "node:crypto";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { loginSecret } from "@dassie/identity-wasm";
 import {
   createAuthenticatedClient,
@@ -114,7 +116,10 @@ async function interactionHash(parts: string[]): Promise<string> {
     "SHA-256",
     new TextEncoder().encode(parts.join("\n")),
   );
-  return encodeBase64Url(new Uint8Array(digest));
+  return new Uint8Array(digest).toBase64({
+    alphabet: "base64url",
+    omitPadding: true,
+  });
 }
 
 /** The HTTP status a client call failed with; it must fail. */
@@ -130,7 +135,7 @@ async function status(call: Promise<unknown>): Promise<number | undefined> {
 /** Signs the browser in to `node`'s wallet at `origin`. */
 async function signIn(page: Page, node: ScenarioNode, origin: string) {
   await page.goto(origin, { waitUntil: "load" });
-  const proof = encodeHex(loginSecret(node.key));
+  const proof = loginSecret(node.key).toHex();
   const status = await page.evaluate(
     async (proof: string) => {
       const response = await fetch("/api/login", {
@@ -155,7 +160,7 @@ Deno.test({
     dassie: DASSIE,
     portOffset: PORT_OFFSET,
   });
-  const restore = trustFetch(await Deno.readTextFile(scenario.caFile));
+  const restore = trustFetch(await readFile(scenario.caFile, "utf8"));
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
   const jwk = {
     ...publicKey.export({ format: "jwk" }),
@@ -164,7 +169,7 @@ Deno.test({
     use: "sig",
   };
   const app = await serveClient(scenario, jwk);
-  const dir = await Deno.makeTempDir({ prefix: "dassie-third-party-" });
+  const dir = await mkdtemp(join(tmpdir(), "dassie-third-party-"));
   const browser = await startBrowser(dir);
   try {
     const [d1, d2] = scenario.nodes;
@@ -376,6 +381,6 @@ Deno.test({
     await app.server.shutdown();
     restore();
     await scenario.stop();
-    await Deno.remove(dir, { recursive: true }).catch(() => {});
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
 });

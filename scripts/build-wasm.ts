@@ -5,25 +5,34 @@
 // Vorstand builds vault-core; the CLI's version must match the
 // wasm-bindgen crate in Cargo.lock, which this script checks.
 
-const root = new URL("..", import.meta.url).pathname;
+import { spawn } from "node:child_process";
+import { readFile, rm } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+
+const root = fileURLToPath(new URL("..", import.meta.url));
 const output = `${root}packages/identity-wasm/gen`;
 const crates = ["dassie-identity", "dassie-stream"];
 
-async function run(command: string, args: string[]): Promise<string> {
-  const result = await new Deno.Command(command, {
-    args,
+function run(command: string, args: string[]): Promise<string> {
+  const child = spawn(command, args, {
     cwd: root,
-    stdout: "piped",
-    stderr: "inherit",
-  }).output();
-  if (!result.success) {
-    throw new Error(`${command} ${args.join(" ")} failed`);
-  }
-  return new TextDecoder().decode(result.stdout);
+    stdio: ["inherit", "pipe", "inherit"],
+  });
+  let stdout = "";
+  child.stdout.setEncoding("utf8").on("data", (text: string) => {
+    stdout += text;
+  });
+  return new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code) => {
+      if (code === 0) resolve(stdout);
+      else reject(new Error(`${command} ${args.join(" ")} failed`));
+    });
+  });
 }
 
 async function lockedBindgenVersion(): Promise<string> {
-  const lock = await Deno.readTextFile(`${root}Cargo.lock`);
+  const lock = await readFile(`${root}Cargo.lock`, "utf8");
   const match = lock.match(
     /name = "wasm-bindgen"\nversion = "([^"]+)"/,
   );
@@ -37,7 +46,7 @@ if (cli !== `wasm-bindgen ${locked}`) {
   throw new Error(`${cli} does not match wasm-bindgen ${locked} in Cargo.lock`);
 }
 
-await Deno.remove(output, { recursive: true }).catch(() => {});
+await rm(output, { recursive: true, force: true });
 for (const name of crates) {
   await run("cargo", [
     "rustc",

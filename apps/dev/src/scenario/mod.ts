@@ -7,6 +7,9 @@
  * @module
  */
 
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { caFile, certificate } from "../certs.ts";
 import {
   type FakeLedger,
@@ -111,7 +114,7 @@ export class Scenario {
     id: string,
     options: Omit<ScenarioOptions, "layout">,
   ): Promise<Scenario> {
-    const dir = await Deno.makeTempDir({ prefix: `dassie-${id}-` });
+    const dir = await mkdtemp(join(tmpdir(), `dassie-${id}-`));
     return await Scenario.#start(
       id,
       // A CA of its own: the developer's stays untouched.
@@ -247,8 +250,8 @@ export class Scenario {
     });
     if (this.#temporary) {
       const { state, sockets } = this.options.layout;
-      await Deno.remove(state, { recursive: true }).catch(() => {});
-      await Deno.remove(sockets, { recursive: true }).catch(() => {});
+      await rm(state, { recursive: true, force: true }).catch(() => {});
+      await rm(sockets, { recursive: true, force: true }).catch(() => {});
     }
     return failures;
   }

@@ -3,6 +3,10 @@
 // inside the page. Set CHROME_BIN to choose the browser; otherwise the
 // first of google-chrome, chromium and chromium-browser on PATH is used.
 
+import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import process from "node:process";
+
 import { assertEquals } from "@std/assert";
 import { launch } from "@astral/astral";
 
@@ -49,17 +53,20 @@ try {
 }
 </script>`;
 
+function which(name: string): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    execFile("which", [name], (error, stdout) => {
+      resolve(error ? undefined : stdout.trim());
+    });
+  });
+}
+
 async function findChrome(): Promise<string> {
-  const configured = Deno.env.get("CHROME_BIN");
+  const configured = process.env.CHROME_BIN;
   if (configured) return configured;
   for (const name of ["google-chrome", "chromium", "chromium-browser"]) {
-    const which = await new Deno.Command("which", {
-      args: [name],
-      stdout: "piped",
-      stderr: "null",
-    })
-      .output();
-    if (which.success) return new TextDecoder().decode(which.stdout).trim();
+    const path = await which(name);
+    if (path) return path;
   }
   throw new Error("no Chrome found; set CHROME_BIN");
 }
@@ -74,7 +81,7 @@ Deno.test("the web build works in a browser", async () => {
       }
       if (!/^[\w.-]+$/.test(path)) return new Response(null, { status: 404 });
       try {
-        const body = await Deno.readFile(new URL(path, web));
+        const body = await readFile(new URL(path, web));
         const type = path.endsWith(".wasm")
           ? "application/wasm"
           : path.endsWith(".js")

@@ -7,23 +7,29 @@
  * Run from packages/rpc: `deno task gen` (needs the network once, for buf).
  */
 
+import { spawn } from "node:child_process";
+import { rm, writeFile } from "node:fs/promises";
+import process from "node:process";
+import { fileURLToPath } from "node:url";
 import { contractHash, CONTRACTS } from "./hash.ts";
 
 const protoDir = new URL("../../../proto/", import.meta.url);
 const genDir = new URL("../src/gen/", import.meta.url);
 
-await Deno.remove(genDir, { recursive: true }).catch(() => {});
-const buf = new Deno.Command(Deno.execPath(), {
-  args: ["run", "--no-lock", "-A", "npm:@bufbuild/buf@1.73.0", "generate"],
-  cwd: protoDir,
-  stdout: "inherit",
-  stderr: "inherit",
+await rm(genDir, { recursive: true, force: true });
+const buf = spawn(
+  Deno.execPath(),
+  ["run", "--no-lock", "-A", "npm:@bufbuild/buf@1.73.0", "generate"],
+  { cwd: fileURLToPath(protoDir), stdio: "inherit" },
+);
+const code = await new Promise<number | null>((resolve, reject) => {
+  buf.once("error", reject);
+  buf.once("close", resolve);
 });
-const { success } = await buf.output();
-if (!success) Deno.exit(1);
+if (code !== 0) process.exit(1);
 
 for (const contract of CONTRACTS) {
-  await Deno.writeTextFile(
+  await writeFile(
     new URL(`${contract}/contract.sha256`, genDir),
     (await contractHash(contract)) + "\n",
   );

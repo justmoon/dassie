@@ -3,10 +3,13 @@
 // vercel.json, so its CSP applies. The STREAM toy runs a payment on the
 // WASM STREAM implementation to the end.
 
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { extname, join } from "node:path";
+import process from "node:process";
+
 import { assert, assertEquals, assertMatch } from "@std/assert";
 import { launch, type Page } from "@astral/astral";
-import { contentType } from "@std/media-types";
-import { extname, join } from "@std/path";
 import { click, count, text, type, until } from "./browser.ts";
 import { findChrome } from "./harness.ts";
 
@@ -17,18 +20,32 @@ async function missing(): Promise<string | undefined> {
   const reasons = [];
   if (!(await findChrome())) reasons.push("Chrome (CHROME_BIN)");
   try {
-    await Deno.stat(join(dist, "index.html"));
+    await stat(join(dist, "index.html"));
   } catch {
     reasons.push(`${dist} (deno task build:website)`);
   }
   if (reasons.length === 0) return undefined;
   const reason = `missing ${reasons.join(", ")}`;
-  if (Deno.env.get("CI")) {
+  if (process.env.CI) {
     throw new Error(`website tests cannot run: ${reason}`);
   }
   console.warn(`skipping the website tests: ${reason}`);
   return reason;
 }
+
+/** The types of the files the site has. */
+const TYPES: Record<string, string> = {
+  ".css": "text/css; charset=UTF-8",
+  ".html": "text/html; charset=UTF-8",
+  ".ico": "image/vnd.microsoft.icon",
+  ".js": "text/javascript; charset=UTF-8",
+  ".json": "application/json; charset=UTF-8",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".wasm": "application/wasm",
+  ".webp": "image/webp",
+  ".woff2": "font/woff2",
+};
 
 interface Rule {
   source: string;
@@ -38,7 +55,7 @@ interface Rule {
 /** Serves dist/ as Vercel would, with vercel.json's headers. */
 async function serve(): Promise<Deno.HttpServer<Deno.NetAddr>> {
   const config = JSON.parse(
-    await Deno.readTextFile(join(site, "vercel.json")),
+    await readFile(join(site, "vercel.json"), "utf8"),
   ) as { headers: Rule[]; trailingSlash: boolean };
   assert(config.trailingSlash);
   const rules = config.headers.map((rule) => ({
@@ -56,13 +73,12 @@ async function serve(): Promise<Deno.HttpServer<Deno.NetAddr>> {
       const file = join(dist, path.endsWith("/") ? `${path}index.html` : path);
       let body: Uint8Array<ArrayBuffer>;
       try {
-        body = await Deno.readFile(file);
+        body = await readFile(file);
       } catch {
         return new Response("not found", { status: 404 });
       }
       const headers = new Headers({
-        "content-type": contentType(extname(file)) ??
-          "application/octet-stream",
+        "content-type": TYPES[extname(file)] ?? "application/octet-stream",
       });
       for (const rule of rules) {
         if (!rule.pattern.test(path)) continue;
@@ -97,7 +113,7 @@ async function watch(page: Page): Promise<string[]> {
 async function removeEventually(dir: string): Promise<void> {
   for (let attempt = 1;; attempt++) {
     try {
-      await Deno.remove(dir, { recursive: true });
+      await rm(dir, { recursive: true, force: true });
       return;
     } catch (error) {
       if (attempt === 10) throw error;
@@ -116,7 +132,7 @@ Deno.test({
   async fn(t) {
     const server = await serve();
     const base = `http://127.0.0.1:${server.addr.port}`;
-    const dir = await Deno.makeTempDir({ prefix: "dassie-website-" });
+    const dir = await mkdtemp(join(tmpdir(), "dassie-website-"));
     const browser = await launch({
       path: await findChrome(),
       args: ["--no-sandbox", `--user-data-dir=${dir}/chrome`],

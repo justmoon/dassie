@@ -1,5 +1,8 @@
 import { assert, assertEquals } from "@std/assert";
-import { MAX_HELLO_BYTES, parseSni, upstreamPort } from "./sni.ts";
+import { once } from "node:events";
+import { type AddressInfo, createServer } from "node:net";
+import { connect as connectTls } from "node:tls";
+import { MAX_HELLO_BYTES, parseSni, type Sni, upstreamPort } from "./sni.ts";
 
 function u16(n: number): number[] {
   return [n >> 8, n & 255];
@@ -87,35 +90,41 @@ Deno.test("random bytes never throw", () => {
 });
 
 Deno.test("a real client's ClientHello", async () => {
-  const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-  const { port } = listener.addr as Deno.NetAddr;
-  const received = (async () => {
-    const conn = await listener.accept();
-    const buffer = new Uint8Array(MAX_HELLO_BYTES);
-    let length = 0;
-    for (;;) {
-      const read = await conn.read(buffer.subarray(length));
-      if (read === null) break;
-      length += read;
-      const result = parseSni(buffer.subarray(0, length));
-      if (result.kind !== "incomplete") {
-        conn.close();
-        return result;
-      }
-    }
-    conn.close();
-    return parseSni(buffer.subarray(0, length));
-  })();
-  const tcp = await Deno.connect({ hostname: "127.0.0.1", port });
-  const tls = await Deno.startTls(tcp, { hostname: "d7.localhost" });
-  await tls.handshake().catch(() => {});
-  try {
-    tls.close();
-  } catch {
-    // Closed by the other side.
-  }
-  assertEquals(await received, { kind: "hello", name: "d7.localhost" });
-  listener.close();
+  const server = createServer();
+  server.listen({ host: "127.0.0.1", port: 0 });
+  await once(server, "listening");
+  const { port } = server.address() as AddressInfo;
+  const received = new Promise<Sni>((resolve) => {
+    server.once("connection", (socket) => {
+      const buffer = new Uint8Array(MAX_HELLO_BYTES);
+      let length = 0;
+      socket.on("error", () => {});
+      socket.on("data", (chunk: Uint8Array) => {
+        const take = chunk.subarray(0, buffer.length - length);
+        buffer.set(take, length);
+        length += take.length;
+        const result = parseSni(buffer.subarray(0, length));
+        if (result.kind !== "incomplete" || length === buffer.length) {
+          socket.destroy();
+          resolve(result);
+        }
+      });
+      socket.once("end", () => {
+        socket.destroy();
+        resolve(parseSni(buffer.subarray(0, length)));
+      });
+    });
+  });
+  const tls = connectTls({
+    host: "127.0.0.1",
+    port,
+    servername: "d7.localhost",
+  });
+  tls.on("error", () => {});
+  const result = await received;
+  tls.destroy();
+  assertEquals(result, { kind: "hello", name: "d7.localhost" });
+  server.close();
 });
 
 Deno.test("names go to their node, the rest to the dashboard", () => {

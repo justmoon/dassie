@@ -1,60 +1,75 @@
 import { assertEquals } from "@std/assert";
+import { once } from "node:events";
+import { type AddressInfo, connect, createServer, type Server } from "node:net";
+import { connect as connectTls } from "node:tls";
 import { startProxy } from "./proxy.ts";
 import { upstreamPort } from "./sni.ts";
 
-/** A TCP server that answers each connection with its tag and all it got. */
-function echo(tag: string): { port: number; close(): void } {
-  const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-  (async () => {
-    for await (const conn of listener) {
-      (async () => {
-        const chunk = new Uint8Array(65_536);
-        const read = await conn.read(chunk);
-        await conn.write(new TextEncoder().encode(`${tag}:${read}`));
-        conn.close();
-      })();
-    }
-  })().catch(() => {});
-  return {
-    port: (listener.addr as Deno.NetAddr).port,
-    close: () => listener.close(),
-  };
+/** A server on a free loopback port. */
+async function listening(server: Server): Promise<number> {
+  server.listen({ host: "127.0.0.1", port: 0 });
+  await once(server, "listening");
+  return (server.address() as AddressInfo).port;
 }
 
-function free(): number {
-  const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-  const { port } = listener.addr as Deno.NetAddr;
-  listener.close();
+/** A TCP server that answers each connection with its tag and all it got. */
+async function echo(tag: string): Promise<{ port: number; close(): void }> {
+  const server = createServer((socket) => {
+    socket.on("error", () => {});
+    socket.once("data", (chunk: Uint8Array) => {
+      socket.end(`${tag}:${chunk.length}`);
+    });
+  });
+  const port = await listening(server);
+  return { port, close: () => server.close() };
+}
+
+async function free(): Promise<number> {
+  const server = createServer();
+  const port = await listening(server);
+  server.close();
+  await once(server, "close");
   return port;
 }
 
 /** A ClientHello asking for `name`, as a real client sends it. */
 async function clientHello(name: string): Promise<Uint8Array> {
-  const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-  const { port } = listener.addr as Deno.NetAddr;
-  const accepted = listener.accept();
-  const tcp = await Deno.connect({ hostname: "127.0.0.1", port });
-  const tls = Deno.startTls(tcp, { hostname: name });
-  const conn = await accepted;
-  const buffer = new Uint8Array(65_536);
-  const read = await conn.read(buffer);
-  conn.close();
-  listener.close();
-  await tls.then((t) => t.close()).catch(() => {});
-  return buffer.slice(0, read ?? 0);
+  const server = createServer();
+  const port = await listening(server);
+  const received = new Promise<Uint8Array>((resolve) => {
+    server.once("connection", (socket) => {
+      socket.on("error", () => {});
+      socket.once("data", (chunk: Uint8Array) => {
+        socket.destroy();
+        resolve(new Uint8Array(chunk));
+      });
+    });
+  });
+  const tls = connectTls({ host: "127.0.0.1", port, servername: name });
+  tls.on("error", () => {});
+  const hello = await received;
+  tls.destroy();
+  server.close();
+  return hello;
 }
 
 async function through(port: number, hello: Uint8Array): Promise<string> {
-  const conn = await Deno.connect({ hostname: "127.0.0.1", port });
+  const socket = connect({ host: "127.0.0.1", port });
+  socket.on("error", () => {});
+  await once(socket, "connect");
+  const answer = new Promise<string>((resolve) => {
+    socket.once("data", (chunk: Uint8Array) => {
+      resolve(new TextDecoder().decode(chunk));
+    });
+  });
   // In two pieces, as a ClientHello may arrive.
   const half = Math.floor(hello.length / 2);
-  await conn.write(hello.subarray(0, half));
+  socket.write(hello.subarray(0, half));
   await new Promise((resolve) => setTimeout(resolve, 20));
-  await conn.write(hello.subarray(half));
-  const answer = new Uint8Array(256);
-  const read = await conn.read(answer);
-  conn.close();
-  return new TextDecoder().decode(answer.subarray(0, read ?? 0));
+  socket.write(hello.subarray(half));
+  const text = await answer;
+  socket.destroy();
+  return text;
 }
 
 Deno.test({
@@ -62,10 +77,10 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const dashboard = echo("dashboard");
-    const d2 = echo("d2");
-    const port = free();
-    const proxy = startProxy({
+    const dashboard = await echo("dashboard");
+    const d2 = await echo("d2");
+    const port = await free();
+    const proxy = await startProxy({
       port,
       upstream: (name) =>
         upstreamPort(name, {

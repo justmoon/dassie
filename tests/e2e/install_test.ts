@@ -25,11 +25,18 @@
  * release workflow runs one job per distribution before it signs a release.
  */
 
+import { Buffer } from "node:buffer";
+import { spawn } from "node:child_process";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { constants, tmpdir } from "node:os";
+import { join } from "node:path";
+import process from "node:process";
+
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 
-const MIRROR = Deno.env.get("DASSIE_INSTALL_MIRROR");
+const MIRROR = process.env.DASSIE_INSTALL_MIRROR;
 const DISTROS =
-  (Deno.env.get("DASSIE_INSTALL_DISTROS") ?? "debian,ubuntu,fedora,centos")
+  (process.env.DASSIE_INSTALL_DISTROS ?? "debian,ubuntu,fedora,centos")
     .split(",")
     .filter((distro) => distro !== "");
 const IMAGES = new URL("./install/", import.meta.url).pathname;
@@ -62,24 +69,28 @@ interface Run {
   stderr: string;
 }
 
-async function run(
+function run(
   command: string,
   args: string[],
   env?: Record<string, string>,
 ): Promise<Run> {
-  const output = await new Deno.Command(command, {
-    args,
-    env,
-    stdout: "piped",
-    stderr: "piped",
-  })
-    .output();
-  const decoder = new TextDecoder();
-  return {
-    code: output.code,
-    stdout: decoder.decode(output.stdout),
-    stderr: decoder.decode(output.stderr),
-  };
+  const child = spawn(command, args, {
+    env: { ...process.env, ...env },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const stdout: Buffer[] = [];
+  const stderr: Buffer[] = [];
+  child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
+  child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+  return new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) =>
+      resolve({
+        code: code ?? 128 + constants.signals[signal!],
+        stdout: Buffer.concat(stdout).toString(),
+        stderr: Buffer.concat(stderr).toString(),
+      }));
+  });
 }
 
 async function must(
@@ -121,12 +132,12 @@ class Mirror {
   }
 
   static async start(built: string): Promise<Mirror> {
-    const work = await Deno.makeTempDir({ prefix: "dassie-install-" });
+    const work = await mkdtemp(join(tmpdir(), "dassie-install-"));
     const root = `${work}/www`;
     await must("cp", ["-rL", "--no-preserve=mode", built, root]);
     const caroot = `${work}/ca`;
-    await Deno.mkdir(caroot);
-    await Deno.mkdir(`${work}/certs`);
+    await mkdir(caroot);
+    await mkdir(`${work}/certs`);
     await must("mkcert", [
       "-cert-file",
       `${work}/certs/cert.pem`,
@@ -134,7 +145,7 @@ class Mirror {
       `${work}/certs/key.pem`,
       "mirror.test",
     ], { CAROOT: caroot });
-    await Deno.writeTextFile(
+    await writeFile(
       `${work}/Caddyfile`,
       "{\n  admin off\n  auto_https disable_redirects\n}\n" +
         "https://mirror.test {\n  tls /certs/cert.pem /certs/key.pem\n" +
@@ -162,8 +173,8 @@ class Mirror {
 
   /** Names `version` the newest on `latest`. */
   async offer(version: string): Promise<void> {
-    await Deno.mkdir(`${this.root}/meta`, { recursive: true });
-    await Deno.writeTextFile(`${this.root}/meta/latest`, version);
+    await mkdir(`${this.root}/meta`, { recursive: true });
+    await writeFile(`${this.root}/meta/latest`, version);
   }
 
   /** Runs `test` with a file of the mirror replaced, then puts it back. */
@@ -172,17 +183,18 @@ class Mirror {
     content: Uint8Array,
     test: () => Promise<T>,
   ): Promise<T> {
-    const original = await Deno.readFile(`${this.root}/${path}`);
-    await Deno.writeFile(`${this.root}/${path}`, content);
+    const original = await readFile(`${this.root}/${path}`);
+    await writeFile(`${this.root}/${path}`, content);
     try {
       return await test();
     } finally {
-      await Deno.writeFile(`${this.root}/${path}`, original);
+      await writeFile(`${this.root}/${path}`, original);
     }
   }
 
-  file(path: string): Promise<Uint8Array> {
-    return Deno.readFile(`${this.root}/${path}`);
+  async file(path: string): Promise<Uint8Array> {
+    // A copy, not a Buffer: a Buffer's slice() shares its bytes.
+    return new Uint8Array(await readFile(`${this.root}/${path}`));
   }
 
   async stop(): Promise<void> {
