@@ -126,6 +126,26 @@ async fn finished(clock: &ManualClock, node: &TestNode, id: &str) -> proto::Outg
     outgoing(node, id).await
 }
 
+/// Moves `clock` on until the incoming payment on `node` that `which`
+/// picks has received `amount`, and returns it. The sender counts a packet
+/// sent on its Fulfill, but the receiver counts it received only on the
+/// verdict of the peer it came from (D17), which may come a moment later.
+async fn paid_in(
+    clock: &ManualClock,
+    node: &TestNode,
+    amount: u64,
+    which: impl Fn(&proto::IncomingPayment) -> bool,
+) -> proto::IncomingPayment {
+    until(clock, async || {
+        incoming(node)
+            .await
+            .iter()
+            .any(|payment| which(payment) && payment.received_amount >= amount)
+    })
+    .await;
+    incoming(node).await.into_iter().find(which).unwrap()
+}
+
 async fn ledger_balance(node: &TestNode) -> i64 {
     let Ok(response::Method::ListLedgers(ledgers)) = node
         .ipc()
@@ -210,11 +230,10 @@ async fn the_owner_sends_to_a_payment_pointer_on_a_peer() {
     assert_eq!(last.state, "completed");
 
     // B has it, with the note, complete; the money moved.
-    let received = incoming(b)
-        .await
-        .into_iter()
-        .find(|payment| payment.url == quoted.receiver)
-        .unwrap();
+    let received = paid_in(&pair.clock, b, AMOUNT, |payment| {
+        payment.url == quoted.receiver
+    })
+    .await;
     assert_eq!(received.received_amount, AMOUNT);
     assert_eq!(received.metadata_json, r#"{"description":"lunch"}"#);
     assert!(received.client.ends_with("/.well-known/pay"));
@@ -273,11 +292,7 @@ async fn the_owner_pays_a_payment_request_on_a_peer() {
     let sent = send(a, &quoted.id).await.unwrap();
     let done = finished(&pair.clock, a, &sent.id).await;
     assert_eq!(done.state, "completed", "{}", done.failure);
-    let paid = incoming(b)
-        .await
-        .into_iter()
-        .find(|payment| payment.id == request.id)
-        .unwrap();
+    let paid = paid_in(&pair.clock, b, AMOUNT, |payment| payment.id == request.id).await;
     assert_eq!(paid.received_amount, AMOUNT);
     // Paid, it can be paid no more.
     assert_eq!(
@@ -298,11 +313,10 @@ async fn the_owner_sends_to_its_own_wallet_address() {
     let sent = send(&node, &quoted.id).await.unwrap();
     let done = finished(&node.clock, &node, &sent.id).await;
     assert_eq!(done.state, "completed", "{}", done.failure);
-    let received = incoming(&node)
-        .await
-        .into_iter()
-        .find(|payment| payment.url == quoted.receiver)
-        .unwrap();
+    let received = paid_in(&node.clock, &node, AMOUNT, |payment| {
+        payment.url == quoted.receiver
+    })
+    .await;
     assert_eq!(received.received_amount, AMOUNT);
     assert_eq!(received.metadata_json, r#"{"description":"to myself"}"#);
 }
@@ -651,11 +665,10 @@ async fn the_owner_sends_a_fixed_amount() {
     let done = finished(&pair.clock, a, &sent.id).await;
     assert_eq!(done.state, "completed", "{}", done.failure);
     assert_eq!(done.sent_amount, AMOUNT);
-    let paid = incoming(b)
-        .await
-        .into_iter()
-        .find(|payment| quoted.receiver.ends_with(&payment.id))
-        .unwrap();
+    let paid = paid_in(&pair.clock, b, AMOUNT, |payment| {
+        quoted.receiver.ends_with(&payment.id)
+    })
+    .await;
     assert_eq!((paid.incoming_amount, paid.received_amount), (None, AMOUNT));
     // Naming a ledger the route does not start on is refused.
     let named = a.ipc().await.call(fixed("xrpl-testnet+xrp")).await;
@@ -706,10 +719,6 @@ async fn a_fixed_amount_to_send_ends_when_the_request_is_full() {
     let done = finished(&pair.clock, a, &sent.id).await;
     assert_eq!(done.state, "completed", "{}", done.failure);
     assert_eq!(done.sent_amount, AMOUNT);
-    let paid = incoming(b)
-        .await
-        .into_iter()
-        .find(|payment| payment.id == request.id)
-        .unwrap();
+    let paid = paid_in(&pair.clock, b, AMOUNT, |payment| payment.id == request.id).await;
     assert_eq!(paid.received_amount, AMOUNT);
 }
