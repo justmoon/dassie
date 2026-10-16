@@ -264,8 +264,13 @@ fn bootstrap_nodes(env: &Env) -> Result<Vec<BootstrapNode>, EnvError> {
 /// ID is the one the key gives.
 fn check_bootstrap_node(node: &BootstrapNodeJson) -> Option<BootstrapNode> {
     let mut key = [0; 32];
-    let length = base64url::decode(node.public_key.as_bytes(), &mut key).ok()?;
-    if length != key.len() || !dassie_peer::wire::is_valid_url(&node.url) {
+    // `decode` asserts the output has room, so a longer key is refused
+    // here rather than ending the node.
+    if base64url::decoded_len(node.public_key.len()) != Some(key.len()) {
+        return None;
+    }
+    base64url::decode(node.public_key.as_bytes(), &mut key).ok()?;
+    if !dassie_peer::wire::is_valid_url(&node.url) {
         return None;
     }
     let public_key = PublicKey::from_bytes(&key).ok()?;
@@ -362,5 +367,20 @@ mod tests {
     fn bootstrap_ids_must_match_keys() {
         let swapped = r#"[{"id":"dyrjUANXiJ5S6JXxwo7jdKKJjdLtK129U","url":"https://test1.dassie.xyz","publicKey":"QBe5HLbdYFtIpjFTIu_Lz8lkoUJ3fmAvFHfCb9CVwIM"}]"#;
         assert!(settings(&[("HOME", "/h"), ("DASSIE_BOOTSTRAP_NODES", swapped)]).is_err());
+    }
+
+    // A key longer than 32 bytes once failed `decode`'s assertion on its
+    // output buffer, which ended the node at its start.
+    #[test]
+    fn bootstrap_keys_of_another_length_are_refused() {
+        for key in ["QBe5HLbdYFtIpjFTIu_Lz8lkoUJ3fmAvFHfCb9CVwIMA", "QBe5", ""] {
+            let nodes = format!(
+                r#"[{{"id":"dyrjUANXiJ5S6JXxwo7jdKKJjdLtK129U","url":"https://test1.dassie.xyz","publicKey":"{key}"}}]"#
+            );
+            assert!(
+                settings(&[("HOME", "/h"), ("DASSIE_BOOTSTRAP_NODES", &nodes)]).is_err(),
+                "{key}"
+            );
+        }
     }
 }
