@@ -30,6 +30,8 @@ use tracing_subscriber::layer::{Context, SubscriberExt};
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{Layer, fmt};
 
+use crate::clock::{Clock, SystemClock};
+
 /// Most lines the ring keeps.
 pub const MAX_LINES: usize = 1_000;
 /// Most bytes of text the ring keeps.
@@ -347,11 +349,8 @@ impl<S: Subscriber> Layer<S> for RingLayer {
         let metadata = event.metadata();
         let mut visitor = LineVisitor::default();
         event.record(&mut visitor);
-        let time_unix_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |since| {
-                u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
-            });
+        // The clock module is the one place the node reads the real clock.
+        let time_unix_ms = SystemClock.now_ms();
         self.ring.push(LogLine {
             index: 0,
             time_unix_ms,
