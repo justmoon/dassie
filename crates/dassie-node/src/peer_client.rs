@@ -347,12 +347,7 @@ impl PeerClient {
     ///
     /// See [`WebError`].
     pub async fn web(&self, request: WebRequest) -> Result<WebResponse, WebError> {
-        let authority = request
-            .url
-            .strip_prefix("https://")
-            .and_then(|rest| rest.split(['/', '?', '#']).next())
-            .filter(|authority| !authority.is_empty() && !authority.contains('@'))
-            .ok_or(WebError::Refused)?;
+        let authority = authority(&request.url).ok_or(WebError::Refused)?;
         if !self.allow_private && literal_is_private(authority) {
             return Err(WebError::Refused);
         }
@@ -385,12 +380,7 @@ impl PeerClient {
             .await
             .map_err(|error| WebError::Failed(error.to_string()))?;
         let status = response.status().as_u16();
-        let media_type = response
-            .headers()
-            .get(CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.split(';').next())
-            .map(|media| media.trim().to_ascii_lowercase());
+        let media_type = media_type(response.headers());
         let body = Limited::new(response.into_body(), max_bytes)
             .collect()
             .await
@@ -403,6 +393,23 @@ impl PeerClient {
             body,
         })
     }
+}
+
+/// The authority of an `https` URL, as the guard reads it: none if the URL
+/// has none, or user info, which no request of the node's carries.
+fn authority(url: &str) -> Option<&str> {
+    url.strip_prefix("https://")
+        .and_then(|rest| rest.split(['/', '?', '#']).next())
+        .filter(|authority| !authority.is_empty() && !authority.contains('@'))
+}
+
+/// A response's media type, without its parameters, lowercased.
+fn media_type(headers: &http::HeaderMap) -> Option<String> {
+    headers
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .map(|media| media.trim().to_ascii_lowercase())
 }
 
 /// Whether `name` is `localhost` or a name under it, which always means
@@ -418,23 +425,20 @@ fn is_localhost(name: &str) -> bool {
             .is_some_and(|tail| tail.eq_ignore_ascii_case(".localhost"))
 }
 
-/// Whether a URL's host is an IP literal that is not public. Names are
-/// checked when resolved; literals never are.
-fn literal_is_private(host: &str) -> bool {
-    let without_port = match host.rsplit_once(':') {
-        Some((name, port)) if !name.ends_with(']') || host.starts_with('[') => {
-            if port.bytes().all(|b| b.is_ascii_digit()) {
-                name
-            } else {
-                host
-            }
-        }
-        _ => host,
+/// Whether a URL's authority names an IP literal that is not public. Names
+/// are checked when resolved; literals never are. The authority is read as
+/// the HTTP client reads it, which ends an IPv6 literal at its bracket,
+/// whatever follows: `[::1]a` is `::1`. One the client cannot read counts
+/// as private, so the guard never passes what it reads differently.
+fn literal_is_private(authority: &str) -> bool {
+    let Ok(authority) = authority.parse::<http::uri::Authority>() else {
+        return true;
     };
-    let literal = without_port
-        .strip_prefix('[')
-        .and_then(|h| h.strip_suffix(']'))
-        .unwrap_or(without_port);
+    // As hyper-util's connector strips the brackets.
+    let literal = authority
+        .host()
+        .trim_start_matches('[')
+        .trim_end_matches(']');
     literal
         .parse::<std::net::IpAddr>()
         .is_ok_and(|address| !is_public(address))
@@ -481,5 +485,193 @@ mod tests {
             allow_private: false,
         };
         assert!(guarded.call(name).await.is_err());
+    }
+
+    // The HTTP client reads `[::1]a` as the IPv6 literal `::1`, and
+    // connects to it without asking the resolver. The guard read it as no
+    // literal at all, so a URL from another wallet reached loopback and
+    // private addresses.
+    #[test]
+    fn an_ipv6_literal_ends_at_its_bracket() {
+        for authority in [
+            "[::1]a",
+            "[::1]a:8443",
+            "[::1]:8443x",
+            "[::ffff:10.0.0.1]x",
+            "[fe80::1]]",
+        ] {
+            assert!(literal_is_private(authority), "{authority}");
+        }
+        assert!(!literal_is_private("[2606:4700::1111]:443"));
+    }
+
+    // So such a URL is refused before connecting, as `[::1]` is.
+    #[tokio::test]
+    async fn a_url_past_an_ipv6_literal_is_refused() {
+        let client = PeerClient::new(None, false).unwrap();
+        let result = client
+            .web(WebRequest {
+                method: http::Method::GET,
+                url: "https://[::1]a:8443/x".into(),
+                headers: Vec::new(),
+                body: None,
+                timeout_ms: 2_000,
+                max_response_bytes: 1_000,
+            })
+            .await;
+        assert!(matches!(result, Err(WebError::Refused)), "{result:?}");
+    }
+
+    mod properties {
+        use std::net::IpAddr;
+
+        use proptest::prelude::*;
+
+        use super::*;
+
+        /// A response's `Content-Type`s: none, several, or any bytes a
+        /// header may hold.
+        fn content_types() -> impl Strategy<Value = http::HeaderMap> {
+            let known = proptest::sample::select(vec![
+                "application/json",
+                "Application/JSON; charset=utf-8",
+                " application/json ;",
+                "text/html",
+                "",
+                ";",
+                "a;b;c",
+            ]);
+            let byte = prop_oneof![b' '..=b'~', 0x80_u8..=0xff, Just(b'\t')];
+            let value = prop_oneof![
+                known.prop_map(|value| value.as_bytes().to_vec()),
+                proptest::collection::vec(byte, 0..40),
+            ];
+            proptest::collection::vec(value, 0..3).prop_map(|values| {
+                let mut headers = http::HeaderMap::new();
+                for value in values {
+                    if let Ok(value) = http::HeaderValue::from_bytes(&value) {
+                        headers.append(CONTENT_TYPE, value);
+                    }
+                }
+                headers
+            })
+        }
+
+        /// An IP literal as a URL writes it: IPv6 in brackets.
+        fn literal(address: IpAddr) -> String {
+            match address {
+                IpAddr::V4(v4) => v4.to_string(),
+                IpAddr::V6(v6) => format!("[{v6}]"),
+            }
+        }
+
+        /// Hosts: IP literals, private ones often, names under
+        /// `localhost`, and any text.
+        fn host() -> impl Strategy<Value = String> {
+            let private = proptest::sample::select(vec![
+                "127.0.0.1",
+                "10.1.2.3",
+                "169.254.169.254",
+                "[::1]",
+                "[::ffff:127.0.0.1]",
+                "[fe80::1]",
+                "[fd00::1]",
+                "0.0.0.0",
+            ]);
+            prop_oneof![
+                any::<IpAddr>().prop_map(literal),
+                private.prop_map(String::from),
+                proptest::sample::select(vec![
+                    "localhost",
+                    "D1.LocalHost.",
+                    "localhost.example",
+                    "a.localhostx"
+                ])
+                .prop_map(String::from),
+                "[ -~]{0,24}",
+                any::<String>(),
+            ]
+        }
+
+        /// A URL a wallet or a peer named: any scheme, host, port, user
+        /// info and path.
+        fn url() -> impl Strategy<Value = String> {
+            let scheme = proptest::sample::select(vec!["https://", "HTTPS://", "http://", ""]);
+            let user = proptest::sample::select(vec!["", "user@", "1.1.1.1@", ":@"]);
+            let port = prop_oneof![
+                Just(String::new()),
+                any::<u16>().prop_map(|port| format!(":{port}")),
+                "[:0-9a-z]{0,8}",
+            ];
+            let rest = prop_oneof![
+                proptest::sample::select(vec![
+                    "",
+                    "/",
+                    "/x?y#z",
+                    "?@1.1.1.1",
+                    "#@1.1.1.1",
+                    "\\@1.1.1.1/"
+                ])
+                .prop_map(String::from),
+                "\\PC{0,24}",
+            ];
+            (scheme, user, host(), port, rest).prop_map(|(scheme, user, host, port, rest)| {
+                format!("{scheme}{user}{host}{port}{rest}")
+            })
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]
+
+            // URLs come from other wallets and peers. The guard reads any
+            // of them without a panic, and refuses every private literal
+            // the HTTP client would connect to without resolving a name,
+            // where the resolver's filter never sees it (spec 7 §4.7).
+            #[test]
+            fn any_url_is_read_or_refused(url in url()) {
+                let authority = authority(&url);
+                if let Some(authority) = authority {
+                    prop_assert!(url.starts_with("https://"));
+                    prop_assert!(!authority.is_empty());
+                    prop_assert!(!authority.contains(['@', '/', '?', '#']));
+                }
+                let _ = authority.map(literal_is_private);
+                let Ok(uri) = url.parse::<http::Uri>() else { return Ok(()) };
+                let Some(host) = uri.host() else { return Ok(()) };
+                // As hyper-util's connector reads it.
+                let bare = host.trim_start_matches('[').trim_end_matches(']');
+                if uri.scheme_str() == Some("https")
+                    && bare.parse::<IpAddr>().is_ok_and(|address| !is_public(address))
+                {
+                    prop_assert!(authority.is_none_or(literal_is_private), "{} reaches {}", url, host);
+                }
+            }
+
+            #[test]
+            fn private_literals_are_refused(address in any::<IpAddr>(), port in proptest::option::of(any::<u16>())) {
+                let host = match port {
+                    Some(port) => format!("{}:{port}", literal(address)),
+                    None => literal(address),
+                };
+                prop_assert_eq!(literal_is_private(&host), !is_public(address));
+            }
+
+            #[test]
+            fn any_name_is_localhost_or_not(name in host()) {
+                if is_localhost(&name) {
+                    let name = name.to_ascii_lowercase();
+                    prop_assert!(name.trim_end_matches('.').ends_with("localhost"));
+                }
+            }
+
+            #[test]
+            fn any_media_type_is_read(headers in content_types()) {
+                if let Some(media) = media_type(&headers) {
+                    prop_assert_eq!(media.trim(), media.as_str());
+                    prop_assert!(!media.contains(';'));
+                    prop_assert_eq!(media.to_ascii_lowercase(), media.as_str());
+                }
+            }
+        }
     }
 }
