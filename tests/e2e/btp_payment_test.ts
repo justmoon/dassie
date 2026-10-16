@@ -10,9 +10,12 @@
  * the IPC socket, and setup over HTTPS with the key derived in WASM.
  */
 
+import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
-import { encodeHex } from "@std/encoding/hex";
 import { Buffer } from "node:buffer";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 // @ts-types="./types/ilp-plugin-btp.d.ts"
 import BtpPlugin from "ilp-plugin-btp";
 // @ts-types="./types/ws.d.ts"
@@ -45,9 +48,9 @@ const PHRASE =
   "pulp junk march life divorce celery flower bar one angry claw crush";
 
 /** Pebble's test root and its leaf for localhost, which the node serves. */
-const ROOT = await Deno.readTextFile(`${PEBBLE_DIR}/root.pem`);
-const CERTIFICATE = await Deno.readTextFile(`${PEBBLE_DIR}/cert.pem`);
-const PRIVATE_KEY = await Deno.readTextFile(`${PEBBLE_DIR}/key.pem`);
+const ROOT = await readFile(`${PEBBLE_DIR}/root.pem`, "utf8");
+const CERTIFICATE = await readFile(`${PEBBLE_DIR}/cert.pem`, "utf8");
+const PRIVATE_KEY = await readFile(`${PEBBLE_DIR}/key.pem`, "utf8");
 
 const missing = await missingBinary();
 
@@ -103,8 +106,8 @@ async function setUp(owner: RpcClient) {
     headers: { "content-type": "application/json", origin },
     body: JSON.stringify({
       setupAuthorizationToken: token,
-      rawDassieKeyHex: encodeHex(key),
-      loginAuthorizationSignature: encodeHex(loginSecret(key)),
+      rawDassieKeyHex: key.toHex(),
+      loginAuthorizationSignature: loginSecret(key).toHex(),
     }),
   });
   assertEquals(response.status, 200, await response.text());
@@ -203,72 +206,68 @@ async function journalMatchesTrace(
   return total;
 }
 
-Deno.test({
-  name: "a BTP client pays the node's STREAM receiver, and the journal matches",
-  ignore: missing !== undefined,
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
-    const dir = await Deno.makeTempDir({ prefix: "dassie-e2e-btp-" });
-    let daemon = startDaemon(dir);
-    const connect = ipcConnector(`${dir}/ipc.sock`);
-    let owner: RpcClient | undefined;
-    let passed = false;
-    try {
-      await waitForPort(HTTPS_PORT);
-      await waitForSocket(`${dir}/ipc.sock`);
-      owner = new RpcClient({ url: "ipc", connect });
-      await setUp(owner);
-      await waitForLedger(owner);
-      const added = await owner.call("addSettlementScheme", {
-        id: "stub",
-        config: "",
-      });
-      assertEquals(added.ledger?.ownerBalance, 100_000_000_000n);
-      const token = await owner.call("createBtpToken", {
-        label: "e2e",
-        ledger: "stub+usd",
-      });
-      assertEquals(
-        token.url,
-        `btp+wss://:${token.secret}@localhost:${HTTPS_PORT}/btp`,
-      );
-      const tokenId = token.token!.id;
+test("a BTP client pays the node's STREAM receiver, and the journal matches", {
+  skip: missing !== undefined,
+}, async () => {
+  const dir = await mkdtemp(join(tmpdir(), "dassie-e2e-btp-"));
+  let daemon = startDaemon(dir);
+  const connect = ipcConnector(`${dir}/ipc.sock`);
+  let owner: RpcClient | undefined;
+  let passed = false;
+  try {
+    await waitForPort(HTTPS_PORT);
+    await waitForSocket(`${dir}/ipc.sock`);
+    owner = new RpcClient({ url: "ipc", connect });
+    await setUp(owner);
+    await waitForLedger(owner);
+    const added = await owner.call("addSettlementScheme", {
+      id: "stub",
+      config: "",
+    });
+    assertEquals(added.ledger?.ownerBalance, 100_000_000_000n);
+    const token = await owner.call("createBtpToken", {
+      label: "e2e",
+      ledger: "stub+usd",
+    });
+    assertEquals(
+      token.url,
+      `btp+wss://:${token.secret}@localhost:${HTTPS_PORT}/btp`,
+    );
+    const tokenId = token.token!.id;
 
-      await pay(owner, token.url);
+    await pay(owner, token.url);
 
-      assertEquals(await journalMatchesTrace(owner, tokenId), PAYMENT);
-      const [ledger] = (await owner.call("listLedgers", {})).ledgers;
-      // Within the owner's group: the total is unchanged.
-      assertEquals(ledger.ownerBalance, 100_000_000_000n);
-      assertEquals(ledger.ownerPending, 0n);
-      const { tokens } = await owner.call("listBtpTokens", {});
-      assertEquals(tokens[0].netReceived, -PAYMENT);
-      const { accounts } = await owner.call("listAccounts", {});
-      const pool = accounts.find((a) => a.path === "stub+usd:equity/owner")!;
-      assertEquals(
-        pool.creditsPosted - pool.debitsPosted,
-        100_000_000_000n + PAYMENT,
-      );
-      const books = await journal(owner);
+    assertEquals(await journalMatchesTrace(owner, tokenId), PAYMENT);
+    const [ledger] = (await owner.call("listLedgers", {})).ledgers;
+    // Within the owner's group: the total is unchanged.
+    assertEquals(ledger.ownerBalance, 100_000_000_000n);
+    assertEquals(ledger.ownerPending, 0n);
+    const { tokens } = await owner.call("listBtpTokens", {});
+    assertEquals(tokens[0].netReceived, -PAYMENT);
+    const { accounts } = await owner.call("listAccounts", {});
+    const pool = accounts.find((a) => a.path === "stub+usd:equity/owner")!;
+    assertEquals(
+      pool.creditsPosted - pool.debitsPosted,
+      100_000_000_000n + PAYMENT,
+    );
+    const books = await journal(owner);
 
-      // A restart keeps the books and deposits nothing again (ACC-6).
-      owner.close();
-      await daemon.stop();
-      daemon = startDaemon(dir);
-      await waitForPort(HTTPS_PORT);
-      await waitForSocket(`${dir}/ipc.sock`);
-      owner = new RpcClient({ url: "ipc", connect });
-      const [restarted] = (await waitForLedger(owner)).ledgers;
-      assertEquals(restarted, ledger);
-      assertEquals(await journal(owner), books);
-      passed = true;
-    } finally {
-      owner?.close();
-      const { code, output } = await daemon.stop();
-      // What the node said, to tell why a test failed.
-      if (code !== 0 || !passed) console.error(output);
-      await Deno.remove(dir, { recursive: true });
-    }
-  },
+    // A restart keeps the books and deposits nothing again (ACC-6).
+    owner.close();
+    await daemon.stop();
+    daemon = startDaemon(dir);
+    await waitForPort(HTTPS_PORT);
+    await waitForSocket(`${dir}/ipc.sock`);
+    owner = new RpcClient({ url: "ipc", connect });
+    const [restarted] = (await waitForLedger(owner)).ledgers;
+    assertEquals(restarted, ledger);
+    assertEquals(await journal(owner), books);
+    passed = true;
+  } finally {
+    owner?.close();
+    const { code, output } = await daemon.stop();
+    // What the node said, to tell why a test failed.
+    if (code !== 0 || !passed) console.error(output);
+    await rm(dir, { recursive: true, force: true });
+  }
 });

@@ -34,8 +34,11 @@ const MAX_SEEN_PACKETS = 4_096;
 /** The last lines of every source, oldest first. */
 export class LogRing {
   readonly #lines: SourcedLogLine[] = [];
+  readonly capacity: number;
 
-  constructor(readonly capacity = MAX_LOG_LINES) {}
+  constructor(capacity = MAX_LOG_LINES) {
+    this.capacity = capacity;
+  }
 
   add(lines: readonly SourcedLogLine[]): void {
     this.#lines.push(...lines);
@@ -107,14 +110,23 @@ export interface CollectorSink {
 /** Follows one running node; started with the node, stopped with it. */
 export class Collector {
   readonly #subscriptions: Subscription[] = [];
+  readonly node: string;
+  readonly client: RpcClient;
+  readonly sink: CollectorSink;
+  /** The short name of a node ID, if it has one. */
+  readonly nameOf: (id: string) => string;
 
   constructor(
-    readonly node: string,
-    readonly client: RpcClient,
-    readonly sink: CollectorSink,
-    /** The short name of a node ID, if it has one. */
-    readonly nameOf: (id: string) => string,
-  ) {}
+    node: string,
+    client: RpcClient,
+    sink: CollectorSink,
+    nameOf: (id: string) => string,
+  ) {
+    this.node = node;
+    this.client = client;
+    this.sink = sink;
+    this.nameOf = nameOf;
+  }
 
   start(): void {
     this.#subscriptions.push(this.#logs(), this.#peers(), this.#traffic());

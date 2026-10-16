@@ -1,3 +1,4 @@
+import { test } from "node:test";
 import { assertEquals } from "@std/assert";
 import { FakeTime } from "@std/testing/time";
 import { ErrorCode, type ItemFor, RpcError } from "@dassie/rpc";
@@ -28,7 +29,7 @@ class FakeClient implements StreamClient {
 
 const flush = () => new Promise((resolve) => queueMicrotask(() => resolve(0)));
 
-Deno.test("a stream that fails is subscribed again with a growing backoff", async () => {
+test("a stream that fails is subscribed again with a growing backoff", async () => {
   using time = new FakeTime();
   const client = new FakeClient();
   const statuses: LiveStatus[] = [];
@@ -70,7 +71,7 @@ Deno.test("a stream that fails is subscribed again with a growing backoff", asyn
   ]);
 });
 
-Deno.test("errors no attempt can fix end the subscription", async () => {
+test("errors no attempt can fix end the subscription", async () => {
   using time = new FakeTime();
   const client = new FakeClient();
   const statuses: LiveStatus[] = [];

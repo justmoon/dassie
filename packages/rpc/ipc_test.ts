@@ -1,5 +1,10 @@
+import { test } from "node:test";
 import { assertEquals } from "@std/assert";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
+import { mkdtemp, rm } from "node:fs/promises";
+import { createServer, type Socket } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { RpcClient } from "./mod.ts";
 import { ipcConnector } from "./ipc.ts";
 import {
@@ -9,23 +14,43 @@ import {
 } from "./proto.ts";
 
 /** Reads one length-prefixed frame. */
-async function readFrame(connection: Deno.Conn): Promise<Uint8Array> {
-  const header = new Uint8Array(4);
-  let read = 0;
-  while (read < 4) read += (await connection.read(header.subarray(read)))!;
-  const length = new DataView(header.buffer).getUint32(0);
-  const body = new Uint8Array(length);
-  read = 0;
-  while (read < length) read += (await connection.read(body.subarray(read)))!;
-  return body;
+function readFrame(socket: Socket): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    let buffered = new Uint8Array(0);
+    const onData = (chunk: Uint8Array) => {
+      const joined = new Uint8Array(buffered.length + chunk.length);
+      joined.set(buffered);
+      joined.set(chunk, buffered.length);
+      buffered = joined;
+      if (buffered.length < 4) return;
+      const length = new DataView(buffered.buffer).getUint32(0);
+      if (buffered.length < 4 + length) return;
+      socket.off("data", onData);
+      resolve(buffered.slice(4, 4 + length));
+    };
+    socket.on("data", onData);
+    socket.once("error", reject);
+  });
 }
 
-Deno.test("calls go over the IPC socket in length-prefixed frames", async () => {
-  const dir = await Deno.makeTempDir();
+/** Writes `bytes`, once the socket has taken them. */
+function write(socket: Socket, bytes: Uint8Array): Promise<void> {
+  return new Promise((resolve, reject) => {
+    socket.write(bytes, (error) => error ? reject(error) : resolve());
+  });
+}
+
+test("calls go over the IPC socket in length-prefixed frames", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "dassie-ipc-"));
   const path = `${dir}/ipc.sock`;
-  const listener = Deno.listen({ transport: "unix", path });
-  const server = (async () => {
-    const connection = await listener.accept();
+  const listener = createServer();
+  await new Promise<void>((resolve, reject) => {
+    listener.once("error", reject);
+    listener.listen(path, resolve);
+  });
+  const server = new Promise<Socket>((resolve) => {
+    listener.once("connection", resolve);
+  }).then(async (connection) => {
     const request = fromBinary(
       ClientMessageSchema,
       await readFrame(connection),
@@ -49,16 +74,16 @@ Deno.test("calls go over the IPC socket in length-prefixed frames", async () => 
     const frame = new Uint8Array(4 + reply.length);
     new DataView(frame.buffer).setUint32(0, reply.length);
     frame.set(reply, 4);
-    await connection.write(frame.subarray(0, 3));
-    await connection.write(frame.subarray(3));
-    connection.close();
-  })();
+    await write(connection, frame.subarray(0, 3));
+    await write(connection, frame.subarray(3));
+    connection.end();
+  });
   const client = new RpcClient({ url: "ipc", connect: ipcConnector(path) });
   const state = await client.call("getBasicState", {});
   assertEquals(state.nodeId, "dtest");
   assertEquals(state.state, NodeState.AUTHENTICATED);
   client.close();
   await server;
-  listener.close();
-  await Deno.remove(dir, { recursive: true });
+  await new Promise((resolve) => listener.close(resolve));
+  await rm(dir, { recursive: true, force: true });
 });

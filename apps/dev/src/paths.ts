@@ -7,7 +7,7 @@
  * @module
  */
 
-import { encodeHex } from "@std/encoding/hex";
+import process from "node:process";
 
 /** The repository's root. */
 export const ROOT: string = new URL("../../../", import.meta.url).pathname;
@@ -55,8 +55,8 @@ export async function layout(
     "SHA-256",
     new TextEncoder().encode(state),
   );
-  const tag = encodeHex(new Uint8Array(digest)).slice(0, 12);
-  const runtime = Deno.env.get("XDG_RUNTIME_DIR") ?? "/tmp";
+  const tag = new Uint8Array(digest).toHex().slice(0, 12);
+  const runtime = process.env.XDG_RUNTIME_DIR ?? "/tmp";
   return {
     state,
     tls: `${state}/tls`,

@@ -71,7 +71,7 @@ let
     dontFixup = true;
     outputHashMode = "recursive";
     outputHashAlgo = "sha256";
-    outputHash = "sha256-Nxa9zbIEkI5YYvExq0oLjtQ0GYyFkLLB41XFfvdgy0Y=";
+    outputHash = "sha256-apxKcAVAHL5kA1BwIc9/NhUUtJP7kAukJEggj8IAi3k=";
   };
 
   # The wallet, as `deno task build:wallet` builds it, offline.
@@ -96,7 +96,7 @@ let
       cp -r ${denoDeps}/node_modules ${denoDeps}/vendor .
       chmod -R u+w node_modules vendor
       mkdir -p packages/identity-wasm/gen
-      cp -r ${identity-wasm}/deno ${identity-wasm}/web packages/identity-wasm/gen/
+      cp -r ${identity-wasm}/web packages/identity-wasm/gen/
       jq '.vendor = true' deno.json > deno.json.vendored
       mv deno.json.vendored deno.json
       cd apps/wallet

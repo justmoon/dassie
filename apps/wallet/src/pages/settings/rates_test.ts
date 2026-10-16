@@ -1,3 +1,4 @@
+import { test } from "node:test";
 import { assertEquals } from "@std/assert";
 import {
   ageText,
@@ -7,7 +8,7 @@ import {
   sourceName,
 } from "./rates.ts";
 
-Deno.test("a rate reads as what a dollar buys, and its age", () => {
+test("a rate reads as what a dollar buys, and its age", () => {
   assertEquals(rateText("XRP", "1.8656"), "1 USD = 1.8656 XRP");
   assertEquals(ageText(1_000n, 21_000, false), "just now");
   assertEquals(ageText(1_000n, 61_000, false), "1 minute ago");
@@ -18,7 +19,7 @@ Deno.test("a rate reads as what a dollar buys, and its age", () => {
   );
 });
 
-Deno.test("a source is named by its URL, or its kind", () => {
+test("a source is named by its URL, or its kind", () => {
   assertEquals(sourceName("kraken", ""), "Kraken");
   assertEquals(
     sourceName("coinbase", "https://localhost:10100/rates.json"),
@@ -27,7 +28,7 @@ Deno.test("a source is named by its URL, or its kind", () => {
   assertEquals(sourceName("other", ""), "other");
 });
 
-Deno.test("fees and spreads are percentages up to 10", () => {
+test("fees and spreads are percentages up to 10", () => {
   assertEquals(parseCharge(""), 0);
   assertEquals(parseCharge("0"), 0);
   assertEquals(parseCharge("0.1"), 1_000);

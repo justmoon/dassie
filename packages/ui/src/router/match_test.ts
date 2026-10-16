@@ -1,7 +1,8 @@
+import { test } from "node:test";
 import { assertEquals } from "@std/assert";
 import { join, match, matchRoutes, within } from "./match.ts";
 
-Deno.test("literal and parameter segments", () => {
+test("literal and parameter segments", () => {
   assertEquals(match("/ledgers", "/ledgers"), {});
   assertEquals(match("/ledgers", "/ledgers/"), {});
   assertEquals(match("/ledgers", "/ledger"), undefined);
@@ -13,12 +14,12 @@ Deno.test("literal and parameter segments", () => {
   assertEquals(match("/", "/"), {});
 });
 
-Deno.test("parameters are decoded, and bad encodings do not match", () => {
+test("parameters are decoded, and bad encodings do not match", () => {
   assertEquals(match("/x/:id", "/x/stub%2Busd"), { id: "stub+usd" });
   assertEquals(match("/x/:id", "/x/%E0%A4%A"), undefined);
 });
 
-Deno.test("a rest parameter takes the rest of the path", () => {
+test("a rest parameter takes the rest of the path", () => {
   const pattern = "/debug/ledger/:ledger/account/*path";
   assertEquals(
     match(pattern, "/debug/ledger/stub+usd/account/equity/owner/btp/3"),
@@ -27,7 +28,7 @@ Deno.test("a rest parameter takes the rest of the path", () => {
   assertEquals(match("/a/*rest", "/a"), { rest: "" });
 });
 
-Deno.test("routes match in order", () => {
+test("routes match in order", () => {
   const routes = [
     { path: "/network/register", component: "register" },
     { path: "/network/:node", component: "node" },
@@ -41,7 +42,7 @@ Deno.test("routes match in order", () => {
   assertEquals(matchRoutes(routes, "/nowhere"), undefined);
 });
 
-Deno.test("bases", () => {
+test("bases", () => {
   assertEquals(join("", "/debug/logs"), "/debug/logs");
   assertEquals(join("/nodes/d1", "/debug/logs"), "/nodes/d1/debug/logs");
   assertEquals(join("/nodes/d1/", "/"), "/nodes/d1");

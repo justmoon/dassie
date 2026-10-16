@@ -13,7 +13,9 @@
  * form: `N: "<entropy>", // <ID>` lines become `<entropy>: <ID>`.
  */
 
-import { TextLineStream } from "@std/streams/text-line-stream";
+import { writeFile } from "node:fs/promises";
+import process from "node:process";
+import { createInterface } from "node:readline";
 import {
   derive,
   type Entry,
@@ -27,16 +29,14 @@ import {
 const path = new URL("../vanity.json", import.meta.url);
 const table = loadTable();
 
-if (Deno.args.includes("--check")) {
+if (process.argv.slice(2).includes("--check")) {
   for (const [index, entry] of table) derive(index, entry);
   console.log(`${table.size} entries, each gives its ID`);
-  Deno.exit(0);
+  process.exit(0);
 }
 
 const found: Entry[] = [];
-const lines = Deno.stdin.readable
-  .pipeThrough(new TextDecoderStream())
-  .pipeThrough(new TextLineStream());
+const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
 for await (const line of lines) {
   const entry = parseFound(line);
   if (!entry) continue;
@@ -46,5 +46,5 @@ for await (const line of lines) {
   found.push(entry);
 }
 const merged = merge(table, found);
-await Deno.writeTextFile(path, formatTable(merged));
+await writeFile(path, formatTable(merged));
 console.log(`${found.length} found, ${merged.size} entries`);

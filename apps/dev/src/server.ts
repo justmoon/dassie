@@ -11,7 +11,8 @@
  * @module
  */
 
-import { extname, join, normalize } from "@std/path";
+import { readFile } from "node:fs/promises";
+import { extname, join, normalize } from "node:path";
 import type { ControlHub } from "./control.ts";
 import { relay, wantsContract } from "./relay.ts";
 
@@ -178,7 +179,7 @@ async function serveFile(root: string, pathname: string): Promise<Response> {
   // A route of the page: its index. A missing asset: 404.
   const file = extension === "" ? "index.html" : relative;
   try {
-    const body = await Deno.readFile(join(root, file));
+    const body = await readFile(join(root, file));
     return new Response(body, {
       headers: {
         ...headers,

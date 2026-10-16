@@ -25,11 +25,19 @@
  * release workflow runs one job per distribution before it signs a release.
  */
 
+import { test, type TestContext } from "node:test";
+import { Buffer } from "node:buffer";
+import { spawn } from "node:child_process";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { constants, tmpdir } from "node:os";
+import { join } from "node:path";
+import process from "node:process";
+
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 
-const MIRROR = Deno.env.get("DASSIE_INSTALL_MIRROR");
+const MIRROR = process.env.DASSIE_INSTALL_MIRROR;
 const DISTROS =
-  (Deno.env.get("DASSIE_INSTALL_DISTROS") ?? "debian,ubuntu,fedora,centos")
+  (process.env.DASSIE_INSTALL_DISTROS ?? "debian,ubuntu,fedora,centos")
     .split(",")
     .filter((distro) => distro !== "");
 const IMAGES = new URL("./install/", import.meta.url).pathname;
@@ -62,24 +70,28 @@ interface Run {
   stderr: string;
 }
 
-async function run(
+function run(
   command: string,
   args: string[],
   env?: Record<string, string>,
 ): Promise<Run> {
-  const output = await new Deno.Command(command, {
-    args,
-    env,
-    stdout: "piped",
-    stderr: "piped",
-  })
-    .output();
-  const decoder = new TextDecoder();
-  return {
-    code: output.code,
-    stdout: decoder.decode(output.stdout),
-    stderr: decoder.decode(output.stderr),
-  };
+  const child = spawn(command, args, {
+    env: { ...process.env, ...env },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const stdout: Buffer[] = [];
+  const stderr: Buffer[] = [];
+  child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
+  child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+  return new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) =>
+      resolve({
+        code: code ?? 128 + constants.signals[signal!],
+        stdout: Buffer.concat(stdout).toString(),
+        stderr: Buffer.concat(stderr).toString(),
+      }));
+  });
 }
 
 async function must(
@@ -103,21 +115,30 @@ async function must(
  * the machines join. Nothing goes through the host's network. */
 class Mirror {
   readonly url = "https://mirror.test";
+  readonly root: string;
+  readonly ca: string;
+  readonly network: string;
+  readonly #server: string;
 
   private constructor(
-    readonly root: string,
-    readonly ca: string,
-    readonly network: string,
-    private readonly server: string,
-  ) {}
+    root: string,
+    ca: string,
+    network: string,
+    server: string,
+  ) {
+    this.root = root;
+    this.ca = ca;
+    this.network = network;
+    this.#server = server;
+  }
 
   static async start(built: string): Promise<Mirror> {
-    const work = await Deno.makeTempDir({ prefix: "dassie-install-" });
+    const work = await mkdtemp(join(tmpdir(), "dassie-install-"));
     const root = `${work}/www`;
     await must("cp", ["-rL", "--no-preserve=mode", built, root]);
     const caroot = `${work}/ca`;
-    await Deno.mkdir(caroot);
-    await Deno.mkdir(`${work}/certs`);
+    await mkdir(caroot);
+    await mkdir(`${work}/certs`);
     await must("mkcert", [
       "-cert-file",
       `${work}/certs/cert.pem`,
@@ -125,7 +146,7 @@ class Mirror {
       `${work}/certs/key.pem`,
       "mirror.test",
     ], { CAROOT: caroot });
-    await Deno.writeTextFile(
+    await writeFile(
       `${work}/Caddyfile`,
       "{\n  admin off\n  auto_https disable_redirects\n}\n" +
         "https://mirror.test {\n  tls /certs/cert.pem /certs/key.pem\n" +
@@ -153,8 +174,8 @@ class Mirror {
 
   /** Names `version` the newest on `latest`. */
   async offer(version: string): Promise<void> {
-    await Deno.mkdir(`${this.root}/meta`, { recursive: true });
-    await Deno.writeTextFile(`${this.root}/meta/latest`, version);
+    await mkdir(`${this.root}/meta`, { recursive: true });
+    await writeFile(`${this.root}/meta/latest`, version);
   }
 
   /** Runs `test` with a file of the mirror replaced, then puts it back. */
@@ -163,21 +184,22 @@ class Mirror {
     content: Uint8Array,
     test: () => Promise<T>,
   ): Promise<T> {
-    const original = await Deno.readFile(`${this.root}/${path}`);
-    await Deno.writeFile(`${this.root}/${path}`, content);
+    const original = await readFile(`${this.root}/${path}`);
+    await writeFile(`${this.root}/${path}`, content);
     try {
       return await test();
     } finally {
-      await Deno.writeFile(`${this.root}/${path}`, original);
+      await writeFile(`${this.root}/${path}`, original);
     }
   }
 
-  file(path: string): Promise<Uint8Array> {
-    return Deno.readFile(`${this.root}/${path}`);
+  async file(path: string): Promise<Uint8Array> {
+    // A copy, not a Buffer: a Buffer's slice() shares its bytes.
+    return new Uint8Array(await readFile(`${this.root}/${path}`));
   }
 
   async stop(): Promise<void> {
-    await run("docker", ["rm", "-f", this.server]);
+    await run("docker", ["rm", "-f", this.#server]);
     await run("docker", ["network", "rm", this.network]);
   }
 }
@@ -185,7 +207,13 @@ class Mirror {
 /** A distribution in a container, with systemd up and the mirror's CA
  * trusted. */
 class Machine {
-  private constructor(readonly distro: string, readonly id: string) {}
+  readonly distro: string;
+  readonly id: string;
+
+  private constructor(distro: string, id: string) {
+    this.distro = distro;
+    this.id = id;
+  }
 
   static async boot(distro: string, mirror: Mirror): Promise<Machine> {
     const image = `dassie-install-test-${distro}`;
@@ -314,26 +342,22 @@ async function update(machine: Machine): Promise<Run> {
 }
 
 for (const distro of DISTROS) {
-  Deno.test({
-    name: `install, update and uninstall on ${distro}`,
-    ignore: MIRROR === undefined,
-    sanitizeOps: false,
-    sanitizeResources: false,
-    async fn(t) {
-      const mirror = await Mirror.start(MIRROR!);
-      let machine: Machine | undefined;
-      try {
-        machine = await Machine.boot(distro, mirror);
-        await steps(t, machine, mirror);
-      } finally {
-        await machine?.stop();
-        await mirror.stop();
-      }
-    },
+  test(`install, update and uninstall on ${distro}`, {
+    skip: MIRROR === undefined,
+  }, async (t) => {
+    const mirror = await Mirror.start(MIRROR!);
+    let machine: Machine | undefined;
+    try {
+      machine = await Machine.boot(distro, mirror);
+      await steps(t, machine, mirror);
+    } finally {
+      await machine?.stop();
+      await mirror.stop();
+    }
   });
 }
 
-async function steps(t: Deno.TestContext, machine: Machine, mirror: Mirror) {
+async function steps(t: TestContext, machine: Machine, mirror: Mirror) {
   await mirror.offer("1.0.0");
   // The installer takes xz where there is xz, else gzip; tamper with both.
   const bundles = [
@@ -341,7 +365,7 @@ async function steps(t: Deno.TestContext, machine: Machine, mirror: Mirror) {
     "dassie-1.0.0-linux-x64.tar.gz",
   ];
 
-  await t.step("the installer refuses a tampered bundle", async () => {
+  await t.test("the installer refuses a tampered bundle", async () => {
     const [xz, gz] = await Promise.all(
       bundles.map((name) => mirror.file(`1.0.0/${name}`)),
     );
@@ -360,7 +384,7 @@ async function steps(t: Deno.TestContext, machine: Machine, mirror: Mirror) {
     assertEquals((await machine.sh("test -e /opt/dassie")).code, 1);
   });
 
-  await t.step(
+  await t.test(
     "the installer refuses sums that are not what was signed",
     async () => {
       const sums = new TextDecoder().decode(
@@ -378,7 +402,7 @@ async function steps(t: Deno.TestContext, machine: Machine, mirror: Mirror) {
     },
   );
 
-  await t.step(
+  await t.test(
     "the installer refuses sums signed for another version",
     async () => {
       const [sums, signature] = await Promise.all(
@@ -403,7 +427,7 @@ async function steps(t: Deno.TestContext, machine: Machine, mirror: Mirror) {
     },
   );
 
-  await t.step("the installer installs 1.0.0, and the node runs", async () => {
+  await t.test("the installer installs 1.0.0, and the node runs", async () => {
     const result = await machine.installer(mirror);
     assertEquals(result.code, 0, `${result.stdout}${result.stderr}`);
     assertStringIncludes(result.stdout, "Dassie 1.0.0 is installed");
@@ -432,7 +456,7 @@ async function steps(t: Deno.TestContext, machine: Machine, mirror: Mirror) {
   const before = await node(machine);
   await mirror.offer("1.0.1");
 
-  await t.step(
+  await t.test(
     "the updater refuses a tampered bundle, and the node runs on",
     async () => {
       const name = "1.0.1/dassie-1.0.1-linux-x64.tar.gz";
@@ -447,7 +471,7 @@ async function steps(t: Deno.TestContext, machine: Machine, mirror: Mirror) {
     },
   );
 
-  await t.step("the updater refuses the sums of another version", async () => {
+  await t.test("the updater refuses the sums of another version", async () => {
     const [sums, signature] = await Promise.all(
       ["1.0.0/SHA256SUMS", "1.0.0/SHA256SUMS.minisig"].map((path) =>
         mirror.file(path)
@@ -468,7 +492,7 @@ async function steps(t: Deno.TestContext, machine: Machine, mirror: Mirror) {
     assertEquals(await node(machine), before);
   });
 
-  await t.step(
+  await t.test(
     "the updater installs 1.0.1, restarts the node, and keeps its data",
     async () => {
       const database = await machine.must(
@@ -506,7 +530,7 @@ async function steps(t: Deno.TestContext, machine: Machine, mirror: Mirror) {
     },
   );
 
-  await t.step(
+  await t.test(
     "the installer does not go back to what the mirror offers",
     async () => {
       await mirror.offer("1.0.0");
@@ -517,7 +541,7 @@ async function steps(t: Deno.TestContext, machine: Machine, mirror: Mirror) {
     },
   );
 
-  await t.step("the installer uninstalls it", async () => {
+  await t.test("the installer uninstalls it", async () => {
     const result = await machine.installer(mirror, "uninstall");
     assertEquals(result.code, 0, `${result.stdout}${result.stderr}`);
     assertEquals(

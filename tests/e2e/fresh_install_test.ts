@@ -6,6 +6,12 @@
 // the directory URL and the root differ. The daemon runs as systemd would
 // run it, socket-activated, with a fresh state directory.
 
+import { test } from "node:test";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { connect } from "node:tls";
+
 import { assert, assertEquals, assertMatch } from "@std/assert";
 import {
   deriveNodeKey,
@@ -23,6 +29,7 @@ import {
   PEBBLE_API_ROOT,
   PEBBLE_DIRECTORY,
   Process,
+  run,
   startActivated,
   startBrowser,
   startPebble,
@@ -38,21 +45,26 @@ function expectedNodeId(phrase: string): string {
 
 /** The certificate Pebble issues chains to the root Pebble generated. */
 async function assertServedByPebble(): Promise<void> {
-  const apiRoot = await Deno.readTextFile(PEBBLE_API_ROOT);
+  const apiRoot = await readFile(PEBBLE_API_ROOT, "utf8");
   const client = Deno.createHttpClient({ caCerts: [apiRoot] });
   const response = await fetch("https://localhost:15000/roots/0", { client });
   const issuingRoot = await response.text();
   client.close();
-  const connection = await Deno.connect({
-    hostname: "127.0.0.1",
+  // Checked against that root only, and for the name dassie.test.
+  const tls = connect({
+    host: "127.0.0.1",
     port: HTTPS_PORT,
+    servername: "dassie.test",
+    ca: [issuingRoot],
   });
-  const tls = await Deno.startTls(connection, {
-    hostname: "dassie.test",
-    caCerts: [issuingRoot],
-  });
-  await tls.handshake();
-  tls.close();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      tls.once("secureConnect", resolve);
+      tls.once("error", reject);
+    });
+  } finally {
+    tls.destroy();
+  }
 }
 
 /** Generates a wallet in the setup wizard; returns its phrase. */
@@ -82,21 +94,17 @@ async function stopAll(processes: Process[]): Promise<void> {
   }
 }
 
-Deno.test({
-  name:
-    "a fresh install reaches setup complete with a certificate from the ACME CA",
-  ignore: missing !== undefined,
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
-    const verify = await new Deno.Command(DASSIE, { args: ["verify-install"] })
-      .output();
+test(
+  "a fresh install reaches setup complete with a certificate from the ACME CA",
+  { skip: missing !== undefined },
+  async () => {
+    const verify = await run(DASSIE, ["verify-install"]);
     assert(
-      verify.success,
+      verify.code === 0,
       "the binary must carry the wallet: deno task build:e2e",
     );
 
-    const dir = await Deno.makeTempDir({ prefix: "dassie-e2e-" });
+    const dir = await mkdtemp(join(tmpdir(), "dassie-e2e-"));
     const processes = await startPebble();
     let daemon = await startActivated(dir);
     processes.push(daemon);
@@ -153,10 +161,10 @@ Deno.test({
     } finally {
       await browser.close();
       await stopAll(processes);
-      await Deno.remove(dir, { recursive: true });
+      await rm(dir, { recursive: true, force: true });
     }
   },
-});
+);
 
 async function restart(
   processes: Process[],
@@ -171,14 +179,11 @@ async function restart(
   return started;
 }
 
-Deno.test({
-  name:
-    "the standalone runtime with its self-signed certificate, recovering a wallet",
-  ignore: missing !== undefined,
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
-    const dir = await Deno.makeTempDir({ prefix: "dassie-e2e-" });
+test(
+  "the standalone runtime with its self-signed certificate, recovering a wallet",
+  { skip: missing !== undefined },
+  async () => {
+    const dir = await mkdtemp(join(tmpdir(), "dassie-e2e-"));
     const daemon = new Process("dassie", DASSIE, [
       "daemon",
       "--http-port",
@@ -223,7 +228,7 @@ Deno.test({
     } finally {
       await browser.close();
       await stopAll([daemon]);
-      await Deno.remove(dir, { recursive: true });
+      await rm(dir, { recursive: true, force: true });
     }
   },
-});
+);

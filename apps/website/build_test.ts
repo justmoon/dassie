@@ -11,20 +11,23 @@
 //
 // The checks of the pages run only once `deno task build:website` has run.
 
+import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
+import { execFile, spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import process from "node:process";
 import { exists, scripts } from "@dassie/ui/testing/csp";
 import { PAGES } from "./src/layout.ts";
 
 const dist = new URL("dist", import.meta.url).pathname;
 const built = await exists(`${dist}/index.html`);
 
-Deno.test({
-  name:
-    "the pages have no inline script or style, and load nothing from elsewhere",
-  ignore: !built,
-  async fn() {
+test(
+  "the pages have no inline script or style, and load nothing from elsewhere",
+  { skip: !built },
+  async () => {
     for (const { path } of PAGES) {
-      const html = await Deno.readTextFile(`${dist}${path}index.html`);
+      const html = await readFile(`${dist}${path}index.html`, "utf8");
       assert(
         !/<script(?![^>]*\bsrc=)[^>]*>/.test(html),
         `${path}: inline script`,
@@ -43,32 +46,34 @@ Deno.test({
       }
     }
   },
-});
+);
 
-Deno.test({
-  name: "every page has the header and footer, and only one current page",
-  ignore: !built,
-  async fn() {
+test(
+  "every page has the header and footer, and only one current page",
+  { skip: !built },
+  async () => {
     for (const { path } of PAGES) {
-      const html = await Deno.readTextFile(`${dist}${path}index.html`);
+      const html = await readFile(`${dist}${path}index.html`, "utf8");
       assert(html.includes('<header class="site-header">'), path);
       assert(html.includes('<footer class="site-footer">'), path);
       assert(!html.includes("<!-- header -->"), path);
       assertEquals(html.match(/aria-current="page"/g)?.length, 1, path);
     }
   },
-});
+);
 
-Deno.test("vercel-build.sh installs the flake's Deno and Cargo.lock's wasm-bindgen", async () => {
-  const script = await Deno.readTextFile(
+test("vercel-build.sh installs the flake's Deno and Cargo.lock's wasm-bindgen", async () => {
+  const script = await readFile(
     new URL("vercel-build.sh", import.meta.url),
+    "utf8",
   );
   const pin = (name: string) =>
     script.match(new RegExp(`^${name}=(\\S+)$`, "m"))?.[1];
   // CI runs in the flake's shell, so its Deno is the flake's.
   assertEquals(pin("DENO_VERSION"), Deno.version.deno);
-  const lock = await Deno.readTextFile(
+  const lock = await readFile(
     new URL("../../Cargo.lock", import.meta.url),
+    "utf8",
   );
   const bindgen = lock.match(/name = "wasm-bindgen"\nversion = "([^"]+)"/)?.[1];
   assertEquals(pin("WASM_BINDGEN_VERSION"), bindgen);
@@ -80,16 +85,30 @@ Deno.test("vercel-build.sh installs the flake's Deno and Cargo.lock's wasm-bindg
 const root = new URL("../../", import.meta.url).pathname;
 
 /** What `command` prints, run at the repository's root. */
-async function output(command: string, args: string[]): Promise<string> {
-  const result = await new Deno.Command(command, { args, cwd: root }).output();
-  assert(result.success, `${command} ${args.join(" ")} failed`);
-  return new TextDecoder().decode(result.stdout);
+function output(command: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      command,
+      args,
+      { cwd: root, maxBuffer: 64 * 1024 * 1024 },
+      (error, stdout) => {
+        if (error) {
+          reject(
+            new Error(`${command} ${args.join(" ")} failed`, {
+              cause: error,
+            }),
+          );
+        } else resolve(stdout);
+      },
+    );
+  });
 }
 
 /** The paths vercel-ignore.sh watches. */
 async function watched(): Promise<string[]> {
-  const script = await Deno.readTextFile(
+  const script = await readFile(
     new URL("vercel-ignore.sh", import.meta.url),
+    "utf8",
   );
   const list = script.slice(script.indexOf("HEAD -- \\"));
   return [...list.matchAll(/^ {2}(\S+)(?: \\)?$/gm)].map((match) => match[1]);
@@ -97,7 +116,7 @@ async function watched(): Promise<string[]> {
 
 /** The workspace crates the WASM modules are built from. */
 async function wasmCrates(): Promise<Set<string>> {
-  const buildWasm = await Deno.readTextFile(`${root}scripts/build-wasm.ts`);
+  const buildWasm = await readFile(`${root}scripts/build-wasm.ts`, "utf8");
   const roots = JSON.parse(
     buildWasm.match(/const crates = (\[[^\]]*\]);/)![1],
   ) as string[];
@@ -141,14 +160,14 @@ async function wasmCrates(): Promise<Set<string>> {
 
 /** The workspace packages the site imports, and those they import. */
 async function sitePackages(): Promise<Set<string>> {
-  const manifest = JSON.parse(await Deno.readTextFile(`${root}deno.json`)) as {
+  const manifest = JSON.parse(await readFile(`${root}deno.json`, "utf8")) as {
     workspace: string[];
   };
   const byName = new Map<string, string>();
   for (const member of manifest.workspace) {
     const dir = member.replace(/^\.\//, "");
     const { name } = JSON.parse(
-      await Deno.readTextFile(`${root}${dir}/deno.json`),
+      await readFile(`${root}${dir}/deno.json`, "utf8"),
     ) as { name?: string };
     if (name) byName.set(name, dir);
   }
@@ -175,26 +194,28 @@ async function sitePackages(): Promise<Set<string>> {
   return packages;
 }
 
-Deno.test("vercel-ignore.sh watches every crate and package the site is built from", async () => {
+test("vercel-ignore.sh watches every crate and package the site is built from", async () => {
   const paths = await watched();
   for (const dir of [...await wasmCrates(), ...await sitePackages()]) {
     assert(paths.includes(dir), `vercel-ignore.sh does not watch ${dir}`);
   }
 });
 
-Deno.test("vercel-ignore.sh skips only when it knows nothing changed", async () => {
+test("vercel-ignore.sh skips only when it knows nothing changed", async () => {
   const site = new URL(".", import.meta.url).pathname;
   const run = async (previous?: string) => {
-    const env = { ...Deno.env.toObject() };
+    const env = { ...process.env };
     delete env.VERCEL_GIT_PREVIOUS_SHA;
     if (previous !== undefined) env.VERCEL_GIT_PREVIOUS_SHA = previous;
-    const result = await new Deno.Command("sh", {
-      args: ["vercel-ignore.sh"],
+    const child = spawn("sh", ["vercel-ignore.sh"], {
       cwd: site,
       env,
-      clearEnv: true,
-    }).output();
-    return result.code;
+      stdio: "ignore",
+    });
+    return await new Promise<number | null>((resolve, reject) => {
+      child.once("error", reject);
+      child.once("close", resolve);
+    });
   };
   // Skips: nothing can have changed since the commit itself.
   assertEquals(

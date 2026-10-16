@@ -1,3 +1,4 @@
+import { test } from "node:test";
 import { assertEquals } from "@std/assert";
 import { create } from "@bufbuild/protobuf";
 import { TransferSchema, TransferState } from "@dassie/rpc/proto";
@@ -14,7 +15,7 @@ const transfer = (
   debit: number,
   credit: number,
   amount: bigint,
-  state = TransferState.POSTED,
+  state: TransferState = TransferState.POSTED,
 ) =>
   create(TransferSchema, {
     id,
@@ -26,7 +27,7 @@ const transfer = (
     creditPath: `a${credit}`,
   });
 
-Deno.test("paths and their links", () => {
+test("paths and their links", () => {
   assertEquals(splitPath("stub+usd:equity/owner/btp/3"), {
     ledger: "stub+usd",
     account: "equity/owner/btp/3",
@@ -38,7 +39,7 @@ Deno.test("paths and their links", () => {
   );
 });
 
-Deno.test("each transfer shows the posted balance after it", () => {
+test("each transfer shows the posted balance after it", () => {
   // Account 1 got 100, paid 30, has 5 pending out and 7 voided.
   const rows = accountRows(
     [
@@ -62,7 +63,7 @@ Deno.test("each transfer shows the posted balance after it", () => {
   );
 });
 
-Deno.test("a settlement's row replaces itself when it is resolved", () => {
+test("a settlement's row replaces itself when it is resolved", () => {
   const pending = transfer(5n, 1, 2, 9n, TransferState.PENDING);
   const posted = transfer(5n, 1, 2, 9n, TransferState.POSTED);
   const merged = mergeTransfers(

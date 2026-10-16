@@ -7,6 +7,7 @@
  * @module
  */
 
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { create } from "@bufbuild/protobuf";
 import {
   type Build,
@@ -25,7 +26,7 @@ import {
   type State,
   StateSchema,
 } from "@dassie/rpc/dev";
-import { LogLevel } from "@dassie/rpc/proto";
+import { LogLevel, LogLevelSchema } from "@dassie/rpc/proto";
 import { Collector, LogRing, shortName } from "./collect.ts";
 import { ControlHub } from "./control.ts";
 import { dataDir, type Layout } from "./paths.ts";
@@ -107,8 +108,10 @@ export class Environment {
   #stopping = false;
   /** Children other than nodes, for the PID file. */
   extraPids: () => number[] = () => [];
+  readonly options: EnvironmentOptions;
 
-  constructor(readonly options: EnvironmentOptions) {
+  constructor(options: EnvironmentOptions) {
+    this.options = options;
     this.hub = new ControlHub(
       {
         state: () => this.state(),
@@ -127,12 +130,12 @@ export class Environment {
    * must not be resumed.
    */
   async restoreScenario(override?: string): Promise<boolean> {
-    const saved = await Deno.readTextFile(this.options.layout.scenarioFile)
+    const saved = await readFile(this.options.layout.scenarioFile, "utf8")
       .then((text) => text.trim(), () => undefined);
     const def = findScenario(override ?? saved ?? DEFAULT_SCENARIO);
     this.#scenarioId = def && !def.unavailable ? def.id : DEFAULT_SCENARIO;
     if (saved === this.#scenarioId) return false;
-    await Deno.writeTextFile(
+    await writeFile(
       this.options.layout.scenarioFile,
       `${this.#scenarioId}\n`,
     );
@@ -224,7 +227,8 @@ export class Environment {
     const text = message.length > MAX_HOST_MESSAGE_BYTES
       ? `${message.slice(0, MAX_HOST_MESSAGE_BYTES)}…`
       : message;
-    this.options.print(`${LogLevel[level].toLowerCase()} ${text}`);
+    const name = LogLevelSchema.value[level].localName.toLowerCase();
+    this.options.print(`${name} ${text}`);
     this.#pendingLogs.push(create(SourcedLogLineSchema, {
       source: "host",
       line: {
@@ -305,7 +309,7 @@ export class Environment {
     return this.#enqueue(`scenario ${id}`, async () => {
       this.#scenarioId = id;
       this.#added = 0;
-      await Deno.writeTextFile(this.options.layout.scenarioFile, `${id}\n`);
+      await writeFile(this.options.layout.scenarioFile, `${id}\n`);
       await this.#run(true);
     });
   }
@@ -507,7 +511,7 @@ export class Environment {
   }
 
   async #wipe(): Promise<void> {
-    await Deno.remove(this.options.layout.data, { recursive: true })
+    await rm(this.options.layout.data, { recursive: true, force: true })
       .catch(() => {});
   }
 
@@ -516,7 +520,7 @@ export class Environment {
     const def = findScenario(this.#scenarioId)!;
     for (let index = def.schemes.length; index < MAX_NODES; index++) {
       const dir = dataDir(this.options.layout, `d${index + 1}`);
-      await Deno.remove(dir, { recursive: true }).catch(() => {});
+      await rm(dir, { recursive: true, force: true }).catch(() => {});
     }
   }
 

@@ -1,7 +1,8 @@
+import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
 import { ChildProcess, MAX_LINE_BYTES, TAIL_LINES } from "./process.ts";
 
-Deno.test("output comes line by line, and only the tail is kept", async () => {
+test("output comes line by line, and only the tail is kept", async () => {
   const seen: string[] = [];
   const child = new ChildProcess("sh", "sh", {
     args: ["-c", `for i in $(seq 1 ${TAIL_LINES + 50}); do echo $i; done`],
@@ -15,7 +16,7 @@ Deno.test("output comes line by line, and only the tail is kept", async () => {
   assertEquals(tail.at(-1), `${TAIL_LINES + 50}`);
 });
 
-Deno.test("a long line is cut", async () => {
+test("a long line is cut", async () => {
   const child = new ChildProcess("sh", "sh", {
     args: ["-c", `head -c ${MAX_LINE_BYTES * 2} /dev/zero | tr '\\0' x`],
   });
@@ -23,7 +24,7 @@ Deno.test("a long line is cut", async () => {
   assertEquals(output.length, MAX_LINE_BYTES + 1);
 });
 
-Deno.test("a process that ignores SIGTERM is killed", async () => {
+test("a process that ignores SIGTERM is killed", async () => {
   const child = new ChildProcess("stubborn", "sh", {
     args: ["-c", "trap '' TERM; echo ready; sleep 30"],
   });

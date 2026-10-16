@@ -12,7 +12,11 @@
  * @module
  */
 
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { exists } from "./fs.ts";
+import { type Output, run } from "./process.ts";
 
 /** A certificate chain and its key, as PEM. */
 export interface Certificate {
@@ -23,15 +27,11 @@ export interface Certificate {
 }
 
 async function mkcert(args: string[], caRoot?: string): Promise<string> {
-  let output: Deno.CommandOutput;
+  let output: Output;
   try {
-    output = await new Deno.Command("mkcert", {
-      args,
+    output = await run("mkcert", args, {
       env: caRoot ? { CAROOT: caRoot } : undefined,
-      stdin: "null",
-      stdout: "piped",
-      stderr: "piped",
-    }).output();
+    });
   } catch (error) {
     throw new Error(`cannot run mkcert: ${error}`);
   }
@@ -55,12 +55,12 @@ export function caRoot(root?: string): Promise<string> {
  * after `CAROOT` changed, or the CA was made anew.
  */
 export async function caFile(dir: string, root?: string): Promise<string> {
-  if (root) await Deno.mkdir(root, { recursive: true });
+  if (root) await mkdir(root, { recursive: true });
   const file = `${await caRoot(root)}/rootCA.pem`;
   if (!(await exists(file))) {
     // mkcert makes its CA with the first certificate; this one is thrown
     // away.
-    const scratch = await Deno.makeTempDir({ prefix: "dassie-dev-ca-" });
+    const scratch = await mkdtemp(join(tmpdir(), "dassie-dev-ca-"));
     try {
       await mkcert([
         "-cert-file",
@@ -70,16 +70,16 @@ export async function caFile(dir: string, root?: string): Promise<string> {
         "localhost",
       ], root);
     } finally {
-      await Deno.remove(scratch, { recursive: true });
+      await rm(scratch, { recursive: true, force: true });
     }
   }
-  const ca = await Deno.readTextFile(file);
+  const ca = await readFile(file, "utf8");
   const seen = `${dir}/ca.pem`;
-  const known = await Deno.readTextFile(seen).catch(() => undefined);
+  const known = await readFile(seen, "utf8").catch(() => undefined);
   if (known !== ca) {
-    await Deno.remove(dir, { recursive: true }).catch(() => {});
-    await Deno.mkdir(dir, { recursive: true });
-    await Deno.writeTextFile(seen, ca);
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+    await mkdir(dir, { recursive: true });
+    await writeFile(seen, ca);
   }
   return file;
 }
@@ -97,9 +97,9 @@ export async function certificate(
   const certificateFile = `${dir}/${name}.pem`;
   const keyFile = `${dir}/${name}-key.pem`;
   if (!(await exists(certificateFile)) || !(await exists(keyFile))) {
-    await Deno.mkdir(dir, { recursive: true });
-    await Deno.remove(certificateFile).catch(() => {});
-    await Deno.remove(keyFile).catch(() => {});
+    await mkdir(dir, { recursive: true });
+    await rm(certificateFile).catch(() => {});
+    await rm(keyFile).catch(() => {});
     await mkcert([
       "-ecdsa",
       "-cert-file",
@@ -110,8 +110,8 @@ export async function certificate(
     ], root);
   }
   return {
-    certificatePem: await Deno.readTextFile(certificateFile),
-    keyPem: await Deno.readTextFile(keyFile),
+    certificatePem: await readFile(certificateFile, "utf8"),
+    keyPem: await readFile(keyFile, "utf8"),
     certificateFile,
     keyFile,
   };

@@ -7,8 +7,10 @@
  * @module
  */
 
-import { TextLineStream } from "@std/streams";
+import { spawn } from "node:child_process";
+import { createInterface } from "node:readline";
 import { ROOT } from "./paths.ts";
+import { run } from "./process.ts";
 
 /** The binary `cargo build --example fake_ledger` makes, by profile. */
 export function fakeLedgerBinary(profile: "debug" | "e2e" = "debug"): string {
@@ -44,21 +46,16 @@ export function xrplConfig(ledger: Pick<FakeLedger, "url" | "faucet">): string {
 
 /** Builds the fake ledger, in the dev profile. */
 export async function buildFakeLedger(): Promise<void> {
-  const { success, stderr } = await new Deno.Command("cargo", {
-    args: [
-      "build",
-      "--locked",
-      "-p",
-      "dassie-node",
-      "--features",
-      "testing",
-      "--example",
-      "fake_ledger",
-    ],
-    cwd: ROOT,
-    stdout: "null",
-    stderr: "piped",
-  }).output();
+  const { success, stderr } = await run("cargo", [
+    "build",
+    "--locked",
+    "-p",
+    "dassie-node",
+    "--features",
+    "testing",
+    "--example",
+    "fake_ledger",
+  ], { cwd: ROOT });
   if (!success) {
     throw new Error(
       `the fake ledger did not build:\n${new TextDecoder().decode(stderr)}`,
@@ -80,55 +77,56 @@ export async function startFakeLedger(
   closeMs = 1_000,
 ): Promise<FakeLedger> {
   const port = FAKE_LEDGER_PORT + portOffset;
-  const child = new Deno.Command(binary, {
-    args: [
-      "--listen",
-      `127.0.0.1:${port}`,
-      "--faucet-listen",
-      `127.0.0.1:${port + 1}`,
-      "--cert",
-      certificate.certificateFile,
-      "--key",
-      certificate.keyFile,
-      "--close-ms",
-      `${closeMs}`,
-    ],
-    stdin: "piped",
-    stdout: "piped",
-    stderr: "inherit",
-  }).spawn();
-  const lines = child.stdout
-    .pipeThrough(new TextDecoderStream())
-    .pipeThrough(new TextLineStream())
-    .getReader();
+  const child = spawn(binary, [
+    "--listen",
+    `127.0.0.1:${port}`,
+    "--faucet-listen",
+    `127.0.0.1:${port + 1}`,
+    "--cert",
+    certificate.certificateFile,
+    "--key",
+    certificate.keyFile,
+    "--close-ms",
+    `${closeMs}`,
+  ], { stdio: ["pipe", "pipe", "inherit"] });
+  // A binary that cannot start has no PID, and errs only later.
+  child.on("error", () => {});
+  if (child.pid === undefined) throw new Error(`cannot run ${binary}`);
+  const pid = child.pid;
+  const status = new Promise<void>((resolve) => {
+    child.once("close", () => resolve());
+  });
+  // It may be gone when its stdin is closed.
+  child.stdin.on("error", () => {});
+  // Its stdout is read to its end, though only its first line is used.
+  const lines = createInterface({ input: child.stdout, crlfDelay: Infinity });
   const timer = setTimeout(() => child.kill(), START_TIMEOUT_MS);
-  const first = await lines.read().finally(() => clearTimeout(timer));
-  if (first.done) {
-    await child.status;
+  const first = await new Promise<string | undefined>((resolve) => {
+    lines.once("line", resolve);
+    lines.once("close", () => resolve(undefined));
+  }).finally(() => clearTimeout(timer));
+  if (first === undefined) {
+    await status;
     throw new Error("the fake ledger did not start");
   }
-  const { url, faucet } = JSON.parse(first.value) as {
+  const { url, faucet } = JSON.parse(first) as {
     url: string;
     faucet: string | null;
   };
-  // Its stdout is not read again; let it drain.
-  void (async () => {
-    while (!(await lines.read()).done);
-  })().catch(() => {});
   return {
     url,
     faucet,
-    pid: child.pid,
+    pid,
     async stop() {
       // Closing stdin stops it; a kill if it does not.
-      await child.stdin.close().catch(() => {});
-      const exited = child.status.then(() => true);
+      child.stdin.end();
+      const exited = status.then(() => true);
       const late = new Promise<boolean>((resolve) =>
         setTimeout(() => resolve(false), 5_000)
       );
       if (!(await Promise.race([exited, late]))) {
         child.kill();
-        await child.status;
+        await status;
       }
     },
   };

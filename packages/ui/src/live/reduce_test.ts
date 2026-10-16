@@ -1,3 +1,4 @@
+import { test } from "node:test";
 import { assertEquals } from "@std/assert";
 import { applyTableEvent, emptyKeyed, pushRing } from "./reduce.ts";
 
@@ -8,7 +9,7 @@ interface Node {
 
 const key = (node: Node) => node.id;
 
-Deno.test("a snapshot, then upserts and removals", () => {
+test("a snapshot, then upserts and removals", () => {
   const table = emptyKeyed<Node>();
   applyTableEvent(table, {
     reset: true,
@@ -26,7 +27,7 @@ Deno.test("a snapshot, then upserts and removals", () => {
 
 // A new subscription's snapshot drops what left while the stream was
 // down.
-Deno.test("a new snapshot replaces what was held", () => {
+test("a new snapshot replaces what was held", () => {
   const table = emptyKeyed<Node>();
   const snapshot = (ids: string[]) =>
     applyTableEvent(table, {
@@ -39,7 +40,7 @@ Deno.test("a new snapshot replaces what was held", () => {
   assertEquals(Object.keys(table.byId).sort(), ["b", "c"]);
 });
 
-Deno.test("a ring keeps its newest entries", () => {
+test("a ring keeps its newest entries", () => {
   const ring = [1, 2, 3];
   assertEquals(pushRing(ring, [4, 5], 4), 1);
   assertEquals(ring, [2, 3, 4, 5]);

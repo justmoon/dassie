@@ -9,9 +9,11 @@
  * client validates every response against the Open Payments specs.
  */
 
+import { test } from "node:test";
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import { Buffer } from "node:buffer";
 import { generateKeyPairSync } from "node:crypto";
+import { readFile } from "node:fs/promises";
 // @ts-types="./types/ilp-plugin-btp.d.ts"
 import BtpPlugin from "ilp-plugin-btp";
 // @ts-types="./types/ws.d.ts"
@@ -92,7 +94,7 @@ async function pay(
   destination: string,
   secret: string,
 ) {
-  const ca = await Deno.readTextFile(scenario.caFile);
+  const ca = await readFile(scenario.caFile, "utf8");
   const plugin = new BtpPlugin({ server: url }, {
     WebSocket: class extends WebSocket {
       constructor(target: string) {
@@ -116,17 +118,14 @@ async function pay(
   }
 }
 
-Deno.test({
-  name: "the reference client gets paid into an incoming payment",
-  ignore: missing !== undefined,
-  sanitizeOps: false,
-  sanitizeResources: false,
+test("the reference client gets paid into an incoming payment", {
+  skip: missing !== undefined,
 }, async () => {
   const scenario = await Scenario.temporary("one-node", {
     dassie: DASSIE,
     portOffset: PORT_OFFSET,
   });
-  const restore = trustFetch(await Deno.readTextFile(scenario.caFile));
+  const restore = trustFetch(await readFile(scenario.caFile, "utf8"));
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
   const jwk = {
     ...publicKey.export({ format: "jwk" }),

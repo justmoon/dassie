@@ -1,7 +1,8 @@
+import { test } from "node:test";
 import { assertEquals } from "@std/assert";
 import { refusal } from "./server.ts";
 
-Deno.test("only the dashboard's own page reaches the owner's side", () => {
+test("only the dashboard's own page reaches the owner's side", () => {
   assertEquals(
     refusal("localhost:10100", "https://localhost:10100"),
     undefined,

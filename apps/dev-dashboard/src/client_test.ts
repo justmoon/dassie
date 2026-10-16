@@ -1,3 +1,4 @@
+import { test } from "node:test";
 import { assertEquals } from "@std/assert";
 import { FakeTime } from "@std/testing/time";
 import { create } from "@bufbuild/protobuf";
@@ -31,7 +32,7 @@ class FakeSocket implements SocketLike {
   }
 }
 
-Deno.test("the client reconnects with a growing backoff, and starts over once open", () => {
+test("the client reconnects with a growing backoff, and starts over once open", () => {
   using time = new FakeTime();
   const sockets: FakeSocket[] = [];
   const statuses: ConnectionStatus[] = [];
@@ -68,7 +69,7 @@ Deno.test("the client reconnects with a growing backoff, and starts over once op
   assertEquals(sockets.length, 4);
 });
 
-Deno.test("messages arrive decoded, and commands go out only when open", () => {
+test("messages arrive decoded, and commands go out only when open", () => {
   const socket = new FakeSocket();
   const received: string[] = [];
   const client = new DevClient({

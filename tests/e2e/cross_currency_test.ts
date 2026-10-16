@@ -10,6 +10,7 @@
  * each one's ledger; after all three restart, the books are as they were.
  */
 
+import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
 import { LedgerConnection, type SendQuote } from "@dassie/rpc/proto";
 
@@ -124,118 +125,114 @@ async function books(scenario: Scenario) {
   return out;
 }
 
-Deno.test({
-  name: "cross-currency pays across assets, and reconciles across restarts",
-  ignore: missing !== undefined,
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    const scenario = await Scenario.temporary("cross-currency", {
-      dassie: DASSIE,
-      fakeLedger: FAKE_LEDGER,
-      portOffset: PORT_OFFSET,
+test("cross-currency pays across assets, and reconciles across restarts", {
+  skip: missing !== undefined,
+}, async () => {
+  const scenario = await Scenario.temporary("cross-currency", {
+    dassie: DASSIE,
+    fakeLedger: FAKE_LEDGER,
+    portOffset: PORT_OFFSET,
+  });
+  try {
+    const [d1, d2, d3] = scenario.nodes;
+    await scenario.until("funded", () => ready(scenario), 120_000);
+    await d2.rpc.call("setPeerSettings", {
+      settings: {
+        graceSharePpm: 750_000,
+        connectorFeePpm: FEE_PPM,
+        fxSpreadPpm: SPREAD_PPM,
+      },
     });
-    try {
-      const [d1, d2, d3] = scenario.nodes;
-      await scenario.until("funded", () => ready(scenario), 120_000);
-      await d2.rpc.call("setPeerSettings", {
-        settings: {
-          graceSharePpm: 750_000,
-          connectorFeePpm: FEE_PPM,
-          fxSpreadPpm: SPREAD_PPM,
-        },
-      });
 
-      // d1 quotes 4 XRP to d3, once d3 is routed to.
-      const pointer = `$${d3.hostname}:${d3.httpsPort}`;
-      const quoted: { value?: SendQuote } = {};
-      await scenario.until("d1 quotes d3", async () => {
-        try {
-          quoted.value = (await d1.rpc.call("quoteSend", {
-            recipient: pointer,
-            ledger: "",
-            amount: { case: "receiveAmount", value: RECEIVE },
-            note: "e2e across",
-          })).quote;
-          return true;
-        } catch {
-          return false;
-        }
-      }, 120_000);
-      const quote = quoted.value;
-      assert(quote);
-      assertEquals(quote.ledger, USD);
-      assertEquals(quote.receiveAmount?.assetCode, "XRP");
-      assertEquals(quote.receiveAmount?.value, RECEIVE);
-      // 2 XRP a dollar, less d2's 1% and 0.5%, and STREAM's 1%: a little
-      // over 2.05 dollars.
-      assert(
-        quote.debitAmount > 2_050_000_000n &&
-          quote.debitAmount < 2_060_000_000n,
-        `${quote.debitAmount}`,
-      );
+    // d1 quotes 4 XRP to d3, once d3 is routed to.
+    const pointer = `$${d3.hostname}:${d3.httpsPort}`;
+    const quoted: { value?: SendQuote } = {};
+    await scenario.until("d1 quotes d3", async () => {
+      try {
+        quoted.value = (await d1.rpc.call("quoteSend", {
+          recipient: pointer,
+          ledger: "",
+          amount: { case: "receiveAmount", value: RECEIVE },
+          note: "e2e across",
+        })).quote;
+        return true;
+      } catch {
+        return false;
+      }
+    }, 120_000);
+    const quote = quoted.value;
+    assert(quote);
+    assertEquals(quote.ledger, USD);
+    assertEquals(quote.receiveAmount?.assetCode, "XRP");
+    assertEquals(quote.receiveAmount?.value, RECEIVE);
+    // 2 XRP a dollar, less d2's 1% and 0.5%, and STREAM's 1%: a little
+    // over 2.05 dollars.
+    assert(
+      quote.debitAmount > 2_050_000_000n &&
+        quote.debitAmount < 2_060_000_000n,
+      `${quote.debitAmount}`,
+    );
 
-      const usdBefore = (await ledger(d1, USD))!.ownerBalance;
-      const feesBefore = await balance(d2, `${USD}:revenue/fees`);
-      const { payment } = await d1.rpc.call("sendPayment", {
-        quoteId: quote.id,
-      });
-      assert(payment);
-      await scenario.until("the payment completes", async () => {
-        const { payments } = await d1.rpc.call("listOutgoingPayments", {});
-        const found = payments.find((entry) => entry.id === payment.id);
-        assert(found?.state !== "failed", found?.failure);
-        return found?.state === "completed";
-      }, 240_000);
+    const usdBefore = (await ledger(d1, USD))!.ownerBalance;
+    const feesBefore = await balance(d2, `${USD}:revenue/fees`);
+    const { payment } = await d1.rpc.call("sendPayment", {
+      quoteId: quote.id,
+    });
+    assert(payment);
+    await scenario.until("the payment completes", async () => {
       const { payments } = await d1.rpc.call("listOutgoingPayments", {});
-      const sent = payments.find((entry) => entry.id === payment.id)!;
-      const { payments: received } = await d3.rpc.call(
-        "listIncomingPayments",
-        {},
-      );
-      const incoming = received.find((entry) =>
-        entry.metadataJson.includes("e2e across")
-      );
-      assert(incoming, "d3 has the payment");
-      // All of it, but what less than a dollar unit is worth: no packet
-      // can be sized to deliver that, as the hops round down.
-      assert(
-        incoming.receivedAmount >= RECEIVE - 2n,
-        `${incoming.receivedAmount}`,
-      );
-      assertEquals(incoming.assetCode, "XRP");
-      // d1 paid in dollars; d2 kept its fee in dollars.
-      assertEquals(
-        (await ledger(d1, USD))!.ownerBalance,
-        usdBefore - sent.sentAmount,
-      );
-      // 1% of what passed, less under a unit a packet, as each rounds
-      // down.
-      const fees = (await balance(d2, `${USD}:revenue/fees`)) - feesBefore;
-      const due = sent.sentAmount * BigInt(FEE_PPM) / 1_000_000n;
-      assert(
-        fees <= due && fees > due - 1_000n,
-        `fees ${fees} on ${sent.sentAmount}`,
-      );
+      const found = payments.find((entry) => entry.id === payment.id);
+      assert(found?.state !== "failed", found?.failure);
+      return found?.state === "completed";
+    }, 240_000);
+    const { payments } = await d1.rpc.call("listOutgoingPayments", {});
+    const sent = payments.find((entry) => entry.id === payment.id)!;
+    const { payments: received } = await d3.rpc.call(
+      "listIncomingPayments",
+      {},
+    );
+    const incoming = received.find((entry) =>
+      entry.metadataJson.includes("e2e across")
+    );
+    assert(incoming, "d3 has the payment");
+    // All of it, but what less than a dollar unit is worth: no packet
+    // can be sized to deliver that, as the hops round down.
+    assert(
+      incoming.receivedAmount >= RECEIVE - 2n,
+      `${incoming.receivedAmount}`,
+    );
+    assertEquals(incoming.assetCode, "XRP");
+    // d1 paid in dollars; d2 kept its fee in dollars.
+    assertEquals(
+      (await ledger(d1, USD))!.ownerBalance,
+      usdBefore - sent.sentAmount,
+    );
+    // 1% of what passed, less under a unit a packet, as each rounds
+    // down.
+    const fees = (await balance(d2, `${USD}:revenue/fees`)) - feesBefore;
+    const due = sent.sentAmount * BigInt(FEE_PPM) / 1_000_000n;
+    assert(
+      fees <= due && fees > due - 1_000n,
+      `fees ${fees} on ${sent.sentAmount}`,
+    );
 
-      await scenario.until("settled", () => settled(scenario), 180_000);
-      // Restarted, all three catch up and book nothing twice.
-      const kept = await books(scenario);
-      const accounts = await peerAccounts(scenario);
-      for (const node of scenario.nodes) {
-        const { code, output } = (await node.stop())!;
-        assertEquals(code, 0, output);
-      }
-      for (const node of scenario.nodes) {
-        await node.start();
-        await node.waitForEngine();
-      }
-      await scenario.until("caught up", () => quiet(scenario), 120_000);
-      assertEquals(await books(scenario), kept, "the books after a restart");
-      assertEquals(await peerAccounts(scenario), accounts, "peer accounts");
-    } finally {
-      const failures = await scenario.stop();
-      assertEquals(failures, [], failures.join("\n"));
+    await scenario.until("settled", () => settled(scenario), 180_000);
+    // Restarted, all three catch up and book nothing twice.
+    const kept = await books(scenario);
+    const accounts = await peerAccounts(scenario);
+    for (const node of scenario.nodes) {
+      const { code, output } = (await node.stop())!;
+      assertEquals(code, 0, output);
     }
-  },
+    for (const node of scenario.nodes) {
+      await node.start();
+      await node.waitForEngine();
+    }
+    await scenario.until("caught up", () => quiet(scenario), 120_000);
+    assertEquals(await books(scenario), kept, "the books after a restart");
+    assertEquals(await peerAccounts(scenario), accounts, "peer accounts");
+  } finally {
+    const failures = await scenario.stop();
+    assertEquals(failures, [], failures.join("\n"));
+  }
 });

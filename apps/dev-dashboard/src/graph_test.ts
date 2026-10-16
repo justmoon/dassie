@@ -1,7 +1,8 @@
+import { test } from "node:test";
 import { assertEquals } from "@std/assert";
 import { linkKey, mutualLinks, PULSE_MS, Pulses } from "./graph.ts";
 
-Deno.test("only mutual peerings are links, each once", () => {
+test("only mutual peerings are links, each once", () => {
   assertEquals(
     mutualLinks({
       d1: ["d2", "d3"],
@@ -17,7 +18,7 @@ Deno.test("only mutual peerings are links, each once", () => {
   );
 });
 
-Deno.test("a pulse lights a link either way round, for a moment", () => {
+test("a pulse lights a link either way round, for a moment", () => {
   const pulses = new Pulses();
   pulses.hit("d2", "d1", 1_000);
   assertEquals([...pulses.lit()], [linkKey("d1", "d2")]);

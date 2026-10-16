@@ -113,9 +113,10 @@ jobs:
           trap 'rm -f "$key"' EXIT
           (umask 077 && printf '%s\n' "$MINISIGN_SECRET_KEY" > "$key")
           unset MINISIGN_SECRET_KEY
+          # All of the environment: node:child_process reads it under Deno.
           nix shell --inputs-from . nixpkgs#deno nixpkgs#minisign --command \
             deno run --allow-read --allow-write --allow-run \
-            --allow-env=MINISIGN_PASSWORD \
+            --allow-env \
             scripts/release.ts built signed --secret-key "$key" \
             --public-key resources/minisign.pub \
             --verifier tool/bin/dassie-release --version "${TAG#v}"

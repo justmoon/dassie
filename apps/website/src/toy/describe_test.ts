@@ -1,3 +1,4 @@
+import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
 import * as stream from "@dassie/identity-wasm";
 import {
@@ -22,7 +23,7 @@ const frame = (changes: Partial<Frame>): Frame => ({
   ...changes,
 });
 
-Deno.test("error codes have names", () => {
+test("error codes have names", () => {
   assertEquals(ilpErrorName("F08"), "Amount Too Large");
   assertEquals(ilpErrorName("T03"), "Connector Busy");
   assertEquals(ilpErrorName("X42"), "Unknown Error");
@@ -32,7 +33,7 @@ Deno.test("error codes have names", () => {
   assertEquals(streamErrorName(0), "Unknown (0x00)");
 });
 
-Deno.test("frames read as words", () => {
+test("frames read as words", () => {
   const cases: [Partial<Frame>, string, string][] = [
     [
       { kind: "streamMoney", first: 1000n },
@@ -71,7 +72,7 @@ Deno.test("frames read as words", () => {
   }
 });
 
-Deno.test("a run's packets decode, and foreign data does not", () => {
+test("a run's packets decode, and foreign data does not", () => {
   const simulation = new Simulation(stream, DEFAULT_SETTINGS, 0);
   try {
     while (simulation.step());

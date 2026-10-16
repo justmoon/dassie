@@ -6,29 +6,29 @@
  * @module
  */
 
+import { readFile, rm, writeFile } from "node:fs/promises";
+import process from "node:process";
+import { run } from "./process.ts";
+
 /** Writes the PIDs of the running children. */
 export async function recordPids(
   file: string,
   pids: readonly number[],
 ): Promise<void> {
-  await Deno.writeTextFile(file, pids.map((pid) => `${pid}\n`).join(""));
+  await writeFile(file, pids.map((pid) => `${pid}\n`).join(""));
 }
 
 /** What a process runs, or nothing if it is gone. */
 async function commandOf(pid: number): Promise<string | undefined> {
-  if (Deno.build.os === "linux") {
+  if (process.platform === "linux") {
     try {
-      const bytes = await Deno.readFile(`/proc/${pid}/cmdline`);
+      const bytes = await readFile(`/proc/${pid}/cmdline`);
       return new TextDecoder().decode(bytes).replaceAll("\0", " ");
     } catch {
       return undefined;
     }
   }
-  const output = await new Deno.Command("ps", {
-    args: ["-o", "command=", "-p", `${pid}`],
-    stdout: "piped",
-    stderr: "null",
-  }).output();
+  const output = await run("ps", ["-o", "command=", "-p", `${pid}`]);
   const text = new TextDecoder().decode(output.stdout).trim();
   return output.success && text !== "" ? text : undefined;
 }
@@ -39,18 +39,18 @@ async function commandOf(pid: number): Promise<string | undefined> {
  * children would pull its network from under it.
  */
 export async function takeLock(file: string): Promise<number | undefined> {
-  const other = Number((await Deno.readTextFile(file).catch(() => "")).trim());
-  if (Number.isSafeInteger(other) && other > 1 && other !== Deno.pid) {
+  const other = Number((await readFile(file, "utf8").catch(() => "")).trim());
+  if (Number.isSafeInteger(other) && other > 1 && other !== process.pid) {
     const command = await commandOf(other);
     if (command && /apps\/dev\/main\.ts/.test(command)) return other;
   }
-  await Deno.writeTextFile(file, `${Deno.pid}\n`);
+  await writeFile(file, `${process.pid}\n`);
   return undefined;
 }
 
 /** Gives the state directory up. */
 export async function releaseLock(file: string): Promise<void> {
-  await Deno.remove(file).catch(() => {});
+  await rm(file).catch(() => {});
 }
 
 /**
@@ -60,23 +60,23 @@ export async function releaseLock(file: string): Promise<void> {
 export async function stopStale(file: string): Promise<string[]> {
   let text: string;
   try {
-    text = await Deno.readTextFile(file);
+    text = await readFile(file, "utf8");
   } catch {
     return [];
   }
   const stopped: string[] = [];
   for (const line of text.split("\n")) {
     const pid = Number(line.trim());
-    if (!Number.isSafeInteger(pid) || pid <= 1 || pid === Deno.pid) continue;
+    if (!Number.isSafeInteger(pid) || pid <= 1 || pid === process.pid) continue;
     const command = await commandOf(pid);
     if (!command || !/\bdassie daemon\b|\bvite\b/.test(command)) continue;
     try {
-      Deno.kill(pid, "SIGKILL");
+      process.kill(pid, "SIGKILL");
       stopped.push(`${pid} (${command.slice(0, 80)})`);
     } catch {
       // Gone in between.
     }
   }
-  await Deno.remove(file).catch(() => {});
+  await rm(file).catch(() => {});
   return stopped;
 }

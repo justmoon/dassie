@@ -1,3 +1,4 @@
+import { test } from "node:test";
 import { assertEquals } from "@std/assert";
 import { create } from "@bufbuild/protobuf";
 import { SourcedLogLineSchema } from "@dassie/rpc/dev";
@@ -10,7 +11,7 @@ import {
 } from "@dassie/rpc/proto";
 import { LogRing, PeerSet, shortName, TrafficFilter } from "./collect.ts";
 
-Deno.test("the log ring keeps the last lines", () => {
+test("the log ring keeps the last lines", () => {
   const ring = new LogRing(3);
   const line = (n: number) =>
     create(SourcedLogLineSchema, {
@@ -22,7 +23,7 @@ Deno.test("the log ring keeps the last lines", () => {
   assertEquals(ring.lines.map((l) => l.line!.message), ["3", "4", "5"]);
 });
 
-Deno.test("a node's peers follow its node table", () => {
+test("a node's peers follow its node table", () => {
   const peers = new PeerSet();
   const node = (id: string, peerState: PeerState) =>
     create(NetworkNodeSchema, { id, peerState });
@@ -55,7 +56,7 @@ Deno.test("a node's peers follow its node table", () => {
   assertEquals(peers.peers(), []);
 });
 
-Deno.test("each packet to a peer counts once", () => {
+test("each packet to a peer counts once", () => {
   const filter = new TrafficFilter();
   const packet = (sequence: bigint, destination: string, state: PacketState) =>
     create(PacketSchema, {
@@ -81,7 +82,7 @@ Deno.test("each packet to a peer counts once", () => {
   );
 });
 
-Deno.test("vanity IDs have short names", () => {
+test("vanity IDs have short names", () => {
   assertEquals(shortName("d12_abcdefghijklmnopqrstuvwxyz"), "d12");
   assertEquals(shortName("someone_else"), "someone_else");
 });

@@ -1,3 +1,4 @@
+import { test } from "node:test";
 import { assertEquals } from "@std/assert";
 import {
   clientLabel,
@@ -14,7 +15,7 @@ const payment = (id: string, createdAtMs: bigint) => ({
   expiresAtMs: 2_000n,
 });
 
-Deno.test("an incoming payment is open until completed or expired", () => {
+test("an incoming payment is open until completed or expired", () => {
   assertEquals(incomingState({ expiresAtMs: 2_000n }, 1_999), "open");
   assertEquals(incomingState({ expiresAtMs: 2_000n }, 2_000), "expired");
   assertEquals(
@@ -23,7 +24,7 @@ Deno.test("an incoming payment is open until completed or expired", () => {
   );
 });
 
-Deno.test("payments are listed newest first, in a stable order", () => {
+test("payments are listed newest first, in a stable order", () => {
   const sorted = newestFirst([
     payment("b", 1n),
     payment("c", 2n),
@@ -32,7 +33,7 @@ Deno.test("payments are listed newest first, in a stable order", () => {
   assertEquals(sorted.map((entry) => entry.id), ["c", "a", "b"]);
 });
 
-Deno.test("clients are named by their wallet address or their key", () => {
+test("clients are named by their wallet address or their key", () => {
   assertEquals(clientLabel(""), "You");
   assertEquals(clientLabel("jwk:abc"), "A client known by its key");
   assertEquals(clientLabel("https://shop.example/pay"), "shop.example/pay");
@@ -40,7 +41,7 @@ Deno.test("clients are named by their wallet address or their key", () => {
   assertEquals(clientLabel("not a url"), "not a url");
 });
 
-Deno.test("the description comes from the metadata, when it is text", () => {
+test("the description comes from the metadata, when it is text", () => {
   assertEquals(description(""), undefined);
   assertEquals(description('{"description":"coffee"}'), "coffee");
   assertEquals(description('{"description":5}'), undefined);

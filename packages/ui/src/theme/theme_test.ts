@@ -1,3 +1,4 @@
+import { test } from "node:test";
 import { assertEquals } from "@std/assert";
 import {
   applyTheme,
@@ -7,7 +8,7 @@ import {
   THEME_KEY,
 } from "./theme.ts";
 
-Deno.test("the choice is kept, and anything else reads as system", () => {
+test("the choice is kept, and anything else reads as system", () => {
   const store = new Map<string, string>();
   const storage = {
     getItem: (key: string) => store.get(key) ?? null,
@@ -29,7 +30,7 @@ Deno.test("the choice is kept, and anything else reads as system", () => {
   assertEquals(loadTheme(refusing), "system");
 });
 
-Deno.test("the toggle goes round, and the root follows", () => {
+test("the toggle goes round, and the root follows", () => {
   assertEquals(nextTheme("system"), "dark");
   assertEquals(nextTheme("dark"), "light");
   assertEquals(nextTheme("light"), "system");

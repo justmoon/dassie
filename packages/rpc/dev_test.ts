@@ -1,3 +1,4 @@
+import { test } from "node:test";
 import { assertEquals, assertThrows } from "@std/assert";
 import { create } from "@bufbuild/protobuf";
 import {
@@ -10,7 +11,7 @@ import {
   ServerMessageSchema,
 } from "./dev.ts";
 
-Deno.test("control messages round-trip", () => {
+test("control messages round-trip", () => {
   const server = create(ServerMessageSchema, {
     message: {
       case: "traffic",
@@ -24,7 +25,7 @@ Deno.test("control messages round-trip", () => {
   assertEquals(decodeClientMessage(encodeClientMessage(client)), client);
 });
 
-Deno.test("control messages are bounded both ways", () => {
+test("control messages are bounded both ways", () => {
   const huge = create(ServerMessageSchema, {
     message: {
       case: "traffic",

@@ -1,3 +1,4 @@
+import { test } from "node:test";
 import { assertEquals } from "@std/assert";
 import {
   banText,
@@ -17,13 +18,13 @@ const cost = {
   grace: 550_000_000n,
 };
 
-Deno.test("a cost reads as a share of its limit, with its parts", () => {
+test("a cost reads as a share of its limit, with its parts", () => {
   assertEquals(costText(cost), "$ 0.62 of $ 0.55");
   assertEquals(costParts(cost), "$ 0.60 refused, $ 0.02 overdue");
   assertEquals(costParts({ ...cost, refused: 0n, overdue: 0n }), "");
 });
 
-Deno.test("a ban says why", () => {
+test("a ban says why", () => {
   assertEquals(
     banText({ reason: "grace-limit", bannedAtUnixMs: 1n, cost }),
     "Banned automatically: it cost $ 0.62 in 30 days, over its grace limit of $ 0.55.",
@@ -35,7 +36,7 @@ Deno.test("a ban says why", () => {
   assertEquals(banText({ reason: "", bannedAtUnixMs: 0n }), "Banned.");
 });
 
-Deno.test("the dashboard tells of automatic bans of the last week", () => {
+test("the dashboard tells of automatic bans of the last week", () => {
   const now = 10 * RECENT_BAN_MS;
   const node = (id: string, reason: string, at: number) => ({
     id,
@@ -51,7 +52,7 @@ Deno.test("the dashboard tells of automatic bans of the last week", () => {
   assertEquals(recent.map((n) => n.id), ["later", "first"]);
 });
 
-Deno.test("shares are percentages of the credit", () => {
+test("shares are percentages of the credit", () => {
   assertEquals(shareText(1_000_000), "100%");
   assertEquals(shareText(12_345), "1.2345%");
   assertEquals(shareText(1), "0.0001%");

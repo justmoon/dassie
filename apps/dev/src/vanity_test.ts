@@ -1,3 +1,4 @@
+import { test } from "node:test";
 import { assertEquals, assertThrows } from "@std/assert";
 import {
   derive,
@@ -16,7 +17,7 @@ const D1: Entry = [
   "d1_UeCE9UMCwvVHSXdI9o0Tpz4rnidWvR",
 ];
 
-Deno.test("the table's first nodes derive their IDs", () => {
+test("the table's first nodes derive their IDs", () => {
   const table = loadTable();
   // Every entry is checked by `deno task vanity --check`; a sample here.
   for (const index of [0, 1, 2, 5, 99, 999]) {
@@ -27,19 +28,19 @@ Deno.test("the table's first nodes derive their IDs", () => {
   }
 });
 
-Deno.test("an entry that does not give its ID is refused", () => {
+test("an entry that does not give its ID is refused", () => {
   assertThrows(() => derive(0, [D1[0], "d1_somethingElse"]));
   assertThrows(() => identity(new Map(), 0));
 });
 
-Deno.test("an ID's index is its number less one", () => {
+test("an ID's index is its number less one", () => {
   assertEquals(indexOf("d1_x"), 0);
   assertEquals(indexOf("d1000_x"), 999);
   assertEquals(indexOf("d0_x"), undefined);
   assertEquals(indexOf("x1_y"), undefined);
 });
 
-Deno.test("merge keeps new indexes and less noisy IDs", () => {
+test("merge keeps new indexes and less noisy IDs", () => {
   const table = new Map<number, Entry>([[0, ["a".repeat(32), "d1_a-b_c"]]]);
   const merged = merge(table, [
     ["b".repeat(32), "d1_abc"],
@@ -50,7 +51,7 @@ Deno.test("merge keeps new indexes and less noisy IDs", () => {
   assertEquals(merged.get(1), ["c".repeat(32), "d2_x"]);
 });
 
-Deno.test("merge drops indexes beyond 999 but the record", () => {
+test("merge drops indexes beyond 999 but the record", () => {
   const merged = merge(new Map(), [
     ["a".repeat(32), "d5000_a"],
     ["b".repeat(32), "d7000_b"],
@@ -59,7 +60,7 @@ Deno.test("merge drops indexes beyond 999 but the record", () => {
   assertEquals([...merged.keys()].sort((a, b) => a - b), [999, 6999]);
 });
 
-Deno.test("brute-forcer lines and the table's form", () => {
+test("brute-forcer lines and the table's form", () => {
   assertEquals(parseFound(`0x${D1[0].toUpperCase()}: ${D1[1]}`), D1);
   assertEquals(parseFound("# a comment"), undefined);
   assertEquals(parseFound(""), undefined);

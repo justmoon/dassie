@@ -1,10 +1,11 @@
+import { test } from "node:test";
 import { assertEquals } from "@std/assert";
 import { currencyOf } from "@dassie/ui/currency";
 import { formatCap, usedShare, windowLabel } from "./caps.ts";
 
 const usd = currencyOf("USD", 9);
 
-Deno.test("caps in words", () => {
+test("caps in words", () => {
   assertEquals(formatCap(undefined, usd), "No limit");
   assertEquals(
     formatCap({ amount: 10_000_000_000n, windowMs: 86_400_000n }, usd),
@@ -14,7 +15,7 @@ Deno.test("caps in words", () => {
   assertEquals(windowLabel(90_000n), "per 90 s");
 });
 
-Deno.test("the share of a cap used", () => {
+test("the share of a cap used", () => {
   assertEquals(usedShare({ amount: 1000n }, 1000n), 0);
   assertEquals(usedShare({ amount: 1000n }, 250n), 0.75);
   assertEquals(usedShare({ amount: 1000n }, 0n), 1);
