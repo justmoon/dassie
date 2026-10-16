@@ -6,9 +6,9 @@
  * (`install/<distro>.Dockerfile`, privileged). A mirror, Caddy on a Docker
  * network of the test's own, serves `https://mirror.test` under a
  * certificate from a CA the container is made to trust. It holds the
- * releases of `nix build .#install-test-mirror`: 1.0.0, 1.0.1 and a canary
- * for x64, trusting the test key and signed with it, and install.sh with
- * the test key. In each container:
+ * releases of `nix build .#install-test-mirror`: 1.0.0, 1.0.1, 1.0.2,
+ * whose node does not start, and a canary, for x64, trusting the test key
+ * and signed with it, and install.sh with the test key. In each container:
  *
  * 1. install.sh refuses a tampered bundle, sums signed for another
  *    version, and a canary that meta/latest names, and installs nothing;
@@ -17,10 +17,12 @@
  * 3. the updater, as its timer starts it, refuses 1.0.1 tampered, or with
  *    the sums of 1.0.0, and the node runs on as it was;
  * 4. it installs 1.0.1, restarts the node, and keeps its data;
- * 5. install.sh run again goes neither back nor to the other channel on
+ * 5. it goes back from 1.0.2 to 1.0.1, and to the database from before
+ *    1.0.2 migrated it;
+ * 6. install.sh run again goes neither back nor to the other channel on
  *    the mirror's word, but to the other channel when asked, and stays
  *    there;
- * 6. it uninstalls it.
+ * 7. it uninstalls it.
  *
  * Set `DASSIE_INSTALL_MIRROR` to the built mirror to run it; it needs
  * Docker, which may run privileged containers, and mkcert.
@@ -544,6 +546,64 @@ async function steps(t: TestContext, machine: Machine, mirror: Mirror) {
       const again = await update(machine);
       assertEquals(again.code, 0, again.stdout);
       assertStringIncludes(again.stdout, "Already up to date (1.0.1).");
+    },
+  );
+
+  await t.test(
+    "the updater goes back from 1.0.2, whose node does not start, " +
+      "with the database from before it",
+    async () => {
+      const data = "/var/lib/private/dassie";
+      // What a 1.0.2 that migrated the database would leave: a copy from
+      // before the migration, made during the update by its time, and a
+      // database too new for 1.0.1, whose user_version, at offset 60 of
+      // its header, is now 999. The node closed its database: no WAL.
+      await machine.must(
+        `systemctl stop dassie.service && cd ${data} && ` +
+          "test ! -e dassie.sqlite3-wal && " +
+          "cp -p dassie.sqlite3 dassie.sqlite3.pre-migration && " +
+          "touch -d '+1 hour' dassie.sqlite3.pre-migration && " +
+          "printf '\\000\\000\\003\\347' | " +
+          "dd of=dassie.sqlite3 bs=1 seek=60 conv=notrunc status=none",
+      );
+      const copy = await machine.must(
+        `stat -c %i ${data}/dassie.sqlite3.pre-migration`,
+      );
+      await mirror.offer("1.0.2");
+      const result = await update(machine);
+      assert(result.code !== 0, result.stdout);
+      assertStringIncludes(
+        result.stdout,
+        "dassie 1.0.2 did not start, and 1.0.1 runs again",
+      );
+      assertStringIncludes(result.stdout, "(schema 999)");
+      const after = await node(machine);
+      assertEquals([after.version, after.current, after.active], [
+        "dassie 1.0.1",
+        "1.0.1",
+        "active",
+      ]);
+      await answers(machine);
+      // The copy is the database again, still the node's own, and the one
+      // 1.0.2 left is beside it.
+      assertEquals(
+        await machine.must(`stat -c %i ${data}/dassie.sqlite3`),
+        copy,
+      );
+      await machine.must(
+        `test "$(stat -c %u ${data}/dassie.sqlite3)" = "$(stat -c %u ${data})"`,
+      );
+      await machine.must(`test -s ${data}/dassie.sqlite3.rolled-back`);
+      await machine.must(`test ! -e ${data}/dassie.sqlite3.pre-migration`);
+      assertStringIncludes(
+        await machine.must("cat /opt/dassie/last-update"),
+        "outcome=rolled-back\ntarget=1.0.2",
+      );
+      // 1.0.2's node failed to start, and the steps after this one restart
+      // the node within seconds: together that would pass systemd's limit
+      // of starts (5 in 10 s) and refuse the next start. Hours pass
+      // between updates outside a test.
+      await machine.must("systemctl reset-failed dassie.service");
     },
   );
 

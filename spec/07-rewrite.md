@@ -569,10 +569,11 @@ meta/canary                                  the newest canary
 **The install** keeps the original's layout ([2 §3.1](02-node-runtime.md)): `/opt/dassie/<version>`, `/opt/dassie/current` pointing at the one that runs, `/usr/local/bin/dassie`, the group `dassie-users`, and the systemd units of `resources/systemd`, which each bundle carries in `share/systemd`.
 - **`dassie.service`** runs `dassie daemon --runtime=systemd`, which takes its sockets by name and reports readiness itself.
   - It runs as a dynamic user, with `/var/lib/dassie` its state directory (0700).
-  - It is sandboxed: no capabilities, a read-only system, no home directories, private `/tmp` and devices, only Unix and IP sockets, no namespaces, no writable executable memory.
+  - It is sandboxed: no capabilities, a read-only system, no home directories, private `/tmp` and devices, only Unix and IP sockets, no namespaces, no writable executable memory, only the system calls of `@system-service`, no sight of other processes, and a user namespace of its own.
   - It has 5 minutes to report readiness, so a node that never comes up after an update fails, and the update is rolled back.
   - The socket units listen on ports 80 and 443 (IPv4 and IPv6) and on `/run/dassie.sock`, which root and `dassie-users` may use.
 - **`dassie-update.timer`** starts `dassie-update.service` daily, at a random time in the hour after 03:20. The service runs `dassie update`. A drop-in setting `DASSIE_MIRROR_URL` points it at another mirror.
+  - The updater runs as root, since it installs root's units and has systemd restart the node, but sandboxed like the node: it may write only `/opt/dassie`, `/etc/systemd/system` and the node's state directory. Of root's capabilities it keeps two, for the rollback: `CAP_DAC_OVERRIDE`, to reach the database the node's user owns, and `CAP_CHOWN`, with which SQLite gives that user what it creates there.
 
 **`install.sh`** (`resources/installer`, POSIX sh, one function called on its last line):
 - It needs Linux, systemd (running, or still starting, as when cloud-init runs it), curl or wget, tar, and minisign or OpenSSL 1.1.1 or later. It takes the xz bundle where there is `xz`, and the gzip one otherwise.
@@ -622,7 +623,7 @@ meta/canary                                  the newest canary
   - one update at a time, and modes that let the node run under a strict umask;
   - the record each update leaves.
 - The store's tests check the copy before a migration, and that a rollback puts it back only when it must and only a copy it can trust.
-- `tests/e2e/install_test.ts` installs, updates and uninstalls on Debian 12, Ubuntu 24.04, Fedora 42 and CentOS Stream 9 (item 6 of §7), the installer under `umask 077`. The installer refuses a canary that `meta/latest` names, fresh or run again. Run again, it does not go back to an older version the mirror offers; it moves to `canary` and back only when asked, and stays on `canary` otherwise.
+- `tests/e2e/install_test.ts` installs, updates, rolls back an update whose node does not start (with the database from before it), and uninstalls on Debian 12, Ubuntu 24.04, Fedora 42 and CentOS Stream 9 (item 6 of §7), the installer under `umask 077`. The installer refuses a canary that `meta/latest` names, fresh or run again. Run again, it does not go back to an older version the mirror offers; it moves to `canary` and back only when asked, and stays on `canary` otherwise.
 - The installer's ShellCheck runs with `nix flake check`.
 
 ## 5. Wallet and dashboard (Solid 2)
@@ -719,7 +720,7 @@ Every crate is written so that a simulation can drive it ([D16](08-decisions.md#
 5. **End to end.** The dev scenarios run headless in CI: start N nodes, set up through the HTTP API, add ledgers, peer, pay, settle, restart, and check that the balances are unchanged.
 6. **Installer and updater.** Containers with systemd, as the original's `test-in-docker:*` scripts did ([6 §5.5](06-user-interfaces-and-tooling.md)), including signature-verification failure cases.
    - `tests/e2e/install_test.ts` boots Debian, Ubuntu, Fedora and CentOS images (pinned by digest, with systemd as PID 1). Caddy serves a mirror on a Docker network of the test's own.
-   - The releases come from `nix build .#install-test-mirror`: 1.0.0, 1.0.1 and a canary, built in a cheaper profile and signed with the test key.
+   - The releases come from `nix build .#install-test-mirror`: 1.0.0, 1.0.1, 1.0.2 and a canary, built in a cheaper profile and signed with the test key. The node of 1.0.2 does not start, so the updater rolls it back.
    - The images between them take both verifiers (OpenSSL and minisign), both downloaders (curl and wget) and both compressions.
    - The release workflow runs one job per distribution, before it signs; CI does not run them.
 7. **Website.** `tests/e2e/website_test.ts` serves the built site with the headers of its `vercel.json`, so that its CSP applies, and drives it in headless Chrome. The toy runs a payment to the end, and its packets decrypt. The toy's simulation is also tested in Node against the same `web` build of the WASM module that the browser loads.

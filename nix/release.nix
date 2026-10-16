@@ -130,8 +130,9 @@ let
   # whose `dassie/` becomes /opt/dassie/<version>: the binary and the
   # systemd units. The archives are the same bytes for the same input:
   # sorted, with fixed times and owners.
-  bundle =
-    version: arch: dassie:
+  bundle = bundleWith ../resources/systemd;
+  bundleWith =
+    units: version: arch: dassie:
     pkgs.runCommand "dassie-${version}-linux-${arch}"
       {
         nativeBuildInputs = [
@@ -143,7 +144,7 @@ let
       ''
         mkdir -p dassie/bin dassie/share/systemd
         install -m 755 ${dassie}/bin/dassie dassie/bin/dassie
-        install -m 644 ${../resources/systemd}/* dassie/share/systemd/
+        install -m 644 ${units}/* dassie/share/systemd/
         tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
           --format=gnu -cf bundle.tar dassie
         name=dassie-${version}-linux-${arch}
@@ -187,12 +188,19 @@ let
       ''
     );
 
-  # The releases the install tests serve (tests/e2e/install_test.ts): two
+  # The releases the install tests serve (tests/e2e/install_test.ts): three
   # releases and a canary for x64, trusting the test key and signed with
-  # it, beside install.sh with the test key. The tests write
+  # it, beside install.sh with the test key. The node of 1.0.2 does not
+  # start, so that the updater rolls it back. The tests write
   # meta/<channel>, and make their own tampered copies.
+  brokenUnits = pkgs.runCommand "dassie-units-broken" { } ''
+    cp -r ${../resources/systemd} $out
+    chmod -R u+w $out
+    substituteInPlace $out/dassie.service \
+      --replace-fail "--runtime=systemd" "--runtime=systemd --no-such-option"
+  '';
   testRelease =
-    version:
+    version: units:
     let
       dassie = dassieFor (
         platforms.x64
@@ -205,7 +213,7 @@ let
     in
     pkgs.runCommand "dassie-test-release-${version}" { nativeBuildInputs = [ pkgs.minisign ]; } ''
       mkdir $out
-      cp ${bundle version "x64" dassie}/* $out/
+      cp ${bundleWith units version "x64" dassie}/* $out/
       (cd $out && sha256sum dassie-* > SHA256SUMS)
       minisign -S -s ${../testdata/release/test.key} -m $out/SHA256SUMS \
         -x $out/SHA256SUMS.minisig -t "dassie ${version}"
@@ -213,9 +221,10 @@ let
   testCanary = "canary-2026-10-16-120000-abcdef0";
   install-test-mirror = pkgs.runCommand "dassie-install-test-mirror" { } ''
     mkdir $out
-    cp -r ${testRelease "1.0.0"} $out/1.0.0
-    cp -r ${testRelease "1.0.1"} $out/1.0.1
-    cp -r ${testRelease testCanary} $out/${testCanary}
+    cp -r ${testRelease "1.0.0" ../resources/systemd} $out/1.0.0
+    cp -r ${testRelease "1.0.1" ../resources/systemd} $out/1.0.1
+    cp -r ${testRelease "1.0.2" brokenUnits} $out/1.0.2
+    cp -r ${testRelease testCanary ../resources/systemd} $out/${testCanary}
     cp ${installer testKey} $out/install.sh
   '';
   released = binaries releaseVersion;
