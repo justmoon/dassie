@@ -437,7 +437,7 @@ async fn create_receiver(
                 metadata: metadata.map(|metadata| serde_json::Value::Object(metadata).to_string()),
             })
             .await?;
-        let payment = spending::local_receiver(node, urls, &row.id.to_string())?;
+        let payment = spending::local_receiver(node, urls, &row.id.to_string()).await?;
         return Ok((
             urls.incoming_payment(row.id),
             spending::receiver_of(node, payment)?,

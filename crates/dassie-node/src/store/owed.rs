@@ -5,7 +5,9 @@ use dassie_identity::NodeId;
 use dassie_ledger::{AccountId, TraceId};
 use rusqlite::{OptionalExtension, Row, Transaction, params};
 
-use super::{PaymentId, Store, StoreError, from_sql_time, to_sql_time};
+use super::{
+    ConnectionKey, IncomingPaid, PaymentId, Store, StoreError, from_sql_time, to_sql_time,
+};
 
 /// What a refused Fulfill books.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,8 +37,8 @@ pub struct OwedFulfill {
     /// The packet's transfers as posted, in the connector's slots: the
     /// first debits the peer's account, and the third, our fee, too.
     pub transfers: [Option<PostedTransfer>; 3],
-    /// The incoming payment our receiver paid, and how much.
-    pub incoming: Option<(PaymentId, u64)>,
+    /// What our receiver paid into an incoming payment.
+    pub incoming: Option<IncomingPaid>,
     /// The expiry of the Prepare we sent on.
     pub expires_at_ms: u64,
     /// When the packet was posted.
@@ -79,7 +81,7 @@ pub const FORGET_AT_MOST: u32 = 10_000;
 const OWED_COLUMNS: &str = "packet_epoch, packet_sequence, peer, request_id, fulfill, \
      compensation, debit_1, credit_1, amount_1, debit_2, credit_2, amount_2, \
      incoming_payment, incoming_amount, expires_at_ms, created_at_ms, \
-     debit_3, credit_3, amount_3";
+     debit_3, credit_3, amount_3, incoming_connection";
 
 impl Store {
     /// Every Fulfill waiting for its verdict, oldest first.
@@ -154,6 +156,7 @@ fn read_owed(row: &Row<'_>) -> rusqlite::Result<Result<OwedFulfill, StoreError>>
     let incoming_amount: Option<i64> = row.get(13)?;
     let expires: i64 = row.get(14)?;
     let created: i64 = row.get(15)?;
+    let connection: Option<Vec<u8>> = row.get(19)?;
     Ok((|| {
         let mut transfers = [None; 3];
         for (slot, parts) in transfers.iter_mut().zip(raw) {
@@ -165,15 +168,16 @@ fn read_owed(row: &Row<'_>) -> rusqlite::Result<Result<OwedFulfill, StoreError>>
                 _ => return Err(StoreError::Corrupt("owed transfer")),
             };
         }
-        let incoming = match (payment, incoming_amount) {
-            (Some(id), Some(amount)) => Some((
-                PaymentId(
-                    <[u8; 16]>::try_from(id.as_slice())
-                        .map_err(|_| StoreError::Corrupt("payment ID"))?,
-                ),
-                unsigned(amount)?,
-            )),
-            (None, None) => None,
+        let key = |bytes: &[u8]| {
+            <[u8; 16]>::try_from(bytes).map_err(|_| StoreError::Corrupt("owed incoming payment"))
+        };
+        let incoming = match (payment, incoming_amount, connection) {
+            (Some(id), Some(amount), Some(connection)) => Some(IncomingPaid {
+                payment: PaymentId(key(&id)?),
+                connection: ConnectionKey(key(&connection)?),
+                amount: unsigned(amount)?,
+            }),
+            (None, None, None) => None,
             _ => return Err(StoreError::Corrupt("owed incoming payment")),
         };
         if transfers[0].is_none() {
@@ -253,15 +257,19 @@ fn insert_owed(transaction: &Transaction<'_>, owed: &OwedFulfill) -> Result<(), 
     };
     let second = part(second)?;
     let third = part(third)?;
-    let (payment, incoming_amount) = match owed.incoming {
-        Some((id, amount)) => (Some(id.0.to_vec()), Some(sql(amount)?)),
-        None => (None, None),
+    let (payment, incoming_amount, connection) = match owed.incoming {
+        Some(paid) => (
+            Some(paid.payment.0.to_vec()),
+            Some(sql(paid.amount)?),
+            Some(paid.connection.0.to_vec()),
+        ),
+        None => (None, None, None),
     };
     transaction.execute(
         &format!(
             "INSERT INTO owed_fulfills ({OWED_COLUMNS}) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, \
-             ?17, ?18, ?19)"
+             ?17, ?18, ?19, ?20)"
         ),
         params![
             sql(owed.trace.epoch)?,
@@ -286,6 +294,7 @@ fn insert_owed(transaction: &Transaction<'_>, owed: &OwedFulfill) -> Result<(), 
             third[0],
             third[1],
             third[2],
+            connection,
         ],
     )?;
     Ok(())

@@ -15,7 +15,7 @@ use http_body_util::Full;
 use hyper::{Request, StatusCode};
 use serde_json::{Value, json};
 
-use super::btp_client::{BtpClient, send_stream};
+use super::btp_client::{BtpClient, send_stream, send_stream_reported};
 use super::{Bound, Reply, START_MS, TestNode, send, set_up};
 
 pub const CA: &str = concat!(
@@ -244,6 +244,28 @@ pub async fn pay(node: &TestNode, destination: &str, secret: &[u8], amount: u64)
     };
     let mut client = BtpClient::connect(node, &token.secret).await.unwrap();
     send_stream(&node.clock, &mut client, destination, secret, amount, 2_000).await
+}
+
+/// As [`pay`], returning also what the receiver told the sender arrived.
+pub async fn pay_reported(
+    node: &TestNode,
+    destination: &str,
+    secret: &[u8],
+    amount: u64,
+) -> (u64, u64) {
+    let mut owner = node.ipc().await;
+    let Ok(response::Method::CreateBtpToken(token)) = owner
+        .call(Method::CreateBtpToken(proto::CreateBtpTokenRequest {
+            label: "payer".into(),
+            ledger: "stub+usd".into(),
+            cap: None,
+        }))
+        .await
+    else {
+        panic!("no token")
+    };
+    let mut client = BtpClient::connect(node, &token.secret).await.unwrap();
+    send_stream_reported(&node.clock, &mut client, destination, secret, amount, 2_000).await
 }
 
 pub fn base64_url(text: &str) -> Vec<u8> {

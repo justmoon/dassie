@@ -106,6 +106,39 @@ impl IncomingRow {
     }
 }
 
+/// Which credentials of an incoming payment a STREAM connection uses: each
+/// read of the payment gets its own, so each payment that pays it has a
+/// connection of its own. [`ConnectionKey::LEGACY`] for those issued with
+/// the payment before connections had keys.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ConnectionKey(pub [u8; 16]);
+
+impl ConnectionKey {
+    /// The key of credentials issued before connections had keys.
+    pub const LEGACY: Self = Self([0; 16]);
+
+    /// A key from random bytes: never [`Self::LEGACY`].
+    #[must_use]
+    pub fn from_random(mut bytes: [u8; 16]) -> Self {
+        if bytes == [0; 16] {
+            bytes[0] = 1;
+        }
+        Self(bytes)
+    }
+}
+
+/// What our receiver took into an incoming payment from one packet, over
+/// one of its connections.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IncomingPaid {
+    /// The payment.
+    pub payment: PaymentId,
+    /// The connection.
+    pub connection: ConnectionKey,
+    /// How much.
+    pub amount: u64,
+}
+
 /// What a packet changed of an incoming payment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IncomingProgress {
@@ -201,6 +234,38 @@ impl Store {
             .collect()
     }
 
+    /// What each connection of the open incoming payments received: at
+    /// most `limit` rows.
+    pub fn open_incoming_connections(
+        &self,
+        now_ms: u64,
+        limit: u32,
+    ) -> Result<Vec<(PaymentId, ConnectionKey, u64)>, StoreError> {
+        let connection = self.lock();
+        let mut statement = connection.prepare(
+            "SELECT c.incoming_payment, c.connection, c.received \
+             FROM incoming_connections AS c JOIN incoming_payments AS p \
+             ON p.id = c.incoming_payment \
+             WHERE p.completed_at_ms IS NULL AND p.expires_at_ms > ?1 LIMIT ?2",
+        )?;
+        statement
+            .query_map(params![to_sql_time(now_ms), limit], |row| {
+                let payment: Vec<u8> = row.get(0)?;
+                let key: Vec<u8> = row.get(1)?;
+                let received: i64 = row.get(2)?;
+                Ok((|| {
+                    let corrupt = || StoreError::Corrupt("incoming connection");
+                    Ok((
+                        PaymentId(<[u8; 16]>::try_from(payment.as_slice()).map_err(|_| corrupt())?),
+                        ConnectionKey(<[u8; 16]>::try_from(key.as_slice()).map_err(|_| corrupt())?),
+                        u64::try_from(received).map_err(|_| corrupt())?,
+                    ))
+                })())
+            })?
+            .map(|row| row?)
+            .collect()
+    }
+
     /// One incoming payment.
     pub fn incoming_payment(&self, id: PaymentId) -> Result<Option<IncomingRow>, StoreError> {
         let connection = self.lock();
@@ -234,7 +299,16 @@ impl Store {
     /// up. Returns how many went.
     pub fn prune_incoming(&self, now_ms: u64) -> Result<u32, StoreError> {
         let before = to_sql_time(now_ms.saturating_sub(UNPAID_RETENTION_MS));
-        let removed = self.lock().execute(
+        let connection = self.lock();
+        // What a closed payment's connections received is not read again.
+        connection.execute(
+            "DELETE FROM incoming_connections WHERE (incoming_payment, connection) IN \
+             (SELECT c.incoming_payment, c.connection FROM incoming_connections AS c \
+             JOIN incoming_payments AS p ON p.id = c.incoming_payment \
+             WHERE p.completed_at_ms IS NOT NULL OR p.expires_at_ms <= ?1 LIMIT ?2)",
+            params![to_sql_time(now_ms), PRUNE_BATCH],
+        )?;
+        let removed = connection.execute(
             "DELETE FROM incoming_payments WHERE id IN (SELECT id FROM incoming_payments \
              WHERE received_amount = 0 AND coalesce(completed_at_ms, expires_at_ms) <= ?1 \
              LIMIT ?2)",
@@ -406,6 +480,7 @@ pub(super) fn write_incoming(
     transaction: &Transaction<'_>,
     created: &[IncomingRow],
     progress: &std::collections::BTreeMap<PaymentId, IncomingProgress>,
+    connections: &std::collections::BTreeMap<(PaymentId, ConnectionKey), u64>,
 ) -> Result<(), StoreError> {
     for row in created {
         transaction.execute(
@@ -444,6 +519,18 @@ pub(super) fn write_incoming(
         if updated != 1 {
             return Err(StoreError::Corrupt("incoming payment"));
         }
+    }
+    for ((id, connection), received) in connections {
+        transaction.execute(
+            "INSERT INTO incoming_connections (incoming_payment, connection, received) \
+             VALUES (?1, ?2, ?3) ON CONFLICT (incoming_payment, connection) \
+             DO UPDATE SET received = ?3",
+            params![
+                id.0.as_slice(),
+                connection.0.as_slice(),
+                sql_amount(*received)?
+            ],
+        )?;
     }
     Ok(())
 }

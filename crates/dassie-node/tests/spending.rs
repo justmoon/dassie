@@ -599,11 +599,11 @@ async fn quotes_paid_at_once_stay_within_the_limit() {
 }
 
 // Double spending one incoming payment: two payments of 300 to one that
-// takes 300, at once. Both may be made, as each saw 300 still to pay, but
-// the receiver takes 300 in all, and once both are done the grant is
-// charged only what was sent. (One that sent nothing completes without
-// failing, as the receiver has what it asked for: the client cannot tell
-// it from one still sending, so this waits on the grant.)
+// takes 300, at once. Both may be made, as each saw 300 still to pay, each
+// over a connection of its own. The receiver takes 300 in all, and each
+// payment is told only what it delivered: it sends all it is to, or fails,
+// and never completes on what the other delivered. The grant is charged
+// only what was sent.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_incoming_payment_is_not_paid_twice() {
     let (node, key) = start().await;
@@ -617,27 +617,14 @@ async fn an_incoming_payment_is_not_paid_twice() {
         post(&node, &client, "/outgoing-payments", &token, &pay),
         post(&node, &client, "/outgoing-payments", &token, &pay),
     );
-    let paths: Vec<String> = [first, second]
-        .iter()
-        .filter(|reply| reply.status == StatusCode::CREATED)
-        .map(|reply| path_of(&node, &body(reply)["id"]))
-        .collect();
-    for _ in 0..200 {
-        if spent(&node, &client, &token).await["spentDebitAmount"] == usd(300) {
-            break;
-        }
-        node.clock.advance(1_000);
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
     let mut total = 0;
-    for path in &paths {
-        let reply = send(
-            node.https,
-            true,
-            signed(&node, &client, "GET", path, Some(&token), None),
-        )
-        .await;
-        total += value(&body(&reply)["sentAmount"]);
+    for reply in [first, second] {
+        if reply.status != StatusCode::CREATED {
+            continue;
+        }
+        // Done once it sent all it is to, or failed.
+        let paid = finished(&node, &client, &token, &path_of(&node, &body(&reply)["id"])).await;
+        total += value(&paid["sentAmount"]);
     }
     assert_eq!(total, 300);
     assert_eq!(

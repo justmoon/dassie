@@ -42,6 +42,9 @@ pub struct LedgerBatch {
     pub incoming_created: Vec<super::IncomingRow>,
     /// What packets paid into incoming payments, and completions.
     pub incoming_progress: std::collections::BTreeMap<super::PaymentId, super::IncomingProgress>,
+    /// What each connection of an incoming payment received now.
+    pub incoming_connections:
+        std::collections::BTreeMap<(super::PaymentId, super::ConnectionKey), u64>,
     /// Fulfills owed a verdict, verdicts come, and Fulfills taken (D17).
     pub verdicts: super::VerdictBatch,
     /// Outgoing payments made, what they sent, and grant spend.
@@ -66,6 +69,7 @@ impl LedgerBatch {
             && self.peer.is_empty()
             && self.incoming_created.is_empty()
             && self.incoming_progress.is_empty()
+            && self.incoming_connections.is_empty()
             && self.verdicts.is_empty()
             && self.outgoing.is_empty()
             && self.peer_settings.is_none()
@@ -310,6 +314,7 @@ impl Store {
             &transaction,
             &batch.incoming_created,
             &batch.incoming_progress,
+            &batch.incoming_connections,
         )?;
         super::owed::write_verdicts(&transaction, &batch.verdicts, batch.at_ms)?;
         super::outgoing::write_outgoing(&transaction, &batch.outgoing)?;
