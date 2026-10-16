@@ -126,6 +126,7 @@ impl Ledger {
                 }
             }
         }
+        assert_eq!(ids.len() - start, specs.len(), "one ID per linked transfer");
         Ok(())
     }
 
@@ -279,15 +280,20 @@ impl Ledger {
             Change::AddPosted { debit: true } => balance.debits_posted += amount,
             Change::AddPosted { debit: false } => balance.credits_posted += amount,
         };
-        let group = match self.accounts.get_mut(usize_of(id.0)) {
-            Some(account) => {
-                apply(&mut account.balance);
-                account.group
+        // Callers pass accounts they looked up: skipping a change would
+        // leave the books unbalanced.
+        let account = self.accounts.get_mut(usize_of(id.0));
+        assert!(account.is_some(), "a change to an unknown account");
+        let group = account.and_then(|account| {
+            apply(&mut account.balance);
+            account.group
+        });
+        if let Some(root) = group {
+            let root = self.accounts.get_mut(usize_of(root.0));
+            assert!(root.is_some(), "a group without its root");
+            if let Some(root) = root {
+                apply(&mut root.group_balance);
             }
-            None => None,
-        };
-        if let Some(root) = group.and_then(|root| self.accounts.get_mut(usize_of(root.0))) {
-            apply(&mut root.group_balance);
         }
     }
 
