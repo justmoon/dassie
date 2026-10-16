@@ -432,3 +432,22 @@ fn sweeps_follow_the_engine_clock() {
         assert_eq!(core.sweeps.count, sweeps, "at {at}");
     }
 }
+
+// D16: the core reports events and logs nothing itself, so a simulation
+// sees all it says. Clippy does not see `tracing`'s macros under the
+// core's `deny`, so its sources are read for them.
+#[test]
+fn the_core_does_not_log() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/engine/core");
+    let mut read = 0;
+    for entry in std::fs::read_dir(&dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.file_name().is_some_and(|name| name == "tests.rs") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("tracing"), "{} logs", path.display());
+        read += 1;
+    }
+    assert!(read > 10, "the core's sources were not found");
+}

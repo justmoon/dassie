@@ -10,8 +10,9 @@
 //! "https://…" | null}`, and serves until stdin closes or it is killed.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
-// A process for the end-to-end tests: it watches stdin from a thread.
-#![allow(clippy::disallowed_methods)]
+// A process for the end-to-end tests: it watches stdin from a thread, and
+// prints its address.
+#![allow(clippy::disallowed_methods, clippy::disallowed_macros)]
 
 use std::time::Duration;
 

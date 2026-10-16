@@ -37,6 +37,7 @@
 //! limit and the credit both ways.
 
 #![allow(
+    clippy::disallowed_macros,
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::indexing_slicing,

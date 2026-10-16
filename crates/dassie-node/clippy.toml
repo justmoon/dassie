@@ -23,11 +23,17 @@ disallowed-methods = [
   { path = "tokio::sync::mpsc::unbounded_channel", reason = "every queue has a limit (D16)" },
 ]
 
-# Assertions stay on in release builds (D16), in the whole crate.
+# Allowed in the daemon, denied in the engine's core like the types and
+# methods above: assertions stay on in release, and the core reports an
+# `Event` that its driver logs, so a simulation sees it (D16). Clippy does
+# not see `tracing`'s macros under a module's `deny`, so a test of the core
+# reads its sources for them instead.
 disallowed-macros = [
   { path = "core::debug_assert", reason = "assertions stay on in release; use assert! (D16)" },
   { path = "core::debug_assert_eq", reason = "assertions stay on in release; use assert_eq! (D16)" },
   { path = "core::debug_assert_ne", reason = "assertions stay on in release; use assert_ne! (D16)" },
+  { path = "std::println", reason = "the core reports an Event; its driver logs it (D16)" },
+  { path = "std::eprintln", reason = "the core reports an Event; its driver logs it (D16)" },
 ]
 
 # Tests may unwrap, index and panic: a panic there is a failed test.

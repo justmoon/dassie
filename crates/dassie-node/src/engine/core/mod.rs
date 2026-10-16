@@ -5,7 +5,11 @@
 //! the inputs; it hands back [`Output`]s once the step's changes are on
 //! disk. So the daemon's task and a simulation drive the same code.
 
-#![deny(clippy::disallowed_types, clippy::disallowed_methods)]
+#![deny(
+    clippy::disallowed_types,
+    clippy::disallowed_methods,
+    clippy::disallowed_macros
+)]
 
 mod events;
 mod grace;
