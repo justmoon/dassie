@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+# The actions are pinned to commits, not tags that can be moved: the `nix`
+# job holds the Nix cloud's token, and the cloud builds what releases are
+# made from.
+
 # A new push to a PR supersedes the run before it. Pushes to `main` each
 # run to the end.
 concurrency:
@@ -26,7 +30,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
       # `checks` is every check for x86_64-linux: what `nix flake check`
       # builds on an x86_64 runner. The release binaries and the install
       # tests run in the release workflow, for a tag v<version> only.
@@ -47,11 +53,13 @@ jobs:
     # A hung end-to-end test would otherwise hold the run for six hours.
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v6
-      - uses: cachix/install-nix-action@v31
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31
       # The dependencies build:wasm and build:e2e compile, kept between runs
       # of the same branch or PR.
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             ~/.cargo/registry/index
@@ -65,7 +73,7 @@ jobs:
       - name: pnpm store
         id: pnpm
         run: echo "store=$(nix develop --command pnpm store path)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ${{ steps.pnpm.outputs.store }}
           key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
