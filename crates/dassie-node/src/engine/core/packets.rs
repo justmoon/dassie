@@ -100,6 +100,13 @@ impl Receiver {
             .min()
             .map(|at| at.unix_ms)
     }
+
+    /// Drops the connections the server no longer has.
+    fn forget_gone(&mut self) {
+        let server = &self.server;
+        self.connections
+            .retain(|id| server.connection(*id).is_some());
+    }
 }
 
 /// A ledger's receiver address.
@@ -464,26 +471,29 @@ impl Core {
 
     /// Lets the receivers' connections do what they have to: drain their
     /// events and data, and send their own packets (closes, mostly).
+    ///
+    /// Nothing it calls comes back here, so the receivers and their lists
+    /// stay put while it walks them, by position rather than a copy.
     pub(super) fn pump(&mut self, now: u64) {
-        let ledgers: Vec<LedgerId> = self.receivers.keys().copied().collect();
-        for ledger in ledgers {
-            let Some(receiver) = self.receivers.get_mut(&ledger) else {
-                continue;
+        for nth in 0..self.receivers.len() {
+            let Some((&ledger, receiver)) = self.receivers.iter_mut().nth(nth) else {
+                return;
             };
             while let Some(id) = receiver.server.poll_opened() {
                 receiver.connections.push(id);
             }
-            let ids = receiver.connections.clone();
-            for id in ids {
+            receiver.forget_gone();
+            for index in 0..MAX_RECEIVER_CONNECTIONS {
+                let receiver = self.receivers.get(&ledger);
+                let Some(&id) = receiver.and_then(|r| r.connections.get(index)) else {
+                    break;
+                };
                 self.drain_events(ledger, id);
                 self.transmit(now, ledger, id);
             }
             if let Some(receiver) = self.receivers.get_mut(&ledger) {
                 receiver.server.remove_closed();
-                let server = &receiver.server;
-                receiver
-                    .connections
-                    .retain(|id| server.connection(*id).is_some());
+                receiver.forget_gone();
             }
         }
     }
@@ -608,8 +618,13 @@ impl Core {
         self.probe_timers(now);
         let at = Timestamp::from_unix_ms(now);
         for receiver in self.receivers.values_mut() {
-            for id in receiver.connections.clone() {
-                if let Some(connection) = receiver.server.connection_mut(id)
+            let Receiver {
+                server,
+                connections,
+                ..
+            } = receiver;
+            for &id in connections.iter() {
+                if let Some(connection) = server.connection_mut(id)
                     && connection.poll_timeout().is_some_and(|due| due <= at)
                 {
                     connection.handle_timeout(at);
