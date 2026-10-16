@@ -15,6 +15,12 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import type { ControlHub } from "./control.ts";
 import { relay, wantsContract } from "./relay.ts";
+import {
+  serve,
+  type Server as Listener,
+  type Socket,
+  upgradeWebSocket,
+} from "./serve.ts";
 
 /**
  * How long closing waits for connections to end. A dashboard that is open
@@ -74,31 +80,38 @@ export interface Server {
 }
 
 /** Serves on each port, at 127.0.0.1 and, where there is one, ::1. */
-export function startServer(options: ServerOptions): Server {
-  const servers: Deno.HttpServer[] = [];
+export async function startServer(options: ServerOptions): Promise<Server> {
+  const servers: Listener[] = [];
   // Upgraded sockets, which a graceful shutdown would wait for.
-  const sockets = new Set<WebSocket>();
-  const track = (socket: WebSocket) => {
+  const sockets = new Set<Socket>();
+  const track = (socket: Socket) => {
     sockets.add(socket);
     socket.addEventListener("close", () => sockets.delete(socket));
   };
   const handler = (request: Request) => handle(request, options, track);
-  for (const port of options.ports) {
-    for (const hostname of ["127.0.0.1", "::1"]) {
-      try {
-        servers.push(Deno.serve({
-          hostname,
-          port,
-          cert: options.certificatePem,
-          key: options.keyPem,
-          onListen: () => {},
-          onError: () => new Response("internal error", { status: 500 }),
-        }, handler));
-      } catch (error) {
-        // No IPv6 loopback here; IPv4 must work.
-        if (hostname === "127.0.0.1") throw error;
+  try {
+    for (const port of options.ports) {
+      for (const hostname of ["127.0.0.1", "::1"]) {
+        try {
+          servers.push(
+            await serve({
+              hostname,
+              port,
+              cert: options.certificatePem,
+              key: options.keyPem,
+              onError: () => new Response("internal error", { status: 500 }),
+            }, handler),
+          );
+        } catch (error) {
+          // No IPv6 loopback here; IPv4 must work.
+          if (hostname === "127.0.0.1") throw error;
+        }
       }
     }
+  } catch (error) {
+    // Those already listening would keep the process alive.
+    await Promise.all(servers.map((server) => server.shutdown()));
+    throw error;
   }
   return {
     async close() {
@@ -126,7 +139,7 @@ export function startServer(options: ServerOptions): Server {
 async function handle(
   request: Request,
   options: ServerOptions,
-  track: (socket: WebSocket) => void,
+  track: (socket: Socket) => void,
 ): Promise<Response> {
   const url = new URL(request.url);
   // From `Host`, or `:authority` over HTTP/2, which has no `Host`.
@@ -139,7 +152,7 @@ async function handle(
     const refused = refusal(host, request.headers.get("origin"));
     if (refused) return new Response(refused, { status: 403 });
     if (url.pathname === "/control") {
-      const { socket, response } = Deno.upgradeWebSocket(request);
+      const { socket, response } = upgradeWebSocket(request);
       track(socket);
       options.control.attach(socket);
       return response;

@@ -1,0 +1,14 @@
+packages:
+  - apps/*
+  - packages/*
+  - tests/*
+
+# Their install scripts only link the platform's binary, which they find
+# without it too.
+allowBuilds:
+  '@bufbuild/buf': false
+  dprint: false
+
+# A release must be a day old before it is installed (in minutes; it
+# covers JSR too): time for a compromised one to be noticed and pulled.
+minimumReleaseAge: 1440

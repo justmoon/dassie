@@ -9,6 +9,7 @@
 
 import { SUBPROTOCOL } from "@dassie/rpc";
 import { ipcConnector } from "@dassie/rpc/ipc";
+import { OPEN, type Socket, upgradeWebSocket } from "./serve.ts";
 
 /** The contract's limit on a message, both ways. */
 export const MAX_MESSAGE_BYTES = 1024 * 1024;
@@ -25,7 +26,7 @@ const CONNECT_TIMEOUT_MS = 5_000;
 export async function relay(
   request: Request,
   path: string,
-  onSocket: (socket: WebSocket) => void = () => {},
+  onSocket: (socket: Socket) => void = () => {},
 ): Promise<Response> {
   const ipc = ipcConnector(path)();
   const opened = await new Promise<boolean>((resolve) => {
@@ -43,11 +44,12 @@ export async function relay(
     ipc.close();
     return new Response("the node does not answer", { status: 502 });
   }
-  let upgraded: ReturnType<typeof Deno.upgradeWebSocket>;
+  let upgraded: ReturnType<typeof upgradeWebSocket>;
   try {
-    upgraded = Deno.upgradeWebSocket(request, {
+    // A larger message closes the socket with 1009 before it gets here.
+    upgraded = upgradeWebSocket(request, {
       protocol: SUBPROTOCOL,
-      idleTimeout: 0,
+      maxPayload: MAX_MESSAGE_BYTES,
     });
   } catch {
     ipc.close();
@@ -55,24 +57,22 @@ export async function relay(
   }
   const { socket, response } = upgraded;
   onSocket(socket);
-  socket.binaryType = "arraybuffer";
+  // The socket first: closing the IPC side calls `ipc.onclose` at once,
+  // which would close the socket with its own code.
   const end = (code: number, reason: string) => {
+    if (socket.readyState <= OPEN) socket.close(code, reason);
     ipc.close();
-    if (socket.readyState <= WebSocket.OPEN) socket.close(code, reason);
   };
   socket.onmessage = (event) => {
     if (!(event.data instanceof ArrayBuffer)) {
       return end(1003, "binary messages only");
-    }
-    if (event.data.byteLength > MAX_MESSAGE_BYTES) {
-      return end(1009, "message too large");
     }
     ipc.send(new Uint8Array(event.data));
   };
   socket.onclose = () => ipc.close();
   socket.onerror = () => ipc.close();
   ipc.onmessage = (event) => {
-    if (socket.readyState !== WebSocket.OPEN) return;
+    if (socket.readyState !== OPEN) return;
     if (socket.bufferedAmount > MAX_BUFFERED_BYTES) {
       return end(1013, "not reading");
     }

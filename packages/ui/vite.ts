@@ -1,22 +1,24 @@
 /**
  * How the wallet and the dev dashboard resolve the workspace in Vite.
  *
- * Vite resolves imports itself, not through Deno, so it is told where Deno
- * found each workspace module a page imports. Asking Deno
- * (`import.meta.resolve`) keeps the pages out of the packages' directories:
- * they only know names and exports.
+ * Each page imports `@dassie/ui` and the other packages by name and export,
+ * and Vite is told the file of each: `@dassie/ui`'s from its
+ * `package.json`, the others as Node resolves them from here
+ * (`import.meta.resolve`), which keeps the pages out of the packages'
+ * directories. pnpm links the packages, and Node resolves the links to the
+ * packages' own directories.
  *
  * The configs that use this are loaded natively (`--configLoader native`),
- * so Deno runs them in place and resolves through the workspace. Vite's
- * default loader bundles a config into a temporary module first, where
- * `import.meta.resolve` no longer yields a file URL.
+ * so Node runs them in place. Vite's default loader bundles a config into a
+ * temporary module first, where `import.meta.resolve` no longer yields a
+ * file URL.
  *
  * @module
  */
 
 import { fileURLToPath } from "node:url";
 import type { Alias, ResolveOptions } from "vite";
-import manifest from "./deno.json" with { type: "json" };
+import manifest from "./package.json" with { type: "json" };
 
 /** The other packages' modules the pages import. */
 const OTHERS = [

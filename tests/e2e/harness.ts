@@ -12,16 +12,16 @@ import { stat } from "node:fs/promises";
 import { constants } from "node:os";
 import process from "node:process";
 
-import { launch } from "@astral/astral";
+import puppeteer, { type Browser } from "puppeteer-core";
 import { waitForPort } from "@dassie/dev/scenario";
 
 export { waitForPort, waitForSocket } from "@dassie/dev/scenario";
 
 const root = new URL("../../", import.meta.url).pathname;
 
-/** The binary under test, built with the wallet by `deno task build:e2e`. */
+/** The binary under test, built with the wallet by `node --run build:e2e`. */
 export const DASSIE = `${root}target/e2e/dassie`;
-/** The fake XRP Ledger, built with it by `deno task build:e2e`. */
+/** The fake XRP Ledger, built with it by `node --run build:e2e`. */
 export const FAKE_LEDGER = `${root}target/e2e/examples/fake_ledger`;
 /** Pebble's configuration and its API certificate. */
 export const PEBBLE_DIR = `${root}testdata/pebble`;
@@ -120,7 +120,7 @@ export async function missingTools(): Promise<string | undefined> {
   try {
     await stat(DASSIE);
   } catch {
-    missing.push(`${DASSIE} (deno task build:e2e)`);
+    missing.push(`${DASSIE} (node --run build:e2e)`);
   }
   if (missing.length === 0) return undefined;
   const reason = `missing ${missing.join(", ")}`;
@@ -147,7 +147,7 @@ export async function missingScenarioTools(): Promise<string | undefined> {
     try {
       await stat(binary);
     } catch {
-      missing.push(`${binary} (deno task build:e2e)`);
+      missing.push(`${binary} (node --run build:e2e)`);
     }
   }
   if (missing.length === 0) return undefined;
@@ -164,7 +164,7 @@ export async function missingBinary(): Promise<string | undefined> {
     await stat(DASSIE);
     return undefined;
   } catch {
-    const reason = `missing ${DASSIE} (deno task build:e2e)`;
+    const reason = `missing ${DASSIE} (node --run build:e2e)`;
     if (process.env.CI) {
       throw new Error(`end-to-end tests cannot run: ${reason}`);
     }
@@ -265,12 +265,10 @@ export async function dassie(dir: string, args: string[]): Promise<string> {
 }
 
 /** A headless Chrome that sends `dassie.test` to this machine. */
-export async function startBrowser(
-  dir: string,
-): Promise<Awaited<ReturnType<typeof launch>>> {
-  const path = await findChrome();
-  return await launch({
-    path,
+export async function startBrowser(dir: string): Promise<Browser> {
+  return await puppeteer.launch({
+    executablePath: await findChrome(),
+    headless: true,
     args: [
       "--no-sandbox",
       `--user-data-dir=${dir}/chrome`,

@@ -7,8 +7,9 @@
  */
 
 import { type FSWatcher, watch } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import process from "node:process";
 import { ChildProcess, type Exit, type Stream } from "./process.ts";
 import { ROOT } from "./paths.ts";
 
@@ -117,22 +118,17 @@ export function watchSources(
   };
 }
 
-/** The Vite version the apps pin, from the wallet's imports. */
-async function viteSpecifier(): Promise<string> {
-  const manifest = JSON.parse(
-    await readFile(`${ROOT}apps/wallet/deno.json`, "utf8"),
-  );
-  const specifier: string | undefined = manifest.imports?.vite;
-  if (!specifier?.startsWith("npm:vite@")) {
-    throw new Error("apps/wallet/deno.json does not pin vite");
-  }
-  return specifier;
+/** Vite's command line script, as the app in `dir` has it installed. */
+export function viteBin(dir: string): string {
+  const manifest = createRequire(join(dir, "package.json"))
+    .resolve("vite/package.json");
+  return join(dirname(manifest), "bin", "vite.js");
 }
 
 /**
  * A development build of the app in `dir` into its `dist-dev/`, once or
- * watching. Run as Deno itself, not through a task, so that stopping it
- * reaches Vite.
+ * watching. Vite's script runs in Node itself, not through a package
+ * script or its `.bin` shim, so that stopping it reaches Vite.
  */
 export class ViteBuild {
   #child?: ChildProcess;
@@ -157,9 +153,7 @@ export class ViteBuild {
   /** Starts it; resolves once the first build is done. */
   async start(): Promise<void> {
     const args = [
-      "run",
-      "-A",
-      await viteSpecifier(),
+      viteBin(this.dir),
       "build",
       "--configLoader",
       "native",
@@ -169,7 +163,7 @@ export class ViteBuild {
     ];
     let built!: () => void;
     const first = new Promise<void>((resolve) => built = resolve);
-    this.#child = new ChildProcess("vite", Deno.execPath(), {
+    this.#child = new ChildProcess("vite", process.execPath, {
       args,
       cwd: this.dir,
       env: { NO_COLOR: "1" },

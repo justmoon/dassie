@@ -43,14 +43,15 @@ Every fix gets a test that would have failed against the original's behaviour.
 
 All decisions below were confirmed on 2026-10-11. Each states the **decision** and, where one was considered, the **rejected** alternative and why.
 
-### D1. What runs in Rust and what in Deno
+### D1. What runs in Rust and what in TypeScript
 
-- **Decision:** the node (daemon, CLI, all protocols) is Rust. The wallet and dev dashboard are Solid 2, built with Deno and Vite. The dev environment, website, build and release scripts, and interop tests are Deno. The core crates also ship as WASM ([7 §3](07-rewrite.md#3-how-the-original-maps-onto-the-stack)).
-- **Rejected:** the node is a Deno app (as Vorstand's servers are), calling Rust cores through WASM or FFI.
+- **Decision:** the node (daemon, CLI, all protocols) is Rust. The wallet and dev dashboard are Solid 2, built with Node, pnpm and Vite. The dev environment, website, build and release scripts, and interop tests are TypeScript on Node. The core crates also ship as WASM ([7 §3](07-rewrite.md#3-how-the-original-maps-onto-the-stack)).
+  - Until 2026-10-16 the TypeScript side ran on Deno. [D21](#d21-tooling-on-node-and-pnpm-not-deno) moved it to Node; the split did not change.
+- **Rejected:** the node is a TypeScript app (as Vorstand's servers are), calling Rust cores through WASM or FFI.
 - **Why not:**
   - The packet path, the ledger and the long-running network services benefit from Rust's performance and type system.
   - A static binary is what the install and update story wants.
-  - A Deno node would bring back a bundled runtime, the problem the original had with Node.
+  - A TypeScript node would bring back a bundled runtime, the problem the original had with Node.
 - **Affects:** everything.
 
 ### D2. Peer protocol: v0 or v1
@@ -289,9 +290,9 @@ Revised on 2026-10-14; it first served SPSP and deferred GNAP, quotes and outgoi
 
 ### D14. Build system
 
-- **Decision:** follow Vorstand: Nix flake for CI builds and release artifacts, plain `cargo` and `deno task` locally.
+- **Decision:** follow Vorstand: Nix flake for CI builds and release artifacts, plain `cargo` and `node --run` locally.
   - The binaries are cross-compiled from x86_64-linux with nixpkgs' musl toolchains, so one builder makes both platforms.
-  - The wallet is built in the sandbox too, from a fixed-output derivation of its npm packages ([7 §4.8](07-rewrite.md#48-releases)).
+  - The wallet is built in the sandbox too, from its npm packages fetched one by one with the hashes `pnpm-lock.yaml` records ([7 §4.8](07-rewrite.md#48-releases)).
 - **Rejected:** GitHub Actions with `cargo-zigbuild` or `cross` for musl x64/arm64, which gives no reproducible builds by default.
 
 ### D15. Bootstrap network for v1
@@ -382,6 +383,25 @@ Decided on 2026-10-14, with D17.
   - **The bound:** what a peer can cost us before its ban is its limit plus what it has in flight, at most the credit both ways.
   - **A ban over the limit** is kept with its cost; the Network page and the dashboard show it. A full ban list still ends the peering, once. Lifting the ban starts the peer's window of refusals anew; what it still owes counts again after the grace for settling.
   - **The owner's group takes in what the node gains or loses** (`equity/suspense`, `revenue/fees`, `expenses/fees`, `expenses/losses`), so a loss is the owner's to bear, not money the owner could still spend ([7 §4.5](07-rewrite.md#45-settlement-and-ledgers)).
+
+### D21. Tooling on Node and pnpm, not Deno
+
+Decided on 2026-10-16.
+
+- **Facts:** Cloudflare acquired Deno and announced that development of the Deno runtime ends in a year. Deno ran only the TypeScript side ([D1](#d1-what-runs-in-rust-and-what-in-typescript)): the dev environment, the Vite builds of the wallet, the dashboard and the website, the tests and the scripts. Nothing shipped contains it: the node is Rust, and the wallet is static assets in its binary.
+- **Decision:** the TypeScript side moves to Node 26 and pnpm 11, the versions the flake pins.
+  - **Packages:** a pnpm workspace, with a `package.json` per package and `pnpm-lock.yaml` committed. Packages link to each other with `workspace:*`; JSR modules such as `@std/assert` come through JSR's npm registry. A release must be a day old before pnpm installs it.
+  - **Running:** Node runs the sources as they are, by stripping their types, so they use only syntax that strips (no enums or parameter properties). Scripts are `node --run <name>`.
+  - **Checks:** dprint formats as `deno fmt` did (its TypeScript and JSON plugins in Deno's style), oxlint runs the rules of Deno's recommended set, and TypeScript 7 (`tsc`) checks the types.
+  - **Tests:** `node --test`, with `@std/assert` kept for assertions.
+  - **The WASM modules** have one `web` build, which the browser and Node both load.
+  - **Releases:** the wallet's packages are fetched one by one from the lockfile's hashes, so a change to it needs no hash updated by hand ([7 §4.8](07-rewrite.md#48-releases)).
+- **Unchanged:** the node stays Rust, for D1's reasons, and no release contains Node.
+- **Rejected:**
+  - *Staying on Deno until it stops:* a year spent on a dead end, and every fix after that would be ours to make.
+  - *Bun:* also a runtime owned by one company (Anthropic, since December 2025), and Node is what Vite, Solid's tooling and Puppeteer are built and tested on.
+  - *A compatibility layer that keeps Deno working beside Node:* two runtimes to test against, for one that is ending.
+- **Affects:** [7 §3](07-rewrite.md#3-how-the-original-maps-onto-the-stack), [7 §4.8](07-rewrite.md#48-releases), [7 §5](07-rewrite.md#5-wallet-and-dashboard-solid-2), [7 §6](07-rewrite.md#6-developer-environment-node), [7 §7](07-rewrite.md#7-testing-strategy), D1, D14.
 
 ## 4. Gaps by decision
 

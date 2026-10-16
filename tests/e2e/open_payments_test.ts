@@ -14,16 +14,15 @@ import { assert, assertEquals, assertRejects } from "@std/assert";
 import { Buffer } from "node:buffer";
 import { generateKeyPairSync } from "node:crypto";
 import { readFile } from "node:fs/promises";
-// @ts-types="./types/ilp-plugin-btp.d.ts"
-import BtpPlugin from "ilp-plugin-btp";
-// @ts-types="./types/ws.d.ts"
-import WebSocket from "ws";
+import { getCACertificates, setDefaultCACertificates } from "node:tls";
+import WebSocket from "#ws";
 import { createConnection } from "ilp-protocol-stream";
 import {
   createAuthenticatedClient,
   createUnauthenticatedClient,
   isFinalizedGrantWithAccessToken,
 } from "@interledger/open-payments";
+import { serve } from "@dassie/dev/serve";
 import { certificate, Scenario } from "@dassie/dev/scenario";
 
 import {
@@ -31,6 +30,7 @@ import {
   missingScenarioTools,
   SCENARIO_PORT_OFFSET,
 } from "./harness.ts";
+import { BtpClient } from "./btp.ts";
 
 /** Ports of their own, beside the other suites'. */
 const PORT_OFFSET = SCENARIO_PORT_OFFSET + 300;
@@ -41,17 +41,15 @@ const AMOUNT = 250_000_000n;
 const missing = await missingScenarioTools();
 
 /**
- * Makes `fetch` trust `ca`: the client library fetches through the global
- * one.
+ * Makes `fetch` trust `ca`, until the returned function restores it. The
+ * client library fetches through the global `fetch`, with Node's own
+ * `Request`s, which npm undici's `fetch` (the one a CA can be passed to)
+ * does not take; so it is Node's default CA list that gets `ca`.
  */
 function trustFetch(ca: string): () => void {
-  const original = globalThis.fetch;
-  const client = Deno.createHttpClient({ caCerts: [ca] });
-  globalThis.fetch = (input, init) => original(input, { ...init, client });
-  return () => {
-    globalThis.fetch = original;
-    client.close();
-  };
+  const original = getCACertificates("default");
+  setDefaultCACertificates([...original, ca]);
+  return () => setDefaultCACertificates(original);
 }
 
 /** The client's wallet address and its key set, over HTTPS. */
@@ -64,12 +62,11 @@ async function serveClient(scenario: Scenario, jwk: object) {
     layout.caRoot,
   );
   const origin = `https://localhost:${CLIENT_PORT}`;
-  const server = Deno.serve({
+  const server = await serve({
     port: CLIENT_PORT,
     hostname: "127.0.0.1",
     cert: tls.certificatePem,
     key: tls.keyPem,
-    onListen: () => {},
   }, (request) => {
     const path = new URL(request.url).pathname;
     if (path === "/client/jwks.json") return Response.json({ keys: [jwk] });
@@ -95,7 +92,7 @@ async function pay(
   secret: string,
 ) {
   const ca = await readFile(scenario.caFile, "utf8");
-  const plugin = new BtpPlugin({ server: url }, {
+  const plugin = new BtpClient({ server: url }, {
     WebSocket: class extends WebSocket {
       constructor(target: string) {
         super(target, { ca });
@@ -136,7 +133,7 @@ test("the reference client gets paid into an incoming payment", {
   const client = await serveClient(scenario, jwk);
   try {
     const [node] = scenario.nodes;
-    // `localhost`, which Deno resolves on every system; the certificate
+    // `localhost`, which resolves on every system; the certificate
     // names it too.
     await node.rpc.call("setHostname", { hostname: "localhost" });
     const origin = `https://localhost:${node.httpsPort}`;

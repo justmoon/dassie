@@ -1,6 +1,6 @@
 // Signs a release for the mirror (spec D11), as the release workflow does:
 //
-//   deno run -A scripts/release.ts <built tree> <out dir> \
+//   node scripts/release.ts <built tree> <out dir> \
 //     --secret-key <file> --public-key resources/minisign.pub \
 //     --verifier <dassie-release binary> [--version <expected version>]
 //
@@ -15,7 +15,7 @@
 // comes from MINISIGN_PASSWORD.
 //
 // minisign comes from the flake's dev shell, and dassie-release from
-// `nix build .#release-tool` or `deno task build:e2e`.
+// `nix build .#release-tool` or `node --run build:e2e`.
 
 import { spawn } from "node:child_process";
 import { copyFile, mkdir, readdir, readFile } from "node:fs/promises";

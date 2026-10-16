@@ -1,11 +1,11 @@
 /**
  * Keeps the vanity table (`apps/dev/vanity.json`, spec 6 §6.4).
  *
- * - `deno task vanity < found.txt` adds a brute-forcer's finds, one
+ * - `node --run vanity < found.txt` adds a brute-forcer's finds, one
  *   `[0x]<entropy hex>: <node ID>` a line (`#` starts a comment), by the
  *   original's rules (`merge` in src/vanity.ts). Each is derived first and
  *   refused if its entropy does not give its ID.
- * - `deno task vanity --check` derives every entry and fails on any that
+ * - `node --run vanity -- --check` derives every entry and fails on any that
  *   does not give its ID.
  *
  * The table began as the original's `TEST_NODE_VANITY_ENTROPY`

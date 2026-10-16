@@ -21,7 +21,7 @@ export interface SocketLike {
   onopen: ((event: Event) => void) | null;
   onmessage: ((event: MessageEvent) => void) | null;
   onclose: ((event: CloseEvent) => void) | null;
-  send(data: Uint8Array): void;
+  send(data: Uint8Array<ArrayBuffer>): void;
   close(): void;
 }
 
@@ -62,7 +62,7 @@ export class DevClient {
     if (this.#closed) return;
     this.options.onStatus("connecting");
     const connect = this.options.connect ??
-      ((url: string) => new WebSocket(url) as unknown as SocketLike);
+      ((url: string): SocketLike => new WebSocket(url));
     const socket = connect(this.options.url);
     socket.binaryType = "arraybuffer";
     this.#socket = socket;

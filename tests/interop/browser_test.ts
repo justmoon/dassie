@@ -9,7 +9,8 @@ import { readFile } from "node:fs/promises";
 import process from "node:process";
 
 import { assertEquals } from "@std/assert";
-import { launch } from "@astral/astral";
+import { serve } from "@dassie/dev/serve";
+import puppeteer from "puppeteer-core";
 
 const web = new URL("../../packages/identity-wasm/gen/web/", import.meta.url);
 
@@ -73,8 +74,8 @@ async function findChrome(): Promise<string> {
 }
 
 test("the web build works in a browser", async () => {
-  const server = Deno.serve(
-    { port: 0, onListen: () => {} },
+  const server = await serve(
+    { port: 0 },
     async (request) => {
       const path = new URL(request.url).pathname.slice(1);
       if (path === "" || path === "index.html") {
@@ -94,12 +95,14 @@ test("the web build works in a browser", async () => {
       }
     },
   );
-  const browser = await launch({
-    path: await findChrome(),
+  const browser = await puppeteer.launch({
+    executablePath: await findChrome(),
+    headless: true,
     args: ["--no-sandbox"],
   });
   try {
-    const tab = await browser.newPage(`http://localhost:${server.addr.port}/`);
+    const tab = await browser.newPage();
+    await tab.goto(`http://localhost:${server.addr.port}/`);
     await tab.waitForFunction(() => "__result" in globalThis);
     const result = await tab.evaluate(() =>
       (globalThis as unknown as { __result: Record<string, string> }).__result

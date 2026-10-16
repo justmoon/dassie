@@ -15,6 +15,7 @@ import { mkdir, readFile, rm } from "node:fs/promises";
 import { RpcClient } from "@dassie/rpc";
 import { ipcConnector } from "@dassie/rpc/ipc";
 import { NodeState } from "@dassie/rpc/proto";
+import { Agent, fetch } from "undici";
 import { nodeCertificate } from "../certs.ts";
 import { dataDir, type Layout, socketPath } from "../paths.ts";
 import { ChildProcess, type Exit, type Stream } from "../process.ts";
@@ -231,13 +232,13 @@ export class ScenarioNode {
   async #claim(): Promise<void> {
     const { url } = await this.rpc.call("getSetupUrl", {});
     const token = url.split("/setup/")[1];
-    const client = Deno.createHttpClient({
-      caCerts: [await readFile(this.environment.caFile, "utf8")],
+    const agent = new Agent({
+      connect: { ca: await readFile(this.environment.caFile, "utf8") },
     });
     try {
       const response = await fetch(`${this.localUrl}/api/setup`, {
         method: "POST",
-        client,
+        dispatcher: agent,
         headers: {
           "content-type": "application/json",
           origin: this.localUrl,
@@ -255,7 +256,7 @@ export class ScenarioNode {
         );
       }
     } finally {
-      client.close();
+      await agent.close();
     }
   }
 

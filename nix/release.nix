@@ -3,7 +3,8 @@
 # mirror tree a release publishes.
 #
 # Everything is built on x86_64-linux: arm64 is cross-compiled, and the
-# wallet's npm dependencies hold the native packages of the build host.
+# wallet is built with the npm packages for the build host's platform
+# (nix/pnpm.nix).
 {
   lib,
   pkgs,
@@ -27,60 +28,18 @@ let
     in
     "canary-${part 0 4}-${part 4 2}-${part 6 2}-${part 8 6}-${commit}";
 
-  # The Deno workspace's manifests: `deno install` needs every member's.
-  denoManifests = lib.fileset.unions [
-    ../deno.json
-    ../deno.lock
-    ../apps/dev/deno.json
-    ../apps/dev-dashboard/deno.json
-    ../apps/wallet/deno.json
-    ../apps/website/deno.json
-    ../packages/identity-wasm/deno.json
-    ../packages/rpc/deno.json
-    ../packages/ui/deno.json
-    ../tests/e2e/deno.json
-    ../tests/interop/deno.json
-  ];
-
-  # The workspace's npm packages and JSR modules, as `deno install` lays
-  # them out in node_modules/ and, with --vendor, vendor/. Both are the
-  # same bytes from run to run (Deno's own cache is not, so it is left
-  # behind). After a change to deno.lock, set the hash the build reports.
-  #
-  # Its name carries Deno's version and a digest of the manifests: Nix finds
-  # a fixed output by its hash alone, so without them a stale hash would
-  # quietly keep the old packages rather than fail.
-  denoSource = lib.fileset.toSource {
-    root = ../.;
-    fileset = denoManifests;
-  };
-  manifestDigest = lib.substring 0 12 (builtins.hashString "sha256" (toString denoSource));
-  denoDeps = pkgs.stdenvNoCC.mkDerivation {
-    name = "dassie-deno-deps-${pkgs.deno.version}-${manifestDigest}";
-    src = denoSource;
-    nativeBuildInputs = [ pkgs.deno ];
-    SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
-    buildPhase = ''
-      export HOME=$TMPDIR DENO_DIR=$TMPDIR/deno DENO_NO_UPDATE_CHECK=1
-      deno install --frozen --vendor
-    '';
-    installPhase = ''
-      mkdir $out
-      cp -r node_modules vendor $out/
-    '';
-    dontFixup = true;
-    outputHashMode = "recursive";
-    outputHashAlgo = "sha256";
-    outputHash = "sha256-apxKcAVAHL5kA1BwIc9/NhUUtJP7kAukJEggj8IAi3k=";
-  };
-
-  # The wallet, as `deno task build:wallet` builds it, offline.
+  # The wallet, as `node --run build:wallet` builds it, offline: the npm
+  # and JSR packages of the wallet and the members it uses, each fetched
+  # as pnpm-lock.yaml pins it (nix/pnpm.nix). Vite reads the wallet's
+  # tsconfig.json, which extends the base one.
+  pnpm = import ./pnpm.nix { inherit lib pkgs; };
   wallet = pkgs.stdenvNoCC.mkDerivation {
     name = "dassie-wallet";
     src = lib.fileset.toSource {
       root = ../.;
       fileset = lib.fileset.unions [
-        denoManifests
+        pnpm.manifests
+        ../tsconfig.base.json
         ../apps/wallet
         ../packages/identity-wasm
         ../packages/rpc
@@ -88,19 +47,18 @@ let
       ];
     };
     nativeBuildInputs = [
-      pkgs.deno
-      pkgs.jq
+      pkgs.nodejs_26
+      pkgs.pnpm_11
     ];
     buildPhase = ''
-      export HOME=$TMPDIR DENO_DIR=$TMPDIR/deno DENO_NO_UPDATE_CHECK=1
-      cp -r ${denoDeps}/node_modules ${denoDeps}/vendor .
-      chmod -R u+w node_modules vendor
+      export HOME=$TMPDIR
       mkdir -p packages/identity-wasm/gen
       cp -r ${identity-wasm}/web packages/identity-wasm/gen/
-      jq '.vendor = true' deno.json > deno.json.vendored
-      mv deno.json.vendored deno.json
+    ''
+    + pnpm.install "apps/wallet"
+    + ''
       cd apps/wallet
-      deno task build
+      node --run build
     '';
     installPhase = "cp -r dist $out";
   };
@@ -289,7 +247,6 @@ in
 {
   packages = {
     inherit wallet;
-    deno-deps = denoDeps;
     dassie-x64 = released.x64;
     dassie-arm64 = released.arm64;
     release = mirror releaseVersion "latest";

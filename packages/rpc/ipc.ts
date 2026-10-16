@@ -29,7 +29,7 @@ export function ipcConnector(path: string): () => SocketLike {
 }
 
 class IpcSocket implements SocketLike {
-  binaryType: BinaryType = "arraybuffer";
+  binaryType: "arraybuffer" | "blob" = "arraybuffer";
   readyState = CONNECTING;
   onopen: ((event: Event) => void) | null = null;
   onmessage: ((event: MessageEvent) => void) | null = null;

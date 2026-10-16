@@ -19,7 +19,7 @@ class FakeClient implements StreamClient {
     signal?: AbortSignal;
   }[] = [];
 
-  // deno-lint-ignore no-explicit-any
+  // eslint-disable-next-line typescript/no-explicit-any
   stream(_method: any, _request: any, onItem: any, options?: any) {
     return new Promise<void>((resolve, reject) => {
       this.streams.push({ onItem, resolve, reject, signal: options?.signal });

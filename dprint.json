@@ -1,0 +1,38 @@
+{
+  "typescript": {
+    "deno": true
+  },
+  "json": {
+    "deno": true
+  },
+  "includes": [
+    "apps/**",
+    "packages/**",
+    "tests/**",
+    "scripts/**",
+    "package.json",
+    "tsconfig.json",
+    "tsconfig.base.json",
+    "dprint.json",
+    ".oxlintrc.json"
+  ],
+  "excludes": [
+    "**/*.md",
+    "**/node_modules",
+    "pnpm-lock.yaml",
+    "apps/dev/vanity.json",
+    "apps/website/public/",
+    "packages/identity-wasm/gen/",
+    "packages/rpc/src/gen/",
+    "apps/wallet/dist/",
+    "apps/*/dist-dev/",
+    "apps/dev-dashboard/dist/",
+    "apps/website/dist/"
+  ],
+  "plugins": [
+    "https://plugins.dprint.dev/typescript-0.96.1.wasm",
+    "https://plugins.dprint.dev/json-0.21.3.wasm",
+    "https://plugins.dprint.dev/bartlomieju/lax-css-0.3.0.wasm",
+    "https://plugins.dprint.dev/bartlomieju/lax-markup-0.3.2.wasm"
+  ]
+}

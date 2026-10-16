@@ -13,10 +13,7 @@ import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
 import { Buffer } from "node:buffer";
 import { readFile } from "node:fs/promises";
-// @ts-types="./types/ilp-plugin-btp.d.ts"
-import BtpPlugin from "ilp-plugin-btp";
-// @ts-types="./types/ws.d.ts"
-import WebSocket from "ws";
+import WebSocket from "#ws";
 import { createConnection } from "ilp-protocol-stream";
 
 import {
@@ -24,6 +21,7 @@ import {
   missingScenarioTools,
   SCENARIO_PORT_OFFSET,
 } from "./harness.ts";
+import { BtpClient } from "./btp.ts";
 import { Scenario, type ScenarioNode } from "@dassie/dev/scenario";
 
 /** 5 USD: over four times what a peer extends, so every hop must settle. */
@@ -60,10 +58,10 @@ async function pay(scenario: Scenario, from: ScenarioNode, to: ScenarioNode) {
     {},
   );
   assert(credentials);
-  // At `localhost`, which the node's certificate names too: Deno need not
+  // At `localhost`, which the node's certificate names too: Node need not
   // resolve `dN.localhost`.
   const server = token.url.replace(`@${from.hostname}:`, "@localhost:");
-  const plugin = new BtpPlugin({ server }, {
+  const plugin = new BtpClient({ server }, {
     WebSocket: await trusting(scenario),
   });
   await plugin.connect();

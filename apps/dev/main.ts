@@ -1,5 +1,5 @@
 /**
- * `deno task dev` (spec 6 §6, spec 7 §6): a network of dev nodes on this
+ * `node --run dev` (spec 6 §6, spec 7 §6): a network of dev nodes on this
  * machine, and the dashboard to watch it at https://localhost.
  *
  * 1. Checks what it needs, and stops what a crashed run left behind.
@@ -175,7 +175,7 @@ async function start(): Promise<void> {
   }
   await buildPages(env);
 
-  server = startServer({
+  server = await startServer({
     ports: [dashboardPort, CONTROL_PORT + offset],
     certificatePem: certificate.certificatePem,
     keyPem: certificate.keyPem,
@@ -286,14 +286,14 @@ function watchNode(env: Environment, builder: CargoBuilder) {
 
 async function regenerate(env: Environment): Promise<void> {
   const { success } = await run(
-    Deno.execPath(),
-    ["run", "--no-lock", "-A", "scripts/gen.ts"],
+    process.execPath,
+    ["scripts/gen.ts"],
     { cwd: `${ROOT}packages/rpc` },
   );
   env.log(
     success ? LogLevel.INFO : LogLevel.WARN,
     success
       ? "regenerated packages/rpc from proto/"
-      : "could not regenerate packages/rpc: run `deno task gen` there",
+      : "could not regenerate packages/rpc: run `node --run gen` there",
   );
 }

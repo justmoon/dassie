@@ -1,5 +1,5 @@
 //! Serves the fake XRP Ledger, for the end-to-end tests and
-//! `deno task dev --xrpl fake`:
+//! `node --run dev -- --xrpl fake`:
 //!
 //! ```text
 //! fake_ledger [--listen 127.0.0.1:0] [--close-ms 1000]

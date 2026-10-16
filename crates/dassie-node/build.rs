@@ -7,7 +7,7 @@
 //!   Only that variable is read, never a default path, so a stale local
 //!   build cannot end up in a binary unnoticed. Without it the table holds a
 //!   page saying the binary has no wallet, so `cargo build` and `cargo test`
-//!   need no Deno.
+//!   need no Node.js.
 
 // Cargo hands a build script its inputs in the environment, and takes its
 // instructions from what it prints.
@@ -112,7 +112,7 @@ fn collect(root: &Path, directory: &Path, sources: &mut Vec<Source>) -> BuildRes
 fn placeholder() -> Source {
     let page = "<!doctype html>\n<meta charset=\"utf-8\">\n<title>Dassie</title>\n\
         <p>This Dassie binary was built without its wallet. Build the wallet \
-        (<code>deno task build:wallet</code>) and rebuild with \
+        (<code>node --run build:wallet</code>) and rebuild with \
         <code>DASSIE_WALLET_DIST</code> pointing at it.</p>\n";
     Source {
         url: "/index.html".into(),

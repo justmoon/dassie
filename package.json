@@ -1,0 +1,27 @@
+{
+  "name": "dassie",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:wasm": "node scripts/build-wasm.ts",
+    "build:wallet": "cd apps/wallet && node --run build",
+    "build:dashboard": "cd apps/dev-dashboard && node --run build",
+    "build:website": "cd apps/website && node --run build",
+    "build:e2e": "DASSIE_WALLET_DIST=$(pwd)/apps/wallet/dist cargo build --locked --profile e2e -p dassie-cli && cargo build --locked --profile e2e -p dassie-node --features testing --example fake_ledger && cargo build --locked --profile e2e -p dassie-release --features tool",
+    "dev": "node apps/dev/main.ts",
+    "cli": "node apps/dev/cli.ts",
+    "check": "dprint check && oxlint && node --run typecheck",
+    "typecheck": "for project in . apps/* packages/* tests/*; do tsc -p $project || exit 1; done",
+    "test": "node --test 'apps/**/*_test.ts' 'packages/**/*_test.ts' 'scripts/*_test.ts'",
+    "test:e2e": "node --test --test-concurrency=1 'tests/**/*_test.ts'",
+    "ci": "node --run build:wasm && node --run build:wallet && node --run build:dashboard && node --run build:website && node --run build:e2e && node --run check && node --run test && node --run test:e2e"
+  },
+  "devDependencies": {
+    "@std/assert": "jsr:^1.0.19",
+    "@types/node": "^26.6.5",
+    "dprint": "0.63.0",
+    "oxlint": "1.88.0",
+    "typescript": "7.0.2"
+  }
+}

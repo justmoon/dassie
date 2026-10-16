@@ -8,7 +8,7 @@
  * import.meta.url)`), which bundlers such as Vite recognise and emit as an
  * asset of their own, so the page loads it from its own origin.
  *
- * Build the bindings first with `deno task build:wasm`.
+ * Build the bindings first with `node --run build:wasm`.
  *
  * @example
  * ```ts

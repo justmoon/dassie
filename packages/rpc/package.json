@@ -1,0 +1,25 @@
+{
+  "name": "@dassie/rpc",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./mod.ts",
+    "./ipc": "./ipc.ts",
+    "./proto": "./proto.ts",
+    "./dev": "./dev.ts"
+  },
+  "scripts": {
+    "gen": "node scripts/gen.ts"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.16.0"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "1.73.0",
+    "@bufbuild/protoc-gen-es": "2.16.0",
+    "@std/assert": "jsr:^1.0.19",
+    "@std/testing": "jsr:^1.0.21",
+    "@types/node": "^26.6.5"
+  }
+}

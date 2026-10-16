@@ -31,7 +31,7 @@ jobs:
       # tag v<version> only.
       filter_builds: '.top_attr == "checks" and .system == "x86_64-linux"'
 
-  deno:
+  ts:
     runs-on: ubuntu-latest
     # A hung end-to-end test would otherwise hold the run for six hours.
     timeout-minutes: 25
@@ -47,14 +47,26 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: deno-cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'flake.lock') }}
-          restore-keys: deno-cargo-${{ runner.os }}-
-      # The Deno side needs npm and JSR, so it runs outside the sandbox, in
-      # the flake's shell: the WASM and wallet builds, the end-to-end binary,
-      # fmt, lint, type check, the WASM vector tests, interop with
-      # ilp-protocol-stream, the browser test, a fresh install through
-      # dassie init and the wallet with Pebble as the ACME CA, and
-      # ilp-plugin-btp paying the node's STREAM receiver (GitHub's CI=true
-      # makes the end-to-end tests fail rather than skip).
-      - name: Deno checks
-        run: nix develop --command deno task ci
+          key: ts-cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'flake.lock') }}
+          restore-keys: ts-cargo-${{ runner.os }}-
+      # pnpm's store, which the lockfile's packages are installed from, kept
+      # between runs; after a change to the lockfile, the last one's.
+      - name: pnpm store
+        id: pnpm
+        run: echo "store=$(nix develop --command pnpm store path)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v6
+        with:
+          path: ${{ steps.pnpm.outputs.store }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
+      # The TypeScript side needs npm and JSR, so it runs outside the
+      # sandbox, in the flake's shell. pnpm installs the lockfile's packages
+      # and checks it against the registries (the release-age rule). Then:
+      # the WASM and wallet builds, the end-to-end binary, fmt, lint, type
+      # check, the WASM vector tests, interop with ilp-protocol-stream, the
+      # browser test, a fresh install through dassie init and the wallet
+      # with Pebble as the ACME CA, and ilp-plugin-btp paying the node's
+      # STREAM receiver (GitHub's CI=true makes the end-to-end tests fail
+      # rather than skip).
+      - name: TypeScript checks
+        run: nix develop --command sh -c 'pnpm install --frozen-lockfile && node --run ci'

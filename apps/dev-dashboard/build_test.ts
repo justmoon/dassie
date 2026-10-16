@@ -1,5 +1,5 @@
 // The built dashboard keeps to the same CSP as the wallet (see
-// `@dassie/ui/testing/csp`). The check runs once `deno task
+// `@dassie/ui/testing/csp`). The check runs once `node --run
 // build:dashboard` has run.
 
 import { test } from "node:test";

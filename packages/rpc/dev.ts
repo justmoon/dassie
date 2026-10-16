@@ -20,7 +20,7 @@ export * from "./src/gen/dassie/dev/v1/control_pb.ts";
 /** The largest message either side sends or accepts. */
 export const MAX_CONTROL_MESSAGE_BYTES = 1024 * 1024;
 
-function bounded(bytes: Uint8Array): Uint8Array {
+function bounded<T extends Uint8Array>(bytes: T): T {
   if (bytes.length > MAX_CONTROL_MESSAGE_BYTES) {
     throw new RangeError(`a control message of ${bytes.length} bytes`);
   }
@@ -28,7 +28,9 @@ function bounded(bytes: Uint8Array): Uint8Array {
 }
 
 /** A server message as bytes; throws if it is too large. */
-export function encodeServerMessage(message: ServerMessage): Uint8Array {
+export function encodeServerMessage(
+  message: ServerMessage,
+): Uint8Array<ArrayBuffer> {
   return bounded(toBinary(ServerMessageSchema, message));
 }
 
@@ -38,7 +40,9 @@ export function decodeServerMessage(bytes: Uint8Array): ServerMessage {
 }
 
 /** A client message as bytes; throws if it is too large. */
-export function encodeClientMessage(message: ClientMessage): Uint8Array {
+export function encodeClientMessage(
+  message: ClientMessage,
+): Uint8Array<ArrayBuffer> {
   return bounded(toBinary(ClientMessageSchema, message));
 }
 

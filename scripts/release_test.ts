@@ -1,6 +1,6 @@
 // scripts/release.ts against a stand-in release, signed with the test key
 // of testdata/release. minisign comes from the flake's dev shell, and
-// dassie-release from `deno task build:e2e`; without them the tests skip,
+// dassie-release from `node --run build:e2e`; without them the tests skip,
 // except in CI, where they fail.
 
 import { test } from "node:test";
@@ -41,7 +41,7 @@ const verifier = [
   });
 if ((!hasMinisign || !verifier) && process.env.CI) {
   throw new Error(
-    "minisign or dassie-release is missing: run `deno task build:e2e` in `nix develop`",
+    "minisign or dassie-release is missing: run `node --run build:e2e` in `nix develop`",
   );
 }
 

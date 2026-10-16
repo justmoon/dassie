@@ -1,4 +1,4 @@
-//! Drives the native STREAM implementation over stdio, so that the Deno
+//! Drives the native STREAM implementation over stdio, so that the Node.js
 //! interop tests (tests/interop/native_interop_test.ts) can connect it to
 //! `ilp-protocol-stream`. This is an edge: it reads the system clock and the
 //! OS RNG, which the crate itself never does.
