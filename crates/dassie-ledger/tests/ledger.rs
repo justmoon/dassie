@@ -269,6 +269,11 @@ fn bounds_refuse_without_changing_anything() {
         ledger.create(0, &spec(token, owner, 1, true, packet(1))),
         Err(TransferError::PendingFull)
     );
+    // Validating says what creating would.
+    assert_eq!(
+        ledger.validate(&spec(token, owner, 1, true, packet(1))),
+        Err(TransferError::PendingFull)
+    );
     // Two accounts opened; four more entries fill the journal.
     for _ in 0..4 {
         ledger
@@ -277,6 +282,10 @@ fn bounds_refuse_without_changing_anything() {
     }
     assert_eq!(
         ledger.create(0, &spec(token, owner, 1, false, packet(3))),
+        Err(TransferError::JournalFull)
+    );
+    assert_eq!(
+        ledger.validate(&spec(token, owner, 1, false, packet(3))),
         Err(TransferError::JournalFull)
     );
     assert_eq!(ledger.post(0, TransferId(0)), Err(LedgerError::JournalFull));

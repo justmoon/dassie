@@ -554,8 +554,8 @@ impl Core {
         self.changes.payments |= batch.changes_payments();
         self.batch.at_ms = self.now_ms;
         let batch = std::mem::take(&mut self.batch);
+        // The supervisor logs the panic, and restarts the core.
         if let Err(error) = self.store.commit_ledger(&batch) {
-            tracing::error!(target: target::ENGINE, %error, "persisting the ledger failed; restarting it");
             panic!("persisting the ledger failed: {error}");
         }
     }
@@ -673,6 +673,10 @@ fn check_bounds(policies: &Policies) {
         "the credit fits the ledger"
     );
     assert!(
+        connector.max_routes >= policies.peer.max_nodes,
+        "every node the peer node knows can be routed to"
+    );
+    assert!(
         policies.ledger.max_journal >= 64,
         "a command's journal entries fit the journal"
     );
@@ -722,9 +726,9 @@ fn text(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
 
+/// Logged where it is answered, as every internal error is.
 impl From<StoreError> for EngineError {
     fn from(error: StoreError) -> Self {
-        tracing::error!(target: target::ENGINE, %error, "database");
-        Self::Internal("database error".into())
+        Self::Internal(format!("database: {error}"))
     }
 }

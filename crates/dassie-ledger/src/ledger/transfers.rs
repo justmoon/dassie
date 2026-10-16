@@ -38,13 +38,8 @@ impl Ledger {
             self.stats.refused += 1;
         }
         result?;
+        self.check_room(spec)?;
         let durable = spec.pending && spec.reference.is_durable_while_pending();
-        if spec.pending && self.pending.len() >= usize_of(self.config.max_pending) {
-            return Err(TransferError::PendingFull);
-        }
-        if (durable || !spec.pending) && self.journal.len() >= usize_of(self.config.max_journal) {
-            return Err(TransferError::JournalFull);
-        }
         let transfer = Transfer {
             id: TransferId(self.next_transfer),
             debit: spec.debit,
@@ -190,14 +185,29 @@ impl Ledger {
         Ok(())
     }
 
-    /// Whether [`create`](Self::create) would take `spec` now, as far as
-    /// the accounts and their limits go, without creating it.
+    /// Whether [`create`](Self::create) would take `spec` now, without
+    /// creating it: the accounts, their limits, and room in the tables.
+    /// What it takes, it takes for a smaller amount too, until the ledger
+    /// changes.
     ///
     /// # Errors
     ///
     /// Why it would be refused.
     pub fn validate(&self, spec: &TransferSpec) -> Result<(), TransferError> {
-        self.check(spec)
+        self.check(spec)?;
+        self.check_room(spec)
+    }
+
+    /// Whether the pending table and the journal have room for `spec`.
+    fn check_room(&self, spec: &TransferSpec) -> Result<(), TransferError> {
+        let durable = spec.pending && spec.reference.is_durable_while_pending();
+        if spec.pending && self.pending.len() >= usize_of(self.config.max_pending) {
+            return Err(TransferError::PendingFull);
+        }
+        if (durable || !spec.pending) && self.journal.len() >= usize_of(self.config.max_journal) {
+            return Err(TransferError::JournalFull);
+        }
+        Ok(())
     }
 
     /// Validates a transfer against the accounts, their limits and bounds.

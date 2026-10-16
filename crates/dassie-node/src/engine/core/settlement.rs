@@ -238,6 +238,8 @@ impl Core {
 
     /// Prepares a settlement and books its pending transfer; it executes
     /// once that is on disk (ACC-16).
+    // Panics only on a broken invariant: what was validated is taken.
+    #[allow(clippy::panic)]
     fn prepare_settlement(&mut self, node: NodeId, at: &Position, amount: u64, state: &[u8]) {
         let Ok(name) = Name::new(node.as_str()) else {
             return;
@@ -259,7 +261,8 @@ impl Core {
             },
         };
         // Checked before the scheme is asked, so a refusal leaves nothing
-        // prepared behind.
+        // prepared behind; with the journal taken, so it has room.
+        self.take_journal();
         if let Err(error) = self.ledger.validate(&spec) {
             tracing::warn!(target: target::SETTLEMENT, %node, %error, "the books cannot take a settlement now");
             return;
@@ -276,14 +279,12 @@ impl Core {
             scheme: at.scheme,
             id: prepared.id,
         };
+        // The books took it for at least this amount just now, and nothing
+        // was booked since.
         let transfer = match self.ledger.create(self.now_ms, &spec) {
             Ok(transfer) => transfer,
             Err(error) => {
-                tracing::error!(target: target::SETTLEMENT, %node, %error, "a settlement's transfer was refused after it checked out");
-                if let Some(active) = self.schemes.get_mut(&at.scheme) {
-                    active.scheme.discard_settlement(prepared.id);
-                }
-                return;
+                panic!("a settlement's transfer was refused after it checked out: {error}")
             }
         };
         if let Some(state) = prepared.peer_state {
@@ -443,6 +444,8 @@ impl Core {
     /// Our settlement executed: its transfer is posted, and the peer is
     /// told, until it has heard; both in one batch. If an earlier message
     /// to the peer is still on its way, both wait until it arrives.
+    // Panics only on a broken invariant: a settling transfer is pending.
+    #[allow(clippy::panic)]
     pub(super) fn settlement_done(&mut self, scheme: Name, id: Name) {
         let Some(settling) = self.take_settling(scheme, id) else {
             tracing::warn!(target: target::SETTLEMENT, %scheme, %id, "an unknown settlement executed");
@@ -455,9 +458,11 @@ impl Core {
             }
             return;
         }
+        // Settlements in flight are pending transfers, and the journal has
+        // room once taken.
+        self.take_journal();
         if let Err(error) = self.ledger.post(self.now_ms, settling.transfer) {
-            tracing::error!(target: target::SETTLEMENT, %error, "a settlement's transfer could not be posted");
-            return;
+            panic!("a settlement's transfer could not be posted: {error}");
         }
         self.settle.backoff.remove(&settling.peer);
         if settling.last {
@@ -488,13 +493,16 @@ impl Core {
 
     /// Our settlement failed for good: its transfer is voided, and the
     /// peer is not settled with again for a while.
+    // Panics only on a broken invariant: a settling transfer is pending.
+    #[allow(clippy::panic)]
     pub(super) fn settlement_cancelled(&mut self, scheme: Name, id: Name) {
         let Some(settling) = self.take_settling(scheme, id) else {
             tracing::warn!(target: target::SETTLEMENT, %scheme, %id, "an unknown settlement was cancelled");
             return;
         };
+        self.take_journal();
         if let Err(error) = self.ledger.void(self.now_ms, settling.transfer) {
-            tracing::error!(target: target::SETTLEMENT, %error, "a settlement's transfer could not be voided");
+            panic!("a settlement's transfer could not be voided: {error}");
         }
         let now = self.now_ms;
         let (_, failures) = self

@@ -391,17 +391,24 @@ impl Core {
             return;
         }
         let row = match self.batch.incoming_progress.get(&id) {
-            Some(progress) => Some((progress.received_amount, progress.completed_at_ms)),
+            Some(progress) => Ok(Some((progress.received_amount, progress.completed_at_ms))),
             None => self
                 .store
                 .incoming_payment(id)
-                .ok()
-                .flatten()
-                .map(|row| (row.received_amount, row.completed_at_ms)),
+                .map(|row| row.map(|row| (row.received_amount, row.completed_at_ms))),
         };
-        let Some((received, completed_at_ms)) = row else {
-            tracing::error!(target: target::PAYMENT, %id, "a confirmed payment is gone");
-            return;
+        let (received, completed_at_ms) = match row {
+            Ok(Some(row)) => row,
+            // Payments that received nothing are pruned a week after they
+            // close; a verdict may come later than that.
+            Ok(None) => {
+                tracing::warn!(target: target::PAYMENT, %id, "a confirmed payment is gone");
+                return;
+            }
+            Err(error) => {
+                tracing::error!(target: target::PAYMENT, %id, %error, "reading a confirmed payment");
+                return;
+            }
         };
         // What it received is on the receiver's account, which never
         // holds more than `MAX_TOTAL`.

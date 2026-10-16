@@ -681,8 +681,9 @@ impl Core {
         let routes = routes
             .iter()
             .map(|(prefix, hops)| (prefix.as_str(), hops.as_slice()));
-        if let Err(error) = self.connector.set_routes(routes) {
-            tracing::error!(target: target::ROUTING, ?error, "routes not taken");
-        }
+        // The table holds a route per node the peer node knows
+        // (`check_bounds`), none of them below our own address.
+        let taken = self.connector.set_routes(routes);
+        assert!(taken.is_ok(), "routes not taken: {taken:?}");
     }
 }

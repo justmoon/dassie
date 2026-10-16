@@ -323,10 +323,12 @@ impl Core {
             _ => None,
         };
         let Some(peer) = peer.filter(|_| !fulfill.is_empty()) else {
-            if posted.source.is_peer() && moved {
-                // Peers leave only once drained: a bug.
-                tracing::error!(target: target::PEER, source = %posted.source, "a packet posted for a peer that is gone");
-            }
+            // Peers leave only once drained.
+            assert!(
+                peer.is_some() || !(posted.source.is_peer() && moved),
+                "a packet posted for a peer that is gone: {}",
+                posted.source
+            );
             if let Some((id, amount)) = incoming {
                 self.incoming_received(id, amount);
             }
