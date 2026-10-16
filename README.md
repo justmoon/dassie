@@ -4,7 +4,7 @@
 
 Dassie is a payment node you run on your own server. It finds other Dassie nodes, peers with them on its own, and routes [Interledger](https://interledger.org) payments through them. Peers keep track of what they owe each other and settle it on a real ledger, today the XRP Ledger testnet. You run your node from a web wallet that it serves itself, and apps can pay through it with [Open Payments](https://openpayments.dev) or BTP.
 
-**Status:** Dassie is early and works with test money only. A node runs alone until you point it at bootstrap nodes; the public testnet's are `boot1`–`boot3.dassie.xyz`, and **Peers** below shows how to join it ([D15](spec/08-decisions.md#d15-bootstrap-network-for-v1)).
+**Status:** Dassie is early and works with test money only. A new node joins the public testnet through its three bootstrap nodes, `boot1`–`boot3.dassie.xyz` ([D15](spec/08-decisions.md#d15-bootstrap-network-for-v1)).
 
 This is the second implementation of Dassie, written in Rust, Node and Solid 2. It replaced the original TypeScript implementation, which you can still find at the tag `original`. The [specification](spec/README.md) describes both: chapters 1–6 cover how the original works, [chapter 7](spec/07-rewrite.md) the plan for the rewrite, and [chapter 8](spec/08-decisions.md) the decisions taken along the way.
 
@@ -41,7 +41,9 @@ From there, the wallet sends and receives payments, shows their status and your 
 
 **Exchange rates.** When your ledgers hold different currencies, the node converts between them at rates it fetches from Coinbase, Kraken and Bitstamp, taking the median. You can change the sources and the currency the wallet shows totals in, in the wallet's settings or with `setRateSources` and `setDisplayCurrency`.
 
-**Peers.** Nodes find each other through bootstrap nodes. A node has none until you set `DASSIE_BOOTSTRAP_NODES` to some, as JSON: `[{"id": "d…", "url": "https://host:port", "publicKey": "<base64url>"}]`. A node needs a hostname to take part. To join the public testnet, give the node a systemd drop-in, then `sudo systemctl daemon-reload && sudo systemctl restart dassie`; `dassie update` leaves drop-ins alone:
+**Peers.** Nodes find each other through bootstrap nodes: by default the testnet's, `boot1`–`boot3.dassie.xyz`. A node needs a hostname to take part; it then registers with them by itself, and peers with nodes that share one of its settlement schemes. The bootstrap nodes run `xrpl-testnet`.
+
+`DASSIE_BOOTSTRAP_NODES` replaces the list, as JSON: `[{"id": "d…", "url": "https://host:port", "publicKey": "<base64url>"}]`, or `[]` to run alone. Under systemd, set it in a drop-in, then `sudo systemctl daemon-reload && sudo systemctl restart dassie`; `dassie update` leaves drop-ins alone. Version 0.1.1 and earlier have no default list, so they join the testnet with this one:
 
 ```ini
 # /etc/systemd/system/dassie.service.d/bootstrap.conf
@@ -49,7 +51,7 @@ From there, the wallet sends and receives payments, shows their status and your 
 Environment='DASSIE_BOOTSTRAP_NODES=[{"id":"dDHq9ng9J1z7luQ64eN4MJ_4_w-KK4FPk","url":"https://boot1.dassie.xyz","publicKey":"w25V-7IreZNDCPvwCrpiIv9Li5uwomzPSvqHot9ffLI"},{"id":"dE0GE90-9QCQI78S2_h5QaG81oo_cVKz1","url":"https://boot2.dassie.xyz","publicKey":"s9xgWff_UZ26HQwHT_aPd0q0SwyKPGXS74fd2xQjh14"},{"id":"dtTay2e6AV4J940nFJ6_WPkVL-TyrVKGW","url":"https://boot3.dassie.xyz","publicKey":"--P-gYMJ_ZZrFHa4GiNfVQ0x2jSu9_dr7z0mI_bcngY"}]'
 ```
 
-The node then registers with them by itself. It peers with nodes that share one of its settlement schemes; the bootstrap nodes run `xrpl-testnet`. `listNodes`, `listPeers`, `listRoutes` and `getRegistrationStatus` show what your node knows, and the wallet's network page shows the same.
+`listNodes`, `listPeers`, `listRoutes` and `getRegistrationStatus` show what your node knows, and the wallet's network page shows the same.
 
 Peers extend each other 1.1 units of credit. A node settles with a peer once it owes it a tenth more than the middle of that range, checking every 4 seconds; `listSettlementChannels` shows the settlements on their way. Because a peer may cheat, each one also gets a grace limit ([D18](spec/08-decisions.md#d18-one-grace-limit-per-peer)): by default, a peer that costs your node more than 75% of the credit it extends within 30 days is banned. The wallet's settings, or `getPeerSettings` and `setPeerSettings`, change that share, together with the fee and the exchange spread your node charges for passing payments on.
 

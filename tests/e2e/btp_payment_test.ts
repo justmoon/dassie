@@ -32,6 +32,7 @@ import { deriveNodeKey, loginSecret } from "@dassie/identity-wasm";
 import {
   DASSIE,
   missingBinary,
+  NO_BOOTSTRAP_NODES,
   PEBBLE_DIR,
   Process,
   waitForPort,
@@ -71,6 +72,7 @@ function startDaemon(dir: string): Process {
     env: {
       DASSIE_STATE_DIRECTORY: `${dir}/state`,
       DASSIE_IPC_SOCKET_PATH: `${dir}/ipc.sock`,
+      DASSIE_BOOTSTRAP_NODES: NO_BOOTSTRAP_NODES,
     },
   });
 }

@@ -298,11 +298,10 @@ Revised on 2026-10-14; it first served SPSP and deferred GNAP, quotes and outgoi
 ### D15. Bootstrap network for v1
 
 - The default BNL is `test1.dassie.xyz` and `test2.dassie.xyz` ([3 §11.1](03-peer-network.md)).
-- **Decision:** the project stands up and operates v1 bootstrap nodes (at least three, so that one failure doesn't block majority) under new hostnames in `dassie.xyz` (for example `boot1`–`boot3.dassie.xyz`), on separate providers or regions. Every configured entry's node ID is checked against its public key at startup (NET-19). (This first said to ship them as the default BNL; see the revision below.)
+- **Decision:** the project stands up and operates v1 bootstrap nodes (at least three, so that one failure doesn't block majority) under new hostnames in `dassie.xyz` (for example `boot1`–`boot3.dassie.xyz`), on separate providers or regions. Ship them as the default BNL, with their node IDs checked against their public keys at startup (NET-19).
 - **Until they exist (2026-10-14):** the default BNL is empty. The v0 nodes would refuse every v1 message. A node with no bootstrap nodes runs alone and warns. It neither polls nor registers until `DASSIE_BOOTSTRAP_NODES` is set.
-- **Revised (2026-10-16): no default BNL, not even for the test realm.** `DEFAULT_BOOTSTRAP_NODES` stays `[]`, and an operator joins a network by setting `DASSIE_BOOTSTRAP_NODES`. Making that easier is fine; a built-in list is not.
-- **The testnet's nodes (2026-10-16):** `boot1`, `boot2` and `boot3.dassie.xyz`, in GCP project `dassie-390023` (us-east1, europe-west3, asia-northeast1). The README gives their entries.
-  - Each lists all three in its own `DASSIE_BOOTSTRAP_NODES`, itself included, through a systemd drop-in. A node takes registrations only when it is one of its own bootstrap nodes.
+- **Done (2026-10-16):** `boot1`, `boot2` and `boot3.dassie.xyz` run in GCP project `dassie-390023` (us-east1, europe-west3, asia-northeast1), and they are the default BNL (`DEFAULT_BOOTSTRAP_NODES` in `dassie-node`'s `env.rs`). `DASSIE_BOOTSTRAP_NODES` still replaces the list, and `[]` makes a node run alone; tests and the dev environment set their own, so they stay off the testnet.
+  - Each lists all three in its own `DASSIE_BOOTSTRAP_NODES`, itself included, through a systemd drop-in. A node takes registrations only when it is one of its own bootstrap nodes, so the drop-in stays even once the default names the same three.
   - Each runs `xrpl-testnet`, so a new node has someone to peer with.
   - Their recovery phrases are the Secret Manager secrets `dassie-boot<N>-phrase`, and `dassie.xyz` is a Cloud DNS zone in the same project.
 

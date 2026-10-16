@@ -21,10 +21,15 @@ use serde::Deserialize;
 
 use crate::log::{LogFilter, LogLevel};
 
-/// No default bootstrap nodes until the v1 network's exist (D15): the
-/// original's speak v0, which refuses every v1 message. A node without any
-/// runs alone, and says so.
-pub const DEFAULT_BOOTSTRAP_NODES: &str = "[]";
+/// The public testnet's bootstrap nodes (D15), one per region: boot1 in
+/// us-east1, boot2 in europe-west3, boot3 in asia-northeast1. Each ID is
+/// checked against its key at startup, like any entry (NET-19).
+/// `DASSIE_BOOTSTRAP_NODES=[]` makes a node run alone.
+pub const DEFAULT_BOOTSTRAP_NODES: &str = r#"[
+  {"id":"dDHq9ng9J1z7luQ64eN4MJ_4_w-KK4FPk","url":"https://boot1.dassie.xyz","publicKey":"w25V-7IreZNDCPvwCrpiIv9Li5uwomzPSvqHot9ffLI"},
+  {"id":"dE0GE90-9QCQI78S2_h5QaG81oo_cVKz1","url":"https://boot2.dassie.xyz","publicKey":"s9xgWff_UZ26HQwHT_aPd0q0SwyKPGXS74fd2xQjh14"},
+  {"id":"dtTay2e6AV4J940nFJ6_WPkVL-TyrVKGW","url":"https://boot3.dassie.xyz","publicKey":"--P-gYMJ_ZZrFHa4GiNfVQ0x2jSu9_dr7z0mI_bcngY"}
+]"#;
 
 /// Most bootstrap nodes accepted.
 pub const MAX_BOOTSTRAP_NODES: usize = 64;
@@ -296,10 +301,28 @@ mod tests {
         assert!(dir(&[]).is_err());
     }
 
-    // D15: until the v1 network's bootstrap nodes exist, there are none.
+    // D15: the default list names the testnet's three bootstrap nodes, and
+    // each passes the same checks as a configured entry.
     #[test]
-    fn there_are_no_default_bootstrap_nodes() {
-        let nodes = settings(&[("HOME", "/h")]).map(|s| s.bootstrap_nodes.len());
+    fn the_default_bootstrap_nodes_are_the_testnet() {
+        let urls = settings(&[("HOME", "/h")]).map(|s| {
+            s.bootstrap_nodes
+                .iter()
+                .map(|node| node.url.clone())
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(
+            urls,
+            Ok(["boot1", "boot2", "boot3"]
+                .map(|host| format!("https://{host}.dassie.xyz"))
+                .to_vec())
+        );
+    }
+
+    #[test]
+    fn an_empty_list_runs_alone() {
+        let nodes = settings(&[("HOME", "/h"), ("DASSIE_BOOTSTRAP_NODES", "[]")])
+            .map(|s| s.bootstrap_nodes.len());
         assert_eq!(nodes, Ok(0));
     }
 

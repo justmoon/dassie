@@ -102,9 +102,11 @@ impl Bound {
         } = self;
         let state = dir.path().join("state");
         let state_text = state.to_str().unwrap().to_owned();
-        let pairs = env
-            .iter()
-            .copied()
+        // No bootstrap nodes unless the test names some: the default list
+        // is the public testnet's.
+        let pairs = [("DASSIE_BOOTSTRAP_NODES", "[]")]
+            .into_iter()
+            .chain(env.iter().copied())
             .chain([("DASSIE_STATE_DIRECTORY", state_text.as_str())]);
         let settings = Settings::from_env(&Env::from_pairs(pairs)).unwrap();
         let store = Store::open(&state).unwrap();

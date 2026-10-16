@@ -29,6 +29,11 @@ export const PEBBLE_DIR = `${root}testdata/pebble`;
 export const PEBBLE_API_ROOT = `${PEBBLE_DIR}/root.pem`;
 /** Pebble's ACME directory. */
 export const PEBBLE_DIRECTORY = "https://localhost:14000/dir";
+/**
+ * `DASSIE_BOOTSTRAP_NODES` for a daemon under test: none, so that it stays
+ * off the public testnet the default list names.
+ */
+export const NO_BOOTSTRAP_NODES = "[]";
 
 /** The ports Pebble validates http-01 on (pebble-config.json) and HTTPS. */
 export const HTTP_PORT = 18780;
@@ -244,6 +249,7 @@ export async function startActivated(dir: string): Promise<Process> {
     "--fdname=dassie-http.socket:dassie-https.socket:dassie-ipc.socket",
     `--setenv=DASSIE_STATE_DIRECTORY=${dir}/state`,
     `--setenv=DASSIE_ACME_CA_FILE=${PEBBLE_API_ROOT}`,
+    `--setenv=DASSIE_BOOTSTRAP_NODES=${NO_BOOTSTRAP_NODES}`,
     DASSIE,
     "daemon",
   ]);
