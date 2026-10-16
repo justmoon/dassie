@@ -217,11 +217,20 @@ test("every page of the wallet works against two nodes", {
         );
         assertEquals(await text(page, "payment-recipient"), pointer);
         await picture(page, "03-payment");
-        // d2 has it, with the note; the money moved.
-        const { payments } = await d2.rpc.call("listIncomingPayments", {});
-        const received = payments.find((payment) =>
-          payment.metadataJson.includes("e2e send")
+        // d2 has it, with the note; the money moved. d1 counts a packet
+        // sent on its Fulfill, d2 counts it received only on d1's verdict
+        // (D17), a moment later.
+        const sent = async () => {
+          const { payments } = await d2.rpc.call("listIncomingPayments", {});
+          return payments.find((payment) =>
+            payment.metadataJson.includes("e2e send")
+          );
+        };
+        await scenario.until(
+          "d2 has it all",
+          async () => (await sent())?.receivedAmount === 1_500_000_000n,
         );
+        const received = await sent();
         assertEquals(received?.receivedAmount, 1_500_000_000n);
         assertEquals(await balance(d1), before1 - 1_500_000_000n);
         await scenario.until(
@@ -279,11 +288,17 @@ test("every page of the wallet works against two nodes", {
         () => attribute(page, "payment", "data-state"),
         (state) => state === "completed",
       );
-      const { payments } = await d2.rpc.call("listIncomingPayments", {});
-      assertEquals(
-        payments.find((entry) => entry.id === payment.id)?.receivedAmount,
-        250_000_000n,
+      // d2 counts it received on d1's verdict (D17), a moment later.
+      const paid = async () => {
+        const { payments } = await d2.rpc.call("listIncomingPayments", {});
+        return payments.find((entry) => entry.id === payment.id)
+          ?.receivedAmount;
+      };
+      await scenario.until(
+        "d2 has it all",
+        async () => (await paid()) === 250_000_000n,
       );
+      assertEquals(await paid(), 250_000_000n);
     });
 
     await t.test("ledgers: a peered ledger cannot be removed", async () => {
