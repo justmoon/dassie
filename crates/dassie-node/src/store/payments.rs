@@ -4,7 +4,7 @@
 use std::fmt;
 
 use dassie_ledger::LedgerId;
-use rusqlite::{OptionalExtension, Row, Transaction, params};
+use rusqlite::{OptionalExtension, Row, ToSql, Transaction, params, params_from_iter};
 
 use super::{Store, StoreError, from_sql_time, to_sql_time};
 
@@ -120,14 +120,56 @@ pub struct IncomingProgress {
 pub struct IncomingQuery<'a> {
     /// The ledger whose payments to list.
     pub ledger: LedgerId,
-    /// Only those this client created, if given.
-    pub client: Option<&'a str>,
+    /// Only those one of these reaches: at most [`MAX_LISTED`], one per
+    /// access item of a grant.
+    pub reach: &'a [Listed<'a>],
     /// The item to start after (forward) or before (backward).
     pub cursor: Option<PaymentId>,
     /// Toward older items (`first`) or newer ones (`last`).
     pub forward: bool,
     /// How many.
     pub count: u32,
+}
+
+/// Payments a list reaches: those of a client, to a receiver, both, or
+/// all.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Listed<'a> {
+    /// Only those this client created, if given.
+    pub client: Option<&'a str>,
+    /// Only those paying this incoming payment, if given: outgoing
+    /// payments only.
+    pub receiver: Option<&'a str>,
+}
+
+/// Most alternatives one list query takes: more than a grant has access
+/// items.
+pub const MAX_LISTED: usize = 4;
+
+/// The SQL that keeps the rows one of `reach` reaches, with its
+/// parameters numbered from `first`: none reach nothing.
+fn listed_filter<'a>(reach: &[Listed<'a>], first: usize) -> (String, Vec<&'a str>) {
+    assert!(reach.len() <= MAX_LISTED, "too many list alternatives");
+    let mut values = Vec::new();
+    let mut alternatives = Vec::with_capacity(reach.len());
+    for listed in reach {
+        let mut parts = Vec::new();
+        for (column, value) in [("client", listed.client), ("receiver", listed.receiver)] {
+            if let Some(value) = value {
+                values.push(value);
+                parts.push(format!("{column} = ?{}", first + values.len() - 1));
+            }
+        }
+        alternatives.push(if parts.is_empty() {
+            "1".to_string()
+        } else {
+            parts.join(" AND ")
+        });
+    }
+    if alternatives.is_empty() {
+        alternatives.push("0".to_string());
+    }
+    (format!("({})", alternatives.join(" OR ")), values)
 }
 
 /// A page, with whether items lie beyond either end.
@@ -253,17 +295,23 @@ pub(super) fn page<T>(
     read: fn(&Row<'_>) -> rusqlite::Result<Result<T, StoreError>>,
     query: &IncomingQuery<'_>,
 ) -> Result<Option<Page<T>>, StoreError> {
+    let ledger = query.ledger.as_str();
     let anchor: Option<(i64, Vec<u8>)> = match query.cursor {
-        Some(cursor) => connection
-            .query_row(
-                &format!(
-                    "SELECT created_at_ms, id FROM {table} \
-                     WHERE id = ?1 AND ledger = ?2 AND (?3 IS NULL OR client = ?3)"
-                ),
-                params![cursor.0.as_slice(), query.ledger.as_str(), query.client],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .optional()?,
+        Some(cursor) => {
+            let (reached, values) = listed_filter(query.reach, 3);
+            let mut bound: Vec<&dyn ToSql> = vec![&cursor.0, &ledger];
+            bound.extend(values.iter().map(|value| value as &dyn ToSql));
+            connection
+                .query_row(
+                    &format!(
+                        "SELECT created_at_ms, id FROM {table} \
+                         WHERE id = ?1 AND ledger = ?2 AND {reached}"
+                    ),
+                    params_from_iter(bound),
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?
+        }
         None => None,
     };
     if query.cursor.is_some() && anchor.is_none() {
@@ -275,18 +323,20 @@ pub(super) fn page<T>(
     } else {
         (">", "ASC")
     };
+    let (reached, values) = listed_filter(query.reach, 5);
     let filter = format!(
-        "ledger = ?1 AND (?2 IS NULL OR client = ?2) \
-         AND (?3 IS NULL OR (created_at_ms, id) {comparison} (?3, ?4))"
+        "ledger = ?1 AND {reached} \
+         AND (?2 IS NULL OR (created_at_ms, id) {comparison} (?2, ?3))"
     );
     let mut statement = connection.prepare(&format!(
         "SELECT {columns} FROM {table} WHERE {filter} \
-         ORDER BY created_at_ms {order}, id {order} LIMIT ?5"
+         ORDER BY created_at_ms {order}, id {order} LIMIT ?4"
     ))?;
     let limit = query.count.saturating_add(1);
-    let ledger = query.ledger.as_str();
+    let mut bound: Vec<&dyn ToSql> = vec![&ledger, &created, &id, &limit];
+    bound.extend(values.iter().map(|value| value as &dyn ToSql));
     let mut rows = statement
-        .query_map(params![ledger, query.client, created, id, limit], read)?
+        .query_map(params_from_iter(bound), read)?
         .map(|row| row?)
         .collect::<Result<Vec<_>, StoreError>>()?;
     let count = usize::try_from(query.count).unwrap_or(usize::MAX);

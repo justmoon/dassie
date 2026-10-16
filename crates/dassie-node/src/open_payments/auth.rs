@@ -24,7 +24,9 @@ use super::keys::{self, KeyError};
 use super::{GRANT_PATH, Urls, WalletAddresses};
 use crate::log::target;
 use crate::node::Node;
-use crate::store::{GrantRow, GrantState, MAX_GRANTS, PaymentId, StoreError, TokenRow};
+use crate::store::{
+    GrantRow, GrantState, Listed, MAX_GRANTS, MAX_LISTED, PaymentId, StoreError, TokenRow,
+};
 
 /// How long an access token works.
 pub const ACCESS_TOKEN_LIFETIME_MS: u64 = 60 * 60 * 1_000;
@@ -144,13 +146,14 @@ pub fn token_hash(token: &str) -> [u8; 32] {
 }
 
 /// Rewrites each access item's wallet address to the canonical URL of the
-/// ledger it names, so that `$host` and `/pay/<slug>` mean the same.
+/// ledger it names, so that `$host` and `/pay/<slug>` mean the same; then
+/// refuses two items that create outgoing payments from one.
 fn canonical(
     access: &mut [Access],
     addresses: &WalletAddresses,
     urls: &Urls,
 ) -> Result<(), OpError> {
-    for item in access {
+    for item in access.iter_mut() {
         if let Some(identifier) = &item.identifier {
             let ledger = addresses.ledger_of_url(urls, identifier).ok_or_else(|| {
                 OpError::gnap(
@@ -161,6 +164,14 @@ fn canonical(
             })?;
             item.identifier = Some(urls.wallet_address(ledger, false));
         }
+    }
+    // Only now are two spellings of one wallet address the same.
+    if gnap::creates_twice(access) {
+        return Err(OpError::gnap(
+            400,
+            ErrorCode::InvalidRequest,
+            "two items create outgoing payments from one wallet address",
+        ));
     }
     Ok(())
 }
@@ -519,6 +530,72 @@ impl Authorized {
             action,
             &urls.wallet_address(ledger, false),
         )
+    }
+
+    /// Whether the grant may `action` a resource of `kind` of the wallet
+    /// address of `ledger`, that `client` made (none for the owner), and
+    /// that pays `receiver` (none for resources that pay none): whether
+    /// one access item allows it within its own limits.
+    #[must_use]
+    pub fn covers(
+        &self,
+        urls: &Urls,
+        kind: gnap::AccessType,
+        action: gnap::Action,
+        ledger: dassie_ledger::LedgerId,
+        client: Option<&str>,
+        receiver: Option<&str>,
+    ) -> bool {
+        let own = client == Some(self.grant.client.as_str());
+        gnap::reaches(
+            &self.access,
+            kind,
+            action,
+            &urls.wallet_address(ledger, false),
+        )
+        .iter()
+        .any(|reach| reach.covers(own, receiver))
+    }
+
+    /// What a list of resources of `kind` of the wallet address of
+    /// `ledger` shows: what any access item that lists reaches. Empty when
+    /// none does.
+    #[must_use]
+    pub fn listed(
+        &self,
+        urls: &Urls,
+        kind: gnap::AccessType,
+        ledger: dassie_ledger::LedgerId,
+    ) -> Vec<Listed<'_>> {
+        let client = self.grant.client.as_str();
+        let reaches = gnap::reaches(
+            &self.access,
+            kind,
+            gnap::Action::List,
+            &urls.wallet_address(ledger, false),
+        );
+        assert!(reaches.len() <= MAX_LISTED, "a grant has too many items");
+        reaches
+            .iter()
+            .map(|reach| Listed {
+                client: (reach.scope == Scope::Own).then_some(client),
+                receiver: reach.receiver,
+            })
+            .collect()
+    }
+
+    /// The limits of the outgoing payments the grant may create from the
+    /// wallet address of `ledger`: none when its item names none.
+    #[must_use]
+    pub fn limits(&self, urls: &Urls, ledger: dassie_ledger::LedgerId) -> gnap::Limits {
+        gnap::creating(&self.access, &urls.wallet_address(ledger, false))
+            .and_then(|item| item.limits.clone())
+            .unwrap_or(gnap::Limits {
+                receiver: None,
+                interval: None,
+                debit_amount: None,
+                receive_amount: None,
+            })
     }
 }
 

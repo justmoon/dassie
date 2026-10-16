@@ -272,20 +272,22 @@ async fn list(node: &Node, urls: &Urls, read: &ReadRequest) -> Result<Response<B
         .await?
         .ledger_of_url(urls, &query.wallet_address)
         .ok_or_else(|| OpError::invalid("the wallet address is not one of this node"))?;
-    let scope = authorized
-        .permits(urls, AccessType::IncomingPayment, Action::List, ledger)
-        .ok_or_else(|| OpError::forbidden("the grant does not allow listing incoming payments"))?;
+    let reach = authorized.listed(urls, AccessType::IncomingPayment, ledger);
+    if reach.is_empty() {
+        return Err(OpError::forbidden(
+            "the grant does not allow listing incoming payments",
+        ));
+    }
     let cursor = query
         .cursor
         .as_deref()
         .map(|cursor| PaymentId::parse(cursor).ok_or_else(|| OpError::invalid("unknown cursor")))
         .transpose()?;
-    let client = (scope == Scope::Own).then_some(authorized.grant.client.as_str());
     let page = node
         .store()
         .incoming_page(&IncomingQuery {
             ledger,
-            client,
+            reach: &reach,
             cursor,
             forward: query.direction == Direction::Forward,
             count: u32::from(query.count),

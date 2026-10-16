@@ -10,7 +10,7 @@ use std::net::SocketAddr;
 
 use dassie_ledger::LedgerId;
 use dassie_payments::amount::Amount;
-use dassie_payments::gnap::{AccessType, Action, Limits, Scope};
+use dassie_payments::gnap::{AccessType, Action, Scope};
 use dassie_payments::resources::{
     self, CreateOutgoingPayment, CreateQuote, Direction, ListQuery, OutgoingPayment,
     OutgoingPaymentGrant, Page, PageInfo, Quote,
@@ -167,24 +167,6 @@ async fn get_quote(
     Ok(json(StatusCode::OK, &quote(urls, &row)))
 }
 
-/// The limits of the grant's outgoing-payment access for the wallet
-/// address of `ledger`: none if it names none.
-fn limits_of(authorized: &Authorized, urls: &Urls, ledger: LedgerId) -> Limits {
-    let wallet_address = urls.wallet_address(ledger, false);
-    authorized
-        .access
-        .iter()
-        .filter(|item| item.kind == AccessType::OutgoingPayment)
-        .find(|item| item.identifier.as_deref() == Some(wallet_address.as_str()))
-        .and_then(|item| item.limits.clone())
-        .unwrap_or(Limits {
-            receiver: None,
-            interval: None,
-            debit_amount: None,
-            receive_amount: None,
-        })
-}
-
 /// `POST /outgoing-payments`: from a quote of the client's, or from an
 /// incoming payment with the amount to debit.
 async fn create_outgoing(
@@ -232,7 +214,7 @@ async fn create_outgoing(
         }
     };
     new.client = Some(authorized.grant.client.clone());
-    new.grant = Some((authorized.grant.id, limits_of(&authorized, urls, ledger)));
+    new.grant = Some((authorized.grant.id, authorized.limits(urls, ledger)));
     new.metadata = metadata;
     let engine = node.engine().ok_or_else(OpError::unavailable)?;
     let created = engine
@@ -289,8 +271,14 @@ async fn get_outgoing(
     let not_found = || OpError::not_found("no such outgoing payment");
     let id = PaymentId::parse(id).ok_or_else(not_found)?;
     let row = node.store().outgoing_payment(id)?.ok_or_else(not_found)?;
-    let scope = authorized.permits(urls, AccessType::OutgoingPayment, Action::Read, row.ledger);
-    if !reaches(scope, &authorized, row.client.as_deref()) {
+    if !authorized.covers(
+        urls,
+        AccessType::OutgoingPayment,
+        Action::Read,
+        row.ledger,
+        row.client.as_deref(),
+        Some(&row.receiver),
+    ) {
         return Err(OpError::forbidden(
             "the grant does not reach this outgoing payment",
         ));
@@ -308,20 +296,22 @@ async fn list_outgoing(
     let query = ListQuery::parse(&read.query)
         .map_err(|_| OpError::invalid("the list query is malformed"))?;
     let ledger = ledger_of(node, urls, &query.wallet_address).await?;
-    let scope = authorized
-        .permits(urls, AccessType::OutgoingPayment, Action::List, ledger)
-        .ok_or_else(|| OpError::forbidden("the grant does not allow listing outgoing payments"))?;
+    let reach = authorized.listed(urls, AccessType::OutgoingPayment, ledger);
+    if reach.is_empty() {
+        return Err(OpError::forbidden(
+            "the grant does not allow listing outgoing payments",
+        ));
+    }
     let cursor = query
         .cursor
         .as_deref()
         .map(|cursor| PaymentId::parse(cursor).ok_or_else(|| OpError::invalid("unknown cursor")))
         .transpose()?;
-    let client = (scope == Scope::Own).then_some(authorized.grant.client.as_str());
     let page = node
         .store()
         .outgoing_page(&IncomingQuery {
             ledger,
-            client,
+            reach: &reach,
             cursor,
             forward: query.direction == Direction::Forward,
             count: u32::from(query.count),
@@ -345,13 +335,19 @@ async fn grant_spent(
     read: &ReadRequest,
 ) -> Result<Response<Body>, OpError> {
     let authorized = authorize(node, read)?;
-    let item = authorized
-        .access
-        .iter()
-        .find(|item| item.kind == AccessType::OutgoingPayment)
+    // The item that creates spends; another only reads.
+    let outgoing = || {
+        authorized
+            .access
+            .iter()
+            .filter(|item| item.kind == AccessType::OutgoingPayment)
+    };
+    let item = outgoing()
+        .find(|item| item.actions.contains(&Action::Create))
+        .or_else(|| outgoing().next())
         .ok_or_else(|| OpError::forbidden("the grant is not for outgoing payments"))?;
     let ledger = ledger_of(node, urls, item.identifier.as_deref().unwrap_or_default()).await?;
-    let limits = limits_of(&authorized, urls, ledger);
+    let limits = authorized.limits(urls, ledger);
     let spent = match limits.window(node.now_ms()) {
         Some((start, _)) => node.store().grant_spend(authorized.grant.id, start)?,
         None => (0, 0),
