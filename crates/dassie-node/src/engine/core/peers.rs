@@ -579,9 +579,11 @@ impl Core {
         if let Some(endpoint) = self.peer_endpoints.remove(peer) {
             self.endpoint_peers.remove(&endpoint);
             let now = self.now_ms;
+            // What was in flight to it is due now: the step expires it as
+            // it finishes, rather than here, which the expiry could reach
+            // again through the peer node (D16: no recursion).
             self.connector
                 .remove_endpoint(now, EndpointId::Peer(endpoint));
-            self.expire(now);
         }
     }
 
