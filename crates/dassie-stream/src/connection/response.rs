@@ -280,10 +280,10 @@ impl Connection {
                 }
                 // The receiver refused; its new limits are applied, but
                 // sending again at once could repeat the refusal.
-                self.back_off(now);
+                self.back_off_for(now, slot);
             }
             Failure::TooLarge => {}
-            Failure::Temporary => self.back_off(now),
+            Failure::Temporary => self.back_off_for(now, slot),
             // As upstream does: a final error means this connection's
             // packets cannot get through (the original kept retrying).
             Failure::Final => self.finish_close(ErrorCode::INTERNAL_ERROR, false),
@@ -295,11 +295,21 @@ impl Connection {
         if slot.kind == PacketKind::Probe {
             self.probe_settled(now, slot.source_amount, Failure::Temporary, None);
         } else {
+            self.back_off_for(now, slot);
+        }
+    }
+
+    /// Backs off for a packet that was refused or lost. Packets in flight
+    /// together are usually refused together, by the same full credit
+    /// limit: that is one back-off, or nine packets would wait 25.6 s.
+    fn back_off_for(&mut self, now: Timestamp, slot: &Slot) {
+        if slot.sequence >= self.sent_since_back_off {
             self.back_off(now);
         }
     }
 
     fn back_off(&mut self, now: Timestamp) {
+        self.sent_since_back_off = self.next_sequence;
         self.decrease_concurrency();
         if matches!(self.state, State::Closed) {
             return;

@@ -521,3 +521,49 @@ fn empty_and_repeated_data_frames_are_handled() {
     assert_eq!(connection.stream(1).unwrap().readable(), 16_000);
     assert!(!connection.is_closed());
 }
+
+#[test]
+fn a_burst_of_rejects_backs_off_once() {
+    // Packets in flight together meet the same full credit limit together.
+    // Backing off once per rejected packet made eight T04s a 12.8 s wait,
+    // long after the peer had settled and there was room again.
+    let policy = Policy {
+        min_concurrency: 8,
+        max_packet_amount: 1000,
+        ..Policy::DEFAULT
+    };
+    let mut connection = client(&[5; 32], policy);
+    connection.set_exchange_rate(Rate::ONE);
+    let stream = connection.open_stream().unwrap();
+    connection.set_send_max(stream, 100_000).unwrap();
+    let mut rng = TestRng::new(5);
+    let mut buffer = vec![0; BUFFER_LENGTH];
+    let reject = Reject {
+        code: IlpErrorCode::T04_INSUFFICIENT_LIQUIDITY,
+        triggered_by: None,
+        message: "",
+        data: &[],
+    }
+    .to_vec();
+    let mut burst = |connection: &mut Connection, now: Timestamp| {
+        let mut sent = Vec::new();
+        while let Some(transmit) = connection.poll_transmit(now, &mut rng, &mut buffer) {
+            sent.push(transmit.request_id);
+        }
+        for &request_id in &sent {
+            connection.handle_response(now, request_id, &reject, &mut buffer);
+            connection.check_invariants();
+        }
+        sent.len()
+    };
+
+    assert_eq!(burst(&mut connection, NOW), 8);
+    let retry = NOW.saturating_add_ms(100);
+    assert_eq!(connection.poll_timeout(), Some(retry));
+    // The next burst is refused too: the wait doubles, once.
+    assert_eq!(burst(&mut connection, retry), 8);
+    assert_eq!(
+        connection.poll_timeout(),
+        Some(retry.saturating_add_ms(200))
+    );
+}

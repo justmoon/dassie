@@ -256,6 +256,9 @@ pub struct Connection {
     max_packet_amount: u64,
     retry_at: Option<Timestamp>,
     retry_delay_ms: u64,
+    /// The first sequence sent after the last back-off: the rejection of
+    /// an earlier packet is part of the burst that back-off answered.
+    sent_since_back_off: u64,
     probing: Option<Probing>,
 
     events: VecDeque<Event>,
@@ -332,6 +335,7 @@ impl Connection {
             max_packet_amount: policy.max_packet_amount,
             retry_at: None,
             retry_delay_ms: policy.retry_delay_start_ms,
+            sent_since_back_off: 0,
             probing: None,
             events: VecDeque::with_capacity(events_capacity),
             events_capacity,
