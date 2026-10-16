@@ -193,13 +193,22 @@ test("cross-currency pays across assets, and reconciles across restarts", {
     }, 240_000);
     const { payments } = await d1.rpc.call("listOutgoingPayments", {});
     const sent = payments.find((entry) => entry.id === payment.id)!;
-    const { payments: received } = await d3.rpc.call(
-      "listIncomingPayments",
-      {},
+    // d1 counts a packet sent on its Fulfill, d3 counts it received only
+    // on d2's verdict (D17), a moment later.
+    const arrived = async () => {
+      const { payments: received } = await d3.rpc.call(
+        "listIncomingPayments",
+        {},
+      );
+      return received.find((entry) =>
+        entry.metadataJson.includes("e2e across")
+      );
+    };
+    await scenario.until(
+      "d3 has it all",
+      async () => ((await arrived())?.receivedAmount ?? 0n) >= RECEIVE - 2n,
     );
-    const incoming = received.find((entry) =>
-      entry.metadataJson.includes("e2e across")
-    );
+    const incoming = await arrived();
     assert(incoming, "d3 has the payment");
     // All of it, but what less than a dollar unit is worth: no packet
     // can be sized to deliver that, as the hops round down.

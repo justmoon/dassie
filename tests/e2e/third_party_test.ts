@@ -302,10 +302,18 @@ test("a third-party client pays from one node to another with consent", {
     }
     assertEquals(payment.failed, false);
     assertEquals(payment.sentAmount.value, `${AMOUNT}`);
-    const received = await op.incomingPayment.get({
-      url: incoming.id,
-      accessToken: incomingGrant.access_token.value,
-    });
+    // The payer counts a packet sent on its Fulfill, the receiver counts
+    // it received only on the payer's verdict (D17), a moment later.
+    const receivedNow = () =>
+      op.incomingPayment.get({
+        url: incoming.id,
+        accessToken: incomingGrant.access_token.value,
+      });
+    await scenario.until(
+      "the receiver has it all",
+      async () => (await receivedNow()).receivedAmount.value === `${AMOUNT}`,
+    );
+    const received = await receivedNow();
     assertEquals(received.receivedAmount.value, `${AMOUNT}`);
     assertEquals(received.completed, true);
     const spent = await op.outgoingPayment.getGrantSpentAmounts({
