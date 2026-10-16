@@ -472,3 +472,67 @@ fn a_probe_to_nowhere_ends_at_once() {
         "{outputs:?}"
     );
 }
+
+// Spec 7 §4.5: a scheme that stops by itself, here on a server off the XRP
+// Ledger testnet, has its connection closed, so the driver does not make
+// it again for ever. Removed and added again, it connects anew.
+#[test]
+fn a_stopped_scheme_closes_its_connection() {
+    use super::LedgerEvent;
+    use dassie_settlement::LedgerStatus;
+    use dassie_xrpl::fake::FakeLedger;
+
+    const SCHEME: &str = "xrpl-testnet";
+    let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
+    let connected = |outputs: &[Output]| {
+        outputs.iter().find_map(|output| match output {
+            Output::LedgerConnect { epoch, .. } => Some(*epoch),
+            _ => None,
+        })
+    };
+    let mut core = core(9);
+    core.add_scheme(SCHEME, config.into()).unwrap();
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    let epoch = connected(&outputs).unwrap();
+    let mut ledger = FakeLedger::new();
+    ledger.set_network_id(Some(0));
+    core.ledger_event(SCHEME, epoch, &LedgerEvent::Connected);
+    outputs.clear();
+    core.finish_step(&mut outputs);
+    let [Output::LedgerSend { message, .. }] = outputs.as_slice() else {
+        panic!("{outputs:?}");
+    };
+    let reply = ledger.request(1, message);
+    core.ledger_event(SCHEME, epoch, &LedgerEvent::Message(reply));
+    outputs.clear();
+    core.finish_step(&mut outputs);
+    assert!(
+        outputs
+            .iter()
+            .any(|output| matches!(output, Output::LedgerClose { epoch: e, .. } if *e == epoch)),
+        "{outputs:?}"
+    );
+    assert!(matches!(
+        core.ledger_views()[0].status,
+        LedgerStatus::Failed(_)
+    ));
+    // What the closed connection still says is dropped.
+    core.ledger_event(SCHEME, epoch, &LedgerEvent::Disconnected);
+    core.ledger_event(SCHEME, epoch, &LedgerEvent::Connected);
+    outputs.clear();
+    core.finish_step(&mut outputs);
+    assert!(
+        !outputs.iter().any(|output| matches!(
+            output,
+            Output::LedgerSend { .. } | Output::LedgerConnect { .. }
+        )),
+        "{outputs:?}"
+    );
+    core.remove_scheme(SCHEME).unwrap();
+    core.add_scheme(SCHEME, config.into()).unwrap();
+    outputs.clear();
+    core.finish_step(&mut outputs);
+    assert!(connected(&outputs).is_some_and(|again| again != epoch));
+    assert_eq!(core.ledger_views()[0].status, LedgerStatus::Connecting);
+}

@@ -72,6 +72,9 @@ pub struct FakeLedger {
     wiped: u64,
     /// The reserve, which [`set_reserve`](Self::set_reserve) changes.
     reserve: (u64, u64),
+    /// The network ID `server_state` reports: the testnet's, unless
+    /// [`set_network_id`](Self::set_network_id) changes it.
+    network_id: Option<u32>,
 }
 
 impl Default for FakeLedger {
@@ -108,6 +111,7 @@ impl FakeLedger {
             burned: 0,
             wiped: 0,
             reserve: (RESERVE_BASE, RESERVE_INC),
+            network_id: Some(1),
         }
     }
 
@@ -158,6 +162,12 @@ impl FakeLedger {
     /// Changes the reserve, as the network may vote to.
     pub fn set_reserve(&mut self, base: u64, increment: u64) {
         self.reserve = (base, increment);
+    }
+
+    /// Changes the network ID the server reports, as a server of another
+    /// network would; `None` leaves it out.
+    pub fn set_network_id(&mut self, id: Option<u32>) {
+        self.network_id = id;
     }
 
     /// Wipes every account but genesis, as a testnet reset does.
@@ -300,7 +310,7 @@ impl FakeLedger {
     }
 
     fn server_state(&self) -> Value {
-        json!({ "state": {
+        let mut state = json!({
             "validated_ledger": {
                 "seq": self.ledger,
                 "base_fee": FEE_BASE,
@@ -309,9 +319,12 @@ impl FakeLedger {
             },
             "load_factor": 256,
             "load_base": 256,
-            "network_id": 1,
             "complete_ledgers": alloc::format!("{}-{}", self.history_from, self.ledger),
-        }})
+        });
+        if let (Some(id), Some(object)) = (self.network_id, state.as_object_mut()) {
+            object.insert("network_id".into(), id.into());
+        }
+        json!({ "state": state })
     }
 
     fn subscribe(&mut self, connection: ConnectionId, request: &Value) -> Result<Value, Value> {

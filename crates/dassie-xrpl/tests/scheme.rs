@@ -43,6 +43,8 @@ struct Node {
     hold: Option<&'static str>,
     held: usize,
     reconnects: usize,
+    /// The commands it sent the ledger, in order.
+    asked: Vec<String>,
 }
 
 struct World {
@@ -62,8 +64,13 @@ fn name(text: &str) -> Name {
 
 impl World {
     fn new(count: u8) -> Self {
+        Self::on(FakeLedger::new(), count)
+    }
+
+    /// `count` nodes, connected to `ledger`.
+    fn on(ledger: FakeLedger, count: u8) -> Self {
         let mut world = Self {
-            ledger: FakeLedger::new(),
+            ledger,
             nodes: Vec::new(),
             now: 1_000,
             next_connection: 1,
@@ -81,6 +88,7 @@ impl World {
                 hold: None,
                 held: 0,
                 reconnects: 0,
+                asked: Vec::new(),
             });
         }
         for index in 0..world.nodes.len() {
@@ -126,6 +134,7 @@ impl World {
         }
         let request: serde_json::Value = serde_json::from_slice(message).unwrap();
         let command = request["command"].as_str().unwrap_or_default();
+        node.asked.push(command.to_string());
         if command == "submit" && node.drop_submits {
             return;
         }
@@ -713,4 +722,77 @@ fn the_last_sequence_is_never_reused() {
             .scheme
             .prepare_settlement(&mut rng, peer, 1_000_000_000, &state_a);
     assert_eq!(prepared.map(|_| ()), Err(SchemeError::Unavailable));
+}
+
+/// Whether node `index`'s scheme stopped.
+fn failed(world: &World, index: usize) -> bool {
+    matches!(world.nodes[index].scheme.status(), LedgerStatus::Failed(_))
+}
+
+// The network is checked first: the first request on a connection is
+// `server_state`, and the account is subscribed only after it.
+#[test]
+fn the_network_is_checked_before_the_account_is_read() {
+    let (world, _, _) = funded_pair();
+    let asked = &world.nodes[0].asked;
+    assert_eq!(asked[..3], ["server_state", "subscribe", "account_info"]);
+}
+
+// A server off the XRP Ledger testnet (mainnet 0, devnet 2, a network
+// above 1024), or one that names no network, stops the scheme before it
+// reads the account: the faucet is never asked, nothing is booked or
+// written off, and nothing can be signed.
+#[test]
+fn a_server_off_the_testnet_stops_the_scheme() {
+    for network in [Some(0), Some(2), Some(21_338), None] {
+        let mut ledger = FakeLedger::new();
+        ledger.set_network_id(network);
+        let mut world = World::on(ledger, 2);
+        world.closes(20);
+        let peer = world.nodes[1].name;
+        let (state, _) = world.peer(0, 1);
+        for index in 0..2 {
+            assert!(failed(&world, index), "{network:?}");
+            assert_eq!(world.nodes[index].asked, ["server_state"], "{network:?}");
+            // The faucet would have made the account.
+            assert_eq!(world.ledger.balance(world.account(index)), None);
+            let books = &world.nodes[index].books;
+            assert_eq!(
+                (books.settlement, books.owner, books.suspense, books.fees),
+                (0, 0, 0, 0),
+                "{network:?}"
+            );
+            assert_eq!(world.nodes[index].scheme.deadline(), None);
+        }
+        let mut rng = SeededRng::new(1);
+        let prepared =
+            world.nodes[0]
+                .scheme
+                .prepare_settlement(&mut rng, peer, 1_000_000_000, &state);
+        assert_eq!(
+            prepared.err(),
+            Some(SchemeError::Unavailable),
+            "{network:?}"
+        );
+    }
+}
+
+// A synced scheme whose server is then off the testnet stops when it
+// connects again: nothing is written off, and the books stay as they were.
+// The other node, on its own connection, goes on.
+#[test]
+fn a_synced_scheme_whose_server_leaves_the_testnet_stops() {
+    let (mut world, _, _) = funded_pair();
+    let before = (world.nodes[0].books.owner, world.nodes[0].books.settlement);
+    world.ledger.set_network_id(Some(0));
+    world.disconnect(0);
+    world.connect(0);
+    world.closes(20);
+    assert!(failed(&world, 0));
+    let books = &world.nodes[0].books;
+    assert_eq!((books.owner, books.settlement), before);
+    assert_eq!(books.suspense, 0);
+    assert_eq!(world.nodes[0].scheme.balance(), FUNDED);
+    assert_eq!(world.nodes[0].scheme.deadline(), None);
+    assert_eq!(world.nodes[1].scheme.status(), LedgerStatus::Synced);
 }

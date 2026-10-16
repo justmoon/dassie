@@ -8,7 +8,9 @@
 
 use dassie_identity::NodeKey;
 use dassie_ledger::{LedgerId, Name};
-use dassie_settlement::{Effect, LedgerInput, SchemeError, SchemeInfo, SettlementScheme, Stub};
+use dassie_settlement::{
+    Effect, LedgerInput, LedgerStatus, SchemeError, SchemeInfo, SettlementScheme, Stub,
+};
 use dassie_xrpl::XrplScheme;
 
 use super::events::SettlementEvent;
@@ -113,9 +115,24 @@ impl Core {
             });
             if let Some(active) = self.schemes.get_mut(&scheme) {
                 active.failed = Some(error.to_string());
-                let epoch = active.epoch;
-                self.disconnect_scheme(scheme, epoch);
             }
+        }
+        self.close_if_stopped(scheme);
+    }
+
+    /// Closes the connection of a scheme that stopped, by the books or by
+    /// itself (spec 7 §4.5): the driver would otherwise make it again for
+    /// ever, to a ledger the scheme no longer reads. Removing the scheme
+    /// and adding it again, or a restart, connects anew.
+    fn close_if_stopped(&mut self, scheme: Name) {
+        let Some(active) = self.schemes.get_mut(&scheme) else {
+            return;
+        };
+        let stopped =
+            active.failed.is_some() || matches!(active.scheme.status(), LedgerStatus::Failed(_));
+        if stopped && active.epoch != 0 {
+            let epoch = std::mem::replace(&mut active.epoch, 0);
+            self.disconnect_scheme(scheme, epoch);
         }
     }
 
@@ -174,7 +191,7 @@ impl Core {
         });
     }
 
-    /// Closes a removed scheme's connection.
+    /// Closes a scheme's connection, if it has one.
     pub(super) fn disconnect_scheme(&mut self, scheme: Name, epoch: u64) {
         if epoch != 0 {
             self.outputs_peer.push(Output::LedgerClose {
