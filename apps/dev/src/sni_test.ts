@@ -1,3 +1,4 @@
+import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
 import { once } from "node:events";
 import { type AddressInfo, createServer } from "node:net";
@@ -41,7 +42,7 @@ function sniExtension(name: string): number[] {
 
 const OTHER = [0, 43, 0, 3, 2, 3, 4]; // supported_versions
 
-Deno.test("the name in a ClientHello", () => {
+test("the name in a ClientHello", () => {
   assertEquals(parseSni(hello([OTHER, sniExtension("D3.localhost")])), {
     kind: "hello",
     name: "d3.localhost",
@@ -49,7 +50,7 @@ Deno.test("the name in a ClientHello", () => {
   assertEquals(parseSni(hello([OTHER])), { kind: "hello" });
 });
 
-Deno.test("a ClientHello in pieces needs more until it is whole", () => {
+test("a ClientHello in pieces needs more until it is whole", () => {
   const whole = hello([sniExtension("d12.localhost"), OTHER]);
   for (let end = 0; end < whole.length; end++) {
     assertEquals(parseSni(whole.subarray(0, end)), { kind: "incomplete" });
@@ -57,7 +58,7 @@ Deno.test("a ClientHello in pieces needs more until it is whole", () => {
   assertEquals(parseSni(whole).kind, "hello");
 });
 
-Deno.test("what is not a ClientHello is invalid", () => {
+test("what is not a ClientHello is invalid", () => {
   assertEquals(parseSni(new TextEncoder().encode("GET / HTTP/1.1\r\n")), {
     kind: "invalid",
   });
@@ -73,7 +74,7 @@ Deno.test("what is not a ClientHello is invalid", () => {
   assertEquals(parseSni(hello([sniExtension("a b")])).kind, "invalid");
 });
 
-Deno.test("random bytes never throw", () => {
+test("random bytes never throw", () => {
   let seed = 42;
   const random = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
   for (let round = 0; round < 2_000; round++) {
@@ -89,7 +90,7 @@ Deno.test("random bytes never throw", () => {
   }
 });
 
-Deno.test("a real client's ClientHello", async () => {
+test("a real client's ClientHello", async () => {
   const server = createServer();
   server.listen({ host: "127.0.0.1", port: 0 });
   await once(server, "listening");
@@ -127,7 +128,7 @@ Deno.test("a real client's ClientHello", async () => {
   server.close();
 });
 
-Deno.test("names go to their node, the rest to the dashboard", () => {
+test("names go to their node, the rest to the dashboard", () => {
   const ports = { dashboard: 10100, node: (index: number) => 5001 + index };
   assertEquals(upstreamPort("d1.localhost", ports, 100), 5001);
   assertEquals(upstreamPort("d100.localhost", ports, 100), 5100);

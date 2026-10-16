@@ -3,6 +3,7 @@
 // vercel.json, so its CSP applies. The STREAM toy runs a payment on the
 // WASM STREAM implementation to the end.
 
+import { test } from "node:test";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
@@ -124,49 +125,98 @@ async function removeEventually(dir: string): Promise<void> {
 
 const reason = await missing();
 
-Deno.test({
-  name: "dassie.land: the pages, and a STREAM payment in the toy",
-  ignore: reason !== undefined,
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn(t) {
-    const server = await serve();
-    const base = `http://127.0.0.1:${server.addr.port}`;
-    const dir = await mkdtemp(join(tmpdir(), "dassie-website-"));
-    const browser = await launch({
-      path: await findChrome(),
-      args: ["--no-sandbox", `--user-data-dir=${dir}/chrome`],
+test("dassie.land: the pages, and a STREAM payment in the toy", {
+  skip: reason !== undefined,
+}, async (t) => {
+  const server = await serve();
+  const base = `http://127.0.0.1:${server.addr.port}`;
+  const dir = await mkdtemp(join(tmpdir(), "dassie-website-"));
+  const browser = await launch({
+    path: await findChrome(),
+    args: ["--no-sandbox", `--user-data-dir=${dir}/chrome`],
+  });
+  try {
+    const page = await browser.newPage();
+    const problems = await watch(page);
+
+    await t.test("the pages link to each other", async () => {
+      await page.goto(`${base}/`, { waitUntil: "load" });
+      assertEquals(
+        await page.evaluate(() => document.querySelector("h1")?.textContent),
+        "What is Dassie?",
+      );
+      // Without the slash, as the original's links had it.
+      await page.goto(`${base}/guides/quick-start`, { waitUntil: "load" });
+      assertEquals(new URL(page.url).pathname, "/guides/quick-start/");
+      const body = await page.evaluate(() => document.body.innerText);
+      assertMatch(
+        body,
+        /curl --proto =https --tlsv1\.2 -sSf https:\/\/sh\.dassie\.land \| sh/,
+      );
+      assertMatch(body, /sudo dassie init/);
+      // The stylesheet applies: it comes from the site's own origin.
+      const background = await page.evaluate(() =>
+        getComputedStyle(document.querySelector("pre")!).borderStyle
+      );
+      assertEquals(background, "solid");
+      assertEquals(problems, []);
     });
-    try {
-      const page = await browser.newPage();
-      const problems = await watch(page);
 
-      await t.step("the pages link to each other", async () => {
-        await page.goto(`${base}/`, { waitUntil: "load" });
-        assertEquals(
-          await page.evaluate(() => document.querySelector("h1")?.textContent),
-          "What is Dassie?",
-        );
-        // Without the slash, as the original's links had it.
-        await page.goto(`${base}/guides/quick-start`, { waitUntil: "load" });
-        assertEquals(new URL(page.url).pathname, "/guides/quick-start/");
-        const body = await page.evaluate(() => document.body.innerText);
-        assertMatch(
-          body,
-          /curl --proto =https --tlsv1\.2 -sSf https:\/\/sh\.dassie\.land \| sh/,
-        );
-        assertMatch(body, /sudo dassie init/);
-        // The stylesheet applies: it comes from the site's own origin.
-        const background = await page.evaluate(() =>
-          getComputedStyle(document.querySelector("pre")!).borderStyle
-        );
-        assertEquals(background, "solid");
-        assertEquals(problems, []);
-      });
+    await t.test("the toy delivers the default payment", async () => {
+      await page.goto(`${base}/tools/stream-toy/`, { waitUntil: "load" });
+      await click(page, "toy-simulate");
+      await until(
+        page,
+        "the run ends",
+        () => text(page, "toy-status"),
+        (status) => status === "Done",
+      );
+      assertEquals(
+        await text(page, "toy-delivered"),
+        "3000 of 3000 delivered",
+      );
+      assert((await count(page, "packet")) >= 4);
+      const outcomes = await page.evaluate(() =>
+        [...document.querySelectorAll('[data-testid="packet"]')].map((node) =>
+          node.getAttribute("data-outcome")
+        )
+      );
+      assertEquals(outcomes[0], "rejected");
+      assert(outcomes.includes("fulfilled"), outcomes.join());
+      assertMatch(await text(page, "packet-code"), /^F08 Amount Too Large$/);
 
-      await t.step("the toy delivers the default payment", async () => {
-        await page.goto(`${base}/tools/stream-toy/`, { waitUntil: "load" });
+      // Opened, a packet shows the STREAM packets inside, decrypted.
+      await click(page, "packet-head");
+      const details = await page.evaluate(() =>
+        document.querySelector('[data-testid="packets"]')!.textContent
+      );
+      assertMatch(details!, /F08 data/);
+      assertMatch(details!, /Maximum amount1000/);
+      assertMatch(details!, /StreamMoney/);
+      assertMatch(details!, /ConnectionNewAddress/);
+      // The log viewer shows the run's lines.
+      assertMatch(await text(page, "toy-log"), /money received/);
+      assertEquals(problems, []);
+    });
+
+    await t.test(
+      "a slow run can be paused, stepped and finished",
+      async () => {
+        await click(page, "toy-back");
+        await type(page, "toy-amount", "20000");
+        await type(page, "toy-timeDilation", "0.01");
         await click(page, "toy-simulate");
+        await click(page, "toy-pause");
+        assertEquals(await text(page, "toy-status"), "Paused");
+        const before = await count(page, "packet");
+        for (let step = 0; step < 5; step++) await click(page, "toy-step");
+        await until(
+          page,
+          "steps send packets",
+          () => count(page, "packet"),
+          (now) => now > before,
+        );
+        await click(page, "toy-finish");
         await until(
           page,
           "the run ends",
@@ -175,77 +225,24 @@ Deno.test({
         );
         assertEquals(
           await text(page, "toy-delivered"),
-          "3000 of 3000 delivered",
+          "20000 of 20000 delivered",
         );
-        assert((await count(page, "packet")) >= 4);
-        const outcomes = await page.evaluate(() =>
-          [...document.querySelectorAll('[data-testid="packet"]')].map((node) =>
-            node.getAttribute("data-outcome")
-          )
-        );
-        assertEquals(outcomes[0], "rejected");
-        assert(outcomes.includes("fulfilled"), outcomes.join());
-        assertMatch(await text(page, "packet-code"), /^F08 Amount Too Large$/);
+      },
+    );
 
-        // Opened, a packet shows the STREAM packets inside, decrypted.
-        await click(page, "packet-head");
-        const details = await page.evaluate(() =>
-          document.querySelector('[data-testid="packets"]')!.textContent
-        );
-        assertMatch(details!, /F08 data/);
-        assertMatch(details!, /Maximum amount1000/);
-        assertMatch(details!, /StreamMoney/);
-        assertMatch(details!, /ConnectionNewAddress/);
-        // The log viewer shows the run's lines.
-        assertMatch(await text(page, "toy-log"), /money received/);
-        assertEquals(problems, []);
-      });
-
-      await t.step(
-        "a slow run can be paused, stepped and finished",
-        async () => {
-          await click(page, "toy-back");
-          await type(page, "toy-amount", "20000");
-          await type(page, "toy-timeDilation", "0.01");
-          await click(page, "toy-simulate");
-          await click(page, "toy-pause");
-          assertEquals(await text(page, "toy-status"), "Paused");
-          const before = await count(page, "packet");
-          for (let step = 0; step < 5; step++) await click(page, "toy-step");
-          await until(
-            page,
-            "steps send packets",
-            () => count(page, "packet"),
-            (now) => now > before,
-          );
-          await click(page, "toy-finish");
-          await until(
-            page,
-            "the run ends",
-            () => text(page, "toy-status"),
-            (status) => status === "Done",
-          );
-          assertEquals(
-            await text(page, "toy-delivered"),
-            "20000 of 20000 delivered",
-          );
-        },
+    await t.test("settings out of range are refused", async () => {
+      await click(page, "toy-back");
+      await type(page, "toy-amount", "1.5");
+      await click(page, "toy-simulate");
+      assertEquals(
+        await text(page, "toy-problem"),
+        "The amount must be a whole number.",
       );
-
-      await t.step("settings out of range are refused", async () => {
-        await click(page, "toy-back");
-        await type(page, "toy-amount", "1.5");
-        await click(page, "toy-simulate");
-        assertEquals(
-          await text(page, "toy-problem"),
-          "The amount must be a whole number.",
-        );
-        assertEquals(problems, []);
-      });
-    } finally {
-      await browser.close();
-      await server.shutdown();
-      await removeEventually(dir);
-    }
-  },
+      assertEquals(problems, []);
+    });
+  } finally {
+    await browser.close();
+    await server.shutdown();
+    await removeEventually(dir);
+  }
 });

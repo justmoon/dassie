@@ -1,10 +1,11 @@
+import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
 import { Layout } from "./layout.ts";
 
 const positions = (layout: Layout) =>
   [...layout.bodies.entries()].map(([id, b]) => [id, b.x, b.y]);
 
-Deno.test("the same table settles the same way", () => {
+test("the same table settles the same way", () => {
   const links = [{ a: "a", b: "b" }, { a: "b", b: "c" }];
   const first = new Layout();
   first.update(["a", "b", "c"]);
@@ -16,7 +17,7 @@ Deno.test("the same table settles the same way", () => {
   assert(first.settled);
 });
 
-Deno.test("linked nodes end up nearer than unlinked ones", () => {
+test("linked nodes end up nearer than unlinked ones", () => {
   const layout = new Layout();
   layout.update(["a", "b", "c", "d"]);
   layout.settle([{ a: "a", b: "b" }]);

@@ -1,3 +1,4 @@
+import { test } from "node:test";
 import { assertEquals } from "@std/assert";
 import {
   accessText,
@@ -9,7 +10,7 @@ import {
 
 const usd = (value: bigint) => ({ value, assetCode: "USD", assetScale: 9 });
 
-Deno.test("intervals read as people say them", () => {
+test("intervals read as people say them", () => {
   assertEquals(intervalText(""), undefined);
   assertEquals(intervalText("R/2024-01-01T00:00:00Z/P1D"), "a day");
   assertEquals(intervalText("R12/2024-01-01T00:00:00Z/P1M"), "a month");
@@ -24,7 +25,7 @@ Deno.test("intervals read as people say them", () => {
   );
 });
 
-Deno.test("limits read as a sentence", () => {
+test("limits read as a sentence", () => {
   const limits = {
     receiver: "",
     interval: "R/2024-01-01T00:00:00Z/P1D",
@@ -49,7 +50,7 @@ Deno.test("limits read as a sentence", () => {
   );
 });
 
-Deno.test("an item that only reads shows only its receiver", () => {
+test("an item that only reads shows only its receiver", () => {
   const limits = {
     receiver: "https://example.com/incoming-payments/1",
     interval: "",
@@ -67,14 +68,14 @@ Deno.test("an item that only reads shows only its receiver", () => {
   );
 });
 
-Deno.test("reading all of a kind says so", () => {
+test("reading all of a kind says so", () => {
   assertEquals(
     accessText({ type: "quote", actions: ["read-all"], ledger: "" }),
     "See quotes, and see all of them, not only its own",
   );
 });
 
-Deno.test("a client goes by its public name, else its address", () => {
+test("a client goes by its public name, else its address", () => {
   assertEquals(
     clientName("https://app.example/me", "Budget App"),
     "Budget App",

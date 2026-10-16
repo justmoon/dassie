@@ -1,3 +1,4 @@
+import { test } from "node:test";
 import { assertEquals } from "@std/assert";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -7,7 +8,7 @@ import { join } from "node:path";
 import process from "node:process";
 import { recordPids, releaseLock, stopStale, takeLock } from "./stale.ts";
 
-Deno.test("a PID now used by something else is left alone", async () => {
+test("a PID now used by something else is left alone", async () => {
   const dir = await mkdtemp(join(tmpdir(), "stale-"));
   const other = spawn("sleep", ["30"]);
   const closed = once(other, "close");
@@ -24,7 +25,7 @@ Deno.test("a PID now used by something else is left alone", async () => {
   }
 });
 
-Deno.test("the lock is this dev server's, unless another one holds it", async () => {
+test("the lock is this dev server's, unless another one holds it", async () => {
   const dir = await mkdtemp(join(tmpdir(), "stale-"));
   try {
     // A PID that is no dev server: taken over.

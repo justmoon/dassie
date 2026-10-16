@@ -1,3 +1,4 @@
+import { test } from "node:test";
 import { assertEquals, assertRejects } from "@std/assert";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { FakeTime } from "@std/testing/time";
@@ -69,7 +70,7 @@ function setUp(options: { onSessionEnded?: () => void } = {}) {
   return { client, sockets };
 }
 
-Deno.test("calls wait for the socket, then resolve with their response", async () => {
+test("calls wait for the socket, then resolve with their response", async () => {
   const { client, sockets } = setUp();
   const call = client.call("getBasicState", {});
   const [socket] = sockets;
@@ -98,7 +99,7 @@ Deno.test("calls wait for the socket, then resolve with their response", async (
   client.close();
 });
 
-Deno.test("errors carry the node's code", async () => {
+test("errors carry the node's code", async () => {
   const { client, sockets } = setUp();
   const call = client.call("getConfig", {});
   sockets[0].open();
@@ -115,7 +116,7 @@ Deno.test("errors carry the node's code", async () => {
 });
 
 // RT-27: the original's calls hung forever when a response was lost.
-Deno.test("a call that gets no answer times out and is cancelled", async () => {
+test("a call that gets no answer times out and is cancelled", async () => {
   using time = new FakeTime();
   const { client, sockets } = setUp();
   const call = client.call("getStatus", {});
@@ -132,7 +133,7 @@ Deno.test("a call that gets no answer times out and is cancelled", async () => {
   client.close();
 });
 
-Deno.test("losing the connection fails calls in flight, and the session end is reported", async () => {
+test("losing the connection fails calls in flight, and the session end is reported", async () => {
   let ended = 0;
   const { client, sockets } = setUp({ onSessionEnded: () => ended++ });
   const call = client.call("getStatus", {});
@@ -143,7 +144,7 @@ Deno.test("losing the connection fails calls in flight, and the session end is r
   client.close();
 });
 
-Deno.test("streams deliver items until their end", async () => {
+test("streams deliver items until their end", async () => {
   const { client, sockets } = setUp();
   const steps: AcmeStep[] = [];
   const stream = client.stream("obtainCertificate", {
@@ -170,7 +171,7 @@ Deno.test("streams deliver items until their end", async () => {
   client.close();
 });
 
-Deno.test("aborting a stream cancels it on the node, and drops later items", async () => {
+test("aborting a stream cancels it on the node, and drops later items", async () => {
   const { client, sockets } = setUp();
   const lines: number[] = [];
   const abort = new AbortController();
@@ -201,7 +202,7 @@ Deno.test("aborting a stream cancels it on the node, and drops later items", asy
   client.close();
 });
 
-Deno.test("aborting a call before the socket opens sends nothing", async () => {
+test("aborting a call before the socket opens sends nothing", async () => {
   const { client, sockets } = setUp();
   const abort = new AbortController();
   const call = client.call("getStatus", {}, { signal: abort.signal });
@@ -223,7 +224,7 @@ Deno.test("aborting a call before the socket opens sends nothing", async () => {
   client.close();
 });
 
-Deno.test("the connection's state is reported", async () => {
+test("the connection's state is reported", async () => {
   using time = new FakeTime();
   const { client, sockets } = setUp();
   const states: string[] = [];
@@ -237,7 +238,7 @@ Deno.test("the connection's state is reported", async () => {
   assertEquals(states, ["connecting", "open", "waiting", "idle", "closed"]);
 });
 
-Deno.test("a request that does not encode leaves nothing behind", async () => {
+test("a request that does not encode leaves nothing behind", async () => {
   using time = new FakeTime();
   const { client, sockets } = setUp();
   const failed = client.call("stubDeposit", { amount: 2n ** 70n });

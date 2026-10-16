@@ -1,3 +1,4 @@
+import { test } from "node:test";
 import { assertEquals } from "@std/assert";
 import { create } from "@bufbuild/protobuf";
 import {
@@ -16,7 +17,7 @@ function node(
   return create(NetworkNodeSchema, { id, distance, neighbors, peerState });
 }
 
-Deno.test("nodes sort by distance, then ID, and group under headings", () => {
+test("nodes sort by distance, then ID, and group under headings", () => {
   const nodes = [
     node("dz", undefined),
     node("dc", 2),
@@ -42,7 +43,7 @@ Deno.test("nodes sort by distance, then ID, and group under headings", () => {
   ]);
 });
 
-Deno.test("links: ours to peers, others' only when both list each other", () => {
+test("links: ours to peers, others' only when both list each other", () => {
   const nodes = [
     node("da", 0),
     node("db", 1, ["da", "dc"], PeerState.PEERED),
@@ -55,7 +56,7 @@ Deno.test("links: ours to peers, others' only when both list each other", () => 
   ]);
 });
 
-Deno.test("colors are stable per ID", () => {
+test("colors are stable per ID", () => {
   assertEquals(seedIndex("d1"), seedIndex("d1"));
   const spread = new Set(
     ["d1", "d2", "d3", "d4", "d5", "d6"].map((id) => seedIndex(id)),

@@ -3,6 +3,7 @@
 // dassie-release from `deno task build:e2e`; without them the tests skip,
 // except in CI, where they fail.
 
+import { test } from "node:test";
 import { assertEquals, assertRejects } from "@std/assert";
 import { spawn } from "node:child_process";
 import { statSync } from "node:fs";
@@ -65,10 +66,10 @@ async function builtTree(version: string, channel = "latest"): Promise<string> {
   return tree;
 }
 
-const options = { ignore: !hasMinisign || !verifier };
+const options = { skip: !hasMinisign || !verifier };
 const tools = { secretKey, publicKey, verifier: verifier ?? "" };
 
-Deno.test(
+test(
   "signs a release, and the signature names its version",
   options,
   async () => {
@@ -89,7 +90,7 @@ Deno.test(
   },
 );
 
-Deno.test("signs a canary", options, async () => {
+test("signs a canary", options, async () => {
   const tree = await builtTree("canary-2026-10-15-041530-15bd7aa", "canary");
   const built = await release({
     tree,
@@ -102,7 +103,7 @@ Deno.test("signs a canary", options, async () => {
   });
 });
 
-Deno.test("refuses a bundle that does not match its sum", options, async () => {
+test("refuses a bundle that does not match its sum", options, async () => {
   const tree = await builtTree("0.1.0");
   await writeFile(
     `${tree}/0.1.0/dassie-0.1.0-linux-arm64.tar.xz`,
@@ -115,7 +116,7 @@ Deno.test("refuses a bundle that does not match its sum", options, async () => {
   );
 });
 
-Deno.test(
+test(
   "refuses to publish what the public key does not verify",
   options,
   async () => {
@@ -144,26 +145,22 @@ Deno.test(
   },
 );
 
-Deno.test(
-  "refuses a tree of another version than the tag's",
-  options,
-  async () => {
-    const tree = await builtTree("0.1.0");
-    await assertRejects(
-      () =>
-        release({
-          tree,
-          out: `${tree}-out`,
-          ...tools,
-          expect: "0.1.1",
-        }),
-      Error,
-      "the tree holds 0.1.0, not 0.1.1",
-    );
-  },
-);
+test("refuses a tree of another version than the tag's", options, async () => {
+  const tree = await builtTree("0.1.0");
+  await assertRejects(
+    () =>
+      release({
+        tree,
+        out: `${tree}-out`,
+        ...tools,
+        expect: "0.1.1",
+      }),
+    Error,
+    "the tree holds 0.1.0, not 0.1.1",
+  );
+});
 
-Deno.test("refuses a channel file that names no version", options, async () => {
+test("refuses a channel file that names no version", options, async () => {
   const tree = await builtTree("canary-2026-10-15-15bd7aa", "canary");
   await assertRejects(
     () => release({ tree, out: `${tree}-out`, ...tools }),

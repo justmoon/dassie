@@ -11,6 +11,7 @@
 //
 // The checks of the pages run only once `deno task build:website` has run.
 
+import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
 import { execFile, spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
@@ -21,11 +22,10 @@ import { PAGES } from "./src/layout.ts";
 const dist = new URL("dist", import.meta.url).pathname;
 const built = await exists(`${dist}/index.html`);
 
-Deno.test({
-  name:
-    "the pages have no inline script or style, and load nothing from elsewhere",
-  ignore: !built,
-  async fn() {
+test(
+  "the pages have no inline script or style, and load nothing from elsewhere",
+  { skip: !built },
+  async () => {
     for (const { path } of PAGES) {
       const html = await readFile(`${dist}${path}index.html`, "utf8");
       assert(
@@ -46,12 +46,12 @@ Deno.test({
       }
     }
   },
-});
+);
 
-Deno.test({
-  name: "every page has the header and footer, and only one current page",
-  ignore: !built,
-  async fn() {
+test(
+  "every page has the header and footer, and only one current page",
+  { skip: !built },
+  async () => {
     for (const { path } of PAGES) {
       const html = await readFile(`${dist}${path}index.html`, "utf8");
       assert(html.includes('<header class="site-header">'), path);
@@ -60,9 +60,9 @@ Deno.test({
       assertEquals(html.match(/aria-current="page"/g)?.length, 1, path);
     }
   },
-});
+);
 
-Deno.test("vercel-build.sh installs the flake's Deno and Cargo.lock's wasm-bindgen", async () => {
+test("vercel-build.sh installs the flake's Deno and Cargo.lock's wasm-bindgen", async () => {
   const script = await readFile(
     new URL("vercel-build.sh", import.meta.url),
     "utf8",
@@ -194,14 +194,14 @@ async function sitePackages(): Promise<Set<string>> {
   return packages;
 }
 
-Deno.test("vercel-ignore.sh watches every crate and package the site is built from", async () => {
+test("vercel-ignore.sh watches every crate and package the site is built from", async () => {
   const paths = await watched();
   for (const dir of [...await wasmCrates(), ...await sitePackages()]) {
     assert(paths.includes(dir), `vercel-ignore.sh does not watch ${dir}`);
   }
 });
 
-Deno.test("vercel-ignore.sh skips only when it knows nothing changed", async () => {
+test("vercel-ignore.sh skips only when it knows nothing changed", async () => {
   const site = new URL(".", import.meta.url).pathname;
   const run = async (previous?: string) => {
     const env = { ...process.env };

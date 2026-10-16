@@ -122,7 +122,7 @@
           );
 
           # The WASM modules and their bindings, as scripts/build-wasm.ts
-          # makes them: deno/ for Deno, web/ for browsers.
+          # makes them: web/, which browsers, scripts and tests all load.
           identity-wasm = craneLib.mkCargoDerivation (
             common
             // {
@@ -138,10 +138,8 @@
               doInstallCargoArtifacts = false;
               installPhaseCommand = ''
                 for module in dassie_identity dassie_stream; do
-                  for target in deno web; do
-                    wasm-bindgen --target $target --out-dir $out/$target \
-                      target/wasm32-unknown-unknown/wasm/$module.wasm
-                  done
+                  wasm-bindgen --target web --out-dir $out/web \
+                    target/wasm32-unknown-unknown/wasm/$module.wasm
                 done
               '';
             }

@@ -1,3 +1,4 @@
+import { test } from "node:test";
 import { assertEquals } from "@std/assert";
 import { create } from "@bufbuild/protobuf";
 import {
@@ -9,12 +10,12 @@ import { expectedConfirmation, removalChecklist } from "./removal.ts";
 const blocker = (kind: Kind, count: number) =>
   create(LedgerRemovalBlockerSchema, { kind, count });
 
-Deno.test("the confirmation names the scheme", () => {
+test("the confirmation names the scheme", () => {
   assertEquals(expectedConfirmation("stub"), "DELETE STUB");
   assertEquals(expectedConfirmation("xrpl-testnet"), "DELETE XRPL-TESTNET");
 });
 
-Deno.test("the checklist shows what blocks the removal", () => {
+test("the checklist shows what blocks the removal", () => {
   assertEquals(removalChecklist([]).map((item) => item.state), ["valid"]);
   const items = removalChecklist([
     blocker(Kind.PEERS, 2),

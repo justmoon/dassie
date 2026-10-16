@@ -6,6 +6,7 @@
 // the directory URL and the root differ. The daemon runs as systemd would
 // run it, socket-activated, with a fresh state directory.
 
+import { test } from "node:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -93,13 +94,10 @@ async function stopAll(processes: Process[]): Promise<void> {
   }
 }
 
-Deno.test({
-  name:
-    "a fresh install reaches setup complete with a certificate from the ACME CA",
-  ignore: missing !== undefined,
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
+test(
+  "a fresh install reaches setup complete with a certificate from the ACME CA",
+  { skip: missing !== undefined },
+  async () => {
     const verify = await run(DASSIE, ["verify-install"]);
     assert(
       verify.code === 0,
@@ -166,7 +164,7 @@ Deno.test({
       await rm(dir, { recursive: true, force: true });
     }
   },
-});
+);
 
 async function restart(
   processes: Process[],
@@ -181,13 +179,10 @@ async function restart(
   return started;
 }
 
-Deno.test({
-  name:
-    "the standalone runtime with its self-signed certificate, recovering a wallet",
-  ignore: missing !== undefined,
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
+test(
+  "the standalone runtime with its self-signed certificate, recovering a wallet",
+  { skip: missing !== undefined },
+  async () => {
     const dir = await mkdtemp(join(tmpdir(), "dassie-e2e-"));
     const daemon = new Process("dassie", DASSIE, [
       "daemon",
@@ -236,4 +231,4 @@ Deno.test({
       await rm(dir, { recursive: true, force: true });
     }
   },
-});
+);

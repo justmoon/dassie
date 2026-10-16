@@ -1,8 +1,9 @@
+import { test } from "node:test";
 import { assertEquals } from "@std/assert";
 import { LedgerConnection } from "@dassie/rpc/proto";
 import { connectionText } from "./connection.ts";
 
-Deno.test("a ledger's connection is told only when it is not in step", () => {
+test("a ledger's connection is told only when it is not in step", () => {
   const text = (connection: LedgerConnection, connectionProblem = "") =>
     connectionText({ connection, connectionProblem });
   assertEquals(text(LedgerConnection.SYNCED), undefined);

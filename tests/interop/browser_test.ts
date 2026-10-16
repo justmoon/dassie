@@ -3,6 +3,7 @@
 // inside the page. Set CHROME_BIN to choose the browser; otherwise the
 // first of google-chrome, chromium and chromium-browser on PATH is used.
 
+import { test } from "node:test";
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import process from "node:process";
@@ -71,7 +72,7 @@ async function findChrome(): Promise<string> {
   throw new Error("no Chrome found; set CHROME_BIN");
 }
 
-Deno.test("the web build works in a browser", async () => {
+test("the web build works in a browser", async () => {
   const server = Deno.serve(
     { port: 0, onListen: () => {} },
     async (request) => {

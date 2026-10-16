@@ -1,15 +1,16 @@
+import { test } from "node:test";
 import { assertEquals } from "@std/assert";
 import { DEFAULT_FORM, type Form, parseForm } from "./form.ts";
 import { DEFAULT_SETTINGS } from "./simulation.ts";
 
-Deno.test("the default form is the original's defaults", () => {
+test("the default form is the original's defaults", () => {
   assertEquals(parseForm(DEFAULT_FORM), {
     settings: DEFAULT_SETTINGS,
     timeDilation: 1,
   });
 });
 
-Deno.test("the form takes spaces and decimals where they make sense", () => {
+test("the form takes spaces and decimals where they make sense", () => {
   const parsed = parseForm({
     ...DEFAULT_FORM,
     amount: " 18446744073709551615 ",
@@ -23,7 +24,7 @@ Deno.test("the form takes spaces and decimals where they make sense", () => {
   assertEquals(parsed.timeDilation, 0.1);
 });
 
-Deno.test("the form says what is wrong", () => {
+test("the form says what is wrong", () => {
   const cases: [Partial<Form>, string][] = [
     [{ amount: "" }, "The amount must be a whole number."],
     [{ amount: "1.5" }, "The amount must be a whole number."],

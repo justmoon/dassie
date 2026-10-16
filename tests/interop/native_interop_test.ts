@@ -2,6 +2,7 @@
 // through the `interop_peer` example (crates/dassie-stream/examples), which
 // speaks length-prefixed frames over stdio.
 
+import { test } from "node:test";
 import { Buffer } from "node:buffer";
 import { type ChildProcess, spawn } from "node:child_process";
 
@@ -18,7 +19,6 @@ import { encodeReject } from "@dassie/identity-wasm";
 
 import { createPlugin, Network } from "./network.ts";
 
-const options = { sanitizeOps: false, sanitizeResources: false };
 const root = new URL("../../", import.meta.url).pathname;
 
 /** Resolves with the exit code once `child` exited and its output ended. */
@@ -166,9 +166,8 @@ function gone(): Uint8Array {
   );
 }
 
-Deno.test(
+test(
   "native dassie client pays an ilp-protocol-stream server",
-  options,
   async () => {
     const binary = await buildPeer();
     const network = new Network();
@@ -208,9 +207,8 @@ Deno.test(
   },
 );
 
-Deno.test(
+test(
   "ilp-protocol-stream client pays a native dassie server",
-  options,
   async () => {
     const binary = await buildPeer();
     const network = new Network();

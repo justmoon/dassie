@@ -10,6 +10,7 @@
  * the IPC socket, and setup over HTTPS with the key derived in WASM.
  */
 
+import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
 import { Buffer } from "node:buffer";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -205,72 +206,68 @@ async function journalMatchesTrace(
   return total;
 }
 
-Deno.test({
-  name: "a BTP client pays the node's STREAM receiver, and the journal matches",
-  ignore: missing !== undefined,
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
-    const dir = await mkdtemp(join(tmpdir(), "dassie-e2e-btp-"));
-    let daemon = startDaemon(dir);
-    const connect = ipcConnector(`${dir}/ipc.sock`);
-    let owner: RpcClient | undefined;
-    let passed = false;
-    try {
-      await waitForPort(HTTPS_PORT);
-      await waitForSocket(`${dir}/ipc.sock`);
-      owner = new RpcClient({ url: "ipc", connect });
-      await setUp(owner);
-      await waitForLedger(owner);
-      const added = await owner.call("addSettlementScheme", {
-        id: "stub",
-        config: "",
-      });
-      assertEquals(added.ledger?.ownerBalance, 100_000_000_000n);
-      const token = await owner.call("createBtpToken", {
-        label: "e2e",
-        ledger: "stub+usd",
-      });
-      assertEquals(
-        token.url,
-        `btp+wss://:${token.secret}@localhost:${HTTPS_PORT}/btp`,
-      );
-      const tokenId = token.token!.id;
+test("a BTP client pays the node's STREAM receiver, and the journal matches", {
+  skip: missing !== undefined,
+}, async () => {
+  const dir = await mkdtemp(join(tmpdir(), "dassie-e2e-btp-"));
+  let daemon = startDaemon(dir);
+  const connect = ipcConnector(`${dir}/ipc.sock`);
+  let owner: RpcClient | undefined;
+  let passed = false;
+  try {
+    await waitForPort(HTTPS_PORT);
+    await waitForSocket(`${dir}/ipc.sock`);
+    owner = new RpcClient({ url: "ipc", connect });
+    await setUp(owner);
+    await waitForLedger(owner);
+    const added = await owner.call("addSettlementScheme", {
+      id: "stub",
+      config: "",
+    });
+    assertEquals(added.ledger?.ownerBalance, 100_000_000_000n);
+    const token = await owner.call("createBtpToken", {
+      label: "e2e",
+      ledger: "stub+usd",
+    });
+    assertEquals(
+      token.url,
+      `btp+wss://:${token.secret}@localhost:${HTTPS_PORT}/btp`,
+    );
+    const tokenId = token.token!.id;
 
-      await pay(owner, token.url);
+    await pay(owner, token.url);
 
-      assertEquals(await journalMatchesTrace(owner, tokenId), PAYMENT);
-      const [ledger] = (await owner.call("listLedgers", {})).ledgers;
-      // Within the owner's group: the total is unchanged.
-      assertEquals(ledger.ownerBalance, 100_000_000_000n);
-      assertEquals(ledger.ownerPending, 0n);
-      const { tokens } = await owner.call("listBtpTokens", {});
-      assertEquals(tokens[0].netReceived, -PAYMENT);
-      const { accounts } = await owner.call("listAccounts", {});
-      const pool = accounts.find((a) => a.path === "stub+usd:equity/owner")!;
-      assertEquals(
-        pool.creditsPosted - pool.debitsPosted,
-        100_000_000_000n + PAYMENT,
-      );
-      const books = await journal(owner);
+    assertEquals(await journalMatchesTrace(owner, tokenId), PAYMENT);
+    const [ledger] = (await owner.call("listLedgers", {})).ledgers;
+    // Within the owner's group: the total is unchanged.
+    assertEquals(ledger.ownerBalance, 100_000_000_000n);
+    assertEquals(ledger.ownerPending, 0n);
+    const { tokens } = await owner.call("listBtpTokens", {});
+    assertEquals(tokens[0].netReceived, -PAYMENT);
+    const { accounts } = await owner.call("listAccounts", {});
+    const pool = accounts.find((a) => a.path === "stub+usd:equity/owner")!;
+    assertEquals(
+      pool.creditsPosted - pool.debitsPosted,
+      100_000_000_000n + PAYMENT,
+    );
+    const books = await journal(owner);
 
-      // A restart keeps the books and deposits nothing again (ACC-6).
-      owner.close();
-      await daemon.stop();
-      daemon = startDaemon(dir);
-      await waitForPort(HTTPS_PORT);
-      await waitForSocket(`${dir}/ipc.sock`);
-      owner = new RpcClient({ url: "ipc", connect });
-      const [restarted] = (await waitForLedger(owner)).ledgers;
-      assertEquals(restarted, ledger);
-      assertEquals(await journal(owner), books);
-      passed = true;
-    } finally {
-      owner?.close();
-      const { code, output } = await daemon.stop();
-      // What the node said, to tell why a test failed.
-      if (code !== 0 || !passed) console.error(output);
-      await rm(dir, { recursive: true, force: true });
-    }
-  },
+    // A restart keeps the books and deposits nothing again (ACC-6).
+    owner.close();
+    await daemon.stop();
+    daemon = startDaemon(dir);
+    await waitForPort(HTTPS_PORT);
+    await waitForSocket(`${dir}/ipc.sock`);
+    owner = new RpcClient({ url: "ipc", connect });
+    const [restarted] = (await waitForLedger(owner)).ledgers;
+    assertEquals(restarted, ledger);
+    assertEquals(await journal(owner), books);
+    passed = true;
+  } finally {
+    owner?.close();
+    const { code, output } = await daemon.stop();
+    // What the node said, to tell why a test failed.
+    if (code !== 0 || !passed) console.error(output);
+    await rm(dir, { recursive: true, force: true });
+  }
 });

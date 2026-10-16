@@ -1,3 +1,4 @@
+import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
 import { create, toBinary } from "@bufbuild/protobuf";
 import {
@@ -12,7 +13,7 @@ const line = (n: number, bytes = 100) =>
     line: { index: BigInt(n), message: "x".repeat(bytes) },
   });
 
-Deno.test("log lines go out in chunks that fit a message", () => {
+test("log lines go out in chunks that fit a message", () => {
   const lines = Array.from({ length: 5_000 }, (_, n) => line(n, 900));
   const chunks = chunkLines(lines, 64 * 1024);
   assertEquals(chunks.flat().length, lines.length);
@@ -30,12 +31,12 @@ Deno.test("log lines go out in chunks that fit a message", () => {
   assert(64 * 1024 < MAX_CONTROL_MESSAGE_BYTES);
 });
 
-Deno.test("no lines, no chunks; one line too large still goes alone", () => {
+test("no lines, no chunks; one line too large still goes alone", () => {
   assertEquals(chunkLines([]), []);
   assertEquals(chunkLines([line(1, 2_000)], 1_000).length, 1);
 });
 
-Deno.test("a dashboard that reconnects as everything stops is closed", () => {
+test("a dashboard that reconnects as everything stops is closed", () => {
   // Only what the hub touches before it greets.
   const closes: number[] = [];
   const socket = {

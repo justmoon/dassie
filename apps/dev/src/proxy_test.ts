@@ -1,3 +1,4 @@
+import { test } from "node:test";
 import { assertEquals } from "@std/assert";
 import { once } from "node:events";
 import { type AddressInfo, connect, createServer, type Server } from "node:net";
@@ -72,35 +73,30 @@ async function through(port: number, hello: Uint8Array): Promise<string> {
   return text;
 }
 
-Deno.test({
-  name: "the proxy passes each name to its upstream, ClientHello and all",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    const dashboard = await echo("dashboard");
-    const d2 = await echo("d2");
-    const port = await free();
-    const proxy = await startProxy({
-      port,
-      upstream: (name) =>
-        upstreamPort(name, {
-          dashboard: dashboard.port,
-          node: (index) => index === 1 ? d2.port : dashboard.port,
-        }, 100),
-      log: () => {},
-    });
-    try {
-      const forD2 = await clientHello("d2.localhost");
-      assertEquals(await through(port, forD2), `d2:${forD2.length}`);
-      const forDashboard = await clientHello("localhost");
-      assertEquals(
-        await through(port, forDashboard),
-        `dashboard:${forDashboard.length}`,
-      );
-    } finally {
-      proxy.close();
-      dashboard.close();
-      d2.close();
-    }
-  },
+test("the proxy passes each name to its upstream, ClientHello and all", async () => {
+  const dashboard = await echo("dashboard");
+  const d2 = await echo("d2");
+  const port = await free();
+  const proxy = await startProxy({
+    port,
+    upstream: (name) =>
+      upstreamPort(name, {
+        dashboard: dashboard.port,
+        node: (index) => index === 1 ? d2.port : dashboard.port,
+      }, 100),
+    log: () => {},
+  });
+  try {
+    const forD2 = await clientHello("d2.localhost");
+    assertEquals(await through(port, forD2), `d2:${forD2.length}`);
+    const forDashboard = await clientHello("localhost");
+    assertEquals(
+      await through(port, forDashboard),
+      `dashboard:${forDashboard.length}`,
+    );
+  } finally {
+    proxy.close();
+    dashboard.close();
+    d2.close();
+  }
 });

@@ -25,6 +25,7 @@
  * release workflow runs one job per distribution before it signs a release.
  */
 
+import { test, type TestContext } from "node:test";
 import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
@@ -341,26 +342,22 @@ async function update(machine: Machine): Promise<Run> {
 }
 
 for (const distro of DISTROS) {
-  Deno.test({
-    name: `install, update and uninstall on ${distro}`,
-    ignore: MIRROR === undefined,
-    sanitizeOps: false,
-    sanitizeResources: false,
-    async fn(t) {
-      const mirror = await Mirror.start(MIRROR!);
-      let machine: Machine | undefined;
-      try {
-        machine = await Machine.boot(distro, mirror);
-        await steps(t, machine, mirror);
-      } finally {
-        await machine?.stop();
-        await mirror.stop();
-      }
-    },
+  test(`install, update and uninstall on ${distro}`, {
+    skip: MIRROR === undefined,
+  }, async (t) => {
+    const mirror = await Mirror.start(MIRROR!);
+    let machine: Machine | undefined;
+    try {
+      machine = await Machine.boot(distro, mirror);
+      await steps(t, machine, mirror);
+    } finally {
+      await machine?.stop();
+      await mirror.stop();
+    }
   });
 }
 
-async function steps(t: Deno.TestContext, machine: Machine, mirror: Mirror) {
+async function steps(t: TestContext, machine: Machine, mirror: Mirror) {
   await mirror.offer("1.0.0");
   // The installer takes xz where there is xz, else gzip; tamper with both.
   const bundles = [
@@ -368,7 +365,7 @@ async function steps(t: Deno.TestContext, machine: Machine, mirror: Mirror) {
     "dassie-1.0.0-linux-x64.tar.gz",
   ];
 
-  await t.step("the installer refuses a tampered bundle", async () => {
+  await t.test("the installer refuses a tampered bundle", async () => {
     const [xz, gz] = await Promise.all(
       bundles.map((name) => mirror.file(`1.0.0/${name}`)),
     );
@@ -387,7 +384,7 @@ async function steps(t: Deno.TestContext, machine: Machine, mirror: Mirror) {
     assertEquals((await machine.sh("test -e /opt/dassie")).code, 1);
   });
 
-  await t.step(
+  await t.test(
     "the installer refuses sums that are not what was signed",
     async () => {
       const sums = new TextDecoder().decode(
@@ -405,7 +402,7 @@ async function steps(t: Deno.TestContext, machine: Machine, mirror: Mirror) {
     },
   );
 
-  await t.step(
+  await t.test(
     "the installer refuses sums signed for another version",
     async () => {
       const [sums, signature] = await Promise.all(
@@ -430,7 +427,7 @@ async function steps(t: Deno.TestContext, machine: Machine, mirror: Mirror) {
     },
   );
 
-  await t.step("the installer installs 1.0.0, and the node runs", async () => {
+  await t.test("the installer installs 1.0.0, and the node runs", async () => {
     const result = await machine.installer(mirror);
     assertEquals(result.code, 0, `${result.stdout}${result.stderr}`);
     assertStringIncludes(result.stdout, "Dassie 1.0.0 is installed");
@@ -459,7 +456,7 @@ async function steps(t: Deno.TestContext, machine: Machine, mirror: Mirror) {
   const before = await node(machine);
   await mirror.offer("1.0.1");
 
-  await t.step(
+  await t.test(
     "the updater refuses a tampered bundle, and the node runs on",
     async () => {
       const name = "1.0.1/dassie-1.0.1-linux-x64.tar.gz";
@@ -474,7 +471,7 @@ async function steps(t: Deno.TestContext, machine: Machine, mirror: Mirror) {
     },
   );
 
-  await t.step("the updater refuses the sums of another version", async () => {
+  await t.test("the updater refuses the sums of another version", async () => {
     const [sums, signature] = await Promise.all(
       ["1.0.0/SHA256SUMS", "1.0.0/SHA256SUMS.minisig"].map((path) =>
         mirror.file(path)
@@ -495,7 +492,7 @@ async function steps(t: Deno.TestContext, machine: Machine, mirror: Mirror) {
     assertEquals(await node(machine), before);
   });
 
-  await t.step(
+  await t.test(
     "the updater installs 1.0.1, restarts the node, and keeps its data",
     async () => {
       const database = await machine.must(
@@ -533,7 +530,7 @@ async function steps(t: Deno.TestContext, machine: Machine, mirror: Mirror) {
     },
   );
 
-  await t.step(
+  await t.test(
     "the installer does not go back to what the mirror offers",
     async () => {
       await mirror.offer("1.0.0");
@@ -544,7 +541,7 @@ async function steps(t: Deno.TestContext, machine: Machine, mirror: Mirror) {
     },
   );
 
-  await t.step("the installer uninstalls it", async () => {
+  await t.test("the installer uninstalls it", async () => {
     const result = await machine.installer(mirror, "uninstall");
     assertEquals(result.code, 0, `${result.stdout}${result.stderr}`);
     assertEquals(

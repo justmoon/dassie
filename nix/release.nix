@@ -96,7 +96,7 @@ let
       cp -r ${denoDeps}/node_modules ${denoDeps}/vendor .
       chmod -R u+w node_modules vendor
       mkdir -p packages/identity-wasm/gen
-      cp -r ${identity-wasm}/deno ${identity-wasm}/web packages/identity-wasm/gen/
+      cp -r ${identity-wasm}/web packages/identity-wasm/gen/
       jq '.vendor = true' deno.json > deno.json.vendored
       mv deno.json.vendored deno.json
       cd apps/wallet

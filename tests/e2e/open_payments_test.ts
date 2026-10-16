@@ -9,6 +9,7 @@
  * client validates every response against the Open Payments specs.
  */
 
+import { test } from "node:test";
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import { Buffer } from "node:buffer";
 import { generateKeyPairSync } from "node:crypto";
@@ -117,11 +118,8 @@ async function pay(
   }
 }
 
-Deno.test({
-  name: "the reference client gets paid into an incoming payment",
-  ignore: missing !== undefined,
-  sanitizeOps: false,
-  sanitizeResources: false,
+test("the reference client gets paid into an incoming payment", {
+  skip: missing !== undefined,
 }, async () => {
   const scenario = await Scenario.temporary("one-node", {
     dassie: DASSIE,

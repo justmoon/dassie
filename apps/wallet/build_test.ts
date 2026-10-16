@@ -6,25 +6,25 @@
 //
 // The checks run only once `deno task build:wallet` has run.
 
+import { test } from "node:test";
 import { assert } from "@std/assert";
 import { assertCspClean, exists, scripts } from "@dassie/ui/testing/csp";
 
 const dist = new URL("dist", import.meta.url).pathname;
 const built = await exists(`${dist}/index.html`);
 
-Deno.test({
-  name:
-    "the built page has no inline script or style, and nothing from elsewhere",
-  ignore: !built,
-  fn: () => assertCspClean(dist),
-});
+test(
+  "the built page has no inline script or style, and nothing from elsewhere",
+  { skip: !built },
+  () => assertCspClean(dist),
+);
 
-Deno.test({
-  name: "the production build cannot log in from the URL",
-  ignore: !built,
-  async fn() {
+test(
+  "the production build cannot log in from the URL",
+  { skip: !built },
+  async () => {
     for (const [name, code] of await scripts(dist)) {
       assert(!code.includes("dassie-dev-login"), name);
     }
   },
-});
+);

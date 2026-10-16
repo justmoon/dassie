@@ -1,3 +1,4 @@
+import { test } from "node:test";
 import { assertEquals } from "@std/assert";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -39,7 +40,7 @@ function write(socket: Socket, bytes: Uint8Array): Promise<void> {
   });
 }
 
-Deno.test("calls go over the IPC socket in length-prefixed frames", async () => {
+test("calls go over the IPC socket in length-prefixed frames", async () => {
   const dir = await mkdtemp(join(tmpdir(), "dassie-ipc-"));
   const path = `${dir}/ipc.sock`;
   const listener = createServer();

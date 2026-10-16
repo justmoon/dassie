@@ -7,6 +7,7 @@
  * `DASSIE_E2E_SCREENSHOTS` names a directory for a picture of each step.
  */
 
+import { test } from "node:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
@@ -143,13 +144,10 @@ function running(page: Page): Promise<number> {
   );
 }
 
-Deno.test({
-  name:
-    "deno task dev brings up a scenario, and its dashboard shows and drives it",
-  ignore: missing !== undefined,
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn(t) {
+test(
+  "deno task dev brings up a scenario, and its dashboard shows and drives it",
+  { skip: missing !== undefined },
+  async (t) => {
     const state = await mkdtemp(join(tmpdir(), "dassie-dev-"));
     const caRoot = await mkdtemp(join(tmpdir(), "dassie-dev-ca-"));
     const browserDir = await mkdtemp(join(tmpdir(), "dassie-dev-chrome-"));
@@ -163,7 +161,7 @@ Deno.test({
         errors.push(String(event.detail));
       });
 
-      await t.step(
+      await t.test(
         "the dashboard shows the network through the proxy",
         async () => {
           await page.goto(`https://localhost:${PROXY}/`, { waitUntil: "load" });
@@ -195,7 +193,7 @@ Deno.test({
         },
       );
 
-      await t.step(
+      await t.test(
         "the control channel and the relay refuse other pages",
         async () => {
           const ca = await readFile(`${caRoot}/rootCA.pem`, "utf8");
@@ -226,7 +224,7 @@ Deno.test({
         },
       );
 
-      await t.step("a node's debug pages work through the relay", async () => {
+      await t.test("a node's debug pages work through the relay", async () => {
         await page.goto(`https://localhost:${PROXY}/nodes/d1/debug/database`, {
           waitUntil: "load",
         });
@@ -240,7 +238,7 @@ Deno.test({
         await picture(page, "dev-03-host");
       });
 
-      await t.step("the wallet link opens the wallet signed in", async () => {
+      await t.test("the wallet link opens the wallet signed in", async () => {
         await page.goto(`https://localhost:${PROXY}/`, { waitUntil: "load" });
         const href = await attribute(page, "wallet-d1", "href");
         assertMatch(
@@ -261,7 +259,7 @@ Deno.test({
         await wallet.close();
       });
 
-      await t.step("a node added joins the network", async () => {
+      await t.test("a node added joins the network", async () => {
         await page.goto(`https://localhost:${PROXY}/`, { waitUntil: "load" });
         await until(page, "connected", () => running(page), (n) => n === 2);
         await click(page, "add-node");
@@ -281,7 +279,7 @@ Deno.test({
         );
       });
 
-      await t.step("another scenario starts from scratch", async () => {
+      await t.test("another scenario starts from scratch", async () => {
         await page.goto(`https://localhost:${PROXY}/scenarios`, {
           waitUntil: "load",
         });
@@ -305,7 +303,7 @@ Deno.test({
         await picture(page, "dev-06-six-nodes");
       });
 
-      await t.step("a restart resumes, without setting up again", async () => {
+      await t.test("a restart resumes, without setting up again", async () => {
         const before = await owner(state, "d1");
         await before.call("stubDeposit", { amount: 7n });
         const [ledger] = (await before.call("listLedgers", {})).ledgers;
@@ -324,7 +322,7 @@ Deno.test({
         assertEquals(again.ownerBalance, ledger.ownerBalance);
       });
 
-      await t.step(
+      await t.test(
         "a second dev server on the same state stops at once",
         async () => {
           const second = new DevServer(state, caRoot);
@@ -339,7 +337,7 @@ Deno.test({
         },
       );
 
-      await t.step(
+      await t.test(
         "naming another scenario starts it from scratch",
         async () => {
           const exit = await dev.child.stop(DEV_STOP_MS);
@@ -366,4 +364,4 @@ Deno.test({
       assertEquals(exit.code, 0, exit.output);
     }
   },
-});
+);

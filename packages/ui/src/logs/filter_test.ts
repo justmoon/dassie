@@ -1,3 +1,4 @@
+import { test } from "node:test";
 import { assertEquals } from "@std/assert";
 import { create } from "@bufbuild/protobuf";
 import { LogLineSchema } from "@dassie/rpc/proto";
@@ -9,7 +10,7 @@ const line = create(LogLineSchema, {
   fields: [{ name: "node", value: "d2_abc" }],
 });
 
-Deno.test("keywords must all match; negated ones must not", () => {
+test("keywords must all match; negated ones must not", () => {
   assertEquals(matches(line, parseFilter("")), true);
   assertEquals(matches(line, parseFilter("peer")), true);
   assertEquals(matches(line, parseFilter("PEERED d2_")), true);
@@ -19,14 +20,14 @@ Deno.test("keywords must all match; negated ones must not", () => {
   assertEquals(parseFilter("  a  -b - "), { include: ["a"], exclude: ["b"] });
 });
 
-Deno.test("only the rows in view, and a few around them, are rendered", () => {
+test("only the rows in view, and a few around them, are rendered", () => {
   assertEquals(visibleRange(0, 200, 20, 1000), { start: 0, end: 20 });
   assertEquals(visibleRange(2000, 200, 20, 1000), { start: 90, end: 120 });
   assertEquals(visibleRange(19_900, 200, 20, 1000), { start: 985, end: 1000 });
   assertEquals(visibleRange(0, 200, 20, 0), { start: 0, end: 0 });
 });
 
-Deno.test("a line's source counts in the filter", () => {
+test("a line's source counts in the filter", () => {
   const line = create(LogLineSchema, {
     target: "das:node:http",
     message: "hi",
@@ -36,7 +37,7 @@ Deno.test("a line's source counts in the filter", () => {
   assertEquals(matches(line, parseFilter("-host"), "host"), false);
 });
 
-Deno.test("vanity IDs are picked out of text", () => {
+test("vanity IDs are picked out of text", () => {
   const id = "d12_abcdefghijklmnopqrstuvwxyz";
   assertEquals(splitIds(`peered with ${id}.`), [
     "peered with ",

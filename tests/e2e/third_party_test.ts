@@ -16,6 +16,7 @@
  * 6. A second request is denied: the app learns it, and cannot continue.
  */
 
+import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
 import { generateKeyPairSync } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -150,11 +151,8 @@ async function signIn(page: Page, node: ScenarioNode, origin: string) {
   assertEquals(status, 200);
 }
 
-Deno.test({
-  name: "a third-party client pays from one node to another with consent",
-  ignore: missing !== undefined,
-  sanitizeOps: false,
-  sanitizeResources: false,
+test("a third-party client pays from one node to another with consent", {
+  skip: missing !== undefined,
 }, async () => {
   const scenario = await Scenario.temporary("two-nodes", {
     dassie: DASSIE,

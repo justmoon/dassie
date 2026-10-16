@@ -1,5 +1,6 @@
 // Builds the WASM modules of the core crates and their JavaScript bindings
-// into packages/identity-wasm/gen: `deno/` for Deno, `web/` for browsers.
+// into packages/identity-wasm/gen/web: wasm-bindgen's `web` target, which
+// browsers fetch and scripts and tests instantiate from the file.
 //
 // The modules are built with cargo and bound with the wasm-bindgen CLI, as
 // Vorstand builds vault-core; the CLI's version must match the
@@ -65,14 +66,12 @@ for (const name of crates) {
   const module = `${root}target/wasm32-unknown-unknown/wasm/${
     name.replaceAll("-", "_")
   }.wasm`;
-  for (const target of ["deno", "web"]) {
-    await run("wasm-bindgen", [
-      "--target",
-      target,
-      "--out-dir",
-      `${output}/${target}`,
-      module,
-    ]);
-  }
+  await run("wasm-bindgen", [
+    "--target",
+    "web",
+    "--out-dir",
+    `${output}/web`,
+    module,
+  ]);
 }
 console.log(`WASM bindings written to ${output}`);

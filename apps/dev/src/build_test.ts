@@ -1,7 +1,8 @@
+import { test } from "node:test";
 import { assertEquals } from "@std/assert";
 import { errorExcerpt, MAX_EXCERPT_BYTES } from "./build.ts";
 
-Deno.test("a failed build's excerpt starts at its first error", () => {
+test("a failed build's excerpt starts at its first error", () => {
   const output = [
     "   Compiling dassie-node v0.1.0",
     "warning: unused import",

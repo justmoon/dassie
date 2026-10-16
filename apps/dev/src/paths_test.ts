@@ -1,3 +1,4 @@
+import { test } from "node:test";
 import { assertEquals, assertMatch, assertThrows } from "@std/assert";
 import {
   checkSocketPath,
@@ -7,14 +8,14 @@ import {
   socketPath,
 } from "./paths.ts";
 
-Deno.test("a socket path leaves room for the node's suffix", () => {
+test("a socket path leaves room for the node's suffix", () => {
   const fits = "/" +
     "s".repeat(MAX_SOCKET_PATH_BYTES - SOCKET_SUFFIX_BYTES - 1);
   checkSocketPath(fits);
   assertThrows(() => checkSocketPath(`${fits}x`), Error, "too long");
 });
 
-Deno.test("the sockets' directory is short, and the same for the same state", async () => {
+test("the sockets' directory is short, and the same for the same state", async () => {
   const a = await layout("/some/where/deep/inside/a/checkout/local/dev");
   const b = await layout("/some/where/deep/inside/a/checkout/local/dev");
   const c = await layout("/elsewhere");

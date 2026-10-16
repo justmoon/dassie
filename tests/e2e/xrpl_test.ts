@@ -11,6 +11,7 @@
  * reserve, with nothing booked twice.
  */
 
+import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
 import { Buffer } from "node:buffer";
 import { readFile } from "node:fs/promises";
@@ -126,13 +127,10 @@ async function settled(scenario: Scenario): Promise<boolean> {
   });
 }
 
-Deno.test({
-  name:
-    "xrpl-settlement settles on the XRP Ledger, and reconciles across restarts",
-  ignore: missing !== undefined,
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
+test(
+  "xrpl-settlement settles on the XRP Ledger, and reconciles across restarts",
+  { skip: missing !== undefined },
+  async () => {
     const scenario = await Scenario.temporary("xrpl-settlement", {
       dassie: DASSIE,
       fakeLedger: testnet ? undefined : FAKE_LEDGER,
@@ -207,4 +205,4 @@ Deno.test({
       assertEquals(failures, [], failures.join("\n"));
     }
   },
-});
+);

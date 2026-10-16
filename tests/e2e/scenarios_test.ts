@@ -9,6 +9,7 @@
  * `ilp-protocol-stream` pays another node's receiver through the network.
  */
 
+import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
 import { Buffer } from "node:buffer";
 import { readFile } from "node:fs/promises";
@@ -213,13 +214,10 @@ async function run(
   }
 }
 
-Deno.test({
-  name:
-    "two-nodes: the nodes peer, pay each other by settling, keep it all across restarts, and part settled",
-  ignore: missing !== undefined,
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
+test(
+  "two-nodes: the nodes peer, pay each other by settling, keep it all across restarts, and part settled",
+  { skip: missing !== undefined },
+  async () => {
     await run("two-nodes", async (scenario) => {
       await scenario.until("convergence", () => scenario.converged());
       const [d1, d2] = scenario.nodes;
@@ -266,15 +264,12 @@ Deno.test({
       );
     });
   },
-});
+);
 
-Deno.test({
-  name:
-    "six-nodes: the network converges and routes a payment across hops, settling each",
-  ignore: missing !== undefined,
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
+test(
+  "six-nodes: the network converges and routes a payment across hops, settling each",
+  { skip: missing !== undefined },
+  async () => {
     await run("six-nodes", async (scenario) => {
       await scenario.until("convergence", () => scenario.converged());
       // Two nodes that are not peers: the payment takes at least two hops.
@@ -305,4 +300,4 @@ Deno.test({
       await restartAll(scenario);
     });
   },
-});
+);

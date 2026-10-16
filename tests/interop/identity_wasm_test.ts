@@ -2,6 +2,7 @@
 // the native tests check (crates/*/tests/data), so the wallet derives
 // exactly what the node derives.
 
+import { test } from "node:test";
 import { readFile } from "node:fs/promises";
 
 import { assert, assertEquals, assertFalse } from "@std/assert";
@@ -30,7 +31,7 @@ async function vectors(path: string): Promise<any> {
   return document;
 }
 
-Deno.test("the passphrase chain matches the original", async () => {
+test("the passphrase chain matches the original", async () => {
   const { chain } = await vectors("dassie-identity/tests/data/chain.json");
   assert(chain.length > 60);
   for (const entry of chain) {
@@ -47,7 +48,7 @@ Deno.test("the passphrase chain matches the original", async () => {
   }
 });
 
-Deno.test("phrases are validated and canonicalised", async () => {
+test("phrases are validated and canonicalised", async () => {
   const { chain } = await vectors("dassie-identity/tests/data/chain.json");
   const phrase: string = chain[0].mnemonic;
   assertEquals(normalizeMnemonic(`  ${phrase.toUpperCase()}  `), phrase);
@@ -57,7 +58,7 @@ Deno.test("phrases are validated and canonicalised", async () => {
   assertFalse(validateMnemonic("not a passphrase"));
 });
 
-Deno.test("keys and node IDs match the original", async () => {
+test("keys and node IDs match the original", async () => {
   const { bootstrap, keys } = await vectors(
     "dassie-identity/tests/data/keys.json",
   );
@@ -74,7 +75,7 @@ Deno.test("keys and node IDs match the original", async () => {
   }
 });
 
-Deno.test("ILP packets match the original", async () => {
+test("ILP packets match the original", async () => {
   const { packets } = await vectors("dassie-ilp/tests/data/vectors.json");
   for (const vector of packets) {
     const bytes = Uint8Array.fromHex(vector.encoded);

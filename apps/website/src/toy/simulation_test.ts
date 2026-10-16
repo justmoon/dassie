@@ -1,6 +1,7 @@
 // The STREAM toy's network runs the real STREAM state machines (the Deno
 // build of the same WASM module the page loads) to the end.
 
+import { test } from "node:test";
 import {
   assert,
   assertEquals,
@@ -79,7 +80,7 @@ function course(packets: PacketRecord[]) {
   }));
 }
 
-Deno.test("the original's defaults deliver the whole amount", () => {
+test("the original's defaults deliver the whole amount", () => {
   const simulation = run();
   try {
     assertEquals(simulation.status, { state: "done", delivered: 3000n });
@@ -103,7 +104,7 @@ Deno.test("the original's defaults deliver the whole amount", () => {
   }
 });
 
-Deno.test("the same seed takes the same course", () => {
+test("the same seed takes the same course", () => {
   const first = run({ seed: 7, jitter: 1 });
   const second = run({ seed: 7, jitter: 1 });
   const other = run({ seed: 8, jitter: 1 });
@@ -117,7 +118,7 @@ Deno.test("the same seed takes the same course", () => {
   }
 });
 
-Deno.test("playing in frames takes the same course as stepping", () => {
+test("playing in frames takes the same course as stepping", () => {
   const changes = { seed: 3, jitter: 1, amount: 20_000n };
   const stepped = run(changes);
   const played = play(changes, 16.7);
@@ -129,7 +130,7 @@ Deno.test("playing in frames takes the same course as stepping", () => {
   }
 });
 
-Deno.test("an answer later than the expiry becomes the connector's R00", () => {
+test("an answer later than the expiry becomes the connector's R00", () => {
   // Every round trip takes 35 s, longer than a Prepare's 30 s: the
   // receiver gets each one in time, but no answer gets back in time.
   const simulation = run({ latency: 35_000, jitter: 0 });
@@ -153,14 +154,14 @@ Deno.test("an answer later than the expiry becomes the connector's R00", () => {
   }
 });
 
-Deno.test("round trips around the expiry are answered in time or by R00", () => {
+test("round trips around the expiry are answered in time or by R00", () => {
   for (const seed of [1, 2, 3, 4, 5]) {
     const simulation = run({ latency: 15_000, jitter: 1, seed });
     simulation.dispose();
   }
 });
 
-Deno.test("a busy connector refuses with T03, and the sender still delivers", () => {
+test("a busy connector refuses with T03, and the sender still delivers", () => {
   const simulation = run({
     amount: 50_000n,
     maxPacketAmount: 1000n,
@@ -177,7 +178,7 @@ Deno.test("a busy connector refuses with T03, and the sender still delivers", ()
   }
 });
 
-Deno.test("no latency delivers too", () => {
+test("no latency delivers too", () => {
   const simulation = run({ latency: 0, jitter: 0 });
   try {
     assertEquals(simulation.status, { state: "done", delivered: 3000n });
@@ -187,7 +188,7 @@ Deno.test("no latency delivers too", () => {
   }
 });
 
-Deno.test("a run stops after its packet limit", () => {
+test("a run stops after its packet limit", () => {
   const simulation = run({ amount: 1_000_000n, maxPacketAmount: 1n });
   try {
     assertEquals(simulation.status.state, "stopped");
@@ -197,7 +198,7 @@ Deno.test("a run stops after its packet limit", () => {
   }
 });
 
-Deno.test("the packets decode with the connection's shared secret", () => {
+test("the packets decode with the connection's shared secret", () => {
   const simulation = run();
   try {
     const { sharedSecret, packets } = simulation;
@@ -237,7 +238,7 @@ Deno.test("the packets decode with the connection's shared secret", () => {
   }
 });
 
-Deno.test("settings out of range are refused", () => {
+test("settings out of range are refused", () => {
   const bad: Partial<Settings>[] = [
     { amount: 0n },
     { amount: 1n << 64n },
@@ -258,7 +259,7 @@ Deno.test("settings out of range are refused", () => {
   assertEquals(checkSettings(DEFAULT_SETTINGS), undefined);
 });
 
-Deno.test("the generator is seeded and log-normal around its median", () => {
+test("the generator is seeded and log-normal around its median", () => {
   const a = new Random(42);
   const b = new Random(42);
   for (let i = 0; i < 100; i++) assertEquals(a.next(), b.next());

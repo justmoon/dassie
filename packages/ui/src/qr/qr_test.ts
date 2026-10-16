@@ -1,7 +1,8 @@
+import { test } from "node:test";
 import { assertEquals } from "@std/assert";
 import { qrModules } from "./qr.ts";
 
-Deno.test("an XRPL address fits a small QR code, with its finder patterns", () => {
+test("an XRPL address fits a small QR code, with its finder patterns", () => {
   const code = qrModules("rH4kpiQ6LktHwBz724utTcDQqDw5YRcX48");
   // Version 3 (29 modules) with a border of 2 each side.
   assertEquals(code.size, 33);

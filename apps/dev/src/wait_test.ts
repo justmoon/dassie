@@ -1,3 +1,4 @@
+import { test } from "node:test";
 import { assertRejects } from "@std/assert";
 import { once } from "node:events";
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
@@ -6,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { waitForSocket } from "./wait.ts";
 
-Deno.test("a socket file nobody answers on is not a published socket", async () => {
+test("a socket file nobody answers on is not a published socket", async () => {
   const dir = await mkdtemp(join(tmpdir(), "wait-"));
   const path = `${dir}/s.sock`;
   try {
