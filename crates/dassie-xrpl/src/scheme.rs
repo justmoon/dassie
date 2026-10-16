@@ -22,7 +22,7 @@ use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use dassie_ledger::{LedgerId, Name};
+use dassie_ledger::{LedgerId, MAX_TOTAL, Name};
 use dassie_settlement::{
     Effect, LedgerInput, LedgerStatus, PreparedSettlement, SchemeError, SettlementScheme,
 };
@@ -67,6 +67,11 @@ const MAX_CONFIG: usize = 1024;
 const LEDGER_SILENCE_MS: u64 = 30_000;
 /// Most settlements of ours whose outcome is looked for after a restart.
 const MAX_RECOVERING: usize = 64;
+/// The most drops the books can hold for the account: [`MAX_TOTAL`] in
+/// units. A server that reports more for it is no ledger to follow.
+const MAX_ACCOUNT_DROPS: u64 = MAX_TOTAL / UNITS_PER_DROP;
+/// Why the scheme stops when a server reports more than that.
+const TOO_MUCH_XRP: &str = "the server reported more XRP for the account than the books can hold";
 
 /// Where the scheme connects, and where it asks for test XRP.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -279,9 +284,7 @@ impl XrplScheme {
     /// What the books should hold for a balance: what is above the reserve,
     /// in internal units.
     fn bookable(&self, balance: u64, owner_count: u32) -> u64 {
-        balance
-            .saturating_sub(self.reserve_drops(owner_count))
-            .saturating_mul(UNITS_PER_DROP)
+        units(balance.saturating_sub(self.reserve_drops(owner_count)))
     }
 
     /// The fee a transaction pays now, in drops.
@@ -431,6 +434,10 @@ impl XrplScheme {
                     self.reconnect(effects);
                     return;
                 };
+                if info.balance > MAX_ACCOUNT_DROPS {
+                    self.failed = Some(TOO_MUCH_XRP);
+                    return;
+                }
                 // A server behind what was booked already says nothing
                 // new: asked again when the next ledger closes.
                 if self
@@ -751,6 +758,10 @@ impl XrplScheme {
         if !record.validated {
             return;
         }
+        if !self.bookable_record(record) {
+            self.failed = Some(TOO_MUCH_XRP);
+            return;
+        }
         let at = (record.ledger_index, record.index);
         let behind = self.cursor.is_some_and(|cursor| at <= cursor);
         if behind {
@@ -759,7 +770,7 @@ impl XrplScheme {
             // comes back out of it.
             if self.in_flight.iter().any(|t| t.hash == record.hash) {
                 let booked = self.resolve(record, effects);
-                self.booked = u64::try_from(booked.max(0)).unwrap_or(u64::MAX);
+                self.booked = narrow(booked.max(0));
                 self.reconcile(effects);
             }
             return;
@@ -776,7 +787,6 @@ impl XrplScheme {
         if let Some(count) = change.owner_count {
             self.owner_count = count;
         }
-        let units = |drops: u64| drops.saturating_mul(UNITS_PER_DROP);
         let mut booked = i128::from(self.booked);
         if self.in_flight.iter().any(|t| t.hash == record.hash) {
             booked = self.resolve(record, effects);
@@ -797,10 +807,10 @@ impl XrplScheme {
             effects.push(Effect::Withdrawal { amount });
             booked -= i128::from(amount);
         }
-        self.booked = u64::try_from(booked.max(0)).unwrap_or(u64::MAX);
+        self.booked = narrow(booked.max(0));
         if booked < 0 {
             effects.push(Effect::Reconcile {
-                amount: u64::try_from(-booked).unwrap_or(u64::MAX),
+                amount: narrow(-booked),
                 gain: true,
             });
         }
@@ -811,7 +821,6 @@ impl XrplScheme {
     /// voided, and its fee booked either way. Returns what the books then
     /// hold.
     fn resolve(&mut self, record: &TxRecord, effects: &mut Vec<Effect>) -> i128 {
-        let units = |drops: u64| i128::from(drops.saturating_mul(UNITS_PER_DROP));
         let mut booked = i128::from(self.booked);
         let Some(position) = self.in_flight.iter().position(|t| t.hash == record.hash) else {
             return booked;
@@ -820,15 +829,15 @@ impl XrplScheme {
         let settlement = hash_name(&ours.hash);
         if record.succeeded() {
             effects.push(Effect::Finalize { settlement });
-            booked -= units(ours.drops);
+            booked -= i128::from(units(ours.drops));
         } else {
             effects.push(Effect::Cancel { settlement });
         }
         effects.push(Effect::Fee {
-            amount: record.fee.saturating_mul(UNITS_PER_DROP),
+            amount: units(record.fee),
             id: settlement,
         });
-        booked - units(record.fee)
+        booked - i128::from(units(record.fee))
     }
 
     /// The outcome of a settlement of ours that a restart left pending in
@@ -853,6 +862,20 @@ impl XrplScheme {
         } else {
             Effect::Cancel { settlement }
         });
+    }
+
+    /// Whether the amounts `record` names for the account fit the books.
+    fn bookable_record(&self, record: &TxRecord) -> bool {
+        let change = record.change_of(self.account());
+        [
+            Some(record.fee),
+            record.delivered,
+            change.map(|change| change.before),
+            change.map(|change| change.after),
+        ]
+        .into_iter()
+        .flatten()
+        .all(|drops| drops <= MAX_ACCOUNT_DROPS)
     }
 
     /// The peer a transaction settles from: a successful Payment of XRP to
@@ -979,8 +1002,14 @@ impl XrplScheme {
             self.in_flight.push(InFlight {
                 hash: crate::codec::hash(&blob),
                 blob,
-                drops: entry.get("drops")?.as_u64()?,
-                fee: entry.get("fee")?.as_u64()?,
+                drops: entry
+                    .get("drops")?
+                    .as_u64()
+                    .filter(|&drops| drops <= MAX_ACCOUNT_DROPS)?,
+                fee: entry
+                    .get("fee")?
+                    .as_u64()
+                    .filter(|&fee| fee <= MAX_ACCOUNT_DROPS)?,
                 sequence: number(entry.get("sequence")?)?,
                 last_ledger: number(entry.get("last_ledger")?)?,
                 submitted_at: number(entry.get("submitted_at")?)?,
@@ -998,6 +1027,21 @@ impl XrplScheme {
         }
         Some(())
     }
+}
+
+/// Drops in internal units. Only amounts checked against
+/// [`MAX_ACCOUNT_DROPS`] come here.
+fn units(drops: u64) -> u64 {
+    assert!(drops <= MAX_ACCOUNT_DROPS, "drops past what the books hold");
+    drops * UNITS_PER_DROP
+}
+
+/// What the books hold, or a difference from it. Every amount booked is
+/// within [`MAX_TOTAL`], and so is what the books held before it.
+fn narrow(booked: i128) -> u64 {
+    let narrow = u64::try_from(booked);
+    assert!(narrow.is_ok(), "booked past what a u64 holds");
+    narrow.unwrap_or_default()
 }
 
 /// A transaction hash as a settlement ID: uppercase hex, 64 characters.
@@ -1079,6 +1123,9 @@ impl SettlementScheme for XrplScheme {
 
     fn on_ledger(&mut self, now_ms: u64, input: LedgerInput<'_>, effects: &mut Vec<Effect>) {
         self.now_ms = self.now_ms.max(now_ms);
+        if self.failed.is_some() {
+            return;
+        }
         match input {
             LedgerInput::Connected => self.connected(effects),
             LedgerInput::Disconnected => self.disconnected(),
@@ -1096,6 +1143,9 @@ impl SettlementScheme for XrplScheme {
     }
 
     fn deadline(&self) -> Option<u64> {
+        if self.failed.is_some() {
+            return None;
+        }
         let request = self
             .pending
             .values()
@@ -1110,6 +1160,9 @@ impl SettlementScheme for XrplScheme {
 
     fn on_timer(&mut self, now_ms: u64, effects: &mut Vec<Effect>) {
         self.now_ms = self.now_ms.max(now_ms);
+        if self.failed.is_some() {
+            return;
+        }
         let late = self
             .pending
             .values()
@@ -1190,6 +1243,7 @@ impl SettlementScheme for XrplScheme {
             .unwrap_or(0)
             .saturating_sub(in_flight);
         let ready = self.phase == Phase::Synced
+            && self.failed.is_none()
             && self.in_flight.len() < MAX_IN_FLIGHT
             && self.sequence > 0
             && drops > 0

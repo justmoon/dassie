@@ -634,3 +634,21 @@ fn a_pending_settlement_unknown_to_the_scheme_is_recovered() {
     assert_eq!(world.nodes[0].books.finalized, [id]);
     assert!(world.nodes[0].books.pending.is_empty());
 }
+
+// D16: a server that reports more XRP for the account than the books can
+// hold stops the scheme, rather than booking an amount clamped to fit.
+#[test]
+fn more_xrp_than_the_books_hold_stops_the_scheme() {
+    let (mut world, _, _) = funded_pair();
+    let owner = world.nodes[0].books.owner;
+    let account = world.account(0);
+    world.ledger.deposit(account, dassie_xrpl::MAX_DROPS / 10);
+    world.closes(2);
+    assert!(matches!(
+        world.nodes[0].scheme.status(),
+        LedgerStatus::Failed(_)
+    ));
+    assert_eq!(world.nodes[0].books.owner, owner);
+    assert_eq!(world.nodes[0].scheme.deadline(), None);
+    assert_eq!(world.nodes[1].scheme.status(), LedgerStatus::Synced);
+}
