@@ -3,7 +3,12 @@
 //! probe, A pays from its dollars, and B converts what arrives at its own
 //! rates. B's books show the money where it is: in dollars.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::too_many_lines
+)]
 
 mod support;
 

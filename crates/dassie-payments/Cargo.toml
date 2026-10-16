@@ -7,6 +7,9 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 # Standard and URL-safe base64 for signatures, digests, keys and secrets.
 base64 = { version = "0.22.1", default-features = false, features = ["alloc"] }

@@ -7,6 +7,9 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[lints]
+workspace = true
+
 [features]
 default = []
 # A seeded RNG for tests of this crate and the crates above it.

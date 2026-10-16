@@ -12,16 +12,6 @@
 //! [`Decode`] by hand with [`Reader`] and [`Writer`].
 
 #![no_std]
-#![forbid(unsafe_code)]
-#![deny(missing_docs)]
-#![deny(
-    clippy::indexing_slicing,
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::too_many_lines
-)]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;

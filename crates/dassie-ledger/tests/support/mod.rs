@@ -1,7 +1,12 @@
 //! A database in memory that applies journal entries as the node's store
 //! does, so tests can check that the journal alone rebuilds the ledger.
 
-#![allow(dead_code)]
+#![allow(
+    dead_code,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing
+)]
 
 use std::collections::BTreeMap;
 

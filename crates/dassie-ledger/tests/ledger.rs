@@ -1,5 +1,7 @@
 //! The ledger's behaviour, and the original's gaps it closes (spec 5 §10).
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+
 mod support;
 
 use dassie_ledger::{

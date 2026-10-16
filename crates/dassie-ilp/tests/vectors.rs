@@ -1,6 +1,8 @@
 //! Golden vectors produced by the original's lib-protocol-ilp, -ildcp and
 //! -utils (testdata/original).
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+
 mod support;
 
 use dassie_ilp::btp::{self, Body, ContentType, ProtocolData, ProtocolDataEntry};

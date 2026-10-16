@@ -5,6 +5,8 @@
 //! same run. A failure names its seed; `DASSIE_SIM_SEEDS=from..to` runs a
 //! longer campaign.
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+
 mod support;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -107,6 +109,11 @@ impl Simulation {
         self.rng.next_u64() % n
     }
 
+    /// An index below `n`.
+    fn pick(&mut self, n: usize) -> usize {
+        usize::try_from(self.below(u64::try_from(n).unwrap())).unwrap()
+    }
+
     fn step(&mut self) {
         match self.below(20) {
             0..=11 => self.send(),
@@ -132,7 +139,7 @@ impl Simulation {
             3 | 4 => format!("{OWN}.stream.{}", self.below(4)),
             5 => format!("test.das.dbeyond.{}", self.below(4)),
             _ => {
-                let name = NAMES[self.below(5) as usize];
+                let name = NAMES[self.pick(5)];
                 format!("{OWN}.{name}.x")
             }
         }
@@ -140,7 +147,7 @@ impl Simulation {
 
     fn packet(&mut self, fulfillment: [u8; 32]) -> Vec<u8> {
         match self.below(30) {
-            0 => vec![0x0c; self.below(20) as usize],
+            0 => vec![0x0c; self.pick(20)],
             1 => ildcp::request(Timestamp::from_unix_ms(self.now)).to_vec(),
             _ => {
                 let amount = match self.below(4) {
@@ -158,8 +165,8 @@ impl Simulation {
 
     fn send(&mut self) {
         let sources = self.live_endpoints();
-        let source = sources[self.below(sources.len() as u64) as usize];
-        let request_id = self.below(40) as u32;
+        let source = sources[self.pick(sources.len())];
+        let request_id = u32::try_from(self.below(40)).unwrap();
         let mut fulfillment = [0u8; 32];
         fulfillment[..8].copy_from_slice(&self.rng.next_u64().to_be_bytes());
         let packet = self.packet(fulfillment);
@@ -231,7 +238,7 @@ impl Simulation {
     }
 
     fn disconnect(&mut self) {
-        let slot = self.below(4) as usize; // Eve, slot 4, stays.
+        let slot = self.pick(4); // Eve, slot 4, stays.
         if let Some(id) = self.live[slot].take() {
             assert!(self.h.connector.remove_endpoint(self.now, id));
             self.gone.insert(id);
@@ -244,7 +251,7 @@ impl Simulation {
     }
 
     fn reconnect(&mut self) {
-        let slot = self.below(4) as usize;
+        let slot = self.pick(4);
         if self.live[slot].is_some() {
             return;
         }

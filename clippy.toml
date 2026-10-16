@@ -1,2 +1,7 @@
 # Functions stay short enough to read in one go (D16).
 too-many-lines-threshold = 70
+
+# Tests may unwrap and index: a panic there is a failed test.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-indexing-slicing-in-tests = true

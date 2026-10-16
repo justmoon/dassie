@@ -1,6 +1,6 @@
 //! Nothing that comes from the network makes the crate panic (spec 7 §7).
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
 use dassie_ledger::Name;
 use dassie_settlement::{LedgerInput, SettlementScheme};

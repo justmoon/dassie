@@ -7,6 +7,9 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 dassie-ledger = { path = "../dassie-ledger" }
 # The RNG trait only: the caller injects the generator.

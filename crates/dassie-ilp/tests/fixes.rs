@@ -1,6 +1,8 @@
 //! Cases where the original was wrong or lenient (spec 4 §1, ILP-3, NET-33).
 //! Each test fails against the original's behaviour.
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+
 use dassie_ilp::{
     Address, ErrorClass, ErrorCode, InvalidAddress, Packet, ParseErrorKind, Prepare, Reject,
     Response, Timestamp,

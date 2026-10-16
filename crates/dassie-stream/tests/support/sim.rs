@@ -7,7 +7,8 @@
     dead_code,
     clippy::unwrap_used,
     clippy::expect_used,
-    clippy::too_many_lines
+    clippy::too_many_lines,
+    clippy::indexing_slicing
 )]
 
 use std::collections::BTreeMap;

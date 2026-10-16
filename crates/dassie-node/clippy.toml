@@ -15,3 +15,8 @@ disallowed-types = [
   { path = "dassie_node::node::Node", reason = "the core gets what it needs in `CoreParts` (D16)" },
   { path = "dassie_node::clock::SystemClock", reason = "time is an input, `now_ms` (D16)" },
 ]
+
+# Tests may unwrap and index: a panic there is a failed test.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-indexing-slicing-in-tests = true

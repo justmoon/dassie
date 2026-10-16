@@ -36,7 +36,12 @@
 //! settling, is banned by the peer it cost, which loses at most its grace
 //! limit and the credit both ways.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::too_many_lines
+)]
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};

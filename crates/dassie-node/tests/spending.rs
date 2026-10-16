@@ -3,7 +3,12 @@
 //! limits and interval, what the grant spent, and receivers on another
 //! node.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::too_many_lines
+)]
 
 mod support;
 

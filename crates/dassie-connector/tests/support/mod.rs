@@ -1,6 +1,11 @@
 //! A connector with a funded owner, BTP children and a local receiver.
 
-#![allow(dead_code)]
+#![allow(
+    dead_code,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing
+)]
 
 use dassie_connector::{Config, Connector, EndpointId, Outcome, Rates, Responded, Upstream};
 use dassie_ilp::{

@@ -2,7 +2,12 @@
 //! for clients known by their wallet address or only by their key, signed
 //! requests, and incoming payments that take exactly what they ask for.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::too_many_lines
+)]
 
 mod support;
 

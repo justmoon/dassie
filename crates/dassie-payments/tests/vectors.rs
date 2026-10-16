@@ -3,6 +3,8 @@
 //! `Content-Digest` of RFC 9421's test request), and the interaction hash
 //! of the Open Payments docs.
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use dassie_payments::gnap;

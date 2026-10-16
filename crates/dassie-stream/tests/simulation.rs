@@ -1,6 +1,8 @@
 //! Deterministic simulations of a client and a server (spec 7 §7, D16).
 //! Every step checks both sides' invariants.
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+
 mod support;
 
 use dassie_stream::{ErrorCode, Event, Policy, Rate};

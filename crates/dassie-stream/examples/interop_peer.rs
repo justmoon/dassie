@@ -19,7 +19,12 @@
 //! interop_peer server <own-address> <receipt-nonce-hex> <receipt-secret-hex>
 //! ```
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::too_many_lines)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::too_many_lines
+)]
 
 use std::io::{Read, Write};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};

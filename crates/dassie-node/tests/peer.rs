@@ -3,7 +3,12 @@
 //! settling, keep their peering and balances across a restart, and end
 //! the peering settled.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::too_many_lines
+)]
 
 mod support;
 

@@ -10,3 +10,8 @@ disallowed-types = [
   { path = "std::time::SystemTime", reason = "time is an input, `now_ms` (D16)" },
   { path = "std::time::Instant", reason = "time is an input, `now_ms` (D16)" },
 ]
+
+# Tests may unwrap and index: a panic there is a failed test.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-indexing-slicing-in-tests = true
