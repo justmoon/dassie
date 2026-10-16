@@ -1,6 +1,6 @@
 # 7. The rewrite: target stack, architecture and plan
 
-Chapters 1–6 describe what the original Dassie does. This chapter describes what the new implementation is: which behaviour it keeps, how it maps onto the Vorstand stack (Rust, Deno, Solid 2), and in what order to build it. The choices that were open are recorded, with their reasons, in [chapter 8](08-decisions.md).
+Chapters 1–6 describe what the original Dassie does. This chapter describes what the new implementation is: which behaviour it keeps, how it maps onto the Vorstand stack (Rust, Node, Solid 2), and in what order to build it. The choices that were open are recorded, with their reasons, in [chapter 8](08-decisions.md).
 
 ## 1. Goals and non-goals
 
@@ -41,15 +41,15 @@ Chapters 1–6 describe what the original Dassie does. This chapter describes wh
 
 ## 3. How the original maps onto the stack
 
-Vorstand's conventions apply throughout: a Cargo workspace in `crates/` (edition 2024, `rust-toolchain.toml` pinned, `Cargo.lock` committed); a Deno workspace in `apps/` and `packages/` (root `deno.json`, `deno.lock` committed, pre-release npm packages pinned exactly, `solid-js@2.0.0-rc.x` with `@solidjs/web` and Vite through `@solidjs/vite-plugin`); and normative contracts in a top-level directory that both sides are generated from. Packages meet only through their exports.
+Vorstand's conventions apply throughout: a Cargo workspace in `crates/` (edition 2024, `rust-toolchain.toml` pinned, `Cargo.lock` committed); a pnpm workspace in `apps/`, `packages/` and `tests/` (`pnpm-workspace.yaml`, a `package.json` per package, `pnpm-lock.yaml` committed, pre-release npm packages pinned exactly, `solid-js@2.0.0-rc.x` with `@solidjs/web` and Vite through `@solidjs/vite-plugin`); and normative contracts in a top-level directory that both sides are generated from. Packages meet only through their exports.
 
-**The split ([D1](08-decisions.md#d1-what-runs-in-rust-and-what-in-deno)): the node is Rust, the browser is Solid, and the tooling is Deno.**
+**The split ([D1](08-decisions.md#d1-what-runs-in-rust-and-what-in-typescript)): the node is Rust, the browser is Solid, and the tooling is Node ([D21](08-decisions.md#d21-tooling-on-node-and-pnpm-not-deno)).**
 
 - The daemon, the CLI and every protocol are Rust. The result is one static binary (`dassie`) with the wallet's built assets embedded. It replaces the bundled Node.js, the esbuild bundle and the `better-sqlite3` prebuilds, along with the stale-hash build problem (UI-10) and the x64-only restriction.
 - The cryptographic and protocol cores (`dassie-identity`, `dassie-oer`, `dassie-ilp`, `dassie-stream`) are also built to WASM. This follows the same pattern as Vorstand's `vault-core`:
   - the wallet derives keys in the browser with exactly the code the node uses;
   - the website's STREAM simulator runs the real STREAM implementation.
-- Deno runs everything that orchestrates or builds: the multi-node dev environment and its dashboard server, the Vite builds of the Solid apps, the website, release scripts, and interop tests against the original.
+- Node runs everything that orchestrates or builds: the multi-node dev environment and its dashboard server, the Vite builds of the Solid apps, the website, release scripts, and interop tests against the original.
 
 ### 3.1 Workspace layout
 
@@ -74,13 +74,13 @@ proto/
   dassie/dev/v1/        dev-environment control contract
 apps/
   wallet/               Solid 2 SPA served by the node (chapter 6 §1)
-  dev/                  Deno: multi-node dev environment, SNI proxy, certs, scenarios (6 §6)
+  dev/                  Node: multi-node dev environment, SNI proxy, certs, scenarios (6 §6)
   dev-dashboard/        Solid 2 dev dashboard (6 §2)
   website/              dassie.land static site + STREAM toy (6 §3)
 packages/
   rpc/                  TS client for proto/dassie/ui/v1 (generated + transport)
   ui/                   shared Solid components: amount, log viewer, network graph, debug pages, router, live data
-  identity-wasm/        wasm-bindgen output of dassie-identity / dassie-stream for Deno + browser
+  identity-wasm/        wasm-bindgen output of dassie-identity / dassie-stream, one web build for browser + Node
 resources/
   systemd/  installer/  launcher-less (the binary is the entry point)
   minisign.pub          the release key: releases must verify with it, and from M8b the binaries and the installer trust it (D11)
@@ -105,11 +105,11 @@ scripts/release.ts      signs a built release for the mirror
 | `app-dassie` | `crates/dassie-node`, `dassie-cli` and the protocol crates | |
 | `gui-dassie` | `apps/wallet` (Solid 2) + `packages/ui` | No React, wouter, TanStack Query or Radix. Use Solid 2 primitives and the Vorstand UI conventions where they fit. |
 | `gui-dev` | `apps/dev-dashboard` | |
-| `app-dev` | `apps/dev` (Deno) | Spawns real `dassie` binaries instead of Vite SSR module runners. |
-| `app-build` | Nix flake ([D14](08-decisions.md#d14-build-system)) and Deno release scripts; `cargo build --release` for musl x64/arm64 | Sign artifacts ([D11](08-decisions.md#d11-release-integrity)). |
+| `app-dev` | `apps/dev` (Node) | Spawns real `dassie` binaries instead of Vite SSR module runners. |
+| `app-build` | Nix flake ([D14](08-decisions.md#d14-build-system)) and Node release scripts; `cargo build --release` for musl x64/arm64 | Sign artifacts ([D11](08-decisions.md#d11-release-integrity)). |
 | `app-website` | `apps/website` | Content from [6 §3](06-user-interfaces-and-tooling.md). The STREAM toy uses `dassie-stream` WASM. |
 | `app-cli` (npm placeholder) | dropped | Keep the npm name reserved. |
-| `meta-*` | `deno fmt/lint/check`, `cargo fmt/clippy/test` | |
+| `meta-*` | `dprint`, `oxlint`, `tsc`, `cargo fmt/clippy/test` | |
 
 ## 4. Node architecture (Rust)
 
@@ -244,7 +244,7 @@ Mainnet stays disabled until the [D8](08-decisions.md#d8-real-money) criteria ar
 - **Settling:** whole drops, up to 8 transactions in flight with consecutive sequences, a fee from the server's state capped at 1000 drops, `LastLedgerSequence` 20 ledgers on, and only from what is above the reserve. A transaction is sent only once the node executed its settlement (its pending transfer on disk). Only `tem…` on submit cancels at once. Any other answer waits: the transaction is submitted again after a reconnect or restart, and once past its last ledger looked for over its ledgers with `tx`; only when every one was searched and it is not there is it cancelled, and the sequence read again. One of ours is settled whenever the ledger shows it, even behind the cursor (what the balance booked through suspense meanwhile comes back out). A settlement the node still holds pending after a restart that the scheme no longer has in flight (its posting waited for an earlier announcement) is looked up by its hash, and posted or voided.
 - **Restarts:** the state (cursor, sequence, transactions in flight, peers' addresses, settlements to look up) comes back with the checkpoint; the scheme subscribes, then reads its account (asking again while the server is behind the cursor), and catches up with `account_tx` from the cursor, 200 a page, holding what the stream sends meanwhile; a busy server is tried again on a new connection. A server whose history does not reach back leaves the balance to say what changed, through suspense; a transaction of ours that no history holds any more cannot be known to have applied, and its settlement stays pending, for the owner. A first activation starts from `account_info`. An account gone (a testnet reset) is a loss through suspense, cancels what was in flight, and the faucet is asked again. A connection quiet for 30 s, no ledger closing, is made anew.
 - **Config:** empty for the testnet's server and faucet, or JSON with `server` (`wss://`, or `ws://` where private addresses are allowed) and `faucet` (HTTPS, or `null`).
-- **The fake ledger** (feature `fake`): accounts, reserves, fees, the checks the ledger makes on a Payment with its result codes, metadata, streams, history and a faucet. The node simulation settles on it in-process; `fake_ledger` serves it over WebSocket for the node's tests, the end-to-end tests and `deno task dev --xrpl fake`.
+- **The fake ledger** (feature `fake`): accounts, reserves, fees, the checks the ledger makes on a Payment with its result codes, metadata, streams, history and a faucet. The node simulation settles on it in-process; `fake_ledger` serves it over WebSocket for the node's tests, the end-to-end tests and `node --run dev -- --xrpl fake`.
 
 **The owner's accounts ([D6](08-decisions.md#d6-owner-ledger-and-multi-currency-accounts)).** Each ledger `L` has one pool of owner funds, `L:equity/owner`. Every endpoint that spends for the owner gets a sub-account under it, for example `L:equity/owner/btp/<token>` for a BTP token. A sub-account holds no allocation and may go negative on its own; together with the pool it forms a **group** whose total carries the overspending limit (debits ≤ credits). The group also holds what the node gains or loses on the ledger: `equity/suspense`, `revenue/fees`, `expenses/fees` and `expenses/losses` (M7). So the owner's funds are everything the node holds on the ledger beyond what it owes peers: a loss, a network fee or a reconciliation that finds less money is the owner's, and the owner cannot spend money the node no longer has. `revenue/fx` and `expenses/fx` are in the group too (M7c), with the rule that makes them coherent: **the owner's own endpoints never convert**. So:
 
@@ -528,7 +528,7 @@ settle balance − midpoint when balance ≥ midpoint · 1.1; on termination, se
 A release is one static binary per platform, with the wallet built in ([D11](08-decisions.md#d11-release-integrity), [D14](08-decisions.md#d14-build-system)).
 
 **The build** (`nix/release.nix`, on x86_64-linux):
-- **The wallet** is built by Vite in the Nix sandbox, offline. Its npm packages and JSR modules come from one fixed-output derivation: `deno install --frozen --vendor` lays out `node_modules/` and `vendor/`, the same bytes from run to run (Deno's own cache, with each response's headers, is left behind). A change to `deno.lock` changes its hash.
+- **The wallet** is built by Vite in the Nix sandbox, offline. Its npm packages and JSR modules are fetched one by one, each checked against the integrity `pnpm-lock.yaml` records for it (`nix/pnpm.nix`). A registry mirror on loopback serves them to `pnpm install --frozen-lockfile`. A change to the lockfile needs no hash updated by hand.
 - **The binary** is `dassie-cli` in the `release` profile (fat LTO), statically linked against musl, for `x86_64-unknown-linux-musl` and, cross-compiled, `aarch64-unknown-linux-musl`. It embeds the wallet (`DASSIE_WALLET_DIST`) and its version (`DASSIE_VERSION`).
 - **The check** `static-binaries` (`nix build .#static-binaries`, which the release workflow runs) confirms that both are static, name their version, and pass `verify-install`, the arm64 one under qemu.
 
@@ -653,9 +653,9 @@ meta/canary                                  the newest canary
   - Time dilation sets how fast the run plays, and the run can be paused, stepped one event at a time, or finished at once.
   - A run is bounded: at most 2000 packets, 10 minutes on its clock, and 10,000 log lines.
   - The packet log decrypts each STREAM packet with the connection's shared secret, through `decodeStreamPacket` of the same WASM build.
-- **Deployment.** Vercel builds the site from `apps/website` with `vercel-build.sh`, so each branch gets a preview. Vercel's build image has neither Deno nor Rust, so the script installs Deno, rustup and `wasm-bindgen`, each pinned by version and its download by SHA-256. rustup then installs the toolchain `rust-toolchain.toml` names, which rustup checks against the channel's manifest. A test keeps those versions equal to the flake's Deno and to `Cargo.lock`. `vercel-ignore.sh` skips a deployment when nothing the site is built from changed since the commit Vercel last deployed on that branch: the site, the packages it imports, the crates of its WASM modules, and the lockfiles and toolchain pins. A test keeps that list complete. Anything it cannot compare, such as a first deployment or a force push, builds.
+- **Deployment.** Vercel builds the site from `apps/website` with `vercel-build.sh`, so each branch gets a preview. Vercel's build image has neither the pinned Node and pnpm nor Rust, so the script installs Node, pnpm, rustup and `wasm-bindgen`, each pinned by version and its download by SHA-256. rustup then installs the toolchain `rust-toolchain.toml` names, which rustup checks against the channel's manifest. A test keeps those versions equal to the flake's Node and pnpm and to `Cargo.lock`. `vercel-ignore.sh` skips a deployment when nothing the site is built from changed since the commit Vercel last deployed on that branch: the site, the packages it imports, the crates of its WASM modules, and the lockfiles and toolchain pins. A test keeps that list complete. Anything it cannot compare, such as a first deployment or a force push, builds.
 
-## 6. Developer environment (Deno)
+## 6. Developer environment (Node)
 
 `apps/dev` reproduces [6 §6](06-user-interfaces-and-tooling.md):
 
@@ -693,7 +693,7 @@ Every crate is written so that a simulation can drive it ([D16](08-decisions.md#
 
    The vectors are generated from the original code by `testdata/original/` (this includes the independently computed ones of [3 §5.5](03-peer-network.md), now confirmed).
 2. **Property tests** for `dassie-oer` (round trip, canonical-only parse), the ledger (no transfer breaks a limit; balances equal the journal), and STREAM allocation ([4 §11.11](04-interledger.md)).
-3. **Interop.** A Deno test harness runs:
+3. **Interop.** A Node test harness (`node --test`) runs:
    - `dassie-stream` (native and WASM) against the npm `ilp-protocol-stream`, both directions;
    - the BTP server against `ilp-plugin-btp`;
    - Open Payments against the reference client `@interledger/open-payments`, as a third-party client of the node; and the node as a client of another node.
@@ -709,17 +709,17 @@ Every crate is written so that a simulation can drive it ([D16](08-decisions.md#
    - The releases come from `nix build .#install-test-mirror`: 1.0.0 and 1.0.1, built in a cheaper profile and signed with the test key.
    - The images between them take both verifiers (OpenSSL and minisign), both downloaders (curl and wget) and both compressions.
    - The release workflow runs one job per distribution, before it signs; CI does not run them.
-7. **Website.** `tests/e2e/website_test.ts` serves the built site with the headers of its `vercel.json`, so that its CSP applies, and drives it in headless Chrome. The toy runs a payment to the end, and its packets decrypt. The toy's simulation is also tested in Deno against the Deno build of the same WASM module.
+7. **Website.** `tests/e2e/website_test.ts` serves the built site with the headers of its `vercel.json`, so that its CSP applies, and drives it in headless Chrome. The toy runs a payment to the end, and its packets decrypt. The toy's simulation is also tested in Node against the same `web` build of the WASM module that the browser loads.
 
 ## 8. Milestones
 
 | # | Milestone | Done when |
 |---|---|---|
-| M1 | Core crates: `dassie-oer`, `dassie-identity`, `dassie-ilp`, `dassie-stream` | All golden vectors pass. STREAM interoperates with `ilp-protocol-stream`. WASM builds load in Deno and the browser. |
+| M1 | Core crates: `dassie-oer`, `dassie-identity`, `dassie-ilp`, `dassie-stream` | All golden vectors pass. STREAM interoperates with `ilp-protocol-stream`. WASM builds load in Node and the browser. |
 | M2 | Node skeleton: config, DB, listeners (plain and socket-activated), TLS, ACME, setup/login/logout, RPC contract, `dassie init`/`daemon`/`verify-install` | A fresh install reaches "setup complete" in a browser with a Let's Encrypt staging cert. |
 | M3 | Ledger journal, connector, local endpoints, ILDCP, BTP, stub settlement module. Exchange-rate math and its T00 rule; the rate fetcher comes in M7 with the first second currency | A BTP client pays the node's STREAM receiver. The journal matches the packet trace. |
 | M4 | Peer protocol v1, node table, membership, registration, auto-peering, link state, routing, settlement loop. Delivered in two PRs: **M4a** (v1, membership, peering, routing, packets over peers) and **M4b** (settlement loop, the D12 lifecycle: termination, bans, the advertise flag) | The `two-nodes` and `six-nodes` scenarios converge and route payments across hops. Restarts keep peerings and balances. M4a stops at payments within the credit peers extend, with restarts that keep peerings; M4b pays several times the credit across hops, so every hop must settle. Child peers move to the milestone that adds registration fees ([D12](08-decisions.md#d12-peering-lifecycle-and-liveness)). |
-| M5 | Wallet (Solid 2) and dev environment (Deno) with dashboard, including BTP token spending caps. Delivered in two PRs: **M5a** (the node's live streams and inspectors, `GET /stats`, spending caps, every wallet page) and **M5b** (`deno task dev`, the dev dashboard, `packages/ui`) | All pages of [6 §1.6](06-user-interfaces-and-tooling.md) but Send and payment status work against M4. `deno task dev` brings up any scenario that M4 can run (the XRPL ones come with M7). |
+| M5 | Wallet (Solid 2) and dev environment (Node) with dashboard, including BTP token spending caps. Delivered in two PRs: **M5a** (the node's live streams and inspectors, `GET /stats`, spending caps, every wallet page) and **M5b** (`node --run dev`, the dev dashboard, `packages/ui`) | All pages of [6 §1.6](06-user-interfaces-and-tooling.md) but Send and payment status work against M4. `node --run dev` brings up any scenario that M4 can run (the XRPL ones come with M7). |
 | M6 | Open Payments ([D9](08-decisions.md#d9-open-payments-fully-and-no-spsp)): wallet addresses, GNAP, incoming payments, quotes, outgoing payments, and the wallet's Send, payment status and grant pages. Delivered in three PRs: **M6a** (`dassie-payments`, HTTP message signatures, non-interactive grants, wallet addresses, incoming payments, Receive and Activity), **M6b** (quotes, outgoing payments, grant limits, interactive grants with the owner's consent, token management, and reading incoming payments on other nodes to pay them) and **M6c** (creating incoming payments on other wallets, payment pointers as input, Send and payment status) | Two nodes pay each other through Open Payments, and the reference client runs the full third-party flow against a node. M6a stops at the reference client paying into an incoming payment, with state and books exact. M6b stops at the reference client's full third-party flow from one node to another, with consent given in the wallet. M6c closes it: two nodes pay each other from the wallet's Send, to a payment pointer and to a payment request. |
 | M7 | XRPL testnet module with reserve and fee accounting; the exchange-rate fetcher of D7, fees and spread; each peer's grace limit ([D18](08-decisions.md#d18-one-grace-limit-per-peer)), before any real money. Delivered in three PRs: **M7a** (grace limits, automatic bans, and the owner's group taking in what the node gains or loses), **M7b** (the XRPL testnet scheme, with a fake ledger for CI and the simulation) and **M7c** (the rate fetcher, fees and spread, cross-asset quotes) | The `xrpl-settlement` and `cross-currency` scenarios settle and reconcile across restarts. A peer past its grace limit loses its peering. M7a stops at liars banned, and no honest peer banned, in the simulation; M7b at `xrpl-settlement`; M7c at `cross-currency`. |
 | M8 | Release: static binaries (x64, arm64), signed artifacts, installer, updater, systemd units. Delivered in two PRs: **M8a** (the static binaries with the wallet, the bundles and the mirror tree, SHA256SUMS signed with minisign, the release workflow) and **M8b** (the systemd units, the installer, `dassie update`, and their tests in containers) | Installer and updater tests pass on Debian, Ubuntu, Fedora and CentOS images. A tampered bundle is refused. M8a stops at signed releases built and published by CI, verified by `dassie-release`. |

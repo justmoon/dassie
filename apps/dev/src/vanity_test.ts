@@ -19,7 +19,7 @@ const D1: Entry = [
 
 test("the table's first nodes derive their IDs", () => {
   const table = loadTable();
-  // Every entry is checked by `deno task vanity --check`; a sample here.
+  // Every entry is checked by `node --run vanity -- --check`; a sample here.
   for (const index of [0, 1, 2, 5, 99, 999]) {
     const node = identity(table, index);
     assertEquals(node.name, `d${index + 1}`);

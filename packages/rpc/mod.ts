@@ -88,13 +88,17 @@ export class RpcError extends Error {
 
 /** The part of the WebSocket API the client uses. */
 export interface SocketLike {
-  binaryType: BinaryType;
+  binaryType: "arraybuffer" | "blob";
   readonly readyState: number;
   onopen: ((event: Event) => void) | null;
   onmessage: ((event: MessageEvent) => void) | null;
   onclose: ((event: CloseEvent) => void) | null;
-  onerror: ((event: Event) => void) | null;
-  send(data: Uint8Array): void;
+  /**
+   * Given an `Event` in a browser and an `ErrorEvent` in Node, which the
+   * client does not read.
+   */
+  onerror: ((event: never) => void) | null;
+  send(data: Uint8Array<ArrayBuffer>): void;
   close(code?: number, reason?: string): void;
 }
 
@@ -150,7 +154,7 @@ interface Pending {
 
 interface Queued {
   callId: number;
-  bytes: Uint8Array;
+  bytes: Uint8Array<ArrayBuffer>;
 }
 
 const OPEN = 1;
@@ -274,7 +278,7 @@ export class RpcClient {
     });
     // Encoded before the call is registered: a request that does not
     // encode, such as an amount beyond 64 bits, leaves nothing behind.
-    let bytes: Uint8Array;
+    let bytes: Uint8Array<ArrayBuffer>;
     try {
       bytes = toBinary(ClientMessageSchema, message);
     } catch (error) {
@@ -354,7 +358,7 @@ export class RpcClient {
     }, pending.timeoutMs);
   }
 
-  #send(callId: number, bytes: Uint8Array): void {
+  #send(callId: number, bytes: Uint8Array<ArrayBuffer>): void {
     if (this.#socket?.readyState === OPEN) {
       this.#socket.send(bytes);
       return;

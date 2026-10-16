@@ -1,6 +1,6 @@
 {
   # Builds and checks for the Dassie rewrite (spec D14). Plain `cargo` and
-  # `deno task` work locally as well; this flake pins the toolchain for CI
+  # `node --run` work locally as well; this flake pins the toolchain for CI
   # and makes the releases (nix/release.nix).
   description = "Dassie: a multi-currency, peer-to-peer, Interledger-enabled payment network";
 
@@ -220,7 +220,16 @@
             packages = [
               toolchain
               wasm-bindgen
-              pkgs.deno
+              # The TypeScript side: Node strips the types, pnpm installs the
+              # workspace (pnpm-lock.yaml). pnpm 11, as pnpm_11: nixpkgs'
+              # pnpm is 12, an experimental rewrite in Rust that can't
+              # install from a read-only store. The same two regenerate the
+              # golden vectors (testdata/original): the original names pnpm
+              # 9, which pnpm 11 fetches and hands the install to, and
+              # wants Node 22, but its Vitest makes the same vectors with 26.
+              pkgs.nodejs_26
+              pkgs.pnpm_11
+              # The browser tests (CHROME_BIN).
               pkgs.chromium
               # The end-to-end tests (tests/e2e): Let's Encrypt's test ACME
               # server, and systemd's socket activation without systemd.
@@ -231,11 +240,14 @@
               pkgs.mkcert
               # Signing releases (scripts/release.ts).
               pkgs.minisign
-              # For regenerating the golden vectors (testdata/original).
-              pkgs.nodejs
-              pkgs.pnpm
             ];
             CHROME_BIN = lib.getExe pkgs.chromium;
+            # Node keeps what it compiles between runs, which starts the
+            # tests, scripts and the dev environment faster. It does only
+            # with a directory to keep it in: the user's cache.
+            shellHook = ''
+              export NODE_COMPILE_CACHE="''${XDG_CACHE_HOME:-$HOME/.cache}/node-compile-cache"
+            '';
           };
         };
     in

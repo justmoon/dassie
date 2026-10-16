@@ -16,11 +16,9 @@ import { Buffer } from "node:buffer";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-// @ts-types="./types/ilp-plugin-btp.d.ts"
-import BtpPlugin from "ilp-plugin-btp";
-// @ts-types="./types/ws.d.ts"
-import WebSocket from "ws";
+import WebSocket from "#ws";
 import { createConnection } from "ilp-protocol-stream";
+import { Agent, fetch } from "undici";
 import { RpcClient } from "@dassie/rpc";
 import { ipcConnector } from "@dassie/rpc/ipc";
 import {
@@ -39,6 +37,7 @@ import {
   waitForPort,
   waitForSocket,
 } from "./harness.ts";
+import { BtpClient } from "./btp.ts";
 
 const HTTP_PORT = 18882;
 const HTTPS_PORT = 18845;
@@ -98,11 +97,11 @@ async function setUp(owner: RpcClient) {
   const { url } = await owner.call("getSetupUrl", {});
   const token = url.split("/setup/")[1];
   const key = deriveNodeKey(PHRASE);
-  const client = Deno.createHttpClient({ caCerts: [ROOT] });
+  const dispatcher = new Agent({ connect: { ca: ROOT } });
   const origin = `https://localhost:${HTTPS_PORT}`;
   const response = await fetch(`${origin}/api/setup`, {
     method: "POST",
-    client,
+    dispatcher,
     headers: { "content-type": "application/json", origin },
     body: JSON.stringify({
       setupAuthorizationToken: token,
@@ -111,7 +110,7 @@ async function setUp(owner: RpcClient) {
     }),
   });
   assertEquals(response.status, 200, await response.text());
-  client.close();
+  await dispatcher.close();
 }
 
 /** Pays an incoming payment through a BTP connection with `url`. */
@@ -121,7 +120,7 @@ async function pay(owner: RpcClient, url: string) {
   const { payment } = await owner.call("createIncomingPayment", {});
   assert(payment);
   const credentials = payment;
-  const plugin = new BtpPlugin({ server: url }, {
+  const plugin = new BtpClient({ server: url }, {
     WebSocket: TrustingWebSocket,
   });
   await plugin.connect();

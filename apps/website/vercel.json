@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "installCommand": "dnf install -y --setopt=install_weak_deps=False gcc gzip tar unzip",
+  "installCommand": "dnf install -y --setopt=install_weak_deps=False gcc gzip tar",
   "buildCommand": "sh vercel-build.sh",
   "ignoreCommand": "sh vercel-ignore.sh",
   "outputDirectory": "dist",

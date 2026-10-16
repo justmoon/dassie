@@ -1,6 +1,6 @@
 /**
- * `deno task cli dN <args…>` (spec 6 §6.9): the `dassie` CLI against a dev
- * node, through its IPC socket. For example `deno task cli d1 init`. For a
+ * `node --run cli -- dN <args…>` (spec 6 §6.9): the `dassie` CLI against a dev
+ * node, through its IPC socket. For example `node --run cli -- d1 init`. For a
  * dev environment started with `--state-dir`, set `DASSIE_DEV_STATE_DIR`.
  *
  * @module
@@ -14,7 +14,7 @@ import { exitCode } from "./src/process.ts";
 
 const [name, ...args] = process.argv.slice(2);
 if (!name || !/^d[1-9]\d{0,3}$/.test(name)) {
-  console.error("usage: deno task cli dN <dassie arguments…>");
+  console.error("usage: node --run cli -- dN <dassie arguments…>");
   process.exit(2);
 }
 const dassie = process.env.DASSIE_DEV_BINARY ?? DEV_BINARY;

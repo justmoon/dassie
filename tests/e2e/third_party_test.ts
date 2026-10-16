@@ -22,14 +22,16 @@ import { generateKeyPairSync } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { getCACertificates, setDefaultCACertificates } from "node:tls";
 import { loginSecret } from "@dassie/identity-wasm";
 import {
   createAuthenticatedClient,
   isFinalizedGrantWithAccessToken,
   isPendingGrant,
 } from "@interledger/open-payments";
+import { serve } from "@dassie/dev/serve";
 import { certificate, Scenario, type ScenarioNode } from "@dassie/dev/scenario";
-import type { Page } from "@astral/astral";
+import type { Page } from "puppeteer-core";
 import { click, text, until } from "./browser.ts";
 import {
   DASSIE,
@@ -50,14 +52,14 @@ const QUOTED = 252_525_253n;
 
 const missing = await missingTools();
 
+/**
+ * Makes `fetch` trust `ca`, until the returned function restores it, as in
+ * open_payments_test.ts.
+ */
 function trustFetch(ca: string): () => void {
-  const original = globalThis.fetch;
-  const client = Deno.createHttpClient({ caCerts: [ca] });
-  globalThis.fetch = (input, init) => original(input, { ...init, client });
-  return () => {
-    globalThis.fetch = original;
-    client.close();
-  };
+  const original = getCACertificates("default");
+  setDefaultCACertificates([...original, ca]);
+  return () => setDefaultCACertificates(original);
 }
 
 /**
@@ -74,12 +76,11 @@ async function serveClient(scenario: Scenario, jwk: object) {
   );
   const origin = `https://localhost:${CLIENT_PORT}`;
   const finished: URLSearchParams[] = [];
-  const server = Deno.serve({
+  const server = await serve({
     port: CLIENT_PORT,
     hostname: "127.0.0.1",
     cert: tls.certificatePem,
     key: tls.keyPem,
-    onListen: () => {},
   }, (request) => {
     const url = new URL(request.url);
     if (url.pathname === "/client/jwks.json") {
@@ -146,7 +147,7 @@ async function signIn(page: Page, node: ScenarioNode, origin: string) {
       });
       return response.status;
     },
-    { args: [proof] },
+    proof,
   );
   assertEquals(status, 200);
 }
@@ -171,7 +172,7 @@ test("a third-party client pays from one node to another with consent", {
   const browser = await startBrowser(dir);
   try {
     const [d1, d2] = scenario.nodes;
-    // `localhost`, which Deno resolves on every system; the ports keep
+    // `localhost`, which resolves on every system; the ports keep
     // the two apart.
     for (const node of [d1, d2]) {
       await node.rpc.call("setHostname", { hostname: "localhost" });

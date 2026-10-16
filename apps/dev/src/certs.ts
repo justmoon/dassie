@@ -50,7 +50,7 @@ export function caRoot(root?: string): Promise<string> {
 }
 
 /**
- * The CA's certificate, which the nodes and Deno trust, made if there is
+ * The CA's certificate, which the nodes and the dev tools trust, made if there is
  * none yet. The certificates in `dir` are dropped if another CA made them:
  * after `CAROOT` changed, or the CA was made anew.
  */

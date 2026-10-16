@@ -13,13 +13,14 @@ import { join } from "node:path";
 import { connect } from "node:tls";
 
 import { assert, assertEquals, assertMatch } from "@std/assert";
+import { Agent, fetch } from "undici";
 import {
   deriveNodeKey,
   generateMnemonic,
   nodeId,
   publicKey,
 } from "@dassie/identity-wasm";
-import type { Page } from "@astral/astral";
+import type { Page } from "puppeteer-core";
 import { click, text, type } from "./browser.ts";
 import {
   DASSIE,
@@ -46,10 +47,12 @@ function expectedNodeId(phrase: string): string {
 /** The certificate Pebble issues chains to the root Pebble generated. */
 async function assertServedByPebble(): Promise<void> {
   const apiRoot = await readFile(PEBBLE_API_ROOT, "utf8");
-  const client = Deno.createHttpClient({ caCerts: [apiRoot] });
-  const response = await fetch("https://localhost:15000/roots/0", { client });
+  const dispatcher = new Agent({ connect: { ca: apiRoot } });
+  const response = await fetch("https://localhost:15000/roots/0", {
+    dispatcher,
+  });
   const issuingRoot = await response.text();
-  client.close();
+  await dispatcher.close();
   // Checked against that root only, and for the name dassie.test.
   const tls = connect({
     host: "127.0.0.1",
@@ -101,7 +104,7 @@ test(
     const verify = await run(DASSIE, ["verify-install"]);
     assert(
       verify.code === 0,
-      "the binary must carry the wallet: deno task build:e2e",
+      "the binary must carry the wallet: node --run build:e2e",
     );
 
     const dir = await mkdtemp(join(tmpdir(), "dassie-e2e-"));
@@ -131,7 +134,8 @@ test(
       await assertServedByPebble();
 
       // The browser sets the node up.
-      const page = await browser.newPage(setupUrl);
+      const page = await browser.newPage();
+      await page.goto(setupUrl!, { waitUntil: "load" });
       const phrase = await generateWallet(page);
       // Without a ledger yet, the owner first chooses one.
       await text(page, "page-create-ledger");
@@ -212,7 +216,8 @@ test(
         setupUrl ?? "",
         /^https:\/\/localhost:18843\/setup\/[0-9a-f]{64}$/,
       );
-      const page = await browser.newPage(setupUrl);
+      const page = await browser.newPage();
+      await page.goto(setupUrl!, { waitUntil: "load" });
       const phrase =
         "pulp junk march life divorce celery flower bar one angry claw crush";
       await click(page, "recover-wallet");

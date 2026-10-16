@@ -1,0 +1,25 @@
+{
+  "name": "@dassie/wallet",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build --configLoader native",
+    "dev": "vite build --configLoader native --watch --mode development"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.16.0",
+    "@dassie/identity-wasm": "workspace:*",
+    "@dassie/rpc": "workspace:*",
+    "@dassie/ui": "workspace:*",
+    "@solidjs/web": "2.0.0-rc.9",
+    "solid-js": "2.0.0-rc.9"
+  },
+  "devDependencies": {
+    "@solidjs/vite-plugin": "3.0.0-next.44",
+    "@std/assert": "jsr:^1.0.19",
+    "@std/testing": "jsr:^1.0.21",
+    "@types/node": "^26.6.5",
+    "vite": "8.3.1"
+  }
+}

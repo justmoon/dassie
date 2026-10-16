@@ -19,6 +19,7 @@ import {
   SourcedLogLineSchema,
   type State,
 } from "@dassie/rpc/dev";
+import { OPEN, type Socket } from "./serve.ts";
 
 /** A server message's content, as created. */
 export type Payload = MessageInitShape<typeof ServerMessageSchema>["message"];
@@ -61,7 +62,7 @@ export function chunkLines(
 }
 
 export class ControlHub {
-  readonly #clients = new Set<WebSocket>();
+  readonly #clients = new Set<Socket>();
   #closed = false;
   readonly source: ControlSource;
   readonly command: (message: ClientMessage) => void;
@@ -78,7 +79,7 @@ export class ControlHub {
   }
 
   /** Serves a dashboard's socket, just upgraded. */
-  attach(socket: WebSocket): void {
+  attach(socket: Socket): void {
     socket.binaryType = "arraybuffer";
     socket.onopen = () => {
       // A dashboard reconnecting as everything stops.
@@ -112,7 +113,7 @@ export class ControlHub {
     socket.onerror = () => this.#clients.delete(socket);
   }
 
-  #greet(socket: WebSocket): void {
+  #greet(socket: Socket): void {
     this.#send(socket, { case: "state", value: this.source.state() });
     const chunks = chunkLines(this.source.logs());
     if (chunks.length === 0) chunks.push([]);
@@ -141,15 +142,15 @@ export class ControlHub {
     }
   }
 
-  #send(socket: WebSocket, message: Payload): void {
+  #send(socket: Socket, message: Payload): void {
     this.#write(
       socket,
       encodeServerMessage(create(ServerMessageSchema, { message })),
     );
   }
 
-  #write(socket: WebSocket, bytes: Uint8Array): void {
-    if (socket.readyState !== WebSocket.OPEN) return;
+  #write(socket: Socket, bytes: Uint8Array): void {
+    if (socket.readyState !== OPEN) return;
     if (socket.bufferedAmount > MAX_BUFFERED_BYTES) {
       this.#clients.delete(socket);
       socket.close(1013, "not reading");

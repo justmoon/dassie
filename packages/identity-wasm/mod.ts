@@ -8,7 +8,7 @@
  * the file next to it. Browsers load it through `./web` and `./web/stream`
  * instead, which fetch the module.
  *
- * Build the bindings first with `deno task build:wasm`.
+ * Build the bindings first with `node --run build:wasm`.
  *
  * @module
  */

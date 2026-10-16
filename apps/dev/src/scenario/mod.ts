@@ -148,7 +148,7 @@ export class Scenario {
         "localhost",
         "127.0.0.1",
       ], options.layout.caRoot);
-      scenario.rates = startRates(rates, options.portOffset ?? 0);
+      scenario.rates = await startRates(rates, options.portOffset ?? 0);
       const xrpl = [...def.schemes, def.addedSchemes]
         .some((schemes) => schemes.includes("xrpl-testnet"));
       if (xrpl && options.fakeLedger) {

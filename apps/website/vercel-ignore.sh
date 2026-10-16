@@ -29,6 +29,8 @@ exec git diff --quiet "$previous" HEAD -- \
   Cargo.toml \
   Cargo.lock \
   rust-toolchain.toml \
-  deno.json \
-  deno.lock \
+  package.json \
+  pnpm-workspace.yaml \
+  pnpm-lock.yaml \
+  .npmrc \
   scripts/build-wasm.ts

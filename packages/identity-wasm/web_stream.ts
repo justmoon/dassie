@@ -4,7 +4,7 @@
  * instantiated, as {@link loadIdentity} does for identity derivation. The
  * website's STREAM toy runs on it.
  *
- * Build the bindings first with `deno task build:wasm`.
+ * Build the bindings first with `node --run build:wasm`.
  *
  * @module
  */

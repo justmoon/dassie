@@ -24,7 +24,7 @@ import {
 
 const crates = new URL("../../crates/", import.meta.url);
 
-// deno-lint-ignore no-explicit-any
+// eslint-disable-next-line typescript/no-explicit-any
 async function vectors(path: string): Promise<any> {
   const document = JSON.parse(await readFile(new URL(path, crates), "utf8"));
   assertEquals(document.source, "e962ab78");

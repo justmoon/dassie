@@ -1,0 +1,30 @@
+{
+  "name": "@dassie/tests-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "imports": {
+    "#ilp-plugin-btp": {
+      "types": "./types/ilp-plugin-btp.d.ts",
+      "default": "ilp-plugin-btp"
+    },
+    "#ws": {
+      "types": "./types/ws.d.ts",
+      "default": "ws"
+    }
+  },
+  "devDependencies": {
+    "@bufbuild/protobuf": "^2.16.0",
+    "@dassie/dev": "workspace:*",
+    "@dassie/identity-wasm": "workspace:*",
+    "@dassie/rpc": "workspace:*",
+    "@interledger/open-payments": "7.4.0",
+    "@std/assert": "jsr:^1.0.19",
+    "@types/node": "^26.6.5",
+    "ilp-plugin-btp": "1.5.0",
+    "ilp-protocol-stream": "2.7.2-alpha.2",
+    "puppeteer-core": "25.14.0",
+    "undici": "8.12.2",
+    "ws": "^6.2.2"
+  }
+}

@@ -1,14 +1,15 @@
 # Generates the TypeScript of the owner's RPC contract (dassie/ui/v1) and of
 # the dev environment's control channel (dassie/dev/v1) into
-# packages/rpc/src/gen. Run `deno task gen` in packages/rpc rather than this
-# directly: it also records the contract's hash for the drift test there.
+# packages/rpc/src/gen. Run `node --run gen` in packages/rpc rather than this
+# directly: it also records the contract's hash for the drift test there, and
+# runs buf and the plugin installed there.
 # The Rust side is generated at build time by crates/dassie-node/build.rs.
 version: v2
 inputs:
   - directory: .
     paths: [dassie/ui/v1, dassie/dev/v1]
 plugins:
-  - local: ["deno", "run", "--no-lock", "-A", "npm:@bufbuild/protoc-gen-es@2.16.0"]
+  - local: ["node", "../packages/rpc/node_modules/@bufbuild/protoc-gen-es/bin/protoc-gen-es"]
     out: ../packages/rpc/src/gen
     opt:
       - target=ts

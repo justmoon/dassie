@@ -1,0 +1,6 @@
+{
+  // The root's own scripts. Each package has its own tsconfig.json, and
+  // `node --run typecheck` checks them all.
+  "extends": "./tsconfig.base.json",
+  "include": ["scripts/*.ts"]
+}

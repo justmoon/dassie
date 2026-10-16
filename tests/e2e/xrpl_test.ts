@@ -16,10 +16,7 @@ import { assert, assertEquals } from "@std/assert";
 import { Buffer } from "node:buffer";
 import { readFile } from "node:fs/promises";
 import process from "node:process";
-// @ts-types="./types/ilp-plugin-btp.d.ts"
-import BtpPlugin from "ilp-plugin-btp";
-// @ts-types="./types/ws.d.ts"
-import WebSocket from "ws";
+import WebSocket from "#ws";
 import { createConnection } from "ilp-protocol-stream";
 import { LedgerConnection } from "@dassie/rpc/proto";
 
@@ -29,6 +26,7 @@ import {
   missingScenarioTools,
   SCENARIO_PORT_OFFSET,
 } from "./harness.ts";
+import { BtpClient } from "./btp.ts";
 import { Scenario, type ScenarioNode } from "@dassie/dev/scenario";
 
 const LEDGER = "xrpl-testnet+xrp";
@@ -155,7 +153,7 @@ test(
       assert(credentials);
       const server = token.url.replace(`@${d1.hostname}:`, "@localhost:");
       const ca = await readFile(scenario.caFile, "utf8");
-      const plugin = new BtpPlugin({ server }, {
+      const plugin = new BtpClient({ server }, {
         WebSocket: class extends WebSocket {
           constructor(url: string) {
             super(url, { ca });

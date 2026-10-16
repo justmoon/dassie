@@ -1,5 +1,5 @@
 /**
- * Milestone M5's other done criterion (spec 7 §8): `deno task dev` brings
+ * Milestone M5's other done criterion (spec 7 §8): `node --run dev` brings
  * up any scenario, and its dashboard shows it (spec 6 §2). The dev server
  * runs as a developer would run it, headless and moved to other ports, on
  * the release-like binary, with a CA of its own; Chrome drives the
@@ -9,13 +9,14 @@
 
 import { test } from "node:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { request as httpsRequest } from "node:https";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 
 import { assert, assertEquals, assertMatch } from "@std/assert";
-import type { Page } from "@astral/astral";
+import type { Page } from "puppeteer-core";
 import { RpcClient } from "@dassie/rpc";
 import { ipcConnector } from "@dassie/rpc/ipc";
 import { ChildProcess, type Exit, STOP_GRACE_MS } from "@dassie/dev/process";
@@ -41,16 +42,14 @@ const STOPS_AT_ONCE_MS = 30_000;
  */
 const DEV_STOP_MS = 2 * STOP_GRACE_MS + 10_000;
 
-/** The dev server, as `deno task dev` starts it, with test flags. */
+/** The dev server, as `node --run dev` starts it, with test flags. */
 class DevServer {
   readonly child: ChildProcess;
   readonly #lines: string[] = [];
 
   constructor(state: string, caRoot: string, more: string[] = []) {
-    this.child = new ChildProcess("dev", Deno.execPath(), {
+    this.child = new ChildProcess("dev", process.execPath, {
       args: [
-        "run",
-        "-A",
         `${ROOT}apps/dev/main.ts`,
         "--headless",
         "--no-watch",
@@ -127,6 +126,42 @@ function closed(port: number): Promise<boolean> {
   });
 }
 
+/**
+ * The status a WebSocket handshake to `url` gets, over HTTP/1.1 and
+ * trusting `ca`. With `node:https`, since `fetch` refuses an `upgrade`
+ * header.
+ */
+function upgradeStatus(
+  url: string,
+  ca: string,
+  origin?: string,
+): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const request = httpsRequest(url, {
+      ca,
+      agent: false,
+      headers: {
+        ...(origin ? { origin } : {}),
+        upgrade: "websocket",
+        connection: "upgrade",
+        "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
+        "sec-websocket-version": "13",
+        "sec-websocket-protocol": "dassie.ui.v1",
+      },
+    });
+    request.once("response", (response) => {
+      resolve(response.statusCode!);
+      request.destroy();
+    });
+    request.once("upgrade", (response, socket) => {
+      resolve(response.statusCode!);
+      socket.destroy();
+    });
+    request.once("error", reject);
+    request.end();
+  });
+}
+
 const screenshots = process.env.DASSIE_E2E_SCREENSHOTS;
 
 /** Keeps a picture of the page, if pictures are asked for. */
@@ -145,7 +180,7 @@ function running(page: Page): Promise<number> {
 }
 
 test(
-  "deno task dev brings up a scenario, and its dashboard shows and drives it",
+  "node --run dev brings up a scenario, and its dashboard shows and drives it",
   { skip: missing !== undefined },
   async (t) => {
     const state = await mkdtemp(join(tmpdir(), "dassie-dev-"));
@@ -157,8 +192,8 @@ test(
       await dev.said(/two-nodes is running/);
       const page = await browser.newPage();
       const errors: string[] = [];
-      page.addEventListener("pageerror", (event) => {
-        errors.push(String(event.detail));
+      page.on("pageerror", (error) => {
+        errors.push(String(error));
       });
 
       await t.test(
@@ -197,22 +232,8 @@ test(
         "the control channel and the relay refuse other pages",
         async () => {
           const ca = await readFile(`${caRoot}/rootCA.pem`, "utf8");
-          const client = Deno.createHttpClient({ caCerts: [ca], http2: false });
           const upgrade = (path: string, origin?: string) =>
-            fetch(`https://localhost:${DASHBOARD}${path}`, {
-              client,
-              headers: {
-                ...(origin ? { origin } : {}),
-                upgrade: "websocket",
-                connection: "upgrade",
-                "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
-                "sec-websocket-version": "13",
-                "sec-websocket-protocol": "dassie.ui.v1",
-              },
-            }).then(async (response) => {
-              await response.body?.cancel();
-              return response.status;
-            });
+            upgradeStatus(`https://localhost:${DASHBOARD}${path}`, ca, origin);
           const own = `https://localhost:${DASHBOARD}`;
           assertEquals(
             await upgrade("/nodes/d1/rpc", "https://evil.example"),
@@ -220,7 +241,6 @@ test(
           );
           assertEquals(await upgrade("/control"), 403);
           assertEquals(await upgrade("/nodes/d9/rpc", own), 404);
-          client.close();
         },
       );
 

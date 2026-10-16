@@ -1,5 +1,6 @@
-// The part of `ilp-plugin-btp` 1.5 the end-to-end tests use. Its own types
-// pull in @types/node 10, which clashes with Deno's.
+// The part of `ilp-plugin-btp` 1.5 the end-to-end tests use, which they
+// import as `#ilp-plugin-btp` (see `imports` in package.json). Its own types
+// pull in @types/node 10, and give its CommonJS export as `default`.
 
 import type { Buffer } from "node:buffer";
 
@@ -15,6 +16,9 @@ declare class BtpPlugin {
   sendData(data: Buffer): Promise<Buffer>;
   registerDataHandler(handler: (data: Buffer) => Promise<Buffer>): void;
   deregisterDataHandler(): void;
+  // From EventEmitter2, which it extends.
+  eventNames(): (string | symbol)[];
+  emit(event: string, ...values: unknown[]): boolean;
 }
 
 export default BtpPlugin;

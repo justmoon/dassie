@@ -3,22 +3,23 @@
 // - the CSP in vercel.json: no inline script or style, no script, style or
 //   image from elsewhere (links to elsewhere are fine);
 // - every page has the shared header and footer;
-// - vercel-build.sh installs the Deno the flake has and the wasm-bindgen
-//   Cargo.lock has, so that Vercel builds what CI builds;
+// - vercel-build.sh installs the Node and pnpm the flake has and the
+//   wasm-bindgen Cargo.lock has, so that Vercel builds what CI builds;
 // - vercel-ignore.sh skips a deployment only when nothing the site is
 //   built from changed, and watches every crate and package it is built
 //   from.
 //
-// The checks of the pages run only once `deno task build:website` has run.
+// The checks of the pages run only once `node --run build:website` has run.
 
 import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
 import { execFile, spawn } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import process from "node:process";
 import { exists, scripts } from "@dassie/ui/testing/csp";
 import { PAGES } from "./src/layout.ts";
 
+const root = new URL("../../", import.meta.url).pathname;
 const dist = new URL("dist", import.meta.url).pathname;
 const built = await exists(`${dist}/index.html`);
 
@@ -62,27 +63,29 @@ test(
   },
 );
 
-test("vercel-build.sh installs the flake's Deno and Cargo.lock's wasm-bindgen", async () => {
+test("vercel-build.sh installs the flake's Node and pnpm and Cargo.lock's wasm-bindgen", async () => {
   const script = await readFile(
     new URL("vercel-build.sh", import.meta.url),
     "utf8",
   );
   const pin = (name: string) =>
     script.match(new RegExp(`^${name}=(\\S+)$`, "m"))?.[1];
-  // CI runs in the flake's shell, so its Deno is the flake's.
-  assertEquals(pin("DENO_VERSION"), Deno.version.deno);
+  // CI runs in the flake's shell, so its Node and pnpm are the flake's.
+  assertEquals(pin("NODE_VERSION"), process.versions.node);
+  assertEquals(
+    pin("PNPM_VERSION"),
+    (await output("pnpm", ["--version"])).trim(),
+  );
   const lock = await readFile(
     new URL("../../Cargo.lock", import.meta.url),
     "utf8",
   );
   const bindgen = lock.match(/name = "wasm-bindgen"\nversion = "([^"]+)"/)?.[1];
   assertEquals(pin("WASM_BINDGEN_VERSION"), bindgen);
-  for (const name of ["DENO", "RUSTUP", "WASM_BINDGEN"]) {
+  for (const name of ["NODE", "PNPM", "RUSTUP", "WASM_BINDGEN"]) {
     assert(/^[0-9a-f]{64}$/.test(pin(`${name}_SHA256`) ?? ""), name);
   }
 });
-
-const root = new URL("../../", import.meta.url).pathname;
 
 /** What `command` prints, run at the repository's root. */
 function output(command: string, args: string[]): Promise<string> {
@@ -158,16 +161,34 @@ async function wasmCrates(): Promise<Set<string>> {
   return crates;
 }
 
+/**
+ * The directories of the workspace's packages: pnpm-workspace.yaml's
+ * `packages`, each a directory or `dir/*`, with a package.json.
+ */
+async function workspaceMembers(): Promise<string[]> {
+  const manifest = await readFile(`${root}pnpm-workspace.yaml`, "utf8");
+  const list = manifest.match(/^packages:\n((?:[ \t]+- .*\n)+)/m)?.[1];
+  assert(list, "pnpm-workspace.yaml lists no packages");
+  const members: string[] = [];
+  for (const [, glob] of list.matchAll(/- ['"]?([^'"\s]+)['"]?/g)) {
+    const dirs = glob.endsWith("/*")
+      ? (await readdir(`${root}${glob.slice(0, -2)}`, { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => `${glob.slice(0, -2)}/${entry.name}`)
+      : [glob];
+    for (const dir of dirs) {
+      if (await exists(`${root}${dir}/package.json`)) members.push(dir);
+    }
+  }
+  return members;
+}
+
 /** The workspace packages the site imports, and those they import. */
 async function sitePackages(): Promise<Set<string>> {
-  const manifest = JSON.parse(await readFile(`${root}deno.json`, "utf8")) as {
-    workspace: string[];
-  };
   const byName = new Map<string, string>();
-  for (const member of manifest.workspace) {
-    const dir = member.replace(/^\.\//, "");
+  for (const dir of await workspaceMembers()) {
     const { name } = JSON.parse(
-      await readFile(`${root}${dir}/deno.json`, "utf8"),
+      await readFile(`${root}${dir}/package.json`, "utf8"),
     ) as { name?: string };
     if (name) byName.set(name, dir);
   }

@@ -20,7 +20,7 @@ import {
 
 /** A socket the test drives by hand. */
 class FakeSocket implements SocketLike {
-  binaryType: BinaryType = "blob";
+  binaryType: "arraybuffer" | "blob" = "blob";
   readyState = 0;
   onopen: ((event: Event) => void) | null = null;
   onmessage: ((event: MessageEvent) => void) | null = null;

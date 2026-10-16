@@ -14,7 +14,7 @@ import process from "node:process";
 
 import { assert, assertEquals, assertMatch } from "@std/assert";
 import { loginSecret } from "@dassie/identity-wasm";
-import type { Page } from "@astral/astral";
+import type { Page } from "puppeteer-core";
 import { attribute, click, count, text, type, until } from "./browser.ts";
 import {
   DASSIE,
@@ -44,7 +44,7 @@ async function signIn(page: Page, node: ScenarioNode): Promise<void> {
       });
       return response.status;
     },
-    { args: [proof] },
+    proof,
   );
   assertEquals(status, 200);
   await page.goto(node.url, { waitUntil: "load" });
@@ -65,8 +65,8 @@ async function picture(page: Page, name: string): Promise<void> {
 /** Fails on any error the page throws. */
 function watchErrors(page: Page): string[] {
   const errors: string[] = [];
-  page.addEventListener("pageerror", (event) => {
-    errors.push(String(event.detail));
+  page.on("pageerror", (error) => {
+    errors.push(String(error));
   });
   return errors;
 }

@@ -5,7 +5,7 @@
  * not survive.
  */
 
-import type { ElementHandle, Page } from "@astral/astral";
+import type { ElementHandle, Page } from "puppeteer-core";
 
 /** How long to wait for an element, in ms. */
 const WAIT_MS = 20_000;
@@ -17,13 +17,13 @@ export async function text(page: Page, testid: string): Promise<string> {
     const found = await page.evaluate(
       (id: string) =>
         document.querySelector(`[data-testid="${id}"]`)?.textContent ?? null,
-      { args: [testid] },
+      testid,
     ).catch(() => null);
     if (found !== null) return found.trim();
     if (Date.now() > deadline) {
       const body = await page.evaluate(() => document.body.innerText)
         .catch(() => "(no document)");
-      throw new Error(`no ${testid} on ${page.url}:\n${body}`);
+      throw new Error(`no ${testid} on ${page.url()}:\n${body}`);
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
@@ -64,7 +64,8 @@ export async function attribute(
         attribute,
       ) ??
         null,
-    { args: [testid, name] },
+    testid,
+    name,
   );
 }
 
@@ -72,7 +73,7 @@ export async function attribute(
 export async function count(page: Page, testid: string): Promise<number> {
   return await page.evaluate(
     (id: string) => document.querySelectorAll(`[data-testid="${id}"]`).length,
-    { args: [testid] },
+    testid,
   );
 }
 
@@ -80,7 +81,7 @@ export async function count(page: Page, testid: string): Promise<number> {
 export async function element(
   page: Page,
   testid: string,
-): Promise<ElementHandle> {
+): Promise<ElementHandle<Element>> {
   await text(page, testid);
   const found = await page.$(`[data-testid="${testid}"]`);
   if (!found) throw new Error(`${testid} vanished`);
@@ -93,7 +94,7 @@ export async function element(
  */
 export async function click(page: Page, testid: string): Promise<void> {
   const target = await element(page, testid);
-  await target.evaluate((node: HTMLElement) => node.click());
+  await target.evaluate((node) => (node as HTMLElement).click());
 }
 
 /** Replaces the value of the input with `testid`. */
@@ -103,6 +104,6 @@ export async function type(
   value: string,
 ): Promise<void> {
   const input = await element(page, testid);
-  await input.evaluate((node: HTMLInputElement) => (node.value = ""));
+  await input.evaluate((node) => ((node as HTMLInputElement).value = ""));
   await input.type(value);
 }

@@ -1,0 +1,19 @@
+{
+  // What every package's tsconfig.json extends. Node runs the sources as
+  // they are, by stripping their types, so they import with `.ts`
+  // extensions, use only syntax that strips, and nothing is emitted.
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "lib": ["esnext"],
+    "types": ["node"],
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true
+  }
+}

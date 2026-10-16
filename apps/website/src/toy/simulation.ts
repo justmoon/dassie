@@ -33,7 +33,7 @@ import type {
 } from "@dassie/identity-wasm";
 import { MAX_SEED, Random } from "./random.ts";
 
-/** What the simulation needs of the STREAM module, in Deno or a browser. */
+/** What the simulation needs of the STREAM module, in Node or a browser. */
 export interface StreamModule {
   StreamConnection: typeof StreamConnection;
   StreamServer: typeof StreamServer;

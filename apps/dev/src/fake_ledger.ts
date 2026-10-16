@@ -2,7 +2,7 @@
  * The fake XRP Ledger (M7b): the node's own model of the ledger, served
  * over WebSocket with a faucet over HTTPS, for scenarios that settle on
  * the XRP Ledger without the public testnet. CI's end-to-end tests run
- * against it, and `deno task dev --xrpl fake`.
+ * against it, and `node --run dev -- --xrpl fake`.
  *
  * @module
  */
@@ -121,10 +121,13 @@ export async function startFakeLedger(
       // Closing stdin stops it; a kill if it does not.
       child.stdin.end();
       const exited = status.then(() => true);
-      const late = new Promise<boolean>((resolve) =>
-        setTimeout(() => resolve(false), 5_000)
-      );
-      if (!(await Promise.race([exited, late]))) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const late = new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), 5_000);
+      });
+      const done = await Promise.race([exited, late]);
+      clearTimeout(timer);
+      if (!done) {
         child.kill();
         await status;
       }

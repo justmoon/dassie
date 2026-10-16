@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { contractHash, CONTRACTS } from "./scripts/hash.ts";
 
 // The generated code must follow the contracts: after changing a .proto
-// file, run `deno task gen` in packages/rpc.
+// file, run `node --run gen` in packages/rpc.
 for (const contract of CONTRACTS) {
   test(`src/gen matches proto/${contract}`, async () => {
     const recorded = await readFile(
@@ -14,7 +14,7 @@ for (const contract of CONTRACTS) {
     assertEquals(
       recorded.trim(),
       await contractHash(contract),
-      "run `deno task gen` in packages/rpc",
+      "run `node --run gen` in packages/rpc",
     );
   });
 }

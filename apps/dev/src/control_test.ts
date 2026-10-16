@@ -6,6 +6,7 @@ import {
   SourcedLogLineSchema,
 } from "@dassie/rpc/dev";
 import { chunkLines, ControlHub, type ControlSource } from "./control.ts";
+import type { Socket } from "./serve.ts";
 
 const line = (n: number, bytes = 100) =>
   create(SourcedLogLineSchema, {
@@ -41,7 +42,7 @@ test("a dashboard that reconnects as everything stops is closed", () => {
   const closes: number[] = [];
   const socket = {
     close: (code: number) => closes.push(code),
-  } as unknown as WebSocket;
+  } as unknown as Socket;
   const source = {} as ControlSource;
   const hub = new ControlHub(source, () => {}, () => {});
   hub.close();

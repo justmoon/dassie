@@ -1,4 +1,4 @@
-// dassie.land in a headless browser: the built site (`deno task
+// dassie.land in a headless browser: the built site (`node --run
 // build:website`), served with the headers and trailing slashes of its
 // vercel.json, so its CSP applies. The STREAM toy runs a payment on the
 // WASM STREAM implementation to the end.
@@ -10,7 +10,8 @@ import { extname, join } from "node:path";
 import process from "node:process";
 
 import { assert, assertEquals, assertMatch } from "@std/assert";
-import { launch, type Page } from "@astral/astral";
+import { serve, type Server } from "@dassie/dev/serve";
+import puppeteer, { type Page } from "puppeteer-core";
 import { click, count, text, type, until } from "./browser.ts";
 import { findChrome } from "./harness.ts";
 
@@ -23,7 +24,7 @@ async function missing(): Promise<string | undefined> {
   try {
     await stat(join(dist, "index.html"));
   } catch {
-    reasons.push(`${dist} (deno task build:website)`);
+    reasons.push(`${dist} (node --run build:website)`);
   }
   if (reasons.length === 0) return undefined;
   const reason = `missing ${reasons.join(", ")}`;
@@ -54,7 +55,7 @@ interface Rule {
 }
 
 /** Serves dist/ as Vercel would, with vercel.json's headers. */
-async function serve(): Promise<Deno.HttpServer<Deno.NetAddr>> {
+async function serveSite(): Promise<Server> {
   const config = JSON.parse(
     await readFile(join(site, "vercel.json"), "utf8"),
   ) as { headers: Rule[]; trailingSlash: boolean };
@@ -63,8 +64,8 @@ async function serve(): Promise<Deno.HttpServer<Deno.NetAddr>> {
     pattern: new RegExp(`^${rule.source}$`),
     headers: rule.headers,
   }));
-  return Deno.serve(
-    { port: 0, hostname: "127.0.0.1", onListen() {} },
+  return await serve(
+    { port: 0, hostname: "127.0.0.1" },
     async (request) => {
       const path = decodeURIComponent(new URL(request.url).pathname);
       if (path.includes("..")) return new Response("bad path", { status: 400 });
@@ -96,17 +97,16 @@ async function serve(): Promise<Deno.HttpServer<Deno.NetAddr>> {
  */
 async function watch(page: Page): Promise<string[]> {
   const problems: string[] = [];
-  page.addEventListener("pageerror", (event) => {
-    problems.push(String(event.detail));
+  page.on("pageerror", (error) => {
+    problems.push(String(error));
   });
-  page.addEventListener("console", (event) => {
-    if (event.detail.type === "error") problems.push(event.detail.text);
+  page.on("console", (message) => {
+    if (message.type() === "error") problems.push(message.text());
   });
-  await page.unsafelyGetCelestialBindings().Page
-    .addScriptToEvaluateOnNewDocument({
-      source: `document.addEventListener("securitypolicyviolation", (event) =>
+  await page.evaluateOnNewDocument(
+    `document.addEventListener("securitypolicyviolation", (event) =>
         console.error("CSP: " + event.violatedDirective + " " + event.blockedURI));`,
-    });
+  );
   return problems;
 }
 
@@ -128,11 +128,12 @@ const reason = await missing();
 test("dassie.land: the pages, and a STREAM payment in the toy", {
   skip: reason !== undefined,
 }, async (t) => {
-  const server = await serve();
+  const server = await serveSite();
   const base = `http://127.0.0.1:${server.addr.port}`;
   const dir = await mkdtemp(join(tmpdir(), "dassie-website-"));
-  const browser = await launch({
-    path: await findChrome(),
+  const browser = await puppeteer.launch({
+    executablePath: await findChrome(),
+    headless: true,
     args: ["--no-sandbox", `--user-data-dir=${dir}/chrome`],
   });
   try {
@@ -147,7 +148,7 @@ test("dassie.land: the pages, and a STREAM payment in the toy", {
       );
       // Without the slash, as the original's links had it.
       await page.goto(`${base}/guides/quick-start`, { waitUntil: "load" });
-      assertEquals(new URL(page.url).pathname, "/guides/quick-start/");
+      assertEquals(new URL(page.url()).pathname, "/guides/quick-start/");
       const body = await page.evaluate(() => document.body.innerText);
       assertMatch(
         body,

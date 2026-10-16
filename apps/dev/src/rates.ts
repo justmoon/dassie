@@ -8,6 +8,7 @@
  */
 
 import type { Certificate } from "./certs.ts";
+import { serve } from "./serve.ts";
 
 /**
  * Where the rates are served, with the port offset added: beside the fake
@@ -40,19 +41,18 @@ export interface RateServer {
 }
 
 /** Serves `rates` on {@linkcode RATES_PORT} plus `portOffset`. */
-export function startRates(
+export async function startRates(
   certificate: Certificate,
   portOffset = 0,
   rates: RateTable = DEV_RATES,
-): RateServer {
+): Promise<RateServer> {
   let current: RateTable | undefined = rates;
   const port = RATES_PORT + portOffset;
-  const server = Deno.serve({
+  const server = await serve({
     hostname: "127.0.0.1",
     port,
     cert: certificate.certificatePem,
     key: certificate.keyPem,
-    onListen: () => {},
   }, (request) => {
     if (new URL(request.url).pathname !== "/rates.json") {
       return new Response("not found", { status: 404 });

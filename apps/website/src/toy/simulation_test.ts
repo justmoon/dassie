@@ -1,5 +1,5 @@
-// The STREAM toy's network runs the real STREAM state machines (the Deno
-// build of the same WASM module the page loads) to the end.
+// The STREAM toy's network runs the real STREAM state machines (the same
+// WASM module the page loads, here in Node) to the end.
 
 import { test } from "node:test";
 import {

@@ -4,7 +4,7 @@
 // - the production build has none of the development build's auto-login
 //   (spec 7 §6), which reads a login proof from the URL.
 //
-// The checks run only once `deno task build:wallet` has run.
+// The checks run only once `node --run build:wallet` has run.
 
 import { test } from "node:test";
 import { assert } from "@std/assert";
