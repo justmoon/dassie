@@ -195,3 +195,14 @@ impl Core {
             .min()
     }
 }
+
+impl Core {
+    /// The rate probes: within their bound, and each connection's
+    /// invariants.
+    pub(super) fn check_probes(&self) {
+        assert!(self.spending.probes.len() <= MAX_PROBES);
+        for probe in self.spending.probes.values() {
+            probe.connection.check_invariants();
+        }
+    }
+}

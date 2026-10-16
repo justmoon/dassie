@@ -627,3 +627,22 @@ impl Core {
         self.btp_closed(link);
     }
 }
+
+impl Core {
+    /// The STREAM receivers: each server's invariants, and its
+    /// connections, in the order they opened.
+    pub(super) fn check_receivers(&self) {
+        for receiver in self.receivers.values() {
+            receiver.server.check_invariants();
+            assert!(receiver.connections.len() <= MAX_RECEIVER_CONNECTIONS);
+            let in_order = receiver
+                .connections
+                .windows(2)
+                .all(|pair| matches!(pair, [a, b] if a < b));
+            assert!(
+                in_order,
+                "a receiver's connections in the order they opened"
+            );
+        }
+    }
+}

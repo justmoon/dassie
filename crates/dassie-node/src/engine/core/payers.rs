@@ -814,6 +814,9 @@ impl Core {
                 payment.row.sent_amount <= payment.row.debit_amount,
                 "a payment sent more than its debit amount"
             );
+            if let Some(connection) = &payment.connection {
+                connection.check_invariants();
+            }
         }
     }
 }

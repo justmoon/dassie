@@ -9,6 +9,7 @@
 
 mod grace;
 mod incoming;
+mod invariants;
 mod ledgers;
 mod packets;
 mod payers;
@@ -618,15 +619,6 @@ impl Core {
     /// What changed since the last call, persisted.
     pub fn take_changes(&mut self) -> Changes {
         std::mem::take(&mut self.changes)
-    }
-
-    fn check_invariants(&self) {
-        self.ledger.check_invariants();
-        self.connector.check_invariants(&self.ledger);
-        self.peer.check_invariants();
-        self.check_incoming();
-        self.check_outgoing();
-        self.owed.check();
     }
 
     /// The ledger a payment to `destination` goes out on, and whether it
