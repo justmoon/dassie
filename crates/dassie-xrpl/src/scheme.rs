@@ -18,7 +18,7 @@
 //! (ACC-21), failures are checked (ACC-22), and an account created by a
 //! payment is a deposit like any other (ACC-20).
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
@@ -56,8 +56,13 @@ const LEDGER_WINDOW: u32 = 20;
 const REQUEST_TIMEOUT_MS: u64 = 20_000;
 /// How often the faucet is asked, while the account does not exist.
 const FUND_RETRY_MS: u64 = 60_000;
-/// Most requests waiting for an answer.
-const MAX_PENDING: usize = 16;
+/// Most requests waiting for an answer: a submission and a lookup for
+/// each transaction in flight, the lookups of a restart, and the four
+/// that keep the account in sync.
+const MAX_PENDING: usize = 2 * MAX_IN_FLIGHT + MAX_RECOVER_ASKING + 4;
+/// Most lookups of a restart's settlements asked at once; the rest are
+/// asked as answers come in, a ledger at a time.
+const MAX_RECOVER_ASKING: usize = 8;
 /// Most transactions held while catching up.
 const MAX_BUFFERED: usize = 256;
 /// Most bytes of config.
@@ -295,6 +300,11 @@ impl XrplScheme {
     }
 
     fn send(&mut self, request: Request, effects: &mut Vec<Effect>) {
+        // Without a connection, nothing is sent: what is needed is asked
+        // once it is made.
+        if self.phase == Phase::Disconnected {
+            return;
+        }
         if self.pending.len() >= MAX_PENDING {
             // The connection is not keeping up: make it anew.
             self.reconnect(effects);
@@ -589,9 +599,7 @@ impl XrplScheme {
         if self.phase != Phase::Synced {
             return;
         }
-        for hash in self.recovering.clone() {
-            self.send(Request::Recover(hash), effects);
-        }
+        self.ask_recover(effects);
         let waiting: Vec<[u8; 32]> = self
             .in_flight
             .iter()
@@ -636,15 +644,7 @@ impl XrplScheme {
                     self.reconcile(effects);
                 }
                 self.expire(effects);
-                let asking_recover = self
-                    .pending
-                    .values()
-                    .any(|(r, _)| matches!(r, Request::Recover(_)));
-                if !asking_recover {
-                    for hash in self.recovering.clone() {
-                        self.send(Request::Recover(hash), effects);
-                    }
-                }
+                self.ask_recover(effects);
             }
             Phase::Unfunded
             | Phase::Starting {
@@ -864,6 +864,31 @@ impl XrplScheme {
         });
     }
 
+    /// Asks for the outcome of a restart's settlements not asked for yet,
+    /// up to [`MAX_RECOVER_ASKING`] at a time.
+    fn ask_recover(&mut self, effects: &mut Vec<Effect>) {
+        let asked = |pending: &BTreeMap<u64, (Request, u64)>, hash: &[u8; 32]| {
+            pending
+                .values()
+                .any(|(request, _)| *request == Request::Recover(*hash))
+        };
+        for index in 0..self.recovering.len() {
+            let asking = self
+                .pending
+                .values()
+                .filter(|(request, _)| matches!(request, Request::Recover(_)))
+                .count();
+            if asking >= MAX_RECOVER_ASKING || self.phase != Phase::Synced {
+                return;
+            }
+            if let Some(&hash) = self.recovering.get(index)
+                && !asked(&self.pending, &hash)
+            {
+                self.send(Request::Recover(hash), effects);
+            }
+        }
+    }
+
     /// Whether the amounts `record` names for the account fit the books.
     fn bookable_record(&self, record: &TxRecord) -> bool {
         let change = record.change_of(self.account());
@@ -1025,7 +1050,14 @@ impl XrplScheme {
             self.recovering
                 .push(from_hex(hash.as_str()?)?.try_into().ok()?);
         }
-        Some(())
+        // Each settlement once, in flight or looked for, and every one in
+        // flight below the next sequence: what the scheme writes.
+        let mut seen = BTreeSet::new();
+        let distinct = (self.in_flight.iter().map(|t| t.hash))
+            .chain(self.recovering.iter().copied())
+            .all(|hash| seen.insert(hash));
+        let ordered = self.in_flight.iter().all(|t| t.sequence < self.sequence);
+        (distinct && ordered).then_some(())
     }
 }
 
@@ -1244,6 +1276,7 @@ impl SettlementScheme for XrplScheme {
             .saturating_sub(in_flight);
         let ready = self.phase == Phase::Synced
             && self.failed.is_none()
+            && self.sequence < u32::MAX
             && self.in_flight.len() < MAX_IN_FLIGHT
             && self.sequence > 0
             && drops > 0

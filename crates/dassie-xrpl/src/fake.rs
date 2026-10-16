@@ -203,6 +203,14 @@ impl FakeLedger {
         });
     }
 
+    /// Sets the sequence `account` uses next, as for an account that has
+    /// sent all but the last few transactions it ever can.
+    pub fn set_sequence(&mut self, account: AccountId, sequence: u32) {
+        if let Some(account) = self.accounts.get_mut(&account) {
+            account.sequence = sequence;
+        }
+    }
+
     /// The faucet: funds `to` in the next ledger.
     pub fn fund(&mut self, to: AccountId) {
         self.deposit(to, FAUCET_DROPS);
