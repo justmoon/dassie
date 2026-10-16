@@ -499,7 +499,9 @@ settle balance − midpoint when balance ≥ midpoint · 1.1; on termination, se
 
 **Packets.** A Prepare that surely did not reach its peer (a refused connection, or 400, 401, 409 or 503 in reply) is rejected at once. One that may have reached it is left to expire. A Reject for a peer, or a Fulfill of a packet that moved no money, is sent again, every second, until it arrives or 30 s have passed; one that never arrives has the effect of expiry. A Fulfill for a peer is sent until the peer's verdict comes back ([D17](08-decisions.md#d17-the-upstream-decides-whether-a-fulfill-counted)): `accepted` or `refused`, in the reply's body, which is what the books follow. A Fulfill or Reject is accepted from any node we hold a settlement channel with, peered or not, since a verdict may still be owed after the peering ended.
 
-**Outbound requests** go only to `https` URLs. Requests to private, loopback, link-local or similar addresses are refused, after DNS resolution, unless the operator allows them (for dev and tests). The node never follows redirects.
+**Outbound requests** go only to `https` URLs. Requests to private, loopback, link-local or similar addresses are refused, after DNS resolution, unless the operator allows them (for dev and tests, `DASSIE_PEER_ALLOW_PRIVATE`). The node never follows redirects.
+
+**Dev switches warn on a public node.** `DASSIE_PEER_ALLOW_PRIVATE`, and `DASSIE_DEV_TIMINGS` (the dev timers below), are plain environment variables. If either is set while a listener is bound beyond loopback, the daemon warns at startup and names it. An unspecified address (`0.0.0.0`, `::`) counts as beyond loopback. The address is the one actually bound, whether `--listen`, the standalone default or systemd's socket chose it. Dev and the tests listen on loopback, so they stay quiet.
 
 **Timers and limits.** All of these are configurable; the values in brackets are dev settings.
 
