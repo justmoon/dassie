@@ -29,7 +29,7 @@ use instant_acme::{
     Account, AccountCredentials, AuthorizationStatus, BodyWrapper, BytesResponse, ChallengeType,
     HttpClient, Identifier, NewAccount, NewOrder, Order, OrderStatus, RetryPolicy,
 };
-use rcgen::{CertificateParams, KeyPair, PKCS_ECDSA_P256_SHA256};
+use rcgen::{CertificateParams, DistinguishedName, KeyPair, PKCS_ECDSA_P256_SHA256};
 use rustls::RootCertStore;
 use rustls::pki_types::CertificateDer;
 use rustls::pki_types::pem::PemObject;
@@ -324,11 +324,8 @@ pub async fn order_certificate(
     progress(Step::Finalizing);
     let internal = |error: rcgen::Error| AcmeError::Internal(error.to_string());
     let key = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256).map_err(internal)?;
-    let request = CertificateParams::new(vec![context.hostname.as_str().to_string()])
-        .map_err(internal)?
-        .serialize_request(&key)
-        .map_err(internal)?;
-    order.finalize_csr(request.der()).await?;
+    let request = signing_request(context.hostname.as_str(), &key).map_err(internal)?;
+    order.finalize_csr(&request).await?;
     progress(Step::Downloading);
     let chain_pem = order.poll_certificate(&retries).await?;
     drop(published);
@@ -337,6 +334,17 @@ pub async fn order_certificate(
         chain_pem,
         key_pem: key.serialize_pem(),
     })
+}
+
+/// The CSR for `hostname`, as DER: the name only in its subject alternative
+/// names, with an empty subject. rcgen's default subject is the common name
+/// "rcgen self signed cert", which Let's Encrypt refuses as an identifier
+/// (Pebble does not look); a common name would also cap the hostname at 64
+/// bytes.
+fn signing_request(hostname: &str, key: &KeyPair) -> Result<Vec<u8>, rcgen::Error> {
+    let mut params = CertificateParams::new(vec![hostname.to_string()])?;
+    params.distinguished_name = DistinguishedName::new();
+    Ok(params.serialize_request(key)?.der().to_vec())
 }
 
 /// Publishes the http-01 key authorization of every pending authorization
@@ -390,6 +398,20 @@ mod tests {
     #![allow(clippy::unwrap_used)]
 
     use super::*;
+
+    // Let's Encrypt refused the CSR's default subject, "rcgen self signed
+    // cert", as an invalid identifier. The subject is now the empty
+    // sequence (0x30 0x00), right after the version (0x02 0x01 0x00), and
+    // the hostname is only in the SAN.
+    #[test]
+    fn the_signing_request_has_an_empty_subject() {
+        let key = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256).unwrap();
+        let der = signing_request("boot1.dassie.xyz", &key).unwrap();
+        let contains = |needle: &[u8]| der.windows(needle.len()).any(|w| w == needle);
+        assert!(contains(&[0x02, 0x01, 0x00, 0x30, 0x00]));
+        assert!(!contains(b"rcgen"));
+        assert!(contains(b"boot1.dassie.xyz"));
+    }
 
     // A server that accepts and then says nothing once held an order, and
     // with it every later order, for ever.
