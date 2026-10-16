@@ -11,6 +11,7 @@ export const PAGES = [
   { path: "/", title: "Home" },
   { path: "/guides/quick-start/", title: "Quick Start" },
   { path: "/tools/stream-toy/", title: "STREAM Toy" },
+  { path: "/architecture/", title: "Architecture" },
 ] as const;
 
 export const GITHUB = "https://github.com/justmoon/dassie";

@@ -1,14 +1,16 @@
 # Notes for agents
 
-## Keep the progress map current
+## Keep the architecture page current
 
-The [Dassie Rewrite Map](https://claude.ai/artifact/Jiuea7GeGTv2vgY6xsLyJH) shows the milestones of [spec 7 §8](spec/07-rewrite.md#8-milestones) and the components they built. Its page draws everything from its artifact database and redraws for open viewers as soon as the data changes. So never republish the page to update it. Write the database with the `ArtifactData` tool instead.
+[dassie.land/architecture/](https://dassie.land/architecture/) shows how Dassie is built: its crates, apps, packages and contracts, how they connect, journeys through them, how they are tested, and a short changelog per release. The page draws everything from [`apps/website/src/architecture/map.json`](apps/website/src/architecture/map.json). It describes what is on `main`, not how it got there, so it carries no history beyond the releases.
 
-When you open a milestone's PR, and again once it merges:
+Update `map.json` in the same PR as the change it describes:
 
-1. Read `map/state`. It is one document: `milestones` keyed by milestone (`status` is `planned`, `wip` or `done`, and `touched` lists component ids), `components` keyed by id (`st` uses the same three values, plus position, size and text), `edges`, `facts`, `lede*`, `asOf` and `source`.
-2. Change what the milestone changed. A milestone that starts gets its own colour (`c`: `--m6` to `--m9`), and its components move from `planned` to `wip`. New crates or apps get a box and their edges. A merge sets `done`, `when` (for example "Merged Oct 20 · PR #42") and `short`, and refreshes `facts`, `asOf`, `source` and the line and test counts of what changed. Then write it back with `if_version`.
-3. Add `updates/<yyyy-mm-dd>-<milestone>` with `{at, milestone, kind: "started" | "merged", text}`, where `text` is one sentence.
+- **A crate, app, package or contract is added, removed or renamed:** add, remove or rename its box in `components` (with its `path`, a short `label`, its subsystem `sub`, a position in a layer, `desc` and `does`), and its `edges`. Keep the boxes apart and inside their layer; to make room, move others.
+- **What a part does, or what it builds on, changes:** update its `desc`, `does` and `edges`, and any journey in `flows` that passes through it.
+- **A release is tagged:** add an entry at the top of `releases`, `{version, date, changes}`, with a few sentences on what people get, in plain words. Wrap commands and paths in backticks.
+
+Write for someone new to Dassie, in the present tense, and leave out milestones, PR numbers and counts that go stale. `map_test.ts` fails when a crate, app, package or contract has no box, when a path or id is wrong, when boxes overlap or leave their layer, and when the newest release is not the version in `crates/dassie-cli/Cargo.toml`. Run it with `node --test apps/website/src/architecture/map_test.ts`.
 
 ## Workflow
 

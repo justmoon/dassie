@@ -1,7 +1,8 @@
 // dassie.land in a headless browser: the built site (`node --run
 // build:website`), served with the headers and trailing slashes of its
-// vercel.json, so its CSP applies. The STREAM toy runs a payment on the
-// WASM STREAM implementation to the end.
+// vercel.json, so its CSP applies. The architecture map draws and answers
+// clicks, and the STREAM toy runs a payment on the WASM STREAM
+// implementation to the end.
 
 import { test } from "node:test";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
@@ -160,6 +161,42 @@ test("dassie.land: the pages, and a STREAM payment in the toy", {
         getComputedStyle(document.querySelector("pre")!).borderStyle
       );
       assertEquals(background, "solid");
+      assertEquals(problems, []);
+    });
+
+    await t.test("the architecture map shows a journey and a box", async () => {
+      const map = JSON.parse(
+        await readFile(join(site, "src/architecture/map.json"), "utf8"),
+      ) as {
+        components: object;
+        flows: { title: string }[];
+        releases: object[];
+      };
+      await page.goto(`${base}/architecture/`, { waitUntil: "load" });
+      assertEquals(await text(page, "panel-title"), "How to read the map");
+      assertEquals(
+        await count(page, "box"),
+        Object.keys(map.components).length,
+      );
+      assertEquals(await count(page, "release"), map.releases.length);
+
+      await click(page, "journey");
+      assertEquals(await text(page, "panel-title"), map.flows[0].title);
+      // A box is an SVG group, which has no click(): a click event stands in.
+      await page.evaluate(() =>
+        document.querySelector('[data-testid="box"][data-id="node"]')!
+          .dispatchEvent(new MouseEvent("click", { bubbles: true }))
+      );
+      await until(
+        page,
+        "the panel shows the node",
+        () => text(page, "panel-title"),
+        (title) => title === "dassie-node",
+      );
+      const selected = await page.evaluate(() =>
+        document.querySelector('[data-id="node"]')!.classList.contains("sel")
+      );
+      assert(selected);
       assertEquals(problems, []);
     });
 

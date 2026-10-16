@@ -400,3 +400,518 @@ pre code {
     grid-column: 1 / 3;
   }
 }
+
+/* Architecture: the layered map with its detail panel, then how Dassie is
+ * tested and its releases. Each subsystem has a colour, and a class
+ * `sub-…` sets `--c` to it, since the CSP allows no style attribute. Text
+ * stays at 15px or more, the map's included at common widths. */
+:root {
+  --sub-interfaces: light-dark(#2d6cae, #6ea6e4);
+  --sub-node: light-dark(#23866a, #55c39b);
+  --sub-money: light-dark(#a86c12, #e0a54a);
+  --sub-protocols: light-dark(#7d4bb5, #b18be6);
+  --sub-tooling: light-dark(#bb3f55, #ec7f90);
+  --edge: light-dark(#71717a, #8a8a93);
+}
+
+.sub-interfaces {
+  --c: var(--sub-interfaces);
+}
+
+.sub-node {
+  --c: var(--sub-node);
+}
+
+.sub-money {
+  --c: var(--sub-money);
+}
+
+.sub-protocols {
+  --c: var(--sub-protocols);
+}
+
+.sub-tooling {
+  --c: var(--sub-tooling);
+}
+
+/* The map and its panel need more room than the other pages. */
+.site-main.architecture,
+body:has(> .site-main.architecture) .site-header,
+body:has(> .site-main.architecture) .site-footer {
+  max-width: 1380px;
+}
+
+.architecture {
+  font-size: 1.0625rem;
+  line-height: 1.6;
+}
+
+.architecture h1 {
+  font-size: clamp(2rem, 5vw, 2.6rem);
+  margin: 16px 0 12px;
+}
+
+.architecture p {
+  margin: 0;
+}
+
+.architecture code {
+  padding: 1px 4px;
+  font-family: var(--mono);
+  font-size: 0.9em;
+  white-space: nowrap;
+  background: var(--surface-2);
+  border-radius: 4px;
+}
+
+.architecture .muted {
+  color: var(--muted);
+}
+
+.architecture .intro {
+  display: grid;
+  gap: 12px;
+  max-width: 68ch;
+  font-size: 1.125rem;
+}
+
+/* The toolbar */
+.architecture .toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 32px 0 14px;
+  font-size: 0.9375rem;
+}
+
+.architecture .toolbar .label {
+  color: var(--muted);
+}
+
+.architecture .journey {
+  padding: 7px 14px;
+  font-weight: 500;
+  background: var(--surface);
+  border-radius: 999px;
+}
+
+.architecture .journey[aria-pressed="true"] {
+  color: var(--bg);
+  background: var(--text);
+  border-color: var(--text);
+}
+
+.architecture .clear {
+  padding: 7px 4px;
+  font-weight: 400;
+  color: var(--muted);
+  text-decoration: underline;
+  border: 0;
+}
+
+.architecture .every {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 0 auto;
+  font-weight: 400;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.architecture .every input {
+  width: auto;
+}
+
+@media (max-width: 620px) {
+  .architecture .every {
+    margin-left: 0;
+  }
+}
+
+/* The map and its panel */
+.architecture .stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 26vw, 380px);
+  align-items: start;
+  gap: 18px;
+}
+
+.architecture .mapbox {
+  min-width: 0;
+  overflow-x: auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.architecture .mapbox > svg {
+  display: block;
+  width: 100%;
+  min-width: 860px;
+  height: auto;
+  font-family: var(--font);
+}
+
+.architecture .panel {
+  position: sticky;
+  top: 12px;
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  max-height: calc(100vh - 24px);
+  padding: 20px;
+  overflow-y: auto;
+  font-size: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.architecture .panel h2 {
+  margin: 0;
+  font-size: 1.375rem;
+  line-height: 1.3;
+}
+
+.architecture .panel h3 {
+  margin: 0 0 6px;
+  font-size: 1rem;
+}
+
+@media (max-width: 1180px) {
+  .architecture .stage {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .architecture .panel {
+    position: static;
+    max-height: none;
+  }
+}
+
+.architecture .band {
+  fill: var(--surface-2);
+}
+
+.architecture .bandt {
+  paint-order: stroke;
+  stroke: var(--surface-2);
+  stroke-width: 6px;
+  stroke-linejoin: round;
+}
+
+.architecture .bandl {
+  fill: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.architecture .bands {
+  fill: var(--muted);
+  font-size: 14px;
+}
+
+.architecture .note {
+  fill: var(--muted);
+  font-size: 14px;
+  font-style: italic;
+  paint-order: stroke;
+  stroke: var(--surface-2);
+  stroke-width: 6px;
+  stroke-linejoin: round;
+}
+
+.architecture .box {
+  cursor: pointer;
+  transition: opacity 0.18s;
+}
+
+.architecture .box:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.architecture .bx {
+  fill: color-mix(in srgb, var(--c) 10%, var(--surface));
+  stroke: var(--c);
+  stroke-width: 1.5;
+  transition: stroke-width 0.15s;
+}
+
+.architecture .box:hover .bx {
+  stroke-width: 2.5;
+}
+
+.architecture .box.sel .bx {
+  stroke-width: 3.5;
+}
+
+.architecture .box.dim {
+  opacity: 0.22;
+}
+
+.architecture .nm {
+  fill: var(--text);
+  font: 600 16px var(--mono);
+}
+
+.architecture .lb {
+  fill: var(--muted);
+  font-size: 14px;
+}
+
+.architecture .step circle {
+  fill: var(--text);
+}
+
+.architecture .step text {
+  fill: var(--surface);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.architecture .edge {
+  fill: none;
+  stroke: var(--edge);
+  stroke-width: 1.4;
+  transition: opacity 0.18s;
+}
+
+.architecture .edge.talks {
+  stroke-dasharray: 2 3;
+}
+
+.architecture .edge.wasm {
+  stroke-dasharray: 7 4;
+}
+
+.architecture .edge.runs {
+  stroke-dasharray: 10 3 2 3;
+}
+
+.architecture .edge.off {
+  opacity: 0;
+}
+
+.architecture .edge.dim {
+  opacity: 0.1;
+}
+
+.architecture .edge.hi {
+  stroke: var(--text);
+  stroke-width: 2.2;
+  opacity: 1;
+}
+
+.architecture .arrow {
+  fill: var(--edge);
+}
+
+.architecture .arrow-hi {
+  fill: var(--text);
+}
+
+/* The panel's content */
+.architecture .pname {
+  font-family: var(--mono);
+  word-break: break-all;
+}
+
+.architecture .tag {
+  display: inline-block;
+  margin-bottom: 6px;
+  padding: 1px 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--c) 14%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--c) 50%, var(--surface));
+  border-radius: 999px;
+}
+
+.architecture .chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.architecture .chipbtn {
+  padding: 4px 10px;
+  font-family: var(--mono);
+  font-size: 0.875rem;
+  font-weight: 500;
+  background: color-mix(in srgb, var(--c, var(--muted)) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--c, var(--muted)) 50%, var(--surface));
+  border-radius: 6px;
+}
+
+.architecture .chipbtn:hover {
+  border-color: var(--c, var(--text));
+}
+
+.architecture .panel ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.architecture .panel ol {
+  display: grid;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+
+.architecture .panel ol li {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.architecture .panel ol li::before {
+  counter-increment: step;
+  content: counter(step);
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--surface);
+  background: var(--text);
+  border-radius: 50%;
+}
+
+.architecture .panel ol .chips {
+  margin-bottom: 6px;
+}
+
+.architecture .panel .legend {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  list-style: none;
+}
+
+.architecture .legend li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.architecture .legend.lines li {
+  align-items: center;
+}
+
+.architecture .legend svg {
+  flex: none;
+}
+
+.architecture .sw {
+  flex: none;
+  width: 22px;
+  height: 14px;
+  background: color-mix(in srgb, var(--c) 10%, var(--surface));
+  border: 1.5px solid var(--c);
+  border-radius: 3px;
+  transform: translateY(2px);
+}
+
+/* Below the map */
+.architecture .more {
+  display: grid;
+  gap: 18px;
+  margin-top: 56px;
+}
+
+.architecture .more h2 {
+  margin: 0;
+  font-size: 1.6rem;
+}
+
+.architecture .lead {
+  max-width: 68ch;
+}
+
+.architecture .tests {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 14px;
+}
+
+.architecture .tcard {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 18px 20px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.architecture .tcard h3 {
+  margin: 0;
+  font-size: 1.125rem;
+}
+
+.architecture .ev {
+  font-family: var(--mono);
+  font-size: 0.875rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.architecture .releases {
+  display: grid;
+  max-width: 76ch;
+  border-top: 1px solid var(--line);
+}
+
+.architecture .release {
+  padding: 18px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.architecture .release h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  margin: 0 0 8px;
+  font-family: var(--mono);
+  font-size: 1.25rem;
+}
+
+.architecture .release time {
+  font-family: var(--font);
+  font-size: 1rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.architecture .release ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 22px;
+}
+
+.architecture .foot {
+  max-width: 68ch;
+  margin-top: 48px;
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .architecture .box,
+  .architecture .bx,
+  .architecture .edge {
+    transition: none;
+  }
+}

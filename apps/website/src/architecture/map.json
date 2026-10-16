@@ -1,0 +1,1184 @@
+{
+  "intro": [
+    "Dassie is one Rust binary that runs a payment node, plus the web apps and tools around it. The binary finds other nodes, routes Interledger payments through them, keeps its books and settles with its peers on a real ledger.",
+    "Almost all of its logic lives in sans-IO crates: state machines that take inputs and the time, and return outputs. Only one crate, dassie-node, touches sockets, the disk and the clock. That is what lets a whole network of nodes run in one test process, the same way every time."
+  ],
+  "subsystems": [
+    {
+      "id": "interfaces",
+      "name": "Interfaces",
+      "desc": "What people use: the wallet and this website, and the contract and client the wallet talks to the node through."
+    },
+    {
+      "id": "node",
+      "name": "The node",
+      "desc": "The binary, its daemon, the decisions it makes, and how it ships and updates itself."
+    },
+    {
+      "id": "money",
+      "name": "Routing and money",
+      "desc": "Finding peers, routing packets, keeping the books and settling them."
+    },
+    {
+      "id": "protocols",
+      "name": "Protocols",
+      "desc": "The wire formats and the keys every other part builds on."
+    },
+    {
+      "id": "tooling",
+      "name": "Tooling and tests",
+      "desc": "The local network for development, and the tests that run real binaries."
+    }
+  ],
+  "viewBox": {
+    "w": 1000,
+    "h": 918
+  },
+  "bands": [
+    {
+      "t": "In the browser",
+      "s": "TypeScript · Solid 2",
+      "x": 8,
+      "y": 8,
+      "w": 600,
+      "h": 230
+    },
+    {
+      "t": "Developer tooling",
+      "s": "TypeScript · Node",
+      "x": 624,
+      "y": 8,
+      "w": 368,
+      "h": 230
+    },
+    {
+      "t": "Contracts",
+      "s": "protobuf · both sides generated",
+      "x": 8,
+      "y": 254,
+      "w": 984,
+      "h": 116
+    },
+    {
+      "t": "The dassie binary",
+      "s": "Rust · the only layer with sockets, disk and a clock",
+      "x": 8,
+      "y": 386,
+      "w": 984,
+      "h": 134
+    },
+    {
+      "t": "Sans-IO cores",
+      "s": "Rust · pure state machines · simulated from a seed",
+      "x": 8,
+      "y": 536,
+      "w": 984,
+      "h": 374
+    }
+  ],
+  "notes": [
+    {
+      "text": "compiled from the Rust cores ↓",
+      "x": 596,
+      "y": 226,
+      "anchor": "end"
+    },
+    {
+      "text": "builds on every core crate below ↓",
+      "x": 786,
+      "y": 508,
+      "anchor": "end"
+    }
+  ],
+  "components": {
+    "wallet": {
+      "name": "apps/wallet",
+      "path": "apps/wallet",
+      "label": "the owner's web app",
+      "sub": "interfaces",
+      "x": 20,
+      "y": 48,
+      "w": 180,
+      "desc": "The web app the node's owner runs it from, built into the dassie binary. The owner's 24-word phrase is checked and turned into keys right in the browser, and never sent to the node.",
+      "does": [
+        "Setup and login",
+        "Accounts and ledgers, sending and receiving, payment status and activity",
+        "Wallet addresses and payment requests for Open Payments",
+        "The consent page for apps, the apps it has let in, and their grants",
+        "Peers and bans, what each peer cost, and the node's settings",
+        "Debug pages, and live data over RPC streams everywhere"
+      ]
+    },
+    "dashboard": {
+      "name": "apps/dev-dashboard",
+      "path": "apps/dev-dashboard",
+      "label": "dev network dashboard",
+      "sub": "tooling",
+      "x": 210,
+      "y": 48,
+      "w": 200,
+      "desc": "The dashboard of the local development network. It shows every node at once and opens any node's debug pages.",
+      "does": [
+        "Pick or switch a scenario, add a node",
+        "A graph of all nodes and their peerings",
+        "The logs of the dev server and every node, merged",
+        "Each node's pages, reached through a relay to its IPC socket"
+      ]
+    },
+    "website": {
+      "name": "apps/website",
+      "path": "apps/website",
+      "label": "dassie.land",
+      "sub": "interfaces",
+      "x": 420,
+      "y": 48,
+      "w": 176,
+      "desc": "This website: static pages built by Vite and deployed by Vercel, under a strict content security policy.",
+      "does": [
+        "The home page and the Quick Start",
+        "This architecture page, drawn from one data file",
+        "The STREAM toy: Dassie's own STREAM code, compiled to WebAssembly, sends a payment over a simulated network",
+        "Its packet log decrypts every STREAM packet"
+      ]
+    },
+    "ui": {
+      "name": "packages/ui",
+      "path": "packages/ui",
+      "label": "shared Solid UI",
+      "sub": "interfaces",
+      "x": 20,
+      "y": 144,
+      "w": 150,
+      "desc": "The building blocks the wallet, the dev dashboard and the STREAM toy share.",
+      "does": [
+        "Amounts in any currency",
+        "A log viewer with filters",
+        "The network graph and its layout",
+        "Debug pages, the router and the theme",
+        "Live data: RPC snapshots and changes, turned into Solid signals and stores"
+      ]
+    },
+    "rpc": {
+      "name": "packages/rpc",
+      "path": "packages/rpc",
+      "label": "RPC client",
+      "sub": "interfaces",
+      "x": 180,
+      "y": 144,
+      "w": 160,
+      "desc": "The TypeScript client for the node's RPC contract, generated from the protobuf files. A test fails if the generated code is stale.",
+      "does": [
+        "Over a WebSocket in browsers",
+        "Over the node's IPC socket in Node",
+        "Cancels calls and streams, and follows a reconnect"
+      ]
+    },
+    "identity-wasm": {
+      "name": "packages/identity-wasm",
+      "path": "packages/identity-wasm",
+      "label": "Rust cores in WebAssembly",
+      "sub": "protocols",
+      "x": 350,
+      "y": 144,
+      "w": 246,
+      "desc": "The Rust core crates compiled to WebAssembly, with TypeScript bindings: one build for browsers and Node. The wallet derives keys with exactly the code the node runs.",
+      "does": [
+        "Identity: phrase to node key, node ID and login proof",
+        "ILP packets and STREAM, with a STREAM driver for interop tests",
+        "Decrypting STREAM packets, for the STREAM toy",
+        "The phrase for a given entropy, for the dev network's vanity nodes"
+      ]
+    },
+    "apps-dev": {
+      "name": "apps/dev",
+      "path": "apps/dev",
+      "label": "local dev network",
+      "sub": "tooling",
+      "x": 636,
+      "y": 48,
+      "w": 167,
+      "desc": "`node --run dev`: a network of real dassie nodes on one machine, so development runs the same code that ships.",
+      "does": [
+        "Builds the binary, starts the nodes on `dN.localhost` and restarts them when the Rust code changes",
+        "An SNI proxy on port 443, local certificates, vanity node identities, a rates server",
+        "Sets nodes up through their own RPC, the same way the end-to-end tests do",
+        "The scenario library: one node, two, six, and the XRP Ledger ones"
+      ]
+    },
+    "e2e": {
+      "name": "tests/e2e",
+      "path": "tests/e2e",
+      "label": "real binaries",
+      "sub": "tooling",
+      "x": 813,
+      "y": 48,
+      "w": 167,
+      "desc": "End-to-end tests that run the real dassie binary, with real sockets. They check the IO layer the simulations replace.",
+      "does": [
+        "A fresh install through `dassie init` and browser setup, with Pebble as the certificate authority",
+        "BTP payments, and the two-node and six-node scenarios settling every hop",
+        "Open Payments, including a third party's full flow with consent in the wallet",
+        "XRP Ledger settlement and payments across currencies",
+        "The wallet, the dev dashboard and dassie.land in a browser",
+        "The installer and the updater on Debian, Ubuntu, Fedora and CentOS, in containers"
+      ]
+    },
+    "interop": {
+      "name": "tests/interop",
+      "path": "tests/interop",
+      "label": "vs. other code",
+      "sub": "tooling",
+      "x": 813,
+      "y": 144,
+      "w": 167,
+      "desc": "Checks Dassie against independent implementations of the same standards.",
+      "does": [
+        "dassie-stream, native and in WebAssembly, against the npm `ilp-protocol-stream`, both ways",
+        "Golden vectors through the WebAssembly build",
+        "The WebAssembly modules in a browser",
+        "A stopped peer still answers correctly"
+      ]
+    },
+    "proto-ui": {
+      "name": "proto/dassie/ui/v1",
+      "path": "proto/dassie/ui/v1",
+      "label": "the owner's RPC contract: calls and live streams",
+      "sub": "interfaces",
+      "x": 20,
+      "y": 294,
+      "w": 576,
+      "desc": "The contract between a node and its owner's clients, written in protobuf. Rust and TypeScript are both generated from it, so a change starts here.",
+      "does": [
+        "Config, TLS, certificates and sessions",
+        "Ledgers, BTP tokens, payments and debug data",
+        "Nodes, peers, routes, settlements and bans",
+        "Wallet addresses, payments, grants and Send",
+        "`Subscribe*` streams: a snapshot, then changes, at most 4 a second",
+        "Carried over a WebSocket (browsers) or the IPC socket (the CLI and Node), at most 1 MiB a message"
+      ]
+    },
+    "proto-dev": {
+      "name": "proto/dassie/dev/v1",
+      "path": "proto/dassie/dev/v1",
+      "label": "the dev network's control channel",
+      "sub": "tooling",
+      "x": 636,
+      "y": 294,
+      "w": 344,
+      "desc": "The contract between the dev server and its dashboard: scenarios, nodes and logs. Everything stays on loopback, on one origin.",
+      "does": [
+        "List and switch scenarios, add nodes, reset",
+        "Relays the dashboard to each node's IPC socket, so no node accepts a dev token"
+      ]
+    },
+    "cli": {
+      "name": "dassie-cli",
+      "path": "crates/dassie-cli",
+      "label": "the dassie binary",
+      "sub": "node",
+      "x": 20,
+      "y": 426,
+      "w": 184,
+      "desc": "The one binary that is the product, with the wallet built in. Everything a node owner runs is a subcommand of it.",
+      "does": [
+        "`dassie daemon`: standalone, or socket-activated by systemd",
+        "`dassie init`: the domain name and the certificate, then a URL to finish setup in the browser",
+        "`dassie status`, and `dassie setup-url` to print that URL again",
+        "`dassie update`: fetches, verifies and switches to a newer release, and goes back if it does not start",
+        "`dassie verify-install`, which also names the release key"
+      ]
+    },
+    "node": {
+      "name": "dassie-node",
+      "path": "crates/dassie-node",
+      "label": "the daemon: database, sockets, TLS, RPC, the engine, Open Payments",
+      "sub": "node",
+      "x": 214,
+      "y": 426,
+      "w": 572,
+      "desc": "The only part that does IO. It wires the sans-IO cores below to sockets, the database and the clock. Every service is a supervised task that restarts with backoff if it fails.",
+      "does": [
+        "The database and its migrations, HTTPS and IPC listeners, TLS and ACME, the owner's login",
+        "The engine: ledger, connector, BTP server and STREAM receiver",
+        "The peer protocol, served as `POST /peer`, with its HTTPS client and the settlement loop",
+        "RPC with live streams, the log ring, the database inspector and `GET /stats`",
+        "Open Payments over HTTPS: wallet addresses, incoming payments, the GNAP authorization server, quotes and outgoing payments",
+        "Exchange rates, fetched from several sources, and a grace limit per peer with automatic bans",
+        "Simulated in tests as a network of real engine cores, crashes mid-payment included"
+      ]
+    },
+    "release": {
+      "name": "release",
+      "path": "resources",
+      "label": "installer & updater",
+      "sub": "node",
+      "x": 796,
+      "y": 426,
+      "w": 184,
+      "desc": "How Dassie ships: Nix builds static binaries for x64 and arm64 with the wallet inside, CI signs and publishes them to get.dassie.land, and systemd runs the node and updates it every day.",
+      "does": [
+        "Static musl binaries, deterministic bundles and the mirror tree, built by Nix",
+        "`SHA256SUMS`, signed with minisign; the signature names the version",
+        "A release for each version tag, checked by dassie-release before it is published",
+        "`install.sh`, and systemd units for the node, its sockets and the daily update",
+        "Installs, updates and uninstalls, tested on four Linux distributions"
+      ]
+    },
+    "xrpl": {
+      "name": "dassie-xrpl",
+      "path": "crates/dassie-xrpl",
+      "label": "XRP Ledger settlement",
+      "sub": "money",
+      "x": 20,
+      "y": 576,
+      "w": 184,
+      "desc": "The XRP Ledger testnet as a settlement scheme: the wallet, the Payment codec, the rippled API, and the scheme that books what the ledger says. A fake ledger serves the tests and the dev network.",
+      "does": [
+        "Derives the node's XRP Ledger wallet from its key, so the same phrase finds the same funds",
+        "Signs Payments byte for byte as `xrpl.js` does",
+        "Books every validated transaction once: settlements, deposits, withdrawals and fees",
+        "Never books the reserve, and catches up after a restart"
+      ]
+    },
+    "settlement": {
+      "name": "dassie-settlement",
+      "path": "crates/dassie-settlement",
+      "label": "when & how to settle",
+      "sub": "money",
+      "x": 214,
+      "y": 576,
+      "w": 184,
+      "desc": "Where real-world ledgers plug in. A settlement scheme moves actual money, and this crate decides when that is due.",
+      "does": [
+        "The scheme interface, and when a scheme is active",
+        "The stub scheme: 100 test USD, so everything works without a real ledger",
+        "The settlement policy: settle once a node owes a peer more than a threshold",
+        "Reconciling settlements still pending after a restart"
+      ]
+    },
+    "peer": {
+      "name": "dassie-peer",
+      "path": "crates/dassie-peer",
+      "label": "node-to-node protocol",
+      "sub": "money",
+      "x": 408,
+      "y": 576,
+      "w": 184,
+      "desc": "Peer protocol v1: how Dassie nodes find each other, peer and stay in sync.",
+      "does": [
+        "The wire format and message authentication",
+        "The node table, link-state flooding, membership by majority and registration",
+        "Peering on its own, and routing",
+        "Delivering settlements, ending peerings, bans",
+        "Verdicts on Fulfills: the upstream peer decides whether one counted"
+      ]
+    },
+    "connector": {
+      "name": "dassie-connector",
+      "path": "crates/dassie-connector",
+      "label": "routes ILP packets",
+      "sub": "money",
+      "x": 602,
+      "y": 576,
+      "w": 184,
+      "desc": "The Interledger connector. A packet comes in from an endpoint; the connector picks a route, reserves the amount in the ledger, and settles the outcome when the answer comes back.",
+      "does": [
+        "Endpoints: BTP clients, the local STREAM receiver, ILDCP",
+        "Peers and the route table",
+        "Exchange between currencies, with fees and a spread",
+        "A spending cap per BTP token",
+        "A packet trace for the debug pages"
+      ]
+    },
+    "release-crate": {
+      "name": "dassie-release",
+      "path": "crates/dassie-release",
+      "label": "trusting a release",
+      "sub": "node",
+      "x": 796,
+      "y": 576,
+      "w": 184,
+      "desc": "What a release is and how to trust one: versions and channels, the mirror's layout, `SHA256SUMS` and its minisign signature. The updater and the release workflow both trust a release through it.",
+      "does": [
+        "Versions that are safe as directory names",
+        "Moves on its own only to a later version of the same channel",
+        "Checks minisign signatures strictly; the signature must name the version",
+        "Reads `SHA256SUMS` only once it is verified, with every parser bounded",
+        "Unpacks only plain files under `dassie/`"
+      ]
+    },
+    "payments": {
+      "name": "dassie-payments",
+      "path": "crates/dassie-payments",
+      "label": "Open Payments",
+      "sub": "money",
+      "x": 20,
+      "y": 662,
+      "w": 184,
+      "desc": "Open Payments without IO: wallet addresses and their resources, GNAP grants, HTTP message signatures, payment pointers. The node serves it over HTTPS.",
+      "does": [
+        "HTTP message signatures (RFC 9421) and content digests (RFC 9530)",
+        "GNAP grant requests, access rules and the interaction hash",
+        "Wallet addresses, incoming payments, quotes and outgoing payments",
+        "Repeating intervals for grant limits",
+        "Payment pointers and recipients, for Send",
+        "Reads no clock, touches no network, needs no other Dassie crate"
+      ]
+    },
+    "ledger": {
+      "name": "dassie-ledger",
+      "path": "crates/dassie-ledger",
+      "label": "double-entry books",
+      "sub": "money",
+      "x": 214,
+      "y": 662,
+      "w": 184,
+      "desc": "The node's books. Every transfer has two sides, every account has limits, and every change is written to a journal.",
+      "does": [
+        "Accounts with credit and debit limits",
+        "Pending, committed and rolled-back transfers",
+        "What each token spent, read from the journal, for spending caps",
+        "The owner's group takes in what the node gains or loses",
+        "Property tests: no transfer breaks a limit, and balances always equal the journal"
+      ]
+    },
+    "node-core": {
+      "name": "dassie-node-core",
+      "path": "crates/dassie-node-core",
+      "label": "the node's decisions",
+      "sub": "node",
+      "x": 408,
+      "y": 662,
+      "w": 184,
+      "desc": "Every decision the node makes, with no IO at all. Each is a function of its inputs, the time and an injected random source, so tests can replay it exactly.",
+      "does": [
+        "Checking the config and the setup",
+        "Login, how long sessions last, and the same-origin rule",
+        "Rate limits",
+        "When to renew the TLS certificate",
+        "A seeded random generator that the other crates' simulations share"
+      ]
+    },
+    "stream": {
+      "name": "dassie-stream",
+      "path": "crates/dassie-stream",
+      "label": "STREAM payments",
+      "sub": "protocols",
+      "x": 796,
+      "y": 662,
+      "w": 184,
+      "desc": "STREAM (Interledger RFC 29) sends money and data in many small ILP packets. Here it is a state machine: inputs go in, packets and timers come out.",
+      "does": [
+        "Connections and a server, packet sizing, exchange-rate probing",
+        "Encryption and receipts as the RFC specifies",
+        "A limit on admission and on money per connection",
+        "Byte-compatible with `ilp-protocol-stream`",
+        "Builds to WebAssembly"
+      ]
+    },
+    "identity": {
+      "name": "dassie-identity",
+      "path": "crates/dassie-identity",
+      "label": "phrase → keys, node ID",
+      "sub": "protocols",
+      "x": 408,
+      "y": 748,
+      "w": 184,
+      "desc": "Turns the owner's 24-word phrase into everything that identifies a node. The same phrase always gives the same node.",
+      "does": [
+        "BIP-39 phrases and seed paths",
+        "The Ed25519 node key, node ID and login secret, and X25519 keys",
+        "Signature checks under the ZIP-215 rules",
+        "Builds to WebAssembly"
+      ]
+    },
+    "ilp": {
+      "name": "dassie-ilp",
+      "path": "crates/dassie-ilp",
+      "label": "ILPv4 & BTP packets",
+      "sub": "protocols",
+      "x": 602,
+      "y": 748,
+      "w": 184,
+      "desc": "The Interledger packet formats. Encoders can write a header in place, so a packet is built without copying.",
+      "does": [
+        "ILPv4 prepare, fulfill and reject",
+        "Addresses, timestamps and error codes",
+        "ILDCP: how a client learns its ILP address",
+        "BTP 2.0 framing",
+        "Builds to WebAssembly"
+      ]
+    },
+    "oer": {
+      "name": "dassie-oer",
+      "path": "crates/dassie-oer",
+      "label": "canonical binary encoding (X.696 OER): every wire format above is written in it",
+      "sub": "protocols",
+      "x": 20,
+      "y": 834,
+      "w": 960,
+      "desc": "The binary encoding all of Dassie's protocols use. It accepts only the canonical form, so each value has exactly one encoding.",
+      "does": [
+        "Encoders, and decoders that do not copy",
+        "Rejects any non-canonical input",
+        "Property tests: round trips, and no panic on any bytes"
+      ]
+    }
+  },
+  "edges": [
+    {
+      "f": "wallet",
+      "t": "ui",
+      "k": "uses",
+      "h": false
+    },
+    {
+      "f": "wallet",
+      "t": "rpc",
+      "k": "uses",
+      "h": false
+    },
+    {
+      "f": "wallet",
+      "t": "identity-wasm",
+      "k": "uses",
+      "h": false
+    },
+    {
+      "f": "dashboard",
+      "t": "ui",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "dashboard",
+      "t": "rpc",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "dashboard",
+      "t": "proto-dev",
+      "k": "talks",
+      "h": true
+    },
+    {
+      "f": "website",
+      "t": "identity-wasm",
+      "k": "uses",
+      "h": false
+    },
+    {
+      "f": "website",
+      "t": "ui",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "ui",
+      "t": "rpc",
+      "k": "uses",
+      "h": false
+    },
+    {
+      "f": "rpc",
+      "t": "proto-ui",
+      "k": "talks",
+      "h": false
+    },
+    {
+      "f": "apps-dev",
+      "t": "proto-dev",
+      "k": "talks",
+      "h": false
+    },
+    {
+      "f": "apps-dev",
+      "t": "rpc",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "apps-dev",
+      "t": "ui",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "apps-dev",
+      "t": "identity-wasm",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "apps-dev",
+      "t": "cli",
+      "k": "runs",
+      "h": true
+    },
+    {
+      "f": "e2e",
+      "t": "apps-dev",
+      "k": "uses",
+      "h": false
+    },
+    {
+      "f": "e2e",
+      "t": "rpc",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "e2e",
+      "t": "identity-wasm",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "e2e",
+      "t": "cli",
+      "k": "runs",
+      "h": true
+    },
+    {
+      "f": "interop",
+      "t": "identity-wasm",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "interop",
+      "t": "stream",
+      "k": "runs",
+      "h": true
+    },
+    {
+      "f": "release",
+      "t": "cli",
+      "k": "runs",
+      "h": true
+    },
+    {
+      "f": "release",
+      "t": "release-crate",
+      "k": "uses",
+      "h": false
+    },
+    {
+      "f": "cli",
+      "t": "proto-ui",
+      "k": "talks",
+      "h": false
+    },
+    {
+      "f": "cli",
+      "t": "node",
+      "k": "uses",
+      "h": false
+    },
+    {
+      "f": "cli",
+      "t": "node-core",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "cli",
+      "t": "release-crate",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "node",
+      "t": "proto-ui",
+      "k": "talks",
+      "h": false
+    },
+    {
+      "f": "node",
+      "t": "xrpl",
+      "k": "uses",
+      "h": false
+    },
+    {
+      "f": "node",
+      "t": "peer",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "node",
+      "t": "connector",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "node",
+      "t": "settlement",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "node",
+      "t": "payments",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "node",
+      "t": "node-core",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "node",
+      "t": "ledger",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "node",
+      "t": "stream",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "node",
+      "t": "identity",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "node",
+      "t": "ilp",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "node",
+      "t": "oer",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "xrpl",
+      "t": "settlement",
+      "k": "uses",
+      "h": false
+    },
+    {
+      "f": "settlement",
+      "t": "ledger",
+      "k": "uses",
+      "h": false
+    },
+    {
+      "f": "settlement",
+      "t": "node-core",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "peer",
+      "t": "node-core",
+      "k": "uses",
+      "h": false
+    },
+    {
+      "f": "peer",
+      "t": "identity",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "peer",
+      "t": "oer",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "connector",
+      "t": "ledger",
+      "k": "uses",
+      "h": false
+    },
+    {
+      "f": "connector",
+      "t": "ilp",
+      "k": "uses",
+      "h": false
+    },
+    {
+      "f": "connector",
+      "t": "node-core",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "connector",
+      "t": "oer",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "stream",
+      "t": "ilp",
+      "k": "uses",
+      "h": false
+    },
+    {
+      "f": "stream",
+      "t": "oer",
+      "k": "uses",
+      "h": false
+    },
+    {
+      "f": "node-core",
+      "t": "identity",
+      "k": "uses",
+      "h": false
+    },
+    {
+      "f": "ilp",
+      "t": "oer",
+      "k": "uses",
+      "h": false
+    },
+    {
+      "f": "identity",
+      "t": "oer",
+      "k": "uses",
+      "h": false
+    },
+    {
+      "f": "identity-wasm",
+      "t": "identity",
+      "k": "wasm",
+      "h": true
+    },
+    {
+      "f": "identity-wasm",
+      "t": "ilp",
+      "k": "wasm",
+      "h": true
+    },
+    {
+      "f": "identity-wasm",
+      "t": "stream",
+      "k": "wasm",
+      "h": true
+    },
+    {
+      "f": "identity-wasm",
+      "t": "oer",
+      "k": "wasm",
+      "h": true
+    }
+  ],
+  "flows": [
+    {
+      "id": "login",
+      "button": "Owner logs in",
+      "title": "The owner logs in",
+      "steps": [
+        {
+          "ids": [
+            "wallet"
+          ],
+          "text": "The owner opens the wallet, which the node serves from inside the dassie binary, and types the 24-word phrase."
+        },
+        {
+          "ids": [
+            "identity-wasm",
+            "identity"
+          ],
+          "text": "The browser derives the node key and a login proof with the node's own Rust code, compiled to WebAssembly. The phrase never leaves the browser."
+        },
+        {
+          "ids": [
+            "node"
+          ],
+          "text": "The wallet sends only the proof over HTTPS. The node checks it and sets a session cookie."
+        },
+        {
+          "ids": [
+            "node-core"
+          ],
+          "text": "Whether the proof is accepted, how long the session lasts, the same-origin rule and the rate limit are all decided here, without IO."
+        },
+        {
+          "ids": [
+            "rpc",
+            "proto-ui"
+          ],
+          "text": "The wallet opens an RPC WebSocket and subscribes to live data such as ledgers, peers and logs."
+        },
+        {
+          "ids": [
+            "ui"
+          ],
+          "text": "Shared components show the first snapshot and keep it current as changes stream in."
+        }
+      ]
+    },
+    {
+      "id": "btp",
+      "button": "A client pays the node",
+      "title": "A BTP client pays the node",
+      "steps": [
+        {
+          "ids": [
+            "node"
+          ],
+          "text": "An ILP client such as `ilp-plugin-btp` connects to the node's BTP server with a token the owner made in the wallet."
+        },
+        {
+          "ids": [
+            "ilp",
+            "oer"
+          ],
+          "text": "Each ILP Prepare packet is decoded. Only canonical encodings are accepted."
+        },
+        {
+          "ids": [
+            "connector"
+          ],
+          "text": "The connector checks the token's spending cap, finds the route, here the node's own STREAM receiver, and reserves the amount."
+        },
+        {
+          "ids": [
+            "ledger"
+          ],
+          "text": "The ledger records a pending transfer in its journal."
+        },
+        {
+          "ids": [
+            "stream"
+          ],
+          "text": "The STREAM receiver decrypts the packet, credits the money and answers with a Fulfill."
+        },
+        {
+          "ids": [
+            "ledger",
+            "settlement"
+          ],
+          "text": "The transfer commits. The money is held on one of the owner's ledgers, each backed by a settlement scheme."
+        }
+      ]
+    },
+    {
+      "id": "send",
+      "button": "Owner sends a payment",
+      "title": "The owner sends to another wallet",
+      "steps": [
+        {
+          "ids": [
+            "wallet"
+          ],
+          "text": "The owner enters a payment pointer or a payment request on the Send page."
+        },
+        {
+          "ids": [
+            "rpc",
+            "proto-ui"
+          ],
+          "text": "The wallet asks the node over RPC for a quote, and then to pay."
+        },
+        {
+          "ids": [
+            "node",
+            "payments"
+          ],
+          "text": "The node finds the recipient, signs its requests, and creates an incoming payment and a quote on the other wallet, all through Open Payments."
+        },
+        {
+          "ids": [
+            "stream",
+            "connector"
+          ],
+          "text": "STREAM sends the money in packets, which the connector routes across peers."
+        },
+        {
+          "ids": [
+            "ledger",
+            "peer"
+          ],
+          "text": "Each node books the Fulfill in its own books at once. The upstream peer's verdict then says whether it counted, and so who bears a loss."
+        },
+        {
+          "ids": [
+            "wallet"
+          ],
+          "text": "The payment status page follows the outgoing payment live until it completes."
+        }
+      ]
+    },
+    {
+      "id": "settle",
+      "button": "Two nodes pay and settle",
+      "title": "Two nodes pay and settle",
+      "steps": [
+        {
+          "ids": [
+            "peer"
+          ],
+          "text": "Nodes learn about each other from bootstrap nodes, agree on membership and peer on their own, exchanging signed messages."
+        },
+        {
+          "ids": [
+            "node"
+          ],
+          "text": "Those messages travel over HTTPS, as `POST /peer`, through the node's peer client."
+        },
+        {
+          "ids": [
+            "connector"
+          ],
+          "text": "Link state gives every node a route table, so packets are forwarded hop by hop across peers."
+        },
+        {
+          "ids": [
+            "ledger"
+          ],
+          "text": "Each peer extends the other a little credit, and balances shift as packets flow."
+        },
+        {
+          "ids": [
+            "settlement",
+            "xrpl"
+          ],
+          "text": "Once a node owes a peer more than a threshold, it settles through a scheme they share, such as the XRP Ledger testnet."
+        },
+        {
+          "ids": [
+            "peer"
+          ],
+          "text": "The settlement reaches the peer exactly once, even across crashes and restarts. Simulations check this for every seed."
+        }
+      ]
+    },
+    {
+      "id": "update",
+      "button": "A node updates itself",
+      "title": "A node updates itself",
+      "steps": [
+        {
+          "ids": [
+            "release"
+          ],
+          "text": "Once a day, a systemd timer runs `dassie update`."
+        },
+        {
+          "ids": [
+            "cli"
+          ],
+          "text": "It fetches the newest release's signed `SHA256SUMS` from get.dassie.land."
+        },
+        {
+          "ids": [
+            "release-crate"
+          ],
+          "text": "The signature and the version are checked before anything is unpacked, and the node moves only forward, on its own channel."
+        },
+        {
+          "ids": [
+            "cli",
+            "node"
+          ],
+          "text": "The new version starts. If it does not come up, the node goes back to the old one, with its data as the old one left it."
+        }
+      ]
+    },
+    {
+      "id": "dev",
+      "button": "A developer runs the dev network",
+      "title": "A developer runs the dev network",
+      "steps": [
+        {
+          "ids": [
+            "apps-dev"
+          ],
+          "text": "`node --run dev` builds the dassie binary and starts one node per scenario on `dN.localhost`, behind an SNI proxy."
+        },
+        {
+          "ids": [
+            "cli",
+            "node"
+          ],
+          "text": "Each node is a real daemon with its own database, restarted when the Rust code changes."
+        },
+        {
+          "ids": [
+            "rpc"
+          ],
+          "text": "The dev server sets the nodes up through their own RPC over the IPC socket, with the scenario code the end-to-end tests use."
+        },
+        {
+          "ids": [
+            "proto-dev",
+            "dashboard"
+          ],
+          "text": "The dashboard talks to the dev server on one origin and reaches each node through a relay."
+        },
+        {
+          "ids": [
+            "ui"
+          ],
+          "text": "The logs, the network graph and each node's debug pages use the same components as the wallet."
+        }
+      ]
+    }
+  ],
+  "testsIntro": "Confidence comes mainly from deterministic simulation. The cores never read a clock or the system's random generator, so a whole network of nodes runs in one process from a seed: the same seed gives the same run. The other kinds of test pin down what a simulation cannot judge.",
+  "tests": [
+    {
+      "t": "Deterministic simulation",
+      "p": "Whole networks run in one process with a fake clock and a seeded random generator. Faults are injected: latency, loss, crashes, mid-payment too, restarts and partitions. Every state machine checks its invariants after each step, and a failure prints the seed that reproduces it.",
+      "ev": "dassie-stream, dassie-connector and dassie-peer: tests/simulation.rs · dassie-node: tests/network.rs"
+    },
+    {
+      "t": "Golden vectors",
+      "p": "Byte-exact fixtures from other implementations: Dassie's first, TypeScript one, and `xrpl.js`. They pin the wire formats and key derivations.",
+      "ev": "testdata/original · testdata/xrpl · tests/vectors.rs"
+    },
+    {
+      "t": "Property tests",
+      "p": "Random inputs: round trips, canonical-only parsing, decoders that never panic, ledger balances that always equal the journal, spending caps.",
+      "ev": "tests/properties.rs · proptest"
+    },
+    {
+      "t": "Interop",
+      "p": "Dassie talks to independent implementations: the npm `ilp-protocol-stream` both ways, from native code and from WebAssembly, and in a browser.",
+      "ev": "tests/interop"
+    },
+    {
+      "t": "End to end",
+      "p": "Real binaries and real sockets: a fresh install, payments and settlement across nodes, Open Payments, the wallet in a browser, and the installer and updater on four Linux distributions.",
+      "ev": "tests/e2e · dassie-node/tests · dassie-cli/tests"
+    }
+  ],
+  "releases": [
+    {
+      "version": "0.1.1",
+      "date": "2026-10-16",
+      "changes": [
+        "Updates that fail roll back: if a new version does not start, the node goes back to the old one, with its data as the old one left it.",
+        "`dassie status` shows how a node is doing, and the setup URL survives restarts; `dassie setup-url` prints it again.",
+        "Let's Encrypt accepts the node's certificate requests again.",
+        "Open Payments: each payment gets a STREAM connection of its own, and each item of a grant keeps to its own limits.",
+        "The node checks its books and its state machines for consistency as it runs."
+      ]
+    },
+    {
+      "version": "0.1.0",
+      "date": "2026-10-15",
+      "changes": [
+        "The first release of Dassie in Rust: one static binary for x64 and arm64 Linux, signed, installed with one command and updated every day.",
+        "A node finds peers on its own, routes Interledger payments across them, and settles with them on the XRP Ledger testnet.",
+        "Apps pay through it with Open Payments or BTP, and payments convert between currencies at fetched rates.",
+        "Each peer gets a grace limit, and a peer that costs more than that is banned.",
+        "The owner runs the node from a wallet it serves itself."
+      ]
+    }
+  ]
+}
