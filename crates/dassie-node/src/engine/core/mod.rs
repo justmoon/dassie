@@ -290,7 +290,36 @@ pub struct Core {
     peer_settings: PeerSettings,
     /// Why nodes were banned, and when bans were lifted.
     ban_records: BTreeMap<dassie_identity::NodeId, BanRecord>,
+    /// When the invariants are swept.
+    sweeps: Sweeps,
 }
+
+/// When the invariants are swept (D16).
+#[derive(Debug)]
+struct Sweeps {
+    /// The next sweep, at the earliest.
+    at_ms: u64,
+    /// How long a sweep holds for: [`SWEEP_EVERY_MS`].
+    every_ms: u64,
+    /// Sweeps so far.
+    count: u64,
+}
+
+impl Sweeps {
+    /// A sweep due at the first commit.
+    const DUE: Self = Self {
+        at_ms: 0,
+        every_ms: SWEEP_EVERY_MS,
+        count: 0,
+    };
+}
+
+/// How often the full sweep of the invariants runs, in engine time (D16).
+/// Where debug assertions are on (tests, simulations and the end-to-end
+/// binary) it runs before every commit; in release at most this often.
+/// Each change asserts what it can see on its own either way, and the
+/// time is the engine's, so a run stays the same for the same inputs.
+const SWEEP_EVERY_MS: u64 = if cfg!(debug_assertions) { 0 } else { 1_000 };
 
 impl Core {
     /// Rebuilds the core from the database: the ledger from its journal,
@@ -366,6 +395,7 @@ impl Core {
             grace: grace::Grace::new(now_ms, policies.grace, policies.settlement_ratio_ppm),
             peer_settings: PeerSettings::DEFAULT,
             ban_records: BTreeMap::new(),
+            sweeps: Sweeps::DUE,
         };
         core.restore()?;
         Ok(core)
@@ -504,7 +534,6 @@ impl Core {
             if self.grace_checks() {
                 continue;
             }
-            self.check_invariants();
             while let Some(event) = self.connector.poll_event() {
                 out.push(Output::Trace(event));
             }
@@ -524,21 +553,16 @@ impl Core {
         }
     }
 
-    /// Persists the batch. A failure leaves memory ahead of the disk, which
-    /// nothing may act on: the core stops, and its successor starts from
-    /// the disk.
+    /// Persists the batch, once the invariants are checked: a broken one
+    /// stops the core before it reaches the disk, and the core's successor
+    /// starts from the last state that held. A failed write leaves memory
+    /// ahead of the disk, which nothing may act on: the core stops then
+    /// too.
     // A failed write crashes the core, which restarts from the disk.
     #[allow(clippy::panic)]
     pub(super) fn flush(&mut self) {
-        self.checkpoint_schemes();
-        self.take_journal();
-        self.take_cap_changes();
-        self.peer.take_changes(&mut self.batch.peer);
-        let stats = self.ledger.stats();
-        if stats != self.ledger_stats {
-            self.ledger_stats = stats;
-            self.changes.ledger = true;
-        }
+        self.stage();
+        self.sweep_if_due();
         if self.batch.is_empty() {
             return;
         }
@@ -560,6 +584,32 @@ impl Core {
         }
     }
 
+    /// Moves what changed in memory into the batch.
+    fn stage(&mut self) {
+        self.checkpoint_schemes();
+        self.take_journal();
+        self.take_cap_changes();
+        self.peer.take_changes(&mut self.batch.peer);
+        let stats = self.ledger.stats();
+        if stats != self.ledger_stats {
+            self.ledger_stats = stats;
+            self.changes.ledger = true;
+        }
+    }
+
+    /// Checks the invariants, when a sweep is due: at every commit where
+    /// debug assertions are on, at most every [`SWEEP_EVERY_MS`] in
+    /// release, and always at the commit that ends a restore.
+    fn sweep_if_due(&mut self) {
+        let sweeps = &mut self.sweeps;
+        if self.now_ms < sweeps.at_ms {
+            return;
+        }
+        sweeps.at_ms = self.now_ms.saturating_add(sweeps.every_ms);
+        sweeps.count += 1;
+        self.check_invariants();
+    }
+
     /// Marks payments changed, for what changes them outside the engine.
     pub fn payments_changed(&mut self) {
         self.changes.payments = true;
@@ -571,14 +621,12 @@ impl Core {
     }
 
     fn check_invariants(&self) {
-        if cfg!(debug_assertions) {
-            self.ledger.check_invariants();
-            self.connector.check_invariants(&self.ledger);
-            self.peer.check_invariants();
-            self.check_incoming();
-            self.check_outgoing();
-            self.owed.check();
-        }
+        self.ledger.check_invariants();
+        self.connector.check_invariants(&self.ledger);
+        self.peer.check_invariants();
+        self.check_incoming();
+        self.check_outgoing();
+        self.owed.check();
     }
 
     /// The ledger a payment to `destination` goes out on, and whether it

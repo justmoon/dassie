@@ -390,3 +390,45 @@ fn peer_settings_are_checked_and_kept() {
     assert_eq!(core.peer_settings(), settings);
     assert_eq!(core.connector.charges(), settings.charges());
 }
+
+// D16: a broken invariant stops the core before its batch is written, so
+// its successor starts from the last state that held.
+#[test]
+fn a_broken_invariant_never_reaches_the_disk() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = core_on(Arc::clone(&store), 6);
+    core.add_scheme("stub", String::new()).unwrap();
+    core.flush();
+    let payment = core
+        .create_incoming_payment(super::NewIncoming {
+            ledger: dassie_ledger::LedgerId::StubUsd,
+            wallet_address: "https://node.example/.well-known/pay".into(),
+            client: None,
+            incoming_amount: Some(10),
+            expires_at_ms: None,
+            metadata: None,
+        })
+        .unwrap();
+    // A bug: more payments open than the bound allows.
+    core.incoming_policy.max_open_owner = 0;
+    let flushed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| core.flush()));
+    assert!(flushed.is_err());
+    assert_eq!(store.incoming_payment(payment.id).unwrap(), None);
+}
+
+// In release, the sweep runs at most once a second of engine time, and
+// always at the commit that ends a restore.
+#[test]
+fn sweeps_follow_the_engine_clock() {
+    let mut core = core(7);
+    assert_eq!(core.sweeps.count, 1);
+    core.sweeps.every_ms = 1_000;
+    core.sweeps.at_ms = NOW;
+    let mut outputs = Vec::new();
+    for (at, sweeps) in [(NOW, 2), (NOW + 10, 2), (NOW + 999, 2), (NOW + 1_000, 3)] {
+        core.begin_step(at);
+        core.add_scheme("stub", String::new()).ok();
+        core.finish_step(&mut outputs);
+        assert_eq!(core.sweeps.count, sweeps, "at {at}");
+    }
+}
