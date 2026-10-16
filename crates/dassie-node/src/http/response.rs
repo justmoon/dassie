@@ -91,3 +91,105 @@ pub fn header_has_token(headers: &HeaderMap, name: &header::HeaderName, token: &
         .flat_map(|value| value.split(','))
         .any(|item| item.trim().eq_ignore_ascii_case(token))
 }
+
+#[cfg(test)]
+pub(super) mod tests {
+    use hyper::header::HeaderName;
+    use proptest::prelude::*;
+
+    use super::*;
+
+    /// Pieces of the lists clients send: tokens in any case, quoted, with
+    /// parameters and space, and empty ones.
+    const PIECES: &[&str] = &[
+        "upgrade",
+        "Upgrade",
+        " UPGRADE ",
+        "websocket",
+        "WebSocket",
+        "\"websocket\"",
+        "keep-alive",
+        "13",
+        " 13",
+        "dassie.ui.v1",
+        "application/json",
+        "Application/JSON; charset=utf-8",
+        "application/json ;",
+        "application/jsonx",
+        "text/plain",
+        "",
+        ";",
+        "\t",
+        "\"a,b\"",
+    ];
+
+    /// A header value a client may send: any bytes a value may hold, or a
+    /// list of pieces with commas.
+    fn value() -> impl Strategy<Value = HeaderValue> {
+        let list = proptest::collection::vec(
+            (
+                proptest::sample::select(PIECES),
+                proptest::sample::select(&[",", ", ", " ,", ",,"][..]),
+            ),
+            0..5,
+        )
+        .prop_map(|pieces| {
+            let mut list = String::new();
+            for (piece, comma) in pieces {
+                if !list.is_empty() {
+                    list.push_str(comma);
+                }
+                list.push_str(piece);
+            }
+            list.into_bytes()
+        });
+        // Visible ASCII, tabs and spaces, and bytes past ASCII, which are
+        // no text.
+        let byte = prop_oneof![b' '..=b'~', 0x80_u8..=0xff, Just(b'\t')];
+        let bytes = proptest::collection::vec(byte, 0..40);
+        prop_oneof![list, bytes].prop_filter_map("not a header value", |bytes| {
+            HeaderValue::from_bytes(&bytes).ok()
+        })
+    }
+
+    /// Headers named among `names`, each any number of times.
+    pub(in crate::http) fn headers(
+        names: &'static [HeaderName],
+    ) -> impl Strategy<Value = HeaderMap> {
+        proptest::collection::vec((proptest::sample::select(names), value()), 0..6).prop_map(
+            |pairs| {
+                let mut headers = HeaderMap::new();
+                for (name, value) in pairs {
+                    headers.append(name, value);
+                }
+                headers
+            },
+        )
+    }
+
+    const NAMES: &[HeaderName] = &[header::CONNECTION, header::UPGRADE, header::CONTENT_TYPE];
+
+    proptest! {
+        #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]
+
+        // Headers are the client's: whatever they hold is read or skipped,
+        // without a panic (D16).
+        #[test]
+        fn any_headers_are_read(
+            headers in headers(NAMES),
+            token in proptest::sample::select(PIECES),
+        ) {
+            for name in NAMES {
+                let values: Vec<&str> = header_values(&headers, name).collect();
+                prop_assert!(values.len() <= headers.get_all(name).iter().count());
+                let first = header_str(&headers, name);
+                prop_assert_eq!(first, headers.get(name).and_then(|v| v.to_str().ok()));
+                // A token found is in one of the values, whatever its case.
+                if header_has_token(&headers, name, token) {
+                    let token = token.trim().to_ascii_lowercase();
+                    prop_assert!(values.iter().any(|v| v.to_ascii_lowercase().contains(&token)));
+                }
+            }
+        }
+    }
+}

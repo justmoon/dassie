@@ -16,7 +16,7 @@ use dassie_node_core::session;
 use dassie_node_core::setup::{SetupError, SetupRequest};
 use http_body_util::{BodyExt, Limited};
 use hyper::body::Incoming;
-use hyper::header::{self, HeaderValue};
+use hyper::header::{self, HeaderMap, HeaderValue};
 use hyper::{Request, Response, StatusCode};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -70,10 +70,7 @@ async fn json_body<T: DeserializeOwned>(
     request: Request<Incoming>,
     timeout: Duration,
 ) -> Result<T, Refusal> {
-    let is_json = header_str(request.headers(), &header::CONTENT_TYPE)
-        .and_then(|value| value.split(';').next())
-        .is_some_and(|media| media.trim().eq_ignore_ascii_case("application/json"));
-    if !is_json {
+    if !is_json(request.headers()) {
         return Err(Refusal(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             "Expected application/json".into(),
@@ -99,6 +96,13 @@ async fn json_body<T: DeserializeOwned>(
     };
     serde_json::from_slice(&bytes)
         .map_err(|_| Refusal(StatusCode::BAD_REQUEST, "Invalid HTTP request body".into()))
+}
+
+/// Whether the body's media type is JSON, whatever its parameters.
+fn is_json(headers: &HeaderMap) -> bool {
+    header_str(headers, &header::CONTENT_TYPE)
+        .and_then(|value| value.split(';').next())
+        .is_some_and(|media| media.trim().eq_ignore_ascii_case("application/json"))
 }
 
 fn body_timeout(node: &Node) -> Duration {
@@ -193,4 +197,29 @@ pub fn logout(node: &Node, request: &Request<Incoming>) -> Response<Body> {
         response.headers_mut().insert(header::SET_COOKIE, cookie);
     }
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use hyper::header::HeaderName;
+    use proptest::prelude::*;
+
+    use super::super::response::tests::headers;
+    use super::*;
+
+    const NAMES: &[HeaderName] = &[header::CONTENT_TYPE];
+
+    proptest! {
+        #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]
+
+        // Anyone may post to the setup and login endpoints: their media
+        // type is read, or refused, without a panic (D16).
+        #[test]
+        fn any_media_type_is_read(headers in headers(NAMES)) {
+            if is_json(&headers) {
+                let value = header_str(&headers, &header::CONTENT_TYPE).unwrap_or_default();
+                prop_assert!(value.to_ascii_lowercase().trim_start().starts_with("application/json"));
+            }
+        }
+    }
 }

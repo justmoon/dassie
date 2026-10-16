@@ -704,3 +704,32 @@ fn open_of(row: &IncomingRow) -> OpenIncoming {
         client: row.client.clone(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    proptest! {
+        #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]
+
+        // A packet's tag is whatever its sender put in the STREAM token:
+        // only the two lengths the node writes name a connection, and
+        // anything else is refused, without a panic (D16).
+        #[test]
+        fn any_tag_is_read_or_refused(tag in proptest::collection::vec(any::<u8>(), 0..48)) {
+            let parsed = parse_tag(&tag);
+            prop_assert_eq!(parsed.is_some(), tag.len() == 16 || tag.len() == 32);
+            let (admission, paid) = admission(&BTreeMap::new(), &Finished::default(), LedgerId::StubUsd, 0, &tag);
+            prop_assert_eq!(admission, Admission::Refuse(ErrorCode::F99_APPLICATION_ERROR));
+            prop_assert_eq!(paid, None);
+        }
+
+        #[test]
+        fn tags_read_back(id in any::<[u8; 16]>(), key in any::<[u8; 16]>()) {
+            let (id, key) = (PaymentId(id), ConnectionKey(key));
+            prop_assert_eq!(parse_tag(&connection_tag(id, key)), Some((id, key)));
+        }
+    }
+}
