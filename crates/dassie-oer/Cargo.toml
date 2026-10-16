@@ -1,6 +1,6 @@
 [package]
 name = "dassie-oer"
-version = "0.1.0"
+version = "0.1.1"
 description = "Canonical X.696 Octet Encoding Rules: the subset the Dassie protocols use"
 edition.workspace = true
 rust-version.workspace = true
