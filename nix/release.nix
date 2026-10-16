@@ -294,10 +294,11 @@ in
     dassie-arm64 = released.arm64;
     release = mirror releaseVersion "latest";
     canary = mirror canaryVersion "canary";
-    inherit install-test-mirror;
+    # Built by the release workflow, not `nix flake check`: what only a
+    # release needs stays out of every PR's CI.
+    inherit install-test-mirror static-binaries;
   };
   checks = {
-    inherit static-binaries;
     # The installer is POSIX sh, as ShellCheck reads it.
     installer = pkgs.runCommand "dassie-installer-shellcheck" { nativeBuildInputs = [ pkgs.shellcheck ]; } ''
       shellcheck --shell=sh ${../resources/installer/install.sh}

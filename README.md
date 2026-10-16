@@ -142,7 +142,7 @@ Releases are built by Nix on x86_64 Linux ([spec 7 §4.8](spec/07-rewrite.md#48-
 - `nix build .#dassie-x64` or `.#dassie-arm64` makes a static binary with the wallet built in;
 - `nix build .#release` (or `.#canary`) makes the tree a release uploads to the mirror, without its signature.
 
-If you change `deno.lock`, update the hash of `denoDeps` in `nix/release.nix`; the build tells you the new one. The release workflow signs and publishes a canary for every push to `main`, and a release for every tag `v<version>`.
+If you change `deno.lock`, update the hash of `denoDeps` in `nix/release.nix`; the build tells you the new one. For every tag `v<version>`, the release workflow runs the install tests on each distribution and checks the static binaries (`nix build .#static-binaries`), then signs and publishes the release. CI on pull requests and `main` runs neither.
 
 ## The dev environment
 
