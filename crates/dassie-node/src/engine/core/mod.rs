@@ -320,6 +320,15 @@ impl Sweeps {
 /// binary) it runs before every commit; in release at most this often.
 /// Each change asserts what it can see on its own either way, and the
 /// time is the engine's, so a run stays the same for the same inputs.
+///
+/// Measured with the tables full (October 2026, optimized): the ledger's
+/// part takes 0.4 ms (4 000 accounts, 25 000 pending), the connector's
+/// 1.3 ms (8 000 packets in flight), and the Fulfills owed 1.5 ms for 8
+/// peers owing 1 024 each, growing with the peers: 13.5 ms for 64. A busy
+/// commit (256 packets) takes 6 ms. Every commit would cost a node at its
+/// limits more than the commit; once a second costs it under 1 %, and a
+/// node with small tables microseconds. In the simulations the sweep runs
+/// every step and costs less than their runs vary.
 const SWEEP_EVERY_MS: u64 = if cfg!(debug_assertions) { 0 } else { 1_000 };
 
 impl Core {

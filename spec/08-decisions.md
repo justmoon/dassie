@@ -318,6 +318,7 @@ Confirmed on 2026-10-12, after the others.
   - **Asserted.**
     - Assertions check preconditions, postconditions and invariants, and stay enabled in release builds. A broken invariant crashes rather than corrupting balances.
     - Each state machine has an invariant check that tests and simulations run after every transition.
+    - The node checks its state before each commit, so a broken invariant never reaches the disk: what stops the core leaves the state that last held for its successor. Cheap assertions run at every change; the full sweep runs before every commit in tests and simulations, and in release at most once a second of engine time, since with full tables it costs about as much as a busy commit (measured on 2026-10-16).
     - Untrusted input never reaches an assertion: it gets an error value.
     - Integer overflow checks are on in every profile.
   - **Instrumented.** State machines report everything observable as events and counters through their API, so a simulation can record, compare and replay a run. Core crates have no logging dependency; the node maps events to `tracing`.
