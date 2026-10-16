@@ -71,7 +71,7 @@ let
     dontFixup = true;
     outputHashMode = "recursive";
     outputHashAlgo = "sha256";
-    outputHash = "sha256-Nxa9zbIEkI5YYvExq0oLjtQ0GYyFkLLB41XFfvdgy0Y=";
+    outputHash = "sha256-B73a7PyFETGLXxf7tyspPc7mdJ2wnBUzmmE0z834U+M=";
   };
 
   # The wallet, as `deno task build:wallet` builds it, offline.
