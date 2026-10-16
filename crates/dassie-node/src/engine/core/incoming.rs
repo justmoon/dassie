@@ -491,12 +491,18 @@ impl Core {
                 && self.open_count(false) <= policy.max_open_clients,
             "too many open incoming payments"
         );
-        for payment in self.incoming.values() {
+        let waiting = self.owed.waiting();
+        for (id, payment) in &self.incoming {
             assert!(
                 payment
                     .incoming_amount
                     .is_none_or(|amount| payment.received + payment.waiting <= amount),
                 "a payment took more than it may"
+            );
+            assert_eq!(
+                payment.waiting,
+                waiting.get(id).copied().unwrap_or_default(),
+                "what a payment waits for is what peers owe verdicts on"
             );
             assert!(
                 payment.incoming_amount != Some(payment.received),

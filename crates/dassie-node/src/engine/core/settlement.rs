@@ -274,6 +274,11 @@ impl Core {
             prepared.amount > 0 && prepared.amount <= amount,
             "a scheme settles at most what was asked"
         );
+        assert_eq!(
+            self.whole_units(&at.scheme, prepared.amount),
+            prepared.amount,
+            "a scheme settles in whole units of its ledger"
+        );
         spec.amount = prepared.amount;
         spec.reference = Reference::Settlement {
             scheme: at.scheme,
@@ -460,6 +465,7 @@ impl Core {
         }
         // Settlements in flight are pending transfers, and the journal has
         // room once taken.
+        self.check_settling_transfer(scheme, id, &settling);
         self.take_journal();
         if let Err(error) = self.ledger.post(self.now_ms, settling.transfer) {
             panic!("a settlement's transfer could not be posted: {error}");
@@ -500,6 +506,7 @@ impl Core {
             tracing::warn!(target: target::SETTLEMENT, %scheme, %id, "an unknown settlement was cancelled");
             return;
         };
+        self.check_settling_transfer(scheme, id, &settling);
         self.take_journal();
         if let Err(error) = self.ledger.void(self.now_ms, settling.transfer) {
             panic!("a settlement's transfer could not be voided: {error}");

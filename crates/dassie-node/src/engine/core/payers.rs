@@ -560,7 +560,11 @@ impl Core {
         let Some(payment) = spending.outgoing.get_mut(&id) else {
             return;
         };
-        payment.in_flight = payment.in_flight.saturating_sub(1);
+        assert!(
+            payment.in_flight > 0,
+            "a response to a packet not in flight"
+        );
+        payment.in_flight -= 1;
         if let Some(connection) = payment.connection.as_mut() {
             connection.handle_response(Timestamp::from_unix_ms(now), request, response, work);
         }
@@ -582,6 +586,12 @@ impl Core {
         assert!(
             sent <= payment.row.debit_amount,
             "a payment sent more than its debit amount"
+        );
+        // What was sent is on disk: a restart that saw less would send it
+        // again.
+        assert!(
+            sent >= payment.row.sent_amount,
+            "a payment's progress went back"
         );
         if sent != payment.row.sent_amount {
             payment.row.sent_amount = sent;
@@ -790,26 +800,24 @@ impl Core {
             .filter(|payment| payment.connection.is_some())
             .count();
         assert!(sending <= MAX_SENDING, "too many payments sending");
-        let in_flight: u64 = self
-            .spending
-            .outgoing
-            .values()
-            .map(|payment| u64::from(payment.in_flight))
-            .sum();
-        let requests = self
-            .spending
-            .requests
-            .values()
-            .filter(|(sender, _)| {
-                matches!(sender, Sender::Payment(id) if self.spending.outgoing.contains_key(id))
-            })
-            .count();
-        assert_eq!(
-            usize::try_from(in_flight).unwrap_or(usize::MAX),
-            requests,
-            "payments' packets in flight"
-        );
-        for payment in self.spending.outgoing.values() {
+        // A payment finishes only with nothing in flight, so every packet
+        // in flight is an unfinished payment's, and counted by it.
+        let mut in_flight = BTreeMap::<PaymentId, u32>::new();
+        for (sender, _) in self.spending.requests.values() {
+            if let Sender::Payment(id) = sender {
+                assert!(
+                    self.spending.outgoing.contains_key(id),
+                    "a packet in flight for a finished payment"
+                );
+                *in_flight.entry(*id).or_default() += 1;
+            }
+        }
+        for (id, payment) in &self.spending.outgoing {
+            assert_eq!(
+                payment.in_flight,
+                in_flight.get(id).copied().unwrap_or_default(),
+                "a payment's packets in flight"
+            );
             assert!(
                 payment.row.sent_amount <= payment.row.debit_amount,
                 "a payment sent more than its debit amount"

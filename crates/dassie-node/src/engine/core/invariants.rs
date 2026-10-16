@@ -3,8 +3,13 @@
 //! they fit together. The parts whose fields a module keeps to itself are
 //! checked in that module.
 
+use dassie_connector::EndpointId;
+use dassie_ledger::{AccountName, Name, Reference};
+
 use super::Core;
+use super::settlement::Settling;
 use super::tokens::{MAX_TOKEN_ROWS, MAX_TOKENS};
+use super::verdicts::MAX_OWED_PER_PEER;
 
 impl Core {
     pub(super) fn check_invariants(&self) {
@@ -22,6 +27,56 @@ impl Core {
         self.check_outgoing();
         self.check_probes();
         self.owed.check();
+        self.check_owed_bounds();
+        self.check_settling();
+    }
+
+    /// What a peer owes verdicts on, and may still come to, within its
+    /// bound: each packet in flight from it may become one more.
+    fn check_owed_bounds(&self) {
+        for (node, endpoint) in &self.peer_endpoints {
+            let pending = self.connector.pending_from(EndpointId::Peer(*endpoint));
+            assert!(
+                self.owed.count(node) + pending <= MAX_OWED_PER_PEER,
+                "a peer owes more verdicts than it may"
+            );
+        }
+    }
+
+    /// Our settlements in progress: each is its pending transfer, and what
+    /// waits to execute or be announced is one of them.
+    fn check_settling(&self) {
+        for (&(scheme, id), settling) in &self.settle.settling {
+            self.check_settling_transfer(scheme, id, settling);
+        }
+        let known = |key| self.settle.settling.contains_key(key);
+        assert!(
+            self.settle.to_execute.iter().all(known),
+            "executes what is settling"
+        );
+        assert!(
+            self.settle.announce.iter().all(known),
+            "announces what is settling"
+        );
+    }
+
+    /// A settlement's transfer is pending, as it was booked: posting or
+    /// voiding any other would move the wrong money.
+    pub(super) fn check_settling_transfer(&self, scheme: Name, id: Name, settling: &Settling) {
+        let transfer = self.ledger.pending(settling.transfer);
+        assert!(
+            transfer.is_some_and(|t| t.reference == Reference::Settlement { scheme, id }
+                && t.amount == settling.amount),
+            "a settlement's transfer is the one booked for it"
+        );
+        let debit = transfer.and_then(|t| self.ledger.account(t.debit));
+        let peer = Name::new(settling.peer.as_str()).ok();
+        assert!(
+            debit.is_some_and(
+                |account| Some(account.path().name) == peer.map(AccountName::AssetsInterledger)
+            ),
+            "a settlement debits the peer's account"
+        );
     }
 
     /// A peer's connector endpoint, both ways round.

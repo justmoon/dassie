@@ -100,6 +100,17 @@ impl Owed {
         self.per_peer.get(peer).copied().unwrap_or(0)
     }
 
+    /// What each incoming payment waits for, over the Fulfills owed.
+    pub fn waiting(&self) -> BTreeMap<PaymentId, u64> {
+        let mut waiting = BTreeMap::<PaymentId, u64>::new();
+        for entry in self.entries.values() {
+            if let Some((id, amount)) = entry.row.incoming {
+                *waiting.entry(id).or_default() += amount;
+            }
+        }
+        waiting
+    }
+
     /// The next time a Fulfill is to be sent, or old ones forgotten.
     pub fn deadline(&self) -> Option<u64> {
         let due = self.due.first().map(|(at, _)| *at);
@@ -217,6 +228,10 @@ impl Owed {
             "the blocked queues"
         );
         assert_eq!(per_peer, self.per_peer, "Fulfills owed per peer");
+        assert!(
+            per_peer.values().all(|count| *count <= MAX_OWED_PER_PEER),
+            "a peer owes more verdicts than it may"
+        );
         assert_eq!(asking, self.asking, "verdicts asked per peer");
         assert!(
             asking.values().all(|count| *count <= MAX_ASKING_PER_PEER),
