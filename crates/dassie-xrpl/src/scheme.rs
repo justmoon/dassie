@@ -1099,6 +1099,62 @@ fn parse_address(bytes: &[u8]) -> Result<AccountId, SchemeError> {
     AccountId::parse(text).ok_or(SchemeError::InvalidData)
 }
 
+/// What [`SettlementScheme::check_invariants`] asserts, in parts.
+impl XrplScheme {
+    fn check_in_flight(&self) {
+        let mut seen = BTreeSet::new();
+        let distinct = (self.in_flight.iter().map(|t| t.hash))
+            .chain(self.recovering.iter().copied())
+            .all(|hash| seen.insert(hash));
+        assert!(distinct, "each settlement once, in flight or looked up");
+        for transaction in &self.in_flight {
+            assert!(
+                transaction.sequence < self.sequence,
+                "in flight below the next sequence"
+            );
+            assert!(
+                !transaction.needs_submit || transaction.executed,
+                "only what the node executed is submitted"
+            );
+            assert!(
+                !transaction.looked_up || transaction.executed,
+                "only what the node executed is looked up"
+            );
+            assert!(transaction.drops <= MAX_ACCOUNT_DROPS && transaction.fee <= MAX_ACCOUNT_DROPS);
+        }
+    }
+
+    fn check_phase(&self) {
+        match self.phase {
+            Phase::Disconnected => {
+                assert!(self.pending.is_empty(), "nothing asked while disconnected");
+                assert!(self.buffer.is_empty());
+                assert!(!self.funding);
+            }
+            Phase::CatchingUp { .. } => assert!(self.cursor.is_some()),
+            Phase::Synced => {
+                assert!(
+                    self.buffer.is_empty(),
+                    "what was held is booked once synced"
+                );
+                assert!(self.cursor.is_some());
+                // The books hold what is above the reserve, once the scheme
+                // knows the balance and has not stopped.
+                if let Some(balance) = self.balance
+                    && self.failed.is_none()
+                {
+                    assert_eq!(
+                        self.booked,
+                        self.bookable(balance, self.owner_count),
+                        "the books match the balance"
+                    );
+                }
+            }
+            Phase::Starting { .. } | Phase::Unfunded => {}
+        }
+    }
+}
+
 impl SettlementScheme for XrplScheme {
     fn id(&self) -> Name {
         dassie_ledger::name!(SCHEME_ID)
@@ -1408,5 +1464,16 @@ impl SettlementScheme for XrplScheme {
 
     fn deposit(&mut self, _amount: u64, _effects: &mut Vec<Effect>) -> Result<(), SchemeError> {
         Err(SchemeError::Unsupported)
+    }
+
+    fn check_invariants(&self) {
+        assert!(self.in_flight.len() <= MAX_IN_FLIGHT);
+        assert!(self.peers.len() <= MAX_PEERS);
+        assert!(self.recovering.len() <= MAX_RECOVERING);
+        assert!(self.pending.len() <= MAX_PENDING);
+        assert!(self.buffer.len() <= MAX_BUFFERED);
+        assert!(self.next_id >= 1, "request IDs start at 1");
+        self.check_in_flight();
+        self.check_phase();
     }
 }

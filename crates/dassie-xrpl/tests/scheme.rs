@@ -112,7 +112,9 @@ impl World {
         self.nodes[index]
             .scheme
             .on_ledger(self.now, input, &mut effects);
+        self.nodes[index].scheme.check_invariants();
         self.apply(index, effects);
+        self.nodes[index].scheme.check_invariants();
     }
 
     /// Sends a request to the ledger, and its answer back, unless the

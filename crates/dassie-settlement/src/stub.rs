@@ -176,6 +176,14 @@ impl SettlementScheme for Stub {
         effects.push(Effect::Deposit { amount });
         Ok(())
     }
+
+    fn discard_settlement(&mut self, settlement: Name) {
+        self.prepared.remove(&settlement);
+    }
+
+    fn check_invariants(&self) {
+        assert!(self.prepared.len() <= MAX_PREPARED);
+    }
 }
 
 /// 16 random bytes in lowercase hex, as the original's settlement IDs.
@@ -283,6 +291,21 @@ mod tests {
             stub.prepare_settlement(&mut rng, peer(), 1, &[]),
             Err(SchemeError::TooManyPrepared)
         );
+        stub.check_invariants();
+    }
+
+    // Found by the invariants (D16): a settlement the node could not book
+    // stayed prepared, so after 64 of them the stub settled nothing more.
+    #[test]
+    fn a_discarded_settlement_frees_its_slot() {
+        let mut stub = Stub::new("", None).unwrap();
+        let mut rng = SeededRng::new(2);
+        for _ in 0..MAX_PREPARED * 2 {
+            let prepared = stub.prepare_settlement(&mut rng, peer(), 1, &[]).unwrap();
+            stub.discard_settlement(prepared.id);
+            stub.check_invariants();
+        }
+        assert!(stub.prepared.is_empty());
     }
 
     #[test]
