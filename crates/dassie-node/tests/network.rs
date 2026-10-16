@@ -54,7 +54,8 @@ use dassie_identity::{NodeId, NodeKey};
 use dassie_ilp::{Address, Prepare, Timestamp};
 use dassie_ledger::LedgerId;
 use dassie_node::engine::{
-    Core, CoreParts, LedgerEvent, Lie, NewIncoming, NewOutgoing, Outbound, Output,
+    Core, CoreParts, EngineEvent, Event, LedgerEvent, Lie, NewIncoming, NewOutgoing, Outbound,
+    Output, Severity,
 };
 use dassie_node::node::Policies;
 use dassie_node::store::{BanReason, ForeignAmount, OutgoingState, PaymentId, PeerSettings, Store};
@@ -246,6 +247,18 @@ struct Sim {
     next_connection: u64,
     next_close: u64,
     trace: Vec<String>,
+    /// What the nodes reported as errors, or the events they lost.
+    errors: Vec<String>,
+}
+
+// Every run, whatever it checks besides, ends without an error event: a
+// node reports one only for what should not happen (D16).
+impl Drop for Sim {
+    fn drop(&mut self) {
+        if !std::thread::panicking() {
+            check_events(self).unwrap();
+        }
+    }
 }
 
 impl Sim {
@@ -297,6 +310,7 @@ impl Sim {
             next_connection: 0,
             next_close: START + LEDGER_CLOSE_MS,
             trace: Vec::new(),
+            errors: Vec::new(),
         };
         for _ in 0..count {
             sim.nodes.push(SimNode {
@@ -408,6 +422,17 @@ impl Sim {
         }
     }
 
+    /// Keeps what a node reported in the trace, which a replay compares,
+    /// and an error or a lost event as a failure of the run (D16).
+    fn record(&mut self, index: usize, event: &Event) {
+        self.trace.push(format!("{} {index} {event:?}", self.now));
+        let lost = matches!(event, Event::Engine(EngineEvent::EventsDropped { .. }));
+        if event.severity() == Severity::Error || lost {
+            self.errors
+                .push(format!("{} node {index}: {event:?}", self.now));
+        }
+    }
+
     fn carry(&mut self, index: usize, output: Output) {
         match output {
             Output::PeerRequest(request) => {
@@ -463,7 +488,8 @@ impl Sim {
                 );
             }
             Output::Btp { link, message } => self.deliver_to_client(index, link, message),
-            Output::Trace(_) | Output::ProbeDone { .. } | Output::Event(_) => {}
+            Output::Event(event) => self.record(index, &event),
+            Output::Trace(_) | Output::ProbeDone { .. } => {}
             Output::LedgerConnect { epoch, .. } => self.ledger_connect(index, epoch),
             Output::LedgerClose { epoch, .. } => {
                 if self
@@ -1138,7 +1164,7 @@ fn run_on(seed: u64, settling: Settling) -> Result<Run, String> {
         refusals: refusals(&sim),
         lost: (0..count).map(|index| -losses(&sim, index)).sum(),
         worst_cost_ppm: worst_cost_ppm(&sim),
-        trace: sim.trace,
+        trace: std::mem::take(&mut sim.trace),
     })
 }
 
@@ -1380,7 +1406,25 @@ fn losses(sim: &Sim, index: usize) -> i128 {
         .unwrap_or(0)
 }
 
+/// No node reported an error, nor lost an event.
+fn check_events(sim: &Sim) -> Result<(), String> {
+    match sim.errors.as_slice() {
+        [] => Ok(()),
+        errors => Err(format!(
+            "{} error events, the first: {}",
+            errors.len(),
+            errors
+                .iter()
+                .take(10)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("; ")
+        )),
+    }
+}
+
 fn check(sim: &Sim) -> Result<(), String> {
+    check_events(sim)?;
     if let Some(payment) = sim.payments.iter().find(|payment| !payment.done) {
         return Err(format!(
             "a payment from node {} to {} did not finish: sent {} of {} (limit {:?}), {:?}",
@@ -2008,7 +2052,7 @@ fn run_across(seed: u64) -> Result<Run, String> {
         refusals: refusals(&sim),
         lost: 0,
         worst_cost_ppm: worst_cost_ppm(&sim),
-        trace: sim.trace,
+        trace: std::mem::take(&mut sim.trace),
     })
 }
 
@@ -2017,6 +2061,7 @@ fn run_across(seed: u64) -> Result<Run, String> {
 /// the owners hold what the schemes hold, the FX accounts theirs: no
 /// asset was made or lost.
 fn check_across(sim: &Sim) -> Result<(), String> {
+    check_events(sim)?;
     if let Some(payment) = sim.payments.iter().find(|payment| !payment.done) {
         return Err(format!(
             "a payment from node {} to {} did not finish: sent {} of {}",
@@ -2135,4 +2180,19 @@ fn simulated_networks_pay_across_currencies() {
             Err(_) => panic!("seed {seed} panicked"),
         }
     }
+}
+
+// A run that reports an error fails, whatever else it checks.
+#[test]
+fn an_error_event_fails_the_run() {
+    let mut sim = Sim::new(1, 2, 1);
+    let node = key(1).node_id();
+    sim.record(
+        0,
+        &dassie_node::engine::PeerEvent::BanListFull { node }.into(),
+    );
+    assert!(check_events(&sim).is_err());
+    sim.record(0, &EngineEvent::EventsDropped { count: 1 }.into());
+    assert_eq!(sim.errors.len(), 2);
+    sim.errors.clear();
 }

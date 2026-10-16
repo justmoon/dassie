@@ -31,9 +31,10 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
 pub use self::core::{
-    BtpSession, Changes, Core, CoreParts, CreatedOutgoing, EngineError, GracePolicy,
-    IncomingPolicy, LedgerEvent, LedgerView, Lie, NetworkView, NewIncoming, NewOutgoing, NewToken,
-    Outbound, Output, PeerView, RemovalBlocker, SCHEMES, TokenView, ledger_slug,
+    BtpEvent, BtpSession, Changes, Core, CoreParts, CreatedOutgoing, EngineError, EngineEvent,
+    Event, GracePolicy, IncomingPolicy, LedgerEvent, LedgerView, Lie, NetworkView, NewIncoming,
+    NewOutgoing, NewToken, Outbound, Output, PaymentEvent, PeerEvent, PeerView, RemovalBlocker,
+    SCHEMES, SettlementEvent, Severity, StoreRead, TokenView, ledger_slug,
 };
 
 use crate::log::target;
