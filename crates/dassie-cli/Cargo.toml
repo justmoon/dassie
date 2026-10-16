@@ -52,6 +52,6 @@ dassie-release = { path = "../dassie-release", features = ["testing"] }
 # The mirror the update tests serve, over TLS with testdata/pebble's
 # certificate.
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
-rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 tar = { version = "0.4", default-features = false }
 flate2 = "1"

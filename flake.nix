@@ -212,6 +212,22 @@
                 cargoTestExtraArgs = "--features dassie-cli/test-key";
               }
             );
+            # The dependencies' licenses and sources, and wildcard
+            # requirements, by deny.toml: crane's default checks, which
+            # need no network. The advisories change without a change
+            # here, so they run in their own workflow (advisories.yml).
+            # deny.toml joins the source of this check alone, so that a
+            # change to it builds nothing else again.
+            cargo-deny = craneLib.cargoDeny {
+              src = lib.fileset.toSource {
+                root = ./.;
+                fileset = lib.fileset.unions [
+                  (lib.fileset.fromSource src)
+                  ./deny.toml
+                ];
+              };
+              inherit (common) pname version;
+            };
             inherit identity-wasm;
           }
           // (release.checks or { });

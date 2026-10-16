@@ -1,0 +1,33 @@
+name: Advisories
+
+# The Rust dependencies against the RustSec advisory database (deny.toml):
+# known vulnerabilities, unsound and yanked crates. The database changes
+# without this repository changing, so this is not a check on pull requests,
+# where a new advisory would fail unrelated changes; it runs daily, on every
+# push to `main`, and by hand. Its own file keeps CI's triggers as they are.
+# The rest of deny.toml (licenses, sources, bans) needs no network and is a
+# Nix check in CI (flake.nix).
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  advisories:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
+      # cargo-deny and the cargo it reads the lockfile with, from the
+      # flake's nixpkgs, so that rustup does not install a toolchain for it.
+      - name: cargo deny check advisories
+        run: nix shell --inputs-from . nixpkgs#cargo nixpkgs#cargo-deny --command cargo deny check advisories
