@@ -315,4 +315,105 @@ mod tests {
         };
         assert!(matches!(load(&huge), Err(TlsError::Pem(_))));
     }
+
+    mod properties {
+        use std::sync::OnceLock;
+
+        use base64::Engine as _;
+        use proptest::prelude::*;
+
+        use super::*;
+
+        /// A real certificate and key, made once: making one is slow.
+        fn real() -> &'static StoredCertificate {
+            static REAL: OnceLock<StoredCertificate> = OnceLock::new();
+            REAL.get_or_init(|| self_signed(&names(), NOW_MS).unwrap())
+        }
+
+        fn real_der() -> Vec<u8> {
+            CertificateDer::from_pem_slice(real().chain_pem.as_bytes())
+                .unwrap()
+                .to_vec()
+        }
+
+        fn block(label: &str, body: &[u8]) -> String {
+            let body = base64::engine::general_purpose::STANDARD.encode(body);
+            format!("-----BEGIN {label}-----\n{body}\n-----END {label}-----\n")
+        }
+
+        /// The real certificate's DER with some bytes changed, and maybe
+        /// cut short.
+        fn changed_der() -> impl Strategy<Value = Vec<u8>> {
+            (
+                proptest::collection::vec((any::<proptest::sample::Index>(), any::<u8>()), 1..6),
+                proptest::option::of(any::<proptest::sample::Index>()),
+            )
+                .prop_map(|(changes, cut)| {
+                    let mut der = real_der();
+                    for (at, byte) in changes {
+                        let at = at.index(der.len());
+                        der[at] = byte;
+                    }
+                    if let Some(cut) = cut {
+                        der.truncate(cut.index(der.len()));
+                    }
+                    der
+                })
+        }
+
+        /// PEM as the owner may send it: any text, blocks of any base64
+        /// under any label, the real certificate or key with a character
+        /// changed, and the real certificate with its DER changed.
+        fn pem() -> impl Strategy<Value = String> {
+            let labels = proptest::sample::select(vec![
+                "CERTIFICATE",
+                "PRIVATE KEY",
+                "EC PRIVATE KEY",
+                "RSA PRIVATE KEY",
+                "CERTIFICATE REQUEST",
+                "X",
+            ]);
+            let real_pem =
+                proptest::sample::select(vec![real().chain_pem.clone(), real().key_pem.clone()]);
+            prop_oneof![
+                any::<String>(),
+                (labels, proptest::collection::vec(any::<u8>(), 0..400))
+                    .prop_map(|(label, body)| block(label, &body)),
+                (real_pem, any::<proptest::sample::Index>(), any::<char>()).prop_map(
+                    |(pem, at, c)| {
+                        let mut chars: Vec<char> = pem.chars().collect();
+                        let at = at.index(chars.len());
+                        chars[at] = c;
+                        chars.into_iter().collect()
+                    }
+                ),
+                changed_der().prop_map(|der| block("CERTIFICATE", &der)),
+            ]
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]
+
+            // The owner's `SetCertificate` sends any PEM: it loads or is
+            // refused, without a panic (D16).
+            #[test]
+            fn any_pem_is_loaded_or_refused(chain in pem(), key in pem(), real_key in any::<bool>()) {
+                let key_pem = if real_key { real().key_pem.clone() } else { key };
+                let stored = StoredCertificate {
+                    source: CertificateSource::Manual,
+                    chain_pem: chain,
+                    key_pem,
+                };
+                let _ = load_valid(&stored, NOW_MS);
+            }
+
+            #[test]
+            fn any_der_is_inspected_or_refused(der in prop_oneof![
+                changed_der(),
+                proptest::collection::vec(any::<u8>(), 0..400),
+            ]) {
+                let _ = inspect(&CertificateDer::from(der), CertificateSource::Manual);
+            }
+        }
+    }
 }

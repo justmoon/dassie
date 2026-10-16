@@ -42,12 +42,12 @@ use crate::rpc::{Caller, MAX_MESSAGE_BYTES, SUBPROTOCOL};
 pub const SESSION_ENDED: u16 = 4001;
 
 /// Whether `request` asks to upgrade to a WebSocket.
-pub fn is_upgrade(request: &Request<Incoming>) -> bool {
+pub fn is_upgrade<B>(request: &Request<B>) -> bool {
     header_has_token(request.headers(), &header::CONNECTION, "upgrade")
 }
 
 /// The client's key, if the request is a WebSocket handshake.
-pub(super) fn handshake_key(request: &Request<Incoming>) -> Option<String> {
+pub(super) fn handshake_key<B>(request: &Request<B>) -> Option<String> {
     let headers = request.headers();
     let is_websocket = header_has_token(headers, &header::UPGRADE, "websocket")
         && header_str(headers, &header::SEC_WEBSOCKET_VERSION) == Some("13");
@@ -199,4 +199,56 @@ where
         let _ = sink.send(close).await;
     }
     let _ = sink.close().await;
+}
+
+#[cfg(test)]
+mod tests {
+    use hyper::header::{HeaderMap, HeaderName};
+    use proptest::prelude::*;
+
+    use super::super::response::tests::headers;
+    use super::*;
+
+    const NAMES: &[HeaderName] = &[
+        header::CONNECTION,
+        header::UPGRADE,
+        header::SEC_WEBSOCKET_VERSION,
+        header::SEC_WEBSOCKET_KEY,
+    ];
+
+    /// A valid handshake's value of each of [`NAMES`].
+    const VALID: [&str; 4] = ["Upgrade", "websocket", "13", "dGhlIHNhbXBsZSBub25jZQ=="];
+
+    /// Headers of a handshake: any, with some of those it lacks filled in
+    /// as a valid one has them, so that some are one.
+    fn handshake() -> impl Strategy<Value = HeaderMap> {
+        (headers(NAMES), any::<[bool; 4]>()).prop_map(|(mut headers, fill)| {
+            for ((name, value), fill) in NAMES.iter().zip(VALID).zip(fill) {
+                if fill {
+                    headers
+                        .entry(name)
+                        .or_insert(HeaderValue::from_static(value));
+                }
+            }
+            headers
+        })
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]
+
+        // A handshake's headers are anyone's: they make one, or none,
+        // without a panic (D16).
+        #[test]
+        fn any_handshake_is_read(headers in handshake()) {
+            let mut request = Request::new(());
+            *request.headers_mut() = headers;
+            let _ = is_upgrade(&request);
+            if let Some(key) = handshake_key(&request) {
+                let headers = request.headers();
+                prop_assert_eq!(Some(key.as_str()), header_str(headers, &header::SEC_WEBSOCKET_KEY));
+                prop_assert_eq!(header_str(headers, &header::SEC_WEBSOCKET_VERSION), Some("13"));
+            }
+        }
+    }
 }

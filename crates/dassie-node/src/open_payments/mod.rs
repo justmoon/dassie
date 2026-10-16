@@ -337,4 +337,110 @@ mod tests {
             None
         );
     }
+
+    mod properties {
+        use proptest::prelude::*;
+
+        use super::*;
+
+        const ORIGINS: &[&str] = &[
+            "https://node.example",
+            "https://d1.localhost:5001",
+            "https://[::1]:8443",
+        ];
+
+        const PATHS: &[&str] = &[
+            WELL_KNOWN_PATH,
+            "/pay/stub",
+            "/pay/xrpl-testnet",
+            "/pay/xrpl",
+            "/pay/",
+            "/pay/stub/",
+            "/PAY/STUB",
+            "/pay/stub?x#y",
+            "/pay/%73tub",
+            "/incoming-payments/x",
+            "",
+        ];
+
+        /// A path: one of the node's, nearly, or any text.
+        fn path() -> impl Strategy<Value = String> {
+            prop_oneof![
+                proptest::sample::select(PATHS).prop_map(String::from),
+                (proptest::sample::select(PATHS), "\\PC{0,8}")
+                    .prop_map(|(path, rest)| format!("{path}{rest}")),
+                any::<String>(),
+            ]
+        }
+
+        /// A URL: at this node's origin, written another way, at another
+        /// origin, or any text.
+        fn url(origin: &'static str) -> impl Strategy<Value = String> {
+            let at = prop_oneof![
+                Just(origin.to_string()),
+                Just(origin.to_ascii_uppercase()),
+                Just(format!("{origin}:443")),
+                Just(format!("{origin}x")),
+                Just(origin.replace("https", "http")),
+                Just(String::new()),
+                "[ -~]{0,16}",
+            ];
+            prop_oneof![
+                4 => (at, path()).prop_map(|(at, path)| format!("{at}{path}")),
+                1 => any::<String>(),
+            ]
+        }
+
+        fn ledgers() -> impl Strategy<Value = (Vec<LedgerId>, Option<LedgerId>)> {
+            (
+                proptest::sample::subsequence(LedgerId::ALL.to_vec(), 0..=LedgerId::ALL.len()),
+                proptest::option::of(proptest::sample::select(LedgerId::ALL.to_vec())),
+            )
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]
+
+            // Paths and URLs come from clients' requests and grants: a
+            // ledger is found only for one of the node's wallet addresses,
+            // and anything else is none, without a panic (D16).
+            #[test]
+            fn any_path_names_an_active_ledger_or_none(path in path(), (ledgers, chosen) in ledgers()) {
+                let addresses = WalletAddresses::new(ledgers, chosen);
+                if let Some(ledger) = addresses.ledger_of_path(&path) {
+                    prop_assert!(addresses.ledgers.contains(&ledger));
+                    let is_default = path == WELL_KNOWN_PATH;
+                    prop_assert!(!is_default || addresses.is_default(ledger));
+                    prop_assert_eq!(path, Urls::wallet_address_path(ledger, is_default));
+                }
+            }
+
+            #[test]
+            fn any_url_names_an_own_ledger_or_none(
+                origin in proptest::sample::select(ORIGINS),
+                (ledgers, chosen) in ledgers(),
+                url in proptest::sample::select(ORIGINS).prop_flat_map(url),
+            ) {
+                let urls = Urls::from_origin(origin);
+                let addresses = WalletAddresses::new(ledgers, chosen);
+                if let Some(ledger) = addresses.ledger_of_url(&urls, &url) {
+                    let is_default = url.ends_with(WELL_KNOWN_PATH);
+                    prop_assert_eq!(url, urls.wallet_address(ledger, is_default));
+                }
+            }
+
+            #[test]
+            fn any_url_is_own_or_not(origin in proptest::sample::select(ORIGINS), url in proptest::sample::select(ORIGINS).prop_flat_map(url)) {
+                let urls = Urls::from_origin(origin);
+                if let Some(path) = urls.own_path(&url) {
+                    prop_assert!(url.to_ascii_lowercase().starts_with("https://"));
+                    prop_assert!(url.contains(&path));
+                }
+                for ledger in LedgerId::ALL {
+                    let own = urls.wallet_address(ledger, false);
+                    prop_assert_eq!(urls.own_path(&own), Some(Urls::wallet_address_path(ledger, false)));
+                }
+            }
+        }
+    }
 }
