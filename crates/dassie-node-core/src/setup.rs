@@ -130,7 +130,9 @@ pub fn verify_login(key: &NodeKey, proof_hex: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hex::near_hex;
     use crate::testing::SeededRng;
+    use proptest::prelude::*;
 
     fn request<'a>(token: &'a str, key: &'a str, proof: &'a str) -> SetupRequest<'a> {
         SetupRequest {
@@ -187,5 +189,80 @@ mod tests {
         assert!(verify_login(&key, &proof.to_ascii_uppercase()));
         assert!(!verify_login(&key, &proof[2..]));
         assert!(!verify_login(&key, &hex::encode(&[0; 32])));
+    }
+
+    /// `bytes` as hex, each digit in upper case where `upper` says so.
+    fn mixed_case(bytes: &[u8], upper: &[bool]) -> String {
+        hex::encode(bytes)
+            .chars()
+            .zip(upper.iter().cycle())
+            .map(|(digit, &upper)| {
+                if upper {
+                    digit.to_ascii_uppercase()
+                } else {
+                    digit
+                }
+            })
+            .collect()
+    }
+
+    proptest! {
+        // The token matches its own hex in any case, and nothing else.
+        #[test]
+        fn token_matching_never_panics(
+            bytes: [u8; 32],
+            candidate in prop_oneof![any::<String>(), near_hex(32)],
+            upper in proptest::collection::vec(any::<bool>(), 1..64),
+        ) {
+            let token = SetupToken::from_bytes(bytes);
+            let expected = hex::decode_exact::<32>(&candidate) == Some(bytes);
+            prop_assert_eq!(token.matches(&candidate), expected);
+            prop_assert!(token.matches(&mixed_case(&bytes, &upper)));
+        }
+
+        // Setup checks the token, then the key, then the proof, and gives
+        // back the key it was sent.
+        #[test]
+        fn setup_never_panics(
+            token_bytes: [u8; 32],
+            key_bytes: [u8; 32],
+            fields in proptest::array::uniform3(prop_oneof![any::<String>(), near_hex(32)]),
+            valid: [bool; 3],
+            upper in proptest::collection::vec(any::<bool>(), 1..64),
+        ) {
+            let token = SetupToken::from_bytes(token_bytes);
+            let key = NodeKey::from_bytes(&key_bytes);
+            let [token_hex, key_hex, proof_hex] = fields;
+            let token_hex = if valid[0] { mixed_case(&token_bytes, &upper) } else { token_hex };
+            let key_hex = if valid[1] { mixed_case(&key_bytes, &upper) } else { key_hex };
+            let proof_hex = if valid[2] { mixed_case(key.login_secret().as_bytes(), &upper) } else { proof_hex };
+            let result = verify_setup(&token, &request(&token_hex, &key_hex, &proof_hex));
+            let seed = hex::decode_exact::<32>(&key_hex);
+            let expected = if !token.matches(&token_hex) {
+                Err(SetupError::InvalidToken)
+            } else if let Some(seed) = seed {
+                if verify_login(&NodeKey::from_bytes(&seed), &proof_hex) { Ok(seed) } else { Err(SetupError::InvalidProof) }
+            } else {
+                Err(SetupError::MalformedKey)
+            };
+            prop_assert_eq!(result.map(|key| *key.as_bytes()), expected);
+            if valid == [true; 3] {
+                prop_assert_eq!(expected, Ok(key_bytes));
+            }
+        }
+
+        // A login passes with the key's proof in any case, and nothing else.
+        #[test]
+        fn login_never_panics(
+            key_bytes: [u8; 32],
+            proof in prop_oneof![any::<String>(), near_hex(32)],
+            upper in proptest::collection::vec(any::<bool>(), 1..64),
+        ) {
+            let key = NodeKey::from_bytes(&key_bytes);
+            let secret = *key.login_secret().as_bytes();
+            let expected = hex::decode_exact::<32>(&proof) == Some(secret);
+            prop_assert_eq!(verify_login(&key, &proof), expected);
+            prop_assert!(verify_login(&key, &mixed_case(&secret, &upper)));
+        }
     }
 }

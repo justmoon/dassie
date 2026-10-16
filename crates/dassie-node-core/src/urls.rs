@@ -77,6 +77,9 @@ pub fn redirect_location(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::origin::near_authority;
+    use alloc::string::ToString;
+    use proptest::prelude::*;
 
     fn hostname(text: &str) -> Hostname {
         Hostname::parse(text).unwrap_or_else(|error| panic!("{text}: {error}"))
@@ -126,5 +129,34 @@ mod tests {
         assert_eq!(location.as_deref(), Some("https://[::1]/"));
         assert_eq!(redirect_location(None, None, 443, "/"), None);
         assert_eq!(redirect_location(None, Some("bad host"), 443, "/"), None);
+    }
+
+    proptest! {
+        // A redirect goes to https:// on the node's port, at the configured
+        // hostname or else the host the request named, with its path.
+        #[test]
+        fn redirects_never_panic(
+            configured in proptest::option::of("[a-z]{1,10}\\.example"),
+            host_header in proptest::option::of(near_authority()),
+            https_port in 1_u16..,
+            path in prop_oneof![any::<String>(), "/[ -~]{0,40}", Just("*".to_string())],
+        ) {
+            let hostname = configured.map(|name| hostname(&name));
+            let host = match &hostname {
+                Some(hostname) => Some(Host::Name(hostname.as_str().into())),
+                None => host_header.as_deref().and_then(origin::parse_authority).map(|a| a.host),
+            };
+            let location = redirect_location(hostname.as_ref(), host_header.as_deref(), https_port, &path);
+            prop_assert_eq!(location.is_some(), host.is_some());
+            if let (Some(location), Some(host)) = (location, host) {
+                let path = if path.starts_with('/') { path.as_str() } else { "/" };
+                let authority = location
+                    .strip_prefix("https://")
+                    .and_then(|rest| rest.strip_suffix(path))
+                    .and_then(origin::parse_authority);
+                let port = (https_port != DEFAULT_HTTPS_PORT).then_some(https_port);
+                prop_assert_eq!(authority, Some(origin::Authority { host, port }));
+            }
+        }
     }
 }

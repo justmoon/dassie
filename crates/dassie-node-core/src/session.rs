@@ -207,7 +207,11 @@ pub fn clean_user_agent(user_agent: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hex::near_hex;
     use crate::testing::SeededRng;
+    use alloc::string::ToString;
+    use alloc::vec::Vec;
+    use proptest::prelude::*;
 
     const POLICY: SessionPolicy = SessionPolicy::DEFAULT;
 
@@ -297,5 +301,112 @@ mod tests {
         let clean = clean_user_agent(&long);
         assert_eq!(clean.len(), 256);
         assert!(clean.chars().all(|c| c == 'é'));
+    }
+
+    /// One `name=value` of a `Cookie` header, or something like it: the
+    /// session cookie's name, spaced, in other case or empty; values of
+    /// nearly a token, quoted or half-quoted, or huge.
+    fn cookie_pair() -> impl Strategy<Value = String> {
+        let name = prop_oneof![
+            Just(SESSION_COOKIE_NAME.to_string()),
+            Just(format!(" {SESSION_COOKIE_NAME}\t")),
+            Just(SESSION_COOKIE_NAME.to_ascii_lowercase()),
+            Just(String::new()),
+            "[ -:<-~]{0,12}",
+        ];
+        let value = prop_oneof![
+            near_hex(32),
+            near_hex(32).prop_map(|value| format!("\"{value}\"")),
+            near_hex(32).prop_map(|value| format!("\"{value}")),
+            Just("\"".to_string()),
+            Just("\"\"".to_string()),
+            "[0-9a-f]{1000,5000}",
+            any::<String>(),
+        ];
+        prop_oneof![
+            (name, value).prop_map(|(name, value)| format!("{name}={value}")),
+            "[ -:<-~]{0,12}",
+        ]
+    }
+
+    /// `Cookie` headers of several pairs each, joined by `;` with or
+    /// without spaces, or arbitrary text.
+    fn cookie_headers() -> impl Strategy<Value = Vec<String>> {
+        let header = prop_oneof![
+            (
+                proptest::collection::vec(cookie_pair(), 0..6),
+                prop_oneof![Just(";"), Just("; "), Just(" ;"), Just(";;")],
+            )
+                .prop_map(|(pairs, separator)| pairs.join(separator)),
+            any::<String>(),
+        ];
+        proptest::collection::vec(header, 0..4)
+    }
+
+    proptest! {
+        // A parsed token or ID re-formats as the text, up to case.
+        #[test]
+        fn token_parsing_never_panics(text in prop_oneof![any::<String>(), near_hex(32)]) {
+            if let Some(token) = SessionToken::parse(&text) {
+                prop_assert_eq!(token.to_hex(), text.to_ascii_lowercase());
+            }
+            if let Some(id) = SessionId::parse(&text) {
+                prop_assert_eq!(id.to_hex(), text.to_ascii_lowercase());
+            }
+        }
+
+        // Whatever is found was in the headers, as the session cookie's
+        // value, quoted or not.
+        #[test]
+        fn finding_the_cookie_never_panics(headers in cookie_headers()) {
+            let found = find_session_cookie(headers.iter().map(String::as_str));
+            if let Some(token) = found {
+                let headers = headers.join(";").to_ascii_lowercase();
+                let name = SESSION_COOKIE_NAME.to_ascii_lowercase();
+                let hex = token.to_hex();
+                prop_assert!(
+                    headers.contains(&format!("{name}={hex}"))
+                        || headers.contains(&format!("{name}=\"{hex}\"")),
+                    "{headers}"
+                );
+            }
+        }
+
+        // The first session cookie wins, after any other cookies and
+        // whatever follows it.
+        #[test]
+        fn the_first_session_cookie_is_found(
+            bytes: [u8; 32],
+            before in proptest::collection::vec("[a-zA-Z_-]{0,10}=[ -:<-~]{0,20}", 0..4),
+            after in cookie_headers(),
+            quoted: bool,
+        ) {
+            let token = SessionToken(bytes);
+            let value = if quoted { format!("\"{}\"", token.to_hex()) } else { token.to_hex() };
+            let mut first = before.join("; ");
+            first.push_str(&format!("; {SESSION_COOKIE_NAME}={value}; "));
+            first.push_str(after.first().map_or("", String::as_str));
+            let headers = core::iter::once(first.as_str()).chain(after.iter().map(String::as_str));
+            prop_assert_eq!(find_session_cookie(headers), Some(token));
+        }
+
+        // The cut never splits a character, and keeps all it can.
+        #[test]
+        fn user_agents_stay_bounded(
+            user_agent in prop_oneof![
+                any::<String>(),
+                "[ -~\\x00-\\x1f\\x7f-\\u{9f}é€😀]{200,300}",
+                "[a-z]{250,256}[é€😀][é€😀a-z]{0,4}",
+            ],
+        ) {
+            let clean = clean_user_agent(&user_agent);
+            prop_assert!(clean.len() <= MAX_USER_AGENT_BYTES);
+            let kept: String = user_agent.chars().filter(|c| !c.is_control()).collect();
+            let rest = kept.strip_prefix(clean.as_str());
+            prop_assert!(rest.is_some(), "{clean:?} is not a prefix of {kept:?}");
+            if let Some(next) = rest.and_then(|rest| rest.chars().next()) {
+                prop_assert!(clean.len() + next.len_utf8() > MAX_USER_AGENT_BYTES);
+            }
+        }
     }
 }

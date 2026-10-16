@@ -278,9 +278,31 @@ impl Default for NodeConfig {
     }
 }
 
+/// Text that is nearly a host name, for the properties of every parser of
+/// one: labels of letters, digits and hyphens in either case, with
+/// underscores, unicode, empty or overlong labels, all-digit last labels,
+/// leading or trailing dots, IP addresses, and names around 253 bytes.
+#[cfg(test)]
+pub(crate) fn near_hostname() -> proptest::strategy::BoxedStrategy<String> {
+    use proptest::prelude::*;
+
+    prop_oneof![
+        any::<String>(),
+        "[a-zA-Z0-9-]{0,12}(\\.[a-zA-Z0-9-]{0,12}){0,4}",
+        "[a-zA-Z0-9é_-]{1,8}(\\.[a-zA-Z0-9é_-]{1,8}){0,3}",
+        "\\.?([a-z]{1,8}\\.){0,3}[a-z0-9]{1,3}\\.?",
+        "[a-z]{60,66}(\\.[a-z]{60,66}){0,1}",
+        "([a-z]{63}\\.){3}[a-z]{58,62}",
+        "[0-9]{1,3}(\\.[0-9]{1,3}){3}",
+        "[0-9a-f:]{2,12}",
+    ]
+    .boxed()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn hostnames() {
@@ -365,6 +387,74 @@ mod tests {
             "https://a b",
         ] {
             assert!(DirectoryUrl::parse(refused).is_err(), "{refused}");
+        }
+    }
+
+    proptest! {
+        // An accepted name is the text in lowercase, keeps to RFC 1123,
+        // and is never read as an IP address.
+        #[test]
+        fn hostnames_never_panic(text in near_hostname()) {
+            if let Ok(hostname) = Hostname::parse(&text) {
+                prop_assert_eq!(hostname.as_str(), text.to_ascii_lowercase());
+                prop_assert_eq!(Hostname::parse(hostname.as_str()), Ok(hostname.clone()));
+                prop_assert!(hostname.as_str().len() <= MAX_HOSTNAME_BYTES);
+                prop_assert!(hostname.as_str().split('.').all(valid_label));
+                let authority = crate::origin::parse_authority(hostname.as_str());
+                let host = crate::origin::Host::Name(hostname.as_str().into());
+                prop_assert_eq!(authority.map(|authority| authority.host), Some(host));
+            }
+        }
+
+        #[test]
+        fn realms_never_panic(text in prop_oneof![any::<String>(), "test|live|TEST| live|"]) {
+            if let Ok(realm) = Realm::parse(&text) {
+                prop_assert_eq!(realm.as_str(), text);
+            }
+        }
+
+        #[test]
+        fn aliases_never_panic(
+            text in prop_oneof![any::<String>(), "[a-zé😀 \\x00-\\x1f\\x7f-\\u{9f}]{14,66}"],
+        ) {
+            if let Ok(alias) = Alias::parse(&text) {
+                prop_assert_eq!(alias.as_str(), text.as_str());
+                prop_assert!(alias.as_str().len() <= MAX_ALIAS_BYTES);
+                prop_assert!(!alias.as_str().chars().any(char::is_control));
+            }
+        }
+
+        #[test]
+        fn ports_are_nonzero_and_differ(
+            http in prop_oneof![any::<u32>(), 0_u32..3, 65_534_u32..65_538],
+            https in prop_oneof![any::<u32>(), 0_u32..3, 65_534_u32..65_538],
+        ) {
+            let expected = if http == 0 || https == 0 || http > 65_535 || https > 65_535 {
+                Err(ConfigError::InvalidPort)
+            } else if http == https {
+                Err(ConfigError::SamePorts)
+            } else {
+                Ok((http, https))
+            };
+            let ports = Ports::new(http, https).map(|p| (u32::from(p.http()), u32::from(p.https())));
+            prop_assert_eq!(ports, expected);
+        }
+
+        #[test]
+        fn directory_urls_never_panic(
+            text in prop_oneof![
+                any::<String>(),
+                "https?://[ -~é]{0,40}",
+                "https://[a-z]{2030,2060}",
+            ],
+        ) {
+            if let Ok(url) = DirectoryUrl::parse(&text) {
+                prop_assert_eq!(url.as_str(), text.as_str());
+                let rest = url.as_str().strip_prefix("https://").unwrap_or_default();
+                prop_assert!(!rest.is_empty() && !rest.starts_with('/'));
+                prop_assert!(url.as_str().len() <= MAX_DIRECTORY_URL_BYTES);
+                prop_assert!(url.as_str().bytes().all(|byte| byte.is_ascii_graphic()));
+            }
         }
     }
 }

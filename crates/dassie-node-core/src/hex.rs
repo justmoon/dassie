@@ -41,9 +41,42 @@ fn nibble(digit: u8) -> Option<u8> {
     }
 }
 
+/// Text that is nearly `2 * bytes` hex digits, for the properties of every
+/// parser that reads hex: the right number of digits in mixed case, one too
+/// few or too many, or one digit replaced by any other character.
+#[cfg(test)]
+pub(crate) fn near_hex(bytes: usize) -> proptest::strategy::BoxedStrategy<String> {
+    use alloc::format;
+    use proptest::prelude::*;
+
+    let digits =
+        |count: usize| proptest::string::string_regex(&format!("[0-9a-fA-F]{{{count}}}")).unwrap();
+    let length = 2 * bytes;
+    let junk = prop_oneof![
+        "[ -/:-@G-Zg-z~\\x00-\\x1f]",
+        any::<char>().prop_map(String::from)
+    ];
+    let replaced =
+        (digits(length), any::<prop::sample::Index>(), junk).prop_map(|(text, at, junk)| {
+            if text.is_empty() {
+                return junk;
+            }
+            let at = at.index(text.len());
+            format!("{}{junk}{}", &text[..at], &text[at + 1..])
+        });
+    prop_oneof![
+        digits(length),
+        digits(length.saturating_sub(1)),
+        digits(length + 1),
+        replaced,
+    ]
+    .boxed()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn round_trips() {
@@ -59,5 +92,33 @@ mod tests {
         assert_eq!(decode_exact::<4>("001fa0fff0"), None);
         assert_eq!(decode_exact::<4>("001fa0fg"), None);
         assert_eq!(decode_exact::<1>("+1"), None);
+    }
+
+    fn check_canonical<const N: usize>(text: &str) -> Result<(), TestCaseError> {
+        if let Some(bytes) = decode_exact::<N>(text) {
+            prop_assert_eq!(encode(&bytes), text.to_ascii_lowercase());
+        }
+        Ok(())
+    }
+
+    proptest! {
+        // Whatever decodes encodes back to the text, up to case: the only
+        // other spelling of a value is in other case.
+        #[test]
+        fn decoding_never_panics(
+            text in prop_oneof![any::<String>(), near_hex(0), near_hex(1), near_hex(4), near_hex(32)],
+        ) {
+            check_canonical::<0>(&text)?;
+            check_canonical::<1>(&text)?;
+            check_canonical::<4>(&text)?;
+            check_canonical::<32>(&text)?;
+        }
+
+        #[test]
+        fn encoding_round_trips(bytes: [u8; 32]) {
+            let text = encode(&bytes);
+            prop_assert_eq!(decode_exact::<32>(&text), Some(bytes));
+            prop_assert_eq!(decode_exact::<32>(&text.to_ascii_uppercase()), Some(bytes));
+        }
     }
 }
