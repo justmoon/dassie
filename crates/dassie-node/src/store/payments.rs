@@ -31,7 +31,9 @@ impl PaymentId {
             && [8, 13, 18, 23]
                 .iter()
                 .all(|&at| text.as_bytes().get(at) == Some(&b'-'));
-        if !dashes_valid || hex.len() != 32 {
+        // Hex digits only: `from_str_radix` also takes a sign, so `+a`
+        // would name the same ID as `0a`.
+        if !dashes_valid || hex.len() != 32 || !hex.iter().all(u8::is_ascii_hexdigit) {
             return None;
         }
         let mut bytes = [0u8; 16];
@@ -533,4 +535,63 @@ pub(super) fn write_incoming(
         )?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use proptest::prelude::*;
+
+    use super::*;
+
+    #[test]
+    fn ids_have_one_spelling() {
+        let id = "0a1b2c3d-4e5f-4a7b-8c9d-0e1f2a3b4c5d";
+        assert_eq!(PaymentId::parse(id).unwrap().to_string(), id);
+        assert_eq!(
+            PaymentId::parse(&id.to_uppercase()),
+            PaymentId::parse(id),
+            "either case"
+        );
+        // `from_str_radix` reads `+a` as `0a`.
+        assert_eq!(
+            PaymentId::parse("+a1b2c3d-4e5f-4a7b-8c9d-0e1f2a3b4c5d"),
+            None
+        );
+        for bad in [
+            "",
+            "0a1b2c3d4e5f4a7b8c9d0e1f2a3b4c5d",
+            "0a1b2c3d-4e5f-4a7b-8c9d-0e1f2a3b4c5",
+            "0a1b2c3d-4e5f-4a7b-8c9d-0e1f2a3b4c5g",
+            "0a1b2c3d-4e5f-4a7b-8c9d--e1f2a3b4c5d",
+            "0a1b2c3d-4e5f-4a7b-8c9d-0e1f2a3b4cé",
+        ] {
+            assert_eq!(PaymentId::parse(bad), None, "{bad}");
+        }
+    }
+
+    /// IDs with one character changed, and any text.
+    fn text() -> impl Strategy<Value = String> {
+        let by = prop_oneof![
+            prop::sample::select(vec!['+', '-', ' ', 'A', 'G']),
+            any::<char>()
+        ];
+        let changed = (any::<[u8; 16]>(), 0..36usize, by).prop_map(|(bytes, at, by)| {
+            let mut chars: Vec<char> = PaymentId(bytes).to_string().chars().collect();
+            chars[at] = by;
+            chars.into_iter().collect()
+        });
+        prop_oneof![changed, "\\PC{0,40}"]
+    }
+
+    proptest! {
+        // Path segments and cursors come from the network (D16).
+        #[test]
+        fn parsing_never_panics_and_is_canonical(text in text()) {
+            if let Some(id) = PaymentId::parse(&text) {
+                prop_assert_eq!(id.to_string(), text.to_ascii_lowercase());
+            }
+        }
+    }
 }
