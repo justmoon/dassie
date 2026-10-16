@@ -41,7 +41,9 @@ pub async fn manage(
         (true, &Method::POST) => auth::continue_grant(node, urls, id, &signed)
             .await
             .map(|grant| json(StatusCode::OK, &grant)),
-        (true, &Method::DELETE) => auth::revoke_grant(node, id, &signed).map(|()| no_content()),
+        (true, &Method::DELETE) => auth::revoke_grant(node, id, &signed)
+            .await
+            .map(|()| no_content()),
         (false, &Method::POST) => auth::rotate_token(node, urls, id, &signed).map(|access_token| {
             json(
                 StatusCode::OK,

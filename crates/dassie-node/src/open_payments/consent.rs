@@ -188,7 +188,7 @@ async fn public_name(node: &Node, client: &str) -> Option<String> {
 }
 
 /// Tells live views of the grants that something changed.
-async fn changed(node: &Node) {
+pub(super) async fn changed(node: &Node) {
     if let Some(engine) = node.engine() {
         engine.payments_changed().await;
     }

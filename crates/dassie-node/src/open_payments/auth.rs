@@ -454,7 +454,7 @@ pub fn revoke_token(
 /// # Errors
 ///
 /// 401 without the continuation token and the client's signature.
-pub fn revoke_grant(
+pub async fn revoke_grant(
     node: &Node,
     grant_id: PaymentId,
     request: &SignedRequest<'_>,
@@ -468,6 +468,7 @@ pub fn revoke_grant(
         })?;
     signed_by_client(node, request, &grant)?;
     node.store().revoke_grant(grant.id, node.now_ms())?;
+    super::consent::changed(node).await;
     tracing::debug!(target: target::PAYMENT, grant = %grant.id, "grant revoked by its client");
     Ok(())
 }
