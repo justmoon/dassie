@@ -373,6 +373,41 @@ mod tests {
         assert_eq!(Channel::parse("stable"), None);
     }
 
+    /// A field of `width` digits: mostly in range, sometimes out of it,
+    /// of another width, or anything.
+    fn field(in_range: &'static str, width: usize) -> impl Strategy<Value = String> {
+        prop_oneof![
+            8 => in_range.boxed(),
+            1 => proptest::collection::vec(proptest::char::range('0', '9'), width)
+                .prop_map(String::from_iter)
+                .boxed(),
+            1 => "[0-9+]{0,8}".boxed(),
+            1 => "\\PC{0,6}".boxed(),
+        ]
+    }
+
+    /// `canary-` and something like a date, a time and a commit, with
+    /// dashes or anything between them.
+    fn canary() -> impl Strategy<Value = String> {
+        let date = (
+            field("[0-9]{4}", 4),
+            field("0[1-9]|1[0-2]", 2),
+            field("0[1-9]|[12][0-9]|3[01]", 2),
+        );
+        let time = field("([01][0-9]|2[0-3])[0-5][0-9][0-5][0-9]", 6);
+        let commit = prop_oneof![
+            8 => "[0-9a-f]{7,40}(-dirty)?",
+            1 => "[0-9a-f]{0,42}(-dirty)?",
+            1 => "[0-9a-fA-F-]{0,45}",
+            1 => "\\PC{0,45}",
+        ];
+        let dash = prop_oneof![16 => Just("-".into()), 1 => "\\PC{0,2}"];
+        let dashes = [dash.clone(), dash.clone(), dash.clone(), dash];
+        (date, time, commit, dashes).prop_map(|((year, month, day), time, commit, [a, b, c, d])| {
+            format!("canary-{year}{a}{month}{b}{day}{c}{time}{d}{commit}")
+        })
+    }
+
     proptest! {
         #[test]
         fn releases_round_trip(major: u32, minor: u32, patch: u32) {
@@ -410,12 +445,27 @@ mod tests {
         /// Whatever it accepts is a safe path component, and reads back as
         /// it was written.
         #[test]
-        fn never_panics(text in "\\PC{0,90}") {
+        fn never_panics(text in prop_oneof![
+            1 => "\\PC{0,90}",
+            1 => "canary-\\PC{0,80}",
+            4 => canary(),
+        ]) {
             if let Ok(version) = Version::parse(&text) {
                 prop_assert_eq!(version.to_string(), text.clone());
                 prop_assert!(text.bytes().all(|b| b.is_ascii_digit()
                     || b.is_ascii_lowercase() || b == b'.' || b == b'-'));
                 prop_assert!(!text.contains(".."));
+            }
+        }
+
+        /// A channel's name is one of the two, exactly.
+        #[test]
+        fn channels_never_panic(name in prop_oneof![
+            "\\PC{0,10}",
+            "(latest|canary|Latest|CANARY)\\PC{0,2}",
+        ]) {
+            if let Some(channel) = Channel::parse(&name) {
+                prop_assert_eq!(channel.name(), name);
             }
         }
     }

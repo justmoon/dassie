@@ -225,16 +225,78 @@ mod tests {
         );
     }
 
+    /// A path component: plain, `.` or `..`, empty, anything, or long.
+    fn component() -> impl Strategy<Value = String> {
+        prop_oneof![
+            8 => "[A-Za-z0-9_.-]{1,12}",
+            2 => prop::sample::select(&["", ".", "..", "dassie", "bin", ".hidden"][..])
+                .prop_map(String::from),
+            1 => "\\PC{0,6}",
+            1 => "[a-z]{60,200}",
+        ]
+    }
+
+    /// A path in a bundle: mostly under `dassie/`, with any components
+    /// and separators.
+    fn path() -> impl Strategy<Value = String> {
+        let root = prop_oneof![
+            8 => Just("dassie/"),
+            1 => Just("dassie"),
+            1 => prop::sample::select(
+                &["dassie-0.1.0/", "dassie//", "Dassie/", "/dassie/", "./dassie/", "dassie\\", ""][..]
+            ),
+        ];
+        let separator = prop_oneof![8 => Just("/"), 1 => Just("//"), 1 => Just("\\")];
+        let components = proptest::collection::vec((component(), separator), 0..6);
+        (root, components, any::<bool>()).prop_map(|(root, components, directory)| {
+            let mut path = String::from(root);
+            for (index, (component, separator)) in components.iter().enumerate() {
+                if index > 0 {
+                    path.push_str(separator);
+                }
+                path.push_str(component);
+            }
+            if directory {
+                path.push('/');
+            }
+            path
+        })
+    }
+
+    /// An entry: a path, any kind, and no, few or any number of bytes.
+    fn entry() -> impl Strategy<Value = (String, Kind, u64)> {
+        let kind = prop::sample::select(&[Kind::Directory, Kind::File, Kind::Other][..]);
+        let size = prop_oneof![Just(0), 0..4096u64, 0..=MAX_UNPACKED, any::<u64>()];
+        (path(), kind, size)
+    }
+
     proptest! {
         /// Whatever it admits stays under the root: no `..`, no absolute
-        /// path, no empty or hidden component.
+        /// path, no empty or hidden component, nothing but plain names;
+        /// and no more entries or bytes than allowed.
         #[test]
-        fn admitted_paths_stay_inside(path in "[a-z./\\\\-]{0,40}", file: bool) {
-            let kind = if file { Kind::File } else { Kind::Directory };
-            if let Ok(inner) = Unpacking::new().admit(&path, kind, 0) {
+        fn admitted_paths_stay_inside(
+            entries in proptest::collection::vec(entry(), 1..=MAX_ENTRIES + 8),
+        ) {
+            let mut unpacking = Unpacking::new();
+            let (mut admitted, mut bytes) = (0, 0u64);
+            for (path, kind, size) in &entries {
+                let Ok(inner) = unpacking.admit(path, *kind, *size) else {
+                    continue;
+                };
+                admitted += 1;
+                if *kind == Kind::File {
+                    bytes = bytes.saturating_add(*size);
+                }
+                prop_assert_ne!(*kind, Kind::Other);
+                prop_assert!(path.len() <= MAX_PATH);
+                prop_assert!(path.strip_suffix('/').unwrap_or(path).ends_with(inner));
                 prop_assert!(!inner.starts_with('/'));
                 prop_assert!(inner.split('/').all(|c| inner.is_empty() || (!c.is_empty() && !c.starts_with('.'))));
+                prop_assert!(inner.bytes().all(|b| b.is_ascii_alphanumeric() || b"./-_".contains(&b)));
             }
+            prop_assert!(admitted <= MAX_ENTRIES);
+            prop_assert!(bytes <= MAX_UNPACKED);
         }
     }
 }

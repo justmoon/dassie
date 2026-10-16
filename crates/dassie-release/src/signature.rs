@@ -356,11 +356,237 @@ mod tests {
         );
     }
 
+    /// Standard base64 of these bytes.
+    fn base64(bytes: impl Strategy<Value = Vec<u8>>) -> impl Strategy<Value = String> {
+        bytes.prop_map(|bytes| STANDARD.encode(bytes))
+    }
+
+    /// Bytes, mostly `N` of them, sometimes a few more or fewer.
+    fn about<const N: usize>() -> impl Strategy<Value = Vec<u8>> {
+        prop_oneof![
+            4 => proptest::collection::vec(any::<u8>(), N),
+            1 => proptest::collection::vec(any::<u8>(), N.saturating_sub(4)..N + 4),
+        ]
+    }
+
+    /// The bytes of a key: `Ed` or other algorithm bytes, an ID, and the
+    /// test key, a weak key or any 32 bytes; sometimes not 42 bytes.
+    fn key_bytes() -> impl Strategy<Value = Vec<u8>> {
+        let algorithm = prop_oneof![
+            3 => Just(KEY_ALGORITHM),
+            1 => Just(PREHASHED),
+            1 => any::<[u8; 2]>(),
+        ];
+        let point = prop_oneof![
+            Just(key().key.to_bytes()),
+            // The identity and a point of order 4: weak keys.
+            Just(core::array::from_fn(|i| u8::from(i == 0))),
+            Just([0; 32]),
+            any::<[u8; 32]>(),
+        ];
+        prop_oneof![
+            4 => (algorithm, any::<[u8; KEY_ID]>(), point)
+                .prop_map(|(algorithm, id, point)| [&algorithm[..], &id, &point].concat()),
+            1 => about::<{ 2 + KEY_ID + 32 }>(),
+        ]
+    }
+
+    /// A key as `minisign.pub` has it, or just its base64 line, with any
+    /// line endings and what follows.
+    fn key_text() -> impl Strategy<Value = String> {
+        let line = prop_oneof![4 => base64(key_bytes()), 1 => "\\PC{0,60}"];
+        let comment = prop_oneof![4 => "untrusted comment: \\PC{0,30}", 1 => "\\PC{0,30}"];
+        let end = prop::sample::select(&["", "\n", "\r\n", "\n\n", "\nmore\n", "\n\r\n"][..]);
+        (proptest::option::of(comment), line, end).prop_map(|(comment, line, end)| match comment {
+            Some(comment) => format!("{comment}\n{line}{end}"),
+            None => format!("{line}{end}"),
+        })
+    }
+
+    /// The untrusted comment line.
+    fn untrusted_line() -> impl Strategy<Value = String> {
+        prop_oneof![
+            8 => "untrusted comment: \\PC{0,30}",
+            1 => "untrusted comment: [a-z]{900,1000}",
+            1 => "\\PC{0,30}",
+        ]
+    }
+
+    /// The signature line: `ED` or other algorithm bytes, the test key's
+    /// ID or another, and 64 bytes, in base64; or not quite.
+    fn signature_line() -> impl Strategy<Value = String> {
+        let algorithm = prop_oneof![
+            3 => Just(PREHASHED),
+            1 => Just(KEY_ALGORITHM),
+            1 => any::<[u8; 2]>(),
+        ];
+        let id = prop_oneof![3 => Just(key().id), 1 => any::<[u8; KEY_ID]>()];
+        let bytes = (algorithm, id, about::<64>())
+            .prop_map(|(algorithm, id, signed)| [&algorithm[..], &id, &signed].concat());
+        prop_oneof![4 => base64(bytes), 1 => "\\PC{0,110}"]
+    }
+
+    /// The trusted comment line.
+    fn trusted_line() -> impl Strategy<Value = String> {
+        prop_oneof![
+            Just("trusted comment: dassie 0.1.0".into()),
+            "trusted comment: \\PC{0,30}",
+            "\\PC{0,30}",
+        ]
+    }
+
+    /// The global signature line: 64 bytes in base64, or not quite.
+    fn global_line() -> impl Strategy<Value = String> {
+        prop_oneof![4 => base64(about::<64>()), 1 => "\\PC{0,100}"]
+    }
+
+    /// Any of a signature file's lines.
+    fn any_line() -> impl Strategy<Value = String> {
+        prop_oneof![
+            untrusted_line(),
+            signature_line(),
+            trusted_line(),
+            global_line()
+        ]
+    }
+
+    /// A signature file as minisign writes it, but of anything: four
+    /// lines mostly, sometimes fewer or more, with either line ending.
+    fn signature_file() -> impl Strategy<Value = String> {
+        let lines = (
+            untrusted_line(),
+            signature_line(),
+            trusted_line(),
+            global_line(),
+        )
+            .prop_map(|(a, b, c, d)| [a, b, c, d]);
+        let count = prop_oneof![8 => Just(4usize), 1 => 0..=6usize];
+        let end = prop::sample::select(&["\n", "\r\n"][..]);
+        (lines, count, end, any::<bool>()).prop_map(|(lines, count, end, last)| {
+            let mut file: String = lines
+                .iter()
+                .cycle()
+                .take(count)
+                .map(|line| [line, end].concat())
+                .collect();
+            if !last {
+                file.truncate(file.trim_end_matches(['\r', '\n']).len());
+            }
+            file
+        })
+    }
+
+    /// Sums to sign or verify: the test sums, sums of other files, or
+    /// anything.
+    fn sums_bytes() -> impl Strategy<Value = Vec<u8>> {
+        prop_oneof![
+            Just(SUMS.as_bytes().to_vec()),
+            "([0-9a-f]{64}  [a-z]{1,8}\n){1,4}".prop_map(String::into_bytes),
+            proptest::collection::vec(any::<u8>(), 0..300),
+        ]
+    }
+
+    /// What is done to a good signature.
+    #[derive(Clone, Debug)]
+    enum Mutation {
+        None,
+        Flip(usize, u8),
+        Replace(usize, String),
+        Insert(usize, String),
+        Remove(usize),
+        CrLf,
+    }
+
+    /// Mostly a flipped bit, else a line replaced, added or removed, or
+    /// other line endings.
+    fn mutation() -> impl Strategy<Value = Mutation> {
+        prop_oneof![
+            1 => Just(Mutation::None),
+            4 => (any::<usize>(), 0u8..7).prop_map(|(at, bit)| Mutation::Flip(at, bit)),
+            2 => (any::<usize>(), any_line()).prop_map(|(at, line)| Mutation::Replace(at, line)),
+            1 => (any::<usize>(), any_line()).prop_map(|(at, line)| Mutation::Insert(at, line)),
+            1 => any::<usize>().prop_map(Mutation::Remove),
+            1 => Just(Mutation::CrLf),
+        ]
+    }
+
+    /// Applies a mutation, if what comes out is still text.
+    fn mutate(signature: &str, mutation: &Mutation) -> Option<String> {
+        let mut lines: Vec<String> = signature.lines().map(String::from).collect();
+        let count = lines.len();
+        match mutation {
+            Mutation::None => return Some(signature.into()),
+            Mutation::Flip(at, bit) => {
+                let mut bytes = signature.as_bytes().to_vec();
+                let at = at % bytes.len();
+                bytes[at] ^= 1 << bit;
+                return String::from_utf8(bytes).ok();
+            }
+            Mutation::CrLf => return Some(signature.replace('\n', "\r\n")),
+            Mutation::Replace(at, line) => lines[at % count] = line.clone(),
+            Mutation::Insert(at, line) => lines.insert(at % (count + 1), line.clone()),
+            Mutation::Remove(at) => {
+                lines.remove(at % count);
+            }
+        }
+        Some(lines.iter().map(|line| [line, "\n"].concat()).collect())
+    }
+
+    /// The version a signature is checked for.
+    fn any_version() -> impl Strategy<Value = Version> {
+        prop::sample::select(&["0.1.0", "0.2.0", "canary-2026-10-15-041530-15bd7aa"][..])
+            .prop_map(version)
+    }
+
     proptest! {
+        /// Whatever it accepts is a strong Ed25519 key.
         #[test]
-        fn never_panics(key_text in "\\PC{0,120}", signature in "\\PC{0,400}", sums in "\\PC{0,200}") {
-            let _ = PublicKey::parse(&key_text);
-            let _ = verify_sums(&key(), sums.as_bytes(), &signature, &version("0.1.0"));
+        fn keys_never_panic(text in prop_oneof![1 => "\\PC{0,120}", 4 => key_text()]) {
+            if let Ok(key) = PublicKey::parse(&text) {
+                prop_assert!(!key.key.is_weak());
+                prop_assert_eq!(key.id().len(), 2 * KEY_ID);
+            }
+        }
+
+        /// Signed by no one: refused, whatever it looks like.
+        #[test]
+        fn never_panics(
+            signature in prop_oneof![1 => "\\PC{0,400}", 4 => signature_file()],
+            sums in sums_bytes(),
+        ) {
+            let result = verify_sums(&key(), &sums, &signature, &version("0.1.0"));
+            prop_assert!(matches!(result, Err(VerifyError::Signature(_) | VerifyError::Sums(_))));
+        }
+
+        /// A good signature verifies for its version only, and changed
+        /// past its untrusted comment, not at all.
+        #[test]
+        fn mutated_signatures_are_refused(
+            sums in sums_bytes(),
+            comment in prop_oneof![
+                Just("dassie 0.1.0".into()),
+                "dassie \\PC{0,20}",
+                "\\PC{0,30}",
+            ],
+            version in any_version(),
+            mutation in mutation(),
+        ) {
+            let signature = crate::testing::sign(crate::testing::TEST_SECRET_KEY, &sums, &comment);
+            let good = verify_sums(&key(), &sums, &signature, &version);
+            if comment == trusted_comment(&version) {
+                prop_assert_eq!(&good, &Sums::parse(&sums).map_err(VerifyError::Sums));
+            } else {
+                prop_assert_eq!(&good, &Err(VerifyError::Version { signed: comment }));
+            }
+            if let Some(mutated) = mutate(&signature, &mutation) {
+                let result = verify_sums(&key(), &sums, &mutated, &version);
+                if mutated.lines().skip(1).eq(signature.lines().skip(1)) {
+                    let broken = Err(VerifyError::Signature(SignatureError::Encoding));
+                    prop_assert!(result == good || result == broken, "{:?}", result);
+                } else {
+                    prop_assert!(matches!(result, Err(VerifyError::Signature(_))), "{:?}", result);
+                }
+            }
         }
 
         /// Any change to a signed byte is caught.
