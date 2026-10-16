@@ -6,16 +6,20 @@
 //!
 //! It checks what only the whole node can show: peerings and balances
 //! survive restarts, payments of several times the credit cross hops, so
-//! every hop settles, an owner's termination ends a peering settled, every
-//! pair of accounts mirrors each other, and the money is conserved: the
-//! owners', and the stubs' on their "underlying ledger". One payment's
-//! token has a spending cap, which the journal must show it kept to.
+//! every hop settles, an owner's termination ends a peering settled, and
+//! the stubs' "underlying ledger" neither makes nor loses money. One
+//! payment's token has a spending cap, which the journal must show it
+//! kept to.
+//!
+//! Each node is judged on its own, by its own books (D19): they hold what
+//! its scheme holds and what its clients and receivers really moved, it
+//! takes every settlement its peers send, and it settles whatever its
+//! books say it owes past its threshold. No check compares two nodes'
+//! books, or adds them up: each keeps its own, and they may drift.
 //!
 //! A node also crashes mid-payment: a sender, a hop or a receiver. Its
-//! peers learn from each other's verdicts which Fulfills counted (D17), so
-//! their books still mirror each other; a hop whose Fulfill its upstream
-//! refused books the loss, and the losses are what receivers got beyond
-//! what senders paid.
+//! peers learn from each other's verdicts which Fulfills counted (D17); a
+//! hop whose Fulfill its upstream refused books the loss.
 //!
 //! Outgoing payments go between nodes and to a node's own receiver: each
 //! sends exactly its debit amount, across a crash of its node too, and
@@ -29,12 +33,13 @@
 //! Runs across currencies (M7c) give some nodes dollars, some XRP and
 //! some both, at a fixed snapshot of rates, one charging a fee and a
 //! spread: BTP clients pay receivers in the other currency, through the
-//! nodes that convert. Each asset is conserved, the FX accounts counted.
+//! nodes that convert. No ledger makes or loses any asset.
 //!
 //! An honest network never bans a peer for what it cost (D18), crashes and
 //! all. A node that lies to its peers, refusing Fulfills it took or never
 //! settling, is banned by the peer it cost, which loses at most its grace
-//! limit and the credit both ways.
+//! limit and the credit both ways. One that spends the credit it was
+//! given and vanishes costs that peer no more than that credit.
 
 #![allow(
     clippy::disallowed_macros,
@@ -63,6 +68,7 @@ use dassie_node_core::config::Realm;
 use dassie_node_core::testing::SeededRng;
 use dassie_oer::Decode;
 use dassie_peer::{Bootstrap, Failure, InboundId, OwnInfo, RequestId, Response};
+use dassie_settlement::policy;
 use dassie_stream::{AssetDetails, BUFFER_LENGTH, Config, Connection, Policy, Role};
 use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger};
 
@@ -1146,7 +1152,8 @@ fn run_on(seed: u64, settling: Settling) -> Result<Run, String> {
         if sim.peers(ender).contains(&peer) {
             return Err(format!("node {ender}'s peering with {peer} did not end"));
         }
-        // Each side settled everything it owed the other.
+        // Each side settled everything its own books say it owed the
+        // other.
         let other = (0..count).find(|i| key(*i).node_id() == peer).unwrap();
         let mine = sim.balances(ender)[&format!("assets/interledger/{peer}")];
         let theirs = sim.balances(other)[&format!("assets/interledger/{}", key(ender).node_id())];
@@ -1296,8 +1303,8 @@ fn client(credentials: &(String, String, [u8; 32]), ledger: LedgerId) -> Connect
 }
 
 /// Each owner's pool moved by exactly what its incoming payments
-/// received, and each live client's token by what it sent. What receivers
-/// got beyond what senders paid is what hops lost to refusals.
+/// received, and each live client's token by what it sent: each node's
+/// books against what its own clients and receivers really moved.
 fn check_owner_books(sim: &Sim) -> Result<(), String> {
     let all = || sim.payments.iter().chain(&sim.abandoned);
     for index in 0..sim.nodes.len() {
@@ -1345,29 +1352,6 @@ fn check_owner_books(sim: &Sim) -> Result<(), String> {
             ));
         }
     }
-    let beyond: i128 = all()
-        .map(|payment| i128::from(received(sim, payment)) - i128::from(sent(payment)))
-        .sum::<i128>()
-        + outgoing_flows(sim)
-            .map(|flow| i128::from(flow.received) - i128::from(flow.sent))
-            .sum::<i128>();
-    let lost: i128 = (0..sim.nodes.len()).map(|index| -losses(sim, index)).sum();
-    // A client whose node crashed may have paid for packets it never heard
-    // were fulfilled: those count as sent too.
-    let unheard: i128 = sim
-        .abandoned
-        .iter()
-        .map(|payment| {
-            -sim.balances(payment.from)[&format!("equity/owner/btp/{}", payment.token.0)]
-                - i128::from(sent(payment))
-        })
-        .sum();
-    if beyond != lost + unheard {
-        return Err(format!(
-            "receivers got {beyond} beyond what clients heard they sent; hops lost {lost}, \
-             crashed nodes' clients paid {unheard} unheard"
-        ));
-    }
     Ok(())
 }
 
@@ -1404,6 +1388,32 @@ fn losses(sim: &Sim, index: usize) -> i128 {
         .get("expenses/losses")
         .copied()
         .unwrap_or(0)
+}
+
+/// No honest node owes a peer past its own threshold once the network is
+/// calm, by its own books and the credit the peer announced (spec 7
+/// §4.7): it settled.
+fn check_settled(sim: &Sim) -> Result<(), String> {
+    for index in 0..sim.nodes.len() {
+        for peer in sim.core(index).network().peers {
+            let Some(owed) = peer.owed.filter(|_| peer.termination.is_none()) else {
+                continue;
+            };
+            let terms = policy::Terms {
+                credit_in: peer.peering.credit_in,
+                credit_out: peer.peering.credit_out,
+                ratio_ppm: policy::DEFAULT_RATIO_PPM,
+            };
+            let position = u128::try_from(owed + i128::from(terms.credit_out)).unwrap();
+            if policy::amount(position, terms) > 0 {
+                return Err(format!(
+                    "node {index} owes {} {owed} and never settled",
+                    peer.id
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// No node reported an error, nor lost an event.
@@ -1488,8 +1498,11 @@ fn check_outgoing(sim: &Sim) -> Result<(), String> {
     Ok(())
 }
 
-/// The books: owners', settlements and every pair of accounts; and no
-/// honest peer was banned for what it cost.
+/// Each node's books, on their own: they hold what its scheme holds, it
+/// settled what it owed, and it banned no honest peer for what it cost.
+/// The underlying ledgers neither made nor lost money. No check compares
+/// two nodes' books, or adds them up: each keeps its own, and they may
+/// drift (D19).
 fn check_books(sim: &Sim) -> Result<(), String> {
     if let Some((index, node)) = automatic_bans(sim).first() {
         let record = sim
@@ -1503,8 +1516,9 @@ fn check_books(sim: &Sim) -> Result<(), String> {
         ));
     }
     check_owner_books(sim)?;
+    check_settled(sim)?;
     let count = sim.nodes.len();
-    let (mut owners, mut stubs) = (0i128, 0i128);
+    let mut stubs = 0i128;
     for index in 0..count {
         let network = sim.core(index).network();
         if let Some((peer, _)) = network
@@ -1517,17 +1531,6 @@ fn check_books(sim: &Sim) -> Result<(), String> {
             ));
         }
         let balances = sim.balances(index);
-        // The owner's group: everything the node gains or loses.
-        owners += balances
-            .iter()
-            .filter(|(path, _)| {
-                path.starts_with("equity/")
-                    || path.starts_with("revenue/fees")
-                    || path.starts_with("expenses/fees")
-                    || path.starts_with("expenses/losses")
-            })
-            .map(|(_, net)| *net)
-            .sum::<i128>();
         // The books follow the scheme's balance: what settled was posted.
         let view = &sim.core(index).ledger_views()[0];
         let booked = -balances["assets/settlement"];
@@ -1549,25 +1552,6 @@ fn check_books(sim: &Sim) -> Result<(), String> {
             }
         }
         stubs += booked;
-        // Every pair of accounts mirrors the other, peered or no longer.
-        for other in (0..count).filter(|other| *other != index) {
-            let peer = key(other).node_id();
-            let Some(mine) = balances.get(&format!("assets/interledger/{peer}")) else {
-                continue;
-            };
-            let theirs =
-                sim.balances(other)[&format!("assets/interledger/{}", key(index).node_id())];
-            if mine + theirs != 2 * CREDIT {
-                return Err(format!(
-                    "nodes {index} and {other} disagree: {mine} + {theirs}"
-                ));
-            }
-        }
-    }
-    // What the owners hold is what the schemes hold: fees, losses and
-    // reconciliations are the owners'.
-    if owners != stubs {
-        return Err(format!("the owners hold {owners}, the schemes {stubs}"));
     }
     match sim.settling {
         Settling::Stub => {
@@ -1689,9 +1673,10 @@ fn an_upstream_that_forgot_the_packet_refuses_it() {
 }
 
 // D17: the Fulfill gets through only after the upstream's expiry, with no
-// crash at all: the upstream refuses it, and both sides agree.
+// crash at all: the upstream refuses it, and the downstream books what it
+// said.
 #[test]
-fn a_late_fulfill_is_refused_and_both_sides_agree() {
+fn a_late_fulfill_is_refused_and_the_downstream_books_it() {
     let mut sim = owing_after(72, |sim| {
         sim.cut.insert((1, 0));
     });
@@ -1962,7 +1947,8 @@ fn a_peer_that_refuses_what_it_took_is_banned() {
 }
 
 // D18: a peer that never settles what it owes is banned once its debt has
-// stayed past half its credit for longer than the grace for settling.
+// stayed past 1.1 times half its credit for longer than the grace for
+// settling.
 #[test]
 fn a_peer_that_never_settles_is_banned() {
     for seed in 0..20 {
@@ -1995,8 +1981,39 @@ fn a_peer_that_never_settles_is_banned() {
     }
 }
 
-// Found in review: a peer that extends us little credit settles only well
-// past half the credit we extend. Owing short of its own threshold, it
+// D19: a peer that spends the credit it was given and vanishes, as a
+// retiring node may, costs the peer it spent through no more than that
+// credit. That peer ends the peering once it stops answering, and the rest
+// of the network loses nothing.
+#[test]
+fn a_peer_that_spends_its_credit_and_vanishes_costs_at_most_that_credit() {
+    let owes = |sim: &Sim| {
+        let position = sim.balances(0)[&format!("assets/interledger/{}", key(1).node_id())];
+        CREDIT - position
+    };
+    for seed in 0..20 {
+        let mut sim = liar_network(seed, Lie::NeverSettle);
+        sim.pay(1, 2, LIAR_PAYS, None, None);
+        assert!(
+            sim.run_until_or(sim.now + 120_000, |sim| owes(sim) > CREDIT * 9 / 10),
+            "seed {seed}: it never spent its credit"
+        );
+        sim.crash(1);
+        sim.run_until(sim.now + 10 * 60_000);
+        assert!(
+            !sim.peers(0).contains(&key(1).node_id()),
+            "seed {seed}: node 0 still peers with it"
+        );
+        let owed = owes(&sim);
+        assert!(owed <= CREDIT, "seed {seed}: it left owing {owed}");
+        assert_eq!(losses(&sim, 0), 0, "seed {seed}");
+        assert_eq!(losses(&sim, 2), 0, "seed {seed}");
+        assert!(sim.peers(0).contains(&key(2).node_id()), "seed {seed}");
+    }
+}
+
+// Found in review: a peer that extends us little credit settles only past
+// half the credit we extend, at 1.1 times half. Owing short of that, it
 // is not overdue, however long it waits.
 #[test]
 fn an_honest_peer_with_little_credit_is_not_overdue() {
@@ -2127,10 +2144,9 @@ fn run_across(seed: u64) -> Result<Run, String> {
     })
 }
 
-/// The books of a run across currencies: every payment finished, every
-/// pair of accounts mirrors the other on its ledger, and on each ledger
-/// the owners hold what the schemes hold, the FX accounts theirs: no
-/// asset was made or lost.
+/// A run across currencies: every payment finished, each node settled
+/// what it owed and took every settlement, and no ledger made or lost an
+/// asset. Each node is judged by its own books (D19).
 fn check_across(sim: &Sim) -> Result<(), String> {
     check_events(sim)?;
     if let Some(payment) = sim.payments.iter().find(|payment| !payment.done) {
@@ -2179,45 +2195,18 @@ fn check_across(sim: &Sim) -> Result<(), String> {
         return Err(format!("node {index} banned {node} in an honest network"));
     }
     let count = sim.nodes.len();
+    check_settled(sim)?;
     for ledger in [USD, XRP] {
-        let (mut owners, mut schemes, mut nodes) = (0i128, 0i128, 0i128);
+        let (mut schemes, mut nodes) = (0i128, 0i128);
         for index in (0..count).filter(|i| sim.settling.ledgers(*i).contains(&ledger)) {
             nodes += 1;
-            let balances = sim.balances_on(index, ledger);
-            owners += balances
-                .iter()
-                .filter(|(path, _)| {
-                    ["equity/", "revenue/", "expenses/"]
-                        .iter()
-                        .any(|group| path.starts_with(group))
-                })
-                .map(|(_, net)| *net)
-                .sum::<i128>();
-            schemes -= balances["assets/settlement"];
-            for other in (0..count).filter(|other| *other != index) {
-                let peer = key(other).node_id();
-                let Some(mine) = balances.get(&format!("assets/interledger/{peer}")) else {
-                    continue;
-                };
-                let theirs = sim.balances_on(other, ledger)
-                    [&format!("assets/interledger/{}", key(index).node_id())];
-                if mine + theirs != 2 * CREDIT {
-                    return Err(format!(
-                        "nodes {index} and {other} disagree on {ledger}: {mine} + {theirs}"
-                    ));
-                }
-            }
+            schemes -= sim.balances_on(index, ledger)["assets/settlement"];
             if let Some(owed) = sim.nodes[index].store.owed_fulfills().unwrap().first() {
                 return Err(format!(
                     "node {index} still waits for {}'s verdict on {:?}",
                     owed.peer, owed.trace
                 ));
             }
-        }
-        if owners != schemes {
-            return Err(format!(
-                "on {ledger} the owners hold {owners}, the schemes {schemes}"
-            ));
         }
         let made = match ledger {
             USD => schemes != Settling::deposit(USD) * nodes,

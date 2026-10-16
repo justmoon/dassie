@@ -95,7 +95,7 @@ pub trait PeeringHooks {
     /// no packet waits for its response, in either direction, and no
     /// Fulfill for its verdict (D17). The node decides from `termination`
     /// how long verdicts are waited for: one that stopped answering may
-    /// never give them. A terminating peering ends only then, so both
-    /// sides' books agree.
+    /// never give them. A terminating peering ends only then, so no
+    /// response and no verdict is lost with it.
     fn drained(&self, peer: NodeId, termination: &Termination, now_ms: u64) -> bool;
 }

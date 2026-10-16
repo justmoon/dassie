@@ -202,7 +202,7 @@ fn the_route_table_is_bounded() {
 
 // A peer whose peering is ending takes no new Prepares, either way, while
 // the packets in flight finish: then nothing is pending with it, and it
-// can go without either side's books parting.
+// can go with no packet's outcome left unknown.
 #[test]
 fn draining_peers_finish_what_is_in_flight() {
     let mut harness = harness();

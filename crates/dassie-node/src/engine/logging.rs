@@ -129,7 +129,7 @@ fn peer(severity: Severity, event: &PeerEvent) {
             emit!(severity, target: target::PEER, %error, "{what}");
         }
         PeerEvent::VerdictOverdue { peer, trace } => {
-            emit!(severity, target: target::PEER, %peer, ?trace, "no verdict on a Fulfill for 29 days: booked as refused, and the books may disagree with the peer's");
+            emit!(severity, target: target::PEER, %peer, ?trace, "no verdict on a Fulfill for 29 days: booked as refused, since the upstream may have forgotten it");
         }
         PeerEvent::FulfillRefused {
             peer,

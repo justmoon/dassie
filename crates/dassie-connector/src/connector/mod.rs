@@ -294,8 +294,9 @@ impl Connector {
     /// it is rejected upstream with `code` at once, through
     /// [`handle_timeout`](Self::handle_timeout), and its transfers voided.
     /// Use it only when the next hop cannot have acted on the packet; when
-    /// unsure, let it expire, or the two sides' books part. Returns whether
-    /// the packet was in flight.
+    /// unsure, let it expire: a next hop that fulfilled a packet we already
+    /// failed would bear its loss. Returns whether the packet was in
+    /// flight.
     pub fn fail_forwarded(
         &mut self,
         now_ms: u64,
@@ -362,7 +363,7 @@ impl Connector {
     }
 
     /// Packets in flight to or from an endpoint: once none are left, a
-    /// draining endpoint can go without either side's books parting.
+    /// draining endpoint can go with no packet's outcome left unknown.
     #[must_use]
     pub fn pending_for(&self, id: EndpointId) -> usize {
         let from = self
