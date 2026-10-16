@@ -152,6 +152,9 @@ pub fn decide(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::near_hostname;
+    use alloc::format;
+    use proptest::prelude::*;
 
     fn hostname(text: &str) -> Hostname {
         Hostname::parse(text).unwrap_or_else(|error| panic!("{text}: {error}"))
@@ -232,6 +235,48 @@ mod tests {
             CertificateSource::Manual,
         ] {
             assert_eq!(CertificateSource::parse(source.as_str()), Some(source));
+        }
+    }
+
+    /// Names as a certificate might carry them: wildcards of any shape,
+    /// host names in either case, and arbitrary text.
+    fn certificate_name() -> impl Strategy<Value = String> {
+        prop_oneof![
+            any::<String>(),
+            near_hostname(),
+            "\\*(\\.[a-zA-Z0-9*-]{0,8}){0,3}\\.?",
+            "[a-z*]{0,3}\\*[a-z.]{0,10}",
+        ]
+    }
+
+    proptest! {
+        // A certificate covers a host name only through a name that is it,
+        // in any case, or `*.` and the host name less its first label.
+        #[test]
+        fn coverage_never_panics(
+            hostname in near_hostname().prop_filter_map("not a host name", |text| Hostname::parse(&text).ok()),
+            mut names in proptest::collection::vec(certificate_name(), 0..5),
+            exact: bool,
+            wildcard: bool,
+        ) {
+            let name = hostname.as_str();
+            let parent = name.split_once('.').map(|(_, parent)| parent);
+            if exact {
+                names.push(name.to_ascii_uppercase());
+            }
+            if let (true, Some(parent)) = (wildcard, parent) {
+                names.push(format!("*.{}", parent.to_ascii_uppercase()));
+            }
+            let expected = names.iter().map(|candidate| candidate.to_ascii_lowercase()).any(|candidate| {
+                candidate == name || parent.is_some_and(|parent| candidate.strip_prefix("*.") == Some(parent))
+            });
+            let certificate = CertificateInfo {
+                source: CertificateSource::Acme,
+                names,
+                not_before_ms: 0,
+                not_after_ms: 0,
+            };
+            prop_assert_eq!(certificate.covers(&hostname), expected);
         }
     }
 }
