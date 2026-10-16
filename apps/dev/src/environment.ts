@@ -25,7 +25,7 @@ import {
   type State,
   StateSchema,
 } from "@dassie/rpc/dev";
-import { LogLevel } from "@dassie/rpc/proto";
+import { LogLevel, LogLevelSchema } from "@dassie/rpc/proto";
 import { Collector, LogRing, shortName } from "./collect.ts";
 import { ControlHub } from "./control.ts";
 import { dataDir, type Layout } from "./paths.ts";
@@ -107,8 +107,10 @@ export class Environment {
   #stopping = false;
   /** Children other than nodes, for the PID file. */
   extraPids: () => number[] = () => [];
+  readonly options: EnvironmentOptions;
 
-  constructor(readonly options: EnvironmentOptions) {
+  constructor(options: EnvironmentOptions) {
+    this.options = options;
     this.hub = new ControlHub(
       {
         state: () => this.state(),
@@ -224,7 +226,8 @@ export class Environment {
     const text = message.length > MAX_HOST_MESSAGE_BYTES
       ? `${message.slice(0, MAX_HOST_MESSAGE_BYTES)}…`
       : message;
-    this.options.print(`${LogLevel[level].toLowerCase()} ${text}`);
+    const name = LogLevelSchema.value[level].localName.toLowerCase();
+    this.options.print(`${name} ${text}`);
     this.#pendingLogs.push(create(SourcedLogLineSchema, {
       source: "host",
       line: {

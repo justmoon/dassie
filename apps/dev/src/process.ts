@@ -37,12 +37,10 @@ export class ChildProcess {
   readonly #tail: string[] = [];
   readonly #reads: Promise<void>[];
   readonly exited: Promise<Exit>;
+  readonly name: string;
 
-  constructor(
-    readonly name: string,
-    command: string,
-    options: ChildOptions = {},
-  ) {
+  constructor(name: string, command: string, options: ChildOptions = {}) {
+    this.name = name;
     this.#child = new Deno.Command(command, {
       args: [...(options.args ?? [])],
       env: options.env,

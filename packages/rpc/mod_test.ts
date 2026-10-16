@@ -9,6 +9,7 @@ import {
   type SocketLike,
 } from "./mod.ts";
 import {
+  AcmeStep,
   type ClientMessage,
   ClientMessageSchema,
   NodeState,
@@ -144,7 +145,7 @@ Deno.test("losing the connection fails calls in flight, and the session end is r
 
 Deno.test("streams deliver items until their end", async () => {
   const { client, sockets } = setUp();
-  const steps: number[] = [];
+  const steps: AcmeStep[] = [];
   const stream = client.stream("obtainCertificate", {
     agreeToTermsOfService: true,
   }, (item) => {
@@ -152,7 +153,7 @@ Deno.test("streams deliver items until their end", async () => {
   });
   sockets[0].open();
   const callId = sockets[0].sent[0].callId;
-  for (const step of [2, 4]) {
+  for (const step of [AcmeStep.ORDERING, AcmeStep.VALIDATING]) {
     sockets[0].deliver(create(ServerMessageSchema, {
       callId,
       kind: {
@@ -165,7 +166,7 @@ Deno.test("streams deliver items until their end", async () => {
     create(ServerMessageSchema, { callId, kind: { case: "end", value: {} } }),
   );
   await stream;
-  assertEquals(steps, [2, 4]);
+  assertEquals(steps, [AcmeStep.ORDERING, AcmeStep.VALIDATING]);
   client.close();
 });
 

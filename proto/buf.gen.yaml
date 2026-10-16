@@ -13,3 +13,4 @@ plugins:
     opt:
       - target=ts
       - import_extension=ts
+      - erasable_syntax=true

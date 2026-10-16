@@ -38,11 +38,16 @@ export type BuildResult = { ok: true } | { ok: false; excerpt: string };
 export class CargoBuilder {
   #running?: Promise<BuildResult>;
   #again = false;
+  readonly onStart: () => void;
+  readonly onLine: (stream: Stream, line: string) => void;
 
   constructor(
-    readonly onStart: () => void,
-    readonly onLine: (stream: Stream, line: string) => void,
-  ) {}
+    onStart: () => void,
+    onLine: (stream: Stream, line: string) => void,
+  ) {
+    this.onStart = onStart;
+    this.onLine = onLine;
+  }
 
   /** Builds, or asks for one more build after the one running. */
   build(): Promise<BuildResult> {
@@ -134,14 +139,23 @@ async function viteSpecifier(): Promise<string> {
  */
 export class ViteBuild {
   #child?: ChildProcess;
+  readonly dir: string;
+  readonly watch: boolean;
+  readonly onLine: (stream: Stream, line: string) => void;
+  /** Its process runs: for the PID file. */
+  readonly onSpawn: () => void;
 
   constructor(
-    readonly dir: string,
-    readonly watch: boolean,
-    readonly onLine: (stream: Stream, line: string) => void,
-    /** Its process runs: for the PID file. */
-    readonly onSpawn: () => void = () => {},
-  ) {}
+    dir: string,
+    watch: boolean,
+    onLine: (stream: Stream, line: string) => void,
+    onSpawn: () => void = () => {},
+  ) {
+    this.dir = dir;
+    this.watch = watch;
+    this.onLine = onLine;
+    this.onSpawn = onSpawn;
+  }
 
   /** Starts it; resolves once the first build is done. */
   async start(): Promise<void> {

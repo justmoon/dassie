@@ -63,12 +63,19 @@ export function chunkLines(
 export class ControlHub {
   readonly #clients = new Set<WebSocket>();
   #closed = false;
+  readonly source: ControlSource;
+  readonly command: (message: ClientMessage) => void;
+  readonly log: (message: string) => void;
 
   constructor(
-    readonly source: ControlSource,
-    readonly command: (message: ClientMessage) => void,
-    readonly log: (message: string) => void,
-  ) {}
+    source: ControlSource,
+    command: (message: ClientMessage) => void,
+    log: (message: string) => void,
+  ) {
+    this.source = source;
+    this.command = command;
+    this.log = log;
+  }
 
   /** Serves a dashboard's socket, just upgraded. */
   attach(socket: WebSocket): void {

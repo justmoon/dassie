@@ -14,7 +14,7 @@ const transfer = (
   debit: number,
   credit: number,
   amount: bigint,
-  state = TransferState.POSTED,
+  state: TransferState = TransferState.POSTED,
 ) =>
   create(TransferSchema, {
     id,

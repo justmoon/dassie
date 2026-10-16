@@ -33,7 +33,11 @@ const INVALID: Sni = { kind: "invalid" };
 /** Reads big-endian integers from a slice, failing past its end. */
 class Reader {
   offset = 0;
-  constructor(readonly bytes: Uint8Array) {}
+  readonly bytes: Uint8Array;
+
+  constructor(bytes: Uint8Array) {
+    this.bytes = bytes;
+  }
 
   get left(): number {
     return this.bytes.length - this.offset;

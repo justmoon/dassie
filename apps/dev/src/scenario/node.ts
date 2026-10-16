@@ -58,13 +58,19 @@ export class ScenarioNode {
   readonly socket: string;
   daemon?: ChildProcess;
   #owner?: RpcClient;
+  readonly identity: Identity;
+  readonly environment: NodeEnvironment;
+  /** Environment for this node only, such as the bootstrap nodes. */
+  readonly env: Readonly<Record<string, string>>;
 
   constructor(
-    readonly identity: Identity,
-    readonly environment: NodeEnvironment,
-    /** Environment for this node only, such as the bootstrap nodes. */
-    readonly env: Readonly<Record<string, string>> = {},
+    identity: Identity,
+    environment: NodeEnvironment,
+    env: Readonly<Record<string, string>> = {},
   ) {
+    this.identity = identity;
+    this.environment = environment;
+    this.env = env;
     this.name = identity.name;
     this.id = identity.id;
     this.key = identity.key;

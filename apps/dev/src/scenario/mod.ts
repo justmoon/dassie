@@ -82,13 +82,17 @@ export class Scenario {
   rates?: RateServer;
   /** What each scheme is set up with, by ID. */
   #configs: Record<string, string> = {};
+  readonly def: ScenarioDef;
+  readonly options: ScenarioOptions;
 
   private constructor(
-    readonly def: ScenarioDef,
-    readonly options: ScenarioOptions,
+    def: ScenarioDef,
+    options: ScenarioOptions,
     environment: NodeEnvironment,
     temporary: boolean,
   ) {
+    this.def = def;
+    this.options = options;
     this.#table = loadTable();
     this.#environment = environment;
     this.#temporary = temporary;

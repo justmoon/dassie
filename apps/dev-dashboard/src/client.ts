@@ -48,8 +48,11 @@ export class DevClient {
   #timer?: ReturnType<typeof setTimeout>;
   #attempt = 0;
   #closed = false;
+  readonly options: DevClientOptions;
 
-  constructor(readonly options: DevClientOptions) {}
+  constructor(options: DevClientOptions) {
+    this.options = options;
+  }
 
   start(): void {
     this.#open();

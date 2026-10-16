@@ -103,13 +103,22 @@ async function must(
  * the machines join. Nothing goes through the host's network. */
 class Mirror {
   readonly url = "https://mirror.test";
+  readonly root: string;
+  readonly ca: string;
+  readonly network: string;
+  readonly #server: string;
 
   private constructor(
-    readonly root: string,
-    readonly ca: string,
-    readonly network: string,
-    private readonly server: string,
-  ) {}
+    root: string,
+    ca: string,
+    network: string,
+    server: string,
+  ) {
+    this.root = root;
+    this.ca = ca;
+    this.network = network;
+    this.#server = server;
+  }
 
   static async start(built: string): Promise<Mirror> {
     const work = await Deno.makeTempDir({ prefix: "dassie-install-" });
@@ -177,7 +186,7 @@ class Mirror {
   }
 
   async stop(): Promise<void> {
-    await run("docker", ["rm", "-f", this.server]);
+    await run("docker", ["rm", "-f", this.#server]);
     await run("docker", ["network", "rm", this.network]);
   }
 }
@@ -185,7 +194,13 @@ class Mirror {
 /** A distribution in a container, with systemd up and the mirror's CA
  * trusted. */
 class Machine {
-  private constructor(readonly distro: string, readonly id: string) {}
+  readonly distro: string;
+  readonly id: string;
+
+  private constructor(distro: string, id: string) {
+    this.distro = distro;
+    this.id = id;
+  }
 
   static async boot(distro: string, mirror: Mirror): Promise<Machine> {
     const image = `dassie-install-test-${distro}`;

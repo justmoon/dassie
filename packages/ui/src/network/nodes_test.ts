@@ -11,7 +11,7 @@ function node(
   id: string,
   distance: number | undefined,
   neighbors: string[] = [],
-  peerState = PeerState.NONE,
+  peerState: PeerState = PeerState.NONE,
 ): NetworkNode {
   return create(NetworkNodeSchema, { id, distance, neighbors, peerState });
 }

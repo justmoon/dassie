@@ -97,7 +97,8 @@ export function LogViewer(props: {
         <select
           id={`${id}-level`}
           data-testid="log-level-filter"
-          onChange={(event) => setLowest(Number(event.currentTarget.value))}
+          onChange={(event) =>
+            setLowest(Number(event.currentTarget.value) as LogLevel)}
         >
           <For each={LEVELS}>
             {([value, name]) => (
