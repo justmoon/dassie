@@ -1,5 +1,33 @@
+# What every crate follows unless its own clippy.toml says otherwise. A
+# crate's file replaces this one rather than adding to it, so the crates
+# that do IO (dassie-node, dassie-cli) repeat what they keep of it.
+
 # Functions stay short enough to read in one go (D16).
 too-many-lines-threshold = 70
+
+# The protocol and state-machine crates are no_std, which already keeps
+# clocks, the OS RNG, environment variables, threads and hash maps out of
+# their code. These catch them in their tests too, which link std: a test
+# that reads the clock is a test that can't be replayed (D16).
+disallowed-types = [
+  { path = "std::collections::HashMap", reason = "random iteration order; use BTreeMap or a fixed table (D16)" },
+  { path = "std::collections::HashSet", reason = "random iteration order; use BTreeSet or a fixed table (D16)" },
+  { path = "std::time::SystemTime", reason = "time is an input, `now_ms` (D16)" },
+  { path = "std::time::Instant", reason = "time is an input, `now_ms` (D16)" },
+  { path = "getrandom::SysRng", reason = "randomness is injected, as an `RngCore` (D16)" },
+]
+disallowed-methods = [
+  { path = "std::env::var", reason = "configuration is an input (D16)" },
+  { path = "std::env::var_os", reason = "configuration is an input (D16)" },
+  { path = "std::thread::spawn", reason = "a state machine is driven from one thread (D16)" },
+]
+
+# Assertions stay on in release builds (D16).
+disallowed-macros = [
+  { path = "core::debug_assert", reason = "assertions stay on in release; use assert! (D16)" },
+  { path = "core::debug_assert_eq", reason = "assertions stay on in release; use assert_eq! (D16)" },
+  { path = "core::debug_assert_ne", reason = "assertions stay on in release; use assert_ne! (D16)" },
+]
 
 # Tests may unwrap and index: a panic there is a failed test.
 allow-unwrap-in-tests = true

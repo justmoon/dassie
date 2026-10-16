@@ -144,6 +144,8 @@ async fn quiet(a: &TestNode, b: &TestNode, key_a: &NodeKey, key_b: &NodeKey) -> 
 }
 
 #[tokio::test(flavor = "multi_thread")]
+// `DEBUG` only turns on the log, to follow a failing run.
+#[allow(clippy::disallowed_methods)]
 async fn two_daemons_peer_and_keep_their_peering() {
     if let Ok(debug) = std::env::var("DEBUG") {
         dassie_node::log::init(dassie_node::log::LogFilter::new(

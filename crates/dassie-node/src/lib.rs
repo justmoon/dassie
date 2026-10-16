@@ -1,7 +1,7 @@
 //! The Dassie daemon.
 
 // Allowed in the daemon, denied in the engine's core (see clippy.toml).
-#![allow(clippy::disallowed_types)]
+#![allow(clippy::disallowed_types, clippy::disallowed_methods)]
 
 pub mod acme;
 pub mod clock;

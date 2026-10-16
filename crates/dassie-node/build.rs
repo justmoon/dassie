@@ -9,6 +9,9 @@
 //!   page saying the binary has no wallet, so `cargo build` and `cargo test`
 //!   need no Deno.
 
+// Cargo hands a build script its inputs in the environment.
+#![allow(clippy::disallowed_methods)]
+
 #[path = "src/http/mime.rs"]
 mod mime;
 

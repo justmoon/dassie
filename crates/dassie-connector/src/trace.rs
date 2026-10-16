@@ -165,7 +165,7 @@ impl Trace {
             return;
         };
         if let Some(record) = self.records.get_mut(index) {
-            debug_assert_eq!(record.trace, trace);
+            assert_eq!(record.trace, trace);
             change(record);
             let record = *record;
             self.notify(record);

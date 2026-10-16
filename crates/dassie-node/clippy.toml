@@ -10,10 +10,24 @@ disallowed-types = [
   { path = "std::collections::HashSet", reason = "random iteration order; use BTreeSet or a fixed table (D16)" },
   { path = "std::time::SystemTime", reason = "time is an input, `now_ms` (D16)" },
   { path = "std::time::Instant", reason = "time is an input, `now_ms` (D16)" },
+  { path = "getrandom::SysRng", reason = "randomness is injected, as an `RngCore` (D16)" },
   { path = "tokio::sync::mpsc::Sender", reason = "the core hands outputs to its driver (D16)" },
   { path = "tokio::sync::broadcast::Sender", reason = "the core hands outputs to its driver (D16)" },
   { path = "dassie_node::node::Node", reason = "the core gets what it needs in `CoreParts` (D16)" },
   { path = "dassie_node::clock::SystemClock", reason = "time is an input, `now_ms` (D16)" },
+]
+disallowed-methods = [
+  { path = "std::env::var", reason = "configuration is an input (D16)" },
+  { path = "std::env::var_os", reason = "configuration is an input (D16)" },
+  { path = "std::thread::spawn", reason = "a state machine is driven from one thread (D16)" },
+  { path = "tokio::sync::mpsc::unbounded_channel", reason = "every queue has a limit (D16)" },
+]
+
+# Assertions stay on in release builds (D16), in the whole crate.
+disallowed-macros = [
+  { path = "core::debug_assert", reason = "assertions stay on in release; use assert! (D16)" },
+  { path = "core::debug_assert_eq", reason = "assertions stay on in release; use assert_eq! (D16)" },
+  { path = "core::debug_assert_ne", reason = "assertions stay on in release; use assert_ne! (D16)" },
 ]
 
 # Tests may unwrap and index: a panic there is a failed test.

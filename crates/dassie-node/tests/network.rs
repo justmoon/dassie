@@ -954,6 +954,9 @@ impl Sim {
     }
 }
 
+// Which seeds to run is the one input read from the environment; each run
+// is still fixed by its seed.
+#[allow(clippy::disallowed_methods)]
 fn seeds() -> std::ops::Range<u64> {
     std::env::var("DASSIE_SIM_SEEDS")
         .ok()

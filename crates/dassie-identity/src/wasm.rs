@@ -29,6 +29,8 @@ fn node_key_from(bytes: &[u8]) -> Result<NodeKey, JsError> {
 /// A new 12-word phrase from the platform's random number generator.
 #[wasm_bindgen(js_name = generateMnemonic)]
 #[must_use]
+// The bindings are the edge where the browser supplies randomness.
+#[allow(clippy::disallowed_types)]
 pub fn generate_mnemonic() -> String {
     let mut rng = UnwrapErr(getrandom::SysRng);
     let mnemonic = Mnemonic::generate(&mut rng, WordCount::Twelve);
