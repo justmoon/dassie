@@ -1,6 +1,6 @@
 [package]
 name = "dassie-peer"
-version = "0.1.1"
+version = "0.1.2"
 description = "Dassie's peer protocol v1 as a sans-IO state machine: wire format, authentication, node table, link state, membership, peering and routing"
 edition.workspace = true
 rust-version.workspace = true

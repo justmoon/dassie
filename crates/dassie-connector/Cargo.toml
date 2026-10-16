@@ -1,6 +1,6 @@
 [package]
 name = "dassie-connector"
-version = "0.1.1"
+version = "0.1.2"
 description = "Dassie's ILP connector as a sans-IO state machine: endpoints, routing, ILDCP, amounts, the ledger and the packet trace"
 edition.workspace = true
 rust-version.workspace = true
