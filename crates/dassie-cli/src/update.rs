@@ -485,7 +485,18 @@ impl Mirror {
             .get(&layout::meta(channel), MAX_META, SMALL_TIMEOUT_MS)
             .await?;
         let text = String::from_utf8_lossy(&body);
-        Version::parse(text.trim()).map_err(|e| format!("meta/{}: {e}", channel.name()))
+        let version =
+            Version::parse(text.trim()).map_err(|e| format!("meta/{}: {e}", channel.name()))?;
+        // The file is not signed: a version of the other channel would let
+        // the mirror move a node switching channels anywhere, back included.
+        if version.channel() == channel {
+            Ok(version)
+        } else {
+            Err(format!(
+                "the mirror's meta/{name} names {version}, which is not a {name} version",
+                name = channel.name()
+            ))
+        }
     }
 
     /// The bundle of `version` for this platform, once its sum, signed by
