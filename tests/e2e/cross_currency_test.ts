@@ -98,12 +98,18 @@ async function quiet(scenario: Scenario): Promise<boolean> {
   return accounts.size === 4;
 }
 
+/**
+ * Longer than a node's settlement interval (4 s, 1 s with dev timings): a
+ * settlement that is due starts within it.
+ */
+const SETTLE_CHECK_MS = 5_000;
+
 /** Settling went quiet and stays so: a settlement that is due but not
  * started yet shows only in a while, as the books move. */
 async function settled(scenario: Scenario): Promise<boolean> {
   if (!(await quiet(scenario))) return false;
   const before = await books(scenario);
-  await new Promise((resolve) => setTimeout(resolve, 10_000));
+  await new Promise((resolve) => setTimeout(resolve, SETTLE_CHECK_MS));
   const after = await books(scenario);
   return (await quiet(scenario)) &&
     [...before].every(([key, value]) => after.get(key) === value);
