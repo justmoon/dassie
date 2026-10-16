@@ -18,18 +18,29 @@ concurrency:
 
 jobs:
   # Rust in the Nix sandbox: fmt, clippy (native and wasm32), tests and the
-  # WASM bindings, with the toolchain pinned by the flake. Each check is its
-  # own job, built on nixbuild.net, which keeps what it built: dependencies
-  # that have not changed are not built again.
+  # WASM bindings, with the toolchain pinned by the flake. The checks build
+  # on the Vorstand Nix cloud (builds.vorstand.app, project dassie), which
+  # keeps what it built: dependencies that have not changed are not built
+  # again. The runner only sends the commit and follows the log.
   nix:
-    uses: nixbuild/nixbuild-action/.github/workflows/ci-workflow.yml@v27
-    secrets:
-      nixbuild_token: ${{ secrets.NIXBUILD_TOKEN }}
-    with:
-      # What `nix flake check` builds on an x86_64 runner. The release
-      # binaries and the install tests run in the release workflow, for a
-      # tag v<version> only.
-      filter_builds: '.top_attr == "checks" and .system == "x86_64-linux"'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      # `checks` is every check for x86_64-linux: what `nix flake check`
+      # builds on an x86_64 runner. The release binaries and the install
+      # tests run in the release workflow, for a tag v<version> only.
+      - name: Build the checks on the Nix cloud
+        env:
+          NIX_CLOUD_TOKEN: ${{ secrets.NIX_CLOUD_TOKEN }}
+          COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: scripts/nix-cloud-build.sh build "$COMMIT" checks
+      # A run that a newer push superseded stops its build too.
+      - name: Cancel the build on the Nix cloud
+        if: cancelled()
+        env:
+          NIX_CLOUD_TOKEN: ${{ secrets.NIX_CLOUD_TOKEN }}
+        run: scripts/nix-cloud-build.sh cancel
 
   ts:
     runs-on: ubuntu-latest

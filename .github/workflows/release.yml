@@ -6,7 +6,9 @@ name: Release
 # install tests on each distribution, and the static release binaries.
 #
 # It runs in the `Release` environment. What it needs:
-# - secrets.NIXBUILD_TOKEN: the builds run on nixbuild.net, as CI's do.
+# - secrets.NIX_CLOUD_TOKEN: the builds run on the Vorstand Nix cloud
+#   (builds.vorstand.app, project dassie), as CI's do, and the jobs fetch
+#   what it built from the project's cache with the same token.
 # - secrets.MINISIGN_SECRET_KEY: the release key file (`minisign -G`), and
 #   secrets.MINISIGN_PASSWORD if it has one. Its public key is
 #   resources/minisign.pub: what is signed must verify with it.
@@ -22,8 +24,9 @@ name: Release
 # Without the key it builds and stops; without the bucket it signs, and the
 # signed tree stays an artifact of the run.
 #
-# The actions are pinned to commits: the release job holds the release
-# key, and the install tests' runs on nixbuild.net build what it signs.
+# The actions are pinned to commits, and the cache's signing key to the one
+# below: the release job holds the release key, and signs what the Nix
+# cloud built.
 
 on:
   push:
@@ -38,10 +41,36 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Everything the jobs below need, built once on the Vorstand Nix cloud:
+  # the install tests' mirror; the tree of nix/release.nix; static-binaries,
+  # which checks that the binaries are static and run, the arm64 one under
+  # qemu; and dassie-release.
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Build on the Nix cloud
+        env:
+          NIX_CLOUD_TOKEN: ${{ secrets.NIX_CLOUD_TOKEN }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          scripts/nix-cloud-build.sh build "$COMMIT" \
+            packages.x86_64-linux.install-test-mirror \
+            packages.x86_64-linux.release \
+            packages.x86_64-linux.static-binaries \
+            packages.x86_64-linux.release-tool
+      - name: Cancel the build on the Nix cloud
+        if: cancelled()
+        env:
+          NIX_CLOUD_TOKEN: ${{ secrets.NIX_CLOUD_TOKEN }}
+        run: scripts/nix-cloud-build.sh cancel
+
   # The installer and the updater on each distribution
   # (tests/e2e/install_test.ts): privileged containers with systemd, and a
-  # mirror of releases built on nixbuild.net with the test key.
+  # mirror of releases built with the test key.
   install:
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -50,17 +79,27 @@ jobs:
         distro: [debian, ubuntu, fedora, centos]
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
-      - uses: nixbuild/nixbuild-action@ccd11ee76c26c018e8470835dc2e286a5a024a14 # v27
+      # The Nix cloud's cache, which only its signing key may fill, and
+      # which a project's token reads.
+      - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31
         with:
-          nixbuild_token: ${{ secrets.NIXBUILD_TOKEN }}
-      # Node, pnpm and mkcert, not the whole of the flake's shell, and of
-      # the workspace's packages those tests/e2e imports.
+          extra_nix_config: |
+            extra-substituters = https://nix.vorstand.app/cache/dassie
+            extra-trusted-public-keys = nix-cloud-1:9HgKchsAo5NaX4Zbk7kxJ1r/U/4Zg4pqIif1c021AKE=
+            netrc-file = /etc/nix/netrc
+      - name: Nix cloud token
+        env:
+          NIX_CLOUD_TOKEN: ${{ secrets.NIX_CLOUD_TOKEN }}
+        run: printf 'machine nix.vorstand.app login nix password %s\n' "$NIX_CLOUD_TOKEN" | sudo tee /etc/nix/netrc > /dev/null
+      # The mirror comes from the cache: with --max-jobs 0, a miss fails
+      # rather than building on the runner. Node, pnpm and mkcert, not the
+      # whole of the flake's shell, and of the workspace's packages those
+      # tests/e2e imports.
       - name: Install tests
         env:
           DASSIE_INSTALL_DISTROS: ${{ matrix.distro }}
         run: |
-          nix build .#install-test-mirror --out-link install-test-mirror --print-build-logs
+          nix build .#install-test-mirror --out-link install-test-mirror --max-jobs 0
           DASSIE_INSTALL_MIRROR="$PWD/install-test-mirror" \
             nix shell --inputs-from . nixpkgs#nodejs_26 nixpkgs#pnpm_11 nixpkgs#mkcert --command \
             sh -c 'pnpm install --frozen-lockfile --filter @dassie/tests-e2e... && node --test tests/e2e/install_test.ts'
@@ -78,20 +117,25 @@ jobs:
       BUCKET: ${{ vars.MIRROR_BUCKET || 'get.dassie.land' }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
-      - uses: nixbuild/nixbuild-action@ccd11ee76c26c018e8470835dc2e286a5a024a14 # v27
+      - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31
         with:
-          nixbuild_token: ${{ secrets.NIXBUILD_TOKEN }}
+          extra_nix_config: |
+            extra-substituters = https://nix.vorstand.app/cache/dassie
+            extra-trusted-public-keys = nix-cloud-1:9HgKchsAo5NaX4Zbk7kxJ1r/U/4Zg4pqIif1c021AKE=
+            netrc-file = /etc/nix/netrc
+      - name: Nix cloud token
+        env:
+          NIX_CLOUD_TOKEN: ${{ secrets.NIX_CLOUD_TOKEN }}
+        run: printf 'machine nix.vorstand.app login nix password %s\n' "$NIX_CLOUD_TOKEN" | sudo tee /etc/nix/netrc > /dev/null
 
-      # The tree of nix/release.nix: the bundles for x64 and arm64,
-      # SHA256SUMS and meta/latest; static-binaries, which checks that the
-      # binaries are static and run, the arm64 one under qemu; and
+      # What the build job made, from the cache (--max-jobs 0: a miss fails
+      # rather than building on the runner). The tree of nix/release.nix:
+      # the bundles for x64 and arm64, SHA256SUMS and meta/latest; and
       # dassie-release, which checks the tree as the updater would.
-      - name: Build
+      - name: Fetch
         run: |
-          nix build .#release --out-link built --print-build-logs
-          nix build .#static-binaries --no-link --print-build-logs
-          nix build .#release-tool --out-link tool
+          nix build .#release --out-link built --max-jobs 0
+          nix build .#release-tool --out-link tool --max-jobs 0
 
       # scripts/release.ts checks every bundle against SHA256SUMS, signs it,
       # and verifies the signed tree with resources/minisign.pub. The tag
