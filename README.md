@@ -1,14 +1,53 @@
-# Dassie (rewrite)
+# Dassie
 
 > A multi-currency, zero-config, peer-to-peer, Interledger-enabled payment network
 
-This branch holds the new implementation of Dassie in Rust, Deno and Solid 2. It has no history in common with `main`, which holds the original TypeScript implementation.
+Dassie is a payment node you run on your own server. It finds other Dassie nodes, peers with them on its own, and routes [Interledger](https://interledger.org) payments through them. Peers keep track of what they owe each other and settle it on a real ledger, today the XRP Ledger testnet. You run your node from a web wallet that it serves itself, and apps can pay through it with [Open Payments](https://openpayments.dev) or BTP.
 
-The work starts from the specification in [`spec/`](spec/README.md):
+**Status:** Dassie is early and works with test money only. There is no public network yet either: until bootstrap nodes exist ([D15](spec/08-decisions.md#d15-bootstrap-network-for-v1)), a node runs alone unless you point it at others.
 
-- the original's functionality and operation, in chapters 1–6;
-- the plan for the rewrite, in [chapter 7](spec/07-rewrite.md);
-- the decisions taken for the rewrite, in [chapter 8](spec/08-decisions.md).
+This is the second implementation of Dassie, written in Rust, Deno and Solid 2. It replaced the original TypeScript implementation, which you can still find at the tag `original`. The [specification](spec/README.md) describes both: chapters 1–6 cover how the original works, [chapter 7](spec/07-rewrite.md) the plan for the rewrite, and [chapter 8](spec/08-decisions.md) the decisions taken along the way.
+
+## Installing a node
+
+You need a Linux server with systemd, on x86-64 or arm64, with a public IP address, a domain name that points to it, and TCP ports 80 and 443 open. The installer is tested on Debian 12, Ubuntu 24.04, Fedora 42 and CentOS Stream 9. On the server, run:
+
+```sh
+curl --proto =https --tlsv1.2 -sSf https://sh.dassie.land | sh
+dassie verify-install
+sudo dassie init
+```
+
+The installer fetches the newest release from `get.dassie.land`, checks its signature before unpacking anything, installs it in `/opt/dassie` and sets up the systemd units. It also adds you to the group `dassie-users`, whose members may talk to the node; log in again for that to take effect.
+
+`dassie init` asks for your domain name and an email address, gets a certificate from Let's Encrypt, and prints a URL where you finish the setup in your browser. If you miss it, run `sudo dassie init` again or look in `journalctl -u dassie`.
+
+Dassie updates itself: once a day, a systemd timer checks for a newer release, verifies it and switches to it, and goes back if the new version does not start. `sudo dassie update` does the same right away. To uninstall, run the installer with `sh -s -- uninstall`. The node's data stays in `/var/lib/private/dassie` in case you change your mind.
+
+The [Quick Start](https://dassie.land/guides/quick-start/) on dassie.land walks through the same steps.
+
+## Using your node
+
+Once set up, the wallet asks you for a first ledger:
+
+- **Stub** settles nothing, but gives you 100 test USD to play with.
+- **XRP Ledger Testnet** settles in test XRP. The testnet faucet funds the node's account. Over RPC, it is `addSettlementScheme` with `xrpl-testnet`, and an optional JSON config naming another `server` or `faucet`.
+
+From there, the wallet sends and receives payments, shows their status and your activity, and manages everything below.
+
+**Open Payments.** Each ledger has a wallet address at `https://<your host>/pay/<ledger>`, for example `/pay/stub`, and `$<your host>` names the default one. Other wallets and apps pay into it, and with a grant you approve in the wallet, they may also pay out of it, up to the limits you agreed to. The wallet's Send takes a payment pointer or a payment request, and its grants page lists who may do what.
+
+**BTP.** A BTP token, made in the wallet's settings, lets an ILP client such as `ilp-plugin-btp` spend through the node, at most its spending cap per window if you give it one. Over RPC, `createBtpToken` answers with the `btp+wss://` URL to connect with.
+
+**Exchange rates.** When your ledgers hold different currencies, the node converts between them at rates it fetches from Coinbase, Kraken and Bitstamp, taking the median. You can change the sources and the currency the wallet shows totals in, in the wallet's settings or with `setRateSources` and `setDisplayCurrency`.
+
+**Peers.** Nodes find each other through bootstrap nodes. There are none by default yet, so set `DASSIE_BOOTSTRAP_NODES` to some, as JSON: `[{"id": "d…", "url": "https://host:port", "publicKey": "<base64url>"}]`. A node needs a hostname to take part. `listNodes`, `listPeers`, `listRoutes` and `getRegistrationStatus` show what your node knows, and the wallet's network page shows the same.
+
+Peers extend each other 1.1 units of credit. A node settles with a peer once it owes it a tenth more than the middle of that range, checking every 4 seconds; `listSettlementChannels` shows the settlements on their way. Because a peer may cheat, each one also gets a grace limit ([D18](spec/08-decisions.md#d18-one-grace-limit-per-peer)): by default, a peer that costs your node more than 75% of the credit it extends within 30 days is banned. The wallet's settings, or `getPeerSettings` and `setPeerSettings`, change that share, together with the fee and the exchange spread your node charges for passing payments on.
+
+`terminatePeering` ends a peering: it drains, ends on both sides, and each side settles what it owes. `banNode`, `unbanNode` and `listBans` keep nodes away. `GET /stats` tells anyone the node's version and the peers it advertises.
+
+**Logs.** `DASSIE_LOG_LEVEL` sets how much the node logs (`debug`, `info`, `warn`, `error` or `none`; `info` by default). The wallet's debug pages show the recent log as well.
 
 ## Layout
 
@@ -20,50 +59,61 @@ The work starts from the specification in [`spec/`](spec/README.md):
 | `crates/dassie-stream` | STREAM as sans-IO connection and server state machines |
 | `crates/dassie-ledger` | The internal double-entry ledger and its transfer journal |
 | `crates/dassie-settlement` | The settlement scheme interface, the settlement policy, activation reconciliation, the stub scheme |
-| `crates/dassie-connector` | The ILP connector: endpoints, peers and the route table, ILDCP, amounts, spending caps, the packet trace |
-| `crates/dassie-peer` | The peer protocol v1: wire format, authentication, node table, link state, membership, registration, peering and its lifecycle, settlement delivery, routing |
+| `crates/dassie-xrpl` | The XRP Ledger: wallets, the Payment codec, the rippled API, the testnet settlement scheme, and a fake ledger for tests |
+| `crates/dassie-connector` | The ILP connector: endpoints, peers and the route table, ILDCP, amounts, exchange, fees and spread, spending caps, the packet trace |
+| `crates/dassie-peer` | Peer protocol v1: wire format, authentication, node table, link state, membership, registration, peering and its lifecycle, settlement delivery, routing |
+| `crates/dassie-payments` | Open Payments without IO: resources, GNAP grants, HTTP message signatures, payment pointers, intervals, quote math |
 | `crates/dassie-node-core` | The node's decisions without IO: config, setup, sessions, origins, rate limits, ACME and TLS policy |
-| `crates/dassie-node` | The daemon: database, HTTP(S) and IPC listeners, TLS, ACME, owner login, RPC with its live streams, the ledger's engine with the peer protocol, `/peer` and the peer client, the BTP server, the STREAM receiver, `/stats`, the log ring |
+| `crates/dassie-node` | The daemon: database, HTTP(S) and IPC listeners, TLS, ACME, owner login, RPC with its live streams, the engine (ledger, peer protocol, Open Payments, grace limits and bans), `/peer` and the peer client, the BTP server, the STREAM receiver, the rate fetcher, `/stats`, the log ring, and a fake XRP Ledger for tests |
 | `crates/dassie-cli` | The `dassie` binary: `daemon`, `init`, `update`, `verify-install` |
 | `crates/dassie-release` | What a release is and how to trust one: versions and channels, the mirror's layout, `SHA256SUMS` and its minisign signature |
 | `nix/release.nix` | The release builds: the wallet, static binaries for x64 and arm64, their bundles, the mirror tree, and the install tests' releases |
-| `resources` | What a release ships beside the binary: the systemd units and `install.sh`, and the release key (`minisign.pub`) |
+| `resources` | What a release ships beside the binary: the systemd units (the node, its sockets and the daily updater) and `install.sh`, and the release key (`minisign.pub`) |
+| `scripts/build-wasm.ts` | Builds the WASM modules and their bindings (`deno task build:wasm`) |
 | `scripts/release.ts` | Signs a built release for the mirror and checks it with `dassie-release verify`, as the release workflow does |
 | `proto/dassie/ui/v1` | The RPC contract between the node and its owner's clients |
 | `proto/dassie/dev/v1` | The dev environment's control channel, between the dev server and its dashboard |
-| `apps/wallet` | The wallet (Solid 2), embedded in the binary: every page of the original but Send and payment status (M6), with live data |
-| `apps/dev` | `deno task dev`: the scenarios on real binaries, certificates, vanity identities, the dev server with its SNI proxy and relay; also the scenario library the end-to-end tests use |
+| `apps/wallet` | The wallet (Solid 2), embedded in the binary: every page of the original, with live data, plus grants and consent for Open Payments |
+| `apps/dev` | `deno task dev`: the scenarios on real binaries, certificates, vanity identities, the dev server with its SNI proxy and relay, a rates server; also the scenario library the end-to-end tests use |
 | `apps/dev-dashboard` | The dev dashboard (Solid 2): the network, every node's log, the scenarios, each node's debug pages |
 | `apps/website` | dassie.land: the home page, the Quick Start, and the STREAM toy, which runs `dassie-stream` in WASM over a simulated network; Vercel builds it with `vercel-build.sh` |
 | `packages/ui` | The Solid components the wallet, the dev dashboard and the STREAM toy share: amounts, the log viewer, the network graph, the debug pages, the router, live data, the theme |
 | `packages/identity-wasm` | The core crates for Deno and browsers, with a STREAM driver |
 | `packages/rpc` | The client for the RPC contract, over WebSocket (browsers) or the IPC socket (Deno) |
-| `tests/interop` | Interop with `ilp-protocol-stream`, WASM vectors, browser test |
-| `tests/e2e` | A fresh install through `dassie init` and browser setup, with Pebble as the ACME CA; a BTP client paying the node's STREAM receiver; the `two-nodes` and `six-nodes` scenarios; the wallet's pages in a browser against two nodes; `deno task dev` and its dashboard; the installer and the updater on Debian, Ubuntu, Fedora and CentOS, in containers; dassie.land and its STREAM toy in a browser, under the site's CSP |
+| `tests/interop` | STREAM interop with `ilp-protocol-stream`, natively and in WASM; WASM vectors; the browser test |
+| `tests/e2e` | End-to-end tests on real binaries: a fresh install through `dassie init` and browser setup, with Pebble as the ACME CA; a BTP client paying the node's STREAM receiver; the `two-nodes` and `six-nodes` scenarios; Open Payments, including a third party's full flow with consent in the wallet; XRPL settlement and cross-currency payments; the wallet's pages in a browser; `deno task dev` and its dashboard; the installer and the updater on Debian, Ubuntu, Fedora and CentOS, in containers; dassie.land and its STREAM toy in a browser, under the site's CSP |
 | `testdata/original` | Generator for the golden vectors, run against the original |
+| `testdata/xrpl` | Generator for the XRPL golden vectors, run against xrpl.js |
 | `testdata/pebble` | Configuration and API certificate for Pebble, Let's Encrypt's test server, also served by the nodes in the BTP and peer tests |
 | `testdata/release` | The release test key and what minisign signs with it |
 
 ## Building and testing
 
-With [Nix](https://nixos.org), `nix develop` provides every tool at the pinned versions, and `nix flake check` runs what CI runs in the sandbox (CI builds those checks on [nixbuild.net](https://nixbuild.net)). Without it, install the Rust toolchain named in `rust-toolchain.toml` with the `wasm32-unknown-unknown` target, the `wasm-bindgen` CLI at the version in `Cargo.lock`, Deno, and Chrome or Chromium; the end-to-end tests also need `pebble`, `pebble-challtestsrv`, `systemd-socket-activate` and `mkcert`, and are skipped without them outside CI.
+The easiest way to get every tool at the right version is [Nix](https://nixos.org): `nix develop` gives you a shell with all of them, and `nix flake check` runs what CI runs (CI builds those checks on [nixbuild.net](https://nixbuild.net)).
+
+Without Nix, you need:
+
+- the Rust toolchain named in `rust-toolchain.toml`, with the `wasm32-unknown-unknown` target;
+- the `wasm-bindgen` CLI, at the version in `Cargo.lock`;
+- Deno, and Chrome or Chromium;
+- for the end-to-end tests, also `pebble`, `pebble-challtestsrv`, `systemd-socket-activate` and `mkcert`. Without them, those tests are skipped outside CI.
 
 ```sh
 cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
-deno task build:wasm   # WASM modules and bindings into packages/identity-wasm/gen
-deno task build:wallet # the wallet into apps/wallet/dist
+deno task build:wasm      # WASM modules and bindings into packages/identity-wasm/gen
+deno task build:wallet    # the wallet into apps/wallet/dist
 deno task build:dashboard # the dev dashboard into apps/dev-dashboard/dist
-deno task build:website # dassie.land into apps/website/dist
-deno task build:e2e    # target/e2e/dassie, with the wallet built in
-deno task check        # fmt, lint, type check
-deno task test         # WASM vectors, STREAM interop, browser, end to end
+deno task build:website   # dassie.land into apps/website/dist
+deno task build:e2e       # target/e2e/dassie with the wallet built in, the fake XRP Ledger and the release tool
+deno task check           # fmt, lint, type check
+deno task test            # WASM vectors, STREAM interop, browser, end to end
 ```
 
-`deno task ci` runs the Deno steps in order, building what they need first. After changing `proto/`, run `deno task gen` in `packages/rpc`; a test fails until the generated code matches.
+`deno task ci` runs all the Deno steps in order, building what they need first. If you change `proto/`, run `deno task gen` in `packages/rpc`; a test fails until the generated code matches.
 
-Releases are built by Nix on x86_64 Linux ([spec 7 §4.8](spec/07-rewrite.md#48-releases)): `nix build .#dassie-x64` or `.#dassie-arm64` makes a static binary with the wallet built in, and `nix build .#release` (or `.#canary`) the tree a release uploads to the mirror, but for its signature. After changing `deno.lock`, set the new hash of `denoDeps` in `nix/release.nix`, which the build reports. The release workflow signs and publishes: a canary for every push to the main branch, and a release for every tag `v<version>`.
+The XRPL end-to-end tests run against the node's fake ledger. To run them against the real testnet, by hand, set `DASSIE_XRPL_TESTNET=1`.
 
-The updater's tests need the test key built in: `cargo test -p dassie-cli --features test-key` (the Nix check does this). The install tests run the installer and the updater on four distributions in Docker; they need privileged containers and mkcert:
+The updater's tests need the test key built in: `cargo test -p dassie-cli --features test-key` (the Nix check does this). The install tests run the installer and the updater on four distributions in Docker. They need privileged containers and mkcert:
 
 ```sh
 nix build .#install-test-mirror -o install-test-mirror
@@ -71,7 +121,9 @@ DASSIE_INSTALL_MIRROR=$PWD/install-test-mirror DASSIE_INSTALL_DISTROS=debian \
   deno test -A tests/e2e/install_test.ts
 ```
 
-To try a node without root, run it standalone on high ports, then configure it from another terminal:
+### Trying a node without root
+
+You can run a node on high ports as yourself, and configure it from another terminal:
 
 ```sh
 DASSIE_STATE_DIRECTORY=/tmp/dassie DASSIE_IPC_SOCKET_PATH=/tmp/dassie.sock \
@@ -79,30 +131,39 @@ DASSIE_STATE_DIRECTORY=/tmp/dassie DASSIE_IPC_SOCKET_PATH=/tmp/dassie.sock \
 DASSIE_IPC_SOCKET_PATH=/tmp/dassie.sock target/e2e/dassie init --hostname localhost --skip-acme
 ```
 
-and open the setup URL it prints. The certificate is self-signed until `dassie init` obtains one (it needs a public hostname with port 80 reachable).
+Then open the setup URL it prints. The certificate stays self-signed until `dassie init` obtains a real one, which needs a public hostname with port 80 reachable.
 
-Once set up, the wallet asks for a first ledger. The stub scheme gives the owner 100 test USD; a BTP token, made in the wallet's settings, lets an ILP client such as `ilp-plugin-btp` spend them through the node, at most its spending cap per window if it has one. The same works over RPC: `addSettlementScheme` with `stub`, then `createBtpToken`, whose answer holds the `btp+wss://` URL to connect with.
+To make a few such nodes find each other locally, set `DASSIE_PEER_ALLOW_PRIVATE=1` so they may reach each other on `localhost`, `DASSIE_PEER_CA_FILE` to the CA their certificates come from, and `DASSIE_DEV_TIMINGS=1` so the protocol polls and settles every second. `deno task dev`, below, does all of this for you.
 
-Nodes find each other through bootstrap nodes. There are none by default until the v1 network's exist ([D15](spec/08-decisions.md#d15-bootstrap-network-for-v1)), so a node runs alone until `DASSIE_BOOTSTRAP_NODES` names some, as JSON: `[{"id": "d…", "url": "https://host:port", "publicKey": "<base64url>"}]`. A node needs a hostname to take part. For a local network, `DASSIE_PEER_ALLOW_PRIVATE=1` lets nodes reach each other on `localhost`, `DASSIE_PEER_CA_FILE` names the CA their certificates come from, and `DASSIE_DEV_TIMINGS=1` makes the protocol poll every second; `deno task dev` sets up such networks (below). The RPC methods `listNodes`, `listPeers`, `listRoutes` and `getRegistrationStatus` show what a node knows.
+## Releases
 
-Peers extend each other 1.1 units of credit, and a node settles with a peer once it owes it a tenth more than the middle of that range, every 4 seconds (every second with dev timings). `listSettlementChannels` shows the settlements on their way. `terminatePeering` ends a peering: it drains, ends on both sides, and each settles what it owes; `banNode`, `unbanNode` and `listBans` keep nodes away. The wallet's network page does the same. `GET /stats` tells anyone the node's version and its advertised peers.
+Releases are built by Nix on x86_64 Linux ([spec 7 §4.8](spec/07-rewrite.md#48-releases)):
+
+- `nix build .#dassie-x64` or `.#dassie-arm64` makes a static binary with the wallet built in;
+- `nix build .#release` (or `.#canary`) makes the tree a release uploads to the mirror, without its signature.
+
+If you change `deno.lock`, update the hash of `denoDeps` in `nix/release.nix`; the build tells you the new one. The release workflow signs and publishes a canary for every push to `main`, and a release for every tag `v<version>`.
 
 ## The dev environment
 
-`deno task dev` (in `nix develop`, or with mkcert installed) runs a network of nodes on this machine and a dashboard to watch it:
+`deno task dev` (in `nix develop`, or with mkcert installed) runs a small network of nodes on your machine, with a dashboard to watch it:
 
-- **Builds:** the node with cargo, again whenever `crates/` or `proto/` change, restarting the nodes with their data. The wallet and the dashboard with `vite build --watch` in development mode, into `dist-dev/`; the nodes serve that wallet (`DASSIE_DEV_WALLET_DIR`), and a reload shows a change.
-- **The dashboard** is at <https://localhost> (through an SNI proxy on 443) or <https://localhost:10100>. It shows the network as it peers and pays, every node's log, the scenarios, and each node's debug pages; each node's ↗ opens its wallet, signed in.
-- **The nodes** are `d1`, `d2`, … at `https://dN.localhost` (or `:500N` directly), with the original's vanity identities, mkcert certificates, and the stub ledger. Their data is in `local/dev/`; `deno task cli d1 status` runs the CLI against one.
-- **The scenarios:** `two-nodes` (the default), `six-nodes` and `one-node`; `xrpl-settlement` and `cross-currency` come with the XRPL module (M7). The last one chosen runs again next time.
+- **Builds:** it builds the node with cargo, and again whenever `crates/` or `proto/` change, restarting the nodes with their data. The wallet and the dashboard are built with `vite build --watch` in development mode, into `dist-dev/`. The nodes serve that wallet (`DASSIE_DEV_WALLET_DIR`), so a reload shows your change.
+- **The dashboard** is at <https://localhost> (through an SNI proxy on 443) or <https://localhost:10100>. It shows the network as it peers and pays, every node's log, the scenarios, and each node's debug pages. Each node's ↗ opens its wallet, signed in.
+- **The nodes** are `d1`, `d2`, … at `https://dN.localhost` (or `:500N` directly). They use the original's vanity identities, mkcert certificates, and fixed exchange rates from a local rates server. Their data is in `local/dev/`. `deno task cli dN <command>` runs the CLI against one, for example `deno task cli d1 init`.
+- **The scenarios:** `two-nodes` (the default), `six-nodes` and `one-node` settle on the stub ledger; `xrpl-settlement` settles on the XRP Ledger, and `cross-currency` pays between the stub and XRP through a third node. The XRPL ones use the public testnet unless you pass `--xrpl fake`. The scenario you chose last runs again next time, or pick one with `--scenario <id>`.
 - **Keys:** space opens the dashboard, `r` restarts the nodes, `q` or ctrl+c quits.
 
-Once, run `mkcert -install` so the browser trusts the certificates. Port 443 needs `sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0` on Linux; without it the dev server says so and goes on without the proxy. `--port-offset`, `--state-dir`, `--no-proxy`, `--no-watch` and `--dassie <binary>` serve tests and special cases (see `apps/dev/main.ts`).
+The first time, run `mkcert -install` so your browser trusts the certificates. On Linux, port 443 needs `sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0`; without it, the dev server tells you and runs without the proxy. `--port-offset`, `--state-dir`, `--no-proxy`, `--no-watch`, `--headless` and `--dassie <binary>` are there for tests and special cases (see `apps/dev/main.ts`).
 
 To work on the wallet alone, run `deno task dev` in `apps/wallet` and start a node with `DASSIE_DEV_WALLET_DIR` set to the absolute path of `apps/wallet/dist-dev`. `DASSIE_E2E_WALLET_DIR` does the same for the wallet's browser test, and `DASSIE_E2E_SCREENSHOTS` keeps a picture of each step of the wallet's and the dev environment's browser tests.
 
-To work on the website, run `deno task dev` in `apps/website`, which rebuilds `dist/` on every change, and `deno task preview` beside it to serve it. Vercel deploys every branch from `apps/website` ([spec 7 §5](spec/07-rewrite.md#5-wallet-and-dashboard-solid-2)); the CSP and the cache headers are in its `vercel.json`, and `vercel-ignore.sh` skips deployments that change nothing the site is built from.
+To work on the website, run `deno task dev` in `apps/website`, which rebuilds `dist/` on every change, and `deno task preview` next to it to serve it. Vercel deploys every branch from `apps/website` ([spec 7 §5](spec/07-rewrite.md#5-wallet-and-dashboard-solid-2)). The CSP and the cache headers are in its `vercel.json`, and `vercel-ignore.sh` skips deployments that change nothing the site is built from.
 
 ## Engineering style
 
 The code follows a pragmatic TigerStyle and is built for deterministic simulation testing ([D16](spec/08-decisions.md#d16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation)): the core crates never read a clock or the OS RNG, bound every table and queue, and check their invariants after every step of their simulations.
+
+## License
+
+Apache-2.0, see [LICENSE](LICENSE).
