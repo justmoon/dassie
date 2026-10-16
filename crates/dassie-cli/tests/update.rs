@@ -13,11 +13,12 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::io::Write as _;
+use std::io::{self, Write as _};
 use std::os::unix::fs::{PermissionsExt as _, symlink};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use dassie_release::layout::{self, Arch, Compression};
 use dassie_release::testing::{TEST_SECRET_KEY, sign};
@@ -32,6 +33,11 @@ const DASSIE: &str = env!("CARGO_BIN_EXE_dassie");
 const PEBBLE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/pebble");
 
 type Files = Arc<Mutex<HashMap<String, Vec<u8>>>>;
+
+/// How often a test tries what another test's child can briefly hold up,
+/// and how long it waits in between.
+const TRIES: u32 = 50;
+const BETWEEN_TRIES: Duration = Duration::from_millis(20);
 
 /// A mirror on localhost, serving whatever `files` holds.
 struct MirrorServer {
@@ -269,6 +275,23 @@ fn release(version: &str) -> Vec<u8> {
         ("dassie/share/systemd/", None, 0o755),
         ("dassie/share/systemd/dassie.service", Some(UNIT), 0o644),
     ])
+}
+
+/// Runs `command`, which runs a file this process wrote. The tests run on
+/// threads of one process, and a child another one forks while the file is
+/// open for writing holds it open until the child execs; Linux runs no file
+/// open for writing (ETXTBSY). So this tries again, a bounded number of
+/// times.
+fn output_of_written(command: &mut Command) -> Output {
+    for _ in 1..TRIES {
+        match command.output() {
+            Err(error) if error.kind() == io::ErrorKind::ExecutableFileBusy => {
+                std::thread::sleep(BETWEEN_TRIES);
+            }
+            output => return output.unwrap(),
+        }
+    }
+    command.output().unwrap()
 }
 
 fn text(output: &Output) -> String {
@@ -513,7 +536,17 @@ fn runs_one_update_at_a_time() {
         "another update is running",
     );
     drop(lock);
-    assert!(install.update(&mirror, &[]).status.success());
+    // A child another test's thread forked while `lock` was open shares its
+    // lock until the child execs, so the lock can outlive `drop` a little.
+    let mut output = install.update(&mirror, &[]);
+    for _ in 1..TRIES {
+        if !text(&output).contains("another update is running") {
+            break;
+        }
+        std::thread::sleep(BETWEEN_TRIES);
+        output = install.update(&mirror, &[]);
+    }
+    assert!(output.status.success(), "{}", text(&output));
 }
 
 /// The script the tests stand in for the binary runs, which needs a shell.
@@ -525,7 +558,7 @@ fn stand_in_runs() {
     file.write_all(stand_in("1.2.3").as_bytes()).unwrap();
     drop(file);
     fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
-    let output = Command::new(path).arg("--version").output().unwrap();
+    let output = output_of_written(Command::new(path).arg("--version"));
     assert_eq!(
         String::from_utf8_lossy(&output.stdout).trim(),
         "dassie 1.2.3"
