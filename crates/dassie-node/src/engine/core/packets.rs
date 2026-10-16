@@ -236,8 +236,7 @@ impl Core {
         };
         let owed = posted.is_some_and(|posted| {
             let length = upstream.map_or(0, |upstream| upstream.length);
-            let fulfill = self.up.get(..length).unwrap_or_default().to_vec();
-            self.posted(&posted, request_id, &fulfill, incoming)
+            self.posted(&posted, request_id, length, incoming)
         });
         if !owed && let Some(upstream) = upstream {
             self.upstream(now, upstream);

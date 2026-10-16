@@ -324,7 +324,7 @@ impl Core {
         &mut self,
         posted: &Posted,
         downstream_request: u32,
-        fulfill: &[u8],
+        fulfill_length: usize,
         incoming: Option<(PaymentId, u64)>,
     ) -> bool {
         let moved = posted.transfers.iter().any(Option::is_some);
@@ -340,7 +340,7 @@ impl Core {
             EndpointId::Peer(endpoint) if moved => self.endpoint_peers.get(&endpoint).copied(),
             _ => None,
         };
-        let Some(peer) = peer.filter(|_| !fulfill.is_empty()) else {
+        let Some(peer) = peer.filter(|_| fulfill_length > 0) else {
             // Peers leave only once drained.
             assert!(
                 peer.is_some() || !(posted.source.is_peer() && moved),
@@ -359,11 +359,12 @@ impl Core {
         if let Some((id, amount)) = incoming {
             self.incoming_waiting(id, amount);
         }
-        let row = OwedFulfill {
+        let mut row = OwedFulfill {
             trace: posted.trace,
             peer,
             request_id: posted.source_request_id,
-            fulfill: fulfill.to_vec(),
+            // The table keeps none; the batch takes it below.
+            fulfill: Vec::new(),
             compensation,
             transfers: posted
                 .transfers
@@ -372,8 +373,10 @@ impl Core {
             expires_at_ms: posted.expires_at_ms,
             created_at_ms: self.now_ms,
         };
-        self.batch.verdicts.owed.push(row.clone());
-        self.owed.insert(row, self.now_ms);
+        self.owed.insert(row.clone(), self.now_ms);
+        // The Fulfill, in `up` still, is copied once, for the disk.
+        row.fulfill = self.up.get(..fulfill_length).unwrap_or_default().to_vec();
+        self.batch.verdicts.owed.push(row);
         true
     }
 
