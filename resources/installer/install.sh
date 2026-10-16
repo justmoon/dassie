@@ -25,6 +25,7 @@ main() {
   umask 022
   MIRROR="${DASSIE_MIRROR_URL:-https://get.dassie.land}"
   CHANNEL="${DASSIE_CHANNEL:-latest}"
+  CHANNEL_GIVEN="${DASSIE_CHANNEL:+1}"
   VERSION="${DASSIE_VERSION:-}"
   TARGETED="${DASSIE_VERSION:+1}"
   COMMAND=install
@@ -45,7 +46,8 @@ usage() {
 Usage: install.sh [options] [install|uninstall]
 
 Options:
-  -c, --channel <latest|canary>  the channel to install from (default: latest)
+  -c, --channel <latest|canary>  the channel to install from (default: the
+                                 installed version's channel, or latest)
   -t, --target <version>         this version rather than the channel's newest
   -m, --mirror <url>             the mirror (default: https://get.dassie.land)
   -h, --help                     show this help
@@ -58,7 +60,7 @@ parse_arguments() {
   while [ $# -gt 0 ]; do
     case "$1" in
       -h | --help) usage; exit 0 ;;
-      -c | --channel) [ $# -ge 2 ] || fail E_SYNTAX "$1 needs a value"; CHANNEL=$2; shift ;;
+      -c | --channel) [ $# -ge 2 ] || fail E_SYNTAX "$1 needs a value"; CHANNEL=$2; CHANNEL_GIVEN=1; shift ;;
       -t | --target) [ $# -ge 2 ] || fail E_SYNTAX "$1 needs a value"; VERSION=$2; TARGETED=1; shift ;;
       -m | --mirror) [ $# -ge 2 ] || fail E_SYNTAX "$1 needs a value"; MIRROR=$2; shift ;;
       install | uninstall) COMMAND=$1 ;;
@@ -163,6 +165,13 @@ valid_version() {
   printf '%s\n' "$1" | grep -Eq '^((0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)|canary-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}-[0-9a-f]{7,40})$'
 }
 
+channel_of() {
+  case "$1" in
+    canary-*) echo canary ;;
+    *) echo latest ;;
+  esac
+}
+
 # --- Verification -------------------------------------------------------------
 
 # Verifies $TEMP/SHA256SUMS.minisig: the release key's signature of
@@ -226,25 +235,53 @@ verify_bundle() {
   [ "$actual" = "$expected" ] || fail E_BUNDLE_VERIFY_FAILED "$BUNDLE does not match its signed sum: refusing it"
 }
 
+# The version installed, if its binary names one. One that names none is
+# taken for no install: each binary named its version before it was
+# installed, so the mirror cannot make one fall silent.
+read_installed() {
+  INSTALLED=
+  if [ -x "$BASE/current/bin/dassie" ]; then
+    INSTALLED=$("$BASE/current/bin/dassie" --version 2> /dev/null | sed -n 's/^dassie //p')
+  fi
+}
+
+# Without --channel, a re-run keeps to the installed version's channel, as
+# `dassie update` does.
+choose_channel() {
+  if [ -z "$CHANNEL_GIVEN" ] && [ -n "$INSTALLED" ]; then
+    CHANNEL=$(channel_of "$INSTALLED")
+  fi
+}
+
 # The mirror's meta/<channel> is not signed, so it does not choose the
-# direction: a version older than the one installed, of the same channel,
-# goes in only when asked for with --target.
+# channel: what it names must be of the channel it was read from.
+check_channel() {
+  [ "$(channel_of "$VERSION")" = "$CHANNEL" ] ||
+    fail E_VERSION_INVALID "the mirror's meta/$CHANNEL names $VERSION, which is not a $CHANNEL version"
+}
+
+# Nor does it choose the direction: a version of the other channel goes in
+# only when asked for with --channel, and one older than the one installed,
+# of the same channel, only with --target.
 check_not_older() {
-  if [ -n "$TARGETED" ] || [ ! -x "$BASE/current/bin/dassie" ]; then return 0; fi
-  installed=$("$BASE/current/bin/dassie" --version 2> /dev/null | sed -n 's/^dassie //p')
-  case "$VERSION:$installed" in
-    canary-*:canary-*)
+  if [ -n "$TARGETED" ] || [ -z "$INSTALLED" ]; then return 0; fi
+  if [ "$(channel_of "$VERSION")" != "$(channel_of "$INSTALLED")" ]; then
+    [ -n "$CHANNEL_GIVEN" ] ||
+      fail E_VERSION_OTHER_CHANNEL "the mirror offers $VERSION, of another channel than the installed $INSTALLED; use --channel $(channel_of "$VERSION") to move to it"
+    return 0
+  fi
+  case "$VERSION" in
+    canary-*)
       # The date and time of the commit order canaries.
       offered=$(printf '%s' "$VERSION" | cut -c1-24)
-      now=$(printf '%s' "$installed" | cut -c1-24)
+      now=$(printf '%s' "$INSTALLED" | cut -c1-24)
       ;;
-    canary-*:* | *:canary-* | *:) return 0 ;;
-    *) offered=$VERSION now=$installed ;;
+    *) offered=$VERSION now=$INSTALLED ;;
   esac
   [ "$offered" != "$now" ] || return 0
   lowest=$(printf '%s\n%s\n' "$offered" "$now" | sort -V | head -n 1)
   [ "$lowest" != "$offered" ] ||
-    fail E_VERSION_OLDER "the mirror offers $VERSION, older than the installed $installed; use --target to install it anyway"
+    fail E_VERSION_OLDER "the mirror offers $VERSION, older than the installed $INSTALLED; use --target to install it anyway"
 }
 
 # --- Install --------------------------------------------------------------------
@@ -254,12 +291,15 @@ install() {
   TEMP=$(mktemp -d -t dassie-installer-XXXXXXXXXX) || fail E_TEMP_DIRECTORY_FAILED "cannot make a temporary directory"
   trap 'rm -rf "$TEMP"' EXIT
 
+  read_installed
+  choose_channel
   if [ -z "$VERSION" ]; then
     step "Looking up the newest $CHANNEL version"
     download "$MIRROR/meta/$CHANNEL" "$TEMP/meta" || fail E_VERSION_FETCH_FAILED "cannot read $MIRROR/meta/$CHANNEL"
     VERSION=$(tr -d ' \r\n' < "$TEMP/meta")
   fi
   valid_version "$VERSION" || fail E_VERSION_INVALID "not a version: $VERSION"
+  [ -n "$TARGETED" ] || check_channel
   note "dassie $VERSION"
   check_not_older
 

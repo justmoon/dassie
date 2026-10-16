@@ -577,7 +577,11 @@ meta/canary                                  the newest canary
 **`install.sh`** (`resources/installer`, POSIX sh, one function called on its last line):
 - It needs Linux, systemd (running, or still starting, as when cloud-init runs it), curl or wget, tar, and minisign or OpenSSL 1.1.1 or later. It takes the xz bundle where there is `xz`, and the gzip one otherwise.
 - It sets `umask 022`: on a hardened host, what it installs must still be readable by the node's own user.
-- Run again, it installs the channel's newest version, but not one older than the one installed: `meta/<channel>` is not signed. `--target` installs any version.
+- **`meta/<channel>` is not signed, so the mirror chooses neither the channel nor the direction:**
+  - Run again without `--channel` (or `DASSIE_CHANNEL`), it keeps to the installed version's channel, as `dassie update` does. A fresh install takes `latest`.
+  - What `meta/<channel>` names must be of that channel: a release on `latest`, a canary on `canary`.
+  - It moves to the other channel only when `--channel` names it, and never to a version of the same channel older than the one installed. `--target` installs any version.
+  - An install whose binary names no version counts as none. Each binary named its version before it was installed, so the mirror cannot bring that about.
 - **Nothing is unpacked before it is verified.**
   - The signature of `SHA256SUMS` is checked with the release key, built into the script at release. With minisign that is `minisign -V`; with OpenSSL it is minisign's format by hand: the key ID, Ed25519 over BLAKE2b-512 of the file, and the global signature over the trusted comment.
   - The trusted comment must be `dassie <version>`, and the bundle must match its sum.
@@ -618,7 +622,7 @@ meta/canary                                  the newest canary
   - one update at a time, and modes that let the node run under a strict umask;
   - the record each update leaves.
 - The store's tests check the copy before a migration, and that a rollback puts it back only when it must and only a copy it can trust.
-- `tests/e2e/install_test.ts` installs, updates and uninstalls on Debian 12, Ubuntu 24.04, Fedora 42 and CentOS Stream 9 (item 6 of §7), the installer under `umask 077`; a re-run installer does not go back to an older version the mirror offers.
+- `tests/e2e/install_test.ts` installs, updates and uninstalls on Debian 12, Ubuntu 24.04, Fedora 42 and CentOS Stream 9 (item 6 of §7), the installer under `umask 077`. The installer refuses a canary that `meta/latest` names, fresh or run again. Run again, it does not go back to an older version the mirror offers; it moves to `canary` and back only when asked, and stays on `canary` otherwise.
 - The installer's ShellCheck runs with `nix flake check`.
 
 ## 5. Wallet and dashboard (Solid 2)
@@ -715,7 +719,7 @@ Every crate is written so that a simulation can drive it ([D16](08-decisions.md#
 5. **End to end.** The dev scenarios run headless in CI: start N nodes, set up through the HTTP API, add ledgers, peer, pay, settle, restart, and check that the balances are unchanged.
 6. **Installer and updater.** Containers with systemd, as the original's `test-in-docker:*` scripts did ([6 §5.5](06-user-interfaces-and-tooling.md)), including signature-verification failure cases.
    - `tests/e2e/install_test.ts` boots Debian, Ubuntu, Fedora and CentOS images (pinned by digest, with systemd as PID 1). Caddy serves a mirror on a Docker network of the test's own.
-   - The releases come from `nix build .#install-test-mirror`: 1.0.0 and 1.0.1, built in a cheaper profile and signed with the test key.
+   - The releases come from `nix build .#install-test-mirror`: 1.0.0, 1.0.1 and a canary, built in a cheaper profile and signed with the test key.
    - The images between them take both verifiers (OpenSSL and minisign), both downloaders (curl and wget) and both compressions.
    - The release workflow runs one job per distribution, before it signs; CI does not run them.
 7. **Website.** `tests/e2e/website_test.ts` serves the built site with the headers of its `vercel.json`, so that its CSP applies, and drives it in headless Chrome. The toy runs a payment to the end, and its packets decrypt. The toy's simulation is also tested in Node against the same `web` build of the WASM module that the browser loads.
