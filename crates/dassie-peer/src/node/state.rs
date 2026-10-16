@@ -490,11 +490,11 @@ impl PeerNode {
                 *id == self.own || entry.peering().is_none() || entry.key.is_some(),
                 "a peer's key is known"
             );
-            assert!(
-                !self.routes.contains_key(&self.own),
-                "no route to ourselves"
-            );
         }
+        assert!(
+            !self.routes.contains_key(&self.own),
+            "no route to ourselves"
+        );
         for route in self.routes.values() {
             assert!(
                 !route.first_hops.is_empty() && route.first_hops.len() <= routing::MAX_FIRST_HOPS,
