@@ -13,8 +13,8 @@ use dassie_ledger::{
 use dassie_peer::wire::SchemeId;
 use dassie_settlement::policy::{self, Terms};
 
+use super::events::SettlementEvent;
 use super::{Core, EngineError};
-use crate::log::target;
 use crate::node::Policies;
 
 /// The first wait after a cancelled settlement; it doubles with each one
@@ -154,7 +154,7 @@ impl Core {
                 self.peer.final_settled(&node);
                 continue;
             }
-            tracing::info!(target: target::SETTLEMENT, %node, amount, "settling what is owed at the end of a peering");
+            self.report(SettlementEvent::SettlingFinal { node, amount });
             self.prepare_settlement(node, &at, amount, &due.state);
             if let Some(settling) = self
                 .settle
@@ -264,7 +264,7 @@ impl Core {
         // prepared behind; with the journal taken, so it has room.
         self.take_journal();
         if let Err(error) = self.ledger.validate(&spec) {
-            tracing::warn!(target: target::SETTLEMENT, %node, %error, "the books cannot take a settlement now");
+            self.report(SettlementEvent::BooksCannotSettle { node, error });
             return;
         }
         let Some(prepared) = self.scheme_prepare(node, at.scheme, amount, state) else {
@@ -296,7 +296,11 @@ impl Core {
             self.peer.set_scheme_state(&node, state);
         }
         let amount = prepared.amount;
-        tracing::info!(target: target::SETTLEMENT, %node, amount, id = %prepared.id, "settling");
+        self.report(SettlementEvent::Settling {
+            node,
+            amount,
+            id: prepared.id,
+        });
         self.settle.settling.insert(
             (at.scheme, prepared.id),
             Settling {
@@ -327,6 +331,7 @@ impl Core {
             schemes,
             rng,
             settle,
+            events,
             ..
         } = self;
         let active = schemes.get_mut(&scheme).filter(|a| a.failed.is_none())?;
@@ -342,14 +347,20 @@ impl Core {
                 let warned = settle.unavailable_warned.entry(scheme).or_insert(0);
                 if *warned == 0 || now.saturating_sub(*warned) >= UNAVAILABLE_WARN_MS {
                     *warned = now.max(1);
-                    tracing::warn!(target: target::SETTLEMENT, %node, %scheme, status = ?active.scheme.status(), "the scheme cannot settle now: no funds above the reserve, or no ledger");
-                } else {
-                    tracing::debug!(target: target::SETTLEMENT, %node, "the scheme cannot settle now");
+                    let status = active.scheme.status();
+                    events.push(
+                        SettlementEvent::SchemeUnavailable {
+                            node,
+                            scheme,
+                            status,
+                        }
+                        .into(),
+                    );
                 }
                 None
             }
             Err(error) => {
-                tracing::warn!(target: target::SETTLEMENT, %node, %error, "the scheme could not prepare a settlement");
+                events.push(SettlementEvent::PrepareFailed { node, error }.into());
                 None
             }
         }
@@ -371,7 +382,7 @@ impl Core {
             active.scheme.execute_settlement(id, &mut effects);
             let ledger = active.scheme.ledger();
             if let Err(error) = self.apply_effects(scheme, ledger, &effects) {
-                tracing::error!(target: target::SETTLEMENT, %error, "a settlement's outcome was not booked");
+                self.report(SettlementEvent::OutcomeNotBooked { error });
             }
         }
         true
@@ -410,9 +421,12 @@ impl Core {
             let mut effects = Vec::new();
             active.scheme.reconcile(&pending, &mut effects);
             let ledger = active.scheme.ledger();
-            tracing::info!(target: target::SETTLEMENT, %scheme, pending = pending.len(), "reconciling settlements from before the restart");
+            self.report(SettlementEvent::Reconciling {
+                scheme,
+                pending: pending.len(),
+            });
             if let Err(error) = self.apply_effects(scheme, ledger, &effects) {
-                tracing::error!(target: target::SETTLEMENT, %error, "a reconciliation was not booked");
+                self.report(SettlementEvent::ReconciliationNotBooked { error });
             }
         }
     }
@@ -453,7 +467,7 @@ impl Core {
     #[allow(clippy::panic)]
     pub(super) fn settlement_done(&mut self, scheme: Name, id: Name) {
         let Some(settling) = self.take_settling(scheme, id) else {
-            tracing::warn!(target: target::SETTLEMENT, %scheme, %id, "an unknown settlement executed");
+            self.report(SettlementEvent::UnknownExecuted { scheme, id });
             return;
         };
         if self.peer.settling(&settling.peer) {
@@ -485,7 +499,7 @@ impl Core {
             settling.amount,
             settling.message,
         ) {
-            tracing::error!(target: target::SETTLEMENT, %peer, ?error, "a settlement could not be announced");
+            self.report(SettlementEvent::AnnounceFailed { peer, error });
         }
     }
 
@@ -503,7 +517,7 @@ impl Core {
     #[allow(clippy::panic)]
     pub(super) fn settlement_cancelled(&mut self, scheme: Name, id: Name) {
         let Some(settling) = self.take_settling(scheme, id) else {
-            tracing::warn!(target: target::SETTLEMENT, %scheme, %id, "an unknown settlement was cancelled");
+            self.report(SettlementEvent::UnknownCancelled { scheme, id });
             return;
         };
         self.check_settling_transfer(scheme, id, &settling);
@@ -525,7 +539,10 @@ impl Core {
             settling.peer,
             (now.saturating_add(wait), failures.saturating_add(1)),
         );
-        tracing::warn!(target: target::SETTLEMENT, peer = %settling.peer, amount = settling.amount, "a settlement failed");
+        self.report(SettlementEvent::Failed {
+            peer: settling.peer,
+            amount: settling.amount,
+        });
     }
 
     /// A peer's settlement: booked first, so the scheme's balance never
@@ -574,7 +591,7 @@ impl Core {
             .scheme
             .handle_settlement(name, amount, data, &state, &mut effects)
             .map_err(|error| refused(&error.to_string()))?;
-        tracing::info!(target: target::SETTLEMENT, %from, amount, "a peer settled");
+        self.report(SettlementEvent::PeerSettled { from, amount });
         self.apply_effects(scheme, ledger, &effects)
     }
 
@@ -590,7 +607,7 @@ impl Core {
         active.scheme.handle_message(name, message, &mut effects);
         let ledger = active.scheme.ledger();
         if let Err(error) = self.apply_effects(scheme, ledger, &effects) {
-            tracing::error!(target: target::SETTLEMENT, %error, "a scheme message's effects were not booked");
+            self.report(SettlementEvent::MessageEffectsNotBooked { error });
         }
     }
 

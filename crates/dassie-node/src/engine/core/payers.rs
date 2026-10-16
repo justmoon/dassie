@@ -23,8 +23,8 @@ use dassie_ledger::{AccountName, LedgerId, OwnerSub};
 use dassie_payments::gnap::Limits;
 use dassie_stream::{AssetDetails, Config, Connection, Event, Policy, Rate, Role};
 
+use super::events::PaymentEvent;
 use super::{Core, EngineError};
-use crate::log::target;
 use crate::store::{ForeignAmount, OutgoingProgress, OutgoingRow, OutgoingState, PaymentId};
 
 /// The prefix of a payer's address segment below the node's own.
@@ -287,7 +287,10 @@ impl Core {
                 start_at_ms: now,
             },
         );
-        tracing::info!(target: target::PAYMENT, id = %row.id, debit = row.debit_amount, "outgoing payment created");
+        self.report(PaymentEvent::OutgoingCreated {
+            id: row.id,
+            debit: row.debit_amount,
+        });
         self.pump_outgoing(now);
         Ok(CreatedOutgoing {
             row,
@@ -463,7 +466,11 @@ impl Core {
             .filter(|stream| connection.set_send_max(*stream, left).is_ok());
         payment.base_sent = payment.row.sent_amount;
         payment.connection = Some(connection);
-        tracing::debug!(target: target::PAYMENT, %id, left, at = now, "outgoing payment sending");
+        self.report(PaymentEvent::OutgoingSending {
+            id,
+            left,
+            at_ms: now,
+        });
     }
 
     /// Sends what a payment's connection has to send.
@@ -651,7 +658,7 @@ impl Core {
             payment.base_sent = sent;
             payment.start_at_ms = now.saturating_add(wait);
             self.spending.waiting.insert((payment.start_at_ms, id));
-            tracing::debug!(target: target::PAYMENT, %id, reason, "outgoing payment connects again");
+            self.report(PaymentEvent::OutgoingReconnects { id, reason });
         }
     }
 
@@ -700,7 +707,13 @@ impl Core {
             }
         }
         self.batch.outgoing.progress.insert(id, progress(row));
-        tracing::info!(target: target::PAYMENT, %id, state = row.state.as_str(), sent = row.sent_amount, failure = ?row.failure, "outgoing payment finished");
+        let finished = PaymentEvent::OutgoingFinished {
+            id,
+            state: row.state,
+            sent: row.sent_amount,
+            failure: row.failure.clone(),
+        };
+        self.report(finished);
     }
 
     /// Hands the packets for the node's own receiver to it, a bounded

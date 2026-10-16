@@ -11,8 +11,8 @@ use dassie_ledger::{LedgerId, Name};
 use dassie_settlement::{Effect, LedgerInput, SchemeError, SchemeInfo, SettlementScheme, Stub};
 use dassie_xrpl::XrplScheme;
 
+use super::events::SettlementEvent;
 use super::{Core, Output};
-use crate::log::target;
 use crate::store::Checkpoint;
 
 /// Every scheme the node can run, in a fixed order.
@@ -107,7 +107,10 @@ impl Core {
     /// the ledger said again.
     fn scheme_effects(&mut self, scheme: Name, ledger: LedgerId, effects: &[Effect]) {
         if let Err(error) = self.apply_effects(scheme, ledger, effects) {
-            tracing::error!(target: target::SETTLEMENT, %scheme, %error, "a scheme's effects could not be booked: it stops");
+            self.report(SettlementEvent::SchemeStopped {
+                scheme,
+                error: error.clone(),
+            });
             if let Some(active) = self.schemes.get_mut(&scheme) {
                 active.failed = Some(error.to_string());
                 let epoch = active.epoch;

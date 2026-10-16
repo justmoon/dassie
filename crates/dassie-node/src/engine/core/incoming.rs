@@ -26,8 +26,8 @@ use dassie_ilp::ErrorCode;
 use dassie_ledger::LedgerId;
 use dassie_stream::Admission;
 
+use super::events::PaymentEvent;
 use super::{Core, EngineError};
-use crate::log::target;
 use crate::store::{IncomingProgress, IncomingRow, PaymentId};
 
 /// The bounds on incoming payments.
@@ -186,7 +186,7 @@ impl Core {
         }
         if dropped > 0 {
             // Only after the bounds were lowered: they take no more money.
-            tracing::warn!(target: target::PAYMENT, dropped, "more incoming payments are open than the bounds allow");
+            self.report(PaymentEvent::IncomingOverBounds { dropped });
         }
         Ok(())
     }
@@ -245,7 +245,10 @@ impl Core {
         };
         self.incoming.insert(id, open_of(&row));
         self.batch.incoming_created.push(row.clone());
-        tracing::debug!(target: target::PAYMENT, %id, ledger = %row.ledger, "incoming payment created");
+        self.report(PaymentEvent::IncomingCreated {
+            id,
+            ledger: row.ledger,
+        });
         Ok(row)
     }
 
@@ -291,7 +294,7 @@ impl Core {
             ));
         };
         self.close_incoming(oldest, now);
-        tracing::debug!(target: target::PAYMENT, id = %oldest, "an unpaid incoming payment closed to make room");
+        self.report(PaymentEvent::IncomingClosedForRoom { id: oldest });
         Ok(())
     }
 
@@ -402,11 +405,12 @@ impl Core {
             // Payments that received nothing are pruned a week after they
             // close; a verdict may come later than that.
             Ok(None) => {
-                tracing::warn!(target: target::PAYMENT, %id, "a confirmed payment is gone");
+                self.report(PaymentEvent::ConfirmedPaymentGone { id });
                 return;
             }
             Err(error) => {
-                tracing::error!(target: target::PAYMENT, %id, %error, "reading a confirmed payment");
+                let error = error.to_string();
+                self.report(PaymentEvent::ConfirmedPaymentUnread { id, error });
                 return;
             }
         };
@@ -478,7 +482,7 @@ impl Core {
             let received = payment.received;
             self.incoming.remove(&id);
             self.finished_incoming.remember(id, ledger, received);
-            tracing::debug!(target: target::PAYMENT, %id, "incoming payment completed");
+            self.report(PaymentEvent::IncomingCompleted { id });
         }
         self.batch.incoming_progress.insert(id, progress);
     }

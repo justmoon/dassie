@@ -344,6 +344,17 @@ struct RingLayer {
     ring: Arc<LogRing>,
 }
 
+/// What `f` logs, as the ring would keep it: for tests of what is logged.
+#[cfg(test)]
+pub(crate) fn capture(f: impl FnOnce()) -> Vec<LogLine> {
+    let ring = Arc::new(LogRing::default());
+    let layer = RingLayer {
+        ring: Arc::clone(&ring),
+    };
+    tracing::subscriber::with_default(tracing_subscriber::registry().with(layer), f);
+    ring.after(0, MAX_LINES).0
+}
+
 impl<S: Subscriber> Layer<S> for RingLayer {
     fn on_event(&self, event: &Event<'_>, _: Context<'_, S>) {
         let metadata = event.metadata();

@@ -11,8 +11,8 @@ use dassie_oer::Decode;
 use dassie_stream::{AssetDetails, ConnectionId, Event, Policy, Server, ServerConfig};
 
 use super::Core;
+use super::events::{BtpEvent, PaymentEvent, PeerEvent};
 use super::{EngineError, Outbound};
-use crate::log::target;
 
 /// The type byte of an ILP Prepare.
 const PREPARE_TYPE: u8 = 12;
@@ -184,9 +184,7 @@ impl Core {
                     },
                 )),
                 // A peer has no error channel: the duplicate is dropped.
-                _ => {
-                    tracing::debug!(target: target::PEER, %source, request_id, "duplicate request ID")
-                }
+                _ => self.report(PeerEvent::DuplicateRequest { source, request_id }),
             },
             Outcome::UnknownSource => {}
         }
@@ -478,7 +476,10 @@ impl Core {
 
     fn drain_events(&mut self, ledger: LedgerId, id: ConnectionId) {
         let Self {
-            receivers, work, ..
+            receivers,
+            work,
+            events,
+            ..
         } = self;
         let Some(connection) = receivers
             .get_mut(&ledger)
@@ -493,14 +494,14 @@ impl Core {
                     // window.
                     while connection.read(stream_id, work).is_ok_and(|read| read > 0) {}
                 }
-                Event::MoneyReceived { stream_id } => {
-                    let total = connection
-                        .stream(stream_id)
-                        .map_or(0, dassie_stream::Stream::total_received);
-                    tracing::debug!(target: target::PAYMENT, connection = id.0, stream_id, total, "money received");
-                }
                 Event::ConnectionClosed { code, by_remote } => {
-                    tracing::debug!(target: target::PAYMENT, connection = id.0, ?code, by_remote, "STREAM connection closed");
+                    let connection = id.0;
+                    let closed = PaymentEvent::StreamClosed {
+                        connection,
+                        code,
+                        by_remote,
+                    };
+                    events.push(closed.into());
                 }
                 _ => {}
             }
@@ -615,7 +616,7 @@ impl Core {
         let now = self.now_ms();
         self.connector.remove_endpoint(now, EndpointId::Btp(link));
         self.expire(now);
-        tracing::debug!(target: target::BTP, link, "BTP client gone");
+        self.report(BtpEvent::ClientGone { link });
     }
 
     /// Ends a BTP connection from this side: its client is told, after

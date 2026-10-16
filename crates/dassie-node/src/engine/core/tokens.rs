@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 
 use super::Core;
 use super::EngineError;
-use crate::log::target;
+use super::events::BtpEvent;
 use crate::store::{BtpTokenRow, Store, StoreError, TokenCap};
 
 /// Most tokens not revoked.
@@ -164,7 +164,7 @@ impl Core {
         let view = self
             .token_view(id)
             .ok_or_else(|| EngineError::Internal("token".into()))?;
-        tracing::info!(target: target::BTP, id, "BTP token created");
+        self.report(BtpEvent::TokenCreated { id });
         Ok(NewToken { view, secret })
     }
 
@@ -238,7 +238,7 @@ impl Core {
                 self.closing.push(link);
             }
         }
-        tracing::info!(target: target::BTP, id, "BTP token revoked");
+        self.report(BtpEvent::TokenRevoked { id });
         Ok(())
     }
 
@@ -272,7 +272,7 @@ impl Core {
         token.row.cap_usage = usage;
         self.batch.token_caps.retain(|change| change.id != id);
         self.batch.token_caps.push(TokenCap { id, cap, usage });
-        tracing::info!(target: target::BTP, id, ?cap, "BTP token cap set");
+        self.report(BtpEvent::TokenCapSet { id, cap });
         self.token_view(id)
             .ok_or_else(|| EngineError::Internal("token".into()))
     }
@@ -338,7 +338,10 @@ impl Core {
         if let Some(state) = self.tokens.get_mut(&id) {
             state.connections.insert(link);
         }
-        tracing::debug!(target: target::BTP, link, %address, "BTP client connected");
+        self.report(BtpEvent::ClientConnected {
+            link,
+            address: address.clone(),
+        });
         Ok(BtpSession { link, address })
     }
 

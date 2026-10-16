@@ -462,7 +462,7 @@ impl Sim {
                 );
             }
             Output::Btp { link, message } => self.deliver_to_client(index, link, message),
-            Output::Trace(_) | Output::ProbeDone { .. } => {}
+            Output::Trace(_) | Output::ProbeDone { .. } | Output::Event(_) => {}
             Output::LedgerConnect { epoch, .. } => self.ledger_connect(index, epoch),
             Output::LedgerClose { epoch, .. } => {
                 if self

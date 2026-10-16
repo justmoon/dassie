@@ -18,7 +18,7 @@ use dassie_ledger::{AccountName, AccountPath, Reference, TraceId, TransferSpec};
 use dassie_oer::{Decode, Encode};
 
 use super::Core;
-use crate::log::target;
+use super::events::{PeerEvent, StoreRead};
 use crate::store::{Compensation, OwedFulfill, PaymentId};
 
 /// Most Fulfills one peer may owe us a verdict on, counting the packets in
@@ -376,7 +376,7 @@ impl Core {
 
     /// Whether we took this Fulfill from `peer` for our Prepare
     /// `request_id` before: the answer to a resend.
-    pub(super) fn taken_before(&self, peer: &NodeId, request_id: u32, packet: &[u8]) -> bool {
+    pub(super) fn taken_before(&mut self, peer: &NodeId, request_id: u32, packet: &[u8]) -> bool {
         let Ok(Response::Fulfill(fulfill)) = Response::decode_exact(packet) else {
             return false;
         };
@@ -392,7 +392,10 @@ impl Core {
                 .store
                 .fulfill_taken(peer, request_id, &condition)
                 .unwrap_or_else(|error| {
-                    tracing::error!(target: target::PEER, %error, "looking up a Fulfill taken");
+                    self.report(PeerEvent::StoreReadFailed {
+                        what: StoreRead::FulfillTaken,
+                        error: error.to_string(),
+                    });
                     false
                 })
     }
@@ -414,7 +417,7 @@ impl Core {
             };
             let peer = entry.row.peer;
             if entry.row.expires_at_ms.saturating_add(ASKED_FOR_MS) <= now {
-                tracing::error!(target: target::PEER, %peer, ?trace, "no verdict on a Fulfill for 29 days: booked as refused, and the books may disagree with the peer's");
+                self.report(PeerEvent::VerdictOverdue { peer, trace });
                 self.verdict(trace, false);
             } else if self.peer.is_banned(&peer) {
                 // A banned node is not asked; its Fulfills wait out their
@@ -430,7 +433,7 @@ impl Core {
     }
 
     /// The bytes of a Fulfill owed: from this step's batch, or the disk.
-    fn owed_bytes(&self, trace: TraceId) -> Option<Vec<u8>> {
+    fn owed_bytes(&mut self, trace: TraceId) -> Option<Vec<u8>> {
         if let Some(row) = self
             .batch
             .verdicts
@@ -443,7 +446,10 @@ impl Core {
         self.store
             .owed_fulfill_bytes(trace)
             .unwrap_or_else(|error| {
-                tracing::error!(target: target::PEER, %error, "reading a Fulfill owed");
+                self.report(PeerEvent::StoreReadFailed {
+                    what: StoreRead::FulfillOwed,
+                    error: error.to_string(),
+                });
                 None
             })
     }
@@ -553,7 +559,12 @@ impl Core {
                 reference,
             }],
         };
-        tracing::warn!(target: target::PEER, peer = %row.peer, amount, trace = ?row.trace, compensation = ?row.compensation, "a peer refused our Fulfill");
+        self.report(PeerEvent::FulfillRefused {
+            peer: row.peer,
+            amount,
+            trace: row.trace,
+            compensation: row.compensation,
+        });
         if row.compensation == Compensation::Loss {
             self.grace.check_soon(row.peer);
         }

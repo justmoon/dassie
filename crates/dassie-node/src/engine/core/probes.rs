@@ -10,7 +10,6 @@ use dassie_stream::{AssetDetails, Config, Connection, Event, Policy, Rate, Role}
 
 use super::payers::Sender;
 use super::{Core, EngineError, Output};
-use crate::log::target;
 
 /// Most probes at once.
 pub const MAX_PROBES: usize = 8;
@@ -154,7 +153,6 @@ impl Core {
         };
         // Its packets still in flight settle without it.
         self.spending.probes.remove(&id);
-        tracing::debug!(target: target::PAYMENT, id, ?rate, "rate measured");
         self.outputs_peer.push(Output::ProbeDone { id, rate });
     }
 

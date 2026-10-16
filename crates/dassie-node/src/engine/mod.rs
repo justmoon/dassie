@@ -19,6 +19,7 @@
 
 pub mod core;
 mod links;
+mod logging;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -702,6 +703,10 @@ impl Driver<'_> {
         let mut failed = Vec::new();
         for output in std::mem::take(&mut self.outputs) {
             let (link, message) = match output {
+                Output::Event(event) => {
+                    logging::log(&event);
+                    continue;
+                }
                 Output::Trace(event) => {
                     let _ = self.packets.send(event);
                     continue;

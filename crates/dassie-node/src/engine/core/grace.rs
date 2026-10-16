@@ -27,7 +27,7 @@ use dassie_peer::wire::{SchemeId, TerminationReason};
 use dassie_settlement::policy;
 
 use super::Core;
-use crate::log::target;
+use super::events::{PeerEvent, StoreRead};
 use crate::store::{BanChange, BanReason, BanRecord, MAX_BAN_RECORDS, PeerCost, PeerSettings};
 
 /// The grace limit's timing.
@@ -386,7 +386,10 @@ impl Core {
                 self.store
                     .losses_since(debt.interledger, losses, since)
                     .unwrap_or_else(|error| {
-                        tracing::error!(target: target::PEER, %error, "reading what a peer refused");
+                        let error = error.to_string();
+                        let what = StoreRead::PeerLosses;
+                        self.events
+                            .push(PeerEvent::StoreReadFailed { what, error }.into());
                         0
                     })
             }
@@ -409,21 +412,19 @@ impl Core {
     /// Returns whether the peering changed.
     pub(super) fn ban_for(&mut self, node: NodeId, cost: PeerCost) -> bool {
         let now = self.now_ms;
-        tracing::warn!(
-            target: target::PEER,
-            %node,
-            ledger = %cost.ledger,
-            refused = cost.refused,
-            overdue = cost.overdue,
-            grace = cost.grace,
-            "a peer cost us more than its grace limit: banned",
-        );
+        self.report(PeerEvent::Banned {
+            node,
+            ledger: cost.ledger,
+            refused: cost.refused,
+            overdue: cost.overdue,
+            grace: cost.grace,
+        });
         self.grace.costs.remove(&node);
         self.grace.due_since.remove(&node);
         match self.peer.ban(now, node) {
             Ok(()) => {}
             Err(BanError::Full) => {
-                tracing::error!(target: target::PEER, %node, "the ban list is full: the peering ends, but the node is not banned");
+                self.report(PeerEvent::BanListFull { node });
                 self.grace.over_limit.insert(node);
                 let ended = self.peer.terminate(now, &node, TerminationReason::Owner);
                 self.after_peer();

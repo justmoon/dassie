@@ -29,6 +29,7 @@ impl Core {
         self.owed.check();
         self.check_owed_bounds();
         self.check_settling();
+        self.events.check_invariants();
     }
 
     /// What a peer owes verdicts on, and may still come to, within its

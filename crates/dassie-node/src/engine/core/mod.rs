@@ -7,6 +7,7 @@
 
 #![deny(clippy::disallowed_types, clippy::disallowed_methods)]
 
+mod events;
 mod grace;
 mod incoming;
 mod invariants;
@@ -33,6 +34,10 @@ use dassie_ledger::{Account, AccountId, Ledger, Name, TraceId};
 use dassie_node_core::config::Realm;
 use dassie_stream::BUFFER_LENGTH;
 
+pub use events::{
+    BtpEvent, EngineEvent, Event, MAX_EVENTS, PaymentEvent, PeerEvent, SettlementEvent, Severity,
+    StoreRead,
+};
 pub use grace::{GracePolicy, Lie};
 pub use incoming::{IncomingPolicy, NewIncoming};
 pub use ledgers::{LedgerView, RemovalBlocker};
@@ -50,11 +55,11 @@ use settlement::Settlements;
 use tokens::{BtpLink, TokenState};
 
 use crate::clock::SharedRng;
-use crate::log::target;
 use crate::node::Policies;
 use crate::store::{
     BanRecord, Checkpoint, LedgerBatch, PaymentId, PeerSettings, Store, StoreError,
 };
+use events::Events;
 
 /// Why the engine did not do something.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -130,6 +135,8 @@ pub enum Output {
     },
     /// A packet as the trace records it, for subscribers.
     Trace(TraceEvent),
+    /// What the core reports, for the log (D16).
+    Event(Event),
     /// A peer request to send.
     PeerRequest(dassie_peer::Request),
     /// The reply to an inbound peer request.
@@ -293,6 +300,8 @@ pub struct Core {
     ban_records: BTreeMap<dassie_identity::NodeId, BanRecord>,
     /// When the invariants are swept.
     sweeps: Sweeps,
+    /// What the core reports, until it is handed over.
+    events: Events,
 }
 
 /// When the invariants are swept (D16).
@@ -406,6 +415,7 @@ impl Core {
             peer_settings: PeerSettings::DEFAULT,
             ban_records: BTreeMap::new(),
             sweeps: Sweeps::DUE,
+            events: Events::new(),
         };
         core.restore()?;
         Ok(core)
@@ -439,7 +449,7 @@ impl Core {
             // A peer whose scheme is gone has no ledger to book on: it gets
             // no endpoint, which the rest of the node does without.
             if let Err(error) = self.add_peer_endpoint(node) {
-                tracing::error!(target: target::PEER, %node, %error, "a peer without an endpoint");
+                self.report(PeerEvent::NoEndpoint { node, error });
             }
             // One being ended stays drained.
             if !active.contains(&node)
@@ -544,6 +554,7 @@ impl Core {
             if self.grace_checks() {
                 continue;
             }
+            out.extend(self.events.take().map(Output::Event));
             while let Some(event) = self.connector.poll_event() {
                 out.push(Output::Trace(event));
             }
@@ -620,6 +631,11 @@ impl Core {
         self.check_invariants();
     }
 
+    /// Reports `event`, which goes out with the step's outputs.
+    pub(super) fn report(&mut self, event: impl Into<Event>) {
+        self.events.push(event.into());
+    }
+
     /// Marks payments changed, for what changes them outside the engine.
     pub fn payments_changed(&mut self) {
         self.changes.payments = true;
@@ -654,7 +670,7 @@ impl Core {
     pub fn set_rates(&mut self, rates: &[crate::store::StoredRate]) {
         for &(code, rate, as_of_ms) in rates {
             if !self.rates.set_at(code, rate, as_of_ms) {
-                tracing::warn!(target: target::ENGINE, code, "no room for an exchange rate");
+                self.report(EngineEvent::RateTableFull { code });
             }
         }
         self.changes.ledger = true;
