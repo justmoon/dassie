@@ -4,7 +4,8 @@
     dead_code,
     clippy::unwrap_used,
     clippy::expect_used,
-    clippy::indexing_slicing
+    clippy::indexing_slicing,
+    clippy::panic
 )]
 
 use dassie_connector::{Config, Connector, EndpointId, Outcome, Rates, Responded, Upstream};

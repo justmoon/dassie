@@ -25,6 +25,8 @@ const FULFILLMENT_KEY_LABEL: &[u8] = b"ilp_stream_fulfillment";
 
 /// HMAC-SHA256 of `message` under `key`.
 #[must_use]
+// HMAC takes keys of any length, so this cannot panic.
+#[allow(clippy::unreachable)]
 pub fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
     let Ok(mut mac) = <Hmac<Sha256> as hmac::KeyInit>::new_from_slice(key) else {
         unreachable!("HMAC accepts keys of any length");
@@ -77,6 +79,8 @@ impl Cipher {
 
     /// [`encrypt`](Self::encrypt) with a given nonce. Reusing a nonce under
     /// the same key breaks AES-GCM, so outside tests use `encrypt`.
+    // Cannot panic: ILP's data field is far below GCM's plaintext limit.
+    #[allow(clippy::unreachable)]
     pub fn encrypt_with_iv(
         &self,
         iv: [u8; IV_LENGTH],

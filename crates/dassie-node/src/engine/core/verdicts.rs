@@ -499,6 +499,8 @@ impl Core {
     /// loss, so the peer's account ends where the peer's books have it.
     /// The accounts and amounts are the node's own, as it posted them:
     /// booking them back cannot fail but by a bug.
+    // Panics only on a broken invariant: what is owed has its transfers.
+    #[allow(clippy::panic)]
     fn compensate(&mut self, row: &OwedFulfill) {
         let reference = Reference::Refusal(row.trace);
         let Some((peer_account, _, _)) = row.transfers[0] else {
@@ -548,6 +550,8 @@ impl Core {
 
     /// `expenses/losses` on the ledger of `account`, which every active
     /// ledger has; opened if it is missing.
+    // Panics only on a broken invariant: what is owed has its accounts.
+    #[allow(clippy::panic)]
     fn losses_account(&mut self, account: dassie_ledger::AccountId) -> dassie_ledger::AccountId {
         let ledger = self
             .ledger

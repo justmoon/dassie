@@ -1,7 +1,12 @@
 //! The peering lifecycle and settlement delivery (D12, spec 7 §4.7), one
 //! rule at a time, on two simulated nodes.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic
+)]
 
 mod support;
 

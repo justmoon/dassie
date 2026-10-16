@@ -1,7 +1,12 @@
 //! What transit costs (D7): a fee on what passes from one peer to another,
 //! a spread on what it converts, and nothing on the owner's own packets.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic
+)]
 
 mod support;
 

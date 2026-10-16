@@ -2,7 +2,13 @@
 //! the original's vectors, spec 3 §5.5), the v1 changes (spec 7 §4.7), and
 //! decoders that never panic.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unreachable
+)]
 
 use dassie_identity::{NodeId, NodeKey, PublicKey, Signature};
 use dassie_oer::{Decode, Encode};

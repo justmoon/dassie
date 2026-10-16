@@ -41,6 +41,8 @@ cast_possible_wrap = "deny"
 cast_precision_loss = "deny"
 float_arithmetic = "deny"
 too_many_lines = "deny"
+panic = "deny"
+unreachable = "deny"
 
 # Integer overflow is a bug wherever it happens, and in this code base it
 # usually means a wrong balance. Checks stay on in every profile (D16).

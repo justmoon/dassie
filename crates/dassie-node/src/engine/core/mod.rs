@@ -527,6 +527,8 @@ impl Core {
     /// Persists the batch. A failure leaves memory ahead of the disk, which
     /// nothing may act on: the core stops, and its successor starts from
     /// the disk.
+    // A failed write crashes the core, which restarts from the disk.
+    #[allow(clippy::panic)]
     pub(super) fn flush(&mut self) {
         self.checkpoint_schemes();
         self.take_journal();

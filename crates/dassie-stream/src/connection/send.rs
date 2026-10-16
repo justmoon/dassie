@@ -43,9 +43,11 @@ pub(super) fn seal(
 ) -> usize {
     let plaintext_len = packet::header_len(sequence, prepare_amount, count) + frames_length;
     assert!(plaintext_len <= MAX_PLAINTEXT, "STREAM packet too large");
-    let region = buffer
-        .get_mut(..OVERHEAD + plaintext_len)
-        .unwrap_or_else(|| panic!("STREAM buffer too small"));
+    assert!(
+        buffer.len() >= OVERHEAD + plaintext_len,
+        "STREAM buffer too small"
+    );
+    let (region, _) = buffer.split_at_mut(OVERHEAD + plaintext_len);
     let (_, body) = region.split_at_mut(OVERHEAD);
     let mut writer = Writer::new(body);
     packet::encode_header(&mut writer, sequence, packet_type, prepare_amount, count);
@@ -318,6 +320,8 @@ impl Connection {
         });
     }
 
+    // Panics only on a broken invariant: addresses are checked when stored.
+    #[allow(clippy::unreachable)]
     fn encode_request(
         &self,
         now: Timestamp,

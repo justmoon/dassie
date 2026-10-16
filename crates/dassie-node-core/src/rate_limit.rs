@@ -137,6 +137,8 @@ impl RateLimiter {
     }
 
     /// Takes one attempt for `client`, or says how long to wait.
+    // Panics only on a broken invariant: `slot` returns an index into the table.
+    #[allow(clippy::unreachable)]
     pub fn check(&mut self, client: ClientKey, now_ms: u64) -> Result<(), Limited> {
         let policy = self.policy;
         let index = self.slot(client, now_ms);

@@ -29,7 +29,8 @@ disallowed-macros = [
   { path = "core::debug_assert_ne", reason = "assertions stay on in release; use assert_ne! (D16)" },
 ]
 
-# Tests may unwrap and index: a panic there is a failed test.
+# Tests may unwrap, index and panic: a panic there is a failed test.
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 allow-indexing-slicing-in-tests = true
+allow-panic-in-tests = true

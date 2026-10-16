@@ -39,21 +39,47 @@ impl Name {
     /// # Errors
     ///
     /// If it is empty, too long, or has a character outside the alphabet.
-    pub fn new(text: &str) -> Result<Self, InvalidName> {
+    pub const fn new(text: &str) -> Result<Self, InvalidName> {
         let source = text.as_bytes();
-        if source.is_empty()
-            || source.len() > MAX_NAME_LENGTH
-            || !source.iter().all(|&b| allowed(b))
-        {
+        if source.is_empty() || source.len() > MAX_NAME_LENGTH {
             return Err(InvalidName);
         }
         let mut bytes = [0; MAX_NAME_LENGTH];
-        let target = bytes.get_mut(..source.len()).ok_or(InvalidName)?;
-        target.copy_from_slice(source);
-        Ok(Self {
-            length: u8::try_from(source.len()).map_err(|_| InvalidName)?,
-            bytes,
-        })
+        let mut length: u8 = 0;
+        let mut from = source;
+        let mut to: &mut [u8] = &mut bytes;
+        while let ([byte, rest @ ..], [slot, more @ ..]) = (from, to) {
+            if !allowed(*byte) {
+                return Err(InvalidName);
+            }
+            *slot = *byte;
+            length += 1;
+            from = rest;
+            to = more;
+        }
+        Ok(Self { length, bytes })
+    }
+
+    /// `bytes` in hex, two digits a byte: uppercase as XRPL transaction
+    /// hashes, or lowercase as the original's settlement IDs. The build
+    /// fails for more bytes than a name holds.
+    #[must_use]
+    pub fn hex<const N: usize>(bytes: &[u8; N], uppercase: bool) -> Self {
+        const { assert!(N > 0 && 2 * N <= MAX_NAME_LENGTH) };
+        let digit = |nibble: u8| match nibble {
+            0..=9 => b'0' + nibble,
+            _ if uppercase => b'A' + nibble - 10,
+            _ => b'a' + nibble - 10,
+        };
+        let mut name = Self {
+            length: 0,
+            bytes: [0; MAX_NAME_LENGTH],
+        };
+        for (pair, &byte) in name.bytes.as_chunks_mut::<2>().0.iter_mut().zip(bytes) {
+            *pair = [digit(byte >> 4), digit(byte & 15)];
+            name.length += 2;
+        }
+        name
     }
 
     /// The name.
@@ -66,6 +92,18 @@ impl Name {
         // Only ASCII is ever stored.
         core::str::from_utf8(bytes).unwrap_or_default()
     }
+}
+
+/// Validates a string literal as a [`Name`] at compile time.
+#[macro_export]
+macro_rules! name {
+    ($text:expr) => {{
+        const NAME: $crate::Name = match $crate::Name::new($text) {
+            Ok(name) => name,
+            Err(_) => panic!("invalid name literal"),
+        };
+        NAME
+    }};
 }
 
 impl fmt::Display for Name {
@@ -99,5 +137,13 @@ mod tests {
         assert!(Name::new("é").is_err());
         assert!(Name::new(&"a".repeat(64)).is_ok());
         assert!(Name::new(&"a".repeat(65)).is_err());
+    }
+
+    #[test]
+    fn hex_names_spell_their_bytes() {
+        assert_eq!(Name::hex(&[0x01, 0xab, 0xff], false).as_str(), "01abff");
+        assert_eq!(Name::hex(&[0x01, 0xab, 0xff], true).as_str(), "01ABFF");
+        assert_eq!(Name::hex(&[0x5a; 32], true).as_str(), "5A".repeat(32));
+        assert_eq!(name!("stub"), Name::new("stub").unwrap());
     }
 }

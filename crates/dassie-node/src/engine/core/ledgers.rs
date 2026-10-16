@@ -226,7 +226,7 @@ impl Core {
     ///
     /// The stub is not active, or the books cannot take it.
     pub fn stub_deposit(&mut self, amount: u64) -> Result<LedgerView, EngineError> {
-        let stub = Name::new("stub").map_err(|_| EngineError::Internal("name".into()))?;
+        let stub = dassie_ledger::name!("stub");
         let inactive = || EngineError::Precondition("the stub scheme is not active".into());
         let ledger = self
             .schemes

@@ -5,7 +5,8 @@
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::indexing_slicing,
-    clippy::too_many_lines
+    clippy::too_many_lines,
+    clippy::panic
 )]
 
 mod support;

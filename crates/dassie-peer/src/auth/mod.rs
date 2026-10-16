@@ -423,20 +423,17 @@ impl Authenticator {
                     self.sessions.remove(&oldest);
                 }
             }
+            self.sessions.remove(recipient);
+        }
+        let session = self.sessions.entry(*recipient).or_insert_with(|| {
             let mut id = [0u8; 16];
             rng.fill_bytes(&mut id);
-            self.sessions.insert(
-                *recipient,
-                Session {
-                    id,
-                    next_counter: 0,
-                    started_ms: now_ms,
-                },
-            );
-        }
-        let Some(session) = self.sessions.get_mut(recipient) else {
-            panic!("the session was just made");
-        };
+            Session {
+                id,
+                next_counter: 0,
+                started_ms: now_ms,
+            }
+        });
         let current = *session;
         session.next_counter = session.next_counter.saturating_add(1);
         current

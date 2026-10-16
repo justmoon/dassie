@@ -19,7 +19,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use dassie_connector::{EndpointId, Forwarded, Outcome};
 use dassie_ilp::{Address, Timestamp};
-use dassie_ledger::{AccountName, LedgerId, Name, OwnerSub};
+use dassie_ledger::{AccountName, LedgerId, OwnerSub};
 use dassie_payments::gnap::Limits;
 use dassie_stream::{AssetDetails, Config, Connection, Event, Policy, Rate, Role};
 
@@ -140,10 +140,8 @@ pub struct CreatedOutgoing {
 }
 
 /// The owner's account a ledger's payer spends from.
-fn pay_account() -> Option<AccountName> {
-    Some(AccountName::EquityOwnerSub(OwnerSub::Local(
-        Name::new("pay").ok()?,
-    )))
+fn pay_account() -> AccountName {
+    AccountName::EquityOwnerSub(OwnerSub::Local(dassie_ledger::name!("pay")))
 }
 
 /// A ledger's payer address.
@@ -162,7 +160,7 @@ impl Core {
             return Ok(());
         }
         let endpoint = self.free_local();
-        let name = pay_account().ok_or_else(|| EngineError::Internal("name".into()))?;
+        let name = pay_account();
         let account = self
             .ledger
             .open(dassie_ledger::AccountPath::new(ledger, name))

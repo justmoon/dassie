@@ -8,7 +8,8 @@
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::too_many_lines,
-    clippy::indexing_slicing
+    clippy::indexing_slicing,
+    clippy::panic
 )]
 
 use std::collections::BTreeMap;

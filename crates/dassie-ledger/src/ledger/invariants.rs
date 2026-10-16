@@ -1,6 +1,9 @@
 //! What holds after every step. Tests and simulations check it after each
 //! transition (D16).
 
+// Its job is to crash on a broken invariant.
+#![allow(clippy::panic)]
+
 use alloc::vec;
 
 use super::{Ledger, usize_of};

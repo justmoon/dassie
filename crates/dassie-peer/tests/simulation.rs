@@ -5,7 +5,12 @@
 //! every settlement arrive exactly once. A failure names its seed;
 //! `DASSIE_SIM_SEEDS=from..to` runs other seeds.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic
+)]
 
 mod support;
 

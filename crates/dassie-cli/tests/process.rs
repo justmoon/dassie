@@ -5,7 +5,12 @@
 //! The socket-activation tests need `systemd-socket-activate` (in the Nix
 //! shell and in CI); without it they say so and pass.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic
+)]
 
 use std::os::unix::net::UnixDatagram;
 use std::path::Path;

@@ -1002,8 +1002,7 @@ impl XrplScheme {
 
 /// A transaction hash as a settlement ID: uppercase hex, 64 characters.
 fn hash_name(hash: &[u8; 32]) -> Name {
-    // 64 hex digits are a valid name.
-    Name::new(&hex_upper(hash)).unwrap_or_else(|_| unreachable!())
+    Name::hex(hash, true)
 }
 
 /// Peering info: the address, as the original's OER wrote it (IA5String,
@@ -1026,8 +1025,7 @@ fn parse_address(bytes: &[u8]) -> Result<AccountId, SchemeError> {
 
 impl SettlementScheme for XrplScheme {
     fn id(&self) -> Name {
-        // A constant that is a valid name.
-        Name::new(SCHEME_ID).unwrap_or_else(|_| unreachable!())
+        dassie_ledger::name!(SCHEME_ID)
     }
 
     fn ledger(&self) -> LedgerId {

@@ -21,7 +21,7 @@
 
 // A process for the interop tests, not a state machine: it runs on the
 // real clock, the OS RNG and a reader thread.
-#![allow(clippy::disallowed_types, clippy::disallowed_methods)]
+#![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::panic)]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,

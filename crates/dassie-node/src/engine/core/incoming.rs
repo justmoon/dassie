@@ -440,6 +440,8 @@ impl Core {
 
     /// Adds what a fulfilled packet brought to its payment, completing it
     /// when it has all it asked for.
+    // Panics only on a broken invariant: money is admitted for open payments.
+    #[allow(clippy::panic)]
     pub(super) fn incoming_received(&mut self, id: PaymentId, amount: u64) {
         let now = self.now_ms();
         let Some(payment) = self.incoming.get_mut(&id) else {

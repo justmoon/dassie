@@ -1,7 +1,12 @@
 //! Golden vectors: the original's wallets, from `dassie-identity`'s chain,
 //! and Payments as xrpl.js 3.1.0 signs them (testdata/xrpl).
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic
+)]
 
 use dassie_identity::NodeKey;
 use dassie_xrpl::codec::{Memo, Payment, hash};

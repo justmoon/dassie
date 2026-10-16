@@ -19,6 +19,8 @@ pub enum ErrorClass {
 }
 
 /// The three octets of a code literal, checked at compile time.
+// Evaluated when the crate builds, for the code constants below.
+#[allow(clippy::panic)]
 const fn code_bytes(code: &str) -> [u8; 3] {
     match code.as_bytes() {
         [a, b, c] => [*a, *b, *c],

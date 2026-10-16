@@ -121,6 +121,8 @@ impl NodeId {
 
     /// The ID as text.
     #[must_use]
+    // Panics only on a broken invariant: only ASCII is ever stored.
+    #[allow(clippy::panic)]
     pub fn as_str(&self) -> &str {
         let bytes = self.bytes.get(..self.len()).unwrap_or_default();
         let Ok(text) = core::str::from_utf8(bytes) else {
@@ -142,6 +144,8 @@ impl NodeId {
         false
     }
 
+    // Panics only on a broken invariant: callers check the length first.
+    #[allow(clippy::panic)]
     fn push(&mut self, character: u8) {
         assert!(
             NODE_ID_ALPHABET.contains(character),

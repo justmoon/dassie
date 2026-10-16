@@ -48,8 +48,7 @@ impl Stub {
 
 impl SettlementScheme for Stub {
     fn id(&self) -> Name {
-        // A constant that is a valid name.
-        Name::new("stub").unwrap_or_else(|_| unreachable!())
+        dassie_ledger::name!("stub")
     }
 
     fn ledger(&self) -> LedgerId {
@@ -183,14 +182,7 @@ impl SettlementScheme for Stub {
 fn random_id(rng: &mut dyn CryptoRng) -> Name {
     let mut bytes = [0u8; 16];
     rng.fill_bytes(&mut bytes);
-    let mut text = [0u8; 32];
-    let digits = b"0123456789abcdef";
-    for ([high, low], byte) in text.as_chunks_mut::<2>().0.iter_mut().zip(bytes) {
-        *high = digits.get(usize::from(byte >> 4)).copied().unwrap_or(b'0');
-        *low = digits.get(usize::from(byte & 15)).copied().unwrap_or(b'0');
-    }
-    let text = core::str::from_utf8(&text).unwrap_or("0");
-    Name::new(text).unwrap_or_else(|_| unreachable!())
+    Name::hex(&bytes, false)
 }
 
 #[cfg(test)]

@@ -1,7 +1,12 @@
 //! Spending caps (spec 7 §4.5): a BTP token spends at most its cap per
 //! window out of the owner's funds, refilling continuously.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic
+)]
 
 mod support;
 

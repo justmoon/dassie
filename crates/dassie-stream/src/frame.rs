@@ -303,6 +303,8 @@ impl Frame<'_> {
         }
     }
 
+    // Panics only on a broken invariant: `encode_content` takes the rest.
+    #[allow(clippy::unreachable)]
     fn encode_stream_content(&self, writer: &mut Writer<'_>) {
         match *self {
             Self::StreamMoney { stream_id, shares } => {

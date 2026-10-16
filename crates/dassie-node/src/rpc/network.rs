@@ -116,6 +116,8 @@ async fn set_peer_settings(
 }
 
 /// The methods that only read the network.
+// The dispatch sends only the network's methods here.
+#[allow(clippy::unreachable)]
 fn view(view: &NetworkView, method: Method) -> response::Method {
     match method {
         // A table of 1024 nodes with their neighbors could pass the message

@@ -257,6 +257,8 @@ impl Mnemonic {
         Ok(mnemonic)
     }
 
+    // Panics only on a broken invariant: an index has 11 bits.
+    #[allow(clippy::panic)]
     fn word(&self, position: usize) -> &'static str {
         let index = read_bits(&self.packed, position * BITS_PER_WORD);
         let Some(word) = ENGLISH.get(usize::from(index)) else {
@@ -318,6 +320,8 @@ pub struct Phrase {
 impl Phrase {
     /// The phrase as text.
     #[must_use]
+    // Panics only on a broken invariant: phrases hold ASCII words.
+    #[allow(clippy::panic)]
     pub fn as_str(&self) -> &str {
         let bytes = self.bytes.get(..self.length).unwrap_or_default();
         let Ok(text) = core::str::from_utf8(bytes) else {
@@ -326,6 +330,8 @@ impl Phrase {
         text
     }
 
+    // Panics only on a broken invariant: canonical phrases fit.
+    #[allow(clippy::panic)]
     fn push(&mut self, text: &[u8]) {
         let end = self.length + text.len();
         let Some(slot) = self.bytes.get_mut(self.length..end) else {
@@ -395,6 +401,8 @@ fn read_bits(packed: &[u8; PACKED_BYTES], offset: usize) -> u16 {
 }
 
 /// Writes the low 11 bits of `value` starting at bit `offset`.
+// Panics only on a broken invariant: offsets stay within the entropy.
+#[allow(clippy::panic)]
 fn write_bits(packed: &mut [u8; PACKED_BYTES], offset: usize, value: u16) {
     assert!(value < 1 << BITS_PER_WORD, "word index has 11 bits");
     for (shift, bit) in (0..BITS_PER_WORD).rev().zip(offset..) {
@@ -415,7 +423,7 @@ mod tests {
     #[test]
     fn zero_entropy_is_abandon_about() {
         let Ok(mnemonic) = Mnemonic::from_entropy(&[0; 16]) else {
-            unreachable!()
+            panic!()
         };
         assert_eq!(
             mnemonic.phrase().as_str(),
@@ -427,7 +435,7 @@ mod tests {
     #[test]
     fn longest_phrase_fits() {
         let Ok(mnemonic) = Mnemonic::from_entropy(&[0xff; 32]) else {
-            unreachable!()
+            panic!()
         };
         assert_eq!(mnemonic.phrase().as_str().split(' ').count(), 24);
         assert!(MAX_PHRASE_LENGTH >= mnemonic.phrase().as_str().len());
@@ -437,7 +445,7 @@ mod tests {
     fn parsing_normalizes_case_and_whitespace() {
         let messy = "  ABANDON abandon\tabandon\nabandon abandon  abandon abandon abandon abandon abandon abandon About\r\n";
         let Ok(mnemonic) = Mnemonic::parse(messy) else {
-            unreachable!()
+            panic!()
         };
         assert_eq!(mnemonic.entropy(), &[0; 16]);
     }
@@ -446,7 +454,7 @@ mod tests {
     fn overlong_and_non_ascii_input_is_rejected() {
         let long = [b' '; MAX_PHRASE_INPUT_BYTES + 1];
         let Ok(long) = core::str::from_utf8(&long) else {
-            unreachable!()
+            panic!()
         };
         assert_eq!(Mnemonic::parse(long).map(|_| ()), Err(Error::PhraseTooLong));
         assert_eq!(
