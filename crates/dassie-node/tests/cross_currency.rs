@@ -168,22 +168,26 @@ async fn dollars_arrive_as_xrp() {
     // About one dollar went out; B's receiver has its 2 XRP.
     let paid = payment.sent_amount;
     assert!((1_000_000_000..=1_000_000_100).contains(&paid), "{paid}");
-    let Ok(response::Method::ListIncomingPayments(list)) = b
-        .ipc()
-        .await
-        .call(Method::ListIncomingPayments(
-            proto::ListIncomingPaymentsRequest { limit: 0 },
-        ))
-        .await
-    else {
-        panic!("no incoming payments")
+    // A counts a packet sent on its Fulfill, but B counts it received only
+    // on A's verdict (D17), which may come a moment later.
+    let received = async || {
+        let Ok(response::Method::ListIncomingPayments(list)) = b
+            .ipc()
+            .await
+            .call(Method::ListIncomingPayments(
+                proto::ListIncomingPaymentsRequest { limit: 0 },
+            ))
+            .await
+        else {
+            panic!("no incoming payments")
+        };
+        list.payments
+            .iter()
+            .find(|p| quoted.receiver.ends_with(&p.id))
+            .unwrap()
+            .received_amount
     };
-    let incoming = list
-        .payments
-        .iter()
-        .find(|p| quoted.receiver.ends_with(&p.id))
-        .unwrap();
-    assert!(incoming.received_amount >= RECEIVE);
+    until(&pair.clock, async || received().await >= RECEIVE).await;
     // The books: A paid its dollars; B holds them, as dollars. Its XRP
     // are as they were: what its receiver shows came through the FX
     // accounts, which are B's.
