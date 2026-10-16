@@ -63,7 +63,8 @@ enum Command {
     Btp {
         connection: u64,
         request_id: u32,
-        packet: Vec<u8>,
+        /// A slice of the WebSocket message it came in, not a copy.
+        packet: bytes::Bytes,
         response: bool,
     },
     /// A BTP connection ended.
@@ -430,7 +431,7 @@ impl Engine {
         &self,
         connection: u64,
         request_id: u32,
-        packet: Vec<u8>,
+        packet: bytes::Bytes,
         response: bool,
     ) {
         let command = Command::Btp {
