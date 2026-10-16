@@ -135,7 +135,7 @@ DASSIE_IPC_SOCKET_PATH=/tmp/dassie.sock target/e2e/dassie init --hostname localh
 
 Then open the setup URL it prints. The certificate stays self-signed until `dassie init` obtains a real one, which needs a public hostname with port 80 reachable.
 
-To make a few such nodes find each other locally, set `DASSIE_PEER_ALLOW_PRIVATE=1` so they may reach each other on `localhost`, `DASSIE_PEER_CA_FILE` to the CA their certificates come from, and `DASSIE_DEV_TIMINGS=1` so the protocol polls and settles every second. `node --run dev`, below, does all of this for you.
+To make a few such nodes find each other locally, set `DASSIE_PEER_ALLOW_PRIVATE=1` so they may reach each other on `localhost`, `DASSIE_PEER_CA_FILE` to the CA their certificates come from, and `DASSIE_DEV_TIMINGS=1` so the protocol polls and settles every second. Keep such nodes on loopback with `--listen 127.0.0.1`; the daemon warns about either flag when it listens anywhere else. `node --run dev`, below, does all of this for you.
 
 ## Releases
 

@@ -311,11 +311,58 @@ fn make_node(
     if let Some(dir) = &settings.dev_wallet_dir {
         tracing::warn!(target: target::HTTP, dir = %dir.display(), "serving a development build of the wallet");
     }
+    let bound = [bound_ip(&listeners.0), bound_ip(&listeners.1)];
+    for flag in exposed_dev_flags(settings, &bound) {
+        tracing::warn!(target: target::DAEMON, "{} is set: {}. It is for development; unset it on a public node", flag.variable, flag.effect);
+    }
     if settings.bootstrap_nodes.is_empty() {
         tracing::warn!(target: target::PEER, "no bootstrap nodes: the node runs alone (set DASSIE_BOOTSTRAP_NODES)");
     }
     let tls = tls::server_config(Arc::clone(node.certificate())).map_err(DaemonError::Tls)?;
     Ok((node, listeners, tls))
+}
+
+/// A development switch: its variable, and what it does to the node.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DevFlag {
+    variable: &'static str,
+    effect: &'static str,
+}
+
+const PEER_ALLOW_PRIVATE: DevFlag = DevFlag {
+    variable: "DASSIE_PEER_ALLOW_PRIVATE",
+    effect: "peers on private and loopback addresses are reachable",
+};
+
+const DEV_TIMINGS: DevFlag = DevFlag {
+    variable: "DASSIE_DEV_TIMINGS",
+    effect: "the peer protocol runs on dev timers, polling and settling every second",
+};
+
+/// The development switches that are set, if the node listens beyond
+/// loopback. On loopback, as in dev and the tests, they are expected and
+/// none are returned. An unspecified address (`0.0.0.0`, `::`) listens on
+/// every interface, so it is beyond loopback.
+fn exposed_dev_flags(settings: &Settings, bound: &[IpAddr]) -> Vec<DevFlag> {
+    if bound.iter().all(|ip| ip.to_canonical().is_loopback()) {
+        return Vec::new();
+    }
+    [
+        (settings.peer_allow_private, PEER_ALLOW_PRIVATE),
+        (settings.dev_timings, DEV_TIMINGS),
+    ]
+    .into_iter()
+    .filter_map(|(set, flag)| set.then_some(flag))
+    .collect()
+}
+
+/// The address a listener is bound to, whether `--listen`, the standalone
+/// default or systemd chose it. One that cannot be read counts as every
+/// address.
+fn bound_ip(listener: &tokio::net::TcpListener) -> IpAddr {
+    listener
+        .local_addr()
+        .map_or(IpAddr::V6(Ipv6Addr::UNSPECIFIED), |address| address.ip())
 }
 
 /// The peer protocol's settings from the environment.
@@ -462,5 +509,62 @@ fn report_ready(node: &Node, notifier: Option<&Notifier>) {
         && let Err(error) = notifier.notify("READY=1")
     {
         tracing::warn!(target: target::SYSTEMD, %error, "could not report readiness");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const BOTH: [&str; 2] = ["DASSIE_PEER_ALLOW_PRIVATE", "DASSIE_DEV_TIMINGS"];
+
+    /// The variables `exposed_dev_flags` names, with `flags` set to 1 and
+    /// the listeners bound to `bound`.
+    fn exposed(flags: &[&'static str], bound: &[&str]) -> Vec<&'static str> {
+        let mut pairs = vec![("DASSIE_STATE_DIRECTORY", "/var/lib/dassie")];
+        pairs.extend(flags.iter().map(|flag| (*flag, "1")));
+        let settings = Settings::from_env(&Env::from_pairs(pairs)).unwrap();
+        let bound: Vec<IpAddr> = bound.iter().map(|ip| ip.parse().unwrap()).collect();
+        exposed_dev_flags(&settings, &bound)
+            .into_iter()
+            .map(|flag| flag.variable)
+            .collect()
+    }
+
+    #[test]
+    fn dev_flags_on_loopback_are_quiet() {
+        assert!(exposed(&BOTH, &["127.0.0.1", "127.0.0.1"]).is_empty());
+        assert!(exposed(&BOTH, &["::1", "::1"]).is_empty());
+        assert!(exposed(&BOTH, &["::ffff:127.0.0.1", "127.0.0.2"]).is_empty());
+    }
+
+    #[test]
+    fn dev_flags_beyond_loopback_are_named() {
+        assert_eq!(exposed(&BOTH, &["0.0.0.0", "0.0.0.0"]), BOTH);
+        assert_eq!(exposed(&BOTH, &["::", "::"]), BOTH);
+        assert_eq!(
+            exposed(&["DASSIE_DEV_TIMINGS"], &["203.0.113.7", "203.0.113.7"]),
+            ["DASSIE_DEV_TIMINGS"]
+        );
+        // One listener beyond loopback is enough.
+        assert_eq!(
+            exposed(
+                &["DASSIE_PEER_ALLOW_PRIVATE"],
+                &["127.0.0.1", "192.168.1.2"]
+            ),
+            ["DASSIE_PEER_ALLOW_PRIVATE"]
+        );
+    }
+
+    #[test]
+    fn no_dev_flags_are_quiet() {
+        assert!(exposed(&[], &["0.0.0.0", "::"]).is_empty());
+        assert!(exposed(&[], &["203.0.113.7", "203.0.113.7"]).is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_bound_address_is_read_from_the_listener() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        assert_eq!(bound_ip(&listener), IpAddr::V4(Ipv4Addr::LOCALHOST));
     }
 }
