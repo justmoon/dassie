@@ -18,18 +18,39 @@ concurrency:
 
 jobs:
   # Rust in the Nix sandbox: fmt, clippy (native and wasm32), tests and the
-  # WASM bindings, with the toolchain pinned by the flake. Each check is its
-  # own job, built on nixbuild.net, which keeps what it built: dependencies
-  # that have not changed are not built again.
+  # WASM bindings, with the toolchain pinned by the flake. The checks build
+  # on the Vorstand Nix cloud (builds.vorstand.app, project dassie), which
+  # keeps what it built: dependencies that have not changed are not built
+  # again. The runner only sends the commit and follows the log.
   nix:
-    uses: nixbuild/nixbuild-action/.github/workflows/ci-workflow.yml@v27
-    secrets:
-      nixbuild_token: ${{ secrets.NIXBUILD_TOKEN }}
-    with:
-      # What `nix flake check` builds on an x86_64 runner. The release
-      # binaries and the install tests run in the release workflow, for a
-      # tag v<version> only.
-      filter_builds: '.top_attr == "checks" and .system == "x86_64-linux"'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      # `checks` is every check for x86_64-linux: what `nix flake check`
+      # builds on an x86_64 runner. The release binaries and the install
+      # tests run in the release workflow, for a tag v<version> only. The
+      # status, last, fails the step unless the build succeeded, so a log
+      # stream cut short cannot pass for a green build.
+      - name: Build the checks on the Nix cloud
+        env:
+          NIX_CLOUD_TOKEN: ${{ secrets.NIX_CLOUD_TOKEN }}
+          COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "$NIX_CLOUD_TOKEN" ]; then
+            echo "::error::No NIX_CLOUD_TOKEN: the Nix cloud builds nothing without it"
+            exit 1
+          fi
+          api=https://nix.vorstand.app/v1/builds
+          auth="Authorization: Bearer $NIX_CLOUD_TOKEN"
+          body=$(jq -n --arg c "$COMMIT" '{commit: $c, attrs: ["checks"]}')
+          job=$(curl -fsS -H "$auth" --json "$body" "$api" | jq -r .id)
+          if [ -z "$job" ] || [ "$job" = null ]; then
+            echo "::error::The Nix cloud started no build"
+            exit 1
+          fi
+          curl -fsSN -H "$auth" "$api/$job/log"
+          curl -fsS -H "$auth" "$api/$job" | jq -r '.outputs[][]'
 
   ts:
     runs-on: ubuntu-latest

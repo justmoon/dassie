@@ -89,7 +89,7 @@ Peers extend each other 1.1 units of credit. A node settles with a peer once it 
 
 ## Building and testing
 
-The easiest way to get every tool at the right version is [Nix](https://nixos.org): `nix develop` gives you a shell with all of them, and `nix flake check` runs what CI runs (CI builds those checks on [nixbuild.net](https://nixbuild.net)).
+The easiest way to get every tool at the right version is [Nix](https://nixos.org): `nix develop` gives you a shell with all of them, and `nix flake check` runs what CI runs (CI builds those checks on the Vorstand Nix cloud).
 
 Without Nix, you need:
 
