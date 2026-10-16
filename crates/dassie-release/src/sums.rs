@@ -191,10 +191,99 @@ mod tests {
         assert_eq!(Sums::parse(many.as_bytes()), Err(SumsError::TooMany));
     }
 
+    /// A digest: 64 lowercase hex digits, or in the wrong case, of the
+    /// wrong length, or not hex at all.
+    fn hex() -> impl Strategy<Value = String> {
+        prop_oneof![
+            "[0-9a-f]{64}",
+            "[0-9a-fA-F]{64}",
+            "[0-9a-f]{0,70}",
+            "\\PC{0,66}",
+        ]
+    }
+
+    /// A plain file name: mostly different ones, sometimes one that
+    /// repeats, sometimes around the longest.
+    fn plain() -> impl Strategy<Value = String> {
+        prop_oneof![
+            8 => "[A-Za-z0-9][A-Za-z0-9._-]{0,20}",
+            1 => prop::sample::select(&["a", "b"][..]).prop_map(String::from),
+            1 => "[a-z]{126,130}",
+        ]
+    }
+
+    /// A line as `sha256sum` writes it.
+    fn good_line() -> impl Strategy<Value = String> {
+        let separator = prop::sample::select(&["  ", " *"][..]);
+        ("[0-9a-f]{64}", separator, plain())
+            .prop_map(|(hex, separator, name)| format!("{hex}{separator}{name}\n"))
+    }
+
+    /// Any line: with any digest, separator, name and line ending.
+    fn line() -> impl Strategy<Value = String> {
+        let separator = prop::sample::select(&["  ", " *", " ", "", "\t", "   "][..]);
+        let name = prop_oneof![
+            plain(),
+            prop::sample::select(&[".a", "a/b", "../a", ""][..]).prop_map(String::from),
+            "\\PC{0,20}",
+        ];
+        let end = prop::sample::select(&["\n", "\r\n", "\n\n", ""][..]);
+        (hex(), separator, name, end)
+            .prop_map(|(hex, separator, name, end)| format!("{hex}{separator}{name}{end}"))
+    }
+
+    /// A few good lines, or about as many as allowed, some of them
+    /// replaced by any line, perhaps without the last newline, perhaps
+    /// padded to around the largest size.
+    fn sums() -> impl Strategy<Value = Vec<u8>> {
+        let count = prop_oneof![
+            0usize..=4,
+            MAX_ENTRIES - 1..=MAX_ENTRIES + 2,
+            0..=MAX_ENTRIES + 4
+        ];
+        let lines = count.prop_flat_map(|count| proptest::collection::vec(good_line(), count));
+        let replaced = prop_oneof![
+            2 => Just(Vec::new()),
+            1 => proptest::collection::vec((any::<usize>(), line()), 1..3),
+        ];
+        let size = proptest::option::weighted(0.15, MAX_SIZE - 8..=MAX_SIZE + 8);
+        (lines, replaced, proptest::bool::weighted(0.9), size).prop_map(
+            |(mut lines, replaced, terminated, size)| {
+                let count = lines.len();
+                for (index, line) in replaced {
+                    if let Some(old) = lines.get_mut(index.checked_rem(count).unwrap_or(0)) {
+                        *old = line;
+                    }
+                }
+                let mut text = lines.concat();
+                if !terminated {
+                    text.pop();
+                }
+                if let Some(size) = size {
+                    let padding = size.saturating_sub(text.len().saturating_add(1));
+                    text.extend(core::iter::repeat_n('a', padding).chain(['\n']));
+                }
+                text.into_bytes()
+            },
+        )
+    }
+
     proptest! {
+        /// Whatever it accepts is bounded, plain and unique.
         #[test]
-        fn never_panics(bytes in proptest::collection::vec(any::<u8>(), 0..400)) {
-            let _ = Sums::parse(&bytes);
+        fn never_panics(bytes in prop_oneof![
+            1 => proptest::collection::vec(any::<u8>(), 0..400),
+            4 => sums(),
+        ]) {
+            if let Ok(sums) = Sums::parse(&bytes) {
+                prop_assert!(bytes.len() <= MAX_SIZE);
+                let names: Vec<&str> = sums.names().collect();
+                prop_assert!((1..=MAX_ENTRIES).contains(&names.len()));
+                for (index, name) in names.iter().enumerate() {
+                    prop_assert!(plain_name(name));
+                    prop_assert!(!names.iter().skip(index + 1).any(|other| other == name));
+                }
+            }
         }
 
         #[test]
