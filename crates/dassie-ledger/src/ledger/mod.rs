@@ -254,7 +254,7 @@ impl Ledger {
 
     /// Adds an account the caller made room for. A root is its own group.
     fn insert_account(&mut self, path: AccountPath, group: Option<AccountId>) -> AccountId {
-        let id = AccountId(u32::try_from(self.accounts.len()).unwrap_or(u32::MAX));
+        let id = account_id(self.accounts.len());
         let group = group.or_else(|| path.group_root().map(|_| id));
         self.accounts.push(Account::new(path, group));
         self.by_path.insert(path, id);
@@ -333,7 +333,7 @@ impl Ledger {
         self.accounts
             .iter()
             .enumerate()
-            .map(|(index, account)| (AccountId(u32::try_from(index).unwrap_or(u32::MAX)), account))
+            .map(|(index, account)| (account_id(index), account))
     }
 
     /// The total of the group whose root is `root`, without the pending
@@ -410,5 +410,13 @@ impl Ledger {
 
 /// Bounds are `u32`s; every target has at least 32-bit `usize`.
 fn usize_of(value: u32) -> usize {
+    const { assert!(usize::BITS >= u32::BITS) };
     usize::try_from(value).unwrap_or(usize::MAX)
+}
+
+/// The ID of the account at `index`: below `max_accounts`, a `u32`.
+fn account_id(index: usize) -> AccountId {
+    let id = u32::try_from(index);
+    assert!(id.is_ok(), "more accounts than a u32 counts");
+    AccountId(id.unwrap_or_default())
 }

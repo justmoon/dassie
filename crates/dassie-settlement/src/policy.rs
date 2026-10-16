@@ -5,7 +5,7 @@
 //! middle. The middle now uses the credit the peer extends to us, as it
 //! announced when peering, instead of assuming it equals ours (ACC-24).
 
-use dassie_ledger::Balance;
+use dassie_ledger::{Balance, MAX_TOTAL};
 
 /// Parts per million.
 const MILLION: u128 = 1_000_000;
@@ -64,8 +64,10 @@ pub fn final_amount(position: u128, credit_out: u64) -> u64 {
     clamp(position.saturating_sub(u128::from(credit_out)))
 }
 
+/// An amount from an account's counters, which never pass `MAX_TOTAL`.
 fn clamp(value: u128) -> u64 {
-    u64::try_from(value).unwrap_or(u64::MAX)
+    assert!(value <= u128::from(MAX_TOTAL), "an amount past MAX_TOTAL");
+    u64::try_from(value).unwrap_or_default()
 }
 
 #[cfg(test)]

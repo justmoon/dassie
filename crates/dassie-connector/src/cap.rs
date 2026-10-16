@@ -210,6 +210,8 @@ impl CapState {
             .used
             .saturating_add(self.reserved.saturating_mul(window));
         let free = self.cap.capacity().saturating_sub(held) / window;
+        // The capacity is the amount over the window.
+        assert!(free <= u128::from(self.cap.amount));
         let full_at_ms = (usage.used > 0).then(|| {
             let drain_ms = usage.used.div_ceil(u128::from(self.cap.amount));
             usage
@@ -220,7 +222,7 @@ impl CapState {
             cap: self.cap,
             usage,
             reserved: self.reserved,
-            available: u64::try_from(free).unwrap_or(u64::MAX),
+            available: u64::try_from(free).unwrap_or_default(),
             full_at_ms,
         }
     }

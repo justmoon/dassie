@@ -39,20 +39,26 @@ impl Charges {
     /// than `amount`.
     #[must_use]
     pub fn fee(&self, amount: u64) -> u64 {
-        let product = u128::from(amount) * u128::from(self.fee_ppm);
-        u64::try_from(product / MILLION)
-            .unwrap_or(amount)
-            .min(amount)
+        assert!(self.is_valid(), "charges are checked before they are used");
+        part_of(amount, u128::from(self.fee_ppm))
     }
 
     /// What is left of a converted `amount` after the spread:
     /// `floor(amount × (10^6 − spread_ppm) / 10^6)`.
     #[must_use]
     pub fn after_spread(&self, amount: u64) -> u64 {
-        let kept = MILLION.saturating_sub(u128::from(self.spread_ppm));
-        let left = u128::from(amount) * kept / MILLION;
-        u64::try_from(left).unwrap_or(amount).min(amount)
+        assert!(self.is_valid(), "charges are checked before they are used");
+        part_of(amount, MILLION - u128::from(self.spread_ppm))
     }
+}
+
+/// `floor(amount × ppm / 10^6)` for `ppm` up to a million: never more than
+/// `amount`.
+fn part_of(amount: u64, ppm: u128) -> u64 {
+    assert!(ppm <= MILLION);
+    let part = u64::try_from(u128::from(amount) * ppm / MILLION);
+    assert!(part.is_ok(), "a part is at most the whole");
+    part.unwrap_or_default()
 }
 
 #[cfg(test)]
