@@ -44,38 +44,27 @@ jobs:
   # Everything the jobs below need, built once on the Vorstand Nix cloud:
   # the install tests' mirror; the tree of nix/release.nix; static-binaries,
   # which checks that the binaries are static and run, the arm64 one under
-  # qemu; and dassie-release. The status, last, fails the step unless the
-  # build succeeded, so a log stream cut short cannot pass for a green
-  # build.
+  # qemu; and dassie-release.
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Build on the Nix cloud
         env:
           NIX_CLOUD_TOKEN: ${{ secrets.NIX_CLOUD_TOKEN }}
           COMMIT: ${{ github.sha }}
         run: |
-          set -euo pipefail
-          if [ -z "$NIX_CLOUD_TOKEN" ]; then
-            echo "::error::No NIX_CLOUD_TOKEN: the Nix cloud builds nothing without it"
-            exit 1
-          fi
-          api=https://nix.vorstand.app/v1/builds
-          auth="Authorization: Bearer $NIX_CLOUD_TOKEN"
-          body=$(jq -n --arg c "$COMMIT" '{commit: $c, attrs: [
-            "packages.x86_64-linux.install-test-mirror",
-            "packages.x86_64-linux.release",
-            "packages.x86_64-linux.static-binaries",
-            "packages.x86_64-linux.release-tool"
-          ]}')
-          job=$(curl -fsS -H "$auth" --json "$body" "$api" | jq -r .id)
-          if [ -z "$job" ] || [ "$job" = null ]; then
-            echo "::error::The Nix cloud started no build"
-            exit 1
-          fi
-          curl -fsSN -H "$auth" "$api/$job/log"
-          curl -fsS -H "$auth" "$api/$job" | jq -r '.outputs[][]'
+          scripts/nix-cloud-build.sh build "$COMMIT" \
+            packages.x86_64-linux.install-test-mirror \
+            packages.x86_64-linux.release \
+            packages.x86_64-linux.static-binaries \
+            packages.x86_64-linux.release-tool
+      - name: Cancel the build on the Nix cloud
+        if: cancelled()
+        env:
+          NIX_CLOUD_TOKEN: ${{ secrets.NIX_CLOUD_TOKEN }}
+        run: scripts/nix-cloud-build.sh cancel
 
   # The installer and the updater on each distribution
   # (tests/e2e/install_test.ts): privileged containers with systemd, and a

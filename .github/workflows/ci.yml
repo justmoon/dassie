@@ -26,31 +26,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
+      - uses: actions/checkout@v6
       # `checks` is every check for x86_64-linux: what `nix flake check`
       # builds on an x86_64 runner. The release binaries and the install
-      # tests run in the release workflow, for a tag v<version> only. The
-      # status, last, fails the step unless the build succeeded, so a log
-      # stream cut short cannot pass for a green build.
+      # tests run in the release workflow, for a tag v<version> only.
       - name: Build the checks on the Nix cloud
         env:
           NIX_CLOUD_TOKEN: ${{ secrets.NIX_CLOUD_TOKEN }}
           COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          set -euo pipefail
-          if [ -z "$NIX_CLOUD_TOKEN" ]; then
-            echo "::error::No NIX_CLOUD_TOKEN: the Nix cloud builds nothing without it"
-            exit 1
-          fi
-          api=https://nix.vorstand.app/v1/builds
-          auth="Authorization: Bearer $NIX_CLOUD_TOKEN"
-          body=$(jq -n --arg c "$COMMIT" '{commit: $c, attrs: ["checks"]}')
-          job=$(curl -fsS -H "$auth" --json "$body" "$api" | jq -r .id)
-          if [ -z "$job" ] || [ "$job" = null ]; then
-            echo "::error::The Nix cloud started no build"
-            exit 1
-          fi
-          curl -fsSN -H "$auth" "$api/$job/log"
-          curl -fsS -H "$auth" "$api/$job" | jq -r '.outputs[][]'
+        run: scripts/nix-cloud-build.sh build "$COMMIT" checks
+      # A run that a newer push superseded stops its build too.
+      - name: Cancel the build on the Nix cloud
+        if: cancelled()
+        env:
+          NIX_CLOUD_TOKEN: ${{ secrets.NIX_CLOUD_TOKEN }}
+        run: scripts/nix-cloud-build.sh cancel
 
   ts:
     runs-on: ubuntu-latest
