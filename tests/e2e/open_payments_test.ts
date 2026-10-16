@@ -84,12 +84,16 @@ async function serveClient(scenario: Scenario, jwk: object) {
   return { server, walletAddress: `${origin}/client` };
 }
 
-/** Pays the incoming payment's STREAM credentials from a BTP client. */
+/**
+ * Pays the incoming payment's STREAM credentials from a BTP client, giving
+ * up after `timeout` ms.
+ */
 async function pay(
   scenario: Scenario,
   url: string,
   destination: string,
   secret: string,
+  timeout = 60_000,
 ) {
   const ca = await readFile(scenario.caFile, "utf8");
   const plugin = new BtpClient({ server: url }, {
@@ -107,7 +111,7 @@ async function pay(
       sharedSecret: Buffer.from(secret, "base64url"),
     });
     const stream = connection.createStream();
-    await stream.sendTotal(Number(AMOUNT), { timeout: 60_000 });
+    await stream.sendTotal(Number(AMOUNT), { timeout });
     assertEquals(BigInt(stream.totalSent), AMOUNT);
     await connection.end();
   } finally {
@@ -213,19 +217,27 @@ test("the reference client gets paid into an incoming payment", {
 
     // The books: the money came from the payer's token account into the
     // owner's pool, packet by packet, exactly the amount.
-    const { transfers } = await node.rpc.call("listTransfers", { limit: 1000 });
-    const paidIn = transfers
-      .filter((transfer) =>
-        transfer.creditPath === "stub+usd:equity/owner" &&
-        transfer.debitPath.startsWith("stub+usd:equity/owner/btp/")
-      )
-      .reduce((sum, transfer) => sum + transfer.amount, 0n);
-    assertEquals(paidIn, AMOUNT);
+    const paidIn = async () => {
+      const { transfers } = await node.rpc.call("listTransfers", {
+        limit: 1000,
+      });
+      return transfers
+        .filter((transfer) =>
+          transfer.creditPath === "stub+usd:equity/owner" &&
+          transfer.debitPath.startsWith("stub+usd:equity/owner/btp/")
+        )
+        .reduce((sum, transfer) => sum + transfer.amount, 0n);
+    };
+    assertEquals(await paidIn(), AMOUNT);
 
     // A second payment of the same: it is complete, so nothing gets in.
+    // The node refuses every packet, which the STREAM client only reports
+    // when it gives up, so it gives up after a few seconds and the books
+    // show that nothing more came in.
     await assertRejects(
-      () => pay(scenario, btp, method.ilpAddress, method.sharedSecret),
+      () => pay(scenario, btp, method.ilpAddress, method.sharedSecret, 3_000),
     );
+    assertEquals(await paidIn(), AMOUNT);
 
     // Another client's key with this token is refused.
     const thief = generateKeyPairSync("ed25519");
