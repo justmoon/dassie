@@ -28,6 +28,7 @@ fn is_public_v4(address: Ipv4Addr) -> bool {
         || (a == 172 && (16..32).contains(&b))         // private
         || (a == 192 && b == 0 && c == 0)              // IETF protocol assignments
         || (a == 192 && b == 0 && c == 2)              // documentation
+        || (a == 192 && b == 88 && c == 99)            // 6to4 relay anycast, deprecated
         || (a == 192 && b == 168)                      // private
         || (a == 198 && (b == 18 || b == 19))          // benchmarking
         || (a == 198 && b == 51 && c == 100)           // documentation
@@ -42,8 +43,12 @@ fn is_public_v6(address: Ipv6Addr) -> bool {
     }
     let segments = address.segments();
     let [first, second, ..] = segments;
-    let private = address.is_unspecified()
-        || address.is_loopback()
+    // All of `::/96`: the unspecified and loopback addresses, and the
+    // deprecated IPv4-compatible form `::a.b.c.d` (RFC 4291 §2.5.5.1).
+    // That form is refused even for a public IPv4 address: nothing
+    // legitimate uses it, and whether a system routes it to IPv4 is up to
+    // the system, so the filter doesn't guess.
+    let private = matches!(segments, [0, 0, 0, 0, 0, 0, ..])
         || (first & 0xfe00) == 0xfc00                  // unique local
         || (first & 0xffc0) == 0xfe80                  // link-local
         || (first & 0xffc0) == 0xfec0                  // site-local
@@ -99,6 +104,7 @@ mod tests {
             "172.31.255.255",
             "192.0.0.8",
             "192.0.2.1",
+            "192.88.99.1",
             "192.168.1.1",
             "198.18.0.1",
             "198.51.100.1",
@@ -119,6 +125,12 @@ mod tests {
             "64:ff9b::a9fe:a9fe",
             "2002:7f00:1::",
             "2001:0:4136:e378:8000:63bf:80ff:fffe",
+            "::7f00:1",
+            "::a9fe:a9fe",
+            "::a00:1",
+            "::808:808",
+            "::1.1.1.1",
+            "2002:c058:6301::",
         ] {
             assert!(!public(refused), "{refused}");
         }
@@ -134,6 +146,8 @@ mod tests {
             "2606:4700::1111",
             "::ffff:1.1.1.1",
             "2002:0101:0101::",
+            "192.88.98.1",
+            "192.88.100.1",
         ] {
             assert!(public(allowed), "{allowed}");
         }
