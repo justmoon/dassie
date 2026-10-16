@@ -44,4 +44,5 @@ pub fn str_field<'a>(value: &'a Value, key: &str) -> &'a str {
         .unwrap_or_else(|| panic!("missing string field {key}"))
 }
 
+pub mod arbitrary;
 pub mod sim;
