@@ -508,7 +508,12 @@ mod tests {
     // So such a URL is refused before connecting, as `[::1]` is.
     #[tokio::test]
     async fn a_url_past_an_ipv6_literal_is_refused() {
-        let client = PeerClient::new(None, false).unwrap();
+        // Roots of its own: the build sandbox has none of the system's.
+        let roots = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../testdata/pebble/root.pem"
+        );
+        let client = PeerClient::new(Some(Path::new(roots)), false).unwrap();
         let result = client
             .web(WebRequest {
                 method: http::Method::GET,
