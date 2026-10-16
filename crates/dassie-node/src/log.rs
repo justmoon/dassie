@@ -45,7 +45,7 @@ const MAX_FIELD_BYTES: usize = 256;
 
 /// Targets of the node's own events.
 pub mod target {
-    /// Start, stop and the setup URL.
+    /// Start, stop, and whether setup is still to be done.
     pub const DAEMON: &str = "das:node:daemon";
     /// The database.
     pub const DATABASE: &str = "das:node:database";

@@ -36,7 +36,7 @@ Every fix gets a test that would have failed against the original's behaviour.
 | Default trust line 1.1 units per peer, `MAX_PACKET_AMOUNT` 0.1 units | [5 §2.7](05-accounting-and-settlement.md), [4 §4.3](04-interledger.md) | Test-network values. Become per-ledger config under D6. |
 | STREAM extensions: AIMD concurrency, redistributing over-allocation, bigint amounts | [4 §11.13](04-interledger.md) | Deliberate improvements, compatible on the wire. |
 | `__Host-` cookie with HttpOnly, Secure, SameSite=Strict | [2 §8](02-node-runtime.md) | Correct as is. Add expiry (RT-11). |
-| One-time setup token, routes that exist only in the right state | [2 §8.2](02-node-runtime.md) | Simple and safe. Also fix the TLS-less setup URL (RT-2). The token is no longer in memory only: the node stores it until setup is done (2026-10-16), because a restart (the nightly update, say) voided the URL the owner had been given. `dassie setup-url` prints it again. |
+| One-time setup token, routes that exist only in the right state | [2 §8.2](02-node-runtime.md) | Simple and safe. Also fix the TLS-less setup URL (RT-2). The token is no longer in memory only: the node stores it until setup is done (2026-10-16), because a restart (the nightly update, say) voided the URL the owner had been given. `dassie setup-url` prints it again. The daemon does not log the URL, since the journal is readable by groups that do not administer the node; it logs that `dassie setup-url` prints it. |
 | `curl \| sh` installer UX, `/opt/dassie/<ver>` + `current` symlink, socket activation, nightly update timer | [6 §5](06-user-interfaces-and-tooling.md) | Operational continuity. Add signatures (D11). |
 
 ## 3. Decisions

@@ -275,11 +275,12 @@ fn start_standalone(state: &Path, ipc: &Path, ports: [&str; 2]) -> Option<Child>
     child
 }
 
-fn stop(child: &mut Option<Child>) {
+fn stop(child: &mut Option<Child>) -> Output {
     let child = child.take().unwrap();
     terminate(child.id());
     let output = child.wait_with_output().unwrap();
     assert!(output.status.success(), "{}", describe(&output));
+    output
 }
 
 // The original drew a new setup token at every start, and had no status
@@ -302,7 +303,11 @@ fn status_and_the_setup_url_before_setup() {
     assert!(text.contains("Setup        not done yet"), "{text}");
     // It names no secret, so it can be pasted where help is asked for.
     assert!(!text.contains(token), "{text}");
-    stop(&mut child);
+    // Nor does the daemon's log, which the journal keeps for groups that do
+    // not administer the node: it says where to get the URL instead.
+    let log = describe(&stop(&mut child));
+    assert!(!log.contains(token), "{log}");
+    assert!(log.contains("dassie setup-url"), "{log}");
     let stopped = run(&["status"], &env);
     assert_eq!(stopped.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&stopped.stdout).contains("Dassie is not running."));

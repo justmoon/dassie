@@ -454,9 +454,12 @@ async fn prune_sessions(node: Arc<Node>, shutdown: CancellationToken) {
 fn report_ready(node: &Node, notifier: Option<&Notifier>) {
     let (http_port, https_port) = node.ports();
     tracing::info!(target: target::DAEMON, version = crate::VERSION, runtime = ?node.runtime(), http_port, https_port, "listening");
-    if let Some(url) = node.setup_url() {
-        // A field, so that the log ring of the debug pages redacts it.
-        tracing::warn!(target: target::DAEMON, setup_url = %url, "Node identity is not configured; visit the setup URL");
+    if !node.is_set_up() {
+        // Not the URL itself: whoever opens it first claims the node, and the
+        // journal is readable by groups that do not administer it (adm,
+        // systemd-journal). The IPC socket, which only `dassie-users` reach,
+        // hands it out.
+        tracing::warn!(target: target::DAEMON, "Node identity is not configured; `sudo dassie setup-url` prints the setup URL");
     }
     if let Some(notifier) = notifier
         && let Err(error) = notifier.notify("READY=1")

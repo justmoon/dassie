@@ -20,7 +20,7 @@ sudo dassie init
 
 The installer fetches the newest release from `get.dassie.land`, checks its signature before unpacking anything, installs it in `/opt/dassie` and sets up the systemd units. It also adds you to the group `dassie-users`, whose members may talk to the node; log in again for that to take effect.
 
-`dassie init` asks for your domain name and an email address, gets a certificate from Let's Encrypt, and prints a URL where you finish the setup in your browser. If you miss it, run `sudo dassie init` again or look in `journalctl -u dassie`.
+`dassie init` asks for your domain name and an email address, gets a certificate from Let's Encrypt, and prints a URL where you finish the setup in your browser. If you miss it, `sudo dassie setup-url` prints it again.
 
 Dassie updates itself: once a day, a systemd timer checks for a newer release, verifies it and switches to it, and goes back if the new version does not start. `sudo dassie update` does the same right away. To uninstall, run the installer with `sh -s -- uninstall`. The node's data stays in `/var/lib/private/dassie` in case you change your mind.
 
