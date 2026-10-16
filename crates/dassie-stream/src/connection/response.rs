@@ -303,13 +303,13 @@ impl Connection {
     /// together are usually refused together, by the same full credit
     /// limit: that is one back-off, or nine packets would wait 25.6 s.
     fn back_off_for(&mut self, now: Timestamp, slot: &Slot) {
-        if slot.sequence >= self.sent_since_back_off {
+        if slot.sequence >= self.back_off_sequence {
             self.back_off(now);
         }
     }
 
     fn back_off(&mut self, now: Timestamp) {
-        self.sent_since_back_off = self.next_sequence;
+        self.back_off_sequence = self.next_sequence;
         self.decrease_concurrency();
         if matches!(self.state, State::Closed) {
             return;
