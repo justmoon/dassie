@@ -530,7 +530,7 @@ A release is one static binary per platform, with the wallet built in ([D11](08-
 **The build** (`nix/release.nix`, on x86_64-linux):
 - **The wallet** is built by Vite in the Nix sandbox, offline. Its npm packages and JSR modules come from one fixed-output derivation: `deno install --frozen --vendor` lays out `node_modules/` and `vendor/`, the same bytes from run to run (Deno's own cache, with each response's headers, is left behind). A change to `deno.lock` changes its hash.
 - **The binary** is `dassie-cli` in the `release` profile (fat LTO), statically linked against musl, for `x86_64-unknown-linux-musl` and, cross-compiled, `aarch64-unknown-linux-musl`. It embeds the wallet (`DASSIE_WALLET_DIST`) and its version (`DASSIE_VERSION`).
-- **The check** `static-binaries` (`nix flake check`) confirms that both are static, name their version, and pass `verify-install`, the arm64 one under qemu.
+- **The check** `static-binaries` (`nix build .#static-binaries`, which the release workflow runs) confirms that both are static, name their version, and pass `verify-install`, the arm64 one under qemu.
 
 **Versions and channels** (`dassie-release`):
 - A release is `major.minor.patch`, dassie-cli's version, published on `latest`.
@@ -553,9 +553,10 @@ meta/canary                                  the newest canary
 - **`dassie-release` verifies it** with `ed25519-dalek`'s strict verification, and parses `SHA256SUMS` only once the signature holds. Every parser there is bounded: a version at most 80 bytes, a signature at most 1 KiB, `SHA256SUMS` at most 4 KiB and 16 lines of plain file names.
 
 **Publishing** (`.github/workflows/release.yml`):
-- Every push to the main branch builds a canary, and every tag `v<version>` a release, whose version must be the tag's.
+- Every tag `v<version>` builds a release, whose version must be the tag's. A canary is built and signed by hand; no workflow publishes one.
+- The release checks run there, not in CI: the install tests, one job per distribution, and `static-binaries`. Only once they pass is anything signed.
 - `scripts/release.ts` checks each bundle against `SHA256SUMS` and signs it with the release key. Then `dassie-release verify` checks the signed tree with `resources/minisign.pub`, using the code the updater trusts a release with, before anything is uploaded.
-- The key and the bucket's credentials belong to the `Release` environment, which admits only the main branch and `v*` tags. The job's actions are pinned to commits.
+- The key and the bucket's credentials belong to the `Release` environment, which admits only `v*` tags. The job's actions are pinned to commits.
 - The upload goes to the bucket behind `get.dassie.land`, through workload identity.
   - A version's files are uploaded once, the signature last, and cached for good. A file already there must be the same bytes, so a run again completes what an interrupted one left.
   - Only then does `meta/<channel>` name the version, uncached. It never moves to a version older than the one it names.
@@ -707,7 +708,7 @@ Every crate is written so that a simulation can drive it ([D16](08-decisions.md#
    - `tests/e2e/install_test.ts` boots Debian, Ubuntu, Fedora and CentOS images (pinned by digest, with systemd as PID 1). Caddy serves a mirror on a Docker network of the test's own.
    - The releases come from `nix build .#install-test-mirror`: 1.0.0 and 1.0.1, built in a cheaper profile and signed with the test key.
    - The images between them take both verifiers (OpenSSL and minisign), both downloaders (curl and wget) and both compressions.
-   - CI runs one job per distribution.
+   - The release workflow runs one job per distribution, before it signs; CI does not run them.
 7. **Website.** `tests/e2e/website_test.ts` serves the built site with the headers of its `vercel.json`, so that its CSP applies, and drives it in headless Chrome. The toy runs a payment to the end, and its packets decrypt. The toy's simulation is also tested in Deno against the Deno build of the same WASM module.
 
 ## 8. Milestones

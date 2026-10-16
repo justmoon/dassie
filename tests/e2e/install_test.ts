@@ -21,8 +21,8 @@
  *
  * Set `DASSIE_INSTALL_MIRROR` to the built mirror to run it; it needs
  * Docker, which may run privileged containers, and mkcert.
- * `DASSIE_INSTALL_DISTROS` picks distributions, by default all four. CI
- * runs one job per distribution.
+ * `DASSIE_INSTALL_DISTROS` picks distributions, by default all four. The
+ * release workflow runs one job per distribution before it signs a release.
  */
 
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
