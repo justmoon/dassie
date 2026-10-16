@@ -34,6 +34,7 @@ const LEDGER = "xrpl-testnet+xrp";
 const PAYMENT = 5_000_000_000n;
 /** What a node extends to each peer: 1.1 XRP. */
 const CREDIT = 1_100_000_000n;
+const PORT_OFFSET = SCENARIO_PORT_OFFSET + 600;
 
 const missing = await missingScenarioTools();
 const testnet = process.env.DASSIE_XRPL_TESTNET === "1";
@@ -132,7 +133,7 @@ test(
     const scenario = await Scenario.temporary("xrpl-settlement", {
       dassie: DASSIE,
       fakeLedger: testnet ? undefined : FAKE_LEDGER,
-      portOffset: SCENARIO_PORT_OFFSET,
+      portOffset: PORT_OFFSET,
     });
     try {
       await scenario.until("funded", () => funded(scenario), 120_000);

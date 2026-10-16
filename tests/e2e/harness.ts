@@ -132,7 +132,10 @@ export async function missingTools(): Promise<string | undefined> {
 
 /**
  * The ports of the scenarios' nodes are moved by this much, away from the
- * dev environment's (d1 has 18001 and 19001).
+ * dev environment's (d1 has 18001 and 19001). Test files run in parallel,
+ * so each one that starts a scenario adds its own hundred: scenarios +0,
+ * open payments +300, third party +400, cross currency +500, xrpl +600,
+ * wallet +700.
  */
 export const SCENARIO_PORT_OFFSET = 14_000;
 

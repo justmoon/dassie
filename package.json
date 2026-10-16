@@ -14,7 +14,7 @@
     "check": "dprint check && oxlint && node --run typecheck",
     "typecheck": "for project in . apps/* packages/* tests/*; do tsc -p $project || exit 1; done",
     "test": "node --test 'apps/**/*_test.ts' 'packages/**/*_test.ts' 'scripts/*_test.ts'",
-    "test:e2e": "node --test --test-concurrency=1 'tests/**/*_test.ts'",
+    "test:e2e": "node --test 'tests/**/*_test.ts'",
     "ci": "node --run build:wasm && node --run build:wallet && node --run build:dashboard && node --run build:website && node --run build:e2e && node --run check && node --run test && node --run test:e2e"
   },
   "devDependencies": {

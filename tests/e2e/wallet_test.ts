@@ -24,6 +24,8 @@ import {
 } from "./harness.ts";
 import { Scenario, type ScenarioNode } from "@dassie/dev/scenario";
 
+const PORT_OFFSET = SCENARIO_PORT_OFFSET + 700;
+
 const missing = await missingTools();
 if (missing) console.warn(`skipping the wallet tests: ${missing}`);
 
@@ -76,7 +78,7 @@ test("every page of the wallet works against two nodes", {
 }, async (t) => {
   const scenario = await Scenario.temporary("two-nodes", {
     dassie: DASSIE,
-    portOffset: SCENARIO_PORT_OFFSET,
+    portOffset: PORT_OFFSET,
     env,
   });
   const dir = await mkdtemp(join(tmpdir(), "dassie-wallet-"));
@@ -477,7 +479,7 @@ test(
   async () => {
     const scenario = await Scenario.temporary("one-node", {
       dassie: DASSIE,
-      portOffset: SCENARIO_PORT_OFFSET,
+      portOffset: PORT_OFFSET,
       env,
       withoutLedger: [0],
     });
