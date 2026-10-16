@@ -538,7 +538,7 @@ A release is one static binary per platform, with the wallet built in ([D11](08-
 - A release is `major.minor.patch`, dassie-cli's version, published on `latest`.
 - A canary is `canary-YYYY-MM-DD-HHMMSS-<commit>`: when the commit it is built from was made, in UTC, and its short hash. It is published on `canary`.
 - A version names a directory on the mirror and in `/opt/dassie`, so only these two shapes parse: digits, lowercase letters, dots and dashes, at most 80 bytes.
-- **The updater moves on its own only to a later version of the same channel:** a higher release, or a canary of a later commit time (`Version::supersedes`). `meta/<channel>` is not signed, so a mirror cannot take a node back, or to the other channel; only the owner can.
+- **The updater moves on its own only to a later version of the same channel:** a higher release, or a canary of a later commit time (`Version::supersedes`). `meta/<channel>` is not signed, so a mirror cannot take a node back, or to the other channel; only the owner can. What `meta/<channel>` names must be of that channel, or the update fails: when the owner switches with `--channel`, the mirror chooses neither a version of the channel left nor an older one.
 
 **The mirror** keeps the original's paths (§2), plus the signature:
 
