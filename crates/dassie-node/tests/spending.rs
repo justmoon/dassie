@@ -18,7 +18,9 @@ use std::time::Duration;
 use dassie_node::clock::Clock;
 use dassie_node::node::Policies;
 use dassie_node::open_payments::keys::ClientKey;
-use dassie_node::rpc::proto::{self, request::Method, response};
+use dassie_node::rpc::proto::{
+    self, client_message, request::Method, response, server_message, stream_item,
+};
 use dassie_payments::gnap;
 use hyper::StatusCode;
 use serde_json::{Value, json};
@@ -373,6 +375,69 @@ async fn the_owner_revokes_a_grant() {
     let quote = json!({ "walletAddress": host(&node), "receiver": target, "method": "ilp" });
     let reply = post(&node, &client, "/quotes", &token, &quote).await;
     assert_eq!(reply.status, StatusCode::UNAUTHORIZED);
+    node.stop().await;
+}
+
+// The client revokes a grant through its continuation: the owner's
+// connected apps, which follow the grants live, drop it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_client_revoking_its_grant_updates_the_owners_view() {
+    let (node, key) = start().await;
+    let client = own_client(&node, &key);
+    let start = dassie_payments::time::format_rfc3339(node.clock.now_ms() - 1_000);
+    let asked = ask(&node, &client, 1_000, &start).await;
+    let (id, interaction) = consent_page(&node, &asked).await;
+    let finish = decide(&node, &id, &interaction, true).await;
+    let reference = finish.split("interact_ref=").nth(1).unwrap();
+    let reply = continue_grant(&node, &client, &asked, Some(reference)).await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+    let granted = body(&reply);
+
+    let mut owner = node.ipc().await;
+    owner
+        .send_raw(proto::ClientMessage {
+            call_id: 1,
+            kind: Some(client_message::Kind::Request(proto::Request {
+                method: Some(Method::SubscribeGrants(proto::SubscribeGrantsRequest {})),
+            })),
+        })
+        .await;
+    let mut listed = async || {
+        let message = tokio::time::timeout(Duration::from_secs(5), owner.receive())
+            .await
+            .expect("no item")
+            .expect("closed");
+        let Some(server_message::Kind::Item(item)) = message.kind else {
+            panic!("{message:?}")
+        };
+        let Some(stream_item::Method::SubscribeGrants(listed)) = item.method else {
+            panic!("{item:?}")
+        };
+        listed.grants
+    };
+    let first = listed().await;
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0].id, id);
+
+    let continuation = path_of(&node, &granted["continue"]["uri"]);
+    let continue_token = granted["continue"]["access_token"]["value"]
+        .as_str()
+        .unwrap();
+    let reply = send(
+        node.https,
+        true,
+        signed(
+            &node,
+            &client,
+            "DELETE",
+            &continuation,
+            Some(continue_token),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::NO_CONTENT, "{}", reply.text());
+    assert!(listed().await.is_empty());
     node.stop().await;
 }
 
