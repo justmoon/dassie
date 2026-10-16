@@ -1,9 +1,8 @@
 //! Claiming the node and proving ownership.
 //!
-//! - **Setup** happens once. The node prints a URL with a random token that
-//!   lives only in memory, and whoever opens it in a browser sends the node
-//!   key derived from their phrase, with the login proof derived from that
-//!   key (spec 2 §8.2–8.3).
+//! - **Setup** happens once. The node prints a URL with a random token, and
+//!   whoever opens it in a browser sends the node key derived from their
+//!   phrase, with the login proof derived from that key (spec 2 §8.2–8.3).
 //! - **Login** proves knowledge of the phrase by sending the login proof
 //!   again (spec 2 §8.4).
 //!
@@ -11,6 +10,9 @@
 //! request bodies and the derivations. Fixed (RT-10): the key must be exactly
 //! 32 bytes of hex, where the original stored whatever it got and then failed
 //! to parse it at every start; and every comparison runs in constant time.
+//! Changed: the original kept the token in memory, so every restart voided
+//! the URL the owner had been given; the node now stores it until setup is
+//! done.
 
 use alloc::string::String;
 use core::fmt;
@@ -26,8 +28,8 @@ pub const SETUP_TOKEN_BYTES: usize = 32;
 
 /// The token in the setup URL.
 ///
-/// It is drawn when the daemon starts and never stored, so a restart
-/// invalidates old setup URLs (kept from the original, spec 8 §2).
+/// It is drawn the first time the daemon starts without a node key, and
+/// stored until setup is done, so the setup URL survives restarts.
 #[derive(Clone)]
 pub struct SetupToken([u8; SETUP_TOKEN_BYTES]);
 
@@ -37,6 +39,18 @@ impl SetupToken {
         let mut bytes = [0; SETUP_TOKEN_BYTES];
         rng.fill_bytes(&mut bytes);
         Self(bytes)
+    }
+
+    /// The token stored as `bytes`.
+    #[must_use]
+    pub const fn from_bytes(bytes: [u8; SETUP_TOKEN_BYTES]) -> Self {
+        Self(bytes)
+    }
+
+    /// The token's bytes, to store.
+    #[must_use]
+    pub const fn as_bytes(&self) -> &[u8; SETUP_TOKEN_BYTES] {
+        &self.0
     }
 
     /// The token as it appears in the setup URL: 64 lowercase hex digits.

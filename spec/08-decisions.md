@@ -36,7 +36,7 @@ Every fix gets a test that would have failed against the original's behaviour.
 | Default trust line 1.1 units per peer, `MAX_PACKET_AMOUNT` 0.1 units | [5 §2.7](05-accounting-and-settlement.md), [4 §4.3](04-interledger.md) | Test-network values. Become per-ledger config under D6. |
 | STREAM extensions: AIMD concurrency, redistributing over-allocation, bigint amounts | [4 §11.13](04-interledger.md) | Deliberate improvements, compatible on the wire. |
 | `__Host-` cookie with HttpOnly, Secure, SameSite=Strict | [2 §8](02-node-runtime.md) | Correct as is. Add expiry (RT-11). |
-| One-time in-memory setup token, routes that exist only in the right state | [2 §8.2](02-node-runtime.md) | Simple and safe. Also fix the TLS-less setup URL (RT-2). |
+| One-time setup token, routes that exist only in the right state | [2 §8.2](02-node-runtime.md) | Simple and safe. Also fix the TLS-less setup URL (RT-2). The token is no longer in memory only: the node stores it until setup is done (2026-10-16), because a restart (the nightly update, say) voided the URL the owner had been given. `dassie setup-url` prints it again. |
 | `curl \| sh` installer UX, `/opt/dassie/<ver>` + `current` symlink, socket activation, nightly update timer | [6 §5](06-user-interfaces-and-tooling.md) | Operational continuity. Add signatures (D11). |
 
 ## 3. Decisions
@@ -239,7 +239,7 @@ Revised on 2026-10-14; it first served SPSP and deferred GNAP, quotes and outgoi
   - The release key's secret half lives in the `Release` environment of the repository, which only the release workflow on the main branch or a `v*` tag may use. The workflow verifies what it signed with `resources/minisign.pub`, using `dassie-release`, before it uploads, so a release signed with another key never reaches the mirror.
   - `meta/<channel>` is not signed, so it is not trusted to say which way to move: the updater moves on its own only to a later version of the same channel.
   - The installer and the updater verify before extracting, and unpack only plain files and directories.
-  - The symlink swap is atomic (`rename`). The updater keeps the version it came from, and goes back to it if the new one does not come up. The owner can go back too, with `dassie update --target-version`; to stay there, they stop `dassie-update.timer`, which would otherwise move the node forward again.
+  - The symlink swap is atomic (`rename`). The updater keeps the version it came from, and goes back to it if the new one does not come up. A version refuses a database whose schema is newer than it knows, so the daemon keeps a copy of the database just before it migrates, and the rollback puts that copy back (2026-10-16; [7 §4.8](07-rewrite.md#48-releases)). Without it, a new version that migrated and then failed left the node down. The owner can go back too, with `dassie update --target-version`; to stay there, they stop `dassie-update.timer`, which would otherwise move the node forward again.
   - The installer verifies with minisign where there is minisign, and else with OpenSSL, which reads minisign's format by hand: no extra tool to install first.
   - CI builds and publishes releases, reproducibly through the Nix flake of D14.
   - Canary gets its own channel file (`meta/canary`).

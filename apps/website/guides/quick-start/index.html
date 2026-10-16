@@ -70,17 +70,30 @@
         It asks for your server's domain name, your agreement to Let's
         Encrypt's terms and an email address, and then fetches the
         certificate. Once it has one, it prints a URL where you continue the
-        setup in your browser. If you miss the URL, run
-        <code>sudo dassie init</code> again, or find it in the logs:
+        setup in your browser. The URL stays valid until setup is done, even
+        if the server restarts. If you miss it, print it again with:
       </p>
-      <pre><code>journalctl -u dassie</code></pre>
+      <pre><code>sudo dassie setup-url</code></pre>
+
+      <h2 id="status">Checking on your node</h2>
+      <p>
+        To see how your node is doing (its version, address and certificate,
+        whether setup is done, its peers and ledgers, and how the last update
+        went), run:
+      </p>
+      <pre><code>dassie status</code></pre>
+      <p>
+        Its output holds no secrets, so you can paste it when you ask for
+        help. The node's full logs are in <code>journalctl -u dassie</code>.
+      </p>
 
       <h2 id="updating">Updating Dassie</h2>
       <p>
         Dassie updates itself. Once a day, a systemd timer checks for a newer
-        release, verifies its signature, and switches to it; if the new
-        version does not start, it goes back to the old one. You should not
-        have to worry about updates.
+        release, verifies its signature, and switches to it. If the new
+        version does not start, it goes back to the old one, with the node's
+        data as the old one left it. You should not have to worry about
+        updates; <code>dassie status</code> shows how the last one went.
       </p>
       <p>To update right away, run:</p>
       <pre><code>sudo dassie update</code></pre>

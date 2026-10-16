@@ -490,6 +490,35 @@ async fn a_restart_keeps_everything() {
     node.stop().await;
 }
 
+// The original drew the setup token at every start, so a restart before
+// setup (a nightly update, say) voided the URL the owner had been given.
+#[tokio::test]
+async fn the_setup_url_survives_a_restart() {
+    let node = TestNode::start().await;
+    let token = node.setup_token().await;
+    let (dir, clock) = node.stop().await;
+    let node = TestNode::start_in(dir, clock, 2).await;
+    assert_eq!(node.setup_token().await, token);
+    let reply = send(
+        node.https,
+        true,
+        post_json(&node, "/api/setup", &setup_body(&token, &key())),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::OK);
+    // Once used, it is gone for good: a restart draws no new one.
+    let (dir, clock) = node.stop().await;
+    let node = TestNode::start_in(dir, clock, 3).await;
+    let error = node
+        .ipc()
+        .await
+        .call(Method::GetSetupUrl(proto::GetSetupUrlRequest {}))
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), proto::ErrorCode::FailedPrecondition);
+    node.stop().await;
+}
+
 #[tokio::test]
 async fn sessions_can_be_listed_and_revoked() {
     let node = TestNode::start().await;

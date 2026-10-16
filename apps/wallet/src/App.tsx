@@ -150,9 +150,8 @@ function SetupInfo(): JSX.Element {
   return (
     <Card title="Dassie Wallet" testid="setup-info">
       <p>
-        This Dassie node is ready for setup. Please visit the setup URL provided
-        in your server logs or the output of the <code>dassie init</code>{" "}
-        command.
+        This Dassie node is ready for setup. Please visit its setup URL: on the
+        server, <code>sudo dassie setup-url</code> prints it.
       </p>
     </Card>
   );

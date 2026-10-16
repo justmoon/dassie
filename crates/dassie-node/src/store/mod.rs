@@ -30,6 +30,7 @@ mod peer;
 mod peer_tests;
 mod rates;
 mod schema;
+mod snapshot;
 
 use std::fmt;
 use std::fs::{self, DirBuilder, OpenOptions, Permissions};
@@ -57,7 +58,8 @@ pub use payments::{
     Listed, MAX_LISTED, MAX_OPEN_LOADED, Page, PaymentId, UNPAID_RETENTION_MS,
 };
 pub use rates::StoredRate;
-pub use schema::{APPLICATION_ID, V0_APPLICATION_ID};
+pub use schema::{APPLICATION_ID, SCHEMA_VERSION, V0_APPLICATION_ID};
+pub use snapshot::{PRE_MIGRATION_FILE, ROLLED_BACK_FILE, Restored, restore_pre_migration};
 
 use crate::log::target;
 
@@ -86,6 +88,9 @@ pub enum StoreError {
     SchemaMismatch(String),
     /// A stored value is invalid, which only a bug or a hand edit can cause.
     Corrupt(&'static str),
+    /// The database is too new for this version, and the copy from before
+    /// its migration cannot be put back, for this reason.
+    NoUsableCopy(&'static str),
 }
 
 impl fmt::Display for StoreError {
@@ -112,6 +117,11 @@ impl fmt::Display for StoreError {
                 write!(f, "the database does not match this version: {problem}")
             }
             Self::Corrupt(what) => write!(f, "the database holds an invalid {what}"),
+            Self::NoUsableCopy(why) => write!(
+                f,
+                "the database is from a newer version of Dassie, and the copy from before \
+                 its migration cannot be put back: {why}"
+            ),
         }
     }
 }
@@ -167,6 +177,11 @@ impl Store {
         let connection = Connection::open(&path)?;
         connection.pragma_update(None, "journal_mode", "WAL")?;
         connection.pragma_update(None, "synchronous", "FULL")?;
+        // Before migrating, so that a rollback to the version before can
+        // have the database back as that version left it.
+        if let Some(from) = schema::pending_migration(&connection)? {
+            snapshot::keep_copy(&connection, data_dir, from)?;
+        }
         Self::prepare(connection)
     }
 
@@ -263,13 +278,42 @@ impl Store {
     }
 
     /// Stores the node key unless one is stored already, and says whether it
-    /// did. Two setups racing each other cannot both win.
+    /// did. Two setups racing each other cannot both win. The setup token
+    /// goes with it: setup is done.
     pub fn set_node_key_once(&self, key: &NodeKey, now_ms: u64) -> Result<bool, StoreError> {
-        let changed = self.lock().execute(
+        let mut connection = self.lock();
+        let transaction = connection.transaction()?;
+        let changed = transaction.execute(
             "INSERT INTO node_key (id, private_key, created_at_ms) VALUES (1, ?1, ?2) ON CONFLICT DO NOTHING",
             params![key.as_bytes().as_slice(), to_sql_time(now_ms)],
         )?;
+        transaction.execute("DELETE FROM setup_token", [])?;
+        transaction.commit()?;
         Ok(changed == 1)
+    }
+
+    /// The setup token, if one is stored.
+    pub fn setup_token(&self) -> Result<Option<[u8; 32]>, StoreError> {
+        let bytes: Option<Vec<u8>> = self
+            .lock()
+            .query_row("SELECT token FROM setup_token", [], |row| row.get(0))
+            .optional()?;
+        bytes
+            .map(|bytes| {
+                bytes
+                    .try_into()
+                    .map_err(|_| StoreError::Corrupt("setup token"))
+            })
+            .transpose()
+    }
+
+    /// Stores the setup token, replacing any other.
+    pub fn set_setup_token(&self, token: &[u8; 32]) -> Result<(), StoreError> {
+        self.lock().execute(
+            "INSERT OR REPLACE INTO setup_token (id, token) VALUES (1, ?1)",
+            [token.as_slice()],
+        )?;
+        Ok(())
     }
 
     /// The certificate, if one is stored.

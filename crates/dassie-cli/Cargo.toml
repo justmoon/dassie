@@ -39,6 +39,8 @@ http = "1"
 sha2 = "0.11"
 flate2 = "1"
 tar = { version = "0.4", default-features = false }
+# `dassie status` shows dates.
+time = "0.3.55"
 
 [build-dependencies]
 dassie-release = { path = "../dassie-release" }

@@ -2,11 +2,14 @@
 //!
 //! - `dassie daemon [--runtime standalone|systemd]` runs the node.
 //! - `dassie init` configures it, over the IPC socket.
+//! - `dassie status` says how it is doing, and `dassie setup-url` prints the
+//!   link that completes setup, over the IPC socket too.
 //! - `dassie update` installs a newer release from the mirror.
 //! - `dassie verify-install` checks that this binary works here.
 
 mod client;
 mod init;
+mod status;
 mod update;
 
 use std::process::ExitCode;
@@ -43,7 +46,10 @@ Commands:
                       --acme-directory <url> another ACME directory
                       --acme-staging         Let's Encrypt's staging directory
                       --skip-acme            keep the current certificate
-  update            Update Dassie to the newest version of its channel, once
+  status            Show how the node is doing: version, address,
+                    certificate, setup, network, ledgers and updates.
+  setup-url         Print the link that completes setup in a browser.
+  update           Update Dassie to the newest version of its channel, once
                     its signature and sums check out.
                       -f, --force                  install even if not newer
                       -t, --target-version <v>     this version instead
@@ -90,6 +96,14 @@ fn run() -> Result<ExitCode, lexopt::Error> {
         Value(command) => match command.string()?.as_str() {
             "daemon" => Ok(daemon(daemon_args(&mut parser)?)),
             "init" => Ok(init(init_args(&mut parser)?)),
+            "status" => {
+                no_more(&mut parser)?;
+                Ok(over_ipc(status::status))
+            }
+            "setup-url" => {
+                no_more(&mut parser)?;
+                Ok(over_ipc(status::setup_url))
+            }
             "update" => Ok(update::run(update_args(&mut parser)?)),
             "verify-install" => {
                 no_more(&mut parser)?;
@@ -249,6 +263,25 @@ fn init(options: init::Options) -> ExitCode {
     match runtime.block_on(init::run(&env, options)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(init::Stopped) => ExitCode::FAILURE,
+    }
+}
+
+/// Runs a command that talks to the daemon, and shows its problem if any.
+fn over_ipc(command: impl AsyncFnOnce(&Env) -> Result<(), String>) -> ExitCode {
+    let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    else {
+        eprintln!("dassie: could not start the async runtime");
+        return ExitCode::FAILURE;
+    };
+    let env = Env::from_process();
+    match runtime.block_on(command(&env)) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(problem) => {
+            eprintln!("{problem}");
+            ExitCode::FAILURE
+        }
     }
 }
 

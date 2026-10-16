@@ -34,7 +34,13 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_11,
     MIGRATION_12,
     MIGRATION_13,
+    MIGRATION_14,
 ];
+
+/// The schema version this code writes: the number of migrations.
+// A handful of migrations: the length never comes near `i64::MAX`.
+#[allow(clippy::cast_possible_wrap)]
+pub const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
 
 /// A STREAM connection per payment: each read of an incoming payment gets
 /// credentials of its own, and what each connection received is kept apart,
@@ -651,6 +657,15 @@ CREATE TABLE exchange_rates (
 ) STRICT, WITHOUT ROWID;
 ";
 
+/// The setup token, kept until setup completes, so that a restart (an
+/// update at night, say) does not void the setup URL the owner was given.
+const MIGRATION_14: &str = "
+CREATE TABLE setup_token (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  token BLOB NOT NULL CHECK (length(token) = 32)
+) STRICT;
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -664,6 +679,7 @@ pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("gnap_tokens", "token_hash"),
     ("quotes", "shared_secret"),
     ("outgoing_payments", "shared_secret"),
+    ("setup_token", "token"),
 ];
 
 /// A column as the code expects it: name, type, NOT NULL, part of the
@@ -1086,6 +1102,14 @@ pub const TABLES: &[Table] = &[
             ("received", "INTEGER", true, false),
         ],
     },
+    Table {
+        name: "setup_token",
+        without_rowid: false,
+        columns: &[
+            ("id", "INTEGER", false, true),
+            ("token", "BLOB", true, false),
+        ],
+    },
 ];
 
 /// Claims a new file, refuses foreign or v0 ones, and migrates.
@@ -1106,6 +1130,18 @@ pub fn prepare(connection: &mut Connection) -> Result<(), StoreError> {
     migrate(connection)
 }
 
+/// The schema version of a Dassie database that this code will migrate,
+/// if it is one: neither new, nor current, nor too new, nor foreign.
+pub fn pending_migration(connection: &Connection) -> Result<Option<i64>, StoreError> {
+    let application_id: i32 =
+        connection.pragma_query_value(None, "application_id", |row| row.get(0))?;
+    let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    Ok(
+        (application_id == APPLICATION_ID && version > 0 && version < SCHEMA_VERSION)
+            .then_some(version),
+    )
+}
+
 fn migrate(connection: &mut Connection) -> Result<(), StoreError> {
     migrate_until(connection, MIGRATIONS.len())
 }
@@ -1113,11 +1149,10 @@ fn migrate(connection: &mut Connection) -> Result<(), StoreError> {
 /// Runs the migrations up to `last`, for tests of an upgrade.
 pub(super) fn migrate_until(connection: &mut Connection, last: usize) -> Result<(), StoreError> {
     let current: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    let known = i64::try_from(MIGRATIONS.len()).unwrap_or(i64::MAX);
-    if current > known {
+    if current > SCHEMA_VERSION {
         return Err(StoreError::TooNew {
             found: current,
-            known,
+            known: SCHEMA_VERSION,
         });
     }
     for (index, sql) in MIGRATIONS
