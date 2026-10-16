@@ -694,10 +694,12 @@ fn read_cap(row: &Row<'_>, at: usize) -> rusqlite::Result<CapColumns> {
     let remainder: i64 = row.get(at + 3)?;
     let as_of: i64 = row.get(at + 4)?;
     Ok((|| {
-        let usage = |window_ms: u64| CapUsage {
-            used: u128::from(amount(used).unwrap_or(0)) * u128::from(window_ms)
-                + u128::from(amount(remainder).unwrap_or(0)),
-            as_of_ms: from_sql_time(as_of),
+        let usage = |window_ms: u64| -> Result<CapUsage, StoreError> {
+            Ok(CapUsage {
+                used: u128::from(amount(used)?) * u128::from(window_ms)
+                    + u128::from(amount(remainder)?),
+                as_of_ms: from_sql_time(as_of),
+            })
         };
         match (amount_column, window) {
             (Some(limit), Some(window_ms)) => {
@@ -708,7 +710,7 @@ fn read_cap(row: &Row<'_>, at: usize) -> rusqlite::Result<CapColumns> {
                 if !cap.is_valid() {
                     return Err(StoreError::Corrupt("token cap"));
                 }
-                Ok((Some(cap), usage(cap.window_ms)))
+                Ok((Some(cap), usage(cap.window_ms)?))
             }
             (None, None) => Ok((None, CapUsage::new(from_sql_time(as_of)))),
             _ => Err(StoreError::Corrupt("token cap")),

@@ -376,14 +376,17 @@ impl Core {
             return refused("the grant's interval allows no payment now");
         };
         let mut spent = self.store.grant_spend(grant, window)?;
-        if let Some((debit, receive)) = self.batch.outgoing.spend.get(&(grant, window)) {
-            spent.0 = u64::try_from(i128::from(spent.0) + debit).unwrap_or(0);
-            spent.1 = u64::try_from(i128::from(spent.1) + receive).unwrap_or(0);
+        if let Some(&(debit, receive)) = self.batch.outgoing.spend.get(&(grant, window)) {
+            spent = (with_change(spent.0, debit)?, with_change(spent.1, receive)?);
         }
         let (debit, receive) = (new.debit_amount, new.receive_amount.value);
         if !limits.admit(spent, debit, receive) {
             return refused("the payment would exceed the grant's limits");
         }
+        let total = (
+            with_change(spent.0, i128::from(debit))?,
+            with_change(spent.1, i128::from(receive))?,
+        );
         let entry = self
             .batch
             .outgoing
@@ -392,7 +395,7 @@ impl Core {
             .or_default();
         entry.0 += i128::from(debit);
         entry.1 += i128::from(receive);
-        Ok((grant, window, (spent.0 + debit, spent.1 + receive)))
+        Ok((grant, window, total))
     }
 
     /// Starts waiting payments while there is room, sends what their
@@ -662,12 +665,17 @@ impl Core {
         if let Some((grant, window)) = row.grant {
             let unsent = row.debit_amount - row.sent_amount;
             let receive = row.receive_amount.value;
-            let delivered = u128::from(row.sent_amount) * u128::from(receive)
-                / u128::from(row.debit_amount.max(1));
+            // It sent at most its debit amount, so delivered at most this.
+            let delivered = u64::try_from(
+                u128::from(row.sent_amount) * u128::from(receive)
+                    / u128::from(row.debit_amount.max(1)),
+            );
+            assert!(
+                delivered.is_ok_and(|delivered| delivered <= receive),
+                "a payment delivered more than it was to receive"
+            );
             let undelivered = match row.state {
-                OutgoingState::Failed => {
-                    receive - u64::try_from(delivered).unwrap_or(receive).min(receive)
-                }
+                OutgoingState::Failed => receive - delivered.unwrap_or_default(),
                 _ => 0,
             };
             if unsent > 0 || undelivered > 0 {
@@ -826,6 +834,15 @@ fn closed_early(payment: &mut Unfinished) {
             });
         }
     }
+}
+
+/// What a grant's window spent, with a change on top. Refunds can take it
+/// below zero only when they outrun what is on disk, which counts as
+/// nothing spent, as the store counts it; past `u64::MAX` it would count
+/// less than was spent, so that is an error.
+fn with_change(spent: u64, change: i128) -> Result<u64, EngineError> {
+    u64::try_from((i128::from(spent) + change).max(0))
+        .map_err(|_| EngineError::Internal("a grant's spend overflows".into()))
 }
 
 /// What the rows of outgoing payments require, checked before anything

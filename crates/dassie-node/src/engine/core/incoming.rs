@@ -403,10 +403,19 @@ impl Core {
             tracing::error!(target: target::PAYMENT, %id, "a confirmed payment is gone");
             return;
         };
+        // What it received is on the receiver's account, which never
+        // holds more than `MAX_TOTAL`.
+        let received = received
+            .checked_add(amount)
+            .filter(|&total| total <= dassie_ledger::MAX_TOTAL);
+        assert!(
+            received.is_some(),
+            "a payment received more than the books hold"
+        );
         self.batch.incoming_progress.insert(
             id,
             IncomingProgress {
-                received_amount: received.saturating_add(amount),
+                received_amount: received.unwrap_or_default(),
                 completed_at_ms,
             },
         );
