@@ -9,6 +9,7 @@
 //! - [`session`]: session tokens, lifetimes and cookies;
 //! - [`origin`]: the same-origin rule for the owner's endpoints;
 //! - [`rate_limit`]: a bounded token-bucket table for login attempts;
+//! - [`connections`]: a bounded table of open connections, per client;
 //! - [`certificate`]: which certificate to serve, and when to replace it;
 //! - [`acme`]: when to renew, how to back off, and the challenge tokens.
 //!
@@ -28,6 +29,7 @@ pub mod acme;
 pub mod address;
 pub mod certificate;
 pub mod config;
+pub mod connections;
 pub mod hex;
 pub mod origin;
 pub mod rate_limit;

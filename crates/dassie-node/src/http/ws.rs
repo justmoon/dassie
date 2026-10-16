@@ -5,9 +5,15 @@
 //! subprotocol 400. The socket is anonymous unless the session cookie is
 //! valid; an anonymous socket may only ask for the node's basic state.
 //!
+//! Anyone can open an anonymous socket, since the Origin check binds only
+//! browsers. So anonymous sockets have places of their own, fewer than all
+//! sockets get and a few per client, and a lifetime: no client can hold
+//! them all and lock the owner's browser out.
+//!
 //! Only binary messages carry the contract; a text message is a protocol
 //! error, where the original threw inside its listener (RT-16).
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -79,6 +85,7 @@ pub(super) fn switching_protocols(key: &str, subprotocol: Option<&'static str>) 
 pub fn upgrade(
     node: &Arc<Node>,
     mut request: Request<Incoming>,
+    peer: SocketAddr,
     tasks: &TaskTracker,
     shutdown: &CancellationToken,
 ) -> Response<Body> {
@@ -103,16 +110,26 @@ pub fn upgrade(
             return response::text(StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error");
         }
     };
-    // The socket outlives its HTTP connection, whose permit is returned at
-    // the upgrade; it holds one of its own until it closes.
+    // The socket outlives its HTTP connection, whose place is returned at
+    // the upgrade; it holds places of its own until it closes.
     let Some(permit) = node.websocket_permit() else {
-        return response::text(StatusCode::SERVICE_UNAVAILABLE, "Too many open sockets");
+        return too_many_sockets();
+    };
+    let anonymous = match session {
+        Some(_) => None,
+        None => match node.anonymous_socket_slot(peer.ip()) {
+            Ok(slot) => Some(slot),
+            Err(refused) => {
+                tracing::debug!(target: target::RPC, %peer, ?refused, "too many sockets without a session");
+                return too_many_sockets();
+            }
+        },
     };
     let upgrade = hyper::upgrade::on(&mut request);
     let node = Arc::clone(node);
     let shutdown = shutdown.clone();
     tasks.spawn(async move {
-        let _permit = permit;
+        let _places = (permit, anonymous);
         match upgrade.await {
             Ok(upgraded) => {
                 serve(
@@ -127,6 +144,10 @@ pub fn upgrade(
         }
     });
     switching_protocols(&key, Some(SUBPROTOCOL))
+}
+
+fn too_many_sockets() -> Response<Body> {
+    response::text(StatusCode::SERVICE_UNAVAILABLE, "Too many open sockets")
 }
 
 async fn serve<S>(node: Arc<Node>, caller: Caller, io: S, shutdown: CancellationToken)
@@ -168,6 +189,7 @@ where
         Closed::SessionEnded => Some((CloseCode::from(SESSION_ENDED), "session ended")),
         Closed::Shutdown => Some((CloseCode::Away, "node shutting down")),
         Closed::Idle => Some((CloseCode::Normal, "idle")),
+        Closed::Expired => Some((CloseCode::Normal, "lifetime over")),
     };
     if let Some((code, reason)) = frame {
         let close = Message::Close(Some(CloseFrame {

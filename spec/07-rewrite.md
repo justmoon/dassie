@@ -156,6 +156,7 @@ The route table of [2 §6.3](02-node-runtime.md) is kept, including routes that 
 - strict security headers on every response: CSP with no inline script or style, HSTS once a real certificate is installed, `X-Content-Type-Options`, `Referrer-Policy`, `frame-ancestors 'none'`;
 - an `Origin` check on `/rpc` and on the `/api/*` POSTs (RT-6): `Origin` must be `https://` plus the request's `Host`. `Host` must be the configured hostname, `localhost` or an IP literal, which stops DNS rebinding;
 - WebSocket sessions are re-validated on every call, so logout takes effect immediately. Logging out also closes that session's open sockets.
+- each listener holds at most 1024 connections, and at most 64 from one client (an IPv4 address or an IPv6 /56), so that a few addresses cannot fill it. Loopback is not counted per client where private peers are allowed, in dev environments and tests.
 
 **Open Payments routes** ([D9](08-decisions.md#d9-open-payments-fully-and-no-spsp)) come before the wallet's fallback to `index.html`:
 - **Wallet addresses:** `GET /.well-known/pay` and `GET /pay/<scheme>`, each with `/jwks.json`.
@@ -301,7 +302,8 @@ Either way the peer owes only for the Fulfills it took, so an honest peer never 
   - WebSocket at `/rpc`: one message per binary frame.
   - The IPC socket: frames with a 4-byte big-endian length prefix.
   - Both have a 1 MiB message limit, and per-connection limits on concurrent calls (16) and open streams (12). A node serves at most 64 live streams in all.
-  - The node caps the number of open WebSockets. A browser's socket with no call in flight closes after 10 minutes without a message; the client reconnects on its next call.
+  - The node caps the number of open WebSockets at 256. Sockets without a session get at most 128 of them, and 4 per client (an IPv4 address or an IPv6 /56), since the Origin check binds only browsers and any client can open one: sockets with a session always find room, and no single client can take every place.
+  - A browser's socket with no call in flight closes after 10 minutes without a message. A socket without a session also closes 60 s after it opened, whatever it sends, after the calls in flight have their answers. Both close with code 1000; the client reconnects on its next call.
   - A client that sends faster than it reads is disconnected, rather than allowed to queue answers without bound.
   - Every way a session ends (logout, revocation, expiry, eviction for a newer one) closes its sockets with code 4001, after the calls already answered have their answers.
 - **Live streams** (`Subscribe*`) carry either the whole value each time, or a snapshot followed by upserts and removals by key.
