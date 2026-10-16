@@ -140,11 +140,18 @@ impl Owed {
         assert!(previous.is_none(), "a packet owed twice");
     }
 
-    /// Moves an entry to `state`, keeping the queues and counts.
+    /// Moves an entry to `state`, keeping the queues and counts. A verdict
+    /// no longer asked lets the Fulfills blocked behind it go.
     fn set(&mut self, trace: TraceId, state: State) {
-        let Some(entry) = self.entries.get_mut(&trace) else {
-            return;
-        };
+        if let Some((peer, State::Asking)) = self.move_to(trace, state) {
+            self.unblock(peer);
+        }
+    }
+
+    /// Moves an entry to `state`, keeping the queues and counts. Returns
+    /// its peer and the state it left.
+    fn move_to(&mut self, trace: TraceId, state: State) -> Option<(NodeId, State)> {
+        let entry = self.entries.get_mut(&trace)?;
         let peer = entry.row.peer;
         let old = std::mem::replace(&mut entry.state, state);
         match old {
@@ -170,28 +177,24 @@ impl Owed {
             }
             State::Asking => *self.asking.entry(peer).or_default() += 1,
         }
-        if old == State::Asking {
-            self.unblock(peer);
-        }
+        Some((peer, old))
     }
 
     /// Lets one Fulfill blocked behind `peer`'s verdicts go, or all of
     /// them once none is asked any more.
     fn unblock(&mut self, peer: NodeId) {
-        let all = !self.asking.contains_key(&peer);
-        let next: Vec<TraceId> = self
-            .blocked
-            .get(&peer)
-            .map(|blocked| {
-                blocked
-                    .iter()
-                    .take(if all { usize::MAX } else { 1 })
-                    .copied()
-                    .collect()
-            })
-            .unwrap_or_default();
-        for trace in next {
-            self.set(trace, State::Waiting(0));
+        // A peer owes at most this many, blocked or not.
+        let most = if self.asking.contains_key(&peer) {
+            1
+        } else {
+            MAX_OWED_PER_PEER
+        };
+        for _ in 0..most {
+            let blocked = self.blocked.get(&peer);
+            let Some(trace) = blocked.and_then(|blocked| blocked.first().copied()) else {
+                return;
+            };
+            self.move_to(trace, State::Waiting(0));
         }
     }
 
