@@ -356,7 +356,16 @@ impl Node {
                 .map_err(|e| NodeError::Acme(e.to_string()))?;
             let _ = acme.set(Ok(client));
         }
-        let setup_token = SetupToken::generate(rng.as_mut());
+        let setup_token = if node_key.is_some() {
+            // Never shown, and refused: the node is set up.
+            SetupToken::generate(rng.as_mut())
+        } else if let Some(bytes) = store.setup_token()? {
+            SetupToken::from_bytes(bytes)
+        } else {
+            let token = SetupToken::generate(rng.as_mut());
+            store.set_setup_token(token.as_bytes())?;
+            token
+        };
         Ok(Arc::new(Self {
             store: Arc::new(store),
             rng: Arc::new(Mutex::new(rng)),

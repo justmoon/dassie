@@ -96,9 +96,133 @@ fn refuses_foreign_and_newer_databases() {
         Store::open(temp.path()),
         Err(StoreError::TooNew {
             found: 99,
-            known: 13
+            known: SCHEMA_VERSION
         })
     ));
+}
+
+fn user_version(path: &Path) -> i64 {
+    Connection::open(path)
+        .unwrap()
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap()
+}
+
+/// A database at schema version `version`, as an older Dassie left it.
+fn database_at(dir: &Path, version: usize) {
+    let mut connection = Connection::open(dir.join(DATABASE_FILE)).unwrap();
+    connection
+        .pragma_update(None, "application_id", APPLICATION_ID)
+        .unwrap();
+    schema::migrate_until(&mut connection, version).unwrap();
+}
+
+// D11: a rollback needs the database as the version before left it.
+#[test]
+fn keeps_a_copy_before_migrating() {
+    let temp = tempfile::tempdir().unwrap();
+    let copy = temp.path().join(PRE_MIGRATION_FILE);
+    drop(Store::open(temp.path()).unwrap());
+    // A new database needs no copy, nor does one already current.
+    drop(Store::open(temp.path()).unwrap());
+    assert!(!copy.exists());
+    fs::remove_file(temp.path().join(DATABASE_FILE)).unwrap();
+    let older = usize::try_from(SCHEMA_VERSION - 1).unwrap();
+    database_at(temp.path(), older);
+    drop(Store::open(temp.path()).unwrap());
+    assert_eq!(user_version(&copy), SCHEMA_VERSION - 1);
+    assert_eq!(mode(&copy), 0o600);
+    assert_eq!(
+        user_version(&temp.path().join(DATABASE_FILE)),
+        SCHEMA_VERSION
+    );
+}
+
+/// Starts a newer version on `dir` as far as its migration: it keeps a copy
+/// of the database, migrates past this version, and changes the hostname.
+fn newer_version_migrates(dir: &Path) {
+    let connection = Connection::open(dir.join(DATABASE_FILE)).unwrap();
+    snapshot::keep_copy(&connection, dir, SCHEMA_VERSION).unwrap();
+    connection
+        .pragma_update(None, "user_version", SCHEMA_VERSION + 1)
+        .unwrap();
+    connection
+        .execute("UPDATE node_config SET hostname = 'newer.example'", [])
+        .unwrap();
+}
+
+#[test]
+fn a_rollback_puts_the_copy_back() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = Store::open(temp.path()).unwrap();
+    let mut config = store.config().unwrap();
+    config.hostname = Some(Hostname::parse("older.example").unwrap());
+    store.set_config(&config).unwrap();
+    drop(store);
+    // This version can open what it left: nothing to do.
+    let since = std::time::SystemTime::now();
+    assert_eq!(
+        restore_pre_migration(temp.path(), since).unwrap(),
+        Restored::Nothing
+    );
+    newer_version_migrates(temp.path());
+    assert!(matches!(
+        Store::open(temp.path()),
+        Err(StoreError::TooNew { .. })
+    ));
+    assert_eq!(
+        restore_pre_migration(temp.path(), since).unwrap(),
+        Restored::Copy {
+            from: SCHEMA_VERSION + 1,
+            to: SCHEMA_VERSION
+        }
+    );
+    let store = Store::open(temp.path()).unwrap();
+    assert_eq!(store.config().unwrap(), config);
+    assert!(!temp.path().join(PRE_MIGRATION_FILE).exists());
+    // What the newer version left stays, for the owner to look at.
+    assert_eq!(
+        user_version(&temp.path().join(ROLLED_BACK_FILE)),
+        SCHEMA_VERSION + 1
+    );
+}
+
+#[test]
+fn a_rollback_refuses_a_copy_it_cannot_trust() {
+    let temp = tempfile::tempdir().unwrap();
+    drop(Store::open(temp.path()).unwrap());
+    newer_version_migrates(temp.path());
+    // A copy from before this update began is from another migration.
+    let later = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
+    assert!(matches!(
+        restore_pre_migration(temp.path(), later),
+        Err(StoreError::NoUsableCopy(_))
+    ));
+    fs::remove_file(temp.path().join(PRE_MIGRATION_FILE)).unwrap();
+    let since = std::time::SystemTime::UNIX_EPOCH;
+    assert!(matches!(
+        restore_pre_migration(temp.path(), since),
+        Err(StoreError::NoUsableCopy(_))
+    ));
+    // Nothing moved: the database is as the newer version left it.
+    assert_eq!(
+        user_version(&temp.path().join(DATABASE_FILE)),
+        SCHEMA_VERSION + 1
+    );
+}
+
+#[test]
+fn the_setup_token_lasts_until_setup() {
+    let store = Store::open_in_memory().unwrap();
+    assert_eq!(store.setup_token().unwrap(), None);
+    store.set_setup_token(&[3; 32]).unwrap();
+    assert_eq!(store.setup_token().unwrap(), Some([3; 32]));
+    assert!(
+        store
+            .set_node_key_once(&NodeKey::from_bytes(&[1; 32]), 5)
+            .unwrap()
+    );
+    assert_eq!(store.setup_token().unwrap(), None);
 }
 
 // The original did not notice columns it did not expect.

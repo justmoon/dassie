@@ -179,15 +179,20 @@ impl Install {
             .into_owned()
     }
 
-    /// The names in the base directory, but the lock.
+    /// The names in the base directory, but the lock and the record.
     fn entries(&self) -> Vec<String> {
         let mut names: Vec<String> = fs::read_dir(self.base())
             .unwrap()
             .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
-            .filter(|name| name != ".update.lock")
+            .filter(|name| name != ".update.lock" && name != "last-update")
             .collect();
         names.sort();
         names
+    }
+
+    /// How the last update went, as it recorded it for `dassie status`.
+    fn last_update(&self) -> String {
+        fs::read_to_string(self.base().join("last-update")).unwrap()
     }
 }
 
@@ -285,6 +290,12 @@ fn refused(install: &Install, output: &Output, why: &str) {
         install.entries(),
         vec![install.version.clone(), "current".to_owned()]
     );
+    // Unless another update held the lock, and so recorded its own.
+    if why != "another update is running" {
+        let record = install.last_update();
+        assert!(record.contains("\noutcome=failed\n"), "{record}");
+        assert!(record.contains(why), "{record}");
+    }
 }
 
 #[test]
@@ -299,6 +310,11 @@ fn installs_a_newer_release() {
         text(&output)
     );
     assert_eq!(install.current(), "9.9.9");
+    let record = install.last_update();
+    assert!(
+        record.contains("\noutcome=updated\ntarget=9.9.9\n"),
+        "{record}"
+    );
     // The version it came from stays, for going back by hand.
     let mut expected = vec![
         "9.9.9".to_owned(),
@@ -365,6 +381,7 @@ fn stays_when_up_to_date_or_offered_older() {
         "{}",
         text(&output)
     );
+    assert!(install.last_update().contains("\noutcome=up-to-date\n"));
     publish(&mirror, "0.0.1", &release("0.0.1"), None);
     let output = install.update(&mirror, &[]);
     assert!(output.status.success(), "{}", text(&output));

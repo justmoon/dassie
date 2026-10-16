@@ -17,18 +17,24 @@
 //!    install.
 //! 4. It moves it into place, installs its systemd units, points `current`
 //!    at it with one `rename`, and restarts the node.
-//! 5. It keeps the version it came from, and removes older ones.
+//! 5. If the node does not come up, it points `current` back, puts back the
+//!    database from before the new version migrated it, if it did
+//!    (`dassie_node::store::restore_pre_migration`), and starts the old
+//!    version again.
+//! 6. It keeps the version it came from, and removes older ones.
 //!
 //! One update runs at a time: each holds a lock on `<base>/.update.lock`.
+//! Each records how it went in `<base>/last-update`, for `dassie status`.
 
 use std::fs::{self, File};
 use std::io::{self, Read as _};
 use std::os::unix::fs::{PermissionsExt as _, symlink};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Output, Stdio};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use dassie_node::peer_client::{PeerClient, WebRequest};
+use dassie_node::store::{self, ROLLED_BACK_FILE, Restored};
 use dassie_release::bundle::{self, Kind, Unpacking};
 use dassie_release::layout::{self, Arch, Compression};
 use dassie_release::{Channel, PublicKey, Sums, Version, verify_sums};
@@ -40,6 +46,11 @@ include!(concat!(env!("OUT_DIR"), "/release_key.rs"));
 const UNIT_DIR: &str = "/etc/systemd/system";
 /// The node's service, restarted once `current` moved.
 const SERVICE: &str = "dassie.service";
+/// The node's data directory under systemd, unless `DASSIE_STATE_DIRECTORY`
+/// says otherwise.
+const STATE_DIRECTORY: &str = "/var/lib/dassie";
+/// Where each update records how it went, in the install's base.
+pub const LAST_UPDATE_FILE: &str = "last-update";
 /// How long fetching `meta/<channel>`, the sums or the signature may take.
 const SMALL_TIMEOUT_MS: u64 = 30_000;
 /// How long fetching a bundle may take.
@@ -86,23 +97,58 @@ pub fn run(options: Options) -> ExitCode {
 }
 
 /// The install this binary belongs to.
-struct Install {
+pub struct Install {
     /// `/opt/dassie`.
-    base: PathBuf,
+    pub base: PathBuf,
     /// The version running.
     version: Version,
+}
+
+/// How an update went.
+#[derive(Debug)]
+enum Outcome {
+    /// There was nothing newer.
+    UpToDate,
+    /// The node runs this version now.
+    Updated(Version),
+    /// This version did not come up, and the one before runs again.
+    RolledBack(Version, Problem),
+    /// The update stopped, or could not go back: the problem says which.
+    Failed(Problem),
 }
 
 async fn update(options: Options) -> Result<(), Problem> {
     let install = locate()?;
     let key = release_key()?;
     let _lock = lock(&install.base)?;
+    let outcome = match attempt(&options, &install, &key).await {
+        Ok(outcome) => outcome,
+        Err(problem) => Outcome::Failed(problem),
+    };
+    if let Err(problem) = record(&install, &outcome) {
+        eprintln!("Note: could not record how the update went: {problem}");
+    }
+    match outcome {
+        Outcome::UpToDate | Outcome::Updated(_) => Ok(()),
+        Outcome::RolledBack(target, _) => Err(format!(
+            "dassie {target} did not start, and {} runs again",
+            install.version
+        )),
+        Outcome::Failed(problem) => Err(problem),
+    }
+}
+
+async fn attempt(
+    options: &Options,
+    install: &Install,
+    key: &PublicKey,
+) -> Result<Outcome, Problem> {
     let mirror = Mirror::new(options.mirror.as_deref())?;
-    let Some(target) = choose(&options, &install, &mirror).await? else {
-        return Ok(());
+    let Some(target) = choose(options, install, &mirror).await? else {
+        return Ok(Outcome::UpToDate);
     };
     println!("Downloading dassie {target} from {}...", mirror.url);
-    let bundle = mirror.bundle(&key, &target).await?;
+    let bundle = mirror.bundle(key, &target).await?;
     let staging = install
         .base
         .join(format!(".staging-{target}-{}", std::process::id()));
@@ -114,6 +160,9 @@ async fn update(options: Options) -> Result<(), Problem> {
     let units = install_units(&dir.join("share/systemd"))?;
     switch(&install.base, &target)?;
     println!("Installed dassie {target}.");
+    // Whatever the new version writes from here on, a copy of the database
+    // from before its migration included, is this update's.
+    let since = SystemTime::now();
     let restarted = if !options.no_restart && systemd_running() {
         restart(&units)
     } else {
@@ -124,14 +173,16 @@ async fn update(options: Options) -> Result<(), Problem> {
             "dassie {target} did not start ({problem}); going back to {}.",
             install.version
         );
-        roll_back(&install)?;
-        return Err(format!(
-            "dassie {target} did not start, and {} runs again",
-            install.version
-        ));
+        if let Err(failed) = roll_back(install, since) {
+            return Err(format!(
+                "dassie {target} did not start ({problem}), and going back to {} failed: {failed}",
+                install.version
+            ));
+        }
+        return Ok(Outcome::RolledBack(target, problem));
     }
     prune(&install.base, &[&target, &install.version]);
-    Ok(())
+    Ok(Outcome::Updated(target))
 }
 
 /// Makes systemd take in the units that changed, enables the new ones, and
@@ -147,18 +198,136 @@ fn restart(units: &Units) -> Result<(), Problem> {
     systemctl(&["restart", SERVICE])
 }
 
-/// Points `current` back at the version that ran, with its units, and
-/// restarts it.
-fn roll_back(install: &Install) -> Result<(), Problem> {
+/// Points `current` back at the version that ran, with its units, puts back
+/// the database from before the update if the new version migrated it, and
+/// starts the old version.
+fn roll_back(install: &Install, since: SystemTime) -> Result<(), Problem> {
     let dir = install.base.join(install.version.to_string());
     install_units(&dir.join("share/systemd"))?;
     switch(&install.base, &install.version)?;
     systemctl(&["daemon-reload"])?;
-    systemctl(&["restart", SERVICE])
+    // systemd may be restarting the failed node; the database must be left
+    // alone while it is put back.
+    systemctl(&["stop", SERVICE])?;
+    let restored = restore_database(since);
+    let started = systemctl(&["start", SERVICE]);
+    restored.and(started)
+}
+
+/// Puts back the database from before the update, if the version that
+/// failed migrated it.
+fn restore_database(since: SystemTime) -> Result<(), Problem> {
+    let data_dir = std::env::var_os("DASSIE_STATE_DIRECTORY")
+        .map_or_else(|| PathBuf::from(STATE_DIRECTORY), PathBuf::from);
+    match store::restore_pre_migration(&data_dir, since) {
+        Ok(Restored::Nothing) => Ok(()),
+        Ok(Restored::Copy { from, to }) => {
+            println!(
+                "Put back the database from before the update (schema {to}). The one the new \
+                 version left (schema {from}) is {}.",
+                data_dir.join(ROLLED_BACK_FILE).display()
+            );
+            Ok(())
+        }
+        Err(error) => Err(format!("{}: {error}", data_dir.display())),
+    }
+}
+
+/// How the last update went, as `<base>/last-update` has it.
+#[derive(Debug, PartialEq, Eq)]
+pub struct LastUpdate {
+    /// When it ran.
+    pub at_unix_ms: u64,
+    /// `up-to-date`, `updated`, `rolled-back` or `failed`.
+    pub outcome: String,
+    /// The version it installed or tried, if any.
+    pub target: Option<String>,
+    /// What went wrong, if anything.
+    pub problem: Option<String>,
+}
+
+impl LastUpdate {
+    /// The record, as lines of `key=value`.
+    fn to_text(&self) -> String {
+        let mut text = format!("at={}\noutcome={}\n", self.at_unix_ms, self.outcome);
+        if let Some(target) = &self.target {
+            text.push_str(&format!("target={target}\n"));
+        }
+        if let Some(problem) = &self.problem {
+            // One line, whatever the problem said.
+            let line = problem.split_whitespace().collect::<Vec<_>>().join(" ");
+            text.push_str(&format!("problem={line}\n"));
+        }
+        text
+    }
+
+    /// Reads a record; `None` if it is not one.
+    fn parse(text: &str) -> Option<Self> {
+        let (mut at, mut outcome, mut target, mut problem) = (None, None, None, None);
+        for line in text.lines() {
+            match line.split_once('=')? {
+                ("at", value) => at = value.parse().ok(),
+                ("outcome", value) => outcome = Some(value.to_owned()),
+                ("target", value) => target = Some(value.to_owned()),
+                ("problem", value) => problem = Some(value.to_owned()),
+                _ => {}
+            }
+        }
+        Some(Self {
+            at_unix_ms: at?,
+            outcome: outcome?,
+            target,
+            problem,
+        })
+    }
+}
+
+/// Writes how the update went to `<base>/last-update`, readable by all.
+fn record(install: &Install, outcome: &Outcome) -> Result<(), Problem> {
+    let at_unix_ms = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_or(0, |since| {
+            u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
+        });
+    let (outcome, target, problem) = match outcome {
+        Outcome::UpToDate => ("up-to-date", None, None),
+        Outcome::Updated(target) => ("updated", Some(target.to_string()), None),
+        Outcome::RolledBack(target, problem) => (
+            "rolled-back",
+            Some(target.to_string()),
+            Some(problem.clone()),
+        ),
+        Outcome::Failed(problem) => ("failed", None, Some(problem.clone())),
+    };
+    let text = LastUpdate {
+        at_unix_ms,
+        outcome: outcome.into(),
+        target,
+        problem,
+    }
+    .to_text();
+    let path = install.base.join(LAST_UPDATE_FILE);
+    let staged = install
+        .base
+        .join(format!(".{LAST_UPDATE_FILE}-{}", std::process::id()));
+    let write = || -> io::Result<()> {
+        let mut file = File::create(&staged)?;
+        io::Write::write_all(&mut file, text.as_bytes())?;
+        file.set_permissions(fs::Permissions::from_mode(0o644))?;
+        file.sync_all()
+    };
+    write().map_err(|e| permission(&staged, &e))?;
+    fs::rename(&staged, &path).map_err(|e| permission(&path, &e))
+}
+
+/// How the last update of this install went, if one recorded it.
+pub fn last_update(install: &Install) -> Option<LastUpdate> {
+    let text = fs::read_to_string(install.base.join(LAST_UPDATE_FILE)).ok()?;
+    LastUpdate::parse(&text)
 }
 
 /// Finds the install from this binary's path.
-fn locate() -> Result<Install, Problem> {
+pub fn locate() -> Result<Install, Problem> {
     let not_installed = |why: &str| {
         format!(
             "this binary is not one the installer installed ({why}); \
@@ -654,5 +823,26 @@ mod tests {
         }
         let refused = sync_tree(temp.path()).unwrap_err();
         assert!(refused.contains("more than 8192 entries"), "{refused}");
+    }
+
+    #[test]
+    fn the_record_reads_back() {
+        let record = LastUpdate {
+            at_unix_ms: 1_792_108_800_000,
+            outcome: "rolled-back".into(),
+            target: Some("9.9.9".into()),
+            problem: Some("systemctl restart dassie.service failed\n  (exit status: 1)".into()),
+        };
+        let text = record.to_text();
+        assert_eq!(text.lines().count(), 4);
+        let read = LastUpdate::parse(&text);
+        assert_eq!(
+            read.map(|read| read.problem),
+            Some(Some(
+                "systemctl restart dassie.service failed (exit status: 1)".into()
+            ))
+        );
+        assert_eq!(LastUpdate::parse("outcome=updated\n"), None);
+        assert_eq!(LastUpdate::parse("garbage"), None);
     }
 }

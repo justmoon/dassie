@@ -67,7 +67,7 @@ crates/
   dassie-payments/      Open Payments, sans-IO: resources, GNAP, HTTP message signatures, intervals, quotes
   dassie-node-core/     the node's decisions without IO: config, setup, sessions, rate limits, ACME/TLS policy
   dassie-node/          daemon composition: config, DB, HTTP(S)/IPC listeners, TLS, ACME, auth, RPC
-  dassie-cli/           the `dassie` binary: daemon | init | update | verify-install
+  dassie-cli/           the `dassie` binary: daemon | init | status | setup-url | update | verify-install
   dassie-release/       versions, channels, the mirror's layout, SHA256SUMS and its minisign signature (sans-IO)
 proto/
   dassie/ui/v1/         UI and CLI RPC contract (normative; Rust and TS generated from it)
@@ -599,7 +599,10 @@ meta/canary                                  the newest canary
   - the units are installed, each only if it changed (`DASSIE_SYSTEMD_UNIT_DIR` for tests). The owner's changes belong in drop-ins, which the updater leaves alone;
   - `current` moves with one rename, synced;
   - systemd reloads if a unit changed, units new in the release are enabled, and the node restarts (unless `--no-restart`, or systemd is not running).
-- **Rolling back:** if the node does not come up, `current` goes back to the version that ran, with its units, and that version restarts. The update fails.
+- **Rolling back:** if the node does not come up, `current` goes back to the version that ran, with its units. The node is stopped, and if the new version migrated the database, the copy from before the migration is put back. Then the old version starts. The update fails.
+  - The daemon writes that copy itself, `dassie.sqlite3.pre-migration` beside the database, with `VACUUM INTO`, just before it migrates and before it serves anything; nothing the copy lacks has reached a peer.
+  - The updater puts it back only if the old version could not open the database as it is (its schema is newer), and only if the copy is from this update, by its time. The database it replaces is kept as `dassie.sqlite3.rolled-back`, for the owner to look at. The updater finds the data directory at `/var/lib/dassie`, or where `DASSIE_STATE_DIRECTORY` says.
+- **Recording:** each update writes how it went (up to date, updated, rolled back or failed, with the reason) to `<base>/last-update`, for `dassie status`.
 - **Pruning:** it keeps the version it came from and the new one, and removes every other version and what an interrupted update or install left.
 - **The mirror** must be `https://`, and may be on a private network: the owner names it. `DASSIE_MIRROR_CA_FILE` adds roots to trust it by.
 
@@ -607,7 +610,9 @@ meta/canary                                  the newest canary
 - `crates/dassie-cli/tests/update.rs` runs the binary against a mirror served over TLS from an install in a temporary directory. The binary is built with the `test-key` feature, which trusts `testdata/release`'s key and is never in a release; the Nix check enables it. The tests check:
   - installing, being up to date, and an older version on offer;
   - tampered bundles, sums signed for another version, a bad or missing signature, links and paths outside `dassie/`, and a binary that names another version;
-  - one update at a time, and modes that let the node run under a strict umask.
+  - one update at a time, and modes that let the node run under a strict umask;
+  - the record each update leaves.
+- The store's tests check the copy before a migration, and that a rollback puts it back only when it must and only a copy it can trust.
 - `tests/e2e/install_test.ts` installs, updates and uninstalls on Debian 12, Ubuntu 24.04, Fedora 42 and CentOS Stream 9 (item 6 of §7), the installer under `umask 077`; a re-run installer does not go back to an older version the mirror offers.
 - The installer's ShellCheck runs with `nix flake check`.
 

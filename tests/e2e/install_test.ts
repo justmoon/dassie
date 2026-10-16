@@ -489,10 +489,15 @@ async function steps(t: Deno.TestContext, machine: Machine, mirror: Mirror) {
         await machine.must("stat -c %i /var/lib/private/dassie/dassie.sqlite3"),
         database,
       );
-      // The version it came from stays.
+      // The version it came from stays, beside the record for
+      // `dassie status`.
       assertEquals(
         await machine.must("ls /opt/dassie"),
-        "1.0.0\n1.0.1\ncurrent",
+        "1.0.0\n1.0.1\ncurrent\nlast-update",
+      );
+      assertStringIncludes(
+        await machine.must("cat /opt/dassie/last-update"),
+        "outcome=updated\ntarget=1.0.1",
       );
       // Nothing newer: the updater stays.
       const again = await update(machine);

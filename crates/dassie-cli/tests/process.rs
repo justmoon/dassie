@@ -256,3 +256,58 @@ fn verify_install_checks_the_database_and_tls() {
     // Whether it succeeds depends on whether this build has the wallet.
     assert_eq!(output.status.success(), stdout.contains("Success!"));
 }
+
+/// Starts a standalone daemon on `state`, with its socket at `ipc`, and
+/// waits until it answers.
+fn start_standalone(state: &Path, ipc: &Path, ports: [&str; 2]) -> Option<Child> {
+    let child = Command::new(DASSIE)
+        .args(["daemon", "--http-port", ports[0], "--https-port", ports[1]])
+        .args(["--listen", "127.0.0.1"])
+        .env_clear()
+        .env("DASSIE_STATE_DIRECTORY", state)
+        .env("DASSIE_IPC_SOCKET_PATH", ipc)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut child = Some(child);
+    wait_for(ipc, &mut child);
+    child
+}
+
+fn stop(child: &mut Option<Child>) {
+    let child = child.take().unwrap();
+    terminate(child.id());
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success(), "{}", describe(&output));
+}
+
+// The original drew a new setup token at every start, and had no status
+// command: an owner back the day after an update found a dead link.
+#[test]
+fn status_and_the_setup_url_before_setup() {
+    let dir = tempfile::tempdir().unwrap();
+    let (state, ipc) = (dir.path().join("state"), dir.path().join("ipc.sock"));
+    let env = [("DASSIE_IPC_SOCKET_PATH", ipc.to_str().unwrap())];
+    let mut child = start_standalone(&state, &ipc, ["18298", "18299"]);
+    let url = run(&["setup-url"], &env);
+    assert!(url.status.success(), "{}", describe(&url));
+    let url = String::from_utf8(url.stdout).unwrap();
+    let token = url.trim().rsplit('/').next().unwrap();
+    assert_eq!(token.len(), 64, "{url}");
+    let status = run(&["status"], &env);
+    assert!(status.status.success(), "{}", describe(&status));
+    let text = String::from_utf8_lossy(&status.stdout);
+    assert!(text.contains(" is running, for "), "{text}");
+    assert!(text.contains("Setup        not done yet"), "{text}");
+    // It names no secret, so it can be pasted where help is asked for.
+    assert!(!text.contains(token), "{text}");
+    stop(&mut child);
+    let stopped = run(&["status"], &env);
+    assert_eq!(stopped.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&stopped.stdout).contains("Dassie is not running."));
+    let mut child = start_standalone(&state, &ipc, ["18298", "18299"]);
+    let again = run(&["setup-url"], &env);
+    assert_eq!(String::from_utf8(again.stdout).unwrap(), url);
+    stop(&mut child);
+}
