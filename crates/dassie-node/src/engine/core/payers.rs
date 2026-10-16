@@ -64,6 +64,17 @@ pub(super) struct Spending {
     pub local_queue: VecDeque<(Forwarded, Vec<u8>)>,
 }
 
+/// Where the answer to a payer's packet is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Answer {
+    /// In `out`, given at once by the connector.
+    Out(usize),
+    /// In `up`, come back from where it went.
+    Up(usize),
+    /// There is none: the connector refused it.
+    Empty,
+}
+
 /// What sent a payer's packet.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Sender {
@@ -502,19 +513,23 @@ impl Core {
             self.spending
                 .requests
                 .insert(local, (Sender::Payment(id), transmit.request_id));
-            self.send_payer_packet(now, endpoint, local, transmit.length);
+            if let Some(answer) = self.send_payer_packet(now, endpoint, local, transmit.length) {
+                self.take_answer(now, local, answer);
+                self.settle_outgoing(id, now);
+            }
         }
     }
 
     /// Hands the connector a payer's packet, written into the scratch
-    /// buffer.
+    /// buffer. Returns its answer, if the connector gave it at once: the
+    /// caller takes it in, and goes on sending (D16: nothing recurses).
     pub(super) fn send_payer_packet(
         &mut self,
         now: u64,
         endpoint: EndpointId,
         local: u32,
         length: usize,
-    ) {
+    ) -> Option<Answer> {
         let outcome = self.connector.handle_prepare(
             now,
             endpoint,
@@ -524,11 +539,12 @@ impl Core {
             &self.rates,
             &mut self.out,
         );
-        self.sent_out(now, outcome, local);
+        self.sent_out(now, outcome)
     }
 
-    /// What the connector did with a payer's packet.
-    fn sent_out(&mut self, now: u64, outcome: Outcome, local: u32) {
+    /// What the connector did with a payer's packet, and its answer if it
+    /// has one already.
+    fn sent_out(&mut self, now: u64, outcome: Outcome) -> Option<Answer> {
         match outcome {
             Outcome::Forward(forwarded) if matches!(forwarded.to, EndpointId::Local(_)) => {
                 // To the node's own receiver: after this step's sending,
@@ -542,40 +558,67 @@ impl Core {
                     self.spending.local_queue.push_back((forwarded, packet));
                 }
                 // A full queue leaves the packet to expire.
+                None
             }
-            Outcome::Forward(forwarded) => self.forwarded(now, forwarded),
-            Outcome::Respond(length) => {
-                let response = self.out.get(..length).unwrap_or_default().to_vec();
-                self.payer_response(now, local, &response);
+            Outcome::Forward(forwarded) => {
+                self.forward_out(now, forwarded);
+                None
             }
-            Outcome::Duplicate | Outcome::UnknownSource => {
-                self.payer_response(now, local, &[]);
-            }
+            Outcome::Respond(length) => Some(Answer::Out(length)),
+            Outcome::Duplicate | Outcome::UnknownSource => Some(Answer::Empty),
         }
     }
 
-    /// The response to a payer's packet: to its connection.
-    pub(super) fn payer_response(&mut self, now: u64, local: u32, response: &[u8]) {
-        let Some((sender, request)) = self.spending.requests.remove(&local) else {
-            return;
-        };
-        let id = match sender {
-            Sender::Payment(id) => id,
-            Sender::Probe(probe) => return self.probe_response(now, probe, request, response),
-        };
-        let Self { spending, work, .. } = self;
-        let Some(payment) = spending.outgoing.get_mut(&id) else {
-            return;
-        };
-        assert!(
-            payment.in_flight > 0,
-            "a response to a packet not in flight"
-        );
-        payment.in_flight -= 1;
-        if let Some(connection) = payment.connection.as_mut() {
-            connection.handle_response(Timestamp::from_unix_ms(now), request, response, work);
+    /// The answer to a payer's packet, come later: to its connection, which
+    /// then sends what it has to.
+    pub(super) fn payer_response(&mut self, now: u64, local: u32, answer: Answer) {
+        match self.take_answer(now, local, answer) {
+            Some(Sender::Payment(id)) => self.settle_outgoing(id, now),
+            Some(Sender::Probe(id)) => {
+                self.transmit_probe(id, now);
+                self.settle_probe(id, now);
+            }
+            None => {}
         }
-        self.settle_outgoing(id, now);
+    }
+
+    /// Gives a payer's connection the answer to its packet `local`, read
+    /// where it is. Sends nothing. Returns whose packet it was.
+    pub(super) fn take_answer(&mut self, now: u64, local: u32, answer: Answer) -> Option<Sender> {
+        let (sender, request) = self.spending.requests.remove(&local)?;
+        let Self {
+            spending,
+            work,
+            out,
+            up,
+            ..
+        } = self;
+        let response = match answer {
+            Answer::Out(length) => out.get(..length),
+            Answer::Up(length) => up.get(..length),
+            Answer::Empty => None,
+        };
+        let (at, response) = (Timestamp::from_unix_ms(now), response.unwrap_or_default());
+        match sender {
+            Sender::Payment(id) => {
+                let payment = spending.outgoing.get_mut(&id)?;
+                assert!(
+                    payment.in_flight > 0,
+                    "a response to a packet not in flight"
+                );
+                payment.in_flight -= 1;
+                if let Some(connection) = payment.connection.as_mut() {
+                    connection.handle_response(at, request, response, work);
+                }
+            }
+            Sender::Probe(id) => {
+                let probe = spending.probes.get_mut(&id)?;
+                probe
+                    .connection
+                    .handle_response(at, request, response, work);
+            }
+        }
+        Some(sender)
     }
 
     /// Takes in what a payment's connection did: what it sent, and whether
@@ -725,7 +768,7 @@ impl Core {
             };
             if let Some(target) = self.out.get_mut(..packet.len()) {
                 target.copy_from_slice(&packet);
-                self.forwarded(now, forwarded);
+                self.deliver(now, forwarded);
             }
         }
     }

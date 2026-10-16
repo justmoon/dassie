@@ -451,3 +451,24 @@ fn the_core_does_not_log() {
     }
     assert!(read > 10, "the core's sources were not found");
 }
+
+// A probe the connector answers at once, to an address nobody routes, ends
+// in the same step without a rate: its packets' answers are taken in as
+// they come, without the sending loop calling itself again (D16).
+#[test]
+fn a_probe_to_nowhere_ends_at_once() {
+    let mut core = core(8);
+    core.add_scheme("stub", String::new()).unwrap();
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    let ledger = dassie_ledger::LedgerId::StubUsd;
+    core.start_probe(1, ledger, "test.nowhere.receiver", &[3; 32])
+        .unwrap();
+    core.finish_step(&mut outputs);
+    assert!(
+        outputs
+            .iter()
+            .any(|output| matches!(output, Output::ProbeDone { id: 1, rate: None })),
+        "{outputs:?}"
+    );
+}

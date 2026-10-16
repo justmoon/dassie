@@ -12,6 +12,7 @@ use dassie_stream::{AssetDetails, ConnectionId, Event, Policy, Server, ServerCon
 
 use super::Core;
 use super::events::{BtpEvent, PaymentEvent, PeerEvent};
+use super::payers::Answer;
 use super::{EngineError, Outbound};
 
 /// The type byte of an ILP Prepare.
@@ -280,8 +281,21 @@ impl Core {
         self.after_peer();
     }
 
-    /// Sends a Prepare the connector forwarded.
-    pub(super) fn forwarded(&mut self, now: u64, forwarded: Forwarded) {
+    /// Sends a Prepare the connector forwarded: to the node's own receiver,
+    /// or out.
+    fn forwarded(&mut self, now: u64, forwarded: Forwarded) {
+        match forwarded.to {
+            EndpointId::Local(_) => self.deliver(now, forwarded),
+            EndpointId::Btp(_) | EndpointId::Peer(_) => self.forward_out(now, forwarded),
+        }
+    }
+
+    /// Sends a Prepare the connector forwarded to a BTP client or a peer.
+    /// What is for the node's own endpoints, its callers deliver.
+    // Panics only on a broken invariant: callers send out only what goes
+    // out.
+    #[allow(clippy::panic)]
+    pub(super) fn forward_out(&mut self, now: u64, forwarded: Forwarded) {
         match forwarded.to {
             EndpointId::Btp(link) => {
                 let packet = self
@@ -297,7 +311,7 @@ impl Core {
                     },
                 ));
             }
-            EndpointId::Local(_) => self.deliver(now, forwarded),
+            EndpointId::Local(_) => panic!("a packet for a local endpoint sent out"),
             EndpointId::Peer(endpoint) => {
                 self.send_to_peer(
                     now,
@@ -321,7 +335,7 @@ impl Core {
     /// Hands a Prepare to its receiver, which answers at once: through the
     /// admission of the incoming payment it pays, which bounds what it may
     /// take.
-    fn deliver(&mut self, now: u64, forwarded: Forwarded) {
+    pub(super) fn deliver(&mut self, now: u64, forwarded: Forwarded) {
         let Some(ledger) = self.receiver_ledger(forwarded.to) else {
             // A payer takes no money: refused at once, so nothing waits on
             // it until its expiry.
@@ -408,8 +422,8 @@ impl Core {
             EndpointId::Local(_) => {
                 let Some(ledger) = self.receiver_ledger(upstream.to) else {
                     if self.payer_ledger(upstream.to).is_some() {
-                        let response = packet.to_vec();
-                        self.payer_response(now, upstream.request_id, &response);
+                        let answer = Answer::Up(upstream.length);
+                        self.payer_response(now, upstream.request_id, answer);
                     }
                     return;
                 };
@@ -560,7 +574,7 @@ impl Core {
         match outcome {
             // Not to a receiver, which cannot pay one: such a packet expires.
             Outcome::Forward(forwarded) if !matches!(forwarded.to, EndpointId::Local(_)) => {
-                self.forwarded(now, forwarded);
+                self.forward_out(now, forwarded);
             }
             Outcome::Forward(_) => {}
             Outcome::Respond(length) => {
