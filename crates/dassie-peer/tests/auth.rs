@@ -2,7 +2,13 @@
 //! original's scheme could be fooled (NET-8) or a property the amended
 //! scheme promises.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unreachable
+)]
 
 use std::sync::Arc;
 

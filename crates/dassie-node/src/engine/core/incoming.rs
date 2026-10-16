@@ -30,8 +30,8 @@ use dassie_ilp::ErrorCode;
 use dassie_ledger::LedgerId;
 use dassie_stream::{Admission, Credentials};
 
+use super::events::PaymentEvent;
 use super::{Core, EngineError};
-use crate::log::target;
 use crate::store::{ConnectionKey, IncomingPaid, IncomingProgress, IncomingRow, PaymentId};
 
 /// Most connections that pay one incoming payment: a new one past them is
@@ -269,7 +269,7 @@ impl Core {
         }
         if dropped > 0 {
             // Only after the bounds were lowered: they take no more money.
-            tracing::warn!(target: target::PAYMENT, dropped, "more incoming payments are open than the bounds allow");
+            self.report(PaymentEvent::IncomingOverBounds { dropped });
         }
         let most = (policy.max_open_owner + policy.max_open_clients)
             .saturating_mul(MAX_CONNECTIONS_PER_PAYMENT);
@@ -363,7 +363,10 @@ impl Core {
         };
         self.incoming.insert(id, open_of(&row));
         self.batch.incoming_created.push(row.clone());
-        tracing::debug!(target: target::PAYMENT, %id, ledger = %row.ledger, "incoming payment created");
+        self.report(PaymentEvent::IncomingCreated {
+            id,
+            ledger: row.ledger,
+        });
         Ok(row)
     }
 
@@ -409,7 +412,7 @@ impl Core {
             ));
         };
         self.close_incoming(oldest, now);
-        tracing::debug!(target: target::PAYMENT, id = %oldest, "an unpaid incoming payment closed to make room");
+        self.report(PaymentEvent::IncomingClosedForRoom { id: oldest });
         Ok(())
     }
 
@@ -525,22 +528,39 @@ impl Core {
         }
         self.finished_incoming.add(id, connection, amount);
         let row = match self.batch.incoming_progress.get(&id) {
-            Some(progress) => Some((progress.received_amount, progress.completed_at_ms)),
+            Some(progress) => Ok(Some((progress.received_amount, progress.completed_at_ms))),
             None => self
                 .store
                 .incoming_payment(id)
-                .ok()
-                .flatten()
-                .map(|row| (row.received_amount, row.completed_at_ms)),
+                .map(|row| row.map(|row| (row.received_amount, row.completed_at_ms))),
         };
-        let Some((received, completed_at_ms)) = row else {
-            tracing::error!(target: target::PAYMENT, %id, "a confirmed payment is gone");
-            return;
+        let (received, completed_at_ms) = match row {
+            Ok(Some(row)) => row,
+            // Payments that received nothing are pruned a week after they
+            // close; a verdict may come later than that.
+            Ok(None) => {
+                self.report(PaymentEvent::ConfirmedPaymentGone { id });
+                return;
+            }
+            Err(error) => {
+                let error = error.to_string();
+                self.report(PaymentEvent::ConfirmedPaymentUnread { id, error });
+                return;
+            }
         };
+        // What it received is on the receiver's account, which never
+        // holds more than `MAX_TOTAL`.
+        let received = received
+            .checked_add(amount)
+            .filter(|&total| total <= dassie_ledger::MAX_TOTAL);
+        assert!(
+            received.is_some(),
+            "a payment received more than the books hold"
+        );
         self.batch.incoming_progress.insert(
             id,
             IncomingProgress {
-                received_amount: received.saturating_add(amount),
+                received_amount: received.unwrap_or_default(),
                 completed_at_ms,
             },
         );
@@ -589,6 +609,8 @@ impl Core {
 
     /// Adds what a fulfilled packet brought to its payment and its
     /// connection, completing the payment when it has all it asked for.
+    // Panics only on a broken invariant: money is admitted for open payments.
+    #[allow(clippy::panic)]
     pub(super) fn incoming_received(&mut self, paid: IncomingPaid) {
         let IncomingPaid {
             payment: id,
@@ -619,7 +641,7 @@ impl Core {
             let received = payment.received_by_connection();
             self.incoming.remove(&id);
             self.finished_incoming.remember(id, ledger, received);
-            tracing::debug!(target: target::PAYMENT, %id, "incoming payment completed");
+            self.report(PaymentEvent::IncomingCompleted { id });
         }
         self.batch.incoming_progress.insert(id, progress);
     }
@@ -632,12 +654,18 @@ impl Core {
                 && self.open_count(false) <= policy.max_open_clients,
             "too many open incoming payments"
         );
-        for payment in self.incoming.values() {
+        let waiting = self.owed.waiting();
+        for (id, payment) in &self.incoming {
             assert!(
                 payment
                     .incoming_amount
                     .is_none_or(|amount| payment.received + payment.waiting <= amount),
                 "a payment took more than it may"
+            );
+            assert_eq!(
+                payment.waiting,
+                waiting.get(id).copied().unwrap_or_default(),
+                "what a payment waits for is what peers owe verdicts on"
             );
             assert!(
                 payment.incoming_amount != Some(payment.received),

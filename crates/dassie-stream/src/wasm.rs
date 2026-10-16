@@ -25,6 +25,8 @@ use crate::rate::Rate;
 use crate::receipt::ReceiptSecret;
 use crate::server::{ConnectionId, Server, ServerConfig};
 
+// The bindings are the edge where the browser supplies randomness.
+#[allow(clippy::disallowed_types)]
 fn rng() -> UnwrapErr<getrandom::SysRng> {
     UnwrapErr(getrandom::SysRng)
 }

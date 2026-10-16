@@ -7,8 +7,8 @@ use dassie_settlement::{Activation, Effect, LedgerStatus, SettlementScheme, acti
 
 use super::Core;
 use super::EngineError;
+use super::events::SettlementEvent;
 use super::packets::{Receiver, receiver_address};
-use crate::log::target;
 use crate::store::{Checkpoint, Store};
 
 /// An active scheme.
@@ -166,7 +166,11 @@ impl Core {
         };
         if let Some((debit, credit, amount, reference)) = booking {
             self.post(debit, credit, amount, reference)?;
-            tracing::info!(target: target::SETTLEMENT, scheme = %id, ?reference, amount, "booked the scheme's balance");
+            self.report(SettlementEvent::BalanceBooked {
+                scheme: id,
+                reference,
+                amount,
+            });
         }
         if new {
             self.batch.schemes_added.push((id, config));
@@ -226,7 +230,7 @@ impl Core {
     ///
     /// The stub is not active, or the books cannot take it.
     pub fn stub_deposit(&mut self, amount: u64) -> Result<LedgerView, EngineError> {
-        let stub = Name::new("stub").map_err(|_| EngineError::Internal("name".into()))?;
+        let stub = dassie_ledger::name!("stub");
         let inactive = || EngineError::Precondition("the stub scheme is not active".into());
         let ledger = self
             .schemes
@@ -281,7 +285,11 @@ impl Core {
                     } else {
                         (suspense, settlement)
                     };
-                    tracing::warn!(target: target::SETTLEMENT, %scheme, amount, gain, "the underlying ledger differs from the books: reconciled");
+                    self.report(SettlementEvent::Reconciled {
+                        scheme,
+                        amount: *amount,
+                        gain: *gain,
+                    });
                     self.post(debit, credit, *amount, Reference::Reconciliation)?;
                 }
                 Effect::Fee { amount, id } => {
@@ -305,7 +313,7 @@ impl Core {
                             self.peer
                                 .send_scheme_message(self.now_ms, &peer, id, message)
                     {
-                        tracing::debug!(target: target::SETTLEMENT, %peer, ?error, "a scheme message was not sent");
+                        self.report(SettlementEvent::MessageNotSent { peer, error });
                     }
                 }
             }
@@ -329,7 +337,7 @@ impl Core {
     ) -> Result<(), EngineError> {
         let settlement = self.account(ledger, AccountName::AssetsSettlement)?;
         let Ok(interledger) = self.account(ledger, AccountName::AssetsInterledger(peer)) else {
-            tracing::warn!(target: target::SETTLEMENT, %peer, amount, "a settlement from a node without accounts: booked as a deposit");
+            self.report(SettlementEvent::DepositFromStranger { peer, amount });
             let owner = self.account(ledger, AccountName::EquityOwner)?;
             return self.post(settlement, owner, amount, Reference::Deposit);
         };

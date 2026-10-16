@@ -19,6 +19,7 @@
 
 pub mod core;
 mod links;
+mod logging;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -30,9 +31,10 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
 pub use self::core::{
-    BtpSession, Changes, Core, CoreParts, CreatedOutgoing, EngineError, GracePolicy,
-    IncomingPolicy, LedgerEvent, LedgerView, Lie, NetworkView, NewIncoming, NewOutgoing, NewToken,
-    Outbound, Output, PeerView, RemovalBlocker, SCHEMES, TokenView, ledger_slug,
+    BtpEvent, BtpSession, Changes, Core, CoreParts, CreatedOutgoing, EngineError, EngineEvent,
+    Event, GracePolicy, IncomingPolicy, LedgerEvent, LedgerView, Lie, NetworkView, NewIncoming,
+    NewOutgoing, NewToken, Outbound, Output, PaymentEvent, PeerEvent, PeerView, RemovalBlocker,
+    SCHEMES, SettlementEvent, Severity, StoreRead, TokenView, ledger_slug,
 };
 
 use crate::log::target;
@@ -61,7 +63,8 @@ enum Command {
     Btp {
         connection: u64,
         request_id: u32,
-        packet: Vec<u8>,
+        /// A slice of the WebSocket message it came in, not a copy.
+        packet: bytes::Bytes,
         response: bool,
     },
     /// A BTP connection ended.
@@ -439,7 +442,7 @@ impl Engine {
         &self,
         connection: u64,
         request_id: u32,
-        packet: Vec<u8>,
+        packet: bytes::Bytes,
         response: bool,
     ) {
         let command = Command::Btp {
@@ -713,6 +716,10 @@ impl Driver<'_> {
         let mut failed = Vec::new();
         for output in std::mem::take(&mut self.outputs) {
             let (link, message) = match output {
+                Output::Event(event) => {
+                    logging::log(&event);
+                    continue;
+                }
                 Output::Trace(event) => {
                     let _ = self.packets.send(event);
                     continue;

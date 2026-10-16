@@ -1,6 +1,8 @@
 //! Open Payments as a client sees it: a node with a hostname and the stub
 //! ledger, signed requests, grants, and paying incoming payments.
 
+#![allow(clippy::panic)]
+
 use std::time::Duration;
 
 use bytes::Bytes;

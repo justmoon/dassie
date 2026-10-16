@@ -1,7 +1,13 @@
 //! The wallet's live streams and debug methods against a daemon (spec 7
 //! §4.6, §5): each stream starts with what is, and follows what changes.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::too_many_lines,
+    clippy::panic
+)]
 
 mod support;
 

@@ -11,8 +11,9 @@ use dassie_oer::Decode;
 use dassie_stream::{AssetDetails, ConnectionId, Event, Policy, Server, ServerConfig};
 
 use super::Core;
-use super::{EngineError, Outbound};
-use crate::log::target;
+use super::events::{BtpEvent, PaymentEvent, PeerEvent};
+use super::payers::Answer;
+use super::{EngineError, MAX_SENDS_PER_POLL, Outbound};
 
 /// The type byte of an ILP Prepare.
 const PREPARE_TYPE: u8 = 12;
@@ -99,6 +100,13 @@ impl Receiver {
             .min()
             .map(|at| at.unix_ms)
     }
+
+    /// Drops the connections the server no longer has.
+    fn forget_gone(&mut self) {
+        let server = &self.server;
+        self.connections
+            .retain(|id| server.connection(*id).is_some());
+    }
 }
 
 /// A ledger's receiver address.
@@ -184,9 +192,7 @@ impl Core {
                     },
                 )),
                 // A peer has no error channel: the duplicate is dropped.
-                _ => {
-                    tracing::debug!(target: target::PEER, %source, request_id, "duplicate request ID")
-                }
+                _ => self.report(PeerEvent::DuplicateRequest { source, request_id }),
             },
             Outcome::UnknownSource => {}
         }
@@ -230,8 +236,7 @@ impl Core {
         };
         let owed = posted.is_some_and(|posted| {
             let length = upstream.map_or(0, |upstream| upstream.length);
-            let fulfill = self.up.get(..length).unwrap_or_default().to_vec();
-            self.posted(&posted, request_id, &fulfill, incoming)
+            self.posted(&posted, request_id, length, incoming)
         });
         if !owed && let Some(upstream) = upstream {
             self.upstream(now, upstream);
@@ -282,8 +287,21 @@ impl Core {
         self.after_peer();
     }
 
-    /// Sends a Prepare the connector forwarded.
-    pub(super) fn forwarded(&mut self, now: u64, forwarded: Forwarded) {
+    /// Sends a Prepare the connector forwarded: to the node's own receiver,
+    /// or out.
+    fn forwarded(&mut self, now: u64, forwarded: Forwarded) {
+        match forwarded.to {
+            EndpointId::Local(_) => self.deliver(now, forwarded),
+            EndpointId::Btp(_) | EndpointId::Peer(_) => self.forward_out(now, forwarded),
+        }
+    }
+
+    /// Sends a Prepare the connector forwarded to a BTP client or a peer.
+    /// What is for the node's own endpoints, its callers deliver.
+    // Panics only on a broken invariant: callers send out only what goes
+    // out.
+    #[allow(clippy::panic)]
+    pub(super) fn forward_out(&mut self, now: u64, forwarded: Forwarded) {
         match forwarded.to {
             EndpointId::Btp(link) => {
                 let packet = self
@@ -299,7 +317,7 @@ impl Core {
                     },
                 ));
             }
-            EndpointId::Local(_) => self.deliver(now, forwarded),
+            EndpointId::Local(_) => panic!("a packet for a local endpoint sent out"),
             EndpointId::Peer(endpoint) => {
                 self.send_to_peer(
                     now,
@@ -323,7 +341,7 @@ impl Core {
     /// Hands a Prepare to its receiver, which answers at once: through the
     /// admission of the incoming payment it pays, which bounds what it may
     /// take.
-    fn deliver(&mut self, now: u64, forwarded: Forwarded) {
+    pub(super) fn deliver(&mut self, now: u64, forwarded: Forwarded) {
         let Some(ledger) = self.receiver_ledger(forwarded.to) else {
             // A payer takes no money: refused at once, so nothing waits on
             // it until its expiry.
@@ -414,8 +432,8 @@ impl Core {
             EndpointId::Local(_) => {
                 let Some(ledger) = self.receiver_ledger(upstream.to) else {
                     if self.payer_ledger(upstream.to).is_some() {
-                        let response = packet.to_vec();
-                        self.payer_response(now, upstream.request_id, &response);
+                        let answer = Answer::Up(upstream.length);
+                        self.payer_response(now, upstream.request_id, answer);
                     }
                     return;
                 };
@@ -456,33 +474,39 @@ impl Core {
 
     /// Lets the receivers' connections do what they have to: drain their
     /// events and data, and send their own packets (closes, mostly).
+    ///
+    /// Nothing it calls comes back here, so the receivers and their lists
+    /// stay put while it walks them, by position rather than a copy.
     pub(super) fn pump(&mut self, now: u64) {
-        let ledgers: Vec<LedgerId> = self.receivers.keys().copied().collect();
-        for ledger in ledgers {
-            let Some(receiver) = self.receivers.get_mut(&ledger) else {
-                continue;
+        for nth in 0..self.receivers.len() {
+            let Some((&ledger, receiver)) = self.receivers.iter_mut().nth(nth) else {
+                return;
             };
             while let Some(id) = receiver.server.poll_opened() {
                 receiver.connections.push(id);
             }
-            let ids = receiver.connections.clone();
-            for id in ids {
+            receiver.forget_gone();
+            for index in 0..MAX_RECEIVER_CONNECTIONS {
+                let receiver = self.receivers.get(&ledger);
+                let Some(&id) = receiver.and_then(|r| r.connections.get(index)) else {
+                    break;
+                };
                 self.drain_events(ledger, id);
                 self.transmit(now, ledger, id);
             }
             if let Some(receiver) = self.receivers.get_mut(&ledger) {
                 receiver.server.remove_closed();
-                let server = &receiver.server;
-                receiver
-                    .connections
-                    .retain(|id| server.connection(*id).is_some());
+                receiver.forget_gone();
             }
         }
     }
 
     fn drain_events(&mut self, ledger: LedgerId, id: ConnectionId) {
         let Self {
-            receivers, work, ..
+            receivers,
+            work,
+            events,
+            ..
         } = self;
         let Some(connection) = receivers
             .get_mut(&ledger)
@@ -497,14 +521,14 @@ impl Core {
                     // window.
                     while connection.read(stream_id, work).is_ok_and(|read| read > 0) {}
                 }
-                Event::MoneyReceived { stream_id } => {
-                    let total = connection
-                        .stream(stream_id)
-                        .map_or(0, dassie_stream::Stream::total_received);
-                    tracing::debug!(target: target::PAYMENT, connection = id.0, stream_id, total, "money received");
-                }
                 Event::ConnectionClosed { code, by_remote } => {
-                    tracing::debug!(target: target::PAYMENT, connection = id.0, ?code, by_remote, "STREAM connection closed");
+                    let connection = id.0;
+                    let closed = PaymentEvent::StreamClosed {
+                        connection,
+                        code,
+                        by_remote,
+                    };
+                    events.push(closed.into());
                 }
                 _ => {}
             }
@@ -514,7 +538,7 @@ impl Core {
     /// Sends a receiver connection's packets through the connector.
     fn transmit(&mut self, now: u64, ledger: LedgerId, id: ConnectionId) {
         let at = Timestamp::from_unix_ms(now);
-        loop {
+        for _ in 0..MAX_SENDS_PER_POLL {
             let Self {
                 rng,
                 receivers,
@@ -545,6 +569,7 @@ impl Core {
             );
             self.transmitted(now, ledger, outcome, local, transmit.request_id, id);
         }
+        self.sends_left();
     }
 
     /// What the connector did with a receiver's own packet.
@@ -563,7 +588,7 @@ impl Core {
         match outcome {
             // Not to a receiver, which cannot pay one: such a packet expires.
             Outcome::Forward(forwarded) if !matches!(forwarded.to, EndpointId::Local(_)) => {
-                self.forwarded(now, forwarded);
+                self.forward_out(now, forwarded);
             }
             Outcome::Forward(_) => {}
             Outcome::Respond(length) => {
@@ -596,8 +621,13 @@ impl Core {
         self.probe_timers(now);
         let at = Timestamp::from_unix_ms(now);
         for receiver in self.receivers.values_mut() {
-            for id in receiver.connections.clone() {
-                if let Some(connection) = receiver.server.connection_mut(id)
+            let Receiver {
+                server,
+                connections,
+                ..
+            } = receiver;
+            for &id in connections.iter() {
+                if let Some(connection) = server.connection_mut(id)
                     && connection.poll_timeout().is_some_and(|due| due <= at)
                 {
                     connection.handle_timeout(at);
@@ -619,7 +649,7 @@ impl Core {
         let now = self.now_ms();
         self.connector.remove_endpoint(now, EndpointId::Btp(link));
         self.expire(now);
-        tracing::debug!(target: target::BTP, link, "BTP client gone");
+        self.report(BtpEvent::ClientGone { link });
     }
 
     /// Ends a BTP connection from this side: its client is told, after
@@ -629,5 +659,24 @@ impl Core {
             self.outputs.push((link, Outbound::Close));
         }
         self.btp_closed(link);
+    }
+}
+
+impl Core {
+    /// The STREAM receivers: each server's invariants, and its
+    /// connections, in the order they opened.
+    pub(super) fn check_receivers(&self) {
+        for receiver in self.receivers.values() {
+            receiver.server.check_invariants();
+            assert!(receiver.connections.len() <= MAX_RECEIVER_CONNECTIONS);
+            let in_order = receiver
+                .connections
+                .windows(2)
+                .all(|pair| matches!(pair, [a, b] if a < b));
+            assert!(
+                in_order,
+                "a receiver's connections in the order they opened"
+            );
+        }
     }
 }

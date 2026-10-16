@@ -72,9 +72,11 @@ impl Balance {
     }
 }
 
-/// Counters never pass `i64::MAX`, so this never saturates.
+/// Counters, even a group's sum, stay far below `i128::MAX`.
 fn signed(value: u128) -> i128 {
-    i128::try_from(value).unwrap_or(i128::MAX)
+    let signed = i128::try_from(value);
+    assert!(signed.is_ok(), "a counter past i128::MAX");
+    signed.unwrap_or_default()
 }
 
 /// An account.

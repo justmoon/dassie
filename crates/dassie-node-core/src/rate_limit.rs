@@ -120,6 +120,7 @@ pub struct RateLimitStats {
 #[derive(Clone, Debug)]
 pub struct RateLimiter {
     policy: RateLimitPolicy,
+    /// Sorted by key, so a client is found by binary search.
     clients: Vec<(ClientKey, Bucket)>,
     stats: RateLimitStats,
 }
@@ -137,6 +138,8 @@ impl RateLimiter {
     }
 
     /// Takes one attempt for `client`, or says how long to wait.
+    // Panics only on a broken invariant: `slot` returns an index into the table.
+    #[allow(clippy::unreachable)]
     pub fn check(&mut self, client: ClientKey, now_ms: u64) -> Result<(), Limited> {
         let policy = self.policy;
         let index = self.slot(client, now_ms);
@@ -165,7 +168,11 @@ impl RateLimiter {
     /// [`check`](Self::check) when an attempt fails.
     pub fn peek(&mut self, client: ClientKey, now_ms: u64) -> Result<(), Limited> {
         let policy = self.policy;
-        let Some((_, bucket)) = self.clients.iter_mut().find(|(key, _)| *key == client) else {
+        let Some((_, bucket)) = self
+            .find(client)
+            .ok()
+            .and_then(|index| self.clients.get_mut(index))
+        else {
             return Ok(());
         };
         bucket.refill(policy.client_burst, policy.client_refill_ms, now_ms);
@@ -177,27 +184,40 @@ impl RateLimiter {
         Ok(())
     }
 
+    /// Where `client` is, or where it would go.
+    fn find(&self, client: ClientKey) -> Result<usize, usize> {
+        self.clients.binary_search_by_key(&client, |(key, _)| *key)
+    }
+
     /// The slot of `client`, making one if needed.
     fn slot(&mut self, client: ClientKey, now_ms: u64) -> usize {
-        if let Some(index) = self.clients.iter().position(|(key, _)| *key == client) {
-            return index;
+        let mut place = self.find(client);
+        if place.is_err() && self.clients.len() >= self.policy.client_slots {
+            self.evict_least_recent();
+            place = self.find(client);
         }
-        let fresh = (client, Bucket::full(self.policy.client_burst, now_ms));
-        if self.clients.len() < self.policy.client_slots {
-            self.clients.push(fresh);
-            return self.clients.len() - 1;
+        match place {
+            Ok(index) => index,
+            Err(index) => {
+                let fresh = Bucket::full(self.policy.client_burst, now_ms);
+                self.clients.insert(index, (client, fresh));
+                index
+            }
         }
+    }
+
+    /// Frees the slot of the client seen least recently.
+    fn evict_least_recent(&mut self) {
         let oldest = self
             .clients
             .iter()
             .enumerate()
             .min_by_key(|(_, (_, bucket))| bucket.updated_at_ms)
-            .map_or(0, |(index, _)| index);
-        if let Some(slot) = self.clients.get_mut(oldest) {
-            *slot = fresh;
+            .map(|(index, _)| index);
+        if let Some(oldest) = oldest {
+            self.clients.remove(oldest);
+            self.stats.evicted = self.stats.evicted.saturating_add(1);
         }
-        self.stats.evicted = self.stats.evicted.saturating_add(1);
-        oldest
     }
 
     /// The counters so far.
@@ -207,14 +227,17 @@ impl RateLimiter {
     }
 
     /// Panics if the table is inconsistent: more clients than slots, a client
-    /// twice, or a bucket over its size.
+    /// twice or out of order, or a bucket over its size. One pass, so it
+    /// runs after every attempt.
     pub fn check_invariants(&self) {
         assert!(self.clients.len() <= self.policy.client_slots);
-        for (index, (key, bucket)) in self.clients.iter().enumerate() {
-            assert!(bucket.tokens <= self.policy.client_burst);
-            let rest = self.clients.iter().skip(index.saturating_add(1));
-            assert!(rest.into_iter().all(|(other, _)| other != key));
-        }
+        let sorted = self.clients.windows(2).all(|pair| match pair {
+            [(a, _), (b, _)] => a < b,
+            _ => true,
+        });
+        assert!(sorted, "clients are sorted, each once");
+        let within = |(_, bucket): &(ClientKey, Bucket)| bucket.tokens <= self.policy.client_burst;
+        assert!(self.clients.iter().all(within));
     }
 }
 
@@ -336,6 +359,22 @@ mod tests {
             for count in allowed {
                 prop_assert!(count <= 5 + now / 12_000);
             }
+        }
+
+        // More clients than slots: they churn through the table, which
+        // stays sorted and full, and keeps whoever was seen last.
+        #[test]
+        fn a_full_table_churns_in_order(attempts in proptest::collection::vec((0_u8..40, 0_u64..5_000), 1..400)) {
+            let policy = RateLimitPolicy { client_slots: 8, ..RateLimitPolicy::DEFAULT };
+            let mut limiter = RateLimiter::new(policy);
+            let mut now = 0;
+            for (client, step) in attempts {
+                now += step;
+                let _ = limiter.check(v4(client), now);
+                limiter.check_invariants();
+                prop_assert!(limiter.clients.iter().any(|(key, _)| *key == v4(client)));
+            }
+            prop_assert!(limiter.clients.len() <= 8);
         }
     }
 }

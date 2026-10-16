@@ -3,7 +3,13 @@
 //! rates, shows the total in that currency, marks rates stale when their
 //! source stops answering, and has them again after a restart.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::too_many_lines,
+    clippy::panic
+)]
 
 mod support;
 

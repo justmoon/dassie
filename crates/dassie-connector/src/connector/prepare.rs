@@ -381,8 +381,11 @@ impl Connector {
             pending: true,
             reference,
         };
+        assert!(route.fee <= amount_in, "a fee above the amount");
         let net = amount_in - route.fee;
         let (first, second) = if from.ledger == to.ledger {
+            // Without a conversion, what goes on is what came, less the fee.
+            assert_eq!(route.amount_out, net, "what goes on is what was booked");
             (pending(from.account, to.account, net), None)
         } else {
             let revenue = ledger.find(&AccountPath::new(from.ledger, AccountName::RevenueFx));
@@ -418,6 +421,7 @@ impl Connector {
         ) {
             return Err(ledger_refusal(error));
         }
+        assert_eq!(self.scratch.len(), count, "one transfer per leg");
         let mut ids = self.scratch.iter().copied();
         Ok(slots.map(|slot| slot.and_then(|_| ids.next())))
     }

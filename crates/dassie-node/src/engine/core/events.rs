@@ -1,0 +1,574 @@
+//! What the core reports (D16): everything it would log, as values the
+//! driver logs and a simulation records. The core has no logging of its
+//! own, so a run can be compared and replayed event by event.
+
+use std::collections::VecDeque;
+
+use dassie_connector::{EndpointId, SpendingCap};
+use dassie_identity::NodeId;
+use dassie_ledger::{LedgerId, Name, Reference, TraceId, TransferError};
+use dassie_peer::SendError;
+use dassie_settlement::{LedgerStatus, SchemeError};
+
+use super::EngineError;
+use crate::store::{Compensation, OutgoingState, PaymentId};
+
+/// Most events kept between two hand-overs: a step's worth, with room for
+/// a peer's whole node table arriving at once. Past it, the oldest go, and
+/// [`EngineEvent::EventsDropped`] says how many.
+pub const MAX_EVENTS: usize = 4096;
+
+/// How much an event matters, which is the level it is logged at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Severity {
+    /// Detail, to follow what happened.
+    Debug,
+    /// Something the owner may want to know.
+    Info,
+    /// Something went wrong, and the node copes.
+    Warn,
+    /// Something went wrong that someone should look at.
+    Error,
+}
+
+/// What the core reports, by area.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Event {
+    /// The engine itself.
+    Engine(EngineEvent),
+    /// The peer node's own events, passed on.
+    PeerNode(dassie_peer::Event),
+    /// Peers, as the core deals with them.
+    Peer(PeerEvent),
+    /// BTP tokens and clients.
+    Btp(BtpEvent),
+    /// Incoming and outgoing payments.
+    Payment(PaymentEvent),
+    /// Settlement schemes and settlements.
+    Settlement(SettlementEvent),
+}
+
+/// The engine itself.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EngineEvent {
+    /// An exchange rate did not fit the table.
+    RateTableFull {
+        /// The currency.
+        code: &'static str,
+    },
+    /// More events came between two hand-overs than are kept.
+    EventsDropped {
+        /// How many went.
+        count: u64,
+    },
+    /// A connection had more to send than a poll takes: the rest goes in
+    /// the next step.
+    SendsLeft,
+    /// A step's end took all its rounds: what is left goes in the next.
+    RoundsLeft,
+}
+
+/// What the core read from its database and could not.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StoreRead {
+    /// Whether a Fulfill was taken from a peer.
+    FulfillTaken,
+    /// A Fulfill owed a verdict.
+    FulfillOwed,
+    /// What a peer refused.
+    PeerLosses,
+}
+
+/// Peers, as the core deals with them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PeerEvent {
+    /// A peer got no connector endpoint: its scheme is gone, or its account.
+    NoEndpoint {
+        /// The peer.
+        node: NodeId,
+        /// Why.
+        error: String,
+    },
+    /// A peer sent a Prepare with a request ID in flight; it is dropped.
+    DuplicateRequest {
+        /// The peer's endpoint.
+        source: EndpointId,
+        /// The request ID.
+        request_id: u32,
+    },
+    /// A read from the database failed.
+    StoreReadFailed {
+        /// What was read.
+        what: StoreRead,
+        /// Why it failed.
+        error: String,
+    },
+    /// A Fulfill got no verdict for 29 days: booked as refused (D17).
+    VerdictOverdue {
+        /// The peer.
+        peer: NodeId,
+        /// The packet.
+        trace: TraceId,
+    },
+    /// A peer refused a Fulfill we sent it: compensated (D17).
+    FulfillRefused {
+        /// The peer.
+        peer: NodeId,
+        /// What it did not take.
+        amount: u64,
+        /// The packet.
+        trace: TraceId,
+        /// How it was booked.
+        compensation: Compensation,
+    },
+    /// A peer cost more than its grace limit, and is banned (D18).
+    Banned {
+        /// The peer.
+        node: NodeId,
+        /// The ledger it cost us on.
+        ledger: LedgerId,
+        /// What it refused of ours.
+        refused: u64,
+        /// What it owes us and is overdue.
+        overdue: u64,
+        /// Its grace limit.
+        grace: u64,
+    },
+    /// The ban list is full: a peering ends without a ban.
+    BanListFull {
+        /// The peer.
+        node: NodeId,
+    },
+}
+
+/// BTP tokens and clients.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BtpEvent {
+    /// A token was made.
+    TokenCreated {
+        /// Its ID.
+        id: u64,
+    },
+    /// A token was revoked.
+    TokenRevoked {
+        /// Its ID.
+        id: u64,
+    },
+    /// A token's spending cap was set or lifted.
+    TokenCapSet {
+        /// Its ID.
+        id: u64,
+        /// The cap, if any.
+        cap: Option<SpendingCap>,
+    },
+    /// A client connected.
+    ClientConnected {
+        /// Its link.
+        link: u64,
+        /// Its ILP address.
+        address: String,
+    },
+    /// A client went away.
+    ClientGone {
+        /// Its link.
+        link: u64,
+    },
+}
+
+/// Incoming and outgoing payments.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PaymentEvent {
+    /// More incoming payments were open at start than the bounds allow.
+    IncomingOverBounds {
+        /// How many were closed.
+        dropped: usize,
+    },
+    /// An incoming payment was made.
+    IncomingCreated {
+        /// Its ID.
+        id: PaymentId,
+        /// Its ledger.
+        ledger: LedgerId,
+    },
+    /// An unpaid incoming payment closed to make room for another.
+    IncomingClosedForRoom {
+        /// Its ID.
+        id: PaymentId,
+    },
+    /// An incoming payment received all it asked for.
+    IncomingCompleted {
+        /// Its ID.
+        id: PaymentId,
+    },
+    /// A verdict confirmed money for a payment pruned since.
+    ConfirmedPaymentGone {
+        /// Its ID.
+        id: PaymentId,
+    },
+    /// A verdict confirmed money for a payment that could not be read.
+    ConfirmedPaymentUnread {
+        /// Its ID.
+        id: PaymentId,
+        /// Why.
+        error: String,
+    },
+    /// A receiver's STREAM connection closed.
+    StreamClosed {
+        /// The connection.
+        connection: u64,
+        /// The STREAM error code.
+        code: dassie_stream::ErrorCode,
+        /// Whether the other side closed it.
+        by_remote: bool,
+    },
+    /// An outgoing payment was made.
+    OutgoingCreated {
+        /// Its ID.
+        id: PaymentId,
+        /// What it may take.
+        debit: u64,
+    },
+    /// An outgoing payment started sending.
+    OutgoingSending {
+        /// Its ID.
+        id: PaymentId,
+        /// What is left to send.
+        left: u64,
+        /// When.
+        at_ms: u64,
+    },
+    /// An outgoing payment's connection closed early; it connects again.
+    OutgoingReconnects {
+        /// Its ID.
+        id: PaymentId,
+        /// Why it closed.
+        reason: String,
+    },
+    /// An outgoing payment finished.
+    OutgoingFinished {
+        /// Its ID.
+        id: PaymentId,
+        /// How.
+        state: OutgoingState,
+        /// What it sent.
+        sent: u64,
+        /// Why it failed, if it did.
+        failure: Option<String>,
+    },
+}
+
+/// Settlement schemes and settlements.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SettlementEvent {
+    /// A scheme's balance at activation was booked.
+    BalanceBooked {
+        /// The scheme.
+        scheme: Name,
+        /// How it was booked.
+        reference: Reference,
+        /// How much.
+        amount: u64,
+    },
+    /// The underlying ledger differed from the books, which now follow it.
+    Reconciled {
+        /// The scheme.
+        scheme: Name,
+        /// By how much.
+        amount: u64,
+        /// Whether the books gained.
+        gain: bool,
+    },
+    /// A scheme's message to a peer could not be sent.
+    MessageNotSent {
+        /// The peer.
+        peer: NodeId,
+        /// Why.
+        error: SendError,
+    },
+    /// A node without accounts here settled with us: booked as a deposit.
+    DepositFromStranger {
+        /// The node.
+        peer: Name,
+        /// How much.
+        amount: u64,
+    },
+    /// A scheme's effects could not be booked: it is fed nothing more.
+    SchemeStopped {
+        /// The scheme.
+        scheme: Name,
+        /// Why.
+        error: EngineError,
+    },
+    /// What is owed at the end of a peering is settled.
+    SettlingFinal {
+        /// The peer.
+        node: NodeId,
+        /// How much.
+        amount: u64,
+    },
+    /// The books cannot take a settlement now.
+    BooksCannotSettle {
+        /// The peer.
+        node: NodeId,
+        /// Why.
+        error: TransferError,
+    },
+    /// A settlement was prepared.
+    Settling {
+        /// The peer.
+        node: NodeId,
+        /// How much.
+        amount: u64,
+        /// Its ID.
+        id: Name,
+    },
+    /// A scheme cannot settle now, said now and then.
+    SchemeUnavailable {
+        /// The peer.
+        node: NodeId,
+        /// The scheme.
+        scheme: Name,
+        /// How the scheme stands.
+        status: LedgerStatus,
+    },
+    /// A scheme refused to prepare a settlement.
+    PrepareFailed {
+        /// The peer.
+        node: NodeId,
+        /// Why.
+        error: SchemeError,
+    },
+    /// A settlement's outcome could not be booked.
+    OutcomeNotBooked {
+        /// Why.
+        error: EngineError,
+    },
+    /// Settlements pending from before a restart are reconciled.
+    Reconciling {
+        /// The scheme.
+        scheme: Name,
+        /// How many.
+        pending: usize,
+    },
+    /// A reconciliation could not be booked.
+    ReconciliationNotBooked {
+        /// Why.
+        error: EngineError,
+    },
+    /// A scheme executed a settlement the core does not know.
+    UnknownExecuted {
+        /// The scheme.
+        scheme: Name,
+        /// The settlement.
+        id: Name,
+    },
+    /// A settlement was posted, and could not be announced to the peer.
+    AnnounceFailed {
+        /// The peer.
+        peer: NodeId,
+        /// Why.
+        error: SendError,
+    },
+    /// A scheme cancelled a settlement the core does not know.
+    UnknownCancelled {
+        /// The scheme.
+        scheme: Name,
+        /// The settlement.
+        id: Name,
+    },
+    /// A settlement of ours failed for good.
+    Failed {
+        /// The peer.
+        peer: NodeId,
+        /// How much.
+        amount: u64,
+    },
+    /// A peer settled with us.
+    PeerSettled {
+        /// The peer.
+        from: NodeId,
+        /// How much.
+        amount: u64,
+    },
+    /// A peer's settlement was refused.
+    PeerSettlementRefused {
+        /// The peer.
+        from: NodeId,
+        /// Why.
+        error: EngineError,
+    },
+    /// What a peer's scheme message did could not be booked.
+    MessageEffectsNotBooked {
+        /// Why.
+        error: EngineError,
+    },
+}
+
+impl Event {
+    /// How much it matters: the level it is logged at, and what a
+    /// simulation counts as a failure ([`Severity::Error`]).
+    #[must_use]
+    pub const fn severity(&self) -> Severity {
+        match self {
+            Self::Engine(EngineEvent::RateTableFull { .. } | EngineEvent::EventsDropped { .. }) => {
+                Severity::Warn
+            }
+            // Bounds that nothing should reach: someone should look.
+            Self::Engine(EngineEvent::SendsLeft | EngineEvent::RoundsLeft) => Severity::Error,
+            Self::PeerNode(event) => peer_node_severity(event),
+            Self::Peer(event) => match event {
+                PeerEvent::DuplicateRequest { .. } => Severity::Debug,
+                PeerEvent::FulfillRefused { .. } | PeerEvent::Banned { .. } => Severity::Warn,
+                PeerEvent::NoEndpoint { .. }
+                | PeerEvent::StoreReadFailed { .. }
+                | PeerEvent::VerdictOverdue { .. }
+                | PeerEvent::BanListFull { .. } => Severity::Error,
+            },
+            Self::Btp(event) => match event {
+                BtpEvent::TokenCreated { .. }
+                | BtpEvent::TokenRevoked { .. }
+                | BtpEvent::TokenCapSet { .. } => Severity::Info,
+                BtpEvent::ClientConnected { .. } | BtpEvent::ClientGone { .. } => Severity::Debug,
+            },
+            Self::Payment(event) => payment_severity(event),
+            Self::Settlement(event) => settlement_severity(event),
+        }
+    }
+}
+
+const fn peer_node_severity(event: &dassie_peer::Event) -> Severity {
+    use dassie_peer::Event;
+    match event {
+        Event::Peered { .. } | Event::Terminating { .. } | Event::PeeringEnded { .. } => {
+            Severity::Info
+        }
+        Event::SettlementRefused { .. } => Severity::Error,
+        Event::RoutesChanged
+        | Event::NodeAdded(_)
+        | Event::NodeRemoved(_)
+        | Event::Registered(_)
+        | Event::RegisteredWith(_)
+        | Event::PacketFailed { .. }
+        | Event::PeeringFailed { .. }
+        | Event::Advertised { .. }
+        | Event::SettlementDelivered { .. }
+        | Event::Verdict { .. }
+        | Event::VerdictMissing { .. } => Severity::Debug,
+    }
+}
+
+const fn payment_severity(event: &PaymentEvent) -> Severity {
+    match event {
+        PaymentEvent::IncomingCreated { .. }
+        | PaymentEvent::IncomingClosedForRoom { .. }
+        | PaymentEvent::IncomingCompleted { .. }
+        | PaymentEvent::StreamClosed { .. }
+        | PaymentEvent::OutgoingSending { .. }
+        | PaymentEvent::OutgoingReconnects { .. } => Severity::Debug,
+        PaymentEvent::OutgoingCreated { .. } | PaymentEvent::OutgoingFinished { .. } => {
+            Severity::Info
+        }
+        PaymentEvent::IncomingOverBounds { .. } | PaymentEvent::ConfirmedPaymentGone { .. } => {
+            Severity::Warn
+        }
+        PaymentEvent::ConfirmedPaymentUnread { .. } => Severity::Error,
+    }
+}
+
+const fn settlement_severity(event: &SettlementEvent) -> Severity {
+    match event {
+        SettlementEvent::MessageNotSent { .. } => Severity::Debug,
+        SettlementEvent::BalanceBooked { .. }
+        | SettlementEvent::SettlingFinal { .. }
+        | SettlementEvent::Settling { .. }
+        | SettlementEvent::Reconciling { .. }
+        | SettlementEvent::PeerSettled { .. } => Severity::Info,
+        SettlementEvent::Reconciled { .. }
+        | SettlementEvent::DepositFromStranger { .. }
+        | SettlementEvent::BooksCannotSettle { .. }
+        | SettlementEvent::SchemeUnavailable { .. }
+        | SettlementEvent::PrepareFailed { .. }
+        | SettlementEvent::UnknownExecuted { .. }
+        | SettlementEvent::UnknownCancelled { .. }
+        | SettlementEvent::Failed { .. }
+        | SettlementEvent::PeerSettlementRefused { .. } => Severity::Warn,
+        SettlementEvent::SchemeStopped { .. }
+        | SettlementEvent::OutcomeNotBooked { .. }
+        | SettlementEvent::ReconciliationNotBooked { .. }
+        | SettlementEvent::AnnounceFailed { .. }
+        | SettlementEvent::MessageEffectsNotBooked { .. } => Severity::Error,
+    }
+}
+
+impl From<dassie_peer::Event> for Event {
+    fn from(event: dassie_peer::Event) -> Self {
+        Self::PeerNode(event)
+    }
+}
+
+impl From<EngineEvent> for Event {
+    fn from(event: EngineEvent) -> Self {
+        Self::Engine(event)
+    }
+}
+
+impl From<PeerEvent> for Event {
+    fn from(event: PeerEvent) -> Self {
+        Self::Peer(event)
+    }
+}
+
+impl From<BtpEvent> for Event {
+    fn from(event: BtpEvent) -> Self {
+        Self::Btp(event)
+    }
+}
+
+impl From<PaymentEvent> for Event {
+    fn from(event: PaymentEvent) -> Self {
+        Self::Payment(event)
+    }
+}
+
+impl From<SettlementEvent> for Event {
+    fn from(event: SettlementEvent) -> Self {
+        Self::Settlement(event)
+    }
+}
+
+/// The events not handed over yet, at most [`MAX_EVENTS`].
+#[derive(Debug)]
+pub(super) struct Events {
+    queue: VecDeque<Event>,
+    dropped: u64,
+}
+
+impl Events {
+    pub fn new() -> Self {
+        Self {
+            queue: VecDeque::with_capacity(MAX_EVENTS),
+            dropped: 0,
+        }
+    }
+
+    /// Keeps `event`; the oldest goes when the queue is full.
+    pub fn push(&mut self, event: Event) {
+        if self.queue.len() >= MAX_EVENTS {
+            self.queue.pop_front();
+            self.dropped += 1;
+        }
+        self.queue.push_back(event);
+    }
+
+    /// The events kept, oldest first, after word of any dropped.
+    pub fn take(&mut self) -> impl Iterator<Item = Event> + '_ {
+        let dropped = std::mem::take(&mut self.dropped);
+        let lost =
+            (dropped > 0).then_some(Event::Engine(EngineEvent::EventsDropped { count: dropped }));
+        lost.into_iter().chain(self.queue.drain(..))
+    }
+
+    pub fn check_invariants(&self) {
+        assert!(self.queue.len() <= MAX_EVENTS);
+    }
+}

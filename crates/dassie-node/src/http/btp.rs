@@ -12,6 +12,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use bytes::Bytes;
 use dassie_ilp::btp::{self, Body as BtpBody, ContentType, ProtocolData, ProtocolDataEntry};
 use dassie_ilp::{ErrorCode, Reject};
 use dassie_oer::{Decode, Encode};
@@ -204,24 +205,36 @@ async fn authenticate(
     Ok(session.link)
 }
 
+/// `part` of `whole`, sharing its memory rather than copying it: what the
+/// BTP decoder borrows is a slice of the message. Were it not, it would be
+/// copied rather than panic.
+fn shared(whole: &Bytes, part: &[u8]) -> Bytes {
+    let (outer, inner) = (whole.as_ptr_range(), part.as_ptr_range());
+    if outer.start <= inner.start && inner.end <= outer.end {
+        whole.slice_ref(part)
+    } else {
+        Bytes::copy_from_slice(part)
+    }
+}
+
 /// Passes a client's message on, or answers it with a BTP Error.
 async fn receive(
     engine: &Engine,
     link: u64,
     socket: &mut Socket,
-    bytes: &[u8],
+    bytes: &Bytes,
 ) -> Result<(), &'static str> {
     let packet = btp::Packet::decode_exact(bytes).map_err(|_| "not a BTP packet")?;
     let ilp = packet.body.protocol_data().find("ilp");
     match (packet.body, ilp) {
         (BtpBody::Message(_), Some(ilp)) => {
             engine
-                .btp_packet(link, packet.request_id, ilp.data.to_vec(), false)
+                .btp_packet(link, packet.request_id, shared(bytes, ilp.data), false)
                 .await;
         }
         (BtpBody::Response(_), Some(ilp)) => {
             engine
-                .btp_packet(link, packet.request_id, ilp.data.to_vec(), true)
+                .btp_packet(link, packet.request_id, shared(bytes, ilp.data), true)
                 .await;
         }
         // An acknowledgement without ILP data; nothing waits for it.
@@ -241,7 +254,7 @@ async fn receive(
                 data: &[],
             };
             engine
-                .btp_packet(link, packet.request_id, reject.to_vec(), true)
+                .btp_packet(link, packet.request_id, reject.to_vec().into(), true)
                 .await;
         }
         (BtpBody::Transfer { .. }, _) => {
@@ -314,4 +327,23 @@ async fn close(socket: &mut Socket, code: CloseCode, reason: &'static str) {
     };
     let _ = socket.send(Message::Close(Some(frame))).await;
     let _ = socket.close(None).await;
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::indexing_slicing)]
+
+    use super::*;
+
+    // A packet goes to the engine as a slice of its WebSocket message,
+    // without a copy; anything else is copied.
+    #[test]
+    fn a_slice_of_the_message_is_shared() {
+        let whole = Bytes::from_static(b"0123456789");
+        let part = shared(&whole, &whole[2..5]);
+        assert_eq!(part.as_ptr(), whole[2..].as_ptr());
+        assert_eq!(&part[..], b"234");
+        assert_eq!(&shared(&whole, &[1, 2])[..], [1, 2]);
+        assert!(shared(&whole, &whole[10..]).is_empty());
+    }
 }

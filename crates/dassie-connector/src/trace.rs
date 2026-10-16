@@ -142,8 +142,16 @@ impl Trace {
     }
 
     /// Adds a record, evicting the oldest when full. Records arrive in
-    /// trace order.
+    /// trace order, one sequence after the other within the run's epoch.
     pub fn push(&mut self, record: PacketRecord) {
+        if let Some(last) = self.records.back() {
+            assert_eq!(last.trace.epoch, record.trace.epoch, "one epoch per run");
+            assert_eq!(
+                last.trace.sequence + 1,
+                record.trace.sequence,
+                "trace order"
+            );
+        }
         if self.records.len() >= self.capacity {
             self.records.pop_front();
         }
@@ -165,7 +173,7 @@ impl Trace {
             return;
         };
         if let Some(record) = self.records.get_mut(index) {
-            debug_assert_eq!(record.trace, trace);
+            assert_eq!(record.trace, trace);
             change(record);
             let record = *record;
             self.notify(record);
@@ -196,16 +204,48 @@ impl Trace {
             .filter(move |record| after.is_none_or(|after| record.trace > after))
     }
 
+    /// The bounds, and that the records are consecutive: `push` asserts
+    /// each one follows the last, so the ends tell for the whole ring.
     pub fn check_invariants(&self) {
         assert!(self.records.len() <= self.capacity);
         assert!(self.events.len() <= self.max_events);
-        for (earlier, later) in self.records.iter().zip(self.records.iter().skip(1)) {
-            assert_eq!(earlier.trace.epoch, later.trace.epoch, "one epoch per run");
-            assert_eq!(
-                earlier.trace.sequence + 1,
-                later.trace.sequence,
-                "trace order"
-            );
+        if let (Some(first), Some(last)) = (self.records.front(), self.records.back()) {
+            assert_eq!(first.trace.epoch, last.trace.epoch, "one epoch per run");
+            let span = last.trace.sequence.checked_sub(first.trace.sequence);
+            let length = u64::try_from(self.records.len() - 1).ok();
+            assert_eq!(span, length, "trace order");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn record(sequence: u64) -> PacketRecord {
+        let trace = TraceId { epoch: 1, sequence };
+        PacketRecord::new(trace, EndpointId::Btp(1), "test.x", 1, 0)
+    }
+
+    #[test]
+    fn a_full_ring_keeps_the_latest_in_order() {
+        let mut trace = Trace::new(4, 4);
+        for sequence in 1..=10 {
+            trace.push(record(sequence));
+            trace.check_invariants();
+        }
+        let kept: alloc::vec::Vec<u64> = trace
+            .records_after(None)
+            .map(|r| r.trace.sequence)
+            .collect();
+        assert_eq!(kept, [7, 8, 9, 10]);
+    }
+
+    #[test]
+    #[should_panic(expected = "trace order")]
+    fn a_record_out_of_order_is_refused() {
+        let mut trace = Trace::new(4, 4);
+        trace.push(record(1));
+        trace.push(record(3));
     }
 }

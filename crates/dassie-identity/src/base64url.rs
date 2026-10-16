@@ -104,13 +104,13 @@ pub fn decode(input: &[u8], output: &mut [u8]) -> Result<usize, Error> {
 
 /// The character for a sextet.
 const fn symbol(sextet: u8) -> u8 {
+    assert!(sextet < 64, "a sextet has six bits");
     match sextet {
         0..=25 => b'A' + sextet,
         26..=51 => b'a' + (sextet - 26),
         52..=61 => b'0' + (sextet - 52),
         62 => b'-',
-        63 => b'_',
-        _ => panic!("a sextet has six bits"),
+        _ => b'_',
     }
 }
 

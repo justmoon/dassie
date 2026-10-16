@@ -9,15 +9,6 @@
 //!   move from `old` to `new` on its own, 1 if not: the workflow never moves
 //!   `meta/<channel>` back.
 
-#![forbid(unsafe_code)]
-#![deny(
-    clippy::indexing_slicing,
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss
-)]
-
 use std::path::Path;
 use std::process::ExitCode;
 use std::{env, fs};

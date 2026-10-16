@@ -5,10 +5,16 @@
 //! the inputs; it hands back [`Output`]s once the step's changes are on
 //! disk. So the daemon's task and a simulation drive the same code.
 
-#![deny(clippy::disallowed_types)]
+#![deny(
+    clippy::disallowed_types,
+    clippy::disallowed_methods,
+    clippy::disallowed_macros
+)]
 
+mod events;
 mod grace;
 mod incoming;
+mod invariants;
 mod ledgers;
 mod packets;
 mod payers;
@@ -32,6 +38,10 @@ use dassie_ledger::{Account, AccountId, Ledger, Name, TraceId};
 use dassie_node_core::config::Realm;
 use dassie_stream::BUFFER_LENGTH;
 
+pub use events::{
+    BtpEvent, EngineEvent, Event, MAX_EVENTS, PaymentEvent, PeerEvent, SettlementEvent, Severity,
+    StoreRead,
+};
 pub use grace::{GracePolicy, Lie};
 pub use incoming::{IncomingPolicy, NewIncoming};
 pub use ledgers::{LedgerView, RemovalBlocker};
@@ -49,11 +59,11 @@ use settlement::Settlements;
 use tokens::{BtpLink, TokenState};
 
 use crate::clock::SharedRng;
-use crate::log::target;
 use crate::node::Policies;
 use crate::store::{
     BanRecord, Checkpoint, LedgerBatch, PaymentId, PeerSettings, Store, StoreError,
 };
+use events::Events;
 
 /// Why the engine did not do something.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -129,6 +139,8 @@ pub enum Output {
     },
     /// A packet as the trace records it, for subscribers.
     Trace(TraceEvent),
+    /// What the core reports, for the log (D16).
+    Event(Event),
     /// A peer request to send.
     PeerRequest(dassie_peer::Request),
     /// The reply to an inbound peer request.
@@ -290,7 +302,58 @@ pub struct Core {
     peer_settings: PeerSettings,
     /// Why nodes were banned, and when bans were lifted.
     ban_records: BTreeMap<dassie_identity::NodeId, BanRecord>,
+    /// When the invariants are swept.
+    sweeps: Sweeps,
+    /// What the core reports, until it is handed over.
+    events: Events,
 }
+
+/// When the invariants are swept (D16).
+#[derive(Debug)]
+struct Sweeps {
+    /// The next sweep, at the earliest.
+    at_ms: u64,
+    /// How long a sweep holds for: [`SWEEP_EVERY_MS`].
+    every_ms: u64,
+    /// Sweeps so far.
+    count: u64,
+}
+
+impl Sweeps {
+    /// A sweep due at the first commit.
+    const DUE: Self = Self {
+        at_ms: 0,
+        every_ms: SWEEP_EVERY_MS,
+        count: 0,
+    };
+}
+
+/// Most rounds a step's end takes (D16). A round repeats only for what the
+/// one before set going, which is finite: settlements executed, peers
+/// banned, links closed. A few suffice; past this, what is left waits for
+/// the next step.
+const MAX_FINISH_ROUNDS: usize = 16;
+
+/// Most packets one connection sends at a time (D16). A connection's
+/// packets in flight are fewer; only answers given at once could take it
+/// further. What is left goes in the next step, which is due at once.
+pub(super) const MAX_SENDS_PER_POLL: usize = 256;
+
+/// How often the full sweep of the invariants runs, in engine time (D16).
+/// Where debug assertions are on (tests, simulations and the end-to-end
+/// binary) it runs before every commit; in release at most this often.
+/// Each change asserts what it can see on its own either way, and the
+/// time is the engine's, so a run stays the same for the same inputs.
+///
+/// Measured with the tables full (October 2026, optimized): the ledger's
+/// part takes 0.4 ms (4 000 accounts, 25 000 pending), the connector's
+/// 1.3 ms (8 000 packets in flight), and the Fulfills owed 1.5 ms for 8
+/// peers owing 1 024 each, growing with the peers: 13.5 ms for 64. A busy
+/// commit (256 packets) takes 6 ms. Every commit would cost a node at its
+/// limits more than the commit; once a second costs it under 1 %, and a
+/// node with small tables microseconds. In the simulations the sweep runs
+/// every step and costs less than their runs vary.
+const SWEEP_EVERY_MS: u64 = if cfg!(debug_assertions) { 0 } else { 1_000 };
 
 impl Core {
     /// Rebuilds the core from the database: the ledger from its journal,
@@ -366,6 +429,8 @@ impl Core {
             grace: grace::Grace::new(now_ms, policies.grace, policies.settlement_ratio_ppm),
             peer_settings: PeerSettings::DEFAULT,
             ban_records: BTreeMap::new(),
+            sweeps: Sweeps::DUE,
+            events: Events::new(),
         };
         core.restore()?;
         Ok(core)
@@ -399,7 +464,7 @@ impl Core {
             // A peer whose scheme is gone has no ledger to book on: it gets
             // no endpoint, which the rest of the node does without.
             if let Err(error) = self.add_peer_endpoint(node) {
-                tracing::error!(target: target::PEER, %node, %error, "a peer without an endpoint");
+                self.report(PeerEvent::NoEndpoint { node, error });
             }
             // One being ended stays drained.
             if !active.contains(&node)
@@ -473,6 +538,7 @@ impl Core {
             self.probe_deadline(),
             grace,
             self.schemes_deadline(),
+            self.work_left(),
         ]
         .into_iter()
         .flatten()
@@ -481,62 +547,84 @@ impl Core {
 
     /// Ends a step: expires what is due, persists, then hands over what
     /// the step produced. Links being closed are closed in turn, until
-    /// nothing is left to close.
+    /// nothing is left to close, in at most [`MAX_FINISH_ROUNDS`] rounds;
+    /// what is left then waits for the next step, which is due at once.
     pub fn finish_step(&mut self, out: &mut Vec<Output>) {
-        loop {
-            self.peer_timers();
-            self.scheme_timers();
-            self.settlement_timers();
-            self.expire(self.now_ms);
-            self.drain_local(self.now_ms);
-            self.pump_outgoing(self.now_ms);
-            self.verdict_timers();
-            self.flush();
-            // Settlements run once their pending transfers are on disk;
-            // what they did is persisted in turn (ACC-16).
-            if self.execute_settlements() {
-                // Their announcements go out with this step's outputs.
-                self.after_peer();
-                continue;
-            }
-            // What peers cost is read from the books on disk; a ban is
-            // persisted in turn (D18).
-            if self.grace_checks() {
-                continue;
-            }
-            self.check_invariants();
-            while let Some(event) = self.connector.poll_event() {
-                out.push(Output::Trace(event));
-            }
-            out.append(&mut self.outputs_peer);
-            out.extend(
-                self.outputs
-                    .drain(..)
-                    .map(|(link, message)| Output::Btp { link, message }),
-            );
-            let closing = std::mem::take(&mut self.closing);
-            if closing.is_empty() {
+        for _ in 0..MAX_FINISH_ROUNDS {
+            if self.finish_round(out) {
                 return;
             }
-            for link in closing {
-                self.close_link(link);
-            }
         }
+        self.report(EngineEvent::RoundsLeft);
+        self.flush();
+        self.hand_over(out);
     }
 
-    /// Persists the batch. A failure leaves memory ahead of the disk, which
-    /// nothing may act on: the core stops, and its successor starts from
-    /// the disk.
-    pub(super) fn flush(&mut self) {
-        self.checkpoint_schemes();
-        self.take_journal();
-        self.take_cap_changes();
-        self.peer.take_changes(&mut self.batch.peer);
-        let stats = self.ledger.stats();
-        if stats != self.ledger_stats {
-            self.ledger_stats = stats;
-            self.changes.ledger = true;
+    /// One round of [`finish_step`](Self::finish_step). Returns whether the
+    /// step is done.
+    fn finish_round(&mut self, out: &mut Vec<Output>) -> bool {
+        self.peer_timers();
+        self.scheme_timers();
+        self.settlement_timers();
+        self.expire(self.now_ms);
+        self.drain_local(self.now_ms);
+        self.pump_outgoing(self.now_ms);
+        self.verdict_timers();
+        self.flush();
+        // Settlements run once their pending transfers are on disk; what
+        // they did is persisted in turn (ACC-16).
+        if self.execute_settlements() {
+            // Their announcements go out with this step's outputs.
+            self.after_peer();
+            return false;
         }
+        // What peers cost is read from the books on disk; a ban is
+        // persisted in turn (D18).
+        if self.grace_checks() {
+            return false;
+        }
+        self.hand_over(out);
+        let closing = std::mem::take(&mut self.closing);
+        for link in &closing {
+            self.close_link(*link);
+        }
+        closing.is_empty()
+    }
+
+    /// Hands over what the step produced, now that it is on disk.
+    fn hand_over(&mut self, out: &mut Vec<Output>) {
+        out.extend(self.events.take().map(Output::Event));
+        while let Some(event) = self.connector.poll_event() {
+            out.push(Output::Trace(event));
+        }
+        out.append(&mut self.outputs_peer);
+        out.extend(
+            self.outputs
+                .drain(..)
+                .map(|(link, message)| Output::Btp { link, message }),
+        );
+    }
+
+    /// Now, if a step left work for the next: settlements to execute,
+    /// links to close, peers to check, or packets to send.
+    fn work_left(&self) -> Option<u64> {
+        let left = !self.settle.to_execute.is_empty()
+            || !self.closing.is_empty()
+            || self.grace.has_queued()
+            || self.spending.sends_left;
+        left.then_some(self.now_ms)
+    }
+
+    /// Persists the batch, once the invariants are checked: a broken one
+    /// stops the core before it reaches the disk, and the core's successor
+    /// starts from the last state that held. A failed write leaves memory
+    /// ahead of the disk, which nothing may act on: the core stops then
+    /// too.
+    // A failed write crashes the core, which restarts from the disk.
+    #[allow(clippy::panic)]
+    pub(super) fn flush(&mut self) {
+        self.stage();
+        self.sweep_if_due();
         if self.batch.is_empty() {
             return;
         }
@@ -552,10 +640,41 @@ impl Core {
         self.changes.payments |= batch.changes_payments();
         self.batch.at_ms = self.now_ms;
         let batch = std::mem::take(&mut self.batch);
+        // The supervisor logs the panic, and restarts the core.
         if let Err(error) = self.store.commit_ledger(&batch) {
-            tracing::error!(target: target::ENGINE, %error, "persisting the ledger failed; restarting it");
             panic!("persisting the ledger failed: {error}");
         }
+    }
+
+    /// Moves what changed in memory into the batch.
+    fn stage(&mut self) {
+        self.checkpoint_schemes();
+        self.take_journal();
+        self.take_cap_changes();
+        self.peer.take_changes(&mut self.batch.peer);
+        let stats = self.ledger.stats();
+        if stats != self.ledger_stats {
+            self.ledger_stats = stats;
+            self.changes.ledger = true;
+        }
+    }
+
+    /// Checks the invariants, when a sweep is due: at every commit where
+    /// debug assertions are on, at most every [`SWEEP_EVERY_MS`] in
+    /// release, and always at the commit that ends a restore.
+    fn sweep_if_due(&mut self) {
+        let sweeps = &mut self.sweeps;
+        if self.now_ms < sweeps.at_ms {
+            return;
+        }
+        sweeps.at_ms = self.now_ms.saturating_add(sweeps.every_ms);
+        sweeps.count += 1;
+        self.check_invariants();
+    }
+
+    /// Reports `event`, which goes out with the step's outputs.
+    pub(super) fn report(&mut self, event: impl Into<Event>) {
+        self.events.push(event.into());
     }
 
     /// Marks payments changed, for what changes them outside the engine.
@@ -566,17 +685,6 @@ impl Core {
     /// What changed since the last call, persisted.
     pub fn take_changes(&mut self) -> Changes {
         std::mem::take(&mut self.changes)
-    }
-
-    fn check_invariants(&self) {
-        if cfg!(debug_assertions) {
-            self.ledger.check_invariants();
-            self.connector.check_invariants(&self.ledger);
-            self.peer.check_invariants();
-            self.check_incoming();
-            self.check_outgoing();
-            self.owed.check();
-        }
     }
 
     /// The ledger a payment to `destination` goes out on, and whether it
@@ -603,7 +711,7 @@ impl Core {
     pub fn set_rates(&mut self, rates: &[crate::store::StoredRate]) {
         for &(code, rate, as_of_ms) in rates {
             if !self.rates.set_at(code, rate, as_of_ms) {
-                tracing::warn!(target: target::ENGINE, code, "no room for an exchange rate");
+                self.report(EngineEvent::RateTableFull { code });
             }
         }
         self.changes.ledger = true;
@@ -671,6 +779,10 @@ fn check_bounds(policies: &Policies) {
         "the credit fits the ledger"
     );
     assert!(
+        connector.max_routes >= policies.peer.max_nodes,
+        "every node the peer node knows can be routed to"
+    );
+    assert!(
         policies.ledger.max_journal >= 64,
         "a command's journal entries fit the journal"
     );
@@ -720,9 +832,9 @@ fn text(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
 
+/// Logged where it is answered, as every internal error is.
 impl From<StoreError> for EngineError {
     fn from(error: StoreError) -> Self {
-        tracing::error!(target: target::ENGINE, %error, "database");
-        Self::Internal("database error".into())
+        Self::Internal(format!("database: {error}"))
     }
 }

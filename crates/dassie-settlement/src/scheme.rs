@@ -357,6 +357,14 @@ pub trait SettlementScheme: Send {
     /// [`SchemeError::Unsupported`] where the owner deposits on the
     /// underlying ledger itself.
     fn deposit(&mut self, amount: u64, effects: &mut Vec<Effect>) -> Result<(), SchemeError>;
+
+    /// Asserts what holds between calls: its bounds, and how its parts
+    /// relate (D16). Tests, simulations and the node's checks run it.
+    ///
+    /// # Panics
+    ///
+    /// If the scheme's state is inconsistent.
+    fn check_invariants(&self);
 }
 
 /// A scheme the node can make.

@@ -19,7 +19,15 @@
 //! interop_peer server <own-address> <receipt-nonce-hex> <receipt-secret-hex>
 //! ```
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::too_many_lines)]
+// A process for the interop tests, not a state machine: it runs on the
+// real clock, the OS RNG and a reader thread.
+#![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::panic)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::too_many_lines
+)]
 
 use std::io::{Read, Write};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};

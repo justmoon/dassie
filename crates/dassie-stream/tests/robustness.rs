@@ -3,6 +3,13 @@
 //! limits must hold (D16). A hostile peer here knows the shared secret and
 //! crafts arbitrary encrypted STREAM packets.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic
+)]
+
 mod support;
 
 use dassie_ilp::{

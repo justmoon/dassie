@@ -2,7 +2,12 @@
 //! misbehave (D16), and the ends of sessions that are not logouts. Each
 //! test guards a defect a review of M2 found.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic
+)]
 
 mod support;
 

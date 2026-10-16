@@ -2,6 +2,8 @@
 //! `DASSIE_BOOTSTRAP_NODES` names, setting each up as a peer, and moving
 //! their time on until something holds.
 
+#![allow(clippy::panic)]
+
 use std::time::Duration;
 
 use dassie_identity::NodeKey;

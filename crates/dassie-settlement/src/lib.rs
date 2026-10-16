@@ -19,17 +19,6 @@
 //! registry of schemes, since they live in their own crates.
 
 #![no_std]
-#![forbid(unsafe_code)]
-#![deny(missing_docs)]
-#![deny(
-    clippy::indexing_slicing,
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::float_arithmetic,
-    clippy::too_many_lines
-)]
 
 extern crate alloc;
 #[cfg(test)]

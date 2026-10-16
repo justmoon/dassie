@@ -1,5 +1,7 @@
 //! Golden vectors produced by the original lib-oer (testdata/original).
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+
 mod support;
 
 use dassie_oer::{DecodeErrorKind, Reader, Size, Writer, oid};

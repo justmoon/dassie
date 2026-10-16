@@ -7,6 +7,9 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[lints]
+workspace = true
+
 [features]
 default = ["alloc"]
 # `to_vec` for callers at API edges (WASM bindings, tests). The codec itself

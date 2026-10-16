@@ -30,6 +30,8 @@ use tracing_subscriber::layer::{Context, SubscriberExt};
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{Layer, fmt};
 
+use crate::clock::{Clock, SystemClock};
+
 /// Most lines the ring keeps.
 pub const MAX_LINES: usize = 1_000;
 /// Most bytes of text the ring keeps.
@@ -342,16 +344,24 @@ struct RingLayer {
     ring: Arc<LogRing>,
 }
 
+/// What `f` logs, as the ring would keep it: for tests of what is logged.
+#[cfg(test)]
+pub(crate) fn capture(f: impl FnOnce()) -> Vec<LogLine> {
+    let ring = Arc::new(LogRing::default());
+    let layer = RingLayer {
+        ring: Arc::clone(&ring),
+    };
+    tracing::subscriber::with_default(tracing_subscriber::registry().with(layer), f);
+    ring.after(0, MAX_LINES).0
+}
+
 impl<S: Subscriber> Layer<S> for RingLayer {
     fn on_event(&self, event: &Event<'_>, _: Context<'_, S>) {
         let metadata = event.metadata();
         let mut visitor = LineVisitor::default();
         event.record(&mut visitor);
-        let time_unix_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |since| {
-                u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
-            });
+        // The clock module is the one place the node reads the real clock.
+        let time_unix_ms = SystemClock.now_ms();
         self.ring.push(LogLine {
             index: 0,
             time_unix_ms,

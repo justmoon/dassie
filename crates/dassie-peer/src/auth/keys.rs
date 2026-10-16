@@ -81,6 +81,8 @@ impl PairKeys {
 /// HMAC-SHA256 over the concatenation of `parts`. With a part ending in
 /// `0x01`, this is HKDF-Expand for one block of 32 bytes; with the salt as
 /// key, HKDF-Extract (RFC 5869).
+// HMAC takes keys of any length, so this cannot panic.
+#[allow(clippy::panic)]
 fn hmac(key: &[u8], parts: &[&[u8]]) -> [u8; 32] {
     let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(key) else {
         panic!("HMAC accepts keys of any length");

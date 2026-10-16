@@ -80,6 +80,9 @@ impl<'a> ObjectIdentifier<'a> {
 }
 
 /// The value of the first subidentifier, which combines the first two arcs.
+// Arcs that are no object identifier are the caller's bug: they are the
+// protocol's constants, mostly evaluated when the crate builds.
+#[allow(clippy::panic)]
 const fn first_subidentifier(arcs: &[u64]) -> u64 {
     let [first, second, ..] = arcs else {
         panic!("an object identifier needs at least two arcs");

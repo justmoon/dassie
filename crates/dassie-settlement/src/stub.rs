@@ -48,8 +48,7 @@ impl Stub {
 
 impl SettlementScheme for Stub {
     fn id(&self) -> Name {
-        // A constant that is a valid name.
-        Name::new("stub").unwrap_or_else(|_| unreachable!())
+        dassie_ledger::name!("stub")
     }
 
     fn ledger(&self) -> LedgerId {
@@ -177,20 +176,21 @@ impl SettlementScheme for Stub {
         effects.push(Effect::Deposit { amount });
         Ok(())
     }
+
+    fn discard_settlement(&mut self, settlement: Name) {
+        self.prepared.remove(&settlement);
+    }
+
+    fn check_invariants(&self) {
+        assert!(self.prepared.len() <= MAX_PREPARED);
+    }
 }
 
 /// 16 random bytes in lowercase hex, as the original's settlement IDs.
 fn random_id(rng: &mut dyn CryptoRng) -> Name {
     let mut bytes = [0u8; 16];
     rng.fill_bytes(&mut bytes);
-    let mut text = [0u8; 32];
-    let digits = b"0123456789abcdef";
-    for ([high, low], byte) in text.as_chunks_mut::<2>().0.iter_mut().zip(bytes) {
-        *high = digits.get(usize::from(byte >> 4)).copied().unwrap_or(b'0');
-        *low = digits.get(usize::from(byte & 15)).copied().unwrap_or(b'0');
-    }
-    let text = core::str::from_utf8(&text).unwrap_or("0");
-    Name::new(text).unwrap_or_else(|_| unreachable!())
+    Name::hex(&bytes, false)
 }
 
 #[cfg(test)]
@@ -291,6 +291,21 @@ mod tests {
             stub.prepare_settlement(&mut rng, peer(), 1, &[]),
             Err(SchemeError::TooManyPrepared)
         );
+        stub.check_invariants();
+    }
+
+    // Found by the invariants (D16): a settlement the node could not book
+    // stayed prepared, so after 64 of them the stub settled nothing more.
+    #[test]
+    fn a_discarded_settlement_frees_its_slot() {
+        let mut stub = Stub::new("", None).unwrap();
+        let mut rng = SeededRng::new(2);
+        for _ in 0..MAX_PREPARED * 2 {
+            let prepared = stub.prepare_settlement(&mut rng, peer(), 1, &[]).unwrap();
+            stub.discard_settlement(prepared.id);
+            stub.check_invariants();
+        }
+        assert!(stub.prepared.is_empty());
     }
 
     #[test]

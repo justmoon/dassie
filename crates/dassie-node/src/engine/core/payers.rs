@@ -19,12 +19,12 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use dassie_connector::{EndpointId, Forwarded, Outcome};
 use dassie_ilp::{Address, Timestamp};
-use dassie_ledger::{AccountName, LedgerId, Name, OwnerSub};
+use dassie_ledger::{AccountName, LedgerId, OwnerSub};
 use dassie_payments::gnap::Limits;
 use dassie_stream::{AssetDetails, Config, Connection, Event, Policy, Rate, Role};
 
-use super::{Core, EngineError};
-use crate::log::target;
+use super::events::{EngineEvent, PaymentEvent};
+use super::{Core, EngineError, MAX_SENDS_PER_POLL};
 use crate::store::{ForeignAmount, OutgoingProgress, OutgoingRow, OutgoingState, PaymentId};
 
 /// The prefix of a payer's address segment below the node's own.
@@ -62,6 +62,19 @@ pub(super) struct Spending {
     pub requests: BTreeMap<u32, (Sender, u64)>,
     pub next_request: u32,
     pub local_queue: VecDeque<(Forwarded, Vec<u8>)>,
+    /// Whether a connection had more to send than a poll takes.
+    pub sends_left: bool,
+}
+
+/// Where the answer to a payer's packet is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Answer {
+    /// In `out`, given at once by the connector.
+    Out(usize),
+    /// In `up`, come back from where it went.
+    Up(usize),
+    /// There is none: the connector refused it.
+    Empty,
 }
 
 /// What sent a payer's packet.
@@ -140,10 +153,8 @@ pub struct CreatedOutgoing {
 }
 
 /// The owner's account a ledger's payer spends from.
-fn pay_account() -> Option<AccountName> {
-    Some(AccountName::EquityOwnerSub(OwnerSub::Local(
-        Name::new("pay").ok()?,
-    )))
+fn pay_account() -> AccountName {
+    AccountName::EquityOwnerSub(OwnerSub::Local(dassie_ledger::name!("pay")))
 }
 
 /// A ledger's payer address.
@@ -162,7 +173,7 @@ impl Core {
             return Ok(());
         }
         let endpoint = self.free_local();
-        let name = pay_account().ok_or_else(|| EngineError::Internal("name".into()))?;
+        let name = pay_account();
         let account = self
             .ledger
             .open(dassie_ledger::AccountPath::new(ledger, name))
@@ -229,25 +240,7 @@ impl Core {
         new: NewOutgoing,
     ) -> Result<CreatedOutgoing, EngineError> {
         let now = self.now_ms();
-        if !self.spending.payers.contains_key(&new.ledger) {
-            return Err(EngineError::Precondition("the ledger is not active".into()));
-        }
-        if new.debit_amount == 0 || new.receive_amount.value == 0 {
-            return Err(EngineError::Invalid(
-                "the amount must be more than nothing".into(),
-            ));
-        }
-        if self.spending.outgoing.len() >= MAX_UNFINISHED {
-            return Err(EngineError::Exhausted(
-                "too many outgoing payments are unfinished".into(),
-            ));
-        }
-        check_new(&new)?;
-        if let Some(quote) = new.quote_id {
-            self.check_quote_unpaid(quote)?;
-        }
-        self.check_credentials_unused(&new.destination)?;
-        self.check_funds(new.ledger, new.debit_amount)?;
+        self.check_creatable(&new)?;
         let grant = match &new.grant {
             Some((grant, limits)) => Some(self.reserve(*grant, limits, &new, now)?),
             None => None,
@@ -290,7 +283,10 @@ impl Core {
                 start_at_ms: now,
             },
         );
-        tracing::info!(target: target::PAYMENT, id = %row.id, debit = row.debit_amount, "outgoing payment created");
+        self.report(PaymentEvent::OutgoingCreated {
+            id: row.id,
+            debit: row.debit_amount,
+        });
         self.pump_outgoing(now);
         Ok(CreatedOutgoing {
             row,
@@ -300,6 +296,31 @@ impl Core {
 
     /// Whether the owner's funds on `ledger` cover `debit` on top of what
     /// unfinished payments are still to send.
+    /// Whether `new` may be made, before its grant is asked: an active
+    /// ledger, amounts, room, a quote and credentials not used yet, and
+    /// the funds.
+    fn check_creatable(&self, new: &NewOutgoing) -> Result<(), EngineError> {
+        if !self.spending.payers.contains_key(&new.ledger) {
+            return Err(EngineError::Precondition("the ledger is not active".into()));
+        }
+        if new.debit_amount == 0 || new.receive_amount.value == 0 {
+            return Err(EngineError::Invalid(
+                "the amount must be more than nothing".into(),
+            ));
+        }
+        if self.spending.outgoing.len() >= MAX_UNFINISHED {
+            return Err(EngineError::Exhausted(
+                "too many outgoing payments are unfinished".into(),
+            ));
+        }
+        check_new(new)?;
+        if let Some(quote) = new.quote_id {
+            self.check_quote_unpaid(quote)?;
+        }
+        self.check_credentials_unused(&new.destination)?;
+        self.check_funds(new.ledger, new.debit_amount)
+    }
+
     fn check_funds(&self, ledger: LedgerId, debit: u64) -> Result<(), EngineError> {
         let root = self.account(ledger, AccountName::EquityOwner)?;
         let balance = self
@@ -402,14 +423,17 @@ impl Core {
             return refused("the grant's interval allows no payment now");
         };
         let mut spent = self.store.grant_spend(grant, window)?;
-        if let Some((debit, receive)) = self.batch.outgoing.spend.get(&(grant, window)) {
-            spent.0 = u64::try_from(i128::from(spent.0) + debit).unwrap_or(0);
-            spent.1 = u64::try_from(i128::from(spent.1) + receive).unwrap_or(0);
+        if let Some(&(debit, receive)) = self.batch.outgoing.spend.get(&(grant, window)) {
+            spent = (with_change(spent.0, debit)?, with_change(spent.1, receive)?);
         }
         let (debit, receive) = (new.debit_amount, new.receive_amount.value);
         if !limits.admit(spent, debit, receive) {
             return refused("the payment would exceed the grant's limits");
         }
+        let total = (
+            with_change(spent.0, i128::from(debit))?,
+            with_change(spent.1, i128::from(receive))?,
+        );
         let entry = self
             .batch
             .outgoing
@@ -418,7 +442,7 @@ impl Core {
             .or_default();
         entry.0 += i128::from(debit);
         entry.1 += i128::from(receive);
-        Ok((grant, window, (spent.0 + debit, spent.1 + receive)))
+        Ok((grant, window, total))
     }
 
     /// Starts waiting payments while there is room, sends what their
@@ -486,13 +510,17 @@ impl Core {
             .filter(|stream| connection.set_send_max(*stream, left).is_ok());
         payment.base_sent = payment.row.sent_amount;
         payment.connection = Some(connection);
-        tracing::debug!(target: target::PAYMENT, %id, left, at = now, "outgoing payment sending");
+        self.report(PaymentEvent::OutgoingSending {
+            id,
+            left,
+            at_ms: now,
+        });
     }
 
     /// Sends what a payment's connection has to send.
     fn transmit_outgoing(&mut self, id: PaymentId, now: u64) {
         let at = Timestamp::from_unix_ms(now);
-        loop {
+        for _ in 0..MAX_SENDS_PER_POLL {
             let Self {
                 rng,
                 spending,
@@ -518,19 +546,31 @@ impl Core {
             self.spending
                 .requests
                 .insert(local, (Sender::Payment(id), transmit.request_id));
-            self.send_payer_packet(now, endpoint, local, transmit.length);
+            if let Some(answer) = self.send_payer_packet(now, endpoint, local, transmit.length) {
+                self.take_answer(now, local, answer);
+                self.settle_outgoing(id, now);
+            }
         }
+        self.sends_left();
+    }
+
+    /// A connection had more to send than a poll takes: the rest goes in
+    /// the next step.
+    pub(super) fn sends_left(&mut self) {
+        self.spending.sends_left = true;
+        self.report(EngineEvent::SendsLeft);
     }
 
     /// Hands the connector a payer's packet, written into the scratch
-    /// buffer.
+    /// buffer. Returns its answer, if the connector gave it at once: the
+    /// caller takes it in, and goes on sending (D16: nothing recurses).
     pub(super) fn send_payer_packet(
         &mut self,
         now: u64,
         endpoint: EndpointId,
         local: u32,
         length: usize,
-    ) {
+    ) -> Option<Answer> {
         let outcome = self.connector.handle_prepare(
             now,
             endpoint,
@@ -540,11 +580,12 @@ impl Core {
             &self.rates,
             &mut self.out,
         );
-        self.sent_out(now, outcome, local);
+        self.sent_out(now, outcome)
     }
 
-    /// What the connector did with a payer's packet.
-    fn sent_out(&mut self, now: u64, outcome: Outcome, local: u32) {
+    /// What the connector did with a payer's packet, and its answer if it
+    /// has one already.
+    fn sent_out(&mut self, now: u64, outcome: Outcome) -> Option<Answer> {
         match outcome {
             Outcome::Forward(forwarded) if matches!(forwarded.to, EndpointId::Local(_)) => {
                 // To the node's own receiver: after this step's sending,
@@ -558,36 +599,67 @@ impl Core {
                     self.spending.local_queue.push_back((forwarded, packet));
                 }
                 // A full queue leaves the packet to expire.
+                None
             }
-            Outcome::Forward(forwarded) => self.forwarded(now, forwarded),
-            Outcome::Respond(length) => {
-                let response = self.out.get(..length).unwrap_or_default().to_vec();
-                self.payer_response(now, local, &response);
+            Outcome::Forward(forwarded) => {
+                self.forward_out(now, forwarded);
+                None
             }
-            Outcome::Duplicate | Outcome::UnknownSource => {
-                self.payer_response(now, local, &[]);
-            }
+            Outcome::Respond(length) => Some(Answer::Out(length)),
+            Outcome::Duplicate | Outcome::UnknownSource => Some(Answer::Empty),
         }
     }
 
-    /// The response to a payer's packet: to its connection.
-    pub(super) fn payer_response(&mut self, now: u64, local: u32, response: &[u8]) {
-        let Some((sender, request)) = self.spending.requests.remove(&local) else {
-            return;
-        };
-        let id = match sender {
-            Sender::Payment(id) => id,
-            Sender::Probe(probe) => return self.probe_response(now, probe, request, response),
-        };
-        let Self { spending, work, .. } = self;
-        let Some(payment) = spending.outgoing.get_mut(&id) else {
-            return;
-        };
-        payment.in_flight = payment.in_flight.saturating_sub(1);
-        if let Some(connection) = payment.connection.as_mut() {
-            connection.handle_response(Timestamp::from_unix_ms(now), request, response, work);
+    /// The answer to a payer's packet, come later: to its connection, which
+    /// then sends what it has to.
+    pub(super) fn payer_response(&mut self, now: u64, local: u32, answer: Answer) {
+        match self.take_answer(now, local, answer) {
+            Some(Sender::Payment(id)) => self.settle_outgoing(id, now),
+            Some(Sender::Probe(id)) => {
+                self.transmit_probe(id, now);
+                self.settle_probe(id, now);
+            }
+            None => {}
         }
-        self.settle_outgoing(id, now);
+    }
+
+    /// Gives a payer's connection the answer to its packet `local`, read
+    /// where it is. Sends nothing. Returns whose packet it was.
+    pub(super) fn take_answer(&mut self, now: u64, local: u32, answer: Answer) -> Option<Sender> {
+        let (sender, request) = self.spending.requests.remove(&local)?;
+        let Self {
+            spending,
+            work,
+            out,
+            up,
+            ..
+        } = self;
+        let response = match answer {
+            Answer::Out(length) => out.get(..length),
+            Answer::Up(length) => up.get(..length),
+            Answer::Empty => None,
+        };
+        let (at, response) = (Timestamp::from_unix_ms(now), response.unwrap_or_default());
+        match sender {
+            Sender::Payment(id) => {
+                let payment = spending.outgoing.get_mut(&id)?;
+                assert!(
+                    payment.in_flight > 0,
+                    "a response to a packet not in flight"
+                );
+                payment.in_flight -= 1;
+                if let Some(connection) = payment.connection.as_mut() {
+                    connection.handle_response(at, request, response, work);
+                }
+            }
+            Sender::Probe(id) => {
+                let probe = spending.probes.get_mut(&id)?;
+                probe
+                    .connection
+                    .handle_response(at, request, response, work);
+            }
+        }
+        Some(sender)
     }
 
     /// Takes in what a payment's connection did: what it sent, and whether
@@ -605,6 +677,12 @@ impl Core {
         assert!(
             sent <= payment.row.debit_amount,
             "a payment sent more than its debit amount"
+        );
+        // What was sent is on disk: a restart that saw less would send it
+        // again.
+        assert!(
+            sent >= payment.row.sent_amount,
+            "a payment's progress went back"
         );
         if sent != payment.row.sent_amount {
             payment.row.sent_amount = sent;
@@ -664,7 +742,7 @@ impl Core {
             payment.base_sent = sent;
             payment.start_at_ms = now.saturating_add(wait);
             self.spending.waiting.insert((payment.start_at_ms, id));
-            tracing::debug!(target: target::PAYMENT, %id, reason, "outgoing payment connects again");
+            self.report(PaymentEvent::OutgoingReconnects { id, reason });
         }
     }
 
@@ -688,12 +766,17 @@ impl Core {
         if let Some((grant, window)) = row.grant {
             let unsent = row.debit_amount - row.sent_amount;
             let receive = row.receive_amount.value;
-            let delivered = u128::from(row.sent_amount) * u128::from(receive)
-                / u128::from(row.debit_amount.max(1));
+            // It sent at most its debit amount, so delivered at most this.
+            let delivered = u64::try_from(
+                u128::from(row.sent_amount) * u128::from(receive)
+                    / u128::from(row.debit_amount.max(1)),
+            );
+            assert!(
+                delivered.is_ok_and(|delivered| delivered <= receive),
+                "a payment delivered more than it was to receive"
+            );
             let undelivered = match row.state {
-                OutgoingState::Failed => {
-                    receive - u64::try_from(delivered).unwrap_or(receive).min(receive)
-                }
+                OutgoingState::Failed => receive - delivered.unwrap_or_default(),
                 _ => 0,
             };
             if unsent > 0 || undelivered > 0 {
@@ -708,7 +791,13 @@ impl Core {
             }
         }
         self.batch.outgoing.progress.insert(id, progress(row));
-        tracing::info!(target: target::PAYMENT, %id, state = row.state.as_str(), sent = row.sent_amount, failure = ?row.failure, "outgoing payment finished");
+        let finished = PaymentEvent::OutgoingFinished {
+            id,
+            state: row.state,
+            sent: row.sent_amount,
+            failure: row.failure.clone(),
+        };
+        self.report(finished);
     }
 
     /// Hands the packets for the node's own receiver to it, a bounded
@@ -720,7 +809,7 @@ impl Core {
             };
             if let Some(target) = self.out.get_mut(..packet.len()) {
                 target.copy_from_slice(&packet);
-                self.forwarded(now, forwarded);
+                self.deliver(now, forwarded);
             }
         }
     }
@@ -808,30 +897,31 @@ impl Core {
             .filter(|payment| payment.connection.is_some())
             .count();
         assert!(sending <= MAX_SENDING, "too many payments sending");
-        let in_flight: u64 = self
-            .spending
-            .outgoing
-            .values()
-            .map(|payment| u64::from(payment.in_flight))
-            .sum();
-        let requests = self
-            .spending
-            .requests
-            .values()
-            .filter(|(sender, _)| {
-                matches!(sender, Sender::Payment(id) if self.spending.outgoing.contains_key(id))
-            })
-            .count();
-        assert_eq!(
-            usize::try_from(in_flight).unwrap_or(usize::MAX),
-            requests,
-            "payments' packets in flight"
-        );
-        for payment in self.spending.outgoing.values() {
+        // A payment finishes only with nothing in flight, so every packet
+        // in flight is an unfinished payment's, and counted by it.
+        let mut in_flight = BTreeMap::<PaymentId, u32>::new();
+        for (sender, _) in self.spending.requests.values() {
+            if let Sender::Payment(id) = sender {
+                assert!(
+                    self.spending.outgoing.contains_key(id),
+                    "a packet in flight for a finished payment"
+                );
+                *in_flight.entry(*id).or_default() += 1;
+            }
+        }
+        for (id, payment) in &self.spending.outgoing {
+            assert_eq!(
+                payment.in_flight,
+                in_flight.get(id).copied().unwrap_or_default(),
+                "a payment's packets in flight"
+            );
             assert!(
                 payment.row.sent_amount <= payment.row.debit_amount,
                 "a payment sent more than its debit amount"
             );
+            if let Some(connection) = &payment.connection {
+                connection.check_invariants();
+            }
         }
     }
 }
@@ -852,6 +942,15 @@ fn closed_early(payment: &mut Unfinished) {
             });
         }
     }
+}
+
+/// What a grant's window spent, with a change on top. Refunds can take it
+/// below zero only when they outrun what is on disk, which counts as
+/// nothing spent, as the store counts it; past `u64::MAX` it would count
+/// less than was spent, so that is an error.
+fn with_change(spent: u64, change: i128) -> Result<u64, EngineError> {
+    u64::try_from((i128::from(spent) + change).max(0))
+        .map_err(|_| EngineError::Internal("a grant's spend overflows".into()))
 }
 
 /// What the rows of outgoing payments require, checked before anything

@@ -6,7 +6,8 @@
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::indexing_slicing,
-    dead_code
+    dead_code,
+    clippy::too_many_lines
 )]
 
 use std::collections::{BTreeMap, BTreeSet};

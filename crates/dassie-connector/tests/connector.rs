@@ -1,6 +1,8 @@
 //! The connector's behaviour, each D13 fix with a test that fails against
 //! the original (spec 4 §14).
 
+#![allow(clippy::panic)]
+
 mod support;
 
 use dassie_connector::{Config, EndpointId, Forwarded, Outcome, PacketState, RATE_PRECISION};

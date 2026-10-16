@@ -33,9 +33,12 @@ impl<'a> Writer<'a> {
     /// Writes raw octets.
     pub fn write_bytes(&mut self, bytes: &[u8]) {
         let end = self.position + bytes.len();
-        match self.buffer.get_mut(self.position..end) {
-            Some(destination) => destination.copy_from_slice(bytes),
-            None => panic!("OER writer overflow: buffer smaller than encoded_len"),
+        assert!(
+            end <= self.buffer.len(),
+            "OER writer overflow: buffer smaller than encoded_len"
+        );
+        if let Some(destination) = self.buffer.get_mut(self.position..end) {
+            destination.copy_from_slice(bytes);
         }
         self.position = end;
     }

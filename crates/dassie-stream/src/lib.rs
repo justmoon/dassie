@@ -14,16 +14,6 @@
 //! and closes the RFC gaps it left (ILP-11).
 
 #![no_std]
-#![forbid(unsafe_code)]
-#![deny(missing_docs)]
-#![deny(
-    clippy::indexing_slicing,
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::too_many_lines
-)]
 
 extern crate alloc;
 

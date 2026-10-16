@@ -2,6 +2,13 @@
 //! the invariants hold after every step, no transfer that checks limits
 //! breaks one that held, and the journal alone rebuilds the ledger.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::too_many_lines
+)]
+
 mod support;
 
 use dassie_ledger::{

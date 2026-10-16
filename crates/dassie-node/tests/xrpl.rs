@@ -4,7 +4,13 @@
 //! the ledger, and after both restart the books still match each account,
 //! less its reserve. A deposit from outside is booked once.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::too_many_lines,
+    clippy::panic
+)]
 
 mod support;
 

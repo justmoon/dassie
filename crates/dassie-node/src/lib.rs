@@ -1,16 +1,10 @@
 //! The Dassie daemon.
 
-#![forbid(unsafe_code)]
 // Allowed in the daemon, denied in the engine's core (see clippy.toml).
-#![allow(clippy::disallowed_types)]
-#![deny(missing_docs)]
-#![deny(
-    clippy::indexing_slicing,
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::too_many_lines
+#![allow(
+    clippy::disallowed_types,
+    clippy::disallowed_methods,
+    clippy::disallowed_macros
 )]
 
 pub mod acme;

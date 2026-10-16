@@ -1,6 +1,8 @@
 //! Golden vectors produced by the original at e962ab78: the derivation
 //! chain from entropy to every node secret, and the key-level vectors.
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+
 mod support;
 
 use dassie_identity::{

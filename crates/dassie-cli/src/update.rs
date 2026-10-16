@@ -485,16 +485,34 @@ fn run_bounded(binary: &Path, argument: &str) -> Result<Output, Problem> {
     child.wait_with_output().map_err(does_not_run)
 }
 
-/// Writes the unpacked tree's directories to disk, so that `current`
-/// never names a version a power cut could leave half written.
-fn sync_tree(dir: &Path) -> Result<(), Problem> {
-    for entry in fs::read_dir(dir).map_err(|e| permission(dir, &e))? {
-        let entry = entry.map_err(|e| permission(dir, &e))?;
-        if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-            sync_tree(&entry.path())?;
+/// Most entries an unpacked tree holds: each one the bundle admits brings
+/// at most a directory per level of its path.
+const MAX_TREE_ENTRIES: usize = bundle::MAX_ENTRIES * bundle::MAX_DEPTH;
+
+/// Writes the unpacked tree's directories to disk, each after what is in
+/// it, so that `current` never names a version a power cut could leave
+/// half written.
+fn sync_tree(root: &Path) -> Result<(), Problem> {
+    // Breadth first, so every directory comes after its parent.
+    let mut dirs = vec![root.to_path_buf()];
+    let (mut next, mut seen) = (0, 0);
+    while let Some(dir) = dirs.get(next).cloned() {
+        next += 1;
+        for entry in fs::read_dir(&dir).map_err(|e| permission(&dir, &e))? {
+            let entry = entry.map_err(|e| permission(&dir, &e))?;
+            seen += 1;
+            if seen > MAX_TREE_ENTRIES {
+                return Err(format!(
+                    "{}: more than {MAX_TREE_ENTRIES} entries",
+                    root.display()
+                ));
+            }
+            if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                dirs.push(entry.path());
+            }
         }
     }
-    sync_dir(dir)
+    dirs.iter().rev().try_for_each(|dir| sync_dir(dir))
 }
 
 fn sync_dir(dir: &Path) -> Result<(), Problem> {
@@ -610,5 +628,31 @@ fn prune(base: &Path, keep: &[&Version]) {
         } else if leftover && kind.is_symlink() {
             let _ = fs::remove_file(entry.path());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_tree_is_synced_each_directory_after_its_contents() {
+        let temp = tempfile::tempdir().unwrap();
+        let deep = temp.path().join("dassie/share/systemd/a/b");
+        fs::create_dir_all(&deep).unwrap();
+        fs::write(deep.join("file"), b"x").unwrap();
+        assert_eq!(sync_tree(temp.path()), Ok(()));
+    }
+
+    // D16: the walk has a bound, which no bundle the updater admits
+    // reaches.
+    #[test]
+    fn a_tree_past_its_bound_is_refused() {
+        let temp = tempfile::tempdir().unwrap();
+        for n in 0..=MAX_TREE_ENTRIES {
+            fs::write(temp.path().join(n.to_string()), b"").unwrap();
+        }
+        let refused = sync_tree(temp.path()).unwrap_err();
+        assert!(refused.contains("more than 8192 entries"), "{refused}");
     }
 }

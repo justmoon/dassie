@@ -38,13 +38,8 @@ impl Ledger {
             self.stats.refused += 1;
         }
         result?;
+        self.check_room(spec)?;
         let durable = spec.pending && spec.reference.is_durable_while_pending();
-        if spec.pending && self.pending.len() >= usize_of(self.config.max_pending) {
-            return Err(TransferError::PendingFull);
-        }
-        if (durable || !spec.pending) && self.journal.len() >= usize_of(self.config.max_journal) {
-            return Err(TransferError::JournalFull);
-        }
         let transfer = Transfer {
             id: TransferId(self.next_transfer),
             debit: spec.debit,
@@ -126,6 +121,7 @@ impl Ledger {
                 }
             }
         }
+        assert_eq!(ids.len() - start, specs.len(), "one ID per linked transfer");
         Ok(())
     }
 
@@ -189,14 +185,29 @@ impl Ledger {
         Ok(())
     }
 
-    /// Whether [`create`](Self::create) would take `spec` now, as far as
-    /// the accounts and their limits go, without creating it.
+    /// Whether [`create`](Self::create) would take `spec` now, without
+    /// creating it: the accounts, their limits, and room in the tables.
+    /// What it takes, it takes for a smaller amount too, until the ledger
+    /// changes.
     ///
     /// # Errors
     ///
     /// Why it would be refused.
     pub fn validate(&self, spec: &TransferSpec) -> Result<(), TransferError> {
-        self.check(spec)
+        self.check(spec)?;
+        self.check_room(spec)
+    }
+
+    /// Whether the pending table and the journal have room for `spec`.
+    fn check_room(&self, spec: &TransferSpec) -> Result<(), TransferError> {
+        let durable = spec.pending && spec.reference.is_durable_while_pending();
+        if spec.pending && self.pending.len() >= usize_of(self.config.max_pending) {
+            return Err(TransferError::PendingFull);
+        }
+        if (durable || !spec.pending) && self.journal.len() >= usize_of(self.config.max_journal) {
+            return Err(TransferError::JournalFull);
+        }
+        Ok(())
     }
 
     /// Validates a transfer against the accounts, their limits and bounds.
@@ -279,15 +290,20 @@ impl Ledger {
             Change::AddPosted { debit: true } => balance.debits_posted += amount,
             Change::AddPosted { debit: false } => balance.credits_posted += amount,
         };
-        let group = match self.accounts.get_mut(usize_of(id.0)) {
-            Some(account) => {
-                apply(&mut account.balance);
-                account.group
+        // Callers pass accounts they looked up: skipping a change would
+        // leave the books unbalanced.
+        let account = self.accounts.get_mut(usize_of(id.0));
+        assert!(account.is_some(), "a change to an unknown account");
+        let group = account.and_then(|account| {
+            apply(&mut account.balance);
+            account.group
+        });
+        if let Some(root) = group {
+            let root = self.accounts.get_mut(usize_of(root.0));
+            assert!(root.is_some(), "a group without its root");
+            if let Some(root) = root {
+                apply(&mut root.group_balance);
             }
-            None => None,
-        };
-        if let Some(root) = group.and_then(|root| self.accounts.get_mut(usize_of(root.0))) {
-            apply(&mut root.group_balance);
         }
     }
 

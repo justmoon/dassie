@@ -1,6 +1,13 @@
 //! Golden vectors produced by the original's lib-protocol-stream
 //! (testdata/original): all 53 packet fixtures and the crypto vectors.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic
+)]
+
 mod support;
 
 use dassie_ilp::Address;

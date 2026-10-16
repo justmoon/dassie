@@ -18,8 +18,8 @@ use dassie_ledger::{AccountName, AccountPath, Reference, TraceId, TransferSpec};
 use dassie_oer::{Decode, Encode};
 
 use super::Core;
-use crate::log::target;
-use crate::store::{Compensation, IncomingPaid, OwedFulfill};
+use super::events::{PeerEvent, StoreRead};
+use crate::store::{Compensation, IncomingPaid, OwedFulfill, PaymentId};
 
 /// Most Fulfills one peer may owe us a verdict on, counting the packets in
 /// flight from it that may become more; a peer at it gets T03 on new
@@ -100,6 +100,17 @@ impl Owed {
         self.per_peer.get(peer).copied().unwrap_or(0)
     }
 
+    /// What each incoming payment waits for, over the Fulfills owed.
+    pub fn waiting(&self) -> BTreeMap<PaymentId, u64> {
+        let mut waiting = BTreeMap::<PaymentId, u64>::new();
+        for entry in self.entries.values() {
+            if let Some(paid) = entry.row.incoming {
+                *waiting.entry(paid.payment).or_default() += paid.amount;
+            }
+        }
+        waiting
+    }
+
     /// The next time a Fulfill is to be sent, or old ones forgotten.
     pub fn deadline(&self) -> Option<u64> {
         let due = self.due.first().map(|(at, _)| *at);
@@ -129,11 +140,18 @@ impl Owed {
         assert!(previous.is_none(), "a packet owed twice");
     }
 
-    /// Moves an entry to `state`, keeping the queues and counts.
+    /// Moves an entry to `state`, keeping the queues and counts. A verdict
+    /// no longer asked lets the Fulfills blocked behind it go.
     fn set(&mut self, trace: TraceId, state: State) {
-        let Some(entry) = self.entries.get_mut(&trace) else {
-            return;
-        };
+        if let Some((peer, State::Asking)) = self.move_to(trace, state) {
+            self.unblock(peer);
+        }
+    }
+
+    /// Moves an entry to `state`, keeping the queues and counts. Returns
+    /// its peer and the state it left.
+    fn move_to(&mut self, trace: TraceId, state: State) -> Option<(NodeId, State)> {
+        let entry = self.entries.get_mut(&trace)?;
         let peer = entry.row.peer;
         let old = std::mem::replace(&mut entry.state, state);
         match old {
@@ -159,28 +177,24 @@ impl Owed {
             }
             State::Asking => *self.asking.entry(peer).or_default() += 1,
         }
-        if old == State::Asking {
-            self.unblock(peer);
-        }
+        Some((peer, old))
     }
 
     /// Lets one Fulfill blocked behind `peer`'s verdicts go, or all of
     /// them once none is asked any more.
     fn unblock(&mut self, peer: NodeId) {
-        let all = !self.asking.contains_key(&peer);
-        let next: Vec<TraceId> = self
-            .blocked
-            .get(&peer)
-            .map(|blocked| {
-                blocked
-                    .iter()
-                    .take(if all { usize::MAX } else { 1 })
-                    .copied()
-                    .collect()
-            })
-            .unwrap_or_default();
-        for trace in next {
-            self.set(trace, State::Waiting(0));
+        // A peer owes at most this many, blocked or not.
+        let most = if self.asking.contains_key(&peer) {
+            1
+        } else {
+            MAX_OWED_PER_PEER
+        };
+        for _ in 0..most {
+            let blocked = self.blocked.get(&peer);
+            let Some(trace) = blocked.and_then(|blocked| blocked.first().copied()) else {
+                return;
+            };
+            self.move_to(trace, State::Waiting(0));
         }
     }
 
@@ -217,6 +231,10 @@ impl Owed {
             "the blocked queues"
         );
         assert_eq!(per_peer, self.per_peer, "Fulfills owed per peer");
+        assert!(
+            per_peer.values().all(|count| *count <= MAX_OWED_PER_PEER),
+            "a peer owes more verdicts than it may"
+        );
         assert_eq!(asking, self.asking, "verdicts asked per peer");
         assert!(
             asking.values().all(|count| *count <= MAX_ASKING_PER_PEER),
@@ -306,7 +324,7 @@ impl Core {
         &mut self,
         posted: &Posted,
         downstream_request: u32,
-        fulfill: &[u8],
+        fulfill_length: usize,
         incoming: Option<IncomingPaid>,
     ) -> bool {
         let moved = posted.transfers.iter().any(Option::is_some);
@@ -322,11 +340,13 @@ impl Core {
             EndpointId::Peer(endpoint) if moved => self.endpoint_peers.get(&endpoint).copied(),
             _ => None,
         };
-        let Some(peer) = peer.filter(|_| !fulfill.is_empty()) else {
-            if posted.source.is_peer() && moved {
-                // Peers leave only once drained: a bug.
-                tracing::error!(target: target::PEER, source = %posted.source, "a packet posted for a peer that is gone");
-            }
+        let Some(peer) = peer.filter(|_| fulfill_length > 0) else {
+            // Peers leave only once drained.
+            assert!(
+                peer.is_some() || !(posted.source.is_peer() && moved),
+                "a packet posted for a peer that is gone: {}",
+                posted.source
+            );
             if let Some(paid) = incoming {
                 self.incoming_received(paid);
             }
@@ -339,11 +359,12 @@ impl Core {
         if let Some(paid) = incoming {
             self.incoming_waiting(paid);
         }
-        let row = OwedFulfill {
+        let mut row = OwedFulfill {
             trace: posted.trace,
             peer,
             request_id: posted.source_request_id,
-            fulfill: fulfill.to_vec(),
+            // The table keeps none; the batch takes it below.
+            fulfill: Vec::new(),
             compensation,
             transfers: posted
                 .transfers
@@ -352,14 +373,16 @@ impl Core {
             expires_at_ms: posted.expires_at_ms,
             created_at_ms: self.now_ms,
         };
-        self.batch.verdicts.owed.push(row.clone());
-        self.owed.insert(row, self.now_ms);
+        self.owed.insert(row.clone(), self.now_ms);
+        // The Fulfill, in `up` still, is copied once, for the disk.
+        row.fulfill = self.up.get(..fulfill_length).unwrap_or_default().to_vec();
+        self.batch.verdicts.owed.push(row);
         true
     }
 
     /// Whether we took this Fulfill from `peer` for our Prepare
     /// `request_id` before: the answer to a resend.
-    pub(super) fn taken_before(&self, peer: &NodeId, request_id: u32, packet: &[u8]) -> bool {
+    pub(super) fn taken_before(&mut self, peer: &NodeId, request_id: u32, packet: &[u8]) -> bool {
         let Ok(Response::Fulfill(fulfill)) = Response::decode_exact(packet) else {
             return false;
         };
@@ -375,7 +398,10 @@ impl Core {
                 .store
                 .fulfill_taken(peer, request_id, &condition)
                 .unwrap_or_else(|error| {
-                    tracing::error!(target: target::PEER, %error, "looking up a Fulfill taken");
+                    self.report(PeerEvent::StoreReadFailed {
+                        what: StoreRead::FulfillTaken,
+                        error: error.to_string(),
+                    });
                     false
                 })
     }
@@ -397,7 +423,7 @@ impl Core {
             };
             let peer = entry.row.peer;
             if entry.row.expires_at_ms.saturating_add(ASKED_FOR_MS) <= now {
-                tracing::error!(target: target::PEER, %peer, ?trace, "no verdict on a Fulfill for 29 days: booked as refused, and the books may disagree with the peer's");
+                self.report(PeerEvent::VerdictOverdue { peer, trace });
                 self.verdict(trace, false);
             } else if self.peer.is_banned(&peer) {
                 // A banned node is not asked; its Fulfills wait out their
@@ -413,7 +439,7 @@ impl Core {
     }
 
     /// The bytes of a Fulfill owed: from this step's batch, or the disk.
-    fn owed_bytes(&self, trace: TraceId) -> Option<Vec<u8>> {
+    fn owed_bytes(&mut self, trace: TraceId) -> Option<Vec<u8>> {
         if let Some(row) = self
             .batch
             .verdicts
@@ -426,7 +452,10 @@ impl Core {
         self.store
             .owed_fulfill_bytes(trace)
             .unwrap_or_else(|error| {
-                tracing::error!(target: target::PEER, %error, "reading a Fulfill owed");
+                self.report(PeerEvent::StoreReadFailed {
+                    what: StoreRead::FulfillOwed,
+                    error: error.to_string(),
+                });
                 None
             })
     }
@@ -499,6 +528,8 @@ impl Core {
     /// loss, so the peer's account ends where the peer's books have it.
     /// The accounts and amounts are the node's own, as it posted them:
     /// booking them back cannot fail but by a bug.
+    // Panics only on a broken invariant: what is owed has its transfers.
+    #[allow(clippy::panic)]
     fn compensate(&mut self, row: &OwedFulfill) {
         let reference = Reference::Refusal(row.trace);
         let Some((peer_account, _, _)) = row.transfers[0] else {
@@ -534,7 +565,12 @@ impl Core {
                 reference,
             }],
         };
-        tracing::warn!(target: target::PEER, peer = %row.peer, amount, trace = ?row.trace, compensation = ?row.compensation, "a peer refused our Fulfill");
+        self.report(PeerEvent::FulfillRefused {
+            peer: row.peer,
+            amount,
+            trace: row.trace,
+            compensation: row.compensation,
+        });
         if row.compensation == Compensation::Loss {
             self.grace.check_soon(row.peer);
         }
@@ -548,6 +584,8 @@ impl Core {
 
     /// `expenses/losses` on the ledger of `account`, which every active
     /// ledger has; opened if it is missing.
+    // Panics only on a broken invariant: what is owed has its accounts.
+    #[allow(clippy::panic)]
     fn losses_account(&mut self, account: dassie_ledger::AccountId) -> dassie_ledger::AccountId {
         let ledger = self
             .ledger

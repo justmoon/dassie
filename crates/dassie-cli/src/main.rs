@@ -5,16 +5,6 @@
 //! - `dassie update` installs a newer release from the mirror.
 //! - `dassie verify-install` checks that this binary works here.
 
-#![forbid(unsafe_code)]
-#![deny(
-    clippy::indexing_slicing,
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::too_many_lines
-)]
-
 mod client;
 mod init;
 mod update;

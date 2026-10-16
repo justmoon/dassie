@@ -13,9 +13,9 @@ use dassie_peer::{
     Agreed, BanError, Declined, Event, InboundId, Output as PeerOutput, PeeringHooks, Reply,
 };
 
+use super::events::{PeerEvent, SettlementEvent};
 use super::ledgers::ActiveScheme;
 use super::{Core, EngineError, Output};
-use crate::log::target;
 
 /// What peering needs, over the core's schemes, ledger and connector.
 pub(super) struct Hooks<'a> {
@@ -365,7 +365,10 @@ impl Core {
                 reply
             }
             Err(error) => {
-                tracing::warn!(target: target::SETTLEMENT, %from, %error, "a settlement was refused");
+                self.report(SettlementEvent::PeerSettlementRefused {
+                    from,
+                    error: error.clone(),
+                });
                 Reply::refuse(400, "the settlement cannot be booked")
             }
         }
@@ -514,15 +517,11 @@ impl Core {
 
     fn peer_event(&mut self, event: Event) {
         self.changes.network = true;
+        self.report(event.clone());
         match event {
-            Event::Peered {
-                node,
-                scheme,
-                inbound,
-            } => {
-                tracing::info!(target: target::PEER, %node, %scheme, inbound, "peered");
+            Event::Peered { node, .. } => {
                 if let Err(error) = self.add_peer_endpoint(node) {
-                    tracing::error!(target: target::PEER, %node, %error, "the peer has no endpoint");
+                    self.report(PeerEvent::NoEndpoint { node, error });
                 }
                 self.update_routes();
             }
@@ -545,17 +544,6 @@ impl Core {
                     );
                 }
             }
-            Event::NodeAdded(node) => tracing::debug!(target: target::PEER, %node, "node added"),
-            Event::NodeRemoved(node) => {
-                tracing::debug!(target: target::PEER, %node, "node removed")
-            }
-            Event::Registered(node) => tracing::debug!(target: target::PEER, %node, "registration"),
-            Event::RegisteredWith(node) => {
-                tracing::debug!(target: target::PEER, %node, "registered with a bootstrap node");
-            }
-            Event::PeeringFailed { node, reason } => {
-                tracing::debug!(target: target::PEER, %node, reason, "peering failed");
-            }
             other => self.lifecycle_event(other),
         }
     }
@@ -563,12 +551,7 @@ impl Core {
     /// What a peering's lifecycle and its settlements bring about.
     fn lifecycle_event(&mut self, event: Event) {
         match event {
-            Event::Terminating {
-                peer,
-                reason,
-                by_us,
-            } => {
-                tracing::info!(target: target::PEER, %peer, ?reason, by_us, "ending a peering");
+            Event::Terminating { peer, .. } => {
                 if let Some(&endpoint) = self.peer_endpoints.get(&peer) {
                     self.connector
                         .set_draining(EndpointId::Peer(endpoint), true);
@@ -576,7 +559,6 @@ impl Core {
                 self.update_routes();
             }
             Event::PeeringEnded { peer, settle } => {
-                tracing::info!(target: target::PEER, %peer, settle, "peering ended");
                 self.remove_peer_endpoint(&peer);
                 if settle {
                     // The final settlement, at once rather than at the next
@@ -585,31 +567,8 @@ impl Core {
                 }
                 self.update_routes();
             }
-            Event::Advertised { peer, on } => {
-                tracing::debug!(target: target::PEER, %peer, on, "advertised");
-            }
-            Event::Verdict {
-                peer,
-                tag,
-                accepted,
-            } => {
-                tracing::debug!(target: target::PEER, %peer, tag, accepted, "verdict on a Fulfill");
-                self.verdict_on(tag, accepted);
-            }
-            Event::VerdictMissing { peer, tag } => {
-                tracing::debug!(target: target::PEER, %peer, tag, "no verdict on a Fulfill yet");
-                self.verdict_missing(tag);
-            }
-            Event::SettlementDelivered { peer, sequence } => {
-                tracing::debug!(target: target::SETTLEMENT, %peer, sequence, "the peer has our settlement");
-            }
-            Event::SettlementRefused {
-                peer,
-                sequence,
-                status,
-            } => {
-                tracing::error!(target: target::SETTLEMENT, %peer, sequence, status, "the peer refused our settlement; it is kept and sent again later");
-            }
+            Event::Verdict { tag, accepted, .. } => self.verdict_on(tag, accepted),
+            Event::VerdictMissing { tag, .. } => self.verdict_missing(tag),
             _ => {}
         }
     }
@@ -620,9 +579,11 @@ impl Core {
         if let Some(endpoint) = self.peer_endpoints.remove(peer) {
             self.endpoint_peers.remove(&endpoint);
             let now = self.now_ms;
+            // What was in flight to it is due now: the step expires it as
+            // it finishes, rather than here, which the expiry could reach
+            // again through the peer node (D16: no recursion).
             self.connector
                 .remove_endpoint(now, EndpointId::Peer(endpoint));
-            self.expire(now);
         }
     }
 
@@ -681,8 +642,9 @@ impl Core {
         let routes = routes
             .iter()
             .map(|(prefix, hops)| (prefix.as_str(), hops.as_slice()));
-        if let Err(error) = self.connector.set_routes(routes) {
-            tracing::error!(target: target::ROUTING, ?error, "routes not taken");
-        }
+        // The table holds a route per node the peer node knows
+        // (`check_bounds`), none of them below our own address.
+        let taken = self.connector.set_routes(routes);
+        assert!(taken.is_ok(), "routes not taken: {taken:?}");
     }
 }

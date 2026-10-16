@@ -18,11 +18,11 @@
 //! (ACC-21), failures are checked (ACC-22), and an account created by a
 //! payment is a deposit like any other (ACC-20).
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use dassie_ledger::{LedgerId, Name};
+use dassie_ledger::{LedgerId, MAX_TOTAL, Name};
 use dassie_settlement::{
     Effect, LedgerInput, LedgerStatus, PreparedSettlement, SchemeError, SettlementScheme,
 };
@@ -56,8 +56,13 @@ const LEDGER_WINDOW: u32 = 20;
 const REQUEST_TIMEOUT_MS: u64 = 20_000;
 /// How often the faucet is asked, while the account does not exist.
 const FUND_RETRY_MS: u64 = 60_000;
-/// Most requests waiting for an answer.
-const MAX_PENDING: usize = 16;
+/// Most requests waiting for an answer: a submission and a lookup for
+/// each transaction in flight, the lookups of a restart, and the four
+/// that keep the account in sync.
+const MAX_PENDING: usize = 2 * MAX_IN_FLIGHT + MAX_RECOVER_ASKING + 4;
+/// Most lookups of a restart's settlements asked at once; the rest are
+/// asked as answers come in, a ledger at a time.
+const MAX_RECOVER_ASKING: usize = 8;
 /// Most transactions held while catching up.
 const MAX_BUFFERED: usize = 256;
 /// Most bytes of config.
@@ -67,6 +72,11 @@ const MAX_CONFIG: usize = 1024;
 const LEDGER_SILENCE_MS: u64 = 30_000;
 /// Most settlements of ours whose outcome is looked for after a restart.
 const MAX_RECOVERING: usize = 64;
+/// The most drops the books can hold for the account: [`MAX_TOTAL`] in
+/// units. A server that reports more for it is no ledger to follow.
+const MAX_ACCOUNT_DROPS: u64 = MAX_TOTAL / UNITS_PER_DROP;
+/// Why the scheme stops when a server reports more than that.
+const TOO_MUCH_XRP: &str = "the server reported more XRP for the account than the books can hold";
 
 /// Where the scheme connects, and where it asks for test XRP.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -279,9 +289,7 @@ impl XrplScheme {
     /// What the books should hold for a balance: what is above the reserve,
     /// in internal units.
     fn bookable(&self, balance: u64, owner_count: u32) -> u64 {
-        balance
-            .saturating_sub(self.reserve_drops(owner_count))
-            .saturating_mul(UNITS_PER_DROP)
+        units(balance.saturating_sub(self.reserve_drops(owner_count)))
     }
 
     /// The fee a transaction pays now, in drops.
@@ -292,6 +300,11 @@ impl XrplScheme {
     }
 
     fn send(&mut self, request: Request, effects: &mut Vec<Effect>) {
+        // Without a connection, nothing is sent: what is needed is asked
+        // once it is made.
+        if self.phase == Phase::Disconnected {
+            return;
+        }
         if self.pending.len() >= MAX_PENDING {
             // The connection is not keeping up: make it anew.
             self.reconnect(effects);
@@ -431,6 +444,10 @@ impl XrplScheme {
                     self.reconnect(effects);
                     return;
                 };
+                if info.balance > MAX_ACCOUNT_DROPS {
+                    self.failed = Some(TOO_MUCH_XRP);
+                    return;
+                }
                 // A server behind what was booked already says nothing
                 // new: asked again when the next ledger closes.
                 if self
@@ -582,9 +599,7 @@ impl XrplScheme {
         if self.phase != Phase::Synced {
             return;
         }
-        for hash in self.recovering.clone() {
-            self.send(Request::Recover(hash), effects);
-        }
+        self.ask_recover(effects);
         let waiting: Vec<[u8; 32]> = self
             .in_flight
             .iter()
@@ -629,15 +644,7 @@ impl XrplScheme {
                     self.reconcile(effects);
                 }
                 self.expire(effects);
-                let asking_recover = self
-                    .pending
-                    .values()
-                    .any(|(r, _)| matches!(r, Request::Recover(_)));
-                if !asking_recover {
-                    for hash in self.recovering.clone() {
-                        self.send(Request::Recover(hash), effects);
-                    }
-                }
+                self.ask_recover(effects);
             }
             Phase::Unfunded
             | Phase::Starting {
@@ -751,6 +758,10 @@ impl XrplScheme {
         if !record.validated {
             return;
         }
+        if !self.bookable_record(record) {
+            self.failed = Some(TOO_MUCH_XRP);
+            return;
+        }
         let at = (record.ledger_index, record.index);
         let behind = self.cursor.is_some_and(|cursor| at <= cursor);
         if behind {
@@ -759,7 +770,7 @@ impl XrplScheme {
             // comes back out of it.
             if self.in_flight.iter().any(|t| t.hash == record.hash) {
                 let booked = self.resolve(record, effects);
-                self.booked = u64::try_from(booked.max(0)).unwrap_or(u64::MAX);
+                self.booked = narrow(booked.max(0));
                 self.reconcile(effects);
             }
             return;
@@ -776,7 +787,6 @@ impl XrplScheme {
         if let Some(count) = change.owner_count {
             self.owner_count = count;
         }
-        let units = |drops: u64| drops.saturating_mul(UNITS_PER_DROP);
         let mut booked = i128::from(self.booked);
         if self.in_flight.iter().any(|t| t.hash == record.hash) {
             booked = self.resolve(record, effects);
@@ -797,10 +807,10 @@ impl XrplScheme {
             effects.push(Effect::Withdrawal { amount });
             booked -= i128::from(amount);
         }
-        self.booked = u64::try_from(booked.max(0)).unwrap_or(u64::MAX);
+        self.booked = narrow(booked.max(0));
         if booked < 0 {
             effects.push(Effect::Reconcile {
-                amount: u64::try_from(-booked).unwrap_or(u64::MAX),
+                amount: narrow(-booked),
                 gain: true,
             });
         }
@@ -811,7 +821,6 @@ impl XrplScheme {
     /// voided, and its fee booked either way. Returns what the books then
     /// hold.
     fn resolve(&mut self, record: &TxRecord, effects: &mut Vec<Effect>) -> i128 {
-        let units = |drops: u64| i128::from(drops.saturating_mul(UNITS_PER_DROP));
         let mut booked = i128::from(self.booked);
         let Some(position) = self.in_flight.iter().position(|t| t.hash == record.hash) else {
             return booked;
@@ -820,15 +829,15 @@ impl XrplScheme {
         let settlement = hash_name(&ours.hash);
         if record.succeeded() {
             effects.push(Effect::Finalize { settlement });
-            booked -= units(ours.drops);
+            booked -= i128::from(units(ours.drops));
         } else {
             effects.push(Effect::Cancel { settlement });
         }
         effects.push(Effect::Fee {
-            amount: record.fee.saturating_mul(UNITS_PER_DROP),
+            amount: units(record.fee),
             id: settlement,
         });
-        booked - units(record.fee)
+        booked - i128::from(units(record.fee))
     }
 
     /// The outcome of a settlement of ours that a restart left pending in
@@ -853,6 +862,45 @@ impl XrplScheme {
         } else {
             Effect::Cancel { settlement }
         });
+    }
+
+    /// Asks for the outcome of a restart's settlements not asked for yet,
+    /// up to [`MAX_RECOVER_ASKING`] at a time.
+    fn ask_recover(&mut self, effects: &mut Vec<Effect>) {
+        let asked = |pending: &BTreeMap<u64, (Request, u64)>, hash: &[u8; 32]| {
+            pending
+                .values()
+                .any(|(request, _)| *request == Request::Recover(*hash))
+        };
+        for index in 0..self.recovering.len() {
+            let asking = self
+                .pending
+                .values()
+                .filter(|(request, _)| matches!(request, Request::Recover(_)))
+                .count();
+            if asking >= MAX_RECOVER_ASKING || self.phase != Phase::Synced {
+                return;
+            }
+            if let Some(&hash) = self.recovering.get(index)
+                && !asked(&self.pending, &hash)
+            {
+                self.send(Request::Recover(hash), effects);
+            }
+        }
+    }
+
+    /// Whether the amounts `record` names for the account fit the books.
+    fn bookable_record(&self, record: &TxRecord) -> bool {
+        let change = record.change_of(self.account());
+        [
+            Some(record.fee),
+            record.delivered,
+            change.map(|change| change.before),
+            change.map(|change| change.after),
+        ]
+        .into_iter()
+        .flatten()
+        .all(|drops| drops <= MAX_ACCOUNT_DROPS)
     }
 
     /// The peer a transaction settles from: a successful Payment of XRP to
@@ -979,8 +1027,14 @@ impl XrplScheme {
             self.in_flight.push(InFlight {
                 hash: crate::codec::hash(&blob),
                 blob,
-                drops: entry.get("drops")?.as_u64()?,
-                fee: entry.get("fee")?.as_u64()?,
+                drops: entry
+                    .get("drops")?
+                    .as_u64()
+                    .filter(|&drops| drops <= MAX_ACCOUNT_DROPS)?,
+                fee: entry
+                    .get("fee")?
+                    .as_u64()
+                    .filter(|&fee| fee <= MAX_ACCOUNT_DROPS)?,
                 sequence: number(entry.get("sequence")?)?,
                 last_ledger: number(entry.get("last_ledger")?)?,
                 submitted_at: number(entry.get("submitted_at")?)?,
@@ -996,14 +1050,35 @@ impl XrplScheme {
             self.recovering
                 .push(from_hex(hash.as_str()?)?.try_into().ok()?);
         }
-        Some(())
+        // Each settlement once, in flight or looked for, and every one in
+        // flight below the next sequence: what the scheme writes.
+        let mut seen = BTreeSet::new();
+        let distinct = (self.in_flight.iter().map(|t| t.hash))
+            .chain(self.recovering.iter().copied())
+            .all(|hash| seen.insert(hash));
+        let ordered = self.in_flight.iter().all(|t| t.sequence < self.sequence);
+        (distinct && ordered).then_some(())
     }
+}
+
+/// Drops in internal units. Only amounts checked against
+/// [`MAX_ACCOUNT_DROPS`] come here.
+fn units(drops: u64) -> u64 {
+    assert!(drops <= MAX_ACCOUNT_DROPS, "drops past what the books hold");
+    drops * UNITS_PER_DROP
+}
+
+/// What the books hold, or a difference from it. Every amount booked is
+/// within [`MAX_TOTAL`], and so is what the books held before it.
+fn narrow(booked: i128) -> u64 {
+    let narrow = u64::try_from(booked);
+    assert!(narrow.is_ok(), "booked past what a u64 holds");
+    narrow.unwrap_or_default()
 }
 
 /// A transaction hash as a settlement ID: uppercase hex, 64 characters.
 fn hash_name(hash: &[u8; 32]) -> Name {
-    // 64 hex digits are a valid name.
-    Name::new(&hex_upper(hash)).unwrap_or_else(|_| unreachable!())
+    Name::hex(hash, true)
 }
 
 /// Peering info: the address, as the original's OER wrote it (IA5String,
@@ -1024,10 +1099,65 @@ fn parse_address(bytes: &[u8]) -> Result<AccountId, SchemeError> {
     AccountId::parse(text).ok_or(SchemeError::InvalidData)
 }
 
+/// What [`SettlementScheme::check_invariants`] asserts, in parts.
+impl XrplScheme {
+    fn check_in_flight(&self) {
+        let mut seen = BTreeSet::new();
+        let distinct = (self.in_flight.iter().map(|t| t.hash))
+            .chain(self.recovering.iter().copied())
+            .all(|hash| seen.insert(hash));
+        assert!(distinct, "each settlement once, in flight or looked up");
+        for transaction in &self.in_flight {
+            assert!(
+                transaction.sequence < self.sequence,
+                "in flight below the next sequence"
+            );
+            assert!(
+                !transaction.needs_submit || transaction.executed,
+                "only what the node executed is submitted"
+            );
+            assert!(
+                !transaction.looked_up || transaction.executed,
+                "only what the node executed is looked up"
+            );
+            assert!(transaction.drops <= MAX_ACCOUNT_DROPS && transaction.fee <= MAX_ACCOUNT_DROPS);
+        }
+    }
+
+    fn check_phase(&self) {
+        match self.phase {
+            Phase::Disconnected => {
+                assert!(self.pending.is_empty(), "nothing asked while disconnected");
+                assert!(self.buffer.is_empty());
+                assert!(!self.funding);
+            }
+            Phase::CatchingUp { .. } => assert!(self.cursor.is_some()),
+            Phase::Synced => {
+                assert!(
+                    self.buffer.is_empty(),
+                    "what was held is booked once synced"
+                );
+                assert!(self.cursor.is_some());
+                // The books hold what is above the reserve, once the scheme
+                // knows the balance and has not stopped.
+                if let Some(balance) = self.balance
+                    && self.failed.is_none()
+                {
+                    assert_eq!(
+                        self.booked,
+                        self.bookable(balance, self.owner_count),
+                        "the books match the balance"
+                    );
+                }
+            }
+            Phase::Starting { .. } | Phase::Unfunded => {}
+        }
+    }
+}
+
 impl SettlementScheme for XrplScheme {
     fn id(&self) -> Name {
-        // A constant that is a valid name.
-        Name::new(SCHEME_ID).unwrap_or_else(|_| unreachable!())
+        dassie_ledger::name!(SCHEME_ID)
     }
 
     fn ledger(&self) -> LedgerId {
@@ -1081,6 +1211,9 @@ impl SettlementScheme for XrplScheme {
 
     fn on_ledger(&mut self, now_ms: u64, input: LedgerInput<'_>, effects: &mut Vec<Effect>) {
         self.now_ms = self.now_ms.max(now_ms);
+        if self.failed.is_some() {
+            return;
+        }
         match input {
             LedgerInput::Connected => self.connected(effects),
             LedgerInput::Disconnected => self.disconnected(),
@@ -1098,6 +1231,9 @@ impl SettlementScheme for XrplScheme {
     }
 
     fn deadline(&self) -> Option<u64> {
+        if self.failed.is_some() {
+            return None;
+        }
         let request = self
             .pending
             .values()
@@ -1112,6 +1248,9 @@ impl SettlementScheme for XrplScheme {
 
     fn on_timer(&mut self, now_ms: u64, effects: &mut Vec<Effect>) {
         self.now_ms = self.now_ms.max(now_ms);
+        if self.failed.is_some() {
+            return;
+        }
         let late = self
             .pending
             .values()
@@ -1192,6 +1331,8 @@ impl SettlementScheme for XrplScheme {
             .unwrap_or(0)
             .saturating_sub(in_flight);
         let ready = self.phase == Phase::Synced
+            && self.failed.is_none()
+            && self.sequence < u32::MAX
             && self.in_flight.len() < MAX_IN_FLIGHT
             && self.sequence > 0
             && drops > 0
@@ -1323,5 +1464,16 @@ impl SettlementScheme for XrplScheme {
 
     fn deposit(&mut self, _amount: u64, _effects: &mut Vec<Effect>) -> Result<(), SchemeError> {
         Err(SchemeError::Unsupported)
+    }
+
+    fn check_invariants(&self) {
+        assert!(self.in_flight.len() <= MAX_IN_FLIGHT);
+        assert!(self.peers.len() <= MAX_PEERS);
+        assert!(self.recovering.len() <= MAX_RECOVERING);
+        assert!(self.pending.len() <= MAX_PENDING);
+        assert!(self.buffer.len() <= MAX_BUFFERED);
+        assert!(self.next_id >= 1, "request IDs start at 1");
+        self.check_in_flight();
+        self.check_phase();
     }
 }

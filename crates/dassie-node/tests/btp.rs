@@ -2,7 +2,12 @@
 //! and a STREAM payment to the node's receiver that the journal records
 //! packet by packet (the M3 done criterion, in Rust).
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic
+)]
 
 mod support;
 

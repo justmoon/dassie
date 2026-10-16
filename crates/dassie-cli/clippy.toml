@@ -1,0 +1,18 @@
+# The command-line tools do IO on the real clock and read their
+# environment, so the root's bans on those do not apply here.
+
+# Functions stay short enough to read in one go (D16).
+too-many-lines-threshold = 70
+
+# Assertions stay on in release builds (D16).
+disallowed-macros = [
+  { path = "core::debug_assert", reason = "assertions stay on in release; use assert! (D16)" },
+  { path = "core::debug_assert_eq", reason = "assertions stay on in release; use assert_eq! (D16)" },
+  { path = "core::debug_assert_ne", reason = "assertions stay on in release; use assert_ne! (D16)" },
+]
+
+# Tests may unwrap, index and panic: a panic there is a failed test.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-indexing-slicing-in-tests = true
+allow-panic-in-tests = true

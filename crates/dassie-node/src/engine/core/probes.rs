@@ -9,8 +9,7 @@ use dassie_ledger::LedgerId;
 use dassie_stream::{AssetDetails, Config, Connection, Event, Policy, Rate, Role};
 
 use super::payers::Sender;
-use super::{Core, EngineError, Output};
-use crate::log::target;
+use super::{Core, EngineError, MAX_SENDS_PER_POLL, Output};
 
 /// Most probes at once.
 pub const MAX_PROBES: usize = 8;
@@ -20,7 +19,7 @@ pub const PROBE_TIMEOUT_MS: u64 = 10_000;
 /// A probe in progress.
 pub(super) struct Probe {
     ledger: LedgerId,
-    connection: Box<Connection>,
+    pub connection: Box<Connection>,
     deadline_ms: u64,
     /// What it measured, once it is done: a rate, or nothing.
     done: Option<Option<Rate>>,
@@ -85,9 +84,9 @@ impl Core {
     }
 
     /// Sends what a probe's connection has to send.
-    fn transmit_probe(&mut self, id: u64, now: u64) {
+    pub(super) fn transmit_probe(&mut self, id: u64, now: u64) {
         let at = Timestamp::from_unix_ms(now);
-        loop {
+        for _ in 0..MAX_SENDS_PER_POLL {
             let Self {
                 rng,
                 spending,
@@ -115,26 +114,17 @@ impl Core {
             self.spending
                 .requests
                 .insert(local, (Sender::Probe(id), transmit.request_id));
-            self.send_payer_packet(now, endpoint, local, transmit.length);
+            if let Some(answer) = self.send_payer_packet(now, endpoint, local, transmit.length) {
+                self.take_answer(now, local, answer);
+                self.settle_probe(id, now);
+            }
         }
-    }
-
-    /// The response to one of a probe's packets.
-    pub(super) fn probe_response(&mut self, now: u64, id: u64, request: u64, response: &[u8]) {
-        let Self { spending, work, .. } = self;
-        let Some(probe) = spending.probes.get_mut(&id) else {
-            return;
-        };
-        probe
-            .connection
-            .handle_response(Timestamp::from_unix_ms(now), request, response, work);
-        self.transmit_probe(id, now);
-        self.settle_probe(id, now);
+        self.sends_left();
     }
 
     /// Takes in what a probe's connection found, and ends it once it is
     /// done.
-    fn settle_probe(&mut self, id: u64, now: u64) {
+    pub(super) fn settle_probe(&mut self, id: u64, now: u64) {
         let Some(probe) = self.spending.probes.get_mut(&id) else {
             return;
         };
@@ -154,19 +144,21 @@ impl Core {
         };
         // Its packets still in flight settle without it.
         self.spending.probes.remove(&id);
-        tracing::debug!(target: target::PAYMENT, id, ?rate, "rate measured");
         self.outputs_peer.push(Output::ProbeDone { id, rate });
     }
 
     /// Runs the probes' timers.
     pub(super) fn probe_timers(&mut self, now: u64) {
         let at = Timestamp::from_unix_ms(now);
+        // Sends left from a step before are due now; receivers and payments
+        // are polled at every step anyway.
+        let left = std::mem::take(&mut self.spending.sends_left);
         let due: Vec<u64> = self
             .spending
             .probes
             .iter()
             .filter(|(_, probe)| {
-                probe.deadline_ms <= now
+                left || probe.deadline_ms <= now
                     || probe.connection.poll_timeout().is_some_and(|due| due <= at)
             })
             .map(|(id, _)| *id)
@@ -193,5 +185,16 @@ impl Core {
             })
             .flatten()
             .min()
+    }
+}
+
+impl Core {
+    /// The rate probes: within their bound, and each connection's
+    /// invariants.
+    pub(super) fn check_probes(&self) {
+        assert!(self.spending.probes.len() <= MAX_PROBES);
+        for probe in self.spending.probes.values() {
+            probe.connection.check_invariants();
+        }
     }
 }

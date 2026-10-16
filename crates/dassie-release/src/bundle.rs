@@ -16,6 +16,8 @@ pub const MAX_ENTRIES: usize = 64;
 pub const MAX_UNPACKED: u64 = 256 * 1024 * 1024;
 /// The longest path in it.
 const MAX_PATH: usize = 256;
+/// The deepest an entry can be: each directory takes a byte and a `/`.
+pub const MAX_DEPTH: usize = MAX_PATH.div_ceil(2);
 /// The directory every entry is in, which becomes `/opt/dassie/<version>`.
 pub const ROOT: &str = "dassie";
 /// The binary, under the root.

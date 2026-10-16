@@ -1,6 +1,8 @@
 //! Properties: phrases and node IDs round-trip, every parser and decoder
 //! never panics on arbitrary input, and whatever they accept is canonical.
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+
 use dassie_identity::{
     Error, Mnemonic, NodeId, NodeKey, PublicKey, SeedPath, Signature, WordCount, base64url,
 };

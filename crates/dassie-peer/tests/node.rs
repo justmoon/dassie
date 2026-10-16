@@ -2,7 +2,13 @@
 //! tests are a gap of the original (spec 3 §19) that would fail against
 //! its behaviour.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unreachable
+)]
 
 mod support;
 

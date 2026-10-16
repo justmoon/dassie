@@ -7,7 +7,9 @@
     dead_code,
     clippy::unwrap_used,
     clippy::expect_used,
-    clippy::too_many_lines
+    clippy::too_many_lines,
+    clippy::indexing_slicing,
+    clippy::panic
 )]
 
 use std::collections::BTreeMap;
@@ -482,9 +484,7 @@ impl Simulation {
 
     pub fn check_invariants(&self) {
         self.client.check_invariants();
-        for (_, connection) in self.server.connections() {
-            connection.check_invariants();
-        }
+        self.server.check_invariants();
     }
 
     /// Runs one step: send, then advance to the next delivery or deadline.

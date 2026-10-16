@@ -1,6 +1,8 @@
 //! One test per flaw of the original that the rewrite fixes. Each would
 //! have failed against the original's behaviour (spec 8 §1).
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+
 use dassie_identity::{
     Error, Mnemonic, NodeKey, PKCS8_DER_LENGTH, PublicKey, SPKI_DER_LENGTH, SeedPath, X25519Public,
     X25519Secret,

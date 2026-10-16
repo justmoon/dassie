@@ -1,7 +1,7 @@
 //! A STREAM server: issues credentials and routes incoming packets to the
 //! connections they belong to.
 
-use alloc::collections::VecDeque;
+use alloc::collections::{BTreeSet, VecDeque};
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -14,6 +14,16 @@ use crate::connection::{AssetDetails, BUFFER_LENGTH, Config, Connection, Role};
 use crate::policy::Policy;
 use crate::receipt::ReceiptSecret;
 use crate::token::{MAX_TOKEN_LENGTH, ServerSecret, TokenContents};
+
+/// Whether `ids` increase strictly, all below `next`, the next to give.
+fn given_in_order(ids: impl Iterator<Item = ConnectionId>, next: u64) -> bool {
+    let mut last: Option<u64> = None;
+    ids.into_iter().all(|ConnectionId(id)| {
+        let in_order = last.is_none_or(|last| last < id) && id < next;
+        last = Some(id);
+        in_order
+    })
+}
 
 /// Identifies a connection of a [`Server`]. Assigned in order, never reused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -409,6 +419,35 @@ impl Server {
             .iter()
             .find(|entry| entry.id == id)
             .map(|entry| entry.tag.as_slice())
+    }
+
+    /// Asserts the table's invariants, and each connection's (D16): no
+    /// more connections than room for them, IDs in the order they were
+    /// given, and one connection per token, which is how packets find it.
+    ///
+    /// # Panics
+    ///
+    /// If one does not hold.
+    pub fn check_invariants(&self) {
+        assert!(self.entries.len() <= self.max_connections);
+        assert!(self.opened.len() <= self.max_connections);
+        let entries = self.entries.iter().map(|entry| entry.id);
+        assert!(
+            given_in_order(entries, self.next_id),
+            "connections in order"
+        );
+        let opened = self.opened.iter().copied();
+        assert!(given_in_order(opened, self.next_id), "opened in order");
+        let mut tokens = BTreeSet::new();
+        for entry in &self.entries {
+            assert!(entry.token.len() <= MAX_TOKEN_LENGTH);
+            assert!(entry.tag.len() <= MAX_TOKEN_LENGTH);
+            assert!(
+                tokens.insert(entry.token.as_slice()),
+                "one connection per token"
+            );
+            entry.connection.check_invariants();
+        }
     }
 
     /// Forgets connections that are closed, settled, and whose events have

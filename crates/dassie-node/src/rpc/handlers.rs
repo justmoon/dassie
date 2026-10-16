@@ -77,6 +77,8 @@ fn authenticate(node: &Node, caller: Caller) -> Result<Option<SessionId>, RpcErr
 }
 
 /// Answers one call.
+// `GetBasicState` is answered before the caller is authenticated.
+#[allow(clippy::unreachable)]
 pub async fn dispatch(
     node: &Arc<Node>,
     caller: Caller,

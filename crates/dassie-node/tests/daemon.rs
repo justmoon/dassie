@@ -2,7 +2,12 @@
 //! RPC over both transports, the HTTP surface, certificates and restarts.
 //! Each test that guards a fix of the original names the gap.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic
+)]
 
 mod support;
 

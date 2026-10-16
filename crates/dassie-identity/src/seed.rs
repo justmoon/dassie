@@ -193,6 +193,8 @@ impl NodeKey {
 }
 
 /// HMAC-SHA256 of `message` under `key`.
+// HMAC takes keys of any length, so this cannot panic.
+#[allow(clippy::panic)]
 fn hmac_sha256(key: &[u8], message: &[u8]) -> DerivedSecret {
     let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(key) else {
         panic!("HMAC accepts keys of any length");
@@ -207,6 +209,8 @@ fn hmac_sha256(key: &[u8], message: &[u8]) -> DerivedSecret {
 ///
 /// If there are no segments; every caller passes a validated path, which has
 /// at least one.
+// Panics only on a broken invariant: validated paths have a segment.
+#[allow(clippy::panic)]
 fn fold<'s>(key: &[u8], segments: impl Iterator<Item = &'s str>) -> DerivedSecret {
     let mut segments = segments;
     let Some(first) = segments.next() else {
@@ -228,14 +232,14 @@ mod tests {
     fn seed_paths_are_bounded() {
         let mut long = [b'a'; MAX_SEED_PATH_BYTES + 1];
         let Ok(text) = core::str::from_utf8(&long) else {
-            unreachable!()
+            panic!()
         };
         assert_eq!(SeedPath::parse(text), Err(Error::InvalidSeedPath));
         if let Some(byte) = long.get_mut(MAX_SEED_PATH_BYTES) {
             *byte = b'/';
         }
         let Ok(text) = core::str::from_utf8(&long) else {
-            unreachable!()
+            panic!()
         };
         assert_eq!(SeedPath::parse(text), Err(Error::InvalidSeedPath));
 
@@ -263,7 +267,7 @@ mod tests {
         let key = NodeKey::from_bytes(&[7; 32]);
         for text in ["dev/session", "nodes/login", "login"] {
             let Ok(path) = SeedPath::parse(text) else {
-                unreachable!()
+                panic!()
             };
             assert_eq!(
                 key.derive(&path).map(|_| ()),
@@ -272,7 +276,7 @@ mod tests {
             );
         }
         let Ok(node) = SeedPath::parse("node") else {
-            unreachable!()
+            panic!()
         };
         assert!(matches!(key.derive(&node), Ok(secret) if secret.as_bytes() == &[7; 32]));
     }

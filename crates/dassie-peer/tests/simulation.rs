@@ -5,7 +5,12 @@
 //! every settlement arrive exactly once. A failure names its seed;
 //! `DASSIE_SIM_SEEDS=from..to` runs other seeds.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic
+)]
 
 mod support;
 
@@ -23,6 +28,9 @@ const CHAOS_MS: u64 = 90_000;
 /// How long it then has to settle.
 const CALM_MS: u64 = 240_000;
 
+// Which seeds to run is the one input read from the environment; each run
+// is still fixed by its seed.
+#[allow(clippy::disallowed_methods)]
 fn seeds() -> std::ops::Range<u64> {
     std::env::var("DASSIE_SIM_SEEDS")
         .ok()
@@ -272,6 +280,7 @@ fn a_seed_replays_the_same_run() {
 /// prints every trace line containing `text` and the check's verdict.
 #[test]
 #[ignore = "a tool for failing seeds"]
+#[allow(clippy::disallowed_methods)]
 fn explain_seed() {
     let seed: u64 = std::env::var("SEED").unwrap().parse().unwrap();
     let pattern = std::env::var("GREP").unwrap_or_default();

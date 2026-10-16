@@ -3,7 +3,13 @@
 //! wallet address, and what is refused, with fake wallets for what real
 //! nodes never do.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::too_many_lines,
+    clippy::panic
+)]
 
 mod support;
 

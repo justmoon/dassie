@@ -390,3 +390,85 @@ fn peer_settings_are_checked_and_kept() {
     assert_eq!(core.peer_settings(), settings);
     assert_eq!(core.connector.charges(), settings.charges());
 }
+
+// D16: a broken invariant stops the core before its batch is written, so
+// its successor starts from the last state that held.
+#[test]
+fn a_broken_invariant_never_reaches_the_disk() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = core_on(Arc::clone(&store), 6);
+    core.add_scheme("stub", String::new()).unwrap();
+    core.flush();
+    let payment = core
+        .create_incoming_payment(super::NewIncoming {
+            ledger: dassie_ledger::LedgerId::StubUsd,
+            wallet_address: "https://node.example/.well-known/pay".into(),
+            client: None,
+            incoming_amount: Some(10),
+            expires_at_ms: None,
+            metadata: None,
+        })
+        .unwrap();
+    // A bug: more payments open than the bound allows.
+    core.incoming_policy.max_open_owner = 0;
+    let flushed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| core.flush()));
+    assert!(flushed.is_err());
+    assert_eq!(store.incoming_payment(payment.id).unwrap(), None);
+}
+
+// In release, the sweep runs at most once a second of engine time, and
+// always at the commit that ends a restore.
+#[test]
+fn sweeps_follow_the_engine_clock() {
+    let mut core = core(7);
+    assert_eq!(core.sweeps.count, 1);
+    core.sweeps.every_ms = 1_000;
+    core.sweeps.at_ms = NOW;
+    let mut outputs = Vec::new();
+    for (at, sweeps) in [(NOW, 2), (NOW + 10, 2), (NOW + 999, 2), (NOW + 1_000, 3)] {
+        core.begin_step(at);
+        core.add_scheme("stub", String::new()).ok();
+        core.finish_step(&mut outputs);
+        assert_eq!(core.sweeps.count, sweeps, "at {at}");
+    }
+}
+
+// D16: the core reports events and logs nothing itself, so a simulation
+// sees all it says. Clippy does not see `tracing`'s macros under the
+// core's `deny`, so its sources are read for them.
+#[test]
+fn the_core_does_not_log() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/engine/core");
+    let mut read = 0;
+    for entry in std::fs::read_dir(&dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.file_name().is_some_and(|name| name == "tests.rs") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("tracing"), "{} logs", path.display());
+        read += 1;
+    }
+    assert!(read > 10, "the core's sources were not found");
+}
+
+// A probe the connector answers at once, to an address nobody routes, ends
+// in the same step without a rate: its packets' answers are taken in as
+// they come, without the sending loop calling itself again (D16).
+#[test]
+fn a_probe_to_nowhere_ends_at_once() {
+    let mut core = core(8);
+    core.add_scheme("stub", String::new()).unwrap();
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    let ledger = dassie_ledger::LedgerId::StubUsd;
+    core.start_probe(1, ledger, "test.nowhere.receiver", &[3; 32])
+        .unwrap();
+    core.finish_step(&mut outputs);
+    assert!(
+        outputs
+            .iter()
+            .any(|output| matches!(output, Output::ProbeDone { id: 1, rate: None })),
+        "{outputs:?}"
+    );
+}

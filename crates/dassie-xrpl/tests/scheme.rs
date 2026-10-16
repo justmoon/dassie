@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use dassie_ledger::Name;
 use dassie_node_core::testing::SeededRng;
-use dassie_settlement::{Effect, LedgerInput, LedgerStatus, SettlementScheme};
+use dassie_settlement::{Effect, LedgerInput, LedgerStatus, SchemeError, SettlementScheme};
 use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger, RESERVE_BASE};
 use dassie_xrpl::scheme::{MEMO_TYPE, XrplScheme};
 use dassie_xrpl::{AccountId, UNITS_PER_DROP};
@@ -39,6 +39,10 @@ struct Node {
     books: Books,
     /// Submissions the network loses.
     drop_submits: bool,
+    /// Requests of this command go unanswered, and are counted.
+    hold: Option<&'static str>,
+    held: usize,
+    reconnects: usize,
 }
 
 struct World {
@@ -74,6 +78,9 @@ impl World {
                 online: false,
                 books: Books::default(),
                 drop_submits: false,
+                hold: None,
+                held: 0,
+                reconnects: 0,
             });
         }
         for index in 0..world.nodes.len() {
@@ -105,7 +112,30 @@ impl World {
         self.nodes[index]
             .scheme
             .on_ledger(self.now, input, &mut effects);
+        self.nodes[index].scheme.check_invariants();
         self.apply(index, effects);
+        self.nodes[index].scheme.check_invariants();
+    }
+
+    /// Sends a request to the ledger, and its answer back, unless the
+    /// node is offline or the network loses it.
+    fn request(&mut self, index: usize, message: &[u8]) {
+        let node = &mut self.nodes[index];
+        if !node.online {
+            return;
+        }
+        let request: serde_json::Value = serde_json::from_slice(message).unwrap();
+        let command = request["command"].as_str().unwrap_or_default();
+        if command == "submit" && node.drop_submits {
+            return;
+        }
+        if node.hold == Some(command) {
+            node.held += 1;
+            return;
+        }
+        let connection = node.connection;
+        let reply = self.ledger.request(connection, message);
+        self.input(index, LedgerInput::Message(&reply));
     }
 
     /// Books the effects as the node would, and carries out the rest.
@@ -151,20 +181,9 @@ impl World {
                     books.cancelled.push(settlement);
                 }
                 Effect::SendMessage { .. } => {}
-                Effect::LedgerSend { message } => {
-                    if !node.online {
-                        continue;
-                    }
-                    let submit = serde_json::from_slice::<serde_json::Value>(&message).unwrap()["command"]
-                        == "submit";
-                    if submit && node.drop_submits {
-                        continue;
-                    }
-                    let connection = node.connection;
-                    let reply = self.ledger.request(connection, &message);
-                    self.input(index, LedgerInput::Message(&reply));
-                }
+                Effect::LedgerSend { message } => self.request(index, &message),
                 Effect::Reconnect => {
+                    node.reconnects += 1;
                     self.disconnect(index);
                     self.connect(index);
                 }
@@ -633,4 +652,65 @@ fn a_pending_settlement_unknown_to_the_scheme_is_recovered() {
     world.closes(2);
     assert_eq!(world.nodes[0].books.finalized, [id]);
     assert!(world.nodes[0].books.pending.is_empty());
+}
+
+// D16: a server that reports more XRP for the account than the books can
+// hold stops the scheme, rather than booking an amount clamped to fit.
+#[test]
+fn more_xrp_than_the_books_hold_stops_the_scheme() {
+    let (mut world, _, _) = funded_pair();
+    let owner = world.nodes[0].books.owner;
+    let account = world.account(0);
+    world.ledger.deposit(account, dassie_xrpl::MAX_DROPS / 10);
+    world.closes(2);
+    assert!(matches!(
+        world.nodes[0].scheme.status(),
+        LedgerStatus::Failed(_)
+    ));
+    assert_eq!(world.nodes[0].books.owner, owner);
+    assert_eq!(world.nodes[0].scheme.deadline(), None);
+    assert_eq!(world.nodes[1].scheme.status(), LedgerStatus::Synced);
+}
+
+// Found by the invariants (D16): more settlements to look up after a
+// restart than requests may wait made the scheme reconnect, and then look
+// them all up again, for ever. It asks for a few at a time.
+#[test]
+fn many_settlements_to_recover_are_looked_up_a_few_at_a_time() {
+    let (mut world, _, _) = funded_pair();
+    let state = world.nodes[0].scheme.state();
+    let checkpoint = world.nodes[0].scheme.balance();
+    world.disconnect(0);
+    let node = world.nodes[0].name;
+    world.nodes[0].scheme =
+        XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
+    let pending: Vec<(Name, u64)> = (0..20)
+        .map(|byte| (Name::hex(&[byte; 32], true), 1_000_000_000))
+        .collect();
+    let mut effects = Vec::new();
+    world.nodes[0].scheme.reconcile(&pending, &mut effects);
+    world.nodes[0].hold = Some("tx");
+    world.connect(0);
+    world.closes(2);
+    assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Synced);
+    assert_eq!(world.nodes[0].reconnects, 0);
+    assert_eq!(world.nodes[0].held, 8);
+}
+
+// An account at the last sequence there is can send nothing more: a
+// settlement waits rather than reuse it.
+#[test]
+fn the_last_sequence_is_never_reused() {
+    let (mut world, state_a, _) = funded_pair();
+    let account = world.account(0);
+    world.ledger.set_sequence(account, u32::MAX);
+    world.disconnect(0);
+    world.connect(0);
+    let peer = world.nodes[1].name;
+    let mut rng = SeededRng::new(1);
+    let prepared =
+        world.nodes[0]
+            .scheme
+            .prepare_settlement(&mut rng, peer, 1_000_000_000, &state_a);
+    assert_eq!(prepared.map(|_| ()), Err(SchemeError::Unavailable));
 }

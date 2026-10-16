@@ -13,8 +13,8 @@ use dassie_ledger::{
 use dassie_peer::wire::SchemeId;
 use dassie_settlement::policy::{self, Terms};
 
+use super::events::SettlementEvent;
 use super::{Core, EngineError};
-use crate::log::target;
 use crate::node::Policies;
 
 /// The first wait after a cancelled settlement; it doubles with each one
@@ -154,7 +154,7 @@ impl Core {
                 self.peer.final_settled(&node);
                 continue;
             }
-            tracing::info!(target: target::SETTLEMENT, %node, amount, "settling what is owed at the end of a peering");
+            self.report(SettlementEvent::SettlingFinal { node, amount });
             self.prepare_settlement(node, &at, amount, &due.state);
             if let Some(settling) = self
                 .settle
@@ -238,6 +238,8 @@ impl Core {
 
     /// Prepares a settlement and books its pending transfer; it executes
     /// once that is on disk (ACC-16).
+    // Panics only on a broken invariant: what was validated is taken.
+    #[allow(clippy::panic)]
     fn prepare_settlement(&mut self, node: NodeId, at: &Position, amount: u64, state: &[u8]) {
         let Ok(name) = Name::new(node.as_str()) else {
             return;
@@ -259,9 +261,10 @@ impl Core {
             },
         };
         // Checked before the scheme is asked, so a refusal leaves nothing
-        // prepared behind.
+        // prepared behind; with the journal taken, so it has room.
+        self.take_journal();
         if let Err(error) = self.ledger.validate(&spec) {
-            tracing::warn!(target: target::SETTLEMENT, %node, %error, "the books cannot take a settlement now");
+            self.report(SettlementEvent::BooksCannotSettle { node, error });
             return;
         }
         let Some(prepared) = self.scheme_prepare(node, at.scheme, amount, state) else {
@@ -271,26 +274,33 @@ impl Core {
             prepared.amount > 0 && prepared.amount <= amount,
             "a scheme settles at most what was asked"
         );
+        assert_eq!(
+            self.whole_units(&at.scheme, prepared.amount),
+            prepared.amount,
+            "a scheme settles in whole units of its ledger"
+        );
         spec.amount = prepared.amount;
         spec.reference = Reference::Settlement {
             scheme: at.scheme,
             id: prepared.id,
         };
+        // The books took it for at least this amount just now, and nothing
+        // was booked since.
         let transfer = match self.ledger.create(self.now_ms, &spec) {
             Ok(transfer) => transfer,
             Err(error) => {
-                tracing::error!(target: target::SETTLEMENT, %node, %error, "a settlement's transfer was refused after it checked out");
-                if let Some(active) = self.schemes.get_mut(&at.scheme) {
-                    active.scheme.discard_settlement(prepared.id);
-                }
-                return;
+                panic!("a settlement's transfer was refused after it checked out: {error}")
             }
         };
         if let Some(state) = prepared.peer_state {
             self.peer.set_scheme_state(&node, state);
         }
         let amount = prepared.amount;
-        tracing::info!(target: target::SETTLEMENT, %node, amount, id = %prepared.id, "settling");
+        self.report(SettlementEvent::Settling {
+            node,
+            amount,
+            id: prepared.id,
+        });
         self.settle.settling.insert(
             (at.scheme, prepared.id),
             Settling {
@@ -321,6 +331,7 @@ impl Core {
             schemes,
             rng,
             settle,
+            events,
             ..
         } = self;
         let active = schemes.get_mut(&scheme).filter(|a| a.failed.is_none())?;
@@ -336,14 +347,20 @@ impl Core {
                 let warned = settle.unavailable_warned.entry(scheme).or_insert(0);
                 if *warned == 0 || now.saturating_sub(*warned) >= UNAVAILABLE_WARN_MS {
                     *warned = now.max(1);
-                    tracing::warn!(target: target::SETTLEMENT, %node, %scheme, status = ?active.scheme.status(), "the scheme cannot settle now: no funds above the reserve, or no ledger");
-                } else {
-                    tracing::debug!(target: target::SETTLEMENT, %node, "the scheme cannot settle now");
+                    let status = active.scheme.status();
+                    events.push(
+                        SettlementEvent::SchemeUnavailable {
+                            node,
+                            scheme,
+                            status,
+                        }
+                        .into(),
+                    );
                 }
                 None
             }
             Err(error) => {
-                tracing::warn!(target: target::SETTLEMENT, %node, %error, "the scheme could not prepare a settlement");
+                events.push(SettlementEvent::PrepareFailed { node, error }.into());
                 None
             }
         }
@@ -365,7 +382,7 @@ impl Core {
             active.scheme.execute_settlement(id, &mut effects);
             let ledger = active.scheme.ledger();
             if let Err(error) = self.apply_effects(scheme, ledger, &effects) {
-                tracing::error!(target: target::SETTLEMENT, %error, "a settlement's outcome was not booked");
+                self.report(SettlementEvent::OutcomeNotBooked { error });
             }
         }
         true
@@ -404,9 +421,12 @@ impl Core {
             let mut effects = Vec::new();
             active.scheme.reconcile(&pending, &mut effects);
             let ledger = active.scheme.ledger();
-            tracing::info!(target: target::SETTLEMENT, %scheme, pending = pending.len(), "reconciling settlements from before the restart");
+            self.report(SettlementEvent::Reconciling {
+                scheme,
+                pending: pending.len(),
+            });
             if let Err(error) = self.apply_effects(scheme, ledger, &effects) {
-                tracing::error!(target: target::SETTLEMENT, %error, "a reconciliation was not booked");
+                self.report(SettlementEvent::ReconciliationNotBooked { error });
             }
         }
     }
@@ -443,9 +463,11 @@ impl Core {
     /// Our settlement executed: its transfer is posted, and the peer is
     /// told, until it has heard; both in one batch. If an earlier message
     /// to the peer is still on its way, both wait until it arrives.
+    // Panics only on a broken invariant: a settling transfer is pending.
+    #[allow(clippy::panic)]
     pub(super) fn settlement_done(&mut self, scheme: Name, id: Name) {
         let Some(settling) = self.take_settling(scheme, id) else {
-            tracing::warn!(target: target::SETTLEMENT, %scheme, %id, "an unknown settlement executed");
+            self.report(SettlementEvent::UnknownExecuted { scheme, id });
             return;
         };
         if self.peer.settling(&settling.peer) {
@@ -455,9 +477,12 @@ impl Core {
             }
             return;
         }
+        // Settlements in flight are pending transfers, and the journal has
+        // room once taken.
+        self.check_settling_transfer(scheme, id, &settling);
+        self.take_journal();
         if let Err(error) = self.ledger.post(self.now_ms, settling.transfer) {
-            tracing::error!(target: target::SETTLEMENT, %error, "a settlement's transfer could not be posted");
-            return;
+            panic!("a settlement's transfer could not be posted: {error}");
         }
         self.settle.backoff.remove(&settling.peer);
         if settling.last {
@@ -474,7 +499,7 @@ impl Core {
             settling.amount,
             settling.message,
         ) {
-            tracing::error!(target: target::SETTLEMENT, %peer, ?error, "a settlement could not be announced");
+            self.report(SettlementEvent::AnnounceFailed { peer, error });
         }
     }
 
@@ -488,13 +513,17 @@ impl Core {
 
     /// Our settlement failed for good: its transfer is voided, and the
     /// peer is not settled with again for a while.
+    // Panics only on a broken invariant: a settling transfer is pending.
+    #[allow(clippy::panic)]
     pub(super) fn settlement_cancelled(&mut self, scheme: Name, id: Name) {
         let Some(settling) = self.take_settling(scheme, id) else {
-            tracing::warn!(target: target::SETTLEMENT, %scheme, %id, "an unknown settlement was cancelled");
+            self.report(SettlementEvent::UnknownCancelled { scheme, id });
             return;
         };
+        self.check_settling_transfer(scheme, id, &settling);
+        self.take_journal();
         if let Err(error) = self.ledger.void(self.now_ms, settling.transfer) {
-            tracing::error!(target: target::SETTLEMENT, %error, "a settlement's transfer could not be voided");
+            panic!("a settlement's transfer could not be voided: {error}");
         }
         let now = self.now_ms;
         let (_, failures) = self
@@ -510,7 +539,10 @@ impl Core {
             settling.peer,
             (now.saturating_add(wait), failures.saturating_add(1)),
         );
-        tracing::warn!(target: target::SETTLEMENT, peer = %settling.peer, amount = settling.amount, "a settlement failed");
+        self.report(SettlementEvent::Failed {
+            peer: settling.peer,
+            amount: settling.amount,
+        });
     }
 
     /// A peer's settlement: booked first, so the scheme's balance never
@@ -559,7 +591,7 @@ impl Core {
             .scheme
             .handle_settlement(name, amount, data, &state, &mut effects)
             .map_err(|error| refused(&error.to_string()))?;
-        tracing::info!(target: target::SETTLEMENT, %from, amount, "a peer settled");
+        self.report(SettlementEvent::PeerSettled { from, amount });
         self.apply_effects(scheme, ledger, &effects)
     }
 
@@ -575,7 +607,7 @@ impl Core {
         active.scheme.handle_message(name, message, &mut effects);
         let ledger = active.scheme.ledger();
         if let Err(error) = self.apply_effects(scheme, ledger, &effects) {
-            tracing::error!(target: target::SETTLEMENT, %error, "a scheme message's effects were not booked");
+            self.report(SettlementEvent::MessageEffectsNotBooked { error });
         }
     }
 
