@@ -37,6 +37,12 @@ fn engine(severity: Severity, event: &EngineEvent) {
         EngineEvent::RateTableFull { code } => {
             emit!(severity, target: target::ENGINE, code, "no room for an exchange rate");
         }
+        EngineEvent::SendsLeft => {
+            emit!(severity, target: target::ENGINE, "a connection had more to send than a poll takes");
+        }
+        EngineEvent::RoundsLeft => {
+            emit!(severity, target: target::ENGINE, "a step's end took all its rounds");
+        }
         EngineEvent::EventsDropped { count } => {
             emit!(severity, target: target::ENGINE, count, "events were dropped before they were logged");
         }

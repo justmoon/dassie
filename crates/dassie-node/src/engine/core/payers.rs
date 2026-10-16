@@ -23,8 +23,8 @@ use dassie_ledger::{AccountName, LedgerId, OwnerSub};
 use dassie_payments::gnap::Limits;
 use dassie_stream::{AssetDetails, Config, Connection, Event, Policy, Rate, Role};
 
-use super::events::PaymentEvent;
-use super::{Core, EngineError};
+use super::events::{EngineEvent, PaymentEvent};
+use super::{Core, EngineError, MAX_SENDS_PER_POLL};
 use crate::store::{ForeignAmount, OutgoingProgress, OutgoingRow, OutgoingState, PaymentId};
 
 /// The prefix of a payer's address segment below the node's own.
@@ -62,6 +62,8 @@ pub(super) struct Spending {
     pub requests: BTreeMap<u32, (Sender, u64)>,
     pub next_request: u32,
     pub local_queue: VecDeque<(Forwarded, Vec<u8>)>,
+    /// Whether a connection had more to send than a poll takes.
+    pub sends_left: bool,
 }
 
 /// Where the answer to a payer's packet is.
@@ -487,7 +489,7 @@ impl Core {
     /// Sends what a payment's connection has to send.
     fn transmit_outgoing(&mut self, id: PaymentId, now: u64) {
         let at = Timestamp::from_unix_ms(now);
-        loop {
+        for _ in 0..MAX_SENDS_PER_POLL {
             let Self {
                 rng,
                 spending,
@@ -518,6 +520,14 @@ impl Core {
                 self.settle_outgoing(id, now);
             }
         }
+        self.sends_left();
+    }
+
+    /// A connection had more to send than a poll takes: the rest goes in
+    /// the next step.
+    pub(super) fn sends_left(&mut self) {
+        self.spending.sends_left = true;
+        self.report(EngineEvent::SendsLeft);
     }
 
     /// Hands the connector a payer's packet, written into the scratch

@@ -124,6 +124,11 @@ impl Grace {
         self.at_ms
     }
 
+    /// Whether peers wait to be checked.
+    pub(super) fn has_queued(&self) -> bool {
+        !self.queued.is_empty()
+    }
+
     /// Checks `peer` at the end of this step: a refusal was booked.
     pub(super) fn check_soon(&mut self, peer: NodeId) {
         self.queued.insert(peer);

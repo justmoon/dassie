@@ -61,6 +61,11 @@ pub enum EngineEvent {
         /// How many went.
         count: u64,
     },
+    /// A connection had more to send than a poll takes: the rest goes in
+    /// the next step.
+    SendsLeft,
+    /// A step's end took all its rounds: what is left goes in the next.
+    RoundsLeft,
 }
 
 /// What the core read from its database and could not.
@@ -408,6 +413,8 @@ impl Event {
             Self::Engine(EngineEvent::RateTableFull { .. } | EngineEvent::EventsDropped { .. }) => {
                 Severity::Warn
             }
+            // Bounds that nothing should reach: someone should look.
+            Self::Engine(EngineEvent::SendsLeft | EngineEvent::RoundsLeft) => Severity::Error,
             Self::PeerNode(event) => peer_node_severity(event),
             Self::Peer(event) => match event {
                 PeerEvent::DuplicateRequest { .. } => Severity::Debug,

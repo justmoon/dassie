@@ -328,6 +328,17 @@ impl Sweeps {
     };
 }
 
+/// Most rounds a step's end takes (D16). A round repeats only for what the
+/// one before set going, which is finite: settlements executed, peers
+/// banned, links closed. A few suffice; past this, what is left waits for
+/// the next step.
+const MAX_FINISH_ROUNDS: usize = 16;
+
+/// Most packets one connection sends at a time (D16). A connection's
+/// packets in flight are fewer; only answers given at once could take it
+/// further. What is left goes in the next step, which is due at once.
+pub(super) const MAX_SENDS_PER_POLL: usize = 256;
+
 /// How often the full sweep of the invariants runs, in engine time (D16).
 /// Where debug assertions are on (tests, simulations and the end-to-end
 /// binary) it runs before every commit; in release at most this often.
@@ -527,6 +538,7 @@ impl Core {
             self.probe_deadline(),
             grace,
             self.schemes_deadline(),
+            self.work_left(),
         ]
         .into_iter()
         .flatten()
@@ -535,47 +547,72 @@ impl Core {
 
     /// Ends a step: expires what is due, persists, then hands over what
     /// the step produced. Links being closed are closed in turn, until
-    /// nothing is left to close.
+    /// nothing is left to close, in at most [`MAX_FINISH_ROUNDS`] rounds;
+    /// what is left then waits for the next step, which is due at once.
     pub fn finish_step(&mut self, out: &mut Vec<Output>) {
-        loop {
-            self.peer_timers();
-            self.scheme_timers();
-            self.settlement_timers();
-            self.expire(self.now_ms);
-            self.drain_local(self.now_ms);
-            self.pump_outgoing(self.now_ms);
-            self.verdict_timers();
-            self.flush();
-            // Settlements run once their pending transfers are on disk;
-            // what they did is persisted in turn (ACC-16).
-            if self.execute_settlements() {
-                // Their announcements go out with this step's outputs.
-                self.after_peer();
-                continue;
-            }
-            // What peers cost is read from the books on disk; a ban is
-            // persisted in turn (D18).
-            if self.grace_checks() {
-                continue;
-            }
-            out.extend(self.events.take().map(Output::Event));
-            while let Some(event) = self.connector.poll_event() {
-                out.push(Output::Trace(event));
-            }
-            out.append(&mut self.outputs_peer);
-            out.extend(
-                self.outputs
-                    .drain(..)
-                    .map(|(link, message)| Output::Btp { link, message }),
-            );
-            let closing = std::mem::take(&mut self.closing);
-            if closing.is_empty() {
+        for _ in 0..MAX_FINISH_ROUNDS {
+            if self.finish_round(out) {
                 return;
             }
-            for link in closing {
-                self.close_link(link);
-            }
         }
+        self.report(EngineEvent::RoundsLeft);
+        self.flush();
+        self.hand_over(out);
+    }
+
+    /// One round of [`finish_step`](Self::finish_step). Returns whether the
+    /// step is done.
+    fn finish_round(&mut self, out: &mut Vec<Output>) -> bool {
+        self.peer_timers();
+        self.scheme_timers();
+        self.settlement_timers();
+        self.expire(self.now_ms);
+        self.drain_local(self.now_ms);
+        self.pump_outgoing(self.now_ms);
+        self.verdict_timers();
+        self.flush();
+        // Settlements run once their pending transfers are on disk; what
+        // they did is persisted in turn (ACC-16).
+        if self.execute_settlements() {
+            // Their announcements go out with this step's outputs.
+            self.after_peer();
+            return false;
+        }
+        // What peers cost is read from the books on disk; a ban is
+        // persisted in turn (D18).
+        if self.grace_checks() {
+            return false;
+        }
+        self.hand_over(out);
+        let closing = std::mem::take(&mut self.closing);
+        for link in &closing {
+            self.close_link(*link);
+        }
+        closing.is_empty()
+    }
+
+    /// Hands over what the step produced, now that it is on disk.
+    fn hand_over(&mut self, out: &mut Vec<Output>) {
+        out.extend(self.events.take().map(Output::Event));
+        while let Some(event) = self.connector.poll_event() {
+            out.push(Output::Trace(event));
+        }
+        out.append(&mut self.outputs_peer);
+        out.extend(
+            self.outputs
+                .drain(..)
+                .map(|(link, message)| Output::Btp { link, message }),
+        );
+    }
+
+    /// Now, if a step left work for the next: settlements to execute,
+    /// links to close, peers to check, or packets to send.
+    fn work_left(&self) -> Option<u64> {
+        let left = !self.settle.to_execute.is_empty()
+            || !self.closing.is_empty()
+            || self.grace.has_queued()
+            || self.spending.sends_left;
+        left.then_some(self.now_ms)
     }
 
     /// Persists the batch, once the invariants are checked: a broken one

@@ -9,7 +9,7 @@ use dassie_ledger::LedgerId;
 use dassie_stream::{AssetDetails, Config, Connection, Event, Policy, Rate, Role};
 
 use super::payers::Sender;
-use super::{Core, EngineError, Output};
+use super::{Core, EngineError, MAX_SENDS_PER_POLL, Output};
 
 /// Most probes at once.
 pub const MAX_PROBES: usize = 8;
@@ -86,7 +86,7 @@ impl Core {
     /// Sends what a probe's connection has to send.
     pub(super) fn transmit_probe(&mut self, id: u64, now: u64) {
         let at = Timestamp::from_unix_ms(now);
-        loop {
+        for _ in 0..MAX_SENDS_PER_POLL {
             let Self {
                 rng,
                 spending,
@@ -119,6 +119,7 @@ impl Core {
                 self.settle_probe(id, now);
             }
         }
+        self.sends_left();
     }
 
     /// Takes in what a probe's connection found, and ends it once it is
@@ -149,12 +150,15 @@ impl Core {
     /// Runs the probes' timers.
     pub(super) fn probe_timers(&mut self, now: u64) {
         let at = Timestamp::from_unix_ms(now);
+        // Sends left from a step before are due now; receivers and payments
+        // are polled at every step anyway.
+        let left = std::mem::take(&mut self.spending.sends_left);
         let due: Vec<u64> = self
             .spending
             .probes
             .iter()
             .filter(|(_, probe)| {
-                probe.deadline_ms <= now
+                left || probe.deadline_ms <= now
                     || probe.connection.poll_timeout().is_some_and(|due| due <= at)
             })
             .map(|(id, _)| *id)

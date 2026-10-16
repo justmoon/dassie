@@ -13,7 +13,7 @@ use dassie_stream::{AssetDetails, ConnectionId, Event, Policy, Server, ServerCon
 use super::Core;
 use super::events::{BtpEvent, PaymentEvent, PeerEvent};
 use super::payers::Answer;
-use super::{EngineError, Outbound};
+use super::{EngineError, MAX_SENDS_PER_POLL, Outbound};
 
 /// The type byte of an ILP Prepare.
 const PREPARE_TYPE: u8 = 12;
@@ -525,7 +525,7 @@ impl Core {
     /// Sends a receiver connection's packets through the connector.
     fn transmit(&mut self, now: u64, ledger: LedgerId, id: ConnectionId) {
         let at = Timestamp::from_unix_ms(now);
-        loop {
+        for _ in 0..MAX_SENDS_PER_POLL {
             let Self {
                 rng,
                 receivers,
@@ -556,6 +556,7 @@ impl Core {
             );
             self.transmitted(now, ledger, outcome, local, transmit.request_id, id);
         }
+        self.sends_left();
     }
 
     /// What the connector did with a receiver's own packet.
