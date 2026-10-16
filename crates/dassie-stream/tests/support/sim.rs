@@ -484,9 +484,7 @@ impl Simulation {
 
     pub fn check_invariants(&self) {
         self.client.check_invariants();
-        for (_, connection) in self.server.connections() {
-            connection.check_invariants();
-        }
+        self.server.check_invariants();
     }
 
     /// Runs one step: send, then advance to the next delivery or deadline.
