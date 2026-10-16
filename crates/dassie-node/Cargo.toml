@@ -51,7 +51,7 @@ tokio-tungstenite = { version = "0.30.0", default-features = false, features = [
 # TLS with ring as the only provider: two providers in one build make
 # rustls refuse to pick one at runtime, and ring builds without cmake for
 # static binaries (M8). Every TLS crate below has its defaults off for that.
-rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
 rcgen = { version = "0.14.10", default-features = false, features = ["ring", "pem"] }
 x509-parser = "0.18.1"

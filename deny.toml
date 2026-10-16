@@ -1,0 +1,45 @@
+# cargo-deny: what the Rust dependencies may be. The Nix check (flake.nix)
+# runs bans, licenses and sources, which need no network; the advisories
+# workflow checks advisories against the live RustSec database.
+
+# Every crate a feature can bring in, not only the default ones.
+[graph]
+all-features = true
+
+# Known vulnerabilities and unsound crates fail, as by default. So does a
+# yanked crate: its author withdrew it, and the fix is a `cargo update`.
+[advisories]
+yanked = "deny"
+ignore = []
+
+# The licenses the dependencies use that allow shipping them in Dassie's
+# Apache-2.0 binaries: permissive ones only, no copyleft.
+[licenses]
+allow = [
+  "Apache-2.0",
+  "BSD-3-Clause",
+  "ISC",
+  "MIT",
+  "Unicode-3.0",
+  "Zlib",
+]
+exceptions = [
+  # Mozilla's root certificates, as data: CDLA-Permissive-2.0 asks only
+  # that the license text go with the data. A license for data, not code,
+  # so it is allowed for this crate alone.
+  { crate = "webpki-root-certs", allow = ["CDLA-Permissive-2.0"] },
+]
+
+# Duplicate versions are common and harmless enough to only warn about.
+# A wildcard requirement could pull in any version, so it fails; the
+# workspace's own crates name each other by path alone, which is fine for
+# crates that are never published.
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+# Crates come from crates.io, nowhere else.
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
