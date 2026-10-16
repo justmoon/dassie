@@ -47,6 +47,12 @@ RestrictSUIDSGID=yes
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
 SystemCallArchitectures=native
+SystemCallFilter=@system-service
+# A call outside the filter fails, rather than killing the node.
+SystemCallErrorNumber=EPERM
+ProtectProc=invisible
+ProcSubset=pid
+PrivateUsers=yes
 UMask=0077
 
 [Install]

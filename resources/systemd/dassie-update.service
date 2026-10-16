@@ -11,3 +11,30 @@ After=network-online.target
 Type=oneshot
 TimeoutStartSec=30min
 ExecStart=/opt/dassie/current/bin/dassie update
+
+# It runs as root: it installs root's units and asks systemd to restart
+# the node. The rest of root it does not need. It writes the versions in
+# /opt/dassie, the units, and, when it rolls back, the node's database,
+# whose directory systemd links from /var/lib/dassie.
+ProtectSystem=strict
+ReadWritePaths=/opt/dassie /etc/systemd/system -/var/lib/dassie
+# The node's own user owns its database: reaching it takes
+# CAP_DAC_OVERRIDE, and SQLite gives a file it makes there to that user.
+CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_CHOWN
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
