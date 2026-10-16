@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use dassie_identity::NodeKey;
 use dassie_node_core::acme::{ChallengeTokens, Renewal, RenewalPolicy};
 use dassie_node_core::config::NodeConfig;
+use dassie_node_core::connections::{ConnectionLimits, Refused};
 use dassie_node_core::rate_limit::{ClientKey, RateLimitPolicy, RateLimiter};
 use dassie_node_core::session::{SessionId, SessionPolicy};
 use dassie_node_core::setup::SetupToken;
@@ -32,6 +33,7 @@ use crate::acme::AcmeClient;
 use crate::clock::{Clock, SharedRng};
 use crate::engine::Engine;
 use crate::peer_client::PeerClient;
+use crate::slots::{ClientSlot, ClientSlots};
 use crate::store::{Store, StoreError};
 use crate::tls::{CertificateSlot, TlsError};
 
@@ -55,9 +57,23 @@ pub struct Policies {
     pub renewal: RenewalPolicy,
     /// Most RPC WebSockets open at once.
     pub max_websockets: usize,
+    /// Most RPC WebSockets without a session open at once: fewer than
+    /// `max_websockets`, so that sockets with a session always find room.
+    pub max_anonymous_websockets: usize,
+    /// Most RPC WebSockets without a session open at once from one client
+    /// (an IPv4 address or an IPv6 /56). A wallet page holds one.
+    pub anonymous_websockets_per_client: u32,
+    /// A browser's RPC socket without a session closes after this long,
+    /// whatever it sends: it only asks for the node's basic state.
+    pub anonymous_socket_lifetime_ms: u64,
     /// A browser's RPC socket with no call in flight closes after this long
     /// without a message either way.
     pub socket_idle_ms: u64,
+    /// Most connections one client (an IPv4 address or an IPv6 /56) holds
+    /// on each listener at once. Our peer client keeps at most 16 requests
+    /// in flight to one node and reuses its idle connections (4 at most),
+    /// so four nodes behind one address fit; a browser opens about 6.
+    pub http_connections_per_client: u32,
     /// Time to send a request body to the HTTP API.
     pub body_timeout_ms: u64,
     /// Most BTP clients connected at once.
@@ -95,7 +111,11 @@ impl Policies {
         login_attempts: RateLimitPolicy::DEFAULT,
         renewal: RenewalPolicy::DEFAULT,
         max_websockets: 256,
+        max_anonymous_websockets: 128,
+        anonymous_websockets_per_client: 4,
+        anonymous_socket_lifetime_ms: 60_000,
         socket_idle_ms: 10 * 60 * 1_000,
+        http_connections_per_client: 64,
         body_timeout_ms: 10_000,
         max_btp_connections: 64,
         btp_auth_timeout_ms: 10_000,
@@ -131,7 +151,21 @@ impl Policies {
         grace: crate::engine::GracePolicy::DEV,
         ..Self::DEFAULT
     };
+
+    /// The places for RPC sockets without a session.
+    #[must_use]
+    pub const fn anonymous_socket_limits(&self) -> ConnectionLimits {
+        ConnectionLimits {
+            max_total: self.max_anonymous_websockets,
+            max_per_client: self.anonymous_websockets_per_client,
+        }
+    }
 }
+
+// Sockets with a session always find room beside those without.
+const _: () =
+    assert!(Policies::DEFAULT.max_anonymous_websockets < Policies::DEFAULT.max_websockets);
+const _: () = assert!(Policies::DEV.max_anonymous_websockets < Policies::DEV.max_websockets);
 
 /// What the node is made from.
 pub struct NodeOptions {
@@ -295,6 +329,8 @@ pub struct Node {
     acme_last_error: Mutex<Option<String>>,
     revocations: broadcast::Sender<Revocation>,
     websockets: Arc<Semaphore>,
+    /// Places for RPC sockets without a session, within `websockets`.
+    anonymous_sockets: ClientSlots,
     runtime: Runtime,
     http_port: u16,
     https_port: u16,
@@ -387,6 +423,7 @@ impl Node {
             acme_last_error: Mutex::new(None),
             revocations: broadcast::Sender::new(16),
             websockets: Arc::new(Semaphore::new(policies.max_websockets)),
+            anonymous_sockets: ClientSlots::new(policies.anonymous_socket_limits()),
             policies,
             runtime,
             http_port,
@@ -633,6 +670,30 @@ impl Node {
     #[must_use]
     pub fn websocket_permit(&self) -> Option<OwnedSemaphorePermit> {
         Arc::clone(&self.websockets).try_acquire_owned().ok()
+    }
+
+    /// A place for one more RPC WebSocket without a session from `client`,
+    /// beside its [`websocket_permit`](Self::websocket_permit).
+    ///
+    /// # Errors
+    ///
+    /// All such places are taken, or the client has its share.
+    pub fn anonymous_socket_slot(&self, client: IpAddr) -> Result<ClientSlot, Refused> {
+        self.anonymous_sockets.take(self.counted_client(client))
+    }
+
+    /// Who a connection from `address` counts against, for the limits per
+    /// client; `None` counts in the totals only. That is loopback where
+    /// private peers are allowed: dev environments and tests run many
+    /// nodes and their tools on 127.0.0.1, and production never allows
+    /// them.
+    #[must_use]
+    pub fn counted_client(&self, address: IpAddr) -> Option<ClientKey> {
+        let address = address.to_canonical();
+        if self.peer.allow_private && address.is_loopback() {
+            return None;
+        }
+        Some(ClientKey::from_ip(address))
     }
 
     /// The limits and lifetimes in force.

@@ -11,7 +11,10 @@
 //! a client that sends faster than it reads, so that even refusals no
 //! longer fit, is disconnected. A browser's connection with nothing in
 //! flight closes after a while without messages (D16: an idle socket is
-//! memory and a file descriptor held for nothing).
+//! memory and a file descriptor held for nothing). A browser's connection
+//! without a session also closes after a fixed lifetime, whatever it
+//! sends, so that no one can hold the places for such sockets for ever;
+//! like an ending session, it lets the calls in flight answer first.
 
 use std::collections::BTreeMap;
 use std::panic::AssertUnwindSafe;
@@ -54,6 +57,8 @@ pub enum Closed {
     SessionEnded,
     /// Nothing happened for the idle timeout.
     Idle,
+    /// A connection without a session reached its lifetime.
+    Expired,
     /// The node is shutting down.
     Shutdown,
 }
@@ -74,8 +79,9 @@ struct Connection {
     tasks: JoinSet<()>,
     sender: mpsc::Sender<Queued>,
     shutdown: CancellationToken,
-    /// Set once the session ended: when the calls in flight must be done.
-    ending: Option<Instant>,
+    /// Set once the session ended or the lifetime is over: when the calls
+    /// in flight must be done, and why the connection then closes.
+    ending: Option<(Instant, Closed)>,
 }
 
 /// Serves the connection until it ends, and says why.
@@ -92,28 +98,16 @@ where
 {
     let (sender, mut queue) = mpsc::channel(OUTGOING_QUEUE);
     let mut revocations = node.revocations();
-    let idle_after = match caller {
-        Caller::Browser(_) => Some(Duration::from_millis(node.policies().socket_idle_ms)),
-        Caller::Owner => None,
-    };
-    let mut connection = Connection {
-        node,
-        caller,
-        calls: BTreeMap::new(),
-        streams: std::collections::BTreeSet::new(),
-        next_generation: 1,
-        tasks: JoinSet::new(),
-        sender,
-        shutdown,
-        ending: None,
-    };
-    let far = Duration::from_secs(86_400 * 365);
-    let mut idle = pin!(tokio::time::sleep(idle_after.unwrap_or(far)));
+    let (idle_after, lifetime) = timeouts(&node, caller);
+    let mut connection = Connection::new(node, caller, sender, shutdown);
+    let mut idle = pin!(tokio::time::sleep(idle_after.unwrap_or(FAR)));
+    // Unlike the idle timer, messages never reset this one.
+    let mut expiry = pin!(tokio::time::sleep(lifetime.unwrap_or(FAR)));
     let closed = loop {
-        if let Some(deadline) = connection.ending
+        if let Some((deadline, closed)) = connection.ending
             && (connection.calls.is_empty() || Instant::now() >= deadline)
         {
-            break Closed::SessionEnded;
+            break closed;
         }
         let watch_idle = idle_after.is_some() && connection.calls.is_empty();
         tokio::select! {
@@ -141,20 +135,37 @@ where
             Some(_) = connection.tasks.join_next() => {}
             revocation = revocations.recv() => {
                 if connection.ending.is_none() && connection.session_ended(revocation) {
-                    connection.ending = Some(Instant::now() + ENDING_GRACE);
+                    connection.ending = Some((Instant::now() + ENDING_GRACE, Closed::SessionEnded));
                 }
             }
             () = idle.as_mut(), if watch_idle => break Closed::Idle,
-            () = tokio::time::sleep_until(connection.ending.unwrap_or_else(Instant::now)),
+            () = expiry.as_mut(), if lifetime.is_some() && connection.ending.is_none() => {
+                connection.ending = Some((Instant::now() + ENDING_GRACE, Closed::Expired));
+            }
+            () = tokio::time::sleep_until(connection.ending.map_or_else(Instant::now, |(at, _)| at)),
                 if connection.ending.is_some() => {}
             () = connection.shutdown.cancelled() => break Closed::Shutdown,
         }
     };
-    for (_, call) in connection.calls.values() {
-        call.cancel();
-    }
-    connection.tasks.abort_all();
+    connection.stop();
     closed
+}
+
+/// A timer's duration when it is not used.
+const FAR: Duration = Duration::from_secs(86_400 * 365);
+
+/// The idle timeout and the lifetime of `caller`'s connection, if it has
+/// them: a browser's connection goes idle, and one without a session also
+/// has a lifetime. The owner's IPC connection has neither.
+fn timeouts(node: &Node, caller: Caller) -> (Option<Duration>, Option<Duration>) {
+    let policies = node.policies();
+    let idle = Duration::from_millis(policies.socket_idle_ms);
+    let lifetime = Duration::from_millis(policies.anonymous_socket_lifetime_ms);
+    match caller {
+        Caller::Browser(Some(_)) => (Some(idle), None),
+        Caller::Browser(None) => (Some(idle), Some(lifetime)),
+        Caller::Owner => (None, None),
+    }
 }
 
 fn reset(idle: &mut std::pin::Pin<&mut Sleep>, after: Option<Duration>) {
@@ -164,6 +175,33 @@ fn reset(idle: &mut std::pin::Pin<&mut Sleep>, after: Option<Duration>) {
 }
 
 impl Connection {
+    fn new(
+        node: Arc<Node>,
+        caller: Caller,
+        sender: mpsc::Sender<Queued>,
+        shutdown: CancellationToken,
+    ) -> Self {
+        Self {
+            node,
+            caller,
+            calls: BTreeMap::new(),
+            streams: std::collections::BTreeSet::new(),
+            next_generation: 1,
+            tasks: JoinSet::new(),
+            sender,
+            shutdown,
+            ending: None,
+        }
+    }
+
+    /// Cancels the calls still in flight.
+    fn stop(&mut self) {
+        for (_, call) in self.calls.values() {
+            call.cancel();
+        }
+        self.tasks.abort_all();
+    }
+
     fn receive(&mut self, bytes: &[u8]) -> Result<(), Closed> {
         let Ok(message) = proto::ClientMessage::decode(bytes) else {
             return Err(Closed::ProtocolError);

@@ -1,10 +1,10 @@
 //! The HTTP and HTTPS listeners.
 //!
 //! HTTP/1.1 only, over hyper, with a route table small enough to read in one
-//! place ([`route`]). Each listener bounds its connections, the time to
-//! complete a TLS handshake and to send headers, and on shutdown stops
-//! accepting, lets requests in progress finish, and closes WebSockets with
-//! 1001, waiting at most [`DRAIN_TIMEOUT`].
+//! place ([`route`]). Each listener bounds its connections, in all and per
+//! client, the time to complete a TLS handshake and to send headers, and on
+//! shutdown stops accepting, lets requests in progress finish, and closes
+//! WebSockets with 1001, waiting at most [`DRAIN_TIMEOUT`].
 
 mod api;
 pub mod assets;
@@ -31,11 +31,11 @@ use hyper_util::rt::{TokioIo, TokioTimer};
 use rustls::ServerConfig;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_rustls::TlsAcceptor;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
+use dassie_node_core::connections::ConnectionLimits;
 use dassie_node_core::urls;
 use response::{Body, header_str};
 
@@ -43,8 +43,11 @@ pub use ws::SESSION_ENDED;
 
 use crate::log::target;
 use crate::node::Node;
+use crate::slots::{ClientSlot, ClientSlots};
 
 /// Most connections a listener holds at once; more are closed on arrival.
+/// One client holds at most `Policies::http_connections_per_client` of
+/// them, so that a few addresses cannot take them all.
 pub const MAX_CONNECTIONS: usize = 1024;
 /// Time to complete a TLS handshake.
 pub const TLS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -91,7 +94,10 @@ pub async fn serve(
         tasks: TaskTracker::new(),
         shutdown,
     };
-    let permits = Arc::new(Semaphore::new(MAX_CONNECTIONS));
+    let slots = ClientSlots::new(ConnectionLimits {
+        max_total: MAX_CONNECTIONS,
+        max_per_client: context.node.policies().http_connections_per_client,
+    });
     loop {
         let accepted = tokio::select! {
             accepted = listener.accept() => accepted,
@@ -106,16 +112,19 @@ pub async fn serve(
                 continue;
             }
         };
-        let Ok(permit) = Arc::clone(&permits).try_acquire_owned() else {
-            tracing::debug!(target: target::HTTP, %peer, "too many connections; closing");
-            continue;
+        let slot = match slots.take(context.node.counted_client(peer.ip())) {
+            Ok(slot) => slot,
+            Err(refused) => {
+                tracing::debug!(target: target::HTTP, %peer, ?refused, "too many connections; closing");
+                continue;
+            }
         };
         context.tasks.spawn(connection(
             context.clone(),
             stream,
             peer,
             acceptor.clone(),
-            permit,
+            slot,
         ));
     }
     context.tasks.close();
@@ -132,7 +141,7 @@ async fn connection(
     stream: TcpStream,
     peer: SocketAddr,
     acceptor: Option<TlsAcceptor>,
-    _permit: OwnedSemaphorePermit,
+    _slot: ClientSlot,
 ) {
     let _ = stream.set_nodelay(true);
     match acceptor {
@@ -244,7 +253,7 @@ async fn route_https(
     }
     if path == "/rpc" {
         return if ws::is_upgrade(&request) {
-            ws::upgrade(node, request, &context.tasks, &context.shutdown)
+            ws::upgrade(node, request, peer, &context.tasks, &context.shutdown)
         } else {
             response::text(StatusCode::UPGRADE_REQUIRED, "Upgrade Required")
         };
