@@ -376,7 +376,7 @@ pub struct ServerState {
     pub load_factor: u64,
     /// The unloaded factor.
     pub load_base: u64,
-    /// The network ID, which Payments name above 1024.
+    /// The network ID, which the scheme checks is the testnet's.
     pub network_id: Option<u32>,
 }
 

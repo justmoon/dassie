@@ -17,6 +17,10 @@
 //! booked, so it is never spent (ACC-19). Settlements are whole drops
 //! (ACC-21), failures are checked (ACC-22), and an account created by a
 //! payment is a deposit like any other (ACC-20).
+//!
+//! It settles only on the testnet: a server that reports another network,
+//! or none, stops the scheme before the account is read, so mainnet XRP is
+//! never booked, written off or signed for.
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::{String, ToString};
@@ -77,12 +81,18 @@ const MAX_RECOVERING: usize = 64;
 const MAX_ACCOUNT_DROPS: u64 = MAX_TOTAL / UNITS_PER_DROP;
 /// Why the scheme stops when a server reports more than that.
 const TOO_MUCH_XRP: &str = "the server reported more XRP for the account than the books can hold";
+/// The network ID the testnet's servers report: mainnet's is 0, and
+/// devnet's 2.
+const TESTNET_NETWORK_ID: u32 = 1;
+/// Why the scheme stops when its server reports another network, or none.
+const WRONG_NETWORK: &str = "the server is not on the XRP Ledger testnet; remove the scheme and add it with a testnet server";
 
 /// Where the scheme connects, and where it asks for test XRP.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Config {
     /// A WebSocket URL, `wss://` (or `ws://`, which the node allows only
-    /// where it allows private addresses).
+    /// where it allows private addresses). A server that reports another
+    /// network than the testnet, or none, stops the scheme.
     pub server: String,
     /// The faucet, an HTTPS URL; `None` to never ask.
     pub faucet: Option<String>,
@@ -165,8 +175,9 @@ enum Request {
 enum Phase {
     /// No connection.
     Disconnected,
-    /// Connected; waiting for the subscription, then the server's state
-    /// and the account's, as of a ledger the stream covers.
+    /// Connected; waiting for the server's state, which must be the
+    /// testnet's, then the subscription, then the account's state, as of
+    /// a ledger the stream covers.
     Starting {
         subscribed: bool,
         state: bool,
@@ -208,7 +219,6 @@ pub struct XrplScheme {
     reserve_inc: u64,
     owner_count: u32,
     balance: Option<u64>,
-    network_id: Option<u32>,
     buffer: Vec<TxRecord>,
     fund_at_ms: u64,
     funding: bool,
@@ -254,7 +264,6 @@ impl XrplScheme {
             reserve_inc: 0,
             owner_count: 0,
             balance: None,
-            network_id: None,
             buffer: Vec::new(),
             fund_at_ms: 0,
             funding: false,
@@ -368,9 +377,10 @@ impl XrplScheme {
             state: false,
             info: None,
         };
-        // The account is read once the subscription is on, so nothing
-        // falls between what it says and what the stream says next.
-        self.send(Request::Subscribe, effects);
+        // The network is checked first, so nothing is read or booked from
+        // another; then the account is subscribed, and read once the
+        // subscription is on, so nothing falls between what it says and
+        // what the stream says next.
         self.send(Request::ServerState, effects);
     }
 
@@ -412,28 +422,36 @@ impl XrplScheme {
                     self.send(Request::AccountInfo, effects);
                 }
             }
-            Request::ServerState => {
-                match outcome.ok().as_ref().and_then(api::server_state_result) {
-                    Some(state) => {
-                        self.validated = self.validated.max(state.validated_ledger);
-                        self.fee_base = state.base_fee;
-                        self.load = (state.load_factor, state.load_base);
-                        self.reserve_base = state.reserve_base;
-                        self.reserve_inc = state.reserve_inc;
-                        self.network_id = state.network_id.filter(|id| *id > 1024);
-                        if let Phase::Starting { state, .. } = &mut self.phase {
-                            *state = true;
-                        }
-                        self.start(effects);
-                    }
-                    None => self.reconnect(effects),
-                }
-            }
+            Request::ServerState => self.server_state(outcome, effects),
             Request::AccountInfo => self.account_info(outcome, effects),
             Request::AccountTx => self.account_tx(outcome, effects),
             Request::Tx(hash) => self.looked_up(hash, outcome, effects),
             Request::Submit(hash) => self.submitted(hash, outcome.ok().as_ref(), effects),
             Request::Recover(hash) => self.recovered(hash, outcome, effects),
+        }
+    }
+
+    /// The server's state, the first answer on a connection: a server off
+    /// the testnet, or that does not say, stops the scheme before anything
+    /// is read from it. On the testnet, the account is subscribed.
+    fn server_state(&mut self, outcome: Result<Value, ApiError>, effects: &mut Vec<Effect>) {
+        let Some(state) = outcome.ok().as_ref().and_then(api::server_state_result) else {
+            self.reconnect(effects);
+            return;
+        };
+        if state.network_id != Some(TESTNET_NETWORK_ID) {
+            self.failed = Some(WRONG_NETWORK);
+            self.disconnected();
+            return;
+        }
+        self.validated = self.validated.max(state.validated_ledger);
+        self.fee_base = state.base_fee;
+        self.load = (state.load_factor, state.load_base);
+        self.reserve_base = state.reserve_base;
+        self.reserve_inc = state.reserve_inc;
+        if let Phase::Starting { state, .. } = &mut self.phase {
+            *state = true;
+            self.send(Request::Subscribe, effects);
         }
     }
 
@@ -1349,7 +1367,9 @@ impl SettlementScheme for XrplScheme {
             sequence: self.sequence,
             last_ledger_sequence: self.validated.saturating_add(LEDGER_WINDOW),
             flags: 0,
-            network_id: self.network_id,
+            // Only the testnet is signed for, and a transaction names its
+            // network only above 1024.
+            network_id: None,
             memos: alloc::vec![Memo {
                 memo_type: MEMO_TYPE.to_vec(),
                 memo_data: self.node.as_str().as_bytes().to_vec(),

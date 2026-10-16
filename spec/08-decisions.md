@@ -168,6 +168,7 @@ All decisions below were confirmed on 2026-10-11. Each states the **decision** a
 
   A mainnet bootstrap node list must exist before `live` makes sense.
 - **M7b (2026-10-15):** the testnet scheme settles ACC-19 (the reserve is never booked), ACC-20 (an account's creation is a deposit), ACC-21 (whole drops, fees booked) and ACC-22 (results checked, a failure's fee booked, the sender checked). Mainnet still needs its own memo type (ACC-13) and the rest of this list.
+- **2026-10-16:** mainnet is refused at the ledger too. The testnet scheme stops unless its server reports the testnet's network ID, so an owner who points it at a mainnet server gets a failed scheme, not mainnet XRP booked or signed for with a testnet wallet.
 
 ### D9. Open Payments, fully, and no SPSP
 
