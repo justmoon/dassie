@@ -188,9 +188,9 @@ let
     );
 
   # The releases the install tests serve (tests/e2e/install_test.ts): two
-  # versions for x64, trusting the test key and signed with it, beside
-  # install.sh with the test key. The tests write meta/<channel>, and make
-  # their own tampered copies.
+  # releases and a canary for x64, trusting the test key and signed with
+  # it, beside install.sh with the test key. The tests write
+  # meta/<channel>, and make their own tampered copies.
   testRelease =
     version:
     let
@@ -210,10 +210,12 @@ let
       minisign -S -s ${../testdata/release/test.key} -m $out/SHA256SUMS \
         -x $out/SHA256SUMS.minisig -t "dassie ${version}"
     '';
+  testCanary = "canary-2026-10-16-120000-abcdef0";
   install-test-mirror = pkgs.runCommand "dassie-install-test-mirror" { } ''
     mkdir $out
     cp -r ${testRelease "1.0.0"} $out/1.0.0
     cp -r ${testRelease "1.0.1"} $out/1.0.1
+    cp -r ${testRelease testCanary} $out/${testCanary}
     cp ${installer testKey} $out/install.sh
   '';
   released = binaries releaseVersion;
