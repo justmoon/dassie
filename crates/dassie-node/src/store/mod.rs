@@ -53,8 +53,8 @@ pub use outgoing::{
 };
 pub use owed::{Compensation, OwedFulfill, PostedTransfer, TakenFulfill, VerdictBatch};
 pub use payments::{
-    IncomingPage, IncomingProgress, IncomingQuery, IncomingRow, MAX_OPEN_LOADED, Page, PaymentId,
-    UNPAID_RETENTION_MS,
+    ConnectionKey, IncomingPage, IncomingPaid, IncomingProgress, IncomingQuery, IncomingRow,
+    Listed, MAX_LISTED, MAX_OPEN_LOADED, Page, PaymentId, UNPAID_RETENTION_MS,
 };
 pub use rates::StoredRate;
 pub use schema::{APPLICATION_ID, V0_APPLICATION_ID};

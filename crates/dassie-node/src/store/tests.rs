@@ -96,7 +96,7 @@ fn refuses_foreign_and_newer_databases() {
         Store::open(temp.path()),
         Err(StoreError::TooNew {
             found: 99,
-            known: 12
+            known: 13
         })
     ));
 }
@@ -267,6 +267,35 @@ fn tokens_survive_the_upgrade_to_caps() {
     assert_eq!(tokens.len(), 2);
     assert_eq!((tokens[0].label.as_str(), tokens[0].cap), ("old", None));
     assert_eq!(tokens[1].revoked_at_ms, Some(7));
+}
+
+// Migration 13 keeps what connections received apart: an open incoming
+// payment's credentials from before are one connection, which received
+// all it did; a closed one's connections are not read again.
+#[test]
+fn open_payments_keep_what_they_received_over_the_upgrade_to_connections() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
+    connection
+        .pragma_update(None, "application_id", APPLICATION_ID)
+        .unwrap();
+    schema::migrate_until(&mut connection, 12).unwrap();
+    connection
+        .execute_batch(
+            "INSERT INTO incoming_payments VALUES (x'01010101010101010101010101010101', \
+             'stub+usd', 'https://a.example/pay', NULL, 100, 40, 'g.a.b', zeroblob(32), NULL, \
+             10, 1000, NULL, 1); \
+             INSERT INTO incoming_payments VALUES (x'02020202020202020202020202020202', \
+             'stub+usd', 'https://a.example/pay', NULL, 10, 10, 'g.a.c', zeroblob(32), NULL, \
+             10, 1000, 20, 2);",
+        )
+        .unwrap();
+    drop(connection);
+    let store = Store::open(temp.path()).unwrap();
+    assert_eq!(
+        store.open_incoming_connections(30, 10).unwrap(),
+        [(PaymentId([1; 16]), ConnectionKey::LEGACY, 40)]
+    );
 }
 
 // Spec 7 §5: the inspector shows every table but never reads a secret.

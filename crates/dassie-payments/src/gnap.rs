@@ -430,18 +430,38 @@ pub enum Scope {
     All,
 }
 
+/// What one access item allows for an action: whose resources, and, for
+/// outgoing payments, those to its limits' receiver only.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Reach<'a> {
+    /// Whose resources.
+    pub scope: Scope,
+    /// The only incoming payment the resources may pay.
+    pub receiver: Option<&'a str>,
+}
+
+impl Reach<'_> {
+    /// Whether it reaches a resource the grant's client made or not
+    /// (`own`), paying `receiver` (none for resources that pay none).
+    #[must_use]
+    pub fn covers(&self, own: bool, receiver: Option<&str>) -> bool {
+        (self.scope == Scope::All || own) && self.receiver.is_none_or(|only| Some(only) == receiver)
+    }
+}
+
 /// What a grant's access allows for `action` on resources of `kind` of
-/// one wallet address: nothing, its client's own resources, or all. The
+/// one wallet address, item by item: at most [`MAX_ACCESS_ITEMS`]. The
 /// `*-all` actions include their plain forms. Creating reaches the whole
 /// wallet address; completing, which has no `-all` form, only what the
-/// client created.
+/// client created. Each item's limits limit what it allows, and no other
+/// item's.
 #[must_use]
-pub fn permits(
-    access: &[Access],
+pub fn reaches<'a>(
+    access: &'a [Access],
     kind: AccessType,
     action: Action,
     wallet_address: &str,
-) -> Option<Scope> {
+) -> Vec<Reach<'a>> {
     let broader = match action {
         Action::Read => Some(Action::ReadAll),
         Action::List => Some(Action::ListAll),
@@ -454,6 +474,7 @@ pub fn permits(
     };
     access
         .iter()
+        .take(MAX_ACCESS_ITEMS)
         .filter(|item| item.kind == kind)
         .filter(|item| {
             item.identifier
@@ -461,15 +482,62 @@ pub fn permits(
                 .is_none_or(|identifier| identifier == wallet_address)
         })
         .filter_map(|item| {
-            if broader.is_some_and(|broader| item.actions.contains(&broader)) {
-                Some(Scope::All)
+            let scope = if broader.is_some_and(|broader| item.actions.contains(&broader)) {
+                Scope::All
             } else if item.actions.contains(&action) {
-                Some(narrow)
+                narrow
             } else {
-                None
-            }
+                return None;
+            };
+            let receiver = item
+                .limits
+                .as_ref()
+                .and_then(|limits| limits.receiver.as_deref());
+            Some(Reach { scope, receiver })
         })
+        .collect()
+}
+
+/// What a grant's access allows for `action` on resources of `kind` of
+/// one wallet address, as [`reaches`], at its widest: nothing, its
+/// client's own resources, or all, whatever the receiver.
+#[must_use]
+pub fn permits(
+    access: &[Access],
+    kind: AccessType,
+    action: Action,
+    wallet_address: &str,
+) -> Option<Scope> {
+    reaches(access, kind, action, wallet_address)
+        .iter()
+        .map(|reach| reach.scope)
         .max()
+}
+
+/// The item that allows creating outgoing payments from `wallet_address`:
+/// its limits are those payments'. A grant has one at most.
+#[must_use]
+pub fn creating<'a>(access: &'a [Access], wallet_address: &str) -> Option<&'a Access> {
+    access.iter().find(|item| {
+        item.kind == AccessType::OutgoingPayment
+            && item.actions.contains(&Action::Create)
+            && item.identifier.as_deref() == Some(wallet_address)
+    })
+}
+
+/// Whether two items allow creating outgoing payments from one wallet
+/// address: which limits apply would be unclear. Compare canonical wallet
+/// addresses.
+#[must_use]
+pub fn creates_twice(access: &[Access]) -> bool {
+    let creating: Vec<Option<&str>> = access
+        .iter()
+        .filter(|item| {
+            item.kind == AccessType::OutgoingPayment && item.actions.contains(&Action::Create)
+        })
+        .map(|item| item.identifier.as_deref())
+        .collect();
+    !unique(&creating)
 }
 
 /// An access token in a response (`access_token`).
@@ -754,6 +822,49 @@ mod tests {
             permits(&complete, ip, Action::Complete, "x"),
             Some(Scope::Own)
         );
+    }
+
+    // Each item's limits limit what it allows: a receiver on an item that
+    // reads narrows what it reads, and the item that creates has its own.
+    #[test]
+    fn each_item_reaches_within_its_own_limits() {
+        let access: Vec<Access> = serde_json::from_str(
+            r#"[
+                {"type":"outgoing-payment","actions":["read-all","list-all"],"identifier":"https://b.example/pay",
+                 "limits":{"receiver":"https://c.example/incoming-payments/1"}},
+                {"type":"outgoing-payment","actions":["create","read"],"identifier":"https://b.example/pay",
+                 "limits":{"debitAmount":{"value":"10","assetCode":"USD","assetScale":2}}}
+            ]"#,
+        )
+        .unwrap();
+        let op = AccessType::OutgoingPayment;
+        let wallet = "https://b.example/pay";
+        let read = reaches(&access, op, Action::Read, wallet);
+        let to = "https://c.example/incoming-payments/1";
+        let other = "https://c.example/incoming-payments/2";
+        assert!(read.iter().any(|reach| reach.covers(false, Some(to))));
+        assert!(!read.iter().any(|reach| reach.covers(false, Some(other))));
+        assert!(read.iter().any(|reach| reach.covers(true, Some(other))));
+        let list = reaches(&access, op, Action::List, wallet);
+        assert_eq!(
+            list,
+            [Reach {
+                scope: Scope::All,
+                receiver: Some(to)
+            }]
+        );
+        let limits = creating(&access, wallet).unwrap().limits.as_ref().unwrap();
+        assert_eq!(limits.debit_amount.as_ref().unwrap().value, 10);
+        assert!(creating(&access, "https://b.example/other").is_none());
+        assert!(!creates_twice(&access));
+        let twice: Vec<Access> = serde_json::from_str(
+            r#"[
+                {"type":"outgoing-payment","actions":["create"],"identifier":"https://b.example/pay"},
+                {"type":"outgoing-payment","actions":["create","read"],"identifier":"https://b.example/pay"}
+            ]"#,
+        )
+        .unwrap();
+        assert!(creates_twice(&twice));
     }
 
     #[test]

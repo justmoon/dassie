@@ -33,7 +33,36 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_10,
     MIGRATION_11,
     MIGRATION_12,
+    MIGRATION_13,
 ];
+
+/// A STREAM connection per payment: each read of an incoming payment gets
+/// credentials of its own, and what each connection received is kept apart,
+/// so a sender learns what it delivered, not what others did. A Fulfill
+/// owed a verdict names its connection. Those issued before had none: they
+/// are one connection, whose count is what their payment received. An
+/// outgoing payment never uses another's credentials, which is looked up
+/// by destination.
+const MIGRATION_13: &str = "
+CREATE TABLE incoming_connections (
+  incoming_payment BLOB NOT NULL REFERENCES incoming_payments (id) ON DELETE CASCADE,
+  -- Which credentials of the payment the connection uses; zeros for those
+  -- issued with the payment before connections had keys.
+  connection BLOB NOT NULL CHECK (length(connection) = 16),
+  received INTEGER NOT NULL CHECK (received > 0),
+  PRIMARY KEY (incoming_payment, connection)
+) STRICT, WITHOUT ROWID;
+
+INSERT INTO incoming_connections
+  SELECT id, zeroblob(16), received_amount FROM incoming_payments
+  WHERE received_amount > 0 AND completed_at_ms IS NULL;
+
+ALTER TABLE owed_fulfills ADD COLUMN incoming_connection BLOB
+  CHECK (incoming_connection IS NULL OR length(incoming_connection) = 16);
+UPDATE owed_fulfills SET incoming_connection = zeroblob(16) WHERE incoming_payment IS NOT NULL;
+
+CREATE INDEX outgoing_payments_by_destination ON outgoing_payments (destination);
+";
 
 const MIGRATION_1: &str = "
 CREATE TABLE node_config (
@@ -923,6 +952,7 @@ pub const TABLES: &[Table] = &[
             ("debit_3", "INTEGER", false, false),
             ("credit_3", "INTEGER", false, false),
             ("amount_3", "INTEGER", false, false),
+            ("incoming_connection", "BLOB", false, false),
         ],
     },
     Table {
@@ -1045,6 +1075,15 @@ pub const TABLES: &[Table] = &[
             ("asset", "TEXT", true, true),
             ("rate", "TEXT", true, false),
             ("as_of_ms", "INTEGER", true, false),
+        ],
+    },
+    Table {
+        name: "incoming_connections",
+        without_rowid: true,
+        columns: &[
+            ("incoming_payment", "BLOB", true, true),
+            ("connection", "BLOB", true, true),
+            ("received", "INTEGER", true, false),
         ],
     },
 ];

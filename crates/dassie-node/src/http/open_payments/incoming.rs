@@ -2,16 +2,15 @@
 
 use std::net::SocketAddr;
 
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use dassie_ledger::LedgerId;
 use dassie_payments::amount::Amount;
 use dassie_payments::gnap::{AccessType, Action, Scope};
 use dassie_payments::resources::{
-    self, CreateIncomingPayment, Direction, IlpMethod, IncomingPayment, ListQuery, Page, PageInfo,
+    self, CreateIncomingPayment, Direction, IncomingPayment, ListQuery, Page, PageInfo,
     PublicIncomingPayment,
 };
 use dassie_payments::time;
+use dassie_stream::Credentials;
 use hyper::body::Incoming;
 use hyper::{Method, Request, Response, StatusCode};
 
@@ -20,6 +19,7 @@ use crate::engine::{EngineError, NewIncoming};
 use crate::http::response::Body;
 use crate::node::Node;
 use crate::open_payments::auth::{self, Authorized, OpError};
+use crate::open_payments::spending::{fresh_credentials, ilp_method};
 use crate::open_payments::{Urls, WalletAddresses};
 use crate::store::{IncomingQuery, IncomingRow, PaymentId};
 
@@ -43,7 +43,7 @@ pub async fn route(
     let result = match (&method, segments.as_slice()) {
         (&Method::POST, []) => create(node, peer, urls, &read).await,
         (&Method::GET, []) => list(node, urls, &read).await,
-        (&Method::GET | &Method::HEAD, [id]) => get(node, urls, &read, id),
+        (&Method::GET | &Method::HEAD, [id]) => get(node, urls, &read, id).await,
         (&Method::POST, [id, "complete"]) => complete(node, urls, &read, id).await,
         _ => Err(OpError::not_found("Not Found")),
     };
@@ -112,9 +112,14 @@ async fn create(
         .create_incoming_payment(new)
         .await
         .map_err(engine_error)?;
+    // The credentials it was made with: the creator's to pay it with.
+    let credentials = Credentials {
+        destination: row.ilp_address.clone(),
+        shared_secret: row.shared_secret,
+    };
     Ok(json(
         StatusCode::CREATED,
-        &with_methods(urls, &row, node.now_ms()),
+        &with_methods(urls, &row, Some(credentials)),
     ))
 }
 
@@ -179,19 +184,14 @@ fn resource(urls: &Urls, row: &IncomingRow) -> IncomingPayment {
     }
 }
 
-/// With its STREAM credentials, while it takes money.
-fn with_methods(urls: &Urls, row: &IncomingRow, now_ms: u64) -> IncomingPayment {
-    let methods = if row.is_open(now_ms) {
-        vec![IlpMethod {
-            kind: "ilp".into(),
-            ilp_address: row.ilp_address.clone(),
-            shared_secret: URL_SAFE_NO_PAD.encode(row.shared_secret),
-        }]
-    } else {
-        Vec::new()
-    };
+/// With STREAM credentials to pay it, if it takes money.
+fn with_methods(
+    urls: &Urls,
+    row: &IncomingRow,
+    credentials: Option<Credentials>,
+) -> IncomingPayment {
     IncomingPayment {
-        methods: Some(methods),
+        methods: Some(credentials.into_iter().map(ilp_method).collect()),
         ..resource(urls, row)
     }
 }
@@ -220,8 +220,14 @@ fn check_scope(
 }
 
 /// `GET /incoming-payments/{id}`: in full with a grant that may read it,
-/// what anyone may see without one.
-fn get(node: &Node, urls: &Urls, read: &ReadRequest, id: &str) -> Result<Response<Body>, OpError> {
+/// with credentials of its own while it takes money, and what anyone may
+/// see without one.
+async fn get(
+    node: &Node,
+    urls: &Urls,
+    read: &ReadRequest,
+    id: &str,
+) -> Result<Response<Body>, OpError> {
     let row = find(node, id)?;
     if !read.has_authorization() {
         let public = PublicIncomingPayment {
@@ -233,10 +239,8 @@ fn get(node: &Node, urls: &Urls, read: &ReadRequest, id: &str) -> Result<Respons
     let authorized = authorize(node, read)?;
     let scope = authorized.permits(urls, AccessType::IncomingPayment, Action::Read, row.ledger);
     check_scope(scope, &authorized, &row)?;
-    Ok(json(
-        StatusCode::OK,
-        &with_methods(urls, &row, node.now_ms()),
-    ))
+    let credentials = fresh_credentials(node, &row).await?;
+    Ok(json(StatusCode::OK, &with_methods(urls, &row, credentials)))
 }
 
 /// `POST /incoming-payments/{id}/complete`.
@@ -272,20 +276,22 @@ async fn list(node: &Node, urls: &Urls, read: &ReadRequest) -> Result<Response<B
         .await?
         .ledger_of_url(urls, &query.wallet_address)
         .ok_or_else(|| OpError::invalid("the wallet address is not one of this node"))?;
-    let scope = authorized
-        .permits(urls, AccessType::IncomingPayment, Action::List, ledger)
-        .ok_or_else(|| OpError::forbidden("the grant does not allow listing incoming payments"))?;
+    let reach = authorized.listed(urls, AccessType::IncomingPayment, ledger);
+    if reach.is_empty() {
+        return Err(OpError::forbidden(
+            "the grant does not allow listing incoming payments",
+        ));
+    }
     let cursor = query
         .cursor
         .as_deref()
         .map(|cursor| PaymentId::parse(cursor).ok_or_else(|| OpError::invalid("unknown cursor")))
         .transpose()?;
-    let client = (scope == Scope::Own).then_some(authorized.grant.client.as_str());
     let page = node
         .store()
         .incoming_page(&IncomingQuery {
             ledger,
-            client,
+            reach: &reach,
             cursor,
             forward: query.direction == Direction::Forward,
             count: u32::from(query.count),

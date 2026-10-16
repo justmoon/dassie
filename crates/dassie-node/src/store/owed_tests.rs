@@ -54,7 +54,11 @@ fn owed(account: AccountId, owner: AccountId, fulfill: Vec<u8>) -> OwedFulfill {
             Some((owner, account, 1)),
             Some((account, owner, 2)),
         ],
-        incoming: Some((PaymentId([7; 16]), 40)),
+        incoming: Some(IncomingPaid {
+            payment: PaymentId([7; 16]),
+            connection: ConnectionKey([8; 16]),
+            amount: 40,
+        }),
         expires_at_ms: 99,
         created_at_ms: 60,
     }

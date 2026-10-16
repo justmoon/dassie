@@ -49,16 +49,22 @@ fn usd(value: u64) -> Value {
 /// Asks for outgoing payments of up to `limit` a day, and quotes; returns
 /// the answer.
 async fn ask(node: &TestNode, client: &Client, limit: u64, start: &str) -> Value {
+    let access = json!([
+        {
+            "type": "outgoing-payment",
+            "actions": ["create", "read", "list"],
+            "identifier": host(node),
+            "limits": { "debitAmount": usd(limit), "interval": format!("R/{start}/P1D") },
+        },
+        { "type": "quote", "actions": ["create", "read"] },
+    ]);
+    ask_for(node, client, &access).await
+}
+
+/// Asks for `access`, which needs the owner; returns the answer.
+async fn ask_for(node: &TestNode, client: &Client, access: &Value) -> Value {
     let request = json!({
-        "access_token": { "access": [
-            {
-                "type": "outgoing-payment",
-                "actions": ["create", "read", "list"],
-                "identifier": host(node),
-                "limits": { "debitAmount": usd(limit), "interval": format!("R/{start}/P1D") },
-            },
-            { "type": "quote", "actions": ["create", "read"] },
-        ]},
+        "access_token": { "access": access },
         "client": client.identity,
         "interact": {
             "start": ["redirect"],
@@ -127,11 +133,16 @@ async fn decide(node: &TestNode, id: &str, key: &str, approve: bool) -> String {
 async fn approved(node: &TestNode, client: &Client, limit: u64) -> String {
     let start = dassie_payments::time::format_rfc3339(node.clock.now_ms() - 1_000);
     let grant = ask(node, client, limit, &start).await;
-    let (id, key) = consent_page(node, &grant).await;
+    approve(node, client, &grant).await
+}
+
+/// The owner approves `grant`: its access token.
+async fn approve(node: &TestNode, client: &Client, grant: &Value) -> String {
+    let (id, key) = consent_page(node, grant).await;
     let finish = decide(node, &id, &key, true).await;
     let reference = finish.split("interact_ref=").nth(1).unwrap().to_string();
     node.clock.advance(5_000);
-    let reply = continue_grant(node, client, &grant, Some(&reference)).await;
+    let reply = continue_grant(node, client, grant, Some(&reference)).await;
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
     body(&reply)["access_token"]["value"]
         .as_str()
@@ -452,6 +463,406 @@ async fn the_owners_quotes_and_a_clients_are_apart() {
     };
     let mine = format!("{}/quotes/{}", node.origin(), quoted.quote.unwrap().id);
     let pay = json!({ "walletAddress": host(&node), "quoteId": mine });
+    let reply = post(&node, &client, "/outgoing-payments", &token, &pay).await;
+    assert_eq!(reply.status, StatusCode::FORBIDDEN, "{}", reply.text());
+    node.stop().await;
+}
+
+/// What the token's grant spent in this window.
+async fn spent(node: &TestNode, client: &Client, token: &str) -> Value {
+    let reply = send(
+        node.https,
+        true,
+        signed(
+            node,
+            client,
+            "GET",
+            "/outgoing-payment-grant",
+            Some(token),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+    body(&reply)
+}
+
+/// Waits until the outgoing payment at `path` completed or failed,
+/// letting it reconnect as often as it may.
+async fn finished(node: &TestNode, client: &Client, token: &str, path: &str) -> Value {
+    let mut payment = Value::Null;
+    for _ in 0..2_000 {
+        let reply = send(
+            node.https,
+            true,
+            signed(node, client, "GET", path, Some(token), None),
+        )
+        .await;
+        payment = body(&reply);
+        let complete = payment["sentAmount"]["value"] == payment["debitAmount"]["value"];
+        if complete || payment["failed"] == true {
+            return payment;
+        }
+        node.clock.advance(1_000);
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    panic!("the payment did not finish: {payment}");
+}
+
+fn value(amount: &Value) -> u64 {
+    amount["value"]
+        .as_str()
+        .map_or(0, |value| value.parse().unwrap())
+}
+
+// Overspending at once: six payments of 300 against a limit of 1 000, all
+// in flight together. Three fit; the rest are refused, and the grant spent
+// exactly what was sent.
+#[tokio::test(flavor = "multi_thread")]
+async fn payments_at_once_stay_within_the_limit() {
+    let (node, key) = start().await;
+    let client = own_client(&node, &key);
+    let token = approved(&node, &client, 1_000).await;
+    let mut requests = Vec::new();
+    for _ in 0..6 {
+        let target = receiver(&node, 300).await;
+        requests.push(json!({
+            "walletAddress": host(&node), "incomingPayment": target, "debitAmount": usd(300),
+        }));
+    }
+    let pay = |index: usize| {
+        post(
+            &node,
+            &client,
+            "/outgoing-payments",
+            &token,
+            &requests[index],
+        )
+    };
+    let replies = tokio::join!(pay(0), pay(1), pay(2), pay(3), pay(4), pay(5));
+    let replies = [
+        replies.0, replies.1, replies.2, replies.3, replies.4, replies.5,
+    ];
+    let created: Vec<_> = replies
+        .iter()
+        .filter(|reply| reply.status == StatusCode::CREATED)
+        .collect();
+    assert_eq!(created.len(), 3);
+    assert!(
+        replies
+            .iter()
+            .all(|reply| [StatusCode::CREATED, StatusCode::FORBIDDEN].contains(&reply.status))
+    );
+    let mut total = 0;
+    for reply in created {
+        let paid = finished(&node, &client, &token, &path_of(&node, &body(reply)["id"])).await;
+        total += value(&paid["sentAmount"]);
+    }
+    assert_eq!(total, 900);
+    assert_eq!(
+        spent(&node, &client, &token).await["spentDebitAmount"],
+        usd(900)
+    );
+    node.stop().await;
+}
+
+// Overspending with quotes: quotes check no limit, so five of 300 are
+// made, then paid at once. Three fit.
+#[tokio::test(flavor = "multi_thread")]
+async fn quotes_paid_at_once_stay_within_the_limit() {
+    let (node, key) = start().await;
+    let client = own_client(&node, &key);
+    let token = approved(&node, &client, 1_000).await;
+    let mut requests = Vec::new();
+    for _ in 0..5 {
+        let target = receiver(&node, 300).await;
+        let quote = json!({ "walletAddress": host(&node), "receiver": target, "method": "ilp" });
+        let reply = post(&node, &client, "/quotes", &token, &quote).await;
+        assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.text());
+        requests.push(json!({ "walletAddress": host(&node), "quoteId": body(&reply)["id"] }));
+    }
+    let pay = |index: usize| {
+        post(
+            &node,
+            &client,
+            "/outgoing-payments",
+            &token,
+            &requests[index],
+        )
+    };
+    let replies = tokio::join!(pay(0), pay(1), pay(2), pay(3), pay(4));
+    let replies = [replies.0, replies.1, replies.2, replies.3, replies.4];
+    let created = replies
+        .iter()
+        .filter(|reply| reply.status == StatusCode::CREATED)
+        .count();
+    assert_eq!(created, 3);
+    assert_eq!(
+        spent(&node, &client, &token).await["spentDebitAmount"],
+        usd(900)
+    );
+    node.stop().await;
+}
+
+// Double spending one incoming payment: two payments of 300 to one that
+// takes 300, at once. Both may be made, as each saw 300 still to pay, each
+// over a connection of its own. The receiver takes 300 in all, and each
+// payment is told only what it delivered: it sends all it is to, or fails,
+// and never completes on what the other delivered. The grant is charged
+// only what was sent.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_incoming_payment_is_not_paid_twice() {
+    let (node, key) = start().await;
+    let client = own_client(&node, &key);
+    let token = approved(&node, &client, 1_000).await;
+    let target = receiver(&node, 300).await;
+    let pay = json!({
+        "walletAddress": host(&node), "incomingPayment": target, "debitAmount": usd(300),
+    });
+    let (first, second) = tokio::join!(
+        post(&node, &client, "/outgoing-payments", &token, &pay),
+        post(&node, &client, "/outgoing-payments", &token, &pay),
+    );
+    let mut total = 0;
+    for reply in [first, second] {
+        if reply.status != StatusCode::CREATED {
+            continue;
+        }
+        // Done once it sent all it is to, or failed.
+        let paid = finished(&node, &client, &token, &path_of(&node, &body(&reply)["id"])).await;
+        total += value(&paid["sentAmount"]);
+    }
+    assert_eq!(total, 300);
+    assert_eq!(
+        spent(&node, &client, &token).await["spentDebitAmount"],
+        usd(300)
+    );
+    node.stop().await;
+}
+
+// A new token is the same grant: rotating it does not reset what it
+// spent.
+#[tokio::test(flavor = "multi_thread")]
+async fn rotating_the_token_keeps_what_was_spent() {
+    let (node, key) = start().await;
+    let client = own_client(&node, &key);
+    let start = dassie_payments::time::format_rfc3339(node.clock.now_ms() - 1_000);
+    let grant = ask(&node, &client, 500, &start).await;
+    let (id, consent) = consent_page(&node, &grant).await;
+    let finish = decide(&node, &id, &consent, true).await;
+    let reference = finish.split("interact_ref=").nth(1).unwrap().to_string();
+    node.clock.advance(5_000);
+    let reply = continue_grant(&node, &client, &grant, Some(&reference)).await;
+    let issued = body(&reply)["access_token"].clone();
+    let token = issued["value"].as_str().unwrap().to_string();
+    let target = receiver(&node, 300).await;
+    let pay = json!({
+        "walletAddress": host(&node), "incomingPayment": target, "debitAmount": usd(300),
+    });
+    let reply = post(&node, &client, "/outgoing-payments", &token, &pay).await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.text());
+    let manage = path_of(&node, &issued["manage"]);
+    let reply = send(
+        node.https,
+        true,
+        signed(&node, &client, "POST", &manage, Some(&token), None),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+    let rotated = body(&reply)["access_token"]["value"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let target = receiver(&node, 300).await;
+    let pay = json!({
+        "walletAddress": host(&node), "incomingPayment": target, "debitAmount": usd(300),
+    });
+    let reply = post(&node, &client, "/outgoing-payments", &rotated, &pay).await;
+    assert_eq!(reply.status, StatusCode::FORBIDDEN, "{}", reply.text());
+    node.stop().await;
+}
+
+/// The owner pays `target` in full from the wallet; returns the path of
+/// the outgoing payment.
+async fn owner_pays(node: &TestNode, target: &str, amount: u64) -> String {
+    let mut owner = node.ipc().await;
+    let Ok(response::Method::QuoteSend(quoted)) = owner
+        .call(Method::QuoteSend(proto::QuoteSendRequest {
+            recipient: target.into(),
+            ledger: String::new(),
+            amount: Some(proto::quote_send_request::Amount::ReceiveAmount(amount)),
+            note: String::new(),
+        }))
+        .await
+    else {
+        panic!("no quote")
+    };
+    let Ok(response::Method::SendPayment(sent)) = owner
+        .call(Method::SendPayment(proto::SendPaymentRequest {
+            quote_id: quoted.quote.unwrap().id,
+        }))
+        .await
+    else {
+        panic!("not sent")
+    };
+    format!("/outgoing-payments/{}", sent.payment.unwrap().id)
+}
+
+/// The IDs of the outgoing payments a list shows.
+fn listed_ids(node: &TestNode, list: &Value) -> Vec<String> {
+    list["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|payment| path_of(node, &payment["id"]))
+        .collect()
+}
+
+// Outgoing-payment items for one wallet address, each limited in its own
+// way: one reads every payment to one receiver (its amounts limit
+// nothing, as it spends nothing), the other creates, within its own limit,
+// and reads the client's own. Neither item's limits lift or narrow the
+// other's.
+#[tokio::test(flavor = "multi_thread")]
+async fn each_item_keeps_to_its_own_limits() {
+    let (node, key) = start().await;
+    let client = own_client(&node, &key);
+    let watched = receiver(&node, 100).await;
+    let other = receiver(&node, 100).await;
+    let to_watched = owner_pays(&node, &watched, 100).await;
+    let to_other = owner_pays(&node, &other, 100).await;
+    let start = dassie_payments::time::format_rfc3339(node.clock.now_ms() - 1_000);
+    let access = json!([
+        {
+            "type": "outgoing-payment",
+            "actions": ["read-all", "list-all"],
+            "identifier": host(&node),
+            "limits": { "receiver": watched, "debitAmount": usd(1) },
+        },
+        {
+            "type": "outgoing-payment",
+            "actions": ["create", "read", "list"],
+            "identifier": host(&node),
+            "limits": { "debitAmount": usd(10), "interval": format!("R/{start}/P1D") },
+        },
+    ]);
+    let grant = ask_for(&node, &client, &access).await;
+    let token = approve(&node, &client, &grant).await;
+    let (on, by, with) = (&node, &client, token.as_str());
+    // It creates within 10, not the read item's 1, and no more.
+    let pay = |amount| async move {
+        let target = receiver(on, amount).await;
+        let pay = json!({
+            "walletAddress": host(on), "incomingPayment": target, "debitAmount": usd(amount),
+        });
+        post(on, by, "/outgoing-payments", with, &pay).await
+    };
+    let refused = pay(1_000).await;
+    assert_eq!(refused.status, StatusCode::FORBIDDEN, "{}", refused.text());
+    let created = pay(5).await;
+    assert_eq!(created.status, StatusCode::CREATED, "{}", created.text());
+    let own = path_of(&node, &body(&created)["id"]);
+    assert_eq!(
+        spent(&node, &client, &token).await["spentDebitAmount"],
+        usd(5)
+    );
+    // It reads the owner's payment to the receiver it watches, and its own,
+    // but not the owner's to another.
+    let read = |path: String| async move {
+        send(
+            on.https,
+            true,
+            signed(on, by, "GET", &path, Some(with), None),
+        )
+        .await
+        .status
+    };
+    assert_eq!(read(to_watched.clone()).await, StatusCode::OK);
+    assert_eq!(read(own.clone()).await, StatusCode::OK);
+    assert_eq!(read(to_other.clone()).await, StatusCode::FORBIDDEN);
+    // Its list shows the same.
+    let list = format!(
+        "/outgoing-payments?wallet-address={}",
+        dassie_payments::uri::percent_encode(&host(&node))
+    );
+    let reply = send(
+        node.https,
+        true,
+        signed(&node, &client, "GET", &list, Some(&token), None),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+    let mut ids = listed_ids(&node, &body(&reply));
+    ids.sort();
+    let mut expected = vec![to_watched, own];
+    expected.sort();
+    assert_eq!(ids, expected);
+    node.stop().await;
+}
+
+// Two items that both create from one wallet address, with their own
+// limits, leave unclear which applies: the request is refused, however
+// the address is spelt.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_items_may_not_both_create_from_one_wallet_address() {
+    let (node, key) = start().await;
+    let client = own_client(&node, &key);
+    let slug = format!("{}/pay/stub", node.origin());
+    let request = json!({
+        "access_token": { "access": [
+            {
+                "type": "outgoing-payment",
+                "actions": ["create"],
+                "identifier": host(&node),
+                "limits": { "debitAmount": usd(10) },
+            },
+            {
+                "type": "outgoing-payment",
+                "actions": ["create", "read"],
+                "identifier": slug,
+                "limits": { "debitAmount": usd(1_000) },
+            },
+        ]},
+        "client": client.identity,
+        "interact": {
+            "start": ["redirect"],
+            "finish": { "method": "redirect", "uri": "https://client.example/finish", "nonce": "n" },
+        },
+    });
+    let reply = send(
+        node.https,
+        true,
+        signed(&node, &client, "POST", "/gnap", None, Some(&request)),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{}", reply.text());
+    assert_eq!(body(&reply)["error"]["code"], "invalid_request");
+    node.stop().await;
+}
+
+// Found in testing: an item that only reads, without limits, came first,
+// and its limits, none, were taken for the payments of the item that
+// creates. A client asking for 10 a day could send any amount.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_item_that_only_reads_does_not_lift_the_limit() {
+    let (node, key) = start().await;
+    let client = own_client(&node, &key);
+    let start = dassie_payments::time::format_rfc3339(node.clock.now_ms() - 1_000);
+    let access = json!([
+        { "type": "outgoing-payment", "actions": ["read"], "identifier": host(&node) },
+        {
+            "type": "outgoing-payment",
+            "actions": ["create"],
+            "identifier": host(&node),
+            "limits": { "debitAmount": usd(10), "interval": format!("R/{start}/P1D") },
+        },
+    ]);
+    let grant = ask_for(&node, &client, &access).await;
+    let token = approve(&node, &client, &grant).await;
+    let target = receiver(&node, 1_000).await;
+    let pay = json!({
+        "walletAddress": host(&node), "incomingPayment": target, "debitAmount": usd(1_000),
+    });
     let reply = post(&node, &client, "/outgoing-payments", &token, &pay).await;
     assert_eq!(reply.status, StatusCode::FORBIDDEN, "{}", reply.text());
     node.stop().await;

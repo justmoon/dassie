@@ -19,7 +19,7 @@ use dassie_oer::{Decode, Encode};
 
 use super::Core;
 use super::events::{PeerEvent, StoreRead};
-use crate::store::{Compensation, OwedFulfill, PaymentId};
+use crate::store::{Compensation, IncomingPaid, OwedFulfill, PaymentId};
 
 /// Most Fulfills one peer may owe us a verdict on, counting the packets in
 /// flight from it that may become more; a peer at it gets T03 on new
@@ -104,8 +104,8 @@ impl Owed {
     pub fn waiting(&self) -> BTreeMap<PaymentId, u64> {
         let mut waiting = BTreeMap::<PaymentId, u64>::new();
         for entry in self.entries.values() {
-            if let Some((id, amount)) = entry.row.incoming {
-                *waiting.entry(id).or_default() += amount;
+            if let Some(paid) = entry.row.incoming {
+                *waiting.entry(paid.payment).or_default() += paid.amount;
             }
         }
         waiting
@@ -280,8 +280,8 @@ impl Core {
         let rows = self.store.owed_fulfills().map_err(|e| e.to_string())?;
         let now = self.now_ms;
         for row in rows {
-            if let Some((id, amount)) = row.incoming {
-                self.incoming_waiting(id, amount);
+            if let Some(paid) = row.incoming {
+                self.incoming_waiting(paid);
             }
             self.owed.insert(row, now);
         }
@@ -325,7 +325,7 @@ impl Core {
         posted: &Posted,
         downstream_request: u32,
         fulfill_length: usize,
-        incoming: Option<(PaymentId, u64)>,
+        incoming: Option<IncomingPaid>,
     ) -> bool {
         let moved = posted.transfers.iter().any(Option::is_some);
         if let (EndpointId::Peer(endpoint), true) = (posted.destination, moved)
@@ -347,8 +347,8 @@ impl Core {
                 "a packet posted for a peer that is gone: {}",
                 posted.source
             );
-            if let Some((id, amount)) = incoming {
-                self.incoming_received(id, amount);
+            if let Some(paid) = incoming {
+                self.incoming_received(paid);
             }
             return false;
         };
@@ -356,8 +356,8 @@ impl Core {
             EndpointId::Local(_) => Compensation::Reverse,
             _ => Compensation::Loss,
         };
-        if let Some((id, amount)) = incoming {
-            self.incoming_waiting(id, amount);
+        if let Some(paid) = incoming {
+            self.incoming_waiting(paid);
         }
         let mut row = OwedFulfill {
             trace: posted.trace,
@@ -513,13 +513,13 @@ impl Core {
         };
         self.batch.verdicts.settled.push(trace);
         if accepted {
-            if let Some((id, amount)) = row.incoming {
-                self.incoming_confirmed(id, amount);
+            if let Some(paid) = row.incoming {
+                self.incoming_confirmed(paid);
             }
             return;
         }
-        if let Some((id, amount)) = row.incoming {
-            self.incoming_released(id, amount);
+        if let Some(paid) = row.incoming {
+            self.incoming_released(paid);
         }
         self.compensate(&row);
     }

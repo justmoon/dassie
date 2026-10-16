@@ -1776,6 +1776,77 @@ fn outgoing_payments_refuse_what_their_rows_cannot_hold() {
     assert!(sim.nodes[0].core.is_some(), "the engine kept running");
 }
 
+// Each outgoing payment has a STREAM connection of its own: a second one
+// with the credentials of the first is refused, while the first sends and
+// after, since the receiver would tell each what both delivered.
+#[test]
+fn outgoing_payments_never_share_credentials() {
+    let mut sim = Sim::new(81, 1, 1);
+    sim.run_until(START + 1_000);
+    let ledger = sim.settling.ledger();
+    let mut incoming = None;
+    sim.step(0, |core| {
+        incoming = Some(
+            core.create_incoming_payment(NewIncoming {
+                ledger,
+                wallet_address: "https://sim.example/.well-known/pay".into(),
+                client: None,
+                incoming_amount: Some(20),
+                expires_at_ms: None,
+                metadata: None,
+            })
+            .unwrap(),
+        );
+    });
+    let incoming = incoming.unwrap();
+    let pay = |destination: &str, shared_secret| NewOutgoing {
+        ledger,
+        wallet_address: "https://sim.example/.well-known/pay".into(),
+        client: None,
+        grant: None,
+        quote_id: None,
+        receiver: format!("https://n0.test/incoming-payments/{}", incoming.id),
+        destination: destination.to_string(),
+        shared_secret,
+        debit_amount: 10,
+        receive_amount: ForeignAmount {
+            value: 10,
+            asset_code: ledger.asset().code.into(),
+            asset_scale: 9,
+        },
+        metadata: None,
+        recipient: None,
+        fixed_debit: false,
+    };
+    let mut fresh = None;
+    sim.step(0, |core| {
+        fresh = Some(core.incoming_credentials(incoming.id, ledger).unwrap());
+    });
+    let fresh = fresh.unwrap();
+    assert_ne!(fresh.destination, incoming.ilp_address);
+    let mut created = Vec::new();
+    for (destination, secret) in [
+        (incoming.ilp_address.as_str(), incoming.shared_secret),
+        (incoming.ilp_address.as_str(), incoming.shared_secret),
+        (fresh.destination.as_str(), fresh.shared_secret),
+    ] {
+        sim.step(0, |core| {
+            created.push(
+                core.create_outgoing_payment(pay(destination, secret))
+                    .is_ok(),
+            );
+        });
+    }
+    assert_eq!(created, [true, false, true]);
+    // Once the first is done too.
+    sim.run_until(START + 120_000);
+    sim.step(0, |core| {
+        let again =
+            core.create_outgoing_payment(pay(&incoming.ilp_address, incoming.shared_secret));
+        assert!(again.is_err());
+    });
+}
+
 // D18: honest peers cost each other only through crashes and late
 // Fulfills, which stay below the default grace limit. A crash of an
 // upstream with packets in flight is what costs most.

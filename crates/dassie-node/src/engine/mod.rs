@@ -234,6 +234,17 @@ impl Engine {
             .await
     }
 
+    /// New credentials for an incoming payment on `ledger`: a STREAM
+    /// connection of its own for whoever reads them.
+    pub async fn incoming_credentials(
+        &self,
+        id: crate::store::PaymentId,
+        ledger: dassie_ledger::LedgerId,
+    ) -> Result<dassie_stream::Credentials, EngineError> {
+        self.call(move |core| core.incoming_credentials(id, ledger))
+            .await
+    }
+
     /// Makes an outgoing payment, which starts sending at once.
     pub async fn create_outgoing_payment(
         &self,

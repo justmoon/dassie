@@ -102,7 +102,12 @@ export function accessText(access: AccessFields): string {
   const creates = access.actions.includes("create");
   const base = ACTIONS[access.type] ?? access.type;
   const what = creates ? base : `See ${access.type.replace("-", " ")}s`;
-  const limits = access.limits ? limitText(access.limits) : "";
+  // An item that only reads is limited to its receiver, if anything.
+  const limits = access.limits === undefined
+    ? ""
+    : creates
+    ? limitText(access.limits)
+    : receiverText(access.limits);
   const scope = reads ? ", and see all of them, not only its own" : "";
   return `${what}${limits}${walletText(access)}${scope}`;
 }
@@ -126,8 +131,12 @@ export function limitText(limits: LimitFields): string {
     ? ` of up to ${debit ?? receive}`
     : " of any amount";
   if (every !== undefined) text += ` ${every}`;
-  if (limits.receiver !== "") text += `, to one payment request only`;
-  return text;
+  return text + receiverText(limits);
+}
+
+/** The receiver the limits keep to, if any. */
+function receiverText(limits: LimitFields): string {
+  return limits.receiver === "" ? "" : ", to one payment request only";
 }
 
 /** What it spent in the current window, against its limit, if it has one. */

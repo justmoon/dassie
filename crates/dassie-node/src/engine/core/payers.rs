@@ -240,24 +240,7 @@ impl Core {
         new: NewOutgoing,
     ) -> Result<CreatedOutgoing, EngineError> {
         let now = self.now_ms();
-        if !self.spending.payers.contains_key(&new.ledger) {
-            return Err(EngineError::Precondition("the ledger is not active".into()));
-        }
-        if new.debit_amount == 0 || new.receive_amount.value == 0 {
-            return Err(EngineError::Invalid(
-                "the amount must be more than nothing".into(),
-            ));
-        }
-        if self.spending.outgoing.len() >= MAX_UNFINISHED {
-            return Err(EngineError::Exhausted(
-                "too many outgoing payments are unfinished".into(),
-            ));
-        }
-        check_new(&new)?;
-        if let Some(quote) = new.quote_id {
-            self.check_quote_unpaid(quote)?;
-        }
-        self.check_funds(new.ledger, new.debit_amount)?;
+        self.check_creatable(&new)?;
         let grant = match &new.grant {
             Some((grant, limits)) => Some(self.reserve(*grant, limits, &new, now)?),
             None => None,
@@ -313,6 +296,31 @@ impl Core {
 
     /// Whether the owner's funds on `ledger` cover `debit` on top of what
     /// unfinished payments are still to send.
+    /// Whether `new` may be made, before its grant is asked: an active
+    /// ledger, amounts, room, a quote and credentials not used yet, and
+    /// the funds.
+    fn check_creatable(&self, new: &NewOutgoing) -> Result<(), EngineError> {
+        if !self.spending.payers.contains_key(&new.ledger) {
+            return Err(EngineError::Precondition("the ledger is not active".into()));
+        }
+        if new.debit_amount == 0 || new.receive_amount.value == 0 {
+            return Err(EngineError::Invalid(
+                "the amount must be more than nothing".into(),
+            ));
+        }
+        if self.spending.outgoing.len() >= MAX_UNFINISHED {
+            return Err(EngineError::Exhausted(
+                "too many outgoing payments are unfinished".into(),
+            ));
+        }
+        check_new(new)?;
+        if let Some(quote) = new.quote_id {
+            self.check_quote_unpaid(quote)?;
+        }
+        self.check_credentials_unused(&new.destination)?;
+        self.check_funds(new.ledger, new.debit_amount)
+    }
+
     fn check_funds(&self, ledger: LedgerId, debit: u64) -> Result<(), EngineError> {
         let root = self.account(ledger, AccountName::EquityOwner)?;
         let balance = self
@@ -352,6 +360,29 @@ impl Core {
             || self.batch.outgoing.created.iter().any(pays);
         if paid {
             return Err(EngineError::Invalid("the quote was paid already".into()));
+        }
+        Ok(())
+    }
+
+    /// Whether no other outgoing payment pays to `destination`: each has a
+    /// STREAM connection of its own, which the receiver knows by the
+    /// credentials, so two that shared them would each be told what both
+    /// delivered. Credentials name one connection; a receiver that gives
+    /// the same to every read must be read again for each payment, and is
+    /// refused here.
+    fn check_credentials_unused(&self, destination: &str) -> Result<(), EngineError> {
+        let uses = |row: &OutgoingRow| row.destination == destination;
+        let used = self.store.destination_used(destination)?
+            || self
+                .spending
+                .outgoing
+                .values()
+                .any(|payment| uses(&payment.row))
+            || self.batch.outgoing.created.iter().any(uses);
+        if used {
+            return Err(EngineError::Invalid(
+                "another payment uses the receiver's credentials: read the receiver again".into(),
+            ));
         }
         Ok(())
     }

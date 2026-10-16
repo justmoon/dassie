@@ -15,13 +15,14 @@ use dassie_payments::amount::Amount;
 use dassie_payments::quote::Rate;
 use dassie_payments::resources::{self, IncomingPayment};
 use dassie_payments::time;
+use dassie_stream::Credentials;
 
 use super::auth::OpError;
 use super::client::{self, ClientError};
 use super::{INCOMING_PREFIX, Urls};
 use crate::engine::NewOutgoing;
 use crate::node::Node;
-use crate::store::{ForeignAmount, PaymentId, QuoteRow};
+use crate::store::{ForeignAmount, IncomingRow, PaymentId, QuoteRow};
 
 /// How long a quote may be paid.
 pub const QUOTE_LIFETIME_MS: u64 = 5 * 60 * 1_000;
@@ -66,7 +67,7 @@ pub async fn incoming_payment(
             .map(str::to_string)
     });
     match local {
-        Some(id) => local_receiver(node, urls, &id),
+        Some(id) => local_receiver(node, urls, &id).await,
         None => client::read_incoming(node, url)
             .await
             .map_err(|failure| match failure {
@@ -143,18 +144,45 @@ pub fn receiver_of(node: &Node, payment: IncomingPayment) -> Result<Receiver, Op
     })
 }
 
+/// New STREAM credentials for an incoming payment of this node, while it
+/// takes money: each read gets a connection of its own, so each payment
+/// that pays it learns what it delivered, not what others did.
+///
+/// # Errors
+///
+/// If the engine is not running.
+pub async fn fresh_credentials(
+    node: &Node,
+    row: &IncomingRow,
+) -> Result<Option<Credentials>, OpError> {
+    if !row.is_open(node.now_ms()) {
+        return Ok(None);
+    }
+    let engine = node.engine().ok_or_else(OpError::unavailable)?;
+    engine
+        .incoming_credentials(row.id, row.ledger)
+        .await
+        .map(Some)
+        .map_err(|_| OpError::unavailable())
+}
+
 /// An incoming payment of this node, as another node would read it.
 ///
 /// # Errors
 ///
 /// If there is none with that ID.
-pub fn local_receiver(node: &Node, urls: &Urls, id: &str) -> Result<IncomingPayment, OpError> {
+pub async fn local_receiver(
+    node: &Node,
+    urls: &Urls,
+    id: &str,
+) -> Result<IncomingPayment, OpError> {
     let not_found = || OpError::invalid("the receiver does not exist");
     let id = PaymentId::parse(id).ok_or_else(not_found)?;
     let row = node.store().incoming_payment(id)?.ok_or_else(not_found)?;
     let asset = row.ledger.asset();
     let amount = |value| Amount::new(value, asset.code, asset.scale);
     let open = row.is_open(node.now_ms());
+    let credentials = fresh_credentials(node, &row).await?;
     Ok(IncomingPayment {
         id: urls.incoming_payment(id),
         wallet_address: row.wallet_address,
@@ -167,12 +195,18 @@ pub fn local_receiver(node: &Node, urls: &Urls, id: &str) -> Result<IncomingPaym
             .as_deref()
             .and_then(|json| serde_json::from_str(json).ok()),
         created_at: time::format_rfc3339(row.created_at_ms),
-        methods: Some(vec![resources::IlpMethod {
-            kind: "ilp".into(),
-            ilp_address: row.ilp_address,
-            shared_secret: URL_SAFE_NO_PAD.encode(row.shared_secret),
-        }]),
+        methods: Some(credentials.into_iter().map(ilp_method).collect()),
     })
+}
+
+/// STREAM credentials as an Open Payments payment method.
+#[must_use]
+pub fn ilp_method(credentials: Credentials) -> resources::IlpMethod {
+    resources::IlpMethod {
+        kind: "ilp".into(),
+        ilp_address: credentials.destination,
+        shared_secret: URL_SAFE_NO_PAD.encode(credentials.shared_secret),
+    }
 }
 
 /// The rate a payment from `ledger` to `receiver` is quoted at: what the
