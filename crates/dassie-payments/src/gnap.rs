@@ -82,7 +82,9 @@ pub enum Action {
     ListAll,
 }
 
-/// Limits on an outgoing-payment grant (`limits-outgoing`).
+/// Limits on an outgoing-payment grant (`limits-outgoing`). They limit
+/// the amount debited or the amount received, never both, as Open
+/// Payments has it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Limits {
@@ -163,10 +165,11 @@ impl Access {
 impl Limits {
     fn validate(&self) -> Result<(), ErrorCode> {
         let receiver_valid = self.receiver.as_deref().is_none_or(is_receiver);
-        let amounts_valid = [&self.debit_amount, &self.receive_amount]
-            .into_iter()
-            .flatten()
-            .all(|amount| amount.value > 0);
+        let amounts_valid = !(self.debit_amount.is_some() && self.receive_amount.is_some())
+            && [&self.debit_amount, &self.receive_amount]
+                .into_iter()
+                .flatten()
+                .all(|amount| amount.value > 0);
         let interval_valid = self.interval.as_deref().is_none_or(|interval| {
             Interval::parse(interval).is_ok_and(|interval| interval.windows_are_long_enough())
         });
@@ -744,6 +747,12 @@ mod tests {
             request(&without_interact).validate(),
             Err(ErrorCode::InvalidRequest)
         );
+        // Limits are on the amount debited or the amount received, not both.
+        let debit = r#""debitAmount":{"value":"500","assetCode":"USD","assetScale":2}"#;
+        let receive = debit.replace("debitAmount", "receiveAmount");
+        assert_eq!(request(&json.replace(debit, &receive)).validate(), Ok(()));
+        let both = json.replace(debit, &alloc::format!("{debit},{receive}"));
+        assert_eq!(request(&both).validate(), Err(ErrorCode::InvalidRequest));
     }
 
     #[test]

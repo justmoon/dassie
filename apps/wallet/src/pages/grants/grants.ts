@@ -120,15 +120,21 @@ function walletText(access: AccessFields): string {
   return ` ${from} your ${currency.toUpperCase()} wallet`;
 }
 
-/** The limits of an outgoing-payment grant, after "Send payments". */
+/**
+ * The limits of an outgoing-payment grant, after "Send payments". They
+ * limit what is debited or what is delivered: both only on grants stored
+ * before the node refused that, which still keep to both.
+ */
 export function limitText(limits: LimitFields): string {
   const debit = limits.debitAmount && amountText(limits.debitAmount);
   const receive = limits.receiveAmount && amountText(limits.receiveAmount);
   const every = intervalText(limits.interval);
   let text = debit && receive
     ? ` of up to ${debit}, delivering up to ${receive}`
-    : debit || receive
-    ? ` of up to ${debit ?? receive}`
+    : debit
+    ? ` of up to ${debit}`
+    : receive
+    ? ` delivering up to ${receive}`
     : " of any amount";
   if (every !== undefined) text += ` ${every}`;
   return text + receiverText(limits);
@@ -141,10 +147,16 @@ function receiverText(limits: LimitFields): string {
 
 /** What it spent in the current window, against its limit, if it has one. */
 export function spentText(limits: LimitFields): string | undefined {
-  if (limits.debitAmount === undefined) return undefined;
-  const spent = amountText(limits.debitAmount, limits.spentDebit);
-  const of = amountText(limits.debitAmount);
-  return `${spent} of ${of} spent${
-    limits.interval === "" ? "" : " this period"
-  }`;
+  const period = limits.interval === "" ? "" : " this period";
+  if (limits.debitAmount) {
+    const spent = amountText(limits.debitAmount, limits.spentDebit);
+    const of = amountText(limits.debitAmount);
+    return `${spent} of ${of} spent${period}`;
+  }
+  if (limits.receiveAmount) {
+    const delivered = amountText(limits.receiveAmount, limits.spentReceive);
+    const of = amountText(limits.receiveAmount);
+    return `${delivered} of ${of} delivered${period}`;
+  }
+  return undefined;
 }

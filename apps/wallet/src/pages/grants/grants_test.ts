@@ -50,6 +50,23 @@ test("limits read as a sentence", () => {
   );
 });
 
+test("a limit on what is delivered says so", () => {
+  const limits = {
+    receiver: "",
+    interval: "",
+    receiveAmount: usd(5_000_000_000n),
+    spentDebit: 0n,
+    spentReceive: 1_000_000_000n,
+  };
+  assertEquals(limitText(limits), " delivering up to $ 5.00");
+  assertEquals(spentText(limits), "$ 1.00 of $ 5.00 delivered");
+  // Grants stored before the node refused both still show both.
+  assertEquals(
+    limitText({ ...limits, debitAmount: usd(10_000_000_000n) }),
+    " of up to $ 10.00, delivering up to $ 5.00",
+  );
+});
+
 test("an item that only reads shows only its receiver", () => {
   const limits = {
     receiver: "https://example.com/incoming-payments/1",
