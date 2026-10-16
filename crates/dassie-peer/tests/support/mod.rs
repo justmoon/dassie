@@ -7,15 +7,21 @@
     clippy::expect_used,
     clippy::indexing_slicing,
     dead_code,
+    clippy::panic,
     clippy::too_many_lines
 )]
+
+pub mod inputs;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use dassie_identity::{NodeId, NodeKey};
 use dassie_node_core::testing::SeededRng;
-use dassie_peer::wire::{RefusalReason, SchemeId};
+use dassie_peer::auth::{PairKeys, response_mac};
+use dassie_peer::wire::{
+    Authentication, Envelope, RefusalReason, ResponseEnvelope, SchemeId, encode_response,
+};
 use dassie_peer::{
     Agreed, Bootstrap, Config, Declined, Event, Failure, Inbound, InboundId, Output, OwnInfo,
     PeerBatch, PeerNode, PeeringHooks, Request, RequestId, Response, Stored, Termination,
@@ -102,6 +108,9 @@ pub fn key(index: usize) -> Arc<NodeKey> {
 pub fn url(index: usize) -> String {
     format!("https://n{index}.test")
 }
+
+/// Rewrites a response's body.
+pub type Tamper = Box<dyn FnMut(&mut Vec<u8>)>;
 
 /// What the network does to a message.
 #[derive(Clone, Copy, Debug)]
@@ -199,6 +208,13 @@ pub struct Network {
     pub settle_on_end: bool,
     /// The request IDs whose Fulfills are refused.
     pub refused: BTreeSet<u32>,
+    /// Rewrites the body of every response with status 200 before it
+    /// arrives, as a node would that answers anything it likes: the MAC is
+    /// made again, so the body gets past it to what reads it.
+    pub tamper: Option<Tamper>,
+    /// While tampering, each request's MAC and the node it went to, by who
+    /// sent it, in which generation, with which ID.
+    macs: BTreeMap<(usize, u64, RequestId), (usize, [u8; 32])>,
 }
 
 impl Network {
@@ -229,6 +245,8 @@ impl Network {
             settled: Vec::new(),
             settle_on_end: false,
             refused: BTreeSet::new(),
+            tamper: None,
+            macs: BTreeMap::new(),
         };
         for index in 0..count {
             let skew = i64::try_from(rng.next_u64() % 20_001).unwrap() - 10_000;
@@ -436,6 +454,13 @@ impl Network {
             );
             return;
         };
+        if self.tamper.is_some()
+            && let Ok(envelope) = Envelope::decode(&request.body)
+            && let Authentication::Hmac(hmac) = envelope.authentication
+        {
+            self.macs
+                .insert((from, generation, request.id), (to, hmac.mac));
+        }
         if self.cut.contains(&(from, to))
             || self.cut.contains(&(to, from))
             || self.chance(self.faults.loss)
@@ -488,6 +513,7 @@ impl Network {
                 if self.nodes[to].generation != generation {
                     return;
                 }
+                let result = self.tampered(to, generation, request, result);
                 let now = self.local_now(to);
                 let sim = &mut self.nodes[to];
                 if let Some(node) = sim.node.as_mut() {
@@ -496,6 +522,36 @@ impl Network {
                 }
             }
         }
+    }
+
+    /// `result`, its body rewritten and MACed again if tampering.
+    fn tampered(
+        &mut self,
+        to: usize,
+        generation: u64,
+        request: RequestId,
+        result: Result<Response, Failure>,
+    ) -> Result<Response, Failure> {
+        let (Some(tamper), Ok(response)) = (self.tamper.as_mut(), &result) else {
+            return result;
+        };
+        let Some(&(responder, request_mac)) = self.macs.get(&(to, generation, request)) else {
+            return result;
+        };
+        let Ok(envelope) = ResponseEnvelope::decode(&response.body) else {
+            return result;
+        };
+        if response.status != 200 || envelope.mac.is_none() {
+            return result;
+        }
+        let mut body = envelope.body.to_vec();
+        tamper(&mut body);
+        let keys = PairKeys::derive(&key(responder), &key(to).public_key()).unwrap();
+        let mac = response_mac(&keys.incoming_response, &request_mac, &body);
+        Ok(Response {
+            status: 200,
+            body: encode_response(Some(&mac), &body),
+        })
     }
 
     fn arrive(&mut self, from: usize, to: usize, request: RequestId, body: &[u8]) {

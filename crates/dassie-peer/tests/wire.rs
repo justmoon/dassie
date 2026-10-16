@@ -10,16 +10,20 @@
     clippy::unreachable
 )]
 
+mod support;
+
 use dassie_identity::{NodeId, NodeKey, PublicKey, Signature};
 use dassie_oer::{Decode, Encode};
 use dassie_peer::wire::{
     Authentication, Content, Entry, Envelope, EnvelopeError, HmacAuthentication, InvalidNodeInfo,
-    Kind, LinkStateResponse, NodeInfo, NodeListResponse, PeeringRequest, PeeringResponse,
-    RefusalReason, ResponseEnvelope, SchemeId, SignedNodeInfo, TerminationReason, encode_envelope,
-    encode_response, peek_kind, sign_node_info,
+    Kind, LinkStateResponse, MAX_URL_BYTES, NodeInfo, NodeListResponse, PeeringRequest,
+    PeeringResponse, RefusalReason, ResponseEnvelope, SchemeId, SignedNodeInfo, TerminationReason,
+    decode_expiry, decode_hash, decode_octets, encode_envelope, encode_expiry, encode_octets,
+    encode_response, is_valid_url, peek_kind, sign_node_info,
 };
 use proptest::prelude::*;
 use sha2::{Digest, Sha256};
+use support::inputs::{KINDS, content, mutate, mutations};
 
 fn vectors() -> serde_json::Value {
     let text = include_str!("../../dassie-oer/tests/data/vectors.json");
@@ -362,5 +366,251 @@ proptest! {
         let content = Content::Settlement { scheme: stub(), amount, data: &data, sequence };
         let bytes = content.to_vec();
         prop_assert_eq!(Content::decode_exact(&bytes).unwrap(), content);
+    }
+}
+
+/// Node A's info with an entry of every kind, signed.
+fn signed_full() -> Vec<u8> {
+    let mut info = info_a();
+    info.entries.push(Entry::Extension {
+        kind: 1,
+        value: &[7; 40],
+    });
+    sign_node_info(&node_a(), &info)
+}
+
+/// Decodes content as the node does, and checks a link state it carries.
+/// What decodes encodes to something that decodes the same.
+fn decode_content(bytes: &[u8]) -> Result<(), TestCaseError> {
+    let Ok(content) = Content::decode_exact(bytes) else {
+        return Ok(());
+    };
+    if let Content::PeeringRequest(PeeringRequest {
+        node_info: info, ..
+    })
+    | Content::LinkStateUpdate(info)
+    | Content::Registration(info) = &content
+    {
+        let _ = info.verify();
+    }
+    let encoded = content.to_vec();
+    prop_assert_eq!(Content::decode_exact(&encoded), Ok(content));
+    Ok(())
+}
+
+/// How many kinds of response body there are.
+const RESPONSES: usize = 7;
+
+/// A valid response body of kind `kind`.
+fn response(kind: usize) -> Vec<u8> {
+    let signed = signed_full();
+    match kind {
+        0 => PeeringResponse::Accepted {
+            version: 1,
+            credit: 1_100_000_000,
+            data: &[0xab; 3],
+        }
+        .to_vec(),
+        1 => PeeringResponse::Refused(RefusalReason::Capacity).to_vec(),
+        2 => LinkStateResponse(vec![
+            None,
+            Some(SignedNodeInfo::decode_exact(&signed).unwrap()),
+        ])
+        .to_vec(),
+        3 => NodeListResponse(vec![node_a().node_id(), node_b().node_id()]).to_vec(),
+        4 => vec![7; 32],
+        5 => encode_expiry(1_800_000_000_000),
+        6 => encode_octets(b"peering info"),
+        _ => unreachable!(),
+    }
+}
+
+/// Decodes a response body of kind `kind` as the node does.
+fn decode_response(kind: usize, body: &[u8]) -> Result<(), TestCaseError> {
+    match kind {
+        0 | 1 => {
+            if let Ok(response) = PeeringResponse::decode_exact(body) {
+                let encoded = response.to_vec();
+                prop_assert_eq!(PeeringResponse::decode_exact(&encoded), Ok(response));
+            }
+        }
+        2 => {
+            if let Ok(response) = LinkStateResponse::decode_exact(body) {
+                for info in response.0.iter().flatten() {
+                    let _ = info.verify();
+                }
+                prop_assert_eq!(response.to_vec(), body);
+            }
+        }
+        3 => {
+            if let Ok(list) = NodeListResponse::decode_exact(body) {
+                prop_assert_eq!(list.to_vec(), body);
+            }
+        }
+        4 => prop_assert_eq!(decode_hash(body).is_ok(), body.len() == 32),
+        5 => prop_assert_eq!(decode_expiry(body).is_ok(), body.len() == 8),
+        6 => {
+            if let Ok(data) = decode_octets(body) {
+                prop_assert_eq!(encode_octets(data), body);
+            }
+        }
+        _ => unreachable!(),
+    }
+    Ok(())
+}
+
+/// The node info a link state signs.
+fn signed_part(signed: &[u8]) -> &[u8] {
+    SignedNodeInfo::decode_exact(signed).unwrap().signed
+}
+
+/// Text that is, or nearly is, a node URL: hostnames, IP literals, ports.
+fn url() -> impl Strategy<Value = String> {
+    prop_oneof![
+        any::<String>(),
+        r"https://[a-zA-Z0-9.:@/?%\[\]-]{0,40}",
+        r"https://[a-z0-9-]{0,70}(\.[a-z0-9-]{0,70}){0,4}(:[0-9]{0,6})?",
+        r"https://[0-9.]{0,20}(:[0-9]{0,6})?",
+        r"https://\[[0-9a-fA-F:.]{0,45}\](:[0-9]{0,6})?",
+    ]
+}
+
+/// Decodes an envelope as the node does, and its content.
+fn decode_envelope(body: &[u8]) -> Result<(), TestCaseError> {
+    let Ok(envelope) = Envelope::decode(body) else {
+        prop_assert_eq!(peek_kind(body), None);
+        return Ok(());
+    };
+    prop_assert_eq!(
+        encode_envelope(&envelope.sender, &envelope.authentication, envelope.content),
+        body
+    );
+    if let Ok(content) = Content::decode_exact(envelope.content) {
+        prop_assert_eq!(peek_kind(body), Some(content.kind()));
+    }
+    decode_content(envelope.content)
+}
+
+// Random bytes rarely get past the first fields: these break valid
+// encodings instead, so that every field, and the link states and entries
+// inside them, see bad input. Each case breaks every kind the same way, so
+// that each kind sees every case.
+proptest! {
+    #[test]
+    fn broken_contents_never_panic(mutations in mutations()) {
+        let signed = signed_full();
+        for tag in 0..KINDS {
+            decode_content(&mutate(&content(tag, &signed), &mutations))?;
+        }
+    }
+
+    #[test]
+    fn broken_envelopes_never_panic(authentication in 0..3usize, mutations in mutations()) {
+        let authentication = [
+            Authentication::Hmac(hmac()),
+            Authentication::Reserved(&[2; 64]),
+            Authentication::None,
+        ][authentication];
+        let signed = signed_full();
+        for tag in 0..KINDS {
+            let content = content(tag, &signed);
+            let body = encode_envelope(&node_a().node_id(), &authentication, &content);
+            decode_envelope(&mutate(&body, &mutations))?;
+        }
+    }
+
+    // A broken link state verifies only if what it signs is untouched.
+    #[test]
+    fn broken_link_states_never_panic(mutations in mutations()) {
+        let signed = signed_full();
+        let bytes = mutate(&signed, &mutations);
+        if let Ok(info) = SignedNodeInfo::decode_exact(&bytes)
+            && info.verify().is_ok()
+        {
+            prop_assert_eq!(info.signed, signed_part(&signed));
+        }
+        let unsigned = mutate(signed_part(&signed), &mutations);
+        if let Ok(info) = NodeInfo::decode_exact(&unsigned) {
+            let encoded = info.to_vec();
+            prop_assert_eq!(NodeInfo::decode_exact(&encoded), Ok(info));
+        }
+    }
+
+    #[test]
+    fn broken_entries_never_panic(mutations in mutations()) {
+        let signed = signed_full();
+        for entry in SignedNodeInfo::decode_exact(&signed).unwrap().info.entries {
+            let bytes = mutate(&entry.to_vec(), &mutations);
+            if let Ok(entry) = Entry::decode_exact(&bytes) {
+                prop_assert_eq!(entry.to_vec(), bytes);
+            }
+        }
+    }
+
+    #[test]
+    fn broken_responses_never_panic(wrapped in any::<bool>(), mutations in mutations()) {
+        for kind in 0..RESPONSES {
+            if wrapped {
+                let bytes = encode_response(Some(&[2; 32]), &response(kind));
+                if let Ok(envelope) = ResponseEnvelope::decode(&mutate(&bytes, &mutations)) {
+                    decode_response(kind, envelope.body)?;
+                }
+            } else {
+                decode_response(kind, &mutate(&response(kind), &mutations))?;
+            }
+        }
+    }
+
+    #[test]
+    fn response_bodies_never_panic(bytes in proptest::collection::vec(any::<u8>(), 0..80)) {
+        for kind in 0..RESPONSES {
+            decode_response(kind, &bytes)?;
+        }
+    }
+
+    #[test]
+    fn urls_never_panic(url in url()) {
+        if is_valid_url(&url) {
+            prop_assert!(url.starts_with("https://") && url.len() <= MAX_URL_BYTES);
+        }
+    }
+
+    #[test]
+    fn scheme_ids_never_panic(text in prop_oneof![any::<String>(), "[a-z0-9-]{0,70}"]) {
+        if let Some(scheme) = SchemeId::parse(&text) {
+            prop_assert_eq!(scheme.as_str(), text.as_str());
+        }
+    }
+
+    // Any key, ID, URL, signed bytes and signature: checking them never
+    // panics, and a signature nobody made never verifies.
+    #[test]
+    fn link_state_checks_never_panic(
+        public_key in prop_oneof![Just(*node_a().public_key().as_bytes()), any::<[u8; 32]>()],
+        own_id in any::<bool>(),
+        url in prop_oneof![Just("https://a.example".to_owned()), url()],
+        signed in prop_oneof![
+            Just(info_a().to_vec()),
+            proptest::collection::vec(any::<u8>(), 0..300),
+        ],
+        signature in proptest::collection::vec(any::<u8>(), 64),
+    ) {
+        let node_id = if own_id {
+            NodeId::from_public_key(&public_key)
+        } else {
+            node_b().node_id()
+        };
+        let info = SignedNodeInfo {
+            bytes: &[],
+            signed: &signed,
+            info: NodeInfo {
+                node_id,
+                url: &url,
+                public_key,
+                ..info_a()
+            },
+            signature: signature.try_into().unwrap(),
+        };
+        prop_assert!(info.verify().is_err());
     }
 }
