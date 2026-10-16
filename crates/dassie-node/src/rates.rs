@@ -299,8 +299,9 @@ pub fn combine(wanted: &[&'static str], answers: &[Answer]) -> Vec<(&'static str
             } else {
                 // Two in the middle must agree, within 1%: else one wrong
                 // source would move the rate halfway to it.
+                // A spread too large to scale is far past 1% of either.
                 let (low, high) = (said.get(middle - 1)?, said.get(middle)?);
-                if (high - low) * 100 > *high {
+                if high.checked_sub(*low)?.checked_mul(100)? > *high {
                     return None;
                 }
                 Some(low / 2 + high / 2 + (low % 2 + high % 2) / 2)
@@ -313,6 +314,8 @@ pub fn combine(wanted: &[&'static str], answers: &[Answer]) -> Vec<(&'static str
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
+
+    use proptest::prelude::*;
 
     use super::*;
 
@@ -439,6 +442,91 @@ mod tests {
         // Nor one of two.
         assert_eq!(combine(&["XRP"], &one[..2]), []);
         assert_eq!(combine(&["XRP"], &[]), []);
+    }
+
+    // A source may name rates up to about u128::MAX: scaling the spread of
+    // two such once overflowed, and the panic ended the rate task.
+    #[test]
+    fn rates_far_apart_do_not_overflow() {
+        let wild =
+            r#"{"data":{"currency":"EUR","rates":{"USD":"0.000000000000001","XRP":"340000000"}}}"#;
+        let coinbase = parse(SourceKind::Coinbase, wild.as_bytes()).unwrap();
+        assert!(coinbase.contains(&("XRP", 340_000_000 * ONE * ONE)));
+        let answers = [
+            (SourceKind::Coinbase, Some(coinbase)),
+            (SourceKind::Kraken, Some(vec![("XRP", 1)])),
+            (SourceKind::Bitstamp, None),
+        ];
+        assert_eq!(combine(&["XRP"], &answers), []);
+    }
+
+    /// What a source may have said: any rates, or nothing.
+    fn said() -> impl Strategy<Value = Option<Vec<(&'static str, u128)>>> {
+        let code = proptest::sample::select(CURRENCIES.as_slice());
+        let rate = prop_oneof![any::<u128>(), 0..10 * ONE, Just(u128::MAX)];
+        proptest::option::of(proptest::collection::vec((code, rate), 0..4))
+    }
+
+    /// Bodies shaped like each kind's answers, with any numbers in them.
+    fn body() -> impl Strategy<Value = Vec<u8>> {
+        let number = prop_oneof![
+            "[0-9]{1,25}(\\.[0-9]{0,20})?",
+            "[0-9.e+-]{0,8}",
+            "\\PC{0,8}"
+        ];
+        let code = prop_oneof![
+            proptest::sample::select(CURRENCIES.as_slice()).prop_map(str::to_owned),
+            "[A-Z]{3}",
+        ];
+        let coinbase = (
+            code.clone(),
+            proptest::collection::vec((code, number.clone()), 0..6),
+        )
+            .prop_map(|(base, rates)| {
+                let rates: serde_json::Map<_, _> = rates
+                    .into_iter()
+                    .map(|(code, rate)| (code, serde_json::Value::String(rate)))
+                    .collect();
+                serde_json::json!({"data": {"currency": base, "rates": rates}}).to_string()
+            });
+        let kraken = number.clone().prop_map(|last| {
+            serde_json::json!({"result": {"XXRPZUSD": {"c": [last, "1"]}}}).to_string()
+        });
+        let bitstamp = number.prop_map(|last| serde_json::json!({ "last": last }).to_string());
+        prop_oneof![
+            prop_oneof![coinbase, kraken, bitstamp].prop_map(String::into_bytes),
+            proptest::collection::vec(any::<u8>(), 0..64),
+        ]
+    }
+
+    proptest! {
+        #[test]
+        fn answers_never_panic(
+            kind in proptest::sample::select(SourceKind::ALL.as_slice()),
+            body in body(),
+        ) {
+            if let Ok(rates) = parse(kind, &body) {
+                prop_assert!(rates.iter().all(|(code, rate)| CURRENCIES.contains(code) && *rate > 0));
+            }
+        }
+
+        #[test]
+        fn combining_never_panics(said in proptest::collection::vec(said(), 0..4)) {
+            let answers: Vec<Answer> = SourceKind::ALL.into_iter().cycle().zip(said).collect();
+            for (code, rate) in combine(&CURRENCIES, &answers) {
+                if code == BASE {
+                    continue;
+                }
+                // The median lies within what the sources said.
+                let given = answers
+                    .iter()
+                    .filter_map(|(_, rates)| rates.as_ref())
+                    .flatten()
+                    .filter(|(c, _)| *c == code)
+                    .map(|(_, rate)| *rate);
+                prop_assert!(given.clone().min() <= Some(rate) && Some(rate) <= given.max());
+            }
+        }
     }
 
     #[test]
