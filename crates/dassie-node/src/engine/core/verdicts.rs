@@ -525,7 +525,7 @@ impl Core {
     }
 
     /// Books what a refused Fulfill leaves: the packet reversed, or the
-    /// loss, so the peer's account ends where the peer's books have it.
+    /// loss, so the peer owes only for the Fulfills it took (D17).
     /// The accounts and amounts are the node's own, as it posted them:
     /// booking them back cannot fail but by a bug.
     // Panics only on a broken invariant: what is owed has its transfers.

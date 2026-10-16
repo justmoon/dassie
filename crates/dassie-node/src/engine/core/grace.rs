@@ -8,8 +8,9 @@
 //! - **Overdue:** what it owes us, posted, once that has stayed past the
 //!   point where it should have settled for longer than the grace for
 //!   settling, while our scheme could see its settlements. That point is
-//!   its own settlement threshold, at the default ratio or ours if higher,
-//!   and never below half the credit we extend. Only while peered: a
+//!   half the credit we extend, raised by the settlement ratio (the
+//!   default, or ours if higher), from our own books alone (D19): an
+//!   honest peer's own threshold is never past it. Only while peered: a
 //!   peering being ended cannot settle until it is over, and one that
 //!   ended without the peer hearing of it never settles at all; its debt
 //!   stays on the books.
@@ -35,7 +36,8 @@ use crate::store::{BanChange, BanReason, BanRecord, MAX_BAN_RECORDS, PeerCost, P
 pub struct GracePolicy {
     /// How far back refusals count.
     pub window_ms: u64,
-    /// How long a peer may owe us more than half its credit.
+    /// How long a peer may owe us past the point where it should have
+    /// settled.
     pub settle_grace_ms: u64,
     /// How often every peer is checked; one whose refusal was just booked
     /// is checked at once.
@@ -161,14 +163,14 @@ fn grace_limit(ledger: LedgerId, credit_out: u64, share_ppm: u32) -> u64 {
         .max(grace_floor(ledger))
 }
 
-/// What a peer may owe us before it should have settled: past its own
-/// threshold at `ratio_ppm` (spec 5 §4.6, with the credits as it sees
-/// them), and never below half the credit we extend.
-fn due_point(credit_in: u64, credit_out: u64, ratio_ppm: u32) -> u64 {
-    let middle = (u128::from(credit_in) + u128::from(credit_out)) / 2;
-    let threshold = middle + middle * u128::from(ratio_ppm) / 2_000_000;
-    let owes = threshold.saturating_sub(u128::from(credit_in));
-    u64::try_from(owes).unwrap_or(u64::MAX).max(credit_out / 2)
+/// What a peer may owe us before it should have settled: half the credit
+/// we extend, raised by `ratio_ppm` as spec 5 §4.6 raises the middle. A
+/// peer settles by its own threshold, which, whatever credit it extends
+/// us, is never past this; so we need not know that credit (D19).
+fn due_point(credit_out: u64, ratio_ppm: u32) -> u64 {
+    let half = u128::from(credit_out) / 2;
+    let owes = half + half * u128::from(ratio_ppm) / 2_000_000;
+    u64::try_from(owes).unwrap_or(u64::MAX)
 }
 
 /// A peer's debt to us on a ledger: what it owes, posted, and the credit
@@ -330,14 +332,14 @@ impl Core {
     /// Whether `node`, peered on `scheme`, owes us past the point where it
     /// should have settled, as `debt` says.
     fn past_due(&self, node: &NodeId, scheme: SchemeId, debt: &Debt) -> bool {
-        let Some(peering) = self.peer.peering_of(node) else {
+        if self.peer.peering_of(node).is_none() {
             return false;
-        };
+        }
         let Ok(name) = Name::new(scheme.as_str()) else {
             return false;
         };
         self.grace.synced.contains(&name)
-            && debt.owes > due_point(peering.credit_in, debt.credit_out, self.grace.ratio_ppm)
+            && debt.owes > due_point(debt.credit_out, self.grace.ratio_ppm)
     }
 
     /// A settlement from `node` came: if it no longer owes past the point
@@ -514,14 +516,14 @@ mod tests {
     }
 
     #[test]
-    fn a_peer_is_due_past_its_own_threshold() {
+    fn a_peer_is_due_past_its_highest_threshold() {
         let c = 1_100_000_000;
-        // Even credit: its threshold is low, so half our credit decides.
-        assert_eq!(due_point(c, c, 200_000), c / 2);
-        // It extends us nothing: it settles only past 1.1 × half of ours.
-        assert_eq!(due_point(0, c, 200_000), 605_000_000);
-        // It extends us more: half our credit still decides.
-        assert_eq!(due_point(10 * c, c, 200_000), c / 2);
+        // 1.1 × half our credit: where a peer that extends us nothing
+        // settles, and past where any other does.
+        assert_eq!(due_point(c, 200_000), 605_000_000);
+        // A higher ratio waits longer.
+        assert_eq!(due_point(c, 400_000), 660_000_000);
+        assert_eq!(due_point(0, 200_000), 0);
     }
 
     #[test]

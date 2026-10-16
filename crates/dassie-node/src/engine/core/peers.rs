@@ -532,8 +532,8 @@ impl Core {
                 definite,
             } => {
                 // Only a packet that surely did not arrive is failed now:
-                // one that may have is left to expire, so both sides' books
-                // agree.
+                // one that may have is left to expire, so a peer that
+                // fulfilled it does not bear its loss.
                 if definite && let Some(&endpoint) = self.peer_endpoints.get(&peer) {
                     self.connector.fail_forwarded(
                         self.now_ms,
