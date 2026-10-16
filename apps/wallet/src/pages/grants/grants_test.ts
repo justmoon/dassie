@@ -60,6 +60,11 @@ test("a limit on what is delivered says so", () => {
   };
   assertEquals(limitText(limits), " delivering up to $ 5.00");
   assertEquals(spentText(limits), "$ 1.00 of $ 5.00 delivered");
+  // Grants stored before the node refused both still show both.
+  assertEquals(
+    limitText({ ...limits, debitAmount: usd(10_000_000_000n) }),
+    " of up to $ 10.00, delivering up to $ 5.00",
+  );
 });
 
 test("an item that only reads shows only its receiver", () => {

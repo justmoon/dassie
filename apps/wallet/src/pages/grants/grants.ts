@@ -122,14 +122,19 @@ function walletText(access: AccessFields): string {
 
 /**
  * The limits of an outgoing-payment grant, after "Send payments". They
- * limit what is debited or what is delivered, never both.
+ * limit what is debited or what is delivered: both only on grants stored
+ * before the node refused that, which still keep to both.
  */
 export function limitText(limits: LimitFields): string {
+  const debit = limits.debitAmount && amountText(limits.debitAmount);
+  const receive = limits.receiveAmount && amountText(limits.receiveAmount);
   const every = intervalText(limits.interval);
-  let text = limits.debitAmount
-    ? ` of up to ${amountText(limits.debitAmount)}`
-    : limits.receiveAmount
-    ? ` delivering up to ${amountText(limits.receiveAmount)}`
+  let text = debit && receive
+    ? ` of up to ${debit}, delivering up to ${receive}`
+    : debit
+    ? ` of up to ${debit}`
+    : receive
+    ? ` delivering up to ${receive}`
     : " of any amount";
   if (every !== undefined) text += ` ${every}`;
   return text + receiverText(limits);
