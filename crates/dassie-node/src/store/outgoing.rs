@@ -265,6 +265,19 @@ impl Store {
         Ok(used.is_some())
     }
 
+    /// Whether an outgoing payment pays to `destination` already.
+    pub fn destination_used(&self, destination: &str) -> Result<bool, StoreError> {
+        let used: Option<i64> = self
+            .lock()
+            .query_row(
+                "SELECT 1 FROM outgoing_payments WHERE destination = ?1 LIMIT 1",
+                [destination],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(used.is_some())
+    }
+
     /// One outgoing payment.
     pub fn outgoing_payment(&self, id: PaymentId) -> Result<Option<OutgoingRow>, StoreError> {
         self.lock()

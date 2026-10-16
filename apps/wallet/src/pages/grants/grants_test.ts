@@ -49,6 +49,24 @@ Deno.test("limits read as a sentence", () => {
   );
 });
 
+Deno.test("an item that only reads shows only its receiver", () => {
+  const limits = {
+    receiver: "https://example.com/incoming-payments/1",
+    interval: "",
+    spentDebit: 0n,
+    spentReceive: 0n,
+  };
+  assertEquals(
+    accessText({
+      type: "outgoing-payment",
+      actions: ["read"],
+      ledger: "stub+usd",
+      limits,
+    }),
+    "See outgoing payments, to one payment request only from your USD wallet",
+  );
+});
+
 Deno.test("reading all of a kind says so", () => {
   assertEquals(
     accessText({ type: "quote", actions: ["read-all"], ledger: "" }),

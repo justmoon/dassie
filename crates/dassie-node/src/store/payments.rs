@@ -4,7 +4,7 @@
 use std::fmt;
 
 use dassie_ledger::LedgerId;
-use rusqlite::{OptionalExtension, Row, Transaction, params};
+use rusqlite::{OptionalExtension, Row, ToSql, Transaction, params, params_from_iter};
 
 use super::{Store, StoreError, from_sql_time, to_sql_time};
 
@@ -106,6 +106,39 @@ impl IncomingRow {
     }
 }
 
+/// Which credentials of an incoming payment a STREAM connection uses: each
+/// read of the payment gets its own, so each payment that pays it has a
+/// connection of its own. [`ConnectionKey::LEGACY`] for those issued with
+/// the payment before connections had keys.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ConnectionKey(pub [u8; 16]);
+
+impl ConnectionKey {
+    /// The key of credentials issued before connections had keys.
+    pub const LEGACY: Self = Self([0; 16]);
+
+    /// A key from random bytes: never [`Self::LEGACY`].
+    #[must_use]
+    pub fn from_random(mut bytes: [u8; 16]) -> Self {
+        if bytes == [0; 16] {
+            bytes[0] = 1;
+        }
+        Self(bytes)
+    }
+}
+
+/// What our receiver took into an incoming payment from one packet, over
+/// one of its connections.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IncomingPaid {
+    /// The payment.
+    pub payment: PaymentId,
+    /// The connection.
+    pub connection: ConnectionKey,
+    /// How much.
+    pub amount: u64,
+}
+
 /// What a packet changed of an incoming payment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IncomingProgress {
@@ -120,14 +153,56 @@ pub struct IncomingProgress {
 pub struct IncomingQuery<'a> {
     /// The ledger whose payments to list.
     pub ledger: LedgerId,
-    /// Only those this client created, if given.
-    pub client: Option<&'a str>,
+    /// Only those one of these reaches: at most [`MAX_LISTED`], one per
+    /// access item of a grant.
+    pub reach: &'a [Listed<'a>],
     /// The item to start after (forward) or before (backward).
     pub cursor: Option<PaymentId>,
     /// Toward older items (`first`) or newer ones (`last`).
     pub forward: bool,
     /// How many.
     pub count: u32,
+}
+
+/// Payments a list reaches: those of a client, to a receiver, both, or
+/// all.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Listed<'a> {
+    /// Only those this client created, if given.
+    pub client: Option<&'a str>,
+    /// Only those paying this incoming payment, if given: outgoing
+    /// payments only.
+    pub receiver: Option<&'a str>,
+}
+
+/// Most alternatives one list query takes: more than a grant has access
+/// items.
+pub const MAX_LISTED: usize = 4;
+
+/// The SQL that keeps the rows one of `reach` reaches, with its
+/// parameters numbered from `first`: none reach nothing.
+fn listed_filter<'a>(reach: &[Listed<'a>], first: usize) -> (String, Vec<&'a str>) {
+    assert!(reach.len() <= MAX_LISTED, "too many list alternatives");
+    let mut values = Vec::new();
+    let mut alternatives = Vec::with_capacity(reach.len());
+    for listed in reach {
+        let mut parts = Vec::new();
+        for (column, value) in [("client", listed.client), ("receiver", listed.receiver)] {
+            if let Some(value) = value {
+                values.push(value);
+                parts.push(format!("{column} = ?{}", first + values.len() - 1));
+            }
+        }
+        alternatives.push(if parts.is_empty() {
+            "1".to_string()
+        } else {
+            parts.join(" AND ")
+        });
+    }
+    if alternatives.is_empty() {
+        alternatives.push("0".to_string());
+    }
+    (format!("({})", alternatives.join(" OR ")), values)
 }
 
 /// A page, with whether items lie beyond either end.
@@ -155,6 +230,38 @@ impl Store {
         ))?;
         statement
             .query_map(params![to_sql_time(now_ms), MAX_OPEN_LOADED], read_incoming)?
+            .map(|row| row?)
+            .collect()
+    }
+
+    /// What each connection of the open incoming payments received: at
+    /// most `limit` rows.
+    pub fn open_incoming_connections(
+        &self,
+        now_ms: u64,
+        limit: u32,
+    ) -> Result<Vec<(PaymentId, ConnectionKey, u64)>, StoreError> {
+        let connection = self.lock();
+        let mut statement = connection.prepare(
+            "SELECT c.incoming_payment, c.connection, c.received \
+             FROM incoming_connections AS c JOIN incoming_payments AS p \
+             ON p.id = c.incoming_payment \
+             WHERE p.completed_at_ms IS NULL AND p.expires_at_ms > ?1 LIMIT ?2",
+        )?;
+        statement
+            .query_map(params![to_sql_time(now_ms), limit], |row| {
+                let payment: Vec<u8> = row.get(0)?;
+                let key: Vec<u8> = row.get(1)?;
+                let received: i64 = row.get(2)?;
+                Ok((|| {
+                    let corrupt = || StoreError::Corrupt("incoming connection");
+                    Ok((
+                        PaymentId(<[u8; 16]>::try_from(payment.as_slice()).map_err(|_| corrupt())?),
+                        ConnectionKey(<[u8; 16]>::try_from(key.as_slice()).map_err(|_| corrupt())?),
+                        u64::try_from(received).map_err(|_| corrupt())?,
+                    ))
+                })())
+            })?
             .map(|row| row?)
             .collect()
     }
@@ -192,7 +299,16 @@ impl Store {
     /// up. Returns how many went.
     pub fn prune_incoming(&self, now_ms: u64) -> Result<u32, StoreError> {
         let before = to_sql_time(now_ms.saturating_sub(UNPAID_RETENTION_MS));
-        let removed = self.lock().execute(
+        let connection = self.lock();
+        // What a closed payment's connections received is not read again.
+        connection.execute(
+            "DELETE FROM incoming_connections WHERE (incoming_payment, connection) IN \
+             (SELECT c.incoming_payment, c.connection FROM incoming_connections AS c \
+             JOIN incoming_payments AS p ON p.id = c.incoming_payment \
+             WHERE p.completed_at_ms IS NOT NULL OR p.expires_at_ms <= ?1 LIMIT ?2)",
+            params![to_sql_time(now_ms), PRUNE_BATCH],
+        )?;
+        let removed = connection.execute(
             "DELETE FROM incoming_payments WHERE id IN (SELECT id FROM incoming_payments \
              WHERE received_amount = 0 AND coalesce(completed_at_ms, expires_at_ms) <= ?1 \
              LIMIT ?2)",
@@ -253,17 +369,23 @@ pub(super) fn page<T>(
     read: fn(&Row<'_>) -> rusqlite::Result<Result<T, StoreError>>,
     query: &IncomingQuery<'_>,
 ) -> Result<Option<Page<T>>, StoreError> {
+    let ledger = query.ledger.as_str();
     let anchor: Option<(i64, Vec<u8>)> = match query.cursor {
-        Some(cursor) => connection
-            .query_row(
-                &format!(
-                    "SELECT created_at_ms, id FROM {table} \
-                     WHERE id = ?1 AND ledger = ?2 AND (?3 IS NULL OR client = ?3)"
-                ),
-                params![cursor.0.as_slice(), query.ledger.as_str(), query.client],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .optional()?,
+        Some(cursor) => {
+            let (reached, values) = listed_filter(query.reach, 3);
+            let mut bound: Vec<&dyn ToSql> = vec![&cursor.0, &ledger];
+            bound.extend(values.iter().map(|value| value as &dyn ToSql));
+            connection
+                .query_row(
+                    &format!(
+                        "SELECT created_at_ms, id FROM {table} \
+                         WHERE id = ?1 AND ledger = ?2 AND {reached}"
+                    ),
+                    params_from_iter(bound),
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?
+        }
         None => None,
     };
     if query.cursor.is_some() && anchor.is_none() {
@@ -275,18 +397,20 @@ pub(super) fn page<T>(
     } else {
         (">", "ASC")
     };
+    let (reached, values) = listed_filter(query.reach, 5);
     let filter = format!(
-        "ledger = ?1 AND (?2 IS NULL OR client = ?2) \
-         AND (?3 IS NULL OR (created_at_ms, id) {comparison} (?3, ?4))"
+        "ledger = ?1 AND {reached} \
+         AND (?2 IS NULL OR (created_at_ms, id) {comparison} (?2, ?3))"
     );
     let mut statement = connection.prepare(&format!(
         "SELECT {columns} FROM {table} WHERE {filter} \
-         ORDER BY created_at_ms {order}, id {order} LIMIT ?5"
+         ORDER BY created_at_ms {order}, id {order} LIMIT ?4"
     ))?;
     let limit = query.count.saturating_add(1);
-    let ledger = query.ledger.as_str();
+    let mut bound: Vec<&dyn ToSql> = vec![&ledger, &created, &id, &limit];
+    bound.extend(values.iter().map(|value| value as &dyn ToSql));
     let mut rows = statement
-        .query_map(params![ledger, query.client, created, id, limit], read)?
+        .query_map(params_from_iter(bound), read)?
         .map(|row| row?)
         .collect::<Result<Vec<_>, StoreError>>()?;
     let count = usize::try_from(query.count).unwrap_or(usize::MAX);
@@ -356,6 +480,7 @@ pub(super) fn write_incoming(
     transaction: &Transaction<'_>,
     created: &[IncomingRow],
     progress: &std::collections::BTreeMap<PaymentId, IncomingProgress>,
+    connections: &std::collections::BTreeMap<(PaymentId, ConnectionKey), u64>,
 ) -> Result<(), StoreError> {
     for row in created {
         transaction.execute(
@@ -394,6 +519,18 @@ pub(super) fn write_incoming(
         if updated != 1 {
             return Err(StoreError::Corrupt("incoming payment"));
         }
+    }
+    for ((id, connection), received) in connections {
+        transaction.execute(
+            "INSERT INTO incoming_connections (incoming_payment, connection, received) \
+             VALUES (?1, ?2, ?3) ON CONFLICT (incoming_payment, connection) \
+             DO UPDATE SET received = ?3",
+            params![
+                id.0.as_slice(),
+                connection.0.as_slice(),
+                sql_amount(*received)?
+            ],
+        )?;
     }
     Ok(())
 }

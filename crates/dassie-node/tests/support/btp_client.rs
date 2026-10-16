@@ -211,7 +211,8 @@ pub async fn pay_stream_waiting(
         10_000,
         idle,
     )
-    .await;
+    .await
+    .0;
     assert_eq!(sent, amount, "the payment did not finish");
 }
 
@@ -236,8 +237,34 @@ pub async fn send_stream(
         idle,
     )
     .await
+    .0
 }
 
+/// As [`send_stream`], returning also what the receiver says its stream
+/// received.
+pub async fn send_stream_reported(
+    clock: &ManualClock,
+    client: &mut BtpClient,
+    destination: &str,
+    shared_secret: &[u8],
+    amount: u64,
+    rounds: usize,
+) -> (u64, u64) {
+    let idle = std::time::Duration::ZERO;
+    send(
+        clock,
+        client,
+        destination,
+        shared_secret,
+        amount,
+        rounds,
+        idle,
+    )
+    .await
+}
+
+/// Sends, and returns what was sent and what the receiver says its stream
+/// received.
 async fn send(
     clock: &ManualClock,
     client: &mut BtpClient,
@@ -246,7 +273,7 @@ async fn send(
     amount: u64,
     rounds: usize,
     idle: std::time::Duration,
-) -> u64 {
+) -> (u64, u64) {
     let (own, ..) = client.ildcp(clock.now_ms()).await;
     let mut connection = Connection::new(&Config {
         role: Role::Client,
@@ -266,9 +293,11 @@ async fn send(
     let mut in_flight: BTreeMap<u32, u64> = BTreeMap::new();
     let mut stream = None;
     let sent = |connection: &Connection, stream: Option<u64>| {
-        stream
-            .and_then(|id| connection.stream(id))
-            .map_or(0, |s| s.total_sent())
+        let stream = stream.and_then(|id| connection.stream(id));
+        (
+            stream.map_or(0, |s| s.total_sent()),
+            stream.map_or(0, |s| s.remote_received()),
+        )
     };
     for _ in 0..rounds {
         let now = Timestamp::from_unix_ms(clock.now_ms());
@@ -281,7 +310,7 @@ async fn send(
             connection.set_send_max(id, amount).unwrap();
             stream = Some(id);
         }
-        if sent(&connection, stream) == amount || connection.is_closed() {
+        if sent(&connection, stream).0 == amount || connection.is_closed() {
             connection.close(now, ErrorCode::NO_ERROR);
             return sent(&connection, stream);
         }

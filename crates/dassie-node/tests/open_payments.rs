@@ -132,6 +132,77 @@ async fn a_client_creates_and_reads_incoming_payments() {
     node.stop().await;
 }
 
+// Each read of an incoming payment gets credentials of its own: a STREAM
+// connection per payment that pays it. Each sender is told what it
+// delivered, not what the others did, and together they pay no more than
+// it asks for.
+#[tokio::test(flavor = "multi_thread")]
+async fn each_read_pays_over_a_connection_of_its_own() {
+    let (node, _) = start().await;
+    let client = Client::keyed(7);
+    let token = grant(&node, &client, incoming_access(&node)).await;
+    let create = json!({
+        "walletAddress": format!("{}/pay/stub", node.origin()),
+        "incomingAmount": { "value": "300", "assetCode": "USD", "assetScale": 9 },
+    });
+    let reply = send(
+        node.https,
+        true,
+        signed(
+            &node,
+            &client,
+            "POST",
+            "/incoming-payments",
+            Some(&token),
+            Some(&create),
+        ),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.text());
+    let created = body(&reply);
+    let path = path_of(&node, &created["id"]);
+    let mut methods = vec![created["methods"][0].clone()];
+    for _ in 0..2 {
+        let read = send(
+            node.https,
+            true,
+            signed(&node, &client, "GET", &path, Some(&token), None),
+        )
+        .await;
+        methods.push(body(&read)["methods"][0].clone());
+    }
+    let credentials: Vec<(String, Vec<u8>)> = methods
+        .iter()
+        .map(|method| {
+            (
+                method["ilpAddress"].as_str().unwrap().to_string(),
+                base64_url(method["sharedSecret"].as_str().unwrap()),
+            )
+        })
+        .collect();
+    for (index, (address, secret)) in credentials.iter().enumerate() {
+        for (other, other_secret) in &credentials[index + 1..] {
+            assert_ne!(address, other);
+            assert_ne!(secret, other_secret);
+        }
+    }
+    let [(first, first_secret), (second, second_secret), ..] = credentials.as_slice() else {
+        panic!("no credentials")
+    };
+    // Sent, and what the receiver told the sender arrived.
+    assert_eq!(
+        pay_reported(&node, first, first_secret, 200).await,
+        (200, 200)
+    );
+    assert_eq!(
+        pay_reported(&node, second, second_secret, 200).await,
+        (100, 100)
+    );
+    // Complete, it takes no more, and the first sender still hears its own.
+    assert_eq!(pay_reported(&node, first, first_secret, 1).await, (0, 200));
+    node.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_client_completes_an_open_payment() {
     let (node, _) = start().await;

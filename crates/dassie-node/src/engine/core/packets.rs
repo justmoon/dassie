@@ -223,7 +223,7 @@ impl Core {
         now: u64,
         responded: Responded,
         request_id: u32,
-        incoming: Option<(crate::store::PaymentId, u64)>,
+        incoming: Option<crate::store::IncomingPaid>,
     ) -> bool {
         let Responded::Resolved { upstream, posted } = responded else {
             return false;
@@ -376,7 +376,11 @@ impl Core {
             scratch,
         );
         let incoming = match (paid, handled.received) {
-            (Some(id), received @ 1..) => Some((id, received)),
+            (Some((payment, connection)), amount @ 1..) => Some(crate::store::IncomingPaid {
+                payment,
+                connection,
+                amount,
+            }),
             _ => None,
         };
         let responded = self.connector.handle_response(

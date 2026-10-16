@@ -118,8 +118,17 @@ async fn grant(
             .as_deref()
             .and_then(|identifier| addresses.ledger_of_url(urls, identifier));
         // Outgoing payments without limits are of any amount: the page says
-        // so, rather than nothing.
+        // so, rather than nothing. An item that does not create spends
+        // nothing, and its limits limit only what it reads: its receiver.
         let limits = match item.kind {
+            AccessType::OutgoingPayment if !item.actions.contains(&Action::Create) => item
+                .limits
+                .as_ref()
+                .and_then(|limits| limits.receiver.clone())
+                .map(|receiver| proto::GrantLimits {
+                    receiver,
+                    ..proto::GrantLimits::default()
+                }),
             AccessType::OutgoingPayment => {
                 let none = dassie_payments::gnap::Limits {
                     receiver: None,

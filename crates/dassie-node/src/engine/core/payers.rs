@@ -246,6 +246,7 @@ impl Core {
         if let Some(quote) = new.quote_id {
             self.check_quote_unpaid(quote)?;
         }
+        self.check_credentials_unused(&new.destination)?;
         self.check_funds(new.ledger, new.debit_amount)?;
         let grant = match &new.grant {
             Some((grant, limits)) => Some(self.reserve(*grant, limits, &new, now)?),
@@ -338,6 +339,29 @@ impl Core {
             || self.batch.outgoing.created.iter().any(pays);
         if paid {
             return Err(EngineError::Invalid("the quote was paid already".into()));
+        }
+        Ok(())
+    }
+
+    /// Whether no other outgoing payment pays to `destination`: each has a
+    /// STREAM connection of its own, which the receiver knows by the
+    /// credentials, so two that shared them would each be told what both
+    /// delivered. Credentials name one connection; a receiver that gives
+    /// the same to every read must be read again for each payment, and is
+    /// refused here.
+    fn check_credentials_unused(&self, destination: &str) -> Result<(), EngineError> {
+        let uses = |row: &OutgoingRow| row.destination == destination;
+        let used = self.store.destination_used(destination)?
+            || self
+                .spending
+                .outgoing
+                .values()
+                .any(|payment| uses(&payment.row))
+            || self.batch.outgoing.created.iter().any(uses);
+        if used {
+            return Err(EngineError::Invalid(
+                "another payment uses the receiver's credentials: read the receiver again".into(),
+            ));
         }
         Ok(())
     }
