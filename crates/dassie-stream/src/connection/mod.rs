@@ -256,6 +256,9 @@ pub struct Connection {
     max_packet_amount: u64,
     retry_at: Option<Timestamp>,
     retry_delay_ms: u64,
+    /// The first sequence sent after the last back-off: the rejection of
+    /// an earlier packet is part of the burst that back-off answered.
+    back_off_sequence: u64,
     probing: Option<Probing>,
 
     events: VecDeque<Event>,
@@ -332,6 +335,7 @@ impl Connection {
             max_packet_amount: policy.max_packet_amount,
             retry_at: None,
             retry_delay_ms: policy.retry_delay_start_ms,
+            back_off_sequence: 0,
             probing: None,
             events: VecDeque::with_capacity(events_capacity),
             events_capacity,
@@ -765,6 +769,10 @@ impl Connection {
         assert!(
             (min..=max).contains(&self.concurrency_milli),
             "concurrency out of bounds"
+        );
+        assert!(
+            self.back_off_sequence <= self.next_sequence,
+            "back-off after a packet not yet sent"
         );
         for stream in &self.streams {
             stream.check_invariants();
