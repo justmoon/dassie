@@ -154,7 +154,7 @@ Once q validators attested the same deposit, the hub credits the account. A depo
 - **Idle fee.** An account with no operation for a period (in the rules) pays an idle fee each period, from its balance, never from a hold. An account with no balance and no holds is deleted; its number is never used again.
 - **Congestion.** The fee rises when blocks carry more operations than the target in the rules, and falls when they carry fewer, within a cap in the rules, the way Ethereum's EIP-1559 sets its base fee. What congestion adds goes to the reserve account, which pays the underlying ledger's fees and covers shortfalls, not to the validators: those who would set the fee do not profit from raising it.
 - **Deadlines first.** `claim` and `redeem` have deadlines, so a share of every block (in the rules) is kept for them, and they go first. Ordinary operations cannot crowd them out; only other claims and redeems can, at the capped fee, which makes holding back someone's claim dear the longer it lasts. The rules size the space so that the hub's margin M holds as long as that space is not full.
-- **Who gets fees.** Different validators can hold certificates of one block signed by different q, so the fee split cannot follow certificates. Instead, each block records every vote for the last K blocks (K in the rules) that its proposer received and no block has recorded yet, and a proposer records its own. A vote that comes later than that is not counted. The fees of a block go, in equal parts, to the validators whose votes for it are recorded. That is part of the log, the same for every validator. A validator that does not take part earns nothing; one that is live but slow still has its votes recorded, by later proposers or in its own blocks.
+- **Who gets fees.** Different validators can hold certificates of one block signed by different q, so the fee split cannot follow certificates. Instead, each block records every vote for the last K blocks (K in the rules, at least n, since a slow validator may only have its votes recorded in its own blocks, about one in every n) that its proposer received and no block has recorded yet, and a proposer records its own. A vote that comes later than that is not counted. The fees of a block go, in equal parts, to the validators whose votes for it are recorded. That is part of the log, the same for every validator. A validator that does not take part earns nothing; one that is live but slow still has its votes recorded, by later proposers or in its own blocks.
 - **Changes.** Fees change only through `reconfigure` (§8), within caps in the rules, and with notice longer than it takes to leave.
 
 ## 8. Changing the validators
@@ -167,25 +167,45 @@ The set of validators changes; a hub whose set cannot change dies with its first
 
 ## 9. Shutdown
 
-**When.** A hub shuts down:
+A hub ends in one of two ways: a **shutdown** the log commits, which is orderly, or a **stall**, when the hub can no longer commit anything. Both end in the same kind of payout: a set of transactions on the underlying ledger that each validator signs alone, whenever it can.
 
-- when no vote of a validator has been recorded (§7) for a period in the rules (days), and it has not been replaced: the next block must contain `shutdown`. This happens while q validators are still live, since a hub that lost f + 1 can no longer commit anything;
+**Shutdown.** A hub shuts down:
+
+- when no vote of a validator has been recorded (§7) for a period in the rules (days), and it has not been replaced: the next block must contain `shutdown`. This happens while q validators are still live;
 - when q validators vote for it.
 
-A hub that lost more than f validators at once stops, and its funds stay in the escrow until enough return. This is accepted: on the XRP Ledger nothing can make a transaction or a change of signers valid only after a time, so there is no way to pass the escrow to fewer validators or to someone else once they are gone.
+After `shutdown` the hub takes no new holds, transfers or withdrawals, and for one notice period payees may still redeem and claim. Then the last block fixes the final balances and contains the hash of the payout set.
 
-**Settling up.**
+**Stall.** A hub that lost more than f validators commits nothing more. When a validator has seen no block become final for a period in the rules (hours), it declares the hub stalled, tells the other validators and the members, and **never votes in the hub again**. Its last state is then the latest final block it knows of. A validator that was only cut off alone declares too, and is from then on gone for a hub that carries on without it, which replaces it (§8) or shuts down.
 
-1. After `shutdown`, the hub takes no new holds, transfers or withdrawals. For one notice period, payees may still redeem and claim.
-2. The last block fixes the final balances: holds go back to their payers, then every account with a balance above the least payout and a disbursal address gets one payment, less the payout fee. Validator accounts are paid like any other. What remains (balances too small to pay, accounts without an address, payments that fail) stays in the escrow.
-3. The last block contains the hash of the **disbursal set**: every withdrawal that has a sequence but is not yet settled, then one Payment per account in account order, with consecutive sequences, the fee in the rules and no last ledger. Each validator computes it from its own state, and votes for the block only when the hash matches.
+- **Passing views around.** Before it signs, and for as long as it is up, a validator sends the highest certified block it knows of to the other validators and the members, and asks for theirs. A certificate proves itself, so a validator that learns of a higher final block takes it, with the state after it (below), and signs the payout set for that block too. It never signs one for a lower block than it already has.
+- **Who holds the proof.** A member credited in a block holds that block's receipt and certificate (§3). The members who would lose by a payout from an earlier state are those who hold the proof that a later one exists, and they have every reason to pass it on.
+- **What a stall costs.** There is no notice period: holds go back to their payers, so payees lose what they had not yet taken. If a set for an earlier block wins (below), what happened after that block is lost too. Both fall under each member's exposure limit (§11).
+- **Why the hub cannot go on afterwards.** A payout set needs q signatures, so at least f + 1 honest validators that declared a stall signed it. Those never vote again, and the remaining 2f validators are fewer than q, so no block can become final after a stall payout could complete.
 
-**Signing it.** Each validator signs every transaction of the set at once, and publishes one bundle: the hub ID, the last block with its certificate, and its signatures. It sends the bundle to every member and every validator, and to anyone who asks. Members keep every bundle they receive, and every `reconfigure` block with its certificate.
+**The state.** Every block carries the root of a Merkle tree over the state after it. A validator that lacks a block's state takes it from anyone that kept it, a validator or a member, and checks it against the certified root.
 
-- Once q signatures exist for the set, anyone assembles each transaction and submits them in order of sequence. Each member has reason to: its own payment is among them.
-- **A validator that comes back later,** after others are gone for good, gets from any member the last block, the set, and every `reconfigure` block since the last set of validators it knew, with their certificates. It checks each certificate against the set before it, starting from the set it knew, never from a set that a block it was handed names; then it checks the last block's certificate and the set's hash, and signs. It needs no other state and no other validator: the certificate proves that q validators computed the set, f + 1 of them honest. Its signatures complete the transactions the others' signatures did not.
-- **An honest validator signs only a certified set.** Consensus certifies at most one last block, so there is at most one set, and once a validator signed it, it signs nothing else for that escrow, and no longer votes in the hub. Two sets over the same sequences could be mixed, a payment of one with a payment of the other, and pay out more than the escrow holds.
-- **Why a stalled hub cannot pay out:** each validator would have to pick a last state alone, and validators that saw different last blocks would sign different sets. Agreeing on one needs q validators, which a stalled hub lacks.
+**The payout set** for a final block is computed from the state after it, and is the same for every validator:
+
+1. every withdrawal that has an escrow sequence but is not yet settled, as already signed;
+2. the **selector**: a `SignerListSet` that replaces the escrow's signers with keys made for this set alone. Each validator derives its key from its seed, the hub's nonce and the block's height; signer entries need not be funded accounts;
+3. one Payment per account with a balance above the least payout and a disbursal address, in account order, less the payout fee, signed with the set's own keys. Holds go back to their payers first, and validator accounts are paid like any other. What remains (balances too small to pay, accounts without an address, payments that fail) stays in the escrow.
+
+All of them have consecutive sequences, the fee in the rules, and no last ledger, so they stay valid until they are applied.
+
+**The underlying ledger breaks ties.** Validators may have signed sets for different blocks. The first selector the XRP Ledger applies decides which set pays out:
+
+- every other selector needs the same sequence, or an earlier one, and can no longer apply;
+- the ledger checks signatures against the signer list in place when a transaction applies, so every payment of another set is now signed by keys that are not on the list, and is refused without being applied (`tefBAD_SIGNATURE`). It uses no sequence, so it cannot take the place of the winning set's payments;
+- where one set has a withdrawal at the sequence of another set's selector, either the withdrawal applies, and the other set can never pay out, or the selector does, and its set pays that member from the balance it had before the withdrawal.
+
+Two sets can therefore never be mixed, which would pay out more than the escrow holds. After a shutdown there is only one set, since consensus certifies at most one last block; the selector costs one transaction there too, and the rules are the same.
+
+**Signing it.** A validator signs every transaction of a set at once, and publishes one bundle: the hub ID, the block with its certificate, and its signatures. It sends the bundle to every member and every validator, and to anyone who asks. Members keep every bundle they receive, and every `reconfigure` block with its certificate.
+
+- Once q validators signed one set, anyone assembles its transactions and submits them in order of sequence. Each member has reason to: its own payment is among them.
+- **A validator that comes back later,** after others are gone for good, gets from any member the highest certified block, the state after it or its set, and every `reconfigure` block since the last set of validators it knew, with their certificates. It checks each certificate against the set before it, starting from the set it knew, never from a set that a block it was handed names; then it checks the block's certificate and the state's root, builds the set and signs. No other validator needs to be up at the same time, so the payout completes with signatures collected over days, from validators that are never online together.
+- **Funds wait for q signatures.** A hub that lost more than f validators for good pays out only once q of them have signed a set, which may take until enough return. On the XRP Ledger nothing can make a transaction or a change of signers valid only after a time, so there is no way to pass the escrow to fewer validators or to someone else.
 
 ## 10. Consensus
 
@@ -214,12 +234,12 @@ A hub that lost more than f validators at once stops, and its funds stay in the 
 - **Fees are not the validators' to set.** The rules fix them, with caps, and only a reconfiguration with notice changes them (§7). A member's cost of leaving (a withdrawal fee, the underlying ledger's fee, and finding new peers) is what a hub could charge above a fair price, and the caps keep it from doing so.
 - **Validators are paid for taking part,** not for being listed (§7).
 - **Small hubs multiply the validators' work.** Higher fees when a hub fills up push new members to other hubs, and each validator serves more of them. The setup fee pays for that.
-- **Funds can freeze.** A hub that loses more than f validators at once stops until enough return (§9).
+- **Funds can wait.** A hub that loses more than f validators stops, and pays out only once q validators have signed one payout set, though not at the same time (§9).
 - **Privacy.** The validators see every member's balance and holds, and the packets of disputes (§4).
 
 ## 13. How it fits the node
 
-- **A new crate, `dassie-hub`:** the ledger, its rules and operations, Simplex, the disbursal set, and their wire types, all without IO. Validators are Dassie nodes that run it.
+- **A new crate, `dassie-hub`:** the ledger, its rules and operations, Simplex, the payout set, and their wire types, all without IO. Validators are Dassie nodes that run it.
 - **A new settlement scheme, `hub`,** in the node's registry of schemes ([7 §4.5](07-rewrite.md#45-settlement-and-ledgers)): a member's side of a hub, which peers, opens and funds holds, signs commitments and claims, redeems and claims, deposits and withdraws.
 - **The peer protocol** gains the commitment on a Prepare and the claim in a Fulfill's verdict, for peerings over a hub.
 - **Credit.** A hold is the credit its payee extends, so a peer over a hub needs no slow start ([D20](08-decisions.md#d20-trust-follows-what-a-peer-earned-us)).
@@ -231,5 +251,5 @@ A hub that lost more than f validators at once stops, and its funds stay in the 
 - **The simulation** runs validators as nodes with the fake XRP Ledger ([7 §7](07-rewrite.md#7-testing-strategy)), with:
   - up to f validators that equivocate, hold back operations or stay silent, and f + 1 that collude, whose evidence must appear;
   - payers that send no claims, and payees that claim twice, or late, just before a commitment's expiry;
-  - shutdowns where validators sign the disbursal set at different times, some after others are gone, and the escrow pays out exactly the final balances.
+  - shutdowns and stalls where validators sign payout sets at different times and for different blocks, some after others are gone, and the escrow pays out exactly the balances of one final block.
 - **Real money** stays off until [D8](08-decisions.md#d8-real-money)'s conditions are met.
