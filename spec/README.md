@@ -14,6 +14,7 @@ This directory specifies everything the original Dassie does, in enough detail t
 | 6 | [User interfaces and tooling](06-user-interfaces-and-tooling.md) | The web wallet page by page, the dev dashboard, the website and STREAM toy, release build, installer, updater, the multi-node dev environment |
 | 7 | [The rewrite](07-rewrite.md) | Compatibility contract, mapping onto Rust, Node and Solid 2, node architecture, persistence, testing, milestones |
 | 8 | [Decisions and gap register](08-decisions.md) | What happens to each known gap, and the decisions taken for the rewrite |
+| 9 | [Settlement hubs](09-settlement-hubs.md) | A design: peering backed by a small validated ledger and an escrow, so peers need not trust each other |
 
 Reading order: 1, then 7 and 8 for direction. Read 2–6 as reference while building the matching part.
 
