@@ -1,6 +1,6 @@
 # 9. Settlement hubs
 
-Peering rests on trust today. Settling is up to the node that owes, so a peer can always walk away with what it owes, and the credit a node extends and its grace limit ([D18](08-decisions.md#d18-one-grace-limit-per-peer)) bound the loss. A **settlement hub** is another way to peer, for nodes that choose it: a small ledger kept by a few validators and backed by an escrow on an underlying ledger such as the XRP Ledger. Two nodes that peer over a hub cannot cheat each other: what one owes the other can be taken from funds the hub holds, without the debtor's help.
+Peering rests on trust today. Settling is up to the node that owes, so a peer can always walk away with what it owes, and the credit a node extends and its grace limit ([D18](08-decisions.md#d18-one-grace-limit-per-peer)) bound the loss. A **settlement hub** is another way to peer, for nodes that choose it: a small ledger kept by a few validators and backed by an escrow on an underlying ledger such as the XRP Ledger. Two nodes that peer over a hub cannot walk away with what they owe each other: what one owes the other can be taken from funds the hub holds, without the debtor's help.
 
 A hub moves trust, it does not remove it. Instead of trusting each peer up to its credit, a node trusts one set of validators with the balance it keeps in the hub. That set is known in advance, its members are chosen for their reputation, and one relationship covers every peer in the hub.
 
@@ -31,11 +31,11 @@ This chapter is a design ([D22](08-decisions.md#d22-settlement-hubs)); nothing i
 ## 2. Founding a hub
 
 1. **The sponsor picks n validators** that are all on its list of acceptable validators (§11), and pays each its setup fee over Dassie, in ordinary packets.
-2. **Each validator makes two keys for the hub,** derived from its node seed under a path that names the hub:
+2. **Each validator makes two keys for the hub,** derived from its node seed under a path that names a random nonce the sponsor picked for this hub. The hub ID cannot name them: it is the hash of rules that contain these keys.
    - a **consensus key** (Ed25519), with which it signs votes, certificates and receipts;
    - an **escrow key**, an XRPL key whose account address becomes one entry of the escrow's signer list.
 
-   It returns its acceptance, signed with its node key: the hash of the rules, both public keys, and its endpoint.
+   It returns its acceptance, signed with its node key: the nonce, the hash of the draft rules (everything but the validators' keys and endpoints), both public keys, and its endpoint.
 3. **The rules are fixed.** The sponsor puts the acceptances into the rules; the hub ID is their hash. Every validator signs the final rules, which is the genesis certificate.
 4. **The sponsor creates the escrow account** on the underlying ledger and, from its master key, sets it up as the rules say:
    - a signer list of the n escrow keys, each with weight 1, quorum q;
@@ -49,7 +49,7 @@ This chapter is a design ([D22](08-decisions.md#d22-settlement-hubs)); nothing i
 
 **State.**
 
-- **Accounts:** a number (assigned in order, never reused), the owner's public key, the height the account was created at, a balance, a disbursal address on the underlying ledger (address and tag), the time of its last operation, and a sequence for the owner's operations.
+- **Accounts:** a number (assigned in order, never reused), the owner's public key, a balance, a disbursal address on the underlying ledger (address and tag), the time of its last operation, and a sequence for the owner's operations.
 - **Holds:** a number, payer, payee, amount, whether it is closing and when, and what has been taken from it (§4).
 - **Escrow:** the balance the hub has seen deposited and withdrawn, the reserves the account needs, and the escrow's next sequence on the underlying ledger.
 - **Pending:** deposits seen by fewer than q validators, and withdrawals not yet settled on the underlying ledger.
@@ -57,7 +57,7 @@ This chapter is a design ([D22](08-decisions.md#d22-settlement-hubs)); nothing i
 
 Every table has a limit in the rules; an operation that would exceed one fails, it never grows the table ([D16](08-decisions.md#d16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation)).
 
-**Operations.** A member signs each operation with its account key. Every signature covers the hub ID, the account number, the height the account was created at, the account's next sequence, and the most fee it pays. A signature therefore cannot be replayed in another hub, or against a later account that reuses a deposit tag.
+**Operations.** A member signs each operation with its account key. Every signature covers the hub ID, the account number, the account's next sequence, and the most fee it pays. A signature therefore cannot be replayed in another hub, or twice in the same one: account numbers are never reused, and sequences only grow.
 
 | Operation | By | Effect |
 |---|---|---|
@@ -86,19 +86,25 @@ Two members peer with the hub as their settlement scheme. Each direction has its
 
 **Packets.**
 
-- With every Prepare it sends B, A sends a **commitment**: its signature over the hub ID, the hold, a sequence (increasing per hold), the amount, the condition and the expiry.
+- With every Prepare it sends B, A sends a **commitment**: its signature over the hub ID, the hold, a sequence (increasing per hold), the amount, the condition and an expiry: the Prepare's own expiry less the hub's margin M (below).
 - B forwards the packet at once, as long as the packets in flight and what it has not yet taken from the hold fit in the hold. The hub is not involved.
 - When the Fulfill comes back, A's verdict ([D17](08-decisions.md#d17-the-upstream-decides-whether-a-fulfill-counted)) carries a **claim**: A's signature over the hold, the total T it owes B on the hold, and the sequence W up to which T covers every fulfilled packet. B accepts a claim only when T is right by its own record of what it fulfilled.
 
 **Taking from the hold.**
 
 - `redeem (T, W)` pays B what the claim adds, less anything B already took with `claim` for packets up to W. W only grows, and T only grows.
-- `claim` is for when A's claim does not come. B submits commitments above the last redeemed W together with their fulfillments; the hub checks that each fulfillment hashes to the commitment's condition and that the block is stamped before the commitment's expiry, then pays the amounts. The hub remembers each sequence claimed this way until a `redeem` passes it, so nothing is paid twice. Only a commitment's own expiry decides: once it passed, the packet can no longer be claimed, as in ILP.
+- `claim` is for when A's claim does not come. B submits commitments above the last redeemed W together with their fulfillments; the hub checks that each fulfillment hashes to the commitment's condition and that the block is stamped before the commitment's expiry, then pays the amounts. Each hold remembers the sequences claimed this way until a `redeem` passes them, so nothing is paid twice. The table belongs to the hold, not the hub, and has room for at least as many as the verdicts B lets A owe (1024), so other members cannot fill it to make B's claims fail. Only a commitment's own expiry decides: once it passed, the packet can no longer be claimed, as in ILP.
 - B redeems often enough that what it has not taken stays a small part of the hold, much as a node settles today at 1.1 times the middle of its range ([7 §4.7](07-rewrite.md#47-peer-protocol-v1)). Every redeem costs a fee, so B does not redeem after each packet.
 
-**Why A is safe.** B is paid only for what A signed: a claim, or a commitment with its fulfillment before the expiry. When B claims, the validators send A the receipt, so A learns the fulfillment and can fulfill upstream. A's incoming packet expires a message window (1 s, [D13](08-decisions.md#d13-connector-timing-and-packet-limits)) after its outgoing one, and that window must be longer than the hub's worst time to commit a block plus its timestamp precision. The rules state that time, and a node does not peer over a hub whose time does not fit its window.
+**Why A is safe.** B is paid only for what A signed: a claim, or a commitment with its fulfillment in a block stamped before the commitment's expiry.
 
-**Why B is safe.** B never forwards more than the hold covers. A hold cannot shrink before its notice period, which the rules make longer than any packet can be held (30 s, D13), so B learns of a reduction before it matters, and accepts no Prepare that expires after the hold would shrink. If A stops sending claims, B claims on the hub before each expiry, which may take most of the window, so B submits a claim as soon as a verdict is late, and stops taking Prepares from A when too many verdicts are owed (1024, as today).
+- **A learns every claim.** The validators send A the receipt of each `claim` on its holds, so A learns the fulfillment and fulfills upstream.
+- **A does not reject early.** When its outgoing packet times out at its expiry E, A does not reject upstream at once, as [D13](08-decisions.md#d13-connector-timing-and-packet-limits) has a node do: B may still win a claim stamped before the commitment's expiry. A waits for a final block stamped at or after that expiry. Blocks become final in order and their stamps only grow, so that block settles it: if no claim for the packet came before it, A rejects; if one did, A fulfills. A peering over a hub is the one exception to D13's timeout. B does not have to cheat for this to matter: its Fulfill only has to reach A after E.
+- **The margin M** is the hub's timestamp precision plus the longest it takes to finalize a block with f validators faulty: f views skipped, each after its timeout, then a block. The rules state it. The commitment expires M before the Prepare, so the block that settles a packet is normally final by E.
+- **The window.** After E, A still needs the receipt or the final block from a validator, and its Fulfill or Reject must then reach its upstream before the upstream's own expiry. B, on its side, needs time after its downstream answers to get a claim to the validators before the commitment's expiry. These legs cross the open network between members, not the hub's region. So a peering over a hub uses a wider window than the 1 s of [4 §4.3](04-interledger.md): M plus those legs. A node works it out from the hub's rules and the delays it measures, and does not peer over a hub whose window it cannot afford.
+- **Outside the fault model,** with more than f faulty validators or a network slower than the rules assume, A can still learn of a claim too late to fulfill upstream. That loss counts against B's grace limit (§13).
+
+**Why B is safe.** B never forwards more than the hold covers. A hold cannot shrink before its notice period, which the rules make longer than any packet can be held (30 s, D13), so B learns of a reduction before it matters, and accepts no Prepare that expires after the hold would shrink. If A stops sending claims, B claims on the hub before each commitment's expiry, which may take most of the window, so B submits a claim as soon as a verdict is late, and stops taking Prepares from A when too many verdicts are owed (1024, as today).
 
 **Liquidity.** A's funds are set aside up to the size of its holds, not only for the seconds a packet is in flight. A hold only has to cover what is in flight plus what B has not yet taken, and resizing it is one operation. What B redeems lands in its own balance, from which it funds its holds toward other peers, so the same escrowed funds serve many peerings.
 
@@ -109,7 +115,9 @@ Two members peer with the hub as their settlement scheme. Each direction has its
 A node joins a hub in one of two ways.
 
 - **By deposit** (§6): a deposit with destination tag 0 and the new account's public key as its memo creates the account.
-- **By being paid.** When A peers with B over a hub and B has no account yet, B trusts A at first: A sends packets on ordinary credit, which B extends and D18 bounds. Once A owes B the hub's minimum for a new account, A submits `pay`, which creates B's account with the key B gave in the peering and pays what A owes. From then on the peering works as in §4.
+- **By being paid.** A peers with B over a hub, and B has no account yet. Who trusts whom at first follows [D20](08-decisions.md#d20-trust-follows-what-a-peer-earned-us):
+  - **A asked to peer,** so B extends it nothing. A submits `pay` before it sends any packet, which creates B's account with the key B gave in the peering and pays it the hub's minimum for a new account. From then on the peering works as in §4.
+  - **B asked to peer,** so B extends A its starting credit: A sends packets on it, which D18 bounds, and submits `pay` once it owes B the hub's minimum.
 
 A new account must set its disbursal address before the hub accepts any other operation from it. Without one, its funds at shutdown stay in the escrow (§9).
 
@@ -144,7 +152,8 @@ Once q validators attested the same deposit, the hub credits the account. A depo
 - **Per operation.** Each operation pays the fee in the rules, from the signer's balance.
 - **Idle fee.** An account with no operation for a period (in the rules) pays an idle fee each period, from its balance, never from a hold. An account with no balance and no holds is deleted; its number is never used again.
 - **Congestion.** The fee rises when blocks carry more operations than the target in the rules, and falls when they carry fewer, within a cap in the rules, the way Ethereum's EIP-1559 sets its base fee. What congestion adds goes to the reserve account, which pays the underlying ledger's fees and covers shortfalls, not to the validators: those who would set the fee do not profit from raising it.
-- **Who gets fees.** The fees of a block go to the validators whose signatures are in its certificate, in equal parts. A validator that does not take part earns nothing.
+- **Deadlines first.** `claim` and `redeem` have deadlines, so a share of every block (in the rules) is kept for them, and they go first. Someone who fills blocks at the capped fee cannot push a claim past its expiry.
+- **Who gets fees.** Different validators can hold certificates of one block signed by different q, so the fee split cannot follow certificates. Instead, each block records every vote for earlier blocks that its proposer received and no block has recorded yet, and a proposer records its own. The fees of a block go, in equal parts, to the validators whose votes for it are recorded. That is part of the log, the same for every validator. A validator that does not take part earns nothing; one that is live but slow still has its votes recorded, by later proposers or in its own blocks.
 - **Changes.** Fees change only through `reconfigure` (§8), within caps in the rules, and with notice longer than it takes to leave.
 
 ## 8. Changing the validators
@@ -159,7 +168,7 @@ The set of validators changes; a hub whose set cannot change dies with its first
 
 **When.** A hub shuts down:
 
-- when a validator has signed no certificate for a period in the rules (days), and has not been replaced: the next block must contain `shutdown`. This happens while q validators are still live, since a hub that lost f + 1 can no longer commit anything;
+- when no vote of a validator has been recorded (§7) for a period in the rules (days), and it has not been replaced: the next block must contain `shutdown`. This happens while q validators are still live, since a hub that lost f + 1 can no longer commit anything;
 - when q validators vote for it.
 
 A hub that lost more than f validators at once stops, and its funds stay in the escrow until enough return. This is accepted: on the XRP Ledger nothing can make a transaction or a change of signers valid only after a time, so there is no way to pass the escrow to fewer validators or to someone else once they are gone.
@@ -170,10 +179,10 @@ A hub that lost more than f validators at once stops, and its funds stay in the 
 2. The last block fixes the final balances: holds go back to their payers, then every account with a balance above the least payout and a disbursal address gets one payment, less the payout fee. Validator accounts are paid like any other. What remains (balances too small to pay, accounts without an address, payments that fail) stays in the escrow.
 3. The last block contains the hash of the **disbursal set**: every withdrawal that has a sequence but is not yet settled, then one Payment per account in account order, with consecutive sequences, the fee in the rules and no last ledger. Each validator computes it from its own state, and votes for the block only when the hash matches.
 
-**Signing it.** Each validator signs every transaction of the set at once, and publishes one bundle: the hub ID, the last block with its certificate, and its signatures. It sends the bundle to every member and every validator, and to anyone who asks. Members keep every bundle they receive.
+**Signing it.** Each validator signs every transaction of the set at once, and publishes one bundle: the hub ID, the last block with its certificate, and its signatures. It sends the bundle to every member and every validator, and to anyone who asks. Members keep every bundle they receive, and every `reconfigure` block with its certificate.
 
 - Once q signatures exist for the set, anyone assembles each transaction and submits them in order of sequence. Each member has reason to: its own payment is among them.
-- **A validator that comes back later,** after others are gone for good, gets the last block and the set from any member, checks the certificate and the set's hash, and signs it. No state and no other validator is needed: the certificate proves that q validators computed the set, f + 1 of them honest. Its signatures complete the transactions the others' signatures did not.
+- **A validator that comes back later,** after others are gone for good, gets from any member the last block, the set, and every `reconfigure` block since the last set of validators it knew, with their certificates. It checks each certificate against the set before it, starting from the set it knew, never from a set that a block it was handed names; then it checks the last block's certificate and the set's hash, and signs. It needs no other state and no other validator: the certificate proves that q validators computed the set, f + 1 of them honest. Its signatures complete the transactions the others' signatures did not.
 - **An honest validator signs only a certified set.** Consensus certifies at most one last block, so there is at most one set, and once a validator signed it, it signs nothing else for that escrow, and no longer votes in the hub. Two sets over the same sequences could be mixed, a payment of one with a payment of the other, and pay out more than the escrow holds.
 - **Why a stalled hub cannot pay out:** each validator would have to pick a last state alone, and validators that saw different last blocks would sign different sets. Agreeing on one needs q validators, which a stalled hub lacks.
 
@@ -182,7 +191,7 @@ A hub that lost more than f validators at once stops, and its funds stay in the 
 **One ordered log for every operation.** The validators run a Byzantine fault tolerant consensus protocol and execute the log in order.
 
 - **Simplex** (Chan and Pass, 2023): a leader per view proposes a block; validators vote and, with q votes, finalize it. A block is final three message delays after it is proposed, and a slow or faulty leader is replaced by a vote to skip its view.
-- **Certificates** are the q Ed25519 votes of a block with a bitmap of who signed. They are a few hundred bytes for n ≤ 7, and say who took part, which the fee split uses (§7).
+- **Certificates** are q Ed25519 votes of a block with a bitmap of who signed, a few hundred bytes for n ≤ 7. Which q depends on the order votes arrived in, so who took part is read from the votes blocks record (§7), not from certificates.
 - **Members submit to every validator,** so a faulty leader cannot hold back an operation for more than one view.
 - **Evidence.** Two conflicting certificates for one height name at least f + 1 validators that signed both. They are published, and those validators are dropped from the default list (§11).
 - **Built for Dassie:** a state machine without IO, with time and randomness passed in, bounded and asserted, as [D16](08-decisions.md#d16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation) asks. Commonware's implementation of Simplex is the reference and a source of test cases.
@@ -212,9 +221,14 @@ A hub that lost more than f validators at once stops, and its funds stay in the 
 - **A new crate, `dassie-hub`:** the ledger, its rules and operations, Simplex, the disbursal set, and their wire types, all without IO. Validators are Dassie nodes that run it.
 - **A new settlement scheme, `hub`,** in the node's registry of schemes ([7 §4.5](07-rewrite.md#45-settlement-and-ledgers)): a member's side of a hub, which peers, opens and funds holds, signs commitments and claims, redeems and claims, deposits and withdraws.
 - **The peer protocol** gains the commitment on a Prepare and the claim in a Fulfill's verdict, for peerings over a hub.
-- **Credit.** A hold is the credit its payee extends, so a peer over a hub needs no grace limit beyond what it owes before its account exists (§5), and no slow start ([D20](08-decisions.md#d20-trust-follows-what-a-peer-earned-us)).
+- **Credit.** A hold is the credit its payee extends, so a peer over a hub needs no slow start ([D20](08-decisions.md#d20-trust-follows-what-a-peer-earned-us)).
+- **The grace limit stays** ([D18](08-decisions.md#d18-one-grace-limit-per-peer)). A peering over a hub can still cost money, and what one peer cost counts against its one limit:
+  - the hub fees of every `claim` that its missing, late or refused verdicts made us submit: the 1024 owed at once bound the verdicts, not the fees over time, and a payer could route through us to itself to make us pay them for ever;
+  - packets it refused that the hub did not pay;
+  - packets we paid on the hub but learned of too late to fulfill upstream (§4);
+  - what it owed before its account existed (§5).
 - **The simulation** runs validators as nodes with the fake XRP Ledger ([7 §7](07-rewrite.md#7-testing-strategy)), with:
   - up to f validators that equivocate, hold back operations or stay silent, and f + 1 that collude, whose evidence must appear;
-  - payers that send no claims, and payees that claim twice or late;
+  - payers that send no claims, and payees that claim twice, or late, just before a commitment's expiry;
   - shutdowns where validators sign the disbursal set at different times, some after others are gone, and the escrow pays out exactly the final balances.
 - **Real money** stays off until [D8](08-decisions.md#d8-real-money)'s conditions are met.

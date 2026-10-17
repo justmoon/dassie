@@ -450,11 +450,11 @@ Decided on 2026-10-17.
 - **Facts:** settling is up to the node that owes, so peering needs trust, which credit and the grace limit ([D18](#d18-one-grace-limit-per-peer)) only bound. Some owners would rather trust a few well-known validators once than every peer.
 - **Decision:** add settlement hubs as another way to peer, beside bilateral peering, which stays ([9](09-settlement-hubs.md)):
   - **A hub** is a ledger kept by n = 3f + 1 validators from a default list of acceptable ones, backed by an escrow account on the XRP Ledger that their signer list controls with quorum 2f + 1. Anyone can found one; a node uses a hub only when it accepts all of its validators.
-  - **Holds, not a hub operation per packet.** A payer sets funds aside for each payee, signs a commitment with each Prepare and a cumulative claim with each verdict, and the payee takes from the hold with either. The hub sees settlements and disputes, never the packet path ([9 §4](09-settlement-hubs.md#4-peering-over-a-hub)).
+  - **Holds, not a hub operation per packet.** A payer sets funds aside for each payee, signs a commitment with each Prepare and a cumulative claim with each verdict, and the payee takes from the hold with either. The hub sees settlements and disputes, never the packet path. A commitment expires the hub's margin before its Prepare, and a payer whose packet timed out waits for the hub before it rejects upstream, since its payee may still win a claim ([9 §4](09-settlement-hubs.md#4-peering-over-a-hub)).
   - **One ordered log** for every operation, with Simplex, built without IO as D16 asks, and time taken from block timestamps ([9 §10](09-settlement-hubs.md#10-consensus)).
   - **Native multi-signing** for the escrow, each validator signing alone.
   - **Shutdown while it still can:** a validator gone for a period and not replaced makes the hub shut down while a quorum remains. The last block certifies one disbursal set; each validator publishes its signatures over all of it, and one that returns later can still sign, so payouts complete with signatures collected over time ([9 §9](09-settlement-hubs.md#9-shutdown)).
-  - **Fees are rules,** with caps, paid to the validators that took part; what congestion adds goes to a reserve.
+  - **Fees are rules,** with caps, paid to the validators whose votes the log records; what congestion adds goes to a reserve, and claims have space kept in every block.
   - **The asset is XRP** at first, and the default list of validators is kept like the default bootstrap node list (D15).
 - **Accepted:** a hub that loses more than f validators at once stops, and its funds stay in the escrow until enough return. The XRP Ledger has no way to make a transaction or a change of signers valid only after a time, so nothing can pass the escrow on once its validators are gone.
 - **Rejected:**
@@ -465,7 +465,7 @@ Decided on 2026-10-17.
   - *Paying out from a stalled hub:* the validators would have to agree on a last state without a quorum, and two sets of payouts over the same sequences can be mixed to pay out more than the escrow holds.
   - *AlephBFT, HotStuff-2 or Jolteon, Mysticeti:* slower, or built for many validators. *Depending on Commonware or Malachite:* async runtimes of their own, or alpha and unaudited; Commonware's Simplex is the reference instead.
 - **When:** M11 ([7 §8](07-rewrite.md#8-milestones)), after real money ([D8](#d8-real-money)).
-- **Affects:** [7 §4.5](07-rewrite.md#45-settlement-and-ledgers) (a `hub` scheme), [7 §4.7](07-rewrite.md#47-peer-protocol-v1) (commitments and claims, a node info extension), [7 §7](07-rewrite.md#7-testing-strategy), D15, D17 (a verdict carries a claim), D18 and D20 (a hold is credit the payee does not risk).
+- **Affects:** [7 §4.5](07-rewrite.md#45-settlement-and-ledgers) (a `hub` scheme), [7 §4.7](07-rewrite.md#47-peer-protocol-v1) (commitments and claims, a node info extension), [7 §7](07-rewrite.md#7-testing-strategy), D13 (over a hub, a payer holds back its Reject, and the window is wider), D15, D17 (a verdict carries a claim), D18 (the grace limit stays, and counts the hub fees and unpaid refusals a peer caused), D20 (a hold is credit, so no slow start).
 
 ## 4. Gaps by decision
 
