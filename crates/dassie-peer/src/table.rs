@@ -200,6 +200,15 @@ pub struct Peering {
     pub last_seen_ms: u64,
 }
 
+impl Peering {
+    /// Whether it was heard from within the last `window_ms`: online, as
+    /// the advertise flag sees it (D12).
+    #[must_use]
+    pub const fn heard_within(&self, now_ms: u64, window_ms: u64) -> bool {
+        self.last_seen_ms.saturating_add(window_ms) >= now_ms
+    }
+}
+
 /// A peering being ended (D12, spec 7 §4.7).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Termination {

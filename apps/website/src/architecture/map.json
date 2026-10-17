@@ -105,7 +105,7 @@
         "Accounts and ledgers, sending and receiving, payment status and activity",
         "Wallet addresses and payment requests for Open Payments",
         "The consent page for apps, the apps it has let in, and their grants",
-        "Peers and bans, what each peer cost, and the node's settings",
+        "The network as the node routes over it, its peers online and offline, bans, what each peer cost, and the node's settings",
         "Debug pages, and live data over RPC streams everywhere"
       ]
     },

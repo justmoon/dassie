@@ -634,7 +634,8 @@ meta/canary                                  the newest canary
   - multi-currency amounts;
   - adding XRPL ledgers;
   - deposit address and QR code for XRPL;
-  - a working payment status page.
+  - a working payment status page;
+  - **the Network page's graph is the routing table:** this node, every node a route reaches, and the edges routing runs over, which both ends list. A peering alone draws nothing, so a peer that is offline or not listed back has no line. This node is always drawn. The listing shows peers without a route apart: those heard from within the last 60 s as "Peers Not Routed", the others as "Offline Peers". The peer's details say which it is.
 - **Key derivation in the browser uses `dassie-identity` WASM.** The mnemonic is validated (UI-5). Setup sends only the node key and the login proof, as today.
 - **The live data model.** Every `subscribe*` procedure delivers either:
   - a value stream (signals), or

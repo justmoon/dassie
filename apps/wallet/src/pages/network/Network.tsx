@@ -13,9 +13,9 @@ import { dateTime, shortId } from "@dassie/ui/format";
 import { createLiveValue } from "@dassie/ui/live";
 import { NetworkGraph } from "@dassie/ui/network";
 import {
-  graphLinks,
   groupNodes,
   peerStateName,
+  routingGraph,
 } from "@dassie/ui/network/nodes";
 import { useNodeData } from "@dassie/ui/node-data";
 import { describe, useClient } from "@dassie/ui/rpc";
@@ -28,7 +28,7 @@ export function Network(props: RouteProps): JSX.Element {
   const data = useNodeData();
   const router = useRouter();
   const nodes = createMemo(() => Object.values(data.nodes.byId));
-  const links = createMemo(() => graphLinks(nodes(), data.selfId));
+  const graph = createMemo(() => routingGraph(nodes()));
   const selected = () => props.params.node;
   const node = () => (selected() ? data.nodes.byId[selected()!] : undefined);
   return (
@@ -39,8 +39,8 @@ export function Network(props: RouteProps): JSX.Element {
       <LiveNote status={data.nodesStatus()} />
       <Card class="graph-card">
         <NetworkGraph
-          nodes={nodes()}
-          links={links()}
+          nodes={graph().nodes}
+          links={graph().links}
           selfId={data.selfId}
           selected={selected()}
           hrefFor={(id) => router.href(`/network/${id}`)}
@@ -177,7 +177,7 @@ function NodeDetail(props: { node: NetworkNode }): JSX.Element {
         <dt>URL</dt>
         <dd data-testid="node-url">{node().url || "no link state"}</dd>
         <dt>Distance</dt>
-        <dd>{node().distance ?? "???"}</dd>
+        <dd data-testid="node-distance">{node().distance ?? "no route"}</dd>
         <dt>Settles with</dt>
         <dd>{node().settlementSchemes.join(", ") || "—"}</dd>
         <dt>Neighbors</dt>
@@ -204,6 +204,10 @@ function NodeDetail(props: { node: NetworkNode }): JSX.Element {
             <dd>{peering().scheme}</dd>
             <dt>Since</dt>
             <dd>{dateTime(peering().sinceUnixMs)}</dd>
+            <dt>Status</dt>
+            <dd data-testid="peer-online">
+              {peering().online ? "online" : "offline"}
+            </dd>
             <dt>Last heard</dt>
             <dd>{dateTime(peering().lastSeenUnixMs)}</dd>
             <dt>Advertised</dt>

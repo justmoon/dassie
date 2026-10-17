@@ -20,7 +20,7 @@ use dassie_peer::wire::{
     Authentication, Content, Entry, NodeInfo, PeeringRequest, PeeringResponse, RefusalReason,
     ResponseEnvelope, SchemeId, SignedNodeInfo, TerminationReason, encode_envelope, sign_node_info,
 };
-use dassie_peer::{Config, Event, SendError};
+use dassie_peer::{Config, Event, PeerStatus, SendError};
 use support::{Network, START, key, url};
 
 fn settle(network: &mut Network, ms: u64) {
@@ -441,14 +441,18 @@ fn the_advertise_flag_is_damped() {
             .find(|view| view.id == b)
             .unwrap()
     };
+    assert!(view(&network).online);
     for flap in 1..=2u32 {
         network.cut.insert((0, 1));
         settle(&mut network, 70_000);
         let withdrawn = view(&network);
         assert!(!withdrawn.advertised);
+        assert!(!withdrawn.online, "offline, and still peered");
+        assert_eq!(withdrawn.peer_status, PeerStatus::Peered);
         assert_eq!(withdrawn.advertise.flaps, flap);
         network.cut.clear();
         settle(&mut network, 40_000);
+        assert!(view(&network).online, "online again");
         assert!(view(&network).advertised, "advertised again");
     }
     let hold = view(&network).advertise.hold_until_ms;

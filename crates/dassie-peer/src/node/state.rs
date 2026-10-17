@@ -54,6 +54,9 @@ pub struct NodeView {
     pub termination: Option<Termination>,
     /// Whether it is listed as our neighbor.
     pub advertised: bool,
+    /// Whether our peer was heard from within the confirm window: unless
+    /// it is, it is offline and not advertised.
+    pub online: bool,
     /// The advertise flag's damping.
     pub advertise: Advertise,
     /// Whether it is banned.
@@ -182,10 +185,7 @@ impl PeerNode {
         let now = self.now_ms;
         // Advertised at once if heard from recently: a restart does not
         // drop our neighbors (D12).
-        let confirmed = peering
-            .last_seen_ms
-            .saturating_add(self.config.peer_confirm_ms)
-            >= now;
+        let confirmed = peering.heard_within(now, self.config.peer_confirm_ms);
         entry.advertise = Advertise {
             on: confirmed && termination.is_none(),
             on_since_ms: now,
@@ -319,6 +319,9 @@ impl PeerNode {
                 peering: entry.peering().cloned(),
                 termination: entry.termination().copied(),
                 advertised: entry.active_peering().is_some() && entry.advertise.on,
+                online: entry
+                    .peering()
+                    .is_some_and(|p| p.heard_within(self.now_ms, self.config.peer_confirm_ms)),
                 advertise: entry.advertise,
                 banned: self.bans.contains(id),
                 registered_until_ms: entry.registration.as_ref().map(|r| r.expires_ms),
