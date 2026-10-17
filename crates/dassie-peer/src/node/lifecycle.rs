@@ -266,8 +266,8 @@ impl PeerNode {
             let Some(peering) = entry.active_peering() else {
                 continue;
             };
-            let healthy = peering.last_seen_ms.saturating_add(config.peer_confirm_ms) >= now
-                && !self.bans.contains(id);
+            let healthy =
+                peering.heard_within(now, config.peer_confirm_ms) && !self.bans.contains(id);
             let advertise = &mut entry.advertise;
             if advertise.on
                 && advertise

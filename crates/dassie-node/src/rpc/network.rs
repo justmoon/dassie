@@ -232,6 +232,7 @@ fn peer(view: &PeerView) -> proto::NetworkPeer {
         state: state.into(),
         termination_reason: reason.into(),
         advertised: view.advertised,
+        online: view.online,
         owed: view.owed.map_or(0, |owed| {
             i64::try_from(owed).unwrap_or(if owed < 0 { i64::MIN } else { i64::MAX })
         }),

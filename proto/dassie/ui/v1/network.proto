@@ -101,6 +101,10 @@ message NetworkPeer {
   // What the peer cost this node, against its grace limit (D18), as of the
   // last check; unset before the first.
   PeerCost cost = 14;
+  // Whether the peer was heard from within the last 60 s. An offline peer
+  // is not advertised, so no route goes through it; the peering stays
+  // until it has been silent for a day (D12).
+  bool online = 15;
 }
 
 // What a peer cost this node, in a ledger's units (D18). Past its grace

@@ -193,6 +193,8 @@ pub struct PeerView {
     pub termination: Option<dassie_peer::Termination>,
     /// Whether it is listed as our neighbor.
     pub advertised: bool,
+    /// Whether it was heard from recently enough to count as online.
+    pub online: bool,
     /// What we owe the peer net; negative when it owes us.
     pub owed: Option<i128>,
     /// What it cost us at its last check, against its grace limit (D18).
@@ -243,6 +245,7 @@ impl Core {
                         peering,
                         termination: view.termination,
                         advertised: view.advertised,
+                        online: view.online,
                     })
                 })
                 .collect(),
