@@ -1166,7 +1166,7 @@
         "A grant may limit what it debits or what it delivers, not both, as Open Payments asks; the wallet says which.",
         "STREAM backs off once for a burst of rejected packets, so a payment that runs out of credit resumes in moments instead of tens of seconds.",
         "The daily updater runs in a systemd sandbox, and the node's unit is tighter.",
-        "Hardening: another wallet's URL can no longer reach private addresses through an IPv6 literal, a bootstrap key of the wrong length is refused instead of stopping the node, far-apart exchange rates no longer stop the rate task, and every payment ID has one spelling."
+        "Hardening: another wallet's URL can no longer reach private addresses through an IPv6 literal, a bootstrap key of the wrong length is reported as an invalid `DASSIE_BOOTSTRAP_NODES` instead of crashing the node, far-apart exchange rates no longer stop the rate task, and every payment ID has one spelling."
       ]
     },
     {
