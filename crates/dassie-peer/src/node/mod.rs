@@ -24,9 +24,7 @@ use rand_core::CryptoRng;
 use crate::auth::{Authenticator, Pending};
 use crate::channel::{Channel, Retry};
 use crate::config::Config;
-use crate::io::{
-    Event, Failure, Output, Request, RequestId, Response, Stats, VERDICT_ACCEPTED, VERDICT_REFUSED,
-};
+use crate::io::{Event, Failure, Output, Request, RequestId, Response, Stats};
 use crate::routing::Routes;
 use crate::table::{Bucket, Entry, Sources};
 use crate::wire::{Authentication, Content, ResponseEnvelope, SchemeId, encode_envelope};
@@ -123,9 +121,6 @@ pub(crate) enum Purpose {
     /// An ILP Reject, by the request ID of the Prepare it answers, kept to
     /// be sent again.
     Response(Box<Answer>),
-    /// An ILP Fulfill, by the node's tag for it: the reply is the peer's
-    /// verdict (D17).
-    Confirm(u64),
     /// A settlement message, by its sequence.
     Settlement(u64),
     /// Telling a peer we end the peering.
@@ -464,7 +459,6 @@ impl PeerNode {
             }
             Purpose::Settlement(sequence) => self.on_settlement(to, sequence, &result),
             Purpose::Termination => self.on_termination(to, &result),
-            Purpose::Confirm(tag) => self.on_verdict(to, tag, &result),
             Purpose::Response(answer) => {
                 // A refusal after reading it will not change; anything
                 // else is tried again, and a copy that arrives twice is
@@ -549,60 +543,12 @@ impl PeerNode {
             .ok_or(SendError::Busy)
     }
 
-    /// Sends an ILP Fulfill to `peer`, answering its Prepare `request_id`,
-    /// for its verdict (D17), which comes back as [`Event::Verdict`] with
-    /// `tag`, or [`Event::VerdictMissing`]. It goes to a node we hold a
-    /// settlement channel with even if the peering ended. The node sends
-    /// it again until a verdict comes back.
-    ///
-    /// # Errors
-    ///
-    /// No way to reach the node, or too much in flight: nothing was sent.
-    pub fn send_fulfill(
-        &mut self,
-        now_ms: u64,
-        peer: &NodeId,
-        request_id: u32,
-        packet: &[u8],
-        tag: u64,
-    ) -> Result<(), SendError> {
-        self.advance(now_ms);
-        let contact = self.contact(peer).or_else(|| {
-            self.channels
-                .get(peer)
-                .map(|channel| (channel.key, channel.url.clone()))
-        });
-        let (key, url) = contact.ok_or(SendError::NotPeered)?;
-        let content = Content::InterledgerPacket { request_id, packet };
-        let timeout = self.config.request_timeout_ms;
-        self.send_via(*peer, key, url, &content, Purpose::Confirm(tag), timeout)
-            .map(|_| ())
-            .ok_or(SendError::Busy)
-    }
-
-    /// The reply to a Fulfill of ours: its verdict, or none.
-    fn on_verdict(&mut self, peer: NodeId, tag: u64, result: &Result<Vec<u8>, Problem>) {
-        let event = match result.as_deref() {
-            Ok([VERDICT_ACCEPTED]) => Event::Verdict {
-                peer,
-                tag,
-                accepted: true,
-            },
-            Ok([VERDICT_REFUSED]) => Event::Verdict {
-                peer,
-                tag,
-                accepted: false,
-            },
-            _ => Event::VerdictMissing { peer, tag },
-        };
-        self.event(event);
-    }
-
-    /// Sends an ILP Reject to a peer, or a Fulfill that moved no money,
-    /// answering its Prepare `request_id`. It is sent again until it
-    /// arrives or the longest a Prepare is held has passed; a copy that
-    /// arrives twice is dropped by the peer. One that never arrives has
-    /// the effect of the packet's expiry.
+    /// Sends an ILP Fulfill or Reject to a peer, answering its Prepare
+    /// `request_id`. It is sent again until it arrives or the longest a
+    /// Prepare is held has passed; a copy that arrives twice is dropped by
+    /// the peer. A Reject that never arrives has the effect of the packet's
+    /// expiry; a Fulfill counts in our books whether or not the peer took
+    /// it (D23).
     pub fn send_response(&mut self, now_ms: u64, peer: &NodeId, request_id: u32, packet: &[u8]) {
         self.advance(now_ms);
         let answer = Answer {

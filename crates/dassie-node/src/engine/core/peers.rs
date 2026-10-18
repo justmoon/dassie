@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use dassie_connector::{Connector, EndpointId};
 use dassie_identity::NodeId;
 use dassie_ilp::ErrorCode;
-use dassie_ledger::{AccountName, AccountPath, Ledger, LedgerId, MAX_TOTAL, Name};
+use dassie_ledger::{AccountName, AccountPath, Ledger, LedgerId, Name};
 use dassie_peer::wire::{RefusalReason, SchemeId, TerminationReason};
 use dassie_peer::{
     Agreed, BanError, Declined, Event, InboundId, Output as PeerOutput, PeeringHooks, Reply,
@@ -16,6 +16,7 @@ use dassie_peer::{
 use super::events::{PeerEvent, SettlementEvent};
 use super::ledgers::ActiveScheme;
 use super::{Core, EngineError, Output};
+use crate::store::PeerSettings;
 
 /// What peering needs, over the core's schemes, ledger and connector.
 pub(super) struct Hooks<'a> {
@@ -24,7 +25,6 @@ pub(super) struct Hooks<'a> {
     pub credit: u64,
     pub connector: &'a Connector,
     pub endpoints: &'a BTreeMap<NodeId, u64>,
-    pub owed: &'a super::verdicts::Owed,
 }
 
 impl Hooks<'_> {
@@ -63,9 +63,10 @@ impl Hooks<'_> {
 enum Inbound {
     Reply(Reply),
     Deferred,
-    Packet(NodeId, u32, Vec<u8>, Reply, Option<dassie_peer::Verdicts>),
+    Packet(NodeId, u32, Vec<u8>, Reply),
     Settlement(NodeId, SchemeId, u64, Vec<u8>, u64, Reply),
     SchemeMessage(NodeId, SchemeId, Vec<u8>, Reply),
+    SettlementRequest(NodeId, SchemeId, Reply),
 }
 
 /// A node's name in the ledger.
@@ -108,13 +109,9 @@ impl PeeringHooks for Hooks<'_> {
         peer: NodeId,
         scheme: SchemeId,
         _version: u16,
-        credit_in: u64,
         data: &[u8],
         response: &mut Vec<u8>,
     ) -> Result<Agreed, RefusalReason> {
-        if credit_in > MAX_TOTAL {
-            return Err(RefusalReason::SchemeRefused);
-        }
         let peer_name = name(peer).ok_or(RefusalReason::Unspecified)?;
         let active = self
             .scheme(scheme)
@@ -139,13 +136,9 @@ impl PeeringHooks for Hooks<'_> {
         peer: NodeId,
         scheme: SchemeId,
         _version: u16,
-        credit_in: u64,
         info: &[u8],
         data: &[u8],
     ) -> Result<Agreed, Declined> {
-        if credit_in > MAX_TOTAL {
-            return Err(Declined);
-        }
         let peer_name = name(peer).ok_or(Declined)?;
         let active = self.scheme(scheme).ok_or(Declined)?;
         let ledger = active.scheme.ledger();
@@ -159,26 +152,10 @@ impl PeeringHooks for Hooks<'_> {
         Ok(Agreed { state, credit_out })
     }
 
-    fn drained(&self, peer: NodeId, termination: &dassie_peer::Termination, now_ms: u64) -> bool {
-        let packets = self
-            .endpoints
+    fn drained(&self, peer: NodeId) -> bool {
+        self.endpoints
             .get(&peer)
-            .is_none_or(|id| self.connector.pending_for(EndpointId::Peer(*id)) == 0);
-        // Verdicts normally come back in seconds; a peer that stopped
-        // answering, or keeps us waiting, may never give them. They are
-        // still asked for over the settlement channel.
-        let verdicts = termination.reason != TerminationReason::Unresponsive
-            && self.owed.holds(&peer, termination.since_ms, now_ms);
-        packets && !verdicts
-    }
-
-    fn credit(&self, peer: NodeId, scheme: SchemeId) -> u64 {
-        Name::new(scheme.as_str())
-            .ok()
-            .and_then(|name| self.schemes.get(&name))
-            .map_or(self.credit, |active| {
-                self.credit_for(peer, active.scheme.ledger())
-            })
+            .is_none_or(|id| self.connector.pending_for(EndpointId::Peer(*id)) == 0)
     }
 }
 
@@ -197,8 +174,6 @@ pub struct PeerView {
     pub online: bool,
     /// What we owe the peer net; negative when it owes us.
     pub owed: Option<i128>,
-    /// What it cost us at its last check, against its grace limit (D18).
-    pub cost: Option<crate::store::PeerCost>,
 }
 
 /// The network as the owner sees it.
@@ -216,8 +191,8 @@ pub struct NetworkView {
     pub registration: Vec<dassie_peer::RegistrationStatus>,
     /// Settlement channels, with nodes peered with now or before.
     pub channels: Vec<(NodeId, dassie_peer::Channel)>,
-    /// Banned nodes, with why where that is known.
-    pub bans: Vec<(NodeId, Option<crate::store::BanRecord>)>,
+    /// Banned nodes.
+    pub bans: Vec<NodeId>,
     /// Routes to the node's own endpoints other than peers: address,
     /// endpoint and ledger.
     pub local_routes: Vec<(String, EndpointId, dassie_ledger::LedgerId)>,
@@ -226,6 +201,29 @@ pub struct NetworkView {
 }
 
 impl Core {
+    /// The owner's peer settings.
+    pub const fn peer_settings(&self) -> PeerSettings {
+        self.peer_settings
+    }
+
+    /// Changes the owner's peer settings.
+    ///
+    /// # Errors
+    ///
+    /// They are out of range.
+    pub fn set_peer_settings(&mut self, settings: PeerSettings) -> Result<(), EngineError> {
+        if !settings.is_valid() {
+            return Err(EngineError::Invalid(
+                "the fee and the spread must be at most 100 000 ppm".into(),
+            ));
+        }
+        self.connector.set_charges(settings.charges());
+        self.peer_settings = settings;
+        self.batch.peer_settings = Some(settings);
+        self.changes.network = true;
+        Ok(())
+    }
+
     /// The network as the owner sees it.
     pub fn network(&self) -> NetworkView {
         NetworkView {
@@ -241,7 +239,6 @@ impl Core {
                     Some(PeerView {
                         id: view.id,
                         owed: self.owed(view.id, peering.scheme),
-                        cost: self.grace.cost(&view.id),
                         peering,
                         termination: view.termination,
                         advertised: view.advertised,
@@ -255,11 +252,7 @@ impl Core {
                 .channels()
                 .map(|(id, channel)| (*id, channel.clone()))
                 .collect(),
-            bans: self
-                .peer
-                .bans()
-                .map(|node| (*node, self.ban_record(node)))
-                .collect(),
+            bans: self.peer.bans().copied().collect(),
             local_routes: self
                 .connector
                 .endpoints()
@@ -282,7 +275,6 @@ impl Core {
             credit: self.peer_credit,
             connector: &self.connector,
             endpoints: &self.peer_endpoints,
-            owed: &self.owed,
         };
         f(&mut self.peer, &mut hooks, now)
     }
@@ -304,8 +296,7 @@ impl Core {
                     request_id,
                     packet,
                     reply,
-                    verdicts,
-                } => Inbound::Packet(from, request_id, packet.to_vec(), reply, verdicts),
+                } => Inbound::Packet(from, request_id, packet.to_vec(), reply),
                 dassie_peer::Inbound::Settlement {
                     from,
                     scheme,
@@ -320,28 +311,29 @@ impl Core {
                     message,
                     reply,
                 } => Inbound::SchemeMessage(from, scheme, message.to_vec(), reply),
+                dassie_peer::Inbound::SettlementRequest {
+                    from,
+                    scheme,
+                    reply,
+                } => Inbound::SettlementRequest(from, scheme, reply),
             }
         });
         let reply = match outcome {
             Inbound::Reply(reply) => Some(reply),
             Inbound::Deferred => None,
-            Inbound::Packet(from, request_id, packet, reply, verdicts) => {
-                let taken = self.peer_packet(from, request_id, &packet);
-                // A Fulfill's reply is our verdict on it (D17). A liar's is
-                // a refusal whatever it took.
-                Some(match verdicts {
-                    Some(verdicts) if taken && !self.lies(super::Lie::RefuseFulfills) => {
-                        verdicts.accepted
-                    }
-                    Some(verdicts) => verdicts.refused,
-                    None => reply,
-                })
+            Inbound::Packet(from, request_id, packet, reply) => {
+                self.peer_packet(from, request_id, &packet);
+                Some(reply)
             }
             Inbound::Settlement(from, scheme, amount, data, sequence, reply) => {
                 Some(self.settlement_from(from, scheme, amount, &data, sequence, reply))
             }
             Inbound::SchemeMessage(from, scheme, message, reply) => {
                 self.scheme_message(from, scheme, &message);
+                Some(reply)
+            }
+            Inbound::SettlementRequest(from, scheme, reply) => {
+                self.settlement_requested(from, scheme);
                 Some(reply)
             }
         };
@@ -428,20 +420,6 @@ impl Core {
             BanError::Ourselves => EngineError::Invalid("a node cannot ban itself".into()),
             BanError::Full => EngineError::Exhausted("too many banned nodes".into()),
         })?;
-        // A ban made already keeps its record: its reason, and what the
-        // peer cost if that was why.
-        let kept = self
-            .ban_record(&node)
-            .is_some_and(|record| record.unbanned_at_ms.is_none());
-        if !kept {
-            self.record_ban(crate::store::BanRecord {
-                node,
-                reason: crate::store::BanReason::Owner,
-                banned_at_ms: now,
-                cost: None,
-                unbanned_at_ms: None,
-            });
-        }
         self.after_peer();
         Ok(())
     }
@@ -456,7 +434,6 @@ impl Core {
         if !self.peer.unban(now, node) {
             return Err(EngineError::NotFound("the node is not banned".into()));
         }
-        self.record_unban(*node);
         self.after_peer();
         Ok(())
     }
@@ -570,8 +547,6 @@ impl Core {
                 }
                 self.update_routes();
             }
-            Event::Verdict { tag, accepted, .. } => self.verdict_on(tag, accepted),
-            Event::VerdictMissing { tag, .. } => self.verdict_missing(tag),
             _ => {}
         }
     }

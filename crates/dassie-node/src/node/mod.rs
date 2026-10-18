@@ -91,15 +91,14 @@ pub struct Policies {
     /// The credit extended to a new peer, in its ledger's units: 1.1 units
     /// at scale 9 on the test network (spec 5 §2.7).
     pub peer_credit: u64,
-    /// How often what is owed to peers is checked (spec 5 §4.6).
+    /// How often peers are checked, to ask those near the credit we extend
+    /// to settle (D23).
     pub settlement_interval_ms: u64,
-    /// How far above the middle of the credit range settling begins, in
-    /// parts per million, doubled: 200 000 is the original's 1.1 times.
-    pub settlement_ratio_ppm: u32,
+    /// How often a peer that did not settle since it was last asked is
+    /// asked again, at most.
+    pub settlement_request_every_ms: u64,
     /// Open Payments' incoming payments.
     pub incoming: crate::engine::IncomingPolicy,
-    /// The timing of each peer's grace limit (D18).
-    pub grace: crate::engine::GracePolicy,
     /// How often exchange rates are fetched (D7).
     pub rates_every_ms: u64,
 }
@@ -137,9 +136,8 @@ impl Policies {
         peer: dassie_peer::Config::DEFAULT,
         peer_credit: 1_100_000_000,
         settlement_interval_ms: 4_000,
-        settlement_ratio_ppm: dassie_settlement::policy::DEFAULT_RATIO_PPM,
+        settlement_request_every_ms: 60_000,
         incoming: crate::engine::IncomingPolicy::DEFAULT,
-        grace: crate::engine::GracePolicy::DEFAULT,
         rates_every_ms: 60_000,
     };
 
@@ -148,7 +146,7 @@ impl Policies {
     pub const DEV: Self = Self {
         peer: dassie_peer::Config::DEV,
         settlement_interval_ms: 1_000,
-        grace: crate::engine::GracePolicy::DEV,
+        settlement_request_every_ms: 5_000,
         ..Self::DEFAULT
     };
 

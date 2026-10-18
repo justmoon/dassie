@@ -168,8 +168,8 @@ async fn dollars_arrive_as_xrp() {
     // About one dollar went out; B's receiver has its 2 XRP.
     let paid = payment.sent_amount;
     assert!((1_000_000_000..=1_000_000_100).contains(&paid), "{paid}");
-    // A counts a packet sent on its Fulfill, but B counts it received only
-    // on A's verdict (D17), which may come a moment later.
+    // B counted each packet received as it posted it, before its Fulfill
+    // went back to A (D23).
     let received = async || {
         let Ok(response::Method::ListIncomingPayments(list)) = b
             .ipc()

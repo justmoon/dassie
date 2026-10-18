@@ -42,75 +42,10 @@ fn commit(store: &Store, ledger: &mut Ledger, mut batch: LedgerBatch) {
     store.commit_ledger(&batch).unwrap();
 }
 
-fn owed(account: AccountId, owner: AccountId, fulfill: Vec<u8>) -> OwedFulfill {
-    OwedFulfill {
-        trace: TRACE,
-        peer: peer(),
-        request_id: u32::MAX,
-        fulfill,
-        compensation: Compensation::Reverse,
-        transfers: [
-            Some((account, owner, 40)),
-            Some((owner, account, 1)),
-            Some((account, owner, 2)),
-        ],
-        incoming: Some(IncomingPaid {
-            payment: PaymentId([7; 16]),
-            connection: ConnectionKey([8; 16]),
-            amount: 40,
-        }),
-        expires_at_ms: 99,
-        created_at_ms: 60,
-    }
-}
-
-// D17: a Fulfill owed a verdict survives a restart as written, the
-// largest a Fulfill can be included, and goes once its verdict came.
+// A refusal booked before each node kept its own books (D17, D23) stays a
+// journal row with the packet's trace.
 #[test]
-fn owed_fulfills_round_trip() {
-    let store = Store::open_in_memory().unwrap();
-    let (mut ledger, account, owner) = accounts(&store);
-    let largest = dassie_ilp::Fulfill {
-        fulfillment: [1; 32],
-        data: &vec![2; dassie_ilp::MAX_DATA_LENGTH],
-    };
-    let mut bytes = vec![0; dassie_ilp::MAX_PACKET_LENGTH];
-    let length = dassie_oer::Encode::encode(&largest, &mut bytes);
-    bytes.truncate(length);
-    let row = owed(account, owner, bytes);
-    let mut batch = LedgerBatch::default();
-    batch.verdicts.owed.push(row.clone());
-    commit(&store, &mut ledger, batch);
-    assert_eq!(store.owed_fulfills().unwrap(), [row]);
-    let mut batch = LedgerBatch::default();
-    batch.verdicts.settled.push(TRACE);
-    commit(&store, &mut ledger, batch);
-    assert!(store.owed_fulfills().unwrap().is_empty());
-}
-
-// D17: a Fulfill taken answers a resend with the same condition only, and
-// is forgotten after its time.
-#[test]
-fn fulfills_taken_answer_resends_until_forgotten() {
-    let store = Store::open_in_memory().unwrap();
-    let (mut ledger, _, _) = accounts(&store);
-    let mut batch = LedgerBatch::default();
-    batch.verdicts.taken.push((peer(), 5, [4; 32]));
-    commit(&store, &mut ledger, batch);
-    assert!(store.fulfill_taken(&peer(), 5, &[4; 32]).unwrap());
-    assert!(!store.fulfill_taken(&peer(), 5, &[3; 32]).unwrap());
-    assert!(!store.fulfill_taken(&peer(), 6, &[4; 32]).unwrap());
-    let mut batch = LedgerBatch::default();
-    batch.verdicts.forget_before_ms = Some(51);
-    commit(&store, &mut ledger, batch);
-    assert!(!store.fulfill_taken(&peer(), 5, &[4; 32]).unwrap());
-}
-
-// A refusal is a journal row with the packet's trace, which says what a
-// peer's refusals cost since a time: only the losses, not what our own
-// receiver took back.
-#[test]
-fn refusals_are_journaled_per_peer() {
+fn refusals_booked_before_stay_in_the_journal() {
     let store = Store::open_in_memory().unwrap();
     let (mut ledger, account, owner) = accounts(&store);
     let spec = TransferSpec {
@@ -122,9 +57,6 @@ fn refusals_are_journaled_per_peer() {
     };
     ledger.create(70, &spec).unwrap();
     commit(&store, &mut ledger, LedgerBatch::default());
-    assert_eq!(store.losses_since(account, owner, 70).unwrap(), 25);
-    assert_eq!(store.losses_since(account, owner, 71).unwrap(), 0);
-    assert_eq!(store.losses_since(account, account, 70).unwrap(), 0);
     let rows = store.transfers_after(None, 10, Some(account)).unwrap();
     let refusal = rows.iter().find(|row| row.transfer.amount == 25).unwrap();
     assert_eq!(refusal.transfer.reference, Reference::Refusal(TRACE));
@@ -154,4 +86,59 @@ fn transfers_survive_the_upgrade_to_refusals() {
     let rows = store.transfers_after(None, 10, None).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].transfer.reference, Reference::Deposit);
+}
+
+// Migration 15: what our receiver took for a Fulfill still owed a verdict
+// counts as received, completing a payment it fills; the bans made for a
+// grace limit are lifted, the owner's stay; the verdicts' tables go.
+#[test]
+fn owed_fulfills_count_and_grace_bans_lift_over_the_upgrade() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
+    connection
+        .pragma_update(None, "application_id", APPLICATION_ID)
+        .unwrap();
+    schema::migrate_until(&mut connection, 14).unwrap();
+    let grace = NodeKey::from_bytes(&[5; 32]).node_id();
+    let owner = NodeKey::from_bytes(&[6; 32]).node_id();
+    connection
+        .execute_batch(&format!(
+            "INSERT INTO ledger_accounts VALUES (0, 'stub+usd:assets/interledger/dpeer', 0, 0); \
+             INSERT INTO ledger_accounts VALUES (1, 'stub+usd:equity/owner', 0, 0); \
+             INSERT INTO incoming_payments VALUES (x'01010101010101010101010101010101', \
+             'stub+usd', 'https://a.example/pay', NULL, 100, 40, 'g.a.b', zeroblob(32), NULL, \
+             10, 1000, NULL, 1); \
+             INSERT INTO incoming_payments VALUES (x'02020202020202020202020202020202', \
+             'stub+usd', 'https://a.example/pay', NULL, 50, 20, 'g.a.c', zeroblob(32), NULL, \
+             10, 1000, NULL, 2); \
+             INSERT INTO incoming_connections VALUES \
+               (x'01010101010101010101010101010101', x'08080808080808080808080808080808', 40); \
+             INSERT INTO owed_fulfills (packet_epoch, packet_sequence, peer, request_id, \
+               fulfill, compensation, debit_1, credit_1, amount_1, incoming_payment, \
+               incoming_amount, incoming_connection, expires_at_ms, created_at_ms) VALUES \
+               (1, 1, 'dpeer', 7, x'0d', 'reverse', 0, 1, 25, \
+                x'01010101010101010101010101010101', 25, x'08080808080808080808080808080808', 90, 60), \
+               (1, 2, 'dpeer', 8, x'0d', 'reverse', 0, 1, 30, \
+                x'02020202020202020202020202020202', 30, x'09090909090909090909090909090909', 90, 70), \
+               (1, 3, 'dpeer', 9, x'0d', 'loss', 0, 1, 5, NULL, NULL, NULL, 90, 80); \
+             INSERT INTO peer_bans VALUES ('{grace}'), ('{owner}'); \
+             INSERT INTO peer_ban_records VALUES \
+               ('{grace}', 'grace-limit', 5, 'stub+usd', 2, 0, 1, NULL), \
+               ('{owner}', 'owner', 6, NULL, NULL, NULL, NULL, NULL);",
+        ))
+        .unwrap();
+    drop(connection);
+    let store = Store::open(temp.path()).unwrap();
+    let open = store.incoming_payment(PaymentId([1; 16])).unwrap().unwrap();
+    assert_eq!((open.received_amount, open.completed_at_ms), (65, None));
+    let filled = store.incoming_payment(PaymentId([2; 16])).unwrap().unwrap();
+    assert_eq!(
+        (filled.received_amount, filled.completed_at_ms),
+        (50, Some(70))
+    );
+    assert_eq!(
+        store.open_incoming_connections(30, 10).unwrap(),
+        [(PaymentId([1; 16]), ConnectionKey([8; 16]), 65)]
+    );
+    assert_eq!(store.load_peer().unwrap().bans, [owner]);
 }

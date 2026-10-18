@@ -38,8 +38,9 @@ pub enum Reference {
     /// checkpoint, found at activation (ACC-6).
     Reconciliation,
     /// The compensation for a packet whose Fulfill the upstream peer
-    /// refused after it was posted here (D17): it reverses the packet, or
-    /// books the loss.
+    /// refused after it was posted here: it reversed the packet, or booked
+    /// the loss. Nodes booked these before each kept its own Fulfills
+    /// (D17, D23); it stays for the journals that have it.
     Refusal(TraceId),
     /// A fee the underlying ledger charged for one of our transactions.
     Fee {

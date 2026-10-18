@@ -24,7 +24,7 @@ use dassie_peer::wire::{
 };
 use dassie_peer::{
     Agreed, Bootstrap, Config, Declined, Event, Failure, Inbound, InboundId, Output, OwnInfo,
-    PeerBatch, PeerNode, PeeringHooks, Request, RequestId, Response, Stored, Termination,
+    PeerBatch, PeerNode, PeeringHooks, Request, RequestId, Response, Stored,
 };
 
 pub const START: u64 = 1_800_000_000_000;
@@ -40,10 +40,6 @@ pub struct StubHooks {
 impl PeeringHooks for StubHooks {
     fn versions(&self, scheme: SchemeId) -> &'static [u16] {
         if scheme.as_str() == "stub" { &[1] } else { &[] }
-    }
-
-    fn credit(&self, _: NodeId, _: SchemeId) -> u64 {
-        CREDIT
     }
 
     fn peering_info(&mut self, scheme: SchemeId, _: &mut Vec<u8>) -> Result<(), Declined> {
@@ -70,7 +66,6 @@ impl PeeringHooks for StubHooks {
         _: NodeId,
         _: SchemeId,
         _: u16,
-        _: u64,
         _: &[u8],
         _: &mut Vec<u8>,
     ) -> Result<Agreed, RefusalReason> {
@@ -86,7 +81,6 @@ impl PeeringHooks for StubHooks {
         _: NodeId,
         _: SchemeId,
         _: u16,
-        _: u64,
         _: &[u8],
         _: &[u8],
     ) -> Result<Agreed, Declined> {
@@ -96,7 +90,7 @@ impl PeeringHooks for StubHooks {
         })
     }
 
-    fn drained(&self, peer: NodeId, _termination: &Termination, _now_ms: u64) -> bool {
+    fn drained(&self, peer: NodeId) -> bool {
         !self.busy.contains(&peer)
     }
 }
@@ -200,14 +194,14 @@ pub struct Network {
     pub packets: Vec<(usize, NodeId, u32)>,
     /// Settlements applied.
     pub applied: Vec<Applied>,
+    /// Settlement requests taken: by which node, from whom.
+    pub settlement_requests: Vec<(usize, NodeId)>,
     /// Settlements sent: by which node, to whom, how much, with which
     /// sequence.
     pub settled: Vec<(usize, NodeId, u64, u64)>,
     /// Whether a node settles everything it owes when a peering ends, as
     /// the node's core does: one unit, here.
     pub settle_on_end: bool,
-    /// The request IDs whose Fulfills are refused.
-    pub refused: BTreeSet<u32>,
     /// Rewrites the body of every response with status 200 before it
     /// arrives, as a node would that answers anything it likes: the MAC is
     /// made again, so the body gets past it to what reads it.
@@ -242,9 +236,9 @@ impl Network {
             events: Vec::new(),
             packets: Vec::new(),
             applied: Vec::new(),
+            settlement_requests: Vec::new(),
             settled: Vec::new(),
             settle_on_end: false,
-            refused: BTreeSet::new(),
             tamper: None,
             macs: BTreeMap::new(),
         };
@@ -583,16 +577,10 @@ impl Network {
                 reply,
                 from: sender,
                 request_id,
-                verdicts,
                 ..
             } => {
                 self.packets.push((to, sender, request_id));
-                // A Fulfill is taken, unless its ID is one to refuse.
-                Some(match verdicts {
-                    Some(verdicts) if self.refused.contains(&request_id) => verdicts.refused,
-                    Some(verdicts) => verdicts.accepted,
-                    None => reply,
-                })
+                Some(reply)
             }
             Inbound::Settlement {
                 from: sender,
@@ -611,6 +599,14 @@ impl Network {
                 Some(reply)
             }
             Inbound::SchemeMessage { reply, .. } => Some(reply),
+            Inbound::SettlementRequest {
+                from: sender,
+                reply,
+                ..
+            } => {
+                self.settlement_requests.push((to, sender));
+                Some(reply)
+            }
         };
         self.drain(to);
         if let Some(reply) = reply {
@@ -736,7 +732,8 @@ impl Network {
         let reply = match node.handle_inbound(now, &mut sim.hooks, inbound, body, None) {
             Inbound::Reply(reply)
             | Inbound::Packet { reply, .. }
-            | Inbound::SchemeMessage { reply, .. } => reply,
+            | Inbound::SchemeMessage { reply, .. }
+            | Inbound::SettlementRequest { reply, .. } => reply,
             Inbound::Settlement {
                 from,
                 sequence,

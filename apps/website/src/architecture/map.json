@@ -105,7 +105,7 @@
         "Accounts and ledgers, sending and receiving, payment status and activity",
         "Wallet addresses and payment requests for Open Payments",
         "The consent page for apps, the apps it has let in, and their grants",
-        "The network as the node routes over it, its peers online and offline, bans, what each peer cost, and the node's settings",
+        "The network as the node routes over it, its peers online and offline, bans, and the node's settings",
         "Debug pages, and live data over RPC streams everywhere"
       ]
     },
@@ -303,7 +303,7 @@
         "The peer protocol, served as `POST /peer`, with its HTTPS client and the settlement loop",
         "RPC with live streams, the log ring, the database inspector and `GET /stats`",
         "Open Payments over HTTPS: wallet addresses, incoming payments, the GNAP authorization server, quotes and outgoing payments",
-        "Exchange rates, fetched from several sources, and a grace limit per peer with automatic bans",
+        "Exchange rates, fetched from several sources, and the fee and spread on what passes between peers",
         "Simulated in tests as a network of real engine cores, crashes mid-payment included"
       ]
     },
@@ -369,8 +369,7 @@
         "The wire format and message authentication",
         "The node table, link-state flooding, membership by majority and registration",
         "Peering on its own, and routing",
-        "Delivering settlements, ending peerings, bans",
-        "Verdicts on Fulfills: the upstream peer decides whether one counted"
+        "Delivering settlements and requests to settle, ending peerings, bans"
       ]
     },
     "connector": {
@@ -1003,7 +1002,7 @@
             "ledger",
             "peer"
           ],
-          "text": "Each node books the Fulfill in its own books at once. The upstream peer's verdict then says whether it counted, and so who bears a loss."
+          "text": "Each node books the Fulfill in its own books at once, and keeps it there whether or not its upstream peer counts it too."
         },
         {
           "ids": [
@@ -1047,7 +1046,7 @@
             "settlement",
             "xrpl"
           ],
-          "text": "Once a node owes a peer more than a threshold, it settles through a scheme they share, such as the XRP Ledger testnet."
+          "text": "Once a peer owes a node half the credit the node extends to it, the node asks it to settle, and the peer pays through a scheme they share, such as the XRP Ledger testnet."
         },
         {
           "ids": [

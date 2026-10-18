@@ -45,14 +45,10 @@ pub struct LedgerBatch {
     /// What each connection of an incoming payment received now.
     pub incoming_connections:
         std::collections::BTreeMap<(super::PaymentId, super::ConnectionKey), u64>,
-    /// Fulfills owed a verdict, verdicts come, and Fulfills taken (D17).
-    pub verdicts: super::VerdictBatch,
     /// Outgoing payments made, what they sent, and grant spend.
     pub outgoing: super::OutgoingBatch,
     /// The owner's peer settings, if they changed.
     pub peer_settings: Option<super::PeerSettings>,
-    /// Bans made and lifted, with why (D18).
-    pub bans: Vec<super::BanChange>,
 }
 
 impl LedgerBatch {
@@ -70,10 +66,8 @@ impl LedgerBatch {
             && self.incoming_created.is_empty()
             && self.incoming_progress.is_empty()
             && self.incoming_connections.is_empty()
-            && self.verdicts.is_empty()
             && self.outgoing.is_empty()
             && self.peer_settings.is_none()
-            && self.bans.is_empty()
     }
 
     /// Whether it changes Open Payments resources.
@@ -316,9 +310,8 @@ impl Store {
             &batch.incoming_progress,
             &batch.incoming_connections,
         )?;
-        super::owed::write_verdicts(&transaction, &batch.verdicts, batch.at_ms)?;
         super::outgoing::write_outgoing(&transaction, &batch.outgoing)?;
-        super::grace::write_grace(&transaction, batch.peer_settings, &batch.bans)?;
+        super::peer_settings::write_peer_settings(&transaction, batch.peer_settings)?;
         transaction.commit()?;
         Ok(())
     }

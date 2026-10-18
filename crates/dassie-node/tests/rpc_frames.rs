@@ -689,14 +689,11 @@ fn sending() -> BoxedStrategy<Method> {
             .prop_map(|node| Method::TerminatePeering(proto::TerminatePeeringRequest { node })),
         node_id().prop_map(|node| Method::BanNode(proto::BanNodeRequest { node })),
         node_id().prop_map(|node| Method::UnbanNode(proto::UnbanNodeRequest { node })),
-        proptest::option::of((small(), small(), small())).prop_map(|settings| {
+        proptest::option::of((small(), small())).prop_map(|settings| {
             Method::SetPeerSettings(proto::SetPeerSettingsRequest {
-                settings: settings.map(|(grace_share_ppm, connector_fee_ppm, fx_spread_ppm)| {
-                    proto::PeerSettings {
-                        grace_share_ppm,
-                        connector_fee_ppm,
-                        fx_spread_ppm,
-                    }
+                settings: settings.map(|(connector_fee_ppm, fx_spread_ppm)| proto::PeerSettings {
+                    connector_fee_ppm,
+                    fx_spread_ppm,
                 }),
             })
         }),

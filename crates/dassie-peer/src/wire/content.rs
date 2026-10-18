@@ -75,6 +75,12 @@ pub enum Content<'a> {
     },
     /// `peeringTermination [10]`.
     PeeringTermination(TerminationReason),
+    /// `settlementRequest [11]`: the sender asks the recipient to settle
+    /// on `scheme`, leaving the amount to it (D23).
+    SettlementRequest {
+        /// The scheme.
+        scheme: SchemeId,
+    },
 }
 
 /// Why a peering is terminated. Unknown codes read as
@@ -132,6 +138,7 @@ impl Content<'_> {
             Self::Registration(_) => Kind::Registration,
             Self::PeeringInfoRequest { .. } => Kind::PeeringInfoRequest,
             Self::PeeringTermination(_) => Kind::PeeringTermination,
+            Self::SettlementRequest { .. } => Kind::SettlementRequest,
         }
     }
 
@@ -159,7 +166,9 @@ impl Content<'_> {
                 scheme.encoded_len() + size::prefixed(message.len())
             }
             Self::NodeListHashRequest | Self::NodeListRequest => 0,
-            Self::PeeringInfoRequest { scheme } => scheme.encoded_len(),
+            Self::PeeringInfoRequest { scheme } | Self::SettlementRequest { scheme } => {
+                scheme.encoded_len()
+            }
             Self::PeeringTermination(_) => 1,
         }
     }
@@ -214,7 +223,9 @@ impl Encode for Content<'_> {
                 writer.write_octets(message, Size::ANY);
             }
             Self::NodeListHashRequest | Self::NodeListRequest => {}
-            Self::PeeringInfoRequest { scheme } => scheme.write(writer),
+            Self::PeeringInfoRequest { scheme } | Self::SettlementRequest { scheme } => {
+                scheme.write(writer);
+            }
             Self::PeeringTermination(reason) => writer.write_u8(reason.code()),
         }
     }
@@ -265,6 +276,9 @@ impl<'a> Decode<'a> for Content<'a> {
             Kind::PeeringTermination => {
                 Self::PeeringTermination(TerminationReason::from_code(reader.read_u8()?))
             }
+            Kind::SettlementRequest => Self::SettlementRequest {
+                scheme: SchemeId::read(reader)?,
+            },
         })
     }
 }

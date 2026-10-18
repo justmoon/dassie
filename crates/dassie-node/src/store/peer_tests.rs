@@ -27,7 +27,6 @@ fn node(seed: u8) -> StoredNode {
             scheme: SchemeId::parse("stub").unwrap(),
             version: 1,
             state: vec![1, 2],
-            credit_in: 1_100_000_000,
             credit_out: 900,
             since_ms: 14,
             inbound: true,

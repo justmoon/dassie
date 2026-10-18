@@ -5,11 +5,11 @@
 //! An outgoing payment sends its debit amount to its receiver on one
 //! STREAM connection; at most [`MAX_SENDING`] send at once, and the rest
 //! wait their turn. What it sent is what the connector posted, written
-//! with the journal row (D17): a packet in flight at a crash was never
-//! posted, so a restart sends only the rest, on a new connection with the
-//! same credentials. A payment completes once it sent its debit amount,
-//! or once the receiver says it has what it was to get, which a hop that
-//! lost a packet may have paid for (D17); it fails when the receiver keeps
+//! with the journal row: a packet in flight at a crash was never posted,
+//! so a restart sends only the rest, on a new connection with the same
+//! credentials. A payment completes once it sent its debit amount, or once
+//! the receiver says it has what it was to get, which a hop that lost a
+//! Fulfill may have paid for (D23); it fails when the receiver keeps
 //! closing it or its deadline passes. It ends
 //! only once none of its packets is in flight, so what it says it sent is
 //! final. A packet to the node's own receiver waits in a bounded queue the
@@ -695,13 +695,11 @@ impl Core {
             payment.stopping = Some("the payment ran out of time".into());
         }
         // One of a fixed amount to deliver also ends once the receiver has
-        // it, which a hop that lost a packet may have paid for (D17), or
+        // it, which a hop that lost a Fulfill may have paid for (D23), or
         // all of it but less than a unit sent is worth: no packet can be
         // sized to deliver that, as the hops round down. One of a fixed
         // amount to send ends once it delivered what its quote said, and
-        // the receiver takes no more: a request it filled. (A receiver
-        // also takes no more while packets wait for a peer's verdict, so
-        // that alone does not end one.)
+        // the receiver takes no more: a request it filled.
         let receive = u128::from(payment.row.receive_amount.value);
         let debit = u128::from(payment.row.debit_amount.max(1));
         let short = receive.saturating_sub(u128::from(delivered));

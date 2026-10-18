@@ -195,17 +195,16 @@ Most of the original's integrity gaps come from state it keeps only in memory, o
 | Node table: nodes, link states (signed bytes), registrations, peers with scheme state | written only by dev prefill | written on every change (NET-1, NET-2, ACC-18) |
 | Own link-state sequence | memory | persisted high-water mark (NET-7) |
 | Settlement channels: per node ever peered with, the highest settlement sequence applied and sent, and the settlement message not yet acknowledged | none | in the batch that changes them; kept after the peering ends ([§4.7](#47-peer-protocol-v1)) |
-| Bans | none | a table of node IDs, and a record of each ban: by the owner or for what a peer cost ([D18](08-decisions.md#d18-one-grace-limit-per-peer)), with that cost, when, and when it was lifted. A record outlives its ban; at most 2048 are kept, the longest lifted going first |
-| Peer settings | none | the owner's grace share ([D18](08-decisions.md#d18-one-grace-limit-per-peer)), fee and spread ([D7](08-decisions.md#d7-exchange-rates-fees-and-spread)), in a single-row table |
+| Bans | none | a table of node IDs, the owner's only ([D23](08-decisions.md#d23-each-node-books-its-own-fulfills)) |
+| Peer settings | none | the owner's fee and spread ([D7](08-decisions.md#d7-exchange-rates-fees-and-spread)), in a single-row table |
 | Replay state of peer messages | none (no replay protection) | per peer, the newest accepted message timestamp, written with the batch it took effect in ([§4.7](#47-peer-protocol-v1)) |
 | Ledger | cumulative posted totals | append-only **transfer journal** (id, debit, credit, amount, state, timestamps, reference to packet or settlement), with account balances cached in the same transaction. Only transfers that reach posted balances are journaled, plus pending settlements; a voided packet transfer never touched a posted balance and leaves no row |
 | Pending ILP transfers | memory | memory only: in-flight packets cannot survive a restart, so a restarted ledger has none |
-| Fulfills owed a verdict, and Fulfills taken | none | the downstream keeps each Fulfill it sent a peer, with the packet's transfers as posted (three at most: the packet's two legs and our fee), until the peer's verdict comes back, written with the journal rows that post the packet; the upstream records each Fulfill it took from a peer for 30 days, so it answers a resend the same way ([D17](08-decisions.md#d17-the-upstream-decides-whether-a-fulfill-counted)) |
 | Pending outgoing settlements | memory | journal rows with module-specific reference (tx hash), reconciled on startup (ACC-16) |
 | Settlement-module balance checkpoints | none (full balance re-deposited at every start) | last reconciled on-ledger balance per module, with the module's state (for XRPL: its cursor, sequence, transactions in flight and peers' addresses), written in the batch they explain; startup books only the difference, through `equity/suspense` (ACC-6, ACC-2) |
 | Ledger fees | never booked | journal rows with their transaction (`fee`), Dr `expenses/fees` |
 | Peer trust lines | re-posted at every start | posted once when the peer account is created; changes are explicit transfers (ACC-5) |
-| Incoming and outgoing payments, quotes | rows without state | full Open Payments state, written with the journal rows that move the money: received/sent amounts, completion, expiry, the STREAM token tied to the incoming payment (ILP-10), and what each of an open incoming payment's STREAM connections received. An outgoing payment's sent amount is what was posted: a packet in flight at a crash was never posted, and its Fulfill is refused ([D17](08-decisions.md#d17-the-upstream-decides-whether-a-fulfill-counted)), so a restart sends only the rest. Each grant's spend in its current interval window, written with the payment that spends it. The owner's quotes and payments keep the wallet address they pay, and each quote and payment whether it fixes the amount to send or to deliver ([D9](08-decisions.md#d9-open-payments-fully-and-no-spsp)) |
+| Incoming and outgoing payments, quotes | rows without state | full Open Payments state, written with the journal rows that move the money: received/sent amounts, completion, expiry, the STREAM token tied to the incoming payment (ILP-10), and what each of an open incoming payment's STREAM connections received. An outgoing payment's sent amount is what was posted: a packet in flight at a crash was never posted, so a restart sends only the rest. Each grant's spend in its current interval window, written with the payment that spends it. The owner's quotes and payments keep the wallet address they pay, and each quote and payment whether it fixes the amount to send or to deliver ([D9](08-decisions.md#d9-open-payments-fully-and-no-spsp)) |
 | GNAP grants and access tokens | none | grants with their access, client key and interaction state; tokens as SHA-256 hashes ([D10](08-decisions.md#d10-secrets-at-rest)). The amount of each grant spent in its current interval goes with the payments |
 | Exchange rates | memory | the owner's sources (at most 8), and each currency's last rate with when it was fetched, restored at start; fetched every minute ([D7](08-decisions.md#d7-exchange-rates-fees-and-spread)). The currency the owner sees totals in ([D6](08-decisions.md#d6-owner-ledger-and-multi-currency-accounts)) |
 
@@ -281,11 +280,7 @@ Mainnet stays disabled until the [D8](08-decisions.md#d8-real-money) criteria ar
 - **The usage is checkpointed** with the journal rows that change it. The journal alone cannot rebuild it from a recent window: two histories with the same recent rows can have used different amounts. A replay of the token's journal since the cap was set is the reference the tests check the checkpoint against.
 - Setting a cap where there was none starts from nothing used; changing one converts what is used, rounding up; removing it, or revoking the token, drops it.
 
-**Fulfills a peer refused ([D17](08-decisions.md#d17-the-upstream-decides-whether-a-fulfill-counted)).** A packet from a peer is posted when it is fulfilled. If the peer then refuses the Fulfill, one compensation is booked with the packet's trace:
-- when the node's own receiver took the packet, its transfers are reversed, and the incoming payment does not count it;
-- when anyone else took it (a peer or a BTP client, who keep what they were paid), Dr `L:expenses/losses`, Cr `L:assets/interledger/<peer>`, for the incoming amount: every leg that debited the peer, our fee with the packet.
-
-Either way the peer owes only for the Fulfills it took, so an honest peer never looks overdue ([D19](08-decisions.md#d19-each-node-keeps-its-own-books)). What each peer refused is read from the journal, and its losses count against the peer's grace limit ([D18](08-decisions.md#d18-one-grace-limit-per-peer)); the reversals cost nothing and do not.
+**Fulfills sent to peers ([D23](08-decisions.md#d23-each-node-books-its-own-fulfills)).** A packet from a peer is posted when it is fulfilled, and stays posted whatever the peer does with the Fulfill: the node books its own Fulfills, and what its receiver took counts at once. A peer that does not count one owes us more than its books say ([D19](08-decisions.md#d19-each-node-keeps-its-own-books)); it can still owe us no more than the credit we extend. Nodes up to 0.1.3 booked refused Fulfills as `refusal` rows, a reversal or a loss in `expenses/losses`; those rows stay in their journals.
 
 **What the ledger refuses and what it records.** Packets and settlements are refused when they would break a limit (T04). Reconciliations, deposits, withdrawals and refusals report what happened on the underlying ledger and are recorded even when they take the group below zero; spending is then refused until it recovers. Settlement modules report their on-ledger balance as a checkpoint, and activation books only the difference to the last checkpoint, through `equity/suspense` (ACC-2, ACC-6). The checkpoint is written in the same transaction as the transfers it explains.
 
@@ -413,11 +408,11 @@ peeringRequest [0] SEQUENCE {
   nodeInfo             OCTET STRING CONTAINING SignedPeerNodeInfo,
   settlementSchemeData OCTET STRING,
   versions             SEQUENCE (SIZE(1..16)) OF UINT16,   -- the scheme versions the sender supports (NET-26)
-  credit               UINT64 }                            -- credit the sender extends, in the scheme ledger's units (ACC-24)
+  credit               UINT64 }                            -- sent as 0 and ignored: a node keeps the credit it extends to itself ([D23](08-decisions.md#d23-each-node-books-its-own-fulfills))
 
 -- response body
 PeeringResponse ::= CHOICE {
-  accepted [0] SEQUENCE { version UINT16, credit UINT64, data OCTET STRING },
+  accepted [0] SEQUENCE { version UINT16, credit UINT64, data OCTET STRING },   -- credit as in the request
   refused  [1] SEQUENCE { reason UINT8 } }
   -- 0 unspecified, 1 unknown node, 2 unsupported scheme, 3 no common version, 4 capacity,
   -- 5 concurrent request, 6 refused by the scheme, 7 unreachable, 8 banned,
@@ -438,6 +433,10 @@ peeringTermination [10] SEQUENCE { reason UINT8 }
   -- 0 unspecified, 1 by the owner, 2 unresponsive, 3 not peered (the sender holds no peering
   -- with the recipient); unknown values read as 0
 -- both responses are empty
+
+settlementRequest [11] SEQUENCE { settlementSchemeId SettlementSchemeId }  -- new (D23)
+  -- authenticated; 409 unless the sender is peered with the recipient on that scheme, and
+  -- the peering is not being ended; the response is empty
 ```
 
 **Membership** ([D4](08-decisions.md#d4-network-membership-economics)):
@@ -473,23 +472,26 @@ peeringTermination [10] SEQUENCE { reason UINT8 }
 - **Termination** starts when the owner asks, when the owner bans the node, or when the peer has not been heard from for 24 h (counted from the later of the last message and the node's start).
   1. The peer is no longer advertised, and takes no new Prepares to or from it: the connector skips it, and its Prepares get 409. Responses still flow.
   2. The side that started sends `peeringTermination`, again until a 200 or a 409 arrives or 2 min have passed. The other side answers at once and terminates too.
-  3. Once no packet is in flight with the peer, no response to it is waiting to be sent again, and no Fulfill to it waits for its verdict, the peering ends. Verdicts are waited for at most 10 minutes, and not at all when the peer stopped answering, since they may never come; they are still asked for over the settlement channel. Its accounts stay, with their balances: they are the record of what is owed, and a later peering with the node uses them again without posting trust a second time.
+  3. Once no packet is in flight with the peer, and no response to it is waiting to be sent again, the peering ends. Its accounts stay, with their balances: they are the record of what is owed, and a later peering with the node uses them again without posting trust a second time.
   4. If the exchange of step 2 completed, each side then settles everything it owes. That is kept on the settlement channel, across restarts, until it is made; a cancelled or failed attempt is tried again. An unresponsive peer is not settled with; the debt stays on the books.
   5. The node does not ask the peer again for 24 h after an owner's termination, or after its usual backoff otherwise. A request from a node we are terminating with, or whose peering an owner ended in the last 24 h, is refused with reason 9; that cooldown does not survive a restart, and a ban is the lasting way.
-- **Bans** are a list the owner keeps, and the node adds to: a peer that cost it more than its grace limit is banned ([D18](08-decisions.md#d18-one-grace-limit-per-peer)). A banned node is never asked, is refused with reason 8, and its messages do not confirm it as a peer. Its link states still flood. A ban ends a peering as the owner's termination does, with the same wire reason.
+- **Bans** are a list the owner keeps ([D23](08-decisions.md#d23-each-node-books-its-own-fulfills)). A banned node is never asked, is refused with reason 8, and its messages do not confirm it as a peer. Its link states still flood. A ban ends a peering as the owner's termination does, with the same wire reason.
 - **One-sided peerings.** A node that holds no peering with a sender, and is not asking for one, answers an authenticated heartbeat that lists it as a neighbor with a `peeringTermination` of reason 3, at most once per backoff period. The other side then ends its peering.
 
-**Settlement** ([5 §4.6](05-accounting-and-settlement.md), kept with the credit the peer extends; ACC-24):
+**Settlement** ([D23](08-decisions.md#d23-each-node-books-its-own-fulfills)). A node knows only the credit it extends to a peer, not the credit the peer extends to it, so only the creditor can tell when a peer should settle. It asks; the debtor decides how much.
 
 ```
-balance    = IL.credits_posted − IL.debits_posted − IL.debits_pending     -- IL = L:assets/interledger/<peer>
+position   = IL.credits_posted − IL.debits_posted − IL.debits_pending     -- IL = L:assets/interledger/<peer>
 credit_out = TR.debits_posted − TR.credits_posted                          -- TR = L:contra/trust/<peer>
-midpoint   = (credit_in + credit_out) / 2                                  -- credit_in as the peer announced it
-settle balance − midpoint when balance ≥ midpoint · 1.1; on termination, settle balance − credit_out
+ask the peer to settle when position ≤ credit_out / 2                      -- our room for it
+when asked, settle min(position / 2, position − (credit_out / 2 + 1))     -- never into asking back,
+                 or nothing if that is less than credit_out / 10              -- nor a fee per drop
+on termination, settle position − credit_out
 ```
 
-- `credit_in` is a term the peer announced, and serves only our choice of when to settle ([D19](08-decisions.md#d19-each-node-keeps-its-own-books)): a stale one costs liquidity, not money. From M10 the credit each side extends depends on which asked to peer, grows with what the peering earned, and is announced again when it changes ([D20](08-decisions.md#d20-trust-follows-what-a-peer-earned-us)).
-- Every 4 s, for each peer with nothing in flight: no pending settlement transfer and no undelivered `settlement` message (ACC-17).
+- `position` is what the peer may still owe us: the credit we extend, plus what we owe it. The creditor's predicate and the debtor's amount are simple rules, to be tuned later (expected settlement latency, fees, volume on the link).
+- **Asking.** Every 4 s, the node asks each peer whose position has fallen to half the credit it extends, with `settlementRequest`: again at the next check once its books show a settlement from that peer (not on the `settlement` message alone, which on the XRP Ledger books nothing, so the peer would pay twice), otherwise at most once a minute, so a peer that does not answer is not flooded. With no credit extended, it asks once the peer has nothing paid in advance left. Nothing about a request is kept: a restart looks again.
+- **Settling on request.** The debtor settles half its own position with the asker, but never so much that it would ask the asker in turn: when two nodes' books have drifted apart ([D19](08-decisions.md#d19-each-node-keeps-its-own-books)), settling back and forth would not end. It settles nothing less than a tenth of the credit it extends, so a peer that keeps asking cannot make it pay a ledger fee for every few drops. It settles nothing while a settlement to that peer is on its way (no pending settlement transfer and no undelivered `settlement` message, ACC-17): that one is the answer. A node never settles on its own but at a peering's end.
 - A settlement is prepared, booked as a durable pending transfer (Dr IL, Cr `assets/settlement`), and executed only once that transfer is on disk. A restart in between hands the scheme its pending settlements to reconcile (ACC-16).
 - Only a settlement that executed is posted and announced to the peer. A cancelled one is voided, and the node backs off settling with that peer, from 1 s up to 1 h.
 - **Delivery is exactly once.** The `settlement` message is sent again until a 200 arrives, with a backoff from 1 s up to 1 h, and is never dropped; it survives restarts. Its `sequence` belongs to the pair of nodes, not to the peering. The receiver keeps the highest sequence it applied from each sender, acknowledges anything at or below it without applying it again, applies the next one, and refuses any other with 400: the sender sends one at a time, in order.
@@ -501,7 +503,7 @@ settle balance − midpoint when balance ≥ midpoint · 1.1; on termination, se
 - There is no route for the node's own address (NET-34). Destinations under our own address go only to our own endpoints, or get F02.
 - A packet is never forwarded back to the endpoint it came from.
 
-**Packets.** A Prepare that surely did not reach its peer (a refused connection, or 400, 401, 409 or 503 in reply) is rejected at once. One that may have reached it is left to expire. A Reject for a peer, or a Fulfill of a packet that moved no money, is sent again, every second, until it arrives or 30 s have passed; one that never arrives has the effect of expiry. A Fulfill for a peer is sent until the peer's verdict comes back ([D17](08-decisions.md#d17-the-upstream-decides-whether-a-fulfill-counted)): `accepted` or `refused`, in the reply's body, which is what the books follow. A Fulfill or Reject is accepted from any node we hold a settlement channel with, peered or not, since a verdict may still be owed after the peering ended.
+**Packets.** A Prepare that surely did not reach its peer (a refused connection, or 400, 401, 409 or 503 in reply) is rejected at once. One that may have reached it is left to expire. A Fulfill or Reject for a peer is sent again, every second, until it arrives or 30 s have passed. A Reject that never arrives has the effect of expiry; a Fulfill stays booked whether it arrives or not ([D23](08-decisions.md#d23-each-node-books-its-own-fulfills)). The reply to a Fulfill has a one-byte body, always 1 (`accepted`), which nodes of 0.1 read as [D17](08-decisions.md#d17-the-upstream-decides-whether-a-fulfill-counted)'s verdict. A Fulfill or Reject is taken from any node we hold a settlement channel with, peered or not, since nodes of 0.1 ask for verdicts after the peering ended.
 
 **Outbound requests** go only to `https` URLs. Requests to private, loopback, link-local or similar addresses are refused, after DNS resolution, unless the operator allows them (for dev and tests, `DASSIE_PEER_ALLOW_PRIVATE`). The node never follows redirects.
 
@@ -526,6 +528,7 @@ settle balance − midpoint when balance ≥ midpoint · 1.1; on termination, se
 | Termination message retries | 2 min (20 s) |
 | No new peering after an owner's termination | 24 h (5 min) |
 | Settlement check | 4 s (1 s) |
+| Settlement requests to a peer that did not settle since | at most one a minute (5 s) |
 | Settlement message retries | 1 s doubling to 1 h, never dropped (1 s to 10 s) |
 | Request body | 64 KiB |
 
@@ -714,8 +717,8 @@ Every crate is written so that a simulation can drive it ([D16](08-decisions.md#
    - It checks every state machine's invariants after each step. Beyond them it judges each node on its own, by its own books, and never compares two nodes' books or adds them up: each node keeps its own, and they may drift ([D19](08-decisions.md#d19-each-node-keeps-its-own-books)).
      - **Against what really happened:** a node's books hold what its scheme holds; its owner's funds moved by what its receivers took and its payers sent, and each token's by what its client sent. The underlying ledgers neither make nor lose money, each asset apart in runs across currencies (M7c).
      - **Its decisions, against the liquidity its books show:** it refuses a Prepare for liquidity only by the limits its books set (the ledger's property tests check those); it takes every settlement an honest peer sends; once the network is calm, it owes no peer past its own threshold for long; and when a peering ends, its books say it owes nothing.
-     - **Against adversaries:** whatever a lying peer does (refuse the Fulfills it took, never settle, spend the credit it was given and vanish), an honest node loses no more than D18's bound; a liar that stays is banned, one that vanishes loses its peering, and no honest peer is banned.
-     - **Liveness:** payments complete, settlements arrive, and every verdict owed is answered.
+     - **Against adversaries:** whatever a lying peer does (never settle, spend the credit it was given and vanish), an honest node loses no more than the credit it extends ([D23](08-decisions.md#d23-each-node-books-its-own-fulfills)); one that vanishes loses its peering.
+     - **Liveness:** payments complete, and settlements arrive.
    - The peer protocol's own simulation checks what the protocol must make agree, which is not money: link states and routes converge, peerings are two-sided, and each settlement is applied exactly once.
    - A run is reproducible from its seed, and two runs with the same seed must produce identical event traces.
    - Simulations start small in M1 (STREAM connections over a simulated connector) and grow with each milestone. In CI they run with fixed seeds, and longer randomized campaigns run outside CI.
@@ -742,4 +745,4 @@ Every crate is written so that a simulation can drive it ([D16](08-decisions.md#
 | M8 | Release: static binaries (x64, arm64), signed artifacts, installer, updater, systemd units. Delivered in two PRs: **M8a** (the static binaries with the wallet, the bundles and the mirror tree, SHA256SUMS signed with minisign, the release workflow) and **M8b** (the systemd units, the installer, `dassie update`, and their tests in containers) | Installer and updater tests pass on Debian, Ubuntu, Fedora and CentOS images. A tampered bundle is refused. M8a stops at signed releases built and published by CI, verified by `dassie-release`. |
 | M9 | Website and STREAM toy | `dassie.land` builds from `apps/website`. The toy runs on `dassie-stream` WASM. |
 | M10 | Trust from earnings ([D20](08-decisions.md#d20-trust-follows-what-a-peer-earned-us)): junior and senior, the senior's credit starting at 0, credit that grows with what a peering earned, and its announcement | In the simulation, a junior sends through its senior only after settling in advance; credit grows only with fees, by at most k of them; a junior that spends its credit and vanishes costs its senior no more than that; and settlement keeps working when announcements are lost, repeated or reordered. |
-| M11 | Settlement hubs ([D22](08-decisions.md#d22-settlement-hubs), [9](09-settlement-hubs.md)). Delivered in three PRs: **M11a** (`dassie-hub`: the ledger, its operations and Simplex, in the simulation without an escrow), **M11b** (the `hub` scheme: holds, commitments and claims, peering over a hub, joining by being paid) and **M11c** (the escrow on the XRPL testnet: founding, deposits, withdrawals, changing validators, shutdown and payout) | In the simulation, with up to f faulty validators, members peered over a hub pay each other across hops without trusting each other: a payer that sends no claims and a payee that claims twice or late cost the other no more than its grace limit. f + 1 colluding validators leave evidence. A hub that loses a validator shuts down, and the escrow pays out exactly the final balances, with signatures collected over time. |
+| M11 | Settlement hubs ([D22](08-decisions.md#d22-settlement-hubs), [9](09-settlement-hubs.md)). Delivered in three PRs: **M11a** (`dassie-hub`: the ledger, its operations and Simplex, in the simulation without an escrow), **M11b** (the `hub` scheme: holds, commitments and claims, peering over a hub, joining by being paid) and **M11c** (the escrow on the XRPL testnet: founding, deposits, withdrawals, changing validators, shutdown and payout) | In the simulation, with up to f faulty validators, members peered over a hub pay each other across hops without trusting each other: a payer that sends no claims and a payee that claims twice or late cost the other no more than its hold. f + 1 colluding validators leave evidence. A hub that loses a validator shuts down, and the escrow pays out exactly the final balances, with signatures collected over time. |

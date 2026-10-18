@@ -88,8 +88,8 @@ pub fn mutate(bytes: &[u8], mutations: &[Mutation]) -> Vec<u8> {
     bytes
 }
 
-/// How many kinds of content there are: tags 0 to 10.
-pub const KINDS: usize = 11;
+/// How many kinds of content there are: tags 0 to 11.
+pub const KINDS: usize = 12;
 
 /// A valid encoding of the content with CHOICE tag `tag`, carrying the
 /// link state `info` where it has one.
@@ -130,6 +130,7 @@ pub fn content(tag: usize, info: &[u8]) -> Vec<u8> {
         8 => Content::Registration(info),
         9 => Content::PeeringInfoRequest { scheme: stub },
         10 => Content::PeeringTermination(TerminationReason::Owner),
+        11 => Content::SettlementRequest { scheme: stub },
         _ => panic!("no content has tag {tag}"),
     };
     assert_eq!(content.kind().tag(), u64::try_from(tag).unwrap());

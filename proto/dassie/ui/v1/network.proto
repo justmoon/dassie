@@ -35,8 +35,8 @@ message NetworkNode {
   bool banned = 16;
   // The peering, while there is one.
   NetworkPeer peering = 17;
-  // Why it is banned, while it is.
-  Ban ban = 18;
+  reserved 18;
+  reserved "ban";
 }
 
 enum PeerState {
@@ -75,10 +75,11 @@ message NetworkPeer {
   string scheme = 2;
   // The scheme's version both speak.
   uint32 version = 3;
-  // The credit the peer extends to this node, in the scheme ledger's
+  // The credit the peer extends to this node is not its to know (D23).
+  reserved 4;
+  reserved "credit_in";
+  // The credit this node extends to the peer, in the scheme ledger's
   // units.
-  uint64 credit_in = 4;
-  // The credit this node extends to the peer.
   uint64 credit_out = 5;
   int64 since_unix_ms = 6;
   // The last authenticated message from the peer.
@@ -96,33 +97,12 @@ message NetworkPeer {
   // What this node owes the peer net, in the scheme ledger's units:
   // negative when the peer owes this node.
   int64 owed = 12;
-  reserved 13;
-  reserved "refused_24h";
-  // What the peer cost this node, against its grace limit (D18), as of the
-  // last check; unset before the first.
-  PeerCost cost = 14;
+  reserved 13, 14;
+  reserved "refused_24h", "cost";
   // Whether the peer was heard from within the last 60 s. An offline peer
   // is not advertised, so no route goes through it; the peering stays
   // until it has been silent for a day (D12).
   bool online = 15;
-}
-
-// What a peer cost this node, in a ledger's units (D18). Past its grace
-// limit, it is banned.
-message PeerCost {
-  string ledger = 1;
-  string asset_code = 2;
-  uint32 asset_scale = 3;
-  // The losses its refused Fulfills booked in the last 30 days, or since a
-  // ban on it was lifted (D17): money this node paid on that the peer did
-  // not count. Honest peers refuse only after crashes or late Fulfills.
-  uint64 refused = 4;
-  // What it owes this node and has not settled, once it has owed past the
-  // point where it should have settled for longer than the grace for
-  // settling.
-  uint64 overdue = 5;
-  // Its grace limit: a share of the credit this node extends to it.
-  uint64 grace = 6;
 }
 
 message ListPeersRequest {}
@@ -227,29 +207,16 @@ message UnbanNodeResponse {}
 message ListBansRequest {}
 
 message ListBansResponse {
-  // By ID.
+  // By ID. Only the owner bans (D23).
   repeated string nodes = 1;
-  // The same, with why.
-  repeated Ban bans = 2;
+  reserved 2;
+  reserved "bans";
 }
 
-// A ban: by the owner, or by the node, when a peer cost it more than its
-// grace limit (D18).
-message Ban {
-  string node = 1;
-  // "owner", "grace-limit", or empty when not known.
-  string reason = 2;
-  int64 banned_at_unix_ms = 3;
-  // What the peer cost, for a ban over its grace limit.
-  PeerCost cost = 4;
-}
-
-// The owner's settings for peers (D7, D18).
+// The owner's settings for peers (D7).
 message PeerSettings {
-  // The share of the credit this node extends to a peer that the peer may
-  // cost it in 30 days before it is banned, in parts per million: 1 to
-  // 10 000 000 (ten times the credit).
-  uint32 grace_share_ppm = 1;
+  reserved 1;
+  reserved "grace_share_ppm";
   // The fee on what passes from one peer to another, in parts per million
   // of what comes in, rounded down: 0 to 100 000 (10%).
   uint32 connector_fee_ppm = 2;

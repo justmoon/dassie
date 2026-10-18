@@ -12,7 +12,7 @@
 //! - packets time out at their outgoing expiry, not after a fixed 5 s
 //!   (ILP-1);
 //! - an invalid fulfillment is rejected with F05 at once (ILP-2), except
-//!   a peer's, which may be a resend from before (D17);
+//!   a peer's, which may be a resend of an earlier packet's;
 //! - malformed packets get F01 and unroutable ones F02; nothing panics on
 //!   the packet path (ILP-3);
 //! - F08 carries the amounts (ILP-4);

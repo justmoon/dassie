@@ -7,7 +7,6 @@ use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
 
-use crate::table::Termination;
 use crate::wire::{RefusalReason, SchemeId};
 
 /// The scheme would not go on.
@@ -29,11 +28,6 @@ pub trait PeeringHooks {
     /// active.
     fn versions(&self, scheme: SchemeId) -> &'static [u16];
 
-    /// The credit the node extends to `peer` on `scheme`, in its ledger's
-    /// units: what it posted before, if they were peered, else what it
-    /// extends now.
-    fn credit(&self, peer: NodeId, scheme: SchemeId) -> u64;
-
     /// The scheme's peering info, for a node about to ask.
     ///
     /// # Errors
@@ -54,8 +48,8 @@ pub trait PeeringHooks {
         out: &mut Vec<u8>,
     ) -> Result<(), Declined>;
 
-    /// Accepts a request from `peer`, which extends `credit_in`: opens its
-    /// accounts and writes the scheme's response into `response`. Called
+    /// Accepts a request from `peer`: opens its accounts, and writes the
+    /// scheme's response into `response`. Called
     /// again for a peer already peered (D12), which must change nothing.
     ///
     /// # Errors
@@ -68,13 +62,12 @@ pub trait PeeringHooks {
         peer: NodeId,
         scheme: SchemeId,
         version: u16,
-        credit_in: u64,
         data: &[u8],
         response: &mut Vec<u8>,
     ) -> Result<Agreed, RefusalReason>;
 
-    /// Completes our request to `peer`, which accepted with `version` and
-    /// `credit_in`: opens its accounts.
+    /// Completes our request to `peer`, which accepted with `version`:
+    /// opens its accounts.
     ///
     /// # Errors
     ///
@@ -86,16 +79,12 @@ pub trait PeeringHooks {
         peer: NodeId,
         scheme: SchemeId,
         version: u16,
-        credit_in: u64,
         info: &[u8],
         data: &[u8],
     ) -> Result<Agreed, Declined>;
 
-    /// Whether nothing is in flight with `peer` any more, as of `now_ms`:
-    /// no packet waits for its response, in either direction, and no
-    /// Fulfill for its verdict (D17). The node decides from `termination`
-    /// how long verdicts are waited for: one that stopped answering may
-    /// never give them. A terminating peering ends only then, so no
-    /// response and no verdict is lost with it.
-    fn drained(&self, peer: NodeId, termination: &Termination, now_ms: u64) -> bool;
+    /// Whether nothing is in flight with `peer` any more: no packet waits
+    /// for its response, in either direction. A terminating peering ends
+    /// only then, so no response is lost with it.
+    fn drained(&self, peer: NodeId) -> bool;
 }

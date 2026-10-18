@@ -14,10 +14,8 @@ use super::gossip::{Processed, Retransmit};
 use super::{PeerNode, Problem, Purpose};
 use crate::auth::{Accepted, AuthError};
 use crate::hooks::PeeringHooks;
-use crate::io::{
-    Event, Inbound, InboundId, Output, Reply, VERDICT_ACCEPTED, VERDICT_REFUSED, Verdicts,
-};
-use crate::table::{Network, Registration, Sources};
+use crate::io::{Event, Inbound, InboundId, Output, Reply, VERDICT_ACCEPTED};
+use crate::table::{Entry, Network, Registration, Sources};
 use crate::wire::{
     Content, Envelope, EnvelopeError, LinkStateResponse, SignedNodeInfo, encode_expiry,
     encode_link_states, encode_octets, encode_response,
@@ -126,14 +124,30 @@ impl PeerNode {
             Content::PeeringTermination(reason) => {
                 Inbound::Reply(self.termination_request(&accepted, reason))
             }
+            Content::SettlementRequest { scheme } => {
+                // Only an active peering on that scheme is settled on
+                // request; one being ended settles in full at its end.
+                let peering = self
+                    .table
+                    .get(&accepted.sender)
+                    .and_then(Entry::active_peering);
+                if peering.is_none_or(|peering| peering.scheme != scheme) {
+                    return refuse(409, "not peered on that scheme");
+                }
+                Inbound::SettlementRequest {
+                    from: accepted.sender,
+                    scheme,
+                    reply: ok(&accepted, &[]),
+                }
+            }
             other => Inbound::Reply(self.answer(hooks, &accepted, other)),
         }
     }
 
     /// An ILP packet. A Prepare needs a peering that is not ending. A
     /// response also comes from a node we hold a settlement channel with,
-    /// peered or not: a verdict on it may be owed after the peering ended
-    /// (D17).
+    /// peered or not: a node of 0.1 asks for verdicts after the peering
+    /// ended (D17), and is told it was accepted (D23).
     fn packet_request<'a>(
         &self,
         accepted: &Accepted,
@@ -154,16 +168,16 @@ impl PeerNode {
         } else if !peered && !self.channels.contains_key(&accepted.sender) {
             return refuse(409, "not peered");
         }
-        let verdicts = (packet.first() == Some(&FULFILL_TYPE)).then(|| Verdicts {
-            accepted: ok(accepted, &[VERDICT_ACCEPTED]),
-            refused: ok(accepted, &[VERDICT_REFUSED]),
-        });
+        let body: &[u8] = if packet.first() == Some(&FULFILL_TYPE) {
+            &[VERDICT_ACCEPTED]
+        } else {
+            &[]
+        };
         Inbound::Packet {
             from: accepted.sender,
             request_id,
             packet,
-            reply: ok(accepted, &[]),
-            verdicts,
+            reply: ok(accepted, body),
         }
     }
 
@@ -225,6 +239,7 @@ impl PeerNode {
             | Content::PeeringRequest(_)
             | Content::Settlement { .. }
             | Content::SettlementMessage { .. }
+            | Content::SettlementRequest { .. }
             | Content::PeeringTermination(_) => Reply::refuse(400, "unexpected"),
         }
     }

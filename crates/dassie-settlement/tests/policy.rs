@@ -1,31 +1,38 @@
 //! Properties of the settlement policy.
 
-use dassie_settlement::policy::{Terms, amount, final_amount};
+use dassie_settlement::policy::{ask, final_amount, requested_amount};
 use proptest::prelude::*;
 
 /// Amounts up to the ledger's bound, so sums stay meaningful.
 const MAX: u64 = 1 << 62;
 
 proptest! {
+    // What a peer settles on request is at most half its position, at
+    // least a tenth of its credit, and never leaves it asking in turn:
+    // unless it was asking already, as books that drifted apart may have
+    // it, when it pays nothing.
     #[test]
-    fn settling_lands_on_the_middle(
-        credit_in in 0..MAX,
+    fn a_requested_settlement_never_asks_back(
         credit_out in 0..MAX,
-        ratio_ppm in 0..2_000_000u32,
         position in 0..u128::from(MAX) * 2,
     ) {
-        let terms = Terms { credit_in, credit_out, ratio_ppm };
-        let middle = (u128::from(credit_in) + u128::from(credit_out)) / 2;
-        let threshold = middle + middle * u128::from(ratio_ppm) / 2_000_000;
-        let paid = u128::from(amount(position, terms));
-        prop_assert!(paid <= position);
-        if position < threshold {
+        let paid = u128::from(requested_amount(position, credit_out));
+        prop_assert!(paid <= position / 2);
+        prop_assert!(paid == 0 || paid >= u128::from(credit_out) / 10);
+        if ask(position, credit_out) {
             prop_assert_eq!(paid, 0);
-        } else if paid > 0 {
-            prop_assert_eq!(position - paid, middle);
+        } else {
+            prop_assert!(!ask(position - paid, credit_out));
         }
-        // Once settled, nothing more is due until the position moves.
-        prop_assert_eq!(amount(position - paid, terms), 0);
+    }
+
+    // The asker asks exactly while its room is at most half its credit.
+    #[test]
+    fn the_asker_asks_at_half_its_credit(
+        credit_out in 0..MAX,
+        position in 0..u128::from(MAX) * 2,
+    ) {
+        prop_assert_eq!(ask(position, credit_out), position * 2 <= u128::from(credit_out));
     }
 
     #[test]
